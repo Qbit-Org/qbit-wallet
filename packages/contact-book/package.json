@@ -1,0 +1,56 @@
+{
+  "name": "@qbit/contact-book",
+  "version": "1.1.5",
+  "private": true,
+  "description": "Contact book management for Qbit Wallet",
+  "main": "lib/index.js",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/**/*",
+    "src/**/*",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.js",
+      "import": "./lib/index.mjs"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "require": "./lib/types.js",
+      "import": "./lib/types.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:run": "cd ../.. && corepack pnpm exec vitest run packages/contact-book/test",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist",
+    "prepublishOnly": "pnpm clean && pnpm test && pnpm build"
+  },
+  "keywords": [
+    "qbit",
+    "contact",
+    "address",
+    "wallet",
+    "qbit-network"
+  ],
+  "author": "Qbit Wallet Team",
+  "license": "MIT",
+  "dependencies": {
+    "@qbit/wallet-types": "workspace:*",
+    "@qbit/wallet-storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.6",
+    "@types/node": "^20.0.0",
+    "tsup": "^7.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "3.2.6"
+  }
+}

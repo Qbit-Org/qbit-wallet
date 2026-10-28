@@ -1,0 +1,2912 @@
+{
+  "Broadcast": {
+    "message": "ブロードキャスト"
+  },
+  "about_3_minutes": {
+    "message": "(約3分)"
+  },
+  "about_new_update": {
+    "message": "新しい更新が利用可能です"
+  },
+  "about_us": {
+    "message": "私たちについて"
+  },
+  "about_qbit_wallet": {
+    "message": "Qbit Walletについて"
+  },
+  "account_creation_already_in_progress": {
+    "message": "このウォレットではアカウントを作成中です。完了してから別のアカウントを作成してください。"
+  },
+  "add_address": {
+    "message": "アドレスを追加"
+  },
+  "address": {
+    "message": "アドレス"
+  },
+  "address_book": {
+    "message": "アドレス帳"
+  },
+  "address_book_placeholder": {
+    "message": "アドレス帳"
+  },
+  "address_label": {
+    "message": "アドレス"
+  },
+  "address_or_name_fb": {
+    "message": "アドレスまたは名前 (.fb)"
+  },
+  "address_preview": {
+    "message": "アドレス:"
+  },
+  "address_type": {
+    "message": "アドレスタイプ"
+  },
+  "address_type_changed": {
+    "message": "アドレスタイプが変更されました"
+  },
+  "addressbook_desc": {
+    "message": "よく使うアドレスを追加"
+  },
+  "advance_options": {
+    "message": "詳細オプション"
+  },
+  "advanced": {
+    "message": "詳細設定"
+  },
+  "advanced_settings": {
+    "message": "詳細設定"
+  },
+  "appearance": {
+    "message": "外観"
+  },
+  "enable": {
+    "message": "有効にする"
+  },
+  "enable_local_regtest_title": {
+    "message": "ローカル Regtest を有効にする"
+  },
+  "local_regtest": {
+    "message": "ローカル Regtest"
+  },
+  "enabled": {
+    "message": "有効"
+  },
+  "disabled": {
+    "message": "無効"
+  },
+  "regtest_access_acknowledgement": {
+    "message": "Qbit Wallet がポート 3002 で動作するあらゆるローカルサービスと通信できるようになることを理解しました。"
+  },
+  "regtest_access_denied": {
+    "message": "ローカルアクセスは許可されませんでした。ローカル Regtest は無効のままで、現在のネットワークは変更されません。"
+  },
+  "regtest_access_disabled": {
+    "message": "ローカル Regtest を無効にしました"
+  },
+  "regtest_access_enabled": {
+    "message": "ローカル Regtest を有効にしました"
+  },
+  "regtest_access_no_value": {
+    "message": "Regtest のコインに金銭的価値はありません。"
+  },
+  "regtest_access_trust_note": {
+    "message": "開発者であり、ポート 3002 で動作するローカルサービスを信頼できる場合にのみ有効にしてください。"
+  },
+  "regtest_access_disable_note": {
+    "message": "このアクセスは後で詳細設定から無効にできます。"
+  },
+  "regtest_access_not_enabled": {
+    "message": "Regtest へのアクセスは有効になっていません"
+  },
+  "regtest_access_request_failed": {
+    "message": "ブラウザーがローカルアクセスの要求を処理できませんでした。ローカル Regtest は無効のままで、現在のネットワークは変更されません。"
+  },
+  "regtest_access_retry": {
+    "message": "再試行"
+  },
+  "regtest_access_status_off": {
+    "message": "オフ"
+  },
+  "regtest_access_status_on": {
+    "message": "オン"
+  },
+  "regtest_service_unavailable": {
+    "message": "Qbit Wallet はローカルの Regtest インスタンスに接続できません。ポート 3002 で動作していることを確認してください。"
+  },
+  "regtest_service_unexpected": {
+    "message": "Regtest アドレスに予期しないサービスがあります"
+  },
+  "theme_light": {
+    "message": "ライト"
+  },
+  "theme_dark": {
+    "message": "ダーク"
+  },
+  "theme_system": {
+    "message": "システム"
+  },
+  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
+    "message": "4. 署名後、このウォレットで署名済みQRコードをスキャンしてください。"
+  },
+  "agreement_text": {
+    "message": "確認する"
+  },
+  "all": {
+    "message": "すべて"
+  },
+  "all_marked_as_read": {
+    "message": "すべて既読にしました"
+  },
+  "all_read": {
+    "message": "すべて既読"
+  },
+  "allow_sign_data_requests": {
+    "message": "signDataリクエストを許可する"
+  },
+  "allow_this_site_to_switch_the_chain": {
+    "message": "このサイトにチェーンの切り替えを許可しますか？"
+  },
+  "allow_this_site_to_switch_the_network": {
+    "message": "このサイトにネットワークの切り替えを許可しますか？"
+  },
+  "allow_using_unconfirmed_balance": {
+    "message": "未確認残高の使用を許可する"
+  },
+  "amount": {
+    "message": "金額"
+  },
+  "amount_exceeds_your_available_balance": {
+    "message": "金額が利用可能な残高を超えています"
+  },
+  "amount_must_be_at_least": {
+    "message": "金額は少なくとも"
+  },
+  "announcement": {
+    "message": "お知らせ"
+  },
+  "appDescription": {
+    "message": "Qbit Walletは、ネイティブQbit（QBT）とそのネイティブエコシステムでの送金・受取・取引を可能にします。"
+  },
+  "appName": {
+    "message": "Qbit Wallet"
+  },
+  "approvalres_is_required": {
+    "message": "approvalResが必要です"
+  },
+  "are_not_supported": {
+    "message": "はサポートされていません。"
+  },
+  "are_not_supported_yet": {
+    "message": "はまだサポートされていません。"
+  },
+  "are_supported": {
+    "message": "のみサポートされています"
+  },
+  "are_you_sure_you_want_to_delete_this_contact": {
+    "message": "この連絡先を削除してもよろしいですか？"
+  },
+  "auto": {
+    "message": "自動"
+  },
+  "automatic_lock_time": {
+    "message": "自動ロック時間"
+  },
+  "available": {
+    "message": "利用可能"
+  },
+  "available_balance": {
+    "message": "利用可能な残高"
+  },
+  "average": {
+    "message": "平均"
+  },
+  "avg": {
+    "message": "普通"
+  },
+  "back": {
+    "message": "戻る"
+  },
+  "balance": {
+    "message": "残高"
+  },
+  "bbn": {
+    "message": "bbn..."
+  },
+  "qbit_restore_accounts_restored": {
+    "message": "復元されたアドレス"
+  },
+  "qbit_restore_concurrent_instance_warning": {
+    "message": "このウォレットの復元されたアドレスの範囲外でアクティビティが見つかりました。このシードフレーズの別のコピーが使用されている可能性があります。他のコピーがアクティブでないと確信できるまで、このウォレットで署名しないでください。新しいシードへ資金を移動することをおすすめします。"
+  },
+  "qbit_restore_counters_minimum_warning": {
+    "message": "署名カウンターはチェーン履歴から再構築されたもので、最小値です。メッセージ署名や一度もブロードキャストされていないトランザクションはこのスキャンでは検出できません。\n\nこのフレーズを別のウォレットで使用したことがある場合は、古いアドレスを再利用せず、新しいウォレットへ資金を移動してください。"
+  },
+  "qbit_restore_floors_incomplete_warning": {
+    "message": "署名カウンターの再構築が完了しませんでした。成功するまで署名はロックされたままです。受け取りには影響ありません。今すぐ再試行するか、後でウォレットをアンロックすると自動的に再試行されます。"
+  },
+  "qbit_restore_network": {
+    "message": "ネットワーク"
+  },
+  "qbit_restore_no_activity_hint": {
+    "message": "現在のネットワークでは、このフレーズのアクティビティは見つかりませんでした。このウォレットを別のネットワークで使用していた場合は、復元後にネットワークを切り替えると、カウンターが自動的に再構築されます。"
+  },
+  "qbit_restore_report_title": {
+    "message": "ウォレットを復元しました"
+  },
+  "qbit_restore_retry_floor_scan": {
+    "message": "カウンターの再構築を再試行"
+  },
+  "qbit_restore_scan_truncated_warning": {
+    "message": "アドレスの検出はスキャン上限で停止しました。さらにアドレスがあるはずの場合は、復元後に追加のアカウントを導出してください。"
+  },
+  "qbit_restore_scanning": {
+    "message": "チェーン履歴をスキャンして署名カウンターを再構築しています…"
+  },
+  "qbit_signatures_remaining": {
+    "message": "残り$1件"
+  },
+  "qbit_tx_uses_n_signatures": {
+    "message": "このトランザクションは$1件の署名を使用します"
+  },
+  "qbit_uri_amount_invalid": {
+    "message": "qbit: URIの金額が無効です"
+  },
+  "qbit_uri_invalid": {
+    "message": "qbit: URIが無効です"
+  },
+  "qbit_receive_activity_cached": {
+    "message": "ライブのアクティビティ照会に失敗したため、使用済み／未使用の状態は確定していません。ネットワーク接続が復旧するまで受取アドレスは提示されません。再接続後に再試行してください。"
+  },
+  "qbit_receive_amount_optional": {
+    "message": "金額（任意）"
+  },
+  "qbit_receive_budget_available": {
+    "message": "残りの署名操作は$1件と表示されています。受取では消費せず、支出では1件以上消費する場合があります。"
+  },
+  "qbit_receive_budget_critical": {
+    "message": "重大"
+  },
+  "qbit_receive_budget_exhausted": {
+    "message": "署名予算が残っていません。このウォレットはこのアドレスから新たな支出を承認できないため、受取には使用しないでください。"
+  },
+  "qbit_receive_budget_exhausted_badge": {
+    "message": "枯渇"
+  },
+  "qbit_receive_budget_normal": {
+    "message": "正常"
+  },
+  "qbit_receive_budget_warning": {
+    "message": "警告"
+  },
+  "qbit_receive_concurrent": {
+    "message": "このシードの別コピーが使用中の可能性があります。そこでの署名はこのウォレットのローカルカウンター外なので、表示予算を信用しないでください。受取は可能ですが、新しいシードへ資産を移す必要があります。"
+  },
+  "qbit_receive_copy_uri": {
+    "message": "qbit: URIをコピー"
+  },
+  "qbit_receive_current": {
+    "message": "現在の受取アドレス"
+  },
+  "qbit_receive_exhausted_copy_blocked": {
+    "message": "このアドレスには署名予算がなく、新たな支出を承認できません。受取用として共有するのは安全ではありません。"
+  },
+  "qbit_receive_floors_pending": {
+    "message": "カウンターの再構築が完了していないため、署名予算は確定していません。再構築が成功するまで受取アドレスは提示されず、すべての署名がロックされます。"
+  },
+  "qbit_receive_gap_warning": {
+    "message": "観測されたアクティビティがない発行済みアドレスが20件続くと、新しいアドレスは一時停止します。発行済みの未使用かつ未枯渇のアドレスを使用してください。アクティビティが観測されると復元スキャン範囲内で次を発行できます。"
+  },
+  "qbit_receive_label_optional": {
+    "message": "ラベル（任意）"
+  },
+  "qbit_receive_loading": {
+    "message": "安全な受取アドレスを準備しています…"
+  },
+  "qbit_receive_local_counter": {
+    "message": "ローカルカウンター"
+  },
+  "qbit_receive_local_counter_help": {
+    "message": "このウォレット内で正となるカウンターで、署名前に永続的に予約されます。シードの別コピーはこのカウンター外で署名できます。"
+  },
+  "qbit_receive_new_address": {
+    "message": "新しいアドレス"
+  },
+  "qbit_receive_no_safe": {
+    "message": "安全な受取アドレスがありません。枯渇したアドレスは除外され、復元ギャップが満杯の可能性があります。発行済みの未使用かつ未枯渇のアドレスを使うか、ネットワークを復旧して再試行してください。"
+  },
+  "qbit_receive_previous": {
+    "message": "以前のアドレス"
+  },
+  "qbit_receive_restored_floor": {
+    "message": "復元された下限"
+  },
+  "qbit_receive_restored_floor_caveat": {
+    "message": "$1は、チェーン上で観測できる履歴から再構築した上限にすぎません。オフチェーンまたは未送信の署名により実際の予算はゼロまで減る可能性があり、資金を支出できる証明にはなりません。"
+  },
+  "qbit_receive_retry": {
+    "message": "再試行"
+  },
+  "qbit_receive_reuse_warning": {
+    "message": "このアドレスでは既にアクティビティが観測されています。qbit受取アドレスは1回の受取を想定しています。再共有すると支払いが関連付けられ、管理リスクが高まる可能性があります。"
+  },
+  "qbit_receive_unused": {
+    "message": "未使用"
+  },
+  "qbit_receive_used": {
+    "message": "使用済み"
+  },
+  "block_preview": {
+    "message": "ブロック:"
+  },
+  "burned": {
+    "message": "バーン済み"
+  },
+  "by_proceeding_you_confirm_that_youve_read_and_accepted_this_disclaimer": {
+    "message": "続行することにより、この免責事項を読み、同意したことを確認します。"
+  },
+  "calculating": {
+    "message": "計算中..."
+  },
+  "can_not_change_to_a_lower_value": {
+    "message": "より低い値に変更できません"
+  },
+  "cancel": {
+    "message": "キャンセル"
+  },
+  "cannot_unlock_without_a_previous_vault": {
+    "message": "以前の保管庫がないとロックを解除できません"
+  },
+  "cap": {
+    "message": "上限"
+  },
+  "cat": {
+    "message": "CAT"
+  },
+  "chain_id": {
+    "message": "チェーンID"
+  },
+  "change_account_name": {
+    "message": "アカウント名を変更"
+  },
+  "change_password": {
+    "message": "パスワードを変更"
+  },
+  "change_password_already_in_progress": {
+    "message": "パスワード変更は既に進行中です"
+  },
+  "change_password_failed": {
+    "message": "パスワードの変更に失敗しました。変更は行われていません。もう一度お試しください。"
+  },
+  "change_wallet_name": {
+    "message": "ウォレット名を変更"
+  },
+  "change_your_lockscreen_password": {
+    "message": "ロック画面のパスワードを変更"
+  },
+  "changed_to_network": {
+    "message": "ネットワークを"
+  },
+  "choose_a_wallet_you_want_to_restore_from": {
+    "message": "復元したいウォレットを選択してください"
+  },
+  "claim": {
+    "message": "請求"
+  },
+  "claimable": {
+    "message": "請求可能"
+  },
+  "claimabled": {
+    "message": "受領済み"
+  },
+  "click_on_the_words_to_put_them_in_the_correct_orde": {
+    "message": "単語をクリックして正しい順序に並べ、バックアップしたリカバリーフレーズが正しいか確認してください"
+  },
+  "click_the_account_on_the_main_page": {
+    "message": "メインページでアカウントをクリックします。"
+  },
+  "click_the_button_below_to_start_the_signature_proc": {
+    "message": "下のボタンをクリックして署名プロセスを開始してください"
+  },
+  "close": {
+    "message": "閉じる"
+  },
+  "closed": {
+    "message": "終了"
+  },
+  "code_asset_maybe_lost": {
+    "message": "取引を続行すると資産が失われる可能性があります。"
+  },
+  "code_insufficient_asset_utxo": {
+    "message": "資産残高が不足しています"
+  },
+  "code_insufficient_balance": {
+    "message": "残高が不足しています。"
+  },
+  "code_insufficient_fee_utxo": {
+    "message": "取引手数料を支払うための残高が不足しています。"
+  },
+  "code_method_not_found": {
+    "message": "メソッドが見つかりません。"
+  },
+  "code_not_safe_utxos": {
+    "message": "取引に使用できる安全なUTXOがありません。"
+  },
+  "code_unknown_error": {
+    "message": "不明なエラー。"
+  },
+  "cold_wallet_signed_successfully": {
+    "message": "コールドウォレットが正常にトランザクションに署名しました。取引詳細を確認してブロードキャストをクリックしてください。"
+  },
+  "cold_wallet_transaction_signing": {
+    "message": "コールドウォレット取引署名"
+  },
+  "collect_your_personal_information": {
+    "message": "個人情報を収集する"
+  },
+  "collection": {
+    "message": "コレクション"
+  },
+  "collection_id": {
+    "message": "コレクションID"
+  },
+  "collection_not_found": {
+    "message": "コレクションが見つかりません"
+  },
+  "collections": {
+    "message": "コレクション"
+  },
+  "coming_soon": {
+    "message": "近日公開"
+  },
+  "completed": {
+    "message": "完了"
+  },
+  "confirm": {
+    "message": "確認"
+  },
+  "confirm_password": {
+    "message": "パスワードを確認"
+  },
+  "confirmations_count": {
+    "message": "確認数"
+  },
+  "confirmed_tvl": {
+    "message": "確認済み"
+  },
+  "connect": {
+    "message": "接続"
+  },
+  "connect_via_usb": {
+    "message": "USB経由で接続"
+  },
+  "connected": {
+    "message": "接続済み"
+  },
+  "connected_sites": {
+    "message": "接続済みサイト"
+  },
+  "contact_not_found": {
+    "message": "連絡先が見つかりません"
+  },
+  "content": {
+    "message": "コンテンツ"
+  },
+  "content_length": {
+    "message": "コンテンツ長"
+  },
+  "content_type": {
+    "message": "コンテンツタイプ"
+  },
+  "continue": {
+    "message": "続行"
+  },
+  "continue_to": {
+    "message": "へ進む"
+  },
+  "copied": {
+    "message": "コピーしました"
+  },
+  "copy_address": {
+    "message": "アドレスをコピー"
+  },
+  "copy_publickey": {
+    "message": "公開鍵をコピー"
+  },
+  "copy_to_clipboard": {
+    "message": "クリップボードにコピー"
+  },
+  "create_a_new_hd_wallet": {
+    "message": "新しいHDウォレットを作成"
+  },
+  "create_a_new_wallet": {
+    "message": "ウォレットを追加"
+  },
+  "create_a_password": {
+    "message": "パスワードを作成"
+  },
+  "create_an_account": {
+    "message": "アカウントを作成"
+  },
+  "hardware_wallet_not_supported": {
+    "message": "ハードウェアウォレットはまだQbitのポスト量子署名に対応していません。進捗はプロジェクトのハードウェアウォレットに関するドキュメントをご確認ください。"
+  },
+  "immature_coinbase": {
+    "message": "未成熟（コインベース）"
+  },
+  "memo_too_long_max_80_bytes": {
+    "message": "メモが長すぎます。最大80バイトです"
+  },
+  "memo_not_supported_when_sending_all": {
+    "message": "全額送金時はメモを利用できません。金額を減らすか、メモを削除してください。"
+  },
+  "core_runtime_release": {
+    "message": "Coreランタイム"
+  },
+  "core_commit": {
+    "message": "Coreコミット"
+  },
+  "create_new_wallet": {
+    "message": "新しいウォレットを作成"
+  },
+  "create_wallet": {
+    "message": "ウォレットを作成"
+  },
+  "create_watch_wallet": {
+    "message": "ウォッチウォレットを作成"
+  },
+  "create_with_mnemonics_24words": {
+    "message": "ニーモニック (12または24単語) で作成"
+  },
+  "current": {
+    "message": "現在"
+  },
+  "current_fee_rate": {
+    "message": "現在の手数料率:"
+  },
+  "current_password": {
+    "message": "現在のパスワード"
+  },
+  "current_supply": {
+    "message": "現在の供給"
+  },
+  "currently_only": {
+    "message": "現在"
+  },
+  "custom": {
+    "message": "カスタム"
+  },
+  "custom_hdpath": {
+    "message": "カスタムHDウォレット導出パス"
+  },
+  "custom_hdpath_optional": {
+    "message": "カスタムHdPath (オプション)"
+  },
+  "danger_potential_phishing_website_detected": {
+    "message": "危険！潜在的なフィッシングウェブサイトが検出されました"
+  },
+  "dapp_center": {
+    "message": "アプリセンター"
+  },
+  "date": {
+    "message": "日付"
+  },
+  "days_ago": {
+    "message": "日前"
+  },
+  "dealing": {
+    "message": "処理中"
+  },
+  "decimal": {
+    "message": "小数"
+  },
+  "decimal_places": {
+    "message": "小数点以下の桁数までサポートしています。"
+  },
+  "decimals": {
+    "message": "小数桁数"
+  },
+  "default": {
+    "message": "デフォルト"
+  },
+  "delegations": {
+    "message": "委任"
+  },
+  "delete": {
+    "message": "削除"
+  },
+  "delete_contact": {
+    "message": "連絡先を削除"
+  },
+  "derivation_path": {
+    "message": "導出パス"
+  },
+  "description": {
+    "message": "説明"
+  },
+  "details": {
+    "message": "詳細"
+  },
+  "developer_mode_disabled": {
+    "message": "開発者モードが無効になりました"
+  },
+  "developer_mode_enabled": {
+    "message": "開発者モードが有効になりました"
+  },
+  "disclaimer": {
+    "message": "免責事項"
+  },
+  "discover": {
+    "message": "発見"
+  },
+  "divisibility": {
+    "message": "分割可能性"
+  },
+  "do_you_confirm_the_conversion": {
+    "message": "変換を確認しますか？"
+  },
+  "do_you_confirm_the_transfer": {
+    "message": "転送を確認しますか？"
+  },
+  "does_not_exist": {
+    "message": "は存在しません"
+  },
+  "does_not_support_account_removal_operations": {
+    "message": "アカウント削除操作はサポートされていません"
+  },
+  "done": {
+    "message": "完了"
+  },
+  "each_output_value": {
+    "message": "各Output値"
+  },
+  "each_outputvalue": {
+    "message": "各Output値"
+  },
+  "ecosystem_community_warning": {
+    "message": "エコシステムプロジェクトはQbitコミュニティによって構築・運営されています。"
+  },
+  "ecosystem_community_warning_review": {
+    "message": "ウォレットを接続したり資金を送金したりする前に、ご自身でプロジェクトを確認してください。"
+  },
+  "edit_address": {
+    "message": "アドレスを編集"
+  },
+  "edit_name": {
+    "message": "名前を編集"
+  },
+  "empty": {
+    "message": "空"
+  },
+  "enable_sign_data_popover_warning": {
+    "message": "signDataリクエストを許可すると、フィッシング攻撃に対して脆弱になる可能性があります。常にURLを確認し、コードを含むメッセージに署名する際は注意してください。"
+  },
+  "enable_sign_data_popover_warning_2": {
+    "message": "この設定をオンにするように求められた場合、詐欺に遭っている可能性があります。"
+  },
+  "enable_sign_data_warning": {
+    "message": "この設定を有効にすると、読み取れない署名リクエストを受け取る可能性があります。理解できないメッセージに署名すると、資金やNFTを渡すことに同意してしまう可能性があります。フィッシング攻撃のリスクにさらされます。signDataをオフにして自身を保護してください。"
+  },
+  "enable_unconfirmed_balance": {
+    "message": "未確認残高を有効にする"
+  },
+  "enable_unconfirmed_balance_warning": {
+    "message": "指定されたアドレスに保護されたアセットが存在する場合、未確認の UTXO は確認されるまで使用できません。未確認の UTXO を強制的に使用すると、アセットを失うリスクがあります。"
+  },
+  "enter": {
+    "message": "入力"
+  },
+  "enter_address": {
+    "message": "アドレスを入力"
+  },
+  "enter_name": {
+    "message": "名前を入力"
+  },
+  "enter_password": {
+    "message": "パスワードを入力してください"
+  },
+  "enter_your_password": {
+    "message": "パスワードを入力してください"
+  },
+  "estimated_fee": {
+    "message": "推定手数料"
+  },
+  "etching": {
+    "message": "エッチング"
+  },
+  "expand_view": {
+    "message": "拡大表示"
+  },
+  "export_private_key": {
+    "message": "秘密鍵をエクスポート"
+  },
+  "failed_to_delete_contact": {
+    "message": "連絡先の削除に失敗しました"
+  },
+  "failed_to_handle_signature": {
+    "message": "署名の処理に失敗しました"
+  },
+  "failed_to_load_contact_information": {
+    "message": "連絡先情報の読み込みに失敗しました"
+  },
+  "failed_to_lock_wallet": {
+    "message": "ウォレットのロックに失敗しました"
+  },
+  "failed_to_parse_psbt": {
+    "message": "1件以上のトランザクションを解析できませんでした。署名を中止しました。"
+  },
+  "failed_to_save_contact": {
+    "message": "連絡先の保存に失敗しました"
+  },
+  "fast": {
+    "message": "速い"
+  },
+  "features": {
+    "message": "機能:"
+  },
+  "fee": {
+    "message": "手数料"
+  },
+  "fee_rate": {
+    "message": "手数料率"
+  },
+  "fee_estimates_unavailable_using_floor": {
+    "message": "手数料の見積もりを利用できません。リレー最小値の $1 bit/vB を使用しています。"
+  },
+  "fee_exceeds_wallet_safety_maximum": {
+    "message": "手数料が安全上限の $1 bit/vB を超えています（このトランザクションの正確なサイズでは最大 $2 $3）。"
+  },
+  "estimated_inputs_and_size": {
+    "message": "約$1件のインプット・約$2 kB"
+  },
+  "feedback": {
+    "message": "フィードバック"
+  },
+  "feerate_avg_desc": {
+    "message": "約30分"
+  },
+  "feerate_avg_desc_fb": {
+    "message": "約1.5分"
+  },
+  "feerate_fast_desc": {
+    "message": "約10分"
+  },
+  "feerate_fast_desc_fb": {
+    "message": "約30秒"
+  },
+  "feerate_slow_desc": {
+    "message": "約1時間"
+  },
+  "feerate_slow_desc_fb": {
+    "message": "約3分"
+  },
+  "feerate_sub1_title": {
+    "message": "サブ1"
+  },
+  "qbit_feerate_target_desc": {
+    "message": "約$1分・$2ブロック"
+  },
+  "finality_providers": {
+    "message": "ファイナリティプロバイダー"
+  },
+  "finish": {
+    "message": "完了"
+  },
+  "first_account_not_found": {
+    "message": "最初のアカウントが見つかりません"
+  },
+  "full_address": {
+    "message": "完全なアドレス"
+  },
+  "from": {
+    "message": "送信元"
+  },
+  "function_not_implemented": {
+    "message": "機能が実装されていません。"
+  },
+  "future_versions_will_support_spending_these_assets": {
+    "message": "This balance will remain unavailable while those UTXOs are protected."
+  },
+  "gas_adjustment": {
+    "message": "ガス調整"
+  },
+  "gas_adjustment_explanation": {
+    "message": "ガス調整の説明："
+  },
+  "gas_adjustment_explanation_1": {
+    "message": "• 推定ガスに適用される乗数（1.0 = 100%）"
+  },
+  "gas_adjustment_explanation_2": {
+    "message": "• デフォルトの1.3（130%）は安全マージンを提供します"
+  },
+  "gas_adjustment_explanation_3": {
+    "message": "• 値が高いほどトランザクションの成功確率が高まります"
+  },
+  "gas_fee_calculation_may_not_include_newly_received_tokens_try_a_smaller_amount": {
+    "message": "ガス手数料の計算には、新しく受信したトークンが含まれていない可能性があります。より少ない金額で試してください。"
+  },
+  "gas_limit": {
+    "message": "ガスリミット"
+  },
+  "gas_limit_explanation": {
+    "message": "ガスリミットの説明"
+  },
+  "gas_limit_explanation_1": {
+    "message": "• トランザクションの最大計算リソースを制御します"
+  },
+  "gas_limit_explanation_2": {
+    "message": "• 高いリミット = 高い潜在的料金ですが、完了を保証します"
+  },
+  "gas_limit_explanation_3": {
+    "message": "• 低すぎるとトランザクションが失敗する可能性があります"
+  },
+  "gas_limit_explanation_4": {
+    "message": "• 推奨値は通常十分です"
+  },
+  "generating": {
+    "message": "生成中..."
+  },
+  "generating_qr_code": {
+    "message": "QRコードを生成中..."
+  },
+  "genesis_transaction": {
+    "message": "ジェネシストランザクション"
+  },
+  "get_signature": {
+    "message": "署名を取得"
+  },
+  "get_signature_success": {
+    "message": "署名取得成功"
+  },
+  "go_back": {
+    "message": "戻る"
+  },
+  "go_to_marketplace": {
+    "message": "マーケットプレイスへ移動"
+  },
+  "go_to_stake": {
+    "message": "ステークへ移動"
+  },
+  "go_to_update": {
+    "message": "アップデートへ移動"
+  },
+  "hello": {
+    "message": "こんにちは"
+  },
+  "hex_private_key": {
+    "message": "Hex秘密鍵:"
+  },
+  "high": {
+    "message": "高"
+  },
+  "high_fee_rate_risk_description": {
+    "message": "このトランザクションは高い手数料率を持っています。続行する前に、この操作の影響を理解していることを確認してください。"
+  },
+  "high_fee_rate_risk_title": {
+    "message": "高い手数料率が検出されました"
+  },
+  "high_priority": {
+    "message": "高優先度"
+  },
+  "history": {
+    "message": "履歴"
+  },
+  "history_count": {
+    "message": "総取引数"
+  },
+  "history_more_count": {
+    "message": "+$1件"
+  },
+  "history_more_on_uniscan_count": {
+    "message": "UniScanで+$1件"
+  },
+  "history_no_transactions": {
+    "message": "取引なし"
+  },
+  "history_pending": {
+    "message": "保留中"
+  },
+  "holders": {
+    "message": "保有者"
+  },
+  "holders_count": {
+    "message": "ホルダー数"
+  },
+  "home": {
+    "message": "ホーム"
+  },
+  "hour": {
+    "message": "時間"
+  },
+  "hours": {
+    "message": "時間"
+  },
+  "hours_ago": {
+    "message": "時間前"
+  },
+  "i_already_have_a_wallet": {
+    "message": "すでにウォレットを持っています"
+  },
+  "i_am_aware_of_the_risks": {
+    "message": "リスクを承知しています"
+  },
+  "i_have_signed_scan_result": {
+    "message": "署名完了、結果をスキャン"
+  },
+  "i_only_sign_what_i_understand": {
+    "message": "理解したものにのみ署名します"
+  },
+  "i_saved_my_secret_recovery_phrase": {
+    "message": "シークレットリカバリーフレーズを保存しました"
+  },
+  "i_understand_continue": {
+    "message": "理解しました、続行します"
+  },
+  "id": {
+    "message": "ID"
+  },
+  "if_you_ever_change_browsers_or_move_computers_you_": {
+    "message": "ブラウザを変更したり、コンピューターを移動したりする場合、このアカウントにアクセスするにはこの秘密鍵が必要です。安全で秘密の場所に保存してください"
+  },
+  "if_you_insist_on_continuing_proceed_at_your_own_risk": {
+    "message": "続行を主張する場合、自己責任で進めてください："
+  },
+  "if_you_lose_your_private_key_your_assets_will_be_g": {
+    "message": "秘密鍵を紛失すると、資産は失われます！"
+  },
+  "if_you_lose_your_secret_recovery_phrase_your_asset": {
+    "message": "シークレットリカバリーフレーズを紛失すると、資産は失われます！"
+  },
+  "if_you_share_the_private_key_to_others_your_assets": {
+    "message": "秘密鍵を他人に共有すると、資産が盗まれます！"
+  },
+  "if_you_share_the_secret_recovery_phrase_to_others_": {
+    "message": "シークレットリカバリーフレーズを他人に共有すると、資産が盗まれます！"
+  },
+  "import_an_existing_wallet_with_your_secret_recover": {
+    "message": "シークレットリカバリーフレーズで既存のウォレットをインポート"
+  },
+  "important_to_not_transfer_this_token": {
+    "message": "重要: 一時的なインデックス作成の不一致のため、このトークンを転送しないでください。プロトコルの創設チームからの解決を待っています。他のトークンは影響を受けません。"
+  },
+  "incomplete_psbt_warning": {
+    "message": "件のトランザクションにUTXOデータがなく、金額を確認できません"
+  },
+  "indexer_api_down_risk_description": {
+    "message": "インデクサーAPIが現在ダウンしています。これによりトランザクション詳細と資産残高の精度に影響が出る可能性があります。注意して進め、すべての情報を独立して確認してください。"
+  },
+  "indexer_api_down_risk_title": {
+    "message": "インデクサーAPIがダウンしています"
+  },
+  "inputs": {
+    "message": "インプット"
+  },
+  "instructions": {
+    "message": "手順："
+  },
+  "insufficient_balance": {
+    "message": "残高不足です。"
+  },
+  "invalid_address": {
+    "message": "無効なアドレス。"
+  },
+  "invalid_address_format_for_selected_network": {
+    "message": "選択されたネットワークのアドレス形式が無効です"
+  },
+  "invalid_address_in_tosigninput": {
+    "message": "toSignInput内の無効なアドレス"
+  },
+  "invalid_derivation_path": {
+    "message": "不正な派生パスです。"
+  },
+  "invalid_fee_rate": {
+    "message": "無効な手数料率"
+  },
+  "invalid_index_in_tosigninput": {
+    "message": "toSignInput内の無効なインデックス"
+  },
+  "invalid_psbt": {
+    "message": "無効なPSBT"
+  },
+  "invalid_public_key": {
+    "message": "無効な公開鍵"
+  },
+  "invalid_public_key_in_tosigninput": {
+    "message": "toSignInput内の無効な公開鍵"
+  },
+  "invalid_recipient_address": {
+    "message": "無効な受信者アドレス"
+  },
+  "invalid_sighash_type_in_tosigninput": {
+    "message": "toSignInput内の無効なsighashタイプ"
+  },
+  "invalid_transaction_data": {
+    "message": "無効なトランザクションデータ"
+  },
+  "invalid_wallet_please_remove_it_and_add_new_one": {
+    "message": "無効なウォレットです。削除して新しいものを追加してください"
+  },
+  "involved_assets": {
+    "message": "関連アセット:"
+  },
+  "is_unconfirmed_please_wait_for_confirmation": {
+    "message": "は未確認です。確認をお待ちください"
+  },
+  "items": {
+    "message": "アイテム"
+  },
+  "just_now": {
+    "message": "たった今"
+  },
+  "keyring_does_not_exist": {
+    "message": "キーリングが存在しません"
+  },
+  "keyring_error_account_count": {
+    "message": "アカウント数は0より大きい必要があります"
+  },
+  "keyringcontroller_first_account_not_found": {
+    "message": "KeyringController - 最初のアカウントが見つかりません。"
+  },
+  "keyringcontroller_password_is_not_a_string": {
+    "message": "KeyringController - パスワードが文字列ではありません"
+  },
+  "language": {
+    "message": "言語"
+  },
+  "language_description": {
+    "message": "アプリケーションの言語を変更します"
+  },
+  "latest_version": {
+    "message": "最新バージョン"
+  },
+  "let_us_know_what_you_think": {
+    "message": "あなたの考えを教えてください"
+  },
+  "like_our_wallet_wed_love_your_rating": {
+    "message": "私たちのウォレットが気に入ったら、評価してください！"
+  },
+  "load_failed": {
+    "message": "読み込み失敗"
+  },
+  "loading": {
+    "message": "読み込み中..."
+  },
+  "loading_contacts": {
+    "message": "読み込み中..."
+  },
+  "loading_details": {
+    "message": "詳細を読み込んでいます..."
+  },
+  "lock_immediately": {
+    "message": "すぐにロック"
+  },
+  "lock_wallet": {
+    "message": "ウォレットをロック"
+  },
+  "low": {
+    "message": "低"
+  },
+  "low_fee_mode": {
+    "message": "1 bits/vB未満モード"
+  },
+  "low_fee_rate_risk_description": {
+    "message": "この取引の手数料率は低くなっています。続行する前に、その影響を十分に理解してください。"
+  },
+  "low_fee_rate_risk_title": {
+    "message": "低い手数料率が検出されました"
+  },
+  "low_priority": {
+    "message": "低優先度"
+  },
+  "malicious_behavior_and_suspicious_activity_have_be": {
+    "message": "悪意のある行動や疑わしいアクティビティが検出されました。"
+  },
+  "manage_wallet": {
+    "message": "ウォレットを管理"
+  },
+  "mandatory_use_of_unconfirmed_balance": {
+    "message": "未確認残高の強制使用"
+  },
+  "max": {
+    "message": "最大"
+  },
+  "max_supply": {
+    "message": "最大供給量"
+  },
+  "medium": {
+    "message": "中"
+  },
+  "medium_priority": {
+    "message": "中優先度"
+  },
+  "memo": {
+    "message": "メモ:"
+  },
+  "memo_is_too_long_the_maximum_length_is_256_characters": {
+    "message": "メモが長すぎます。最大長は256文字です。"
+  },
+  "merge_failed": {
+    "message": "マージに失敗しました。"
+  },
+  "merge_history": {
+    "message": "マージ履歴"
+  },
+  "merge_progress": {
+    "message": "マージ進捗"
+  },
+  "merge_transactions": {
+    "message": "マージトランザクション"
+  },
+  "merge_utxos": {
+    "message": "マージ"
+  },
+  "merge_utxos1": {
+    "message": "マージ"
+  },
+  "merge_utxos_failed": {
+    "message": "統合失敗"
+  },
+  "merge_utxos_to_increase_the_available_balance": {
+    "message": "UTXOをマージ->"
+  },
+  "merging": {
+    "message": "マージ中..."
+  },
+  "merging_amount": {
+    "message": "マージ額"
+  },
+  "merging_utxos": {
+    "message": "UTXOをマージ中"
+  },
+  "message": {
+    "message": "メッセージ"
+  },
+  "method_not_implemented": {
+    "message": "メソッドが実装されていません。"
+  },
+  "mint": {
+    "message": "ミント"
+  },
+  "minted": {
+    "message": "ミント数"
+  },
+  "mints": {
+    "message": "鋳造"
+  },
+  "minute": {
+    "message": "分"
+  },
+  "minutes": {
+    "message": "分"
+  },
+  "minutes_ago": {
+    "message": "分前"
+  },
+  "mixed": {
+    "message": "混合"
+  },
+  "mnemonic_phrase_is_invalid": {
+    "message": "ニーモニックフレーズが無効です"
+  },
+  "mnemonics_12_words": {
+    "message": "12 語"
+  },
+  "mnemonics_24_words": {
+    "message": "24 語"
+  },
+  "more": {
+    "message": "もっと"
+  },
+  "more_details": {
+    "message": "詳細"
+  },
+  "add_liquidity": {
+    "message": "Add Liquidity"
+  },
+  "remove_liquidity": {
+    "message": "Remove Liquidity"
+  },
+  "msg_already_signed": {
+    "message": "このメッセージは既に署名されています"
+  },
+  "msg_content": {
+    "message": "メッセージ内容"
+  },
+  "msg_detail": {
+    "message": "メッセージ詳細"
+  },
+  "msg_generate_qr": {
+    "message": "QRコード生成"
+  },
+  "msg_generate_sign": {
+    "message": "署名生成"
+  },
+  "msg_generating_qr": {
+    "message": "QRコード生成中..."
+  },
+  "msg_message": {
+    "message": "メッセージ"
+  },
+  "msg_origin": {
+    "message": "送信元: "
+  },
+  "msg_pending": {
+    "message": "署名待ち"
+  },
+  "msg_scan_qr_code": {
+    "message": "コールドウォレットでQRコードをスキャンしてください"
+  },
+  "msg_scan_result": {
+    "message": "スキャン結果"
+  },
+  "msg_scan_sign": {
+    "message": "署名スキャン"
+  },
+  "msg_sign": {
+    "message": "メッセージ署名"
+  },
+  "msg_sign_type": {
+    "message": "署名タイプ"
+  },
+  "msg_signed": {
+    "message": "署名済み"
+  },
+  "msg_start_sign": {
+    "message": "署名開始"
+  },
+  "msg_status": {
+    "message": "ステータス"
+  },
+  "msg_waiting_sign": {
+    "message": "署名待機中"
+  },
+  "multiple_assets_risk_description": {
+    "message": "このトランザクションには複数の資産が含まれています。続行する前に、この操作の影響を理解していることを確認してください。"
+  },
+  "multiple_assets_risk_title": {
+    "message": "複数の資産が検出されました"
+  },
+  "multisign_disclaimer": {
+    "message": "マルチシグ免責事項"
+  },
+  "my_address": {
+    "message": "私のアドレス"
+  },
+  "name": {
+    "message": "名前"
+  },
+  "name_label": {
+    "message": "名前"
+  },
+  "name_recognized_and_resolved": {
+    "message": "名前が認識され、解決されました。"
+  },
+  "names": {
+    "message": "名前"
+  },
+  "native_segwit_p2wpkh": {
+    "message": "Native Segwit (P2WPKH)"
+  },
+  "nested_segwit_p2shp2wpkh": {
+    "message": "Nested Segwit (P2SH-P2WPKH)"
+  },
+  "network": {
+    "message": "ネットワーク"
+  },
+  "network_error_json_parse_error": {
+    "message": "ネットワークエラー、JSON解析エラー"
+  },
+  "network_error_no_response": {
+    "message": "ネットワークエラー、応答なし"
+  },
+  "network_errorno_response_data": {
+    "message": "ネットワークエラー、応答データなし"
+  },
+  "network_fee": {
+    "message": "ネットワーク手数料:"
+  },
+  "network_fee_2": {
+    "message": "ネットワーク手数料"
+  },
+  "network_fees": {
+    "message": "ネットワーク手数料"
+  },
+  "network_fee_rate": {
+    "message": "ネットワーク手数料率:"
+  },
+  "size_bytes": {
+    "message": "サイズ"
+  },
+  "change_below_dust_added_to_fee": {
+    "message": "ダスト未満のお釣り $1 bits が正確なネットワーク手数料に追加されました"
+  },
+  "network_not_matched_risk_description": {
+    "message": "このトランザクションは現在のネットワーク上にありません。続行する前に、このトランザクションの送信元を信頼していることを確認してください。"
+  },
+  "network_not_matched_risk_title": {
+    "message": "ネットワークの不一致が検出されました。"
+  },
+  "new": {
+    "message": "NEW!"
+  },
+  "new_account": {
+    "message": "新しいアカウント"
+  },
+  "new_password": {
+    "message": "新しいパスワード"
+  },
+  "new_value": {
+    "message": "新しい値:"
+  },
+  "new_version": {
+    "message": "新しいバージョン！"
+  },
+  "next": {
+    "message": "次へ"
+  },
+  "nft": {
+    "message": "NFT"
+  },
+  "nfts": {
+    "message": "NFTs"
+  },
+  "no_address_or_public_key_in_tosigninput": {
+    "message": "toSignInputにアドレスまたは公開鍵がありません"
+  },
+  "no_current_account": {
+    "message": "現在のアカウントがありません"
+  },
+  "no_current_keyring": {
+    "message": "現在のキーリングがありません"
+  },
+  "n_hour": {
+    "message": "$1時間"
+  },
+  "n_hours": {
+    "message": "$1時間"
+  },
+  "n_minute": {
+    "message": "$1分"
+  },
+  "n_minutes": {
+    "message": "$1分"
+  },
+  "n_seconds": {
+    "message": "$1秒"
+  },
+  "no_connected_sites": {
+    "message": "接続済みのサイトはありません"
+  },
+  "no_data": {
+    "message": "データなし"
+  },
+  "no_inputs": {
+    "message": "入力なし"
+  },
+  "no_keyring_found_for_the_requested_account": {
+    "message": "リクエストされたアカウントのキーリングが見つかりません。"
+  },
+  "no_matching_contacts_found": {
+    "message": "一致する連絡先が見つかりません"
+  },
+  "no_mfp_in_keyring": {
+    "message": "キーリングにmfpがありません"
+  },
+  "no_notifications": {
+    "message": "通知なし"
+  },
+  "not_connected": {
+    "message": "未接続"
+  },
+  "not_implemented": {
+    "message": "実装されていません"
+  },
+  "not_long_enough": {
+    "message": "足りない"
+  },
+  "not_supported": {
+    "message": "サポートされていません"
+  },
+  "not_supported_chainid": {
+    "message": "サポートされていないchainId"
+  },
+  "not_supported_yet": {
+    "message": "まだサポートされていません"
+  },
+  "notice": {
+    "message": "通知"
+  },
+  "notifications": {
+    "message": "通知"
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "old_value": {
+    "message": "古い値:"
+  },
+  "only_applies_to_current_address": {
+    "message": "現在のアドレスにのみ適用されます"
+  },
+  "only_connect_with_sites_you_trust": {
+    "message": "信頼できるサイトにのみ接続してください。"
+  },
+  "only_sign_if_you_fully_understand_the_content_and_": {
+    "message": "内容を完全に理解し、リクエスト元のサイトを信頼する場合にのみ署名してください。"
+  },
+  "only_sign_this_message_if_you_fully_understand_the": {
+    "message": "内容を完全に理解し、リクエスト元のサイトを信頼する場合にのみ、このメッセージに署名してください。"
+  },
+  "onsuccess_not_implemented": {
+    "message": "onSuccessが実装されていません"
+  },
+  "oops_something_went_wrong": {
+    "message": "おっと！何かがうまくいきませんでした。"
+  },
+  "open_as_popup": {
+    "message": "ウィンドウとして開く"
+  },
+  "open_as_side_bar": {
+    "message": "サイドバーを開く"
+  },
+  "open_your_cold_wallet_app_or_device": {
+    "message": "1. コールドウォレットアプリまたはデバイスを開いてください。"
+  },
+  "other_wallet": {
+    "message": "他のウォレット"
+  },
+  "others": {
+    "message": "その他"
+  },
+  "output_value": {
+    "message": "アウトプット値"
+  },
+  "output_value_must_be_at_least": {
+    "message": "Output値は少なくとも"
+  },
+  "outputs": {
+    "message": "アウトプット"
+  },
+  "outputvalue": {
+    "message": "Output値"
+  },
+  "owner": {
+    "message": "所有者"
+  },
+  "parent": {
+    "message": "親"
+  },
+  "parse_error": {
+    "message": "解析エラー"
+  },
+  "passphrase": {
+    "message": "パスフレーズ"
+  },
+  "password": {
+    "message": "パスワード"
+  },
+  "password_cannot_be_empty": {
+    "message": "パスワードを空にすることはできません"
+  },
+  "password_error": {
+    "message": "パスワードが間違っています"
+  },
+  "password_must_be_at_least_8_characters": {
+    "message": "パスワードは少なくとも8文字である必要があります"
+  },
+  "password_strength": {
+    "message": "パスワード強度:"
+  },
+  "passwords_dont_match": {
+    "message": "パスワードが一致しません"
+  },
+  "paused": {
+    "message": "一時停止中"
+  },
+  "payment_failed": {
+    "message": "支払い失敗"
+  },
+  "payment_network_fee": {
+    "message": "支払いネットワーク手数料"
+  },
+  "pending": {
+    "message": "保留中"
+  },
+  "per_mint": {
+    "message": "単位鋳造"
+  },
+  "permission_denied": {
+    "message": "権限が拒否されました"
+  },
+  "phishing_detection": {
+    "message": "フィッシング検出"
+  },
+  "phrase_optional": {
+    "message": "フレーズ (オプション)"
+  },
+  "please_be_aware_that": {
+    "message": "ご注意ください："
+  },
+  "please_be_aware_that_sending_the_following_assets_involves_risk": {
+    "message": "Please be aware that signing this transaction involves risk."
+  },
+  "please_enter_address": {
+    "message": "アドレスを入力してください"
+  },
+  "please_enter_name": {
+    "message": "名前を入力してください"
+  },
+  "please_make_sure_you_have_read_the_security_tips_a": {
+    "message": "パスワードを入力する前に、上記のセキュリティに関するヒントを読んだことを確認してください"
+  },
+  "please_pay_attention_to_whether_you_have_backed_up": {
+    "message": "資産損失を防ぐため、ニーモニック/秘密鍵をバックアップしたか注意してください"
+  },
+  "please_read_more_detail_on": {
+    "message": "詳細はこちらをご覧ください"
+  },
+  "position_the_qr_code_in_front_of_your_camera_the_screen_is_blurred_but_this_will_not_affect_the_scan": {
+    "message": "QRコードをカメラの前に配置してください。画面はぼやけていますが、スキャンには影響しません。"
+  },
+  "precautions": {
+    "message": "注意事項"
+  },
+  "premine": {
+    "message": "プレマイン"
+  },
+  "preview": {
+    "message": "プレビュー"
+  },
+  "previous": {
+    "message": "前へ"
+  },
+  "privacy_policy": {
+    "message": "プライバシーポリシー"
+  },
+  "private_key_is_only_stored_in_your_browser_it_is_y": {
+    "message": "秘密鍵を安全に保管するのはあなたの責任です！"
+  },
+  "processing_signature": {
+    "message": "署名を処理中..."
+  },
+  "promise_need_function_to_handle": {
+    "message": "Promiseには処理する関数が必要です"
+  },
+  "provenance": {
+    "message": "由来"
+  },
+  "psbt_data": {
+    "message": "PSBTデータ:"
+  },
+  "signed_psbt_data": {
+    "message": "署名済みPSBTデータ"
+  },
+  "public_key_must_be_compressed_secp256k1_ie_33_byte": {
+    "message": "公開鍵は圧縮されたsecp256k1（つまり、0x02または0x03で始まる33バイト）である必要があります"
+  },
+  "quick_sign_assets_detected": {
+    "message": "Cannot quick sign: inputs contain protected assets."
+  },
+  "quit_merging_process": {
+    "message": "マージプロセスを終了"
+  },
+  "range": {
+    "message": "範囲"
+  },
+  "rate_us": {
+    "message": "評価してください"
+  },
+  "rbf": {
+    "message": "RBF"
+  },
+  "rbf_tip": {
+    "message": "RBF はこの未承認トランザクションを置換可能としてマークし、より高い手数料で再試行できるようにします。RBF がオフになっていても、ネットワークポリシーによってはトランザクションが引き続き置換可能な場合があります。"
+  },
+  "replaced": {
+    "message": "置換済み"
+  },
+  "bump_fee": {
+    "message": "手数料を引き上げる"
+  },
+  "fee_bump_review_description": {
+    "message": "この置換では、元の受取人とメモデータを維持したまま、より高い手数料を支払います。"
+  },
+  "fee_bump_unavailable": {
+    "message": "このトランザクションは安全に置換できなくなりました。履歴を更新してもう一度お試しください。"
+  },
+  "fee_increase": {
+    "message": "手数料の増加額"
+  },
+  "original_fee": {
+    "message": "元の手数料"
+  },
+  "original_fee_rate": {
+    "message": "元の手数料率"
+  },
+  "replacement_fee": {
+    "message": "置換後の手数料"
+  },
+  "replacement_fee_rate": {
+    "message": "置換後の手数料率"
+  },
+  "replaces_transaction": {
+    "message": "置換元トランザクション"
+  },
+  "receive": {
+    "message": "受信"
+  },
+  "received_from": {
+    "message": "受信元"
+  },
+  "receiver": {
+    "message": "受信者"
+  },
+  "recipient": {
+    "message": "受信者"
+  },
+  "recipient_address_is_invalid": {
+    "message": "受信者アドレスが無効です"
+  },
+  "recommended": {
+    "message": "推奨"
+  },
+  "recommended_fee_rates": {
+    "message": "推奨手数料率:"
+  },
+  "refresh": {
+    "message": "更新"
+  },
+  "refresh_page": {
+    "message": "ページを更新"
+  },
+  "reject": {
+    "message": "拒否"
+  },
+  "reject_all": {
+    "message": "すべて拒否"
+  },
+  "remember_my_choice": {
+    "message": "選択を記憶する"
+  },
+  "remove": {
+    "message": "削除"
+  },
+  "remove_wallet": {
+    "message": "ウォレットを削除"
+  },
+  "removing_the_last_wallet_is_not_allowed": {
+    "message": "最後のウォレットを削除することはできません"
+  },
+  "request_was_rejected_to_proceed_please_reauthorize": {
+    "message": "リクエストは拒否されました。続行するには、再承認してください"
+  },
+  "restore_from_mnemonics": {
+    "message": "助記詞から復元"
+  },
+  "restore_from_mnemonics_12words24words": {
+    "message": "ニーモニック (12または24単語) から復元"
+  },
+  "restore_wallet": {
+    "message": "ウォレットを復元"
+  },
+  "retry_in_10s": {
+    "message": "10秒後に再試行"
+  },
+  "review_and_confirm_transaction_details_in_your_cold_wallet": {
+    "message": "3. コールドウォレットで取引詳細を確認し、承認してください。"
+  },
+  "satsvb": {
+    "message": "bits/vB"
+  },
+  "satvb": {
+    "message": "bits/vB"
+  },
+  "save": {
+    "message": "保存"
+  },
+  "saving": {
+    "message": "保存中..."
+  },
+  "scammer_address_risk_description": {
+    "message": "このアドレスは詐欺アドレスとして報告されています。注意して進めてください。これが誤検知だと思われる場合は、報告してください。"
+  },
+  "scammer_address_risk_title": {
+    "message": "⚠️ 不審なアドレスが検出されました"
+  },
+  "scan_in_more_addresses": {
+    "message": "さらにアドレスをスキャン..."
+  },
+  "scan_the_qr_code": {
+    "message": "QRコードをスキャン"
+  },
+  "scan_this_qr_code": {
+    "message": "2. このQRコードをスキャンしてください。"
+  },
+  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
+    "message": "コールドウォレットでこのQRコードをスキャンして、取引を確認・署名してください。"
+  },
+  "scan_to_connect": {
+    "message": "スキャンして接続"
+  },
+  "script": {
+    "message": "スクリプト"
+  },
+  "scroll_to_bottom": {
+    "message": "↓ ボトム"
+  },
+  "scroll_to_top": {
+    "message": "↑ トップ"
+  },
+  "scroll_to_view_all": {
+    "message": "すべてを表示するにはスクロール"
+  },
+  "scroll_view_items": {
+    "message": "アイテム"
+  },
+  "search_address_and_txids": {
+    "message": "アドレスとTXIDを検索"
+  },
+  "search_address_or_name": {
+    "message": "アドレスまたは名前を検索"
+  },
+  "seconds": {
+    "message": "秒"
+  },
+  "seconds_ago": {
+    "message": "秒前"
+  },
+  "secret_recovery_phrase": {
+    "message": "シークレットリカバリーフレーズ"
+  },
+  "secret_recovery_phrase_is_only_stored_in_your_brow": {
+    "message": "シークレットリカバリーフレーズを安全に保管するのはあなたの責任です！"
+  },
+  "secs": {
+    "message": "秒"
+  },
+  "security_notice": {
+    "message": "セキュリティ通知:"
+  },
+  "security_warning": {
+    "message": "セキュリティ警告"
+  },
+  "select_all": {
+    "message": "すべて選択"
+  },
+  "select_network": {
+    "message": "ネットワークを選択"
+  },
+  "select_the_account_to_use_on_this_site": {
+    "message": "このサイトで使用するアカウントを選択してください"
+  },
+  "selected": {
+    "message": "選択済み"
+  },
+  "self_transfer": {
+    "message": "自己送金"
+  },
+  "send": {
+    "message": "送信"
+  },
+  "send_amount": {
+    "message": "送信額"
+  },
+  "send_amount_exceeds_balance": {
+    "message": "送信金額が残高を超えています"
+  },
+  "send_to": {
+    "message": "送信先"
+  },
+  "sending_out_assets": {
+    "message": "アセットを送信中"
+  },
+  "service_fee": {
+    "message": "サービス手数料"
+  },
+  "set_utxo_amount_to_be_merged": {
+    "message": "マージするUTXOの量を設定"
+  },
+  "settings": {
+    "message": "設定"
+  },
+  "show_private_key": {
+    "message": "秘密鍵を表示"
+  },
+  "show_secret_recovery_phrase": {
+    "message": "シークレットリカバリーフレーズを表示"
+  },
+  "sighash_none_detected": {
+    "message": "SIGHASH_NONEが検出されました。セキュリティのため署名を中止しました。"
+  },
+  "sighash_none_risk_description": {
+    "message": "SIGHASH_NONEは署名後にトランザクションの変更を許可する特別な署名タイプです。トランザクションが悪意を持って変更された場合、資金を失う可能性があります。続行する前に、このトランザクションの送信元を信頼していることを確認してください。"
+  },
+  "sighash_none_risk_title": {
+    "message": "SIGHASH_NONEが検出されました"
+  },
+  "sign": {
+    "message": "署名"
+  },
+  "sign_all": {
+    "message": "すべてに署名"
+  },
+  "sign_all_transactions_at_once": {
+    "message": "すべてのトランザクションを一度に署名することができますが、Qbit Walletは各トランザクションを個別に検証しないことに注意してください。信頼できるサイトでのみ使用することを強くお勧めします。"
+  },
+  "sign_and_pay": {
+    "message": "署名して支払う"
+  },
+  "derive_context_hash_request": {
+    "message": "識別子を生成"
+  },
+  "derive_context_hash_description": {
+    "message": "このサイトは、以下のコンテキストに対してウォレットに紐づく一意の識別子を要求しています。"
+  },
+  "derive_context_hash_app_name": {
+    "message": "アプリケーション"
+  },
+  "derive_context_hash_account": {
+    "message": "アカウント"
+  },
+  "derive_context_hash_network": {
+    "message": "ネットワーク"
+  },
+  "derive_context_hash_context": {
+    "message": "コンテキスト"
+  },
+  "derive_context_hash_warning": {
+    "message": "このサイトを信頼できる場合のみ承認してください。"
+  },
+  "sign_data_request": {
+    "message": "データ署名リクエスト"
+  },
+  "sign_data_requests": {
+    "message": "signDataリクエスト"
+  },
+  "sign_multiple_transactions": {
+    "message": "複数トランザクションに署名"
+  },
+  "sign_psbt_input_error": {
+    "message": "psbt またはパラメータが無効なため、署名できません。"
+  },
+  "sign_result": {
+    "message": "署名結果:"
+  },
+  "sign_transaction": {
+    "message": "トランザクションに署名"
+  },
+  "signature_request": {
+    "message": "署名リクエスト"
+  },
+  "signature_successful": {
+    "message": "署名成功"
+  },
+  "signdata_required_tip": {
+    "message": "続行するには、設定 -> 詳細設定でsignDataリクエスト機能を有効にする必要があります。"
+  },
+  "signed": {
+    "message": "署名済み"
+  },
+  "single_step_transfer": {
+    "message": "単一ステップ転送"
+  },
+  "skip": {
+    "message": "スキップ"
+  },
+  "slow": {
+    "message": "遅い"
+  },
+  "spend": {
+    "message": "使用"
+  },
+  "spend_amount": {
+    "message": "使用額"
+  },
+  "spending_assets": {
+    "message": "使用中の資産"
+  },
+  "split": {
+    "message": "分割"
+  },
+  "spliting_to": {
+    "message": "に分割中"
+  },
+  "staked": {
+    "message": "ステーク済み"
+  },
+  "stakers": {
+    "message": "ステーカー"
+  },
+  "start": {
+    "message": "開始"
+  },
+  "start_merging": {
+    "message": "マージを開始"
+  },
+  "steal_your_private_keys_or_seed_phrases": {
+    "message": "秘密鍵やシードフレーズを盗む"
+  },
+  "step1": {
+    "message": "ステップ1"
+  },
+  "step2": {
+    "message": "ステップ2"
+  },
+  "step_1": {
+    "message": "ステップ1"
+  },
+  "step_12": {
+    "message": "ステップ 1/2"
+  },
+  "step_2": {
+    "message": "ステップ2"
+  },
+  "step_22": {
+    "message": "ステップ 2/2"
+  },
+  "step_3": {
+    "message": "ステップ3"
+  },
+  "strong": {
+    "message": "強"
+  },
+  "strong_password_tip": {
+    "message": "強力なパスワードは、資産のセキュリティをより良く保護できます"
+  },
+  "submit": {
+    "message": "送信"
+  },
+  "success": {
+    "message": "成功"
+  },
+  "supply": {
+    "message": "供給量"
+  },
+  "swap_send": {
+    "message": "送信"
+  },
+  "swap_swap": {
+    "message": "スワップ"
+  },
+  "swap_unwrap": {
+    "message": "Unwrap"
+  },
+  "swap_wrap": {
+    "message": "Wrap"
+  },
+  "switch_account": {
+    "message": "アカウントを切り替え"
+  },
+  "switch_chain": {
+    "message": "チェーンを切り替え"
+  },
+  "switch_network": {
+    "message": "ネットワークを切り替え"
+  },
+  "switch_wallet": {
+    "message": "ウォレットを切り替え"
+  },
+  "symbol": {
+    "message": "シンボル"
+  },
+  "tap_the_more_menu_then_select_the_export_private_key_option": {
+    "message": "「その他」メニューをタップし、「秘密鍵をエクスポート」オプションを選択します。"
+  },
+  "taproot_p2tr": {
+    "message": "Taproot (P2TR)"
+  },
+  "terms_of_service": {
+    "message": "利用規約"
+  },
+  "test_approval_sign_psbt": {
+    "message": "PSBT署名承認テスト"
+  },
+  "text_preview": {
+    "message": "テキスト:"
+  },
+  "the_amount_for_change_is_too_low_please_adjust_the": {
+    "message": "お釣りの額が低すぎます。送信額を調整してください。"
+  },
+  "the_auto_lock_time_has_been_changed_to": {
+    "message": "自動ロック時間が次のように変更されました："
+  },
+  "the_broadcastchannel_name_is_missing": {
+    "message": "broadcastChannel名がありません"
+  },
+  "the_fee_rate_is_much_higher_than_recommended_fee_rate": {
+    "message": "手数料率が推奨手数料率より大幅に高いです"
+  },
+  "the_fee_rate_is_much_lower_than_recommended_fee_rate": {
+    "message": "手数料率が推奨手数料率より大幅に低いです"
+  },
+  "the_minimum_amount_is": {
+    "message": "最小金額は"
+  },
+  "the_private_key_is_invalid": {
+    "message": "秘密鍵が無効です"
+  },
+  "the_recipient_must_be_p2tr_or_p2wpkh_address_type": {
+    "message": "受信者はP2TRまたはP2WPKHアドレスタイプである必要があります"
+  },
+  "the_ultimate_security_solution_for_cryptocurrencie": {
+    "message": "暗号通貨のための究極のセキュリティソリューション"
+  },
+  "the_wallet_currently_uses_a_custom_hd_path_and_does_not_support_switching_address_types": {
+    "message": "ウォレットは現在カスタムHDパスを使用しており、アドレスタイプの切り替えをサポートしていません。"
+  },
+  "think_this_is_a_false_positive_click_here_to_report_an_issue": {
+    "message": "これが誤検出だと思いますか？ ここをクリックして問題を報告してください →"
+  },
+  "this_account_has_no_transactions": {
+    "message": "このアカウントにはトランザクションがありません"
+  },
+  "this_action_is_not_reversible": {
+    "message": "この操作は元に戻せません。"
+  },
+  "this_feature_is_currently_in_the_experimental_test_phase_please_proceed_with_caution": {
+    "message": "この機能は現在実験的なテスト段階にあります。注意して進めてください。"
+  },
+  "this_network_is_not_available": {
+    "message": "このネットワークは利用できません"
+  },
+  "this_phrase_is_the_only_way_to_recover_your_wallet": {
+    "message": "このフレーズはウォレットを回復する唯一の方法です。誰とも共有しないでください！"
+  },
+  "this_process_will_merge_your_utxos_into_one": {
+    "message": "残高をマージする必要があります。このプロセスにより、UTXOが1つにマージされます。"
+  },
+  "this_token_only_supports_up_to": {
+    "message": "このトークンは最大で"
+  },
+  "ticker": {
+    "message": "ティッカー"
+  },
+  "timestamp": {
+    "message": "タイムスタンプ"
+  },
+  "to": {
+    "message": "送信先"
+  },
+  "to_continue": {
+    "message": "続けるには"
+  },
+  "to_enable_spending_of_unconfirmed_balances_please_": {
+    "message": "未確認残高の使用を有効にするには、設定の詳細オプションにアクセスしてください。"
+  },
+  "to_proceed": {
+    "message": "続ける"
+  },
+  "to_send_a_larger_amount_please_merge_your_utxos_to_increase_the_available_balance": {
+    "message": "より大きな金額を送信するには、UTXOをマージして利用可能な残高を増やしてください。"
+  },
+  "to_sign": {
+    "message": "署名する"
+  },
+  "token_id": {
+    "message": "トークンID"
+  },
+  "token_not_found": {
+    "message": "トークンが見つかりません"
+  },
+  "tokens": {
+    "message": "トークン"
+  },
+  "total": {
+    "message": "合計"
+  },
+  "total_balance": {
+    "message": "総残高"
+  },
+  "total_fee": {
+    "message": "合計手数料"
+  },
+  "total_spent": {
+    "message": "総支出"
+  },
+  "total_supply": {
+    "message": "総供給"
+  },
+  "trade": {
+    "message": "取引"
+  },
+  "transaction": {
+    "message": "トランザクション"
+  },
+  "transaction_count": {
+    "message": "トランザクション"
+  },
+  "transaction_details": {
+    "message": "トランザクション詳細"
+  },
+  "transaction_id": {
+    "message": "トランザクションID"
+  },
+  "transaction_preview": {
+    "message": "トランザクション:"
+  },
+  "transaction_success": {
+    "message": "トランザクション成功"
+  },
+  "transaction_successful": {
+    "message": "取引成功"
+  },
+  "transaction_unconfirmed": {
+    "message": "未確認"
+  },
+  "transactions": {
+    "message": "トランザクション"
+  },
+  "transactions_at_once": {
+    "message": "トランザクションを一度に"
+  },
+  "transfer": {
+    "message": "転送"
+  },
+  "transfer_amount": {
+    "message": "転送額"
+  },
+  "transferable": {
+    "message": "転送可能:"
+  },
+  "transferable_balance": {
+    "message": "転送可能な残高"
+  },
+  "trick_you_into_signing_malicious_transactions": {
+    "message": "悪意のあるトランザクションに署名させるよう誘導する"
+  },
+  "trust_this_site_for_quick_multi_sign": {
+    "message": "このサイトを信頼し、このプロンプトを再表示しない"
+  },
+  "try_again": {
+    "message": "再試行"
+  },
+  "try_going_back_or_refreshing": {
+    "message": "戻るか、ページを更新してみてください。"
+  },
+  "tutorial": {
+    "message": "チュートリアル"
+  },
+  "tvl": {
+    "message": "TVL"
+  },
+  "tx_amount": {
+    "message": "金額"
+  },
+  "tx_broadcast_back_to_wallet": {
+    "message": "ウォレットに戻る"
+  },
+  "tx_broadcast_check_status": {
+    "message": "状況を確認"
+  },
+  "tx_broadcast_reason_chain_changed": {
+    "message": "ウォレットは現在、このトランザクションの署名時とは異なるネットワークに接続しています。"
+  },
+  "tx_broadcast_reason_guard_blocked": {
+    "message": "承認済みの別のトランザクションと競合するため、ウォレットが送信をブロックしました。"
+  },
+  "tx_broadcast_reason_guard_blocked_unconfirmed": {
+    "message": "ウォレットはこのトランザクションの予約をすでに保持していません。以前のブロードキャストがすでに受け付けられている可能性があります。"
+  },
+  "tx_broadcast_reason_invalid_response": {
+    "message": "ネットワークから予期しない応答が返されました。"
+  },
+  "tx_broadcast_reason_invalid_transaction": {
+    "message": "署名済みトランザクションを読み取れませんでした。"
+  },
+  "tx_broadcast_reason_network": {
+    "message": "ネットワークに接続できませんでした。"
+  },
+  "tx_broadcast_reason_rejected": {
+    "message": "ネットワークのノードがトランザクションを拒否しました。"
+  },
+  "tx_broadcast_reason_rejected_unconfirmed": {
+    "message": "ネットワークのノードがエラーを返しましたが、トランザクションが受け付けられたかどうかをウォレットで確認できませんでした。"
+  },
+  "tx_broadcast_reason_server": {
+    "message": "ネットワークサービスがエラーを返しました。"
+  },
+  "tx_broadcast_reason_timeout": {
+    "message": "ネットワークが時間内に応答しませんでした。"
+  },
+  "tx_broadcast_reason_unexpected": {
+    "message": "予期しないエラーにより送信が中断されました。"
+  },
+  "tx_broadcast_retry": {
+    "message": "再送信する"
+  },
+  "tx_broadcast_retry_blocked": {
+    "message": "再試行は送信されませんでした: $1"
+  },
+  "tx_broadcast_retry_notice": {
+    "message": "再試行では、同じ署名済みトランザクションを再送信するだけです。再度署名することはなく、別の署名も消費しません。"
+  },
+  "tx_broadcast_signature_notice": {
+    "message": "このトランザクションはすでに署名済みです。署名により、このアカウントの使い捨て署名が 1 つ消費されている可能性があります。"
+  },
+  "tx_broadcast_status_gone": {
+    "message": "トランザクションはまだネットワーク上で見つかっていません。しばらく待ってから再度確認するか、再送信してください。"
+  },
+  "tx_broadcast_status_unavailable": {
+    "message": "状況を確認するためにネットワークに接続できませんでした。しばらくしてからもう一度お試しください。"
+  },
+  "tx_broadcast_technical_details": {
+    "message": "技術的な詳細"
+  },
+  "tx_fee": {
+    "message": "Tx手数料:"
+  },
+  "tx_not_sent_body": {
+    "message": "ネットワークがこのトランザクションを受け付けなかったため、この支払いは送信されませんでした。"
+  },
+  "tx_not_sent_title": {
+    "message": "トランザクションは送信されませんでした"
+  },
+  "tx_sent_desc": {
+    "message": "トランザクションは正常にブロードキャストされ、確認待ちです。"
+  },
+  "tx_sent_title": {
+    "message": "トランザクション送信完了"
+  },
+  "tx_unknown_body": {
+    "message": "ネットワークがこの支払いを受け付けたかどうかをウォレットで確認できませんでした。トランザクションはすでに受け付けられている可能性があります。"
+  },
+  "tx_unknown_title": {
+    "message": "支払い状況が不明です"
+  },
+  "tx_unknown_warning": {
+    "message": "代わりの支払いを作成したり送信したりしないでください。元の支払いが受け付けられていた場合、2 回目の支払いで資金が再度使われるおそれがあります。"
+  },
+  "unable_to_find_any_addresses_with_assets": {
+    "message": "Unable to find any addresses with balance"
+  },
+  "unavailable": {
+    "message": "利用不可"
+  },
+  "unavailable_tooltip": {
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+  },
+  "unconfirmed": {
+    "message": "未確認"
+  },
+  "unconfirmed_balance_not_spendable": {
+    "message": "未確認残高は使用できません"
+  },
+  "unconfirmed_balance_not_spendable_warning": {
+    "message": "To protect your wallet, only confirmed balances are spendable when protected assets are present. This helps prevent accidental asset loss."
+  },
+  "understand_and_accept_the_risks_associated_with_this_transaction": {
+    "message": "このトランザクションに関連するリスクを理解し、受け入れます。"
+  },
+  "understand_sign_data_warning": {
+    "message": "signDataリクエストを有効にすると、すべての資金とNFTを失う可能性があることを理解しています。"
+  },
+  "uniscan_active_addresses_24h": {
+    "message": "アクティブアドレス (24時間)"
+  },
+  "uniscan_goto": {
+    "message": "UniScanへ移動"
+  },
+  "uniscan_transactions_24h": {
+    "message": "トランザクション (24時間)"
+  },
+  "unknown_error": {
+    "message": "不明なエラー"
+  },
+  "unlock": {
+    "message": "アンロック"
+  },
+  "unlock_already_in_progress": {
+    "message": "ロック解除は既に進行中です"
+  },
+  "unrecognized_password_strength": {
+    "message": "未認識のパスワード強度"
+  },
+  "unstake": {
+    "message": "アンステーク"
+  },
+  "usb_permissions_not_available": {
+    "message": "USB権限が利用できません"
+  },
+  "use_at_your_own_risk": {
+    "message": "自己責任で使用してください"
+  },
+  "user_rejected_the_request": {
+    "message": "ユーザーがリクエストを拒否しました。"
+  },
+  "utxo_indexing_risk_description": {
+    "message": "選択されたUTXOは、まだインデックス作成中のトランザクションに属しています。トランザクションのセキュリティと信頼性を確保するため、続行する前にインデックス作成が完了するまでお待ちください。"
+  },
+  "utxo_indexing_risk_title": {
+    "message": "UTXOインデックス作成が進行中です"
+  },
+  "utxo_not_found": {
+    "message": "UTXOが見つかりません。"
+  },
+  "verify_recovery_phrase": {
+    "message": "リカバリーフレーズを確認"
+  },
+  "version": {
+    "message": "バージョン:"
+  },
+  "view": {
+    "message": "表示"
+  },
+  "view_detail": {
+    "message": "詳細を見る"
+  },
+  "view_on_block_explorer": {
+    "message": "ブロックエクスプローラーで表示"
+  },
+  "view_on_mempool": {
+    "message": "Mempoolで表示"
+  },
+  "view_on_okx_explorer": {
+    "message": "OKX Explorerで表示"
+  },
+  "view_on_uniscan": {
+    "message": "UniScanで見る"
+  },
+  "wallet_already_initialized": {
+    "message": "ウォレットは既に存在します。新しいパスワードを作成する前にウォレットをリセットしてください。"
+  },
+  "wallet_existed": {
+    "message": "ウォレットは既に存在します"
+  },
+  "warning": {
+    "message": "警告"
+  },
+  "watch_address": {
+    "message": "ウォッチアドレス"
+  },
+  "watch_address_error": {
+    "message": "無効なQbitアドレス"
+  },
+  "watch_address_placeholder": {
+    "message": "Qbitアドレスを入力"
+  },
+  "watch_address_wallet": {
+    "message": "ウォッチウォレット"
+  },
+  "weak": {
+    "message": "弱"
+  },
+  "welcome_screen_title": {
+    "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
+  },
+  "wif_private_key": {
+    "message": "WIF秘密鍵:"
+  },
+  "world": {
+    "message": "世界"
+  },
+  "you_are_signing": {
+    "message": "署名する内容:"
+  },
+  "you_are_signing_data": {
+    "message": "署名するデータ:"
+  },
+  "you_can_unlock_these_assets_by_using_the_utxos_tools": {
+    "message": "You can review or unlock spendable UTXOs by using the UTXO Management Tool."
+  },
+  "you_haven_t_added_any_addresses": {
+    "message": "アドレスを追加していません"
+  },
+  "you_need_to_allow_camera_access_to_use_this_featur": {
+    "message": "この機能を使用するには、カメラへのアクセスを許可する必要があります。"
+  },
+  "you_need_to_unlock_wallet_first": {
+    "message": "まずウォレットのロックを解除する必要があります"
+  },
+  "you_re_on_the_latest_version": {
+    "message": "最新バージョンを使用しています"
+  },
+  "you_will_use_this_to_unlock_your_wallet": {
+    "message": "これを使用してウォレットをアンロックします"
+  },
+  "your_access_to_this_page_has_been_restricted_by_un": {
+    "message": "安全でない可能性があるため、このページへのアクセスはQbit Walletによって制限されています。"
+  },
+  "your_balance_have_to_be_merged": {
+    "message": "あなたの"
+  },
+  "connect_to_readonly_wallet": {
+    "message": "読み取り専用ウォレットに接続"
+  },
+  "copy_message_to_sign": {
+    "message": "署名するメッセージをコピー"
+  },
+  "create_readonly_wallet": {
+    "message": "読み取り専用ウォレットを作成"
+  },
+  "enter_your_signature": {
+    "message": "署名を入力してください"
+  },
+  "invalid_signature": {
+    "message": "無効な署名です"
+  },
+  "please_enter_your_signature": {
+    "message": "署名を入力してください"
+  },
+  "public_key": {
+    "message": "公開鍵"
+  },
+  "readonly_wallet": {
+    "message": "読み取り専用ウォレット"
+  },
+  "copy_signing_params": {
+    "message": "署名パラメータをコピー"
+  },
+  "readonly_signing": {
+    "message": "オフライン署名"
+  },
+  "readonly_signing_copy_step": {
+    "message": "署名リクエストをコピー"
+  },
+  "readonly_signing_copy_button": {
+    "message": "リクエストをコピー"
+  },
+  "readonly_signing_paste_step": {
+    "message": "署名済みPSBTを貼り付け"
+  },
+  "readonly_signing_paste_placeholder": {
+    "message": "署名済みPSBT Hex"
+  },
+  "readonly_signing_paste_signature_step": {
+    "message": "署名を貼り付け"
+  },
+  "readonly_signing_signature_placeholder": {
+    "message": "署名"
+  },
+  "asset_burning_risk_title": {
+    "message": "Asset burning detected"
+  },
+  "asset_burning_risk_description": {
+    "message": "This transaction may burn protected assets. Please review the transaction carefully before proceeding."
+  },
+  "unconfirmed_asset_balance_notice": {
+    "message": "If protected assets are detected in your address, unconfirmed balances will not be spendable until confirmed. You do not need to do anything."
+  },
+  "checking_website_safety": {
+    "message": "このウェブサイトの安全性を確認しています…"
+  },
+  "website_check_failed": {
+    "message": "Qbit Wallet でこのウェブサイトを確認できませんでした。接続を確認して、もう一度お試しください。"
+  },
+  "unverified_website_confirmation": {
+    "message": "未確認のウェブサイトに接続しようとしており、注意して進む必要があることを理解しています。"
+  },
+  "within_your_account": {
+    "message": "アカウント内"
+  },
+  "address_unavailable": {
+    "message": "アドレスを取得できません"
+  },
+  "date_unavailable": {
+    "message": "日付を取得できません"
+  },
+  "history_load_error": {
+    "message": "取引履歴を読み込めませんでした。"
+  },
+  "wallet_owned": {
+    "message": "ウォレット所有"
+  },
+  "change_output": {
+    "message": "おつりの出力"
+  },
+  "internal_output": {
+    "message": "内部送金"
+  },
+  "input_number": {
+    "message": "入力"
+  },
+  "output_number": {
+    "message": "出力"
+  },
+  "value": {
+    "message": "金額"
+  },
+  "value_unavailable": {
+    "message": "金額を取得できません"
+  },
+  "script_type": {
+    "message": "スクリプトの種類"
+  },
+  "script_type_unavailable": {
+    "message": "スクリプトの種類を取得できません"
+  },
+  "coinbase_input": {
+    "message": "Coinbase入力"
+  },
+  "previous_output": {
+    "message": "以前の出力"
+  },
+  "previous_output_unavailable": {
+    "message": "以前の出力を取得できません"
+  },
+  "locking_script": {
+    "message": "ロックスクリプト"
+  },
+  "raw_transaction_hex": {
+    "message": "未加工トランザクションの16進数データ"
+  },
+  "raw_transaction_preview": {
+    "message": "プレビュー"
+  },
+  "copy_raw_transaction": {
+    "message": "未加工トランザクションをコピー"
+  },
+  "raw_transaction_load_error": {
+    "message": "未加工トランザクションデータを読み込めませんでした。"
+  },
+  "unknown_risk_title": {
+    "message": "Unknown risk detected"
+  },
+  "unknown_risk_description": {
+    "message": "This transaction contains an unknown risk. Please review it carefully before proceeding."
+  },
+  "enter_requested_recovery_phrase_words": {
+    "message": "保存したリカバリーフレーズから指定された単語を入力してください。"
+  },
+  "qbit_recovery_status_seed_only": {
+    "message": "復元状態：シードのみで復元"
+  },
+  "qbit_counter_confidence_chain_floor_only": {
+    "message": "カウンターの信頼度：チェーン下限のみ"
+  },
+  "qbit_known_onchain_usage_lower_bound": {
+    "message": "既知のオンチェーン使用量：$1 署名"
+  },
+  "qbit_known_onchain_usage_none": {
+    "message": "既知のオンチェーン使用量：なし"
+  },
+  "qbit_recovery_warning_title": {
+    "message": "復元したQbitウォレットに注意が必要です"
+  },
+  "qbit_recovery_warning_body": {
+    "message": "チェーン履歴から分かるPQC署名使用量は下限のみです。メッセージ、オフチェーン、未送信の署名は観測できないため、正確な残り署名枠は不明です。"
+  },
+  "qbit_recovery_warning_recommendation": {
+    "message": "最大限の安全のため、資金を新しいウォレットへ移動し、古いシードの使用をやめることを強くおすすめします。"
+  },
+  "qbit_recovery_or_divider": {
+    "message": "または"
+  },
+  "qbit_recovery_continue_confirmation": {
+    "message": "正確なカウンターは不明であり、署名リクエストごとに明示的な再確認が必要なことを理解しました。"
+  },
+  "qbit_recovery_continue_using": {
+    "message": "復元したウォレットを引き続き使用"
+  },
+  "qbit_recovery_move_funds": {
+    "message": "資金を新しいQbitウォレットへ移動"
+  },
+  "qbit_recovery_warning_collapsed_title": {
+    "message": "警告：これは復元されたウォレットです"
+  },
+  "qbit_recovery_dismiss_warning": {
+    "message": "この警告を今後表示しない"
+  },
+  "qbit_recovery_signing_warning_title": {
+    "message": "復元下限による署名の警告"
+  },
+  "qbit_recovery_signing_warning_body": {
+    "message": "表示される使用量はチェーン由来の下限であり、正確なカウンターや残り署名枠ではありません。"
+  },
+  "qbit_recovery_signing_confirmation": {
+    "message": "このリクエストの内容を確認し、復元カウンターのリスクを受け入れます。"
+  },
+  "qbit_recovery_counter_approximate_tip": {
+    "message": "このウォレットはシードフレーズから復元されたため、これは概算の署名カウンターです。"
+  },
+  "qbit_review_each_restored_signing_request": {
+    "message": "復元ウォレットの署名リクエストを1件ずつ確認してください。"
+  },
+  "qbit_recovery_migrating_title": {
+    "message": "新しいウォレットへの移行中"
+  },
+  "qbit_recovery_migrating_body": {
+    "message": "署名済みトランザクションの送信と承認中も、復元ウォレットは利用可能です。中断後はここから再開できます。"
+  },
+  "qbit_recovery_destination_value": {
+    "message": "新しい移動先：$1"
+  },
+  "qbit_recovery_destination_label": {
+    "message": "新しい移動先："
+  },
+  "qbit_recovery_progress": {
+    "message": "承認済み移動：$2 件中 $1 件"
+  },
+  "qbit_recovery_resume_migration": {
+    "message": "新しいウォレットへの移行を再開"
+  },
+  "qbit_recovery_archived_title": {
+    "message": "アーカイブ済み復元ウォレット"
+  },
+  "qbit_recovery_archived_body": {
+    "message": "この復元ウォレットは読み取り専用です。失敗、再編成、新規受取の資金を検出して安全に移動できるよう、鍵と復元記録は保持されます。"
+  },
+  "qbit_recovery_check_new_funds": {
+    "message": "新しく受け取った資金を確認"
+  },
+  "qbit_recovery_other_networks_hint": {
+    "message": "このシードは他のネットワークにまだ資金を保有している可能性があります。ネットワークを切り替えて確認し、移動してください。"
+  },
+  "qbit_recovery_account_mapping": {
+    "message": "アカウント $1 → 新しいウォレットのアカウント $2：$3"
+  },
+  "qbit_recovery_account_mapping_label": {
+    "message": "アカウント $1 → 新しいウォレットのアカウント $2："
+  },
+  "qbit_recovery_source_unavailable": {
+    "message": "復元したQbitウォレットを利用できません。"
+  },
+  "qbit_recovery_confirmation_unavailable": {
+    "message": "復元カウンターの署名確認を利用できません。移動内容をもう一度確認してください。"
+  },
+  "qbit_recovery_review_title": {
+    "message": "ウォレット移動の確認"
+  },
+  "qbit_recovery_review_intro": {
+    "message": "ウォレットのアカウントと資金は新しいアドレスへ移動されます。移動の概要と新しいウォレットアドレスは以下をご確認ください。"
+  },
+  "qbit_recovery_amount_label": {
+    "message": "金額："
+  },
+  "qbit_recovery_fee_label": {
+    "message": "ネットワーク手数料："
+  },
+  "qbit_recovery_migration_action": {
+    "message": "復元資金を新しいウォレットへ移動"
+  },
+  "qbit_recovery_migration_consequence": {
+    "message": "使用可能な残高を新しい移動先へ送るトランザクションに署名して送信します。標準的な移動の手数料を賄えないダストは保持された移動元に残ります。失敗や中断時も両方のウォレットと復元記録は保持されます。"
+  },
+  "qbit_recovery_migration_confirmation": {
+    "message": "新しい移動先アドレス、金額、手数料を確認しました（必須）"
+  },
+  "qbit_recovery_pending_title": {
+    "message": "移動の承認待ち"
+  },
+  "qbit_recovery_pending_body": {
+    "message": "署名済み移動データは暗号化保管庫に保存されています。両方のウォレットを保持し、再送信、承認確認、安全な再開のためにここへ戻ってください。"
+  },
+  "qbit_recovery_plan_prepared": {
+    "message": "確認と署名の準備完了"
+  },
+  "qbit_recovery_plan_signed": {
+    "message": "署名して保存済み・送信待ち"
+  },
+  "qbit_recovery_plan_broadcast": {
+    "message": "送信済み・承認待ち"
+  },
+  "qbit_recovery_plan_confirmed": {
+    "message": "承認済み"
+  },
+  "qbit_recovery_complete_title": {
+    "message": "新しいウォレットへの移行完了"
+  },
+  "qbit_recovery_complete_body": {
+    "message": "経済的に使用可能な復元資金はすべて新しい移動先で承認されました。標準的な移動の手数料を賄えないダストは読み取り専用の復元ウォレットに残ります。新しいウォレットが有効です。"
+  },
+  "qbit_recovery_complete_archived_body": {
+    "message": "最初に復元したウォレットは読み取り専用です。失敗、再編成、新規受取の資金を検出して安全に移動できるよう、鍵と復元記録は保持されます。"
+  },
+  "qbit_recovery_complete_switch_wallet_hint": {
+    "message": "左上の「ウォレットを切り替え」オプションから、最初に復元した読み取り専用ウォレットにアクセスできます。"
+  },
+  "qbit_recovery_original_address_label": {
+    "message": "最初に復元したアドレス："
+  },
+  "qbit_recovery_new_address_label": {
+    "message": "新しいアドレス："
+  },
+  "qbit_recovery_error_title": {
+    "message": "移行に注意が必要です"
+  },
+  "qbit_recovery_error_body": {
+    "message": "移行を安全に続行できませんでした。両方のウォレットと暗号化された復旧記録は保持されています。ネットワークを確認して再試行してください。"
+  },
+  "qbit_recovery_error_code_label": {
+    "message": "エラーコード:"
+  },
+  "qbit_recovery_error_show_details": {
+    "message": "詳細を表示"
+  },
+  "qbit_recovery_error_hide_details": {
+    "message": "詳細を非表示"
+  },
+  "qbit_recovery_error_copy_details": {
+    "message": "詳細をコピー"
+  },
+  "qbit_recovery_protected_assets_error": {
+    "message": "保護された資産は、このウォレットをアーカイブする前に個別に移動する必要があります。"
+  },
+  "qbit_recovery_archived_signing_blocked": {
+    "message": "この復旧済みウォレットはアーカイブされ、読み取り専用です。"
+  },
+  "qbit_recovery_migration_signing_only": {
+    "message": "移行中、復旧済みウォレットが署名できるのは確認済みの資金移動だけです。"
+  },
+  "qbit_recovery_secure_confirmation_unavailable": {
+    "message": "復元カウンターの安全な確認を利用できません。ウォレットをロックして開き直し、もう一度確認してください。"
+  },
+  "qbit_recovery_signing_confirmation_expired": {
+    "message": "復元カウンターの確認期限が切れました。この正確なリクエストをもう一度確認してください。"
+  },
+  "qbit_recovery_signing_confirmation_required": {
+    "message": "復旧済みウォレットによるこの正確な署名リクエストを確認し、明示的に承認してください。"
+  },
+  "qbit_recovery_wallets_retained": {
+    "message": "このウォレットの削除は進行中の復旧移行に影響するため、追加の確認が必要です。"
+  },
+  "qbit_recovery_back_restart_warning": {
+    "message": "戻ると、復旧プロセスを最初からやり直す必要があります。"
+  },
+  "qbit_recovery_back_new_seed_warning": {
+    "message": "現在表示されているものとは異なる新しいシードフレーズが生成されます。"
+  },
+  "qbit_recovery_removal_title": {
+    "message": "このウォレットは Qbit 復旧移行の一部です"
+  },
+  "qbit_recovery_removal_source_migrating": {
+    "message": "この復元済みウォレットを削除すると、進行中の復旧記録が消去されます。移行は再開できなくなり、まだ移し終えていない資金は旧アドレスに残ったままとなり、後で回収するにはこのシードフレーズを再度インポートして復旧を最初からやり直す必要があります。"
+  },
+  "qbit_recovery_removal_source_migrated": {
+    "message": "この復元済みウォレットを削除すると、完了した復旧記録が消去されます。このシードフレーズを使う他のネットワークでは復旧が完了していない可能性があり、再開するにはこのシードフレーズを再度インポートする必要があります。"
+  },
+  "qbit_recovery_removal_destination": {
+    "message": "復旧した資金はこのウォレットに送金済み（または送金中）です。シードフレーズをバックアップしていない場合、削除するとその資金は永久に回収できなくなります。また、中断した復旧はこのウォレットを再度インポートするまで再開できません。"
+  },
+  "qbit_recovery_removal_inflight": {
+    "message": "復旧の送金がまだ処理中です。削除後は追跡されなくなり、届いた資金は宛先ウォレットを復元して再スキャンするまで表示されない場合があります。"
+  },
+  "qbit_recovery_removal_unverified": {
+    "message": "このウォレットは進行中の復旧移行と照合できませんでした。復旧資金を受け取るウォレットである可能性があり、シードフレーズのバックアップなしに削除すると、その資金は永久に回収できなくなるおそれがあります。"
+  },
+  "qbit_recovery_loading": {
+    "message": "暗号化された移行記録とチェーン状態を確認中…"
+  },
+  "qbit_recovery_sign_and_move": {
+    "message": "署名して資金を移動"
+  },
+  "qbit_recovery_check_status": {
+    "message": "状態を確認して再開"
+  },
+  "qbit_recovery_return_home": {
+    "message": "新しいウォレットへ戻る"
+  },
+  "qbit_core_recovery_descriptors": {
+    "message": "qbit Core復元ディスクリプター"
+  },
+  "qbit_core_descriptor_counter_warning": {
+    "message": "これらのディスクリプターには秘密鍵情報が含まれます。信頼できるqbit Coreウォレットでのみ使用してください。ディスクリプターは鍵を復元しますが、正確なPQCカウンターは復元しません。qbit Core間で正確に復元するにはbackupwalletとrestorewalletを使用してください。"
+  },
+  "qbit_core_network_value": {
+    "message": "ネットワーク：$1"
+  },
+  "qbit_core_receive_path_value": {
+    "message": "受取パス：$1"
+  },
+  "qbit_core_copy_receive_descriptor": {
+    "message": "受取ディスクリプターをコピー"
+  },
+  "qbit_core_change_path_value": {
+    "message": "おつりパス：$1"
+  },
+  "qbit_core_copy_change_descriptor": {
+    "message": "おつりディスクリプターをコピー"
+  },
+  "qbit_core_importdescriptors_json": {
+    "message": "qbit Core importdescriptors JSON"
+  },
+  "qbit_core_copy_json": {
+    "message": "JSONをコピー"
+  },
+  "qbit_core_download_json": {
+    "message": "JSONをダウンロード"
+  },
+  "linked_to_cold_wallet": {
+    "message": "Qbit コールドウォレットに接続済み"
+  },
+  "reject_blocked_request": {
+    "message": "拒否 (Qbit Walletによりブロック)"
+  },
+  "touch_id_unlock": {
+    "message": "Touch IDロック解除"
+  },
+  "unlock_with_touch_id": {
+    "message": "Touch IDでロック解除"
+  },
+  "enable_touch_id": {
+    "message": "Touch IDを有効にする"
+  },
+  "enable_touch_id_desc": {
+    "message": "パスワードを入力する代わりにTouch IDでウォレットのロックを解除できます。パスワードは引き続き使用でき、重要な操作には必要です。"
+  },
+  "touch_id_status_on": {
+    "message": "オン"
+  },
+  "touch_id_status_off": {
+    "message": "オフ"
+  },
+  "disable_touch_id": {
+    "message": "Touch IDを無効にする"
+  },
+  "touch_id_setup_failed": {
+    "message": "Touch IDの設定に失敗しました"
+  },
+  "touch_id_prf_unsupported": {
+    "message": "このデバイスの認証器は安全なTouch IDロック解除に対応していません"
+  },
+  "touch_id_unlock_expired": {
+    "message": "Touch IDロック解除の再設定が必要です。パスワードを使用してください。"
+  },
+  "enter_password_to_enable_touch_id": {
+    "message": "Touch IDを有効にするにはウォレットのパスワードを入力してください"
+  },
+  "touch_id_reenabled_after_password_change": {
+    "message": "新しいパスワードでTouch IDが再有効化されました"
+  },
+  "touch_id_disabled_after_password_change": {
+    "message": "Touch IDロック解除は無効になりました。設定から再度有効にできます。"
+  },
+  "touch_id_onboarding_desc": {
+    "message": "パスワードの代わりにTouch IDでウォレットのロックを解除できます。後で設定から有効にすることもできます。"
+  },
+  "send_exceeds_standard_size": {
+    "message": "この金額には $1 個を超える入力が必要で、ネットワークの標準トランザクションサイズを超えます。一度に送れるのは最大 $2 $3 です。「最大」も使えます。"
+  },
+  "send_all_leaves_outputs_behind": {
+    "message": "「最大」では、1 つのトランザクションに収まる上限である大きい順の $1 個のアウトプットを送ります。より小さい $4 個のアウトプットにある $2 $3 はこのアカウントに残ります。"
+  },
+  "utxo_limit_exceeded_balance": {
+    "message": "アウトプットが多すぎてエクスプローラーで一覧表示できません。この合計はアドレスの概要から取得しています。"
+  },
+  "utxo_limit_exceeded_send": {
+    "message": "このアカウントのアウトプットはエクスプローラーが一覧表示できる数を超えており、ウォレットは履歴からすべてを読み取れませんでした。送金するにはアウトプットを統合してください。"
+  },
+  "consolidate_outputs": {
+    "message": "アウトプットを統合"
+  },
+  "consolidation_description": {
+    "message": "各バッチは、このアカウントの確認済みアウトプットのうち金額の大きいものから最大$1個を、1つのアウトプットとして自分のアドレスへ送ります。各バッチは確認してから署名します。"
+  },
+  "consolidation_status": {
+    "message": "確認済みアウトプットは$1個で、エクスプローラーが一覧表示できるのは$2個までです。あと約$3バッチでこの上限内に収まります。"
+  },
+  "consolidation_within_limit": {
+    "message": "このアカウントはエクスプローラーの上限である$1個以内です。統合は不要です。"
+  },
+  "consolidation_pending": {
+    "message": "未確認のトランザクションがこれらのアウトプットのうち$1個を使用しています。それらのトランザクションが確認されると数から外れます。"
+  },
+  "consolidation_batch_summary": {
+    "message": "$1個のアウトプットを$2 $3の1つのアウトプットにまとめます。手数料: $4 bits、サイズ $5 kB。"
+  },
+  "consolidation_prepare_batch": {
+    "message": "次のバッチを準備"
+  },
+  "consolidation_next_batch": {
+    "message": "次のバッチを統合"
+  },
+  "consolidation_send_note": {
+    "message": "このアカウントのアウトプットはエクスプローラーが一覧表示できる数を超えています。統合すると、再び通常どおり送金や移行ができます。"
+  },
+  "consolidation_status_confirming": {
+    "message": "確認済みアウトプットは$1個で、エクスプローラーが一覧表示できるのは$2個までです。保留中のバッチが確認されると、この上限内に収まります。"
+  },
+  "consolidation_error_within_limit": {
+    "message": "このアカウントはエクスプローラーのアウトプット上限内です。統合は不要です。"
+  },
+  "consolidation_error_nothing_ready": {
+    "message": "統合できる確認済みアウトプットはまだありません。後でもう一度お試しください。"
+  },
+  "consolidation_error_outputs_moving": {
+    "message": "このアカウントのアウトプットが使用中です。しばらくしてからもう一度お試しください。"
+  },
+  "consolidation_error_input_spent": {
+    "message": "この統合バッチのアウトプットはすでに使用されています。バッチをもう一度準備してください。"
+  },
+  "consolidation_error_keep_reading": {
+    "message": "ウォレットはこのアカウントの履歴の一部を読み取りましたが、まとめられるアウトプットは見つかりませんでした。もう一度準備すると続きを読み取ります。"
+  }
+}

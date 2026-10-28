@@ -1,0 +1,79 @@
+name: PQC package conformance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pqc.yml'
+      - 'apps/extension/**'
+      - 'docs/pqc-derivation.md'
+      - 'experiments/pqc-wasm/fixtures/**'
+      - 'experiments/pqc-wasm/scripts/**'
+      - 'experiments/pqc-wasm/src/**'
+      - 'experiments/pqc-wasm/test/slh-dsa-golden.test.mjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/conformance/pqc-package-vectors.test.mjs'
+      - 'scripts/security/check-sdk-packages.mjs'
+      - 'scripts/security/sdk-package-pins.json'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/pqc.yml'
+      - 'apps/extension/**'
+      - 'docs/pqc-derivation.md'
+      - 'experiments/pqc-wasm/fixtures/**'
+      - 'experiments/pqc-wasm/scripts/**'
+      - 'experiments/pqc-wasm/src/**'
+      - 'experiments/pqc-wasm/test/slh-dsa-golden.test.mjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/conformance/pqc-package-vectors.test.mjs'
+      - 'scripts/security/check-sdk-packages.mjs'
+      - 'scripts/security/sdk-package-pins.json'
+
+permissions:
+  contents: read
+
+# Qbit-Org/qbit-pqc builds and tests @qbit-oss/pqc and publishes it to the
+# registry with provenance from its signed tag. This job checks the wallet's
+# side: the installed tarball and its WASM match the committed pin, the
+# wallet's vectors pass against it, and the extension packages it for MV3.
+jobs:
+  pqc:
+    name: Verify @qbit-oss/pqc
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm 8.6.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.6.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify committed SLH-DSA golden fixture
+        run: pnpm pqc:golden:verify:committed
+
+      - name: Verify the installed package against its pin
+        run: pnpm sdk:packages:check
+
+      - name: Run golden, Core derivation, and Core signature vectors against the package
+        run: pnpm test:pqc-golden
+
+      - name: Run extension import smoke
+        run: pnpm --filter qbit-extension smoke:pqc-import

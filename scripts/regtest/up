@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/env.sh"
+
+echo "starting qbit regtest services..."
+compose up -d "$QBIT_DOCKER_SERVICE" "$QBIT_ELECTRS_DOCKER_SERVICE"
+echo "waiting for qbit RPC at http://$QBIT_RPC_HOST:$QBIT_RPC_PORT..."
+wait_for_rpc "${QBIT_REGTEST_RPC_WAIT_SECONDS:-60}"
+if [[ "${QBIT_REGTEST_WAIT_ELECTRS:-1}" == "1" ]]; then
+  echo "waiting for electrs-qbit at $QBIT_ELECTRS_HTTP_URL..."
+  wait_for_electrs "${QBIT_REGTEST_ELECTRS_WAIT_SECONDS:-60}"
+fi
+echo "qbit regtest ready: rpc=http://$QBIT_RPC_HOST:$QBIT_RPC_PORT electrs=$QBIT_ELECTRS_HTTP_URL"

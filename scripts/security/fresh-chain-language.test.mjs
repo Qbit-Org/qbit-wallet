@@ -1,0 +1,216 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+
+const ecosystemNamePattern = /unisat|bitcoin|fractal|babylon|cosmos|keplr/i
+const ecosystemTokenPattern =
+  /(?:^|[^a-z0-9])(?:btc|brc[- ]?20|ordinals?|runes?|inscriptions?)(?=$|[^a-z0-9])/i
+const narrativeTermPattern =
+  /\b(?:fork(?:ed|ing|s)?|rebrand(?:ed|ing|s)?|retired|deprecated|legacy|compatib(?:ility|le))\b/i
+const filenameSubstringPattern =
+  /unisat|bitcoin|btc|fractal|brc.?20|ordinal|rune|inscription|babylon|cosmos|keplr/i
+
+const reviewedResiduals = [
+  {
+    matches: path => path === 'LICENSE' || path === 'apps/extension/LICENSE',
+    reason: 'required license text',
+  },
+  {
+    matches: path => path === 'packages/phishing-detect/THIRD_PARTY_NOTICES.md',
+    reason: 'required third-party attribution',
+  },
+  {
+    matches: path => path === 'packages/phishing-detect/src/static-policy.ts',
+    reason: 'versioned source attribution and malicious-domain safety data',
+  },
+  {
+    matches: path => path === 'docs/privacy.md',
+    reason: 'denylist source attribution',
+  },
+  {
+    matches: path => path === 'pnpm-lock.yaml',
+    reason: 'generated external dependency metadata',
+  },
+  {
+    matches: path =>
+      [
+        'docs/security/dependency-audit.json',
+        'docs/security/dependency-inventory.json',
+        'scripts/security/dependency-license-baseline.json',
+        'scripts/security/dependency-risk-exceptions.json',
+      ].includes(path),
+    reason: 'generated or reviewed external dependency metadata',
+  },
+  {
+    matches: path => path.startsWith('patches/'),
+    reason: 'external dependency patch',
+  },
+  {
+    matches: path => path.startsWith('experiments/pqc-wasm/'),
+    reason: 'pinned external cryptography repository and C ABI',
+  },
+  {
+    matches: path => path === 'docs/pqc-wasm-b1-memo.md',
+    reason: 'pinned external cryptography source inventory',
+  },
+  {
+    matches: path => path === 'docs/pqc-derivation.md',
+    reason: 'external cryptography library source paths',
+  },
+  {
+    matches: path => path === 'docs/security/dependency-review.md',
+    reason: 'external dependency identifiers',
+  },
+  {
+    matches: path => path === 'scripts/conformance/report-pin-diff.mjs',
+    reason: 'precise Git serialization terminology',
+  },
+  {
+    matches: path => path.startsWith('scripts/conformance/qbit-js/scripts/'),
+    reason: 'vendored qbit-js generator with required third-party attribution',
+  },
+  {
+    matches: path => path === 'scripts/conformance/p2mr-v1-coverage.json',
+    reason: 'pinned external cryptography source and Core opcode case identifiers',
+  },
+  {
+    matches: path =>
+      [
+        'package.json',
+        'apps/extension/package.json',
+        'packages/keyring-service/package.json',
+        'packages/wallet-core/package.json',
+      ].includes(path),
+    reason: 'external dependency identifier',
+  },
+  {
+    matches: path =>
+      [
+        'test/setup.ts',
+        'apps/extension/src/shared/animatedQr.ts',
+        'packages/keyring-service/src/keyrings/hd-keyring.ts',
+        'packages/keyring-service/src/keyrings/qbit-hd-keyring.ts',
+        'packages/keyring-service/src/keyrings/simple-keyring.ts',
+        'packages/keyring-service/tsup.config.ts',
+        'packages/wallet-background/tsup.config.ts',
+        'packages/wallet-core/src/transaction-core.ts',
+        'packages/wallet-core/src/network/index.ts',
+        'packages/wallet-core/src/message/bip322-simple.ts',
+        'packages/wallet-core/src/message/deterministic-ecdsa.ts',
+        'packages/wallet-core/src/message/ecdsa.ts',
+        'packages/wallet-core/tsup.config.ts',
+      ].includes(path),
+    reason: 'external library API or byte-exact signing constant',
+  },
+  {
+    matches: path =>
+      [
+        'scripts/security/dependency-policy.test.mjs',
+        'scripts/security/fresh-chain-language.test.mjs',
+        'scripts/security/generate-dependency-evidence.mjs',
+      ].includes(path),
+    reason: 'audit vocabulary',
+  },
+]
+
+function trackedFiles() {
+  return execFileSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { cwd: repoRoot, encoding: 'utf8' }
+  )
+    .split('\0')
+    .filter(Boolean)
+    .filter(path => {
+      const absolutePath = resolve(repoRoot, path)
+      return existsSync(absolutePath) && lstatSync(absolutePath).isFile()
+    })
+}
+
+function reviewedReason(path) {
+  return reviewedResiduals.find(entry => entry.matches(path))?.reason
+}
+
+function containsAuditedTerm(value) {
+  const tokenized = value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+    .replaceAll('_', ' ')
+  return (
+    ecosystemNamePattern.test(tokenized) ||
+    ecosystemTokenPattern.test(tokenized) ||
+    narrativeTermPattern.test(tokenized)
+  )
+}
+
+test('first-party text contains only reviewed external, legal, protocol, and safety residuals', () => {
+  const violations = []
+  const dispositions = new Map()
+
+  for (const path of trackedFiles()) {
+    const content = readFileSync(resolve(repoRoot, path))
+    if (content.includes(0)) continue
+
+    const lines = content.toString('utf8').split(/\r?\n/)
+    lines.forEach((line, index) => {
+      const auditableLine = line.replace(
+        /data:[^;]+;base64,[A-Za-z0-9+/=]+/g,
+        '<embedded binary asset>'
+      )
+      if (!containsAuditedTerm(auditableLine)) return
+
+      const reason = reviewedReason(path)
+      if (!reason) {
+        violations.push(`${path}:${index + 1}: ${auditableLine.trim()}`)
+        return
+      }
+      dispositions.set(reason, (dispositions.get(reason) ?? 0) + 1)
+    })
+  }
+
+  assert.deepEqual(violations, [])
+  assert.ok(dispositions.size > 0, 'expected reviewed residuals to remain visible')
+})
+
+test('tracked filenames contain only the external patch name and a reviewed lexical overlap', () => {
+  const allowed = new Map([
+    ['patches/bitcoinjs-lib@6.1.6.patch', 'external dependency patch'],
+    ['.changeset/calm-qbits-prune.md', 'the letters “rune” occur inside “prune”'],
+  ])
+  const violations = trackedFiles()
+    .filter(path => filenameSubstringPattern.test(path))
+    .filter(path => !allowed.has(path))
+
+  assert.deepEqual(violations, [])
+})
+
+test('package identity metadata is Qbit-native', () => {
+  const violations = []
+
+  for (const path of trackedFiles().filter(path => path.endsWith('package.json'))) {
+    if (path.startsWith('external/')) continue
+
+    const manifest = JSON.parse(readFileSync(resolve(repoRoot, path), 'utf8'))
+    const identity = JSON.stringify({
+      name: manifest.name,
+      description: manifest.description,
+      keywords: manifest.keywords,
+      author: manifest.author,
+      repository: manifest.repository,
+      homepage: manifest.homepage,
+      bugs: manifest.bugs,
+    })
+    if (containsAuditedTerm(identity)) violations.push(path)
+  }
+
+  assert.deepEqual(violations, [])
+})
+
+test('the obsolete derivation API document is absent', () => {
+  assert.equal(existsSync(resolve(repoRoot, 'docs/api/derive-context-hash.md')), false)
+})

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/env.sh"
+
+target="${1:-}"
+amount="${2:-}"
+
+if [[ -z "$target" || -z "$amount" ]]; then
+  echo "usage: scripts/regtest/fund <address> <amount>" >&2
+  exit 64
+fi
+require_positive_integer "$QBIT_COINBASE_MATURITY" "QBIT_REGTEST_COINBASE_MATURITY"
+
+ensure_wallet "$QBIT_FUNDING_WALLET"
+
+spendable_balance="$(wallet_cli "$QBIT_FUNDING_WALLET" getbalance)"
+if ! LC_ALL=C awk -v balance="$spendable_balance" -v requested="$amount" \
+  'BEGIN { exit !(balance >= requested + 0.01) }'; then
+  funding_address="$(wallet_cli "$QBIT_FUNDING_WALLET" getnewaddress)"
+  bash "$REGTEST_DIR/mine" "$((QBIT_COINBASE_MATURITY + 1))" "$funding_address" >/dev/null
+else
+  funding_address="$(wallet_cli "$QBIT_FUNDING_WALLET" listreceivedbyaddress 0 true | node -e '
+    let input = ""
+    process.stdin.on("data", chunk => { input += chunk })
+    process.stdin.on("end", () => {
+      const entry = JSON.parse(input).find(item => item.address)
+      if (entry) process.stdout.write(entry.address)
+    })
+  ')"
+  if [[ -z "$funding_address" ]]; then
+    funding_address="$(wallet_cli "$QBIT_FUNDING_WALLET" getnewaddress)"
+  fi
+fi
+txid="$(wallet_cli "$QBIT_FUNDING_WALLET" sendtoaddress "$target" "$amount")"
+bash "$REGTEST_DIR/mine" 1 "$funding_address" >/dev/null
+
+echo "$txid"

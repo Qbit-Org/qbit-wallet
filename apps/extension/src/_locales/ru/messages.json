@@ -1,0 +1,2912 @@
+{
+  "Broadcast": {
+    "message": "Транслировать"
+  },
+  "about_3_minutes": {
+    "message": "(около 3 минут)"
+  },
+  "about_new_update": {
+    "message": "Доступно новое обновление"
+  },
+  "about_us": {
+    "message": "О нас"
+  },
+  "about_qbit_wallet": {
+    "message": "О Qbit Wallet"
+  },
+  "account_creation_already_in_progress": {
+    "message": "Для этого кошелька уже создаётся аккаунт. Дождитесь завершения, прежде чем создавать другой."
+  },
+  "add_address": {
+    "message": "Добавить адрес"
+  },
+  "address": {
+    "message": "Адрес"
+  },
+  "address_book": {
+    "message": "Адресная книга"
+  },
+  "address_book_placeholder": {
+    "message": "Адресная книга"
+  },
+  "address_label": {
+    "message": "Адрес"
+  },
+  "address_or_name_fb": {
+    "message": "Адрес или имя (.fb)"
+  },
+  "address_preview": {
+    "message": "Адрес:"
+  },
+  "address_type": {
+    "message": "Тип адреса"
+  },
+  "address_type_changed": {
+    "message": "Тип адреса изменён"
+  },
+  "addressbook_desc": {
+    "message": "Добавить часто используемые адреса"
+  },
+  "advance_options": {
+    "message": "Расширенные опции"
+  },
+  "advanced": {
+    "message": "Расширенные"
+  },
+  "advanced_settings": {
+    "message": "Расширенные настройки"
+  },
+  "appearance": {
+    "message": "Внешний вид"
+  },
+  "enable": {
+    "message": "Включить"
+  },
+  "enable_local_regtest_title": {
+    "message": "Включить локальный Regtest"
+  },
+  "local_regtest": {
+    "message": "Локальный Regtest"
+  },
+  "enabled": {
+    "message": "Включено"
+  },
+  "disabled": {
+    "message": "Отключено"
+  },
+  "regtest_access_acknowledgement": {
+    "message": "Я понимаю, что Qbit Wallet сможет обмениваться данными с любым локальным сервисом, запущенным на порту 3002."
+  },
+  "regtest_access_denied": {
+    "message": "Локальный доступ не был предоставлен. Локальный Regtest остаётся выключенным, а текущая сеть не изменилась."
+  },
+  "regtest_access_disabled": {
+    "message": "Локальный Regtest отключён"
+  },
+  "regtest_access_enabled": {
+    "message": "Локальный Regtest включён"
+  },
+  "regtest_access_no_value": {
+    "message": "Монеты Regtest не имеют денежной ценности."
+  },
+  "regtest_access_trust_note": {
+    "message": "Включайте это, только если вы разработчик и доверяете локальному сервису, запущенному на порту 3002."
+  },
+  "regtest_access_disable_note": {
+    "message": "Этот доступ можно отключить позже в расширенных настройках."
+  },
+  "regtest_access_not_enabled": {
+    "message": "Доступ к Regtest не включён"
+  },
+  "regtest_access_request_failed": {
+    "message": "Браузер не смог обработать запрос локального доступа. Локальный Regtest остаётся выключенным, а текущая сеть не изменилась."
+  },
+  "regtest_access_retry": {
+    "message": "Повторить"
+  },
+  "regtest_access_status_off": {
+    "message": "Выкл."
+  },
+  "regtest_access_status_on": {
+    "message": "Вкл."
+  },
+  "regtest_service_unavailable": {
+    "message": "Qbit Wallet не может подключиться к вашему локальному экземпляру Regtest. Убедитесь, что он запущен на порту 3002."
+  },
+  "regtest_service_unexpected": {
+    "message": "Неожиданный сервис по адресу Regtest"
+  },
+  "theme_light": {
+    "message": "Светлая"
+  },
+  "theme_dark": {
+    "message": "Тёмная"
+  },
+  "theme_system": {
+    "message": "Системная"
+  },
+  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
+    "message": "4. После подписи отсканируйте подписанный QR-код обратно с помощью этого кошелька."
+  },
+  "agreement_text": {
+    "message": "ПОДТВЕРДИТЬ"
+  },
+  "all": {
+    "message": "Все"
+  },
+  "all_marked_as_read": {
+    "message": "Все отмечено как прочитанное"
+  },
+  "all_read": {
+    "message": "Всё прочитано"
+  },
+  "allow_sign_data_requests": {
+    "message": "Разрешить запросы signData"
+  },
+  "allow_this_site_to_switch_the_chain": {
+    "message": "Разрешить этому сайту переключить блокчейн?"
+  },
+  "allow_this_site_to_switch_the_network": {
+    "message": "Разрешить этому сайту переключить сеть?"
+  },
+  "allow_using_unconfirmed_balance": {
+    "message": "Разрешить использование неподтверждённого баланса"
+  },
+  "amount": {
+    "message": "Сумма"
+  },
+  "amount_exceeds_your_available_balance": {
+    "message": "Сумма превышает ваш доступный баланс"
+  },
+  "amount_must_be_at_least": {
+    "message": "Сумма должна быть не менее"
+  },
+  "announcement": {
+    "message": "Объявление"
+  },
+  "appDescription": {
+    "message": "Qbit Wallet позволяет отправлять, получать и совершать транзакции в нативном Qbit (QBT) и его экосистеме."
+  },
+  "appName": {
+    "message": "Qbit Wallet"
+  },
+  "approvalres_is_required": {
+    "message": "approvalRes требуется"
+  },
+  "are_not_supported": {
+    "message": "не поддерживаются."
+  },
+  "are_not_supported_yet": {
+    "message": "пока не поддерживаются."
+  },
+  "are_supported": {
+    "message": "поддерживаются"
+  },
+  "are_you_sure_you_want_to_delete_this_contact": {
+    "message": "Вы уверены, что хотите удалить этот контакт?"
+  },
+  "auto": {
+    "message": "Авто"
+  },
+  "automatic_lock_time": {
+    "message": "Время автоматической блокировки"
+  },
+  "available": {
+    "message": "Доступно"
+  },
+  "available_balance": {
+    "message": "Доступный баланс"
+  },
+  "average": {
+    "message": "Средний"
+  },
+  "avg": {
+    "message": "Средне"
+  },
+  "back": {
+    "message": "Назад"
+  },
+  "balance": {
+    "message": "Баланс"
+  },
+  "bbn": {
+    "message": "bbn..."
+  },
+  "qbit_restore_accounts_restored": {
+    "message": "Восстановленные адреса"
+  },
+  "qbit_restore_concurrent_instance_warning": {
+    "message": "Обнаружена активность за пределами восстановленных адресов этого кошелька. Возможно, используется другая копия этой сид-фразы. Не подписывайте ничего этим кошельком, пока не убедитесь, что другие копии неактивны; лучше переведите средства на новую сид-фразу."
+  },
+  "qbit_restore_counters_minimum_warning": {
+    "message": "Счётчики подписей восстановлены по истории блокчейна и являются минимальными значениями. Подписи сообщений и никогда не транслировавшиеся транзакции невидимы для этого сканирования.\n\nПоэтому, если эта фраза когда-либо использовалась в другом кошельке, переведите средства в новый кошелёк вместо повторного использования старых адресов."
+  },
+  "qbit_restore_floors_incomplete_warning": {
+    "message": "Восстановление счётчиков подписей не завершилось. Подписание остаётся заблокированным до успешного завершения; получение средств не затронуто. Повторите попытку сейчас или разблокируйте кошелёк позже — повтор произойдёт автоматически."
+  },
+  "qbit_restore_network": {
+    "message": "Сеть"
+  },
+  "qbit_restore_no_activity_hint": {
+    "message": "Для этой фразы в текущей сети активность не найдена. Если этот кошелёк использовался в другой сети, переключите сеть после восстановления, и счётчики будут восстановлены автоматически."
+  },
+  "qbit_restore_report_title": {
+    "message": "Кошелёк восстановлен"
+  },
+  "qbit_restore_retry_floor_scan": {
+    "message": "Повторить восстановление счётчиков"
+  },
+  "qbit_restore_scan_truncated_warning": {
+    "message": "Обнаружение адресов остановилось на пределе сканирования. Если вы ожидаете больше адресов, добавьте дополнительные аккаунты после восстановления."
+  },
+  "qbit_restore_scanning": {
+    "message": "Сканирование истории блокчейна и восстановление счётчиков подписей…"
+  },
+  "qbit_signatures_remaining": {
+    "message": "Осталось: $1"
+  },
+  "qbit_tx_uses_n_signatures": {
+    "message": "Эта транзакция использует $1 подпись(ей)"
+  },
+  "qbit_uri_amount_invalid": {
+    "message": "Недопустимая сумма URI qbit:"
+  },
+  "qbit_uri_invalid": {
+    "message": "Недопустимый URI qbit:"
+  },
+  "qbit_receive_activity_cached": {
+    "message": "Не удалось проверить активность в сети, поэтому статус «использован» или «не использован» недостоверен. Адрес для получения не предлагается до восстановления доступа к сети; повторите попытку после подключения."
+  },
+  "qbit_receive_amount_optional": {
+    "message": "Сумма (необязательно)"
+  },
+  "qbit_receive_budget_available": {
+    "message": "Показано оставшихся операций подписи: $1. Получение их не расходует; трата может расходовать одну или несколько."
+  },
+  "qbit_receive_budget_critical": {
+    "message": "Критично"
+  },
+  "qbit_receive_budget_exhausted": {
+    "message": "Бюджет подписей исчерпан. Этот кошелёк не может разрешить новую трату с адреса, поэтому адрес нельзя использовать для получения."
+  },
+  "qbit_receive_budget_exhausted_badge": {
+    "message": "Исчерпан"
+  },
+  "qbit_receive_budget_normal": {
+    "message": "Норма"
+  },
+  "qbit_receive_budget_warning": {
+    "message": "Предупреждение"
+  },
+  "qbit_receive_concurrent": {
+    "message": "Возможна активная копия этой seed-фразы. Её подписи не учитываются локальным счётчиком, поэтому не полагайтесь на показанный бюджет. Получение возможно, но активы следует перенести на новую seed-фразу."
+  },
+  "qbit_receive_copy_uri": {
+    "message": "Копировать URI qbit:"
+  },
+  "qbit_receive_current": {
+    "message": "Текущий адрес получения"
+  },
+  "qbit_receive_exhausted_copy_blocked": {
+    "message": "У адреса нет бюджета подписей, и он не может разрешить новую трату. Передавать его для получения небезопасно."
+  },
+  "qbit_receive_floors_pending": {
+    "message": "Восстановление счётчиков не завершено, поэтому бюджет подписей пока недостоверен. До успешного завершения адрес для получения не предлагается, а все подписи заблокированы."
+  },
+  "qbit_receive_gap_warning": {
+    "message": "Новый адрес приостановлен после 20 подряд выданных адресов без наблюдаемой активности. Используйте уже выданный, неиспользованный и неисчерпанный адрес. После обнаружения активности станет доступен следующий адрес в окне восстановления."
+  },
+  "qbit_receive_label_optional": {
+    "message": "Метка (необязательно)"
+  },
+  "qbit_receive_loading": {
+    "message": "Подготовка безопасного адреса получения…"
+  },
+  "qbit_receive_local_counter": {
+    "message": "Локальный счётчик"
+  },
+  "qbit_receive_local_counter_help": {
+    "message": "Локально авторитетный счётчик с устойчивым резервированием перед подписью. Другая копия seed-фразы может подписывать вне этого счётчика."
+  },
+  "qbit_receive_new_address": {
+    "message": "Новый адрес"
+  },
+  "qbit_receive_no_safe": {
+    "message": "Безопасного адреса получения нет. Исчерпанные адреса исключены, а интервал восстановления может быть заполнен. Используйте выданный, неиспользованный и неисчерпанный адрес либо восстановите сеть и повторите."
+  },
+  "qbit_receive_previous": {
+    "message": "Предыдущие адреса"
+  },
+  "qbit_receive_restored_floor": {
+    "message": "Восстановленный минимум"
+  },
+  "qbit_receive_restored_floor_caveat": {
+    "message": "$1 — лишь верхняя граница, восстановленная из наблюдаемой истории блокчейна. Офчейн- или неотправленные подписи могут снизить реальный бюджет вплоть до нуля; это не доказывает, что средства можно потратить."
+  },
+  "qbit_receive_retry": {
+    "message": "Повторить"
+  },
+  "qbit_receive_reuse_warning": {
+    "message": "На этом адресе уже замечена активность. Адрес qbit рассчитан на одно получение; повторная передача может связать платежи и увеличить риск хранения."
+  },
+  "qbit_receive_unused": {
+    "message": "Не использован"
+  },
+  "qbit_receive_used": {
+    "message": "Использован"
+  },
+  "block_preview": {
+    "message": "Блок:"
+  },
+  "burned": {
+    "message": "сожжено"
+  },
+  "by_proceeding_you_confirm_that_youve_read_and_accepted_this_disclaimer": {
+    "message": "Продолжая, вы подтверждаете, что прочитали и приняли этот отказ от ответственности."
+  },
+  "calculating": {
+    "message": "Расчёт..."
+  },
+  "can_not_change_to_a_lower_value": {
+    "message": "Нельзя изменить на меньшее значение"
+  },
+  "cancel": {
+    "message": "Отмена"
+  },
+  "cannot_unlock_without_a_previous_vault": {
+    "message": "Невозможно разблокировать без предыдущего хранилища (vault)"
+  },
+  "cap": {
+    "message": "Предел"
+  },
+  "cat": {
+    "message": "CAT"
+  },
+  "chain_id": {
+    "message": "ID сети"
+  },
+  "change_account_name": {
+    "message": "Изменить имя аккаунта"
+  },
+  "change_password": {
+    "message": "Изменить пароль"
+  },
+  "change_password_already_in_progress": {
+    "message": "Смена пароля уже выполняется"
+  },
+  "change_password_failed": {
+    "message": "Не удалось изменить пароль. Ничего не было изменено — попробуйте ещё раз."
+  },
+  "change_wallet_name": {
+    "message": "Изменить имя кошелька"
+  },
+  "change_your_lockscreen_password": {
+    "message": "Изменить пароль блокировки экрана"
+  },
+  "changed_to_network": {
+    "message": "Переключено на"
+  },
+  "choose_a_wallet_you_want_to_restore_from": {
+    "message": "Выберите кошелёк, из которого вы хотите восстановить"
+  },
+  "claim": {
+    "message": "Получить"
+  },
+  "claimable": {
+    "message": "Доступно к получению"
+  },
+  "claimabled": {
+    "message": "Доступно к получению"
+  },
+  "click_on_the_words_to_put_them_in_the_correct_orde": {
+    "message": "Нажмите на слова, чтобы расставить их в правильном порядке для проверки корректности вашей резервной копии фразы восстановления"
+  },
+  "click_the_account_on_the_main_page": {
+    "message": "Нажмите на аккаунт на главной странице."
+  },
+  "click_the_button_below_to_start_the_signature_proc": {
+    "message": "Нажмите кнопку ниже, чтобы начать процесс подписи"
+  },
+  "close": {
+    "message": "Закрыть"
+  },
+  "closed": {
+    "message": "Закрыто"
+  },
+  "code_asset_maybe_lost": {
+    "message": "Актив может быть потерян, если вы продолжите транзакцию."
+  },
+  "code_insufficient_asset_utxo": {
+    "message": "Недостаточный баланс актива"
+  },
+  "code_insufficient_balance": {
+    "message": "Недостаточный баланс."
+  },
+  "code_insufficient_fee_utxo": {
+    "message": "Недостаточный баланс для покрытия комиссий за транзакцию."
+  },
+  "code_method_not_found": {
+    "message": "Метод не найден."
+  },
+  "code_not_safe_utxos": {
+    "message": "Нет доступных безопасных UTXO для транзакции."
+  },
+  "code_unknown_error": {
+    "message": "Неизвестная ошибка."
+  },
+  "cold_wallet_signed_successfully": {
+    "message": "Холодный кошелек успешно подписал транзакцию. Пожалуйста, подтвердите детали транзакции и нажмите транслировать."
+  },
+  "cold_wallet_transaction_signing": {
+    "message": "Подпись Транзакции Холодным Кошельком"
+  },
+  "collect_your_personal_information": {
+    "message": "Собирать вашу личную информацию"
+  },
+  "collection": {
+    "message": "Коллекция"
+  },
+  "collection_id": {
+    "message": "ID Коллекции"
+  },
+  "collection_not_found": {
+    "message": "Коллекция не найдена"
+  },
+  "collections": {
+    "message": "Коллекции"
+  },
+  "coming_soon": {
+    "message": "Скоро"
+  },
+  "completed": {
+    "message": "Завершено"
+  },
+  "confirm": {
+    "message": "Подтвердить"
+  },
+  "confirm_password": {
+    "message": "Подтвердите пароль"
+  },
+  "confirmations_count": {
+    "message": "Подтверждений"
+  },
+  "confirmed_tvl": {
+    "message": "Подтверждено"
+  },
+  "connect": {
+    "message": "Подключить"
+  },
+  "connect_via_usb": {
+    "message": "Подключить через USB"
+  },
+  "connected": {
+    "message": "Подключено"
+  },
+  "connected_sites": {
+    "message": "Подключенные сайты"
+  },
+  "contact_not_found": {
+    "message": "Контакт не найден"
+  },
+  "content": {
+    "message": "содержимое"
+  },
+  "content_length": {
+    "message": "длина содержимого"
+  },
+  "content_type": {
+    "message": "тип содержимого"
+  },
+  "continue": {
+    "message": "Продолжить"
+  },
+  "continue_to": {
+    "message": "Перейти на"
+  },
+  "copied": {
+    "message": "Скопировано"
+  },
+  "copy_address": {
+    "message": "Скопировать адрес"
+  },
+  "copy_publickey": {
+    "message": "Копировать публичный ключ"
+  },
+  "copy_to_clipboard": {
+    "message": "Скопировать в буфер обмена"
+  },
+  "create_a_new_hd_wallet": {
+    "message": "Создать новый HD-кошелёк"
+  },
+  "create_a_new_wallet": {
+    "message": "Добавить кошелёк"
+  },
+  "create_a_password": {
+    "message": "Создайте пароль"
+  },
+  "create_an_account": {
+    "message": "Создать аккаунт"
+  },
+  "hardware_wallet_not_supported": {
+    "message": "Аппаратные кошельки пока не поддерживают постквантовые подписи Qbit. Следите за прогрессом в документации проекта по аппаратным кошелькам."
+  },
+  "immature_coinbase": {
+    "message": "Незрелые (coinbase)"
+  },
+  "memo_too_long_max_80_bytes": {
+    "message": "Слишком длинная заметка — максимум 80 байт"
+  },
+  "memo_not_supported_when_sending_all": {
+    "message": "Заметки не поддерживаются при отправке всего баланса. Уменьшите сумму или удалите заметку."
+  },
+  "core_runtime_release": {
+    "message": "Среда Core"
+  },
+  "core_commit": {
+    "message": "Коммит Core"
+  },
+  "create_new_wallet": {
+    "message": "Создать новый кошелёк"
+  },
+  "create_wallet": {
+    "message": "Создать кошелёк"
+  },
+  "create_watch_wallet": {
+    "message": "Создать наблюдательный кошелёк"
+  },
+  "create_with_mnemonics_24words": {
+    "message": "Создать с помощью мнемоники (12 или 24 слова)"
+  },
+  "current": {
+    "message": "Текущий"
+  },
+  "current_fee_rate": {
+    "message": "Текущая ставка комиссии:"
+  },
+  "current_password": {
+    "message": "Текущий пароль"
+  },
+  "current_supply": {
+    "message": "текущее предложение"
+  },
+  "currently_only": {
+    "message": "В настоящее время только"
+  },
+  "custom": {
+    "message": "Пользовательский"
+  },
+  "custom_hdpath": {
+    "message": "Пользовательский путь деривации HD-кошелька"
+  },
+  "custom_hdpath_optional": {
+    "message": "Пользовательский HD-путь (необязательно)"
+  },
+  "danger_potential_phishing_website_detected": {
+    "message": "Опасно! Обнаружен потенциальный фишинговый сайт"
+  },
+  "dapp_center": {
+    "message": "Центр приложений"
+  },
+  "date": {
+    "message": "Дата"
+  },
+  "days_ago": {
+    "message": "день назад"
+  },
+  "dealing": {
+    "message": "В обработке"
+  },
+  "decimal": {
+    "message": "десятичный"
+  },
+  "decimal_places": {
+    "message": "знаков после запятой."
+  },
+  "decimals": {
+    "message": "децималы"
+  },
+  "default": {
+    "message": "По умолчанию"
+  },
+  "delegations": {
+    "message": "Делегирования"
+  },
+  "delete": {
+    "message": "Удалить"
+  },
+  "delete_contact": {
+    "message": "Удалить контакт"
+  },
+  "derivation_path": {
+    "message": "Путь деривации"
+  },
+  "description": {
+    "message": "Описание"
+  },
+  "details": {
+    "message": "Детали"
+  },
+  "developer_mode_disabled": {
+    "message": "Режим разработчика отключен"
+  },
+  "developer_mode_enabled": {
+    "message": "Режим разработчика включен"
+  },
+  "disclaimer": {
+    "message": "Отказ от ответственности"
+  },
+  "discover": {
+    "message": "Обзор"
+  },
+  "divisibility": {
+    "message": "делимость"
+  },
+  "do_you_confirm_the_conversion": {
+    "message": "Вы подтверждаете конвертацию?"
+  },
+  "do_you_confirm_the_transfer": {
+    "message": "Вы подтверждаете перевод?"
+  },
+  "does_not_exist": {
+    "message": "не существует"
+  },
+  "does_not_support_account_removal_operations": {
+    "message": "не поддерживает операции удаления аккаунта"
+  },
+  "done": {
+    "message": "Готово"
+  },
+  "each_output_value": {
+    "message": "Каждое выходное значение"
+  },
+  "each_outputvalue": {
+    "message": "Каждое выходное значение"
+  },
+  "ecosystem_community_warning": {
+    "message": "Проекты экосистемы создаются и управляются сообществом Qbit."
+  },
+  "ecosystem_community_warning_review": {
+    "message": "Проверьте любой проект самостоятельно, прежде чем подключать кошелёк или отправлять средства."
+  },
+  "edit_address": {
+    "message": "Изменить адрес"
+  },
+  "edit_name": {
+    "message": "Изменить имя"
+  },
+  "empty": {
+    "message": "Пусто"
+  },
+  "enable_sign_data_popover_warning": {
+    "message": "Разрешение запросов signData может сделать вас уязвимым для фишинговых атак. Всегда проверяйте URL и будьте осторожны при подписании сообщений, содержащих код."
+  },
+  "enable_sign_data_popover_warning_2": {
+    "message": "Если вас попросили включить эту настройку, возможно, вас пытаются обмануть"
+  },
+  "enable_sign_data_warning": {
+    "message": "Если вы включите эту настройку, вы можете получать запросы подписи, которые не читаемы. Подписывая сообщение, которое вы не понимаете, вы можете согласиться на передачу ваших средств и NFT. Вы подвергаетесь риску фишинговых атак. Защитите себя, отключив signData."
+  },
+  "enable_unconfirmed_balance": {
+    "message": "Включить неподтверждённый баланс"
+  },
+  "enable_unconfirmed_balance_warning": {
+    "message": "Если на данном адресе обнаружены защищенные активы, неподтвержденные UTXO нельзя будет тратить до их подтверждения. Принудительная трата этих неподтвержденных UTXO может привести к риску потери активов."
+  },
+  "enter": {
+    "message": "Ввести"
+  },
+  "enter_address": {
+    "message": "Введите адрес"
+  },
+  "enter_name": {
+    "message": "Введите имя"
+  },
+  "enter_password": {
+    "message": "Введите ваш пароль"
+  },
+  "enter_your_password": {
+    "message": "Введите ваш пароль"
+  },
+  "estimated_fee": {
+    "message": "Примерная комиссия"
+  },
+  "etching": {
+    "message": "гравюра"
+  },
+  "expand_view": {
+    "message": "Развернуть вид"
+  },
+  "export_private_key": {
+    "message": "Экспорт приватного ключа"
+  },
+  "failed_to_delete_contact": {
+    "message": "Не удалось удалить контакт"
+  },
+  "failed_to_handle_signature": {
+    "message": "Не удалось обработать подпись"
+  },
+  "failed_to_load_contact_information": {
+    "message": "Не удалось загрузить информацию о контакте"
+  },
+  "failed_to_lock_wallet": {
+    "message": "Не удалось заблокировать кошелёк"
+  },
+  "failed_to_parse_psbt": {
+    "message": "Одну или несколько транзакций не удалось разобрать. Подпись отменена."
+  },
+  "failed_to_save_contact": {
+    "message": "Не удалось сохранить контакт"
+  },
+  "fast": {
+    "message": "Быстро"
+  },
+  "features": {
+    "message": "Функции:"
+  },
+  "fee": {
+    "message": "Комиссия"
+  },
+  "fee_rate": {
+    "message": "Ставка комиссии"
+  },
+  "fee_estimates_unavailable_using_floor": {
+    "message": "Оценки комиссии недоступны. Используется минимальная ставка ретрансляции $1 бит/vB."
+  },
+  "fee_exceeds_wallet_safety_maximum": {
+    "message": "Комиссия превышает безопасный предел $1 бит/vB (максимум $2 $3 для точного размера этой транзакции)."
+  },
+  "estimated_inputs_and_size": {
+    "message": "~$1 вход(ов) · ~$2 кБ"
+  },
+  "feedback": {
+    "message": "Обратная связь"
+  },
+  "feerate_avg_desc": {
+    "message": "около 30 минут"
+  },
+  "feerate_avg_desc_fb": {
+    "message": "около 1,5 минут"
+  },
+  "feerate_fast_desc": {
+    "message": "около 10 минут"
+  },
+  "feerate_fast_desc_fb": {
+    "message": "около 30 секунд"
+  },
+  "feerate_slow_desc": {
+    "message": "около 1 часа"
+  },
+  "feerate_slow_desc_fb": {
+    "message": "около 3 минут"
+  },
+  "feerate_sub1_title": {
+    "message": "Под 1"
+  },
+  "qbit_feerate_target_desc": {
+    "message": "~$1 мин · $2 блок(а)"
+  },
+  "finality_providers": {
+    "message": "Провайдеры финализации"
+  },
+  "finish": {
+    "message": "Завершить"
+  },
+  "first_account_not_found": {
+    "message": "Первый аккаунт не найден."
+  },
+  "full_address": {
+    "message": "Полный адрес"
+  },
+  "from": {
+    "message": "От"
+  },
+  "function_not_implemented": {
+    "message": "Функция не реализована."
+  },
+  "future_versions_will_support_spending_these_assets": {
+    "message": "This balance will remain unavailable while those UTXOs are protected."
+  },
+  "gas_adjustment": {
+    "message": "Корректировка газа"
+  },
+  "gas_adjustment_explanation": {
+    "message": "Объяснение корректировки газа:"
+  },
+  "gas_adjustment_explanation_1": {
+    "message": "• Множитель, применяемый к расчетному газу (1.0 = 100%)"
+  },
+  "gas_adjustment_explanation_2": {
+    "message": "• По умолчанию 1.3 (130%) обеспечивает запас прочности"
+  },
+  "gas_adjustment_explanation_3": {
+    "message": "• Более высокие значения увеличивают шанс успеха транзакции"
+  },
+  "gas_fee_calculation_may_not_include_newly_received_tokens_try_a_smaller_amount": {
+    "message": "Расчёт комиссии за газ может не включать недавно полученные токены. Попробуйте меньшую сумму."
+  },
+  "gas_limit": {
+    "message": "Лимит газа"
+  },
+  "gas_limit_explanation": {
+    "message": "Объяснение лимита газа"
+  },
+  "gas_limit_explanation_1": {
+    "message": "• Контролирует максимальные вычислительные ресурсы для транзакции"
+  },
+  "gas_limit_explanation_2": {
+    "message": "• Высший лимит = выше потенциальные комиссии, но гарантирует завершение"
+  },
+  "gas_limit_explanation_3": {
+    "message": "• Слишком низкий может привести к сбою транзакции"
+  },
+  "gas_limit_explanation_4": {
+    "message": "• Рекомендуемого значения обычно достаточно"
+  },
+  "generating": {
+    "message": "Генерация..."
+  },
+  "generating_qr_code": {
+    "message": "Генерация QR-кода..."
+  },
+  "genesis_transaction": {
+    "message": "генезис-транзакция"
+  },
+  "get_signature": {
+    "message": "Получить подпись"
+  },
+  "get_signature_success": {
+    "message": "Подпись успешно получена"
+  },
+  "go_back": {
+    "message": "Вернуться назад"
+  },
+  "go_to_marketplace": {
+    "message": "Перейти в Marketplace"
+  },
+  "go_to_stake": {
+    "message": "Перейти к стейкингу"
+  },
+  "go_to_update": {
+    "message": "Перейти к обновлению"
+  },
+  "hello": {
+    "message": "ПРИВЕТ"
+  },
+  "hex_private_key": {
+    "message": "Приватный ключ Hex:"
+  },
+  "high": {
+    "message": "Высокий"
+  },
+  "high_fee_rate_risk_description": {
+    "message": "Эта транзакция имеет высокую ставку комиссии. Пожалуйста, убедитесь, что вы понимаете последствия этого действия, прежде чем продолжить."
+  },
+  "high_fee_rate_risk_title": {
+    "message": "Обнаружена высокая ставка комиссии"
+  },
+  "high_priority": {
+    "message": "Высокий приоритет"
+  },
+  "history": {
+    "message": "История"
+  },
+  "history_count": {
+    "message": "Общее количество транзакций"
+  },
+  "history_more_count": {
+    "message": "+$1 ещё"
+  },
+  "history_more_on_uniscan_count": {
+    "message": "+$1 ещё на UniScan"
+  },
+  "history_no_transactions": {
+    "message": "Нет транзакций"
+  },
+  "history_pending": {
+    "message": "Ожидание"
+  },
+  "holders": {
+    "message": "держатели"
+  },
+  "holders_count": {
+    "message": "Количество держателей"
+  },
+  "home": {
+    "message": "Главная"
+  },
+  "hour": {
+    "message": "Час"
+  },
+  "hours": {
+    "message": "Часы"
+  },
+  "hours_ago": {
+    "message": "час назад"
+  },
+  "i_already_have_a_wallet": {
+    "message": "У меня уже есть кошелёк"
+  },
+  "i_am_aware_of_the_risks": {
+    "message": "Я осознаю риски"
+  },
+  "i_have_signed_scan_result": {
+    "message": "Я Подписал, Отсканировать Результат"
+  },
+  "i_only_sign_what_i_understand": {
+    "message": "Я подписываю только то, что понимаю"
+  },
+  "i_saved_my_secret_recovery_phrase": {
+    "message": "Я сохранил(а) свою секретную фразу восстановления"
+  },
+  "i_understand_continue": {
+    "message": "Я понимаю, продолжить"
+  },
+  "id": {
+    "message": "id"
+  },
+  "if_you_ever_change_browsers_or_move_computers_you_": {
+    "message": "Если вы смените браузер или компьютер, вам понадобится этот приватный ключ для доступа к этому аккаунту. Сохраните его в безопасном и секретном месте"
+  },
+  "if_you_insist_on_continuing_proceed_at_your_own_risk": {
+    "message": "Если вы настаиваете на продолжении, действуйте на свой страх и риск:"
+  },
+  "if_you_lose_your_private_key_your_assets_will_be_g": {
+    "message": "Если вы потеряете свой приватный ключ, ваши активы будут утеряны!"
+  },
+  "if_you_lose_your_secret_recovery_phrase_your_asset": {
+    "message": "Если вы потеряете свою секретную фразу восстановления, ваши активы будут утеряны!"
+  },
+  "if_you_share_the_private_key_to_others_your_assets": {
+    "message": "Если вы поделитесь приватным ключом с другими, ваши активы будут украдены!"
+  },
+  "if_you_share_the_secret_recovery_phrase_to_others_": {
+    "message": "Если вы поделитесь секретной фразой восстановления с другими, ваши активы будут украдены!"
+  },
+  "import_an_existing_wallet_with_your_secret_recover": {
+    "message": "Импортируйте существующий кошелёк с помощью вашей секретной фразы восстановления"
+  },
+  "important_to_not_transfer_this_token": {
+    "message": "Важно: Не переводите этот токен из-за временной несогласованности индексации. Мы ожидаем решения от команды основателей протокола. Другие токены не затронуты."
+  },
+  "incomplete_psbt_warning": {
+    "message": "транзакция(и) без данных UTXO, суммы не проверяемы"
+  },
+  "indexer_api_down_risk_description": {
+    "message": "API индексатора в настоящее время недоступен. Это может повлиять на точность деталей транзакции и балансов активов. Действуйте с осторожностью и проверяйте всю информацию независимо."
+  },
+  "indexer_api_down_risk_title": {
+    "message": "API индексатора недоступен"
+  },
+  "inputs": {
+    "message": "Входы"
+  },
+  "instructions": {
+    "message": "Инструкции:"
+  },
+  "insufficient_balance": {
+    "message": "Недостаточно средств."
+  },
+  "invalid_address": {
+    "message": "Неверный адрес."
+  },
+  "invalid_address_format_for_selected_network": {
+    "message": "Неверный формат адреса для выбранной сети"
+  },
+  "invalid_address_in_tosigninput": {
+    "message": "неверный адрес в toSignInput"
+  },
+  "invalid_derivation_path": {
+    "message": "Неверный путь деривации."
+  },
+  "invalid_fee_rate": {
+    "message": "Неверная ставка комиссии"
+  },
+  "invalid_index_in_tosigninput": {
+    "message": "неверный индекс в toSignInput"
+  },
+  "invalid_psbt": {
+    "message": "неверный PSBT"
+  },
+  "invalid_public_key": {
+    "message": "Неверный публичный ключ"
+  },
+  "invalid_public_key_in_tosigninput": {
+    "message": "неверный публичный ключ в toSignInput"
+  },
+  "invalid_recipient_address": {
+    "message": "Неверный адрес получателя"
+  },
+  "invalid_sighash_type_in_tosigninput": {
+    "message": "неверный тип sighash в toSignInput"
+  },
+  "invalid_transaction_data": {
+    "message": "Неверные данные транзакции"
+  },
+  "invalid_wallet_please_remove_it_and_add_new_one": {
+    "message": "Недействительный кошелёк, пожалуйста, удалите его и добавьте новый"
+  },
+  "involved_assets": {
+    "message": "Задействованные активы:"
+  },
+  "is_unconfirmed_please_wait_for_confirmation": {
+    "message": "не подтверждена, пожалуйста, дождитесь подтверждения"
+  },
+  "items": {
+    "message": "Элементы"
+  },
+  "just_now": {
+    "message": "Только что"
+  },
+  "keyring_does_not_exist": {
+    "message": "keyring не существует"
+  },
+  "keyring_error_account_count": {
+    "message": "количество аккаунтов должно быть больше 0"
+  },
+  "keyringcontroller_first_account_not_found": {
+    "message": "KeyringController - Первый аккаунт не найден."
+  },
+  "keyringcontroller_password_is_not_a_string": {
+    "message": "KeyringController - пароль не является строкой"
+  },
+  "language": {
+    "message": "Язык"
+  },
+  "language_description": {
+    "message": "Изменить язык приложения"
+  },
+  "latest_version": {
+    "message": "Последняя версия"
+  },
+  "let_us_know_what_you_think": {
+    "message": "Поделитесь своим мнением"
+  },
+  "like_our_wallet_wed_love_your_rating": {
+    "message": "Нравится наш кошелёк? Будем рады вашей оценке!"
+  },
+  "load_failed": {
+    "message": "Ошибка загрузки"
+  },
+  "loading": {
+    "message": "загрузка..."
+  },
+  "loading_contacts": {
+    "message": "Загрузка..."
+  },
+  "loading_details": {
+    "message": "Загрузка деталей..."
+  },
+  "lock_immediately": {
+    "message": "Заблокировать немедленно"
+  },
+  "lock_wallet": {
+    "message": "Заблокировать кошелёк"
+  },
+  "low": {
+    "message": "Низкий"
+  },
+  "low_fee_mode": {
+    "message": "Режим менее 1 bits/vB"
+  },
+  "low_fee_rate_risk_description": {
+    "message": "Комиссия за эту транзакцию низкая. Убедитесь, что вы понимаете последствия перед продолжением."
+  },
+  "low_fee_rate_risk_title": {
+    "message": "Обнаружена низкая комиссия"
+  },
+  "low_priority": {
+    "message": "Низкий приоритет"
+  },
+  "malicious_behavior_and_suspicious_activity_have_be": {
+    "message": "Обнаружено вредоносное поведение и подозрительная активность."
+  },
+  "manage_wallet": {
+    "message": "Управление кошельком"
+  },
+  "mandatory_use_of_unconfirmed_balance": {
+    "message": "Обязательное использование неподтвержденного баланса"
+  },
+  "max": {
+    "message": "МАКС"
+  },
+  "max_supply": {
+    "message": "Макс. предложение"
+  },
+  "medium": {
+    "message": "Средний"
+  },
+  "medium_priority": {
+    "message": "Средний приоритет"
+  },
+  "memo": {
+    "message": "Заметка:"
+  },
+  "memo_is_too_long_the_maximum_length_is_256_characters": {
+    "message": "Заметка слишком длинная. Максимальная длина - 256 символов."
+  },
+  "merge_failed": {
+    "message": "Объединение не удалось."
+  },
+  "merge_history": {
+    "message": "История объединений"
+  },
+  "merge_progress": {
+    "message": "Прогресс объединения"
+  },
+  "merge_transactions": {
+    "message": "Транзакции объединения"
+  },
+  "merge_utxos": {
+    "message": "Объединить"
+  },
+  "merge_utxos1": {
+    "message": "Объединить"
+  },
+  "merge_utxos_failed": {
+    "message": "Слияние неудачно"
+  },
+  "merge_utxos_to_increase_the_available_balance": {
+    "message": "Объединить UTXO->"
+  },
+  "merging": {
+    "message": "Объединение..."
+  },
+  "merging_amount": {
+    "message": "Сумма объединения"
+  },
+  "merging_utxos": {
+    "message": "Объединение UTXO"
+  },
+  "message": {
+    "message": "сообщение"
+  },
+  "method_not_implemented": {
+    "message": "Метод не реализован."
+  },
+  "mint": {
+    "message": "Минт"
+  },
+  "minted": {
+    "message": "минты"
+  },
+  "mints": {
+    "message": "монеты"
+  },
+  "minute": {
+    "message": "Минута"
+  },
+  "minutes": {
+    "message": "Минуты"
+  },
+  "minutes_ago": {
+    "message": "мин назад"
+  },
+  "mixed": {
+    "message": "Смешанный"
+  },
+  "mnemonic_phrase_is_invalid": {
+    "message": "мнемоническая фраза недействительна"
+  },
+  "mnemonics_12_words": {
+    "message": "12 слов"
+  },
+  "mnemonics_24_words": {
+    "message": "24 слова"
+  },
+  "more": {
+    "message": "Ещё"
+  },
+  "more_details": {
+    "message": "Подробнее"
+  },
+  "add_liquidity": {
+    "message": "Add Liquidity"
+  },
+  "remove_liquidity": {
+    "message": "Remove Liquidity"
+  },
+  "msg_already_signed": {
+    "message": "Это сообщение уже подписано"
+  },
+  "msg_content": {
+    "message": "Содержание Сообщения"
+  },
+  "msg_detail": {
+    "message": "Детали Сообщения"
+  },
+  "msg_generate_qr": {
+    "message": "Сгенерировать QR-код"
+  },
+  "msg_generate_sign": {
+    "message": "Сгенерировать Подпись"
+  },
+  "msg_generating_qr": {
+    "message": "Генерация QR-кода..."
+  },
+  "msg_message": {
+    "message": "Сообщение"
+  },
+  "msg_origin": {
+    "message": "Источник: "
+  },
+  "msg_pending": {
+    "message": "В ожидании"
+  },
+  "msg_scan_qr_code": {
+    "message": "Пожалуйста, отсканируйте QR-код с помощью вашего холодного кошелька"
+  },
+  "msg_scan_result": {
+    "message": "Результат Сканирования"
+  },
+  "msg_scan_sign": {
+    "message": "Сканировать Подпись"
+  },
+  "msg_sign": {
+    "message": "Подпись Сообщения"
+  },
+  "msg_sign_type": {
+    "message": "Тип Подписи"
+  },
+  "msg_signed": {
+    "message": "Подписано"
+  },
+  "msg_start_sign": {
+    "message": "Начать Подпись"
+  },
+  "msg_status": {
+    "message": "Статус"
+  },
+  "msg_waiting_sign": {
+    "message": "Ожидание Подписи"
+  },
+  "multiple_assets_risk_description": {
+    "message": "Эта транзакция включает несколько активов. Пожалуйста, убедитесь, что вы понимаете последствия этого действия, прежде чем продолжить."
+  },
+  "multiple_assets_risk_title": {
+    "message": "Обнаружено несколько активов"
+  },
+  "multisign_disclaimer": {
+    "message": "Отказ от ответственности MultiSign"
+  },
+  "my_address": {
+    "message": "Мой адрес"
+  },
+  "name": {
+    "message": "имя"
+  },
+  "name_label": {
+    "message": "Имя"
+  },
+  "name_recognized_and_resolved": {
+    "message": "Имя распознано и разрешено."
+  },
+  "names": {
+    "message": "Имена"
+  },
+  "native_segwit_p2wpkh": {
+    "message": "Native Segwit (P2WPKH)"
+  },
+  "nested_segwit_p2shp2wpkh": {
+    "message": "Nested Segwit (P2SH-P2WPKH)"
+  },
+  "network": {
+    "message": "Сеть"
+  },
+  "network_error_json_parse_error": {
+    "message": "Сетевая ошибка, ошибка парсинга json"
+  },
+  "network_error_no_response": {
+    "message": "Сетевая ошибка, нет ответа"
+  },
+  "network_errorno_response_data": {
+    "message": "Сетевая ошибка, нет данных ответа"
+  },
+  "network_fee": {
+    "message": "Комиссия сети:"
+  },
+  "network_fee_2": {
+    "message": "Сетевая комиссия"
+  },
+  "network_fees": {
+    "message": "Сетевые комиссии"
+  },
+  "network_fee_rate": {
+    "message": "Ставка комиссии сети:"
+  },
+  "size_bytes": {
+    "message": "Размер"
+  },
+  "change_below_dust_added_to_fee": {
+    "message": "$1 бит сдачи ниже порога пыли добавлено к точной сетевой комиссии"
+  },
+  "network_not_matched_risk_description": {
+    "message": "Эта транзакция не в текущей сети, пожалуйста, убедитесь, что вы доверяете источнику этой транзакции, прежде чем продолжить."
+  },
+  "network_not_matched_risk_title": {
+    "message": "Обнаружено несоответствие сети."
+  },
+  "new": {
+    "message": "новое!"
+  },
+  "new_account": {
+    "message": "Новый аккаунт"
+  },
+  "new_password": {
+    "message": "Новый пароль"
+  },
+  "new_value": {
+    "message": "Новое значение:"
+  },
+  "new_version": {
+    "message": "Новая версия!"
+  },
+  "next": {
+    "message": "Далее"
+  },
+  "nft": {
+    "message": "NFT"
+  },
+  "nfts": {
+    "message": "NFTs"
+  },
+  "no_address_or_public_key_in_tosigninput": {
+    "message": "нет адреса или публичного ключа в toSignInput"
+  },
+  "no_current_account": {
+    "message": "нет текущего аккаунта"
+  },
+  "no_current_keyring": {
+    "message": "нет текущего keyring"
+  },
+  "n_hour": {
+    "message": "$1 Час"
+  },
+  "n_hours": {
+    "message": "$1 Часа"
+  },
+  "n_minute": {
+    "message": "$1 Минута"
+  },
+  "n_minutes": {
+    "message": "$1 Минут"
+  },
+  "n_seconds": {
+    "message": "$1 Секунд"
+  },
+  "no_connected_sites": {
+    "message": "Нет подключенных сайтов"
+  },
+  "no_data": {
+    "message": "НЕТ ДАННЫХ"
+  },
+  "no_inputs": {
+    "message": "Нет входов"
+  },
+  "no_keyring_found_for_the_requested_account": {
+    "message": "Не найден keyring для запрошенного аккаунта."
+  },
+  "no_matching_contacts_found": {
+    "message": "Совпадающих контактов не найдено"
+  },
+  "no_mfp_in_keyring": {
+    "message": "нет mfp в keyring"
+  },
+  "no_notifications": {
+    "message": "Нет уведомлений"
+  },
+  "not_connected": {
+    "message": "Не подключено"
+  },
+  "not_implemented": {
+    "message": "не реализовано"
+  },
+  "not_long_enough": {
+    "message": "Недостаточно длинный"
+  },
+  "not_supported": {
+    "message": "Не поддерживается"
+  },
+  "not_supported_chainid": {
+    "message": "Неподдерживаемый chainId"
+  },
+  "not_supported_yet": {
+    "message": "Пока не поддерживается"
+  },
+  "notice": {
+    "message": "Уведомление"
+  },
+  "notifications": {
+    "message": "Уведомления"
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "old_value": {
+    "message": "Старое значение:"
+  },
+  "only_applies_to_current_address": {
+    "message": "Применяется только к текущему адресу"
+  },
+  "only_connect_with_sites_you_trust": {
+    "message": "Подключайтесь только к сайтам, которым вы доверяете."
+  },
+  "only_sign_if_you_fully_understand_the_content_and_": {
+    "message": "Подписывайте, только если вы полностью понимаете содержание и доверяете запрашивающему сайту."
+  },
+  "only_sign_this_message_if_you_fully_understand_the": {
+    "message": "Подписывайте это сообщение, только если вы полностью понимаете его содержание и доверяете запрашивающему сайту."
+  },
+  "onsuccess_not_implemented": {
+    "message": "onSuccess не реализован"
+  },
+  "oops_something_went_wrong": {
+    "message": "Ой! Что-то пошло не так."
+  },
+  "open_as_popup": {
+    "message": "Открыть как всплывающее окно"
+  },
+  "open_as_side_bar": {
+    "message": "Открыть боковую панель"
+  },
+  "open_your_cold_wallet_app_or_device": {
+    "message": "1. Откройте ваше приложение или устройство холодного кошелька."
+  },
+  "other_wallet": {
+    "message": "Другой кошелёк"
+  },
+  "others": {
+    "message": "Другие"
+  },
+  "output_value": {
+    "message": "выходное значение"
+  },
+  "output_value_must_be_at_least": {
+    "message": "Выходное значение должно быть не менее"
+  },
+  "outputs": {
+    "message": "Выходы"
+  },
+  "outputvalue": {
+    "message": "Выходное значение"
+  },
+  "owner": {
+    "message": "Владелец"
+  },
+  "parent": {
+    "message": "родительский"
+  },
+  "parse_error": {
+    "message": "Ошибка разбора"
+  },
+  "passphrase": {
+    "message": "Парольная фраза"
+  },
+  "password": {
+    "message": "Пароль"
+  },
+  "password_cannot_be_empty": {
+    "message": "Пароль не может быть пустым"
+  },
+  "password_error": {
+    "message": "Пароль неверный"
+  },
+  "password_must_be_at_least_8_characters": {
+    "message": "Пароль должен содержать не менее 8 символов"
+  },
+  "password_strength": {
+    "message": "Надежность пароля:"
+  },
+  "passwords_dont_match": {
+    "message": "Пароли не совпадают"
+  },
+  "paused": {
+    "message": "Приостановлено"
+  },
+  "payment_failed": {
+    "message": "Ошибка платежа"
+  },
+  "payment_network_fee": {
+    "message": "Комиссия сети за платёж"
+  },
+  "pending": {
+    "message": "Ожидание"
+  },
+  "per_mint": {
+    "message": "за монету"
+  },
+  "permission_denied": {
+    "message": "В доступе отказано"
+  },
+  "phishing_detection": {
+    "message": "Обнаружение фишинга"
+  },
+  "phrase_optional": {
+    "message": "Фраза (необязательно)"
+  },
+  "please_be_aware_that": {
+    "message": "Пожалуйста, имейте в виду, что:"
+  },
+  "please_be_aware_that_sending_the_following_assets_involves_risk": {
+    "message": "Please be aware that signing this transaction involves risk."
+  },
+  "please_enter_address": {
+    "message": "Пожалуйста, введите адрес"
+  },
+  "please_enter_name": {
+    "message": "Пожалуйста, введите имя"
+  },
+  "please_make_sure_you_have_read_the_security_tips_a": {
+    "message": "Пожалуйста, убедитесь, что вы прочитали советы по безопасности выше, прежде чем вводить пароль"
+  },
+  "please_pay_attention_to_whether_you_have_backed_up": {
+    "message": "Пожалуйста, обратите внимание, сделали ли вы резервную копию мнемоники/приватного ключа, чтобы предотвратить потерю активов"
+  },
+  "please_read_more_detail_on": {
+    "message": "Пожалуйста, прочитайте подробнее на"
+  },
+  "position_the_qr_code_in_front_of_your_camera_the_screen_is_blurred_but_this_will_not_affect_the_scan": {
+    "message": "Расположите QR-код перед камерой. Экран размыт, но это не повлияет на сканирование."
+  },
+  "precautions": {
+    "message": "Меры предосторожности"
+  },
+  "premine": {
+    "message": "премайн"
+  },
+  "preview": {
+    "message": "Предпросмотр"
+  },
+  "previous": {
+    "message": "Предыдущий"
+  },
+  "privacy_policy": {
+    "message": "Политика конфиденциальности"
+  },
+  "private_key_is_only_stored_in_your_browser_it_is_y": {
+    "message": "Вы несёте ответственность за сохранность приватного ключа!"
+  },
+  "processing_signature": {
+    "message": "Обработка подписи..."
+  },
+  "promise_need_function_to_handle": {
+    "message": "промису нужна функция для обработки"
+  },
+  "provenance": {
+    "message": "Провенанс"
+  },
+  "psbt_data": {
+    "message": "Данные PSBT:"
+  },
+  "signed_psbt_data": {
+    "message": "Данные подписанного PSBT"
+  },
+  "public_key_must_be_compressed_secp256k1_ie_33_byte": {
+    "message": "Публичный ключ должен быть сжатым secp256k1, т.е. 33 байта, начинающихся с 0x02 или 0x03"
+  },
+  "quick_sign_assets_detected": {
+    "message": "Cannot quick sign: inputs contain protected assets."
+  },
+  "quit_merging_process": {
+    "message": "Прервать процесс объединения"
+  },
+  "range": {
+    "message": "Диапазон"
+  },
+  "rate_us": {
+    "message": "Оцените нас"
+  },
+  "rbf": {
+    "message": "RBF"
+  },
+  "rbf_tip": {
+    "message": "RBF помечает эту неподтвержденную транзакцию как заменяемую, чтобы вы могли повторить её с более высокой комиссией. Даже если RBF отключен, транзакция всё равно может быть заменяемой в зависимости от политики сети."
+  },
+  "replaced": {
+    "message": "Заменена"
+  },
+  "bump_fee": {
+    "message": "Увеличить комиссию"
+  },
+  "fee_bump_review_description": {
+    "message": "Эта замена сохраняет исходных получателей и данные примечания, но оплачивает более высокую комиссию."
+  },
+  "fee_bump_unavailable": {
+    "message": "Эту транзакцию больше нельзя безопасно заменить. Обновите историю и повторите попытку."
+  },
+  "fee_increase": {
+    "message": "Увеличение комиссии"
+  },
+  "original_fee": {
+    "message": "Исходная комиссия"
+  },
+  "original_fee_rate": {
+    "message": "Исходная ставка комиссии"
+  },
+  "replacement_fee": {
+    "message": "Комиссия замены"
+  },
+  "replacement_fee_rate": {
+    "message": "Ставка комиссии замены"
+  },
+  "replaces_transaction": {
+    "message": "Заменяет транзакцию"
+  },
+  "receive": {
+    "message": "Получить"
+  },
+  "received_from": {
+    "message": "Получено от"
+  },
+  "receiver": {
+    "message": "Получатель"
+  },
+  "recipient": {
+    "message": "Получатель"
+  },
+  "recipient_address_is_invalid": {
+    "message": "Адрес получателя недействителен"
+  },
+  "recommended": {
+    "message": "Рекомендуемый"
+  },
+  "recommended_fee_rates": {
+    "message": "Рекомендуемые ставки комиссии:"
+  },
+  "refresh": {
+    "message": "Обновить"
+  },
+  "refresh_page": {
+    "message": "Обновить страницу"
+  },
+  "reject": {
+    "message": "Отклонить"
+  },
+  "reject_all": {
+    "message": "Отклонить всё"
+  },
+  "remember_my_choice": {
+    "message": "Запомнить мой выбор"
+  },
+  "remove": {
+    "message": "Удалить"
+  },
+  "remove_wallet": {
+    "message": "Удалить кошелёк"
+  },
+  "removing_the_last_wallet_is_not_allowed": {
+    "message": "Удаление последнего кошелька не допускается"
+  },
+  "request_was_rejected_to_proceed_please_reauthorize": {
+    "message": "Запрос был отклонен. Чтобы продолжить, пожалуйста, повторно авторизуйтесь"
+  },
+  "restore_from_mnemonics": {
+    "message": "Восстановить из мнемоники"
+  },
+  "restore_from_mnemonics_12words24words": {
+    "message": "Восстановить из мнемоники (12 или 24 слова)"
+  },
+  "restore_wallet": {
+    "message": "Восстановить кошелёк"
+  },
+  "retry_in_10s": {
+    "message": "Повторить через 10 сек"
+  },
+  "review_and_confirm_transaction_details_in_your_cold_wallet": {
+    "message": "3. Просмотрите и подтвердите детали транзакции в вашем холодном кошельке."
+  },
+  "satsvb": {
+    "message": "bits/vB"
+  },
+  "satvb": {
+    "message": "bits/vB"
+  },
+  "save": {
+    "message": "Сохранить"
+  },
+  "saving": {
+    "message": "Сохранение..."
+  },
+  "scammer_address_risk_description": {
+    "message": "Этот адрес был зарегистрирован как мошеннический адрес. Действуйте с осторожностью. Если вы считаете, что это ложное срабатывание, пожалуйста, сообщите об этом."
+  },
+  "scammer_address_risk_title": {
+    "message": "⚠️ Обнаружен подозрительный адрес"
+  },
+  "scan_in_more_addresses": {
+    "message": "Сканировать больше адресов..."
+  },
+  "scan_the_qr_code": {
+    "message": "Сканировать QR-код"
+  },
+  "scan_this_qr_code": {
+    "message": "2. Отсканируйте этот QR-код."
+  },
+  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
+    "message": "Отсканируйте этот QR-код с помощью вашего холодного кошелька для просмотра и подписи транзакции."
+  },
+  "scan_to_connect": {
+    "message": "Сканировать для подключения"
+  },
+  "script": {
+    "message": "Скрипт"
+  },
+  "scroll_to_bottom": {
+    "message": "↓ Вниз"
+  },
+  "scroll_to_top": {
+    "message": "↑ Вверх"
+  },
+  "scroll_to_view_all": {
+    "message": "Прокрутить, чтобы просмотреть все"
+  },
+  "scroll_view_items": {
+    "message": "элементы"
+  },
+  "search_address_and_txids": {
+    "message": "Поиск адреса и TXID"
+  },
+  "search_address_or_name": {
+    "message": "Поиск адреса или имени"
+  },
+  "seconds": {
+    "message": "Секунды"
+  },
+  "seconds_ago": {
+    "message": "сек назад"
+  },
+  "secret_recovery_phrase": {
+    "message": "Секретная фраза восстановления"
+  },
+  "secret_recovery_phrase_is_only_stored_in_your_brow": {
+    "message": "Вы несёте ответственность за сохранность вашей секретной фразы восстановления!"
+  },
+  "secs": {
+    "message": "сек"
+  },
+  "security_notice": {
+    "message": "Уведомление о безопасности:"
+  },
+  "security_warning": {
+    "message": "Предупреждение о безопасности"
+  },
+  "select_all": {
+    "message": "Выбрать все"
+  },
+  "select_network": {
+    "message": "Выберите сеть"
+  },
+  "select_the_account_to_use_on_this_site": {
+    "message": "Выберите аккаунт для использования на этом сайте"
+  },
+  "selected": {
+    "message": "Выбрано"
+  },
+  "self_transfer": {
+    "message": "Самоперевод"
+  },
+  "send": {
+    "message": "Отправить"
+  },
+  "send_amount": {
+    "message": "Сумма отправки"
+  },
+  "send_amount_exceeds_balance": {
+    "message": "Сумма отправки превышает баланс"
+  },
+  "send_to": {
+    "message": "Отправить:"
+  },
+  "sending_out_assets": {
+    "message": "Отправляемые активы"
+  },
+  "service_fee": {
+    "message": "Сервисный сбор"
+  },
+  "set_utxo_amount_to_be_merged": {
+    "message": "Установите сумму UTXO для объединения"
+  },
+  "settings": {
+    "message": "Настройки"
+  },
+  "show_private_key": {
+    "message": "Показать приватный ключ"
+  },
+  "show_secret_recovery_phrase": {
+    "message": "Показать секретную фразу восстановления"
+  },
+  "sighash_none_detected": {
+    "message": "Обнаружен SIGHASH_NONE. Подпись отменена в целях безопасности."
+  },
+  "sighash_none_risk_description": {
+    "message": "SIGHASH_NONE - это специальный тип подписи, который позволяет изменять транзакцию после подписания. Это может привести к потенциальной потере средств, если транзакция будет злонамеренно изменена. Пожалуйста, убедитесь, что вы доверяете источнику этой транзакции, прежде чем продолжить."
+  },
+  "sighash_none_risk_title": {
+    "message": "Обнаружен SIGHASH_NONE"
+  },
+  "sign": {
+    "message": "Подписать"
+  },
+  "sign_all": {
+    "message": "Подписать все"
+  },
+  "sign_all_transactions_at_once": {
+    "message": "У вас есть возможность подписать все транзакции одновременно, но пожалуйста, обратите внимание, что Qbit Wallet не будет проверять каждую транзакцию индивидуально. Мы рекомендуем использовать его только на доверенных и знакомых сайтах для минимизации риска потенциальных потерь."
+  },
+  "sign_and_pay": {
+    "message": "Подписать и оплатить"
+  },
+  "derive_context_hash_request": {
+    "message": "Сгенерировать идентификатор"
+  },
+  "derive_context_hash_description": {
+    "message": "Этот сайт запрашивает уникальный идентификатор, привязанный к вашему кошельку, для следующего контекста."
+  },
+  "derive_context_hash_app_name": {
+    "message": "Приложение"
+  },
+  "derive_context_hash_account": {
+    "message": "Аккаунт"
+  },
+  "derive_context_hash_network": {
+    "message": "Сеть"
+  },
+  "derive_context_hash_context": {
+    "message": "Контекст"
+  },
+  "derive_context_hash_warning": {
+    "message": "Одобряйте только если вы доверяете этому сайту."
+  },
+  "sign_data_request": {
+    "message": "Запрос подписи данных"
+  },
+  "sign_data_requests": {
+    "message": "Запросы signData"
+  },
+  "sign_multiple_transactions": {
+    "message": "Подписать несколько транзакций"
+  },
+  "sign_psbt_input_error": {
+    "message": "Psbt или параметры недействительны и не могут быть подписаны."
+  },
+  "sign_result": {
+    "message": "РЕЗУЛЬТАТ ПОДПИСИ:"
+  },
+  "sign_transaction": {
+    "message": "Подписать транзакцию"
+  },
+  "signature_request": {
+    "message": "Запрос подписи"
+  },
+  "signature_successful": {
+    "message": "Подпись успешна"
+  },
+  "signdata_required_tip": {
+    "message": "Вам необходимо включить функцию запроса подписи данных (signData) в Настройки -> Расширенные, чтобы продолжить."
+  },
+  "signed": {
+    "message": "Подписано"
+  },
+  "single_step_transfer": {
+    "message": "Одношаговый перевод"
+  },
+  "skip": {
+    "message": "Пропустить"
+  },
+  "slow": {
+    "message": "Медленно"
+  },
+  "spend": {
+    "message": "Потратить"
+  },
+  "spend_amount": {
+    "message": "Сумма траты"
+  },
+  "spending_assets": {
+    "message": "Тратимые активы"
+  },
+  "split": {
+    "message": "Разделить"
+  },
+  "spliting_to": {
+    "message": "Разделение на"
+  },
+  "staked": {
+    "message": "В стейкинге"
+  },
+  "stakers": {
+    "message": "Стейкеры"
+  },
+  "start": {
+    "message": "Начать"
+  },
+  "start_merging": {
+    "message": "Начать объединение"
+  },
+  "steal_your_private_keys_or_seed_phrases": {
+    "message": "Украсть ваши приватные ключи или сид-фразы"
+  },
+  "step1": {
+    "message": "Шаг 1"
+  },
+  "step2": {
+    "message": "Шаг 2"
+  },
+  "step_1": {
+    "message": "ШАГ 1"
+  },
+  "step_12": {
+    "message": "ШАГ 1/2"
+  },
+  "step_2": {
+    "message": "ШАГ 2"
+  },
+  "step_22": {
+    "message": "ШАГ 2/2"
+  },
+  "step_3": {
+    "message": "ШАГ 3"
+  },
+  "strong": {
+    "message": "Надёжный"
+  },
+  "strong_password_tip": {
+    "message": "Надежный пароль может лучше защитить безопасность ваших активов"
+  },
+  "submit": {
+    "message": "Отправить"
+  },
+  "success": {
+    "message": "Успешно"
+  },
+  "supply": {
+    "message": "Предложение"
+  },
+  "swap_send": {
+    "message": "Отправить"
+  },
+  "swap_swap": {
+    "message": "Обмен"
+  },
+  "swap_unwrap": {
+    "message": "Unwrap"
+  },
+  "swap_wrap": {
+    "message": "Wrap"
+  },
+  "switch_account": {
+    "message": "Сменить аккаунт"
+  },
+  "switch_chain": {
+    "message": "Сменить блокчейн"
+  },
+  "switch_network": {
+    "message": "Сменить сеть"
+  },
+  "switch_wallet": {
+    "message": "Сменить кошелёк"
+  },
+  "symbol": {
+    "message": "символ"
+  },
+  "tap_the_more_menu_then_select_the_export_private_key_option": {
+    "message": "Нажмите меню 'Ещё', затем выберите опцию 'Экспорт приватного ключа'."
+  },
+  "taproot_p2tr": {
+    "message": "Taproot (P2TR)"
+  },
+  "terms_of_service": {
+    "message": "Условия использования"
+  },
+  "test_approval_sign_psbt": {
+    "message": "Тестовое подтверждение подписи PSBT"
+  },
+  "text_preview": {
+    "message": "Текст:"
+  },
+  "the_amount_for_change_is_too_low_please_adjust_the": {
+    "message": "Сумма сдачи слишком мала, пожалуйста, скорректируйте сумму отправки."
+  },
+  "the_auto_lock_time_has_been_changed_to": {
+    "message": "Время автоблокировки изменено на"
+  },
+  "the_broadcastchannel_name_is_missing": {
+    "message": "отсутствует имя broadcastChannel"
+  },
+  "the_fee_rate_is_much_higher_than_recommended_fee_rate": {
+    "message": "Ставка комиссии значительно выше рекомендуемой"
+  },
+  "the_fee_rate_is_much_lower_than_recommended_fee_rate": {
+    "message": "Ставка комиссии значительно ниже рекомендуемой"
+  },
+  "the_minimum_amount_is": {
+    "message": "Минимальная сумма:"
+  },
+  "the_private_key_is_invalid": {
+    "message": "Приватный ключ недействителен"
+  },
+  "the_recipient_must_be_p2tr_or_p2wpkh_address_type": {
+    "message": "Адрес получателя должен быть типа P2TR или P2WPKH"
+  },
+  "the_ultimate_security_solution_for_cryptocurrencie": {
+    "message": "Максимальное решение безопасности для криптовалют"
+  },
+  "the_wallet_currently_uses_a_custom_hd_path_and_does_not_support_switching_address_types": {
+    "message": "Кошелёк в данный момент использует пользовательский HD-путь и не поддерживает переключение типов адресов."
+  },
+  "think_this_is_a_false_positive_click_here_to_report_an_issue": {
+    "message": "Считаете, что это ложное срабатывание? Нажмите здесь, чтобы сообщить о проблеме →"
+  },
+  "this_account_has_no_transactions": {
+    "message": "У этого аккаунта нет транзакций"
+  },
+  "this_action_is_not_reversible": {
+    "message": "Это действие необратимо."
+  },
+  "this_feature_is_currently_in_the_experimental_test_phase_please_proceed_with_caution": {
+    "message": "Эта функция в настоящее время находится на стадии экспериментального тестирования. Пожалуйста, действуйте с осторожностью."
+  },
+  "this_network_is_not_available": {
+    "message": "Эта сеть недоступна"
+  },
+  "this_phrase_is_the_only_way_to_recover_your_wallet": {
+    "message": "Эта фраза - ЕДИНСТВЕННЫЙ способ восстановить ваш кошелёк. НЕ делитесь ею ни с кем! "
+  },
+  "this_process_will_merge_your_utxos_into_one": {
+    "message": "баланс должен быть объединен. Этот процесс объединит ваши UTXO в один."
+  },
+  "this_token_only_supports_up_to": {
+    "message": "Этот токен поддерживает только до"
+  },
+  "ticker": {
+    "message": "билет"
+  },
+  "timestamp": {
+    "message": "временная метка"
+  },
+  "to": {
+    "message": "Кому"
+  },
+  "to_continue": {
+    "message": "чтобы продолжить"
+  },
+  "to_enable_spending_of_unconfirmed_balances_please_": {
+    "message": "Чтобы разрешить трату неподтвержденных балансов, пожалуйста, посетите расширенные опции в настройках."
+  },
+  "to_proceed": {
+    "message": "чтобы продолжить"
+  },
+  "to_send_a_larger_amount_please_merge_your_utxos_to_increase_the_available_balance": {
+    "message": "Чтобы отправить большую сумму, пожалуйста, объедините ваши UTXO, чтобы увеличить доступный баланс."
+  },
+  "to_sign": {
+    "message": "для подписи"
+  },
+  "token_id": {
+    "message": "Токен ID"
+  },
+  "token_not_found": {
+    "message": "Токен не найден"
+  },
+  "tokens": {
+    "message": "Токены"
+  },
+  "total": {
+    "message": "Итого"
+  },
+  "total_balance": {
+    "message": "Общий баланс"
+  },
+  "total_fee": {
+    "message": "Общая комиссия"
+  },
+  "total_spent": {
+    "message": "Итого потрачено"
+  },
+  "total_supply": {
+    "message": "Общее предложение"
+  },
+  "trade": {
+    "message": "Торговать"
+  },
+  "transaction": {
+    "message": "Транзакция"
+  },
+  "transaction_count": {
+    "message": "Транзакции"
+  },
+  "transaction_details": {
+    "message": "Детали транзакции"
+  },
+  "transaction_id": {
+    "message": "ID транзакции"
+  },
+  "transaction_preview": {
+    "message": "Транзакция:"
+  },
+  "transaction_success": {
+    "message": "Транзакция успешна"
+  },
+  "transaction_successful": {
+    "message": "Транзакция успешна"
+  },
+  "transaction_unconfirmed": {
+    "message": "Не подтверждено"
+  },
+  "transactions": {
+    "message": "транзакции"
+  },
+  "transactions_at_once": {
+    "message": "транзакций сразу"
+  },
+  "transfer": {
+    "message": "Перевести"
+  },
+  "transfer_amount": {
+    "message": "Сумма перевода"
+  },
+  "transferable": {
+    "message": "Доступно для перевода:"
+  },
+  "transferable_balance": {
+    "message": "Перемещаемый баланс"
+  },
+  "trick_you_into_signing_malicious_transactions": {
+    "message": "Обманом заставить вас подписать вредоносные транзакции"
+  },
+  "trust_this_site_for_quick_multi_sign": {
+    "message": "Доверять этому сайту и больше не показывать это сообщение"
+  },
+  "try_again": {
+    "message": "Попробовать снова"
+  },
+  "try_going_back_or_refreshing": {
+    "message": "Попробуйте вернуться назад или обновить страницу."
+  },
+  "tutorial": {
+    "message": "Руководство"
+  },
+  "tvl": {
+    "message": "TVL"
+  },
+  "tx_amount": {
+    "message": "сумма"
+  },
+  "tx_broadcast_back_to_wallet": {
+    "message": "Вернуться в кошелёк"
+  },
+  "tx_broadcast_check_status": {
+    "message": "Проверить статус"
+  },
+  "tx_broadcast_reason_chain_changed": {
+    "message": "Кошелёк сейчас подключён к другой сети, а не к той, для которой была подписана эта транзакция."
+  },
+  "tx_broadcast_reason_guard_blocked": {
+    "message": "Кошелёк заблокировал отправку, так как она конфликтует с другой подтверждённой транзакцией."
+  },
+  "tx_broadcast_reason_guard_blocked_unconfirmed": {
+    "message": "Кошелёк больше не удерживает резервирование для этой транзакции. Более ранняя отправка, возможно, уже была принята."
+  },
+  "tx_broadcast_reason_invalid_response": {
+    "message": "Сеть вернула неожиданный ответ."
+  },
+  "tx_broadcast_reason_invalid_transaction": {
+    "message": "Не удалось прочитать подписанную транзакцию."
+  },
+  "tx_broadcast_reason_network": {
+    "message": "Не удалось связаться с сетью."
+  },
+  "tx_broadcast_reason_rejected": {
+    "message": "Узел сети отклонил транзакцию."
+  },
+  "tx_broadcast_reason_rejected_unconfirmed": {
+    "message": "Узел сети сообщил об ошибке, но кошелёк не смог подтвердить, была ли транзакция принята."
+  },
+  "tx_broadcast_reason_server": {
+    "message": "Сетевой сервис вернул ошибку."
+  },
+  "tx_broadcast_reason_timeout": {
+    "message": "Сеть не ответила вовремя."
+  },
+  "tx_broadcast_reason_unexpected": {
+    "message": "Отправку прервала непредвиденная ошибка."
+  },
+  "tx_broadcast_retry": {
+    "message": "Отправить повторно"
+  },
+  "tx_broadcast_retry_blocked": {
+    "message": "Повторная отправка не выполнена: $1"
+  },
+  "tx_broadcast_retry_notice": {
+    "message": "Повторная попытка лишь заново отправляет в сеть ту же подписанную транзакцию. Повторная подпись не выполняется, и ещё одна подпись не расходуется."
+  },
+  "tx_broadcast_signature_notice": {
+    "message": "Эта транзакция уже подписана. Подпись могла израсходовать одну из одноразовых подписей этого аккаунта."
+  },
+  "tx_broadcast_status_gone": {
+    "message": "Транзакция пока не найдена в сети. Подождите немного и проверьте снова или отправьте повторно."
+  },
+  "tx_broadcast_status_unavailable": {
+    "message": "Не удалось связаться с сетью, чтобы проверить статус. Повторите попытку через минуту."
+  },
+  "tx_broadcast_technical_details": {
+    "message": "Технические подробности"
+  },
+  "tx_fee": {
+    "message": "Комиссия Tx:"
+  },
+  "tx_not_sent_body": {
+    "message": "Сеть не приняла эту транзакцию, поэтому платёж не был отправлен."
+  },
+  "tx_not_sent_title": {
+    "message": "Транзакция не отправлена"
+  },
+  "tx_sent_desc": {
+    "message": "Ваша транзакция была успешно передана в сеть, ожидание подтверждения."
+  },
+  "tx_sent_title": {
+    "message": "Транзакция отправлена"
+  },
+  "tx_unknown_body": {
+    "message": "Кошелёк не смог подтвердить, приняла ли сеть этот платёж. Возможно, транзакция уже принята."
+  },
+  "tx_unknown_title": {
+    "message": "Статус платежа неизвестен"
+  },
+  "tx_unknown_warning": {
+    "message": "Не создавайте и не отправляйте платёж взамен этого. Если исходный платёж был принят, повторный может снова потратить ваши средства."
+  },
+  "unable_to_find_any_addresses_with_assets": {
+    "message": "Unable to find any addresses with balance"
+  },
+  "unavailable": {
+    "message": "Недоступно"
+  },
+  "unavailable_tooltip": {
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+  },
+  "unconfirmed": {
+    "message": "не подтверждено"
+  },
+  "unconfirmed_balance_not_spendable": {
+    "message": "Неподтверждённый баланс недоступен для траты"
+  },
+  "unconfirmed_balance_not_spendable_warning": {
+    "message": "To protect your wallet, only confirmed balances are spendable when protected assets are present. This helps prevent accidental asset loss."
+  },
+  "understand_and_accept_the_risks_associated_with_this_transaction": {
+    "message": "Я понимаю и принимаю риски, связанные с этой транзакцией."
+  },
+  "understand_sign_data_warning": {
+    "message": "Я понимаю, что могу потерять все свои средства и NFT, если включу запросы signData."
+  },
+  "uniscan_active_addresses_24h": {
+    "message": "Активные адреса (24ч)"
+  },
+  "uniscan_goto": {
+    "message": "Перейти в UniScan"
+  },
+  "uniscan_transactions_24h": {
+    "message": "Транзакции (24ч)"
+  },
+  "unknown_error": {
+    "message": "Неизвестная ошибка"
+  },
+  "unlock": {
+    "message": "Разблокировать"
+  },
+  "unlock_already_in_progress": {
+    "message": "Разблокировка уже выполняется"
+  },
+  "unrecognized_password_strength": {
+    "message": "Нераспознанная надежность пароля"
+  },
+  "unstake": {
+    "message": "Вывести из стейкинга"
+  },
+  "usb_permissions_not_available": {
+    "message": "РАЗРЕШЕНИЯ_USB_НЕДОСТУПНЫ"
+  },
+  "use_at_your_own_risk": {
+    "message": "Используйте на свой страх и риск"
+  },
+  "user_rejected_the_request": {
+    "message": "Пользователь отклонил запрос."
+  },
+  "utxo_indexing_risk_description": {
+    "message": "Выбранный UTXO принадлежит транзакции, которая все еще индексируется. Чтобы обеспечить безопасность и надежность транзакции, подождите завершения индексации перед продолжением."
+  },
+  "utxo_indexing_risk_title": {
+    "message": "Выполняется индексация UTXO"
+  },
+  "utxo_not_found": {
+    "message": "UTXO не найден."
+  },
+  "verify_recovery_phrase": {
+    "message": "Проверить фразу восстановления"
+  },
+  "version": {
+    "message": "Версия:"
+  },
+  "view": {
+    "message": "Посмотреть"
+  },
+  "view_detail": {
+    "message": "Посмотреть детали"
+  },
+  "view_on_block_explorer": {
+    "message": "Посмотреть в обозревателе блоков"
+  },
+  "view_on_mempool": {
+    "message": "Посмотреть в Mempool"
+  },
+  "view_on_okx_explorer": {
+    "message": "Посмотреть в OKX Explorer"
+  },
+  "view_on_uniscan": {
+    "message": "Смотреть на UniScan"
+  },
+  "wallet_already_initialized": {
+    "message": "Кошелёк уже существует. Сбросьте кошелёк перед созданием нового пароля."
+  },
+  "wallet_existed": {
+    "message": "Кошелёк уже существует."
+  },
+  "warning": {
+    "message": "Предупреждение"
+  },
+  "watch_address": {
+    "message": "Наблюдательный адрес"
+  },
+  "watch_address_error": {
+    "message": "Неверный Qbit-адрес"
+  },
+  "watch_address_placeholder": {
+    "message": "Введите Qbit-адрес"
+  },
+  "watch_address_wallet": {
+    "message": "Наблюдательный кошелёк"
+  },
+  "weak": {
+    "message": "Слабый"
+  },
+  "welcome_screen_title": {
+    "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
+  },
+  "wif_private_key": {
+    "message": "Приватный ключ WIF:"
+  },
+  "world": {
+    "message": "МИР"
+  },
+  "you_are_signing": {
+    "message": "Вы подписываете:"
+  },
+  "you_are_signing_data": {
+    "message": "Вы подписываете данные:"
+  },
+  "you_can_unlock_these_assets_by_using_the_utxos_tools": {
+    "message": "You can review or unlock spendable UTXOs by using the UTXO Management Tool."
+  },
+  "you_haven_t_added_any_addresses": {
+    "message": "Вы не добавили ни одного адреса"
+  },
+  "you_need_to_allow_camera_access_to_use_this_featur": {
+    "message": "Вам необходимо разрешить доступ к камере для использования этой функции."
+  },
+  "you_need_to_unlock_wallet_first": {
+    "message": "Вам нужно сначала разблокировать кошелёк"
+  },
+  "you_re_on_the_latest_version": {
+    "message": "У вас установлена последняя версия"
+  },
+  "you_will_use_this_to_unlock_your_wallet": {
+    "message": "Вы будете использовать его для разблокировки кошелька"
+  },
+  "your_access_to_this_page_has_been_restricted_by_un": {
+    "message": "Ваш доступ к этой странице был ограничен Qbit Wallet, так как она может быть небезопасной."
+  },
+  "your_balance_have_to_be_merged": {
+    "message": "Ваш "
+  },
+  "connect_to_readonly_wallet": {
+    "message": "Подключить кошелек только для чтения"
+  },
+  "copy_message_to_sign": {
+    "message": "Скопировать сообщение для подписи"
+  },
+  "create_readonly_wallet": {
+    "message": "Создать кошелек только для чтения"
+  },
+  "enter_your_signature": {
+    "message": "Введите вашу подпись"
+  },
+  "invalid_signature": {
+    "message": "Недействительная подпись"
+  },
+  "please_enter_your_signature": {
+    "message": "Пожалуйста, введите вашу подпись"
+  },
+  "public_key": {
+    "message": "Публичный ключ"
+  },
+  "readonly_wallet": {
+    "message": "Кошелек только для чтения"
+  },
+  "copy_signing_params": {
+    "message": "Скопировать параметры подписи"
+  },
+  "readonly_signing": {
+    "message": "Офлайн-подпись"
+  },
+  "readonly_signing_copy_step": {
+    "message": "Скопируйте запрос на подпись"
+  },
+  "readonly_signing_copy_button": {
+    "message": "Скопировать запрос"
+  },
+  "readonly_signing_paste_step": {
+    "message": "Вставьте подписанный PSBT"
+  },
+  "readonly_signing_paste_placeholder": {
+    "message": "Hex подписанного PSBT"
+  },
+  "readonly_signing_paste_signature_step": {
+    "message": "Вставьте подпись"
+  },
+  "readonly_signing_signature_placeholder": {
+    "message": "Подпись"
+  },
+  "asset_burning_risk_title": {
+    "message": "Asset burning detected"
+  },
+  "asset_burning_risk_description": {
+    "message": "This transaction may burn protected assets. Please review the transaction carefully before proceeding."
+  },
+  "unconfirmed_asset_balance_notice": {
+    "message": "If protected assets are detected in your address, unconfirmed balances will not be spendable until confirmed. You do not need to do anything."
+  },
+  "checking_website_safety": {
+    "message": "Проверяем безопасность этого сайта…"
+  },
+  "website_check_failed": {
+    "message": "Qbit Wallet не удалось проверить этот сайт. Проверьте подключение и повторите попытку."
+  },
+  "unverified_website_confirmation": {
+    "message": "Я понимаю, что подключаюсь к непроверенному веб-сайту и мне следует соблюдать осторожность."
+  },
+  "within_your_account": {
+    "message": "Внутри вашего аккаунта"
+  },
+  "address_unavailable": {
+    "message": "Адрес недоступен"
+  },
+  "date_unavailable": {
+    "message": "Дата недоступна"
+  },
+  "history_load_error": {
+    "message": "Не удалось загрузить историю транзакций."
+  },
+  "wallet_owned": {
+    "message": "Принадлежит вашему кошельку"
+  },
+  "change_output": {
+    "message": "Выход сдачи"
+  },
+  "internal_output": {
+    "message": "Внутренний перевод"
+  },
+  "input_number": {
+    "message": "Вход"
+  },
+  "output_number": {
+    "message": "Выход"
+  },
+  "value": {
+    "message": "Сумма"
+  },
+  "value_unavailable": {
+    "message": "Сумма недоступна"
+  },
+  "script_type": {
+    "message": "Тип скрипта"
+  },
+  "script_type_unavailable": {
+    "message": "Тип скрипта недоступен"
+  },
+  "coinbase_input": {
+    "message": "Вход coinbase"
+  },
+  "previous_output": {
+    "message": "Предыдущий выход"
+  },
+  "previous_output_unavailable": {
+    "message": "Предыдущий выход недоступен"
+  },
+  "locking_script": {
+    "message": "Блокирующий скрипт"
+  },
+  "raw_transaction_hex": {
+    "message": "Необработанная транзакция в hex"
+  },
+  "raw_transaction_preview": {
+    "message": "Предпросмотр"
+  },
+  "copy_raw_transaction": {
+    "message": "Копировать необработанную транзакцию"
+  },
+  "raw_transaction_load_error": {
+    "message": "Не удалось загрузить необработанные данные транзакции."
+  },
+  "unknown_risk_title": {
+    "message": "Unknown risk detected"
+  },
+  "unknown_risk_description": {
+    "message": "This transaction contains an unknown risk. Please review it carefully before proceeding."
+  },
+  "enter_requested_recovery_phrase_words": {
+    "message": "Введите запрошенные слова из сохранённой фразы восстановления."
+  },
+  "qbit_recovery_status_seed_only": {
+    "message": "Статус восстановления: восстановлен только по seed-фразе"
+  },
+  "qbit_counter_confidence_chain_floor_only": {
+    "message": "Достоверность счётчика: только нижняя граница из блокчейна"
+  },
+  "qbit_known_onchain_usage_lower_bound": {
+    "message": "Известное использование в блокчейне: $1 подписей"
+  },
+  "qbit_known_onchain_usage_none": {
+    "message": "Известное использование в блокчейне: нет"
+  },
+  "qbit_recovery_warning_title": {
+    "message": "Восстановленный кошелёк Qbit требует внимания"
+  },
+  "qbit_recovery_warning_body": {
+    "message": "История блокчейна даёт лишь нижнюю границу использования подписей PQC. Подписи сообщений, вне блокчейна или не опубликованные подписи не видны, поэтому точный оставшийся лимит неизвестен."
+  },
+  "qbit_recovery_warning_recommendation": {
+    "message": "Для максимальной безопасности настоятельно рекомендуется перевести средства в новый кошелёк и прекратить использование старой сид-фразы."
+  },
+  "qbit_recovery_or_divider": {
+    "message": "ИЛИ"
+  },
+  "qbit_recovery_continue_confirmation": {
+    "message": "Я понимаю, что точный счётчик неизвестен и каждый запрос подписи потребует отдельного явного подтверждения."
+  },
+  "qbit_recovery_continue_using": {
+    "message": "Продолжить использовать восстановленный кошелёк"
+  },
+  "qbit_recovery_move_funds": {
+    "message": "Перевести средства в новый кошелёк Qbit"
+  },
+  "qbit_recovery_warning_collapsed_title": {
+    "message": "Внимание: это восстановленный кошелёк"
+  },
+  "qbit_recovery_dismiss_warning": {
+    "message": "Навсегда скрыть это предупреждение"
+  },
+  "qbit_recovery_signing_warning_title": {
+    "message": "Предупреждение о подписи с восстановленной границей"
+  },
+  "qbit_recovery_signing_warning_body": {
+    "message": "Показанное использование — нижняя граница из блокчейна, а не точный счётчик или оставшийся лимит подписей."
+  },
+  "qbit_recovery_signing_confirmation": {
+    "message": "Я проверил этот конкретный запрос и принимаю риск восстановленного счётчика."
+  },
+  "qbit_recovery_counter_approximate_tip": {
+    "message": "Это приблизительный счётчик подписей, поскольку кошелёк был восстановлен из seed-фразы."
+  },
+  "qbit_review_each_restored_signing_request": {
+    "message": "Проверяйте и подтверждайте каждый запрос подписи восстановленного кошелька отдельно."
+  },
+  "qbit_recovery_migrating_title": {
+    "message": "Идёт перенос в новый кошелёк"
+  },
+  "qbit_recovery_migrating_body": {
+    "message": "Восстановленный кошелёк остаётся доступным, пока подписанные транзакции публикуются и подтверждаются. После прерывания продолжите здесь."
+  },
+  "qbit_recovery_destination_value": {
+    "message": "Новый адрес назначения: $1"
+  },
+  "qbit_recovery_destination_label": {
+    "message": "Новый адрес назначения:"
+  },
+  "qbit_recovery_progress": {
+    "message": "Подтверждено переводов: $1 из $2"
+  },
+  "qbit_recovery_resume_migration": {
+    "message": "Продолжить перенос"
+  },
+  "qbit_recovery_archived_title": {
+    "message": "Архивный восстановленный кошелёк"
+  },
+  "qbit_recovery_archived_body": {
+    "message": "Этот восстановленный кошелёк доступен только для чтения. Его ключи и запись восстановления сохраняются, чтобы безопасно обнаружить и перевести средства после сбоя, реорганизации или нового поступления."
+  },
+  "qbit_recovery_check_new_funds": {
+    "message": "Проверить новые поступления"
+  },
+  "qbit_recovery_other_networks_hint": {
+    "message": "Эта сид-фраза может всё ещё содержать средства в других сетях. Переключите сеть, чтобы проверить и переместить их."
+  },
+  "qbit_recovery_account_mapping": {
+    "message": "Аккаунт $1 → аккаунт $2 нового кошелька: $3"
+  },
+  "qbit_recovery_account_mapping_label": {
+    "message": "Аккаунт $1 → аккаунт $2 нового кошелька:"
+  },
+  "qbit_recovery_source_unavailable": {
+    "message": "Восстановленный кошелёк Qbit недоступен."
+  },
+  "qbit_recovery_confirmation_unavailable": {
+    "message": "Подтверждение подписи для восстановленного счётчика недоступно. Проверьте перевод ещё раз."
+  },
+  "qbit_recovery_review_title": {
+    "message": "Подтверждение перевода кошелька"
+  },
+  "qbit_recovery_review_intro": {
+    "message": "Счета и средства вашего кошелька будут перемещены на новые адреса. Ниже приведена сводка переводов и новые адреса кошелька."
+  },
+  "qbit_recovery_amount_label": {
+    "message": "Сумма:"
+  },
+  "qbit_recovery_fee_label": {
+    "message": "Комиссии сети:"
+  },
+  "qbit_recovery_migration_action": {
+    "message": "Перевести восстановленные средства в новый кошелёк"
+  },
+  "qbit_recovery_migration_consequence": {
+    "message": "Будут подписаны и опубликованы переводы доступного баланса на новый адрес. Пыль, которой недостаточно для стандартного перевода, останется в сохранённом исходном кошельке. При сбое или прерывании оба кошелька и запись восстановления сохранятся."
+  },
+  "qbit_recovery_migration_confirmation": {
+    "message": "Я проверил новые адреса назначения, суммы и комиссии (обязательно)"
+  },
+  "qbit_recovery_pending_title": {
+    "message": "Перевод ожидает подтверждения"
+  },
+  "qbit_recovery_pending_body": {
+    "message": "Подписанные данные перевода сохранены в зашифрованном хранилище. Сохраните оба кошелька; вернитесь сюда для повторной публикации, проверки подтверждения или безопасного продолжения."
+  },
+  "qbit_recovery_plan_prepared": {
+    "message": "Готово к проверке и подписи"
+  },
+  "qbit_recovery_plan_signed": {
+    "message": "Подписано и сохранено; ожидает публикации"
+  },
+  "qbit_recovery_plan_broadcast": {
+    "message": "Опубликовано; ожидает подтверждения"
+  },
+  "qbit_recovery_plan_confirmed": {
+    "message": "Подтверждено"
+  },
+  "qbit_recovery_complete_title": {
+    "message": "Перенос в новый кошелёк завершён"
+  },
+  "qbit_recovery_complete_body": {
+    "message": "Все экономически доступные восстановленные средства подтверждены на новом адресе. Пыль, которой недостаточно для стандартного перевода, остаётся в восстановленном кошельке только для чтения. Новый кошелёк активен."
+  },
+  "qbit_recovery_complete_archived_body": {
+    "message": "Первоначально восстановленный кошелёк доступен только для чтения. Его ключи и запись восстановления сохраняются, чтобы безопасно обнаружить и перевести средства после сбоя, реорганизации или нового поступления."
+  },
+  "qbit_recovery_complete_switch_wallet_hint": {
+    "message": "Доступ к первоначально восстановленному кошельку (только для чтения) можно получить через опцию «Сменить кошелёк» в левом верхнем углу."
+  },
+  "qbit_recovery_original_address_label": {
+    "message": "Первоначально восстановленный адрес:"
+  },
+  "qbit_recovery_new_address_label": {
+    "message": "Новый адрес:"
+  },
+  "qbit_recovery_error_title": {
+    "message": "Перенос требует внимания"
+  },
+  "qbit_recovery_error_body": {
+    "message": "Не удалось безопасно продолжить перенос. Оба кошелька и зашифрованная запись восстановления сохранены; проверьте сеть и повторите попытку."
+  },
+  "qbit_recovery_error_code_label": {
+    "message": "Код ошибки:"
+  },
+  "qbit_recovery_error_show_details": {
+    "message": "Показать подробности"
+  },
+  "qbit_recovery_error_hide_details": {
+    "message": "Скрыть подробности"
+  },
+  "qbit_recovery_error_copy_details": {
+    "message": "Скопировать подробности"
+  },
+  "qbit_recovery_protected_assets_error": {
+    "message": "Защищённые активы необходимо перенести отдельно, прежде чем архивировать этот кошелёк."
+  },
+  "qbit_recovery_archived_signing_blocked": {
+    "message": "Этот восстановленный кошелёк архивирован и доступен только для чтения."
+  },
+  "qbit_recovery_migration_signing_only": {
+    "message": "Пока идёт перенос, восстановленный кошелёк может подписывать только проверенные перемещения средств."
+  },
+  "qbit_recovery_secure_confirmation_unavailable": {
+    "message": "Безопасное подтверждение восстановленного счётчика недоступно. Заблокируйте и снова откройте кошелёк, затем повторите проверку."
+  },
+  "qbit_recovery_signing_confirmation_expired": {
+    "message": "Срок подтверждения восстановленного счётчика истёк. Ещё раз проверьте именно этот запрос."
+  },
+  "qbit_recovery_signing_confirmation_required": {
+    "message": "Проверьте и явно подтвердите именно этот запрос на подпись восстановленным кошельком."
+  },
+  "qbit_recovery_wallets_retained": {
+    "message": "Удаление этого кошелька затрагивает активный перенос восстановления и требует дополнительного подтверждения."
+  },
+  "qbit_recovery_back_restart_warning": {
+    "message": "Вернувшись назад, вам придётся начать процесс восстановления заново."
+  },
+  "qbit_recovery_back_new_seed_warning": {
+    "message": "Будет сгенерирована новая сид-фраза, отличная от показанной сейчас."
+  },
+  "qbit_recovery_removal_title": {
+    "message": "Этот кошелёк участвует в переносе восстановления Qbit"
+  },
+  "qbit_recovery_removal_source_migrating": {
+    "message": "Удаление этого восстановленного кошелька сотрёт запись о незавершённом переносе. Перенос нельзя будет продолжить, ещё не переведённые средства останутся на старых адресах, а чтобы вернуть их позже, придётся заново импортировать эту сид-фразу и начать восстановление сначала."
+  },
+  "qbit_recovery_removal_source_migrated": {
+    "message": "Удаление этого восстановленного кошелька сотрёт запись о завершённом переносе. Другие сети, использующие эту сид-фразу, могли не завершить собственное восстановление, и для его продолжения потребуется заново импортировать эту сид-фразу."
+  },
+  "qbit_recovery_removal_destination": {
+    "message": "Восстановленные средства были отправлены (или отправляются) на этот кошелёк. Если у вас нет резервной копии его сид-фразы, после удаления эти средства будут безвозвратно потеряны, а прерванный перенос можно будет продолжить только после повторного импорта этого кошелька."
+  },
+  "qbit_recovery_removal_inflight": {
+    "message": "Перевод в рамках восстановления ещё выполняется. После удаления он перестанет отслеживаться, и доставленные средства могут не отображаться, пока кошелёк-получатель не будет восстановлен и пересканирован."
+  },
+  "qbit_recovery_removal_unverified": {
+    "message": "Не удалось сверить этот кошелёк с активным переносом восстановления. Возможно, именно он получает восстановленные средства; его удаление без резервной копии сид-фразы может привести к безвозвратной потере этих средств."
+  },
+  "qbit_recovery_loading": {
+    "message": "Проверка зашифрованной записи переноса и состояния блокчейна…"
+  },
+  "qbit_recovery_sign_and_move": {
+    "message": "Подписать и перевести средства"
+  },
+  "qbit_recovery_check_status": {
+    "message": "Проверить статус и продолжить"
+  },
+  "qbit_recovery_return_home": {
+    "message": "Вернуться в новый кошелёк"
+  },
+  "qbit_core_recovery_descriptors": {
+    "message": "Дескрипторы восстановления qbit Core"
+  },
+  "qbit_core_descriptor_counter_warning": {
+    "message": "Эти дескрипторы содержат закрытые ключи. Используйте их только с доверенным кошельком qbit Core. Дескрипторы восстанавливают ключи, но не точные счётчики PQC. Для точного восстановления между qbit Core используйте backupwallet и restorewallet."
+  },
+  "qbit_core_network_value": {
+    "message": "Сеть: $1"
+  },
+  "qbit_core_receive_path_value": {
+    "message": "Путь получения: $1"
+  },
+  "qbit_core_copy_receive_descriptor": {
+    "message": "Копировать дескриптор получения"
+  },
+  "qbit_core_change_path_value": {
+    "message": "Путь сдачи: $1"
+  },
+  "qbit_core_copy_change_descriptor": {
+    "message": "Копировать дескриптор сдачи"
+  },
+  "qbit_core_importdescriptors_json": {
+    "message": "JSON importdescriptors qbit Core"
+  },
+  "qbit_core_copy_json": {
+    "message": "Копировать JSON"
+  },
+  "qbit_core_download_json": {
+    "message": "Скачать JSON"
+  },
+  "linked_to_cold_wallet": {
+    "message": "Привязан к Qbit холодному кошельку"
+  },
+  "reject_blocked_request": {
+    "message": "Отклонить (заблокировано Qbit Wallet)"
+  },
+  "touch_id_unlock": {
+    "message": "Разблокировка по Touch ID"
+  },
+  "unlock_with_touch_id": {
+    "message": "Разблокировать с Touch ID"
+  },
+  "enable_touch_id": {
+    "message": "Включить Touch ID"
+  },
+  "enable_touch_id_desc": {
+    "message": "Разблокируйте кошелёк с помощью Touch ID вместо ввода пароля. Пароль продолжает действовать и требуется для важных действий."
+  },
+  "touch_id_status_on": {
+    "message": "Вкл."
+  },
+  "touch_id_status_off": {
+    "message": "Выкл."
+  },
+  "disable_touch_id": {
+    "message": "Отключить Touch ID"
+  },
+  "touch_id_setup_failed": {
+    "message": "Не удалось настроить Touch ID"
+  },
+  "touch_id_prf_unsupported": {
+    "message": "Аутентификатор этого устройства не поддерживает безопасную разблокировку по Touch ID"
+  },
+  "touch_id_unlock_expired": {
+    "message": "Разблокировку по Touch ID нужно настроить заново. Используйте пароль."
+  },
+  "enter_password_to_enable_touch_id": {
+    "message": "Введите пароль кошелька, чтобы включить Touch ID"
+  },
+  "touch_id_reenabled_after_password_change": {
+    "message": "Touch ID снова включён с новым паролем"
+  },
+  "touch_id_disabled_after_password_change": {
+    "message": "Разблокировка по Touch ID отключена. Её можно снова включить в настройках."
+  },
+  "touch_id_onboarding_desc": {
+    "message": "Вы можете разблокировать кошелёк с помощью Touch ID вместо пароля. Это также можно включить позже в настройках."
+  },
+  "send_exceeds_standard_size": {
+    "message": "Для этой суммы нужно больше $1 входов, что превышает стандартный размер транзакции в сети. Отправляйте не более $2 $3 за раз или используйте «МАКС»."
+  },
+  "send_all_leaves_outputs_behind": {
+    "message": "«МАКС» отправляет $1 самых крупных выходов — больше одна транзакция не вмещает. $2 $3 в $4 более мелких выходах остаются на этом счёте."
+  },
+  "utxo_limit_exceeded_balance": {
+    "message": "Слишком много выходов, обозреватель не может их перечислить. Эта сумма взята из сводки по адресу."
+  },
+  "utxo_limit_exceeded_send": {
+    "message": "На этом счёте больше выходов, чем перечисляет обозреватель, и кошелёк не смог прочитать их все из истории. Объедините выходы, чтобы отправлять с этого счёта."
+  },
+  "consolidate_outputs": {
+    "message": "Объединить выходы"
+  },
+  "consolidation_description": {
+    "message": "Каждый пакет отправляет до $1 самых крупных подтверждённых выходов этого счёта на его же адрес одним выходом. Каждый пакет вы проверяете и подписываете."
+  },
+  "consolidation_status": {
+    "message": "Подтверждённых выходов: $1; обозреватель перечисляет не больше $2. Ещё примерно $3 пакетов уложат счёт в этот предел."
+  },
+  "consolidation_within_limit": {
+    "message": "Этот счёт укладывается в предел обозревателя в $1 выходов. Объединять нечего."
+  },
+  "consolidation_pending": {
+    "message": "Неподтверждённые транзакции тратят $1 из этих выходов. Они перестанут учитываться, когда эти транзакции подтвердятся."
+  },
+  "consolidation_batch_summary": {
+    "message": "Объединяет $1 выходов в один выход на $2 $3. Комиссия: $4 bits, размер $5 kB."
+  },
+  "consolidation_prepare_batch": {
+    "message": "Подготовить следующий пакет"
+  },
+  "consolidation_next_batch": {
+    "message": "Объединить следующий пакет"
+  },
+  "consolidation_send_note": {
+    "message": "На этом счёте больше выходов, чем перечисляет обозреватель. Объедините их, чтобы счёт снова мог отправлять средства и переноситься как обычно."
+  },
+  "consolidation_status_confirming": {
+    "message": "Подтверждённых выходов: $1; обозреватель перечисляет не больше $2. Ожидающие пакеты уложат счёт в этот предел, когда подтвердятся."
+  },
+  "consolidation_error_within_limit": {
+    "message": "Этот счёт укладывается в предел выходов обозревателя. Объединять его не нужно."
+  },
+  "consolidation_error_nothing_ready": {
+    "message": "Пока нет подтверждённых выходов, готовых к объединению. Попробуйте позже."
+  },
+  "consolidation_error_outputs_moving": {
+    "message": "Выходы этого счёта сейчас тратятся. Попробуйте ещё раз чуть позже."
+  },
+  "consolidation_error_input_spent": {
+    "message": "Один из выходов этого пакета уже потрачен. Подготовьте пакет заново."
+  },
+  "consolidation_error_keep_reading": {
+    "message": "Кошелёк прочитал часть истории этого счёта, но не нашёл выходов, готовых к объединению. Подготовьте пакет ещё раз, чтобы читать дальше."
+  }
+}

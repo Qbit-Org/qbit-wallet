@@ -1,0 +1,49 @@
+{
+  "name": "@qbit/phishing-detect",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Cross-platform phishing detection library for Qbit Wallet",
+  "main": "lib/index.js",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/**/*",
+    "src/**/*",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.js",
+      "import": "./lib/index.mjs"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "require": "./lib/types.js",
+      "import": "./lib/types.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup && pnpm run build:typed",
+    "build:cjs": "tsup --format cjs",
+    "build:esm": "tsup --format esm",
+    "build:typed": "tsc --declaration --declarationMap --emitDeclarationOnly --outDir lib",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts,.tsx",
+    "prepublishOnly": "pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@qbit/wallet-shared": "workspace:*",
+    "eventemitter3": "^5.0.1",
+    "loglevel": "^1.9.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.246",
+    "@types/node": "^20.0.0",
+    "eslint": "^8.0.0",
+    "tsup": "^7.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "3.2.6"
+  }
+}

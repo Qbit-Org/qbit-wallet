@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "name": "p2mr-message-proof-live-parity",
+  "source": {
+    "repository": "Qbit-Org/qbit",
+    "commit": "7ebcddb622d6e639041f005a189b048ec2a221fe",
+    "files": [
+      "src/common/p2mr_data_signature.cpp",
+      "src/rpc/signmessage.cpp",
+      "src/wallet/rpc/signmessage.cpp",
+      "src/test/data/p2mr_datapqchash_vectors.json"
+    ]
+  },
+  "mode": "live-data-hash-proof-parity",
+  "message": "qbit wallet G2 message fixture",
+  "messageDomain": "QbitWalletSignedMessage",
+  "messageHash": "f4a98651c5ad88d235ff9a51289e621e623fc34a27002abd6c6ee0aaacf9dd60",
+  "dataSignatureDomain": "QbitDataSigPQC",
+  "dataSignatureHash": "5a0b46b4f29377e3c60740dfeda05edcfb3839b898bf0a88cbb29af4761632da",
+  "proofType": "p2mr-message",
+  "proofVersion": 1,
+  "proofMode": "p2mr-pubkey",
+  "algorithm": "SLH-DSA-SHA2-128s-bounded30",
+  "leafVersion": 192,
+  "coreVector": {
+    "name": "bounded30_two_leaf_p2mr_pubkey_regtest",
+    "messageHash": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "dataSignatureHash": "892da4f0deede06b7aa1721ae45968148b1e7d88e164dcf73dfac5be497d410f"
+  }
+}

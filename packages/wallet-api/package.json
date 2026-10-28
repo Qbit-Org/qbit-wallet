@@ -1,0 +1,58 @@
+{
+  "name": "@qbit/wallet-api",
+  "version": "2.1.3",
+  "private": true,
+  "description": "API client and local service interfaces for Qbit Wallet",
+  "main": "lib/index.js",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/**/*",
+    "src/**/*",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.js",
+      "import": "./lib/index.mjs"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "require": "./lib/types.js",
+      "import": "./lib/types.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:run": "cd ../.. && corepack pnpm exec vitest run packages/api/test",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist",
+    "prepublishOnly": "pnpm clean && pnpm test && pnpm build"
+  },
+  "keywords": [
+    "qbit",
+    "wallet",
+    "api",
+    "transaction",
+    "p2mr"
+  ],
+  "author": "Qbit Wallet Team",
+  "license": "MIT",
+  "dependencies": {
+    "@types/randomstring": "^1.3.0",
+    "@qbit/wallet-shared": "workspace:*",
+    "@qbit/wallet-storage": "workspace:*",
+    "@qbit/wallet-types": "workspace:*",
+    "randomstring": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^7.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "3.2.6"
+  }
+}

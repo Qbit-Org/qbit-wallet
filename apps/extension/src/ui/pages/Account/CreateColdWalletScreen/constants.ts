@@ -1,0 +1,30 @@
+// Validation constants
+export const XPUB_PREFIXES = ['xpub', 'tpub', 'ypub', 'zpub'] as const;
+export const HD_PATH_PATTERN = /^m(\/\d+'?)*$/;
+export const MIN_ACCOUNT_COUNT = 1;
+export const MAX_ACCOUNT_COUNT = 20;
+export const DEFAULT_DISPLAY_COUNT = 20;
+export const LOAD_MORE_BATCH_SIZE = 20;
+export const DEFAULT_HD_PATH = "m/84'/0'/0'";
+export const QR_SCANNER_SIZE = 360;
+
+// Styles
+export const cardStyle = {
+  backgroundColor: 'var(--qbit-paper)',
+  padding: '0',
+  border: '1px solid var(--qbit-line)',
+  borderRadius: '0',
+  overflow: 'hidden'
+} as const;
+
+export const footerStyle = {
+  backgroundColor: 'var(--qbit-paper)',
+  padding: '16px'
+} as const;
+
+export const qbitIconStyle = {
+  width: '18px',
+  height: '18px',
+  backgroundColor: 'var(--qbit-accent)',
+  borderRadius: '50%'
+} as const;

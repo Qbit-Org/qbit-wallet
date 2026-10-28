@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Local Testnet4 fixture for the canonical Qbit V1 browser provider."
+    />
+    <title>Qbit V1 Provider Fixture</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__copy">
+        <p class="eyebrow">Local developer fixture</p>
+        <h1>Qbit V1 provider flow</h1>
+        <p class="lede">
+          Connect, sign and verify a P2MR message, sign a Qbit PSBT, broadcast on Testnet4, then
+          revoke this origin.
+        </p>
+      </div>
+      <div class="network-badge" aria-label="Required network">
+        <span class="network-badge__dot" aria-hidden="true"></span>
+        Testnet4 only
+      </div>
+    </header>
+
+    <main>
+      <section class="context-panel" aria-labelledby="context-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Approval context</p>
+            <h2 id="context-title">What the provider should bind</h2>
+          </div>
+          <button id="detect-provider" class="button button--quiet" type="button">
+            Detect provider
+          </button>
+        </div>
+
+        <dl class="context-grid">
+          <div>
+            <dt>Exact origin</dt>
+            <dd id="origin" class="mono"></dd>
+          </div>
+          <div>
+            <dt>Provider</dt>
+            <dd id="provider-status">Checking…</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd id="account" class="mono muted">Not connected</dd>
+          </div>
+          <div>
+            <dt>Public key</dt>
+            <dd id="public-key" class="mono muted">Not available</dd>
+          </div>
+          <div>
+            <dt>Network</dt>
+            <dd id="network" class="mono muted">Unknown</dd>
+          </div>
+          <div>
+            <dt>Chain</dt>
+            <dd id="chain" class="mono muted">Unknown</dd>
+          </div>
+        </dl>
+
+        <p id="page-status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="workflow" aria-label="Qbit provider workflow">
+        <article class="step-card" data-step="1">
+          <div class="step-card__heading">
+            <span class="step-number" aria-hidden="true">01</span>
+            <div>
+              <p class="eyebrow">Permission</p>
+              <h2>Connect this origin</h2>
+            </div>
+          </div>
+          <p>
+            The wallet approval should show the exact origin above and the active Qbit account,
+            network, and chain.
+          </p>
+          <div class="button-row">
+            <button id="connect" class="button button--primary" type="button" disabled>
+              Connect
+            </button>
+            <button id="switch-chain" class="button button--quiet" type="button" disabled>
+              Switch to Testnet4
+            </button>
+          </div>
+        </article>
+
+        <article class="step-card" data-step="2">
+          <div class="step-card__heading">
+            <span class="step-number" aria-hidden="true">02</span>
+            <div>
+              <p class="eyebrow">P2MR message</p>
+              <h2>Sign, then verify</h2>
+            </div>
+          </div>
+          <label for="message">Exact message bytes (UTF-8)</label>
+          <textarea id="message" rows="4">Qbit V1 provider fixture — P2MR proof</textarea>
+          <div class="button-row">
+            <button id="sign-message" class="button button--primary" type="button" disabled>
+              Sign message
+            </button>
+            <button id="verify-message" class="button button--quiet" type="button" disabled>
+              Verify proof
+            </button>
+          </div>
+          <div class="result-block">
+            <span>Versioned P2MR proof</span>
+            <pre id="message-proof" class="mono">No proof yet.</pre>
+          </div>
+          <p id="verification-result" class="inline-result" aria-live="polite"></p>
+        </article>
+
+        <article class="step-card step-card--wide" data-step="3">
+          <div class="step-card__heading">
+            <span class="step-number" aria-hidden="true">03</span>
+            <div>
+              <p class="eyebrow">Qbit PSBT</p>
+              <h2>Review and sign for the active chain</h2>
+            </div>
+          </div>
+          <p>
+            Paste an unsigned P2MR PSBT owned by the connected account. The bundled format fixture
+            is deterministic but cannot spend funds; see its warning before signing.
+          </p>
+          <label for="psbt">Unsigned Qbit PSBT hex</label>
+          <textarea
+            id="psbt"
+            class="mono"
+            rows="10"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+          ></textarea>
+          <div class="fixture-tools">
+            <button id="load-fixture" class="button button--quiet" type="button">
+              Load deterministic format fixture
+            </button>
+            <button id="clear-psbt" class="button button--text" type="button">Clear</button>
+          </div>
+          <p id="fixture-warning" class="warning" hidden>
+            Fixture only: its signer public key is
+            <code id="fixture-public-key" class="mono"></code> and its prevout is fictional. Replace
+            it with a funded Testnet4 PSBT for the connected account before broadcast.
+          </p>
+          <div class="button-row">
+            <button id="sign-psbt" class="button button--primary" type="button" disabled>
+              Sign PSBT on Testnet4
+            </button>
+          </div>
+          <div class="result-block">
+            <span>Signed PSBT</span>
+            <pre id="signed-psbt" class="mono">No signed PSBT yet.</pre>
+          </div>
+        </article>
+
+        <article class="step-card" data-step="4">
+          <div class="step-card__heading">
+            <span class="step-number" aria-hidden="true">04</span>
+            <div>
+              <p class="eyebrow">Testnet4 broadcast</p>
+              <h2>Submit the signed PSBT</h2>
+            </div>
+          </div>
+          <p>
+            Broadcasting changes network state. It is never automatic and remains disabled until you
+            acknowledge the exact target.
+          </p>
+          <label class="confirmation" for="confirm-broadcast">
+            <input id="confirm-broadcast" type="checkbox" />
+            <span>I reviewed the signed PSBT and intend to broadcast it on Testnet4.</span>
+          </label>
+          <button id="broadcast" class="button button--danger" type="button" disabled>
+            Broadcast signed PSBT
+          </button>
+          <div class="result-block">
+            <span>Transaction ID</span>
+            <pre id="transaction-id" class="mono">Not broadcast.</pre>
+          </div>
+        </article>
+
+        <article class="step-card" data-step="5">
+          <div class="step-card__heading">
+            <span class="step-number" aria-hidden="true">05</span>
+            <div>
+              <p class="eyebrow">Revocation</p>
+              <h2>Disconnect this origin</h2>
+            </div>
+          </div>
+          <p>
+            Revoke this origin’s persisted permission and observe both
+            <code>accountsChanged</code> and <code>disconnect</code> below.
+          </p>
+          <button id="disconnect" class="button button--danger" type="button" disabled>
+            Revoke &amp; disconnect
+          </button>
+        </article>
+      </section>
+
+      <section class="events-panel" aria-labelledby="events-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live evidence</p>
+            <h2 id="events-title">Provider events and calls</h2>
+          </div>
+          <button id="clear-log" class="button button--text" type="button">Clear log</button>
+        </div>
+        <ol id="event-log" class="event-log" aria-live="polite"></ol>
+      </section>
+    </main>
+
+    <footer>
+      Local fixture only. Nothing is submitted until an explicit provider button is pressed.
+    </footer>
+  </body>
+</html>

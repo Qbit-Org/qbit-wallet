@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/env.sh"
+
+wallet_name="${1:-$QBIT_FUNDING_WALLET}"
+if [[ "${wallet_name:-}" == "-h" || "${wallet_name:-}" == "--help" ]]; then
+  echo "usage: scripts/regtest/dump-descriptors [wallet-name]" >&2
+  exit 64
+fi
+ensure_wallet "$wallet_name"
+wallet_cli "$wallet_name" listdescriptors true

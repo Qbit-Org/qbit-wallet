@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# GITHUB_TOKEN stays read-only: every write (pushing changeset-release/main and
+# opening or updating the Version Packages PR) uses RELEASE_PAT, which only the
+# changesets step receives.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Open or update Version Packages PR
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+
+    steps:
+      # There is no github.token fallback. Once "Allow GitHub Actions to create
+      # and approve pull requests" is off, github.token cannot open the Version
+      # Packages PR, and a PR it opens never triggers the required CI checks.
+      # changesets/action v1.9.0 falls back to github.token by itself when
+      # GITHUB_TOKEN is empty (src/index.ts:15), so a missing secret fails here;
+      # the read-only token above could not push the release branch either.
+      - name: Require RELEASE_PAT
+        env:
+          RELEASE_PAT_CONFIGURED: ${{ secrets.RELEASE_PAT != '' }}
+        run: |
+          if [[ "$RELEASE_PAT_CONFIGURED" != "true" ]]; then
+            echo "::error::RELEASE_PAT is not configured; the Version Packages PR cannot be opened without it."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          # Nothing is written to .git/config for the install step to read.
+          # changesets/action writes ~/.netrc from its own GITHUB_TOKEN before
+          # it pushes changeset-release/main (v1.9.0 src/index.ts:48-52).
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 8.6.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        # No dependency or workspace lifecycle script runs in the job that holds
+        # RELEASE_PAT. `changeset version` needs no built artifacts, and pnpm
+        # still applies patchedDependencies with --ignore-scripts.
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Create or update the Version Packages PR
+        # v1 is the action line built for @changesets/cli v2 (the v2 action
+        # line requires CLI v3 and renames the inputs this workflow uses).
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          version: pnpm run version-packages
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          # RELEASE_PAT (fine-grained: contents + pull-requests write) pushes the
+          # release branch so the Version Packages PR triggers CI. The action
+          # also hands it to the version script as GITHUB_TOKEN.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}

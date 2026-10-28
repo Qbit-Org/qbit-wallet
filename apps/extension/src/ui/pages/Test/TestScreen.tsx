@@ -1,0 +1,397 @@
+import { useEffect, useRef } from 'react';
+
+import { Button, Card, Column, Content, Header, Input, Layout, Text } from '@/ui/components';
+import { AddressDetailPopover } from '@/ui/components/AddressDetailPopover';
+import { AddressText } from '@/ui/components/AddressText';
+import { AddressTypeCard2 } from '@/ui/components/AddressTypeCard';
+import { RemoveWalletPopover } from '@/ui/components/RemoveWalletPopover';
+import { SignPsbtWithRisksPopover } from '@/ui/components/SignPsbtWithRisksPopover';
+import { ProviderMethodArgs, ProviderMethods } from '@qbit/wallet-background/types';
+import { ADDRESS_TYPES, DummyTxType, SignMessageType, ToAddressInfo, ToSignData } from '@qbit/wallet-shared';
+import { useAsyncEffect, useCurrentKeyring, useKeyrings, useTools, useWallet } from '@qbit/wallet-state';
+import { ChainType, NetworkType } from '@qbit/wallet-types';
+import { Connect, SignMessage, SignPsbt, SwitchNetwork } from '../Approval/components';
+import { useNavigate } from '../MainRoute';
+import { testDecodedTx } from './testDecodedTx';
+
+const DUMMY_SESSION = {
+  origin: 'https://mail.google.com/',
+  icon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+  name: 'GMAIL'
+};
+
+export default function TestScreen() {
+  const tools = useTools();
+  const wallet = useWallet();
+
+  const testApprovalData = useRef<{ toSignDatas: ToSignData[] }>({ toSignDatas: [] });
+
+  useAsyncEffect(async () => {
+    const toSignDatas: ToSignData[] = [];
+
+    const types = [DummyTxType.SEND_QBIT, DummyTxType.SPLIT_QBIT, DummyTxType.MERGE_QBIT];
+    for (const txType of types) {
+      const data = await wallet.createDummyPsbt({ txType });
+      toSignDatas.push(data);
+    }
+
+    testApprovalData.current.toSignDatas = toSignDatas;
+  });
+
+  const requestApproval = async (data: ProviderMethodArgs<ProviderMethods>) => {
+    try {
+      await wallet.requestMethod({
+        data,
+        session: DUMMY_SESSION
+      });
+      tools.toast('Request sent');
+    } catch (e) {
+      tools.toast('Error sending request');
+      console.log('Error sending request', e);
+    }
+  };
+
+  return (
+    <Layout>
+      <Header title="TestScreen" />
+      <Content>
+        <Column>
+          <Button
+            text="SignPsbt"
+            onClick={() => {
+              requestApproval({
+                method: 'signPsbt',
+                params: {
+                  psbtHex: testApprovalData.current.toSignDatas[0].psbtHex,
+                  options: { toSignInputs: testApprovalData.current.toSignDatas[0].toSignInputs }
+                }
+              });
+            }}
+          />
+
+          <Button
+            text="Sign Multiple Psbts"
+            onClick={() => {
+              requestApproval({
+                method: 'multiSignPsbt',
+                params: {
+                  psbtHexs: testApprovalData.current.toSignDatas.map((item) => item.psbtHex),
+                  options: testApprovalData.current.toSignDatas.map((item) => ({ toSignInputs: item.toSignInputs }))
+                }
+              });
+            }}
+          />
+
+          <Button
+            text="SignMessage"
+            onClick={() => {
+              requestApproval({
+                method: 'signMessage',
+                params: {
+                  text: 'hello',
+                  type: SignMessageType.ECDSA
+                }
+              });
+            }}
+          />
+          <Button
+            text="Sign Multiple Messages"
+            onClick={() => {
+              requestApproval({
+                method: 'multiSignMessage',
+                params: {
+                  messages: [
+                    {
+                      text: 'hello1',
+                      type: SignMessageType.BIP322_SIMPLE
+                    },
+                    {
+                      text: 'hello2',
+                      type: SignMessageType.ECDSA
+                    }
+                  ]
+                }
+              });
+            }}
+          />
+
+          <Button
+            text="Switch Chain"
+            onClick={() => {
+              requestApproval({
+                method: 'switchChain',
+                params: {
+                  chain: ChainType.QBIT_TESTNET4
+                }
+              });
+            }}
+          />
+        </Column>
+      </Content>
+    </Layout>
+  );
+}
+
+function TestWalletAccounts() {
+  const wallet = useWallet();
+  const tools = useTools();
+
+  const keyrings = useKeyrings();
+  return (
+    <Layout>
+      <Header />
+      <Content>
+        <Column>
+          <Text text="Create 100 wallets for performance test" />
+          <Text text={`Current keyrings count: ${keyrings.length}`} />
+          <Button
+            text="Create multiple wallets"
+            onClick={async () => {
+              const count = 100;
+              const addressTypeInfo = ADDRESS_TYPES[0];
+              for (let i = 0; i < count; i++) {
+                const mnemonics = await wallet.generatePreMnemonic();
+                await wallet.createKeyringWithMnemonics(
+                  mnemonics,
+                  addressTypeInfo.hdPath,
+                  '',
+                  addressTypeInfo.value,
+                  10
+                );
+              }
+              tools.toastSuccess(`Created ${count} wallets`);
+            }}
+          />
+        </Column>
+      </Content>
+    </Layout>
+  );
+}
+
+function TestSignPsbtWithRisksPopover() {
+  return (
+    <SignPsbtWithRisksPopover
+      onClose={() => {
+        // todo
+      }}
+      onConfirm={() => {
+        // todo
+      }}
+      decodedPsbt={testDecodedTx.data as any}
+    />
+  );
+}
+
+const testAddressInfo = {
+  address: 'qbrt1zqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s8kqqny',
+  domain: 'abc.sats'
+};
+
+function TestAddressInput() {
+  const toInfo = {
+    address: '',
+    domain: ''
+  };
+  return (
+    <Input
+      preset="address"
+      addressInputData={toInfo}
+      onAddressInputChange={(val) => {
+        console.log(val);
+      }}
+      autoFocus={true}
+    />
+  );
+}
+
+function TestButton() {
+  return (
+    <Card
+      onClick={() => {
+        //tpdp
+      }}>
+      <Text text="HELLO" />
+      <Text text="WORLD" />
+    </Card>
+  );
+}
+
+function TestAddressDetail() {
+  return (
+    <AddressDetailPopover
+      address="qbrt1zqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s8kqqny"
+      onClose={() => {
+        //todo
+      }}
+    />
+  );
+}
+
+function TestAddressTextA() {
+  return <AddressText addressInfo={testAddressInfo as ToAddressInfo} />;
+}
+
+function TestAddressTextB() {
+  return <AddressText address={'qbrt1zqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s8kqqny'} />;
+}
+
+function TestApprovalConnect() {
+  return (
+    <Connect
+      params={{
+        session: {
+          origin: 'https://mail.google.com/',
+          icon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+          name: 'GMAIL'
+        }
+      }}
+    />
+  );
+}
+
+function TestApprovalSignPsbtB() {
+  // const psbtHex = '70736274ff01009a020000000229c48c873d924f44e91c0c68350f56ac4a91f7d8e3ce53f611b7bbc6d74e94490000000000fdffffffd0baba4fd7980fe2c29b1efc4eb9eb2aa43aa1a4dbe2d9f8f38facef3446f5900100000000fdffffff0288130000000000001600143dcf0a89a523ff619a31af413954960414a7c21ea74f5700000000001600143dcf0a89a523ff619a31af413954960414a7c21e000000000001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100aa1d2d11a259766c383a3c0d98031e4d22a941d221d7f08a4eef688717aa2fa90220550c1be8139bddb2ff359ad96fcccfd130bfcd300ac6eb8999c1771668671f0d0121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f79505700000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100e8bd3cbd51dd33fc082dd40f43255860bd5c5af0f2b3e4078cfa34d45f137cfa022021bf8c56c0fc03e50e5ca85cfb38613febcc5f2aabe27c53e0c8846996a241a40121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac000000';
+
+  const psbtHex =
+    '70736274ff0100fd7201020000000529c48c873d924f44e91c0c68350f56ac4a91f7d8e3ce53f611b7bbc6d74e94490000000000fdffffff6b09c7db0780116771239461b966e15ff69a3b8bac75087844d70772051b92470000000000fdffffff1565d4732c8902fbcc9b893fb34f81f3d5cfb423738b1b7f0989f6e05118a6b50000000000fdffffff1107c932ca1796f9beec709d055ada9b43ff1defef9d02093b7bac292cbe893a0000000000fdffffffd0baba4fd7980fe2c29b1efc4eb9eb2aa43aa1a4dbe2d9f8f38facef3446f5900100000000fdffffff0588130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e7e4e5700000000001600143dcf0a89a523ff619a31af413954960414a7c21e000000000001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086b024730440220617f506c0178a37246ab459c8fe020ee75c7ae7b384d13c27fe514a76befb0200220633001f7d6216de17a532696151913be16dea2884a3c1d5a5a6cc120013924440121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086b0247304402204b836a559d34a9dc9541e93e2b14e5fdd37520141ff181cd5b65d8d0b0f8dda902206ed8b5db4f2e90f5690933691cd4849acd09b833e570686e930714d147984ff10121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100c2210808b3a3012eb2e5acaff7614480b4ee544f971617b20191bd79fb82103e02201df853f23e97f8d64434f7fa0c91e4378464b775e8f50f16fb1db7da0932310e0121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100854f27ed11762f0527ed8c8b9dfa40a11668d332f4f4f4c426209a8f99f0684002205a37810c7856f55fa0066b4311f43e2c0e0e5bd0898fe347195e04b8302bafa70121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f79505700000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100ff500eb5249ae8bd06ad4667ae7ad8515f85a44cfffbec33ef7e2f4ad81c7454022019a3a68f17e2c31c76985e07e638717b4e1f61396ff2cf04610e334a92d779940121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac000000000000';
+  return (
+    <SignPsbt
+      params={{
+        data: {
+          toSignDatas: [
+            {
+              psbtHex,
+              toSignInputs: []
+            }
+          ]
+        },
+        session: {
+          origin: 'https://mail.google.com/',
+          icon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+          name: 'GMAIL'
+        }
+      }}
+    />
+  );
+}
+
+// function TestApprovalMultiSignPsbt() {
+//   // const psbtHex = '70736274ff01009a020000000229c48c873d924f44e91c0c68350f56ac4a91f7d8e3ce53f611b7bbc6d74e94490000000000fdffffffd0baba4fd7980fe2c29b1efc4eb9eb2aa43aa1a4dbe2d9f8f38facef3446f5900100000000fdffffff0288130000000000001600143dcf0a89a523ff619a31af413954960414a7c21ea74f5700000000001600143dcf0a89a523ff619a31af413954960414a7c21e000000000001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100aa1d2d11a259766c383a3c0d98031e4d22a941d221d7f08a4eef688717aa2fa90220550c1be8139bddb2ff359ad96fcccfd130bfcd300ac6eb8999c1771668671f0d0121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f79505700000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100e8bd3cbd51dd33fc082dd40f43255860bd5c5af0f2b3e4078cfa34d45f137cfa022021bf8c56c0fc03e50e5ca85cfb38613febcc5f2aabe27c53e0c8846996a241a40121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac000000';
+
+//   const psbtHex =
+//     '70736274ff0100fd7201020000000529c48c873d924f44e91c0c68350f56ac4a91f7d8e3ce53f611b7bbc6d74e94490000000000fdffffff6b09c7db0780116771239461b966e15ff69a3b8bac75087844d70772051b92470000000000fdffffff1565d4732c8902fbcc9b893fb34f81f3d5cfb423738b1b7f0989f6e05118a6b50000000000fdffffff1107c932ca1796f9beec709d055ada9b43ff1defef9d02093b7bac292cbe893a0000000000fdffffffd0baba4fd7980fe2c29b1efc4eb9eb2aa43aa1a4dbe2d9f8f38facef3446f5900100000000fdffffff0588130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e7e4e5700000000001600143dcf0a89a523ff619a31af413954960414a7c21e000000000001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086b024730440220617f506c0178a37246ab459c8fe020ee75c7ae7b384d13c27fe514a76befb0200220633001f7d6216de17a532696151913be16dea2884a3c1d5a5a6cc120013924440121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086b0247304402204b836a559d34a9dc9541e93e2b14e5fdd37520141ff181cd5b65d8d0b0f8dda902206ed8b5db4f2e90f5690933691cd4849acd09b833e570686e930714d147984ff10121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100c2210808b3a3012eb2e5acaff7614480b4ee544f971617b20191bd79fb82103e02201df853f23e97f8d64434f7fa0c91e4378464b775e8f50f16fb1db7da0932310e0121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f88130000000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100854f27ed11762f0527ed8c8b9dfa40a11668d332f4f4f4c426209a8f99f0684002205a37810c7856f55fa0066b4311f43e2c0e0e5bd0898fe347195e04b8302bafa70121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac0001011f79505700000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c02483045022100ff500eb5249ae8bd06ad4667ae7ad8515f85a44cfffbec33ef7e2f4ad81c7454022019a3a68f17e2c31c76985e07e638717b4e1f61396ff2cf04610e334a92d779940121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac000000000000';
+//   const psbtHex2 =
+//     '70736274ff01007d0200000001d0baba4fd7980fe2c29b1efc4eb9eb2aa43aa1a4dbe2d9f8f38facef3446f5900100000000fdffffff02a086010000000000225120517aaf863dcf93a135664bbede4dc219c054a63fdd5b8b10a7c2b61bd8d3e28f3fc95500000000001600143dcf0a89a523ff619a31af413954960414a7c21e000000000001011f79505700000000001600143dcf0a89a523ff619a31af413954960414a7c21e01086c024830450221008b3706ec6cff7e882fe6dbcbeacc09195f3f10f8b268acce6367bf4f37058edd02203ca6b1c8f6efdad8f6aa63cfe091d5871e1f19d44e3e267d311c31e51cb81f1c0121026887958bcc4cb6f8c04ea49260f0d10e312c41baf485252953b14724db552aac000000';
+//   return (
+//     <MultiSignPsbt
+//       params={{
+//         data: {
+//           psbtHexs: [psbtHex, psbtHex2],
+//           options: []
+//         },
+//         session: {
+//           origin: 'https://mail.google.com/',
+//           icon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+//           name: 'GMAIL'
+//         }
+//       }}
+//     />
+//   );
+// }
+
+function TestApprovalSwitchNetwork() {
+  return (
+    <SwitchNetwork
+      params={{
+        data: {
+          networkType: NetworkType.MAINNET
+        },
+        session: {
+          origin: 'https://mail.google.com/',
+          icon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+          name: 'GMAIL'
+        }
+      }}
+    />
+  );
+}
+
+function TestApprovalSignText() {
+  return (
+    <SignMessage
+      params={{
+        data: {
+          toSignMessages: [{ text: 'hello', type: SignMessageType.ECDSA }]
+        },
+        session: DUMMY_SESSION
+      }}
+    />
+  );
+}
+
+function TestRemoveWalletPoper() {
+  const keyring = useCurrentKeyring();
+  return (
+    <RemoveWalletPopover
+      keyring={keyring}
+      onClose={function (): void {
+        throw new Error('Function not implemented.');
+      }}
+    />
+  );
+}
+
+function TestCreatePassword() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    navigate('CreatePasswordScreen', { isNewAccount: true });
+  }, []);
+}
+
+function TestTxSuccess() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    setTimeout(() => {
+      navigate('TxSuccessScreen', { txid: '' });
+    }, 3000);
+  }, []);
+  return <div />;
+}
+
+function TestTxFailed() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    setTimeout(() => {
+      navigate('TxFailScreen', {
+        result: {
+          success: false,
+          outcome: 'unknown',
+          reason: 'network',
+          txid: 'ab'.repeat(32),
+          lookup: 'unavailable',
+          detail: 'network error: (TypeError: fetch failed)'
+        }
+      });
+    }, 3000);
+  }, []);
+  return <div />;
+}
+
+function TestAddressTypeCard() {
+  const items = [
+    { address: 'qb1zqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sjq57mw', path: "m/84'/0'/0'/0/0", satoshis: 100 }
+    // { address: 'qb1zqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sjq57mw', path: "m/84'/0'/0'/0/1" }
+  ];
+  return (
+    <Layout>
+      <Content>
+        <Column my="md" mt="md">
+          <AddressTypeCard2 label="Native Segwit (P2WPKH)" items={items} checked />
+          <AddressTypeCard2 label="Nested Segwit (P2SH-P2WPKH)" items={items} checked={false} />
+          <AddressTypeCard2 label="Taproot (P2TR)" items={items} checked={false} />
+          <AddressTypeCard2 label="P2PKH" items={items} checked={false} />
+        </Column>
+      </Content>
+    </Layout>
+  );
+}

@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "name": "qbit-core-g2-matrix",
+  "provenance": {
+    "kind": "wallet-golden-core-validated",
+    "qbitSdkPackages": {
+      "@qbit-oss/pqc": "0.1.0 sha512-NZAWoRggBtQHdCyXFfA4odcgnxedrwV57nZMHkhutS/UnPpzNBGwVPUMQcmIfxlF9IPU5Q0FRtJ5VnoQ59vqCA==",
+      "@qbit-oss/protocol": "0.1.0 sha512-7GGEVWwmMgL5XL8FQlFJeXwUkW2y2ciLq6bv5VYz6Bp6cea64HNItg77XpKkupDfz/Hg5ghKaupez3Zp+08uJQ=="
+    },
+    "coreEvidence": {
+      "validated": true,
+      "validatedRows": ["derivation"],
+      "sourceBaseline": {
+        "repository": "Qbit-Org/qbit",
+        "commit": "7ebcddb622d6e639041f005a189b048ec2a221fe",
+        "treeHashAlgorithm": "sha256-git-tracked-root-or-filesystem-posix-relative-path-nul-mode-nul-raw-bytes-v3"
+      },
+      "runtimeRelease": {
+        "binding": "qbit-signed-release-tag-and-checksums-v1",
+        "repository": "Qbit-Org/qbit",
+        "tag": "v1.0.0",
+        "commit": "7ebcddb622d6e639041f005a189b048ec2a221fe",
+        "releaseSignerFingerprint": "289EA3EC2F1939A24984840ED26CFC05586D371E",
+        "checksumSignatureAsset": "SHA256SUMS.operator-01.asc",
+        "linuxX64ArchiveSha256": "ae121af03263b55d530e3f3e8719a71362d0950cba82f54a2bc2d6c437a029b5",
+        "linuxArm64ArchiveSha256": "a0242e5941eec64070f386e80c848220e2ec2292984a9b2ab1fd93f57436b31d"
+      },
+      "subversion": "/qbit:1.0.0/",
+      "liveValidationRequired": [
+        "descriptors",
+        "addresses",
+        "sighash-sign",
+        "tx-fees",
+        "psbt",
+        "message-proof"
+      ]
+    }
+  },
+  "generatedBy": "scripts/conformance/generate-matrix-fixture.mjs with cryptographically verified Core release provenance",
+  "derivation": {
+    "count": 20,
+    "externalPath": "m/87'/1'/0'/0",
+    "internalPath": "m/87'/1'/0'/1",
+    "externalRegtestAddresses": [
+      "qbrt1z4gvckalurmlmtd3cpehgu75w66hvhne6mswvj09pzwc88qfjvfpsgrjey2",
+      "qbrt1zyz3aqx2ma5d7heeahrtcu7nwcmk9ne6v6eavzexum47hgtjpe9cshxlhk8",
+      "qbrt1ztlasgkepcxq8a2e6y06z7lcrcp3h7rpzu28ngtha3l9wfzlhlg8sdmd7jt",
+      "qbrt1zxmpwr4k284xe6l6244tz4cc9769ags6gs9ddsj6w0f2dgtq3s3hsa2ezkx",
+      "qbrt1zpv9jm87cqdaj0dd599xfp688rq2t6y4kpfepkfl7dnm3zm0ucl0qq9q2cu",
+      "qbrt1zdj32e53lwtpws2hdtvg9zx3utxmdx2cyll52atnv6a86fgcwyj5stnywy8",
+      "qbrt1zeqsvdc8f9xf6fj4mk2xyfd7gknk89lrf40mg8kmca68ksmrqx09snl42r5",
+      "qbrt1zkuwza972up36ne65aj7ql4utrvaxr7x2xquzxqqu64yp54jc6aps6e9v62",
+      "qbrt1zd2uuph70n2354c4x3444t32ay4vrkw3k8p2hex33k2v6delhrlhsh5az2z",
+      "qbrt1z6d3h7s46582d83hlxewwra0vypsr6kd698wpcau03v7wehsvlwnssgvmzp",
+      "qbrt1zg5sqqclnsyt69fcdd45ylm4km37qagwvclgtz4mrcngz4c9kx68qp32ymt",
+      "qbrt1ztel7zwgt77yru57flcukncn05crgmdyfslgvh9np23ef9e588qasswtgp7",
+      "qbrt1zn3f5qqc259nms9vpuvlpmyfnnwcc7l30wxkytmjxh9neyymstfnsscvkuj",
+      "qbrt1z2uzswz72dhv99k6rv2cpz9xk2vay5h7fj96dv5ak8df2s0qquppsgp49zp",
+      "qbrt1zh6e8uqfexzgcevugxv4vczfg969vmy4ce3p5tsxs9u7kxmk7fkuqu72jg0",
+      "qbrt1zq2uj6ttlrrmp5zxu6ch9ara9wlhl6agt7p50rw30mlpjvlt05y0qwwheh8",
+      "qbrt1za0ft2r4h0aq6n4smgfzpj2ak6ah7z7sv6tm7wcq2pvm2wes9rcuq0aze57",
+      "qbrt1zlvhltg09ve4ccjfqwuew7hc2s5dv2mmpzutj6l36y4rax38efu6sxkjpsp",
+      "qbrt1zpkznpnhrvapdxflecrwuj3yntr0v6exaw3ldvtp3wal7ffq3j32sfdhsag",
+      "qbrt1zw6zfmmr94c8zq728hyfecz4wf80pfug0ez0vwtcqeexuxefl2m7s55d90m"
+    ],
+    "internalRegtestAddresses": [
+      "qbrt1zx8rrmkl7gmnugmxxykdtcx3vaf6mfeqlxx6q2eywqh0ndmh5kaks3wywvq",
+      "qbrt1z7y6dd34r0m3558earpt3nhyaj6pydy4wdsjnl28u3h6l09gjdwzs8yshtw",
+      "qbrt1zmfmwsk4nzzr9s6zllprmxku2h062rk9negfnsru2fpzudvxknqwqz7m77c",
+      "qbrt1zwscz23x6tuvkfff04rut94elvxknjm9ezllrr8et0pud2rkyh0dqc77ga7",
+      "qbrt1znvvfmz2kkuty8thpq0kuvt2pe58xyrafkvs9juueafj4xhg2hvssr8kp7t",
+      "qbrt1zpdn7eqlcfut4t0qd64zfcgdxap8ncfpuax2lplf838yxwlp98hlq43sn45",
+      "qbrt1zc0ue62xy398ma0ua220ktr7a4qq5c8mphujef6kwl7zp33hjjlksucvmpf",
+      "qbrt1zxnx703kwzw77hj2u2t0t0p39t6x99p7mn4zf62ld3sh2g766sqnsh6p5da",
+      "qbrt1z89v4pr44kzy0hgx0zkaemk76fjzrztjgj8wlmqcn6aqv7xxt3xnq32hna3",
+      "qbrt1z26j4vnshwcwmrnwnmtp3p2lsta8jyrjfjgrvvypzessj5usqz6eq7ck7vh",
+      "qbrt1zek5yk0xr8dp2sf4zhjkf7feklwl860zq4le9lfjdqfkfnx4en7gszc8jd4",
+      "qbrt1z94pppkrz7hnum7z2722seqpsun7qyk6slcq4c4t6h05qeef0m7qsmapsga",
+      "qbrt1zcpw6gm6u80qmnht6wnggw08l98yurhccx9vjsr78asm3k90vdmlqwerd7y",
+      "qbrt1ztucn0ktkcdxdnsfj4zhdgx22kzsl0c8qc35gn2wyedgzhfjnn7nqxn9965",
+      "qbrt1zdfajxjydz4hxt8jdyf8qmy5e55uqnddaveqdz5g06pm77sxpx2tqpf89jl",
+      "qbrt1zm3nadh4pws8r43n9wd29xwlqvstmd4e6wjf34ttdqdwnkffps6pqr9hr8p",
+      "qbrt1z8hs3te8kpmavnnddrk7464gef8qv8vv5glf7u4e3kar0ph9000pq066e78",
+      "qbrt1z0s9cglqrh5242eh4jnqngfem402gcnarcnvqxzfg2765m055zzhqtnsakq",
+      "qbrt1z2vnw3cqqj8ah2zltctkngk09eekvjj0qm7nlj9uz9nmxwalffh2srgwtq2",
+      "qbrt1zpn9zruc8phl5zqvc2qpmm9ttckdmtajysf0y489ns38ux9a7r3ksm9w6fp"
+    ]
+  },
+  "descriptors": {
+    "externalSha256": "70face31aab03cd79e4ea532fa72cf0813784e1888d7deb9c50ee54e0c333d54",
+    "internalSha256": "248d3cd75b997f9e0d336cd32f84db9ed123ea7bd1e130f12a3ff20834a39b52"
+  },
+  "addresses": {
+    "invalidRegtest": [
+      {
+        "name": "checksum-mutation",
+        "value": "qbrt1z4gvckalurmlmtd3cpehgu75w66hvhne6mswvj09pzwc88qfjvfpsgrjeyx"
+      },
+      {
+        "name": "mixed-case",
+        "value": "Qbrt1z4gvckalurmlmtd3cpehgu75w66hvhne6mswvj09pzwc88qfjvfpsgrjey2"
+      },
+      { "name": "short-program", "value": "qbrt1z2rkskwvnm8" },
+      {
+        "name": "wrong-checksum-family",
+        "value": "qbrt1pqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sfy8ykg"
+      },
+      {
+        "name": "wrong-network",
+        "value": "qb1z4gvckalurmlmtd3cpehgu75w66hvhne6mswvj09pzwc88qfjvfpsa4x8vq"
+      }
+    ]
+  },
+  "txFees": {
+    "leafScriptLength": 34,
+    "controlBlockLength": 1,
+    "outputScriptLength": 34,
+    "singleInputSingleOutputVsize": 3817,
+    "singleInputTwoOutputVsize": 3860,
+    "explicitSignatureItemVsize": 3818,
+    "dustBoundarySats": 2855
+  }
+}

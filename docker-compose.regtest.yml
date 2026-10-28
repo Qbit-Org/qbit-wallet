@@ -1,0 +1,89 @@
+name: qbit-wallet-regtest
+
+services:
+  qbitd:
+    image: ${QBITD_IMAGE:-qbit-wallet/qbitd-regtest:v1.0.0}
+    pull_policy: ${QBITD_PULL_POLICY:-build}
+    build:
+      context: docker/regtest
+      dockerfile: qbitd-release.Dockerfile
+      args:
+        QBIT_REPO: Qbit-Org/qbit
+        QBIT_RELEASE: ${QBIT_RELEASE:-v1.0.0}
+        QBIT_SOURCE_COMMIT: ${QBIT_SOURCE_COMMIT:-7ebcddb622d6e639041f005a189b048ec2a221fe}
+        QBIT_ARCHIVE_SHA256_AMD64: ${QBIT_ARCHIVE_SHA256_AMD64:-ae121af03263b55d530e3f3e8719a71362d0950cba82f54a2bc2d6c437a029b5}
+        QBIT_ARCHIVE_SHA256_ARM64: ${QBIT_ARCHIVE_SHA256_ARM64:-a0242e5941eec64070f386e80c848220e2ec2292984a9b2ab1fd93f57436b31d}
+    environment:
+      QBIT_RPC_USER: ${QBIT_RPC_USER:-qbit}
+      QBIT_RPC_PASSWORD: ${QBIT_RPC_PASSWORD:-qbit}
+    entrypoint:
+      - /bin/sh
+      - -lc
+    command:
+      - |
+        mkdir -p /data/wallets
+        exec qbitd \
+          -regtest=1 \
+          -p2mronly=1 \
+          -server=1 \
+          -txindex=1 \
+          -listen=1 \
+          -port=18460 \
+          -rpcport=18452 \
+          -fallbackfee=0.0001 \
+          -keypool=32 \
+          -rpcbind=0.0.0.0 \
+          -rpcallowip=0.0.0.0/0 \
+          -rpcuser="$${QBIT_RPC_USER}" \
+          -rpcpassword="$${QBIT_RPC_PASSWORD}" \
+          -datadir=/data \
+          -walletdir=/data/wallets \
+          -printtoconsole=1
+    ports:
+      - "${QBIT_REGTEST_RPC_PORT:-18452}:18452"
+      - "${QBIT_REGTEST_P2P_PORT:-18460}:18460"
+    volumes:
+      - qbitd-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "qbit-cli -regtest -rpcconnect=127.0.0.1 -rpcport=18452 -rpcuser=$${QBIT_RPC_USER:-qbit} -rpcpassword=$${QBIT_RPC_PASSWORD:-qbit} getblockchaininfo >/dev/null 2>&1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  electrs-qbit:
+    image: ${ELECTRS_QBIT_IMAGE:-qbit-wallet/electrs-qbit-regtest:${ELECTRS_QBIT_REF:-5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2}}
+    pull_policy: ${ELECTRS_QBIT_PULL_POLICY:-build}
+    build:
+      context: docker/regtest
+      dockerfile: electrs-qbit-source.Dockerfile
+      args:
+        ELECTRS_QBIT_REF: ${ELECTRS_QBIT_REF:-5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2}
+    depends_on:
+      qbitd:
+        condition: service_healthy
+    command:
+      - -vvvv
+      - --network=qbitregtest
+      - --daemon-dir=/qbit/regtest
+      - --daemon-rpc-addr=qbitd:18452
+      - --cookie=${QBIT_RPC_USER:-qbit}:${QBIT_RPC_PASSWORD:-qbit}
+      - --jsonrpc-import
+      - --http-addr=0.0.0.0:3002
+      - --electrum-rpc-addr=0.0.0.0:60401
+      - --monitoring-addr=0.0.0.0:24224
+      - --db-dir=/data
+    ports:
+      - "${QBIT_REGTEST_HTTP_PORT:-3002}:3002"
+      - "${QBIT_REGTEST_ELECTRUM_PORT:-60401}:60401"
+      - "${QBIT_REGTEST_MONITORING_PORT:-24224}:24224"
+    volumes:
+      - electrs-qbit-data:/data
+      - qbitd-data:/qbit:ro
+
+volumes:
+  qbitd-data:
+  electrs-qbit-data:

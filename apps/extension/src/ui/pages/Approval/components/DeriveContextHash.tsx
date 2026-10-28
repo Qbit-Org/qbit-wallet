@@ -1,0 +1,116 @@
+import {
+  Button,
+  Card,
+  Column,
+  Content,
+  Footer,
+  Header,
+  Layout,
+  Row,
+  Text
+} from '@/ui/components';
+import WebsiteBar from '@/ui/components/WebsiteBar';
+import { useApproval, useChain, useCurrentAccount, useI18n } from '@qbit/wallet-state';
+
+interface Props {
+  /** The approval this screen renders; its buttons settle only it. */
+  approvalId?: string;
+  params: {
+    data: {
+      appName: string;
+      context: string;
+    };
+    session: {
+      origin: string;
+      icon: string;
+      name: string;
+    };
+  };
+}
+
+export default function DeriveContextHash({ approvalId, params: { data, session } }: Props) {
+  const { resolveApproval, rejectApproval } = useApproval();
+  const { t } = useI18n();
+  const account = useCurrentAccount();
+  const chain = useChain();
+
+  const handleCancel = () => {
+    rejectApproval(approvalId);
+  };
+
+  const handleConfirm = () => {
+    resolveApproval(approvalId);
+  };
+
+  return (
+    <Layout>
+      <Content>
+        <Header>
+          <WebsiteBar session={session} />
+        </Header>
+
+        <Column>
+          <Text text={t('derive_context_hash_request')} preset="title-bold" textCenter mt="lg" />
+
+          <Text text={t('derive_context_hash_description')} textCenter mt="lg" />
+
+          <Text text={t('derive_context_hash_app_name')} preset="bold" mt="lg" />
+          <Card>
+            <Text text={data.appName} style={{ fontFamily: 'monospace', wordBreak: 'break-all' }} />
+          </Card>
+
+          {account?.address && (
+            <>
+              <Text text={t('derive_context_hash_account')} preset="bold" mt="lg" />
+              <Card>
+                <Text
+                  text={account.address}
+                  style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                />
+              </Card>
+            </>
+          )}
+
+          {chain?.label && (
+            <>
+              <Text text={t('derive_context_hash_network')} preset="bold" mt="lg" />
+              <Card>
+                <Text text={chain.label} />
+              </Card>
+            </>
+          )}
+
+          <Text text={t('derive_context_hash_context')} preset="bold" mt="lg" />
+          <Card>
+            <div
+              style={{
+                userSelect: 'text',
+                maxHeight: 384,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                fontFamily: 'monospace'
+              }}>
+              {data.context}
+            </div>
+          </Card>
+
+          <Text
+            preset="sub"
+            textCenter
+            mt="lg"
+            color="warning"
+            text={t('derive_context_hash_warning')}
+          />
+        </Column>
+      </Content>
+
+      <Footer>
+        <Row full>
+          <Button text={t('reject')} full preset="default" onClick={handleCancel} />
+          <Button text={t('confirm')} full preset="primary" onClick={handleConfirm} />
+        </Row>
+      </Footer>
+    </Layout>
+  );
+}

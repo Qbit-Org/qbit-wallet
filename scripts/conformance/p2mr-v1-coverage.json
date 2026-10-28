@@ -1,0 +1,809 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "repository": "Qbit-Org/qbit",
+    "releaseTag": "v1.0.0",
+    "releaseCommit": "7ebcddb622d6e639041f005a189b048ec2a221fe"
+  },
+  "liveRows": [
+    {
+      "id": "derivation",
+      "coverage": "20 receive and 20 change indexes, with the signed-release-validated matrix and historical Core derivation fixture"
+    },
+    {
+      "id": "descriptors",
+      "coverage": "descriptor import/listing plus parser and serializer round trips"
+    },
+    {
+      "id": "addresses",
+      "coverage": "valid and invalid address parity through validateaddress, plus matrix addresses"
+    },
+    {
+      "id": "sighash-sign",
+      "coverage": "wallet signing, testmempoolaccept, mined confirmation, and the existing all-hashtype P2MR fixture"
+    },
+    {
+      "id": "tx-fees",
+      "coverage": "transaction size, fee, and dust-policy parity"
+    },
+    {
+      "id": "psbt",
+      "coverage": "decode, combine, finalize, cross-implementation finalization, and the existing P2MR PSBT fixture"
+    },
+    {
+      "id": "message-proof",
+      "coverage": "bidirectional Core/qbit-js P2MR message-proof signing and verification"
+    }
+  ],
+  "existingFixtures": [
+    {
+      "path": "scripts/conformance/fixtures/matrix.json",
+      "coverage": "signed-v1.0.0-validated derivation, descriptors, addresses, sizing, and dust values"
+    },
+    {
+      "path": "node_modules/@qbit-oss/pqc/fixtures/qbit-core-derivation.json",
+      "coverage": "Qbit-Org/qbit v1.0.0 deterministic PQC derivation bytes, shipped in the pinned @qbit-oss/pqc 0.1.0 tarball"
+    },
+    {
+      "path": "experiments/pqc-wasm/fixtures/slh-dsa-golden.json",
+      "coverage": "SLH-DSA golden vectors from the separately pinned libbitcoinpqc source; byte-identical to the copy @qbit-oss/pqc ships"
+    },
+    {
+      "path": "scripts/conformance/qbit-js/fixtures/p2mr-sighash.json",
+      "coverage": "Qbit-Org/qbit v1.0.0 P2MR digests for all seven supported hash types over one- and two-input transactions; byte-identical to the v1.0.0 regeneration"
+    },
+    {
+      "path": "scripts/conformance/qbit-js/fixtures/p2mr-psbt.json",
+      "coverage": "Qbit-Org/qbit v1.0.0 P2MR PSBT container bytes; byte-identical to the v1.0.0 regeneration"
+    },
+    {
+      "path": "scripts/conformance/fixtures/message-proof.json",
+      "coverage": "signed-v1.0.0 data-signature domain, message hash, proof mode, and Core vector identity"
+    }
+  ],
+  "candidates": [
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "single_leaf_op_true",
+      "status": "uncovered",
+      "currentCoverage": [
+        "addresses live row observes only the final address",
+        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-script.test.ts uses synthetic bytes"
+      ],
+      "byteLevelReason": "No signed-release fixture pinned the c00151 leaf preimage, P2MRLeaf hash, c1 control byte, root, and 5220 scriptPubKey together.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.valid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "two_leaf_op_true_with_op_false_sibling",
+      "status": "uncovered",
+      "currentCoverage": [
+        "addresses live row observes only the final address",
+        "protocol branch test checks commutativity without a Core golden"
+      ],
+      "byteLevelReason": "The exact sibling, sorted branch preimage, c1-plus-node control block, Merkle root, and scriptPubKey were not jointly pinned.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.valid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "two_leaf_spent_hash_sorts_after_sibling",
+      "status": "uncovered",
+      "currentCoverage": ["protocol branch test proves order independence only"],
+      "byteLevelReason": "No Core-derived assertion required sibling||spent when the spent hash sorts after its sibling or pinned the resulting root bytes.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.valid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "three_leaf_two_level_spend_middle_leaf",
+      "status": "uncovered",
+      "currentCoverage": [
+        "descriptor and address rows exercise wallet trees without exposing path bytes"
+      ],
+      "byteLevelReason": "The two-node bottom-up control path, both branch preimages, and the resulting multi-level root were not observable through RPC.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.valid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "missing_bit0_control_marker",
+      "status": "uncovered",
+      "currentCoverage": ["protocol builds only marker-set control blocks"],
+      "byteLevelReason": "No signed Core negative pinned c0 as a malformed control marker and required rejection before commitment evaluation.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "malformed_control_block_size",
+      "status": "uncovered",
+      "currentCoverage": ["PSBT parsing rejects malformed shapes without a Core-derived byte"],
+      "byteLevelReason": "The exact two-byte c100 near-miss and wrong-control-size outcome were not pinned to the signed release.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "wrong_leaf_version",
+      "status": "uncovered",
+      "currentCoverage": ["message-proof tests reject a synthetic c3 mutation"],
+      "byteLevelReason": "The signed corpus binds c3 to leaf version c2 and proves its recomputed leaf commitment differs from the c0 program root.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "wrong_compactsize_script_length_encoding",
+      "status": "uncovered",
+      "currentCoverage": ["protocol leaf hashing has no malformed-preimage input API"],
+      "byteLevelReason": "No test pinned the non-canonical c00251 preimage, its wrong hash, and its mismatch with canonical c00151.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "mutated_sibling",
+      "status": "uncovered",
+      "currentCoverage": ["PSBT tests use a synthetic unrelated root"],
+      "byteLevelReason": "The one-bit sibling mutation in the signed corpus did not have an exact control-block-to-root mismatch assertion.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "unsorted_branch_preimage_when_spent_hash_sorts_after_sibling",
+      "status": "uncovered",
+      "currentCoverage": [
+        "protocol branch test proves commutativity but does not pin the wrong unsorted digest"
+      ],
+      "byteLevelReason": "The wrong spent||sibling preimage and its exact wrong Merkle root were absent from wallet conformance.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_vectors.json",
+      "case": "wrong_address_root_commitment",
+      "status": "uncovered",
+      "currentCoverage": [
+        "address live row validates encoded roots but cannot manufacture this fixed commitment mutation"
+      ],
+      "byteLevelReason": "The fixed 0x42 program root near-miss was not checked against the valid c1 leaf commitment.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.invalid"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_default_sighash",
+      "status": "covered",
+      "currentCoverage": [
+        "scripts/conformance/qbit-js/fixtures/p2mr-sighash.json default hash type",
+        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-psbt-signing.test.ts canonical three-item witness",
+        "sighash-sign live row"
+      ],
+      "byteLevelReason": "The default digest, 3680-byte implicit-hashtype signature, leaf, control block, and final witness shape are already asserted.",
+      "resolution": "No additional fixture; retain the existing digest and PSBT consumers."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_none",
+      "status": "uncovered",
+      "currentCoverage": [
+        "p2mr-sighash.json covers the 0x02 digest but not the serialized witness item"
+      ],
+      "byteLevelReason": "The explicit trailing 02 hashtype byte on a 3681-byte witness signature was not Core-pinned in a wallet consumer.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#witness"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_single_matching_output",
+      "status": "covered",
+      "currentCoverage": [
+        "p2mr-sighash.json covers hash type 0x03 with matching outputs",
+        "offline fixture covers the generic explicit-hashtype witness encoding"
+      ],
+      "byteLevelReason": "Its distinct invariant is the SIGHASH_SINGLE digest; explicit suffix framing is identical to the selected 0x02 witness case.",
+      "resolution": "No duplicate witness fixture; existing digest plus the selected explicit encoding is sufficient."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_all_anyonecanpay",
+      "status": "covered",
+      "currentCoverage": [
+        "p2mr-sighash.json covers hash type 0x81",
+        "offline fixture covers generic explicit-hashtype framing"
+      ],
+      "byteLevelReason": "The one-input ANYONECANPAY preimage and digest already match Core behavior; the final suffix is the generic hashtype byte.",
+      "resolution": "No duplicate witness fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_none_anyonecanpay",
+      "status": "covered",
+      "currentCoverage": [
+        "p2mr-sighash.json covers hash type 0x82",
+        "offline fixture covers generic explicit-hashtype framing"
+      ],
+      "byteLevelReason": "The 0x82 digest is already pinned, and its witness serialization adds only the already-tested explicit hashtype suffix.",
+      "resolution": "No duplicate witness fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_single_anyonecanpay",
+      "status": "covered",
+      "currentCoverage": [
+        "p2mr-sighash.json covers hash type 0x83",
+        "offline fixture covers generic explicit-hashtype framing"
+      ],
+      "byteLevelReason": "The 0x83 digest is already pinned, and its explicit suffix uses the same validated one-byte framing.",
+      "resolution": "No duplicate witness fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_default_sighash_annex_present",
+      "status": "uncovered",
+      "currentCoverage": [
+        "p2mrSighash accepts annex bytes but no committed Core vector exercised them"
+      ],
+      "byteLevelReason": "The 50-prefixed annex, compact-size annex hash, spendType 03, four-item witness ordering, and no-annex near-miss were absent.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#witness"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_single_missing_first",
+      "status": "covered",
+      "currentCoverage": [
+        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-sighash.test.ts SIGHASH_SINGLE output-range guard"
+      ],
+      "byteLevelReason": "Core defines no digest for this case; the wallet guard rejects before serialization whenever inputIndex is outside outputs.",
+      "resolution": "No fixture bytes exist to import; retain the deterministic range-check test."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_single_missing_beyond",
+      "status": "covered",
+      "currentCoverage": [
+        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-sighash.test.ts constructs the same beyond-output condition"
+      ],
+      "byteLevelReason": "Core defines no sighash bytes, and the current package test directly asserts rejection for a later input without an output.",
+      "resolution": "No additional fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_single_anyonecanpay_missing_first",
+      "status": "covered",
+      "currentCoverage": [
+        "shared SIGHASH_SINGLE output-range guard",
+        "p2mr-sighash.json ANYONECANPAY preimage coverage"
+      ],
+      "byteLevelReason": "ANYONECANPAY does not alter the missing-output guard and Core intentionally emits no digest for the rejected case.",
+      "resolution": "No additional fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_sighash_single_anyonecanpay_missing_beyond",
+      "status": "covered",
+      "currentCoverage": [
+        "shared SIGHASH_SINGLE output-range guard",
+        "p2mr-sighash.json hash type 0x83 coverage"
+      ],
+      "byteLevelReason": "The package rejects before hashing exactly as Core does; there is no defined digest or unique serialization to pin.",
+      "resolution": "No additional fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "single_key_leading_codesep",
+      "status": "uncovered",
+      "currentCoverage": [
+        "p2mrSighash exposes codeSeparatorPos but existing fixtures always use 0xffffffff"
+      ],
+      "byteLevelReason": "The leading ab opcode, committed position 0, exact sigmsg, and wrong-position digest mutation were not pinned.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#witness"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "branch_codesep_true",
+      "status": "uncovered",
+      "currentCoverage": ["no existing fixture selects a code separator through a true branch"],
+      "byteLevelReason": "The stack argument, executed branch, code-separator position 1, four-item witness, and wrong-position digest are fixed offline bytes.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#witness"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "case": "branch_codesep_false",
+      "status": "uncovered",
+      "currentCoverage": [
+        "no existing fixture selects the later code separator through a false branch"
+      ],
+      "byteLevelReason": "The empty branch selector, committed position 4, four-item witness, and wrong-position digest cannot be reproduced reliably via RPC.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#witness"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_cross_profile_vectors.json",
+      "case": "pinned-bip-root-rejected-by-qbit",
+      "status": "uncovered",
+      "currentCoverage": ["protocol uses P2MR tags but has no pinned BIP-360 near-miss"],
+      "byteLevelReason": "The same c0/OP_0 bytes produce distinct TapLeaf and P2MRLeaf roots; the BIP root in an OP_2 program must not match qbit.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#crossProfile"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_cross_profile_vectors.json",
+      "case": "qbit-root-executes-depth-zero-script",
+      "status": "uncovered",
+      "currentCoverage": [
+        "protocol tests hash OP_TRUE leaves, not the depth-zero OP_0 profile distinction"
+      ],
+      "byteLevelReason": "The qbit-tagged OP_0 root and scriptPubKey were not pinned against the non-normative depth-zero shortcut behavior.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#crossProfile"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "witness-empty",
+      "status": "covered",
+      "currentCoverage": [
+        "PSBT finalizer always emits signature, leaf, and control items",
+        "signed Core remains authoritative for arbitrary malformed spends"
+      ],
+      "byteLevelReason": "The wallet has no API that emits an empty finalized P2MR witness, so importing a Core interpreter-only error would not test wallet bytes.",
+      "resolution": "No wallet fixture; canonical finalization structurally prevents this case."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "witness-one-element",
+      "status": "covered",
+      "currentCoverage": [
+        "PSBT finalizer requires one leaf and one signature before emitting a three-item witness"
+      ],
+      "byteLevelReason": "A one-item final witness is not produced by wallet code and has no separate wallet-side serialization algorithm.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "witness-annex-underflow",
+      "status": "covered",
+      "currentCoverage": [
+        "offline annex vector pins the valid four-item ordering",
+        "wallet finalizer does not synthesize arbitrary annex-only stacks"
+      ],
+      "byteLevelReason": "The two-item annex-underflow shape is Core interpreter input, while wallet code only hashes a caller-supplied annex in a complete signing context.",
+      "resolution": "No duplicate malformed witness fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-minimum",
+      "status": "covered",
+      "currentCoverage": ["p2mr_vectors.json single_leaf_op_true in the offline fixture"],
+      "byteLevelReason": "The equivalent c1 minimum control block, direct leaf root, and scriptPubKey are already imported from the richer commitment case.",
+      "resolution": "No duplicate boundary entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-depth-128",
+      "status": "uncovered",
+      "currentCoverage": ["protocol constant allows 128 nodes but tests only zero and one"],
+      "byteLevelReason": "No test pinned the 4097-byte maximum control block and its 128 lexicographically folded branch hashes.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#controlBoundaries"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-depth-129",
+      "status": "uncovered",
+      "currentCoverage": [
+        "protocol has a greater-than-128 guard without a Core-derived boundary case"
+      ],
+      "byteLevelReason": "The exact 4129-byte one-over-limit control block and rejection boundary were not pinned.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#controlBoundaries"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-nonmultiple-length",
+      "status": "covered",
+      "currentCoverage": ["p2mr_vectors.json malformed_control_block_size"],
+      "byteLevelReason": "The richer c100 commitment case already asserts a one-byte path remainder and wrong-control-size rejection.",
+      "resolution": "No duplicate boundary entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-marker-zero",
+      "status": "covered",
+      "currentCoverage": ["p2mr_vectors.json missing_bit0_control_marker"],
+      "byteLevelReason": "The exact c0 marker-cleared control byte is already imported with its leaf and committed root.",
+      "resolution": "No duplicate boundary entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-mutated-path-node",
+      "status": "covered",
+      "currentCoverage": ["p2mr_vectors.json mutated_sibling"],
+      "byteLevelReason": "The commitment corpus supplies a concrete one-bit path-node mutation and expected program-root mismatch.",
+      "resolution": "No duplicate boundary entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "control-direct-root-mismatch",
+      "status": "covered",
+      "currentCoverage": [
+        "p2mr_vectors.json wrong_address_root_commitment",
+        "P2MR PSBT signing mismatch tests"
+      ],
+      "byteLevelReason": "Both Core-derived fixed-root and local PSBT root mismatch paths already assert that the control commitment must equal the output program.",
+      "resolution": "No duplicate boundary entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-c0-true",
+      "status": "covered",
+      "currentCoverage": ["p2mr_vectors.json single_leaf_op_true"],
+      "byteLevelReason": "The c1 control byte, c0/OP_TRUE leaf preimage, root, and successful script bytes are the primary valid commitment case.",
+      "resolution": "No duplicate leaf-version entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-c0-false",
+      "status": "covered",
+      "currentCoverage": ["p2mr_cross_profile_vectors.json qbit-root-executes-depth-zero-script"],
+      "byteLevelReason": "The c0/OP_0 P2MR leaf root and scriptPubKey are imported by the cross-profile case, including its false-script outcome.",
+      "resolution": "No duplicate leaf-version entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-production-reserved",
+      "status": "uncovered",
+      "currentCoverage": ["protocol accepts even leaf versions but has no signed c2 byte vector"],
+      "byteLevelReason": "The c3 control byte, c2/OP_0 preimage, upgrade-success consensus result, and policy rejection were not pinned.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#futureLeafVersions"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-staged-signature-system",
+      "status": "uncovered",
+      "currentCoverage": ["no current fixture covers leaf version e0"],
+      "byteLevelReason": "The e1 control byte and e0/OP_0 commitment distinguish the staged signature-system leaf from c0 execution.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#futureLeafVersions"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-experimental",
+      "status": "uncovered",
+      "currentCoverage": ["no current fixture covers leaf version f0"],
+      "byteLevelReason": "The f1 control byte and f0/OP_0 leaf commitment were absent despite distinct consensus-upgrade and policy semantics.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#futureLeafVersions"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-extension-fe",
+      "status": "uncovered",
+      "currentCoverage": ["no current fixture covers maximum even leaf version fe"],
+      "byteLevelReason": "The ff control byte, fe/OP_0 preimage, and maximum-version commitment boundary were not asserted.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#futureLeafVersions"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "leaf-odd-control-mask",
+      "status": "uncovered",
+      "currentCoverage": [
+        "message proof rejects c3 because it requires c0 rather than testing generic masking"
+      ],
+      "byteLevelReason": "The c3 marker must mask to leaf version c2 even with OP_TRUE; generic control parsing lacked this signed byte case.",
+      "resolution": "scripts/conformance/fixtures/p2mr-offline.json#futureLeafVersions"
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigpqc-valid",
+      "status": "covered",
+      "currentCoverage": [
+        "sighash-sign live row",
+        "P2MR sighash and PSBT signing fixtures",
+        "SLH-DSA golden consumers"
+      ],
+      "byteLevelReason": "Canonical CHECKSIGPQC leaf, signature length, digest, and accepted spend are exercised end to end; duplicating Core interpreter execution adds no wallet invariant.",
+      "resolution": "No additional opcode fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigpqc-empty-signature",
+      "status": "covered",
+      "currentCoverage": [
+        "protocol witness-signature decoder rejects noncanonical lengths",
+        "wallet finalizer emits only signer-provided canonical signatures"
+      ],
+      "byteLevelReason": "An empty CHECKSIGPQC stack item is arbitrary interpreter input, not a wallet serialization path.",
+      "resolution": "No wallet fixture; Core unit corpus remains authoritative."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigpqc-bad-size",
+      "status": "covered",
+      "currentCoverage": ["decodeP2mrWitnessSignature exact 3680/3681-byte bounds"],
+      "byteLevelReason": "Wallet-side signature framing already rejects every size other than the implicit and explicit hashtype forms.",
+      "resolution": "No duplicate interpreter fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigpqc-bad-key",
+      "status": "covered",
+      "currentCoverage": [
+        "singleKeyLeafScript requires a 32-byte key",
+        "PSBT signing validates the selected leaf pubkey"
+      ],
+      "byteLevelReason": "Wallet construction cannot emit the malformed key width used by this Core interpreter case.",
+      "resolution": "No additional fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigpqc-invalid-signature",
+      "status": "covered",
+      "currentCoverage": [
+        "sighash-sign live row positive path",
+        "PQC package negative verification tests"
+      ],
+      "byteLevelReason": "Signature validity is owned by the PQC engine and live Core verification, not by a second script fixture in the wallet.",
+      "resolution": "No duplicate signature fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigpqc-underflow",
+      "status": "covered",
+      "currentCoverage": ["PSBT finalizer requires one signature and one matching leaf"],
+      "byteLevelReason": "The wallet cannot finalize the zero-stack-item CHECKSIGPQC shape; the exact interpreter error remains Core-owned.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigadd-pqc",
+      "status": "covered",
+      "currentCoverage": [
+        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-script.test.ts multi_a byte construction"
+      ],
+      "byteLevelReason": "Wallet protocol pins CHECKSIGPQC/CHECKSIGADD/NUMEQUAL script bytes; threshold execution is not reimplemented client-side.",
+      "resolution": "No Core interpreter fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checksigadd-pqc-underflow",
+      "status": "covered",
+      "currentCoverage": ["wallet does not finalize multi_a inputs without complete signing plans"],
+      "byteLevelReason": "Stack-underflow semantics belong to Core; no wallet serializer emits this incomplete witness.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-legacy-checksig",
+      "status": "covered",
+      "currentCoverage": ["wallet P2MR script builders emit only PQC opcodes"],
+      "byteLevelReason": "Legacy CHECKSIG inside arbitrary P2MR script is not a wallet-generated surface, so the Core unit case is sufficient.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-legacy-checkmultisig",
+      "status": "covered",
+      "currentCoverage": ["wallet P2MR script builders do not emit CHECKMULTISIG"],
+      "byteLevelReason": "The forbidden interpreter opcode has no corresponding wallet byte generator or parser behavior to protect.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-ctv-valid",
+      "status": "covered",
+      "currentCoverage": ["wallet does not construct P2MR CTV leaves"],
+      "byteLevelReason": "CTV execution is Core consensus behavior and is outside the wallet's fixed P2MR leaf builders.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-ctv-mismatch",
+      "status": "covered",
+      "currentCoverage": ["wallet does not construct or evaluate P2MR CTV leaves"],
+      "byteLevelReason": "The template mismatch error has no wallet-side serialization or validation implementation.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigpqc",
+      "status": "covered",
+      "currentCoverage": [
+        "scripts/conformance/fixtures/message-proof.json",
+        "message-proof live row"
+      ],
+      "byteLevelReason": "The data-signature domain hash, PQC signature, P2MR leaf, and bidirectional Core verification are already covered.",
+      "resolution": "No duplicate data-signature fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigpqc-invalid-signature",
+      "status": "covered",
+      "currentCoverage": [
+        "message-proof package negative verification tests",
+        "PQC verifier tests"
+      ],
+      "byteLevelReason": "Invalid data signatures are rejected by the shared PQC verifier; Core opcode execution is not duplicated in wallet code.",
+      "resolution": "No additional fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigpqc-wrong-domain",
+      "status": "covered",
+      "currentCoverage": [
+        "message-proof.json pins the QbitDataSigPQC domain",
+        "message-proof live row checks both directions"
+      ],
+      "byteLevelReason": "The wallet already distinguishes raw message hashes from the data-signature tagged domain at byte level.",
+      "resolution": "No duplicate wrong-domain fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigpqc-underflow",
+      "status": "covered",
+      "currentCoverage": [
+        "message-proof constructor requires message, pubkey, signature, leaf, and control bytes"
+      ],
+      "byteLevelReason": "The wallet cannot construct the operand-underflow form; only Core interprets arbitrary stack shapes.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigaddpqc",
+      "status": "covered",
+      "currentCoverage": [
+        "wallet does not expose a CHECKDATASIGADDPQC script builder or evaluator"
+      ],
+      "byteLevelReason": "This threshold interpreter behavior has no wallet-side algorithm, while the signed Core corpus directly tests it.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigaddpqc-wrong-message",
+      "status": "covered",
+      "currentCoverage": ["message-proof verifier rejects changed message hashes"],
+      "byteLevelReason": "Message binding is already asserted for the wallet proof mode; threshold stack execution remains Core-owned.",
+      "resolution": "No duplicate fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigaddpqc-wrong-pubkey",
+      "status": "covered",
+      "currentCoverage": ["message-proof verifier binds the proof leaf to its exact pubkey"],
+      "byteLevelReason": "Wrong-pubkey rejection is already a wallet proof invariant; CHECKDATASIGADDPQC threshold evaluation is not reimplemented.",
+      "resolution": "No duplicate fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-checkdatasigaddpqc-underflow",
+      "status": "covered",
+      "currentCoverage": ["wallet has no CHECKDATASIGADDPQC finalizer"],
+      "byteLevelReason": "No wallet-produced witness can exercise the interpreter-only operand underflow.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-nonactivated-op-success",
+      "status": "covered",
+      "currentCoverage": ["wallet fixed leaf builders do not emit reserved opcodes"],
+      "byteLevelReason": "Reserved opcode policy is Core consensus/policy behavior without a wallet serializer or evaluator.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "opcode-permanently-disabled",
+      "status": "covered",
+      "currentCoverage": ["wallet fixed leaf builders do not emit disabled opcodes"],
+      "byteLevelReason": "The disabled-opcode error is interpreter-only and cannot drift through current wallet construction helpers.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-stack-items-1000",
+      "status": "covered",
+      "currentCoverage": ["wallet finalizer emits a bounded canonical single-key stack"],
+      "byteLevelReason": "A 1000-item arbitrary script stack is not wallet-generated; Core owns the resource-limit execution.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-stack-items-1001",
+      "status": "covered",
+      "currentCoverage": ["wallet finalizer emits a bounded canonical single-key stack"],
+      "byteLevelReason": "The one-over stack count has no wallet byte path and is exhaustively asserted by signed Core.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-item-bytes-16384",
+      "status": "covered",
+      "currentCoverage": [
+        "wallet-produced signature, leaf, and control item sizes are separately bounded"
+      ],
+      "byteLevelReason": "The generic 16384-byte stack item is not produced by wallet P2MR builders; it is a Core interpreter limit.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-item-bytes-16385",
+      "status": "covered",
+      "currentCoverage": ["wallet-produced item sizes are constrained before finalization"],
+      "byteLevelReason": "The one-over generic item is arbitrary interpreter input and does not exercise wallet serialization logic.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-total-bytes-131072",
+      "status": "covered",
+      "currentCoverage": [
+        "canonical wallet witnesses remain far below the Core total-stack boundary"
+      ],
+      "byteLevelReason": "The total initial-stack limit applies to arbitrary scripts, not to a wallet-calculated field or policy constant.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-total-bytes-131073",
+      "status": "covered",
+      "currentCoverage": [
+        "canonical wallet witnesses remain far below the Core total-stack boundary"
+      ],
+      "byteLevelReason": "The one-over total-stack case is Core interpreter behavior with no wallet-side implementation.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-validation-weight-one",
+      "status": "covered",
+      "currentCoverage": ["tx-fees live row", "packages/wallet-shared/test/qbit-p2mr-fees.test.ts"],
+      "byteLevelReason": "Wallet sizing and fee logic pins one PQC signature item and Core validates the spend live.",
+      "resolution": "No duplicate resource fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-validation-weight-multiple",
+      "status": "covered",
+      "currentCoverage": ["multi_a script construction test", "signed Core interpreter corpus"],
+      "byteLevelReason": "The wallet constructs multi_a bytes but does not reproduce Core validation-weight accounting.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-validation-weight-exceeded",
+      "status": "covered",
+      "currentCoverage": [
+        "signed Core interpreter corpus is authoritative",
+        "wallet does not calculate consensus validation weight"
+      ],
+      "byteLevelReason": "The failure threshold is not duplicated client-side, so a copied fixture would not test wallet behavior.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-empty-signatures-no-charge",
+      "status": "covered",
+      "currentCoverage": [
+        "wallet finalizer does not use empty signatures as completed signing results"
+      ],
+      "byteLevelReason": "Empty-signature validation-weight treatment is Core-only and cannot drift in the wallet's canonical signing path.",
+      "resolution": "No wallet fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-clean-stack",
+      "status": "covered",
+      "currentCoverage": [
+        "PSBT finalizer emits the exact single-key stack shape accepted by the live row"
+      ],
+      "byteLevelReason": "Canonical wallet scripts leave one result and are exercised live; arbitrary stack semantics remain in Core.",
+      "resolution": "No duplicate fixture."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_script_boundary_vectors.json",
+      "case": "resource-false-final-stack",
+      "status": "covered",
+      "currentCoverage": [
+        "cross-profile OP_0 case records false-script execution",
+        "wallet fixed single-key leaves end in CHECKSIGPQC"
+      ],
+      "byteLevelReason": "The wallet does not emit a bare false leaf, and its exact OP_0 commitment is already imported for the cross-profile invariant.",
+      "resolution": "No duplicate resource entry."
+    },
+    {
+      "sourceFile": "src/test/data/p2mr_datapqchash_vectors.json",
+      "case": "bounded30_two_leaf_p2mr_pubkey_regtest",
+      "status": "covered",
+      "currentCoverage": [
+        "scripts/conformance/fixtures/message-proof.json",
+        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-message.test.ts",
+        "message-proof live row"
+      ],
+      "byteLevelReason": "The signed-release message/data domains, pubkey, P2MR leaf/control/root, and Core-to-wallet proofs are already asserted in both directions.",
+      "resolution": "No parallel message-proof fixture."
+    }
+  ]
+}

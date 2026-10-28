@@ -1,0 +1,206 @@
+name: Build regtest images
+
+# Publishes the qbitd + electrs-qbit regtest images to GHCR so the conformance
+# workflow can pull them instead of building from source on every PR. Runs when
+# the harness Docker context changes on main; dispatch manually to rebuild for a
+# new pin. Image tags are the upstream release/ref, so a rebuild only happens on
+# a bump.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/regtest/**'
+      - 'scripts/conformance/core-pin.json'
+      - 'scripts/conformance/report-pin-diff.mjs'
+      - 'scripts/conformance/verify-core-release-provenance.mjs'
+      - '.github/workflows/build-regtest-images.yml'
+  workflow_dispatch:
+    inputs:
+      qbit_release:
+        description: qbit release tag for the qbitd image
+        required: false
+        type: string
+      qbit_archive_sha256_amd64:
+        description: required archive SHA-256 when qbit_release differs from the committed pin
+        required: false
+        type: string
+      qbit_archive_sha256_arm64:
+        description: optional arm64 archive SHA-256 for the same release
+        required: false
+        type: string
+      electrs_qbit_ref:
+        description: full qbit-electrs commit ID for the electrs image
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-regtest-images
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 90
+    env:
+      QBIT_REPO: Qbit-Org/qbit
+      ELECTRS_QBIT_REF: ${{ inputs.electrs_qbit_ref || '5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use pinned Node for provenance tooling
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve qbit archive digests
+        id: qbit-pin
+        env:
+          INPUT_QBIT_RELEASE: ${{ inputs.qbit_release }}
+          INPUT_SHA256_AMD64: ${{ inputs.qbit_archive_sha256_amd64 }}
+          INPUT_SHA256_ARM64: ${{ inputs.qbit_archive_sha256_arm64 }}
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { readManifest } from './scripts/conformance/report-pin-diff.mjs'
+          const manifest = readManifest('./scripts/conformance/core-pin.json')
+          const pin = manifest.runtimeRelease
+          if (!pin || !manifest.sourceBaseline) {
+            throw new Error('Core pin manifest must define runtimeRelease and sourceBaseline')
+          }
+          const release = process.env.INPUT_QBIT_RELEASE || pin.tag
+          const amd64 = process.env.INPUT_SHA256_AMD64 ||
+            (release === pin.tag ? pin.linuxX64ArchiveSha256 : '')
+          const arm64 = process.env.INPUT_SHA256_ARM64 ||
+            (release === pin.tag ? pin.linuxArm64ArchiveSha256 : '')
+          if (!/^v[0-9A-Za-z][0-9A-Za-z._-]*$/.test(release)) {
+            throw new Error('qbit release must be an unambiguous version tag')
+          }
+          if (!/^[0-9a-f]{64}$/.test(amd64)) {
+            throw new Error('amd64 archive digest must be a lowercase SHA-256')
+          }
+          if (arm64 && !/^[0-9a-f]{64}$/.test(arm64)) {
+            throw new Error('arm64 archive digest must be empty or a lowercase SHA-256')
+          }
+          console.log(`release=${release}`)
+          console.log(`sha256_amd64=${amd64}`)
+          console.log(`sha256_arm64=${arm64}`)
+          console.log(`pin_release=${pin.tag}`)
+          console.log(`pin_commit=${pin.commit}`)
+          console.log(`signer_fingerprint=${pin.releaseSignerFingerprint}`)
+          console.log(`checksum_signature_asset=${pin.checksumSignatureAsset}`)
+          NODE
+
+      - name: Verify signed qbit release provenance
+        id: qbit-source
+        env:
+          QBIT_RELEASE: ${{ steps.qbit-pin.outputs.release }}
+          QBIT_SHA256_X64: ${{ steps.qbit-pin.outputs.sha256_amd64 }}
+          QBIT_SHA256_ARM64: ${{ steps.qbit-pin.outputs.sha256_arm64 }}
+          PIN_RELEASE: ${{ steps.qbit-pin.outputs.pin_release }}
+          PIN_COMMIT: ${{ steps.qbit-pin.outputs.pin_commit }}
+          RELEASE_SIGNER_FINGERPRINT: ${{ steps.qbit-pin.outputs.signer_fingerprint }}
+          CHECKSUM_SIGNATURE_ASSET: ${{ steps.qbit-pin.outputs.checksum_signature_asset }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$QBIT_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "QBIT_REPO must be a GitHub owner/repo slug" >&2
+            exit 1
+          fi
+          if ! [[ "$QBIT_RELEASE" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "qbit_release must be an unambiguous version tag" >&2
+            exit 1
+          fi
+          git init -q "$RUNNER_TEMP/qbit-core-source"
+          git -C "$RUNNER_TEMP/qbit-core-source" remote add origin "https://github.com/${QBIT_REPO}.git"
+          git -C "$RUNNER_TEMP/qbit-core-source" fetch --depth=1 origin \
+            "refs/tags/${QBIT_RELEASE}:refs/tags/${QBIT_RELEASE}"
+          commit="$(git -C "$RUNNER_TEMP/qbit-core-source" rev-parse "refs/tags/${QBIT_RELEASE}^{commit}")"
+          if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "signed qbit release must resolve to a full lowercase commit ID" >&2
+            exit 1
+          fi
+          git -C "$RUNNER_TEMP/qbit-core-source" checkout --detach "$commit"
+          expected_commit=()
+          if [ "$QBIT_RELEASE" = "$PIN_RELEASE" ]; then
+            expected_commit=(--expected-commit "$PIN_COMMIT")
+          fi
+          arm64_digest=()
+          if [ -n "$QBIT_SHA256_ARM64" ]; then
+            arm64_digest=(--sha256-arm64 "$QBIT_SHA256_ARM64")
+          fi
+          node scripts/conformance/verify-core-release-provenance.mjs \
+            --source "$RUNNER_TEMP/qbit-core-source" \
+            --repository "$QBIT_REPO" \
+            --release "$QBIT_RELEASE" \
+            "${expected_commit[@]}" \
+            --sha256-amd64 "$QBIT_SHA256_X64" \
+            "${arm64_digest[@]}" \
+            --signer-fingerprint "$RELEASE_SIGNER_FINGERPRINT" \
+            --checksum-signature-asset "$CHECKSUM_SIGNATURE_ASSET" \
+            --output "$RUNNER_TEMP/qbit-release-provenance.json"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Compute image refs
+        id: refs
+        env:
+          QBIT_RELEASE: ${{ steps.qbit-pin.outputs.release }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$QBIT_RELEASE" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "qbit release must be an unambiguous version tag" >&2
+            exit 1
+          fi
+          if ! [[ "$ELECTRS_QBIT_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ELECTRS_QBIT_REF must be a full lowercase commit ID" >&2
+            exit 1
+          fi
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "qbitd_image=ghcr.io/${owner}/qbitd-regtest:${QBIT_RELEASE}"
+            echo "electrs_image=ghcr.io/${owner}/electrs-qbit-regtest:${ELECTRS_QBIT_REF}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push qbitd regtest image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: docker/regtest
+          file: docker/regtest/qbitd-release.Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            QBIT_REPO=${{ env.QBIT_REPO }}
+            QBIT_RELEASE=${{ steps.qbit-pin.outputs.release }}
+            QBIT_SOURCE_COMMIT=${{ steps.qbit-source.outputs.commit }}
+            QBIT_ARCHIVE_SHA256_AMD64=${{ steps.qbit-pin.outputs.sha256_amd64 }}
+            QBIT_ARCHIVE_SHA256_ARM64=${{ steps.qbit-pin.outputs.sha256_arm64 }}
+          tags: ${{ steps.refs.outputs.qbitd_image }}
+          push: true
+          provenance: false
+
+      - name: Build and push electrs-qbit regtest image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: docker/regtest
+          file: docker/regtest/electrs-qbit-source.Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            ELECTRS_QBIT_REF=${{ env.ELECTRS_QBIT_REF }}
+          tags: ${{ steps.refs.outputs.electrs_image }}
+          push: true
+          provenance: false
+          cache-from: type=gha,scope=electrs-qbit-regtest-${{ env.ELECTRS_QBIT_REF }}
+          cache-to: type=gha,scope=electrs-qbit-regtest-${{ env.ELECTRS_QBIT_REF }},mode=max

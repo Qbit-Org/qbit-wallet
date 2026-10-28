@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "emitDecoratorMetadata": false,
+    "lib": ["ES2020", "DOM"],
+    "noEmit": true,
+    "rootDir": "../..",
+    "types": ["node", "chrome"]
+  },
+  "include": ["../../playwright.config.ts", "./**/*.ts"]
+}

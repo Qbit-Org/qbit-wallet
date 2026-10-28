@@ -1,0 +1,225 @@
+{
+  "schemaVersion": 1,
+  "fixtureSource": {
+    "repository": "Qbit-Org/qbit",
+    "commit": "7ebcddb622d6e639041f005a189b048ec2a221fe"
+  },
+  "sourceBaseline": {
+    "repository": "Qbit-Org/qbit",
+    "commit": "7ebcddb622d6e639041f005a189b048ec2a221fe",
+    "treeHashAlgorithm": "sha256-git-tracked-root-or-filesystem-posix-relative-path-nul-mode-nul-raw-bytes-v3"
+  },
+  "runtimeRelease": {
+    "binding": "qbit-signed-release-tag-and-checksums-v1",
+    "repository": "Qbit-Org/qbit",
+    "tag": "v1.0.0",
+    "commit": "7ebcddb622d6e639041f005a189b048ec2a221fe",
+    "releaseSignerFingerprint": "289EA3EC2F1939A24984840ED26CFC05586D371E",
+    "checksumSignatureAsset": "SHA256SUMS.operator-01.asc",
+    "linuxX64ArchiveSha256": "ae121af03263b55d530e3f3e8719a71362d0950cba82f54a2bc2d6c437a029b5",
+    "linuxArm64ArchiveSha256": "a0242e5941eec64070f386e80c848220e2ec2292984a9b2ab1fd93f57436b31d"
+  },
+  "files": [
+    {
+      "path": "src/crypto/pqc.cpp",
+      "sha256": "469243eef8c311a6b23c83825b061c9a4094c044ff09845f34de99a947c9fe07",
+      "rows": ["derivation", "sighash-sign", "message-proof"]
+    },
+    {
+      "path": "src/script/descriptor.cpp",
+      "sha256": "f6162b167e9a3384459083ee4ff9ed0fea85e60d1b2a8c9f2a4995bdc395366f",
+      "rows": ["derivation", "descriptors"]
+    },
+    {
+      "path": "src/script/descriptor.h",
+      "sha256": "7327e620932f53192419a647e595ae80a470fa3a8ecf1d844fb30b0fafe70d4c",
+      "rows": ["derivation", "descriptors"]
+    },
+    {
+      "path": "src/wallet/scriptpubkeyman.cpp",
+      "sha256": "5c8863673e582fab55957b8f6bdfcc3bec909d792408aa1d228b4ad349b4a292",
+      "rows": ["derivation", "descriptors", "psbt", "message-proof"]
+    },
+    {
+      "path": "src/key_io.cpp",
+      "sha256": "f2bd2628dce1c5747e366bbe548688b7da608dec3a0a9b7ca7bf69a2e240e99c",
+      "rows": ["addresses"]
+    },
+    {
+      "path": "src/bech32.cpp",
+      "sha256": "b75cc9792d8848e6834132502f978ef98ed68e5625c20a1347144848a89458c4",
+      "rows": ["addresses"]
+    },
+    {
+      "path": "src/script/solver.cpp",
+      "sha256": "a0a0df76aa07dd5e91b1612aa0dd9f964e9edabc2a236b092abfa762ddca6a49",
+      "rows": ["addresses", "tx-fees"]
+    },
+    {
+      "path": "src/script/interpreter.cpp",
+      "sha256": "bf8fc45264d12a86249e481be71c769bd5b991bb171d883bd9b94f25041e116a",
+      "rows": ["sighash-sign", "message-proof"]
+    },
+    {
+      "path": "src/script/sign.cpp",
+      "sha256": "bac48e64743620c2e5f063e6b75b4b328f1ff359567aa9f6a7f08950fb0be1b4",
+      "rows": ["sighash-sign", "psbt"]
+    },
+    {
+      "path": "src/consensus/consensus.h",
+      "sha256": "70f090ca3146c3f418786b90862f4994cf5c188b93b4e1d84ab9ce89953e0d4b",
+      "rows": ["tx-fees"]
+    },
+    {
+      "path": "src/script/p2mr_sizing.h",
+      "sha256": "c11740a4654d1e1effcf5d22295fe8aeec4da06ca93cad366bb2f7fc4f975d65",
+      "rows": ["tx-fees"]
+    },
+    {
+      "path": "src/policy/policy.cpp",
+      "sha256": "1be09470568f124167458c25bcd02514cd3d0d8644037706ec5f3988195d6c59",
+      "rows": ["tx-fees"]
+    },
+    {
+      "path": "src/policy/policy.h",
+      "sha256": "fabb6d73c5a05db24969d294f23da80a369382ecba39b095a94960596756af52",
+      "rows": ["tx-fees"]
+    },
+    {
+      "path": "src/kernel/chainparams.cpp",
+      "sha256": "b3fdb5255435c3aca6d4a93130e13627d2a5ca165a66ae5aa92a9c91f583961c",
+      "rows": ["addresses"]
+    },
+    {
+      "path": "src/psbt.cpp",
+      "sha256": "5315cddfe04797bd7d6b415c5537a2059ac141fd4a74355e0629aa83f4e2ea03",
+      "rows": ["psbt"]
+    },
+    {
+      "path": "src/psbt.h",
+      "sha256": "872ef5758c5f970e9b885370521c53751001c87ff61b8f684a04e5384974f198",
+      "rows": ["psbt"]
+    },
+    {
+      "path": "src/rpc/rawtransaction.cpp",
+      "sha256": "49a89649b0b1593c1c01e7c8d5bc354479ce7c4a307308958a0a274074accc6b",
+      "rows": ["sighash-sign", "tx-fees", "psbt"]
+    },
+    {
+      "path": "src/rpc/signmessage.cpp",
+      "sha256": "5a0c0b7c9d381f2e5ea7315a11416a532179839a1e0fc5ae062f5403a8861d87",
+      "rows": ["message-proof"]
+    },
+    {
+      "path": "src/wallet/rpc/signmessage.cpp",
+      "sha256": "d6977cc6840352296f7b0bd178b1fbc90d9cc46b40a606b496e33ecb09955308",
+      "rows": ["message-proof"]
+    },
+    {
+      "path": "src/common/p2mr_data_signature.cpp",
+      "sha256": "2738320ab8fc410a5e7dd3d34a5d99d7cdcecce3735ec1208a34d209d2ca52ac",
+      "rows": ["message-proof"]
+    },
+    {
+      "path": "src/common/p2mr_data_signature.h",
+      "sha256": "04ac3742813408371ed1448df120504b93b5105b7ab69211bbcc51fb06b4ef29",
+      "rows": ["message-proof"]
+    },
+    {
+      "path": "src/test/data/p2mr_datapqchash_vectors.json",
+      "sha256": "61bcd57b2c084dcc7ac20cd4fe8eb2385e7f7f583a21327a574d3d56940f9992",
+      "rows": ["message-proof"]
+    },
+    {
+      "path": "src/test/data/p2mr_v1_manifest.json",
+      "sha256": "d30f2fb354ee9b55bc72ba2d9b250aefd96656f0eac61b0f2cdb77001aacdad4",
+      "rows": ["addresses", "sighash-sign", "tx-fees", "message-proof"]
+    },
+    {
+      "path": "src/test/data/p2mr_vectors.json",
+      "sha256": "50527577dd84cd9ee2b66a3fbc91c53677f5d4e45527afdc86d4f9cb050cbc1a",
+      "rows": ["addresses", "sighash-sign"]
+    },
+    {
+      "path": "src/test/data/p2mr_cross_profile_vectors.json",
+      "sha256": "1d754f952fb430017585c9e09f6d032dbc4ab7849630f1b0c358132d6bb5702f",
+      "rows": ["addresses", "sighash-sign"]
+    },
+    {
+      "path": "src/test/data/p2mr_pqc_witness_vectors.json",
+      "sha256": "4efb0a13b60b50b95e74e2979b4d8edee36184001f7d0448c5e1afaabc2dcfb4",
+      "rows": ["sighash-sign", "message-proof"]
+    },
+    {
+      "path": "src/test/data/p2mr_script_boundary_vectors.json",
+      "sha256": "0dfff99a45b8e1ccb80e149b069f28c47114b05767ecec2a37e07c9dc578c6b4",
+      "rows": ["sighash-sign", "tx-fees", "message-proof"]
+    }
+  ],
+  "trees": [
+    {
+      "path": ".",
+      "sha256": "8c3fabfac05d4b8882e9f52ee6ca21ddba3fc8d34add4e7faee155ae20fb965f",
+      "rows": [
+        "derivation",
+        "descriptors",
+        "addresses",
+        "sighash-sign",
+        "tx-fees",
+        "psbt",
+        "message-proof"
+      ]
+    },
+    {
+      "path": "src",
+      "sha256": "a67eb7ef0dc204c90678b1f804bc9c199dc31a39102ed2aeb6cae6b4e4dca09d",
+      "rows": [
+        "derivation",
+        "descriptors",
+        "addresses",
+        "sighash-sign",
+        "tx-fees",
+        "psbt",
+        "message-proof"
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "scripts/conformance/fixtures/matrix.json",
+      "rows": ["derivation", "descriptors", "addresses", "tx-fees"],
+      "generator": "verify v1.0.0 with scripts/conformance/verify-core-release-provenance.mjs, then run corepack pnpm --filter @qbit/keyring-service... build && QBIT_REGTEST_REQUIRED=1 corepack pnpm conformance:fixtures:matrix -- --core-cli scripts/regtest/cli --core-provenance /path/to/core-release-provenance.json --output scripts/conformance/fixtures/matrix.json",
+      "consumer": "corepack pnpm test:conformance"
+    },
+    {
+      "path": "node_modules/@qbit-oss/pqc/fixtures/qbit-core-derivation.json",
+      "rows": ["derivation", "sighash-sign"],
+      "generator": "published in @qbit-oss/pqc (scripts/security/sdk-package-pins.json); follow its source.generator instructions in Qbit-Org/qbit-pqc",
+      "consumer": "corepack pnpm test:pqc-golden"
+    },
+    {
+      "path": "scripts/conformance/qbit-js/fixtures/p2mr-sighash.json",
+      "rows": ["sighash-sign"],
+      "generator": "corepack pnpm conformance:fixtures:core -- --candidate-source /path/to/candidate-qbit --repository owner/repo --commit <40-hex-commit> --output-dir /tmp/qbit-core-fixtures",
+      "consumer": "corepack pnpm test:protocol-vectors"
+    },
+    {
+      "path": "scripts/conformance/qbit-js/fixtures/p2mr-psbt.json",
+      "rows": ["psbt"],
+      "generator": "corepack pnpm conformance:fixtures:core -- --candidate-source /path/to/candidate-qbit --repository owner/repo --commit <40-hex-commit> --output-dir /tmp/qbit-core-fixtures",
+      "consumer": "corepack pnpm test:protocol-vectors"
+    },
+    {
+      "path": "scripts/conformance/fixtures/message-proof.json",
+      "rows": ["message-proof"],
+      "generator": "update the wallet-domain hashes and signed qbit Core data-proof source identity",
+      "consumer": "corepack pnpm test:conformance"
+    },
+    {
+      "path": "scripts/conformance/fixtures/p2mr-offline.json",
+      "rows": ["addresses", "sighash-sign", "tx-fees"],
+      "generator": "verify the pinned signed release, then run corepack pnpm conformance:fixtures:offline -- --source /path/to/clean-tag-checkout --core-provenance /path/to/core-release-provenance.json --output scripts/conformance/fixtures/p2mr-offline.json",
+      "consumer": "corepack pnpm test:conformance:offline and corepack pnpm test:conformance"
+    }
+  ]
+}

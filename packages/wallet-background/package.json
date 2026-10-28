@@ -1,0 +1,75 @@
+{
+  "name": "@qbit/wallet-background",
+  "version": "7.0.0",
+  "private": true,
+  "description": "Background runtime and wallet controller for Qbit Wallet",
+  "main": "lib/index.js",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/**/*",
+    "src/**/*",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.js",
+      "import": "./lib/index.mjs"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "require": "./lib/types.js",
+      "import": "./lib/types.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:cjs": "tsup --format cjs",
+    "build:esm": "tsup --format esm",
+    "build:typed": "tsc --declaration --declarationMap --emitDeclarationOnly --outDir lib",
+    "test": "vitest run",
+    "test:integration:send-flow": "vitest run --config vitest.integration.config.ts",
+    "lint": "eslint src --ext .ts,.tsx",
+    "prepublishOnly": "pnpm test && pnpm build"
+  },
+  "peerDependencies": {
+    "@qbit/contact-book": "workspace:*",
+    "@qbit/keyring-service": "workspace:*",
+    "@qbit/permission-service": "workspace:*",
+    "@qbit/phishing-detect": "workspace:*",
+    "@qbit/preference-service": "workspace:*",
+    "@qbit/notification-service": "workspace:*",
+    "@qbit/approval-service": "workspace:*",
+    "@qbit/tx-helpers": "workspace:*",
+    "@qbit/wallet-api": "workspace:*",
+    "@qbit/wallet-core": "workspace:*",
+    "@qbit/wallet-types": "workspace:*",
+    "@qbit/base-utils": "workspace:*",
+    "@qbit/wallet-shared": "workspace:*",
+    "@qbit-oss/api": "0.1.0",
+    "@qbit-oss/pqc": "0.1.0",
+    "@qbit-oss/protocol": "0.1.0"
+  },
+  "dependencies": {
+    "bignumber.js": "^9.1.1",
+    "bitcore-lib": "^10.0.0",
+    "compare-versions": "^4.1.3",
+    "debounce": "^1.2.1",
+    "eventemitter3": "^5.0.1",
+    "koa-compose": "^4.1.0",
+    "lodash": "^4.18.1",
+    "lodash-es": "^4.18.1",
+    "loglevel": "^1.8.1",
+    "randomstring": "^1.2.3",
+    "reflect-metadata": "^0.1.13"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.246",
+    "@types/node": "^20.0.0",
+    "eslint": "^8.0.0",
+    "tsup": "^7.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "3.2.6"
+  }
+}

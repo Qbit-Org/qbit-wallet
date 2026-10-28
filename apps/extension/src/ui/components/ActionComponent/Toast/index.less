@@ -1,0 +1,152 @@
+// The overlay is portaled into <body> and, where supported, promoted to the
+// browser's top layer via the Popover API (see ToolsProvider's ToastOverlay).
+// The z-index below is the fallback for engines without that API and must
+// stay above the 1000 shared by `.popover-container`, BottomModal and Tooltip.
+.toast-overlay {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 50px;
+  z-index: 2000;
+  pointer-events: none;
+  // Reset the user-agent `[popover]` stylesheet so the top-layer promotion is
+  // invisible: it would otherwise shrink the overlay to fit-content, centre it
+  // and paint a bordered Canvas box behind the stack.
+  width: auto;
+  height: auto;
+  margin: 0;
+  border: 0;
+  overflow: visible;
+  color: inherit;
+  background: transparent;
+}
+
+.toast-overlay::backdrop {
+  pointer-events: none;
+  background: transparent;
+}
+
+.toast {
+  opacity: 0;
+  animation: fade, raise;
+  animation-duration: 2s, 0.5s;
+
+  --tw-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+.toast--error {
+  animation-name: error-toast-fade, raise;
+  animation-duration: var(--toast-duration), 0.5s;
+}
+
+.toast__dismiss {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.toast__dismiss:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.toast__dismiss-icon {
+  display: block;
+  flex: none;
+  fill: none;
+  overflow: visible;
+}
+
+.toast__countdown {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.toast__countdown-track,
+.toast__countdown-progress {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.toast__countdown-track {
+  opacity: 0.25;
+}
+
+.toast__countdown-progress {
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  animation: toast-countdown var(--toast-duration) linear forwards;
+}
+
+@keyframes fade {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes error-toast-fade {
+  0% {
+    opacity: 0;
+  }
+  2% {
+    opacity: 1;
+  }
+  95% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes toast-countdown {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 100;
+  }
+}
+
+@keyframes raise {
+  0% {
+    transform: translateY(30px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}

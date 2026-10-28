@@ -1,0 +1,17 @@
+packages:
+  - 'packages/*'
+  - 'apps/extension'
+
+# Enable strict dependency management
+prefer-workspace-packages: true
+link-workspace-packages: true
+shared-workspace-lockfile: true
+
+# Dependency hoisting configuration
+hoist-pattern:
+  - 'eslint*'
+  - 'prettier*'
+  - '@types/*'
+  - 'typescript'
+  - 'vitest'
+  - 'tsup'

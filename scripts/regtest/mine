@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/env.sh"
+
+blocks="${1:-}"
+address="${2:-}"
+
+if [[ -z "$blocks" ]]; then
+  echo "usage: scripts/regtest/mine <blocks> [address]" >&2
+  exit 64
+fi
+require_positive_integer "$blocks" "blocks"
+
+ensure_wallet "$QBIT_FUNDING_WALLET"
+
+if [[ -z "$address" ]]; then
+  address="$(wallet_cli "$QBIT_FUNDING_WALLET" getnewaddress)"
+fi
+
+qbit_cli generatetoaddress "$blocks" "$address"

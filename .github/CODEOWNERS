@@ -1,0 +1,52 @@
+# Security-sensitive ownership. The `main` ruleset requires a CODEOWNERS
+# review for these paths, but administrators can bypass it (AR-03 in
+# docs/security/accepted-risks.md).
+
+/.github/CODEOWNERS @Anatolie @RobertClarke
+
+# Vaults, key material, derivation, and PQC/protocol pins.
+/packages/keyring-service/ @Anatolie @RobertClarke
+/scripts/security/sdk-package-pins.json @Anatolie @RobertClarke
+
+# Classical and PQC wallet signing.
+/packages/wallet-core/ @Anatolie @RobertClarke
+/packages/wallet-background/src/controllers/wallet.ts @Anatolie @RobertClarke
+/packages/wallet-background/src/services/qbitPreparedSendReservation.ts @Anatolie @RobertClarke
+/packages/wallet-background/src/utils/qbit-api.ts @Anatolie @RobertClarke
+
+# Provider identity, permissions, and approval execution.
+/packages/approval-service/ @Anatolie @RobertClarke
+/packages/permission-service/ @Anatolie @RobertClarke
+/packages/wallet-background/src/controllers/provider/ @Anatolie @RobertClarke
+/packages/wallet-background/src/services/approval.ts @Anatolie @RobertClarke
+/packages/wallet-background/src/services/permission.ts @Anatolie @RobertClarke
+/packages/wallet-background/src/services/session.ts @Anatolie @RobertClarke
+/apps/extension/src/background/runtime/ @Anatolie @RobertClarke
+/apps/extension/src/content-script/pageProvider/ @Anatolie @RobertClarke
+/apps/extension/src/ui/providers/ApprovalProvider.tsx @Anatolie @RobertClarke
+
+# Extension manifests, executable packaging, and dependency provenance.
+/apps/extension/build/ @Anatolie @RobertClarke
+/apps/extension/webpack.config.js @Anatolie @RobertClarke
+/apps/extension/gulpfile.js @Anatolie @RobertClarke
+/apps/extension/scripts/ @Anatolie @RobertClarke
+/apps/extension/package.json @Anatolie @RobertClarke
+/.nvmrc @Anatolie @RobertClarke
+/package.json @Anatolie @RobertClarke
+# Any workspace manifest can add an install-time lifecycle script.
+**/package.json @Anatolie @RobertClarke
+/.npmrc @Anatolie @RobertClarke
+/patches/ @Anatolie @RobertClarke
+/pnpm-lock.yaml @Anatolie @RobertClarke
+/pnpm-workspace.yaml @Anatolie @RobertClarke
+/scripts/reproducible-extension-build.mjs @Anatolie @RobertClarke
+/scripts/security/ @Anatolie @RobertClarke
+/scripts/ci/ @Anatolie @RobertClarke
+
+# Release, conformance, and image provenance.
+/.github/workflows/ @Anatolie @RobertClarke
+/.changeset/ @Anatolie @RobertClarke
+/scripts/conformance/ @Anatolie @RobertClarke
+/scripts/regtest/ @Anatolie @RobertClarke
+/docker/regtest/ @Anatolie @RobertClarke
+/docker-compose.regtest.yml @Anatolie @RobertClarke

@@ -1,0 +1,96 @@
+name: Browser release gate
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: browser-release-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright-release-gate:
+    name: Playwright G3 scenarios
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 90
+    env:
+      CI: 'true'
+      QBIT_REGTEST_REQUIRED: '1'
+      QBITD_IMAGE: qbit-wallet/qbitd-regtest:v1.0.0
+      QBITD_PULL_POLICY: never
+      ELECTRS_QBIT_IMAGE: ghcr.io/qbit-org/electrs-qbit-regtest:5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2@sha256:6299aeaa7d321effbabb76406ef5a275fb807b23e3e6d0c0b728a6a6bef593f0
+      ELECTRS_QBIT_PULL_POLICY: never
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 8.6.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install repository dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Install repository Playwright browser
+        run: corepack pnpm exec playwright install --with-deps chromium
+
+      - name: Build Chrome MV3 extension
+        run: corepack pnpm test:e2e:build
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build pinned qbitd regtest image
+        run: >-
+          docker build
+          --file docker/regtest/qbitd-release.Dockerfile
+          --tag "$QBITD_IMAGE"
+          docker/regtest
+
+      - name: Pull pinned electrs-qbit image
+        run: |
+          docker pull "$ELECTRS_QBIT_IMAGE"
+
+      - name: Run browser release gate
+        run: xvfb-run --auto-servernum corepack pnpm exec playwright test
+
+      - name: Upload Playwright release-gate artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-release-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report
+            test-results/playwright
+            !test-results/playwright/**/chromium-profile/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop qbit regtest harness
+        if: always()
+        run: corepack pnpm regtest:down

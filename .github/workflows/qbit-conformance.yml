@@ -1,0 +1,494 @@
+name: qbit Core conformance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qbit-conformance.yml'
+      - '.github/workflows/build-regtest-images.yml'
+      - 'docker-compose.regtest.yml'
+      - 'docker/regtest/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'packages/wallet-background/src/controllers/wallet.ts'
+      - 'packages/wallet-background/src/utils/qbit-api.ts'
+      - 'packages/wallet-background/test/qbit-api.test.ts'
+      - 'packages/wallet-background/test-integration/**'
+      - 'packages/wallet-background/vitest.integration.config.ts'
+      - 'packages/keyring-service/**'
+      - 'packages/wallet-core/src/address/**'
+      - 'packages/wallet-shared/src/**'
+      - 'packages/wallet-state/src/hooks/transactions.ts'
+      - 'scripts/conformance/**'
+      - 'scripts/regtest/**'
+      - 'scripts/security/check-sdk-packages.mjs'
+      - 'scripts/security/sdk-package-pins.json'
+  workflow_dispatch:
+    inputs:
+      electrs_qbit_image:
+        description: electrs-qbit image to test
+        required: false
+        type: string
+      qbit_release:
+        description: signed qbit release tag to verify and test
+        required: false
+        type: string
+      qbit_archive_sha256_amd64:
+        description: required signed archive SHA-256 when qbit_release differs from the committed pin
+        required: false
+        type: string
+      qbit_archive_sha256_arm64:
+        description: optional signed arm64 archive SHA-256 for the same candidate release
+        required: false
+        type: string
+  schedule:
+    - cron: '23 8 * * *'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  conformance-smoke:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 90
+    env:
+      QBIT_REGTEST_REQUIRED: '1'
+      QBIT_REPO: Qbit-Org/qbit
+      ELECTRS_QBIT_REF: 5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use pinned Node for provenance tooling
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Load committed qbit Core pin
+        id: core-pin
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { readManifest } from './scripts/conformance/report-pin-diff.mjs'
+          const manifest = readManifest('./scripts/conformance/core-pin.json')
+          const pin = manifest.runtimeRelease
+          if (!pin || !manifest.sourceBaseline) {
+            throw new Error('Core pin manifest must define runtimeRelease and sourceBaseline')
+          }
+          console.log(`release=${pin.tag}`)
+          console.log(`commit=${pin.commit}`)
+          console.log(`sha256_amd64=${pin.linuxX64ArchiveSha256}`)
+          console.log(`sha256_arm64=${pin.linuxArm64ArchiveSha256}`)
+          console.log(`signer_fingerprint=${pin.releaseSignerFingerprint}`)
+          console.log(`checksum_signature_asset=${pin.checksumSignatureAsset}`)
+          console.log(`source_repository=${manifest.sourceBaseline.repository}`)
+          console.log(`source_commit=${manifest.sourceBaseline.commit}`)
+          NODE
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve regtest images
+        id: regtest-images
+        env:
+          INPUT_QBIT_RELEASE: ${{ inputs.qbit_release }}
+          INPUT_QBIT_SHA256_AMD64: ${{ inputs.qbit_archive_sha256_amd64 }}
+          INPUT_QBIT_SHA256_ARM64: ${{ inputs.qbit_archive_sha256_arm64 }}
+          INPUT_ELECTRS_QBIT_IMAGE: ${{ inputs.electrs_qbit_image }}
+          PIN_QBIT_RELEASE: ${{ steps.core-pin.outputs.release }}
+          PIN_QBIT_SHA256_AMD64: ${{ steps.core-pin.outputs.sha256_amd64 }}
+          PIN_QBIT_SHA256_ARM64: ${{ steps.core-pin.outputs.sha256_arm64 }}
+        run: |
+          set -euo pipefail
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+
+          qbit_release="${INPUT_QBIT_RELEASE:-$PIN_QBIT_RELEASE}"
+          if ! [[ "$qbit_release" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "qbit_release must be an unambiguous version tag" >&2
+            exit 1
+          fi
+          qbit_sha256_amd64="${INPUT_QBIT_SHA256_AMD64:-}"
+          qbit_sha256_arm64="${INPUT_QBIT_SHA256_ARM64:-}"
+          if [ "$qbit_release" = "$PIN_QBIT_RELEASE" ]; then
+            qbit_sha256_amd64="${qbit_sha256_amd64:-$PIN_QBIT_SHA256_AMD64}"
+            qbit_sha256_arm64="${qbit_sha256_arm64:-$PIN_QBIT_SHA256_ARM64}"
+          elif [ -z "$qbit_sha256_amd64" ]; then
+            echo "qbit_archive_sha256_amd64 is required for candidate release $qbit_release" >&2
+            exit 1
+          fi
+          if ! [[ "$qbit_sha256_amd64" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "qbit_archive_sha256_amd64 must be a lowercase SHA-256" >&2
+            exit 1
+          fi
+          if [ -n "$qbit_sha256_arm64" ] && ! [[ "$qbit_sha256_arm64" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "qbit_archive_sha256_arm64 must be empty or a lowercase SHA-256" >&2
+            exit 1
+          fi
+
+          # Source-attributed evidence is always built from a signed release
+          # archive. Arbitrary images cannot be bound to the selected source.
+          qbitd_image="qbit-wallet/qbitd-regtest:${qbit_release}"
+          build_qbitd="true"
+
+          if ! [[ "$ELECTRS_QBIT_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ELECTRS_QBIT_REF must be a full lowercase commit ID" >&2
+            exit 1
+          fi
+          electrs_qbit_image="${INPUT_ELECTRS_QBIT_IMAGE:-}"
+          configured_electrs_image="true"
+          if [ -z "$electrs_qbit_image" ]; then
+            configured_electrs_image="false"
+            electrs_qbit_image="ghcr.io/${owner}/electrs-qbit-regtest:${ELECTRS_QBIT_REF}"
+          fi
+          if [[ "$electrs_qbit_image" == *$'\n'* || "$electrs_qbit_image" == *$'\r'* ]]; then
+            echo "electrs_qbit_image must be a single-line image reference" >&2
+            exit 1
+          fi
+          if [ "$configured_electrs_image" = "true" ]; then
+            docker pull -- "$electrs_qbit_image"
+            build_electrs_qbit="false"
+          elif docker pull -- "$electrs_qbit_image"; then
+            build_electrs_qbit="false"
+          else
+            echo "prebuilt $electrs_qbit_image unavailable; building from source"
+            build_electrs_qbit="true"
+          fi
+
+          # Images are local after this step (pulled, or built below), so the
+          # compose harness never pulls again.
+          {
+            echo "qbitd_image=$qbitd_image"
+            echo "qbitd_pull_policy=never"
+            echo "build_qbitd=$build_qbitd"
+            echo "qbit_release=$qbit_release"
+            echo "qbit_sha256_amd64=$qbit_sha256_amd64"
+            echo "qbit_sha256_arm64=$qbit_sha256_arm64"
+            echo "electrs_qbit_image=$electrs_qbit_image"
+            echo "electrs_qbit_pull_policy=never"
+            echo "build_electrs_qbit=$build_electrs_qbit"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Export resolved qbit runtime
+        env:
+          RESOLVED_RELEASE: ${{ steps.regtest-images.outputs.qbit_release }}
+          RESOLVED_SHA256_X64: ${{ steps.regtest-images.outputs.qbit_sha256_amd64 }}
+          RESOLVED_SHA256_ARM64: ${{ steps.regtest-images.outputs.qbit_sha256_arm64 }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RESOLVED_RELEASE" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "resolved qbit release must be an unambiguous version tag" >&2
+            exit 1
+          fi
+          if ! [[ "$RESOLVED_SHA256_X64" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "resolved amd64 digest must be a lowercase SHA-256" >&2
+            exit 1
+          fi
+          if [ -n "$RESOLVED_SHA256_ARM64" ] && ! [[ "$RESOLVED_SHA256_ARM64" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "resolved arm64 digest must be empty or a lowercase SHA-256" >&2
+            exit 1
+          fi
+          {
+            echo "QBIT_RELEASE=$RESOLVED_RELEASE"
+            echo "QBIT_ARCHIVE_SHA256_AMD64=$RESOLVED_SHA256_X64"
+            echo "QBIT_ARCHIVE_SHA256_ARM64=$RESOLVED_SHA256_ARM64"
+            echo "QBIT_CONFORMANCE_EXPECTED_RELEASE=$RESOLVED_RELEASE"
+          } >> "$GITHUB_ENV"
+
+      - name: Check out signed qbit Core release source
+        id: core-source
+        env:
+          RESOLVED_RELEASE: ${{ steps.regtest-images.outputs.qbit_release }}
+          PIN_RELEASE: ${{ steps.core-pin.outputs.release }}
+          PIN_SOURCE_COMMIT: ${{ steps.core-pin.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$QBIT_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "QBIT_REPO must be a GitHub owner/repo slug" >&2
+            exit 1
+          fi
+          if ! [[ "$RESOLVED_RELEASE" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "resolved qbit release must be an unambiguous version tag" >&2
+            exit 1
+          fi
+          git init -q "$RUNNER_TEMP/qbit-core-source"
+          git -C "$RUNNER_TEMP/qbit-core-source" remote add origin "https://github.com/${QBIT_REPO}.git"
+          git -C "$RUNNER_TEMP/qbit-core-source" fetch --depth=1 origin \
+            "refs/tags/${RESOLVED_RELEASE}:refs/tags/${RESOLVED_RELEASE}"
+          commit="$(git -C "$RUNNER_TEMP/qbit-core-source" rev-parse "refs/tags/${RESOLVED_RELEASE}^{commit}")"
+          if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "signed qbit release must resolve to a full lowercase commit ID" >&2
+            exit 1
+          fi
+          git -C "$RUNNER_TEMP/qbit-core-source" checkout --detach "$commit"
+          if [ "$RESOLVED_RELEASE" = "$PIN_RELEASE" ] && [ "$commit" != "$PIN_SOURCE_COMMIT" ]; then
+            echo "committed release tag no longer targets pinned source $PIN_SOURCE_COMMIT" >&2
+            exit 1
+          fi
+          {
+            echo "repository=$QBIT_REPO"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify signed qbit release provenance
+        env:
+          RESOLVED_RELEASE: ${{ steps.regtest-images.outputs.qbit_release }}
+          RESOLVED_SHA256_X64: ${{ steps.regtest-images.outputs.qbit_sha256_amd64 }}
+          RESOLVED_SHA256_ARM64: ${{ steps.regtest-images.outputs.qbit_sha256_arm64 }}
+          PIN_RELEASE: ${{ steps.core-pin.outputs.release }}
+          PIN_SOURCE_COMMIT: ${{ steps.core-pin.outputs.source_commit }}
+          RELEASE_SIGNER_FINGERPRINT: ${{ steps.core-pin.outputs.signer_fingerprint }}
+          CHECKSUM_SIGNATURE_ASSET: ${{ steps.core-pin.outputs.checksum_signature_asset }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qbit-conformance-artifacts"
+          expected_commit=()
+          if [ "$RESOLVED_RELEASE" = "$PIN_RELEASE" ]; then
+            expected_commit=(--expected-commit "$PIN_SOURCE_COMMIT")
+          fi
+          arm64_digest=()
+          if [ -n "$RESOLVED_SHA256_ARM64" ]; then
+            arm64_digest=(--sha256-arm64 "$RESOLVED_SHA256_ARM64")
+          fi
+          node scripts/conformance/verify-core-release-provenance.mjs \
+            --source "$RUNNER_TEMP/qbit-core-source" \
+            --repository "$QBIT_REPO" \
+            --release "$RESOLVED_RELEASE" \
+            "${expected_commit[@]}" \
+            --sha256-amd64 "$RESOLVED_SHA256_X64" \
+            "${arm64_digest[@]}" \
+            --signer-fingerprint "$RELEASE_SIGNER_FINGERPRINT" \
+            --checksum-signature-asset "$CHECKSUM_SIGNATURE_ASSET" \
+            --output "$RUNNER_TEMP/qbit-conformance-artifacts/core-release-provenance.json"
+
+      - name: Set up Docker Buildx
+        if: steps.regtest-images.outputs.build_qbitd == 'true' || steps.regtest-images.outputs.build_electrs_qbit == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build qbitd regtest image from release
+        if: steps.regtest-images.outputs.build_qbitd == 'true'
+        env:
+          QBITD_IMAGE: ${{ steps.regtest-images.outputs.qbitd_image }}
+          QBIT_SOURCE_COMMIT: ${{ steps.core-source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --load \
+            --file docker/regtest/qbitd-release.Dockerfile \
+            --build-arg "QBIT_REPO=${QBIT_REPO}" \
+            --build-arg "QBIT_RELEASE=${QBIT_RELEASE}" \
+            --build-arg "QBIT_SOURCE_COMMIT=${QBIT_SOURCE_COMMIT}" \
+            --build-arg "QBIT_ARCHIVE_SHA256_AMD64=${QBIT_ARCHIVE_SHA256_AMD64}" \
+            --build-arg "QBIT_ARCHIVE_SHA256_ARM64=${QBIT_ARCHIVE_SHA256_ARM64}" \
+            --tag "$QBITD_IMAGE" \
+            docker/regtest
+
+      - name: Record selected qbitd image identity
+        env:
+          QBITD_IMAGE: ${{ steps.regtest-images.outputs.qbitd_image }}
+          EXPECTED_SOURCE_COMMIT: ${{ steps.core-source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          image_id="$(docker image inspect --format '{{.Id}}' "$QBITD_IMAGE")"
+          if ! [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "qbitd image did not resolve to an immutable image ID" >&2
+            exit 1
+          fi
+          image_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$QBITD_IMAGE")"
+          if [ "$image_revision" != "$EXPECTED_SOURCE_COMMIT" ]; then
+            echo "qbitd image revision label does not match signed source commit" >&2
+            exit 1
+          fi
+          IMAGE_ID="$image_id" IMAGE_REVISION="$image_revision" node <<'NODE'
+          const fs = require('node:fs')
+          const path = `${process.env.RUNNER_TEMP}/qbit-conformance-artifacts/runtime-image.json`
+          const identity = {
+            schemaVersion: 1,
+            imageId: process.env.IMAGE_ID,
+            sourceCommit: process.env.IMAGE_REVISION,
+          }
+          fs.writeFileSync(path, `${JSON.stringify(identity, null, 2)}\n`)
+          NODE
+          echo "qbitd image=$image_id"
+
+      - name: Build cached electrs-qbit regtest image from source
+        if: steps.regtest-images.outputs.build_electrs_qbit == 'true'
+        env:
+          ELECTRS_QBIT_IMAGE: ${{ steps.regtest-images.outputs.electrs_qbit_image }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --load \
+            --file docker/regtest/electrs-qbit-source.Dockerfile \
+            --build-arg "ELECTRS_QBIT_REF=${ELECTRS_QBIT_REF}" \
+            --cache-from "type=gha,scope=electrs-qbit-regtest-${ELECTRS_QBIT_REF}" \
+            --cache-to "type=gha,scope=electrs-qbit-regtest-${ELECTRS_QBIT_REF},mode=max" \
+            --tag "$ELECTRS_QBIT_IMAGE" \
+            docker/regtest
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 8.6.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Test conformance pin tooling
+        run: corepack pnpm test:conformance:pin-report
+
+      - name: Generate source-backed conformance pin report
+        env:
+          SOURCE_COMMIT: ${{ steps.core-source.outputs.commit }}
+          PIN_SOURCE_COMMIT: ${{ steps.core-pin.outputs.source_commit }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/qbit-conformance-artifacts"
+          set +e
+          corepack pnpm conformance:pin-report -- \
+            --candidate-source "$RUNNER_TEMP/qbit-core-source" \
+            --output "$RUNNER_TEMP/qbit-conformance-artifacts/core-pin-report.json"
+          report_status=$?
+          set -e
+          if [ "$SOURCE_COMMIT" = "$PIN_SOURCE_COMMIT" ]; then
+            exit "$report_status"
+          fi
+          if [ "$report_status" -ne 0 ]; then
+            node -e '
+              const report = require(process.argv[1])
+              if (report.status !== "drift") process.exit(1)
+            ' "$RUNNER_TEMP/qbit-conformance-artifacts/core-pin-report.json"
+          fi
+          echo "candidate source report generated; review the uploaded artifact"
+
+      - name: Regenerate available Core-derived B4 fixtures
+        env:
+          CORE_REPOSITORY: ${{ steps.core-source.outputs.repository }}
+          CORE_COMMIT: ${{ steps.core-source.outputs.commit }}
+        run: |
+          corepack pnpm conformance:fixtures:core -- \
+            --candidate-source "$RUNNER_TEMP/qbit-core-source" \
+            --repository "$CORE_REPOSITORY" \
+            --commit "$CORE_COMMIT" \
+            --output-dir "$RUNNER_TEMP/qbit-conformance-artifacts/core-fixtures"
+          for fixture in p2mr-sighash.json p2mr-psbt.json; do
+            git diff --no-index -- \
+              "scripts/conformance/qbit-js/fixtures/$fixture" \
+              "$RUNNER_TEMP/qbit-conformance-artifacts/core-fixtures/$fixture" \
+              > "$RUNNER_TEMP/qbit-conformance-artifacts/core-fixtures/${fixture%.json}.diff" \
+              || test "$?" -eq 1
+          done
+
+      - name: Verify baseline Core fixture behavior is reproducible
+        if: steps.core-source.outputs.commit == steps.core-pin.outputs.source_commit
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          for (const name of ['p2mr-sighash.json', 'p2mr-psbt.json']) {
+            const committed = require(`./scripts/conformance/qbit-js/fixtures/${name}`)
+            const generated = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/qbit-conformance-artifacts/core-fixtures/${name}`, 'utf8'))
+            delete committed.source
+            delete generated.source
+            assert.deepEqual(generated, committed, `${name} behavior drifted`)
+          }
+          NODE
+
+      - name: Regenerate signed-release P2MR offline fixture
+        if: steps.core-source.outputs.commit == steps.core-pin.outputs.source_commit && steps.regtest-images.outputs.qbit_release == steps.core-pin.outputs.release
+        run: |
+          set -euo pipefail
+          generated="$RUNNER_TEMP/qbit-conformance-artifacts/p2mr-offline.json"
+          diff_file="$RUNNER_TEMP/qbit-conformance-artifacts/p2mr-offline.diff"
+          corepack pnpm conformance:fixtures:offline -- \
+            --source "$RUNNER_TEMP/qbit-core-source" \
+            --core-provenance "$RUNNER_TEMP/qbit-conformance-artifacts/core-release-provenance.json" \
+            --output "$generated"
+          if ! cmp scripts/conformance/fixtures/p2mr-offline.json "$generated"; then
+            git diff --no-index -- \
+              scripts/conformance/fixtures/p2mr-offline.json \
+              "$generated" > "$diff_file" || test "$?" -eq 1
+            echo "signed-release P2MR offline fixture drifted; review $diff_file" >&2
+            exit 1
+          fi
+
+      - name: Run signed-release P2MR offline consumer
+        run: corepack pnpm test:conformance:offline
+
+      - name: Reset qbit regtest harness state
+        env:
+          QBITD_IMAGE: ${{ steps.regtest-images.outputs.qbitd_image }}
+          QBITD_PULL_POLICY: ${{ steps.regtest-images.outputs.qbitd_pull_policy }}
+          ELECTRS_QBIT_IMAGE: ${{ steps.regtest-images.outputs.electrs_qbit_image }}
+          ELECTRS_QBIT_PULL_POLICY: ${{ steps.regtest-images.outputs.electrs_qbit_pull_policy }}
+        run: corepack pnpm regtest:reset
+
+      - name: Start qbit regtest harness
+        env:
+          QBITD_IMAGE: ${{ steps.regtest-images.outputs.qbitd_image }}
+          QBITD_PULL_POLICY: ${{ steps.regtest-images.outputs.qbitd_pull_policy }}
+          ELECTRS_QBIT_IMAGE: ${{ steps.regtest-images.outputs.electrs_qbit_image }}
+          ELECTRS_QBIT_PULL_POLICY: ${{ steps.regtest-images.outputs.electrs_qbit_pull_policy }}
+        run: corepack pnpm regtest:up
+
+      - name: Run integration smoke
+        run: corepack pnpm test:integration
+
+      - name: Run qbit Core conformance matrix
+        run: corepack pnpm test:conformance
+
+      - name: Regenerate Core-backed matrix fixture
+        run: |
+          corepack pnpm conformance:fixtures:matrix -- \
+            --core-cli scripts/regtest/cli \
+            --core-provenance "$RUNNER_TEMP/qbit-conformance-artifacts/core-release-provenance.json" \
+            --output "$RUNNER_TEMP/qbit-conformance-artifacts/matrix.json"
+
+      - name: Verify baseline matrix fixture is reproducible
+        if: steps.core-source.outputs.commit == steps.core-pin.outputs.source_commit && steps.regtest-images.outputs.qbit_release == steps.core-pin.outputs.release
+        run: >-
+          cmp scripts/conformance/fixtures/matrix.json
+          "$RUNNER_TEMP/qbit-conformance-artifacts/matrix.json"
+
+      - name: Diff candidate matrix fixture
+        if: steps.core-source.outputs.commit != steps.core-pin.outputs.source_commit || steps.regtest-images.outputs.qbit_release != steps.core-pin.outputs.release
+        run: |
+          git diff --no-index -- \
+            scripts/conformance/fixtures/matrix.json \
+            "$RUNNER_TEMP/qbit-conformance-artifacts/matrix.json" \
+            > "$RUNNER_TEMP/qbit-conformance-artifacts/matrix.diff" || test "$?" -eq 1
+
+      - name: Run qbit API regtest smoke
+        run: corepack pnpm test:integration:qbit-api
+
+      - name: Run wallet send-flow regtest e2e
+        run: corepack pnpm test:integration:send-flow
+
+      - name: Dump qbit regtest harness logs
+        if: failure()
+        env:
+          QBITD_IMAGE: ${{ steps.regtest-images.outputs.qbitd_image }}
+          QBITD_PULL_POLICY: ${{ steps.regtest-images.outputs.qbitd_pull_policy }}
+          ELECTRS_QBIT_IMAGE: ${{ steps.regtest-images.outputs.electrs_qbit_image }}
+          ELECTRS_QBIT_PULL_POLICY: ${{ steps.regtest-images.outputs.electrs_qbit_pull_policy }}
+        run: docker compose -f docker-compose.regtest.yml logs --no-color qbitd electrs-qbit
+
+      - name: Upload conformance drift artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qbit-conformance-${{ github.run_id }}
+          path: ${{ runner.temp }}/qbit-conformance-artifacts
+          if-no-files-found: warn
+
+      - name: Stop qbit regtest harness
+        if: always()
+        env:
+          QBITD_IMAGE: ${{ steps.regtest-images.outputs.qbitd_image }}
+          QBITD_PULL_POLICY: ${{ steps.regtest-images.outputs.qbitd_pull_policy }}
+          ELECTRS_QBIT_IMAGE: ${{ steps.regtest-images.outputs.electrs_qbit_image }}
+          ELECTRS_QBIT_PULL_POLICY: ${{ steps.regtest-images.outputs.electrs_qbit_pull_policy }}
+        run: corepack pnpm regtest:down

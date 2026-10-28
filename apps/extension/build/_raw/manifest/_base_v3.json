@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_appName__",
+  "version": "1.0.5",
+
+  "default_locale": "en",
+  "description": "__MSG_appDescription__",
+  "icons": {
+    "16": "/images/logo/logo@16x.png",
+    "32": "/images/logo/logo@32x.png",
+    "48": "/images/logo/logo@48x.png",
+    "128": "/images/logo/logo@128x.png"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "/images/logo/logo@16x.png",
+      "32": "/images/logo/logo@32x.png",
+      "48": "/images/logo/logo@48x.png",
+      "128": "/images/logo/logo@128x.png"
+    },
+    "default_title": "__MSG_appName__"
+  },
+
+  "author": { "email": "contact@qbit.org" },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "homepage_url": "https://qbit.org",
+  "permissions": ["storage", "unlimitedStorage", "declarativeNetRequest", "sidePanel"],
+  "host_permissions": ["https://mempool.qbit.org/*", "https://mempool-testnet.qbit.org/*"],
+  "optional_host_permissions": ["http://127.0.0.1:3002/*"],
+  "short_name": "Qbit Wallet",
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_start"
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["pageProvider.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src 'self' https://mempool.qbit.org https://mempool-testnet.qbit.org http://127.0.0.1:3002"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 8.6.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run deterministic repository lint
+        run: pnpm lint
+
+  dependency-policy:
+    name: Dependency policy
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 8.6.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test dependency policy fail-closed behavior
+        run: pnpm test:security-tooling
+
+      - name: Enforce dependency and license policy
+        run: pnpm security:dependencies
+
+  verify:
+    name: Typecheck, test, and build
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 8.6.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Report release readiness without changing GitHub settings
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm run release:readiness -- --report-only
+
+      - name: Prepare workspace declarations
+        run: pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
+
+      - name: Build wallet background package
+        run: pnpm --filter @qbit/wallet-background run build
+
+      - name: Run adversarial security suite
+        run: pnpm run test:security-adversarial
+
+      - name: Typecheck packages
+        run: pnpm -r --if-present run typecheck
+
+      - name: Run unit tests
+        run: |
+          pnpm -r --if-present test
+          pnpm run test:pqc-golden
+          pnpm run test:protocol-vectors
+
+      - name: Resolve extension artifact version
+        id: extension-version
+        run: |
+          artifact_version="$(node -p "require('./apps/extension/package.json').version.split('-beta')[0]")"
+          echo "artifact_version=${artifact_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Chrome MV3 extension
+        run: pnpm --filter qbit-extension run package:test -- --artifact-version "${{ steps.extension-version.outputs.artifact_version }}"
+
+      - name: Verify two clean extension builds are byte-identical
+        run: pnpm run build:repro:extension -- --skip-prepare
+
+      - name: Upload Chrome MV3 extension artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: chrome-mv3-extension
+          path: apps/extension/dist/qbit-chrome-mv3-v*.zip*
+          if-no-files-found: error
+          retention-days: 14

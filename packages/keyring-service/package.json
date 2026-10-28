@@ -1,0 +1,89 @@
+{
+  "name": "@qbit/keyring-service",
+  "version": "1.3.3",
+  "private": true,
+  "description": "Keyring service for Qbit HD, simple, readonly, watch-address, and cold wallets",
+  "main": "lib/index.js",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/**/*",
+    "src/**/*",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.js",
+      "import": "./lib/index.mjs"
+    },
+    "./qbit-hd-keyring": {
+      "types": "./lib/qbit-hd-keyring.d.ts",
+      "import": "./lib/qbit-hd-keyring.mjs"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "require": "./lib/types.js",
+      "import": "./lib/types.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup && node scripts/smoke-qbit-hd-keyring-export.mjs",
+    "build:watch": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts,.js",
+    "clean": "rm -rf lib",
+    "dev": "tsup --watch",
+    "prepublishOnly": "pnpm clean && pnpm test && pnpm build"
+  },
+  "keywords": [
+    "qbit",
+    "wallet",
+    "keyring",
+    "crypto",
+    "blockchain",
+    "hd-wallet",
+    "hardware-wallet",
+    "typescript"
+  ],
+  "author": "Qbit Wallet Team",
+  "license": "MIT",
+  "dependencies": {
+    "@metamask/browser-passworder": "6.0.0",
+    "@metamask/obs-store": "^7.0.0",
+    "@qbit-oss/pqc": "0.1.0",
+    "@qbit-oss/protocol": "0.1.0",
+    "@qbit/wallet-core": "workspace:*",
+    "@qbit/wallet-shared": "workspace:*",
+    "@qbit/wallet-storage": "workspace:*",
+    "@qbit/wallet-types": "workspace:*",
+    "@noble/hashes": "^1.3.0",
+    "bip39": "^3.1.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "bitcore-lib": "^10.0.0",
+    "browser-passworder": "^2.0.3",
+    "bs58check": "^3.0.1",
+    "events": "^3.3.0",
+    "hdkey": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^8.50.0",
+    "patch-package": "8.0.1",
+    "tsup": "^7.2.0",
+    "typescript": "^5.2.0",
+    "vitest": "3.2.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Qbit-Org/qbit-wallet.git",
+    "directory": "packages/keyring-service"
+  },
+  "bugs": {
+    "url": "https://github.com/Qbit-Org/qbit-wallet/issues"
+  },
+  "homepage": "https://github.com/Qbit-Org/qbit-wallet/tree/main/packages/keyring-service#readme"
+}

@@ -1,0 +1,279 @@
+@import url('./font.css');
+
+:root {
+  color-scheme: light;
+  --qbit-accent: #1ab453;
+  --qbit-accent-hover: #20c760;
+  --qbit-accent-dark: #0f813b;
+  --qbit-accent-deep: #0b6d31;
+  --qbit-accent-wash: #e8f8ee;
+  --qbit-on-accent: #101412;
+  --qbit-warning: #b54708;
+  --qbit-warning-hover: #8e3505;
+  --qbit-warning-fill: #ff7b21;
+  --qbit-danger-text: #c92b40;
+  --qbit-on-danger: #ffffff;
+  --qbit-canvas: #f6faf7;
+  --qbit-paper: #ffffff;
+  --qbit-ink: #101412;
+  --qbit-ink-soft: rgba(16, 20, 18, 0.82);
+  --qbit-ink-65: rgba(16, 20, 18, 0.65);
+  --qbit-muted: #4f6056;
+  --qbit-muted-soft: rgba(79, 96, 86, 0.72);
+  --qbit-line: #dce7e0;
+  --qbit-line-strong: rgba(16, 20, 18, 0.22);
+  --qbit-border-soft: rgba(16, 20, 18, 0.12);
+  --qbit-surface-tint: #edf4ef;
+  --qbit-overlay: rgba(7, 16, 7, 0.48);
+  --qbit-shadow: rgba(7, 17, 11, 0.08);
+  --qbit-value-up: #4da474;
+  --qbit-value-down: #bf3f4d;
+  --qbit-scrollbar-thumb: #b8c7be;
+  --qbit-switch-off: #b8c7be;
+}
+
+// theme-init.js (build/_raw) sets data-theme before first paint from the
+// localStorage themeMode cache; ThemeProvider keeps it in sync afterwards.
+[data-theme='dark'] {
+  color-scheme: dark;
+  --qbit-accent: #1ab453;
+  --qbit-accent-hover: #20c760;
+  --qbit-accent-dark: #4ccf85;
+  --qbit-accent-deep: #63da93;
+  --qbit-accent-wash: #17281d;
+  --qbit-on-accent: #101412;
+  --qbit-warning: #eb9d5e;
+  --qbit-warning-hover: #f3b27e;
+  --qbit-warning-fill: #9c4408;
+  --qbit-danger-text: #ff7285;
+  --qbit-on-danger: #101412;
+  --qbit-canvas: #0e1512;
+  --qbit-paper: #161d19;
+  --qbit-ink: #e6f0e9;
+  --qbit-ink-soft: rgba(230, 240, 233, 0.82);
+  --qbit-ink-65: rgba(230, 240, 233, 0.65);
+  --qbit-muted: #97ac9f;
+  --qbit-muted-soft: rgba(151, 172, 159, 0.72);
+  --qbit-line: #29342d;
+  --qbit-line-strong: rgba(230, 240, 233, 0.28);
+  --qbit-border-soft: rgba(230, 240, 233, 0.14);
+  --qbit-surface-tint: #1b2620;
+  --qbit-overlay: rgba(0, 0, 0, 0.6);
+  --qbit-shadow: rgba(0, 0, 0, 0.45);
+  --qbit-value-up: #56c78b;
+  --qbit-value-down: #f57e8e;
+  --qbit-scrollbar-thumb: #3a473f;
+  --qbit-switch-off: #3a473f;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: var(--qbit-canvas);
+  color: var(--qbit-ink);
+  font-family: Inter-Regular, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--qbit-muted-soft);
+}
+
+// Selected text (e.g. copying the seed phrase) uses the primary CTA fill so
+// the highlight reads clearly in both themes.
+::selection {
+  background: var(--qbit-accent);
+  color: #ffffff;
+}
+
+.popover-container {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  // `safe` keeps a dialog taller than the viewport top-aligned instead of
+  // centered, so its start edge stays reachable through the scroll below.
+  align-items: safe center;
+  z-index: 1000;
+  padding: 16px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+iframe {
+  overflow-clip-margin: content-box !important;
+  border-width: 0px;
+  border-style: inset;
+  border-color: initial;
+  border-image: initial;
+  overflow: clip !important;
+}
+
+.ant-checkbox-inner {
+  width: 15px !important;
+  height: 15px !important;
+  background-color: var(--qbit-paper) !important;
+  border-width: 1px !important;
+  border-color: var(--qbit-line) !important;
+}
+
+.ant-checkbox {
+  width: 15px !important;
+  height: 15px !important;
+
+  background-color: var(--qbit-paper) !important;
+}
+
+.ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--qbit-accent) !important;
+  border-color: var(--qbit-accent) !important;
+}
+
+.ant-switch {
+  background-color: var(--qbit-switch-off) !important;
+}
+
+.ant-switch {
+  &.ant-switch-checked {
+    background-color: var(--qbit-accent) !important;
+  }
+}
+
+.custom-switch {
+  &.ant-switch-checked {
+    background-color: var(--qbit-accent) !important;
+  }
+
+  .ant-switch-handle::before {
+    background-color: #ffffff !important;
+  }
+}
+
+div {
+  border: 0px solid;
+}
+
+::-webkit-scrollbar {
+  width: 0px;
+  height: 2px;
+}
+
+// For scrollbar
+::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0);
+}
+
+::-webkit-scrollbar-track {
+  box-shadow: 1px 1px 5px rgba(0, 0, 0, 0.1) inset;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.visible-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.visible-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--qbit-scrollbar-thumb);
+}
+
+.rc-virtual-list-scrollbar {
+  width: 6px !important;
+}
+.rc-virtual-list-scrollbar-thumb {
+  border-radius: 3px;
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.1);
+  background: #9aada1 !important;
+}
+
+.ant-tooltip {
+  max-width: 300px !important;
+}
+
+[data-theme='dark'] .ant-message .ant-message-notice-content {
+  color: var(--qbit-ink);
+  background: var(--qbit-paper);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+// SidePanelExpand tooltip arrow position
+.side-panel-expand-tooltip .ant-tooltip-arrow {
+  left: auto !important;
+  right: 12px !important;
+}
+
+.ant-tag {
+  background-clip: unset !important;
+
+  &.ant-tag-orange {
+    -webkit-text-fill-color: var(--qbit-warning) !important;
+  }
+}
+
+.ant-slider-rail {
+  background-color: var(--qbit-line) !important;
+  height: 10px !important;
+}
+
+.ant-slider-track {
+  background: var(--qbit-accent) !important;
+  height: 10px !important;
+}
+
+.ant-slider-step {
+  height: 10px !important;
+}
+
+.ant-slider-handle {
+  margin-top: -3px !important;
+  border-color: var(--qbit-accent) !important;
+}
+
+.ant-list-item {
+  border-bottom: none !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+// antd's LoadingOutlined spun on its own; lucide spinners opt in via this class.
+.icon-spin {
+  animation: icon-spin 1s infinite linear;
+}
+
+@keyframes icon-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}

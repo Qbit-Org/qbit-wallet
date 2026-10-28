@@ -1,0 +1,2912 @@
+{
+  "Broadcast": {
+    "message": "廣播交易"
+  },
+  "about_3_minutes": {
+    "message": "(約 3 分鐘)"
+  },
+  "about_new_update": {
+    "message": "有新版本可用"
+  },
+  "about_us": {
+    "message": "關於我們"
+  },
+  "about_qbit_wallet": {
+    "message": "關於 Qbit Wallet"
+  },
+  "account_creation_already_in_progress": {
+    "message": "此錢包正在建立帳戶，請等待完成後再建立另一個。"
+  },
+  "add_address": {
+    "message": "添加地址"
+  },
+  "address": {
+    "message": "地址"
+  },
+  "address_book": {
+    "message": "地址簿"
+  },
+  "address_book_placeholder": {
+    "message": "地址簿"
+  },
+  "address_label": {
+    "message": "地址"
+  },
+  "address_or_name_fb": {
+    "message": "地址或域名 (.fb)"
+  },
+  "address_preview": {
+    "message": "地址："
+  },
+  "address_type": {
+    "message": "地址類型"
+  },
+  "address_type_changed": {
+    "message": "地址類型已更改"
+  },
+  "addressbook_desc": {
+    "message": "添加常用地址"
+  },
+  "advance_options": {
+    "message": "進階選項"
+  },
+  "advanced": {
+    "message": "進階"
+  },
+  "advanced_settings": {
+    "message": "進階設定"
+  },
+  "appearance": {
+    "message": "外觀"
+  },
+  "enable": {
+    "message": "啟用"
+  },
+  "enable_local_regtest_title": {
+    "message": "啟用本機 Regtest"
+  },
+  "local_regtest": {
+    "message": "本機 Regtest"
+  },
+  "enabled": {
+    "message": "已啟用"
+  },
+  "disabled": {
+    "message": "已停用"
+  },
+  "regtest_access_acknowledgement": {
+    "message": "我了解 Qbit Wallet 將可與在連接埠 3002 執行的任何本機服務通訊。"
+  },
+  "regtest_access_denied": {
+    "message": "未授予本機存取權。本機 Regtest 保持停用，目前的網路不變。"
+  },
+  "regtest_access_disabled": {
+    "message": "已停用本機 Regtest"
+  },
+  "regtest_access_enabled": {
+    "message": "已啟用本機 Regtest"
+  },
+  "regtest_access_no_value": {
+    "message": "Regtest 代幣沒有任何金錢價值。"
+  },
+  "regtest_access_trust_note": {
+    "message": "只有在您是開發者並信任在連接埠 3002 執行的本機服務時才啟用此功能。"
+  },
+  "regtest_access_disable_note": {
+    "message": "您之後可以在進階設定中停用此存取權。"
+  },
+  "regtest_access_not_enabled": {
+    "message": "尚未啟用 Regtest 存取權"
+  },
+  "regtest_access_request_failed": {
+    "message": "瀏覽器無法完成本機存取請求。本機 Regtest 保持停用，目前的網路不變。"
+  },
+  "regtest_access_retry": {
+    "message": "重試"
+  },
+  "regtest_access_status_off": {
+    "message": "關閉"
+  },
+  "regtest_access_status_on": {
+    "message": "開啟"
+  },
+  "regtest_service_unavailable": {
+    "message": "Qbit Wallet 無法連線到您的本機 Regtest 執行個體，請確認它正在連接埠 3002 上執行。"
+  },
+  "regtest_service_unexpected": {
+    "message": "Regtest 位址上出現非預期的服務"
+  },
+  "theme_light": {
+    "message": "淺色"
+  },
+  "theme_dark": {
+    "message": "深色"
+  },
+  "theme_system": {
+    "message": "系統"
+  },
+  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
+    "message": "4. 簽名後，使用此錢包掃描已簽名的二維碼。"
+  },
+  "agreement_text": {
+    "message": "確認"
+  },
+  "all": {
+    "message": "全部"
+  },
+  "all_marked_as_read": {
+    "message": "已全部標為已讀"
+  },
+  "all_read": {
+    "message": "全部已讀"
+  },
+  "allow_sign_data_requests": {
+    "message": "允許簽署資料請求"
+  },
+  "allow_this_site_to_switch_the_chain": {
+    "message": "允許此網站切換鏈嗎？"
+  },
+  "allow_this_site_to_switch_the_network": {
+    "message": "允許此網站切換網路嗎？"
+  },
+  "allow_using_unconfirmed_balance": {
+    "message": "允許使用未確認餘額"
+  },
+  "amount": {
+    "message": "數量"
+  },
+  "amount_exceeds_your_available_balance": {
+    "message": "金額超過您的可用餘額"
+  },
+  "amount_must_be_at_least": {
+    "message": "金額必須至少為"
+  },
+  "announcement": {
+    "message": "公告"
+  },
+  "appDescription": {
+    "message": "Qbit Wallet 讓使用者能夠傳送、接收原生 Qbit（QBT），並在其原生生態系統中進行交易。"
+  },
+  "appName": {
+    "message": "Qbit Wallet"
+  },
+  "approvalres_is_required": {
+    "message": "需要 approvalRes"
+  },
+  "are_not_supported": {
+    "message": "不支援。"
+  },
+  "are_not_supported_yet": {
+    "message": "尚不支援。"
+  },
+  "are_supported": {
+    "message": ""
+  },
+  "are_you_sure_you_want_to_delete_this_contact": {
+    "message": "確定要刪除此聯絡人嗎？"
+  },
+  "auto": {
+    "message": "自動"
+  },
+  "automatic_lock_time": {
+    "message": "自動鎖定時間"
+  },
+  "available": {
+    "message": "可用"
+  },
+  "available_balance": {
+    "message": "可用餘額"
+  },
+  "average": {
+    "message": "平均"
+  },
+  "avg": {
+    "message": "平均"
+  },
+  "back": {
+    "message": "返回"
+  },
+  "balance": {
+    "message": "餘額"
+  },
+  "bbn": {
+    "message": "bbn..."
+  },
+  "qbit_restore_accounts_restored": {
+    "message": "已恢復的地址"
+  },
+  "qbit_restore_concurrent_instance_warning": {
+    "message": "在此錢包已恢復的地址範圍之外發現了活動。此助記詞的另一份副本可能正在使用中。在確定沒有其他副本處於使用狀態之前，請勿使用此錢包簽名；建議將資金轉移到新的助記詞。"
+  },
+  "qbit_restore_counters_minimum_warning": {
+    "message": "簽名計數器是根據鏈上歷史重建的，屬於最小值。訊息簽名和從未廣播的交易對此掃描不可見。\n\n因此，如果此助記詞曾在其他錢包中使用過，請將資金轉移到全新的錢包，而不要重複使用舊地址。"
+  },
+  "qbit_restore_floors_incomplete_warning": {
+    "message": "簽名計數器重建未完成。在重建成功之前，簽名將保持鎖定；接收不受影響。請立即重試，或稍後解鎖錢包以自動重試。"
+  },
+  "qbit_restore_network": {
+    "message": "網路"
+  },
+  "qbit_restore_no_activity_hint": {
+    "message": "在目前網路上未找到此助記詞的任何活動。如果此錢包曾在其他網路上使用，恢復後請切換網路，計數器將自動重建。"
+  },
+  "qbit_restore_report_title": {
+    "message": "錢包已恢復"
+  },
+  "qbit_restore_retry_floor_scan": {
+    "message": "重試計數器重建"
+  },
+  "qbit_restore_scan_truncated_warning": {
+    "message": "地址探索已達到掃描上限而停止。如果您預期有更多地址，請在恢復後衍生額外的帳戶。"
+  },
+  "qbit_restore_scanning": {
+    "message": "正在掃描鏈上歷史並重建簽名計數器…"
+  },
+  "qbit_signatures_remaining": {
+    "message": "剩餘 $1 個"
+  },
+  "qbit_tx_uses_n_signatures": {
+    "message": "此交易使用 $1 個簽名"
+  },
+  "qbit_uri_amount_invalid": {
+    "message": "無效的 qbit: URI 金額"
+  },
+  "qbit_uri_invalid": {
+    "message": "無效的 qbit: URI"
+  },
+  "qbit_receive_activity_cached": {
+    "message": "即時活動查詢失敗，因此已使用／未使用狀態並不可靠。在網路連線恢復前不會提供收款地址；重新連線後請重試。"
+  },
+  "qbit_receive_amount_optional": {
+    "message": "金額（選填）"
+  },
+  "qbit_receive_budget_available": {
+    "message": "顯示尚餘 $1 次簽章操作。收款不會消耗簽章；一次支出可能消耗一次或多次。"
+  },
+  "qbit_receive_budget_critical": {
+    "message": "嚴重"
+  },
+  "qbit_receive_budget_exhausted": {
+    "message": "簽章額度已用盡。此錢包無法再授權從這個地址支出，因此不得再用於收款。"
+  },
+  "qbit_receive_budget_exhausted_badge": {
+    "message": "已用盡"
+  },
+  "qbit_receive_budget_normal": {
+    "message": "正常"
+  },
+  "qbit_receive_budget_warning": {
+    "message": "警告"
+  },
+  "qbit_receive_concurrent": {
+    "message": "這組助記詞可能有另一份副本正在使用。其簽章不在本錢包的本機計數器內，請勿依賴顯示的額度。仍可收款，但應將資產轉移到新的助記詞。"
+  },
+  "qbit_receive_copy_uri": {
+    "message": "複製 qbit: URI"
+  },
+  "qbit_receive_current": {
+    "message": "目前收款地址"
+  },
+  "qbit_receive_exhausted_copy_blocked": {
+    "message": "此地址已無簽章額度，無法再授權支出。分享此地址收款並不安全。"
+  },
+  "qbit_receive_floors_pending": {
+    "message": "計數器重建尚未完成，因此簽章額度並非可靠狀態。重建成功前不會提供收款地址，且所有簽章都會保持鎖定。"
+  },
+  "qbit_receive_gap_warning": {
+    "message": "連續發出 20 個沒有觀測到活動的地址後，新增地址會暫停。請使用已發出、未使用且額度未盡的地址。觀測到活動後，便可在復原掃描視窗內再發出一個地址。"
+  },
+  "qbit_receive_label_optional": {
+    "message": "標籤（選填）"
+  },
+  "qbit_receive_loading": {
+    "message": "正在準備安全的收款地址…"
+  },
+  "qbit_receive_local_counter": {
+    "message": "本機計數器"
+  },
+  "qbit_receive_local_counter_help": {
+    "message": "此計數器在本機具權威性，並於簽章前持久保留額度。助記詞的另一份副本可在此計數器之外簽章。"
+  },
+  "qbit_receive_new_address": {
+    "message": "新增地址"
+  },
+  "qbit_receive_no_safe": {
+    "message": "目前沒有安全的收款地址。額度用盡的地址會被排除，復原間距也可能已滿。請使用已發出、未使用且額度未盡的地址，或恢復網路後重試。"
+  },
+  "qbit_receive_previous": {
+    "message": "先前地址"
+  },
+  "qbit_receive_restored_floor": {
+    "message": "復原下限"
+  },
+  "qbit_receive_restored_floor_caveat": {
+    "message": "$1 只是由鏈上可觀測歷史重建的上限。鏈外或從未廣播的簽章可能使實際額度更低，甚至為零；這不能證明資金仍可支出。"
+  },
+  "qbit_receive_retry": {
+    "message": "重試"
+  },
+  "qbit_receive_reuse_warning": {
+    "message": "此地址已觀測到活動。qbit 收款地址設計為單次收款；再次分享可能關聯不同付款並增加託管風險。"
+  },
+  "qbit_receive_unused": {
+    "message": "未使用"
+  },
+  "qbit_receive_used": {
+    "message": "已使用"
+  },
+  "block_preview": {
+    "message": "區塊："
+  },
+  "burned": {
+    "message": "已銷毀"
+  },
+  "by_proceeding_you_confirm_that_youve_read_and_accepted_this_disclaimer": {
+    "message": "繼續操作即表示您確認已閱讀並接受此免責聲明。"
+  },
+  "calculating": {
+    "message": "計算中..."
+  },
+  "can_not_change_to_a_lower_value": {
+    "message": "無法變更為較低的值"
+  },
+  "cancel": {
+    "message": "取消"
+  },
+  "cannot_unlock_without_a_previous_vault": {
+    "message": "沒有之前的錢包無法解鎖"
+  },
+  "cap": {
+    "message": "鑄造次數"
+  },
+  "cat": {
+    "message": "CAT"
+  },
+  "chain_id": {
+    "message": "鏈 ID"
+  },
+  "change_account_name": {
+    "message": "更改帳戶名稱"
+  },
+  "change_password": {
+    "message": "更改密碼"
+  },
+  "change_password_already_in_progress": {
+    "message": "密碼修改操作正在進行中"
+  },
+  "change_password_failed": {
+    "message": "密碼變更失敗。未進行任何變更，請再試一次。"
+  },
+  "change_wallet_name": {
+    "message": "更改錢包名稱"
+  },
+  "change_your_lockscreen_password": {
+    "message": "更改您的鎖定畫面密碼"
+  },
+  "changed_to_network": {
+    "message": "已切換至"
+  },
+  "choose_a_wallet_you_want_to_restore_from": {
+    "message": "選擇您想從中恢復的錢包"
+  },
+  "claim": {
+    "message": "領取"
+  },
+  "claimable": {
+    "message": "可領取"
+  },
+  "claimabled": {
+    "message": "已領取"
+  },
+  "click_on_the_words_to_put_them_in_the_correct_orde": {
+    "message": "請按正確順序點擊單詞，以驗證您備份的助記詞是否正確"
+  },
+  "click_the_account_on_the_main_page": {
+    "message": "點擊主頁上的帳戶。"
+  },
+  "click_the_button_below_to_start_the_signature_proc": {
+    "message": "點擊下方按鈕開始簽章流程"
+  },
+  "close": {
+    "message": "關閉"
+  },
+  "closed": {
+    "message": "已關閉"
+  },
+  "code_asset_maybe_lost": {
+    "message": "如果繼續交易，資產可能會遺失。"
+  },
+  "code_insufficient_asset_utxo": {
+    "message": "資產餘額不足"
+  },
+  "code_insufficient_balance": {
+    "message": "餘額不足。"
+  },
+  "code_insufficient_fee_utxo": {
+    "message": "餘額不足以支付交易手續費。"
+  },
+  "code_method_not_found": {
+    "message": "找不到該方法。"
+  },
+  "code_not_safe_utxos": {
+    "message": "沒有可用於交易的安全 UTXO。"
+  },
+  "code_unknown_error": {
+    "message": "未知錯誤。"
+  },
+  "cold_wallet_signed_successfully": {
+    "message": "冷錢包已成功對交易進行簽名，請確認交易資訊無誤後點擊廣播按鈕"
+  },
+  "cold_wallet_transaction_signing": {
+    "message": "冷錢包交易簽名"
+  },
+  "collect_your_personal_information": {
+    "message": "收集您的個人資訊"
+  },
+  "collection": {
+    "message": "合集"
+  },
+  "collection_id": {
+    "message": "合集ID"
+  },
+  "collection_not_found": {
+    "message": "找不到合集"
+  },
+  "collections": {
+    "message": "收藏"
+  },
+  "coming_soon": {
+    "message": "即將推出"
+  },
+  "completed": {
+    "message": "已完成"
+  },
+  "confirm": {
+    "message": "確認"
+  },
+  "confirm_password": {
+    "message": "確認密碼"
+  },
+  "confirmations_count": {
+    "message": "確認數"
+  },
+  "confirmed_tvl": {
+    "message": "已確認"
+  },
+  "connect": {
+    "message": "連接"
+  },
+  "connect_via_usb": {
+    "message": "透過 USB 連接"
+  },
+  "connected": {
+    "message": "已連接"
+  },
+  "connected_sites": {
+    "message": "已連接的網站"
+  },
+  "contact_not_found": {
+    "message": "找不到聯絡人"
+  },
+  "content": {
+    "message": "內容"
+  },
+  "content_length": {
+    "message": "內容長度"
+  },
+  "content_type": {
+    "message": "內容類型"
+  },
+  "continue": {
+    "message": "繼續"
+  },
+  "continue_to": {
+    "message": "繼續前往"
+  },
+  "copied": {
+    "message": "已複製"
+  },
+  "copy_address": {
+    "message": "複製地址"
+  },
+  "copy_publickey": {
+    "message": "複製公鑰"
+  },
+  "copy_to_clipboard": {
+    "message": "複製到剪貼簿"
+  },
+  "create_a_new_hd_wallet": {
+    "message": "創建新的 HD 錢包"
+  },
+  "create_a_new_wallet": {
+    "message": "新增錢包"
+  },
+  "create_a_password": {
+    "message": "創建密碼"
+  },
+  "create_an_account": {
+    "message": "創建帳戶"
+  },
+  "hardware_wallet_not_supported": {
+    "message": "硬體錢包尚不支援 Qbit 的後量子簽名。請在專案的硬體錢包文件中追蹤進度。"
+  },
+  "immature_coinbase": {
+    "message": "未成熟（coinbase）"
+  },
+  "memo_too_long_max_80_bytes": {
+    "message": "備註過長，上限為 80 位元組"
+  },
+  "memo_not_supported_when_sending_all": {
+    "message": "傳送全部餘額時不支援備註。請降低金額或清除備註。"
+  },
+  "core_runtime_release": {
+    "message": "Core 執行環境"
+  },
+  "core_commit": {
+    "message": "Core 提交"
+  },
+  "create_new_wallet": {
+    "message": "創建新錢包"
+  },
+  "create_wallet": {
+    "message": "創建錢包"
+  },
+  "create_watch_wallet": {
+    "message": "建立觀察錢包"
+  },
+  "create_with_mnemonics_24words": {
+    "message": "使用助記詞創建 (12 或 24 個單詞)"
+  },
+  "current": {
+    "message": "當前"
+  },
+  "current_fee_rate": {
+    "message": "目前手續費率："
+  },
+  "current_password": {
+    "message": "目前密碼"
+  },
+  "current_supply": {
+    "message": "總供應量"
+  },
+  "currently_only": {
+    "message": "目前僅支援"
+  },
+  "custom": {
+    "message": "自定義"
+  },
+  "custom_hdpath": {
+    "message": "自訂 HD 錢包派生路徑"
+  },
+  "custom_hdpath_optional": {
+    "message": "自訂 HD 路徑 (選填)"
+  },
+  "danger_potential_phishing_website_detected": {
+    "message": "危險！偵測到潛在的釣魚網站"
+  },
+  "dapp_center": {
+    "message": "應用程式中心"
+  },
+  "date": {
+    "message": "日期"
+  },
+  "days_ago": {
+    "message": "天前"
+  },
+  "dealing": {
+    "message": "處理中"
+  },
+  "decimal": {
+    "message": "小數位"
+  },
+  "decimal_places": {
+    "message": "位小數。"
+  },
+  "decimals": {
+    "message": "小數位數"
+  },
+  "default": {
+    "message": "預設值"
+  },
+  "delegations": {
+    "message": "委託"
+  },
+  "delete": {
+    "message": "刪除"
+  },
+  "delete_contact": {
+    "message": "刪除聯絡人"
+  },
+  "derivation_path": {
+    "message": "派生路徑"
+  },
+  "description": {
+    "message": "描述"
+  },
+  "details": {
+    "message": "詳情"
+  },
+  "developer_mode_disabled": {
+    "message": "開發者模式已停用"
+  },
+  "developer_mode_enabled": {
+    "message": "開發者模式已啟用"
+  },
+  "disclaimer": {
+    "message": "免責聲明"
+  },
+  "discover": {
+    "message": "探索"
+  },
+  "divisibility": {
+    "message": "可分割性"
+  },
+  "do_you_confirm_the_conversion": {
+    "message": "您確認要進行轉換嗎？"
+  },
+  "do_you_confirm_the_transfer": {
+    "message": "您確認要進行轉移嗎？"
+  },
+  "does_not_exist": {
+    "message": "不存在"
+  },
+  "does_not_support_account_removal_operations": {
+    "message": "不支援帳戶刪除操作"
+  },
+  "done": {
+    "message": "完成"
+  },
+  "each_output_value": {
+    "message": "每個輸出值"
+  },
+  "each_outputvalue": {
+    "message": "每個輸出值 (OutputValue)"
+  },
+  "ecosystem_community_warning": {
+    "message": "生態系統專案由 Qbit 社群建立和營運。"
+  },
+  "ecosystem_community_warning_review": {
+    "message": "連接錢包或發送資金前，請自行審查任何專案。"
+  },
+  "edit_address": {
+    "message": "編輯地址"
+  },
+  "edit_name": {
+    "message": "編輯名稱"
+  },
+  "empty": {
+    "message": "空的"
+  },
+  "enable_sign_data_popover_warning": {
+    "message": "允許簽署資料請求可能使您容易受到釣魚攻擊。請務必檢查 URL，並在簽署包含程式碼的訊息時保持警惕。"
+  },
+  "enable_sign_data_popover_warning_2": {
+    "message": "如果您被要求開啟此設定，您可能正在遭受詐騙"
+  },
+  "enable_sign_data_warning": {
+    "message": "如果您啟用此設定，您可能會收到無法讀取的簽署請求。簽署您不理解的訊息，可能代表您同意交出您的資金和 NFT。您將面臨釣魚攻擊的風險。請關閉簽署資料 (signData) 功能以保護自己。"
+  },
+  "enable_unconfirmed_balance": {
+    "message": "啟用未確認餘額"
+  },
+  "enable_unconfirmed_balance_warning": {
+    "message": "如果檢測到給定地址中存在受保護資產，未確認的 UTXOs 將不允許花費，直到它被確認。強制花費這些未確認的 UTXOs 會有損失資產的風險。"
+  },
+  "enter": {
+    "message": "輸入"
+  },
+  "enter_address": {
+    "message": "輸入地址"
+  },
+  "enter_name": {
+    "message": "輸入名稱"
+  },
+  "enter_password": {
+    "message": "輸入您的密碼"
+  },
+  "enter_your_password": {
+    "message": "輸入您的密碼"
+  },
+  "estimated_fee": {
+    "message": "預估手續費"
+  },
+  "etching": {
+    "message": "蝕刻 (Etching)"
+  },
+  "expand_view": {
+    "message": "擴展視圖"
+  },
+  "export_private_key": {
+    "message": "匯出私鑰"
+  },
+  "failed_to_delete_contact": {
+    "message": "刪除聯絡人失敗"
+  },
+  "failed_to_handle_signature": {
+    "message": "處理簽章失敗"
+  },
+  "failed_to_load_contact_information": {
+    "message": "載入聯絡人資訊失敗"
+  },
+  "failed_to_lock_wallet": {
+    "message": "鎖定錢包失敗"
+  },
+  "failed_to_parse_psbt": {
+    "message": "一或多筆交易無法解析，簽名已中止。"
+  },
+  "failed_to_save_contact": {
+    "message": "保存聯絡人失敗"
+  },
+  "fast": {
+    "message": "快"
+  },
+  "features": {
+    "message": "功能："
+  },
+  "fee": {
+    "message": "費用"
+  },
+  "fee_rate": {
+    "message": "費率"
+  },
+  "fee_estimates_unavailable_using_floor": {
+    "message": "目前無法取得手續費估算，將使用最低轉送費率 $1 bit/vB。"
+  },
+  "fee_exceeds_wallet_safety_maximum": {
+    "message": "手續費超過 $1 bit/vB 的安全上限（依此交易的精確大小，上限為 $2 $3）。"
+  },
+  "estimated_inputs_and_size": {
+    "message": "約 $1 個輸入・約 $2 kB"
+  },
+  "feedback": {
+    "message": "反饋"
+  },
+  "feerate_avg_desc": {
+    "message": "約30分鐘"
+  },
+  "feerate_avg_desc_fb": {
+    "message": "約1.5分鐘"
+  },
+  "feerate_fast_desc": {
+    "message": "約10分鐘"
+  },
+  "feerate_fast_desc_fb": {
+    "message": "約30秒"
+  },
+  "feerate_slow_desc": {
+    "message": "約1小時"
+  },
+  "feerate_slow_desc_fb": {
+    "message": "約3分鐘"
+  },
+  "feerate_sub1_title": {
+    "message": "小於1"
+  },
+  "qbit_feerate_target_desc": {
+    "message": "約 $1 分鐘 · $2 個區塊"
+  },
+  "finality_providers": {
+    "message": "最終性提供者"
+  },
+  "finish": {
+    "message": "完成"
+  },
+  "first_account_not_found": {
+    "message": "找不到第一個帳戶"
+  },
+  "full_address": {
+    "message": "完整地址"
+  },
+  "from": {
+    "message": "從"
+  },
+  "function_not_implemented": {
+    "message": "功能尚未實作。"
+  },
+  "future_versions_will_support_spending_these_assets": {
+    "message": "This balance will remain unavailable while those UTXOs are protected."
+  },
+  "gas_adjustment": {
+    "message": "Gas 調整因子"
+  },
+  "gas_adjustment_explanation": {
+    "message": "Gas 調整因子說明："
+  },
+  "gas_adjustment_explanation_1": {
+    "message": "• 應用於預估 Gas 的乘數 (1.0 = 100%)"
+  },
+  "gas_adjustment_explanation_2": {
+    "message": "• 預設 1.3 (130%) 提供安全邊際"
+  },
+  "gas_adjustment_explanation_3": {
+    "message": "• 較高的值增加交易成功機會"
+  },
+  "gas_fee_calculation_may_not_include_newly_received_tokens_try_a_smaller_amount": {
+    "message": "Gas 費用計算可能未包含新收到的代幣。請嘗試較小的金額。"
+  },
+  "gas_limit": {
+    "message": "Gas 上限"
+  },
+  "gas_limit_explanation": {
+    "message": "Gas 上限說明"
+  },
+  "gas_limit_explanation_1": {
+    "message": "• 控制交易可使用的最大計算資源"
+  },
+  "gas_limit_explanation_2": {
+    "message": "• 較高的上限 = 潛在費用較高，但確保完成"
+  },
+  "gas_limit_explanation_3": {
+    "message": "• 過低可能導致交易失敗"
+  },
+  "gas_limit_explanation_4": {
+    "message": "• 建議值通常已足夠"
+  },
+  "generating": {
+    "message": "生成中..."
+  },
+  "generating_qr_code": {
+    "message": "正在生成 QR Code..."
+  },
+  "genesis_transaction": {
+    "message": "創世交易"
+  },
+  "get_signature": {
+    "message": "取得簽章"
+  },
+  "get_signature_success": {
+    "message": "取得簽章成功"
+  },
+  "go_back": {
+    "message": "返回"
+  },
+  "go_to_marketplace": {
+    "message": "前往市場"
+  },
+  "go_to_stake": {
+    "message": "前往質押"
+  },
+  "go_to_update": {
+    "message": "前往更新"
+  },
+  "hello": {
+    "message": "哈囉"
+  },
+  "hex_private_key": {
+    "message": "十六進位私鑰 (Hex)："
+  },
+  "high": {
+    "message": "高"
+  },
+  "high_fee_rate_risk_description": {
+    "message": "此交易具有高手續費率。請確保您了解此操作的影響，然後再繼續。"
+  },
+  "high_fee_rate_risk_title": {
+    "message": "偵測到高手續費率"
+  },
+  "high_priority": {
+    "message": "高優先級"
+  },
+  "history": {
+    "message": "歷史紀錄"
+  },
+  "history_count": {
+    "message": "總交易數量"
+  },
+  "history_more_count": {
+    "message": "+$1 更多"
+  },
+  "history_more_on_uniscan_count": {
+    "message": "UniScan 上 +$1 更多"
+  },
+  "history_no_transactions": {
+    "message": "無交易記錄"
+  },
+  "history_pending": {
+    "message": "待處理"
+  },
+  "holders": {
+    "message": "持有者"
+  },
+  "holders_count": {
+    "message": "持有者數量"
+  },
+  "home": {
+    "message": "首頁"
+  },
+  "hour": {
+    "message": "小時"
+  },
+  "hours": {
+    "message": "小時"
+  },
+  "hours_ago": {
+    "message": "小時前"
+  },
+  "i_already_have_a_wallet": {
+    "message": "我已經有錢包了"
+  },
+  "i_am_aware_of_the_risks": {
+    "message": "我已了解相關風險"
+  },
+  "i_have_signed_scan_result": {
+    "message": "我已簽名，掃描結果"
+  },
+  "i_only_sign_what_i_understand": {
+    "message": "我只簽署我理解的內容"
+  },
+  "i_saved_my_secret_recovery_phrase": {
+    "message": "我已儲存我的助記詞"
+  },
+  "i_understand_continue": {
+    "message": "我了解，繼續"
+  },
+  "id": {
+    "message": "ID"
+  },
+  "if_you_ever_change_browsers_or_move_computers_you_": {
+    "message": "如果您更換瀏覽器或電腦，您將需要此私鑰才能存取此帳戶。請將其保存在安全且秘密的地方"
+  },
+  "if_you_insist_on_continuing_proceed_at_your_own_risk": {
+    "message": "如果您堅持繼續，請自行承擔風險："
+  },
+  "if_you_lose_your_private_key_your_assets_will_be_g": {
+    "message": "如果您遺失私鑰，您的資產將會永遠消失！"
+  },
+  "if_you_lose_your_secret_recovery_phrase_your_asset": {
+    "message": "如果您遺失助記詞，您的資產將會永遠消失！"
+  },
+  "if_you_share_the_private_key_to_others_your_assets": {
+    "message": "如果您將私鑰分享給他人，您的資產將會被盜！"
+  },
+  "if_you_share_the_secret_recovery_phrase_to_others_": {
+    "message": "如果您將助記詞分享給他人，您的資產將會被盜！"
+  },
+  "import_an_existing_wallet_with_your_secret_recover": {
+    "message": "使用您的助記詞匯入現有錢包"
+  },
+  "important_to_not_transfer_this_token": {
+    "message": "重要: 請不要轉移此代幣，因為存在臨時索引不一致的問題。我們正在等待協議創始團隊的解決方案。其他代幣不受影響。"
+  },
+  "incomplete_psbt_warning": {
+    "message": "筆交易缺少 UTXO 資料，金額無法驗證"
+  },
+  "indexer_api_down_risk_description": {
+    "message": "索引器API目前處於離線狀態。這可能影響交易詳情和資產餘額的準確性。請謹慎操作並獨立驗證所有資訊。"
+  },
+  "indexer_api_down_risk_title": {
+    "message": "索引器API已離線"
+  },
+  "inputs": {
+    "message": "輸入"
+  },
+  "instructions": {
+    "message": "操作說明："
+  },
+  "insufficient_balance": {
+    "message": "餘額不足。"
+  },
+  "invalid_address": {
+    "message": "無效地址。"
+  },
+  "invalid_address_format_for_selected_network": {
+    "message": "選擇的網路的地址格式無效"
+  },
+  "invalid_address_in_tosigninput": {
+    "message": "toSignInput 中的地址無效"
+  },
+  "invalid_derivation_path": {
+    "message": "無效的派生路徑。"
+  },
+  "invalid_fee_rate": {
+    "message": "無效的手續費率"
+  },
+  "invalid_index_in_tosigninput": {
+    "message": "toSignInput 中的索引無效"
+  },
+  "invalid_psbt": {
+    "message": "無效的 PSBT"
+  },
+  "invalid_public_key": {
+    "message": "無效的公鑰"
+  },
+  "invalid_public_key_in_tosigninput": {
+    "message": "toSignInput 中的公鑰無效"
+  },
+  "invalid_recipient_address": {
+    "message": "無效的收款地址"
+  },
+  "invalid_sighash_type_in_tosigninput": {
+    "message": "toSignInput 中的 sighash 類型無效"
+  },
+  "invalid_transaction_data": {
+    "message": "無效的交易資料"
+  },
+  "invalid_wallet_please_remove_it_and_add_new_one": {
+    "message": "無效的錢包，請將其移除並新增一個新的錢包"
+  },
+  "involved_assets": {
+    "message": "涉及資產："
+  },
+  "is_unconfirmed_please_wait_for_confirmation": {
+    "message": "尚未確認，請等待確認"
+  },
+  "items": {
+    "message": "項"
+  },
+  "just_now": {
+    "message": "剛才"
+  },
+  "keyring_does_not_exist": {
+    "message": "Keyring 不存在"
+  },
+  "keyring_error_account_count": {
+    "message": "帳戶數量必須大於0"
+  },
+  "keyringcontroller_first_account_not_found": {
+    "message": "KeyringController - 找不到第一個帳戶。"
+  },
+  "keyringcontroller_password_is_not_a_string": {
+    "message": "KeyringController - 密碼不是字串"
+  },
+  "language": {
+    "message": "語言"
+  },
+  "language_description": {
+    "message": "更改應用程式語言"
+  },
+  "latest_version": {
+    "message": "最新版本"
+  },
+  "let_us_know_what_you_think": {
+    "message": "讓我們知道你的想法"
+  },
+  "like_our_wallet_wed_love_your_rating": {
+    "message": "喜歡我們的錢包嗎？我們希望得到你的評分！"
+  },
+  "load_failed": {
+    "message": "載入失敗"
+  },
+  "loading": {
+    "message": "載入中..."
+  },
+  "loading_contacts": {
+    "message": "載入中..."
+  },
+  "loading_details": {
+    "message": "載入中..."
+  },
+  "lock_immediately": {
+    "message": "立即鎖定"
+  },
+  "lock_wallet": {
+    "message": "鎖定錢包"
+  },
+  "low": {
+    "message": "低"
+  },
+  "low_fee_mode": {
+    "message": "低於 1 bits/vB 模式"
+  },
+  "low_fee_rate_risk_description": {
+    "message": "此交易的手續費率較低。請確保您了解此操作的影響，然後再繼續。"
+  },
+  "low_fee_rate_risk_title": {
+    "message": "偵測到低手續費率"
+  },
+  "low_priority": {
+    "message": "低優先級"
+  },
+  "malicious_behavior_and_suspicious_activity_have_be": {
+    "message": "已偵測到惡意行為和可疑活動。"
+  },
+  "manage_wallet": {
+    "message": "管理錢包"
+  },
+  "mandatory_use_of_unconfirmed_balance": {
+    "message": "強制使用未確認餘額"
+  },
+  "max": {
+    "message": "最大值"
+  },
+  "max_supply": {
+    "message": "最大供應量"
+  },
+  "medium": {
+    "message": "中"
+  },
+  "medium_priority": {
+    "message": "中優先級"
+  },
+  "memo": {
+    "message": "備註："
+  },
+  "memo_is_too_long_the_maximum_length_is_256_characters": {
+    "message": "備註過長。最大長度為 256 個字元。"
+  },
+  "merge_failed": {
+    "message": "合併失敗。"
+  },
+  "merge_history": {
+    "message": "合併歷史紀錄"
+  },
+  "merge_progress": {
+    "message": "合併進度"
+  },
+  "merge_transactions": {
+    "message": "合併交易"
+  },
+  "merge_utxos": {
+    "message": "合併"
+  },
+  "merge_utxos1": {
+    "message": "合併"
+  },
+  "merge_utxos_failed": {
+    "message": "合併失敗"
+  },
+  "merge_utxos_to_increase_the_available_balance": {
+    "message": "合併 UTXO->"
+  },
+  "merging": {
+    "message": "合併中..."
+  },
+  "merging_amount": {
+    "message": "合併金額"
+  },
+  "merging_utxos": {
+    "message": "合併 UTXO"
+  },
+  "message": {
+    "message": "訊息"
+  },
+  "method_not_implemented": {
+    "message": "方法尚未實作。"
+  },
+  "mint": {
+    "message": "鑄造"
+  },
+  "minted": {
+    "message": "已鑄造"
+  },
+  "mints": {
+    "message": "已鑄造"
+  },
+  "minute": {
+    "message": "分鐘"
+  },
+  "minutes": {
+    "message": "分"
+  },
+  "minutes_ago": {
+    "message": "分鐘前"
+  },
+  "mixed": {
+    "message": "混合"
+  },
+  "mnemonic_phrase_is_invalid": {
+    "message": "助記詞無效"
+  },
+  "mnemonics_12_words": {
+    "message": "12 詞"
+  },
+  "mnemonics_24_words": {
+    "message": "24 詞"
+  },
+  "more": {
+    "message": "更多"
+  },
+  "more_details": {
+    "message": "更多詳情"
+  },
+  "add_liquidity": {
+    "message": "添加流動性"
+  },
+  "remove_liquidity": {
+    "message": "移除流動性"
+  },
+  "msg_already_signed": {
+    "message": "此訊息已簽名"
+  },
+  "msg_content": {
+    "message": "訊息內容"
+  },
+  "msg_detail": {
+    "message": "訊息詳情"
+  },
+  "msg_generate_qr": {
+    "message": "生成QR碼"
+  },
+  "msg_generate_sign": {
+    "message": "生成簽名"
+  },
+  "msg_generating_qr": {
+    "message": "生成QR碼中..."
+  },
+  "msg_message": {
+    "message": "訊息"
+  },
+  "msg_origin": {
+    "message": "來源: "
+  },
+  "msg_pending": {
+    "message": "待簽名"
+  },
+  "msg_scan_qr_code": {
+    "message": "請用冷錢包掃描QR碼"
+  },
+  "msg_scan_result": {
+    "message": "掃描結果"
+  },
+  "msg_scan_sign": {
+    "message": "掃描簽名"
+  },
+  "msg_sign": {
+    "message": "訊息簽署"
+  },
+  "msg_sign_type": {
+    "message": "簽名類型"
+  },
+  "msg_signed": {
+    "message": "已簽名"
+  },
+  "msg_start_sign": {
+    "message": "開始簽名"
+  },
+  "msg_status": {
+    "message": "狀態"
+  },
+  "msg_waiting_sign": {
+    "message": "等待簽名"
+  },
+  "multiple_assets_risk_description": {
+    "message": "此交易涉及多種資產。請確保您了解此操作的影響，然後再繼續。"
+  },
+  "multiple_assets_risk_title": {
+    "message": "偵測到多種資產"
+  },
+  "multisign_disclaimer": {
+    "message": "多重簽署免責聲明"
+  },
+  "my_address": {
+    "message": "我的地址"
+  },
+  "name": {
+    "message": "名稱"
+  },
+  "name_label": {
+    "message": "名稱"
+  },
+  "name_recognized_and_resolved": {
+    "message": "名稱已識別並解析。"
+  },
+  "names": {
+    "message": "名稱"
+  },
+  "native_segwit_p2wpkh": {
+    "message": "原生隔離見證 (P2WPKH)"
+  },
+  "nested_segwit_p2shp2wpkh": {
+    "message": "嵌套隔離見證 (P2SH-P2WPKH)"
+  },
+  "network": {
+    "message": "網路"
+  },
+  "network_error_json_parse_error": {
+    "message": "網路錯誤，JSON 解析錯誤"
+  },
+  "network_error_no_response": {
+    "message": "網路錯誤，無回應"
+  },
+  "network_errorno_response_data": {
+    "message": "網路錯誤，無回應資料"
+  },
+  "network_fee": {
+    "message": "網路費用"
+  },
+  "network_fee_2": {
+    "message": "網路費率"
+  },
+  "network_fees": {
+    "message": "網路費用"
+  },
+  "network_fee_rate": {
+    "message": "網路手續費率："
+  },
+  "size_bytes": {
+    "message": "大小"
+  },
+  "change_below_dust_added_to_fee": {
+    "message": "$1 bits 的低於塵埃門檻找零已加入精確網路手續費"
+  },
+  "network_not_matched_risk_description": {
+    "message": "此交易不在目前網路上，請確保您信任此交易的來源，然後再繼續。"
+  },
+  "network_not_matched_risk_title": {
+    "message": "偵測到網路不符。"
+  },
+  "new": {
+    "message": "新！"
+  },
+  "new_account": {
+    "message": "新帳戶"
+  },
+  "new_password": {
+    "message": "新密碼"
+  },
+  "new_value": {
+    "message": "新值："
+  },
+  "new_version": {
+    "message": "新版本！"
+  },
+  "next": {
+    "message": "下一步"
+  },
+  "nft": {
+    "message": "NFT"
+  },
+  "nfts": {
+    "message": "NFTs"
+  },
+  "no_address_or_public_key_in_tosigninput": {
+    "message": "toSignInput 中沒有地址或公鑰"
+  },
+  "no_current_account": {
+    "message": "沒有目前帳戶"
+  },
+  "no_current_keyring": {
+    "message": "沒有目前的 Keyring"
+  },
+  "n_hour": {
+    "message": "$1小時"
+  },
+  "n_hours": {
+    "message": "$1小時"
+  },
+  "n_minute": {
+    "message": "$1分鐘"
+  },
+  "n_minutes": {
+    "message": "$1分鐘"
+  },
+  "n_seconds": {
+    "message": "$1秒"
+  },
+  "no_connected_sites": {
+    "message": "沒有已連接的網站"
+  },
+  "no_data": {
+    "message": "無資料"
+  },
+  "no_inputs": {
+    "message": "無輸入"
+  },
+  "no_keyring_found_for_the_requested_account": {
+    "message": "找不到請求帳戶的 Keyring。"
+  },
+  "no_matching_contacts_found": {
+    "message": "找不到匹配的聯絡人"
+  },
+  "no_mfp_in_keyring": {
+    "message": "Keyring 中沒有 mfp"
+  },
+  "no_notifications": {
+    "message": "無通知"
+  },
+  "not_connected": {
+    "message": "未連接"
+  },
+  "not_implemented": {
+    "message": "尚未實作"
+  },
+  "not_long_enough": {
+    "message": "不足夠長"
+  },
+  "not_supported": {
+    "message": "不支援"
+  },
+  "not_supported_chainid": {
+    "message": "不支援的 chainId"
+  },
+  "not_supported_yet": {
+    "message": "尚不支援"
+  },
+  "notice": {
+    "message": "注意"
+  },
+  "notifications": {
+    "message": "通知"
+  },
+  "ok": {
+    "message": "確定"
+  },
+  "old_value": {
+    "message": "舊值："
+  },
+  "only_applies_to_current_address": {
+    "message": "僅適用於目前地址"
+  },
+  "only_connect_with_sites_you_trust": {
+    "message": "僅連接您信任的網站。"
+  },
+  "only_sign_if_you_fully_understand_the_content_and_": {
+    "message": "請只在您完全理解內容並信任請求網站的情況下簽署。"
+  },
+  "only_sign_this_message_if_you_fully_understand_the": {
+    "message": "請只在您完全理解內容並信任請求網站的情況下簽署此訊息。"
+  },
+  "onsuccess_not_implemented": {
+    "message": "onSuccess 尚未實作"
+  },
+  "oops_something_went_wrong": {
+    "message": "糟糕！發生錯誤。"
+  },
+  "open_as_popup": {
+    "message": "彈窗模式"
+  },
+  "open_as_side_bar": {
+    "message": "開啟側邊欄"
+  },
+  "open_your_cold_wallet_app_or_device": {
+    "message": "1. 打開您的冷錢包應用程式或設備。"
+  },
+  "other_wallet": {
+    "message": "其他錢包"
+  },
+  "others": {
+    "message": "其他"
+  },
+  "output_value": {
+    "message": "輸出值"
+  },
+  "output_value_must_be_at_least": {
+    "message": "輸出值 (OutputValue) 必須至少為"
+  },
+  "outputs": {
+    "message": "輸出"
+  },
+  "outputvalue": {
+    "message": "輸出值 (OutputValue)"
+  },
+  "owner": {
+    "message": "擁有者"
+  },
+  "parent": {
+    "message": "父級"
+  },
+  "parse_error": {
+    "message": "解析錯誤"
+  },
+  "passphrase": {
+    "message": "密碼短語 (Passphrase)"
+  },
+  "password": {
+    "message": "密碼"
+  },
+  "password_cannot_be_empty": {
+    "message": "密碼不能為空"
+  },
+  "password_error": {
+    "message": "密碼錯誤"
+  },
+  "password_must_be_at_least_8_characters": {
+    "message": "密碼至少為 8 個字符"
+  },
+  "password_strength": {
+    "message": "密碼強度："
+  },
+  "passwords_dont_match": {
+    "message": "密碼不匹配"
+  },
+  "paused": {
+    "message": "已暫停"
+  },
+  "payment_failed": {
+    "message": "付款失敗"
+  },
+  "payment_network_fee": {
+    "message": "支付網路手續費"
+  },
+  "pending": {
+    "message": "待處理"
+  },
+  "per_mint": {
+    "message": "單次鑄造量"
+  },
+  "permission_denied": {
+    "message": "權限被拒絕"
+  },
+  "phishing_detection": {
+    "message": "釣魚偵測"
+  },
+  "phrase_optional": {
+    "message": "密碼短語 (選填)"
+  },
+  "please_be_aware_that": {
+    "message": "請注意："
+  },
+  "please_be_aware_that_sending_the_following_assets_involves_risk": {
+    "message": "Please be aware that signing this transaction involves risk."
+  },
+  "please_enter_address": {
+    "message": "請輸入地址"
+  },
+  "please_enter_name": {
+    "message": "請輸入名稱"
+  },
+  "please_make_sure_you_have_read_the_security_tips_a": {
+    "message": "輸入密碼前，請確保您已閱讀以上安全提示"
+  },
+  "please_pay_attention_to_whether_you_have_backed_up": {
+    "message": "請注意是否已備份助記詞或私鑰，以防資產遺失"
+  },
+  "please_read_more_detail_on": {
+    "message": "請閱讀更多詳情於"
+  },
+  "position_the_qr_code_in_front_of_your_camera_the_screen_is_blurred_but_this_will_not_affect_the_scan": {
+    "message": "將 QR Code 置於您的相機前方。螢幕會模糊，但不會影響掃描。"
+  },
+  "precautions": {
+    "message": "注意事項"
+  },
+  "premine": {
+    "message": "預挖礦"
+  },
+  "preview": {
+    "message": "預覽"
+  },
+  "previous": {
+    "message": "上一個"
+  },
+  "privacy_policy": {
+    "message": "隱私政策"
+  },
+  "private_key_is_only_stored_in_your_browser_it_is_y": {
+    "message": "請妥善保管您的私鑰!"
+  },
+  "processing_signature": {
+    "message": "正在處理簽章..."
+  },
+  "promise_need_function_to_handle": {
+    "message": "promise 需要函數來處理"
+  },
+  "provenance": {
+    "message": "來源"
+  },
+  "psbt_data": {
+    "message": "PSBT 資料："
+  },
+  "signed_psbt_data": {
+    "message": "已簽名 PSBT 資料"
+  },
+  "public_key_must_be_compressed_secp256k1_ie_33_byte": {
+    "message": "公鑰必須是壓縮的 secp256k1，即 33 位元組，以 0x02 或 0x03 開頭"
+  },
+  "quick_sign_assets_detected": {
+    "message": "Cannot quick sign: inputs contain protected assets."
+  },
+  "quit_merging_process": {
+    "message": "退出合併流程"
+  },
+  "range": {
+    "message": "範圍"
+  },
+  "rate_us": {
+    "message": "給我們評分"
+  },
+  "rbf": {
+    "message": "RBF"
+  },
+  "rbf_tip": {
+    "message": "RBF 會將這筆未確認交易標記為可替換，讓你可以用更高的手續費重新嘗試。即使 RBF 已關閉，這筆交易仍可能因網路政策而可被替換。"
+  },
+  "replaced": {
+    "message": "已替換"
+  },
+  "bump_fee": {
+    "message": "提高手續費"
+  },
+  "fee_bump_review_description": {
+    "message": "此替代交易會保留原始收款人和備註資料，同時支付更高的手續費。"
+  },
+  "fee_bump_unavailable": {
+    "message": "此交易已無法安全替代。請重新整理交易記錄後再試一次。"
+  },
+  "fee_increase": {
+    "message": "手續費增加額"
+  },
+  "original_fee": {
+    "message": "原始手續費"
+  },
+  "original_fee_rate": {
+    "message": "原始手續費率"
+  },
+  "replacement_fee": {
+    "message": "替代交易手續費"
+  },
+  "replacement_fee_rate": {
+    "message": "替代交易手續費率"
+  },
+  "replaces_transaction": {
+    "message": "替代交易"
+  },
+  "receive": {
+    "message": "接收"
+  },
+  "received_from": {
+    "message": "接收自"
+  },
+  "receiver": {
+    "message": "接收者"
+  },
+  "recipient": {
+    "message": "接收地址"
+  },
+  "recipient_address_is_invalid": {
+    "message": "收款地址無效"
+  },
+  "recommended": {
+    "message": "建議值"
+  },
+  "recommended_fee_rates": {
+    "message": "建議手續費率："
+  },
+  "refresh": {
+    "message": "刷新"
+  },
+  "refresh_page": {
+    "message": "刷新頁面"
+  },
+  "reject": {
+    "message": "拒絕"
+  },
+  "reject_all": {
+    "message": "全部拒絕"
+  },
+  "remember_my_choice": {
+    "message": "記住我的選擇"
+  },
+  "remove": {
+    "message": "移除"
+  },
+  "remove_wallet": {
+    "message": "移除錢包"
+  },
+  "removing_the_last_wallet_is_not_allowed": {
+    "message": "不允許移除最後一個錢包"
+  },
+  "request_was_rejected_to_proceed_please_reauthorize": {
+    "message": "請求已被拒絕。若要繼續，請重新授權"
+  },
+  "restore_from_mnemonics": {
+    "message": "使用助記詞恢復"
+  },
+  "restore_from_mnemonics_12words24words": {
+    "message": "從助記詞恢復 (12 或 24 個單詞)"
+  },
+  "restore_wallet": {
+    "message": "恢復錢包"
+  },
+  "retry_in_10s": {
+    "message": "10 秒後重試"
+  },
+  "review_and_confirm_transaction_details_in_your_cold_wallet": {
+    "message": "3. 在您的冷錢包中查看並確認交易詳情。"
+  },
+  "satsvb": {
+    "message": "bits/vB"
+  },
+  "satvb": {
+    "message": "bits/vB"
+  },
+  "save": {
+    "message": "保存"
+  },
+  "saving": {
+    "message": "保存中..."
+  },
+  "scammer_address_risk_description": {
+    "message": "此地址已被舉報為詐騙地址。請謹慎操作。如果您認為這是誤報，請向我們舉報。"
+  },
+  "scammer_address_risk_title": {
+    "message": "⚠️ 偵測到可疑地址"
+  },
+  "scan_in_more_addresses": {
+    "message": "掃描更多地址..."
+  },
+  "scan_the_qr_code": {
+    "message": "掃描 QR Code"
+  },
+  "scan_this_qr_code": {
+    "message": "2. 掃描此二維碼。"
+  },
+  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
+    "message": "使用您的冷錢包掃描此二維碼以查看並簽名交易。"
+  },
+  "scan_to_connect": {
+    "message": "掃描連接"
+  },
+  "script": {
+    "message": "腳本"
+  },
+  "scroll_to_bottom": {
+    "message": "↓ 底部"
+  },
+  "scroll_to_top": {
+    "message": "↑ 頂部"
+  },
+  "scroll_to_view_all": {
+    "message": "滾動查看所有"
+  },
+  "scroll_view_items": {
+    "message": "項"
+  },
+  "search_address_and_txids": {
+    "message": "搜尋地址和交易 ID"
+  },
+  "search_address_or_name": {
+    "message": "搜尋地址或名稱"
+  },
+  "seconds": {
+    "message": "秒"
+  },
+  "seconds_ago": {
+    "message": "秒前"
+  },
+  "secret_recovery_phrase": {
+    "message": "助記詞"
+  },
+  "secret_recovery_phrase_is_only_stored_in_your_brow": {
+    "message": "請妥善保管您的助記詞！"
+  },
+  "secs": {
+    "message": "秒"
+  },
+  "security_notice": {
+    "message": "安全提示："
+  },
+  "security_warning": {
+    "message": "安全警告"
+  },
+  "select_all": {
+    "message": "全選"
+  },
+  "select_network": {
+    "message": "選擇網路"
+  },
+  "select_the_account_to_use_on_this_site": {
+    "message": "選擇要在此網站上使用的帳戶"
+  },
+  "selected": {
+    "message": "已選擇"
+  },
+  "self_transfer": {
+    "message": "自我轉帳"
+  },
+  "send": {
+    "message": "發送"
+  },
+  "send_amount": {
+    "message": "發送金額"
+  },
+  "send_amount_exceeds_balance": {
+    "message": "發送金額超過餘額"
+  },
+  "send_to": {
+    "message": "發送到"
+  },
+  "sending_out_assets": {
+    "message": "發送資產"
+  },
+  "service_fee": {
+    "message": "服務費"
+  },
+  "set_utxo_amount_to_be_merged": {
+    "message": "設定要合併的 UTXO 數量"
+  },
+  "settings": {
+    "message": "設定"
+  },
+  "show_private_key": {
+    "message": "顯示私鑰"
+  },
+  "show_secret_recovery_phrase": {
+    "message": "顯示助記詞"
+  },
+  "sighash_none_detected": {
+    "message": "偵測到 SIGHASH_NONE，為安全起見已中止簽名。"
+  },
+  "sighash_none_risk_description": {
+    "message": "SIGHASH_NONE是一種特殊的簽名類型，允許在簽名後修改交易。如果交易被惡意修改，可能導致資金損失。請確保您信任此交易的來源，然後再繼續。"
+  },
+  "sighash_none_risk_title": {
+    "message": "偵測到SIGHASH_NONE"
+  },
+  "sign": {
+    "message": "簽署"
+  },
+  "sign_all": {
+    "message": "全部簽署"
+  },
+  "sign_all_transactions_at_once": {
+    "message": "您可以一次性簽署所有交易，但請注意，Qbit Wallet 不會單獨驗證每筆交易。我們強烈建議只在可信賴和熟悉的網站上使用它，以最大限度地降低潛在損失的風險。"
+  },
+  "sign_and_pay": {
+    "message": "簽署並支付"
+  },
+  "derive_context_hash_request": {
+    "message": "產生識別碼"
+  },
+  "derive_context_hash_description": {
+    "message": "此網站正在請求一個與您的錢包綁定的唯一識別碼，用於以下上下文。"
+  },
+  "derive_context_hash_app_name": {
+    "message": "應用程式"
+  },
+  "derive_context_hash_account": {
+    "message": "帳戶"
+  },
+  "derive_context_hash_network": {
+    "message": "網路"
+  },
+  "derive_context_hash_context": {
+    "message": "上下文"
+  },
+  "derive_context_hash_warning": {
+    "message": "僅在您信任此網站時才批准。"
+  },
+  "sign_data_request": {
+    "message": "簽署資料請求"
+  },
+  "sign_data_requests": {
+    "message": "簽署資料請求"
+  },
+  "sign_multiple_transactions": {
+    "message": "簽署多筆交易"
+  },
+  "sign_psbt_input_error": {
+    "message": "psbt 或參數無效，無法進行簽名。"
+  },
+  "sign_result": {
+    "message": "簽署結果："
+  },
+  "sign_transaction": {
+    "message": "簽署交易"
+  },
+  "signature_request": {
+    "message": "簽署請求"
+  },
+  "signature_successful": {
+    "message": "簽名成功"
+  },
+  "signdata_required_tip": {
+    "message": "您需要在「設定 -> 進階」中啟用「簽署資料請求」功能才能繼續。"
+  },
+  "signed": {
+    "message": "已簽署"
+  },
+  "single_step_transfer": {
+    "message": "單步轉帳"
+  },
+  "skip": {
+    "message": "跳過"
+  },
+  "slow": {
+    "message": "慢"
+  },
+  "spend": {
+    "message": "花費"
+  },
+  "spend_amount": {
+    "message": "花費金額"
+  },
+  "spending_assets": {
+    "message": "花費資產"
+  },
+  "split": {
+    "message": "分割"
+  },
+  "spliting_to": {
+    "message": "分割為"
+  },
+  "staked": {
+    "message": "已質押"
+  },
+  "stakers": {
+    "message": "質押者"
+  },
+  "start": {
+    "message": "開始"
+  },
+  "start_merging": {
+    "message": "開始合併"
+  },
+  "steal_your_private_keys_or_seed_phrases": {
+    "message": "竊取您的私鑰或助記詞"
+  },
+  "step1": {
+    "message": "步驟1"
+  },
+  "step2": {
+    "message": "步驟2"
+  },
+  "step_1": {
+    "message": "步驟 1"
+  },
+  "step_12": {
+    "message": "步驟 1/2"
+  },
+  "step_2": {
+    "message": "步驟 2"
+  },
+  "step_22": {
+    "message": "步驟 2/2"
+  },
+  "step_3": {
+    "message": "步驟 3"
+  },
+  "strong": {
+    "message": "強"
+  },
+  "strong_password_tip": {
+    "message": "強力密碼可以更好地保護您的資產安全"
+  },
+  "submit": {
+    "message": "送出"
+  },
+  "success": {
+    "message": "成功"
+  },
+  "supply": {
+    "message": "供應量"
+  },
+  "swap_send": {
+    "message": "發送"
+  },
+  "swap_swap": {
+    "message": "兌換"
+  },
+  "swap_unwrap": {
+    "message": "解封裝"
+  },
+  "swap_wrap": {
+    "message": "封裝"
+  },
+  "switch_account": {
+    "message": "切換帳戶"
+  },
+  "switch_chain": {
+    "message": "切換鏈"
+  },
+  "switch_network": {
+    "message": "切換網路"
+  },
+  "switch_wallet": {
+    "message": "切換錢包"
+  },
+  "symbol": {
+    "message": "符號"
+  },
+  "tap_the_more_menu_then_select_the_export_private_key_option": {
+    "message": "點擊「更多」選單，然後選擇「匯出私鑰」選項。"
+  },
+  "taproot_p2tr": {
+    "message": "Taproot (P2TR)"
+  },
+  "terms_of_service": {
+    "message": "使用條款"
+  },
+  "test_approval_sign_psbt": {
+    "message": "測試核准簽署 PSBT"
+  },
+  "text_preview": {
+    "message": "文字："
+  },
+  "the_amount_for_change_is_too_low_please_adjust_the": {
+    "message": "找零金額過低，請調整發送金額。"
+  },
+  "the_auto_lock_time_has_been_changed_to": {
+    "message": "自動鎖定時間已更改為"
+  },
+  "the_broadcastchannel_name_is_missing": {
+    "message": "缺少 broadcastChannel 名稱"
+  },
+  "the_fee_rate_is_much_higher_than_recommended_fee_rate": {
+    "message": "手續費率遠高於建議費率"
+  },
+  "the_fee_rate_is_much_lower_than_recommended_fee_rate": {
+    "message": "手續費率遠低於建議費率"
+  },
+  "the_minimum_amount_is": {
+    "message": "最小金額為"
+  },
+  "the_private_key_is_invalid": {
+    "message": "私鑰無效"
+  },
+  "the_recipient_must_be_p2tr_or_p2wpkh_address_type": {
+    "message": "收款地址必須是 P2TR 或 P2WPKH 地址類型"
+  },
+  "the_ultimate_security_solution_for_cryptocurrencie": {
+    "message": "加密貨幣的終極安全解決方案"
+  },
+  "the_wallet_currently_uses_a_custom_hd_path_and_does_not_support_switching_address_types": {
+    "message": "錢包目前使用自訂 HD 路徑，不支援切換地址類型。"
+  },
+  "think_this_is_a_false_positive_click_here_to_report_an_issue": {
+    "message": "認為這是誤判？點擊此處回報問題 →"
+  },
+  "this_account_has_no_transactions": {
+    "message": "此帳戶沒有交易紀錄"
+  },
+  "this_action_is_not_reversible": {
+    "message": "此操作不可逆。"
+  },
+  "this_feature_is_currently_in_the_experimental_test_phase_please_proceed_with_caution": {
+    "message": "此功能目前處於實驗測試階段。請謹慎操作。"
+  },
+  "this_network_is_not_available": {
+    "message": "此網路不可用"
+  },
+  "this_phrase_is_the_only_way_to_recover_your_wallet": {
+    "message": "這是恢復您錢包的唯一方式。請勿與任何人分享！"
+  },
+  "this_process_will_merge_your_utxos_into_one": {
+    "message": "餘額需要合併。此過程會將您的 UTXO 合併為一個。"
+  },
+  "this_token_only_supports_up_to": {
+    "message": "此代幣最多支援到"
+  },
+  "ticker": {
+    "message": "代幣名稱"
+  },
+  "timestamp": {
+    "message": "時間戳"
+  },
+  "to": {
+    "message": "到"
+  },
+  "to_continue": {
+    "message": "以繼續"
+  },
+  "to_enable_spending_of_unconfirmed_balances_please_": {
+    "message": "若要啟用未確認餘額的花費，請前往設定中的進階選項。"
+  },
+  "to_proceed": {
+    "message": "繼續"
+  },
+  "to_send_a_larger_amount_please_merge_your_utxos_to_increase_the_available_balance": {
+    "message": "若要發送更大金額，請合併您的 UTXO 以增加可用餘額。"
+  },
+  "to_sign": {
+    "message": "待簽署"
+  },
+  "token_id": {
+    "message": "代幣 ID"
+  },
+  "token_not_found": {
+    "message": "找不到代幣"
+  },
+  "tokens": {
+    "message": "代幣"
+  },
+  "total": {
+    "message": "總計"
+  },
+  "total_balance": {
+    "message": "總餘額"
+  },
+  "total_fee": {
+    "message": "總手續費"
+  },
+  "total_spent": {
+    "message": "總支出"
+  },
+  "total_supply": {
+    "message": "總發行量"
+  },
+  "trade": {
+    "message": "交易"
+  },
+  "transaction": {
+    "message": "交易"
+  },
+  "transaction_count": {
+    "message": "交易筆數"
+  },
+  "transaction_details": {
+    "message": "交易詳情"
+  },
+  "transaction_id": {
+    "message": "交易 ID"
+  },
+  "transaction_preview": {
+    "message": "交易："
+  },
+  "transaction_success": {
+    "message": "交易成功"
+  },
+  "transaction_successful": {
+    "message": "交易成功"
+  },
+  "transaction_unconfirmed": {
+    "message": "未確認"
+  },
+  "transactions": {
+    "message": "交易數"
+  },
+  "transactions_at_once": {
+    "message": "筆交易"
+  },
+  "transfer": {
+    "message": "轉帳"
+  },
+  "transfer_amount": {
+    "message": "轉帳金額"
+  },
+  "transferable": {
+    "message": "可轉移："
+  },
+  "transferable_balance": {
+    "message": "可轉帳餘額"
+  },
+  "trick_you_into_signing_malicious_transactions": {
+    "message": "誘騙您簽署惡意交易"
+  },
+  "trust_this_site_for_quick_multi_sign": {
+    "message": "信任此網站並不再顯示此提示"
+  },
+  "try_again": {
+    "message": "再試一次"
+  },
+  "try_going_back_or_refreshing": {
+    "message": "嘗試返回或重新整理。"
+  },
+  "tutorial": {
+    "message": "教學"
+  },
+  "tvl": {
+    "message": "總鎖倉價值 (TVL)"
+  },
+  "tx_amount": {
+    "message": "金額"
+  },
+  "tx_broadcast_back_to_wallet": {
+    "message": "返回錢包"
+  },
+  "tx_broadcast_check_status": {
+    "message": "查詢狀態"
+  },
+  "tx_broadcast_reason_chain_changed": {
+    "message": "錢包目前所在的網路與簽署這筆交易時的網路不同。"
+  },
+  "tx_broadcast_reason_guard_blocked": {
+    "message": "這次廣播與另一筆已核准的交易衝突，錢包已將其封鎖。"
+  },
+  "tx_broadcast_reason_guard_blocked_unconfirmed": {
+    "message": "錢包已不再保留這筆交易的預留。先前的廣播可能已被接受。"
+  },
+  "tx_broadcast_reason_invalid_response": {
+    "message": "網路回傳了非預期的回應。"
+  },
+  "tx_broadcast_reason_invalid_transaction": {
+    "message": "無法讀取已簽署的交易。"
+  },
+  "tx_broadcast_reason_network": {
+    "message": "無法連線至網路。"
+  },
+  "tx_broadcast_reason_rejected": {
+    "message": "網路節點拒絕了這筆交易。"
+  },
+  "tx_broadcast_reason_rejected_unconfirmed": {
+    "message": "網路節點回報了錯誤，但錢包無法確認這筆交易是否已被接受。"
+  },
+  "tx_broadcast_reason_server": {
+    "message": "網路服務回傳錯誤。"
+  },
+  "tx_broadcast_reason_timeout": {
+    "message": "網路未及時回應。"
+  },
+  "tx_broadcast_reason_unexpected": {
+    "message": "非預期的錯誤中斷了廣播。"
+  },
+  "tx_broadcast_retry": {
+    "message": "重新廣播"
+  },
+  "tx_broadcast_retry_blocked": {
+    "message": "重試未送出：$1"
+  },
+  "tx_broadcast_retry_notice": {
+    "message": "重試只會重新廣播同一筆已簽署的交易，不會再次簽署，也不會用掉另一個簽章。"
+  },
+  "tx_broadcast_signature_notice": {
+    "message": "這筆交易已經完成簽署。簽署可能已用掉此帳戶的一個一次性簽章。"
+  },
+  "tx_broadcast_status_gone": {
+    "message": "網路上尚未找到這筆交易。請稍候再查詢一次，或重新廣播。"
+  },
+  "tx_broadcast_status_unavailable": {
+    "message": "無法連線至網路以查詢狀態。請稍後再試。"
+  },
+  "tx_broadcast_technical_details": {
+    "message": "技術細節"
+  },
+  "tx_fee": {
+    "message": "交易手續費："
+  },
+  "tx_not_sent_body": {
+    "message": "網路未接受這筆交易，因此這筆付款並未送出。"
+  },
+  "tx_not_sent_title": {
+    "message": "交易未送出"
+  },
+  "tx_sent_desc": {
+    "message": "您的交易已成功廣播，等待確認中。"
+  },
+  "tx_sent_title": {
+    "message": "交易已發送"
+  },
+  "tx_unknown_body": {
+    "message": "錢包無法確認網路是否已接受這筆付款。這筆交易可能已經被接受。"
+  },
+  "tx_unknown_title": {
+    "message": "付款狀態不明"
+  },
+  "tx_unknown_warning": {
+    "message": "請勿建立或送出替代付款。若原始付款已被接受，第二筆付款可能會再次動用您的資金。"
+  },
+  "unable_to_find_any_addresses_with_assets": {
+    "message": "Unable to find any addresses with balance"
+  },
+  "unavailable": {
+    "message": "不可用"
+  },
+  "unavailable_tooltip": {
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+  },
+  "unconfirmed": {
+    "message": "未確認"
+  },
+  "unconfirmed_balance_not_spendable": {
+    "message": "未確認餘額不可花費"
+  },
+  "unconfirmed_balance_not_spendable_warning": {
+    "message": "To protect your wallet, only confirmed balances are spendable when protected assets are present. This helps prevent accidental asset loss."
+  },
+  "understand_and_accept_the_risks_associated_with_this_transaction": {
+    "message": "我了解並接受此交易所涉及的風險。"
+  },
+  "understand_sign_data_warning": {
+    "message": "我了解如果啟用簽署資料請求，我可能會損失所有資金和 NFT。"
+  },
+  "uniscan_active_addresses_24h": {
+    "message": "活躍地址數 (24小時)"
+  },
+  "uniscan_goto": {
+    "message": "前往 UniScan"
+  },
+  "uniscan_transactions_24h": {
+    "message": "交易數 (24小時)"
+  },
+  "unknown_error": {
+    "message": "未知錯誤"
+  },
+  "unlock": {
+    "message": "解鎖"
+  },
+  "unlock_already_in_progress": {
+    "message": "解鎖操作正在進行中"
+  },
+  "unrecognized_password_strength": {
+    "message": "未識別的密碼強度"
+  },
+  "unstake": {
+    "message": "解除質押"
+  },
+  "usb_permissions_not_available": {
+    "message": "USB 權限不可用"
+  },
+  "use_at_your_own_risk": {
+    "message": "風險自負"
+  },
+  "user_rejected_the_request": {
+    "message": "使用者已拒絕請求。"
+  },
+  "utxo_indexing_risk_description": {
+    "message": "所選的UTXO屬於仍在索引中的交易。為確保交易的安全性和可靠性，請在繼續之前等待索引完成。"
+  },
+  "utxo_indexing_risk_title": {
+    "message": "UTXO索引正在進行中"
+  },
+  "utxo_not_found": {
+    "message": "找不到 UTXO。"
+  },
+  "verify_recovery_phrase": {
+    "message": "驗證助記詞"
+  },
+  "version": {
+    "message": "版本："
+  },
+  "view": {
+    "message": "查看"
+  },
+  "view_detail": {
+    "message": "查看詳情"
+  },
+  "view_on_block_explorer": {
+    "message": "在區塊瀏覽器上查看"
+  },
+  "view_on_mempool": {
+    "message": "在 Mempool 上查看"
+  },
+  "view_on_okx_explorer": {
+    "message": "在 OKX 瀏覽器上查看"
+  },
+  "view_on_uniscan": {
+    "message": "在 UniScan 上查看"
+  },
+  "wallet_already_initialized": {
+    "message": "錢包已存在。請先重置錢包，再建立新密碼。"
+  },
+  "wallet_existed": {
+    "message": "錢包已存在"
+  },
+  "warning": {
+    "message": "警告"
+  },
+  "watch_address": {
+    "message": "觀察地址"
+  },
+  "watch_address_error": {
+    "message": "無效的 Qbit 地址"
+  },
+  "watch_address_placeholder": {
+    "message": "輸入 Qbit 地址"
+  },
+  "watch_address_wallet": {
+    "message": "觀察錢包"
+  },
+  "weak": {
+    "message": "弱"
+  },
+  "welcome_screen_title": {
+    "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
+  },
+  "wif_private_key": {
+    "message": "WIF 私鑰："
+  },
+  "world": {
+    "message": "世界"
+  },
+  "you_are_signing": {
+    "message": "您正在簽署："
+  },
+  "you_are_signing_data": {
+    "message": "您正在簽署資料："
+  },
+  "you_can_unlock_these_assets_by_using_the_utxos_tools": {
+    "message": "You can review or unlock spendable UTXOs by using the UTXO Management Tool."
+  },
+  "you_haven_t_added_any_addresses": {
+    "message": "您未新增任何地址"
+  },
+  "you_need_to_allow_camera_access_to_use_this_featur": {
+    "message": "您需要允許相機存取權限才能使用此功能。"
+  },
+  "you_need_to_unlock_wallet_first": {
+    "message": "需要先解鎖錢包"
+  },
+  "you_re_on_the_latest_version": {
+    "message": "您使用的是最新版本"
+  },
+  "you_will_use_this_to_unlock_your_wallet": {
+    "message": "您將使用此密碼來解鎖您的錢包"
+  },
+  "your_access_to_this_page_has_been_restricted_by_un": {
+    "message": "由於此頁面可能不安全，Qbit 錢包已限制您對其的存取。"
+  },
+  "your_balance_have_to_be_merged": {
+    "message": "您的 "
+  },
+  "connect_to_readonly_wallet": {
+    "message": "連接只讀錢包"
+  },
+  "copy_message_to_sign": {
+    "message": "複製待簽署訊息"
+  },
+  "create_readonly_wallet": {
+    "message": "建立只讀錢包"
+  },
+  "enter_your_signature": {
+    "message": "輸入您的簽名"
+  },
+  "invalid_signature": {
+    "message": "無效的簽名"
+  },
+  "please_enter_your_signature": {
+    "message": "請輸入您的簽名"
+  },
+  "public_key": {
+    "message": "公鑰"
+  },
+  "readonly_wallet": {
+    "message": "只讀錢包"
+  },
+  "copy_signing_params": {
+    "message": "複製簽署參數"
+  },
+  "readonly_signing": {
+    "message": "離線簽署"
+  },
+  "readonly_signing_copy_step": {
+    "message": "複製簽署請求"
+  },
+  "readonly_signing_copy_button": {
+    "message": "複製請求"
+  },
+  "readonly_signing_paste_step": {
+    "message": "貼上已簽署 PSBT"
+  },
+  "readonly_signing_paste_placeholder": {
+    "message": "已簽署 PSBT Hex"
+  },
+  "readonly_signing_paste_signature_step": {
+    "message": "貼上簽名"
+  },
+  "readonly_signing_signature_placeholder": {
+    "message": "簽名"
+  },
+  "asset_burning_risk_title": {
+    "message": "Asset burning detected"
+  },
+  "asset_burning_risk_description": {
+    "message": "This transaction may burn protected assets. Please review the transaction carefully before proceeding."
+  },
+  "unconfirmed_asset_balance_notice": {
+    "message": "If protected assets are detected in your address, unconfirmed balances will not be spendable until confirmed. You do not need to do anything."
+  },
+  "checking_website_safety": {
+    "message": "正在檢查此網站的安全性…"
+  },
+  "website_check_failed": {
+    "message": "Qbit Wallet 無法驗證此網站。請檢查網路連線後再試一次。"
+  },
+  "unverified_website_confirmation": {
+    "message": "我了解我正在連線至未經驗證的網站，應謹慎操作。"
+  },
+  "within_your_account": {
+    "message": "在您的帳戶內"
+  },
+  "address_unavailable": {
+    "message": "地址無法取得"
+  },
+  "date_unavailable": {
+    "message": "日期無法取得"
+  },
+  "history_load_error": {
+    "message": "無法載入交易紀錄。"
+  },
+  "wallet_owned": {
+    "message": "屬於您的錢包"
+  },
+  "change_output": {
+    "message": "找零輸出"
+  },
+  "internal_output": {
+    "message": "內部轉帳"
+  },
+  "input_number": {
+    "message": "輸入"
+  },
+  "output_number": {
+    "message": "輸出"
+  },
+  "value": {
+    "message": "金額"
+  },
+  "value_unavailable": {
+    "message": "金額無法取得"
+  },
+  "script_type": {
+    "message": "指令碼類型"
+  },
+  "script_type_unavailable": {
+    "message": "指令碼類型無法取得"
+  },
+  "coinbase_input": {
+    "message": "Coinbase 輸入"
+  },
+  "previous_output": {
+    "message": "前一個輸出"
+  },
+  "previous_output_unavailable": {
+    "message": "前一個輸出無法取得"
+  },
+  "locking_script": {
+    "message": "鎖定指令碼"
+  },
+  "raw_transaction_hex": {
+    "message": "原始交易十六進位資料"
+  },
+  "raw_transaction_preview": {
+    "message": "預覽"
+  },
+  "copy_raw_transaction": {
+    "message": "複製原始交易"
+  },
+  "raw_transaction_load_error": {
+    "message": "無法載入原始交易資料。"
+  },
+  "unknown_risk_title": {
+    "message": "Unknown risk detected"
+  },
+  "unknown_risk_description": {
+    "message": "This transaction contains an unknown risk. Please review it carefully before proceeding."
+  },
+  "enter_requested_recovery_phrase_words": {
+    "message": "請輸入已儲存復原助記詞中指定的單字。"
+  },
+  "qbit_recovery_status_seed_only": {
+    "message": "復原狀態：僅以種子復原"
+  },
+  "qbit_counter_confidence_chain_floor_only": {
+    "message": "計數器可信度：僅鏈上最低值"
+  },
+  "qbit_known_onchain_usage_lower_bound": {
+    "message": "已知鏈上使用量：$1 次簽署"
+  },
+  "qbit_known_onchain_usage_none": {
+    "message": "已知鏈上使用量：無"
+  },
+  "qbit_recovery_warning_title": {
+    "message": "已復原的 Qbit 錢包需要注意"
+  },
+  "qbit_recovery_warning_body": {
+    "message": "鏈上歷史只能提供 PQC 簽署使用量的最低值。訊息、鏈下或從未廣播的簽署無法觀察，因此無法得知確切剩餘簽署額度。"
+  },
+  "qbit_recovery_warning_recommendation": {
+    "message": "強烈建議將資金移至全新錢包，並停止使用舊種子以獲得最大安全性。"
+  },
+  "qbit_recovery_or_divider": {
+    "message": "或"
+  },
+  "qbit_recovery_continue_confirmation": {
+    "message": "我了解確切計數器未知，而且每個簽署要求都需要再次明確確認。"
+  },
+  "qbit_recovery_continue_using": {
+    "message": "繼續使用已復原錢包"
+  },
+  "qbit_recovery_move_funds": {
+    "message": "將資金移至全新的 Qbit 錢包"
+  },
+  "qbit_recovery_warning_collapsed_title": {
+    "message": "警告：這是已復原的錢包"
+  },
+  "qbit_recovery_dismiss_warning": {
+    "message": "永久關閉此警告"
+  },
+  "qbit_recovery_signing_warning_title": {
+    "message": "以復原最低值簽署的警告"
+  },
+  "qbit_recovery_signing_warning_body": {
+    "message": "顯示的使用量是由鏈上推得的最低值，不是確切計數器或剩餘簽署額度。"
+  },
+  "qbit_recovery_signing_confirmation": {
+    "message": "我已檢查此特定要求，並接受復原計數器的風險。"
+  },
+  "qbit_recovery_counter_approximate_tip": {
+    "message": "由於此錢包是從助記詞復原的，這只是近似的簽署計數器。"
+  },
+  "qbit_review_each_restored_signing_request": {
+    "message": "請逐一檢查並確認已復原錢包的每個簽署要求。"
+  },
+  "qbit_recovery_migrating_title": {
+    "message": "正在移轉至全新錢包"
+  },
+  "qbit_recovery_migrating_body": {
+    "message": "已簽署交易廣播並確認期間，已復原錢包仍可存取。中斷後可由此繼續。"
+  },
+  "qbit_recovery_destination_value": {
+    "message": "全新目的地：$1"
+  },
+  "qbit_recovery_destination_label": {
+    "message": "全新目的地："
+  },
+  "qbit_recovery_progress": {
+    "message": "已確認移轉：$1 / $2"
+  },
+  "qbit_recovery_resume_migration": {
+    "message": "繼續移轉至全新錢包"
+  },
+  "qbit_recovery_archived_title": {
+    "message": "已封存的復原錢包"
+  },
+  "qbit_recovery_archived_body": {
+    "message": "此復原錢包為唯讀。其金鑰與復原記錄會保留，以便安全偵測並移動失敗、重組或新收到的資金。"
+  },
+  "qbit_recovery_check_new_funds": {
+    "message": "檢查新收到的資金"
+  },
+  "qbit_recovery_other_networks_hint": {
+    "message": "此助記詞在其他網路上可能仍持有資金。請切換網路檢查並轉移。"
+  },
+  "qbit_recovery_account_mapping": {
+    "message": "帳戶 $1 → 新錢包帳戶 $2：$3"
+  },
+  "qbit_recovery_account_mapping_label": {
+    "message": "帳戶 $1 → 新錢包帳戶 $2："
+  },
+  "qbit_recovery_source_unavailable": {
+    "message": "無法使用已復原的 Qbit 錢包。"
+  },
+  "qbit_recovery_confirmation_unavailable": {
+    "message": "無法取得復原計數器簽署確認。請重新檢查此移轉。"
+  },
+  "qbit_recovery_review_title": {
+    "message": "確認錢包轉移"
+  },
+  "qbit_recovery_review_intro": {
+    "message": "您的錢包帳戶與資金將移至全新地址。請參閱下方的轉移摘要與新錢包地址。"
+  },
+  "qbit_recovery_amount_label": {
+    "message": "金額："
+  },
+  "qbit_recovery_fee_label": {
+    "message": "網路費用："
+  },
+  "qbit_recovery_migration_action": {
+    "message": "將復原資金移至全新錢包"
+  },
+  "qbit_recovery_migration_consequence": {
+    "message": "這會簽署並廣播將可花費的餘額移至全新目的地的交易。無法支付標準移轉成本的零錢會留在保留的來源錢包中。失敗或中斷時，兩個錢包與復原記錄都會保留。"
+  },
+  "qbit_recovery_migration_confirmation": {
+    "message": "我已確認全新目的地地址、金額與費用（必填）"
+  },
+  "qbit_recovery_pending_title": {
+    "message": "移轉等待確認"
+  },
+  "qbit_recovery_pending_body": {
+    "message": "已簽署的移轉資料儲存在加密保管庫。請保留兩個錢包；返回此處可重新廣播、檢查確認或安全繼續。"
+  },
+  "qbit_recovery_plan_prepared": {
+    "message": "已準備檢查與簽署"
+  },
+  "qbit_recovery_plan_signed": {
+    "message": "已簽署並儲存；等待廣播"
+  },
+  "qbit_recovery_plan_broadcast": {
+    "message": "已廣播；等待確認"
+  },
+  "qbit_recovery_plan_confirmed": {
+    "message": "已確認"
+  },
+  "qbit_recovery_complete_title": {
+    "message": "全新錢包移轉完成"
+  },
+  "qbit_recovery_complete_body": {
+    "message": "所有經濟上可花費的復原資金都已在全新目的地確認。無法支付標準移轉成本的零錢仍留在唯讀的復原錢包中。全新錢包現已啟用。"
+  },
+  "qbit_recovery_complete_archived_body": {
+    "message": "最初復原的錢包為唯讀。其金鑰與復原記錄會保留，以便安全偵測並移動失敗、重組或新收到的資金。"
+  },
+  "qbit_recovery_complete_switch_wallet_hint": {
+    "message": "您可以從左上角的「切換錢包」選項存取最初復原的唯讀錢包。"
+  },
+  "qbit_recovery_original_address_label": {
+    "message": "最初復原的地址："
+  },
+  "qbit_recovery_new_address_label": {
+    "message": "新地址："
+  },
+  "qbit_recovery_error_title": {
+    "message": "移轉需要注意"
+  },
+  "qbit_recovery_error_body": {
+    "message": "無法安全地繼續移轉。兩個錢包與加密的復原記錄仍保留；請檢查網路後再試一次。"
+  },
+  "qbit_recovery_error_code_label": {
+    "message": "錯誤代碼:"
+  },
+  "qbit_recovery_error_show_details": {
+    "message": "顯示詳細資訊"
+  },
+  "qbit_recovery_error_hide_details": {
+    "message": "隱藏詳細資訊"
+  },
+  "qbit_recovery_error_copy_details": {
+    "message": "複製詳細資訊"
+  },
+  "qbit_recovery_protected_assets_error": {
+    "message": "受保護的資產必須先另外移轉，才能封存此錢包。"
+  },
+  "qbit_recovery_archived_signing_blocked": {
+    "message": "此復原錢包已封存，且為唯讀。"
+  },
+  "qbit_recovery_migration_signing_only": {
+    "message": "移轉進行期間，復原錢包只能簽署已檢閱的資金移動。"
+  },
+  "qbit_recovery_secure_confirmation_unavailable": {
+    "message": "無法使用安全的復原計數器確認。請鎖定並重新開啟錢包，然後再次檢閱。"
+  },
+  "qbit_recovery_signing_confirmation_expired": {
+    "message": "復原計數器確認已過期。請再次檢閱此確切請求。"
+  },
+  "qbit_recovery_signing_confirmation_required": {
+    "message": "請檢閱並明確確認此復原錢包的確切簽署請求。"
+  },
+  "qbit_recovery_wallets_retained": {
+    "message": "移除此錢包會影響進行中的復原移轉，需要額外確認。"
+  },
+  "qbit_recovery_back_restart_warning": {
+    "message": "返回後，您必須重新開始復原流程。"
+  },
+  "qbit_recovery_back_new_seed_warning": {
+    "message": "會產生一組與目前顯示不同的新助記詞。"
+  },
+  "qbit_recovery_removal_title": {
+    "message": "此錢包屬於 Qbit 復原移轉的一部分"
+  },
+  "qbit_recovery_removal_source_migrating": {
+    "message": "移除此已還原錢包將刪除其進行中的復原紀錄。移轉將無法繼續，尚未轉移的資金會留在舊地址上，日後要取回這些資金必須重新匯入此助記詞並從頭開始復原。"
+  },
+  "qbit_recovery_removal_source_migrated": {
+    "message": "移除此已還原錢包將刪除其已完成的復原紀錄。使用此助記詞的其他網路可能尚未完成各自的復原，若要繼續必須重新匯入此助記詞。"
+  },
+  "qbit_recovery_removal_destination": {
+    "message": "復原的資金已送往（或正在送往）此錢包。若您尚未備份其助記詞，移除後這些資金將永久無法取回，且中斷的復原必須等到重新匯入此錢包後才能繼續。"
+  },
+  "qbit_recovery_removal_inflight": {
+    "message": "仍有一筆復原轉帳處理中。移除後將不再追蹤該轉帳，送達的資金可能要等到目的錢包重新還原並重新掃描後才會顯示。"
+  },
+  "qbit_recovery_removal_unverified": {
+    "message": "無法將此錢包與進行中的復原移轉核對。它可能是接收復原資金的錢包；在沒有助記詞備份的情況下移除，可能使這些資金永久無法取回。"
+  },
+  "qbit_recovery_loading": {
+    "message": "正在檢查加密移轉記錄與鏈上狀態…"
+  },
+  "qbit_recovery_sign_and_move": {
+    "message": "簽署並移動資金"
+  },
+  "qbit_recovery_check_status": {
+    "message": "檢查狀態並繼續"
+  },
+  "qbit_recovery_return_home": {
+    "message": "返回全新錢包"
+  },
+  "qbit_core_recovery_descriptors": {
+    "message": "qbit Core 復原描述符"
+  },
+  "qbit_core_descriptor_counter_warning": {
+    "message": "這些描述符包含私鑰資料。請僅搭配受信任的 qbit Core 錢包使用。描述符可復原金鑰，但無法復原確切 PQC 計數器。若要在 qbit Core 之間精確復原，請使用 backupwallet 與 restorewallet。"
+  },
+  "qbit_core_network_value": {
+    "message": "網路：$1"
+  },
+  "qbit_core_receive_path_value": {
+    "message": "收款路徑：$1"
+  },
+  "qbit_core_copy_receive_descriptor": {
+    "message": "複製收款描述符"
+  },
+  "qbit_core_change_path_value": {
+    "message": "找零路徑：$1"
+  },
+  "qbit_core_copy_change_descriptor": {
+    "message": "複製找零描述符"
+  },
+  "qbit_core_importdescriptors_json": {
+    "message": "qbit Core importdescriptors JSON"
+  },
+  "qbit_core_copy_json": {
+    "message": "複製 JSON"
+  },
+  "qbit_core_download_json": {
+    "message": "下載 JSON"
+  },
+  "linked_to_cold_wallet": {
+    "message": "已連接至 Qbit 冷錢包"
+  },
+  "reject_blocked_request": {
+    "message": "拒絕 (已被 Qbit 錢包阻擋)"
+  },
+  "touch_id_unlock": {
+    "message": "Touch ID 解鎖"
+  },
+  "unlock_with_touch_id": {
+    "message": "使用 Touch ID 解鎖"
+  },
+  "enable_touch_id": {
+    "message": "啟用 Touch ID"
+  },
+  "enable_touch_id_desc": {
+    "message": "使用 Touch ID 解鎖錢包,無需輸入密碼。密碼仍然有效,敏感操作仍需要密碼。"
+  },
+  "touch_id_status_on": {
+    "message": "開啟"
+  },
+  "touch_id_status_off": {
+    "message": "關閉"
+  },
+  "disable_touch_id": {
+    "message": "停用 Touch ID"
+  },
+  "touch_id_setup_failed": {
+    "message": "Touch ID 設定失敗"
+  },
+  "touch_id_prf_unsupported": {
+    "message": "此裝置的驗證器不支援安全的 Touch ID 解鎖"
+  },
+  "touch_id_unlock_expired": {
+    "message": "需要重新設定 Touch ID 解鎖,請使用密碼。"
+  },
+  "enter_password_to_enable_touch_id": {
+    "message": "請輸入錢包密碼以啟用 Touch ID"
+  },
+  "touch_id_reenabled_after_password_change": {
+    "message": "已使用新密碼重新啟用 Touch ID"
+  },
+  "touch_id_disabled_after_password_change": {
+    "message": "Touch ID 解鎖已停用,您可以在設定中重新啟用。"
+  },
+  "touch_id_onboarding_desc": {
+    "message": "您可以使用 Touch ID 解鎖錢包,無需輸入密碼。您也可以之後在設定中啟用。"
+  },
+  "send_exceeds_standard_size": {
+    "message": "此金額需要超過 $1 個輸入，超出網路的標準交易大小。每次最多傳送 $2 $3，或使用「最大值」。"
+  },
+  "send_all_leaves_outputs_behind": {
+    "message": "「最大值」會傳送您最大的 $1 個輸出，這是一筆交易可容納的上限。其餘 $4 個較小輸出中的 $2 $3 會留在此帳戶。"
+  },
+  "utxo_limit_exceeded_balance": {
+    "message": "輸出數量過多，瀏覽器無法列出。此總額來自地址摘要。"
+  },
+  "utxo_limit_exceeded_send": {
+    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，錢包也無法從其歷史記錄讀取全部輸出。請先整合輸出再從此帳戶傳送。"
+  },
+  "consolidate_outputs": {
+    "message": "整合輸出"
+  },
+  "consolidation_description": {
+    "message": "每批會將此帳戶金額最大的已確認輸出（最多 $1 個）合併為一個輸出，傳回此帳戶自己的地址。每一批都需要你檢查並簽署。"
+  },
+  "consolidation_status": {
+    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。大約再 $3 批即可回到此上限內。"
+  },
+  "consolidation_within_limit": {
+    "message": "此帳戶在瀏覽器 $1 個輸出的上限內，不需要整合。"
+  },
+  "consolidation_pending": {
+    "message": "未確認的交易正在花費其中 $1 個輸出。這些交易確認後，它們就不再計入。"
+  },
+  "consolidation_batch_summary": {
+    "message": "將 $1 個輸出合併為一個 $2 $3 的輸出。手續費：$4 bits，大小 $5 kB。"
+  },
+  "consolidation_prepare_batch": {
+    "message": "準備下一批"
+  },
+  "consolidation_next_batch": {
+    "message": "整合下一批"
+  },
+  "consolidation_send_note": {
+    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限。整合後即可再次正常傳送與遷移。"
+  },
+  "consolidation_status_confirming": {
+    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。待確認的批次確認後，此帳戶即會回到此上限內。"
+  },
+  "consolidation_error_within_limit": {
+    "message": "此帳戶在瀏覽器的輸出上限內，不需要整合。"
+  },
+  "consolidation_error_nothing_ready": {
+    "message": "目前還沒有可整合的已確認輸出，請稍後再試。"
+  },
+  "consolidation_error_outputs_moving": {
+    "message": "此帳戶的輸出正在被花費，請稍後再試。"
+  },
+  "consolidation_error_input_spent": {
+    "message": "此整合批次中的某個輸出已被花費，請重新準備此批次。"
+  },
+  "consolidation_error_keep_reading": {
+    "message": "錢包已讀取此帳戶的部分歷史記錄，但尚未找到可合併的輸出。請再次準備以繼續讀取。"
+  }
+}

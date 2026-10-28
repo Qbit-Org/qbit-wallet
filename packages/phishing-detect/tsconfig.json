@@ -1,0 +1,33 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./lib",
+    "rootDir": "./src",
+    "baseUrl": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "allowJs": true,
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["node", "chrome"]
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "lib",
+    "node_modules",
+    "**/*.test.ts"
+  ]
+}

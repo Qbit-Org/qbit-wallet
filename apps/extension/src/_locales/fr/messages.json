@@ -1,0 +1,2912 @@
+{
+  "Broadcast": {
+    "message": "Diffuser"
+  },
+  "about_3_minutes": {
+    "message": "(environ 3 minutes)"
+  },
+  "about_new_update": {
+    "message": "Nouvelle mise à jour disponible"
+  },
+  "about_us": {
+    "message": "À propos de nous"
+  },
+  "about_qbit_wallet": {
+    "message": "À propos de Qbit Wallet"
+  },
+  "account_creation_already_in_progress": {
+    "message": "Un compte est déjà en cours de création pour ce portefeuille. Attendez la fin avant d'en créer un autre."
+  },
+  "add_address": {
+    "message": "Ajouter une adresse"
+  },
+  "address": {
+    "message": "Adresse"
+  },
+  "address_book": {
+    "message": "Carnet d'Adresses"
+  },
+  "address_book_placeholder": {
+    "message": "Carnet d'adresses"
+  },
+  "address_label": {
+    "message": "Adresse"
+  },
+  "address_or_name_fb": {
+    "message": "Adresse ou nom (.fb)"
+  },
+  "address_preview": {
+    "message": "Adresse :"
+  },
+  "address_type": {
+    "message": "Type d'Adresse"
+  },
+  "address_type_changed": {
+    "message": "Type d'adresse modifié"
+  },
+  "addressbook_desc": {
+    "message": "Ajouter des adresses fréquemment utilisées"
+  },
+  "advance_options": {
+    "message": "Options Avancées"
+  },
+  "advanced": {
+    "message": "Avancé"
+  },
+  "advanced_settings": {
+    "message": "Paramètres Avancés"
+  },
+  "appearance": {
+    "message": "Apparence"
+  },
+  "enable": {
+    "message": "Activer"
+  },
+  "enable_local_regtest_title": {
+    "message": "Activer le Regtest local"
+  },
+  "local_regtest": {
+    "message": "Regtest local"
+  },
+  "enabled": {
+    "message": "Activé"
+  },
+  "disabled": {
+    "message": "Désactivé"
+  },
+  "regtest_access_acknowledgement": {
+    "message": "Je comprends que Qbit Wallet pourra communiquer avec n'importe quel service local exécuté sur le port 3002."
+  },
+  "regtest_access_denied": {
+    "message": "L'accès local n'a pas été accordé. Le Regtest local reste désactivé et votre réseau actuel est inchangé."
+  },
+  "regtest_access_disabled": {
+    "message": "Regtest local désactivé"
+  },
+  "regtest_access_enabled": {
+    "message": "Regtest local activé"
+  },
+  "regtest_access_no_value": {
+    "message": "Les pièces Regtest n'ont aucune valeur monétaire."
+  },
+  "regtest_access_trust_note": {
+    "message": "N'activez ceci que si vous êtes développeur et que vous faites confiance au service local exécuté sur le port 3002."
+  },
+  "regtest_access_disable_note": {
+    "message": "Vous pourrez désactiver cet accès plus tard depuis les paramètres avancés."
+  },
+  "regtest_access_not_enabled": {
+    "message": "L'accès Regtest n'a pas été activé"
+  },
+  "regtest_access_request_failed": {
+    "message": "Le navigateur n'a pas pu traiter la demande d'accès local. Le Regtest local reste désactivé et votre réseau actuel est inchangé."
+  },
+  "regtest_access_retry": {
+    "message": "Réessayer"
+  },
+  "regtest_access_status_off": {
+    "message": "Désactivé"
+  },
+  "regtest_access_status_on": {
+    "message": "Activé"
+  },
+  "regtest_service_unavailable": {
+    "message": "Qbit Wallet ne parvient pas à se connecter à votre instance Regtest locale ; vérifiez qu'elle est en cours d'exécution sur le port 3002."
+  },
+  "regtest_service_unexpected": {
+    "message": "Service inattendu à l'adresse Regtest"
+  },
+  "theme_light": {
+    "message": "Clair"
+  },
+  "theme_dark": {
+    "message": "Sombre"
+  },
+  "theme_system": {
+    "message": "Système"
+  },
+  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
+    "message": "4. Après signature, scannez le code QR signé avec ce portefeuille."
+  },
+  "agreement_text": {
+    "message": "CONFIRMER"
+  },
+  "all": {
+    "message": "Tout"
+  },
+  "all_marked_as_read": {
+    "message": "Tout marqué comme lu"
+  },
+  "all_read": {
+    "message": "Tout lu"
+  },
+  "allow_sign_data_requests": {
+    "message": "Autoriser les demandes signData"
+  },
+  "allow_this_site_to_switch_the_chain": {
+    "message": "Autoriser ce site à changer de chaîne ?"
+  },
+  "allow_this_site_to_switch_the_network": {
+    "message": "Autoriser ce site à changer de réseau ?"
+  },
+  "allow_using_unconfirmed_balance": {
+    "message": "Autoriser l'utilisation du Solde Non Confirmé"
+  },
+  "amount": {
+    "message": "Montant"
+  },
+  "amount_exceeds_your_available_balance": {
+    "message": "Le montant dépasse votre solde disponible"
+  },
+  "amount_must_be_at_least": {
+    "message": "Le montant doit être d'au moins"
+  },
+  "announcement": {
+    "message": "Annonce"
+  },
+  "appDescription": {
+    "message": "Qbit Wallet permet d'envoyer, de recevoir et d'effectuer des transactions en Qbit natif (QBT) et dans son écosystème."
+  },
+  "appName": {
+    "message": "Qbit Wallet"
+  },
+  "approvalres_is_required": {
+    "message": "approvalRes est requis"
+  },
+  "are_not_supported": {
+    "message": "ne sont pas pris en charge."
+  },
+  "are_not_supported_yet": {
+    "message": "ne sont pas encore pris en charge."
+  },
+  "are_supported": {
+    "message": "sont supportés"
+  },
+  "are_you_sure_you_want_to_delete_this_contact": {
+    "message": "Êtes-vous sûr de vouloir supprimer ce contact ?"
+  },
+  "auto": {
+    "message": "Auto"
+  },
+  "automatic_lock_time": {
+    "message": "Délai de Verrouillage Automatique"
+  },
+  "available": {
+    "message": "Disponible"
+  },
+  "available_balance": {
+    "message": "Solde disponible"
+  },
+  "average": {
+    "message": "Moyen"
+  },
+  "avg": {
+    "message": "Moyen"
+  },
+  "back": {
+    "message": "Retour"
+  },
+  "balance": {
+    "message": "Solde"
+  },
+  "bbn": {
+    "message": "bbn..."
+  },
+  "qbit_restore_accounts_restored": {
+    "message": "Adresses restaurées"
+  },
+  "qbit_restore_concurrent_instance_warning": {
+    "message": "Une activité a été détectée au-delà des adresses restaurées de ce portefeuille. Une autre copie de cette phrase de récupération est peut-être en cours d'utilisation. Ne signez pas avec ce portefeuille tant que vous n'êtes pas certain qu'aucune autre copie n'est active. Préférez transférer les fonds vers une nouvelle phrase de récupération."
+  },
+  "qbit_restore_counters_minimum_warning": {
+    "message": "Les compteurs de signatures ont été reconstruits à partir de l'historique de la chaîne et constituent des minimums. Les signatures de messages et les transactions jamais diffusées sont invisibles pour cette analyse.\n\nSi cette phrase a déjà été utilisée dans un autre portefeuille, transférez les fonds vers un nouveau portefeuille au lieu de réutiliser d'anciennes adresses."
+  },
+  "qbit_restore_floors_incomplete_warning": {
+    "message": "La reconstruction des compteurs de signatures ne s'est pas terminée. La signature reste verrouillée jusqu'à ce qu'elle réussisse. La réception n'est pas affectée. Réessayez maintenant, ou déverrouillez le portefeuille plus tard pour réessayer automatiquement."
+  },
+  "qbit_restore_network": {
+    "message": "Réseau"
+  },
+  "qbit_restore_no_activity_hint": {
+    "message": "Aucune activité n'a été trouvée pour cette phrase sur le réseau actuel. Si ce portefeuille a été utilisé sur un autre réseau, changez de réseau après la restauration et les compteurs seront reconstruits automatiquement."
+  },
+  "qbit_restore_report_title": {
+    "message": "Portefeuille restauré"
+  },
+  "qbit_restore_retry_floor_scan": {
+    "message": "Réessayer la reconstruction des compteurs"
+  },
+  "qbit_restore_scan_truncated_warning": {
+    "message": "La découverte d'adresses s'est arrêtée à sa limite d'analyse. Si vous attendez davantage d'adresses, dérivez des comptes supplémentaires après la restauration."
+  },
+  "qbit_restore_scanning": {
+    "message": "Analyse de l'historique de la chaîne et reconstruction des compteurs de signatures…"
+  },
+  "qbit_signatures_remaining": {
+    "message": "$1 restante(s)"
+  },
+  "qbit_tx_uses_n_signatures": {
+    "message": "Cette transaction utilise $1 signature(s)"
+  },
+  "qbit_uri_amount_invalid": {
+    "message": "Montant URI qbit: invalide"
+  },
+  "qbit_uri_invalid": {
+    "message": "URI qbit: invalide"
+  },
+  "qbit_receive_activity_cached": {
+    "message": "La consultation de l’activité en direct a échoué ; l’état utilisé ou inutilisé n’est donc pas fiable. Aucune adresse de réception n’est proposée tant que l’accès réseau n’est pas rétabli ; réessayez après la reconnexion."
+  },
+  "qbit_receive_amount_optional": {
+    "message": "Montant (facultatif)"
+  },
+  "qbit_receive_budget_available": {
+    "message": "$1 opérations de signature sont affichées comme restantes. Recevoir ne les consomme pas ; une dépense peut en consommer une ou plusieurs."
+  },
+  "qbit_receive_budget_critical": {
+    "message": "Critique"
+  },
+  "qbit_receive_budget_exhausted": {
+    "message": "Il ne reste aucun budget de signature. Ce portefeuille ne peut plus autoriser de dépense depuis cette adresse ; elle ne doit donc pas servir à recevoir."
+  },
+  "qbit_receive_budget_exhausted_badge": {
+    "message": "Épuisé"
+  },
+  "qbit_receive_budget_normal": {
+    "message": "Normal"
+  },
+  "qbit_receive_budget_warning": {
+    "message": "Avertissement"
+  },
+  "qbit_receive_concurrent": {
+    "message": "Une autre copie de cette graine peut être active. Ses signatures échappent au compteur local de ce portefeuille : ne vous fiez pas au budget affiché. La réception reste possible, mais la garde doit migrer vers une nouvelle graine."
+  },
+  "qbit_receive_copy_uri": {
+    "message": "Copier l’URI qbit:"
+  },
+  "qbit_receive_current": {
+    "message": "Adresse de réception actuelle"
+  },
+  "qbit_receive_exhausted_copy_blocked": {
+    "message": "Cette adresse n’a plus de budget de signature et ne peut autoriser aucune autre dépense. Il n’est pas sûr de la partager pour recevoir."
+  },
+  "qbit_receive_floors_pending": {
+    "message": "La reconstruction des compteurs est incomplète ; le budget de signatures n’est donc pas fiable. Aucune adresse de réception n’est proposée et toute signature reste verrouillée jusqu’à la réussite de la reconstruction."
+  },
+  "qbit_receive_gap_warning": {
+    "message": "Nouvelle adresse est suspendu après 20 adresses émises consécutives sans activité observée. Utilisez une adresse déjà émise, inutilisée et non épuisée. Une activité observée libère une nouvelle intention dans la fenêtre de restauration."
+  },
+  "qbit_receive_label_optional": {
+    "message": "Libellé (facultatif)"
+  },
+  "qbit_receive_loading": {
+    "message": "Préparation d’une adresse de réception sûre…"
+  },
+  "qbit_receive_local_counter": {
+    "message": "Compteur local"
+  },
+  "qbit_receive_local_counter_help": {
+    "message": "Compteur faisant autorité localement, réservé durablement avant signature. Une autre copie de la graine peut signer hors de ce compteur."
+  },
+  "qbit_receive_new_address": {
+    "message": "Nouvelle adresse"
+  },
+  "qbit_receive_no_safe": {
+    "message": "Aucune adresse de réception sûre n’est disponible. Les adresses épuisées sont exclues et l’intervalle de restauration peut être plein. Utilisez une adresse déjà émise, inutilisée et non épuisée, ou rétablissez le réseau puis réessayez."
+  },
+  "qbit_receive_previous": {
+    "message": "Adresses précédentes"
+  },
+  "qbit_receive_restored_floor": {
+    "message": "Minimum restauré"
+  },
+  "qbit_receive_restored_floor_caveat": {
+    "message": "$1 n’est qu’une borne supérieure reconstruite depuis l’historique observable sur la chaîne. Des signatures hors chaîne ou jamais diffusées peuvent abaisser le budget réel jusqu’à zéro ; cela ne prouve pas que les fonds sont dépensables."
+  },
+  "qbit_receive_retry": {
+    "message": "Réessayer"
+  },
+  "qbit_receive_reuse_warning": {
+    "message": "Une activité a déjà été observée sur cette adresse. Les adresses de réception qbit sont prévues pour un seul encaissement ; la repartager peut relier des paiements et accroître le risque de garde."
+  },
+  "qbit_receive_unused": {
+    "message": "Inutilisée"
+  },
+  "qbit_receive_used": {
+    "message": "Utilisée"
+  },
+  "block_preview": {
+    "message": "Bloc :"
+  },
+  "burned": {
+    "message": "brûlé"
+  },
+  "by_proceeding_you_confirm_that_youve_read_and_accepted_this_disclaimer": {
+    "message": "En continuant, vous confirmez avoir lu et accepté cet avertissement."
+  },
+  "calculating": {
+    "message": "Calcul en cours..."
+  },
+  "can_not_change_to_a_lower_value": {
+    "message": "Ne peut pas changer pour une valeur inférieure"
+  },
+  "cancel": {
+    "message": "Annuler"
+  },
+  "cannot_unlock_without_a_previous_vault": {
+    "message": "Impossible de déverrouiller sans un coffre-fort précédent"
+  },
+  "cap": {
+    "message": "Cap"
+  },
+  "cat": {
+    "message": "CAT"
+  },
+  "chain_id": {
+    "message": "ID de Chaîne"
+  },
+  "change_account_name": {
+    "message": "Changer le Nom du Compte"
+  },
+  "change_password": {
+    "message": "Changer le Mot de passe"
+  },
+  "change_password_already_in_progress": {
+    "message": "Le changement de mot de passe est déjà en cours"
+  },
+  "change_password_failed": {
+    "message": "Le changement de mot de passe a échoué. Rien n'a été modifié — veuillez réessayer."
+  },
+  "change_wallet_name": {
+    "message": "Changer le Nom du Portefeuille"
+  },
+  "change_your_lockscreen_password": {
+    "message": "Changer votre mot de passe d'écran de verrouillage"
+  },
+  "changed_to_network": {
+    "message": "Passé à"
+  },
+  "choose_a_wallet_you_want_to_restore_from": {
+    "message": "Choisissez un portefeuille à partir duquel vous souhaitez restaurer"
+  },
+  "claim": {
+    "message": "Réclamer"
+  },
+  "claimable": {
+    "message": "Réclamable"
+  },
+  "claimabled": {
+    "message": "Reçu"
+  },
+  "click_on_the_words_to_put_them_in_the_correct_orde": {
+    "message": "Cliquez sur les mots pour les mettre dans le bon ordre afin de vérifier si la phrase de récupération que vous avez sauvegardée est correcte"
+  },
+  "click_the_account_on_the_main_page": {
+    "message": "Cliquez sur le compte sur la page principale."
+  },
+  "click_the_button_below_to_start_the_signature_proc": {
+    "message": "Cliquez sur le bouton ci-dessous pour démarrer le processus de signature"
+  },
+  "close": {
+    "message": "Fermer"
+  },
+  "closed": {
+    "message": "Fermé"
+  },
+  "code_asset_maybe_lost": {
+    "message": "L'actif peut être perdu si vous continuez la transaction."
+  },
+  "code_insufficient_asset_utxo": {
+    "message": "Solde d'actif insuffisant"
+  },
+  "code_insufficient_balance": {
+    "message": "Solde insuffisant."
+  },
+  "code_insufficient_fee_utxo": {
+    "message": "Solde insuffisant pour couvrir les frais de transaction."
+  },
+  "code_method_not_found": {
+    "message": "Méthode introuvable."
+  },
+  "code_not_safe_utxos": {
+    "message": "Aucun UTXO sûr disponible pour la transaction."
+  },
+  "code_unknown_error": {
+    "message": "Erreur inconnue."
+  },
+  "cold_wallet_signed_successfully": {
+    "message": "Le portefeuille froid a signé avec succès la transaction. Veuillez confirmer les détails de la transaction et cliquez sur diffuser."
+  },
+  "cold_wallet_transaction_signing": {
+    "message": "Signature de Transaction de Portefeuille Froid"
+  },
+  "collect_your_personal_information": {
+    "message": "Collecter vos informations personnelles"
+  },
+  "collection": {
+    "message": "Collection"
+  },
+  "collection_id": {
+    "message": "Id de Collection"
+  },
+  "collection_not_found": {
+    "message": "Collection non trouvée"
+  },
+  "collections": {
+    "message": "Collections"
+  },
+  "coming_soon": {
+    "message": "Bientôt disponible"
+  },
+  "completed": {
+    "message": "Terminé"
+  },
+  "confirm": {
+    "message": "Confirmer"
+  },
+  "confirm_password": {
+    "message": "Confirmer le Mot de passe"
+  },
+  "confirmations_count": {
+    "message": "Confirmations"
+  },
+  "confirmed_tvl": {
+    "message": "Confirmé"
+  },
+  "connect": {
+    "message": "Connecter"
+  },
+  "connect_via_usb": {
+    "message": "Connecter via USB"
+  },
+  "connected": {
+    "message": "Connecté"
+  },
+  "connected_sites": {
+    "message": "Sites Connectés"
+  },
+  "contact_not_found": {
+    "message": "Contact non trouvé"
+  },
+  "content": {
+    "message": "contenu"
+  },
+  "content_length": {
+    "message": "longueur du contenu"
+  },
+  "content_type": {
+    "message": "type de contenu"
+  },
+  "continue": {
+    "message": "Continuer"
+  },
+  "continue_to": {
+    "message": "Continuer vers"
+  },
+  "copied": {
+    "message": "Copié"
+  },
+  "copy_address": {
+    "message": "Copier l'adresse"
+  },
+  "copy_publickey": {
+    "message": "Copier la clé publique"
+  },
+  "copy_to_clipboard": {
+    "message": "Copier dans le presse-papiers"
+  },
+  "create_a_new_hd_wallet": {
+    "message": "Créer un nouveau Portefeuille HD"
+  },
+  "create_a_new_wallet": {
+    "message": "Ajouter un portefeuille"
+  },
+  "create_a_password": {
+    "message": "Créez un mot de passe"
+  },
+  "create_an_account": {
+    "message": "Créer un Compte"
+  },
+  "hardware_wallet_not_supported": {
+    "message": "Les portefeuilles matériels ne prennent pas encore en charge les signatures post-quantiques de Qbit. Suivez l'avancement dans la documentation du projet sur les portefeuilles matériels."
+  },
+  "immature_coinbase": {
+    "message": "Immature (coinbase)"
+  },
+  "memo_too_long_max_80_bytes": {
+    "message": "Le mémo est trop long — le maximum est de 80 octets"
+  },
+  "memo_not_supported_when_sending_all": {
+    "message": "Les mémos ne sont pas pris en charge lors de l'envoi du solde complet. Réduisez le montant ou effacez le mémo."
+  },
+  "core_runtime_release": {
+    "message": "Runtime Core"
+  },
+  "core_commit": {
+    "message": "Commit Core"
+  },
+  "create_new_wallet": {
+    "message": "Créer un nouveau portefeuille"
+  },
+  "create_wallet": {
+    "message": "Créer un Portefeuille"
+  },
+  "create_watch_wallet": {
+    "message": "Créer un Portefeuille Observateur"
+  },
+  "create_with_mnemonics_24words": {
+    "message": "Créer avec mnémoniques (12 ou 24 mots)"
+  },
+  "current": {
+    "message": "Actuel"
+  },
+  "current_fee_rate": {
+    "message": "Taux de frais actuel :"
+  },
+  "current_password": {
+    "message": "Mot de passe Actuel"
+  },
+  "current_supply": {
+    "message": "Supply actuelle"
+  },
+  "currently_only": {
+    "message": "Actuellement seulement"
+  },
+  "custom": {
+    "message": "Personnalisé"
+  },
+  "custom_hdpath": {
+    "message": "Chemin de Dérivation de Portefeuille HD Personnalisé"
+  },
+  "custom_hdpath_optional": {
+    "message": "Chemin HD personnalisé (Optionnel)"
+  },
+  "danger_potential_phishing_website_detected": {
+    "message": "Danger ! Site web de phishing potentiel détecté"
+  },
+  "dapp_center": {
+    "message": "Centre d'applications"
+  },
+  "date": {
+    "message": "Date"
+  },
+  "days_ago": {
+    "message": "jours"
+  },
+  "dealing": {
+    "message": "En cours"
+  },
+  "decimal": {
+    "message": "décimal"
+  },
+  "decimal_places": {
+    "message": "décimales."
+  },
+  "decimals": {
+    "message": "décimales"
+  },
+  "default": {
+    "message": "Défaut"
+  },
+  "delegations": {
+    "message": "Délégations"
+  },
+  "delete": {
+    "message": "Supprimer"
+  },
+  "delete_contact": {
+    "message": "Supprimer un contact"
+  },
+  "derivation_path": {
+    "message": "Chemin de Dérivation"
+  },
+  "description": {
+    "message": "Description"
+  },
+  "details": {
+    "message": "Détails"
+  },
+  "developer_mode_disabled": {
+    "message": "Mode développeur désactivé"
+  },
+  "developer_mode_enabled": {
+    "message": "Mode développeur activé"
+  },
+  "disclaimer": {
+    "message": "Avertissement"
+  },
+  "discover": {
+    "message": "Découvrir"
+  },
+  "divisibility": {
+    "message": "divisibilité"
+  },
+  "do_you_confirm_the_conversion": {
+    "message": "Confirmez-vous la conversion ?"
+  },
+  "do_you_confirm_the_transfer": {
+    "message": "Confirmez-vous le transfert ?"
+  },
+  "does_not_exist": {
+    "message": "n'existe pas"
+  },
+  "does_not_support_account_removal_operations": {
+    "message": "Ne prend pas en charge les opérations de suppression de compte"
+  },
+  "done": {
+    "message": "Terminé"
+  },
+  "each_output_value": {
+    "message": "Chaque Valeur de Sortie"
+  },
+  "each_outputvalue": {
+    "message": "Chaque Valeur de Sortie"
+  },
+  "ecosystem_community_warning": {
+    "message": "Les projets de l'écosystème sont créés et exploités par la communauté Qbit."
+  },
+  "ecosystem_community_warning_review": {
+    "message": "Examinez vous-même tout projet avant de connecter votre portefeuille ou d'envoyer des fonds."
+  },
+  "edit_address": {
+    "message": "Modifier l'adresse"
+  },
+  "edit_name": {
+    "message": "Modifier le Nom"
+  },
+  "empty": {
+    "message": "Vide"
+  },
+  "enable_sign_data_popover_warning": {
+    "message": "Autoriser les demandes signData peut vous rendre vulnérable aux attaques de phishing. Vérifiez toujours l'URL et soyez prudent lorsque vous signez des messages contenant du code."
+  },
+  "enable_sign_data_popover_warning_2": {
+    "message": "Si on vous a demandé d'activer ce paramètre, vous pourriez être victime d'une arnaque"
+  },
+  "enable_sign_data_warning": {
+    "message": "Si vous activez ce paramètre, vous pourriez recevoir des demandes de signature illisibles. En signant un message que vous ne comprenez pas, vous pourriez accepter de céder vos fonds et NFT. Vous êtes exposé aux attaques de phishing. Protégez-vous en désactivant signData."
+  },
+  "enable_unconfirmed_balance": {
+    "message": "Activer le Solde Non Confirmé"
+  },
+  "enable_unconfirmed_balance_warning": {
+    "message": "Si des actifs protégés sont détectés dans une adresse donnée, les UTXOs non confirmés ne pourront pas être dépensés jusqu'à leur confirmation. Forcer la dépense de ces UTXOs non confirmés présente un risque de perte d'actifs."
+  },
+  "enter": {
+    "message": "Entrer"
+  },
+  "enter_address": {
+    "message": "Entrez une adresse"
+  },
+  "enter_name": {
+    "message": "Entrez un nom"
+  },
+  "enter_password": {
+    "message": "Entrez votre mot de passe"
+  },
+  "enter_your_password": {
+    "message": "Entrez votre mot de passe"
+  },
+  "estimated_fee": {
+    "message": "Frais Estimés"
+  },
+  "etching": {
+    "message": "gravure"
+  },
+  "expand_view": {
+    "message": "Agrandir la Vue"
+  },
+  "export_private_key": {
+    "message": "Exporter la Clé Privée"
+  },
+  "failed_to_delete_contact": {
+    "message": "Échec de la suppression du contact"
+  },
+  "failed_to_handle_signature": {
+    "message": "Échec du traitement de la signature"
+  },
+  "failed_to_load_contact_information": {
+    "message": "Échec du chargement des informations du contact"
+  },
+  "failed_to_lock_wallet": {
+    "message": "Échec du verrouillage du portefeuille"
+  },
+  "failed_to_parse_psbt": {
+    "message": "Une ou plusieurs transactions n'ont pas pu être analysées. Signature annulée."
+  },
+  "failed_to_save_contact": {
+    "message": "Échec de la sauvegarde du contact"
+  },
+  "fast": {
+    "message": "Rapide"
+  },
+  "features": {
+    "message": "Fonctionnalités :"
+  },
+  "fee": {
+    "message": "Frais"
+  },
+  "fee_rate": {
+    "message": "Taux de Frais"
+  },
+  "fee_estimates_unavailable_using_floor": {
+    "message": "Les estimations de frais sont indisponibles. Le minimum de relais de $1 bit/vB est utilisé."
+  },
+  "fee_exceeds_wallet_safety_maximum": {
+    "message": "Les frais dépassent la limite de sécurité de $1 bit/vB (maximum $2 $3 pour la taille exacte de cette transaction)."
+  },
+  "estimated_inputs_and_size": {
+    "message": "~$1 entrée(s) · ~$2 kB"
+  },
+  "feedback": {
+    "message": "Retour d'information"
+  },
+  "feerate_avg_desc": {
+    "message": "environ 30 minutes"
+  },
+  "feerate_avg_desc_fb": {
+    "message": "environ 1.5 minutes"
+  },
+  "feerate_fast_desc": {
+    "message": "environ 10 minutes"
+  },
+  "feerate_fast_desc_fb": {
+    "message": "environ 30 secondes"
+  },
+  "feerate_slow_desc": {
+    "message": "environ 1 heure"
+  },
+  "feerate_slow_desc_fb": {
+    "message": "environ 3 minutes"
+  },
+  "feerate_sub1_title": {
+    "message": "Sous 1"
+  },
+  "qbit_feerate_target_desc": {
+    "message": "~$1 min · $2 bloc(s)"
+  },
+  "finality_providers": {
+    "message": "Fournisseurs de Finalité"
+  },
+  "finish": {
+    "message": "Terminer"
+  },
+  "first_account_not_found": {
+    "message": "Premier compte non trouvé"
+  },
+  "full_address": {
+    "message": "Adresse complète"
+  },
+  "from": {
+    "message": "De"
+  },
+  "function_not_implemented": {
+    "message": "Fonction non implémentée."
+  },
+  "future_versions_will_support_spending_these_assets": {
+    "message": "This balance will remain unavailable while those UTXOs are protected."
+  },
+  "gas_adjustment": {
+    "message": "Ajustement du Gaz"
+  },
+  "gas_adjustment_explanation": {
+    "message": "Explication de l'Ajustement du Gaz :"
+  },
+  "gas_adjustment_explanation_1": {
+    "message": "• Multiplicateur appliqué au gaz estimé (1.0 = 100%)"
+  },
+  "gas_adjustment_explanation_2": {
+    "message": "• Défaut 1.3 (130%) fournit une marge de sécurité"
+  },
+  "gas_adjustment_explanation_3": {
+    "message": "• Des valeurs plus élevées augmentent les chances de succès de la transaction"
+  },
+  "gas_fee_calculation_may_not_include_newly_received_tokens_try_a_smaller_amount": {
+    "message": "Le calcul des frais de transaction peut ne pas inclure les jetons récemment reçus. Essayez un montant plus petit."
+  },
+  "gas_limit": {
+    "message": "Limite de Gaz"
+  },
+  "gas_limit_explanation": {
+    "message": "Explication de la Limite de Gaz"
+  },
+  "gas_limit_explanation_1": {
+    "message": "• Contrôle les ressources de calcul max pour la transaction"
+  },
+  "gas_limit_explanation_2": {
+    "message": "• Limite plus élevée = frais potentiels plus élevés mais assure l'achèvement"
+  },
+  "gas_limit_explanation_3": {
+    "message": "• Trop bas peut causer l'échec de la transaction"
+  },
+  "gas_limit_explanation_4": {
+    "message": "• La valeur recommandée est généralement suffisante"
+  },
+  "generating": {
+    "message": "Génération..."
+  },
+  "generating_qr_code": {
+    "message": "Génération du code QR..."
+  },
+  "genesis_transaction": {
+    "message": "transaction de genèse"
+  },
+  "get_signature": {
+    "message": "Obtenir la Signature"
+  },
+  "get_signature_success": {
+    "message": "Succès de l'Obtention de la Signature"
+  },
+  "go_back": {
+    "message": "Retourner"
+  },
+  "go_to_marketplace": {
+    "message": "Aller à la Marketplace"
+  },
+  "go_to_stake": {
+    "message": "Aller au Staking"
+  },
+  "go_to_update": {
+    "message": "Aller à la mise à jour"
+  },
+  "hello": {
+    "message": "BONJOUR"
+  },
+  "hex_private_key": {
+    "message": "Clé Privée Hex :"
+  },
+  "high": {
+    "message": "Élevé"
+  },
+  "high_fee_rate_risk_description": {
+    "message": "Cette transaction a un taux de frais élevé. Veuillez vous assurer de comprendre les implications de cette action avant de continuer."
+  },
+  "high_fee_rate_risk_title": {
+    "message": "Taux de frais élevé détecté"
+  },
+  "high_priority": {
+    "message": "Priorité élevée"
+  },
+  "history": {
+    "message": "Historique"
+  },
+  "history_count": {
+    "message": "Total de transactions"
+  },
+  "history_more_count": {
+    "message": "+$1 de plus"
+  },
+  "history_more_on_uniscan_count": {
+    "message": "+$1 de plus sur UniScan"
+  },
+  "history_no_transactions": {
+    "message": "Aucune transaction"
+  },
+  "history_pending": {
+    "message": "En attente"
+  },
+  "holders": {
+    "message": "détenteurs"
+  },
+  "holders_count": {
+    "message": "Nombre de détenteurs"
+  },
+  "home": {
+    "message": "Accueil"
+  },
+  "hour": {
+    "message": "Heure"
+  },
+  "hours": {
+    "message": "Heures"
+  },
+  "hours_ago": {
+    "message": "heures"
+  },
+  "i_already_have_a_wallet": {
+    "message": "J'ai déjà un portefeuille"
+  },
+  "i_am_aware_of_the_risks": {
+    "message": "Je suis conscient des risques"
+  },
+  "i_have_signed_scan_result": {
+    "message": "J'ai Signé, Scanner le Résultat"
+  },
+  "i_only_sign_what_i_understand": {
+    "message": "Je ne signe que ce que je comprends"
+  },
+  "i_saved_my_secret_recovery_phrase": {
+    "message": "J'ai sauvegardé Ma Phrase Secrète de Récupération"
+  },
+  "i_understand_continue": {
+    "message": "Je comprends, continuer"
+  },
+  "id": {
+    "message": "id"
+  },
+  "if_you_ever_change_browsers_or_move_computers_you_": {
+    "message": "Si jamais vous changez de navigateur ou d'ordinateur, vous aurez besoin de cette Clé Privée pour accéder à ce compte. Sauvegardez-la dans un endroit sûr et secret"
+  },
+  "if_you_insist_on_continuing_proceed_at_your_own_risk": {
+    "message": "Si vous insistez pour continuer, procédez à vos propres risques :"
+  },
+  "if_you_lose_your_private_key_your_assets_will_be_g": {
+    "message": "Si vous perdez votre Clé Privée, vos actifs disparaîtront !"
+  },
+  "if_you_lose_your_secret_recovery_phrase_your_asset": {
+    "message": "Si vous perdez votre Phrase Secrète de Récupération, vos actifs disparaîtront !"
+  },
+  "if_you_share_the_private_key_to_others_your_assets": {
+    "message": "Si vous partagez la Clé Privée avec d'autres, vos actifs seront volés !"
+  },
+  "if_you_share_the_secret_recovery_phrase_to_others_": {
+    "message": "Si vous partagez la Phrase Secrète de Récupération avec d'autres, vos actifs seront volés !"
+  },
+  "import_an_existing_wallet_with_your_secret_recover": {
+    "message": "Importer un portefeuille existant avec votre phrase secrète de récupération"
+  },
+  "important_to_not_transfer_this_token": {
+    "message": "Important: Veuillez ne pas transférer ce jeton en raison d'une anomalie temporaire d'indexation. Nous attendons la résolution du projet fondateur. Les autres jetons ne sont pas affectés."
+  },
+  "incomplete_psbt_warning": {
+    "message": "transaction(s) sans données UTXO, montants invérifiables"
+  },
+  "indexer_api_down_risk_description": {
+    "message": "L'API d'indexation est actuellement hors service. Cela peut affecter la précision des détails de transaction et des soldes d'actifs. Procédez avec prudence et vérifiez toutes les informations de manière indépendante."
+  },
+  "indexer_api_down_risk_title": {
+    "message": "API d'indexation hors service"
+  },
+  "inputs": {
+    "message": "Entrées"
+  },
+  "instructions": {
+    "message": "Instructions :"
+  },
+  "insufficient_balance": {
+    "message": "Solde insuffisant."
+  },
+  "invalid_address": {
+    "message": "Adresse invalide."
+  },
+  "invalid_address_format_for_selected_network": {
+    "message": "Format d'adresse invalide pour le réseau sélectionné"
+  },
+  "invalid_address_in_tosigninput": {
+    "message": "adresse invalide dans toSignInput"
+  },
+  "invalid_derivation_path": {
+    "message": "Chemin de dérivation invalide."
+  },
+  "invalid_fee_rate": {
+    "message": "Taux de frais invalide"
+  },
+  "invalid_index_in_tosigninput": {
+    "message": "index invalide dans toSignInput"
+  },
+  "invalid_psbt": {
+    "message": "psbt invalide"
+  },
+  "invalid_public_key": {
+    "message": "Clé publique invalide"
+  },
+  "invalid_public_key_in_tosigninput": {
+    "message": "clé publique invalide dans toSignInput"
+  },
+  "invalid_recipient_address": {
+    "message": "Adresse de destinataire invalide"
+  },
+  "invalid_sighash_type_in_tosigninput": {
+    "message": "type sighash invalide dans toSignInput"
+  },
+  "invalid_transaction_data": {
+    "message": "Données de transaction invalides"
+  },
+  "invalid_wallet_please_remove_it_and_add_new_one": {
+    "message": "Portefeuille invalide, veuillez le supprimer et en ajouter un nouveau"
+  },
+  "involved_assets": {
+    "message": "Actifs Impliqués :"
+  },
+  "is_unconfirmed_please_wait_for_confirmation": {
+    "message": "est non confirmé, veuillez attendre la confirmation"
+  },
+  "items": {
+    "message": "Items"
+  },
+  "just_now": {
+    "message": "À l'instant"
+  },
+  "keyring_does_not_exist": {
+    "message": "le porte-clés n'existe pas"
+  },
+  "keyring_error_account_count": {
+    "message": "Le nombre de comptes doit être supérieur à 0"
+  },
+  "keyringcontroller_first_account_not_found": {
+    "message": "KeyringController - Premier compte non trouvé."
+  },
+  "keyringcontroller_password_is_not_a_string": {
+    "message": "KeyringController - le mot de passe n'est pas une chaîne de caractères"
+  },
+  "language": {
+    "message": "Langue"
+  },
+  "language_description": {
+    "message": "Changer la langue de l'application"
+  },
+  "latest_version": {
+    "message": "Dernière Version"
+  },
+  "let_us_know_what_you_think": {
+    "message": "Faites-nous savoir ce que vous pensez"
+  },
+  "like_our_wallet_wed_love_your_rating": {
+    "message": "Aime notre portefeuille ? Nous aimerions votre note !"
+  },
+  "load_failed": {
+    "message": "Échec du Chargement"
+  },
+  "loading": {
+    "message": "chargement..."
+  },
+  "loading_contacts": {
+    "message": "Chargement..."
+  },
+  "loading_details": {
+    "message": "Chargement des détails..."
+  },
+  "lock_immediately": {
+    "message": "Verrouiller Immédiatement"
+  },
+  "lock_wallet": {
+    "message": "Verrouiller le Portefeuille"
+  },
+  "low": {
+    "message": "Bas"
+  },
+  "low_fee_mode": {
+    "message": "Mode inférieur à 1 bits/vB"
+  },
+  "low_fee_rate_risk_description": {
+    "message": "Le taux de frais de cette transaction est faible. Assurez-vous de bien comprendre les implications avant de continuer."
+  },
+  "low_fee_rate_risk_title": {
+    "message": "Frais de transaction bas détectés"
+  },
+  "low_priority": {
+    "message": "Priorité faible"
+  },
+  "malicious_behavior_and_suspicious_activity_have_be": {
+    "message": "Un comportement malveillant et une activité suspecte ont été détectés."
+  },
+  "manage_wallet": {
+    "message": "Gérer le Portefeuille"
+  },
+  "mandatory_use_of_unconfirmed_balance": {
+    "message": "Utilisation obligatoire du solde non confirmé"
+  },
+  "max": {
+    "message": "MAX"
+  },
+  "max_supply": {
+    "message": "Offre max"
+  },
+  "medium": {
+    "message": "Moyen"
+  },
+  "medium_priority": {
+    "message": "Priorité moyenne"
+  },
+  "memo": {
+    "message": "Mémo :"
+  },
+  "memo_is_too_long_the_maximum_length_is_256_characters": {
+    "message": "Le mémo est trop long. La longueur maximale est de 256 caractères."
+  },
+  "merge_failed": {
+    "message": "Échec de la Fusion."
+  },
+  "merge_history": {
+    "message": "Historique de Fusion"
+  },
+  "merge_progress": {
+    "message": "Progression de la Fusion"
+  },
+  "merge_transactions": {
+    "message": "Transactions de Fusion"
+  },
+  "merge_utxos": {
+    "message": "Fusionner"
+  },
+  "merge_utxos1": {
+    "message": "Fusionner"
+  },
+  "merge_utxos_failed": {
+    "message": "Échec de la fusion"
+  },
+  "merge_utxos_to_increase_the_available_balance": {
+    "message": "Fusionner les UTXOs->"
+  },
+  "merging": {
+    "message": "Fusion en cours..."
+  },
+  "merging_amount": {
+    "message": "Montant de Fusion"
+  },
+  "merging_utxos": {
+    "message": "Fusion d'UTXOs"
+  },
+  "message": {
+    "message": "message"
+  },
+  "method_not_implemented": {
+    "message": "Méthode non implémentée."
+  },
+  "mint": {
+    "message": "Frappé"
+  },
+  "minted": {
+    "message": "Minté"
+  },
+  "mints": {
+    "message": "acuñaciones"
+  },
+  "minute": {
+    "message": "Minute"
+  },
+  "minutes": {
+    "message": "Minutes"
+  },
+  "minutes_ago": {
+    "message": "minutes"
+  },
+  "mixed": {
+    "message": "Mixte"
+  },
+  "mnemonic_phrase_is_invalid": {
+    "message": "La phrase mnémonique est invalide"
+  },
+  "mnemonics_12_words": {
+    "message": "12 mots"
+  },
+  "mnemonics_24_words": {
+    "message": "24 mots"
+  },
+  "more": {
+    "message": "Plus"
+  },
+  "more_details": {
+    "message": "Plus de détails"
+  },
+  "add_liquidity": {
+    "message": "Add Liquidity"
+  },
+  "remove_liquidity": {
+    "message": "Remove Liquidity"
+  },
+  "msg_already_signed": {
+    "message": "Ce message est déjà signé"
+  },
+  "msg_content": {
+    "message": "Contenu du Message"
+  },
+  "msg_detail": {
+    "message": "Détails du Message"
+  },
+  "msg_generate_qr": {
+    "message": "Générer Code QR"
+  },
+  "msg_generate_sign": {
+    "message": "Générer Signature"
+  },
+  "msg_generating_qr": {
+    "message": "Génération du code QR..."
+  },
+  "msg_message": {
+    "message": "Message"
+  },
+  "msg_origin": {
+    "message": "Origine: "
+  },
+  "msg_pending": {
+    "message": "En attente"
+  },
+  "msg_scan_qr_code": {
+    "message": "Veuillez scanner le code QR avec votre portefeuille froid"
+  },
+  "msg_scan_result": {
+    "message": "Résultat du Scan"
+  },
+  "msg_scan_sign": {
+    "message": "Scanner Signature"
+  },
+  "msg_sign": {
+    "message": "Signature de Message"
+  },
+  "msg_sign_type": {
+    "message": "Type de Signature"
+  },
+  "msg_signed": {
+    "message": "Signé"
+  },
+  "msg_start_sign": {
+    "message": "Commencer la signature"
+  },
+  "msg_status": {
+    "message": "État"
+  },
+  "msg_waiting_sign": {
+    "message": "En attente de signature"
+  },
+  "multiple_assets_risk_description": {
+    "message": "Cette transaction implique plusieurs actifs. Veuillez vous assurer de comprendre les implications de cette action avant de continuer."
+  },
+  "multiple_assets_risk_title": {
+    "message": "Actifs multiples détectés"
+  },
+  "multisign_disclaimer": {
+    "message": "Avertissement MultiSign"
+  },
+  "my_address": {
+    "message": "Mon Adresse"
+  },
+  "name": {
+    "message": "nom"
+  },
+  "name_label": {
+    "message": "Nom"
+  },
+  "name_recognized_and_resolved": {
+    "message": "Nom reconnu et résolu."
+  },
+  "names": {
+    "message": "Noms"
+  },
+  "native_segwit_p2wpkh": {
+    "message": "Segwit Natif (P2WPKH)"
+  },
+  "nested_segwit_p2shp2wpkh": {
+    "message": "Segwit Imbriqué (P2SH-P2WPKH)"
+  },
+  "network": {
+    "message": "Réseau"
+  },
+  "network_error_json_parse_error": {
+    "message": "Erreur réseau, erreur d'analyse json"
+  },
+  "network_error_no_response": {
+    "message": "Erreur réseau, pas de réponse"
+  },
+  "network_errorno_response_data": {
+    "message": "Erreur réseau, pas de données de réponse"
+  },
+  "network_fee": {
+    "message": "Frais de Réseau :"
+  },
+  "network_fee_2": {
+    "message": "Frais de réseau"
+  },
+  "network_fees": {
+    "message": "Frais de réseau"
+  },
+  "network_fee_rate": {
+    "message": "Taux de Frais Réseau :"
+  },
+  "size_bytes": {
+    "message": "Taille"
+  },
+  "change_below_dust_added_to_fee": {
+    "message": "$1 bits de monnaie inférieure au seuil de poussière ont été ajoutés aux frais réseau exacts"
+  },
+  "network_not_matched_risk_description": {
+    "message": "Cette transaction n'est pas sur le réseau actuel, veuillez vous assurer de faire confiance à la source de cette transaction avant de continuer."
+  },
+  "network_not_matched_risk_title": {
+    "message": "Réseau non correspondant détecté."
+  },
+  "new": {
+    "message": "nouveau !"
+  },
+  "new_account": {
+    "message": "Nouveau compte"
+  },
+  "new_password": {
+    "message": "Nouveau Mot de passe"
+  },
+  "new_value": {
+    "message": "Nouvelle Valeur :"
+  },
+  "new_version": {
+    "message": "Nouvelle version !"
+  },
+  "next": {
+    "message": "Suivant"
+  },
+  "nft": {
+    "message": "NFT"
+  },
+  "nfts": {
+    "message": "NFTs"
+  },
+  "no_address_or_public_key_in_tosigninput": {
+    "message": "pas d'adresse ou de clé publique dans toSignInput"
+  },
+  "no_current_account": {
+    "message": "pas de compte actuel"
+  },
+  "no_current_keyring": {
+    "message": "pas de porte-clés actuel"
+  },
+  "n_hour": {
+    "message": "$1 Heure"
+  },
+  "n_hours": {
+    "message": "$1 Heures"
+  },
+  "n_minute": {
+    "message": "$1 Minute"
+  },
+  "n_minutes": {
+    "message": "$1 Minutes"
+  },
+  "n_seconds": {
+    "message": "$1 Secondes"
+  },
+  "no_connected_sites": {
+    "message": "Aucun site connecté"
+  },
+  "no_data": {
+    "message": "AUCUNE DONNÉE"
+  },
+  "no_inputs": {
+    "message": "Aucune entrée"
+  },
+  "no_keyring_found_for_the_requested_account": {
+    "message": "Aucun porte-clés trouvé pour le compte demandé."
+  },
+  "no_matching_contacts_found": {
+    "message": "Aucun contact correspondant trouvé"
+  },
+  "no_mfp_in_keyring": {
+    "message": "pas de mfp dans le porte-clés"
+  },
+  "no_notifications": {
+    "message": "Aucune notification"
+  },
+  "not_connected": {
+    "message": "Non connecté"
+  },
+  "not_implemented": {
+    "message": "non implémenté"
+  },
+  "not_long_enough": {
+    "message": "Pas assez long"
+  },
+  "not_supported": {
+    "message": "Non pris en charge"
+  },
+  "not_supported_chainid": {
+    "message": "ChainId non supporté"
+  },
+  "not_supported_yet": {
+    "message": "Non pris en charge pour le moment"
+  },
+  "notice": {
+    "message": "Avis"
+  },
+  "notifications": {
+    "message": "Notifications"
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "old_value": {
+    "message": "Ancienne Valeur :"
+  },
+  "only_applies_to_current_address": {
+    "message": "S'applique uniquement à l'adresse actuelle"
+  },
+  "only_connect_with_sites_you_trust": {
+    "message": "Ne vous connectez qu'aux sites de confiance."
+  },
+  "only_sign_if_you_fully_understand_the_content_and_": {
+    "message": "Ne signez que si vous comprenez parfaitement le contenu et faites confiance au site demandeur."
+  },
+  "only_sign_this_message_if_you_fully_understand_the": {
+    "message": "Ne signez ce message que si vous comprenez parfaitement le contenu et faites confiance au site demandeur."
+  },
+  "onsuccess_not_implemented": {
+    "message": "onSuccess Non implémenté"
+  },
+  "oops_something_went_wrong": {
+    "message": "Oups ! Quelque chose s'est mal passé."
+  },
+  "open_as_popup": {
+    "message": "Ouvrir comme fenêtre"
+  },
+  "open_as_side_bar": {
+    "message": "Ouvrir la barre latérale"
+  },
+  "open_your_cold_wallet_app_or_device": {
+    "message": "1. Ouvrez votre application ou appareil de portefeuille froid."
+  },
+  "other_wallet": {
+    "message": "Autre portefeuille"
+  },
+  "others": {
+    "message": "Autres"
+  },
+  "output_value": {
+    "message": "valeur de sortie"
+  },
+  "output_value_must_be_at_least": {
+    "message": "La Valeur de Sortie doit être d'au moins"
+  },
+  "outputs": {
+    "message": "Sorties"
+  },
+  "outputvalue": {
+    "message": "Valeur de Sortie"
+  },
+  "owner": {
+    "message": "Propriétaire"
+  },
+  "parent": {
+    "message": "parent"
+  },
+  "parse_error": {
+    "message": "Erreur d'analyse"
+  },
+  "passphrase": {
+    "message": "Phrase de passe"
+  },
+  "password": {
+    "message": "Mot de passe"
+  },
+  "password_cannot_be_empty": {
+    "message": "Le mot de passe ne peut pas être vide"
+  },
+  "password_error": {
+    "message": "Mot de passe incorrect"
+  },
+  "password_must_be_at_least_8_characters": {
+    "message": "Le mot de passe doit comporter au moins 8 caractères"
+  },
+  "password_strength": {
+    "message": "Force du mot de passe :"
+  },
+  "passwords_dont_match": {
+    "message": "Les mots de passe ne correspondent pas"
+  },
+  "paused": {
+    "message": "En pause"
+  },
+  "payment_failed": {
+    "message": "Échec du Paiement"
+  },
+  "payment_network_fee": {
+    "message": "Frais de Réseau de Paiement"
+  },
+  "pending": {
+    "message": "en attente"
+  },
+  "per_mint": {
+    "message": "par menthe"
+  },
+  "permission_denied": {
+    "message": "Permission refusée"
+  },
+  "phishing_detection": {
+    "message": "Détection de Phishing"
+  },
+  "phrase_optional": {
+    "message": "Phrase (Optionnel)"
+  },
+  "please_be_aware_that": {
+    "message": "Veuillez noter que :"
+  },
+  "please_be_aware_that_sending_the_following_assets_involves_risk": {
+    "message": "Please be aware that signing this transaction involves risk."
+  },
+  "please_enter_address": {
+    "message": "Veuillez entrer une adresse"
+  },
+  "please_enter_name": {
+    "message": "Veuillez entrer un nom"
+  },
+  "please_make_sure_you_have_read_the_security_tips_a": {
+    "message": "Veuillez vous assurer d'avoir lu les conseils de sécurité ci-dessus avant de saisir votre mot de passe"
+  },
+  "please_pay_attention_to_whether_you_have_backed_up": {
+    "message": "Veuillez faire attention à savoir si vous avez sauvegardé la mnémonique/clé privée pour éviter la perte d'actifs"
+  },
+  "please_read_more_detail_on": {
+    "message": "Veuillez lire plus de détails sur"
+  },
+  "position_the_qr_code_in_front_of_your_camera_the_screen_is_blurred_but_this_will_not_affect_the_scan": {
+    "message": "Positionnez le code QR devant votre caméra. L'écran est flou mais cela n'affectera pas le scan."
+  },
+  "precautions": {
+    "message": "Précautions"
+  },
+  "premine": {
+    "message": "prémine"
+  },
+  "preview": {
+    "message": "Aperçu"
+  },
+  "previous": {
+    "message": "Précédent"
+  },
+  "privacy_policy": {
+    "message": "Politique de confidentialité"
+  },
+  "private_key_is_only_stored_in_your_browser_it_is_y": {
+    "message": "Il est de votre responsabilité de garder la Clé Privée en sécurité !"
+  },
+  "processing_signature": {
+    "message": "Traitement de la signature..."
+  },
+  "promise_need_function_to_handle": {
+    "message": "promise nécessite une fonction pour être gérée"
+  },
+  "provenance": {
+    "message": "Provenance"
+  },
+  "psbt_data": {
+    "message": "Données PSBT :"
+  },
+  "signed_psbt_data": {
+    "message": "Données PSBT signées"
+  },
+  "public_key_must_be_compressed_secp256k1_ie_33_byte": {
+    "message": "La clé publique doit être secp256k1 compressée, c'est-à-dire 33 octets commençant par 0x02 ou 0x03"
+  },
+  "quick_sign_assets_detected": {
+    "message": "Cannot quick sign: inputs contain protected assets."
+  },
+  "quit_merging_process": {
+    "message": "Quitter le Processus de Fusion"
+  },
+  "range": {
+    "message": "Plage"
+  },
+  "rate_us": {
+    "message": "Notez-nous"
+  },
+  "rbf": {
+    "message": "RBF"
+  },
+  "rbf_tip": {
+    "message": "RBF marque cette transaction non confirmée comme remplaçable afin que vous puissiez la réessayer avec des frais plus élevés. Même si RBF est désactivé, la transaction peut toujours être remplaçable selon la politique du réseau."
+  },
+  "replaced": {
+    "message": "Remplacée"
+  },
+  "bump_fee": {
+    "message": "Augmenter les frais"
+  },
+  "fee_bump_review_description": {
+    "message": "Ce remplacement conserve les destinataires et les données du mémo d’origine tout en payant des frais plus élevés."
+  },
+  "fee_bump_unavailable": {
+    "message": "Cette transaction ne peut plus être remplacée en toute sécurité. Actualisez l’historique et réessayez."
+  },
+  "fee_increase": {
+    "message": "Augmentation des frais"
+  },
+  "original_fee": {
+    "message": "Frais d’origine"
+  },
+  "original_fee_rate": {
+    "message": "Taux de frais d’origine"
+  },
+  "replacement_fee": {
+    "message": "Frais de remplacement"
+  },
+  "replacement_fee_rate": {
+    "message": "Taux de frais de remplacement"
+  },
+  "replaces_transaction": {
+    "message": "Remplace la transaction"
+  },
+  "receive": {
+    "message": "Recevoir"
+  },
+  "received_from": {
+    "message": "Reçu de"
+  },
+  "receiver": {
+    "message": "Destinataire"
+  },
+  "recipient": {
+    "message": "Destinataire"
+  },
+  "recipient_address_is_invalid": {
+    "message": "L'adresse du destinataire est invalide"
+  },
+  "recommended": {
+    "message": "Recommandé"
+  },
+  "recommended_fee_rates": {
+    "message": "Taux de frais recommandés :"
+  },
+  "refresh": {
+    "message": "Rafraîchir"
+  },
+  "refresh_page": {
+    "message": "Rafraîchir la Page"
+  },
+  "reject": {
+    "message": "Rejeter"
+  },
+  "reject_all": {
+    "message": "Tout Rejeter"
+  },
+  "remember_my_choice": {
+    "message": "Se souvenir de mon choix"
+  },
+  "remove": {
+    "message": "Supprimer"
+  },
+  "remove_wallet": {
+    "message": "Supprimer le Portefeuille"
+  },
+  "removing_the_last_wallet_is_not_allowed": {
+    "message": "La suppression du dernier portefeuille n'est pas autorisée"
+  },
+  "request_was_rejected_to_proceed_please_reauthorize": {
+    "message": "La demande a été rejetée. Pour continuer, veuillez réautoriser"
+  },
+  "restore_from_mnemonics": {
+    "message": "Restaurer depuis les mots de passe"
+  },
+  "restore_from_mnemonics_12words24words": {
+    "message": "Restaurer depuis mnémoniques (12 ou 24 mots)"
+  },
+  "restore_wallet": {
+    "message": "Restaurer le Portefeuille"
+  },
+  "retry_in_10s": {
+    "message": "Réessayer dans 10s"
+  },
+  "review_and_confirm_transaction_details_in_your_cold_wallet": {
+    "message": "3. Examinez et confirmez les détails de la transaction dans votre portefeuille froid."
+  },
+  "satsvb": {
+    "message": "bits/vB"
+  },
+  "satvb": {
+    "message": "bits/vB"
+  },
+  "save": {
+    "message": "Enregistrer"
+  },
+  "saving": {
+    "message": "Enregistrement..."
+  },
+  "scammer_address_risk_description": {
+    "message": "Cette adresse a été signalée comme une adresse d'escroquerie. Procédez avec prudence. Si vous pensez qu'il s'agit d'un faux positif, veuillez le signaler."
+  },
+  "scammer_address_risk_title": {
+    "message": "⚠️ Adresse suspecte détectée"
+  },
+  "scan_in_more_addresses": {
+    "message": "Scanner plus d'adresses..."
+  },
+  "scan_the_qr_code": {
+    "message": "Scanner le Code QR"
+  },
+  "scan_this_qr_code": {
+    "message": "2. Scannez ce code QR."
+  },
+  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
+    "message": "Scannez ce code QR avec votre portefeuille froid pour examiner et signer la transaction."
+  },
+  "scan_to_connect": {
+    "message": "Scanner pour connecter"
+  },
+  "script": {
+    "message": "Script"
+  },
+  "scroll_to_bottom": {
+    "message": "↓ Bas"
+  },
+  "scroll_to_top": {
+    "message": "↑ Haut"
+  },
+  "scroll_to_view_all": {
+    "message": "Faire défiler pour tout voir"
+  },
+  "scroll_view_items": {
+    "message": "articles"
+  },
+  "search_address_and_txids": {
+    "message": "Rechercher Adresse et TXIDs"
+  },
+  "search_address_or_name": {
+    "message": "Rechercher adresse ou nom"
+  },
+  "seconds": {
+    "message": "Secondes"
+  },
+  "seconds_ago": {
+    "message": "secondes"
+  },
+  "secret_recovery_phrase": {
+    "message": "Phrase Secrète de Récupération"
+  },
+  "secret_recovery_phrase_is_only_stored_in_your_brow": {
+    "message": "Il est de votre responsabilité de garder la Phrase Secrète de Récupération en sécurité !"
+  },
+  "secs": {
+    "message": "secondes"
+  },
+  "security_notice": {
+    "message": "Avis de Sécurité :"
+  },
+  "security_warning": {
+    "message": "Avertissement de Sécurité"
+  },
+  "select_all": {
+    "message": "Tout Sélectionner"
+  },
+  "select_network": {
+    "message": "Sélectionner le Réseau"
+  },
+  "select_the_account_to_use_on_this_site": {
+    "message": "Sélectionnez le compte à utiliser sur ce site"
+  },
+  "selected": {
+    "message": "Sélectionné(s)"
+  },
+  "self_transfer": {
+    "message": "Transfert personnel"
+  },
+  "send": {
+    "message": "Envoyer"
+  },
+  "send_amount": {
+    "message": "Montant à Envoyer"
+  },
+  "send_amount_exceeds_balance": {
+    "message": "Le montant d'envoi dépasse le solde"
+  },
+  "send_to": {
+    "message": "Envoyer à"
+  },
+  "sending_out_assets": {
+    "message": "Envoi d'Actifs"
+  },
+  "service_fee": {
+    "message": "Frais de Service"
+  },
+  "set_utxo_amount_to_be_merged": {
+    "message": "Définir le montant d'UTXO à fusionner"
+  },
+  "settings": {
+    "message": "Paramètres"
+  },
+  "show_private_key": {
+    "message": "Afficher la Clé Privée"
+  },
+  "show_secret_recovery_phrase": {
+    "message": "Afficher la Phrase Secrète de Récupération"
+  },
+  "sighash_none_detected": {
+    "message": "SIGHASH_NONE détecté. Signature annulée pour des raisons de sécurité."
+  },
+  "sighash_none_risk_description": {
+    "message": "SIGHASH_NONE est un type de signature spécial qui permet de modifier la transaction après signature. Cela peut entraîner une perte potentielle de fonds si la transaction est altérée malicieusement. Veuillez vous assurer de faire confiance à la source de cette transaction avant de continuer."
+  },
+  "sighash_none_risk_title": {
+    "message": "SIGHASH_NONE détecté"
+  },
+  "sign": {
+    "message": "Signer"
+  },
+  "sign_all": {
+    "message": "Tout signer"
+  },
+  "sign_all_transactions_at_once": {
+    "message": "Vous avez la possibilité de signer toutes les transactions en une fois, mais veuillez noter que Qbit Wallet ne vérifiera pas chaque transaction individuellement. Nous vous recommandons d'utiliser uniquement cette fonctionnalité sur des sites web de confiance et familiers pour minimiser le risque de pertes potentielles."
+  },
+  "sign_and_pay": {
+    "message": "Signer & Payer"
+  },
+  "derive_context_hash_request": {
+    "message": "Générer un identifiant"
+  },
+  "derive_context_hash_description": {
+    "message": "Ce site demande un identifiant unique lié à votre portefeuille pour le contexte suivant."
+  },
+  "derive_context_hash_app_name": {
+    "message": "Application web"
+  },
+  "derive_context_hash_account": {
+    "message": "Compte"
+  },
+  "derive_context_hash_network": {
+    "message": "Réseau"
+  },
+  "derive_context_hash_context": {
+    "message": "Contexte"
+  },
+  "derive_context_hash_warning": {
+    "message": "N'approuvez que si vous faites confiance à ce site."
+  },
+  "sign_data_request": {
+    "message": "Demande de signature de données"
+  },
+  "sign_data_requests": {
+    "message": "demandes signData"
+  },
+  "sign_multiple_transactions": {
+    "message": "Signer Plusieurs Transactions"
+  },
+  "sign_psbt_input_error": {
+    "message": "Le psbt ou les paramètres sont invalides et ne peuvent pas être signés."
+  },
+  "sign_result": {
+    "message": "RÉSULTAT DE LA SIGNATURE :"
+  },
+  "sign_transaction": {
+    "message": "Signer la Transaction"
+  },
+  "signature_request": {
+    "message": "Demande de signature"
+  },
+  "signature_successful": {
+    "message": "Signature Réussie"
+  },
+  "signdata_required_tip": {
+    "message": "Vous devez activer la fonctionnalité de demande signData dans Paramètres -> Avancé pour continuer."
+  },
+  "signed": {
+    "message": "Signé"
+  },
+  "single_step_transfer": {
+    "message": "Transfert en un seul clic"
+  },
+  "skip": {
+    "message": "Passer"
+  },
+  "slow": {
+    "message": "Lent"
+  },
+  "spend": {
+    "message": "Dépenser"
+  },
+  "spend_amount": {
+    "message": "Montant à Dépenser"
+  },
+  "spending_assets": {
+    "message": "Actifs Dépensés"
+  },
+  "split": {
+    "message": "Fractionner"
+  },
+  "spliting_to": {
+    "message": "Fractionnement vers"
+  },
+  "staked": {
+    "message": "Staké"
+  },
+  "stakers": {
+    "message": "Stakers"
+  },
+  "start": {
+    "message": "Démarrer"
+  },
+  "start_merging": {
+    "message": "Démarrer la Fusion"
+  },
+  "steal_your_private_keys_or_seed_phrases": {
+    "message": "Voler vos clés privées ou phrases secrètes"
+  },
+  "step1": {
+    "message": "Étape1"
+  },
+  "step2": {
+    "message": "Étape2"
+  },
+  "step_1": {
+    "message": "ÉTAPE 1"
+  },
+  "step_12": {
+    "message": "ÉTAPE 1/2"
+  },
+  "step_2": {
+    "message": "ÉTAPE 2"
+  },
+  "step_22": {
+    "message": "ÉTAPE 2/2"
+  },
+  "step_3": {
+    "message": "ÉTAPE 3"
+  },
+  "strong": {
+    "message": "Fort"
+  },
+  "strong_password_tip": {
+    "message": "Un mot de passe fort peut mieux protéger la sécurité de vos actifs"
+  },
+  "submit": {
+    "message": "Valider"
+  },
+  "success": {
+    "message": "Succès"
+  },
+  "supply": {
+    "message": "Offre totale"
+  },
+  "swap_send": {
+    "message": "Envoyer"
+  },
+  "swap_swap": {
+    "message": "Échanger"
+  },
+  "swap_unwrap": {
+    "message": "Unwrap"
+  },
+  "swap_wrap": {
+    "message": "Wrap"
+  },
+  "switch_account": {
+    "message": "Changer de Compte"
+  },
+  "switch_chain": {
+    "message": "Changer de Chaîne"
+  },
+  "switch_network": {
+    "message": "Changer de Réseau"
+  },
+  "switch_wallet": {
+    "message": "Changer de Portefeuille"
+  },
+  "symbol": {
+    "message": "symbole"
+  },
+  "tap_the_more_menu_then_select_the_export_private_key_option": {
+    "message": "Appuyez sur le menu 'Plus', puis sélectionnez l'option 'Exporter la Clé Privée'."
+  },
+  "taproot_p2tr": {
+    "message": "Taproot (P2TR)"
+  },
+  "terms_of_service": {
+    "message": "Conditions d'utilisation"
+  },
+  "test_approval_sign_psbt": {
+    "message": "Test d'Approbation de Signature PSBT"
+  },
+  "text_preview": {
+    "message": "Texte :"
+  },
+  "the_amount_for_change_is_too_low_please_adjust_the": {
+    "message": "Le montant pour la monnaie est trop bas, veuillez ajuster le montant d'envoi."
+  },
+  "the_auto_lock_time_has_been_changed_to": {
+    "message": "Le délai de verrouillage automatique a été changé à"
+  },
+  "the_broadcastchannel_name_is_missing": {
+    "message": "le nom broadcastChannel est manquant"
+  },
+  "the_fee_rate_is_much_higher_than_recommended_fee_rate": {
+    "message": "Le taux de frais est bien supérieur au taux de frais recommandé"
+  },
+  "the_fee_rate_is_much_lower_than_recommended_fee_rate": {
+    "message": "Le taux de frais est bien inférieur au taux de frais recommandé"
+  },
+  "the_minimum_amount_is": {
+    "message": "Le montant minimum est"
+  },
+  "the_private_key_is_invalid": {
+    "message": "La clé privée est invalide"
+  },
+  "the_recipient_must_be_p2tr_or_p2wpkh_address_type": {
+    "message": "Le destinataire doit être de type d'adresse P2TR ou P2WPKH"
+  },
+  "the_ultimate_security_solution_for_cryptocurrencie": {
+    "message": "La Solution de Sécurité Ultime pour les Cryptomonnaies"
+  },
+  "the_wallet_currently_uses_a_custom_hd_path_and_does_not_support_switching_address_types": {
+    "message": "Le portefeuille utilise actuellement un chemin HD personnalisé et ne prend pas en charge le changement de type d'adresse."
+  },
+  "think_this_is_a_false_positive_click_here_to_report_an_issue": {
+    "message": "Vous pensez que c'est un faux positif ? Cliquez ici pour signaler un problème →"
+  },
+  "this_account_has_no_transactions": {
+    "message": "Ce compte n'a aucune transaction"
+  },
+  "this_action_is_not_reversible": {
+    "message": "Cette action n'est pas réversible."
+  },
+  "this_feature_is_currently_in_the_experimental_test_phase_please_proceed_with_caution": {
+    "message": "Cette fonctionnalité est actuellement en phase de test expérimental. Veuillez procéder avec prudence."
+  },
+  "this_network_is_not_available": {
+    "message": "Ce réseau n'est pas disponible"
+  },
+  "this_phrase_is_the_only_way_to_recover_your_wallet": {
+    "message": "Cette phrase est le SEUL moyen de récupérer votre portefeuille. Ne la partagez avec personne ! "
+  },
+  "this_process_will_merge_your_utxos_into_one": {
+    "message": "solde doit être fusionné. Ce processus fusionnera vos UTXOs en un seul."
+  },
+  "this_token_only_supports_up_to": {
+    "message": "Ce jeton ne prend en charge que jusqu'à"
+  },
+  "ticker": {
+    "message": "ticker"
+  },
+  "timestamp": {
+    "message": "horodatage"
+  },
+  "to": {
+    "message": "À"
+  },
+  "to_continue": {
+    "message": "pour continuer"
+  },
+  "to_enable_spending_of_unconfirmed_balances_please_": {
+    "message": "Pour activer la dépense des soldes non confirmés, veuillez visiter les options avancées dans les paramètres."
+  },
+  "to_proceed": {
+    "message": "pour continuer"
+  },
+  "to_send_a_larger_amount_please_merge_your_utxos_to_increase_the_available_balance": {
+    "message": "Pour envoyer un montant plus important, veuillez fusionner vos UTXOs pour augmenter le solde disponible."
+  },
+  "to_sign": {
+    "message": "à signer"
+  },
+  "token_id": {
+    "message": "Token ID"
+  },
+  "token_not_found": {
+    "message": "Jeton non trouvé"
+  },
+  "tokens": {
+    "message": "Jetons"
+  },
+  "total": {
+    "message": "Total"
+  },
+  "total_balance": {
+    "message": "Solde Total"
+  },
+  "total_fee": {
+    "message": "Frais totaux"
+  },
+  "total_spent": {
+    "message": "Total dépensé"
+  },
+  "total_supply": {
+    "message": "Offre totale"
+  },
+  "trade": {
+    "message": "Échanger"
+  },
+  "transaction": {
+    "message": "Transaction"
+  },
+  "transaction_count": {
+    "message": "Transactions"
+  },
+  "transaction_details": {
+    "message": "Détails de la Transaction"
+  },
+  "transaction_id": {
+    "message": "ID de Transaction"
+  },
+  "transaction_preview": {
+    "message": "Transaction :"
+  },
+  "transaction_success": {
+    "message": "Succès de la Transaction"
+  },
+  "transaction_successful": {
+    "message": "Transaction réussie"
+  },
+  "transaction_unconfirmed": {
+    "message": "Non confirmé"
+  },
+  "transactions": {
+    "message": "transactions"
+  },
+  "transactions_at_once": {
+    "message": "transactions en une fois"
+  },
+  "transfer": {
+    "message": "Transférer"
+  },
+  "transfer_amount": {
+    "message": "Montant du Transfert"
+  },
+  "transferable": {
+    "message": "Transférable :"
+  },
+  "transferable_balance": {
+    "message": "Solde transférable"
+  },
+  "trick_you_into_signing_malicious_transactions": {
+    "message": "Vous inciter à signer des transactions malveillantes"
+  },
+  "trust_this_site_for_quick_multi_sign": {
+    "message": "Faire confiance à ce site et ne plus afficher cette invite"
+  },
+  "try_again": {
+    "message": "Réessayer"
+  },
+  "try_going_back_or_refreshing": {
+    "message": "Essayez de revenir en arrière ou de rafraîchir."
+  },
+  "tutorial": {
+    "message": "Tutoriel"
+  },
+  "tvl": {
+    "message": "TVL"
+  },
+  "tx_amount": {
+    "message": "montant"
+  },
+  "tx_broadcast_back_to_wallet": {
+    "message": "Retour au portefeuille"
+  },
+  "tx_broadcast_check_status": {
+    "message": "Vérifier le statut"
+  },
+  "tx_broadcast_reason_chain_changed": {
+    "message": "Le portefeuille est désormais sur un réseau différent de celui pour lequel cette transaction a été signée."
+  },
+  "tx_broadcast_reason_guard_blocked": {
+    "message": "Le portefeuille a bloqué la diffusion car elle entre en conflit avec une autre transaction approuvée."
+  },
+  "tx_broadcast_reason_guard_blocked_unconfirmed": {
+    "message": "Le portefeuille ne détient plus la réservation de cette transaction. Une diffusion précédente a peut-être déjà été acceptée."
+  },
+  "tx_broadcast_reason_invalid_response": {
+    "message": "Le réseau a renvoyé une réponse inattendue."
+  },
+  "tx_broadcast_reason_invalid_transaction": {
+    "message": "La transaction signée n'a pas pu être lue."
+  },
+  "tx_broadcast_reason_network": {
+    "message": "Le réseau n'a pas pu être joint."
+  },
+  "tx_broadcast_reason_rejected": {
+    "message": "Le nœud du réseau a rejeté la transaction."
+  },
+  "tx_broadcast_reason_rejected_unconfirmed": {
+    "message": "Le nœud du réseau a signalé une erreur, mais le portefeuille n'a pas pu confirmer si la transaction a été acceptée."
+  },
+  "tx_broadcast_reason_server": {
+    "message": "Le service réseau a renvoyé une erreur."
+  },
+  "tx_broadcast_reason_timeout": {
+    "message": "Le réseau n'a pas répondu à temps."
+  },
+  "tx_broadcast_reason_unexpected": {
+    "message": "Une erreur inattendue a interrompu la diffusion."
+  },
+  "tx_broadcast_retry": {
+    "message": "Réessayer la diffusion"
+  },
+  "tx_broadcast_retry_blocked": {
+    "message": "La nouvelle tentative n'est pas partie : $1"
+  },
+  "tx_broadcast_retry_notice": {
+    "message": "Réessayer ne fait que rediffuser la même transaction signée. Aucune nouvelle signature n'est effectuée ni consommée."
+  },
+  "tx_broadcast_signature_notice": {
+    "message": "Cette transaction est déjà signée. La signature a peut-être consommé l'une des signatures à usage unique de ce compte."
+  },
+  "tx_broadcast_status_gone": {
+    "message": "La transaction n'a pas encore été trouvée sur le réseau. Patientez un instant puis vérifiez à nouveau, ou réessayez la diffusion."
+  },
+  "tx_broadcast_status_unavailable": {
+    "message": "Impossible de joindre le réseau pour vérifier le statut. Réessayez dans un instant."
+  },
+  "tx_broadcast_technical_details": {
+    "message": "Détails techniques"
+  },
+  "tx_fee": {
+    "message": "Frais Tx :"
+  },
+  "tx_not_sent_body": {
+    "message": "Le réseau n'a pas accepté cette transaction, ce paiement n'a donc pas été envoyé."
+  },
+  "tx_not_sent_title": {
+    "message": "La transaction n'a pas été envoyée"
+  },
+  "tx_sent_desc": {
+    "message": "Votre transaction a été diffusée avec succès, en attente de confirmation."
+  },
+  "tx_sent_title": {
+    "message": "Transaction Envoyée"
+  },
+  "tx_unknown_body": {
+    "message": "Le portefeuille n'a pas pu confirmer si le réseau a accepté ce paiement. La transaction a peut-être déjà été acceptée."
+  },
+  "tx_unknown_title": {
+    "message": "Statut du paiement inconnu"
+  },
+  "tx_unknown_warning": {
+    "message": "Ne créez pas et n'envoyez pas de paiement de remplacement. Si l'original a été accepté, un second paiement pourrait dépenser vos fonds une nouvelle fois."
+  },
+  "unable_to_find_any_addresses_with_assets": {
+    "message": "Unable to find any addresses with balance"
+  },
+  "unavailable": {
+    "message": "Indisponible"
+  },
+  "unavailable_tooltip": {
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+  },
+  "unconfirmed": {
+    "message": "non confirmé"
+  },
+  "unconfirmed_balance_not_spendable": {
+    "message": "Solde Non Confirmé Non Dépensable"
+  },
+  "unconfirmed_balance_not_spendable_warning": {
+    "message": "To protect your wallet, only confirmed balances are spendable when protected assets are present. This helps prevent accidental asset loss."
+  },
+  "understand_and_accept_the_risks_associated_with_this_transaction": {
+    "message": "Je comprends et accepte les risques associés à cette transaction."
+  },
+  "understand_sign_data_warning": {
+    "message": "Je comprends que je peux perdre tous mes fonds et NFT si j'active les demandes signData."
+  },
+  "uniscan_active_addresses_24h": {
+    "message": "Adresses Actives (24h)"
+  },
+  "uniscan_goto": {
+    "message": "Aller sur UniScan"
+  },
+  "uniscan_transactions_24h": {
+    "message": "Transactions (24h)"
+  },
+  "unknown_error": {
+    "message": "Erreur inconnue"
+  },
+  "unlock": {
+    "message": "Déverrouiller"
+  },
+  "unlock_already_in_progress": {
+    "message": "Le déverrouillage est déjà en cours"
+  },
+  "unrecognized_password_strength": {
+    "message": "Force de mot de passe non reconnue"
+  },
+  "unstake": {
+    "message": "Déstaker"
+  },
+  "usb_permissions_not_available": {
+    "message": "USB_PERMISSIONS_NOT_AVAILABLE"
+  },
+  "use_at_your_own_risk": {
+    "message": "Utilisation à vos propres risques"
+  },
+  "user_rejected_the_request": {
+    "message": "L'utilisateur a rejeté la demande."
+  },
+  "utxo_indexing_risk_description": {
+    "message": "L'UTXO sélectionné appartient à une transaction qui est encore en cours d'indexation. Pour assurer la sécurité et la fiabilité de la transaction, veuillez attendre que l'indexation soit terminée avant de continuer."
+  },
+  "utxo_indexing_risk_title": {
+    "message": "Indexation UTXO en cours"
+  },
+  "utxo_not_found": {
+    "message": "UTXO non trouvé."
+  },
+  "verify_recovery_phrase": {
+    "message": "Vérifier la Phrase de Récupération"
+  },
+  "version": {
+    "message": "Version :"
+  },
+  "view": {
+    "message": "Voir"
+  },
+  "view_detail": {
+    "message": "Voir le détail"
+  },
+  "view_on_block_explorer": {
+    "message": "Voir sur l'Explorateur de Blocs"
+  },
+  "view_on_mempool": {
+    "message": "Voir sur Mempool"
+  },
+  "view_on_okx_explorer": {
+    "message": "Voir sur l'Explorateur OKX"
+  },
+  "view_on_uniscan": {
+    "message": "Voir sur UniScan"
+  },
+  "wallet_already_initialized": {
+    "message": "Le portefeuille existe déjà. Réinitialisez le portefeuille avant de créer un nouveau mot de passe."
+  },
+  "wallet_existed": {
+    "message": "Le portefeuille existe déjà"
+  },
+  "warning": {
+    "message": "Avertissement"
+  },
+  "watch_address": {
+    "message": "Adresse Observée"
+  },
+  "watch_address_error": {
+    "message": "Adresse Qbit invalide"
+  },
+  "watch_address_placeholder": {
+    "message": "Entrez une adresse Qbit"
+  },
+  "watch_address_wallet": {
+    "message": "Portefeuille Observateur"
+  },
+  "weak": {
+    "message": "Faible"
+  },
+  "welcome_screen_title": {
+    "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
+  },
+  "wif_private_key": {
+    "message": "Clé Privée WIF :"
+  },
+  "world": {
+    "message": "MONDE"
+  },
+  "you_are_signing": {
+    "message": "Vous signez :"
+  },
+  "you_are_signing_data": {
+    "message": "Vous signez des données :"
+  },
+  "you_can_unlock_these_assets_by_using_the_utxos_tools": {
+    "message": "You can review or unlock spendable UTXOs by using the UTXO Management Tool."
+  },
+  "you_haven_t_added_any_addresses": {
+    "message": "Vous n'avez pas ajouté d'adresse"
+  },
+  "you_need_to_allow_camera_access_to_use_this_featur": {
+    "message": "Vous devez autoriser l'accès à la caméra pour utiliser cette fonctionnalité."
+  },
+  "you_need_to_unlock_wallet_first": {
+    "message": "Vous devez d'abord déverrouiller le portefeuille"
+  },
+  "you_re_on_the_latest_version": {
+    "message": "Vous êtes sur la dernière version"
+  },
+  "you_will_use_this_to_unlock_your_wallet": {
+    "message": "Vous l'utiliserez pour déverrouiller votre portefeuille"
+  },
+  "your_access_to_this_page_has_been_restricted_by_un": {
+    "message": "Votre accès à cette page a été restreint par Qbit Wallet car elle pourrait être dangereuse."
+  },
+  "your_balance_have_to_be_merged": {
+    "message": "Votre "
+  },
+  "connect_to_readonly_wallet": {
+    "message": "Connecter un portefeuille en lecture seule"
+  },
+  "copy_message_to_sign": {
+    "message": "Copier le message à signer"
+  },
+  "create_readonly_wallet": {
+    "message": "Créer un portefeuille en lecture seule"
+  },
+  "enter_your_signature": {
+    "message": "Saisissez votre signature"
+  },
+  "invalid_signature": {
+    "message": "Signature invalide"
+  },
+  "please_enter_your_signature": {
+    "message": "Veuillez saisir votre signature"
+  },
+  "public_key": {
+    "message": "Clé publique"
+  },
+  "readonly_wallet": {
+    "message": "Portefeuille en lecture seule"
+  },
+  "copy_signing_params": {
+    "message": "Copier les paramètres de signature"
+  },
+  "readonly_signing": {
+    "message": "Signature hors ligne"
+  },
+  "readonly_signing_copy_step": {
+    "message": "Copier la demande de signature"
+  },
+  "readonly_signing_copy_button": {
+    "message": "Copier la demande"
+  },
+  "readonly_signing_paste_step": {
+    "message": "Coller le PSBT signé"
+  },
+  "readonly_signing_paste_placeholder": {
+    "message": "Hex du PSBT signé"
+  },
+  "readonly_signing_paste_signature_step": {
+    "message": "Coller la signature"
+  },
+  "readonly_signing_signature_placeholder": {
+    "message": "Signature"
+  },
+  "asset_burning_risk_title": {
+    "message": "Asset burning detected"
+  },
+  "asset_burning_risk_description": {
+    "message": "This transaction may burn protected assets. Please review the transaction carefully before proceeding."
+  },
+  "unconfirmed_asset_balance_notice": {
+    "message": "If protected assets are detected in your address, unconfirmed balances will not be spendable until confirmed. You do not need to do anything."
+  },
+  "checking_website_safety": {
+    "message": "Vérification de la sécurité de ce site…"
+  },
+  "website_check_failed": {
+    "message": "Qbit Wallet n’a pas pu vérifier ce site. Vérifiez votre connexion et réessayez."
+  },
+  "unverified_website_confirmation": {
+    "message": "Je comprends que je me connecte à un site web non vérifié et que je dois faire preuve de prudence."
+  },
+  "within_your_account": {
+    "message": "Dans votre compte"
+  },
+  "address_unavailable": {
+    "message": "Adresse indisponible"
+  },
+  "date_unavailable": {
+    "message": "Date indisponible"
+  },
+  "history_load_error": {
+    "message": "Impossible de charger l’historique des transactions."
+  },
+  "wallet_owned": {
+    "message": "Appartient à votre portefeuille"
+  },
+  "change_output": {
+    "message": "Sortie de monnaie"
+  },
+  "internal_output": {
+    "message": "Transfert interne"
+  },
+  "input_number": {
+    "message": "Entrée"
+  },
+  "output_number": {
+    "message": "Sortie"
+  },
+  "value": {
+    "message": "Valeur"
+  },
+  "value_unavailable": {
+    "message": "Valeur indisponible"
+  },
+  "script_type": {
+    "message": "Type de script"
+  },
+  "script_type_unavailable": {
+    "message": "Type de script indisponible"
+  },
+  "coinbase_input": {
+    "message": "Entrée coinbase"
+  },
+  "previous_output": {
+    "message": "Sortie précédente"
+  },
+  "previous_output_unavailable": {
+    "message": "Sortie précédente indisponible"
+  },
+  "locking_script": {
+    "message": "Script de verrouillage"
+  },
+  "raw_transaction_hex": {
+    "message": "Transaction brute en hexadécimal"
+  },
+  "raw_transaction_preview": {
+    "message": "Aperçu"
+  },
+  "copy_raw_transaction": {
+    "message": "Copier la transaction brute"
+  },
+  "raw_transaction_load_error": {
+    "message": "Impossible de charger les données de la transaction brute."
+  },
+  "unknown_risk_title": {
+    "message": "Unknown risk detected"
+  },
+  "unknown_risk_description": {
+    "message": "This transaction contains an unknown risk. Please review it carefully before proceeding."
+  },
+  "enter_requested_recovery_phrase_words": {
+    "message": "Saisissez les mots demandés de votre phrase de récupération sauvegardée."
+  },
+  "qbit_recovery_status_seed_only": {
+    "message": "État de récupération : restauré uniquement par la graine"
+  },
+  "qbit_counter_confidence_chain_floor_only": {
+    "message": "Fiabilité du compteur : seuil de chaîne uniquement"
+  },
+  "qbit_known_onchain_usage_lower_bound": {
+    "message": "Utilisation connue sur la chaîne : $1 signatures"
+  },
+  "qbit_known_onchain_usage_none": {
+    "message": "Utilisation connue sur la chaîne : aucune"
+  },
+  "qbit_recovery_warning_title": {
+    "message": "Le portefeuille Qbit récupéré nécessite votre attention"
+  },
+  "qbit_recovery_warning_body": {
+    "message": "L’historique de la chaîne ne fournit qu’une borne inférieure de l’utilisation des signatures PQC. Les signatures de messages, hors chaîne ou jamais diffusées sont invisibles ; le budget restant exact est donc inconnu."
+  },
+  "qbit_recovery_warning_recommendation": {
+    "message": "Il est fortement recommandé de déplacer les fonds vers un nouveau portefeuille et de ne plus utiliser l’ancienne phrase de récupération pour une sécurité maximale."
+  },
+  "qbit_recovery_or_divider": {
+    "message": "OU"
+  },
+  "qbit_recovery_continue_confirmation": {
+    "message": "Je comprends que le compteur exact est inconnu et que chaque demande de signature nécessitera une nouvelle confirmation explicite."
+  },
+  "qbit_recovery_continue_using": {
+    "message": "Continuer avec le portefeuille récupéré"
+  },
+  "qbit_recovery_move_funds": {
+    "message": "Déplacer les fonds vers un nouveau portefeuille Qbit"
+  },
+  "qbit_recovery_warning_collapsed_title": {
+    "message": "Avertissement : ceci est un portefeuille récupéré"
+  },
+  "qbit_recovery_dismiss_warning": {
+    "message": "Masquer définitivement cet avertissement"
+  },
+  "qbit_recovery_signing_warning_title": {
+    "message": "Avertissement de signature au seuil restauré"
+  },
+  "qbit_recovery_signing_warning_body": {
+    "message": "L’utilisation affichée est une borne inférieure dérivée de la chaîne, et non un compteur exact ni un budget de signatures restant."
+  },
+  "qbit_recovery_signing_confirmation": {
+    "message": "J’ai examiné cette demande précise et j’accepte le risque lié au compteur restauré."
+  },
+  "qbit_recovery_counter_approximate_tip": {
+    "message": "Ce compteur de signatures est approximatif, car ce portefeuille a été restauré à partir d’une phrase de récupération."
+  },
+  "qbit_review_each_restored_signing_request": {
+    "message": "Examinez et confirmez individuellement chaque demande de signature du portefeuille récupéré."
+  },
+  "qbit_recovery_migrating_title": {
+    "message": "Migration vers le nouveau portefeuille en cours"
+  },
+  "qbit_recovery_migrating_body": {
+    "message": "Le portefeuille récupéré reste disponible pendant la diffusion et la confirmation des transactions signées. Reprenez ici après une interruption."
+  },
+  "qbit_recovery_destination_value": {
+    "message": "Nouvelle destination : $1"
+  },
+  "qbit_recovery_destination_label": {
+    "message": "Nouvelle destination :"
+  },
+  "qbit_recovery_progress": {
+    "message": "Mouvements confirmés : $1 sur $2"
+  },
+  "qbit_recovery_resume_migration": {
+    "message": "Reprendre la migration"
+  },
+  "qbit_recovery_archived_title": {
+    "message": "Portefeuille récupéré archivé"
+  },
+  "qbit_recovery_archived_body": {
+    "message": "Ce portefeuille récupéré est en lecture seule. Ses clés et son dossier de récupération restent disponibles afin de détecter et déplacer en sécurité des fonds échoués, réorganisés ou nouvellement reçus."
+  },
+  "qbit_recovery_check_new_funds": {
+    "message": "Rechercher de nouveaux fonds reçus"
+  },
+  "qbit_recovery_other_networks_hint": {
+    "message": "Cette phrase de récupération peut encore détenir des fonds sur d'autres réseaux. Changez de réseau pour vérifier et les déplacer."
+  },
+  "qbit_recovery_account_mapping": {
+    "message": "Compte $1 → Compte $2 du nouveau portefeuille : $3"
+  },
+  "qbit_recovery_account_mapping_label": {
+    "message": "Compte $1 → Compte $2 du nouveau portefeuille :"
+  },
+  "qbit_recovery_source_unavailable": {
+    "message": "Le portefeuille Qbit récupéré est indisponible."
+  },
+  "qbit_recovery_confirmation_unavailable": {
+    "message": "La confirmation de signature du compteur restauré est indisponible. Examinez à nouveau le mouvement."
+  },
+  "qbit_recovery_review_title": {
+    "message": "Confirmer le transfert du portefeuille"
+  },
+  "qbit_recovery_review_intro": {
+    "message": "Les comptes et les fonds de votre portefeuille seront déplacés vers de nouvelles adresses. Consultez ci-dessous le résumé des transferts et les nouvelles adresses du portefeuille."
+  },
+  "qbit_recovery_amount_label": {
+    "message": "Montant :"
+  },
+  "qbit_recovery_fee_label": {
+    "message": "Frais réseau :"
+  },
+  "qbit_recovery_migration_action": {
+    "message": "Déplacer les fonds récupérés vers le nouveau portefeuille"
+  },
+  "qbit_recovery_migration_consequence": {
+    "message": "Cette action signe et diffuse les soldes dépensables vers la nouvelle destination. Les poussières qui ne peuvent pas financer un mouvement standard restent dans la source conservée. Un échec ou une interruption conserve les deux portefeuilles et le dossier de récupération."
+  },
+  "qbit_recovery_migration_confirmation": {
+    "message": "J’ai vérifié les nouvelles adresses de destination, les montants et les frais (obligatoire)"
+  },
+  "qbit_recovery_pending_title": {
+    "message": "Mouvement en attente de confirmation"
+  },
+  "qbit_recovery_pending_body": {
+    "message": "Les données signées du mouvement sont stockées dans le coffre chiffré. Conservez les deux portefeuilles ; revenez ici pour rediffuser, vérifier la confirmation ou reprendre en sécurité."
+  },
+  "qbit_recovery_plan_prepared": {
+    "message": "Prêt pour examen et signature"
+  },
+  "qbit_recovery_plan_signed": {
+    "message": "Signé et stocké ; diffusion en attente"
+  },
+  "qbit_recovery_plan_broadcast": {
+    "message": "Diffusé ; confirmation en attente"
+  },
+  "qbit_recovery_plan_confirmed": {
+    "message": "Confirmé"
+  },
+  "qbit_recovery_complete_title": {
+    "message": "Migration terminée"
+  },
+  "qbit_recovery_complete_body": {
+    "message": "Tous les fonds récupérés économiquement dépensables ont été confirmés à la nouvelle destination. Les poussières qui ne peuvent pas financer un mouvement standard restent dans le portefeuille récupéré en lecture seule. Le nouveau portefeuille est maintenant actif."
+  },
+  "qbit_recovery_complete_archived_body": {
+    "message": "Le portefeuille récupéré d’origine est en lecture seule. Ses clés et son dossier de récupération restent disponibles afin de détecter et déplacer en sécurité des fonds échoués, réorganisés ou nouvellement reçus."
+  },
+  "qbit_recovery_complete_switch_wallet_hint": {
+    "message": "Vous pouvez accéder au portefeuille récupéré d’origine (lecture seule) via l’option Changer de Portefeuille en haut à gauche."
+  },
+  "qbit_recovery_original_address_label": {
+    "message": "Adresse récupérée d’origine :"
+  },
+  "qbit_recovery_new_address_label": {
+    "message": "Nouvelle adresse :"
+  },
+  "qbit_recovery_error_title": {
+    "message": "La migration nécessite votre attention"
+  },
+  "qbit_recovery_error_body": {
+    "message": "La migration n’a pas pu continuer en toute sécurité. Les deux portefeuilles et le dossier de récupération chiffré restent disponibles ; vérifiez le réseau et réessayez."
+  },
+  "qbit_recovery_error_code_label": {
+    "message": "Code d'erreur :"
+  },
+  "qbit_recovery_error_show_details": {
+    "message": "Afficher les détails"
+  },
+  "qbit_recovery_error_hide_details": {
+    "message": "Masquer les détails"
+  },
+  "qbit_recovery_error_copy_details": {
+    "message": "Copier les détails"
+  },
+  "qbit_recovery_protected_assets_error": {
+    "message": "Les actifs protégés doivent être déplacés séparément avant d’archiver ce portefeuille."
+  },
+  "qbit_recovery_archived_signing_blocked": {
+    "message": "Ce portefeuille récupéré est archivé et en lecture seule."
+  },
+  "qbit_recovery_migration_signing_only": {
+    "message": "Pendant la migration, le portefeuille récupéré ne peut signer que les mouvements de fonds qu’il a fait vérifier."
+  },
+  "qbit_recovery_secure_confirmation_unavailable": {
+    "message": "La confirmation sécurisée du compteur restauré est indisponible. Verrouillez puis rouvrez le portefeuille et vérifiez de nouveau."
+  },
+  "qbit_recovery_signing_confirmation_expired": {
+    "message": "La confirmation du compteur restauré a expiré. Vérifiez de nouveau cette demande exacte."
+  },
+  "qbit_recovery_signing_confirmation_required": {
+    "message": "Vérifiez et confirmez explicitement cette demande exacte de signature du portefeuille récupéré."
+  },
+  "qbit_recovery_wallets_retained": {
+    "message": "La suppression de ce portefeuille affecte une migration de récupération active et nécessite une confirmation supplémentaire."
+  },
+  "qbit_recovery_back_restart_warning": {
+    "message": "En revenant en arrière, vous devrez recommencer le processus de récupération."
+  },
+  "qbit_recovery_back_new_seed_warning": {
+    "message": "Une nouvelle phrase de récupération sera générée, différente de celle actuellement affichée."
+  },
+  "qbit_recovery_removal_title": {
+    "message": "Ce portefeuille fait partie d’une migration de récupération Qbit"
+  },
+  "qbit_recovery_removal_source_migrating": {
+    "message": "Supprimer ce portefeuille restauré efface son enregistrement de récupération en cours. La migration ne pourra pas reprendre, les fonds pas encore transférés resteront sur les anciennes adresses, et les récupérer plus tard exigera de réimporter cette phrase de récupération et de recommencer la récupération depuis le début."
+  },
+  "qbit_recovery_removal_source_migrated": {
+    "message": "Supprimer ce portefeuille restauré efface son enregistrement de récupération terminé. D’autres réseaux utilisant cette phrase de récupération n’ont peut-être pas terminé leur propre récupération, et la reprendre exigerait de réimporter cette phrase de récupération."
+  },
+  "qbit_recovery_removal_destination": {
+    "message": "Les fonds récupérés ont été envoyés (ou sont en cours d’envoi) vers ce portefeuille. Sans sauvegarde de sa phrase de récupération, sa suppression rendra ces fonds définitivement irrécupérables, et une récupération interrompue ne pourra reprendre qu’après réimportation de ce portefeuille."
+  },
+  "qbit_recovery_removal_inflight": {
+    "message": "Un transfert de récupération est encore en cours. Après la suppression, il ne sera plus suivi, et les fonds livrés pourront rester invisibles tant que le portefeuille de destination n’aura pas été restauré et rescanné."
+  },
+  "qbit_recovery_removal_unverified": {
+    "message": "Ce portefeuille n’a pas pu être vérifié par rapport à la migration de récupération active. Il s’agit peut-être du portefeuille recevant les fonds récupérés ; le supprimer sans sauvegarde de la phrase de récupération pourrait rendre ces fonds définitivement irrécupérables."
+  },
+  "qbit_recovery_loading": {
+    "message": "Vérification du dossier de migration chiffré et de l’état de la chaîne…"
+  },
+  "qbit_recovery_sign_and_move": {
+    "message": "Signer et déplacer les fonds"
+  },
+  "qbit_recovery_check_status": {
+    "message": "Vérifier l’état et reprendre"
+  },
+  "qbit_recovery_return_home": {
+    "message": "Revenir au nouveau portefeuille"
+  },
+  "qbit_core_recovery_descriptors": {
+    "message": "Descripteurs de récupération qbit Core"
+  },
+  "qbit_core_descriptor_counter_warning": {
+    "message": "Ces descripteurs contiennent des clés privées. Utilisez-les uniquement avec un portefeuille qbit Core de confiance. Les descripteurs restaurent les clés, mais pas les compteurs PQC exacts. Pour une récupération exacte de qbit Core à qbit Core, utilisez backupwallet et restorewallet."
+  },
+  "qbit_core_network_value": {
+    "message": "Réseau : $1"
+  },
+  "qbit_core_receive_path_value": {
+    "message": "Chemin de réception : $1"
+  },
+  "qbit_core_copy_receive_descriptor": {
+    "message": "Copier le descripteur de réception"
+  },
+  "qbit_core_change_path_value": {
+    "message": "Chemin de change : $1"
+  },
+  "qbit_core_copy_change_descriptor": {
+    "message": "Copier le descripteur de change"
+  },
+  "qbit_core_importdescriptors_json": {
+    "message": "JSON importdescriptors de qbit Core"
+  },
+  "qbit_core_copy_json": {
+    "message": "Copier le JSON"
+  },
+  "qbit_core_download_json": {
+    "message": "Télécharger le JSON"
+  },
+  "linked_to_cold_wallet": {
+    "message": "Lié au Portefeuille Froid Qbit"
+  },
+  "reject_blocked_request": {
+    "message": "Rejeter (bloqué par Qbit Wallet)"
+  },
+  "touch_id_unlock": {
+    "message": "Déverrouillage par Touch ID"
+  },
+  "unlock_with_touch_id": {
+    "message": "Déverrouiller avec Touch ID"
+  },
+  "enable_touch_id": {
+    "message": "Activer Touch ID"
+  },
+  "enable_touch_id_desc": {
+    "message": "Déverrouillez votre portefeuille avec Touch ID au lieu de saisir votre mot de passe. Votre mot de passe reste valable et requis pour les actions sensibles."
+  },
+  "touch_id_status_on": {
+    "message": "Activé"
+  },
+  "touch_id_status_off": {
+    "message": "Désactivé"
+  },
+  "disable_touch_id": {
+    "message": "Désactiver Touch ID"
+  },
+  "touch_id_setup_failed": {
+    "message": "Échec de la configuration de Touch ID"
+  },
+  "touch_id_prf_unsupported": {
+    "message": "L'authentificateur de cet appareil ne prend pas en charge le déverrouillage sécurisé par Touch ID"
+  },
+  "touch_id_unlock_expired": {
+    "message": "Le déverrouillage par Touch ID doit être reconfiguré. Veuillez utiliser votre mot de passe."
+  },
+  "enter_password_to_enable_touch_id": {
+    "message": "Saisissez le mot de passe de votre portefeuille pour activer Touch ID"
+  },
+  "touch_id_reenabled_after_password_change": {
+    "message": "Touch ID a été réactivé avec votre nouveau mot de passe"
+  },
+  "touch_id_disabled_after_password_change": {
+    "message": "Le déverrouillage par Touch ID a été désactivé. Vous pouvez le réactiver dans les Réglages."
+  },
+  "touch_id_onboarding_desc": {
+    "message": "Vous pouvez déverrouiller votre portefeuille avec Touch ID au lieu de votre mot de passe. Vous pourrez aussi l'activer plus tard dans les Réglages."
+  },
+  "send_exceeds_standard_size": {
+    "message": "Ce montant nécessite plus de $1 entrées et dépasse la taille de transaction standard du réseau. Envoyez au maximum $2 $3 à la fois, ou utilisez MAX."
+  },
+  "send_all_leaves_outputs_behind": {
+    "message": "MAX envoie vos $1 plus grandes sorties, le maximum qu'une transaction peut contenir. $2 $3 répartis sur $4 sorties plus petites restent sur ce compte."
+  },
+  "utxo_limit_exceeded_balance": {
+    "message": "Trop de sorties pour que l'explorateur les liste. Ce total provient du résumé de l'adresse."
+  },
+  "utxo_limit_exceeded_send": {
+    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu toutes les lire dans son historique. Consolidez ses sorties pour envoyer depuis ce compte."
+  },
+  "consolidate_outputs": {
+    "message": "Consolider les sorties"
+  },
+  "consolidation_description": {
+    "message": "Chaque lot renvoie jusqu'à $1 des plus grandes sorties confirmées de ce compte vers sa propre adresse, en une seule sortie. Vous vérifiez et signez chaque lot."
+  },
+  "consolidation_status": {
+    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2. Environ $3 lots de plus ramènent ce compte sous cette limite."
+  },
+  "consolidation_within_limit": {
+    "message": "Ce compte respecte la limite de $1 sorties de l'explorateur. Rien n'est à consolider."
+  },
+  "consolidation_pending": {
+    "message": "Des transactions non confirmées dépensent $1 de ces sorties. Elles sortent du décompte une fois ces transactions confirmées."
+  },
+  "consolidation_batch_summary": {
+    "message": "Fusionne $1 sorties en une seule sortie de $2 $3. Frais : $4 bits, taille $5 ko."
+  },
+  "consolidation_prepare_batch": {
+    "message": "Préparer le lot suivant"
+  },
+  "consolidation_next_batch": {
+    "message": "Consolider le lot suivant"
+  },
+  "consolidation_send_note": {
+    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste. Consolidez-les pour qu'il puisse de nouveau envoyer et migrer normalement."
+  },
+  "consolidation_status_confirming": {
+    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2. Les lots en attente ramènent ce compte sous cette limite une fois confirmés."
+  },
+  "consolidation_error_within_limit": {
+    "message": "Ce compte respecte la limite de sorties de l'explorateur. Il n'a pas besoin d'être consolidé."
+  },
+  "consolidation_error_nothing_ready": {
+    "message": "Aucune sortie confirmée n'est encore prête à être consolidée. Réessayez plus tard."
+  },
+  "consolidation_error_outputs_moving": {
+    "message": "Des sorties de ce compte sont en cours de dépense. Réessayez dans un instant."
+  },
+  "consolidation_error_input_spent": {
+    "message": "Une sortie de ce lot de consolidation est déjà dépensée. Préparez de nouveau le lot."
+  },
+  "consolidation_error_keep_reading": {
+    "message": "Le portefeuille a lu une partie de l'historique de ce compte sans trouver de sorties prêtes à fusionner. Préparez de nouveau pour lire plus loin."
+  }
+}

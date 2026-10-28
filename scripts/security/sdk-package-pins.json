@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "package": "@qbit-oss/pqc",
+      "version": "0.1.0",
+      "integrity": "sha512-NZAWoRggBtQHdCyXFfA4odcgnxedrwV57nZMHkhutS/UnPpzNBGwVPUMQcmIfxlF9IPU5Q0FRtJ5VnoQ59vqCA==",
+      "provenance": {
+        "repository": "Qbit-Org/qbit-pqc",
+        "workflow": ".github/workflows/publish.yml",
+        "ref": "refs/tags/v0.1.0",
+        "commit": "be0a0f928dfe4d65602e7cfcbff95e13f3d0a6ce"
+      },
+      "files": {
+        "wasm/pqc.mjs": "4c9f9d9d00dbf5608c10c674739bced4882701cdde3ee4c428214e8d20ee7c53",
+        "wasm/pqc.wasm": "8696a3a4cb53a4c271684f077402255dc8babe89a956937844eb768a0874171e"
+      }
+    },
+    {
+      "package": "@qbit-oss/protocol",
+      "version": "0.1.0",
+      "integrity": "sha512-7GGEVWwmMgL5XL8FQlFJeXwUkW2y2ciLq6bv5VYz6Bp6cea64HNItg77XpKkupDfz/Hg5ghKaupez3Zp+08uJQ==",
+      "provenance": {
+        "repository": "Qbit-Org/qbit-js",
+        "workflow": ".github/workflows/publish.yml",
+        "ref": "refs/tags/v0.1.0",
+        "commit": "2f4637f08be83d4d47ddb6d79eb384d61fccecfb"
+      }
+    },
+    {
+      "package": "@qbit-oss/api",
+      "version": "0.1.0",
+      "integrity": "sha512-65G3jsen1uPrTO9W0+oWXcKia2IcbTmw+C0LZTcc1gb3KOx848/BYoZJTna/+9n78k/UJgdCAx/XqhjLwnbQNg==",
+      "provenance": {
+        "repository": "Qbit-Org/qbit-js",
+        "workflow": ".github/workflows/publish.yml",
+        "ref": "refs/tags/v0.1.0",
+        "commit": "2f4637f08be83d4d47ddb6d79eb384d61fccecfb"
+      }
+    }
+  ]
+}

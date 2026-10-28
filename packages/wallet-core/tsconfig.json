@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "lib",
+    "rootDir": "src",
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "lib": ["esnext", "dom"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["lib", "node_modules", "**/*.test.ts", "**/*.spec.ts"]
+}
