@@ -425,6 +425,75 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     expect(balanceCard).toBe(sendScreen)
   })
 
+  it('still probes the recent spenders a balance read stopped waiting for, once the broadcast lets go', async () => {
+    const wallet = controller()
+    // An earlier payment was accepted: its input stays reserved until a
+    // probe of its transaction finds it confirmed or gone.
+    const first = await send(wallet, 'popup:1')
+    expect(first.result).toMatchObject({ success: true, via: 'broadcast' })
+    const spentKey = `${SPENT.txid}:${SPENT.vout}`
+    const reservesSpent = async () =>
+      (await qbitSendGuardService.getReservedOutpointKeys(ChainType.QBIT_REGTEST, address)).has(
+        spentKey
+      )
+    const lookupsOfFirst = () =>
+      explorer.requests.filter(
+        request => isStatusLookup(request) && request.path.includes(first.claim.txid)
+      ).length
+
+    // A second payment is signed before the first is due a probe. Then the
+    // first confirms, and its probe falls due.
+    const toSignData = await wallet.createSendQbitPsbt({
+      to: recipient,
+      amount: 10_000,
+      feeRate: 1,
+    })
+    const signed = await wallet.runForUiPort('popup:1', () => wallet.signPsbtV2(toSignData))
+    const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
+    explorer.confirmMempool()
+    advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+    await expect(reservesSpent()).resolves.toBe(true)
+    expect(lookupsOfFirst()).toBe(0)
+
+    // The second payment's POST is held open, so the guard's queue is too.
+    let posted: () => void = () => undefined
+    const postArrived = new Promise<void>(resolve => (posted = resolve))
+    let answerPost: () => void = () => undefined
+    const postAnswered = new Promise<void>(resolve => (answerPost = resolve))
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        posted()
+        await postAnswered
+      }
+      return explorer.fetch(input, init)
+    })
+    const sending = wallet.runForUiPort('popup:1', () =>
+      wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid)
+    )
+    await postArrived
+
+    // The balance read stops waiting for the guard before it is handed the
+    // first payment's spender to probe.
+    try {
+      const read = await wallet.getAddressBalanceV2(address)
+      expect(read.availableBalance).toBeNull()
+      expect(lookupsOfFirst()).toBe(0)
+    } finally {
+      answerPost()
+    }
+    await expect(sending).resolves.toMatchObject({ success: true, via: 'broadcast' })
+
+    // Once the broadcast lets go, the guard hands the spender out, and it is
+    // probed then: confirmed, its input is no longer held. Without that
+    // probe it would stay held, and the guard would not hand it out again
+    // for another probe interval.
+    for (let wait = 0; wait < 100 && (await reservesSpent()); wait += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    await expect(reservesSpent()).resolves.toBe(false)
+    expect(lookupsOfFirst()).toBe(1)
+  })
+
   it("keeps an unknown outcome when the recovery screen's Retry is rejected by the node", async () => {
     const wallet = controller()
     // The gateway times out on every attempt: whether the node saw the

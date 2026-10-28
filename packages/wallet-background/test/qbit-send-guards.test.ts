@@ -722,6 +722,12 @@ describe('QbitSendGuardService', () => {
     const reserved = (forAddress = address) => service.getReservedOutpointKeys(chain, forAddress)
     const start = new Date('2026-10-23T12:00:00Z').getTime()
     const advance = (ms: number) => vi.setSystemTime(Date.now() + ms)
+    /**
+     * What `forgetProvenAbsentBroadcast` does once absence stands, without
+     * its check for an unknown outcome on record.
+     */
+    const forgetAbsentBroadcast = async (onChain: ChainType, txid: string) =>
+      service['forgetAbsentBroadcastNow'](onChain, txid)
 
     /** Claim, sign and broadcast `claim`, as the wallet's send path does. */
     async function sendAccepted(claim: QbitSendBroadcastClaim, replaces?: string) {
@@ -1110,7 +1116,7 @@ describe('QbitSendGuardService', () => {
       // original may still be pending, so its input stays reserved.
       await service.recordInconclusiveBroadcast(chain, bump.txid, bump.outpoints, bump)
       await expect(service.releaseBroadcastClaim(bump)).resolves.toBe(true)
-      await service.forgetAbsentBroadcast(chain, bump.txid)
+      await forgetAbsentBroadcast(chain, bump.txid)
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
       await expect(
         service.broadcastIfAllowed(chain, '23'.repeat(32), bump.outpoints, async () => 'x')
@@ -1141,9 +1147,9 @@ describe('QbitSendGuardService', () => {
       await service.recordInconclusiveBroadcast(chain, a.txid, a.outpoints, a)
       await service.recordInconclusiveBroadcast(chain, b.txid, b.outpoints, b)
       await service.recordInconclusiveBroadcast(chain, a.txid, a.outpoints, a)
-      await service.forgetAbsentBroadcast(chain, a.txid)
+      await forgetAbsentBroadcast(chain, a.txid)
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
-      await service.forgetAbsentBroadcast(chain, b.txid)
+      await forgetAbsentBroadcast(chain, b.txid)
       await expect(reserved()).resolves.toEqual(new Set())
 
       // A spender proven absent behind a newer one never comes back either.
@@ -1151,9 +1157,9 @@ describe('QbitSendGuardService', () => {
       const d = walletClaim({ txid: '2a'.repeat(32) })
       await service.recordInconclusiveBroadcast(chain, c.txid, c.outpoints, c)
       await service.recordInconclusiveBroadcast(chain, d.txid, d.outpoints, d)
-      await service.forgetAbsentBroadcast(chain, c.txid)
+      await forgetAbsentBroadcast(chain, c.txid)
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
-      await service.forgetAbsentBroadcast(chain, d.txid)
+      await forgetAbsentBroadcast(chain, d.txid)
       await expect(reserved()).resolves.toEqual(new Set())
 
       // A confirmed bump spent the input for good: nothing falls back.
@@ -1187,7 +1193,7 @@ describe('QbitSendGuardService', () => {
         abandoned
       )
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
-      await service.forgetAbsentBroadcast(chain, abandoned.txid)
+      await forgetAbsentBroadcast(chain, abandoned.txid)
 
       // A claim this instance never saw is what a restart leaves behind: the
       // earlier broadcast may have gone out, so its inputs are recorded.
@@ -1686,9 +1692,9 @@ describe('QbitSendGuardService', () => {
       await expect(service.releaseBroadcastClaim(claim)).resolves.toBe(true)
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
 
-      await service.forgetAbsentBroadcast(chain, '22'.repeat(32))
+      await forgetAbsentBroadcast(chain, '22'.repeat(32))
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
-      await service.forgetAbsentBroadcast(chain, claim.txid)
+      await forgetAbsentBroadcast(chain, claim.txid)
       await expect(reserved()).resolves.toEqual(new Set())
     })
 
@@ -1890,6 +1896,23 @@ describe('QbitSendGuardService', () => {
       await expect(reserved()).resolves.toEqual(new Set([outpoint, `${'bb'.repeat(32)}:0`]))
       await expect(service.forgetProvenAbsentBroadcast(chain, other.txid)).resolves.toBe(false)
       await expect(reserved()).resolves.toEqual(new Set([outpoint, `${'bb'.repeat(32)}:0`]))
+    })
+
+    it('never forgets an unknown outcome recorded while a later call proving absence is queued', async () => {
+      // Both requests are queued before either runs: the proven absence
+      // first, then the unknown outcome of another call for the same bytes.
+      // Nothing may come between the absence's check and its forgetting.
+      const claim = walletClaim()
+      const absence = service.forgetProvenAbsentBroadcast(chain, claim.txid)
+      const unknownOutcome = service.recordInconclusiveBroadcast(
+        chain,
+        claim.txid,
+        claim.outpoints,
+        claim
+      )
+      await Promise.all([absence, unknownOutcome])
+      await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+      await expect(unknown(claim.txid)).resolves.toBe(true)
     })
 
     it('forgets what an accepted broadcast recorded once a later call proves it absent', async () => {

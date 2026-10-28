@@ -731,17 +731,6 @@ export class QbitSendGuardService {
   }
 
   /**
-   * The node definitively rejected `txid` and repeated lookups found it
-   * absent: forget the inputs an earlier attempt recorded for it, handing
-   * each back to the transaction it replaced, if any. A claim that still
-   * holds them is left to its own release. A broadcast call proving absence
-   * itself goes through `forgetProvenAbsentBroadcast` instead.
-   */
-  forgetAbsentBroadcast(chain: ChainType, txid: string): Promise<void> {
-    return this.enqueue(async () => this.forgetAbsentBroadcastNow(chain, txid))
-  }
-
-  /**
    * Whether a dispatched broadcast of `txid` on `chain` ended without a
    * verdict (see `recordInconclusiveBroadcast`, and
    * `recordInconclusiveProviderPush` for a push it recorded), the claim
@@ -757,11 +746,13 @@ export class QbitSendGuardService {
 
   /**
    * A broadcast call for `txid` proved it absent (a node rejection, then
-   * lookups that all missed it): `forgetAbsentBroadcast`, unless a call for
-   * it has ended without a verdict (`hasUnknownBroadcastOutcome`), one
-   * that ended while this call was still looking included. That outcome
-   * stands, and the inputs it recorded stay reserved. Resolves to whether
-   * the absence stands.
+   * lookups that all missed it): forget the inputs an earlier attempt
+   * recorded for it (see `forgetAbsentBroadcastNow`), unless a call for it
+   * has ended without a verdict (`hasUnknownBroadcastOutcome`), one that
+   * ended while this call was still looking included. That outcome stands,
+   * and the inputs it recorded stay reserved. The check and the forgetting
+   * are one step on the queue, so nothing recorded in between is forgotten.
+   * Resolves to whether the absence stands.
    */
   forgetProvenAbsentBroadcast(chain: ChainType, txid: string): Promise<boolean> {
     return this.enqueue(async () => {
@@ -1446,6 +1437,13 @@ export class QbitSendGuardService {
     }
   }
 
+  /**
+   * Forget the inputs recorded as spent by `txid`, which is proven absent,
+   * handing each back to the transaction it replaced, if any. A claim that
+   * still holds them is left to its own release. Only in the same step as
+   * the check that no call for `txid` ended without a verdict (see
+   * `forgetProvenAbsentBroadcast`).
+   */
   private forgetAbsentBroadcastNow(chain: ChainType, txid: string): void {
     for (const [key, spend] of this.recentSpends) {
       if (spend.chain !== chain) continue

@@ -62,7 +62,7 @@ export interface VersionDetail {
  * measured, which is never the same as 0.
  */
 export interface QbitBalanceSummary {
-  /** `null` when unknown (see `utxoLimitExceeded`). */
+  /** `null` when unknown: past the explorer's limit (see `utxoLimitExceeded`), or when the balance read stopped waiting for the send guard. */
   availableBalance: number | null
   unavailableBalance: number
   totalBalance: number
