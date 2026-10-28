@@ -1,0 +1,5 @@
+---
+'@qbit/wallet-state': patch
+---
+
+Show the balance as unknown (`--`) instead of 0 until a balance read for the current account and network has succeeded. Until then `useAccountBalance` returns zeros tagged with the current network, so the balance card showed `0.00000000`, kept showing it while every read failed, and the send screen showed Available as 0. `useBalanceCardLogic` now sets `isCurrentChainBalance` only once a read for this account on this network is stored; before that, `balanceValue`, `availableAmount` and `unavailableAmount` are `--`, and `availableBalance` and `unavailableBalance` are `null`. `useTxCreateScreenLogic` shows Available from the balance figure as `--` until such a read, as it already did for a figure the explorer's limit leaves unknown. A 0 that a read returned still shows as 0. `balanceSplitUnknown`, and with it the note naming the explorer's limit, now applies only when the read reports the account over that limit (`utxoLimitExceeded`), not to a split unknown for another reason.

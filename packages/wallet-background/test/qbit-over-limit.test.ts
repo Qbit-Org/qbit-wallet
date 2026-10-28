@@ -424,18 +424,18 @@ describe('resumable output scan for consolidation (#277)', () => {
   })
 })
 
-describe('output scan past a page of mempool rows on qbit-electrs (#343)', () => {
-  /** `count` more pending payments to the address, from someone else. */
-  function addPendingPayments(explorer: FakeQbitExplorer, count: number): FakeTx[] {
-    return Array.from({ length: count }, (_, index) =>
-      explorer.addTx({
-        txid: fakeTxid(index, 9_000_000),
-        inputs: [{ txid: fakeTxid(index, 9_500_000), vout: 0 }],
-        outputs: [{ address, script, value: 3_000 }],
-      })
-    )
-  }
+/** `count` more pending payments to the address, from someone else. */
+function addPendingPayments(explorer: FakeQbitExplorer, count: number): FakeTx[] {
+  return Array.from({ length: count }, (_, index) =>
+    explorer.addTx({
+      txid: fakeTxid(index, 9_000_000),
+      inputs: [{ txid: fakeTxid(index, 9_500_000), vout: 0 }],
+      outputs: [{ address, script, value: 3_000 }],
+    })
+  )
+}
 
+describe('output scan past a page of mempool rows on qbit-electrs (#343)', () => {
   /** The over-limit fixture with exactly one combined page (50 rows) of mempool rows. */
   function fullMempoolPage() {
     const fixture = overLimitExplorer('mempool-qbit')
@@ -515,6 +515,98 @@ describe('output scan past a page of mempool rows on qbit-electrs (#343)', () =>
       continueQbitAddressOutputScan(client, scan, { maxPages: 1 })
     ).rejects.toMatchObject({ kind: 'invalid_cursor' })
     expect({ ...scan, candidates: scan.candidates.size, spent: scan.spent.size }).toEqual(snapshot)
+  })
+})
+
+describe('outputs read from history past whole pages of mempool rows on qbit-electrs', () => {
+  /** The over-limit fixture with `pendingRows` pending rows, a whole number of combined pages. */
+  function fullMempoolPages(pendingRows: number) {
+    const fixture = overLimitExplorer('mempool-qbit')
+    const { explorer } = fixture
+    explorer.emptyPageAfterLastMempoolRow = true
+    const pending = () => explorer.history(address).filter(tx => tx.height === undefined)
+    const payments = addPendingPayments(explorer, pendingRows - pending().length)
+    expect(pending()).toHaveLength(pendingRows)
+    return { ...fixture, payments, lastMempoolRow: pending().at(-1)!, rowBefore: pending().at(-2)! }
+  }
+
+  for (const pendingRows of [50, 100]) {
+    it(`reads every output with ${pendingRows} pending rows`, async () => {
+      const fixture = fullMempoolPages(pendingRows)
+      const { explorer, lastMempoolRow, rowBefore } = fixture
+
+      const classified = await getQbitAddressUtxosClassifiedFromHistory(
+        clientFor(explorer),
+        address,
+        { stabilityRetries: 0 }
+      )
+
+      // Pending payments from someone else are not sendable.
+      const expected = expectedSendable(fixture)
+      for (const payment of fixture.payments) expected.delete(`${payment.txid}:0`)
+      expect(keys([...classified.confirmedSpendable, ...classified.unconfirmedOwnChange])).toEqual(
+        expected
+      )
+      expect(classified.confirmedSpendable.length).toBeGreaterThan(500)
+      // It stepped back one row, to the cursor that lists the last pending row again.
+      const pages = explorer.requests
+        .map(request => request.path)
+        .filter(path => /\/txs/.test(path))
+      const emptyPage = pages.indexOf(`/address/${address}/txs?after_txid=${lastMempoolRow.txid}`)
+      expect(emptyPage).toBeGreaterThan(0)
+      expect(pages[emptyPage + 1]).toBe(`/address/${address}/txs?after_txid=${rowBefore.txid}`)
+    })
+  }
+
+  it('reads them on the send path without waiting for a retry', async () => {
+    const fixture = fullMempoolPages(50)
+    const expected = expectedSendable(fixture)
+    for (const payment of fixture.payments) expected.delete(`${payment.txid}:0`)
+
+    await expect(
+      getQbitAddressUtxos(clientFor(fixture.explorer), address).then(keys)
+    ).resolves.toEqual(expected)
+  })
+
+  it('refuses a page row that does not touch the address, as the library walk does', async () => {
+    const { explorer } = fullMempoolPages(50)
+    const foreign = explorer.esploraTx({
+      txid: fakeTxid(1, 9_900_000),
+      inputs: [],
+      outputs: [{ address: payer, script: payerScript, value: 1_000 }],
+      coinbase: true,
+      height: 150,
+      order: 0,
+    })
+    explorer.failures.push(({ path }) => {
+      if (!path.endsWith(`/address/${address}/txs`)) return undefined
+      const rows = explorer
+        .history(address)
+        .slice(0, 50)
+        .map(tx => explorer.esploraTx(tx))
+      rows[10] = foreign
+      return { status: 200, body: JSON.stringify(rows) }
+    })
+
+    await expect(
+      getQbitAddressUtxosClassifiedFromHistory(clientFor(explorer), address, {
+        stabilityRetries: 0,
+      })
+    ).rejects.toMatchObject({ kind: 'parse' })
+  })
+
+  it('leaves the outputs unknown when the pending row it stepped back over has left', async () => {
+    const { explorer, lastMempoolRow, rowBefore } = fullMempoolPages(50)
+    explorer.failures.push(({ path }) => {
+      if (path.endsWith(`?after_txid=${rowBefore.txid}`)) explorer.removeTx(lastMempoolRow.txid)
+      return undefined
+    })
+
+    await expect(
+      getQbitAddressUtxosClassifiedFromHistory(clientFor(explorer), address, {
+        stabilityRetries: 0,
+      })
+    ).rejects.toMatchObject({ kind: 'invalid_cursor' })
   })
 })
 

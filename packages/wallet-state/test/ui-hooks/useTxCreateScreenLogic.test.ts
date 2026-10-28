@@ -1311,6 +1311,48 @@ describe('TxCreateScreen state hooks', () => {
     })
   })
 
+  it('shows Available as unknown, not 0, until a balance read for the account and network succeeds', async () => {
+    // Without a P2MR script the screen reads no outputs of its own: Available
+    // is the balance's figure alone.
+    const { wrapper, store } = createHookTestHarness()
+    const currentAddress = store.getState().accounts.current.address
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+
+    await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+
+    // A balance read on another network does not count for this one.
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: currentAddress,
+          balance: {
+            availableBalance: 40_000,
+            unavailableBalance: 0,
+            totalBalance: 40_000,
+            chainType: ChainType.QBIT_TESTNET4,
+          },
+        })
+      )
+    })
+    expect(result.current.availableAmount).toBe('--')
+
+    // A read that finds nothing is a measured 0.
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: currentAddress,
+          balance: {
+            availableBalance: 0,
+            unavailableBalance: 0,
+            totalBalance: 0,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+    })
+    expect(result.current.availableAmount).toBe('0.00000000')
+  })
+
   it('does not take an empty cache from an earlier read as this screen’s outputs (#279)', async () => {
     const account = p2mrAccount()
     const { wrapper, store, wallet } = createHookTestHarness()

@@ -15,6 +15,7 @@ import {
 import { ChainType } from '@qbit/wallet-types'
 import {
   useAccountBalance,
+  useAccountsState,
   useChain,
   useChainType,
   useCurrentAccount,
@@ -38,6 +39,7 @@ import {
   useUtxos,
   useUtxosLoaded,
 } from '..'
+import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
 
@@ -240,8 +242,13 @@ export function useTxCreateScreenLogic() {
     [qbitSpendableUtxos]
   )
   // The balance's own figure is unknown (null) past the explorer's limit:
-  // nothing can be selected from it, and Available shows it as unknown.
-  const balanceAvailableUnknown = !hasQbitUtxoPreflight && accountBalance.availableBalance === null
+  // nothing can be selected from it, and Available shows it as unknown. So
+  // it is until a balance read for this account on this network succeeds:
+  // the stand-in zeros before that are no measurement.
+  const accountsState = useAccountsState()
+  const balanceRead = hasAccountBalanceRead(accountsState, currentAccount.address, chainType)
+  const balanceAvailableUnknown =
+    !hasQbitUtxoPreflight && (!balanceRead || accountBalance.availableBalance === null)
   const availableSatoshis = hasQbitUtxoPreflight
     ? qbitSpendableSatoshis
     : (accountBalance.availableBalance ?? 0)

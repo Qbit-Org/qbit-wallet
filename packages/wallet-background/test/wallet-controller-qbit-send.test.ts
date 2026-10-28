@@ -7324,6 +7324,149 @@ describe('WalletController qbit P2MR send path', () => {
     )
   })
 
+  /**
+   * A source the explorer will not list (620 confirmed unspent outputs), short
+   * enough to read from its history, whose history never reads in full: every
+   * walk of it rejects with `invalid_cursor`, as mempool-qbit's did on whole
+   * pages of pending rows.
+   */
+  function mockIncompleteRecoverySource(address: string) {
+    mockUnreadableRecoverySource(address)
+    const unreadableStats = getAddressStatsMock.getMockImplementation()!
+    getAddressStatsMock.mockImplementation(async (requested: string) => {
+      const stats = await unreadableStats(requested)
+      return requested === address
+        ? { ...stats, chain_stats: { ...stats.chain_stats, tx_count: 620 } }
+        : stats
+    })
+    const ordinaryHistory = getAddressHistoryMock.getMockImplementation()
+    getAddressHistoryMock.mockImplementation(async (requested: string, options: unknown) => {
+      if (requested === address) {
+        throw new QbitApiError(
+          'invalid_cursor',
+          `mempool-qbit address history returned 0 confirmed and 50 mempool transactions, but the address stats count 620 and 50: ${address}`
+        )
+      }
+      return ordinaryHistory ? ordinaryHistory(requested, options) : { confirmed: [], mempool: [] }
+    })
+  }
+
+  /** Run `call` on a fake clock that moves on while it waits, past the history read's retries. */
+  async function withRetryTimers<T>(call: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let settled = false
+      const result = call()
+      result.then(
+        () => (settled = true),
+        () => (settled = true)
+      )
+      while (!settled) await vi.advanceTimersByTimeAsync(1_000)
+      return await result
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  const historyReadsOf = (address: string) =>
+    getAddressHistoryMock.mock.calls.filter(([requested]) => requested === address)
+
+  it('plans the other sources and reports one whose history it could not read in full', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const { state } = mockManyOutputRecoverySource(wallet, fixture, [], 3)
+    // Read first, so its failure would stop the whole pass.
+    const incomplete = p2mrAccount('44'.repeat(32), 1)
+    fixture.sourceKeyring.accounts.unshift(incomplete as any)
+    mockIncompleteRecoverySource(incomplete.address)
+
+    const prepared = await withRetryTimers(() => wallet.prepareQbitRecoveryMigration(2, 1))
+
+    expect(prepared.deferredSources).toEqual([
+      { address: incomplete.address, reason: 'history_incomplete' },
+    ])
+    // The read was retried before the source was deferred.
+    expect(historyReadsOf(incomplete.address)).toHaveLength(3)
+    // The readable source is planned as usual; the other one is not.
+    expect(state.vault.migration.plans.map((plan: any) => plan.sourceAddress)).toEqual([
+      fixture.sourceAccount.address,
+    ])
+    expect(prepared.toSignDatas).toHaveLength(1)
+    expect(prepared.state.status).toBe('migrating')
+
+    // With nothing else left to plan, the migration stays open and still names it.
+    state.vault = {
+      ...state.vault,
+      migration: {
+        ...state.vault.migration,
+        plans: state.vault.migration.plans.map((plan: any) => ({ ...plan, status: 'confirmed' })),
+      },
+    }
+    getAddressUtxosMock.mockResolvedValue([])
+    mockIncompleteRecoverySource(incomplete.address)
+    const again = await withRetryTimers(() => wallet.prepareQbitRecoveryMigration(2, 1))
+    expect(again).toMatchObject({
+      toSignDatas: [],
+      deferredSources: [{ address: incomplete.address, reason: 'history_incomplete' }],
+    })
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+  })
+
+  it('keeps a migration open, and reopens an archived one, for a source it could not read in full', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const incomplete = p2mrAccount('44'.repeat(32), 1)
+    fixture.sourceKeyring.accounts.push(incomplete as any)
+    let vaultState: any = {
+      ...fixture.vaultState,
+      migration: {
+        ...fixture.vaultState.migration,
+        plans: [{ ...fixture.vaultState.migration.plans[0], status: 'confirmed' }],
+      },
+    }
+    vi.spyOn(wallet as any, 'loadQbitRecoveryMigration').mockImplementation(async () => ({
+      sourceKeyring: fixture.sourceKeyring,
+      anchor: fixture.sourceAccount,
+      state: vaultState,
+      network: 'regtest' as const,
+      destination: fixture.destinationKeyring,
+      destinationKeyringIndex: 3,
+    }))
+    vi.spyOn(wallet as any, 'getQbitKeyringByIndex').mockImplementation(async index =>
+      index === 3 ? fixture.destinationKeyring : fixture.sourceKeyring
+    )
+    vi.spyOn(wallet, 'getQbitRecoveryState').mockImplementation(async () =>
+      fixture.publicState(vaultState)
+    )
+    vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async () =>
+      wrapRegtestVaultState(vaultState)
+    )
+    vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockResolvedValue({ state: 'confirmed' })
+    vi.mocked(keyringService.reopenQbitRecoveryMigration).mockImplementation(async () => {
+      vaultState = { ...vaultState, status: 'migrating' }
+      return fixture.publicState(vaultState)
+    })
+    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    getAddressUtxosMock.mockResolvedValue([])
+    mockIncompleteRecoverySource(incomplete.address)
+
+    await expect(
+      withRetryTimers(() => wallet.advanceQbitRecoveryMigration(2))
+    ).resolves.toMatchObject({ status: 'migrating' })
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+
+    // An archive whose source can no longer be read in full reopens.
+    vaultState = { ...vaultState, status: 'migrated' }
+    await expect(
+      withRetryTimers(() => wallet.advanceQbitRecoveryMigration(2))
+    ).resolves.toMatchObject({ status: 'migrating' })
+    expect(keyringService.reopenQbitRecoveryMigration).toHaveBeenCalledWith(
+      fixture.sourceAccount.address,
+      'regtest',
+      []
+    )
+  })
+
   it('leaves no small remainder batch that could not pay for itself', async () => {
     const wallet = new WalletController()
     const fixture = qbitRecoveryMigrationFixture()

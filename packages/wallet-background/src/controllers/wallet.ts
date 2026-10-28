@@ -199,6 +199,7 @@ import {
   isQbitChainType,
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
+  isQbitSnapshotUnstableError,
   MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES,
   observeQbitPqcSignatureActivity,
   observeQbitPqcSpentOutpoints,
@@ -2754,19 +2755,26 @@ export class WalletController extends BaseController {
   }
 
   /**
-   * A recovery source's classified outputs, or the error saying the explorer
-   * will not list them and its history is too long to read them from. Such a
-   * source is never planned or counted as swept, so its funds keep the
-   * migration open, and it may consolidate meanwhile (#344).
+   * A recovery source's classified outputs, or why they are unknown: the
+   * explorer will not list them, and their history is too long to read them
+   * from, or could not be read in full through the read's own retries. Such
+   * a source is never planned or counted as swept, so its funds keep the
+   * migration open. A history too long may consolidate meanwhile (#344); one
+   * not read in full is read again by the next pass. Any other failure still
+   * fails the pass.
    */
   private readQbitRecoverySourceUtxos = async (
     client: QbitWalletApiClient,
     address: string
-  ): Promise<QbitClassifiedUtxos | QbitUtxoHistoryTooLargeError> => {
+  ): Promise<QbitClassifiedUtxos | QbitRecoveryDeferredSource> => {
     try {
       return await getQbitAddressUtxosClassifiedPastLimit(client, address)
     } catch (error) {
-      if (error instanceof QbitUtxoHistoryTooLargeError) return error
+      if (error instanceof QbitUtxoHistoryTooLargeError) {
+        return { address, reason: 'history_too_large', maxTransactions: error.maxTransactions }
+      }
+      // Only the history read, past the listing limit, fails this way.
+      if (isQbitSnapshotUnstableError(error)) return { address, reason: 'history_incomplete' }
       throw error
     }
   }
@@ -3062,15 +3070,11 @@ export class WalletController extends BaseController {
         this.getQbitApiClient(utxoChain),
         account.address
       )
-      if (classifiedUtxos instanceof QbitUtxoHistoryTooLargeError) {
+      if ('reason' in classifiedUtxos) {
         // Its outputs are unknown, so none of them is planned and the
         // migration stays open. The other sources are planned as usual.
         hasDeferredFunds = true
-        deferredSources.push({
-          address: account.address,
-          reason: 'history_too_large',
-          maxTransactions: classifiedUtxos.maxTransactions,
-        })
+        deferredSources.push(classifiedUtxos)
         continue
       }
       // Immature coinbase rewards cannot enter a sweep plan yet, but they are
@@ -3401,9 +3405,9 @@ export class WalletController extends BaseController {
         (await this.getQbitKeyringByIndex(sourceKeyringIndex)).accounts.map(async account => {
           const client = this.getQbitApiClient(this.getChainType())
           const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address)
-          // Outputs too many to read may be new funds: the migration reopens,
+          // Outputs it cannot read may be new funds: the migration reopens,
           // and its preparation reports the source.
-          if (classifiedUtxos instanceof QbitUtxoHistoryTooLargeError) {
+          if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
           }
           const rawUtxos = classifiedUtxos.spendable
@@ -3567,9 +3571,9 @@ export class WalletController extends BaseController {
         (await this.getQbitKeyringByIndex(sourceKeyringIndex)).accounts.map(async account => {
           const client = this.getQbitApiClient(this.getChainType())
           const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address)
-          // A source whose outputs are too many to read is not swept yet;
+          // A source whose outputs it cannot read is not swept yet;
           // preparation reports it.
-          if (classifiedUtxos instanceof QbitUtxoHistoryTooLargeError) {
+          if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
           }
           const rawUtxos = classifiedUtxos.spendable

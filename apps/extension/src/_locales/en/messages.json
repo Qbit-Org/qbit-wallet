@@ -2687,6 +2687,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "This account holds more outputs than the explorer lists and has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Switch to it, open Send and choose Consolidate outputs until it is within the explorer's limit, then return here."
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "This account holds more outputs than the explorer lists, and the wallet could not read its whole history from the explorer to find them, so its funds have not been moved yet. This can clear once its pending transactions change, for example when one confirms. Choose Check status and resume later to try again."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Ready for review and signing"
   },
