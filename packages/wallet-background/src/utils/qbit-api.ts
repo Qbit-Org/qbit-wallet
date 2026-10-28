@@ -11,8 +11,14 @@ import type {
   MempoolQbitClientOptions,
 } from '@qbit-oss/api'
 import { QBIT_COINBASE_MATURITY } from '@qbit-oss/protocol'
+import { PQC_WARNING_SIGNATURE_THRESHOLD } from '@qbit/keyring-service'
 import { transactionCore } from '@qbit/wallet-core'
-import { QBIT_MAX_FEE_RATE, QBIT_MIN_RELAY_FEE_RATE } from '@qbit/wallet-shared'
+import {
+  QBIT_MAX_FEE_RATE,
+  QBIT_MIN_RELAY_FEE_RATE,
+  QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
+  estimateQbitP2mrTransaction,
+} from '@qbit/wallet-shared'
 import type {
   AddressSummary,
   FeeQuoteFallbackReason,
@@ -1037,7 +1043,10 @@ async function qbitTipAdvanceSettledError(
  * chain tip must read the same before and after, and a tip advance holds the
  * retry for `tipAdvanceSettleMs`. The read continues from the `anchor` the
  * history read began with. Statistics that spend more than the address was
- * paid fail the read.
+ * paid, or list more outputs than their transactions can carry, fail the
+ * read. So does a floor at or above `PQC_WARNING_SIGNATURE_THRESHOLD`: no
+ * path lowers a floor, and one that an explorer inflated would keep the
+ * account from signing until the wallet is restored again.
  */
 async function observeQbitPqcStatsFloor(
   client: QbitPqcHistoryClient,
@@ -1047,6 +1056,15 @@ async function observeQbitPqcStatsFloor(
 ): Promise<QbitPqcSignatureActivity> {
   const { tipHash: tipHashBefore, stats: statsBefore } = anchor
   assertQbitStatsFloorConsistent(statsBefore, address)
+  const observedSignatures = safeQbitValueSum(
+    [statsBefore.chain_stats.spent_txo_count, statsBefore.mempool_stats.spent_txo_count],
+    `spent output count of ${address}`
+  )
+  if (observedSignatures >= PQC_WARNING_SIGNATURE_THRESHOLD) {
+    throw new Error(
+      `qbit address ${address} stats claim ${observedSignatures} signatures, at or above the ${PQC_WARNING_SIGNATURE_THRESHOLD}-signature warning threshold`
+    )
+  }
   const statsAfter = await client.getAddressStats(address)
   assertValidQbitStats(statsAfter, address)
   const tipHashAfter = await client.getTipHash()
@@ -1063,12 +1081,36 @@ async function observeQbitPqcStatsFloor(
     )
   }
   return {
-    observedSignatures: safeQbitValueSum(
-      [statsBefore.chain_stats.spent_txo_count, statsBefore.mempool_stats.spent_txo_count],
-      `spent output count of ${address}`
-    ),
+    observedSignatures,
     hasActivity: qbitStatsHaveActivity(statsBefore),
     floorSource: 'address-stats',
+  }
+}
+
+/**
+ * The most outputs paying, and inputs spending, one P2MR address that a
+ * single transaction can carry. A transaction cannot outgrow the
+ * 2,000,000-byte block that holds it (`MAX_QBIT_RAW_TRANSACTION_HEX_LENGTH`),
+ * and with `WITNESS_SCALE_FACTOR = 1` its witness counts in full. An output
+ * paying the address is 43 bytes: an 8-byte value, a 1-byte length and the
+ * 34-byte script (`QBIT_P2MR_SCRIPT_PATTERN`). An input spending it carries
+ * a signature; `estimateQbitP2mrTransaction` sizes it with the default
+ * signature, an empty leaf script and a zero-depth control block, so no real
+ * spend is smaller than its 3,728 bytes. That allows 46,511 outputs and 536
+ * inputs.
+ */
+function qbitP2mrTransactionCapacity(): { outputs: number; inputs: number } {
+  const maxTransactionBytes = MAX_QBIT_RAW_TRANSACTION_HEX_LENGTH / 2
+  const p2mrScriptBytes = 34
+  const { inputVsize } = estimateQbitP2mrTransaction({
+    inputCount: 1,
+    outputScriptLengths: [p2mrScriptBytes],
+    leafScriptLength: 0,
+    controlBlockLength: QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
+  })
+  return {
+    outputs: Math.floor(maxTransactionBytes / (8 + 1 + p2mrScriptBytes)),
+    inputs: Math.floor(maxTransactionBytes / inputVsize),
   }
 }
 
@@ -1078,6 +1120,8 @@ async function observeQbitPqcStatsFloor(
  * neither scope may list more transactions than it has funded and spent
  * outputs. Nor may the address spend more outputs or value than it was paid:
  * a confirmed spend can only spend a confirmed output, a pending one either.
+ * Nor may a scope list more funded or spent outputs than its transactions
+ * can carry (`qbitP2mrTransactionCapacity`).
  */
 function assertQbitStatsFloorConsistent(stats: EsploraAddressStats, address: string): void {
   assertValidQbitStats(stats, address)
@@ -1106,6 +1150,20 @@ function assertQbitStatsFloorConsistent(stats: EsploraAddressStats, address: str
     total('spent_txo_sum') > total('funded_txo_sum')
   ) {
     throw new Error(`qbit address ${address} stats spend more than it was paid`)
+  }
+  const capacity = qbitP2mrTransactionCapacity()
+  for (const [scope, item] of [
+    ['chain', chain],
+    ['mempool', mempool],
+  ] as const) {
+    if (
+      item.funded_txo_count > item.tx_count * capacity.outputs ||
+      item.spent_txo_count > item.tx_count * capacity.inputs
+    ) {
+      throw new Error(
+        `qbit address ${address} ${scope} stats list more outputs than its transactions can carry`
+      )
+    }
   }
 }
 

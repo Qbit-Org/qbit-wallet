@@ -10,8 +10,13 @@ Reconstruction reads each address's complete history where it can. An
 address whose statistics show a history too long to enumerate (over 6,400
 transactions, or more pending transactions than an Esplora mempool listing
 returns) takes its floor from those statistics instead: its count of spent
-outputs, the number the full read must match before it accepts a floor. The restore report names those accounts. Message signatures
-and never-broadcast transactions stay invisible to both reads. See
+outputs, the number the full read must match before it accepts a floor. The restore report names those accounts. Message signatures,
+never-broadcast transactions and transactions a fee bump (Speed up) replaced
+stay invisible to both reads: each Speed up signs every input again, and the
+transaction it replaces drops out of the history. Statistics whose
+transactions could not carry the outputs they list, or a floor at or above
+the 2^28-signature warning threshold, are refused and signing stays locked,
+since no path lowers a floor. See
 [PQC Signature Counter Lifecycle](pqc-counter-lifecycle.md#restore-safety).
 
 ## Durable state
