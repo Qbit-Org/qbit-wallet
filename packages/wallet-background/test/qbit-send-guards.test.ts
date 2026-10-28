@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QbitExternalSigningLock, QbitSendBroadcastClaim } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import {
+  QBIT_PROVIDER_SIGNING_LIMIT,
   QBIT_RECENT_SPEND_GONE_GRACE_MS,
   QBIT_RECENT_SPEND_LIMIT,
   QBIT_RECENT_SPEND_PROBE_INTERVAL_MS,
@@ -408,8 +409,9 @@ describe('QbitSendGuardService', () => {
   })
 
   describe('claim ownership', () => {
+    /** A wallet-owned claim as the wallet mints it for a send that replaces nothing. */
     const walletClaim = (overrides: Partial<QbitSendBroadcastClaim> = {}) =>
-      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, ...overrides })
+      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, replaces: null, ...overrides })
     const reserved = () =>
       service.getReservedOutpointKeys(ChainType.QBIT_REGTEST, 'qbrt1zfunding')
     const outpoint = `${'aa'.repeat(32)}:1`
@@ -461,27 +463,56 @@ describe('QbitSendGuardService', () => {
       await expect(reserved()).resolves.toEqual(new Set())
     })
 
-    it('keeps a claim whose last dispatched verdict was inconclusive, even after its owner is gone', async () => {
+    it('consumes a claim whose last dispatched verdict was inconclusive into recent spends once its owner is gone', async () => {
       const claim = walletClaim()
+      const bump = walletClaim({ txid: '13'.repeat(32), replaces: claim.txid })
       await service.runWithBroadcastClaim(claim, async () => 'signed', 'popup:1')
 
       service.beginBroadcastAttempt(claim, 'popup:1')
       await service.settleBroadcastAttempt(claim, 'inconclusive')
-      await service.releaseClaimsOwnedBy('popup:1')
-      // The node may hold the transaction; only proof either way settles it.
+      // The page may still retry these bytes, so the claim stays held.
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+      await expect(
+        service.runWithBroadcastClaim(bump, async () => 'signed', 'tab:2')
+      ).rejects.toThrow('claimed by an approved send')
 
-      // The same page, reconnected, retries. A refusal that never left the
-      // wallet does not undo the inconclusive verdict, so the claim survives
-      // that port going away as well.
+      // The same page retries. A refusal that never left the wallet does not
+      // undo the inconclusive verdict, so the claim is consumed, not released,
+      // when that port goes away: the node may hold the transaction.
       service.beginBroadcastAttempt(claim, 'popup:2')
       await service.settleBroadcastAttempt(claim, 'refused')
+      await service.releaseClaimsOwnedBy('popup:1')
+      await expect(
+        service.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
+      ).rejects.toThrow('claimed by an approved send')
       await service.releaseClaimsOwnedBy('popup:2')
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+      await expect(service.releaseBroadcastClaim(claim)).resolves.toBe(false)
+      await expect(
+        service.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
+      ).rejects.toThrow('recent broadcast already spent')
+      // Only a fee bump of that very transaction may take the input over.
+      await expect(
+        service.runWithBroadcastClaim(
+          walletClaim({ txid: '14'.repeat(32) }),
+          async () => 'signed',
+          'tab:2'
+        )
+      ).rejects.toThrow('recent broadcast already spent')
+      await expect(
+        service.runWithBroadcastClaim(bump, async () => 'signed', 'tab:2')
+      ).resolves.toBe('signed')
+    })
 
-      // A dispatched rejection with absence proven does undo it; while the
-      // page that got that verdict is open it may still retry or abandon,
-      // and the claim goes with the page.
+    it('releases an orphaned claim whose last dispatched verdict proved absence', async () => {
+      const claim = walletClaim()
+      await service.runWithBroadcastClaim(claim, async () => 'signed', 'popup:1')
+      service.beginBroadcastAttempt(claim, 'popup:1')
+      await service.settleBroadcastAttempt(claim, 'inconclusive')
+
+      // A dispatched rejection with absence proven undoes the inconclusive
+      // verdict; while the page that got it is open it may still retry or
+      // abandon, and the claim goes with the page.
       service.beginBroadcastAttempt(claim, 'popup:3')
       await service.settleBroadcastAttempt(claim, 'proven_absent')
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
@@ -516,8 +547,8 @@ describe('QbitSendGuardService', () => {
 
       // A fee bump of that transaction is claimed over the now-spent inputs
       // by another page; the first page closing must not touch it.
-      const next = walletClaim({ txid: '13'.repeat(32) })
-      await service.runWithBroadcastClaim(next, async () => 'signed', 'tab:2', claim.txid)
+      const next = walletClaim({ txid: '13'.repeat(32), replaces: claim.txid })
+      await service.runWithBroadcastClaim(next, async () => 'signed', 'tab:2')
       await service.releaseClaimsOwnedBy('popup:1')
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
       await expect(service.releaseBroadcastClaim(next)).resolves.toBe(true)
@@ -525,8 +556,9 @@ describe('QbitSendGuardService', () => {
   })
 
   describe('claim restoration', () => {
+    /** A wallet-owned claim as the wallet mints it for a send that replaces nothing. */
     const walletClaim = (overrides: Partial<QbitSendBroadcastClaim> = {}) =>
-      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, ...overrides })
+      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, replaces: null, ...overrides })
     const reserved = () => service.getReservedOutpointKeys(ChainType.QBIT_REGTEST, 'qbrt1zfunding')
     const outpoint = `${'aa'.repeat(32)}:1`
     const restore = (claim: QbitSendBroadcastClaim, owner?: string) =>
@@ -545,20 +577,20 @@ describe('QbitSendGuardService', () => {
       await expect(restore(claim, 'tab:1')).resolves.toBe('refused')
 
       // The restoring page disconnects while its broadcast is still in
-      // flight: the verdict decides, not the disconnect, and an inconclusive
-      // verdict keeps the claim even though its owner is gone.
+      // flight: the verdict decides, not the disconnect.
       await service.releaseClaimsOwnedBy('tab:1')
-      await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+      await expect(
+        service.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
+      ).rejects.toThrow('claimed by an approved send')
+      // An inconclusive verdict keeps the input reserved, as a recent spend
+      // of the claim's transaction, exactly like a minted claim's; the claim
+      // itself is decided and never restored again.
       await service.settleBroadcastAttempt(claim, 'inconclusive')
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
-
-      // A later attempt from another page proves absence: the claim then
-      // goes with that page, exactly like a minted one.
-      service.beginBroadcastAttempt(claim, 'tab:2')
-      await service.settleBroadcastAttempt(claim, 'proven_absent')
-      await expect(reserved()).resolves.toEqual(new Set([outpoint]))
-      await service.releaseClaimsOwnedBy('tab:2')
-      await expect(reserved()).resolves.toEqual(new Set())
+      await expect(
+        service.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
+      ).rejects.toThrow('recent broadcast already spent')
+      await expect(restore(claim, 'tab:2')).resolves.toBe('refused')
     })
 
     it('lets the broadcast consume a restored claim, after which it is never restored again', async () => {
@@ -683,15 +715,19 @@ describe('QbitSendGuardService', () => {
     const chain = ChainType.QBIT_REGTEST
     const address = 'qbrt1zfunding'
     const outpoint = `${'aa'.repeat(32)}:1`
+    /** A wallet-owned claim as the wallet mints it for a send that replaces nothing. */
     const walletClaim = (overrides: Partial<QbitSendBroadcastClaim> = {}) =>
-      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, ...overrides })
+      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, replaces: null, ...overrides })
     const reserved = (forAddress = address) => service.getReservedOutpointKeys(chain, forAddress)
     const start = new Date('2026-10-23T12:00:00Z').getTime()
     const advance = (ms: number) => vi.setSystemTime(Date.now() + ms)
 
     /** Claim, sign and broadcast `claim`, as the wallet's send path does. */
     async function sendAccepted(claim: QbitSendBroadcastClaim, replaces?: string) {
-      await service.runWithBroadcastClaim(claim, async () => 'signed', undefined, replaces)
+      await service.runWithBroadcastClaim(
+        replaces ? { ...claim, replaces } : claim,
+        async () => 'signed'
+      )
       await service.broadcastIfAllowed(
         chain,
         claim.txid,
@@ -791,19 +827,15 @@ describe('QbitSendGuardService', () => {
       // A provider claim cannot claim to be a replacement.
       await expect(
         service.runWithBroadcastClaim(
-          broadcastClaim({ txid: '22'.repeat(32) }),
-          async () => 'signed',
-          undefined,
-          original.txid
+          { ...broadcastClaim({ txid: '22'.repeat(32) }), replaces: original.txid },
+          async () => 'signed'
         )
       ).rejects.toThrow('recent broadcast already spent')
       // Nor can a wallet claim naming some other transaction.
       await expect(
         service.runWithBroadcastClaim(
-          walletClaim({ txid: '22'.repeat(32) }),
-          async () => 'signed',
-          undefined,
-          '99'.repeat(32)
+          { ...walletClaim({ txid: '22'.repeat(32) }), replaces: '99'.repeat(32) },
+          async () => 'signed'
         )
       ).rejects.toThrow('recent broadcast already spent')
 
@@ -815,10 +847,8 @@ describe('QbitSendGuardService', () => {
       // is refused, and one of the bump itself is allowed.
       await expect(
         service.runWithBroadcastClaim(
-          walletClaim({ txid: '23'.repeat(32) }),
-          async () => 'signed',
-          undefined,
-          original.txid
+          { ...walletClaim({ txid: '23'.repeat(32) }), replaces: original.txid },
+          async () => 'signed'
         )
       ).rejects.toThrow('recent broadcast already spent')
       await expect(
@@ -836,10 +866,11 @@ describe('QbitSendGuardService', () => {
       // fee bump by naming it: a bump is built from all of them.
       await expect(
         service.runWithBroadcastClaim(
-          walletClaim({ txid: '22'.repeat(32), outpoints: [second] }),
-          async () => 'signed',
-          undefined,
-          original.txid
+          {
+            ...walletClaim({ txid: '22'.repeat(32), outpoints: [second] }),
+            replaces: original.txid,
+          },
+          async () => 'signed'
         )
       ).rejects.toThrow('recent broadcast already spent')
       await sendAccepted(
@@ -856,7 +887,10 @@ describe('QbitSendGuardService', () => {
         await sendAccepted(original)
         // The bump is assessed and signed while nothing spends the original.
         const bump = walletClaim({ txid: '22'.repeat(32) })
-        await service.runWithBroadcastClaim(bump, async () => 'signed', undefined, original.txid)
+        await service.runWithBroadcastClaim(
+          { ...bump, replaces: original.txid },
+          async () => 'signed'
+        )
         // A send then spends the original's change and goes out first.
         const later = walletClaim({
           txid: '33'.repeat(32),
@@ -886,10 +920,8 @@ describe('QbitSendGuardService', () => {
         const sign = vi.fn(async () => 'signed')
         await expect(
           service.runWithBroadcastClaim(
-            walletClaim({ txid: '22'.repeat(32) }),
-            sign,
-            undefined,
-            original.txid
+            { ...walletClaim({ txid: '22'.repeat(32) }), replaces: original.txid },
+            sign
           )
         ).rejects.toThrow(dependentMessage)
         expect(sign).not.toHaveBeenCalled()
@@ -913,10 +945,8 @@ describe('QbitSendGuardService', () => {
         await expect(service.hasDependentSpend(chain, original.txid)).resolves.toBe(true)
         await expect(
           service.runWithBroadcastClaim(
-            walletClaim({ txid: '22'.repeat(32) }),
-            async () => 'signed',
-            undefined,
-            original.txid
+            { ...walletClaim({ txid: '22'.repeat(32) }), replaces: original.txid },
+            async () => 'signed'
           )
         ).rejects.toThrow(dependentMessage)
       })
@@ -942,11 +972,138 @@ describe('QbitSendGuardService', () => {
       })
     })
 
+    describe('a fee bump checked again at its broadcast and after a restart (#340)', () => {
+      const dependentMessage = 'A later payment depends on the transaction this fee bump replaces'
+      const bumpTxid = '22'.repeat(32)
+      const laterOf = (original: QbitSendBroadcastClaim) =>
+        walletClaim({ txid: '33'.repeat(32), outpoints: [{ txid: original.txid, vout: 1 }] })
+
+      it("hands a held fee bump's original to its broadcast, and nothing for any other send", async () => {
+        const original = walletClaim()
+        const broadcast = vi.fn(async (_replaces?: string) => 'broadcasted')
+        await service.runWithBroadcastClaim(original, async () => 'signed')
+        await service.broadcastIfAllowed(
+          chain,
+          original.txid,
+          original.outpoints,
+          broadcast,
+          original
+        )
+        expect(broadcast).toHaveBeenLastCalledWith(undefined)
+
+        // The guard's record decides, whatever the page presents.
+        const bump = walletClaim({ txid: bumpTxid, replaces: original.txid })
+        await service.runWithBroadcastClaim(bump, async () => 'signed')
+        const presented = walletClaim({ txid: bumpTxid })
+        // The explorer shows a later payment: the broadcast refuses before
+        // dispatch, and the claim stays held for a retry.
+        const refuse = vi.fn(async (_replaces?: string) => {
+          throw new Error(dependentMessage)
+        })
+        await expect(
+          service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, refuse, presented)
+        ).rejects.toThrow(dependentMessage)
+        expect(refuse).toHaveBeenCalledWith(original.txid)
+        await expect(
+          service.runWithBroadcastClaim(walletClaim({ txid: '23'.repeat(32) }), async () => 'x')
+        ).rejects.toThrow('claimed by an approved send')
+
+        await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, presented)
+        expect(broadcast).toHaveBeenLastCalledWith(original.txid)
+      })
+
+      it("restores a fee bump's claim with the transaction it replaces and refuses it while a later payment spends that", async () => {
+        const original = walletClaim()
+        await sendAccepted(original)
+        const bump = walletClaim({ txid: bumpTxid, replaces: original.txid })
+
+        // The bump was signed, but its broadcast is lost with the worker;
+        // the page keeps its bytes and claim. After the restart a send takes
+        // the original's change, which the explorer lists as spendable.
+        service.init()
+        await sendAccepted(laterOf(original))
+        await expect(service.hasDependentSpend(chain, original.txid)).resolves.toBe(true)
+
+        // Retrying the bump would evict that send, so it is not restored.
+        await expect(service.restoreBroadcastClaim(bump, address, 'tab:1')).resolves.toBe('refused')
+        const broadcast = vi.fn(async () => bumpTxid)
+        await expect(
+          service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
+        ).rejects.toThrow('not active')
+        expect(broadcast).not.toHaveBeenCalled()
+      })
+
+      it('refuses the broadcast of a restored fee bump once a later payment spends its original', async () => {
+        const original = walletClaim()
+        const bump = walletClaim({ txid: bumpTxid, replaces: original.txid })
+        await expect(service.restoreBroadcastClaim(bump, address, 'tab:1')).resolves.toBe(
+          'restored'
+        )
+        await service.settleBroadcastAttempt(bump, 'refused')
+
+        // A send over the original's change is signed before the retry.
+        await service.runWithBroadcastClaim(laterOf(original), async () => 'signed')
+        const broadcast = vi.fn(async () => bumpTxid)
+        await expect(
+          service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
+        ).rejects.toThrow(dependentMessage)
+        expect(broadcast).not.toHaveBeenCalled()
+
+        // Once it is released, the restored bump still asks its broadcast to
+        // look for payments made elsewhere.
+        await service.releaseBroadcastClaim(laterOf(original))
+        await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
+        expect(broadcast).toHaveBeenCalledWith(original.txid)
+      })
+
+      it('never restores a wallet claim that does not say what it replaces', async () => {
+        // A page holding a claim minted before claims named what they
+        // replace: it may be a fee bump, whose later payments nothing could
+        // check, so it is refused rather than restored as a plain send.
+        const unknown = walletClaim()
+        delete unknown.replaces
+        await expect(service.restoreBroadcastClaim(unknown, address, 'tab:1')).resolves.toBe(
+          'refused'
+        )
+        await expect(
+          service.restoreBroadcastClaim(walletClaim({ replaces: 'not-a-txid' }), address, 'tab:1')
+        ).resolves.toBe('refused')
+        await expect(reserved()).resolves.toEqual(new Set())
+
+        // The same claim naming nothing is restored as a plain send.
+        await expect(service.restoreBroadcastClaim(walletClaim(), address, 'tab:1')).resolves.toBe(
+          'restored'
+        )
+      })
+
+      it('drops what a provider claim says it replaces', async () => {
+        const original = walletClaim()
+        await service.runWithBroadcastClaim(original, async () => 'signed')
+        await service.broadcastIfAllowed(
+          chain,
+          original.txid,
+          original.outpoints,
+          async () => 'out',
+          original
+        )
+        const provider = { ...broadcastClaim({ txid: bumpTxid }), replaces: original.txid }
+        await expect(service.runWithBroadcastClaim(provider, async () => 'signed')).rejects.toThrow(
+          'recent broadcast already spent'
+        )
+        await expect(service.restoreBroadcastClaim(provider, address, 'tab:1')).resolves.toBe(
+          'refused'
+        )
+      })
+    })
+
     it('hands an input back to the original when its fee bump turns out absent or gone', async () => {
       const original = walletClaim()
       await sendAccepted(original)
       const bump = walletClaim({ txid: '22'.repeat(32) })
-      await service.runWithBroadcastClaim(bump, async () => 'signed', undefined, original.txid)
+      await service.runWithBroadcastClaim(
+        { ...bump, replaces: original.txid },
+        async () => 'signed'
+      )
 
       // The bump's broadcast is inconclusive, then proven absent: the
       // original may still be pending, so its input stays reserved.
@@ -1214,6 +1371,256 @@ describe('QbitSendGuardService', () => {
       await expect(reserved()).resolves.toEqual(new Set([outpoint]))
     })
 
+    describe('a wallet send whose broadcast outcome is unknown (#339)', () => {
+      /** A corrected send over the default claim's input, which replaces nothing. */
+      const corrected = walletClaim({ txid: '22'.repeat(32) })
+      /** Speed up's claim: a fee bump of the default claim's transaction. */
+      const bump = walletClaim({ txid: '22'.repeat(32), replaces: walletClaim().txid })
+
+      /** Claim `claim` for page `owner` and end its broadcast without a verdict, as the send path does. */
+      async function sendInconclusive(claim: QbitSendBroadcastClaim, owner = 'popup:1') {
+        await service.runWithBroadcastClaim(claim, async () => 'signed', owner)
+        service.beginBroadcastAttempt(claim, owner)
+        await service.recordInconclusiveBroadcast(chain, claim.txid, claim.outpoints, claim)
+        await service.settleBroadcastAttempt(claim, 'inconclusive')
+      }
+
+      it('frees the inputs of a transaction that never reached the node once the recovery screen is left, whatever order the probes answer in', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+
+        // The recovery screen is left; the popup, and its port, stay open.
+        await service.abandonBroadcastClaim(claim, 'popup:1')
+        await expect(service.releaseBroadcastClaim(claim)).resolves.toBe(false)
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+
+        // One probe inside the grace period and one past it, answering in
+        // reverse order: the later miss frees the input, and the earlier
+        // answers, whatever they say, change nothing once they land.
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [early] = await service.takeRecentSpendersToProbe(chain, address)
+        advance(QBIT_RECENT_SPEND_GONE_GRACE_MS)
+        const [late] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, late!, 'gone')
+        await expect(reserved()).resolves.toEqual(new Set())
+        await service.settleRecentSpendProbe(chain, early!, 'pending')
+        await service.settleRecentSpendProbe(chain, early!, 'gone')
+        await expect(reserved()).resolves.toEqual(new Set())
+
+        // A corrected send over the input goes through.
+        await expect(
+          service.runWithBroadcastClaim(corrected, async () => 'signed', 'popup:1')
+        ).resolves.toBe('signed')
+      })
+
+      it('never frees the inputs while the transaction may have landed unseen', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+
+        // A miss inside the grace period is the explorer lagging the node.
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [early] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, early!, 'gone')
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+
+        // Past it, a miss neither releases the held claim nor drops its
+        // transaction's record: the recovery screen may still retry these
+        // exact bytes, and later probes keep watching for the transaction.
+        advance(QBIT_RECENT_SPEND_GONE_GRACE_MS)
+        const [late] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, late!, 'gone')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'claimed by an approved send'
+        )
+
+        // The transaction turns up after all: the next probe finds it
+        // pending and consumes the claim, so a fee bump may replace it.
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [later] = await service.takeRecentSpendersToProbe(chain, address)
+        expect(later?.txid).toBe(claim.txid)
+        await service.settleRecentSpendProbe(chain, later!, 'pending')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'recent broadcast already spent'
+        )
+        await expect(
+          service.runWithBroadcastClaim(bump, async () => 'signed', 'tab:2')
+        ).resolves.toBe('signed')
+      })
+
+      it('frees the inputs at the first miss past the grace period once the recovery screen is left', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+        advance(QBIT_RECENT_SPEND_GONE_GRACE_MS)
+        const [whileOpen] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, whileOpen!, 'gone')
+
+        // The grace period ran from the broadcast, so once the screen is
+        // left the next miss frees the input.
+        await service.abandonBroadcastClaim(claim, 'popup:1')
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [afterLeaving] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, afterLeaving!, 'gone')
+        await expect(reserved()).resolves.toEqual(new Set())
+      })
+
+      it('lets a fee bump replace a transaction a probe finds pending, while its recovery screen is still open', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+        await expect(
+          service.runWithBroadcastClaim(bump, async () => 'signed', 'tab:2')
+        ).rejects.toThrow('claimed by an approved send')
+
+        // Two probes, answering in reverse order: the newer one finds the
+        // transaction pending and consumes its claim into a recent spend.
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [older] = await service.takeRecentSpendersToProbe(chain, address)
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [newer] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, newer!, 'pending')
+        await expect(service.releaseBroadcastClaim(claim)).resolves.toBe(false)
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+
+        // The older probe's miss lands afterwards and frees nothing.
+        advance(QBIT_RECENT_SPEND_GONE_GRACE_MS)
+        await service.settleRecentSpendProbe(chain, older!, 'gone')
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+
+        // Speed up: only a bump of that very transaction may take the input.
+        await expect(
+          service.runWithBroadcastClaim(
+            walletClaim({ txid: '33'.repeat(32) }),
+            async () => 'signed',
+            'tab:2'
+          )
+        ).rejects.toThrow('recent broadcast already spent')
+        await expect(
+          service.runWithBroadcastClaim(bump, async () => 'signed', 'tab:2')
+        ).resolves.toBe('signed')
+        await expect(
+          service.broadcastIfAllowed(chain, bump.txid, bump.outpoints, async () => bump.txid, bump)
+        ).resolves.toBe(bump.txid)
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+
+        // The recovery screen's retry of the original finds its claim gone,
+        // which the controller probes and reports, never dispatching.
+        await expect(
+          service.broadcastIfAllowed(chain, claim.txid, claim.outpoints, async () => 'sent', claim)
+        ).rejects.toThrow('not active')
+      })
+
+      it('lets a fee bump replace an unknown send once its recovery screen is left', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+
+        await service.abandonBroadcastClaim(claim, 'popup:1')
+        await expect(
+          service.runWithBroadcastClaim(bump, async () => 'signed', 'popup:1')
+        ).resolves.toBe('signed')
+      })
+
+      it('drops a held claim a probe finds confirmed', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [probe] = await service.takeRecentSpendersToProbe(chain, address)
+
+        await service.settleRecentSpendProbe(chain, probe!, 'confirmed')
+        await expect(service.releaseBroadcastClaim(claim)).resolves.toBe(false)
+        await expect(reserved()).resolves.toEqual(new Set())
+      })
+
+      it("leaves a provider claim to its request's settlement whatever a probe finds", async () => {
+        const claim = broadcastClaim()
+        const request = await service.openProviderSendRequest(claim)
+        await service.runWithProviderBroadcastClaim(claim, async () => 'signed')
+        await service.recordInconclusiveBroadcast(chain, claim.txid, claim.outpoints, claim)
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [probe] = await service.takeRecentSpendersToProbe(chain, address)
+
+        await service.settleRecentSpendProbe(chain, probe!, 'pending')
+        await service.abandonBroadcastClaim(claim, 'popup:1')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'claimed by an approved send'
+        )
+        await service.settleProviderSendRequest(request, true)
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'recent broadcast already spent'
+        )
+      })
+
+      it('never settles a claim registered after the probe that found its transaction was handed out', async () => {
+        // An earlier broadcast of these bytes left a record; while a probe of
+        // it is out, the same transaction is claimed again (signed anew after
+        // it left the mempool). The probe's answer predates that claim.
+        const claim = walletClaim()
+        await service.recordInconclusiveBroadcast(chain, claim.txid, claim.outpoints)
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [stale] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.runWithBroadcastClaim(claim, async () => 'signed', 'popup:1')
+
+        await service.settleRecentSpendProbe(chain, stale!, 'pending')
+        await service.settleRecentSpendProbe(chain, stale!, 'confirmed')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'claimed by an approved send'
+        )
+
+        // A probe handed out after the claim speaks for it.
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        await service.recordInconclusiveBroadcast(chain, claim.txid, claim.outpoints, claim)
+        advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
+        const [fresh] = await service.takeRecentSpendersToProbe(chain, address)
+        await service.settleRecentSpendProbe(chain, fresh!, 'pending')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'recent broadcast already spent'
+        )
+      })
+
+      it('lets only the page that holds the bytes abandon them, and releases what never went out', async () => {
+        const claim = walletClaim()
+        await sendInconclusive(claim)
+
+        // Another page took the claim over for a retry: it holds the bytes.
+        service.beginBroadcastAttempt(claim, 'tab:2')
+        await service.abandonBroadcastClaim(claim, 'popup:1')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'claimed by an approved send'
+        )
+        // Abandoned mid-attempt, the attempt's verdict decides.
+        await service.abandonBroadcastClaim(claim, 'tab:2')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'claimed by an approved send'
+        )
+        await service.settleBroadcastAttempt(claim, 'refused')
+        await expect(service.assertNoOverlap(chain, claim.outpoints)).rejects.toThrow(
+          'recent broadcast already spent'
+        )
+
+        // A claim no broadcast ever left the wallet for is simply released.
+        const unsent = walletClaim({
+          txid: '44'.repeat(32),
+          outpoints: [{ txid: 'ab'.repeat(32), vout: 0 }],
+        })
+        await service.runWithBroadcastClaim(unsent, async () => 'signed', 'popup:1')
+        service.beginBroadcastAttempt(unsent, 'popup:1')
+        await service.settleBroadcastAttempt(unsent, 'refused')
+        await service.abandonBroadcastClaim(unsent, 'popup:1')
+        await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+
+        // A claim no UI port owns is not any page's to abandon.
+        const unowned = walletClaim({
+          txid: '66'.repeat(32),
+          outpoints: [{ txid: 'ad'.repeat(32), vout: 0 }],
+        })
+        await service.runWithBroadcastClaim(unowned, async () => 'signed')
+        await service.abandonBroadcastClaim(unowned, 'popup:1')
+        await service.abandonBroadcastClaim(unowned)
+        await expect(service.assertNoOverlap(chain, unowned.outpoints)).rejects.toThrow(
+          'claimed by an approved send'
+        )
+      })
+    })
+
     it('expires a recent spend a day after the last sign of its spender being pending', async () => {
       const claim = walletClaim()
       await sendAccepted(claim)
@@ -1319,6 +1726,87 @@ describe('QbitSendGuardService', () => {
         'recent broadcast already spent'
       )
       await expect(reserved()).resolves.toContain(`${'ee'.repeat(32)}:2`)
+    })
+
+    it("reserves an unknown push's inputs only for a transaction the user approved signing for a dapp", async () => {
+      const txid = '46'.repeat(32)
+      const inputs = broadcastClaim().outpoints
+
+      // A push needs no approval: a dapp could freeze any public output.
+      await expect(service.recordInconclusiveProviderPush(chain, txid, inputs)).resolves.toBe(false)
+      await expect(reserved()).resolves.toEqual(new Set())
+
+      // Approving the same txid on another network, or another txid, does not count.
+      await service.recordProviderSigning(ChainType.QBIT_TESTNET4, txid)
+      await service.recordProviderSigning(chain, '47'.repeat(32))
+      await expect(service.recordInconclusiveProviderPush(chain, txid, inputs)).resolves.toBe(false)
+      await expect(reserved()).resolves.toEqual(new Set())
+
+      await service.recordProviderSigning(chain, txid)
+      await expect(service.recordInconclusiveProviderPush(chain, txid, inputs)).resolves.toBe(true)
+      // Nothing names the account a push spends from: reserved for every
+      // account, and refused to every other transaction, as an approved
+      // send's would be.
+      await expect(reserved()).resolves.toEqual(new Set([outpoint]))
+      await expect(reserved('qbrt1zother')).resolves.toEqual(new Set([outpoint]))
+      await expect(
+        service.runWithBroadcastClaim(walletClaim(), async () => 'signed')
+      ).rejects.toThrow('recent broadcast already spent')
+      await expect(
+        service.broadcastIfAllowed(chain, '48'.repeat(32), inputs, async () => 'conflict')
+      ).rejects.toThrow('recent broadcast already spent')
+      // The same transaction may still go out again.
+      await expect(
+        service.broadcastIfAllowed(chain, txid, inputs, async () => 'again')
+      ).resolves.toBe('again')
+    })
+
+    it('remembers at most the limit of approved signings, forgetting the oldest first', async () => {
+      const txidAt = (index: number) => index.toString(16).padStart(64, '0')
+      const inputs = broadcastClaim().outpoints
+      for (let index = 0; index <= QBIT_PROVIDER_SIGNING_LIMIT; index += 1) {
+        await service.recordProviderSigning(chain, txidAt(index))
+      }
+      await expect(service.recordInconclusiveProviderPush(chain, txidAt(0), inputs)).resolves.toBe(
+        false
+      )
+
+      // Recording a transaction again makes it the newest.
+      await service.recordProviderSigning(chain, txidAt(1))
+      await service.recordProviderSigning(chain, txidAt(QBIT_PROVIDER_SIGNING_LIMIT + 1))
+      await expect(service.recordInconclusiveProviderPush(chain, txidAt(2), inputs)).resolves.toBe(
+        false
+      )
+      await expect(service.recordInconclusiveProviderPush(chain, txidAt(1), inputs)).resolves.toBe(
+        true
+      )
+    })
+
+    it('refuses to record a malformed approved signing or push', async () => {
+      await expect(service.recordProviderSigning(chain, 'not-a-txid')).rejects.toThrow(
+        'invalid Qbit transaction'
+      )
+      await expect(
+        service.recordProviderSigning('QBIT_UNKNOWN' as ChainType, '46'.repeat(32))
+      ).rejects.toThrow('invalid Qbit transaction')
+      await service.recordProviderSigning(chain, '46'.repeat(32))
+      expect(() => service.recordInconclusiveProviderPush(chain, '46'.repeat(32), [])).toThrow(
+        'invalid Qbit transaction inputs'
+      )
+      await expect(reserved()).resolves.toEqual(new Set())
+    })
+
+    it('forgets approved signings on reset and reinitialization', async () => {
+      const txid = '46'.repeat(32)
+      const inputs = broadcastClaim().outpoints
+      await service.recordProviderSigning(chain, txid)
+      await service.resetAllData()
+      await expect(service.recordInconclusiveProviderPush(chain, txid, inputs)).resolves.toBe(false)
+
+      await service.recordProviderSigning(chain, txid)
+      service.init()
+      await expect(service.recordInconclusiveProviderPush(chain, txid, inputs)).resolves.toBe(false)
+      await expect(reserved()).resolves.toEqual(new Set())
     })
 
     it('forgets recent spends on reset and reinitialization', async () => {

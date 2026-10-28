@@ -236,6 +236,11 @@ export class QbitWallet extends BaseWallet {
     return provider.verifyMessage(address, message, proof)
   }
 
+  /**
+   * Revoke this origin's grant in Qbit Wallet. Call it only for an explicit
+   * user disconnect: accountsChanged [] also means the wallet is on a chain
+   * this origin has no grant for, and revoking then would drop the grant.
+   */
   async disconnect(): Promise<void> {
     const provider = this.getProvider()
     if (!provider) {

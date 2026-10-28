@@ -68,6 +68,7 @@ export enum PhishingMessageType {
 
   /**
    * Force an immediate update of the phishing lists from remote source
+   * In MV3 it also installs the DNR block rule again.
    *
    * Expected parameters: none
    *
@@ -97,8 +98,51 @@ export enum PhishingMessageType {
    *
    * Response:
    * - stats: object - Object containing phishing configuration and statistics
+   * - networkRules: PhishingNetworkRuleHealth - Whether the DNR block rule is
+   *   in place, as last read back from the browser
    */
   GET_PHISHING_STATS = 'GET_PHISHING_STATS',
+}
+
+/**
+ * The state of the MV3 network layer of phishing protection, the DNR block
+ * rule for the bundled denylist:
+ * - `installing`: an attempt to install it is in progress;
+ * - `installed`: the browser holds the rule for every domain that can go in it;
+ * - `retrying`: the rule is not in place, as an attempt failed or a read found
+ *   it missing, and another attempt is scheduled;
+ * - `failed`: the attempts ran out, or no denylist entry can go in the rule,
+ *   and no attempt is scheduled;
+ * - `unknown`: the installed rules could not be read back;
+ * - `unsupported`: there is no DNR, as in MV2, and the content script is the
+ *   only layer.
+ */
+export type PhishingNetworkRuleStatus =
+  | 'installing'
+  | 'installed'
+  | 'retrying'
+  | 'failed'
+  | 'unknown'
+  | 'unsupported'
+
+export interface PhishingNetworkRuleHealth {
+  status: PhishingNetworkRuleStatus
+  /** Attempts made since the latest install started, counting one in progress. */
+  attempts: number
+  /**
+   * How many domains the block rule in the browser names, as last read back.
+   * After a failure this is what an earlier install left, 0 when there is no
+   * rule, and null when the rules have not been or could not be read.
+   */
+  blockedDomains: number | null
+  /** Denylist entries left out of the rule because DNR cannot name them. */
+  skippedEntries: { entry: string; reason: string }[]
+  /** The last failure, while the status is `retrying`, `failed` or `unknown`. */
+  error?: string
+  /** When the next attempt starts, in milliseconds since the epoch, while `retrying`. */
+  nextRetryAt?: number
+  /** When this state was measured, in milliseconds since the epoch. */
+  updatedAt: number
 }
 
 /**

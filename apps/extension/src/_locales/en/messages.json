@@ -242,6 +242,9 @@
   "qbit_restore_scanning": {
     "message": "Scanning chain history and reconstructing signature counters…"
   },
+  "qbit_restore_stats_floor_notice": {
+    "message": "Signature counters for the accounts at derivation index $1 were rebuilt from the explorer's address totals, because their history is too long to read in full. The totals count the same on-chain spends."
+  },
   "qbit_signatures_remaining": {
     "message": "$1 remaining"
   },
@@ -1520,6 +1523,15 @@
   "phishing_detection": {
     "message": "Phishing Detection"
   },
+  "phishing_page_held_message": {
+    "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. The wallet did not answer in time to open its full warning or let the page load. Try again, or close this tab."
+  },
+  "phishing_page_held_released_message": {
+    "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. Select Try again to load it, or close this tab."
+  },
+  "phishing_page_held_unreleasable_message": {
+    "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. It cannot let the page load, as the page does not keep the record that this needs. Try again, or close this tab."
+  },
   "phrase_optional": {
     "message": "Phrase (Optional)"
   },
@@ -2669,6 +2681,12 @@
   "qbit_recovery_pending_body": {
     "message": "Signed movement data is stored in the encrypted vault. Keep both wallets; return here to rebroadcast, check confirmation, or resume safely."
   },
+  "qbit_recovery_deferred_title": {
+    "message": "Not moved yet"
+  },
+  "qbit_recovery_deferred_history_too_large": {
+    "message": "This account holds more outputs than the explorer lists and has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Switch to it, open Send and choose Consolidate outputs until it is within the explorer's limit, then return here."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Ready for review and signing"
   },
@@ -2858,8 +2876,14 @@
   "send_all_leaves_outputs_behind": {
     "message": "MAX sends your $1 largest outputs, the most one transaction can carry. $2 $3 in $4 smaller outputs stays in this account."
   },
+  "send_exceeds_ancestor_size": {
+    "message": "Together with your earlier send that has not confirmed yet, this send would be larger than the network accepts. Wait for the earlier send to confirm, or send a smaller amount."
+  },
   "utxo_limit_exceeded_balance": {
     "message": "Too many outputs for the explorer to list. This total comes from the address summary."
+  },
+  "utxo_limit_exceeded_balance_detail": {
+    "message": "Available and unavailable amounts are unknown because the explorer does not list this account's outputs."
   },
   "utxo_limit_exceeded_send": {
     "message": "This account holds more outputs than the explorer lists, and the wallet could not read them all from its history. Consolidate its outputs to spend from it."
@@ -2908,5 +2932,50 @@
   },
   "consolidation_error_keep_reading": {
     "message": "The wallet has read part of this account's history without finding outputs ready to merge. Prepare again to read further."
+  },
+  "net_spend_leaves_wallet": {
+    "message": "Leaves your wallet"
+  },
+  "net_spend_breakdown": {
+    "message": "$1 $2 to others + $3 $4 network fee"
+  },
+  "net_spend_unknown": {
+    "message": "Unknown: an input's amount is missing"
+  },
+  "fee_warning_above_recommended": {
+    "message": "$1 bits/vB is $2× the fastest recommended rate of $3 bits/vB."
+  },
+  "fee_warning_above_relay_floor": {
+    "message": "$1 bits/vB is $2× the network minimum of $3 bit/vB."
+  },
+  "fee_warning_amount_share": {
+    "message": "The fee is $1% of the $2 $3 this transaction sends to others."
+  },
+  "fee_warning_recommendation_unavailable": {
+    "message": "Recommended fee rates are unavailable, so this fee was not compared with them."
+  },
+  "unrecognised_output": {
+    "message": "Unrecognised"
+  },
+  "unrecognised_outputs_summary": {
+    "message": "Outputs to addresses this wallet does not recognise: $1, paying $2 $3"
+  },
+  "unrecognised_output_risk_title": {
+    "message": "Unrecognised output"
+  },
+  "unrecognised_output_risk_description": {
+    "message": "An output pays an address that is neither yours nor the recipient this request names, or a script with no address. Check every output before you sign."
+  },
+  "multisign_flagged_transactions": {
+    "message": "Transactions that need a confirmation before signing: $1"
+  },
+  "multisign_risks_description": {
+    "message": "Please be aware that signing the following transactions involves risk."
+  },
+  "understand_and_accept_the_risks_of_these_transactions": {
+    "message": "I understand and accept the risks associated with these transactions."
+  },
+  "multisign_account_changed": {
+    "message": "The account changed while the transactions were checked. Nothing was signed; check them again."
   }
 }

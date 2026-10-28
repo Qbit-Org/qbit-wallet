@@ -144,6 +144,8 @@ Threats:
 
 - a crash after signing but before durable counter advancement;
 - concurrent requests losing increments or consuming one counter twice;
+- a lock and unlock replacing the live keyrings while a signature or keyring
+  change waits, so its change lands on a keyring the vault never saves;
 - retries signing identical bytes repeatedly;
 - restore lowering a known floor, opening before the scan completes, or losing
   a partially observed floor;
@@ -155,6 +157,10 @@ Controls and evidence:
 
 - signing is serialized by P2MR pubkey; the counter is reserved and the
   encrypted vault persisted before the signer callback runs;
+- each counter operation re-checks under its counter lock that its keyring is
+  still live, and each vault write fails, without committing, when a keyring
+  it changed is no longer live, so a lock and unlock fails the signature or
+  keyring change instead of releasing or reporting it;
 - identical `(pubkey, signing digest)` operations reuse a durably cached
   signature without another increment;
 - a pre-sign persistence failure prevents signing; post-sign failure never
@@ -278,15 +284,56 @@ Controls and evidence:
 - in MV3, the background installs one dynamic `declarativeNetRequest` `block`
   rule whose `requestDomains` are the bundled denylist (each entry and its
   subdomains) for `main_frame` and `sub_frame` requests. A `block` rule needs
-  only the `declarativeNetRequest` permission. A `redirect` rule would also
-  need host access to every denylisted host, which the manifest does not
-  request, so the redirect rules of earlier releases never fired. One update
-  replaces every earlier dynamic rule;
-- a blocked navigation never reaches the network and its page never commits;
-  the browser shows its own blocked-by-extension error page. When the
-  navigation starts from a page the content script runs in, such as a link
-  click, the content script also asks the background to open the wallet's
-  warning page with the blocked URL. A click that would follow a denylisted
+  only the `declarativeNetRequest` permission. One update replaces every
+  earlier dynamic rule, including the redirect rules of 1.0.4 and earlier,
+  which never fired for lack of host access. A denylist entry that a DNR rule cannot
+  name (not ASCII, or not a canonical public hostname) is left out and logged,
+  so it cannot fail the whole rule. When the update fails, the background
+  removes the redirect rules of earlier releases on their own, keeps a block
+  rule an earlier install left, and retries after 1, 4 and 15 seconds, then
+  every minute while the service worker runs, up to ten attempts; a worker
+  that stops starts over at its next start.
+  `GET_PHISHING_STATS`, which only the wallet's own pages may send, reports
+  the rule's health as `networkRules` (`installing`, `installed`, `retrying`,
+  `failed`, `unknown` or `unsupported`, with the reason and the number of
+  domains the browser holds), read back from the browser rather than assumed.
+  A rule found missing at such a read reads as `retrying` and is installed
+  again, and `FORCE_UPDATE_PHISHING_LIST` installs it again too;
+- above the block rule, a session `redirect` rule sends a top-level
+  navigation to a denylisted host to the wallet's warning page before it
+  reaches the network, however the tab got there: a link, a typed URL, a
+  bookmark, another application, or a redirect chain such as a same-site
+  302, `t.co` or a mail safe-link. A `redirect` fires only with host access to
+  the request URL (not its initiator), so the manifest requests
+  `*://*.<entry>/*` for each denylisted domain, generated at build from the
+  bundled denylist and pinned by the package policy. The content script's
+  `<all_urls>` match already brings the all-sites install warning, so these
+  add none (`chrome.management.getPermissionWarningsByManifest` reports the
+  same single warning with and without them). The rule's target is
+  `phishing-warning.html`, the only web-accessible page, which a website
+  cannot open or frame: it is reachable only under a per-session dynamic URL
+  (`use_dynamic_url`). That page reads the blocked URL from its fragment,
+  accepts only an http(s) URL with a host, and replaces itself with the
+  warning screen for it: with the full URL up to 8192 characters, and with
+  only its origin beyond that (where Proceed then goes). Anything
+  else gets the warning without a site and without Proceed. It never
+  navigates to the URL itself. Without
+  host access a `redirect` rule does not fire but still outranks the block
+  rule, so the page would load. The background therefore keeps the rule only
+  while `chrome.permissions.contains` reports access to every denylisted
+  domain, removes it when the user withholds site access
+  (`permissions.onRemoved`), adds it back when access returns
+  (`permissions.onAdded`), checks again at each service-worker start and on
+  `FORCE_UPDATE_PHISHING_LIST`, retries a failed update after 1, 4 and 15
+  seconds, then every minute while the service worker runs, up to ten
+  attempts per change, or for as long as a removal fails, and treats a failed
+  access check as no access until a retry gets an answer;
+- while the redirect rule is not in place, a blocked navigation never
+  reaches the network and its page never commits; the browser shows its own
+  blocked-by-extension error page. When the navigation starts from a page
+  the content script runs in, such as a link click, the content script also
+  asks the background to open the wallet's warning page with the blocked
+  URL. A click that would follow a denylisted
   link in the same tab is cancelled before the browser starts that
   navigation, so the blocked page cannot replace the warning page; for a host
   the user proceeded to, the content script then follows the link itself.
@@ -295,6 +342,22 @@ Controls and evidence:
   wallet's pages nor a page the content script runs on, which Chrome's
   blocked page never is, unless the user proceeded to the host in the
   meantime;
+- on a top-frame page whose host the bundled denylist covers, the content
+  script stops the page (`window.stop()`) at `document_start`, before any of
+  the page's own script runs, and waits for the background. That covers a
+  network layer that is missing, for example because its rule failed to
+  install. A page the background sends to the warning page stays stopped,
+  and one whose check does not answer within 3 seconds, or whose warning page
+  does not arrive, shows a notice with a retry instead of a blank page. A
+  page the background lets through, because the user proceeded to it, is
+  recorded in the page's own sessionStorage and reloaded once; later loads of
+  that origin in the tab run, and are still checked. A page whose check finds
+  it denylisted again loses that record. A page whose sessionStorage the
+  content script cannot use, such as one its server sandboxes or one whose
+  site data the user blocks, stays held even after Proceed and says why, so
+  the server cannot turn the hold off. A page held again on a reload is not
+  reloaded once more without the user asking, so a lost record cannot cause
+  a reload loop;
 - the content script checks the page's hostname before anything else and
   injects the provider only after the background answers that the host is not
   denylisted; it retries a failed check once. A denylisted page, including one
@@ -305,8 +368,8 @@ Controls and evidence:
 - Proceed is accepted only from the wallet's own top-level pages and only for
   a well-formed hostname covered by the bundled denylist. It adds a session
   DNR `allow` rule for top-level pages of that host and its subdomains, at a
-  higher priority than the block rule, and the warning page navigates only
-  after the rule is in place. Frames from the host stay blocked, so other
+  higher priority than the block and redirect rules, and the warning page
+  navigates only after the rule is in place. Frames from the host stay blocked, so other
   sites cannot embed it. The in-memory navigation bypass covers the same
   hosts and is restored from the session rules when the service worker
   restarts, so the content script's verdict agrees with the network layer.
@@ -319,28 +382,71 @@ Controls and evidence:
   HTTP origin or a label outside DNS syntax cannot soften the verdict to a
   warning; and
 - `tests/e2e/scenarios/phishing.spec.ts` loads the MV3 build, maps two
-  denylisted hosts to a loopback server, and asserts that a direct navigation
-  fails with `net::ERR_BLOCKED_BY_CLIENT` without reaching the server, and that
-  a link click shows the warning with the full URL, also when the service
-  worker is already running at the click, after which Proceed loads that URL
-  once, without returning to the warning or exposing the provider, while the
-  other host stays blocked.
+  denylisted hosts and a link-wrapper host to a loopback server, and asserts
+  that a direct navigation, a same-site 302 and a link wrapper's cross-site
+  302 to a denylisted host each show the warning with the full URL without
+  reaching the server, after which Proceed loads the site; that with site
+  access withheld in the browser's extension settings a direct navigation
+  fails with `net::ERR_BLOCKED_BY_CLIENT` without reaching the server, and
+  shows the warning again once access is granted; and that a link click shows
+  the warning with the full URL, also when the service worker is already
+  running at the click, after which Proceed loads that URL once, without
+  returning to the warning or exposing the provider, while the other host
+  still gets the warning. With the block rule removed, a direct navigation
+  shows the warning without running the page's inline script, the reported
+  health is `retrying` until the rule is installed again, and Proceed then
+  loads the page after one reload.
 
 Residual risk:
 
-- a navigation the content script cannot observe (a typed URL, a bookmark, or
-  a link opened from another application) ends on the browser's generic
-  blocked page, which neither explains the verdict nor offers Proceed. A
-  denylisted link opened in a new tab or window shows that blocked page in
-  the new one; unless it was middle-clicked, the tab it was clicked in is
-  sent to the warning page;
+- while the user withholds the wallet's site access (Chrome's "On click" or
+  "On specific sites"), the redirect rule is removed and a top-level
+  navigation to a denylisted host, whether typed, bookmarked, opened from
+  another application or reached through a redirect or link wrapper, ends on
+  the browser's generic blocked page, which neither explains the verdict nor
+  offers Proceed. The content script does not run on withheld sites either.
+  Between the moment access is withheld and the background removing the
+  rule, and for as long as that removal keeps failing, a navigation to a
+  denylisted host is redirected nowhere and loads. A
+  denylisted page in a frame always gets the browser's blocked page;
+- an enterprise policy that blocks the wallet on a denylisted host
+  (`runtime_blocked_hosts`) was not tested. If Chrome still reports host
+  access there through `permissions.contains`, the redirect rule stays in
+  place without firing on that host, and its pages load. The user's own "not
+  allowed on this site" list was tested and keeps the warning;
+- after the browser starts, the session redirect rule is back once the
+  service worker has started (the worker listens for the browser's start);
+  a tab restored before then gets the browser's blocked page;
+- the warning page's address carries the blocked URL, so it stays in the
+  tab's history, as it did when the content script opened the warning. A
+  browser that does not enforce `use_dynamic_url` lets a website open
+  `phishing-warning.html` by its fixed URL; it then shows only the warning
+  screen for the URL in its fragment, and Proceed is still accepted only for
+  a denylisted host;
 - the background's follow-up cannot see the tab's URL. If the user leaves the
   tab for a page the content script does not run on, such as a browser page
   or a PDF, before the warning page has loaded, the tab can be sent to the
   warning page once more;
-- MV2 builds have no DNR layer. There the content script's check, which runs
-  after the page starts loading, is the only navigation control, and a
-  denylisted page's own script can run before the warning appears; and
+- MV2 builds have no DNR layer. There the content script's hold is the only
+  navigation control. It covers top-level pages only, so a denylisted page in
+  a frame can run its own script;
+- the record of a release lives in the page's own sessionStorage, so a page
+  that has run script in a tab, because the user proceeded to it there or
+  before its host was denylisted, can write it, also again after its check
+  removed it, and skip the hold on its later loads in that tab; its check
+  still sends it to the warning page. A page that has not run script in the
+  tab cannot write it before it is held. A record that a restored tab brings
+  back from an earlier browser session, whose Proceed has ended, likewise
+  skips the hold until the check removes it. A page the user proceeded to
+  whose sessionStorage cannot be used, for example because the user blocks
+  cookies and site data, never loads;
+- while the MV3 block rule is missing, a denylisted page in a frame runs its
+  own script: the content script runs in the top frame only and holds only
+  top-level pages;
+- after Proceed, the first load of each origin of the host in a tab is
+  stopped and reloaded once. The server gets that request twice, so a
+  one-time link is spent by the first load, and a form posted to it from
+  another tab is sent again once the browser has asked to resubmit it;
 - the denylist is fixed per release and matches exact hostnames and their
   subdomains only (see `docs/privacy.md`).
 
@@ -430,17 +536,19 @@ Reviewed Chrome MV3 boundary:
 | Surface | Reviewed value |
 | --- | --- |
 | Permissions | `storage`, `unlimitedStorage`, `declarativeNetRequest`, `sidePanel` |
-| Host permissions | two exact HTTPS qbit indexers and loopback regtest only |
+| Host permissions | two exact HTTPS qbit indexers; `*://*.<entry>/*` for each bundled phishing denylist domain, generated at build and pinned by the package policy, for the warning redirect; optional loopback regtest |
 | Content scripts | top-level all-origin provider bridge, `all_frames` absent |
-| Web-accessible resources | packaged `pageProvider.js` only |
+| Web-accessible resources | packaged `pageProvider.js`; `phishing-warning.html` under a per-session dynamic URL only |
 | External connection | absent |
 | CSP | self scripts plus `wasm-unsafe-eval`; `object-src 'none'`; exact connect allowlist |
 | Remote/dynamic code | no remote JavaScript; packaged page-provider injection and bundled WASM only |
 | Production source maps | disabled and package-forbidden |
 | Package policy | sorted safe paths, no duplicates, required bundles/WASM, no secrets/tests/sources/maps, per-entry and whole-ZIP hashes |
 
-`declarativeNetRequest` is used for the local phishing `block` rule and the
-session `allow` rules that Proceed adds (see "Phishing navigation protection");
+`declarativeNetRequest` is used for the local phishing `block` rule, the
+session `redirect` rule to the warning page, and the session `allow` rules
+that Proceed adds; the denylist host permissions let only that redirect fire
+(see "Phishing navigation protection");
 `sidePanel` is used for the optional wallet panel; `storage` holds wallet state;
 and `unlimitedStorage` supports local wallet/index state. Permission expansion
 requires CODEOWNERS review and a package-policy expectation change.

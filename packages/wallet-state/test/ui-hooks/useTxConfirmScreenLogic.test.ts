@@ -32,6 +32,7 @@ function walletWithBroadcast() {
     signPsbtV2: vi.fn(),
     broadcastQbitTx: vi.fn(),
     releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
+    abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
     getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
     getAddressBalanceV2: vi.fn().mockResolvedValue({
       availableBalance: 1,
@@ -335,6 +336,7 @@ describe('useTxConfirmScreenLogic', () => {
     // claim the controller consumed is not released.
     expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
     // But the success screen must not replace whatever route the user is on.
     expect(navigation.replace).not.toHaveBeenCalled()
     expect(navigation.navigate).not.toHaveBeenCalled()
@@ -361,11 +363,12 @@ describe('useTxConfirmScreenLogic', () => {
     // verdict would release it, and the recovery screen is not shown.
     expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
     expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+    expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
     expect(navigation.replace).not.toHaveBeenCalled()
     expect(navigation.navigate).not.toHaveBeenCalled()
   })
 
-  it('keeps the claim, without navigating, when an unknown verdict arrives after the screen unmounted', async () => {
+  it('hands the claim back, without navigating, when an unknown verdict arrives after the screen unmounted', async () => {
     const wallet = walletWithBroadcast()
     const { settle, confirm, navigation } = confirmThenLeave(wallet)
 
@@ -381,8 +384,11 @@ describe('useTxConfirmScreenLogic', () => {
       await confirm()
     })
 
-    // The node may hold the transaction: its inputs stay reserved.
+    // The node may hold the transaction: its inputs stay reserved, by the
+    // background rather than by a claim nothing can retry any more.
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
     expect(navigation.replace).not.toHaveBeenCalled()
     expect(navigation.navigate).not.toHaveBeenCalled()
   })

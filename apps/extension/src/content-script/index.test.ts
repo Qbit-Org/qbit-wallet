@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modules = vi.hoisted(() => ({
   allowLinksWithinProceededPage: vi.fn(),
+  holdDenylistedPage: vi.fn(),
   initializePhishingDetection: vi.fn(),
   initializeScriptInjection: vi.fn(),
   setupNavigationListeners: vi.fn(),
@@ -14,6 +15,9 @@ vi.mock('./injection/scriptInjector', () => ({
 vi.mock('./phishing/detector', () => ({
   initializePhishingDetection: modules.initializePhishingDetection,
   setupPhishingListeners: modules.setupPhishingListeners
+}));
+vi.mock('./phishing/hold', () => ({
+  holdDenylistedPage: modules.holdDenylistedPage
 }));
 vi.mock('./phishing/navigation', () => ({
   allowLinksWithinProceededPage: modules.allowLinksWithinProceededPage,
@@ -29,7 +33,7 @@ async function runContentScript(verdict: string) {
 
 describe('content-script entry', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it('injects the provider after a clear verdict', async () => {
@@ -64,5 +68,21 @@ describe('content-script entry', () => {
     await runContentScript(verdict);
 
     expect(modules.allowLinksWithinProceededPage).toHaveBeenCalledTimes(allowed ? 1 : 0);
+  });
+
+  it('holds a denylisted page before anything else and leaves the verdict to it', async () => {
+    const order: string[] = [];
+    const settle = vi.fn();
+    modules.holdDenylistedPage.mockImplementation(() => {
+      order.push('hold');
+      return { settle };
+    });
+    modules.setupNavigationListeners.mockImplementation(() => order.push('navigation'));
+    await runContentScript('clear');
+
+    expect(order).toEqual(['hold', 'navigation']);
+    expect(settle).toHaveBeenCalledWith('clear');
+    // The page reloads to run, so it gets the provider then.
+    expect(modules.initializeScriptInjection).not.toHaveBeenCalled();
   });
 });

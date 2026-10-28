@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react'
+import { useStore } from 'react-redux'
 
 import {
   Account,
@@ -104,6 +105,8 @@ export interface QbitP2mrSendPreflight {
   exceedsMaximumTotalFee: boolean
   /** The amount needs more inputs than one standard transaction can carry. */
   exceedsStandardSize: boolean
+  /** Only the size of the unconfirmed transactions behind the change stops the send. */
+  exceedsAncestorSize: boolean
   /** Inputs one standard transaction of this shape can carry. */
   maxInputCount: number
   /** Most one standard transaction can send (the largest inputs, no change). */
@@ -120,6 +123,7 @@ const EMPTY_SEND_PREFLIGHT: QbitP2mrSendPreflight = {
   inputsDominateFee: false,
   exceedsMaximumTotalFee: false,
   exceedsStandardSize: false,
+  exceedsAncestorSize: false,
   maxInputCount: 0,
   maxStandardAmount: 0,
 }
@@ -171,6 +175,7 @@ export function estimateQbitP2mrSendPreflight({
     inputsDominateFee: candidate ? qbitP2mrInputsDominateFee(candidate.estimate) : false,
     exceedsMaximumTotalFee: candidate ? candidate.fee > candidate.maximumTotalFee : false,
     exceedsStandardSize: failure?.reason === 'exceeds_standard_size',
+    exceedsAncestorSize: failure?.reason === 'exceeds_ancestor_size',
     maxInputCount: failure?.maxInputCount ?? 0,
     maxStandardAmount: failure?.maxStandardAmount ?? 0,
   }
@@ -200,6 +205,7 @@ export function estimateQbitP2mrSendAllPreflight({
     maximumTotalFee: 0,
     inputsDominateFee: false,
     exceedsMaximumTotalFee: false,
+    exceedsAncestorSize: false,
     leftBehindInputCount: 0,
     leftBehindSats: 0,
   }
@@ -226,6 +232,8 @@ export function estimateQbitP2mrSendAllPreflight({
     maximumTotalFee: selection.maximumTotalFee,
     inputsDominateFee: qbitP2mrInputsDominateFee(selection.estimate),
     exceedsMaximumTotalFee: selection.fee > selection.maximumTotalFee,
+    // A send-all below dust is short of balance, whatever else stops it.
+    exceedsAncestorSize: selection.amount >= QBIT_P2MR_DUST && selection.exceedsAncestorSize,
     leftBehindInputCount: selection.leftBehind.length,
     leftBehindSats: selection.leftBehindSatoshis,
   }
@@ -237,7 +245,6 @@ export function usePrepareSendQBTCallback() {
   const fromAddress = useAccountAddress()
   const currentAccount = useCurrentAccount()
   const utxos = useUtxos()
-  const utxosChain = useUtxosChain()
   const chainType = useChainType()
   const fetchUtxos = useFetchUtxosCallback()
   const qbitUnit = useQbitUnit()
@@ -264,13 +271,15 @@ export function usePrepareSendQBTCallback() {
       if (!canCreateQbitSendRequest(currentAccount)) {
         throw new Error(t('not_supported'))
       }
-      // The cached outputs are only usable on the network they were loaded
-      // on. A switch in another window since then leaves them in the cache
-      // (their scriptPubKey is the same on every network), so reload rather
-      // than hand another network's outpoints to the builder; the builder
-      // checks the chain that travels with them either way.
-      let snapshot: QbitUtxoSnapshot = { chain: utxosChain ?? chainType, utxos }
-      if (snapshot.utxos.length === 0 || utxosChain !== chainType) {
+      // The cached outputs are only usable for the account and on the
+      // network they were read for. Another account's read, or a network
+      // switch in another window, leaves its outputs in the cache (their
+      // scriptPubKey is the same on every network); useUtxos reads such a
+      // cache as empty, so reload rather than hand another account's or
+      // network's outpoints to the builder. The builder checks the chain
+      // that travels with them either way.
+      let snapshot: QbitUtxoSnapshot = { address: fromAddress, chain: chainType, utxos }
+      if (snapshot.utxos.length === 0) {
         snapshot = await fetchUtxos()
       }
       const spendableUtxos = getQbitP2mrSpendableUtxos(snapshot.utxos, currentAccount)
@@ -302,6 +311,9 @@ export function usePrepareSendQBTCallback() {
               qbitUnit,
             ])
           )
+        }
+        if (preflight.exceedsAncestorSize) {
+          throw new Error(t('send_exceeds_ancestor_size'))
         }
         if (!preflight.canCover) {
           throw new Error(t('insufficient_balance'))
@@ -342,6 +354,9 @@ export function usePrepareSendQBTCallback() {
             ])
           )
         }
+        if (preflight.exceedsAncestorSize) {
+          throw new Error(t('send_exceeds_ancestor_size'))
+        }
         if (!preflight.canCover) {
           throw new Error(t('insufficient_balance'))
         }
@@ -366,7 +381,6 @@ export function usePrepareSendQBTCallback() {
       currentAccount.type,
       currentAccount.p2mr,
       utxos,
-      utxosChain,
       chainType,
       fetchUtxos,
       qbitUnit,
@@ -488,12 +502,16 @@ export function useCheckQbitBroadcastStatusCallback() {
  * Release the send claim behind a broadcast the user is abandoning. A claim
  * keeps the transaction's inputs reserved for as long as the retained bytes
  * can still be retried; leaving the recovery screen drops those bytes, so a
- * lingering claim would only block a corrected send until the next restart.
+ * lingering claim would only block a corrected send, or a fee bump of a
+ * payment that did go out, until the page closes.
  *
- * Only a proven `not_sent` verdict releases, and only the claim that names
- * the verdict's exact network and txid. An `unknown` verdict may hide an
- * accepted transaction, so its claim stays reserved (fail closed). Never
- * throws and never logs: the claim identifies the signed transaction.
+ * Only a proven `not_sent` verdict releases outright, and only the claim
+ * that names the verdict's exact network and txid. Any other verdict may
+ * hide an accepted transaction, so the claim is handed back to the
+ * background instead, which keeps its inputs reserved as recently spent
+ * (fail closed) until a lifecycle probe finds the transaction confirmed or
+ * gone, and lets a fee bump replace it meanwhile. Never throws and never
+ * logs: the claim identifies the signed transaction.
  */
 export function useAbandonQbitBroadcastCallback(): (
   result: QbitBroadcastFailure,
@@ -506,48 +524,121 @@ export function useAbandonQbitBroadcastCallback(): (
       retained: QbitRetainedBroadcast | undefined
     ): Promise<void> => {
       const claim = retained?.qbitSendBroadcastClaim
-      if (
-        !claim ||
-        result.outcome !== 'not_sent' ||
-        result.chain === undefined ||
-        claim.chain !== result.chain ||
-        typeof result.txid !== 'string' ||
-        typeof claim.txid !== 'string' ||
-        claim.txid.toLowerCase() !== result.txid.toLowerCase()
-      ) {
-        return
-      }
+      if (!claim) return
+      const provenNotSent =
+        result.outcome === 'not_sent' &&
+        result.chain !== undefined &&
+        claim.chain === result.chain &&
+        typeof result.txid === 'string' &&
+        typeof claim.txid === 'string' &&
+        claim.txid.toLowerCase() === result.txid.toLowerCase()
       try {
-        await wallet.releaseQbitSendBroadcastClaim(claim)
+        if (provenNotSent) {
+          await wallet.releaseQbitSendBroadcastClaim(claim)
+        } else {
+          await wallet.abandonQbitSendBroadcastClaim(claim)
+        }
       } catch {
-        // The claim lives in background memory only; if the port is gone the
-        // next restart clears it, and nothing here must delay leaving.
+        // The claim lives in background memory only; if the port is gone its
+        // disconnect decides the claim, and nothing here must delay leaving.
       }
     },
     [wallet]
   )
 }
 
-export function useUtxos() {
-  const transactionsState = useTransactionsState()
-  return transactionsState.utxos
+const NO_UTXOS: UnspentOutput[] = []
+
+/** Whether outputs read for `address` on `chain` are the selected account's on the active network. */
+function isSelectedUtxoKey(
+  state: AppState,
+  address: string | null,
+  chain: ChainType | null
+): boolean {
+  return address === state.accounts.current.address && chain === state.settings.chainType
 }
 
-/** The network the cached outputs were loaded on; null before the first load. */
+/**
+ * The cached outputs if they were read for the selected account on the
+ * active network, and none otherwise. The cache holds one account's outputs
+ * at a time, and another account's or network's list must not stand in for
+ * this one's.
+ */
+export function useUtxos() {
+  const transactionsState = useTransactionsState()
+  return useUtxosLoaded() ? transactionsState.utxos : NO_UTXOS
+}
+
+/**
+ * Whether the cache holds the selected account's outputs on the active
+ * network, including a read that found none.
+ */
+export function useUtxosLoaded() {
+  return useAppSelector(state =>
+    isSelectedUtxoKey(state, state.transactions.utxosAddress, state.transactions.utxosChain)
+  )
+}
+
+/**
+ * The network the cached outputs were loaded on, whichever account they were
+ * read for; null before the first load. `useUtxosLoaded` tells whether they
+ * are the selected account's on the active network.
+ */
 export function useUtxosChain() {
   const transactionsState = useTransactionsState()
   return transactionsState.utxosChain
 }
 
+/** Numbers this UI's output reads in the order they start. */
+let utxoReads = 0
+
+function utxoReadAborted(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('UTXO read aborted')
+}
+
+/**
+ * Read the selected account's outputs and cache them. Past the explorer's
+ * output limit the read walks the account's history and can take minutes,
+ * so its answer is cached only if, when it lands, its caller has not
+ * aborted it, its account and network are still the selected ones, and the
+ * cache does not already hold a later read's answer for them. An earlier or
+ * abandoned read can then never replace the outputs of the account the user
+ * moved on to, nor a newer read's.
+ *
+ * The caller gets the answer whether or not it was cached, unless it
+ * aborted. An answer for an account or network other than the ones this
+ * hook rendered for is an error: those are not the outputs it asked for.
+ */
 export function useFetchUtxosCallback() {
   const dispatch = useAppDispatch()
+  const store = useStore<AppState>()
   const wallet = useWallet()
-  const account = useCurrentAccount()
-  return useCallback(async (): Promise<QbitUtxoSnapshot> => {
-    const snapshot = await wallet.getQbitUtxoSnapshot()
-    dispatch((transactionsActions as any).setUtxos(snapshot))
-    return snapshot
-  }, [wallet, account])
+  const address = useAccountAddress()
+  const chainType = useChainType()
+  return useCallback(
+    async ({ signal }: { signal?: AbortSignal } = {}): Promise<QbitUtxoSnapshot> => {
+      if (signal?.aborted) throw utxoReadAborted(signal)
+      const read = ++utxoReads
+      const snapshot = await wallet.getQbitUtxoSnapshot()
+      if (signal?.aborted) throw utxoReadAborted(signal)
+      if (snapshot.address !== address || snapshot.chain !== chainType) {
+        throw new Error('The selected account or network changed while its outputs were loading')
+      }
+      // Checked and written in one step: nothing else runs in between. The
+      // answer is for the selected key, so a cache for that key holding a
+      // later read's answer is the one to keep.
+      const state = store.getState()
+      const { utxosAddress, utxosChain, utxosRead } = state.transactions
+      if (
+        isSelectedUtxoKey(state, snapshot.address, snapshot.chain) &&
+        !(isSelectedUtxoKey(state, utxosAddress, utxosChain) && utxosRead > read)
+      ) {
+        dispatch((transactionsActions as any).setUtxos({ ...snapshot, read }))
+      }
+      return snapshot
+    },
+    [dispatch, store, wallet, address, chainType]
+  )
 }
 
 export function useSpendUnavailableUtxos() {

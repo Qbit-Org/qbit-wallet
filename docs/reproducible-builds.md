@@ -29,8 +29,37 @@ file modes to `0644`, fixes ZIP timestamps at the DOS epoch, and writes:
 The JSON manifest has no timestamp. It records the ZIP hash and size plus the
 SHA-256 and size of every packaged file. Packaging fails for unsafe paths,
 duplicate or unsorted entries, production source maps, source/test/environment
-files, unexpected key material, a policy-drifting MV3 manifest, or PQC WASM that
-does not match the package checksum and the pinned digest.
+files, unexpected key material, a policy-drifting MV3 manifest, PQC WASM that
+does not match the package checksum and the pinned digest, or a builder path
+in packaged text (see below).
+
+## Checkout-path independence
+
+The ZIP must not depend on the directory it was built in. Webpack inlines
+`import.meta.url` as the module's absolute `file://` path on the build
+machine, and the Emscripten loader `@qbit-oss/pqc/wasm/pqc.mjs` reads it to
+seed `scriptDirectory`. The extension build therefore applies
+`RuntimeImportMetaUrlPlugin` (`apps/extension/build/plugins/`) to that module:
+`import.meta.url` becomes webpack's runtime base URI, the URL of the bundle
+that contains it (`chrome-extension://<id>/background.js` in the service
+worker). The WASM still loads from the bundled `wasm/pqc.wasm` asset through
+the `locateFile` passed in `src/background/init/restore.ts`.
+
+`package:test`, and so `build:repro:extension`, then scans every packaged
+file except binary images, fonts and WASM. It fails on any `file:///` URL and
+on any `<directory>/<entry>` path, where `<directory>` is the checkout root or
+the builder's home directory (`$HOME`, `os.homedir()` and their real paths)
+and `<entry>` is a file or directory that exists in it. If the check fires,
+find the module that emits the path. A module that reads `import.meta.url`
+belongs in the plugin's `test` in
+`apps/extension/build/webpack.common.config.js`; any other source of the path
+needs its own fix rather than an exception.
+
+`build:repro:extension` builds twice in the same directory, so on its own it
+cannot detect a path dependency; the scan and the independent comparison
+below cover that. The 1.0.4 and 1.0.5 artifacts embed the CI checkout path in
+`background.js`; to reproduce one of them, build from
+`/home/runner/_work/qbit-wallet/qbit-wallet`.
 
 ## Clean-machine two-build drill
 
@@ -70,8 +99,8 @@ cannot satisfy the release gate.
 
 ## Independent comparison
 
-Two reviewers can run the clean-machine drill from the same reviewed commit and
-compare the single line in each `.zip.sha256` file:
+Two reviewers can run the clean-machine drill from the same reviewed commit, in
+any checkout directory, and compare the single line in each `.zip.sha256` file:
 
 ```sh
 cmp reviewer-a/qbit-chrome-mv3-v<VERSION>.zip.sha256 \

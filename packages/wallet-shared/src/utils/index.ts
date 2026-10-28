@@ -35,7 +35,22 @@ export {
   type QbitP2mrTransactionEstimateParams,
 } from './qbit-p2mr-fees'
 export {
+  QBIT_FEE_WARNING_AMOUNT_PERCENT,
+  QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE,
+  QBIT_FEE_WARNING_RECOMMENDED_RATE_MULTIPLE,
+  QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE,
+  assessQbitFee,
+  qbitRecommendedFeeRate,
+} from './qbit-fee-warnings'
+export {
+  qbitWalletOwnership,
+  qbitWalletOwns,
+  type QbitWalletOwnership,
+} from './qbit-wallet-ownership'
+export { statedPsbtRecipients } from './psbt-stated-recipients'
+export {
   QBIT_MAX_STANDARD_TX_WEIGHT,
+  QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,
   isQbitStandardTxSize,
   qbitP2mrInputFee,
   qbitP2mrMaxStandardInputCount,

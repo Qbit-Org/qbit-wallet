@@ -6,6 +6,8 @@ import { ErrorCodes, WalletError } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
 const providerControllerMock = vi.hoisted(() => ({
+  pushPsbt: vi.fn(),
+  pushTx: vi.fn(),
   requestAccounts: vi.fn(),
   sendQbit: vi.fn(),
   signMessage: vi.fn(),
@@ -690,6 +692,32 @@ describe('Provider RPC security gates', () => {
     // Only a verdict about this claim's own transaction can keep its inputs.
     expect(walletMock.settleQbitProviderSendRequest).toHaveBeenCalledWith(SEND_REQUEST, false)
   })
+
+  it.each([
+    ['pushTx', { rawtx: 'ab'.repeat(60) }],
+    ['pushPsbt', { psbtHex: 'ab'.repeat(60) }],
+  ] as const)(
+    'hands a %s unknown outcome to the dapp unchanged, with no send request to settle',
+    async (method, params) => {
+      const unknown = outcomeUnknownError({ chain: ChainType.QBIT_REGTEST, txid: '55'.repeat(32) })
+      providerControllerMock[method].mockRejectedValueOnce(unknown)
+      const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+
+      // The code and the txid reach the page provider as the controller
+      // threw them; a push holds no claim, so nothing is released.
+      const error = await rpcFlow(request(method, params)).catch(caught => caught)
+      expect(error).toBe(unknown)
+      expect(error.data).toEqual({
+        outcome: 'unknown',
+        chain: ChainType.QBIT_REGTEST,
+        txid: '55'.repeat(32),
+      })
+      expect(approvalServiceMock.requestApproval).not.toHaveBeenCalled()
+      expect(walletMock.openQbitProviderSendRequest).not.toHaveBeenCalled()
+      expect(walletMock.settleQbitProviderSendRequest).not.toHaveBeenCalled()
+      expect(walletMock.releaseExternalQbitSigningLock).not.toHaveBeenCalled()
+    }
+  )
 
   it('settles the request it opened whatever claim the approval answers with', async () => {
     const claim = qbitSendBroadcastClaim()

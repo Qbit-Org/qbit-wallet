@@ -547,6 +547,44 @@ describe('QbitRecoveryMigrationScreen', () => {
     expect(screen.getByTestId('qbit-recovery-full-address').textContent).toBe('qbrt1zfreshdestination2');
   });
 
+  it('names a source the migration could not plan and how to free it (#344)', async () => {
+    const pendingState = {
+      ...migratingState,
+      migration: {
+        ...migratingState.migration,
+        plans: [{ ...migratingState.migration.plans[0], status: 'confirmed', txid: 'aa'.repeat(32) }]
+      }
+    };
+    wallet.getQbitRecoveryState.mockResolvedValue(pendingState);
+    wallet.advanceQbitRecoveryMigration.mockReset().mockResolvedValue(pendingState);
+    wallet.prepareQbitRecoveryMigration.mockReset().mockResolvedValue({
+      state: pendingState,
+      toSignDatas: [],
+      deferredSources: [{ address: 'qbrt1zminerpayout', reason: 'history_too_large', maxTransactions: 10_000 }]
+    });
+
+    render(<QbitRecoveryMigrationScreen />);
+
+    const notice = await screen.findByTestId('qbit-recovery-deferred-sources');
+    expect(screen.getByText('qbit_recovery_pending_title')).toBeTruthy();
+    expect(notice.textContent).toContain('qbrt1zminerpayout');
+    expect(notice.textContent).toContain(`qbit_recovery_deferred_history_too_large:${(10_000).toLocaleString()}`);
+
+    // A pass that returns before reading the sources keeps the notice; one
+    // that reads them and defers nothing clears it.
+    wallet.prepareQbitRecoveryMigration.mockResolvedValueOnce({ state: pendingState, toSignDatas: [] });
+    fireEvent.click(screen.getByTestId('qbit-recovery-check-status-button'));
+    await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId('qbit-recovery-deferred-sources')).toBeTruthy();
+    wallet.prepareQbitRecoveryMigration.mockResolvedValueOnce({
+      state: pendingState,
+      toSignDatas: [],
+      deferredSources: []
+    });
+    fireEvent.click(await screen.findByTestId('qbit-recovery-check-status-button'));
+    await waitFor(() => expect(screen.queryByTestId('qbit-recovery-deferred-sources')).toBeNull());
+  });
+
   it('reviews a source swept in several batches as one account mapping', async () => {
     const batchedState = {
       ...migratingState,

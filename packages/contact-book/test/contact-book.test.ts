@@ -247,4 +247,81 @@ describe('ContactBookService', () => {
       })
     ).rejects.toThrow('Sync error')
   })
+
+  it('keeps the contact book matching storage when a write fails', async () => {
+    const alice: ContactBookItem = {
+      name: 'alice',
+      address: 'bc1qalice',
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+      isAlias: false,
+    }
+    await contactBook.addContact(alice)
+
+    const writeError = new Error('QUOTA_BYTES quota exceeded')
+    vi.spyOn(mockStorage, 'set').mockRejectedValueOnce(writeError)
+    await expect(
+      contactBook.addContact({ ...alice, address: 'bc1qbob', name: 'bob' })
+    ).rejects.toBe(writeError)
+    expect(contactBook.getContactByAddress('bc1qbob')).toBeUndefined()
+
+    vi.spyOn(mockStorage, 'set').mockRejectedValueOnce(writeError)
+    await expect(contactBook.removeContact(alice.address, alice.chain)).rejects.toBe(writeError)
+    expect(contactBook.getContactByAddress(alice.address)?.name).toBe('alice')
+    expect(Object.keys(mockStorage.getStorage().testContactBook)).toEqual([
+      'bc1qalice_QBIT_MAINNET',
+    ])
+  })
+
+  it('writes concurrent changes one at a time, in call order', async () => {
+    const releases: Array<() => void> = []
+    const set = mockStorage.set.bind(mockStorage)
+    vi.spyOn(mockStorage, 'set').mockImplementation(
+      (key: string, value: any) =>
+        new Promise<void>(resolve => {
+          releases.push(() => resolve(set(key, value)))
+        })
+    )
+    const contact = (name: string): ContactBookItem => ({
+      name,
+      address: `bc1q${name}`,
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+      isAlias: false,
+    })
+
+    const first = contactBook.addContact(contact('first'))
+    const second = contactBook.addContact(contact('second'))
+    await vi.waitFor(() => expect(releases).toHaveLength(1))
+    releases[0]!()
+    await first
+    await vi.waitFor(() => expect(releases).toHaveLength(2))
+    releases[1]!()
+    await second
+
+    expect(contactBook.listContacts().map(item => item.name)).toEqual(['first', 'second'])
+    expect(Object.keys(mockStorage.getStorage().testContactBook)).toEqual([
+      'bc1qfirst_QBIT_MAINNET',
+      'bc1qsecond_QBIT_MAINNET',
+    ])
+  })
+
+  it('resetAllData resolves once the empty contact book is saved', async () => {
+    await contactBook.addContact({
+      name: 'reset',
+      address: 'bc1qreset',
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+      isAlias: false,
+    })
+
+    const writeError = new Error('write failed')
+    vi.spyOn(mockStorage, 'set').mockRejectedValueOnce(writeError)
+    await expect(contactBook.resetAllData()).rejects.toBe(writeError)
+    expect(contactBook.listContacts()).toHaveLength(1)
+
+    await contactBook.resetAllData()
+    expect(contactBook.listContacts()).toEqual([])
+    expect(mockStorage.getStorage().testContactBook).toEqual({})
+  })
 })

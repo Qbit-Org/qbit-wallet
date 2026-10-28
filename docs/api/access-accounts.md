@@ -76,9 +76,21 @@ qbit.on('accountsChanged', handler)
 qbit.removeListener('accountsChanged', handler)
 ```
 
-Qbit Wallet emits `accountsChanged` when the exposed active address changes. It emits an empty
-array when access is revoked or when a wallet-side chain change leaves the origin without a grant
-for the new chain.
+Qbit Wallet emits `accountsChanged` to an origin when the address that origin can read changes,
+and only to that origin. Each event carries only what the origin's own grant allows:
+
+- an empty array when access is revoked, or when a wallet-side chain change leaves the origin
+  without a grant for the new chain;
+- the active address when the origin's grant matches the active chain again, for example after the
+  user switches back to the chain the origin was granted on.
+
+An origin whose readable accounts did not change receives no `accountsChanged`. Locking the wallet
+emits no `accountsChanged` and keeps every grant. Changing a site setting in Qbit Wallet, such as
+quick multi-sign, emits no event.
+
+An empty array does not mean the grant was revoked; a revocation is followed by the
+[`disconnect`](./connect-extension.md#disconnect) event. Clear account-derived state, but do not
+call `disconnect()` in response, because that revokes the grant the origin still holds.
 
 ```javascript
 function handleAccountsChanged(accounts) {

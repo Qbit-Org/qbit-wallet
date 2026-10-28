@@ -208,9 +208,27 @@ test('G3 approvals: unverified connect, message and PSBT payloads stay above the
         detailRowText('Amount', `${formatAmount(SEND_SATOSHIS)} ${REGTEST_UNIT}`)
       )
       await expect(amountRow).toBeInViewport({ ratio: 1 })
+      // What leaves the wallet follows the requested rows on first paint
+      // (#271). The destination is the wallet's first account, so only the
+      // exact network fee leaves the wallet and no output is unrecognised.
+      const netSpend = psbtApproval.page.getByTestId('psbt-net-spend')
+      await expect(netSpend).toBeInViewport({ ratio: 1 })
+      const exactFee = Number(
+        /Exact fee: (\d+) bits/.exec(
+          await psbtApproval.page.getByTestId('psbt-network-fee-base-units').innerText()
+        )?.[1]
+      )
+      expect(exactFee).toBeGreaterThan(0)
+      await expect(psbtApproval.page.getByTestId('psbt-net-spend-amount')).toHaveText(
+        `${formatAmount(exactFee)} ${REGTEST_UNIT}`
+      )
+      await expect(
+        psbtApproval.page.locator('[data-testid^="psbt-output-unrecognised-"]')
+      ).toHaveCount(0)
       await expectAbove(psbtApproval.websiteCheckWarning('psbt'), psbtApproval.actionOverview)
       await expectAbove(psbtApproval.actionTitle, destinationRow)
       await expectAbove(destinationRow, amountRow)
+      await expectAbove(amountRow, netSpend)
       await expectAbove(psbtApproval.actionOverview, psbtApproval.providerContext)
       await expectAbove(
         psbtApproval.providerContext,
@@ -221,6 +239,7 @@ test('G3 approvals: unverified connect, message and PSBT payloads stay above the
         psbtApproval.actionOverview,
         destinationRow,
         amountRow,
+        netSpend,
         psbtApproval.providerContext
       )
       await attachViewport(testInfo, psbtApproval.page, `psbt-approval-${theme}.png`)

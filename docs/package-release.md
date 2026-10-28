@@ -166,9 +166,34 @@ privacy/permission justification, describe it as follows:
   origin a required scriptable host), and revoking there returns the wallet
   to Mainnet immediately.
 
+## 8. Chrome Web Store: phishing denylist host permissions
+
+The store artifact also declares `*://*.<entry>/*` under `host_permissions`
+for each domain on the bundled phishing denylist. The build generates them
+from `BUNDLED_PHISHING_DENYLIST`, and `package-artifact-validation.js` pins the
+reviewed list (`EXPECTED_MV3_PHISHING_HOST_PERMISSIONS`), so a denylist change
+fails packaging until that list is reviewed and updated too. The listing will
+show these phishing domains among the extension's sites. Describe them as
+follows:
+
+- **What they are for**: a `declarativeNetRequest` `redirect` rule sends a
+  top-level navigation to a known phishing domain, including one reached
+  through a redirect or link wrapper, to the wallet's own warning page, which
+  explains the block and lets the user proceed. Chrome fires a redirect only
+  with host access to the site; the `block` rule that stops these sites
+  otherwise needs none, but shows only the browser's generic error page.
+- **What is accessed**: nothing is fetched from or injected into those sites
+  beyond what the `<all_urls>` content script already does; the access lets
+  the redirect fire.
+- **Install warning**: none added. The content script's `<all_urls>` match
+  already brings "Read and change all your data on all websites", and
+  `chrome.management.getPermissionWarningsByManifest` reports that same single
+  warning with and without these entries.
+
 `corepack pnpm --filter qbit-extension run package:test` fails the build if
-the generated manifest's required, optional, or CSP loopback entries differ
-from the reviewed values, so inspect the packaged `manifest.json` (not only
+the generated manifest's required, optional, or CSP loopback entries, or its
+phishing host permissions and web-accessible resources, differ from the
+reviewed values, so inspect the packaged `manifest.json` (not only
 `build/_raw/manifest/_base_v3.json`) before submission. See
 `docs/privacy.md` ("Optional local Regtest connection") for the user-facing
 data-flow description.

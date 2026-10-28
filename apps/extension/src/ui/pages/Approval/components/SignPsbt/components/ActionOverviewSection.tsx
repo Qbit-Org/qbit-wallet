@@ -5,7 +5,13 @@ import { colors } from '@/ui/theme/colors';
 import { shortAddress } from '@/ui/utils';
 import { numUtils } from '@qbit/base-utils';
 import { PsbtActionDetail, PsbtActionDetailType } from '@qbit/wallet-shared';
-import { ActionOverviewSectionProps, useActionOverviewSectionLogic, useQbitUnit } from '@qbit/wallet-state';
+import {
+  ActionOverviewSectionProps,
+  ActionOverviewSpend,
+  useActionOverviewSectionLogic,
+  useI18n,
+  useQbitUnit
+} from '@qbit/wallet-state';
 
 function DetailItemRow({ detail }: { detail: PsbtActionDetail }) {
   const qbitUnit = useQbitUnit();
@@ -70,8 +76,54 @@ function DetailItemRow({ detail }: { detail: PsbtActionDetail }) {
   }
 }
 
+/** What the transaction takes from the wallet, and why it may be unsafe, ahead of the raw inputs and outputs. */
+function SpendSummary({ spend }: { spend: ActionOverviewSpend }) {
+  const qbitUnit = useQbitUnit();
+  const { t } = useI18n();
+  const { netSpend } = spend;
+  const receives = netSpend !== undefined && netSpend < 0;
+  return (
+    <Column gap="sm" fullX data-testid="psbt-net-spend">
+      <Row justifyBetween itemsCenter>
+        <Text
+          text={receives ? t('receive') : t('net_spend_leaves_wallet')}
+          preset="regular"
+          color="textDim"
+          size="sm"
+        />
+        <Text
+          text={
+            netSpend === undefined
+              ? t('net_spend_unknown')
+              : `${numUtils.satoshisToAmount(Math.abs(netSpend))} ${qbitUnit}`
+          }
+          preset="bold"
+          color={netSpend === undefined ? 'warning' : 'text'}
+          size="sm"
+          style={{ textAlign: 'right' }}
+          data-testid="psbt-net-spend-amount"
+        />
+      </Row>
+      {spend.breakdown && !receives && (
+        <Text text={spend.breakdown} size="xs" color="textDim" wrap data-testid="psbt-net-spend-breakdown" />
+      )}
+      {spend.feeWarningTitle && (
+        <Column gap="zero" fullX data-testid="psbt-fee-warning">
+          <Text text={spend.feeWarningTitle} preset="bold" size="sm" color="dangerText" wrap />
+          {spend.feeWarnings.map((line, index) => (
+            <Text key={index} text={line} size="xs" color="dangerText" wrap />
+          ))}
+        </Column>
+      )}
+      {spend.unrecognisedOutputs && (
+        <Text text={spend.unrecognisedOutputs} size="xs" color="warning" wrap data-testid="psbt-unrecognised-outputs" />
+      )}
+    </Column>
+  );
+}
+
 export default function ActionOverviewSection(props: ActionOverviewSectionProps) {
-  const { action, chain, commonDetails } = useActionOverviewSectionLogic(props);
+  const { action, chain, spend } = useActionOverviewSectionLogic(props);
   return (
     <Card data-testid="psbt-action-overview">
       <Column gap="lg" fullX>
@@ -113,7 +165,7 @@ export default function ActionOverviewSection(props: ActionOverviewSectionProps)
           </Column>
         )}
 
-        {commonDetails.length > 0 && (
+        {spend && (
           <Row
             style={{
               borderBottomWidth: 1,
@@ -121,9 +173,7 @@ export default function ActionOverviewSection(props: ActionOverviewSectionProps)
             }}
           ></Row>
         )}
-        {commonDetails.map((detail, index) => (
-          <DetailItemRow key={index} detail={detail} />
-        ))}
+        {spend && <SpendSummary spend={spend} />}
       </Column>
     </Card>
   );

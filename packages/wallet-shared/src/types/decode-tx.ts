@@ -1,9 +1,12 @@
+import type { ChainType } from '@qbit/wallet-types'
+
 export enum RiskType {
   SIGHASH_NONE,
   SCAMMER_ADDRESS,
   NETWORK_NOT_MATCHED,
   LOW_FEE_RATE,
   HIGH_FEE_RATE,
+  UNRECOGNISED_OUTPUT,
 }
 
 export interface Risk {
@@ -67,6 +70,82 @@ export interface DecodedPsbtOpReturnOutput extends DecodedPsbtOutputBase {
 
 export type DecodedPsbtOutput = DecodedPsbtAddressOutput | DecodedPsbtOpReturnOutput
 
+/** Why the wallet flagged a fee as abnormal; see `assessQbitFee`. */
+export type QbitFeeWarningReason =
+  /** The rate is at least `QBIT_FEE_WARNING_RECOMMENDED_RATE_MULTIPLE` times the fastest live recommended rate. */
+  | 'above_recommended_rate'
+  /** The rate is at least `QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE` times the relay floor, whatever the explorer recommends. */
+  | 'above_relay_floor'
+  /**
+   * The fee is at least `QBIT_FEE_WARNING_AMOUNT_PERCENT` of the amount sent, at a rate at least
+   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation.
+   */
+  | 'large_share_of_amount'
+
+export interface QbitFeeAssessment {
+  /** Exact fee in bits (satoshis). */
+  fee: number
+  /** Fee rate in bits/vB. */
+  feeRate: number
+  /**
+   * The amount the fee is compared with: what the transaction pays to others. 0 when there is
+   * nothing to compare with: it pays only the wallet, or other parties fund some of its inputs.
+   */
+  amount: number
+  /** The fastest live recommended rate. Absent when the explorer's rates are unavailable, so no comparison was made. */
+  recommendedFeeRate?: number
+  /** Empty when the fee is normal. */
+  reasons: QbitFeeWarningReason[]
+}
+
+/** What an output of a reviewed PSBT pays, from the wallet's point of view. */
+export type PsbtOutputRole =
+  /** One of this wallet's own addresses: change, or another of its accounts. */
+  | 'wallet'
+  /** The recipient the request named. */
+  | 'recipient'
+  /** An OP_RETURN data output. */
+  | 'data'
+  /** Neither the wallet's nor the named recipient, including a script with no address. */
+  | 'unrecognised'
+
+/**
+ * What a PSBT does to the wallet, computed by the background from the exact
+ * bytes it decoded. It is only valid for those bytes and for `account`.
+ */
+export interface PsbtSpendSummary {
+  /** The current account when the summary was computed. */
+  account: string
+  /** Value of the inputs spent from the wallet's own addresses. */
+  walletInputValue: number
+  /** Value of the outputs paid back to the wallet's own addresses. */
+  walletOutputValue: number
+  /**
+   * What leaves the wallet, fee included: `walletInputValue - walletOutputValue`.
+   * Negative when the wallet gains. Absent when an input's spent output is
+   * missing, so its owner and value are unknown.
+   */
+  netSpend?: number
+  /** Value of every output that does not pay the wallet. */
+  externalOutputValue: number
+  /** One role for each output, in output order. */
+  outputRoles: PsbtOutputRole[]
+  unrecognisedOutputCount: number
+  unrecognisedOutputValue: number
+  /** Unrecognised outputs whose script has no address the wallet can show. */
+  undecodableOutputCount: number
+  /**
+   * Absent when there is no fee to judge: an input's spent output is missing, or the outputs
+   * exceed the inputs (a partial PSBT others will add inputs to).
+   */
+  feeAssessment?: QbitFeeAssessment
+}
+
+export interface DecodePsbtOptions {
+  /** Addresses the request itself names as recipients; their outputs are not unrecognised. */
+  statedRecipients?: string[]
+}
+
 export interface DecodedPsbt {
   inputInfos: DecodedPsbtInput[]
   outputInfos: DecodedPsbtOutput[]
@@ -80,6 +159,7 @@ export interface DecodedPsbt {
   recommendedFeeRate: number
   shouldWarnFeeRate: boolean
   isCompleted: boolean
+  spendSummary: PsbtSpendSummary
 }
 
 export interface PsbtLocalInfo {
@@ -94,6 +174,14 @@ export interface PsbtLocalInfo {
   isCompleted: boolean
   hasSighashNone: boolean
   parseError: boolean
+  /**
+   * The risks a review of this PSBT on its own would gate signing on (an
+   * abnormal fee, an unrecognised output), from the same bytes. Empty when it
+   * failed to parse.
+   */
+  risks: Risk[]
+  /** What the PSBT does to the wallet, for `LocalPsbtSummary.account`. Absent when it failed to parse. */
+  spendSummary?: PsbtSpendSummary
 }
 
 export interface LocalPsbtSummary {
@@ -106,4 +194,19 @@ export interface LocalPsbtSummary {
   parseErrorCount: number
   /** Per-PSBT decoded info for display in the multi-sign list */
   items: PsbtLocalInfo[]
+  /** The current account the batch was analyzed for. */
+  account: string
+  /** The network the batch was analyzed on. */
+  chain: ChainType
+}
+
+/**
+ * What the user reviewed before quick-signing one PSBT of a local batch
+ * (`signLocalBatchPsbt`): the account and network the batch was analyzed
+ * for, and the risks of this PSBT the user explicitly confirmed.
+ */
+export interface LocalPsbtBatchReview {
+  account: string
+  chain: ChainType
+  confirmedRisks: RiskType[]
 }

@@ -2,7 +2,15 @@
 
 import type { BaseWallet, P2mrMessageProof } from '@qbit/wallet-connect'
 import { isSupportedAddressType } from '@qbit/wallet-connect'
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type {
   ConnectedAccount,
   WalletContextType,
@@ -74,17 +82,45 @@ export function WalletProvider({
   const [isModalVisible, setIsModalVisible] = useState(false)
   const [connectingWallet, setConnectingWallet] = useState<BaseWallet>()
   const [canceledConnect, setCanceledConnect] = useState(false)
+  // Each wallet event supersedes any account refresh still in flight, so a
+  // slow refresh for an older event cannot restore an account that a newer
+  // event cleared. A ref, because listeners re-subscribe on every new callback.
+  const latestWalletEvent = useRef(0)
+  // Account refreshes and modal connects in flight; isConnecting clears when
+  // the last of them settles.
+  const connectionWorkInFlight = useRef(0)
+  // The connected wallet, updated as soon as a connection is made or cleared.
+  // Listeners stay attached until React re-runs the listener effect, and
+  // events reaching them in that window, such as the account the wallet sends
+  // after a network change, must not bring a cleared connection back.
+  const activeWallet = useRef<BaseWallet>()
 
   /**
    * Clear connection state
    */
   const clearConnection = useCallback(() => {
+    activeWallet.current = undefined
+    latestWalletEvent.current += 1
     setAccount(undefined)
     setWallet(undefined)
     if (typeof window !== 'undefined') {
       localStorage.setItem(storageKey, '')
     }
   }, [storageKey])
+
+  /**
+   * Make `connected` the connected wallet. It supersedes any account refresh
+   * started before this connection.
+   */
+  const commitConnection = useCallback(
+    (connected: BaseWallet, connectedAccount: ConnectedAccount) => {
+      activeWallet.current = connected
+      latestWalletEvent.current += 1
+      setAccount(connectedAccount)
+      setWallet(connected)
+    },
+    []
+  )
 
   /**
    * Disconnect from wallet
@@ -137,8 +173,7 @@ export function WalletProvider({
             try {
               const connectedAccount = await loadConnectedAccount(w)
               if (connectedAccount) {
-                setAccount(connectedAccount)
-                setWallet(w)
+                commitConnection(w, connectedAccount)
                 onAccountChange?.(connectedAccount)
               } else {
                 clearConnection()
@@ -161,6 +196,7 @@ export function WalletProvider({
     disableConnect,
     onAccountChange,
     clearConnection,
+    commitConnection,
     loadConnectedAccount,
   ])
 
@@ -170,57 +206,76 @@ export function WalletProvider({
   useEffect(() => {
     if (!wallet) return
 
-    const handleConnectionRefresh = async (options: { disconnectOnUnavailable: boolean }) => {
+    // Wallet events never call disconnect(): that revokes the page's grant in
+    // the wallet and is only for an explicit user action.
+    const handleConnectionRefresh = async () => {
+      const event = ++latestWalletEvent.current
+      connectionWorkInFlight.current += 1
       setIsConnecting(true)
 
       try {
         const connectedAccount = await loadConnectedAccount(wallet)
+        if (event !== latestWalletEvent.current || activeWallet.current !== wallet) return
         if (connectedAccount) {
           setAccount(connectedAccount)
           onAccountChange?.(connectedAccount)
-        } else if (options.disconnectOnUnavailable) {
-          await disconnect()
+        } else {
+          // No account this page can use right now; keep listening for one.
+          setAccount(undefined)
         }
       } catch {
-        if (!options.disconnectOnUnavailable) {
-          return
-        }
-        await disconnect()
+        // Keep the current state while the account is temporarily unavailable.
       } finally {
-        setIsConnecting(false)
+        connectionWorkInFlight.current -= 1
+        if (connectionWorkInFlight.current === 0) setIsConnecting(false)
       }
     }
 
+    // An empty account list means this page can read no account right now,
+    // for example while the wallet is on a chain it has no grant for. Keep
+    // listening: the wallet sends the account again when it becomes readable.
     const handleAccountChange = async (accounts?: unknown) => {
       if (Array.isArray(accounts) && accounts.length === 0) {
-        await disconnect()
+        latestWalletEvent.current += 1
+        setAccount(undefined)
         return
       }
 
-      await handleConnectionRefresh({ disconnectOnUnavailable: false })
+      await handleConnectionRefresh()
     }
 
     const handleNetworkChange = async () => {
       if (disconnectOnNetworkChange) {
-        await disconnect()
+        clearConnection()
         return
       }
 
-      await handleConnectionRefresh({ disconnectOnUnavailable: false })
+      await handleConnectionRefresh()
     }
 
-    wallet.addListener({
-      onAccountChange: handleAccountChange,
-      onNetworkChange: handleNetworkChange,
-    })
+    // The wallet revoked this page's grant.
+    const handleDisconnect = () => {
+      clearConnection()
+    }
+
+    // Events that reach these listeners after this wallet stopped being the
+    // connected one are ignored.
+    const whileConnected =
+      <Args extends unknown[]>(handler: (...args: Args) => unknown) =>
+      (...args: Args) =>
+        activeWallet.current === wallet ? handler(...args) : undefined
+
+    const listeners = {
+      onAccountChange: whileConnected(handleAccountChange),
+      onNetworkChange: whileConnected(handleNetworkChange),
+      onDisconnect: whileConnected(handleDisconnect),
+    }
+    wallet.addListener(listeners)
 
     return () => {
-      wallet.removeListener({
-        onAccountChange: handleAccountChange,
-        onNetworkChange: handleNetworkChange,
-      })
+      wallet.removeListener(listeners)
     }
-  }, [wallet, disconnectOnNetworkChange, loadConnectedAccount, onAccountChange, disconnect])
+  }, [wallet, disconnectOnNetworkChange, loadConnectedAccount, onAccountChange, clearConnection])
 
   /**
    * Handle wallet selection
@@ -232,6 +287,7 @@ export function WalletProvider({
         return
       }
 
+      connectionWorkInFlight.current += 1
       try {
         setConnectingWallet(selectedWallet)
         setIsConnecting(true)
@@ -250,8 +306,7 @@ export function WalletProvider({
           }
 
           const connectedAccount: ConnectedAccount = { ...acc, ...extendedData }
-          setAccount(connectedAccount)
-          setWallet(selectedWallet)
+          commitConnection(selectedWallet, connectedAccount)
 
           if (typeof window !== 'undefined') {
             localStorage.setItem(storageKey, selectedWallet.config.type)
@@ -264,7 +319,8 @@ export function WalletProvider({
         onConnectError?.(error)
       } finally {
         setConnectingWallet(undefined)
-        setIsConnecting(false)
+        connectionWorkInFlight.current -= 1
+        if (connectionWorkInFlight.current === 0) setIsConnecting(false)
       }
     },
     [
@@ -275,6 +331,7 @@ export function WalletProvider({
       onConnectError,
       onAccountChange,
       storageKey,
+      commitConnection,
     ]
   )
 

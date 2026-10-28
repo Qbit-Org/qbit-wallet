@@ -3,6 +3,7 @@ import type {
   AddressHistory,
   AddressBalance,
   EsploraAddressStats,
+  EsploraClientOptions,
   EsploraTx,
   EsploraTxStatus,
   EsploraUtxo,
@@ -18,15 +19,21 @@ import type {
   FeeQuoteFreshness,
   QbitBalance,
   QbitBalanceSummary,
+  QbitRestoreFloorSource,
   FeeSummary,
   TxHistoryItem,
   UTXO,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
+import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS, createQbitExplorerFetch } from './qbit-explorer-fetch'
 
 const SATS_PER_QBIT = 100_000_000n
 const DEFAULT_MAX_COUNTER_HISTORY_PAGES = 256
 const DEFAULT_MAX_COUNTER_HISTORY_TRANSACTIONS = 6_400
+// Esplora's `/address/:address/txs/mempool` lists at most this many rows, so a
+// larger pending set cannot be enumerated from it. mempool-qbit pages its
+// pending rows instead.
+const ESPLORA_ADDRESS_MEMPOOL_LIST_LIMIT = 50
 // @qbit-oss/api's getAddressHistory reads an address a second time when its
 // stats move during the first read, and counts both reads against maxPages
 // and maxTransactions. The wallet's budgets are for one read, so each call
@@ -98,7 +105,8 @@ export interface QbitTxOutspendsClient {
 
 /**
  * One page of an address's history, newest first. `afterTxid`, the last row
- * of the previous page, continues the walk; an empty page ends it.
+ * of the previous page, continues the walk. An empty page ends it, except
+ * after a mempool row on qbit-electrs (see `continueQbitAddressOutputScan`).
  */
 export interface QbitAddressHistoryPageClient {
   getAddressHistoryPage(address: string, afterTxid?: string): Promise<EsploraTx[]>
@@ -108,6 +116,23 @@ export type QbitWalletApiClient = EsploraClient &
   QbitTxOutspendsClient &
   QbitAddressHistoryPageClient
 
+/**
+ * The wallet's transport budgets for an explorer client (#353): headers and
+ * body are timed separately, so a large history page on a slow link loads
+ * while a dead connection still fails; see `qbit-explorer-fetch`. A given
+ * `fetchFn` is wrapped, not replaced. With no base URL or no fetch at all,
+ * the client's own constructor error stands.
+ */
+function withQbitExplorerBudgets<T extends EsploraClientOptions>(options: T): T {
+  const budgeted = { ...options, timeoutMs: options.timeoutMs ?? QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS }
+  if (typeof options.baseUrl !== 'string') return budgeted
+  if (options.fetchFn === undefined && typeof globalThis.fetch !== 'function') return budgeted
+  return {
+    ...budgeted,
+    fetchFn: createQbitExplorerFetch({ fetchFn: options.fetchFn, baseUrl: options.baseUrl }),
+  }
+}
+
 // `@qbit-oss/api` has no route for a transaction's spenders. Both explorer
 // surfaces serve Esplora's `/tx/:txid/outspends` under the endpoint's prefix,
 // so the wallet's clients add it. Each also pages history one request at a
@@ -116,6 +141,10 @@ export class QbitWalletEsploraClient
   extends EsploraClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
 {
+  constructor(options: EsploraClientOptions) {
+    super(withQbitExplorerBudgets(options))
+  }
+
   getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
     return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`)
   }
@@ -133,10 +162,12 @@ export class QbitWalletMempoolClient
   // The client clamps every call's maxPages to this ceiling (default 256), so
   // the two-read budgets above need it raised to match.
   constructor(options: MempoolQbitClientOptions) {
-    super({
-      maxAddressHistoryPages: DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS,
-      ...options,
-    })
+    super(
+      withQbitExplorerBudgets({
+        maxAddressHistoryPages: DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS,
+        ...options,
+      })
+    )
   }
 
   getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
@@ -174,9 +205,10 @@ export interface QbitFeeSummaryOptions {
 export interface QbitPqcSignatureActivity {
   observedSignatures: number
   hasActivity: boolean
+  floorSource: QbitRestoreFloorSource
 }
 
-interface QbitPqcHistorySnapshot extends QbitPqcSignatureActivity {
+interface QbitPqcHistorySnapshot extends Omit<QbitPqcSignatureActivity, 'floorSource'> {
   spentOutpoints: ReadonlyMap<string, string>
 }
 
@@ -317,7 +349,10 @@ export function qbitBalanceToWalletBalance(balance: AddressBalance): QbitBalance
   }
 }
 
-export function qbitBalanceToSummary(balance: AddressBalance): QbitBalanceSummaryPayload {
+// The address balance is always measured, so its figures are never unknown.
+export function qbitBalanceToSummary(
+  balance: AddressBalance
+): QbitBalanceSummaryPayload & { availableBalance: number } {
   return {
     availableBalance: balance.confirmedSats,
     unavailableBalance: balance.mempoolSats,
@@ -372,10 +407,17 @@ export async function isQbitUtxoListOverExplorerLimit(
   return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT
 }
 
+/**
+ * The address's balance split the way a send sees it. `readReserved`, when
+ * given, is read once the outputs are listed and names the outputs
+ * (`txid:vout`) a send must not select (see `QbitSendGuardService`); they
+ * count as unavailable rather than available.
+ */
 export async function getQbitSpendableBalanceV2(
   client: QbitEsploraClient,
   address: string,
-  p2mrScriptPubKey?: string
+  p2mrScriptPubKey?: string,
+  readReserved?: () => Promise<ReadonlySet<string>>
 ): Promise<QbitBalanceSummaryPayload> {
   const [balanceResult, classifiedResult] = await Promise.allSettled([
     client.getAddressBalance(address),
@@ -388,23 +430,27 @@ export async function getQbitSpendableBalanceV2(
     if (!(await isQbitUtxoListOverExplorerLimit(client, address, classifiedResult.reason))) {
       throw classifiedResult.reason
     }
-    // The statistics still give the total; with no output list nothing can
-    // be classified as spendable, so all of it is reported unavailable.
+    // The statistics still give the total. With no output list none of it
+    // can be classified, so the split is unknown rather than 0, and none of
+    // it can be selected until a send reads the outputs from history.
     const totalBalance = Math.max(0, aggregateBalance.totalBalance)
     return {
-      availableBalance: 0,
+      availableBalance: null,
       unavailableBalance: totalBalance,
       totalBalance,
-      immatureBalance: 0,
-      pendingBalance: 0,
+      immatureBalance: null,
+      pendingBalance: null,
       utxoLimitExceeded: true,
     }
   }
   const classified = classifiedResult.value
+  const reserved = readReserved ? await readReserved() : undefined
   const matchesScript = (utxo: UTXO) =>
     !p2mrScriptPubKey || utxo.scriptPk.toLowerCase() === p2mrScriptPubKey.toLowerCase()
+  const selectable = (utxo: UTXO) =>
+    matchesScript(utxo) && !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
   const confirmedSpendableSats = classified.confirmedSpendable
-    .filter(matchesScript)
+    .filter(selectable)
     .reduce((sum, utxo) => sum + utxo.satoshis, 0)
   const unconfirmedSpendableSats = classified.unconfirmedSpendable
     .filter(matchesScript)
@@ -412,15 +458,19 @@ export async function getQbitSpendableBalanceV2(
   const ownChangeSats = classified.unconfirmedOwnChange
     .filter(matchesScript)
     .reduce((sum, utxo) => sum + utxo.satoshis, 0)
+  const selectableOwnChangeSats = classified.unconfirmedOwnChange
+    .filter(selectable)
+    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
   const classifiedImmatureSats = classified.immature
     .filter(matchesScript)
     .reduce((sum, utxo) => sum + utxo.satoshis, 0)
   // Available is what a send may select (see `getQbitAddressUtxos`): the
   // confirmed outputs, plus the unconfirmed change of this script's own
-  // transactions.
+  // transactions, less the reserved ones.
   const availableBalance = Math.min(
     Math.max(0, aggregateBalance.totalBalance),
-    Math.min(Math.max(0, aggregateBalance.availableBalance), confirmedSpendableSats) + ownChangeSats
+    Math.min(Math.max(0, aggregateBalance.availableBalance), confirmedSpendableSats) +
+      selectableOwnChangeSats
   )
   const unavailableBalance = Math.max(0, aggregateBalance.totalBalance - availableBalance)
   const immatureBalance = Math.min(classifiedImmatureSats, unavailableBalance)
@@ -500,7 +550,8 @@ function assertValidQbitStats(stats: EsploraAddressStats, address: string): void
   }
 }
 
-function qbitStatsSnapshot(stats: EsploraAddressStats): string {
+/** The address statistics as one comparable value; it changes with any new activity. */
+export function qbitStatsSnapshot(stats: EsploraAddressStats): string {
   return JSON.stringify(
     [stats.chain_stats, stats.mempool_stats].flatMap(item => [
       item.funded_txo_count,
@@ -684,24 +735,29 @@ function qbitAccountHistoryRevision(
   }
 }
 
-async function observeQbitPqcHistorySnapshot(
-  client: QbitPqcHistoryClient,
-  address: string,
-  scriptPubKey: string,
-  options: QbitPqcSignatureActivityOptions = {}
-): Promise<QbitPqcHistorySnapshot> {
-  const maxHistoryPages = options.maxHistoryPages ?? DEFAULT_MAX_COUNTER_HISTORY_PAGES
-  if (!Number.isSafeInteger(maxHistoryPages) || maxHistoryPages < 1) {
-    throw new Error('maxHistoryPages must be a positive integer')
+/** The chain tip and address statistics an observation began with. */
+interface QbitPqcObservationAnchor {
+  tipHash: string
+  stats: EsploraAddressStats
+}
+
+/**
+ * The address statistics show a history the scan does not enumerate: more
+ * transactions than it reads, or more pending ones than the caller's mempool
+ * listing returns. `anchor` holds the tip and statistics that showed it, so
+ * the statistics read can continue the same observation.
+ */
+class QbitPqcHistoryLimitError extends Error {
+  readonly anchor: QbitPqcObservationAnchor
+
+  constructor(message: string, anchor: QbitPqcObservationAnchor) {
+    super(message)
+    this.name = 'QbitPqcHistoryLimitError'
+    this.anchor = anchor
   }
-  const maxHistoryTransactions =
-    options.maxHistoryTransactions ?? DEFAULT_MAX_COUNTER_HISTORY_TRANSACTIONS
-  if (!Number.isSafeInteger(maxHistoryTransactions) || maxHistoryTransactions < 1) {
-    throw new Error('maxHistoryTransactions must be a positive integer')
-  }
-  if (!scriptPubKey) {
-    throw new Error('scriptPubKey is required to observe qbit signature activity')
-  }
+}
+
+function resolveQbitTipAdvanceSettleMs(options: QbitPqcSignatureActivityOptions): number {
   const tipAdvanceSettleMs = options.tipAdvanceSettleMs ?? 0
   if (
     !Number.isSafeInteger(tipAdvanceSettleMs) ||
@@ -712,18 +768,60 @@ async function observeQbitPqcHistorySnapshot(
       `tipAdvanceSettleMs must be an integer between 0 and ${MAX_QBIT_SNAPSHOT_RETRY_DELAY_MS}`
     )
   }
+  return tipAdvanceSettleMs
+}
+
+/**
+ * `mempoolListLimit`, when given, is the most pending transactions the
+ * history may hold before it counts as too long to enumerate. `started`
+ * receives the chain tip the read began at, even when the read then fails.
+ */
+async function observeQbitPqcHistorySnapshot(
+  client: QbitPqcHistoryClient,
+  address: string,
+  scriptPubKey: string,
+  options: QbitPqcSignatureActivityOptions = {},
+  mempoolListLimit?: number,
+  started: { tipHash?: string } = {}
+): Promise<QbitPqcHistorySnapshot> {
+  const maxHistoryTransactions =
+    options.maxHistoryTransactions ?? DEFAULT_MAX_COUNTER_HISTORY_TRANSACTIONS
+  if (!Number.isSafeInteger(maxHistoryTransactions) || maxHistoryTransactions < 1) {
+    throw new Error('maxHistoryTransactions must be a positive integer')
+  }
+  // Enough pages for an Esplora walk to reach the transaction cap, counting
+  // the empty page that ends it.
+  const maxHistoryPages =
+    options.maxHistoryPages ??
+    Math.ceil(maxHistoryTransactions / QBIT_UTXO_HISTORY_ROWS_PER_PAGE) + 1
+  if (!Number.isSafeInteger(maxHistoryPages) || maxHistoryPages < 1) {
+    throw new Error('maxHistoryPages must be a positive integer')
+  }
+  if (!scriptPubKey) {
+    throw new Error('scriptPubKey is required to observe qbit signature activity')
+  }
+  const tipAdvanceSettleMs = resolveQbitTipAdvanceSettleMs(options)
 
   const tipHashBefore = await client.getTipHash()
   assertValidQbitTipHash(tipHashBefore)
+  started.tipHash = tipHashBefore
   const statsBefore = await client.getAddressStats(address)
   assertValidQbitStats(statsBefore, address)
   const hasActivity = qbitStatsHaveActivity(statsBefore)
+  const anchor = { tipHash: tipHashBefore, stats: statsBefore }
 
   const expectedHistoryTransactions =
     statsBefore.chain_stats.tx_count + statsBefore.mempool_stats.tx_count
   if (expectedHistoryTransactions > maxHistoryTransactions) {
-    throw new Error(
-      `qbit address history exceeds the ${maxHistoryTransactions}-transaction limit for ${address}`
+    throw new QbitPqcHistoryLimitError(
+      `qbit address history exceeds the ${maxHistoryTransactions}-transaction limit for ${address}`,
+      anchor
+    )
+  }
+  if (mempoolListLimit !== undefined && statsBefore.mempool_stats.tx_count > mempoolListLimit) {
+    throw new QbitPqcHistoryLimitError(
+      `qbit address mempool exceeds the ${mempoolListLimit}-transaction listing limit for ${address}`,
+      anchor
     )
   }
 
@@ -835,6 +933,14 @@ async function observeQbitPqcHistorySnapshot(
 /**
  * Count signatures already made by a P2MR account. The result is a safe
  * counter floor only when Esplora returns a complete, stable history snapshot.
+ *
+ * When the address statistics show a history too long to enumerate (past
+ * the transaction cap, or, on an Esplora surface, more pending transactions
+ * than its mempool listing returns), the floor is read from those statistics
+ * instead (`floorSource: 'address-stats'`); see `observeQbitPqcStatsFloor`.
+ * Any other failure still fails the observation, including a walk that hits
+ * the client's page or transaction ceiling while the statistics say the
+ * history fits: the two disagree, and the statistics may be the stale side.
  */
 export async function observeQbitPqcSignatureActivity(
   client: QbitPqcHistoryClient,
@@ -842,20 +948,173 @@ export async function observeQbitPqcSignatureActivity(
   scriptPubKey: string,
   options: QbitPqcSignatureActivityOptions = {}
 ): Promise<QbitPqcSignatureActivity> {
-  const { observedSignatures, hasActivity } = await observeStableQbitPqcHistorySnapshot(
-    client,
-    address,
-    scriptPubKey,
-    options
-  )
-  return { observedSignatures, hasActivity }
+  const retry = resolveQbitSnapshotStabilityRetries(options)
+  const tipAdvanceSettleMs = resolveQbitTipAdvanceSettleMs(options)
+  return loadQbitSnapshotWithStabilityRetries<QbitPqcSignatureActivity>(retry, async () => {
+    const started: { tipHash?: string } = {}
+    try {
+      return await observeQbitPqcFloorOnce(
+        client,
+        address,
+        scriptPubKey,
+        options,
+        tipAdvanceSettleMs,
+        started
+      )
+    } catch (error) {
+      throw await qbitTipAdvanceSettledError(client, error, started.tipHash, tipAdvanceSettleMs)
+    }
+  })
+}
+
+async function observeQbitPqcFloorOnce(
+  client: QbitPqcHistoryClient,
+  address: string,
+  scriptPubKey: string,
+  options: QbitPqcSignatureActivityOptions,
+  tipAdvanceSettleMs: number,
+  started: { tipHash?: string }
+): Promise<QbitPqcSignatureActivity> {
+  try {
+    const { observedSignatures, hasActivity } = await observeQbitPqcHistorySnapshot(
+      client,
+      address,
+      scriptPubKey,
+      options,
+      client instanceof MempoolQbitClient ? undefined : ESPLORA_ADDRESS_MEMPOOL_LIST_LIMIT,
+      started
+    )
+    return { observedSignatures, hasActivity, floorSource: 'history' }
+  } catch (error) {
+    if (!(error instanceof QbitPqcHistoryLimitError)) throw error
+    return observeQbitPqcStatsFloor(client, address, tipAdvanceSettleMs, error.anchor)
+  }
 }
 
 /**
- * Per-address stability retry for restore floor scans. Retrying here rather
- * than around a whole scan keeps one churning address from restarting every
- * other address's observation; the cap keeps an endlessly churning mempool
- * from hanging a derivation.
+ * The error to retry an unstable floor observation with. However the
+ * instability showed (statistics that moved, a count mismatch, a shifted
+ * history page), a chain tip that advanced since the attempt began holds the
+ * retry for `tipAdvanceSettleMs`: a pending spend can leave the mempool
+ * before the address index holds the block that confirmed it, and a quick
+ * reread would find the index still lagging. A tip that cannot be read
+ * counts as advanced.
+ */
+async function qbitTipAdvanceSettledError(
+  client: QbitPqcHistoryClient,
+  error: unknown,
+  startTipHash: string | undefined,
+  tipAdvanceSettleMs: number
+): Promise<unknown> {
+  if (
+    startTipHash === undefined ||
+    tipAdvanceSettleMs === 0 ||
+    !isQbitSnapshotUnstableError(error) ||
+    (error instanceof QbitHistorySnapshotUnstableError &&
+      error.minRetryDelayMs >= tipAdvanceSettleMs)
+  ) {
+    return error
+  }
+  try {
+    const tipHashNow = await client.getTipHash()
+    assertValidQbitTipHash(tipHashNow)
+    if (tipHashNow === startTipHash) return error
+  } catch {
+    // Unknown: settle as for an advance.
+  }
+  return new QbitHistorySnapshotUnstableError((error as Error).message, {
+    minRetryDelayMs: tipAdvanceSettleMs,
+    cause: error,
+  })
+}
+
+/**
+ * The signature floor of an address whose history cannot be enumerated, read
+ * from its statistics: each of its outputs spent so far, confirmed or
+ * pending, carries one signature by its key. The enumerated read accepts a
+ * floor only when its count equals this one, so the two trust the same
+ * explorer and agree wherever both can run. As there, the statistics and the
+ * chain tip must read the same before and after, and a tip advance holds the
+ * retry for `tipAdvanceSettleMs`. The read continues from the `anchor` the
+ * history read began with. Statistics that spend more than the address was
+ * paid fail the read.
+ */
+async function observeQbitPqcStatsFloor(
+  client: QbitPqcHistoryClient,
+  address: string,
+  tipAdvanceSettleMs: number,
+  anchor: QbitPqcObservationAnchor
+): Promise<QbitPqcSignatureActivity> {
+  const { tipHash: tipHashBefore, stats: statsBefore } = anchor
+  assertQbitStatsFloorConsistent(statsBefore, address)
+  const statsAfter = await client.getAddressStats(address)
+  assertValidQbitStats(statsAfter, address)
+  const tipHashAfter = await client.getTipHash()
+  assertValidQbitTipHash(tipHashAfter)
+  if (qbitStatsSnapshot(statsAfter) !== qbitStatsSnapshot(statsBefore)) {
+    throw new QbitHistorySnapshotUnstableError(
+      `qbit address statistics changed while reading ${address}`
+    )
+  }
+  if (tipHashAfter !== tipHashBefore) {
+    throw new QbitHistorySnapshotUnstableError(
+      `qbit address statistics changed while reading ${address}`,
+      { minRetryDelayMs: tipAdvanceSettleMs }
+    )
+  }
+  return {
+    observedSignatures: safeQbitValueSum(
+      [statsBefore.chain_stats.spent_txo_count, statsBefore.mempool_stats.spent_txo_count],
+      `spent output count of ${address}`
+    ),
+    hasActivity: qbitStatsHaveActivity(statsBefore),
+    floorSource: 'address-stats',
+  }
+}
+
+/**
+ * `assertValidQbitStats`, plus what a floor read from the statistics alone
+ * relies on. Every transaction in an address's history pays or spends it, so
+ * neither scope may list more transactions than it has funded and spent
+ * outputs. Nor may the address spend more outputs or value than it was paid:
+ * a confirmed spend can only spend a confirmed output, a pending one either.
+ */
+function assertQbitStatsFloorConsistent(stats: EsploraAddressStats, address: string): void {
+  assertValidQbitStats(stats, address)
+  const chain = stats.chain_stats
+  const mempool = stats.mempool_stats
+  for (const [scope, item] of [
+    ['chain', chain],
+    ['mempool', mempool],
+  ] as const) {
+    const touchingOutputs = safeQbitValueSum(
+      [item.funded_txo_count, item.spent_txo_count],
+      `${scope} output count of qbit address ${address}`
+    )
+    if (item.tx_count > touchingOutputs) {
+      throw new Error(
+        `qbit address ${address} ${scope} stats list more transactions than outputs it funded or spent`
+      )
+    }
+  }
+  const total = (field: keyof typeof chain): number =>
+    safeQbitValueSum([chain[field], mempool[field]], `${field} of qbit address ${address}`)
+  if (
+    chain.spent_txo_count > chain.funded_txo_count ||
+    chain.spent_txo_sum > chain.funded_txo_sum ||
+    total('spent_txo_count') > total('funded_txo_count') ||
+    total('spent_txo_sum') > total('funded_txo_sum')
+  ) {
+    throw new Error(`qbit address ${address} stats spend more than it was paid`)
+  }
+}
+
+/**
+ * Per-address stability retry, as `observeQbitPqcSignatureActivity` retries
+ * for restore floor scans. Retrying per address rather than around a whole
+ * scan keeps one churning address from restarting every other address's
+ * observation; the cap keeps an endlessly churning mempool from hanging a
+ * derivation.
  */
 async function observeStableQbitPqcHistorySnapshot(
   client: QbitPqcHistoryClient,
@@ -1020,7 +1279,9 @@ async function classifyQbitUtxos(
   const unconfirmedOwnChange: UTXO[] = []
   const immature: UTXO[] = []
   // A send may select any of the change outputs together, so their
-  // unconfirmed ancestors share one budget under qbit Core's limit.
+  // unconfirmed ancestors share one budget under qbit Core's count limit.
+  // Each output carries its ancestors' sizes, which coin selection keeps
+  // within the ancestor size limit for the outputs it actually spends.
   let ownChangeAncestors = new Set<string>()
   for (const entry of walletUtxos) {
     if (!entry) continue
@@ -1033,10 +1294,16 @@ async function classifyQbitUtxos(
       } else {
         unconfirmedSpendable.push(entry.utxo)
         if (entry.ownAncestry) {
-          const ancestors = new Set([...ownChangeAncestors, ...entry.ownAncestry])
+          const ancestors = new Set([...ownChangeAncestors, ...entry.ownAncestry.keys()])
           if (ancestors.size < QBIT_MEMPOOL_ANCESTOR_LIMIT) {
             ownChangeAncestors = ancestors
-            unconfirmedOwnChange.push(entry.utxo)
+            unconfirmedOwnChange.push({
+              ...entry.utxo,
+              unconfirmedAncestors: [...entry.ownAncestry].map(([txid, vsize]) => ({
+                txid,
+                vsize,
+              })),
+            })
           }
         }
       }
@@ -1136,7 +1403,7 @@ async function readQbitUnspentOutputsFromHistory(
 ): Promise<{ tx: EsploraTx; vout: number }[]> {
   const statsBefore = await client.getAddressStats(address)
   assertValidQbitStats(statsBefore, address)
-  if (statsBefore.chain_stats.tx_count > maxTransactions - statsBefore.mempool_stats.tx_count) {
+  if (qbitHistoryOverReadLimit(statsBefore, maxTransactions)) {
     throw new QbitUtxoHistoryTooLargeError(address, maxTransactions)
   }
   let history: AddressHistory
@@ -1205,6 +1472,20 @@ async function readQbitUnspentOutputsFromHistory(
   return [...funded].filter(([outpoint]) => !spent.has(outpoint)).map(([, output]) => output)
 }
 
+function qbitHistoryOverReadLimit(stats: EsploraAddressStats, maxTransactions: number): boolean {
+  return stats.chain_stats.tx_count > maxTransactions - stats.mempool_stats.tx_count
+}
+
+/**
+ * Whether checked address statistics (`qbitAddressOutputCounts` checks them)
+ * show a history longer than `getQbitAddressUtxosClassifiedFromHistory`
+ * reads, so the address's outputs cannot be read once the explorer refuses
+ * to list them.
+ */
+export function isQbitHistoryOverReadLimit(stats: EsploraAddressStats): boolean {
+  return qbitHistoryOverReadLimit(stats, QBIT_UTXO_HISTORY_MAX_TRANSACTIONS)
+}
+
 /**
  * `getQbitAddressUtxosClassified`, or for an address over the explorer's
  * UTXO limit (`isQbitUtxoListOverExplorerLimit`) the same classification
@@ -1260,7 +1541,14 @@ export async function getQbitAddressOutputCounts(
   client: Pick<QbitEsploraClient, 'getAddressStats'>,
   address: string
 ): Promise<QbitAddressOutputCounts> {
-  const stats = await client.getAddressStats(address)
+  return qbitAddressOutputCounts(await client.getAddressStats(address), address)
+}
+
+/** The output counts in `stats`, the statistics of `address`, which it checks first. */
+export function qbitAddressOutputCounts(
+  stats: EsploraAddressStats,
+  address: string
+): QbitAddressOutputCounts {
   assertValidQbitStats(stats, address)
   const confirmedUnspent = stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count
   if (confirmedUnspent < 0) {
@@ -1298,8 +1586,15 @@ export interface QbitHistoryOutputCandidate {
  */
 export interface QbitAddressOutputScan {
   readonly address: string
-  /** The last row of the last page read; the next page continues after it. */
-  afterTxid?: string
+  /** The row the next page continues after: the last row read, or the one before it. */
+  afterTxid?: string | undefined
+  /**
+   * Set while `afterTxid` is a mempool row: the cursor that lists that row
+   * first, the row read before it or the top of the history.
+   */
+  beforeMempoolCursor?: { afterTxid: string | undefined } | undefined
+  /** A row already walked that the next page must start with, and that it skips. */
+  overlapTxid?: string | undefined
   /** The empty page that ends the history has been read. */
   exhausted: boolean
   pagesRead: number
@@ -1317,6 +1612,17 @@ export function createQbitAddressOutputScan(address: string): QbitAddressOutputS
  * Read up to `maxPages` more pages of `scan`, stopping early once `enough`
  * holds or the history ends, and return how many were read. A malformed
  * page, or one that repeats its cursor, throws before anything changes.
+ *
+ * An empty page after a mempool row does not end the history. qbit-electrs
+ * answers a cursor that is the last mempool row with an empty page instead
+ * of the confirmed rows after it (`src/rest.rs:992-998` in
+ * Qbit-Org/qbit-electrs@53102e9), so an address whose mempool rows fill
+ * whole pages would look as if it had no confirmed history. The walk then
+ * steps back one row: the page after the row before it starts with that
+ * mempool row again and goes on into the confirmed rows. If that page holds
+ * the mempool row alone, the history has no confirmed rows and ends there;
+ * if it starts with any other row, the mempool moved and it throws
+ * `invalid_cursor`, as `@qbit-oss/api`'s own history walk does.
  */
 export async function continueQbitAddressOutputScan(
   client: QbitAddressHistoryPageClient,
@@ -1328,21 +1634,40 @@ export async function continueQbitAddressOutputScan(
   }
   let read = 0
   while (read < options.maxPages && !scan.exhausted && !options.enough?.(scan)) {
-    const rows = await client.getAddressHistoryPage(scan.address, scan.afterTxid)
+    const page = await client.getAddressHistoryPage(scan.address, scan.afterTxid)
     read += 1
-    if (!Array.isArray(rows)) {
+    if (!Array.isArray(page)) {
       throw new Error(`invalid qbit history page for ${scan.address}`)
     }
-    rows.forEach(assertValidQbitHistoryTransaction)
-    const txids = rows.map(tx => tx.txid.toLowerCase())
+    page.forEach(assertValidQbitHistoryTransaction)
+    const pageTxids = page.map(tx => tx.txid.toLowerCase())
     const cursor = scan.afterTxid?.toLowerCase()
-    if (new Set(txids).size !== txids.length || (cursor !== undefined && txids.includes(cursor))) {
+    if (
+      new Set(pageTxids).size !== pageTxids.length ||
+      (cursor !== undefined && pageTxids.includes(cursor))
+    ) {
       throw new QbitApiError(
         'invalid_cursor',
         `qbit history page repeated rows for ${scan.address}`
       )
     }
+    const overlap = scan.overlapTxid?.toLowerCase()
+    if (overlap !== undefined && pageTxids[0] !== overlap) {
+      throw new QbitApiError(
+        'invalid_cursor',
+        `qbit history of ${scan.address} moved while the walk stepped back over a mempool row`
+      )
+    }
+    const rows = overlap === undefined ? page : page.slice(1)
+    const txids = overlap === undefined ? pageTxids : pageTxids.slice(1)
     scan.pagesRead += 1
+    if (page.length === 0 && scan.beforeMempoolCursor) {
+      scan.overlapTxid = scan.afterTxid
+      scan.afterTxid = scan.beforeMempoolCursor.afterTxid
+      scan.beforeMempoolCursor = undefined
+      continue
+    }
+    scan.overlapTxid = undefined
     if (rows.length === 0) {
       scan.exhausted = true
       break
@@ -1378,7 +1703,11 @@ export async function continueQbitAddressOutputScan(
         })
       })
     })
-    scan.afterTxid = rows[rows.length - 1]!.txid
+    const last = rows[rows.length - 1]!
+    scan.beforeMempoolCursor = last.status.confirmed
+      ? undefined
+      : { afterTxid: page.length > 1 ? page[page.length - 2]!.txid : scan.afterTxid }
+    scan.afterTxid = last.txid
   }
   return read
 }
@@ -1575,7 +1904,12 @@ async function qbitUtxoToWalletUtxo(
   getTipHeight: () => Promise<number>,
   getAncestor: (txid: string) => Promise<EsploraTx | undefined>
 ): Promise<
-  | { utxo: UTXO; confirmed: boolean; immature: boolean; ownAncestry: Set<string> | undefined }
+  | {
+      utxo: UTXO
+      confirmed: boolean
+      immature: boolean
+      ownAncestry: Map<string, number> | undefined
+    }
   | undefined
 > {
   const tx = await getFundingTx(utxo.txid)
@@ -1654,20 +1988,23 @@ export function isQbitCoinbaseMature(blockHeight: number, tipHeight: number): bo
 
 /**
  * The unconfirmed transactions behind an output of the unconfirmed `tx`,
- * `tx` included, when it is change of `scriptPubKey` all the way down: each
- * input spends an output of that same script from a transaction that is
- * confirmed or, in turn, such change. Only then can no one but this wallet
- * replace `tx` or an ancestor, which would evict a send built on the output.
- * Undefined otherwise, or when a send spending the output would exceed qbit
- * Core's ancestor limit.
+ * `tx` included, each with its vsize, when it is change of `scriptPubKey` all
+ * the way down: each input spends an output of that same script from a
+ * transaction that is confirmed or, in turn, such change. Only then can no
+ * one but this wallet replace `tx` or an ancestor, which would evict a send
+ * built on the output. Undefined otherwise, when the explorer does not size
+ * one of them, or when a send spending the output would exceed qbit Core's
+ * ancestor limit.
  */
 async function qbitOwnUnconfirmedAncestry(
   tx: EsploraTx,
   scriptPubKey: string,
   getAncestor: (txid: string) => Promise<EsploraTx | undefined>
-): Promise<Set<string> | undefined> {
+): Promise<Map<string, number> | undefined> {
   const script = scriptPubKey.toLowerCase()
-  const unconfirmed = new Set([tx.txid.toLowerCase()])
+  const vsize = qbitTxVsize(tx)
+  if (vsize === undefined) return undefined
+  const unconfirmed = new Map([[tx.txid.toLowerCase(), vsize]])
   const pending = [tx]
   for (let current = pending.pop(); current; current = pending.pop()) {
     if (current.vin.length === 0) return undefined
@@ -1686,12 +2023,25 @@ async function qbitOwnUnconfirmedAncestry(
       const parent = await getAncestor(parentTxid)
       if (!parent) return undefined
       if (parent.status.confirmed) continue
-      unconfirmed.add(parentTxid)
+      const parentVsize = qbitTxVsize(parent)
+      if (parentVsize === undefined) return undefined
+      unconfirmed.set(parentTxid, parentVsize)
       if (unconfirmed.size >= QBIT_MEMPOOL_ANCESTOR_LIMIT) return undefined
       pending.push(parent)
     }
   }
   return unconfirmed
+}
+
+/**
+ * A transaction's vsize as qbit Core counts it against the ancestor size
+ * limit: its serialized size, since `WITNESS_SCALE_FACTOR = 1` makes weight
+ * and vsize equal to it. The explorer's `weight` is not read, as an indexer
+ * computing it with a scale factor of 4 would overstate it. Undefined
+ * unless the size is a positive integer.
+ */
+function qbitTxVsize(tx: EsploraTx): number | undefined {
+  return Number.isSafeInteger(tx.size) && tx.size > 0 ? tx.size : undefined
 }
 
 /**
@@ -1801,11 +2151,14 @@ const MAX_QBIT_SNAPSHOT_RETRY_DELAY_MS = 30_000
  */
 export class QbitHistorySnapshotUnstableError extends Error {
   readonly minRetryDelayMs: number
+  /** The failure this one restates, when it adds a retry delay to it. */
+  readonly cause?: unknown
 
-  constructor(message: string, options: { minRetryDelayMs?: number } = {}) {
+  constructor(message: string, options: { minRetryDelayMs?: number; cause?: unknown } = {}) {
     super(message)
     this.name = 'QbitHistorySnapshotUnstableError'
     this.minRetryDelayMs = options.minRetryDelayMs ?? 0
+    if (options.cause !== undefined) this.cause = options.cause
   }
 }
 

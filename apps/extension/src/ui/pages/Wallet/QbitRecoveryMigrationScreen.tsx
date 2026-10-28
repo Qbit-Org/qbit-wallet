@@ -11,7 +11,14 @@ import { Step1_Create } from '@/ui/pages/Account/createHDWalletComponents/Step1_
 import { ContextData, TabType, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { useWalletKeepalive } from '@/ui/utils/hooks';
 import { numUtils } from '@qbit/base-utils';
-import { ErrorCodes, PlatformEnv, QbitRecoveryState, ToSignData, WordsType } from '@qbit/wallet-shared';
+import {
+  ErrorCodes,
+  PlatformEnv,
+  QbitRecoveryDeferredSource,
+  QbitRecoveryState,
+  ToSignData,
+  WordsType
+} from '@qbit/wallet-shared';
 import { useChainType, useI18n, useQbitUnit, useTools, useWallet } from '@qbit/wallet-state';
 import { AddressType } from '@qbit/wallet-types';
 
@@ -84,6 +91,9 @@ export default function QbitRecoveryMigrationScreen() {
   const [stage, setStage] = useState<MigrationStage>('loading');
   const [recoveryState, setRecoveryState] = useState<QbitRecoveryState>();
   const [toSignDatas, setToSignDatas] = useState<ToSignData[]>([]);
+  // Sources the last preparation that read them could not plan; their funds
+  // stay put. A pass that returns before reading them keeps the list.
+  const [deferredSources, setDeferredSources] = useState<QbitRecoveryDeferredSource[]>([]);
   const [reviewAccepted, setReviewAccepted] = useState(false);
   const [revealedAddress, setRevealedAddress] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -171,6 +181,7 @@ export default function QbitRecoveryMigrationScreen() {
       setRecoveryState(advanced);
       if (advanced.status === 'migrated') {
         setToSignDatas([]);
+        setDeferredSources([]);
         setStage('complete');
         return;
       }
@@ -178,6 +189,7 @@ export default function QbitRecoveryMigrationScreen() {
       const prepared = await wallet.prepareQbitRecoveryMigration(sourceKeyringIndex!, undefined, sourceAnchorPubkey);
       setRecoveryState(prepared.state);
       setToSignDatas(prepared.toSignDatas);
+      if (prepared.deferredSources) setDeferredSources(prepared.deferredSources);
       if (prepared.state.status === 'migrated') {
         setStage('complete');
       } else if (prepared.toSignDatas.length > 0) {
@@ -357,6 +369,25 @@ export default function QbitRecoveryMigrationScreen() {
     ...toSignDatas.map((toSignData) => toSignData.signatureBudget?.restoredFloorRisk?.knownOnChainSignatures ?? 0)
   );
 
+  const deferredSourcesNotice =
+    deferredSources.length > 0 ? (
+      <Column gap="sm" fullX data-testid="qbit-recovery-deferred-sources">
+        <Text text={t('qbit_recovery_deferred_title')} preset="bold" color="warning" />
+        {deferredSources.map((source) => (
+          <Card key={source.address}>
+            <Column gap="sm" fullX>
+              <Text text={source.address} wrap selectText />
+              <Text
+                text={t('qbit_recovery_deferred_history_too_large', source.maxTransactions.toLocaleString())}
+                color="textDim"
+                wrap
+              />
+            </Column>
+          </Card>
+        ))}
+      </Column>
+    ) : null;
+
   const copyAddress = (address: string) => {
     void copyToClipboard(address).then(() => {
       tools.toastSuccess(t('copied'));
@@ -446,6 +477,7 @@ export default function QbitRecoveryMigrationScreen() {
             </Row>
           </Column>
         </Card>
+        {deferredSourcesNotice}
         <Text
           text={t('qbit_recovery_migration_consequence')}
           preset="bold"
@@ -489,6 +521,7 @@ export default function QbitRecoveryMigrationScreen() {
       <Column gap="lg">
         <Text text={t('qbit_recovery_pending_title')} preset="title-bold" textCenter />
         <Text text={t('qbit_recovery_pending_body')} color="textDim" />
+        {deferredSourcesNotice}
         {plans.map((plan) => (
           <Card key={plan.id}>
             <Column gap="sm" fullX>

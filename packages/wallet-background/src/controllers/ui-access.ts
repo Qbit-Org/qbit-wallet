@@ -56,6 +56,7 @@ function originOf(url: unknown): string | undefined {
  * checks this list against the UI sources.
  */
 export const UI_CONTROLLER_METHODS = [
+  'abandonQbitSendBroadcastClaim',
   'acknowledgeQbitRecoveryRisk',
   'acknowledgeRegtestAccess',
   'addAddressFlag',
@@ -178,6 +179,7 @@ export const UI_CONTROLLER_METHODS = [
   'setOpenInSidePanel',
   'setSkippedVersion',
   'setThemeMode',
+  'signLocalBatchPsbt',
   'signMessage',
   'signPsbtV2',
   'unlock',

@@ -14,11 +14,14 @@ import {
   QbitConsolidationStatus,
   ConnectedSite,
   DecodedPsbt,
+  DecodePsbtOptions,
   DeriveAccountResult,
   DummyTxType,
   FeeSummary,
+  LocalPsbtBatchReview,
   LocalPsbtSummary,
   QbitFeeBumpEligibility,
+  QbitRecoveryDeferredSource,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
   QbitRestoreFloorScanSummary,
@@ -256,7 +259,11 @@ export interface WalletController {
     sourceKeyringIndex: number,
     feeRate?: number,
     sourceAnchorPubkey?: string
-  ): Promise<{ state: QbitRecoveryState; toSignDatas: ToSignData[] }>
+  ): Promise<{
+    state: QbitRecoveryState
+    toSignDatas: ToSignData[]
+    deferredSources?: QbitRecoveryDeferredSource[]
+  }>
   advanceQbitRecoveryMigration(
     sourceKeyringIndex: number,
     sourceAnchorPubkey?: string
@@ -344,6 +351,12 @@ export interface WalletController {
    * inputs all identify an active claim; resolves false otherwise.
    */
   releaseQbitSendBroadcastClaim(qbitSendBroadcastClaim: QbitSendBroadcastClaim): Promise<boolean>
+  /**
+   * Hand the send claim behind a broadcast left on an unknown outcome back
+   * to the background, which keeps its inputs reserved as recently spent
+   * until it learns whether the transaction reached the network.
+   */
+  abandonQbitSendBroadcastClaim(qbitSendBroadcastClaim: QbitSendBroadcastClaim): Promise<void>
 
   getQbitUtxos(): Promise<UnspentOutput[]>
   /** The spendable outputs together with the network they were loaded on. */
@@ -386,8 +399,9 @@ export interface WalletController {
   setEditingAccount(account: Account): Promise<void>
   getEditingAccount(): Promise<Account>
 
-  decodePsbt(psbtHex: string, website: string): Promise<DecodedPsbt>
+  decodePsbt(psbtHex: string, website: string, options?: DecodePsbtOptions): Promise<DecodedPsbt>
   analyzeLocalPsbts(toSignDatas: ToSignData[]): Promise<LocalPsbtSummary>
+  signLocalBatchPsbt(toSignData: ToSignData, review: LocalPsbtBatchReview): Promise<SignedData>
 
   expireUICachedData(address: string): Promise<void>
 

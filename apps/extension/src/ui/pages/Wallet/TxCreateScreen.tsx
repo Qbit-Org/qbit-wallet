@@ -24,6 +24,7 @@ export default function TxCreateScreen() {
     onMemoChange,
     feeDetail,
     leftBehindNote,
+    spendSummary,
 
     showUnavailable,
     availableAmount,
@@ -199,6 +200,35 @@ export default function TxCreateScreen() {
             ) : null}
             {leftBehindNote ? (
               <Text text={leftBehindNote} size="xs" color="textDim" data-testid="tx-left-behind-note" />
+            ) : null}
+            {spendSummary ? (
+              <Column gap="sm" fullX mt="md" data-testid="tx-spend-summary">
+                <Row justifyBetween itemsCenter fullX>
+                  <Text text={t('net_spend_leaves_wallet')} size="sm" color="textDim" />
+                  <Text
+                    text={`${spendSummary.totalSpend} ${qbitUnit}`}
+                    preset="bold"
+                    size="sm"
+                    data-testid="tx-total-spend"
+                  />
+                </Row>
+                {spendSummary.feeWarningTitle ? (
+                  <Column gap="zero" fullX data-testid="tx-fee-warning">
+                    <Text text={spendSummary.feeWarningTitle} preset="bold" size="sm" color="error" />
+                    {spendSummary.feeWarnings.map((line, index) => (
+                      <Text key={index} text={line} size="xs" color="error" />
+                    ))}
+                  </Column>
+                ) : null}
+                {spendSummary.feeRecommendationUnavailable ? (
+                  <Text
+                    text={spendSummary.feeRecommendationUnavailable}
+                    size="xs"
+                    color="warning"
+                    data-testid="tx-fee-recommendation-unavailable"
+                  />
+                ) : null}
+              </Column>
             ) : null}
           </Column>
           <Column mt="lg">

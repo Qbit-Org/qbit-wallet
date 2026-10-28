@@ -1,6 +1,6 @@
 {
   "name": "qbit-extension",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "scripts": {
     "clean": "mkdir -p dist && rm -rf dist/* && cp -r build/_raw/* dist",

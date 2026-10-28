@@ -123,4 +123,33 @@ describe('TransactionOverviewSection signature budget row', () => {
     expect(screen.getByText('qbit_known_onchain_usage_lower_bound:42+')).toBeTruthy();
     expect(screen.queryByText('Signature budget: 100 before, 98 after')).toBeNull();
   });
+
+  it('says when the fee was not compared with recommended rates (#271)', () => {
+    render(
+      <TransactionOverviewSection
+        decodedPsbt={{
+          ...decodedPsbt,
+          spendSummary: { feeAssessment: { fee: 3860, feeRate: 1, amount: 10_000, reasons: [] } }
+        }}
+        networkFee={0.0000386}
+      />
+    );
+    expect(screen.getByTestId('psbt-fee-recommendation-unavailable').textContent).toBe(
+      'fee_warning_recommendation_unavailable'
+    );
+
+    cleanup();
+    render(
+      <TransactionOverviewSection
+        decodedPsbt={{
+          ...decodedPsbt,
+          spendSummary: {
+            feeAssessment: { fee: 3860, feeRate: 1, amount: 10_000, recommendedFeeRate: 1, reasons: [] }
+          }
+        }}
+        networkFee={0.0000386}
+      />
+    );
+    expect(screen.queryByTestId('psbt-fee-recommendation-unavailable')).toBeNull();
+  });
 });

@@ -33,6 +33,7 @@ export class ContactBookService {
   private logger: Logger = defaultLogger
   private autoSync: boolean = true
   private initialized = false
+  private pendingCommit: Promise<void> = Promise.resolve()
 
   constructor() {}
 
@@ -78,9 +79,11 @@ export class ContactBookService {
     }
   }
 
-  resetAllData = () => {
-    this.storage.set(this.storageKey, {})
-    this.store = {}
+  resetAllData = (): Promise<void> => {
+    return this.enqueue(async () => {
+      await this.storage.set(this.storageKey, {})
+      this.store = {}
+    })
   }
 
   /**
@@ -130,15 +133,41 @@ export class ContactBookService {
   }
 
   /**
-   * Sync current store to storage
+   * Sync a store to storage
    */
-  private async syncToStorage(): Promise<void> {
+  private async syncToStorage(store: ContactBookStore = this.store): Promise<void> {
     try {
-      await this.storage.set(this.storageKey, this.store)
+      await this.storage.set(this.storageKey, store)
     } catch (error) {
       this.logger.error('Failed to sync to storage:', error)
       throw error
     }
+  }
+
+  /**
+   * Run storage tasks one at a time, in call order.
+   */
+  private enqueue(task: () => Promise<void>): Promise<void> {
+    const run = this.pendingCommit.then(task)
+    this.pendingCommit = run.catch(() => undefined)
+    return run
+  }
+
+  /**
+   * Replace the store with the one `change` builds, once that one is saved, so
+   * a failed write rejects and leaves the store matching what is on disk.
+   * `change` returns undefined when there is nothing to change.
+   */
+  private commit(change: (store: ContactBookStore) => ContactBookStore | undefined): Promise<void> {
+    return this.enqueue(async () => {
+      const next = change(this.store)
+      if (!next) return
+
+      if (this.autoSync) {
+        await this.syncToStorage(next)
+      }
+      this.store = next
+    })
   }
 
   /**
@@ -187,21 +216,21 @@ export class ContactBookService {
 
     // Use composite key to remove contact
     const key = getCompositeKey(address, chain)
-    const contact = this.store[key]
 
-    if (!contact) return
+    await this.commit(store => {
+      const contact = store[key]
 
-    if (contact.isAlias) {
-      // If it's also an alias, just remove the contact flag
-      this.store[key] = { ...contact, isContact: false }
-    } else {
+      if (!contact) return undefined
+
+      if (contact.isAlias) {
+        // If it's also an alias, just remove the contact flag
+        return { ...store, [key]: { ...contact, isContact: false } }
+      }
       // Remove completely if it's not an alias
-      delete this.store[key]
-    }
-
-    if (this.autoSync) {
-      await this.syncToStorage()
-    }
+      const next = { ...store }
+      delete next[key]
+      return next
+    })
   }
 
   /**
@@ -214,18 +243,17 @@ export class ContactBookService {
     const compositeKey = getCompositeKey(data.address, data.chain)
 
     // Store contact using composite key
-    this.store[compositeKey] = {
-      name: data.name,
-      address: data.address,
-      chain: data.chain,
-      isContact: true,
-      isAlias: data.isAlias || false,
-      sortIndex: data.sortIndex || 0,
-    }
-
-    if (this.autoSync) {
-      await this.syncToStorage()
-    }
+    await this.commit(store => ({
+      ...store,
+      [compositeKey]: {
+        name: data.name,
+        address: data.address,
+        chain: data.chain,
+        isContact: true,
+        isAlias: data.isAlias || false,
+        sortIndex: data.sortIndex || 0,
+      },
+    }))
   }
 
   /**
@@ -241,18 +269,18 @@ export class ContactBookService {
   async saveContactsOrder(contacts: ContactBookItem[]): Promise<void> {
     this.ensureInitialized()
 
-    contacts.forEach((contact, index) => {
-      const key = getCompositeKey(contact.address, contact.chain)
-      const existingContact = this.store[key]
+    await this.commit(store => {
+      const next = { ...store }
+      contacts.forEach((contact, index) => {
+        const key = getCompositeKey(contact.address, contact.chain)
+        const existingContact = next[key]
 
-      if (existingContact) {
-        this.store[key] = { ...existingContact, sortIndex: index }
-      }
+        if (existingContact) {
+          next[key] = { ...existingContact, sortIndex: index }
+        }
+      })
+      return next
     })
-
-    if (this.autoSync) {
-      await this.syncToStorage()
-    }
   }
 
   /**
@@ -293,31 +321,35 @@ export class ContactBookService {
     this.ensureInitialized()
 
     const key = getCompositeKey(data.address, data.chain)
-    const existingContact = this.store[key]
 
-    if (existingContact) {
-      // Update existing contact with alias information
-      this.store[key] = {
-        ...existingContact,
-        name: data.name,
-        address: data.address,
-        chain: data.chain,
-        isAlias: true,
+    await this.commit(store => {
+      const existingContact = store[key]
+
+      if (existingContact) {
+        // Update existing contact with alias information
+        return {
+          ...store,
+          [key]: {
+            ...existingContact,
+            name: data.name,
+            address: data.address,
+            chain: data.chain,
+            isAlias: true,
+          },
+        }
       }
-    } else {
       // Create new alias entry
-      this.store[key] = {
-        name: data.name,
-        address: data.address,
-        chain: data.chain,
-        isAlias: true,
-        isContact: false,
+      return {
+        ...store,
+        [key]: {
+          name: data.name,
+          address: data.address,
+          chain: data.chain,
+          isAlias: true,
+          isContact: false,
+        },
       }
-    }
-
-    if (this.autoSync) {
-      await this.syncToStorage()
-    }
+    })
   }
 
   /**
@@ -334,21 +366,21 @@ export class ContactBookService {
     this.ensureInitialized()
 
     const key = getCompositeKey(address, chain)
-    const contact = this.store[key]
 
-    if (!contact) return
+    await this.commit(store => {
+      const contact = store[key]
 
-    if (contact.isContact) {
-      // If it's also a contact, just remove the alias flag
-      this.store[key] = { ...contact, isAlias: false }
-    } else {
+      if (!contact) return undefined
+
+      if (contact.isContact) {
+        // If it's also a contact, just remove the alias flag
+        return { ...store, [key]: { ...contact, isAlias: false } }
+      }
       // Remove completely if it's not a contact
-      delete this.store[key]
-    }
-
-    if (this.autoSync) {
-      await this.syncToStorage()
-    }
+      const next = { ...store }
+      delete next[key]
+      return next
+    })
   }
 
   /**
@@ -373,7 +405,7 @@ export class ContactBookService {
    */
   async sync(): Promise<void> {
     this.ensureInitialized()
-    await this.syncToStorage()
+    await this.enqueue(() => this.syncToStorage())
   }
 
   /**
@@ -382,11 +414,7 @@ export class ContactBookService {
   async clear(): Promise<void> {
     this.ensureInitialized()
 
-    this.store = {}
-
-    if (this.autoSync) {
-      await this.syncToStorage()
-    }
+    await this.commit(() => ({}))
   }
 
   /**

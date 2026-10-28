@@ -94,8 +94,8 @@ const SIGNATURE_BUDGET = {
  * an immature coinbase reward, and one of the largest recent ones is already
  * spent by a mempool transaction that Esplora's confirmed pages do not show.
  */
-function overLimitAccount(funded = 700) {
-  const explorer = new FakeQbitExplorer('esplora')
+function overLimitAccount(funded = 700, surface: 'esplora' | 'mempool-qbit' = 'esplora') {
+  const explorer = new FakeQbitExplorer(surface)
   explorer.registerAddress(account.address, account.p2mr.scriptPubKey)
   const funding: FakeTx[] = []
   for (let index = 0; index < funded; index += 1) {
@@ -527,6 +527,60 @@ describe('WalletController consolidation of an account over the explorer UTXO li
     // The walk is kept, and the next request reads on and finds the mature outputs.
     const next = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
     expect(inputsOf(next).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('finds the mature outputs behind a full page of pending rows on qbit-electrs (#343)', async () => {
+    const fixture = overLimitAccount(700, 'mempool-qbit')
+    explorer = fixture.explorer
+    explorer.emptyPageAfterLastMempoolRow = true
+    const pendingRows = () =>
+      explorer.history(account.address).filter(tx => tx.height === undefined).length
+    // Pending payments to the account fill the first combined page exactly.
+    for (let index = 0; pendingRows() < 50; index += 1) {
+      explorer.addTx({
+        txid: fakeTxid(index, 9_000_000),
+        inputs: [{ txid: fakeTxid(index, 9_500_000), vout: 0 }],
+        outputs: [{ address: account.address, script: account.p2mr.scriptPubKey, value: 3_000 }],
+      })
+    }
+    const wallet = controller()
+    const { endpoint } = (wallet as any).getQbitApiEndpoint()
+    vi.spyOn(wallet as any, 'getQbitApiEndpoint').mockReturnValue({
+      endpoint,
+      apiSurface: 'mempool-qbit',
+    })
+
+    const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+
+    expect(inputsOf(batch)).toHaveLength(106)
+    expect(inputsOf(batch)).not.toContain(`${fixture.largest.txid}:0`)
+  })
+
+  it('asks the keyring to sign during a migration only for an account too long to read (#344)', async () => {
+    explorer = overLimitAccount().explorer
+    const wallet = controller()
+
+    await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+    expect(keyringService.preflightP2mrPsbtSigning).toHaveBeenLastCalledWith(
+      account.address,
+      expect.anything()
+    )
+
+    // Past the 10,000 transactions a recovery migration reads.
+    explorer.failures.push(({ path }) => {
+      if (path !== `/address/${account.address}`) return undefined
+      const stats = explorer.stats(account.address)
+      return {
+        status: 200,
+        body: JSON.stringify({ ...stats, chain_stats: { ...stats.chain_stats, tx_count: 10_001 } }),
+      }
+    })
+    await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+    expect(keyringService.preflightP2mrPsbtSigning).toHaveBeenLastCalledWith(
+      account.address,
+      expect.anything(),
+      { allowMigrationConsolidation: true }
+    )
   })
 
   it('starts a scan over once it has sat unused for 30 minutes', async () => {

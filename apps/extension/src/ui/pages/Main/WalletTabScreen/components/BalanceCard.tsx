@@ -16,6 +16,8 @@ export function BalanceCard() {
     isCurrentChainBalance,
     utxoLimitExceeded,
     utxoLimitExceededText,
+    balanceSplitUnknown,
+    balanceSplitUnknownText,
 
     isDetailExpanded,
     handleExpandToggle,
@@ -73,9 +75,8 @@ export function BalanceCard() {
       </Column>
 
       {isDetailExpanded && isCurrentChainBalance && (
-        <Row
-          justifyBetween
-          itemsCenter
+        <Column
+          gap={'sm'}
           style={{
             alignSelf: 'stretch',
             boxSizing: 'border-box',
@@ -84,47 +85,61 @@ export function BalanceCard() {
             borderRadius: 0
           }}
         >
-          <Column style={{ flex: 1 }} gap={'zero'}>
-            <Row>
-              <Text color={'onPrimary'} size="xs" text={t('available')} style={{ fontWeight: 500 }}></Text>
-              <Row style={{ height: 20 }} />
-            </Row>
-            <QbitDisplay preset="sub" balance={availableAmount} hideBalance={isBalanceHidden} />
-          </Column>
+          <Row justifyBetween itemsCenter>
+            <Column style={{ flex: 1 }} gap={'zero'}>
+              <Row>
+                <Text color={'onPrimary'} size="xs" text={t('available')} style={{ fontWeight: 500 }}></Text>
+                <Row style={{ height: 20 }} />
+              </Row>
+              <QbitDisplay preset="sub" balance={availableAmount} hideBalance={isBalanceHidden} />
+            </Column>
 
-          <div
-            style={{
-              width: 1,
-              borderWidth: 1,
-              height: '100%',
-              borderColor: 'rgba(0, 0, 0, 0.12)',
-              marginRight: 5
-            }}
-          />
+            <div
+              style={{
+                width: 1,
+                borderWidth: 1,
+                height: '100%',
+                borderColor: 'rgba(0, 0, 0, 0.12)',
+                marginRight: 5
+              }}
+            />
 
-          <Column style={{ flex: 1 }} gap={'zero'}>
-            <Row itemsCenter>
-              <Text color={'onPrimary'} size="xs" text={t('unavailable')} style={{ fontWeight: 500 }}></Text>
-              <Tooltip
-                title={unavailableTipText}
-                overlayStyle={{
-                  fontSize: fontSizes.xs
-                }}
-              >
-                <Icon
-                  icon="balance-question"
-                  color={'onPrimary'}
-                  size={20}
-                  style={{
-                    marginBottom: 10
-                  }}
-                />
-              </Tooltip>
-            </Row>
-            <QbitDisplay preset="sub" balance={unavailableAmount} hideBalance={isBalanceHidden} />
-          </Column>
-
-        </Row>
+            <Column style={{ flex: 1 }} gap={'zero'}>
+              <Row itemsCenter>
+                <Text color={'onPrimary'} size="xs" text={t('unavailable')} style={{ fontWeight: 500 }}></Text>
+                {/* The tooltip explains a measured Unavailable; an unknown split has the line below. */}
+                {balanceSplitUnknown ? (
+                  <Row style={{ height: 20 }} />
+                ) : (
+                  <Tooltip
+                    title={unavailableTipText}
+                    overlayStyle={{
+                      fontSize: fontSizes.xs
+                    }}
+                  >
+                    <Icon
+                      icon="balance-question"
+                      color={'onPrimary'}
+                      size={20}
+                      style={{
+                        marginBottom: 10
+                      }}
+                    />
+                  </Tooltip>
+                )}
+              </Row>
+              <QbitDisplay preset="sub" balance={unavailableAmount} hideBalance={isBalanceHidden} />
+            </Column>
+          </Row>
+          {balanceSplitUnknown ? (
+            <Text
+              size="xs"
+              text={balanceSplitUnknownText}
+              style={{ color: colors.onPrimary }}
+              data-testid="balance-split-unknown-note"
+            />
+          ) : null}
+        </Column>
       )}
     </Column>
   );

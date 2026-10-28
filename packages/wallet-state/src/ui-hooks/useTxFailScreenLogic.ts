@@ -53,11 +53,14 @@ export function mergeQbitBroadcastRetry(
  * however the screen is left, through an exit, another route replacing it,
  * or the page being hidden as the popup or tab closes, and it holds when
  * the screen is left while a retry or status check is still in flight: the
- * release then waits for that verdict and acts on it. An `unknown` verdict
- * keeps its claim reserved. A proven acceptance that arrives after the
- * screen was left still counts as settled, but it no longer navigates: the
- * success screen would replace whatever route the user is on by then, such
- * as the unlock screen after the wallet locked.
+ * release then waits for that verdict and acts on it. Leaving an `unknown`
+ * verdict hands the claim back to the background instead, which keeps the
+ * inputs reserved as recently spent until a lifecycle probe finds the
+ * transaction confirmed or gone, and lets a fee bump replace it meanwhile;
+ * the claim no longer waits for the page to close. A proven acceptance that
+ * arrives after the screen was left still counts as settled, but it no
+ * longer navigates: the success screen would replace whatever route the
+ * user is on by then, such as the unlock screen after the wallet locked.
  */
 export function useTxFailScreenLogic() {
   const nav = useNavigation()
@@ -111,7 +114,8 @@ export function useTxFailScreenLogic() {
    * its verdict decides, so leaving then only marks the screen as left and
    * the operation calls back here once it has settled. Fire and forget: the
    * release must never delay leaving, and the callback itself releases only
-   * a proven `not_sent` whose claim matches.
+   * a proven `not_sent` whose claim matches; any other verdict leaves the
+   * background to keep the inputs reserved until it settles the transaction.
    */
   const abandonOnLeave = (): void => {
     if (claimSettledRef.current) return

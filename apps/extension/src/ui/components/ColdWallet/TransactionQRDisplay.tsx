@@ -42,7 +42,8 @@ export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, hea
       const addresses = [currentAccount.address];
       const expectedSignerPubkey = currentAccount.pubkey;
 
-      const decodedPsbt = await wallet.decodePsbt(psbtHex, '');
+      // The approval's spend summary stays in the wallet; the signer's request keeps its fields.
+      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '');
       const networkType = await wallet.getNetworkType();
       const chainType = await wallet.getChainType();
 

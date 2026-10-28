@@ -242,6 +242,9 @@
   "qbit_restore_scanning": {
     "message": "正在掃描鏈上歷史並重建簽名計數器…"
   },
+  "qbit_restore_stats_floor_notice": {
+    "message": "衍生索引 $1 的帳戶歷史過長，無法完整讀取，因此其簽名計數器改以區塊瀏覽器的地址統計重建。這些統計計入的是相同的鏈上支出。"
+  },
   "qbit_signatures_remaining": {
     "message": "剩餘 $1 個"
   },
@@ -1520,6 +1523,15 @@
   "phishing_detection": {
     "message": "釣魚偵測"
   },
+  "phishing_page_held_message": {
+    "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。錢包未能及時回應，無法開啟完整警告或載入此頁面。請再試一次，或關閉此分頁。"
+  },
+  "phishing_page_held_released_message": {
+    "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。請選擇「再試一次」以載入此頁面，或關閉此分頁。"
+  },
+  "phishing_page_held_unreleasable_message": {
+    "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。由於此頁面無法保留載入所需的記錄，因此無法載入。請再試一次，或關閉此分頁。"
+  },
   "phrase_optional": {
     "message": "密碼短語 (選填)"
   },
@@ -2669,6 +2681,12 @@
   "qbit_recovery_pending_body": {
     "message": "已簽署的移轉資料儲存在加密保管庫。請保留兩個錢包；返回此處可重新廣播、檢查確認或安全繼續。"
   },
+  "qbit_recovery_deferred_title": {
+    "message": "尚未移轉"
+  },
+  "qbit_recovery_deferred_history_too_large": {
+    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，且交易超過 $1 筆，錢包無法從其歷史讀取輸出，因此資金尚未移轉。請切換到此帳戶，開啟「傳送」並選擇「整合輸出」，直到帳戶符合瀏覽器的上限後再返回此處。"
+  },
   "qbit_recovery_plan_prepared": {
     "message": "已準備檢查與簽署"
   },
@@ -2858,8 +2876,14 @@
   "send_all_leaves_outputs_behind": {
     "message": "「最大值」會傳送您最大的 $1 個輸出，這是一筆交易可容納的上限。其餘 $4 個較小輸出中的 $2 $3 會留在此帳戶。"
   },
+  "send_exceeds_ancestor_size": {
+    "message": "加上您尚未確認的上一筆傳送，此筆傳送將超過網路接受的大小。請等待上一筆傳送確認，或傳送較小的金額。"
+  },
   "utxo_limit_exceeded_balance": {
     "message": "輸出數量過多，瀏覽器無法列出。此總額來自地址摘要。"
+  },
+  "utxo_limit_exceeded_balance_detail": {
+    "message": "由於瀏覽器未列出此帳戶的輸出，可用與不可用金額未知。"
   },
   "utxo_limit_exceeded_send": {
     "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，錢包也無法從其歷史記錄讀取全部輸出。請先整合輸出再從此帳戶傳送。"
@@ -2908,5 +2932,50 @@
   },
   "consolidation_error_keep_reading": {
     "message": "錢包已讀取此帳戶的部分歷史記錄，但尚未找到可合併的輸出。請再次準備以繼續讀取。"
+  },
+  "net_spend_leaves_wallet": {
+    "message": "離開您錢包的金額"
+  },
+  "net_spend_breakdown": {
+    "message": "給他人 $1 $2 + 網路費用 $3 $4"
+  },
+  "net_spend_unknown": {
+    "message": "未知：缺少某筆輸入的金額"
+  },
+  "fee_warning_above_recommended": {
+    "message": "$1 bits/vB 是最快建議費率 $3 bits/vB 的 $2 倍。"
+  },
+  "fee_warning_above_relay_floor": {
+    "message": "$1 bits/vB 是網路最低費率 $3 bit/vB 的 $2 倍。"
+  },
+  "fee_warning_amount_share": {
+    "message": "手續費為此交易轉給他人之 $2 $3 的 $1%。"
+  },
+  "fee_warning_recommendation_unavailable": {
+    "message": "目前無法取得建議費率，因此未將此手續費與建議費率比較。"
+  },
+  "unrecognised_output": {
+    "message": "無法辨識"
+  },
+  "unrecognised_outputs_summary": {
+    "message": "付款至此錢包無法辨識之地址的輸出：$1 筆，共 $2 $3"
+  },
+  "unrecognised_output_risk_title": {
+    "message": "無法辨識的輸出"
+  },
+  "unrecognised_output_risk_description": {
+    "message": "某筆輸出付款至既不屬於您、也不是此請求所指定接收者的地址，或付款至沒有地址的腳本。簽署前請檢查每一筆輸出。"
+  },
+  "multisign_flagged_transactions": {
+    "message": "簽署前需要確認的交易：$1"
+  },
+  "multisign_risks_description": {
+    "message": "請注意，簽署下列交易涉及風險。"
+  },
+  "understand_and_accept_the_risks_of_these_transactions": {
+    "message": "我了解並接受這些交易所涉及的風險。"
+  },
+  "multisign_account_changed": {
+    "message": "檢查交易期間帳戶已變更。未簽署任何交易，請重新檢查。"
   }
 }

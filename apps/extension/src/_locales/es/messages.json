@@ -242,6 +242,9 @@
   "qbit_restore_scanning": {
     "message": "Escaneando el historial de la cadena y reconstruyendo los contadores de firmas…"
   },
+  "qbit_restore_stats_floor_notice": {
+    "message": "Los contadores de firmas de las cuentas con índice de derivación $1 se reconstruyeron a partir de los totales de dirección del explorador, porque su historial es demasiado largo para leerlo completo. Esos totales cuentan los mismos gastos en la cadena."
+  },
   "qbit_signatures_remaining": {
     "message": "$1 restante(s)"
   },
@@ -1520,6 +1523,15 @@
   "phishing_detection": {
     "message": "Detección de Phishing"
   },
+  "phishing_page_held_message": {
+    "message": "Qbit Wallet detuvo esta página antes de que se ejecutara, porque el sitio está en su lista de sitios web de phishing. La billetera no respondió a tiempo para abrir la advertencia completa o dejar que la página se cargue. Inténtalo de nuevo o cierra esta pestaña."
+  },
+  "phishing_page_held_released_message": {
+    "message": "Qbit Wallet detuvo esta página antes de que se ejecutara, porque el sitio está en su lista de sitios web de phishing. Selecciona Intentar de nuevo para cargarla o cierra esta pestaña."
+  },
+  "phishing_page_held_unreleasable_message": {
+    "message": "Qbit Wallet detuvo esta página antes de que se ejecutara, porque el sitio está en su lista de sitios web de phishing. No puede dejar que la página se cargue, ya que la página no conserva el registro necesario para ello. Inténtalo de nuevo o cierra esta pestaña."
+  },
   "phrase_optional": {
     "message": "Frase (Opcional)"
   },
@@ -2669,6 +2681,12 @@
   "qbit_recovery_pending_body": {
     "message": "Los datos firmados del movimiento se guardan en la bóveda cifrada. Conserva ambas carteras; vuelve aquí para retransmitir, comprobar la confirmación o reanudar con seguridad."
   },
+  "qbit_recovery_deferred_title": {
+    "message": "Aún sin mover"
+  },
+  "qbit_recovery_deferred_history_too_large": {
+    "message": "Esta cuenta tiene más salidas de las que el explorador lista y más de $1 transacciones, demasiadas para que la cartera lea sus salidas desde su historial, así que sus fondos no se han movido. Cambia a esta cuenta, abre Enviar y elige Consolidar salidas hasta que quede dentro del límite del explorador; después vuelve aquí."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Lista para revisión y firma"
   },
@@ -2858,8 +2876,14 @@
   "send_all_leaves_outputs_behind": {
     "message": "MÁX envía tus $1 salidas más grandes, lo máximo que cabe en una transacción. $2 $3 en $4 salidas más pequeñas permanecen en esta cuenta."
   },
+  "send_exceeds_ancestor_size": {
+    "message": "Junto con tu envío anterior, que aún no se ha confirmado, este envío superaría el tamaño que acepta la red. Espera a que se confirme el envío anterior o envía un importe menor."
+  },
   "utxo_limit_exceeded_balance": {
     "message": "Demasiadas salidas para que el explorador las liste. Este total procede del resumen de la dirección."
+  },
+  "utxo_limit_exceeded_balance_detail": {
+    "message": "Los importes disponible y no disponible se desconocen porque el explorador no lista las salidas de esta cuenta."
   },
   "utxo_limit_exceeded_send": {
     "message": "Esta cuenta tiene más salidas de las que el explorador lista, y la billetera no pudo leerlas todas de su historial. Consolida sus salidas para enviar desde ella."
@@ -2908,5 +2932,50 @@
   },
   "consolidation_error_keep_reading": {
     "message": "La billetera leyó parte del historial de esta cuenta sin encontrar salidas listas para unir. Prepara de nuevo para seguir leyendo."
+  },
+  "net_spend_leaves_wallet": {
+    "message": "Sale de su billetera"
+  },
+  "net_spend_breakdown": {
+    "message": "$1 $2 a terceros + $3 $4 de tarifa de red"
+  },
+  "net_spend_unknown": {
+    "message": "Desconocido: falta el importe de una entrada"
+  },
+  "fee_warning_above_recommended": {
+    "message": "$1 bits/vB es $2× la tasa recomendada más rápida de $3 bits/vB."
+  },
+  "fee_warning_above_relay_floor": {
+    "message": "$1 bits/vB es $2× el mínimo de la red de $3 bit/vB."
+  },
+  "fee_warning_amount_share": {
+    "message": "La tarifa es el $1% de los $2 $3 que esta transacción envía a terceros."
+  },
+  "fee_warning_recommendation_unavailable": {
+    "message": "Las tasas de tarifa recomendadas no están disponibles, así que esta tarifa no se comparó con ellas."
+  },
+  "unrecognised_output": {
+    "message": "No reconocida"
+  },
+  "unrecognised_outputs_summary": {
+    "message": "Salidas a direcciones que esta billetera no reconoce: $1, por $2 $3"
+  },
+  "unrecognised_output_risk_title": {
+    "message": "Salida no reconocida"
+  },
+  "unrecognised_output_risk_description": {
+    "message": "Una salida paga a una dirección que no es suya ni del destinatario que indica esta solicitud, o a un script sin dirección. Revise todas las salidas antes de firmar."
+  },
+  "multisign_flagged_transactions": {
+    "message": "Transacciones que requieren una confirmación antes de firmar: $1"
+  },
+  "multisign_risks_description": {
+    "message": "Tenga en cuenta que firmar las siguientes transacciones implica riesgos."
+  },
+  "understand_and_accept_the_risks_of_these_transactions": {
+    "message": "Entiendo y acepto los riesgos asociados con estas transacciones."
+  },
+  "multisign_account_changed": {
+    "message": "La cuenta cambió mientras se revisaban las transacciones. No se firmó nada; revíselas de nuevo."
   }
 }

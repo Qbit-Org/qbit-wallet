@@ -58,6 +58,22 @@ export interface QbitRecoveryState {
 }
 
 /**
+ * A source account a migration pass could not plan, and why. Its funds keep
+ * the migration open until a later pass plans them.
+ */
+export interface QbitRecoveryDeferredSource {
+  address: string
+  /**
+   * The explorer will not list its outputs, and its history is longer than
+   * the wallet reads to find them (more than `maxTransactions`).
+   * Consolidating it to within the listing limit lets a later pass list
+   * them.
+   */
+  reason: 'history_too_large'
+  maxTransactions: number
+}
+
+/**
  * One way removing a wallet would touch an active recovery migration.
  * `source` — the restored wallet whose vault holds the migration record;
  * `destination` — the fresh wallet the migration sweeps to; `unverified` — a

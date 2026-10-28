@@ -26,6 +26,12 @@ const stylusRegex = /\.styl$/;
 const stylusModuleRegex = /\.module\.styl$/;
 const WasmModuleWebpackPlugin = require('wasm-module-webpack-plugin');
 const { getBrowserPaths } = require('./paths');
+const RuntimeImportMetaUrlPlugin = require('./plugins/RuntimeImportMetaUrlPlugin');
+
+// The Emscripten loader of @qbit-oss/pqc seeds `scriptDirectory` from
+// `import.meta.url`. Webpack would inline that as the builder's absolute
+// file:// path, so independent rebuilds in other directories differ (#338).
+const pqcEmscriptenLoaderRegex = /[\\/]@qbit-oss[\\/]pqc[\\/]wasm[\\/]pqc\.mjs$/;
 
 const singletonPackages = {
   react: path.dirname(require.resolve('react/package.json')),
@@ -179,6 +185,9 @@ const config = (env) => {
       },
       'content-script': paths.rootResolve('src/content-script/index.ts'),
       pageProvider: paths.rootResolve('src/content-script/pageProvider/index.ts'),
+      // The page the phishing redirect rule opens; it hands the blocked URL on
+      // to the wallet's warning screen.
+      'phishing-warning': paths.rootResolve('src/phishing-warning/index.ts'),
       ui: paths.rootResolve('src/ui/index.tsx')
     },
     output: {
@@ -505,6 +514,12 @@ const config = (env) => {
         chunks: ['background'],
         filename: 'background.html'
       }),
+      new HtmlWebpackPlugin({
+        inject: true,
+        template: paths.phishingWarningHtml,
+        chunks: ['phishing-warning'],
+        filename: 'phishing-warning.html'
+      }),
       new webpack.ProvidePlugin({
         Buffer: ['buffer', 'Buffer'],
         process: 'process',
@@ -543,7 +558,8 @@ const config = (env) => {
           // }
         ]
       }),
-      new WasmModuleWebpackPlugin.WebpackPlugin()
+      new WasmModuleWebpackPlugin.WebpackPlugin(),
+      new RuntimeImportMetaUrlPlugin({ test: pqcEmscriptenLoaderRegex })
     ],
     resolve: {
       alias: {

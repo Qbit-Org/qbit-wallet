@@ -103,7 +103,13 @@ describe('useFeeRateBarLogic', () => {
     const { store, wrapper } = createHookTestHarness({ wallet })
     store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_REGTEST }))
     store.dispatch(accountActions.setCurrent(account))
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_REGTEST, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_REGTEST,
+        utxos,
+      })
+    )
 
     const { result } = renderHook(
       () => ({

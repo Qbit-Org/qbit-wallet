@@ -3,12 +3,16 @@ import { useEffect, useState } from 'react';
 import { Button, Card, Checkbox, Column, Icon, Row, Switch, Text } from '@/ui/components';
 import { Popover } from '@/ui/components/Popover';
 import { colors } from '@/ui/theme/colors';
-import { useI18n, useWallet } from '@qbit/wallet-state';
+import { useI18n, useTools, useWallet } from '@qbit/wallet-state';
 
 export function EnableSignDataCard() {
   const wallet = useWallet();
+  const tools = useTools();
   const [enableSignData, setEnableSignData] = useState(false);
   const { t } = useI18n();
+  const reportSaveError = (e: unknown) => {
+    tools.toastError((e as Error)?.message || t('unknown_error'));
+  };
   const [enableSignDataPopoverVisible, setEnableSignDataPopoverVisible] = useState(false);
 
   useEffect(() => {
@@ -38,9 +42,12 @@ export function EnableSignDataCard() {
           <Switch
             onChange={() => {
               if (enableSignData) {
-                wallet.setEnableSignData(false).then(() => {
-                  setEnableSignData(false);
-                });
+                wallet
+                  .setEnableSignData(false)
+                  .then(() => {
+                    setEnableSignData(false);
+                  })
+                  .catch(reportSaveError);
               } else {
                 setEnableSignDataPopoverVisible(true);
               }
@@ -52,10 +59,13 @@ export function EnableSignDataCard() {
       {enableSignDataPopoverVisible ? (
         <EnableSignDataPopover
           onNext={() => {
-            wallet.setEnableSignData(true).then(() => {
-              setEnableSignData(true);
-              setEnableSignDataPopoverVisible(false);
-            });
+            wallet
+              .setEnableSignData(true)
+              .then(() => {
+                setEnableSignData(true);
+                setEnableSignDataPopoverVisible(false);
+              })
+              .catch(reportSaveError);
           }}
           onCancel={() => {
             setEnableSignDataPopoverVisible(false);

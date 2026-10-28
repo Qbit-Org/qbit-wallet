@@ -6,11 +6,17 @@ import {
   QBIT_MAX_FEE_RATE,
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_DUST,
+  assessQbitFee,
+  qbitRecommendedFeeRate,
+  qbitWalletOwnership,
+  qbitWalletOwns,
+  type FeeSummary,
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import {
   useAccountBalance,
   useChain,
+  useChainType,
   useCurrentAccount,
   estimateQbitP2mrSendAllPreflight,
   estimateQbitP2mrSendPreflight,
@@ -19,6 +25,8 @@ import {
   useFeeRateBar,
   useFetchUtxosCallback,
   getQbitP2mrSpendableUtxos,
+  useAccounts,
+  useKeyrings,
   useI18n,
   useNavigation,
   usePrepareSendQBTCallback,
@@ -28,9 +36,33 @@ import {
   useUiTxCreateScreen,
   useUpdateUiTxCreateScreen,
   useUtxos,
-  useUtxosChain,
+  useUtxosLoaded,
 } from '..'
 import { isValidAddress } from '../utils/qbit-utils'
+import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
+
+/** What the previewed send takes from the wallet, for the total and the fee check. */
+interface SendSpendPreview {
+  /** The recipient the preview was computed for. */
+  recipientAddress: string
+  /** What the recipient receives. */
+  recipientSatoshis: number
+  /** Exact fee, including any change folded into it. */
+  fee: number
+  vsize: number
+}
+
+type FeeQuoteState = { status: 'loading' } | { status: 'loaded'; summary?: FeeSummary }
+
+/** The send screen's total and fee warning for its preview. */
+export interface TxCreateSpendSummary {
+  /** Recipient amount plus fee, formatted. */
+  totalSpend: string
+  feeWarningTitle?: string
+  feeWarnings: string[]
+  /** Present once the quote is read and has no live rates to compare with. */
+  feeRecommendationUnavailable?: string
+}
 
 export function useTxCreateScreenLogic() {
   const { t } = useI18n()
@@ -67,43 +99,74 @@ export function useTxCreateScreenLogic() {
     | undefined
   >(undefined)
 
+  const [spendPreview, setSpendPreview] = useState<SendSpendPreview | undefined>(undefined)
+  const [feeQuote, setFeeQuote] = useState<FeeQuoteState>({ status: 'loading' })
+
   const [autoAdjust, setAutoAdjust] = useState(false)
+  // The selected account's cached outputs on the active network; none while
+  // the cache holds another account's or network's.
   const utxos = useUtxos()
-  const utxosChain = useUtxosChain()
+  const utxosLoaded = useUtxosLoaded()
   const fetchUtxos = useFetchUtxosCallback()
   const wallet = useWallet()
+  const chain = useChain()
+  const chainType = useChainType()
 
   const tools = useTools()
-  // Whether this screen's own read of the outputs has landed: until then an
-  // empty cache may be another account's, or no read at all.
-  const [utxosFetched, setUtxosFetched] = useState(false)
-  // Whether that read failed, as opposed to still running.
-  const [utxosFetchFailed, setUtxosFetchFailed] = useState(false)
+  // The account and network this screen reads outputs for, as the cache
+  // keys them. The read runs again when either changes under the open screen.
+  const utxoReadKey = `${chainType}:${currentAccount.address}`
+  // How this screen's own read for `utxoReadKey` ended. Until it lands an
+  // empty cache may be from an earlier read, or no read at all; `failed`
+  // tells a failed read from one still running.
+  const [utxoRead, setUtxoRead] = useState<{ key: string; failed: boolean } | undefined>(undefined)
   // Past the explorer's limit the read walks the account's history, which
   // can take a while; it runs without covering the screen, so Consolidate
   // stays in reach, and Available shows unknown until it lands. The overlay
   // also comes down if the balance shows the limit only once the read runs.
   const loadingOverlayRef = useRef(false)
+  // Only the read the screen opens with covers it. A read again under the
+  // open screen, after an account or network change, runs before that
+  // account's balance can say whether it is over the limit, and must not
+  // hide Consolidate for the length of a walk.
+  const firstUtxoReadRef = useRef(true)
   const hideLoadingOverlay = (): void => {
     if (!loadingOverlayRef.current) return
     loadingOverlayRef.current = false
     tools.showLoading(false)
   }
   useEffect(() => {
-    if (accountBalance.utxoLimitExceeded !== true) {
+    // An earlier read's outcome, for this key or another, says nothing
+    // about the read starting now.
+    setUtxoRead(undefined)
+    if (firstUtxoReadRef.current && accountBalance.utxoLimitExceeded !== true) {
       loadingOverlayRef.current = true
       tools.showLoading(true)
     }
-    fetchUtxos()
-      .then(() => setUtxosFetched(true))
+    firstUtxoReadRef.current = false
+    // Leaving the screen, or its account or network, abandons the read: its
+    // answer is not cached, and the walk the background may still be running
+    // is joined by the next read for the same account rather than repeated.
+    const read = new AbortController()
+    fetchUtxos({ signal: read.signal })
+      .then(() => {
+        if (!read.signal.aborted) setUtxoRead({ key: utxoReadKey, failed: false })
+      })
       .catch(e => {
+        if (read.signal.aborted) return
         // An account over the explorer's UTXO limit is explained below; any
         // other failure keeps Next disabled until the outputs load.
-        setUtxosFetchFailed(true)
+        setUtxoRead({ key: utxoReadKey, failed: true })
         console.log(e)
       })
-      .finally(hideLoadingOverlay)
-  }, [])
+      .finally(() => {
+        if (!read.signal.aborted) hideLoadingOverlay()
+      })
+    return () => {
+      read.abort()
+      hideLoadingOverlay()
+    }
+  }, [utxoReadKey])
   useEffect(() => {
     if (accountBalance.utxoLimitExceeded === true) hideLoadingOverlay()
   }, [accountBalance.utxoLimitExceeded])
@@ -121,7 +184,40 @@ export function useTxCreateScreenLogic() {
     return numUtils.amountToSatoshis(inputAmount)
   }, [inputAmount])
 
-  const chain = useChain()
+  const accounts = useAccounts()
+  const keyrings = useKeyrings()
+  // The accounts the approval counts as the wallet's (the same getAccounts
+  // list, as loaded here), so a send to one of them shows only the fee
+  // leaving, as the confirm screen will.
+  const walletOwnership = useMemo(
+    () =>
+      qbitWalletOwnership([
+        currentAccount,
+        ...accounts,
+        ...keyrings.flatMap(keyring => keyring.accounts ?? []),
+      ]),
+    [currentAccount, accounts, keyrings]
+  )
+
+  // The quote the selected rate is compared with. A failed read leaves no
+  // recommendation, which the screen says instead of skipping the check.
+  useEffect(() => {
+    let cancelled = false
+    setFeeQuote({ status: 'loading' })
+    wallet
+      .getFeeSummary()
+      .then(summary => {
+        if (!cancelled) setFeeQuote({ status: 'loaded', summary })
+      })
+      .catch(e => {
+        console.log(e)
+        if (!cancelled) setFeeQuote({ status: 'loaded' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [wallet, chain?.enum])
+
   const isQbitChain =
     chain?.enum === ChainType.QBIT_MAINNET ||
     chain?.enum === ChainType.QBIT_TESTNET4 ||
@@ -134,7 +230,8 @@ export function useTxCreateScreenLogic() {
   )
   const isQbitP2mrSend = isQbitChain && Boolean(currentAccount.p2mr)
   // This screen's own read of the account's outputs landed on this network.
-  const ownUtxosLoaded = utxosFetched && chain !== undefined && utxosChain === chain.enum
+  const ownUtxosLoaded = utxoRead?.key === utxoReadKey && !utxoRead.failed && utxosLoaded
+  const utxosFetchFailed = utxoRead?.key === utxoReadKey && utxoRead.failed
   // Loaded with none left (a pending send holds them all) counts as loaded:
   // Available is then 0, not the balance's figure.
   const hasQbitUtxoPreflight = isQbitP2mrSend && (utxos.length > 0 || ownUtxosLoaded)
@@ -142,9 +239,12 @@ export function useTxCreateScreenLogic() {
     () => qbitSpendableUtxos.reduce((sum, utxo) => sum + utxo.satoshis, 0),
     [qbitSpendableUtxos]
   )
+  // The balance's own figure is unknown (null) past the explorer's limit:
+  // nothing can be selected from it, and Available shows it as unknown.
+  const balanceAvailableUnknown = !hasQbitUtxoPreflight && accountBalance.availableBalance === null
   const availableSatoshis = hasQbitUtxoPreflight
     ? qbitSpendableSatoshis
-    : accountBalance.availableBalance
+    : (accountBalance.availableBalance ?? 0)
   // Keyed on this account's own outputs: the cached list may still hold
   // another account's outputs after a load for this one failed. Loaded with
   // none left, the account's outputs are known and simply all held. While
@@ -159,7 +259,8 @@ export function useTxCreateScreenLogic() {
   // balance, including outputs a pending send holds. Outputs the explorer
   // would not list and the wallet could not read from history are unknown,
   // not zero.
-  const availableAmount = ownUtxosUnknown ? '--' : numUtils.satoshisToAmount(availableSatoshis)
+  const availableAmount =
+    ownUtxosUnknown || balanceAvailableUnknown ? '--' : numUtils.satoshisToAmount(availableSatoshis)
   const unavailableSats = hasQbitUtxoPreflight
     ? Math.max(0, accountBalance.totalBalance - availableSatoshis)
     : Math.max(0, accountBalance.unavailableBalance)
@@ -183,6 +284,7 @@ export function useTxCreateScreenLogic() {
     setError('')
     setDisabled(true)
     setFeeDetail(undefined)
+    setSpendPreview(undefined)
     if (utxoLimitExceeded) {
       setError(t('utxo_limit_exceeded_send'))
       return
@@ -214,6 +316,11 @@ export function useTxCreateScreenLogic() {
     // usePrepareSendQBTCallback caps at the spendable UTXO total and would
     // otherwise reject the amount on the next screen.
     if (isQbitP2mrSend && !hasQbitUtxoPreflight) {
+      return
+    }
+    // Nor, for an account without a P2MR script, against a balance figure
+    // that is unknown.
+    if (balanceAvailableUnknown) {
       return
     }
 
@@ -266,6 +373,10 @@ export function useTxCreateScreenLogic() {
         )
         return
       }
+      if (preflight.exceedsAncestorSize) {
+        setError(t('send_exceeds_ancestor_size'))
+        return
+      }
       if (!preflight.canCover) {
         setError(t('amount_exceeds_your_available_balance'))
         return
@@ -281,6 +392,14 @@ export function useTxCreateScreenLogic() {
           'leftBehindInputCount' in preflight ? preflight.leftBehindInputCount : 0,
         leftBehindSats: 'leftBehindSats' in preflight ? preflight.leftBehindSats : 0,
       })
+      if (preflight.estimatedVsize > 0) {
+        setSpendPreview({
+          recipientAddress: toInfo.address,
+          recipientSatoshis: 'outputSatoshis' in preflight ? preflight.outputSatoshis : toSatoshis,
+          fee: preflight.estimatedFee,
+          vsize: preflight.estimatedVsize,
+        })
+      }
     }
 
     setDisabled(false)
@@ -296,6 +415,7 @@ export function useTxCreateScreenLogic() {
     qbitUnit,
     memo,
     availableSatoshis,
+    balanceAvailableUnknown,
     isQbitChain,
     isQbitP2mrSend,
     hasQbitUtxoPreflight,
@@ -306,6 +426,35 @@ export function useTxCreateScreenLogic() {
   ])
 
   const unavailableTipText = useMemo(() => t('unavailable_tooltip'), [t])
+
+  // What leaves the wallet (the recipient's amount plus the fee; change comes
+  // back, and so does a payment to another of the wallet's accounts) and
+  // whether that fee is abnormal, from the same preflight that enables Next.
+  // The confirm screen repeats both on the built PSBT.
+  const spendSummary = useMemo((): TxCreateSpendSummary | undefined => {
+    if (!spendPreview) return undefined
+    const { recipientAddress, recipientSatoshis, fee, vsize } = spendPreview
+    const sentToOthers = qbitWalletOwns(walletOwnership, { address: recipientAddress })
+      ? 0
+      : recipientSatoshis
+    const assessment = assessQbitFee({
+      fee,
+      feeRate: fee / vsize,
+      amount: sentToOthers,
+      recommendedFeeRate:
+        feeQuote.status === 'loaded' ? qbitRecommendedFeeRate(feeQuote.summary) : undefined,
+    })
+    const warning = qbitFeeWarningText(assessment, t, qbitUnit)
+    return {
+      totalSpend: numUtils.satoshisToAmount(sentToOthers + fee),
+      ...(warning.title !== undefined ? { feeWarningTitle: warning.title } : {}),
+      feeWarnings: warning.lines,
+      // Said only once the quote has been read, not while it loads.
+      ...(feeQuote.status === 'loaded' && warning.recommendationUnavailable !== undefined
+        ? { feeRecommendationUnavailable: warning.recommendationUnavailable }
+        : {}),
+    }
+  }, [spendPreview, walletOwnership, feeQuote, t, qbitUnit])
 
   // Max past the standard transaction size sends the largest outputs only.
   const leftBehindNote =
@@ -331,7 +480,7 @@ export function useTxCreateScreenLogic() {
 
   const onAmountMaxClick = () => {
     // Nothing to fill while Available is unknown.
-    if (ownUtxosUnknown) return
+    if (ownUtxosUnknown || balanceAvailableUnknown) return
     setAutoAdjust(true)
     // Fill from the same spendable total that validation and the send use
     // (availableSatoshis), not accountBalance.availableBalance — otherwise Max
@@ -341,7 +490,10 @@ export function useTxCreateScreenLogic() {
 
   const onRBFChange = (value: boolean) => {
     setUiState({ enableRBF: value })
-    wallet.setEnableRBF(value)
+    // The choice applies to this send either way; only the saved default failed.
+    wallet.setEnableRBF(value).catch(error => {
+      console.error('Failed to save the RBF preference:', error)
+    })
   }
 
   const onMemoChange = (value: string) => {
@@ -388,6 +540,7 @@ export function useTxCreateScreenLogic() {
     onMemoChange,
     feeDetail,
     leftBehindNote,
+    spendSummary,
 
     showUnavailable,
     availableAmount,

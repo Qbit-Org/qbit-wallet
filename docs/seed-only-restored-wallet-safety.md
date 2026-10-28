@@ -6,6 +6,14 @@ transactions that were signed but never broadcast. The wallet therefore treats
 the restored keyring as a distinct custody state rather than presenting its
 counter as exact.
 
+Reconstruction reads each address's complete history where it can. An
+address whose statistics show a history too long to enumerate (over 6,400
+transactions, or more pending transactions than an Esplora mempool listing
+returns) takes its floor from those statistics instead: its count of spent
+outputs, the number the full read must match before it accepts a floor. The restore report names those accounts. Message signatures
+and never-broadcast transactions stay invisible to both reads. See
+[PQC Signature Counter Lifecycle](pqc-counter-lifecycle.md#restore-safety).
+
 ## Durable state
 
 The encrypted Qbit keyring payload stores a versioned recovery state. Since
@@ -64,8 +72,17 @@ PSBT already persisted as a reviewed migration plan or an exact provider PSBT
 whose inputs are all independently verified at preflight as signable by the
 recovered wallet, currently unspent, and protected. That protected-asset escape
 still requires the normal in-extension transaction review and exact-request
-restored-floor confirmation. Message signing, mixed protected-and-ordinary or
-collaborative inputs, and unrelated provider PSBTs remain blocked.
+restored-floor confirmation. The second escape is a consolidation batch of a
+source account whose outputs the migration cannot read to plan them: the
+explorer will not list them and its history is longer than the wallet reads.
+The keyring signs such a batch only when the controller attests that, only if
+the batch spends nothing but that account's own outputs and pays all of it back
+to the same script, less a fee no higher than the wallet's highest fee rate
+allows, and only while no plan of that source is open. It checks
+the last condition again when it signs. See
+[Explorer UTXO listing limit](explorer-utxo-limit.md). Message signing, mixed
+protected-and-ordinary or collaborative inputs, and unrelated provider PSBTs
+remain blocked.
 
 The read-only archive applies per network through the effective status of the
 currently derived keys: they refuse to sign only once every network sharing

@@ -18,12 +18,14 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
 
   const signatureBudget = toSignData?.signatureBudget;
 
-  const getFeeRateColor = (): ColorTypes => {
-    if (!decodedPsbt.shouldWarnFeeRate) return 'text';
-    return decodedPsbt.recommendedFeeRate > decodedPsbt.feeRate ? 'warning' : 'dangerText';
-  };
+  // The wallet warns only on abnormally high fees (see assessQbitFee), never on low ones.
+  const getFeeRateColor = (): ColorTypes => (decodedPsbt.shouldWarnFeeRate ? 'dangerText' : 'text');
 
   const title = t('network_fees');
+
+  // The fee was checked against the wallet's own bounds only; say so instead of implying it matched a live rate.
+  const feeAssessment = decodedPsbt.spendSummary?.feeAssessment;
+  const recommendationUnavailable = !!feeAssessment && feeAssessment.recommendedFeeRate === undefined;
 
   const showNetworkFee = decodedPsbt.isCompleted == true;
 
@@ -69,6 +71,15 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
             </Column>
           </Row>
         </Card>
+
+        {recommendationUnavailable && (
+          <Text
+            text={t('fee_warning_recommendation_unavailable')}
+            size="xs"
+            color="warning"
+            data-testid="psbt-fee-recommendation-unavailable"
+          />
+        )}
 
         {signatureBudget && (
           <Column gap="sm" fullX data-testid="psbt-signature-budget">

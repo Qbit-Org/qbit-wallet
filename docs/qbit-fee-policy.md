@@ -94,6 +94,58 @@ P2MR inputs are considered fee-dominant when their exact base bytes plus
 witness-stack bytes are at least **75%** of the finalized transaction size.
 The create screen shows a localized explanation when this threshold is met.
 
+## Abnormal-fee warnings
+
+The 10,000 bits/vB ceiling only stops mistakes no one would make by hand, so
+the wallet also flags fees that are allowed but abnormal. The send screen
+checks its exact preview, and every PSBT approval (wallet sends, fee bumps,
+website requests) checks the exact PSBT it will sign. A fee is abnormal when
+any of these holds (`assessQbitFee`, constants in
+`packages/wallet-shared/src/utils/qbit-fee-warnings.ts`):
+
+| Reason                   | Condition                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `above_recommended_rate` | The rate is at least **10×** the fastest live recommended tier.                                                     |
+| `above_relay_floor`      | The rate is at least **100×** the 1 bit/vB relay floor, whatever the explorer recommends.                           |
+| `large_share_of_amount`  | The fee is at least **25%** of what the transaction pays to others, at a rate at least **2×** the recommended rate. |
+
+The relay-floor bound does not depend on the explorer, so a glitched or
+hostile quote cannot hide an overpayment. The share check needs the rate to
+be at least twice the recommendation (or the relay floor) because a small
+payment at the recommended rate legitimately costs a large share of itself,
+and a sub-dust remainder folded into its fee lifts a one-input send to at
+most about 1.75× that rate. A transfer that pays only the wallet has no
+amount to compare with.
+
+Only a live quote counts as a recommendation. With the relay-floor fallback,
+or no quote at all, the wallet applies the bounds that need none and says the
+fee was not compared with recommended rates instead of staying silent.
+
+The send screen shows the warning and the total leaving the wallet but does
+not block Next. An approval with an abnormal fee adds a `HIGH_FEE_RATE` risk,
+so signing requires typing the confirmation in the risk review.
+
+## Net spend and unrecognised outputs
+
+Every PSBT approval leads with what leaves the wallet: the inputs spent from
+any of the wallet's accounts less the outputs paid back to them, fee
+included. The wallet's accounts are those that can sign, by the wallet or an
+external or cold signer; a watch-only address belongs to someone else. The
+send screen counts a payment to one of them the same way, so only the fee
+leaves. When every input is the wallet's own, it is split into what goes
+to others and the network fee. An input without its spent output makes the
+amount unknown, and the approval says so rather than showing a partial sum.
+
+An output that pays neither one of the wallet's accounts nor a recipient the
+request names (the wallet's own send, fee bump and migration requests name
+theirs) is marked unrecognised. When the request names a recipient, or the
+output's script has no address, it also adds an `UNRECOGNISED_OUTPUT` risk.
+
+The background computes this summary from the exact PSBT bytes under review
+(`decodePsbt`) for the current account. It refuses to publish a summary when
+the account changes while it reads the quote, and the approval discards a
+summary computed for an account other than the current one.
+
 ## Dust boundary
 
 The P2MR output dust boundary remains **2,855 bits**:

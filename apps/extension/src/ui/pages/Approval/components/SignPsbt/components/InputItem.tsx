@@ -111,7 +111,7 @@ export function InputItem(props: {
   decodedPsbt: DecodedPsbt;
   toSignData?: ToSignData;
 }) {
-  const { index, inputInfo, outputInfo, toSignData } = props;
+  const { index, inputInfo, outputInfo, decodedPsbt, toSignData } = props;
   const currentAddress = useCurrentAddress();
   const itemInfo = (inputInfo || outputInfo)!;
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -121,6 +121,8 @@ export function InputItem(props: {
     ? (toSignData?.qbitP2mrSigningKeys || []).filter((key) => key.inputIndex === index).length
     : 0;
   const isMyAddress = itemInfo.address === currentAddress;
+  // Neither the wallet's nor the recipient the request named, as the background classified it.
+  const isUnrecognised = !!outputInfo && decodedPsbt.spendSummary?.outputRoles[index] === 'unrecognised';
   const qbitUnit = useQbitUnit();
   const { t } = useI18n();
 
@@ -165,6 +167,14 @@ export function InputItem(props: {
               {isMyAddress && (
                 <Row style={{ padding: '2px 8px', backgroundColor: colors.accent, borderRadius: 8 }}>
                   <Text text={t('my_address')} color="pureWhite" size="xxs" />
+                </Row>
+              )}
+              {isUnrecognised && (
+                <Row
+                  style={{ padding: '2px 8px', border: `1px solid ${colors.warning}`, borderRadius: 8 }}
+                  data-testid={`psbt-output-unrecognised-${index}`}
+                >
+                  <Text text={t('unrecognised_output')} color="warning" size="xxs" />
                 </Row>
               )}
             </Row>

@@ -19,6 +19,20 @@ export function qbitBroadcastProbeDelay(ms: number): Promise<void> {
 }
 
 /**
+ * Pause before each re-send of the same signed bytes after a broadcast whose
+ * outcome stayed unknown and whose lookup then missed the transaction (see
+ * `isQbitBroadcastResendable`). One entry per re-send, so its length bounds
+ * them.
+ */
+export const QBIT_BROADCAST_RESEND_DELAYS_MS: readonly number[] = [1_000, 3_000]
+/**
+ * No re-send starts once this long has passed since the first dispatch, so a
+ * backend that keeps timing out holds the send screen for at most one more
+ * request (and its lookup) past it.
+ */
+export const QBIT_BROADCAST_RESEND_WINDOW_MS = 30_000
+
+/**
  * Thrown from inside the guarded broadcast callback when a 2xx answer does
  * not echo the expected txid (a proxy page, an unexpected backend). It
  * carries no response text, so the body never reaches a result, and
@@ -279,6 +293,40 @@ export function classifyQbitBroadcastError(error: unknown): QbitBroadcastErrorCl
     false,
     sanitizeQbitBroadcastDetail(qbitBroadcastErrorMessage(error))
   )
+}
+
+// The causes of an `unknown_outcome` that a re-send may get past.
+const RESENDABLE_CAUSES: ReadonlySet<string> = new Set(['timeout', 'network', 'parse'])
+
+/**
+ * True when a dispatched broadcast failed in a way that sending the same
+ * bytes again may get past, and that says nothing about whether the node
+ * kept them: `broadcastTx`'s `unknown_outcome` (a timeout or connection lost
+ * after sending, a 5xx without the node's verdict, a 2xx that is not the
+ * txid, the backend losing its node), a 2xx that echoes another txid, and a
+ * connection that provably never opened. A re-send is harmless when the
+ * node already holds the transaction: it answers with the txid or as
+ * already known (-27), which `broadcastTx` resolves as success.
+ *
+ * Nothing else qualifies: a node verdict as the client reports it (`http`,
+ * whatever the status, and definitive or not), a 429 the client already
+ * waited out or was told to wait longer for, a missing route, a refused
+ * redirect (the next would be refused too), a cancelled call and any other
+ * throw. The caller must still look the transaction up first, and re-send
+ * only once the lookup misses it; and once an outcome is unknown, a
+ * re-send's rejection must not turn it into "not sent".
+ */
+export function isQbitBroadcastResendable(error: unknown): boolean {
+  if (error instanceof QbitBroadcastResponseMismatchError) return true
+  if (!(error instanceof QbitApiError)) return false
+  if (error.kind === 'network') return true
+  if (error.kind !== 'unknown_outcome') return false
+  // What hid the verdict: the reply alone (no cause), or the transport
+  // timing out, failing or cutting the reply short. A refused redirect
+  // (caused by `http`), a cancelled call (`aborted`) and any cause not
+  // listed here are left alone.
+  const { cause } = error
+  return cause === undefined || (QbitApiError.is(cause) && RESENDABLE_CAUSES.has(cause.kind))
 }
 
 // The node's reason for a transaction over the standard weight, with the

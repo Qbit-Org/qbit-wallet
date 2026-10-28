@@ -38,6 +38,23 @@ export type FakeFailure = (request: {
   path: string
 }) => { status: number; body?: string } | Error | 'accept-then-fail' | undefined
 
+/**
+ * Matching responses served as over a slow link: `chunkBytes` of the body
+ * every `intervalMs`. With `stallAfterBytes` the body stops after that many
+ * bytes and never ends; with `stallHeaders` the headers never arrive. Either
+ * stall lasts until the request's signal aborts, as on a dead connection.
+ * With `resetAfterBytes` the body fails after that many bytes, as when the
+ * connection is reset.
+ */
+export interface FakeSlowResponse {
+  match: (request: { method: string; path: string }) => boolean
+  chunkBytes: number
+  intervalMs: number
+  stallAfterBytes?: number
+  stallHeaders?: boolean
+  resetAfterBytes?: number
+}
+
 const ESPLORA_PAGE = 25
 const MEMPOOL_QBIT_PAGE = 50
 
@@ -50,6 +67,24 @@ export class FakeQbitExplorer {
   feeRate = 1
   /** History rows without prevouts, as some backends serve them. */
   omitHistoryPrevouts = false
+  /**
+   * Answer a combined-route cursor that is the address's last mempool row
+   * with HTTP 200 `[]` instead of the confirmed rows after it, as
+   * qbit-electrs does: it looks that cursor up among the confirmed rows,
+   * which never hold it (`src/rest.rs:992-998` in
+   * Qbit-Org/qbit-electrs@53102e9).
+   */
+  emptyPageAfterLastMempoolRow = false
+  /**
+   * Witness hex carried by each input of a non-coinbase transaction. A P2MR
+   * input carries about 7,400 characters, so pages reach real sizes.
+   */
+  inputWitnessHexLength = 0
+  slowResponses: FakeSlowResponse[] = []
+  /** Slow requests whose body was cancelled or aborted before it ended. */
+  readonly releasedBodies: string[] = []
+  /** Slow requests whose signal aborted, so the connection was released. */
+  readonly abortedRequests: string[] = []
   private order = 0
   private spenders: Map<string, FakeTx> | undefined
   /** Script to address, for outputs of broadcast transactions. */
@@ -173,6 +208,9 @@ export class FakeQbitExplorer {
               scriptsig_asm: '',
               is_coinbase: false,
               sequence: 0xfffffffd,
+              ...(this.inputWitnessHexLength > 0
+                ? { witness: ['ab'.repeat(this.inputWitnessHexLength / 2)] }
+                : {}),
             }
           }),
       vout: tx.outputs.map(output => this.esploraOutput(output)),
@@ -219,14 +257,93 @@ export class FakeQbitExplorer {
         continue
       }
       if (injected instanceof Error) throw injected
-      return withUrl(
-        new Response(injected.body ?? 'injected failure', { status: injected.status }),
-        url
+      return this.deliver(
+        request,
+        withUrl(
+          new Response(injected.body ?? 'injected failure', { status: injected.status }),
+          url
+        ),
+        url,
+        init
       )
     }
     const response = withUrl(this.route(method, url, init), url)
     if (failAfterAccepting) throw new TypeError('fetch failed')
-    return response
+    return this.deliver(request, response, url, init)
+  }
+
+  private deliver(
+    request: { method: string; path: string },
+    response: Response,
+    url: URL,
+    init?: RequestInit
+  ): Response | Promise<Response> {
+    const slow = this.slowResponses.find(candidate => candidate.match(request))
+    if (!slow) return response
+    return this.serveSlowly(slow, response, request.path, url, init?.signal ?? undefined)
+  }
+
+  private async serveSlowly(
+    slow: FakeSlowResponse,
+    response: Response,
+    path: string,
+    url: URL,
+    signal: AbortSignal | undefined
+  ): Promise<Response> {
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    const timers = new Set<ReturnType<typeof setTimeout>>()
+    let aborted: (reason: unknown) => void = () => {}
+    const onAbort = () => {
+      this.abortedRequests.push(path)
+      for (const timer of timers) clearTimeout(timer)
+      aborted(signal!.reason)
+    }
+    if (signal?.aborted) throw signal.reason
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (slow.stallHeaders) {
+      return new Promise<Response>((_, reject) => {
+        aborted = reject
+      })
+    }
+    const end = Math.min(bytes.length, slow.stallAfterBytes ?? slow.resetAfterBytes ?? bytes.length)
+    let sent = 0
+    let ended = false
+    const body = new ReadableStream<Uint8Array>({
+      start: stream => {
+        aborted = reason => {
+          if (ended) return
+          ended = true
+          this.releasedBodies.push(path)
+          stream.error(reason)
+        }
+        const next = () => {
+          if (sent === end) {
+            if (end < bytes.length && slow.resetAfterBytes === undefined) return // stalled
+            ended = true
+            signal?.removeEventListener('abort', onAbort)
+            if (end < bytes.length) stream.error(new TypeError('terminated'))
+            else stream.close()
+            return
+          }
+          const timer = setTimeout(() => {
+            timers.delete(timer)
+            const chunk = bytes.subarray(sent, Math.min(end, sent + slow.chunkBytes))
+            sent += chunk.length
+            stream.enqueue(chunk)
+            next()
+          }, slow.intervalMs)
+          timers.add(timer)
+        }
+        next()
+      },
+      cancel: () => {
+        if (ended) return
+        ended = true
+        this.releasedBodies.push(path)
+        for (const timer of timers) clearTimeout(timer)
+      },
+    })
+    return withUrl(new Response(body, { status: response.status }), url)
   }
 
   private route(method: string, url: URL, init?: RequestInit): Response {
@@ -316,6 +433,14 @@ export class FakeQbitExplorer {
       const after = url.searchParams.get('after_txid')
       const start = after ? history.findIndex(tx => tx.txid === after) + 1 : 0
       if (after && start === 0) return new Response('after_txid not found', { status: 422 })
+      if (
+        this.emptyPageAfterLastMempoolRow &&
+        after &&
+        history[start - 1]!.height === undefined &&
+        history[start]?.height !== undefined
+      ) {
+        return json([])
+      }
       return json(
         history
           .slice(start, start + MEMPOOL_QBIT_PAGE)
@@ -332,6 +457,19 @@ export class FakeQbitExplorer {
     } catch {
       return new Response('TX decode failed', { status: 400 })
     }
+    const txid = tx.getId()
+    // As qbit Core's sendrawtransaction: a transaction it already holds is
+    // no conflict with itself. One in the mempool is answered with its txid
+    // again, and a confirmed one as already known (-27).
+    const known = this.txs.get(txid)
+    if (known) {
+      return known.height === undefined
+        ? new Response(txid, { status: 200 })
+        : new Response(
+            'sendrawtransaction RPC error: {"code":-27,"message":"Transaction outputs already in utxo set"}',
+            { status: 400 }
+          )
+    }
     const inputs = tx.ins.map(input => ({
       txid: Buffer.from(input.hash).reverse().toString('hex'),
       vout: input.index,
@@ -347,18 +485,15 @@ export class FakeQbitExplorer {
         return new Response('sendrawtransaction RPC error: txn-mempool-conflict', { status: 400 })
       }
     }
-    const txid = tx.getId()
-    if (!this.txs.has(txid)) {
-      this.addTx({
-        txid,
-        inputs,
-        outputs: tx.outs.map(output => {
-          const script = Buffer.from(output.script).toString('hex')
-          const address = this.addresses.get(script)
-          return { ...(address ? { address } : {}), script, value: Number(output.value) }
-        }),
-      })
-    }
+    this.addTx({
+      txid,
+      inputs,
+      outputs: tx.outs.map(output => {
+        const script = Buffer.from(output.script).toString('hex')
+        const address = this.addresses.get(script)
+        return { ...(address ? { address } : {}), script, value: Number(output.value) }
+      }),
+    })
     return new Response(txid, { status: 200 })
   }
 }

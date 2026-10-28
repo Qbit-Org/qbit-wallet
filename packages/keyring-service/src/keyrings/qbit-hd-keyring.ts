@@ -5,6 +5,7 @@ import hdkey from 'hdkey'
 import { derivePQCKey, sign as signPqc, type PqcDerivedKey } from '@qbit-oss/pqc'
 import * as qbitProtocol from '@qbit-oss/protocol'
 import type { QbitNetworkName } from '@qbit-oss/protocol'
+import type { QbitRestoreFloorSource, QbitRestoreFloorSourceRecord } from '@qbit/wallet-shared'
 import bs58check from 'bs58check'
 
 const { decode, encode } = bs58check
@@ -276,6 +277,8 @@ export interface QbitPqcObservedActivity {
   observedSignatures: number
   /** Whether the address shows any chain/mempool activity (for gap detection). */
   hasActivity?: boolean
+  /** Which read produced `observedSignatures`, reported back with the floor. */
+  floorSource?: QbitRestoreFloorSource
 }
 
 /** Injected per-account history lookup (wired to @qbit-oss/api by the wallet). */
@@ -286,6 +289,8 @@ export type QbitPqcHistoryObserver = (
 export interface QbitPqcRestoreFloorScan {
   /** Floor results for the keyring's active accounts. */
   floors: QbitPqcSignatureCounterFloor[]
+  /** The read behind each active account's floor, for accounts whose observer named one. */
+  floorSources: QbitRestoreFloorSourceRecord[]
   /** Indexes scanned beyond the active range that unexpectedly show activity. */
   gapIndexesWithActivity: number[]
   /**
@@ -1154,6 +1159,7 @@ export class QbitHdKeyring {
     }
 
     const floors: QbitPqcSignatureCounterFloor[] = []
+    const floorSources: QbitRestoreFloorSourceRecord[] = []
     for (const account of await this.getQbitAccounts()) {
       const activity = await observe(account)
       assertSignatureCounterValue(activity.observedSignatures)
@@ -1164,6 +1170,13 @@ export class QbitHdKeyring {
           'restored-floor'
         )
       )
+      if (activity.floorSource !== undefined) {
+        floorSources.push({
+          index: account.index,
+          pubkey: account.pubkey,
+          source: activity.floorSource,
+        })
+      }
     }
 
     const gapIndexesWithActivity: number[] = []
@@ -1186,6 +1199,7 @@ export class QbitHdKeyring {
 
     return {
       floors,
+      floorSources,
       gapIndexesWithActivity,
       possibleConcurrentInstance: gapIndexesWithActivity.length > 0,
     }

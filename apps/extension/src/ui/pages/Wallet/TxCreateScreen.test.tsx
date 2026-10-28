@@ -101,4 +101,42 @@ describe('TxCreateScreen fee details', () => {
     fireEvent.click(screen.getByTestId('tx-consolidate-button'));
     expect(onClickConsolidate).toHaveBeenCalledTimes(1);
   });
+
+  it('shows what leaves the wallet and why its fee is abnormal (#271)', () => {
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      spendSummary: {
+        totalSpend: '0.01644000',
+        feeWarningTitle: 'the_fee_rate_is_much_higher_than_recommended_fee_rate',
+        feeWarnings: ['fee_warning_above_recommended:400,400,1'],
+        feeRecommendationUnavailable: undefined
+      }
+    });
+    render(<TxCreateScreen />);
+
+    expect(screen.getByTestId('tx-total-spend').textContent).toBe('0.01644000 QBT');
+    expect(screen.getByTestId('tx-fee-warning').textContent).toBe(
+      'the_fee_rate_is_much_higher_than_recommended_fee_ratefee_warning_above_recommended:400,400,1'
+    );
+    expect(screen.queryByTestId('tx-fee-recommendation-unavailable')).toBeNull();
+  });
+
+  it('says when the fee could not be compared with recommended rates (#271)', () => {
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      spendSummary: {
+        totalSpend: '0.00103860',
+        feeWarningTitle: undefined,
+        feeWarnings: [],
+        feeRecommendationUnavailable: 'fee_warning_recommendation_unavailable'
+      }
+    });
+    render(<TxCreateScreen />);
+
+    expect(screen.getByTestId('tx-total-spend').textContent).toBe('0.00103860 QBT');
+    expect(screen.queryByTestId('tx-fee-warning')).toBeNull();
+    expect(screen.getByTestId('tx-fee-recommendation-unavailable').textContent).toBe(
+      'fee_warning_recommendation_unavailable'
+    );
+  });
 });

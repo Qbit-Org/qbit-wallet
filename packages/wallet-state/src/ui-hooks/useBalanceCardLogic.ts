@@ -55,14 +55,22 @@ export function useBalanceCardLogic() {
   // the address statistics and is labelled so it is not read as spendable.
   const utxoLimitExceeded = isCurrentChainBalance && accountBalance.utxoLimitExceeded === true
   const utxoLimitExceededText = useMemo(() => t('utxo_limit_exceeded_balance'), [t])
+  // Without the output list Available is unknown (`null`), and so is how
+  // much of the total is unavailable: both show `--` rather than a measured
+  // 0 and the whole total. The send screen shows Available as `--` too.
+  const availableUnknown = accountBalance.availableBalance === null
+  const balanceSplitUnknown = isCurrentChainBalance && availableUnknown
+  const balanceSplitUnknownText = useMemo(() => t('utxo_limit_exceeded_balance_detail'), [t])
 
   const totalBalance = accountBalance.totalBalance
   const availableBalance = accountBalance.availableBalance
-  const unavailableBalance = accountBalance.unavailableBalance
+  const unavailableBalance = availableUnknown ? null : accountBalance.unavailableBalance
 
   const totalAmount = numUtils.satoshisToAmount(accountBalance.totalBalance)
-  const availableAmount = numUtils.satoshisToAmount(accountBalance.availableBalance)
-  const unavailableAmount = numUtils.satoshisToAmount(accountBalance.unavailableBalance)
+  const availableAmount =
+    availableBalance === null ? '--' : numUtils.satoshisToAmount(availableBalance)
+  const unavailableAmount =
+    unavailableBalance === null ? '--' : numUtils.satoshisToAmount(unavailableBalance)
 
   const totalAmountMainPart = totalAmount.slice(0, -8)
   const totalAmountSubPart = totalAmount.slice(-8)
@@ -124,6 +132,8 @@ export function useBalanceCardLogic() {
     isCurrentChainBalance,
     utxoLimitExceeded,
     utxoLimitExceededText,
+    balanceSplitUnknown,
+    balanceSplitUnknownText,
 
     isDetailExpanded,
     handleExpandToggle,

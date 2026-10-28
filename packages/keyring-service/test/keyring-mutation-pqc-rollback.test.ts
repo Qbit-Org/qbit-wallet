@@ -157,10 +157,10 @@ function parkNextPersist(service: KeyringService) {
   const realPersist = service.persistAllKeyrings
   const parked = deferred()
   const release = deferred()
-  vi.spyOn(service, 'persistAllKeyrings').mockImplementationOnce(async () => {
+  vi.spyOn(service, 'persistAllKeyrings').mockImplementationOnce(async changedKeyrings => {
     parked.resolve()
     await release.promise
-    return realPersist()
+    return realPersist(changedKeyrings)
   })
   return { parked: parked.promise, release: release.resolve }
 }

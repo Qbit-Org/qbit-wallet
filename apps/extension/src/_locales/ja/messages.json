@@ -242,6 +242,9 @@
   "qbit_restore_scanning": {
     "message": "チェーン履歴をスキャンして署名カウンターを再構築しています…"
   },
+  "qbit_restore_stats_floor_notice": {
+    "message": "派生インデックス $1 のアカウントは履歴が長すぎてすべて読み込めないため、署名カウンターをエクスプローラーのアドレス集計から再構築しました。この集計はチェーン上の同じ支出を数えています。"
+  },
   "qbit_signatures_remaining": {
     "message": "残り$1件"
   },
@@ -1520,6 +1523,15 @@
   "phishing_detection": {
     "message": "フィッシング検出"
   },
+  "phishing_page_held_message": {
+    "message": "このサイトはフィッシングサイトのリストに含まれているため、Qbit Wallet はページが実行される前に停止しました。ウォレットが時間内に応答しなかったため、警告ページを開くことも、ページを読み込むこともできませんでした。再試行するか、このタブを閉じてください。"
+  },
+  "phishing_page_held_released_message": {
+    "message": "このサイトはフィッシングサイトのリストに含まれているため、Qbit Wallet はページが実行される前に停止しました。読み込むには「再試行」を選択するか、このタブを閉じてください。"
+  },
+  "phishing_page_held_unreleasable_message": {
+    "message": "このサイトはフィッシングサイトのリストに含まれているため、Qbit Wallet はページが実行される前に停止しました。このページは読み込みに必要な記録を保持できないため、読み込めません。再試行するか、このタブを閉じてください。"
+  },
   "phrase_optional": {
     "message": "フレーズ (オプション)"
   },
@@ -2669,6 +2681,12 @@
   "qbit_recovery_pending_body": {
     "message": "署名済み移動データは暗号化保管庫に保存されています。両方のウォレットを保持し、再送信、承認確認、安全な再開のためにここへ戻ってください。"
   },
+  "qbit_recovery_deferred_title": {
+    "message": "まだ移動されていません"
+  },
+  "qbit_recovery_deferred_history_too_large": {
+    "message": "このアカウントはエクスプローラーが一覧表示できる数を超えるアウトプットを持ち、取引数も $1 件を超えているため、ウォレットは履歴からアウトプットを読み取れず、資金はまだ移動されていません。このアカウントに切り替え、送金を開いて「アウトプットを統合」を選び、エクスプローラーの上限内に収まるまで統合してから、ここに戻ってください。"
+  },
   "qbit_recovery_plan_prepared": {
     "message": "確認と署名の準備完了"
   },
@@ -2858,8 +2876,14 @@
   "send_all_leaves_outputs_behind": {
     "message": "「最大」では、1 つのトランザクションに収まる上限である大きい順の $1 個のアウトプットを送ります。より小さい $4 個のアウトプットにある $2 $3 はこのアカウントに残ります。"
   },
+  "send_exceeds_ancestor_size": {
+    "message": "まだ確認されていない前回の送金と合わせると、この送金はネットワークが受け付けるサイズを超えます。前回の送金が確認されるまで待つか、より少ない金額を送ってください。"
+  },
   "utxo_limit_exceeded_balance": {
     "message": "アウトプットが多すぎてエクスプローラーで一覧表示できません。この合計はアドレスの概要から取得しています。"
+  },
+  "utxo_limit_exceeded_balance_detail": {
+    "message": "エクスプローラーがこのアカウントのアウトプットを一覧表示しないため、利用可能額と利用不可額は不明です。"
   },
   "utxo_limit_exceeded_send": {
     "message": "このアカウントのアウトプットはエクスプローラーが一覧表示できる数を超えており、ウォレットは履歴からすべてを読み取れませんでした。送金するにはアウトプットを統合してください。"
@@ -2908,5 +2932,50 @@
   },
   "consolidation_error_keep_reading": {
     "message": "ウォレットはこのアカウントの履歴の一部を読み取りましたが、まとめられるアウトプットは見つかりませんでした。もう一度準備すると続きを読み取ります。"
+  },
+  "net_spend_leaves_wallet": {
+    "message": "ウォレットから出る額"
+  },
+  "net_spend_breakdown": {
+    "message": "他者へ $1 $2 + ネットワーク手数料 $3 $4"
+  },
+  "net_spend_unknown": {
+    "message": "不明：インプットの金額がありません"
+  },
+  "fee_warning_above_recommended": {
+    "message": "$1 bits/vB は、最も速い推奨手数料率 $3 bits/vB の $2 倍です。"
+  },
+  "fee_warning_above_relay_floor": {
+    "message": "$1 bits/vB は、ネットワーク最小値 $3 bit/vB の $2 倍です。"
+  },
+  "fee_warning_amount_share": {
+    "message": "手数料は、このトランザクションが他者へ送る $2 $3 の $1% です。"
+  },
+  "fee_warning_recommendation_unavailable": {
+    "message": "推奨手数料率を利用できないため、この手数料は推奨手数料率と比較されていません。"
+  },
+  "unrecognised_output": {
+    "message": "不明な宛先"
+  },
+  "unrecognised_outputs_summary": {
+    "message": "このウォレットが認識できないアドレスへのアウトプット：$1 件、合計 $2 $3"
+  },
+  "unrecognised_output_risk_title": {
+    "message": "不明なアウトプット"
+  },
+  "unrecognised_output_risk_description": {
+    "message": "あるアウトプットが、あなたのものでもこのリクエストが示す受信者のものでもないアドレス、またはアドレスのないスクリプトに支払っています。署名する前にすべてのアウトプットを確認してください。"
+  },
+  "multisign_flagged_transactions": {
+    "message": "署名前に確認が必要なトランザクション：$1"
+  },
+  "multisign_risks_description": {
+    "message": "以下のトランザクションへの署名にはリスクが伴うことにご注意ください。"
+  },
+  "understand_and_accept_the_risks_of_these_transactions": {
+    "message": "これらのトランザクションに関連するリスクを理解し、受け入れます。"
+  },
+  "multisign_account_changed": {
+    "message": "トランザクションの確認中にアカウントが変更されました。何も署名されていません。もう一度確認してください。"
   }
 }

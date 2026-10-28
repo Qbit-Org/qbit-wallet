@@ -39,7 +39,7 @@ export const BadFeeRate = ({
         <Row fullX style={{ borderBottomWidth: 1, borderColor: colors.border }} />
 
         <Text text={t('current_fee_rate')} preset="sub" />
-        <Text text={`${decodedPsbt.feeRate} bits/vB`} />
+        <Text text={`${Number(decodedPsbt.feeRate.toFixed(2))} bits/vB`} />
 
         <Text text={t('recommended_fee_rates')} preset="sub" mt="lg" />
         <FeeRateBar readonly />

@@ -166,7 +166,14 @@ function dummyPqcSignature(byte: number): Uint8Array {
 
 async function buildP2mrSpendFixture(
   keyring: QbitHdKeyring,
-  options: { inputCount?: number; txidSeed?: number; hashType?: number } = {}
+  options: {
+    inputCount?: number
+    txidSeed?: number
+    hashType?: number
+    inputValue?: bigint
+    outputValue?: bigint
+    outputScriptPubKey?: Uint8Array
+  } = {}
 ): Promise<{
   psbt: Psbt
   keys: P2mrSigningKey[]
@@ -183,7 +190,7 @@ async function buildP2mrSpendFixture(
   const inputCount = options.inputCount ?? 1
   const txidSeed = options.txidSeed ?? 1
   const spentOutputs = Array.from({ length: inputCount }, (_, index) => ({
-    value: 100_000n + BigInt(index) * 1_000n,
+    value: (options.inputValue ?? 100_000n) + BigInt(index) * 1_000n,
     scriptPubKey,
   }))
   const totalInput = spentOutputs.reduce((sum, output) => sum + output.value, 0n)
@@ -195,7 +202,12 @@ async function buildP2mrSpendFixture(
       controlBlock,
       merkleRoot: leafHash,
     })),
-    outputs: [{ value: totalInput - 2_000n, scriptPubKey }],
+    outputs: [
+      {
+        value: options.outputValue ?? totalInput - 2_000n,
+        scriptPubKey: options.outputScriptPubKey ?? scriptPubKey,
+      },
+    ],
   })
   const keys = spentOutputs.map((_, inputIndex) => ({
     inputIndex,
@@ -1706,6 +1718,36 @@ describe('qbit-hd-keyring', () => {
     })
   })
 
+  it('reports the read behind each active account floor, not the lookahead probes', async () => {
+    const keyring = new QbitHdKeyring({
+      mnemonic: sampleMnemonic,
+      activeIndexes: [0, 2],
+      hdPath: "m/87'/1'/0'/0",
+    })
+    const accounts = await keyring.getQbitAccounts()
+
+    const scan = await keyring.scanPqcSignatureCounterFloors(
+      account => ({
+        observedSignatures: account.index === 2 ? 5_001 : 3,
+        floorSource: account.index === 2 ? 'address-stats' : 'history',
+      }),
+      { lookahead: 2 }
+    )
+
+    expect(scan.floorSources).toEqual([
+      { index: 0, pubkey: accounts[0]!.pubkey, source: 'history' },
+      { index: 2, pubkey: accounts[1]!.pubkey, source: 'address-stats' },
+    ])
+    // A statistics floor raises the counter like any other.
+    expect(await keyring.getPqcSignatureCounter(accounts[1]!.pubkey)).toBe(5_001)
+    expect(keyring.pqcFloorsPending).toBe(false)
+
+    const unnamed = await keyring.scanPqcSignatureCounterFloors(() => ({ observedSignatures: 0 }), {
+      lookahead: 0,
+    })
+    expect(unnamed.floorSources).toEqual([])
+  })
+
   it('flags a possible concurrent instance when activity appears beyond known indexes', async () => {
     const keyring = new QbitHdKeyring({
       mnemonic: sampleMnemonic,
@@ -2830,6 +2872,98 @@ describe('qbit-hd-keyring', () => {
       await expect(
         service.signP2mrPsbtWithCounter(pubkey, { psbt: fixture.psbt, keys: fixture.keys }, budget)
       ).rejects.toThrow('qbit_recovery_migration_signing_only')
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(2)
+    })
+
+    it("signs a source consolidation during a migration only on the controller's word (#344)", async () => {
+      const { service, keyring, pubkey } = await createRestoredQbitService(undefined, 2)
+      keyring.beginQbitRecoveryMigration('regtest', {
+        destinationKeyringIndex: 1,
+        destinationPubkey: 'ff'.repeat(32),
+        destinationAddress: 'qbit-regtest-destination',
+        network: 'regtest',
+      })
+      const consolidation = await buildP2mrSpendFixture(keyring, { inputCount: 3, txidSeed: 40 })
+      const request = { psbt: consolidation.psbt, keys: consolidation.keys }
+      const allow = { allowMigrationConsolidation: true }
+
+      // Without the controller's word the keyring signs only reviewed plans.
+      await expect(service.preflightP2mrPsbtSigning(pubkey, request)).rejects.toThrow(
+        'qbit_recovery_migration_signing_only'
+      )
+      // With it, only a transaction paying everything back to the script it
+      // spends, every input of which this key signs.
+      const payout = await buildP2mrSpendFixture(keyring, {
+        txidSeed: 50,
+        outputScriptPubKey: protocolHexToBytes(`5220${'ee'.repeat(32)}`),
+      })
+      await expect(
+        service.preflightP2mrPsbtSigning(pubkey, { psbt: payout.psbt, keys: payout.keys }, allow)
+      ).rejects.toThrow('qbit_recovery_migration_signing_only')
+      await expect(
+        service.preflightP2mrPsbtSigning(
+          pubkey,
+          { psbt: consolidation.psbt, keys: consolidation.keys.slice(0, 2) },
+          allow
+        )
+      ).rejects.toThrow('qbit_recovery_migration_signing_only')
+      // Nor one that pays back a sliver and leaves the rest to a fee past the
+      // wallet's highest fee rate.
+      const burn = await buildP2mrSpendFixture(keyring, {
+        txidSeed: 60,
+        inputValue: 10_000_000_000n,
+        outputValue: 1_000n,
+      })
+      await expect(
+        service.preflightP2mrPsbtSigning(pubkey, { psbt: burn.psbt, keys: burn.keys }, allow)
+      ).rejects.toThrow('qbit_recovery_migration_signing_only')
+
+      const budget = await service.preflightP2mrPsbtSigning(pubkey, request, allow)
+      await service.confirmQbitRestoredFloorSigning(budget.restoredFloorRisk!.challengeId)
+      await expect(service.signP2mrPsbtWithCounter(pubkey, request, budget)).resolves.toMatchObject(
+        { signed: [0, 1, 2].map(inputIndex => expect.objectContaining({ inputIndex })) }
+      )
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(5)
+    })
+
+    it('refuses a source consolidation while a plan of that source is open (#344)', async () => {
+      const { service, keyring, pubkey } = await createRestoredQbitService(undefined, 2)
+      keyring.beginQbitRecoveryMigration('regtest', {
+        destinationKeyringIndex: 1,
+        destinationPubkey: 'ff'.repeat(32),
+        destinationAddress: 'qbit-regtest-destination',
+        network: 'regtest',
+      })
+      const consolidation = await buildP2mrSpendFixture(keyring, { inputCount: 2, txidSeed: 40 })
+      const request = { psbt: consolidation.psbt, keys: consolidation.keys }
+      const allow = { allowMigrationConsolidation: true }
+      const budget = await service.preflightP2mrPsbtSigning(pubkey, request, allow)
+      await service.confirmQbitRestoredFloorSigning(budget.restoredFloorRisk!.challengeId)
+
+      // A plan of the source prepared after the review was approved.
+      const sweep = await buildP2mrSpendFixture(keyring, {
+        txidSeed: 40,
+        outputScriptPubKey: protocolHexToBytes(`5220${'ee'.repeat(32)}`),
+      })
+      await service.replaceQbitRecoveryMigrationPlans(pubkey, 'regtest', [
+        {
+          id: `${pubkey}:0`,
+          sourcePubkey: pubkey,
+          sourceAddress: (await keyring.getQbitAccounts())[0]!.addresses.regtest,
+          destinationAddress: 'qbit-regtest-destination',
+          amount: 98_000,
+          fee: 2_000,
+          psbtHex: protocolBytesToHex(serializePsbt(sweep.psbt)),
+          status: 'prepared' as const,
+        },
+      ])
+
+      await expect(service.signP2mrPsbtWithCounter(pubkey, request, budget)).rejects.toThrow(
+        'qbit_recovery_migration_signing_only'
+      )
+      await expect(service.preflightP2mrPsbtSigning(pubkey, request, allow)).rejects.toThrow(
+        'qbit_recovery_migration_signing_only'
+      )
       expect(await service.getPqcSignatureCounter(pubkey)).toBe(2)
     })
 

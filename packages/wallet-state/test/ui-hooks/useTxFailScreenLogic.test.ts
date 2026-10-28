@@ -54,6 +54,7 @@ function walletWithBroadcast() {
     broadcastQbitTx: vi.fn(),
     checkQbitBroadcastStatus: vi.fn(),
     releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
+    abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
     getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
     getAddressBalanceV2: vi.fn().mockResolvedValue({
       availableBalance: 1,
@@ -225,16 +226,21 @@ describe('useTxFailScreenLogic', () => {
     expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the claim when the screen unmounts or the page hides on an unknown verdict', () => {
+  it('hands the claim back without releasing it when the screen unmounts or the page hides on an unknown verdict', () => {
     const wallet = walletWithBroadcast()
     const { unmount } = renderFailScreen({ result: unknownFailure, retained }, wallet)
 
+    // The background keeps the inputs reserved until it learns whether the
+    // transaction reached the network; the claim no longer waits for the
+    // page to close.
     act(() => {
       window.dispatchEvent(new Event('pagehide'))
     })
     unmount()
 
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
   })
 
   it('does not release twice when an exit is followed by the unmount it causes', () => {
@@ -294,13 +300,18 @@ describe('useTxFailScreenLogic', () => {
     await waitFor(() => expect(result.current.busy).toBe('retry'))
     unmount()
 
+    expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
+
     // A retry that never left the wallet cannot downgrade the verdict, and
-    // an unknown verdict keeps its claim reserved however the screen is left.
+    // an unknown verdict is handed back, never released, however the screen
+    // is left.
     await act(async () => {
       settle({ ...notSentFailure, reason: 'guard_blocked', lookup: undefined })
       await retry
     })
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
   })
 
   it('defers the release to the verdict when the page hides while a status check is in flight', async () => {
@@ -320,18 +331,22 @@ describe('useTxFailScreenLogic', () => {
       window.dispatchEvent(new Event('pagehide'))
     })
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
 
     // The check settles without proof either way: the verdict is unknown,
-    // so the claim stays reserved. The deferred settle must not release it.
+    // so the claim is handed back to the background, which keeps the inputs
+    // reserved. The deferred settle must not release it.
     await act(async () => {
       settle({ found: false, txid: TXID, state: 'gone' })
       await check
     })
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
 
     // And once the check has settled, a later unmount has nothing to do.
     unmount()
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
   })
 
   it('releases once, not twice, when a retry settles as not_sent after the page hid and the screen then unmounts', async () => {
@@ -452,7 +467,7 @@ describe('useTxFailScreenLogic', () => {
     expect(navigation.navigate).not.toHaveBeenCalled()
   })
 
-  it('never releases the claim when leaving an unknown verdict', () => {
+  it('never releases the claim when leaving an unknown verdict, and hands it back once', () => {
     const wallet = walletWithBroadcast()
     const { result, navigation } = renderFailScreen({ result: unknownFailure, retained }, wallet)
 
@@ -462,7 +477,31 @@ describe('useTxFailScreenLogic', () => {
     })
 
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
     expect(navigation.replace).toHaveBeenCalledTimes(2)
+  })
+
+  it('still leaves the send flow, without logging, when handing the claim back fails at the port', async () => {
+    const wallet = walletWithBroadcast()
+    wallet.abandonQbitSendBroadcastClaim.mockRejectedValue(
+      new Error('port closed http://127.0.0.1:3002')
+    )
+    const consoleSpies = (['error', 'warn', 'log'] as const).map(level =>
+      vi.spyOn(console, level).mockImplementation(() => undefined)
+    )
+    const { result, navigation } = renderFailScreen({ result: unknownFailure, retained }, wallet)
+
+    await act(async () => {
+      result.current.onClickBackToWallet()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+    expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
+    for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled()
+    consoleSpies.forEach(spy => spy.mockRestore())
   })
 
   it.each([
@@ -477,20 +516,26 @@ describe('useTxFailScreenLogic', () => {
         reason: 'chain_changed',
       } satisfies QbitBroadcastFailure,
     ],
-  ])('keeps the claim when the not_sent verdict %s', (_label, verdict) => {
-    const wallet = walletWithBroadcast()
-    const { result, navigation } = renderFailScreen(
-      { result: verdict as QbitBroadcastFailure, retained },
-      wallet
-    )
+  ])(
+    'hands the claim back instead of releasing it when the not_sent verdict %s',
+    (_label, verdict) => {
+      const wallet = walletWithBroadcast()
+      const { result, navigation } = renderFailScreen(
+        { result: verdict as QbitBroadcastFailure, retained },
+        wallet
+      )
 
-    act(() => {
-      result.current.onClickBackToWallet()
-    })
+      act(() => {
+        result.current.onClickBackToWallet()
+      })
 
-    expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
-    expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
-  })
+      // The verdict proves nothing about this claim's transaction; the
+      // background decides it from its own record of the broadcasts.
+      expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+      expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+      expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
+    }
+  )
 
   it('has nothing to release when the retained payload carries no claim', () => {
     const wallet = walletWithBroadcast()
@@ -504,6 +549,7 @@ describe('useTxFailScreenLogic', () => {
     })
 
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
     expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
   })
 
@@ -533,6 +579,7 @@ describe('useTxFailScreenLogic', () => {
 
     expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledTimes(1)
     expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+    expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
     expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
   })
 
@@ -575,6 +622,7 @@ describe('useTxFailScreenLogic', () => {
     })
 
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
   })
 
   it('still leaves the send flow, without logging, when the release fails at the port', async () => {

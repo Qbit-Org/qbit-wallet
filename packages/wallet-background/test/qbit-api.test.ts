@@ -358,7 +358,7 @@ describe('qbit Esplora wallet adapters', () => {
 
     await expect(
       observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
-    ).resolves.toEqual({ observedSignatures: 0, hasActivity: false })
+    ).resolves.toEqual({ observedSignatures: 0, hasActivity: false, floorSource: 'history' })
     expect(client.getTipHash).toHaveBeenCalledTimes(2)
     expect(client.getAddressStats).toHaveBeenCalledTimes(2)
     expect(client.getAddressMempoolTxs).toHaveBeenCalledTimes(1)
@@ -397,7 +397,7 @@ describe('qbit Esplora wallet adapters', () => {
 
     await expect(
       observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
-    ).resolves.toEqual({ observedSignatures: 2, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 2, hasActivity: true, floorSource: 'history' })
     expect(client.getAddressStats).toHaveBeenCalledTimes(2)
   })
 
@@ -465,11 +465,11 @@ describe('qbit Esplora wallet adapters', () => {
 
     await expect(
       observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
-    ).resolves.toEqual({ observedSignatures: 27, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 27, hasActivity: true, floorSource: 'history' })
     expect(client.getAddressHistory).toHaveBeenCalledTimes(1)
     // Twice the one-read budget: @qbit-oss/api counts its rescan against it.
     expect(client.getAddressHistory).toHaveBeenCalledWith(address, {
-      maxPages: 512,
+      maxPages: 514,
       maxTransactions: 12_800,
     })
   })
@@ -505,7 +505,7 @@ describe('qbit Esplora wallet adapters', () => {
     expect(client.getAddressMempoolTxs).not.toHaveBeenCalled()
   })
 
-  it('rejects reported qbit history above the configured transaction cap before scanning', async () => {
+  it('rejects spender evidence for history above the configured transaction cap before scanning', async () => {
     const client = {
       getTipHash: vi.fn().mockResolvedValue(tipHash),
       getAddressStats: vi.fn().mockResolvedValue(historyStats(2)),
@@ -513,11 +513,475 @@ describe('qbit Esplora wallet adapters', () => {
     }
 
     await expect(
-      observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+      observeQbitPqcSpentOutpoints(client as any, address, scriptPubKey, {
         maxHistoryTransactions: 1,
       })
     ).rejects.toThrow(`qbit address history exceeds the 1-transaction limit for ${address}`)
     expect(client.getAddressHistory).not.toHaveBeenCalled()
+  })
+
+  it('rejects spender evidence whose history walk hits the client page ceiling', async () => {
+    const ceiling = new QbitApiError(
+      'pagination_limit',
+      `esplora address history exceeded 4 pages: ${address}`
+    )
+    const client = {
+      getTipHash: vi.fn().mockResolvedValue(tipHash),
+      getAddressStats: vi.fn().mockResolvedValue(historyStats(200, 0, 3)),
+      getAddressHistory: vi.fn().mockRejectedValue(ceiling),
+    }
+
+    await expect(observeQbitPqcSpentOutpoints(client as any, address, scriptPubKey)).rejects.toBe(
+      ceiling
+    )
+  })
+
+  describe('restore floors past the history scan limits', () => {
+    function overLimitStats(
+      chain: Partial<Record<string, number>>,
+      mempool: Partial<Record<string, number>> = {}
+    ) {
+      const scope = (values: Partial<Record<string, number>>) => ({
+        funded_txo_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_count: 0,
+        spent_txo_sum: 0,
+        tx_count: 0,
+        ...values,
+      })
+      return { address, chain_stats: scope(chain), mempool_stats: scope(mempool) }
+    }
+
+    function statsOnlyClient(stats: unknown, overrides: Record<string, unknown> = {}) {
+      return {
+        getTipHash: vi.fn().mockResolvedValue(tipHash),
+        getAddressStats: vi.fn().mockResolvedValue(stats),
+        getAddressMempoolTxs: vi.fn(),
+        getAddressHistory: vi.fn(),
+        ...overrides,
+      }
+    }
+
+    it('reads the floor from the address statistics above the 6,400-transaction cap', async () => {
+      // A payout address: 6,401 transactions, 5,000 confirmed spends and one
+      // pending one. The full scan refused this address outright (#264).
+      const client = statsOnlyClient(
+        overLimitStats(
+          {
+            tx_count: 6_400,
+            funded_txo_count: 9_000,
+            funded_txo_sum: 9_000,
+            spent_txo_count: 5_000,
+            spent_txo_sum: 5_000,
+          },
+          { tx_count: 1, spent_txo_count: 1, spent_txo_sum: 1 }
+        )
+      )
+
+      await expect(
+        observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
+      ).resolves.toEqual({
+        observedSignatures: 5_001,
+        hasActivity: true,
+        floorSource: 'address-stats',
+      })
+      expect(client.getAddressHistory).not.toHaveBeenCalled()
+      expect(client.getAddressMempoolTxs).not.toHaveBeenCalled()
+      // The statistics read continues the cap check's tip and stats bracket.
+      expect(client.getAddressStats).toHaveBeenCalledTimes(2)
+      expect(client.getTipHash).toHaveBeenCalledTimes(2)
+    })
+
+    it('reports receive-only activity above the cap with a zero floor', async () => {
+      const client = statsOnlyClient(
+        overLimitStats({ tx_count: 7_000, funded_txo_count: 7_000, funded_txo_sum: 7_000 })
+      )
+
+      await expect(
+        observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
+      ).resolves.toEqual({ observedSignatures: 0, hasActivity: true, floorSource: 'address-stats' })
+    })
+
+    it('sizes the default page budget so a walk reaches the transaction cap', async () => {
+      // 6,400 confirmed rows at 25 a page, then the empty page that ends the walk.
+      const client = statsOnlyClient(historyStats(6_400), {
+        getAddressMempoolTxs: vi.fn().mockResolvedValue([]),
+        getAddressHistory: vi.fn().mockResolvedValue({
+          confirmed: Array.from({ length: 6_400 }, (_, index) => historyTx(index + 1, true, [])),
+          mempool: [],
+        }),
+      })
+
+      await expect(
+        observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
+      ).resolves.toEqual({ observedSignatures: 0, hasActivity: true, floorSource: 'history' })
+      // Twice the one-read budget: @qbit-oss/api may read the address twice.
+      expect(client.getAddressHistory).toHaveBeenCalledWith(address, {
+        maxPages: 514,
+        maxTransactions: 12_800,
+      })
+    })
+
+    it('reads the floor from the address statistics when an Esplora mempool listing cannot hold the pending set', async () => {
+      const client = statsOnlyClient(historyStats(10, 51, 4, 3))
+
+      await expect(
+        observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
+      ).resolves.toEqual({ observedSignatures: 7, hasActivity: true, floorSource: 'address-stats' })
+      expect(client.getAddressHistory).not.toHaveBeenCalled()
+
+      // A pending set that fits one listing is still enumerated.
+      const pending = Array.from({ length: 50 }, (_, index) => historyTx(index + 1, false, []))
+      const listed = statsOnlyClient(historyStats(0, 50), {
+        getAddressMempoolTxs: vi.fn().mockResolvedValue(pending),
+        getAddressHistory: vi.fn().mockResolvedValue({ confirmed: [], mempool: pending }),
+      })
+      await expect(
+        observeQbitPqcSignatureActivity(listed as any, address, scriptPubKey)
+      ).resolves.toEqual({ observedSignatures: 0, hasActivity: true, floorSource: 'history' })
+    })
+
+    it('still enumerates a large pending set that mempool-qbit pages', async () => {
+      const pending = Array.from({ length: 51 }, (_, index) => historyTx(index + 1, false, []))
+      const client = Object.assign(
+        Object.create(QbitWalletMempoolClient.prototype),
+        statsOnlyClient(historyStats(0, 51), {
+          getAddressMempoolTxs: vi.fn().mockResolvedValue(pending),
+          getAddressHistory: vi.fn().mockResolvedValue({ confirmed: [], mempool: pending }),
+        })
+      )
+
+      await expect(observeQbitPqcSignatureActivity(client, address, scriptPubKey)).resolves.toEqual(
+        { observedSignatures: 0, hasActivity: true, floorSource: 'history' }
+      )
+      expect(client.getAddressHistory).toHaveBeenCalledTimes(1)
+    })
+
+    it('derives the same floor from the address statistics as from the enumerated history', async () => {
+      const fundingTx = historyTx(1, true, [])
+      const spendTx = historyTx(2, true, [scriptPubKey, scriptPubKey.toUpperCase(), '51'])
+      const laterSpendTx = historyTx(3, true, [scriptPubKey])
+      const pendingSpendTx = historyTx(4, false, [scriptPubKey])
+      const client = {
+        getTipHash: vi.fn().mockResolvedValue(tipHash),
+        getAddressStats: vi.fn().mockResolvedValue(historyStats(3, 1, 3, 1)),
+        getAddressMempoolTxs: vi.fn().mockResolvedValue([pendingSpendTx]),
+        getAddressHistory: vi.fn().mockResolvedValue({
+          confirmed: [laterSpendTx, spendTx, fundingTx],
+          mempool: [pendingSpendTx],
+        }),
+      }
+
+      const enumerated = await observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
+      // The same explorer, with a cap below the history forcing the stats read.
+      const fromStats = await observeQbitPqcSignatureActivity(
+        client as any,
+        address,
+        scriptPubKey,
+        {
+          maxHistoryTransactions: 1,
+        }
+      )
+
+      expect(enumerated).toEqual({
+        observedSignatures: 4,
+        hasActivity: true,
+        floorSource: 'history',
+      })
+      expect(fromStats).toEqual({ ...enumerated, floorSource: 'address-stats' })
+      expect(client.getAddressHistory).toHaveBeenCalledTimes(1)
+    })
+
+    it('never reads the statistics in place of a history that fails for another reason', async () => {
+      for (const failure of [
+        // A ceiling hit while the statistics say the history fits means the
+        // two disagree, and the statistics may be the stale side.
+        new QbitApiError(
+          'pagination_limit',
+          `esplora address history exceeded 4 pages: ${address}`
+        ),
+        new QbitApiError('http', `esplora returned 502 for ${address}`),
+        new QbitApiError('timeout', `esplora timed out for ${address}`),
+        new Error('qbit history exceeded its request budget'),
+      ]) {
+        const client = statsOnlyClient(historyStats(30, 0, 12), {
+          getAddressHistory: vi.fn().mockRejectedValue(failure),
+        })
+        await expect(
+          observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+            stabilityRetries: 2,
+            retryBaseDelayMs: 0,
+          })
+        ).rejects.toBe(failure)
+        expect(client.getAddressStats).toHaveBeenCalledTimes(1)
+      }
+
+      // A history that keeps moving stays unknown rather than falling back.
+      const moving = statsOnlyClient(undefined, {
+        getAddressStats: vi
+          .fn()
+          .mockResolvedValueOnce(historyStats(1, 0, 1))
+          .mockResolvedValue(historyStats(1, 1, 1)),
+        getAddressMempoolTxs: vi.fn().mockResolvedValue([]),
+        getAddressHistory: vi
+          .fn()
+          .mockResolvedValue({ confirmed: [historyTx(1, true)], mempool: [] }),
+      })
+      await expect(
+        observeQbitPqcSignatureActivity(moving as any, address, scriptPubKey)
+      ).rejects.toThrow(`qbit address history changed while scanning ${address}`)
+    })
+
+    it('fails closed on statistics that do not add up', async () => {
+      // A confirmed history at the cap, every output funded and spent once.
+      const chain = (values: Partial<Record<string, number>> = {}) => ({
+        tx_count: 7_000,
+        funded_txo_count: 7_000,
+        funded_txo_sum: 7_000,
+        spent_txo_count: 0,
+        spent_txo_sum: 0,
+        ...values,
+      })
+      const overspent = `qbit address ${address} stats spend more than it was paid`
+      const cases: [unknown, string][] = [
+        // Confirmed spends past confirmed funding, by count and by value.
+        [overLimitStats(chain({ spent_txo_count: 7_001, spent_txo_sum: 7_000 })), overspent],
+        [overLimitStats(chain({ spent_txo_count: 7_000, spent_txo_sum: 7_001 })), overspent],
+        // Pending spends that take the totals past everything paid.
+        [
+          overLimitStats(chain({ spent_txo_count: 7_000, spent_txo_sum: 7_000 }), {
+            tx_count: 1,
+            spent_txo_count: 1,
+            spent_txo_sum: 1,
+          }),
+          overspent,
+        ],
+        [
+          overLimitStats(chain(), {
+            tx_count: 1,
+            funded_txo_count: 1,
+            funded_txo_sum: 1,
+            spent_txo_count: 1,
+            spent_txo_sum: 7_002,
+          }),
+          overspent,
+        ],
+        // More transactions than outputs they pay or spend.
+        [
+          overLimitStats(chain({ funded_txo_count: 10, funded_txo_sum: 10 })),
+          `qbit address ${address} chain stats list more transactions than outputs it funded or spent`,
+        ],
+        [
+          overLimitStats(chain(), {
+            tx_count: 5,
+            funded_txo_count: 1,
+            funded_txo_sum: 1,
+            spent_txo_count: 1,
+            spent_txo_sum: 1,
+          }),
+          `qbit address ${address} mempool stats list more transactions than outputs it funded or spent`,
+        ],
+        [
+          overLimitStats(chain({ spent_txo_count: -1 })),
+          `invalid chain spent_txo_count for qbit address ${address}`,
+        ],
+        [
+          overLimitStats(chain({ spent_txo_count: 1.5, spent_txo_sum: 1 })),
+          `invalid chain spent_txo_count for qbit address ${address}`,
+        ],
+        [
+          overLimitStats(chain({ funded_txo_count: Number.MAX_SAFE_INTEGER }), {
+            tx_count: 1,
+            funded_txo_count: 1,
+            funded_txo_sum: 1,
+          }),
+          `invalid funded_txo_count of qbit address ${address}`,
+        ],
+      ]
+      for (const [stats, message] of cases) {
+        const client = statsOnlyClient(stats)
+        await expect(
+          observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+            stabilityRetries: 2,
+            retryBaseDelayMs: 0,
+          })
+        ).rejects.toThrow(message)
+      }
+
+      // A pending spend of a confirmed output is within funding.
+      const client = statsOnlyClient(
+        overLimitStats(chain({ funded_txo_sum: 70_000, spent_txo_count: 1, spent_txo_sum: 10 }), {
+          tx_count: 2,
+          spent_txo_count: 2,
+          spent_txo_sum: 20,
+        })
+      )
+      await expect(
+        observeQbitPqcSignatureActivity(client as any, address, scriptPubKey)
+      ).resolves.toEqual({ observedSignatures: 3, hasActivity: true, floorSource: 'address-stats' })
+    })
+
+    it('retries statistics that move during the read', async () => {
+      const over = (spent: number) =>
+        overLimitStats({
+          tx_count: 7_000,
+          funded_txo_count: 7_000,
+          funded_txo_sum: 7_000,
+          spent_txo_count: spent,
+          spent_txo_sum: spent,
+        })
+      const client = statsOnlyClient(undefined, {
+        getAddressStats: vi
+          .fn()
+          // The address moves between the cap check and the statistics read
+          // that continues it.
+          .mockResolvedValueOnce(over(12))
+          .mockResolvedValue(over(13)),
+      })
+
+      await expect(
+        observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+          stabilityRetries: 1,
+          retryBaseDelayMs: 0,
+        })
+      ).resolves.toEqual({
+        observedSignatures: 13,
+        hasActivity: true,
+        floorSource: 'address-stats',
+      })
+      expect(client.getAddressHistory).not.toHaveBeenCalled()
+
+      const unretried = statsOnlyClient(undefined, {
+        getAddressStats: vi.fn().mockResolvedValueOnce(over(12)).mockResolvedValue(over(13)),
+      })
+      await expect(
+        observeQbitPqcSignatureActivity(unretried as any, address, scriptPubKey)
+      ).rejects.toThrow(`qbit address statistics changed while reading ${address}`)
+    })
+
+    it('waits out the tip-advance settle floor before rereading the statistics', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = statsOnlyClient(historyStats(7_000, 0, 9), {
+          // A block lands between the cap check and the statistics read.
+          getTipHash: vi.fn().mockResolvedValueOnce(tipHash).mockResolvedValue('bb'.repeat(32)),
+        })
+        let settled = false
+        const observation = observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+          stabilityRetries: 1,
+          retryBaseDelayMs: 0,
+          tipAdvanceSettleMs: 10_000,
+        }).then(result => {
+          settled = true
+          return result
+        })
+
+        await vi.advanceTimersByTimeAsync(9_999)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(1)
+        await expect(observation).resolves.toEqual({
+          observedSignatures: 9,
+          hasActivity: true,
+          floorSource: 'address-stats',
+        })
+        expect(client.getAddressHistory).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('holds the settle floor when the statistics and the tip move together', async () => {
+      vi.useFakeTimers()
+      try {
+        const stats = (chainTxs: number, chainSpent: number, pendingSpent: number) =>
+          overLimitStats(
+            {
+              tx_count: chainTxs,
+              funded_txo_count: 7_000,
+              funded_txo_sum: 7_000,
+              spent_txo_count: chainSpent,
+              spent_txo_sum: chainSpent,
+            },
+            { tx_count: pendingSpent, spent_txo_count: pendingSpent, spent_txo_sum: pendingSpent }
+          )
+        // A pending spend confirms right after the cap check. The mempool
+        // statistics drop it at once; the confirmed index adds it only once
+        // the settle floor has passed.
+        const caughtUpAt = Date.now() + 10_000
+        let statsReads = 0
+        const client = statsOnlyClient(undefined, {
+          getTipHash: vi.fn().mockResolvedValueOnce(tipHash).mockResolvedValue('bb'.repeat(32)),
+          getAddressStats: vi.fn(async () => {
+            statsReads += 1
+            if (statsReads === 1) return stats(7_000, 12, 1)
+            return Date.now() >= caughtUpAt ? stats(7_001, 13, 0) : stats(7_000, 12, 0)
+          }),
+        })
+        let settled = false
+        const observation = observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+          stabilityRetries: 1,
+          retryBaseDelayMs: 0,
+          tipAdvanceSettleMs: 10_000,
+        }).then(result => {
+          settled = true
+          return result
+        })
+
+        await vi.advanceTimersByTimeAsync(9_999)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(1)
+        await expect(observation).resolves.toEqual({
+          observedSignatures: 13,
+          hasActivity: true,
+          floorSource: 'address-stats',
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('does not accept statistics the index has not caught up with after a block lands', async () => {
+      vi.useFakeTimers()
+      try {
+        const over = (spent: number) =>
+          overLimitStats({
+            tx_count: 7_000,
+            funded_txo_count: 7_000,
+            funded_txo_sum: 7_000,
+            spent_txo_count: spent,
+            spent_txo_sum: spent,
+          })
+        // A block with one more spend lands right after the cap check read the
+        // tip. The tip route reports it at once; the address index holds it
+        // only once the settle floor has passed.
+        const caughtUpAt = Date.now() + 10_000
+        const client = statsOnlyClient(undefined, {
+          getTipHash: vi.fn().mockResolvedValueOnce(tipHash).mockResolvedValue('bb'.repeat(32)),
+          getAddressStats: vi.fn(async () => (Date.now() >= caughtUpAt ? over(13) : over(12))),
+        })
+        let settled = false
+        const observation = observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+          stabilityRetries: 1,
+          retryBaseDelayMs: 0,
+          tipAdvanceSettleMs: 10_000,
+        }).then(result => {
+          settled = true
+          return result
+        })
+
+        await vi.advanceTimersByTimeAsync(9_999)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(1)
+        await expect(observation).resolves.toEqual({
+          observedSignatures: 13,
+          hasActivity: true,
+          floorSource: 'address-stats',
+        })
+        expect(client.getAddressHistory).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   it('rejects missing non-coinbase prevouts while counting qbit signatures', async () => {
@@ -606,7 +1070,7 @@ describe('qbit Esplora wallet adapters', () => {
         stabilityRetries: 1,
         retryBaseDelayMs: 0,
       })
-    ).resolves.toEqual({ observedSignatures: 2, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 2, hasActivity: true, floorSource: 'history' })
     expect(client.getTipHash).toHaveBeenCalledTimes(4)
     expect(client.getAddressHistory).toHaveBeenCalledTimes(2)
   })
@@ -638,8 +1102,173 @@ describe('qbit Esplora wallet adapters', () => {
       expect(client.getAddressHistory).toHaveBeenCalledTimes(1)
       expect(settled).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
-      await expect(observation).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+      await expect(observation).resolves.toEqual({
+        observedSignatures: 1,
+        hasActivity: true,
+        floorSource: 'history',
+      })
       expect(client.getAddressHistory).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds the settle floor when the history and the tip move together', async () => {
+    vi.useFakeTimers()
+    try {
+      // A pending spend confirms during the scan. The mempool drops it at
+      // once; the confirmed index adds it only once the settle floor has
+      // passed.
+      const confirmedSpend = historyTx(1, true)
+      const pendingSpend = historyTx(2, false)
+      const confirmedLater = { ...pendingSpend, status: { confirmed: true, block_height: 2 } }
+      const caughtUpAt = Date.now() + 10_000
+      let statsReads = 0
+      const client = {
+        getTipHash: vi.fn().mockResolvedValueOnce(tipHash).mockResolvedValue('bb'.repeat(32)),
+        getAddressStats: vi.fn(async () => {
+          statsReads += 1
+          if (statsReads === 1) return historyStats(1, 1, 1, 1)
+          return Date.now() >= caughtUpAt ? historyStats(2, 0, 2) : historyStats(1, 0, 1)
+        }),
+        getAddressMempoolTxs: vi.fn().mockResolvedValue([]),
+        getAddressHistory: vi.fn(async () =>
+          statsReads === 1
+            ? { confirmed: [confirmedSpend], mempool: [pendingSpend] }
+            : Date.now() >= caughtUpAt
+              ? { confirmed: [confirmedLater, confirmedSpend], mempool: [] }
+              : { confirmed: [confirmedSpend], mempool: [] }
+        ),
+      }
+      let settled = false
+      const observation = observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+        stabilityRetries: 1,
+        retryBaseDelayMs: 0,
+        tipAdvanceSettleMs: 10_000,
+      }).then(result => {
+        settled = true
+        return result
+      })
+
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(observation).resolves.toEqual({
+        observedSignatures: 2,
+        hasActivity: true,
+        floorSource: 'history',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds the settle floor for any instability that straddles a tip advance', async () => {
+    // A pending spend confirms during the scan, and the index holds its
+    // block only once the settle floor has passed. The first attempt sees it
+    // either as a history that no longer matches its statistics or as a
+    // shifted history page.
+    const confirmedSpend = historyTx(1, true)
+    const pendingSpend = historyTx(2, false)
+    const confirmedLater = { ...pendingSpend, status: { confirmed: true, block_height: 2 } }
+    const firstAttemptFailures: [string, () => unknown][] = [
+      ['count mismatch', () => ({ confirmed: [confirmedSpend], mempool: [] })],
+      [
+        'shifted page',
+        () => {
+          throw new QbitApiError(
+            'invalid_cursor',
+            `esplora address history cursor stopped advancing: (missing) (${address})`
+          )
+        },
+      ],
+    ]
+    for (const [, firstAttempt] of firstAttemptFailures) {
+      vi.useFakeTimers()
+      try {
+        const caughtUpAt = Date.now() + 10_000
+        let historyReads = 0
+        const client = {
+          getTipHash: vi.fn().mockResolvedValueOnce(tipHash).mockResolvedValue('bb'.repeat(32)),
+          getAddressStats: vi.fn(async () =>
+            historyReads === 0
+              ? historyStats(1, 1, 1, 1)
+              : Date.now() >= caughtUpAt
+                ? historyStats(2, 0, 2)
+                : historyStats(1, 0, 1)
+          ),
+          getAddressMempoolTxs: vi.fn().mockResolvedValue([]),
+          getAddressHistory: vi.fn(async () => {
+            historyReads += 1
+            if (historyReads === 1) return firstAttempt()
+            return Date.now() >= caughtUpAt
+              ? { confirmed: [confirmedLater, confirmedSpend], mempool: [] }
+              : { confirmed: [confirmedSpend], mempool: [] }
+          }),
+        }
+        let settled = false
+        const observation = observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+          stabilityRetries: 1,
+          retryBaseDelayMs: 0,
+          tipAdvanceSettleMs: 10_000,
+        }).then(result => {
+          settled = true
+          return result
+        })
+
+        await vi.advanceTimersByTimeAsync(9_999)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(1)
+        await expect(observation).resolves.toEqual({
+          observedSignatures: 2,
+          hasActivity: true,
+          floorSource: 'history',
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  })
+
+  it('holds the settle floor when the tip cannot be read after an unstable attempt', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = {
+        // The attempt's own two tip reads, then the one after it failed.
+        getTipHash: vi
+          .fn()
+          .mockResolvedValueOnce(tipHash)
+          .mockResolvedValueOnce(tipHash)
+          .mockRejectedValueOnce(new Error('tip unavailable'))
+          .mockResolvedValue(tipHash),
+        getAddressStats: vi
+          .fn()
+          .mockResolvedValueOnce(historyStats(1, 0, 1))
+          .mockResolvedValueOnce(historyStats(1, 1, 1))
+          .mockResolvedValue(historyStats(1, 0, 1)),
+        getAddressMempoolTxs: vi.fn().mockResolvedValue([]),
+        getAddressHistory: vi
+          .fn()
+          .mockResolvedValue({ confirmed: [historyTx(1, true)], mempool: [] }),
+      }
+      let settled = false
+      const observation = observeQbitPqcSignatureActivity(client as any, address, scriptPubKey, {
+        stabilityRetries: 1,
+        retryBaseDelayMs: 0,
+        tipAdvanceSettleMs: 10_000,
+      }).then(result => {
+        settled = true
+        return result
+      })
+
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(observation).resolves.toEqual({
+        observedSignatures: 1,
+        hasActivity: true,
+        floorSource: 'history',
+      })
     } finally {
       vi.useRealTimers()
     }
@@ -666,7 +1295,7 @@ describe('qbit Esplora wallet adapters', () => {
           retryBaseDelayMs: 0,
           tipAdvanceSettleMs: 10_000,
         })
-      ).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+      ).resolves.toEqual({ observedSignatures: 1, hasActivity: true, floorSource: 'history' })
       expect(client.getAddressHistory).toHaveBeenCalledTimes(2)
       expect(setTimeoutSpy).not.toHaveBeenCalled()
     } finally {
@@ -756,7 +1385,7 @@ describe('qbit Esplora wallet adapters', () => {
         stabilityRetries: 3,
         retryBaseDelayMs: 0,
       })
-    ).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 1, hasActivity: true, floorSource: 'history' })
     expect(client.getAddressHistory).toHaveBeenCalledTimes(4)
   })
 
@@ -819,7 +1448,7 @@ describe('qbit Esplora wallet adapters', () => {
         stabilityRetries: 1,
         retryBaseDelayMs: 0,
       })
-    ).resolves.toEqual({ observedSignatures: 0, hasActivity: false })
+    ).resolves.toEqual({ observedSignatures: 0, hasActivity: false, floorSource: 'history' })
     expect(client.getAddressHistory).toHaveBeenCalledTimes(2)
   })
 
@@ -857,7 +1486,7 @@ describe('qbit Esplora wallet adapters', () => {
         stabilityRetries: 1,
         retryBaseDelayMs: 0,
       })
-    ).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 1, hasActivity: true, floorSource: 'history' })
     expect(retried.getAddressHistory).toHaveBeenCalledTimes(2)
 
     // Other explorer failures are not pagination churn and are never retried.
@@ -1303,13 +1932,14 @@ describe('qbit Esplora wallet adapters', () => {
       getTx: vi.fn(),
     })
 
-    it('reports the statistics total as unavailable instead of failing the balance', async () => {
+    it('reports the statistics total with its split unknown instead of failing the balance', async () => {
+      // Unknown is null, never a measured 0 (#341).
       await expect(getQbitSpendableBalanceV2(clientFor(501) as any, address)).resolves.toEqual({
-        availableBalance: 0,
+        availableBalance: null,
         unavailableBalance: 501_000,
         totalBalance: 501_000,
-        immatureBalance: 0,
-        pendingBalance: 0,
+        immatureBalance: null,
+        pendingBalance: null,
         utxoLimitExceeded: true,
       })
     })
@@ -1509,6 +2139,8 @@ describe('qbit Esplora wallet adapters', () => {
                 txid: '78'.repeat(32),
                 vin: [ownInput(10_000 - mempoolSats)],
                 vout: [{ scriptpubkey: scriptPubKey, value: 10_000 }],
+                size: 3_860,
+                weight: 3_860,
                 status: { confirmed: false },
               }
         ),
@@ -1575,6 +2207,8 @@ describe('qbit Esplora wallet adapters', () => {
           txid,
           vin: txs[txid]!.vin,
           vout: [{ scriptpubkey: scriptPubKey, value: txs[txid]!.value }],
+          size: 3_860,
+          weight: 3_860,
           status: txs[txid]!.status ?? { confirmed: txid === confirmedTxid },
         })),
       }
@@ -1618,15 +2252,22 @@ describe('qbit Esplora wallet adapters', () => {
     const foreignScript = `5220${'98'.repeat(32)}`
     const txidAt = (index: number) => index.toString(16).padStart(2, '0').repeat(32)
 
-    /** Unconfirmed `txids[i]` spends output 0 of `txids[i - 1]`; the first spends `root`. */
+    /**
+     * Unconfirmed `txids[i]` spends output 0 of `txids[i - 1]`; the first
+     * spends `root`. Each is 3,860 vB plus its index.
+     */
     function chainClient(length: number, root = confirmedOwnParentTxid) {
       const txids = Array.from({ length }, (_, index) => txidAt(index + 16))
-      const byTxid = new Map<string, unknown>([[confirmedOwnParentTxid, confirmedOwnParent]])
+      const byTxid = new Map<string, Record<string, unknown>>([
+        [confirmedOwnParentTxid, confirmedOwnParent],
+      ])
       txids.forEach((txid, index) => {
         byTxid.set(txid, {
           txid,
           vin: [ownInput(10_000, index === 0 ? root : txids[index - 1])],
           vout: [{ scriptpubkey: scriptPubKey, value: 9_000 }],
+          size: 3_860 + index,
+          weight: 3_860 + index,
           status: { confirmed: false },
         })
       })
@@ -1654,6 +2295,8 @@ describe('qbit Esplora wallet adapters', () => {
       // Someone else's unconfirmed payment to this script, which its payer can replace.
       byTxid.set('fa'.repeat(32), {
         txid: 'fa'.repeat(32),
+        size: 3_860,
+        weight: 3_860,
         vin: [
           {
             txid: 'fb'.repeat(32),
@@ -1681,6 +2324,45 @@ describe('qbit Esplora wallet adapters', () => {
       // The walk stops at the limit instead of fetching the whole chain.
       expect(tooLong.client.getTx.mock.calls.length).toBeLessThanOrEqual(26)
     })
+
+    it('carries each change output’s unconfirmed transactions and their sizes (#345)', async () => {
+      const { client, byTxid, tip } = chainClient(3)
+      // The size counts; a weight computed with a scale factor of 4 does not.
+      byTxid.get(txidAt(17))!.size = 3_900
+      byTxid.get(txidAt(17))!.weight = 4 * 3_900
+
+      await expect(getQbitAddressUtxos(client as any, address)).resolves.toEqual([
+        expect.objectContaining({
+          txid: tip,
+          unconfirmed: true,
+          unconfirmedAncestors: [
+            { txid: tip, vsize: 3_862 },
+            { txid: txidAt(17), vsize: 3_900 },
+            { txid: txidAt(16), vsize: 3_860 },
+          ],
+        }),
+      ])
+      const classified = await getQbitAddressUtxosClassified(client as any, address)
+      expect(classified.unconfirmedOwnChange[0]?.unconfirmedAncestors).toHaveLength(3)
+      // Confirmed ancestors never count against the package.
+      expect(classified.unconfirmedOwnChange[0]?.unconfirmedAncestors).not.toContainEqual(
+        expect.objectContaining({ txid: confirmedOwnParentTxid })
+      )
+    })
+
+    it.each([
+      ['the change’s own transaction', 18, { size: undefined }],
+      ['an ancestor', 16, { size: 0 }],
+      ['an ancestor', 17, { size: 3_860.5 }],
+      ['an ancestor', 16, { size: '3860' }],
+    ])(
+      'leaves out change when the explorer does not size %s (#345)',
+      async (_name, index, fields) => {
+        const { client, byTxid } = chainClient(3)
+        Object.assign(byTxid.get(txidAt(index))!, fields)
+        await expect(getQbitAddressUtxos(client as any, address)).resolves.toEqual([])
+      }
+    )
 
     it('leaves out change whose ancestor the explorer no longer has or describes malformed', async () => {
       const missing = chainClient(2)
@@ -1733,6 +2415,8 @@ describe('qbit Esplora wallet adapters', () => {
             txid,
             vin: [ownInput(10_000, index === 0 ? confirmedOwnParentTxid : txids[index - 1])],
             vout: [{ scriptpubkey: scriptPubKey, value: 9_000 }],
+            size: 3_860,
+            weight: 3_860,
             status: { confirmed: false },
           })
         })

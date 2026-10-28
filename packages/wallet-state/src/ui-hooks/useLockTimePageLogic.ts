@@ -30,6 +30,7 @@ export function useLockTimePageLogic() {
       }, 300)
     } catch (error) {
       console.error('Failed to set lock time:', error)
+      tools.toastError((error as Error)?.message || t('unknown_error'))
     } finally {
       setLoading(false)
     }

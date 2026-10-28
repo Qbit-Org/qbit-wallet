@@ -73,6 +73,42 @@ describe('Qbit provider session events', () => {
     ])
   })
 
+  it('scopes chain-change account events to each grant and drops a page that cannot be reached', async () => {
+    const { sessionService } = await import('../src/services/session')
+    const mainnet = sessionService.getOrCreateSession(1) as any
+    const testnet = sessionService.getOrCreateSession(2) as any
+    const closed = sessionService.getOrCreateSession(3) as any
+    mainnet.setProp({ origin: 'https://mainnet.example', name: 'Mainnet', icon: '' })
+    testnet.setProp({ origin: 'https://testnet.example', name: 'Testnet', icon: '' })
+    closed.setProp({ origin: 'https://testnet.example', name: 'Testnet', icon: '' })
+    mainnet.pushMessage = vi.fn()
+    testnet.pushMessage = vi.fn()
+    closed.pushMessage = vi.fn(() => {
+      throw new Error('port closed')
+    })
+
+    sessionService.broadcastChainChange({
+      previousChain: ChainType.QBIT_TESTNET4,
+      chain: ChainType.QBIT_MAINNET,
+      network: 'mainnet',
+      accounts: ['qb1zmainnet'],
+    })
+
+    expect(mainnet.pushMessage.mock.calls).toEqual([
+      ['chainChanged', ChainType.QBIT_MAINNET],
+      ['networkChanged', 'mainnet'],
+      ['accountsChanged', ['qb1zmainnet']],
+    ])
+    expect(testnet.pushMessage.mock.calls).toEqual([
+      ['accountsChanged', []],
+      ['chainChanged', ChainType.QBIT_MAINNET],
+      ['networkChanged', 'mainnet'],
+    ])
+    expect(closed.pushMessage).toHaveBeenCalledOnce()
+    expect(sessionService.getSession(3)).toBeUndefined()
+    expect(sessionService.getSession(2)).toBe(testnet)
+  })
+
   it('resolves a tab to its newest provider session after an older port disconnects', async () => {
     const { sessionService } = await import('../src/services/session')
     const firstPort = {}

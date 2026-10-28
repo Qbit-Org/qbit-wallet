@@ -182,6 +182,7 @@ describe('getUiControllerMethod', () => {
         'performRemoveKeyring',
         'signP2mrMessage',
         'setSite',
+        'switchProviderChain',
         'resetAllData',
         'runForUiPort',
         'emit',

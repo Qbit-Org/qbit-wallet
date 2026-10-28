@@ -1,31 +1,43 @@
 import log from 'loglevel'
 
-import { classifyWebsiteOrigin, normalizeHostname } from '@qbit/phishing-detect'
-import { PHISHING_PAGE_PROBE, PhishingMessageType, PlatformEnv } from '@qbit/wallet-shared'
+import { normalizeHostname, parseDnrDomain } from '@qbit/phishing-detect'
+import {
+  PHISHING_PAGE_PROBE,
+  PhishingMessageType,
+  type PhishingNetworkRuleHealth,
+  PlatformEnv,
+} from '@qbit/wallet-shared'
 import { phishingDetectService as phishingService } from 'src/services'
 
+import { initialNetworkRuleHealth, PhishingBlockRule } from './phishing-block-rule'
+import {
+  PHISHING_WARNING_REDIRECT_PRIORITY,
+  PhishingWarningRedirect,
+} from './phishing-warning-redirect'
 import { isExtensionPageSender } from './ui-access'
 
-// Messages that lift or reload protection. Only the wallet's own pages may
-// send them; a content script must not whitelist the page it runs in. The
-// ADD_TO_WHITELIST and FORCE_RELOAD_PHISHING_LISTS names have no handler yet
-// and are listed so that adding one cannot skip this check.
+// Messages that lift, reload or report on protection. Only the wallet's own
+// pages may send them; a content script must not whitelist the page it runs
+// in, or learn whether the network layer is down. The ADD_TO_WHITELIST and
+// FORCE_RELOAD_PHISHING_LISTS names have no handler yet and are listed so that
+// adding one cannot skip this check.
 const EXTENSION_PAGE_MESSAGES: ReadonlySet<string> = new Set([
   PhishingMessageType.SKIP_PHISHING_PROTECTION,
   PhishingMessageType.ADD_TO_WHITELIST,
   PhishingMessageType.FORCE_UPDATE_PHISHING_LIST,
   PhishingMessageType.FORCE_RELOAD_PHISHING_LISTS,
+  PhishingMessageType.GET_PHISHING_STATS,
 ])
 
-// MV3 enforces the denylist with one dynamic DNR `block` rule. Unlike a
-// `redirect` rule, it needs no host permission for the blocked hosts, which the
-// store manifest does not grant. Proceed adds a session `allow` rule for one
-// host's top-level pages that outranks the block rule until the browser
-// session ends. Frames from that host stay blocked, so other sites cannot
-// embed it once the user has proceeded.
-const PHISHING_BLOCK_RULE_ID = 1
-const PHISHING_BLOCK_RULE_PRIORITY = 1
-const PHISHING_PROCEED_RULE_PRIORITY = 2
+// MV3 enforces the denylist with one dynamic DNR `block` rule, which needs no
+// host permission. Above it, a session `redirect` rule sends top-level pages,
+// however the tab got there, to the warning page; it fires only with host
+// access to the blocked hosts, so it is in place only while the user has not
+// withheld that access (PhishingWarningRedirect). Proceed adds a session
+// `allow` rule for one host's top-level pages that outranks both until the
+// browser session ends. Frames from that host stay blocked, so other sites
+// cannot embed it once the user has proceeded.
+const PHISHING_PROCEED_RULE_PRIORITY = PHISHING_WARNING_REDIRECT_PRIORITY + 1
 
 // How long a tab sent to the warning page has to finish loading before the
 // worker stops watching it.
@@ -44,19 +56,6 @@ type RuntimeWithContexts = typeof chrome.runtime & {
 
 function hasGetContexts(runtime: typeof chrome.runtime): runtime is RuntimeWithContexts {
   return typeof (runtime as Partial<RuntimeWithContexts>).getContexts === 'function'
-}
-
-function createPhishingBlockRule(domains: string[]): chrome.declarativeNetRequest.Rule {
-  const { ResourceType, RuleActionType } = chrome.declarativeNetRequest
-  return {
-    id: PHISHING_BLOCK_RULE_ID,
-    priority: PHISHING_BLOCK_RULE_PRIORITY,
-    action: { type: RuleActionType.BLOCK },
-    condition: {
-      requestDomains: domains,
-      resourceTypes: [ResourceType.MAIN_FRAME, ResourceType.SUB_FRAME],
-    },
-  }
 }
 
 function createProceedRule(id: number, hostname: string): chrome.declarativeNetRequest.Rule {
@@ -85,22 +84,16 @@ function proceedRuleHostname(rule: chrome.declarativeNetRequest.Rule): string | 
 /**
  * Returns a denylisted host in the form a DNR rule may name it: a well-formed
  * public hostname covered by the bundled denylist. DNR rejects a rule whose
- * domains are not canonical hostnames, so only these go into the block rule or
- * get lifted by Proceed. Never use it to decide whether a page is denylisted:
- * that is `phishingService.isDenylisted`, which also covers names such as
- * `a_b.<entry>` (#335).
+ * domains are not canonical hostnames, so only these get lifted by Proceed.
+ * The block rule needs only the form check, as its domains are the denylist
+ * entries themselves; a Proceed hostname comes from a message. Never use it
+ * to decide whether a page is denylisted: that is
+ * `phishingService.isDenylisted`, which also covers names such as `a_b.<entry>`
+ * (#335).
  */
 function toDnrDomain(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const hostname = normalizeHostname(value)
-  if (!hostname) return undefined
-
-  const origin = classifyWebsiteOrigin(`https://${hostname}`)
-  return origin.kind === 'public' &&
-    origin.hostname === hostname &&
-    phishingService.isDenylisted(hostname)
-    ? hostname
-    : undefined
+  const result = parseDnrDomain(value)
+  return result.ok && phishingService.isDenylisted(result.domain) ? result.domain : undefined
 }
 
 /** The blocked page's URL, kept for Proceed only when it is http(s) on the warned host. */
@@ -193,6 +186,12 @@ class PhishingController {
   private sessionRuleUpdates: Promise<unknown> = Promise.resolve()
   // The latest redirect to the warning page per tab, until its outcome is checked.
   private readonly warningRedirects = new Map<number, WarningRedirect>()
+  private readonly blockRule = new PhishingBlockRule(
+    () => phishingService.getConfig().blacklist ?? []
+  )
+  private readonly warningRedirect = new PhishingWarningRedirect(
+    () => phishingService.getConfig().blacklist ?? []
+  )
 
   /**
    * Initialize phishing protection features
@@ -354,16 +353,19 @@ class PhishingController {
         }
 
         case PhishingMessageType.FORCE_UPDATE_PHISHING_LIST: {
-          phishingService
-            .forceUpdate()
+          // Also installs the block rule again, and fails while it is not in place.
+          this.forceUpdate()
             .then(() => sendResponse({ success: true }))
             .catch(error => sendResponse({ error: String(error) }))
           return true
         }
 
         case PhishingMessageType.GET_PHISHING_STATS: {
-          sendResponse({ stats: phishingService.getConfig() })
-          return false
+          this.getNetworkRuleHealth().then(
+            networkRules => sendResponse({ stats: phishingService.getConfig(), networkRules }),
+            () => sendResponse({ error: 'Internal error processing request' })
+          )
+          return true
         }
 
         case PhishingMessageType.CHECK_NAVIGATION: {
@@ -557,24 +559,24 @@ class PhishingController {
     }
 
     // Initialize declarative rules when extension loads
-    this.initDeclarativeRules()
+    this.warningRedirect.start()
+    void this.initDeclarativeRules()
   }
 
   /**
    * Initialize declarative network request rules for phishing protection
-   * Creates initial rule set based on current phishing list
+   * Creates initial rule set based on current phishing list. A failure is
+   * retried in the background and shows in getNetworkRuleHealth().
    */
   public async initDeclarativeRules(): Promise<void> {
-    try {
-      await this.updateDeclarativeRules()
-    } catch (error) {
-      log.error('[Phishing] Failed to initialize declarative rules:', error)
-    }
+    if (!this.hasDeclarativeNetRequest()) return
+    await this.blockRule.install()
   }
 
   /**
    * Replace the dynamic rules with one block rule for the bundled denylist
-   * Only applicable for MV3 extensions
+   * Only applicable for MV3 extensions. Rejects when the rule is not in place
+   * after the first attempt; retries continue in the background.
    */
   public async updateDeclarativeRules(): Promise<void> {
     if (!this.hasDeclarativeNetRequest()) {
@@ -582,36 +584,21 @@ class PhishingController {
       return
     }
 
-    try {
-      // DNR rejects the whole rule if one domain is not a canonical hostname.
-      const accepted = new Set<string>()
-      const skipped: string[] = []
-      for (const entry of phishingService.getConfig().blacklist ?? []) {
-        const domain = toDnrDomain(entry)
-        if (domain) accepted.add(domain)
-        else skipped.push(entry)
-      }
-      const domains = [...accepted]
-
-      if (skipped.length) {
-        log.warn('[Phishing] Denylist entries left out of the block rule:', skipped)
-      }
-      if (!domains.length) {
-        log.warn('[Phishing] No blacklisted domains available for rules')
-      }
-
-      // One call swaps out every earlier rule, including the redirect rules
-      // older releases installed, so protection never lapses in between.
-      const existingRules = await chrome.declarativeNetRequest.getDynamicRules()
-      await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: existingRules.map(rule => rule.id),
-        addRules: domains.length ? [createPhishingBlockRule(domains)] : [],
-      })
-
-      log.debug(`[Phishing] Updated MV3 block rule for ${domains.length} domains`)
-    } catch (error) {
-      log.error('[Phishing] Failed to update declarative rules:', error)
+    const health = await this.blockRule.install()
+    if (health.status !== 'installed') {
+      throw new Error(`Phishing block rule not installed: ${health.error ?? health.status}`)
     }
+  }
+
+  /**
+   * Whether the DNR block rule is in place, for diagnostics. Without DNR the
+   * content script is the only layer, and the status is `unsupported`.
+   */
+  public async getNetworkRuleHealth(): Promise<PhishingNetworkRuleHealth> {
+    if (!this.hasDeclarativeNetRequest()) {
+      return initialNetworkRuleHealth('unsupported')
+    }
+    return this.blockRule.getHealth()
   }
 
   /**
@@ -622,7 +609,13 @@ class PhishingController {
       await phishingService.forceUpdate()
 
       if (this.hasDeclarativeNetRequest()) {
-        await this.updateDeclarativeRules()
+        // Never rejects; the block rule's outcome decides this one.
+        const redirectSynced = this.warningRedirect.sync()
+        try {
+          await this.updateDeclarativeRules()
+        } finally {
+          await redirectSynced
+        }
       }
 
       log.debug('[Phishing] Bundled rules reapplied successfully')

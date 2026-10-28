@@ -32,7 +32,7 @@ export interface WalletContextType {
   isInitialized: boolean
   /** Open wallet selection modal */
   connect: () => void
-  /** Disconnect current wallet */
+  /** Disconnect the current wallet and revoke this page's grant in it. */
   disconnect: () => Promise<void>
   /** Sign a single PSBT */
   signPsbt: (psbt: string) => Promise<string>
@@ -88,7 +88,10 @@ export interface WalletProviderConfig {
   onConnectError?: OnConnectError
   /** Callback when account changes */
   onAccountChange?: OnAccountChange
-  /** Whether to disconnect when the wallet network changes. Defaults to false. */
+  /**
+   * Whether to clear the page's connection state when the wallet network
+   * changes. The page's grant in the wallet is kept. Defaults to false.
+   */
   disconnectOnNetworkChange?: boolean
   /** Function to validate address type (default: P2WPKH or Taproot) */
   validateAddress?: ValidateAddress

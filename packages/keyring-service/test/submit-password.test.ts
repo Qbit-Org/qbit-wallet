@@ -393,7 +393,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
       await hold.started
 
       // A pre-lock operation's final persist lands while the unlock rebuilds.
-      const persist = track(service.persistAllKeyrings())
+      const persist = track(service.persistAllKeyrings([]))
       await drainTasks()
       expect(persist.settled).toBe(false)
       expect(durableKeyringCount(storage)).toBe(2)
@@ -422,7 +422,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
 
       expect(service.keyrings).toBe(liveKeyrings)
       expect(service.addressTypes).toBe(liveAddressTypes)
-      const persist = track(service.persistAllKeyrings())
+      const persist = track(service.persistAllKeyrings([]))
       await drainTasks()
       expect(persist.settled).toBe(false)
 
@@ -445,9 +445,9 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     // An in-flight write holds the persistence queue and a second one (for
     // example a floor scan's final persist) waits behind it across a lock.
     const heldWrite = storage.holdNextKeyringStateWrite()
-    const firstPersist = service.persistAllKeyrings()
+    const firstPersist = service.persistAllKeyrings([])
     await heldWrite.started
-    const queuedPersist = service.persistAllKeyrings().then(
+    const queuedPersist = service.persistAllKeyrings([]).then(
       () => 'persisted',
       (error: Error) => error.message
     )
@@ -473,7 +473,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     service.keyrings[0]!.addAccounts(1)
     const hold = holdNextSerialize(service.keyrings[0]!)
 
-    const persist = service.persistAllKeyrings()
+    const persist = service.persistAllKeyrings([])
     await hold.started
     await service.setLocked()
     hold.release()
@@ -488,7 +488,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     const { service, storage } = await createUnlockedWallet()
     const hold = holdNextSerialize(service.keyrings[0]!)
 
-    const persist = service.persistAllKeyrings()
+    const persist = service.persistAllKeyrings([])
     await hold.started
     await service.resetAllData()
     hold.release()
@@ -538,7 +538,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     const heldVerify = encryptor.holdNextDecrypt('booted')
     const secondUnlock = service.submitPassword('password', { beforeUnlock })
     await heldVerify.started
-    await expect(service.persistAllKeyrings()).resolves.toBe(true)
+    await expect(service.persistAllKeyrings([])).resolves.toBe(true)
     expect(durableKeyringCount(storage)).toBe(2)
 
     heldVerify.release()
@@ -628,7 +628,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     // The write passed its password check and serialized the new account
     // before the lock, and is still encrypting when the next unlock starts.
     const heldEncrypt = encryptor.holdNextVaultEncrypt()
-    const persist = service.persistAllKeyrings()
+    const persist = service.persistAllKeyrings([])
     await heldEncrypt.started
     await service.setLocked()
 
@@ -641,7 +641,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     await expect(unlock).resolves.toMatchObject({ isUnlocked: true })
     await expect(service.keyrings[0]!.getAccounts()).resolves.toHaveLength(2)
 
-    await service.persistAllKeyrings()
+    await service.persistAllKeyrings([])
     const reopened = await reopenWallet(storage)
     await expect(reopened.keyrings[0]!.getAccounts()).resolves.toHaveLength(2)
   })
@@ -660,7 +660,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     // The keyrings are live while the upgrade re-encrypts the vault it read;
     // a write derives an account in that window.
     service.keyrings[0]!.addAccounts(1)
-    const persist = service.persistAllKeyrings()
+    const persist = service.persistAllKeyrings([])
     heldUpgrade.release()
 
     await expect(unlock).resolves.toMatchObject({ isUnlocked: true })
@@ -678,7 +678,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     await expect(service.submitPassword('password')).resolves.toMatchObject({ isUnlocked: true })
     expect(service.keyrings).toHaveLength(2)
     expect(service.memStore.getState().keyrings).toHaveLength(2)
-    await service.persistAllKeyrings()
+    await service.persistAllKeyrings([])
     expect(durableKeyringCount(storage)).toBe(2)
   })
 
@@ -707,7 +707,7 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     expect(service.password).toBeNull()
     expect(service.keyrings).toEqual([])
     expect(service.memStore.getState()).toMatchObject({ isUnlocked: false, keyrings: [] })
-    await expect(service.persistAllKeyrings()).rejects.toThrow(
+    await expect(service.persistAllKeyrings([])).rejects.toThrow(
       'keyringcontroller_password_is_not_a_string'
     )
     expect(durableKeyringCount(storage)).toBe(2)

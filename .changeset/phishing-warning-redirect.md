@@ -1,0 +1,10 @@
+---
+'@qbit/wallet-background': patch
+'@qbit/phishing-detect': minor
+---
+
+Show the wallet's phishing warning, with Proceed, for a top-level navigation to a denylisted host however the tab got there, including a redirect or link wrapper (#348). Before, only a link the content script saw first led to the warning; a same-site 302, `t.co`, a mail safe-link, a typed URL or a bookmark ended on the browser's generic blocked page (`ERR_BLOCKED_BY_CLIENT`). `PhishingController` now keeps a session DNR `redirect` rule, above the block rule and below Proceed's allow rules, that sends such a navigation to the web-accessible `phishing-warning.html` with the blocked URL in its fragment; that page validates the URL and replaces itself with the warning screen. A redirect fires only with host access, so the rule is in place only while `chrome.permissions.contains` reports access to every denylisted domain: it is removed when the user withholds site access, added back when access returns, checked again at each service-worker start and forced list update, and a failed update is retried after 1, 4 and 15 seconds, then every minute while the service worker runs, up to ten attempts per change, or for as long as a removal fails. The block rule stays for frames and as the fallback. Proceed's allow rules now take priority 3. `hasOnlyKeys` and `sameMembers` are shared from `phishing-block-rule.ts`.
+
+The extension's MV3 manifest requests `*://*.<entry>/*` for each bundled denylist domain, generated at build and pinned by the package policy, and lists `phishing-warning.html` as web-accessible under a per-session dynamic URL only. The content script's `<all_urls>` match already brings the all-sites install warning, so these add no new one. The warning screen offers no Proceed when it names no site.
+
+In `@qbit/phishing-detect`, `dnrHostPermissions()` is new. It returns the host permission patterns (`*://*.<domain>/*`, or the exact address for an IP) that cover DNR domains and their subdomains, which the manifest declares and the background checks.

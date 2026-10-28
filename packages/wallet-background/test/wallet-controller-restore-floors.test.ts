@@ -365,7 +365,7 @@ describe('WalletController qbit restore with floors', () => {
         addresses: { mainnet: 'qb1qmainnetaddr' },
         scriptPubKey: `5220${'22'.repeat(32)}`,
       })
-    ).resolves.toEqual({ observedSignatures: 4, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 4, hasActivity: true, floorSource: 'history' })
     expect(observeQbitPqcSignatureActivity).toHaveBeenCalledWith(
       expect.anything(),
       'qb1qmainnetaddr',
@@ -403,7 +403,7 @@ describe('WalletController qbit restore with floors', () => {
         },
         scriptPubKey: `5220${'33'.repeat(32)}`,
       })
-    ).resolves.toEqual({ observedSignatures: 6, hasActivity: true })
+    ).resolves.toEqual({ observedSignatures: 6, hasActivity: true, floorSource: 'history' })
 
     expect(observeQbitPqcSignatureActivity).toHaveBeenNthCalledWith(
       1,
@@ -418,6 +418,63 @@ describe('WalletController qbit restore with floors', () => {
       'bcrt1qregtestaddr',
       `5220${'33'.repeat(32)}`,
       { stabilityRetries: 4, retryBaseDelayMs: 1_000, tipAdvanceSettleMs: 10_000 }
+    )
+  })
+
+  it('reports which read set each scanned account floor', async () => {
+    const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
+    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_TESTNET4)
+    vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async (_client, address) =>
+      address === 'bcrt1qregtestaddr'
+        ? { observedSignatures: 2, hasActivity: true, floorSource: 'address-stats' }
+        : { observedSignatures: 4, hasActivity: true, floorSource: 'history' }
+    )
+    ;(keyringService.keyrings as any[]).push(pendingQbitKeyring('pubkey-a'))
+    let capturedObserve: ((account: any) => Promise<any>) | undefined
+    vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
+      async (_address, observe) => {
+        capturedObserve = observe as any
+        return {
+          floors: [
+            {
+              pubkey: 'pubkey-a',
+              observedCounter: 4,
+              newCounter: 4,
+              counterProvenance: 'restored-floor',
+            },
+            {
+              pubkey: 'pubkey-d',
+              observedCounter: 6,
+              newCounter: 6,
+              counterProvenance: 'restored-floor',
+            },
+          ],
+          floorSources: [
+            { index: 0, pubkey: 'pubkey-a', source: 'history' },
+            { index: 3, pubkey: 'pubkey-d', source: 'address-stats' },
+          ],
+          gapIndexesWithActivity: [],
+          possibleConcurrentInstance: false,
+        } as any
+      }
+    )
+
+    const summary = await controller.runQbitRestoreFloorScan()
+    expect(summary.floorSources).toEqual([
+      { index: 0, pubkey: 'pubkey-a', source: 'history' },
+      { index: 3, pubkey: 'pubkey-d', source: 'address-stats' },
+    ])
+
+    // One network read from statistics marks the account's whole floor.
+    await expect(
+      capturedObserve!({
+        index: 3,
+        addresses: { testnet4: 'tb1qtestnetaddr', regtest: 'bcrt1qregtestaddr' },
+        scriptPubKey: `5220${'33'.repeat(32)}`,
+      })
+    ).resolves.toEqual({ observedSignatures: 6, hasActivity: true, floorSource: 'address-stats' })
+    expect(log.warn).toHaveBeenCalledWith(
+      'qbit restore floor for account 3 on regtest read from address statistics: its history is too long to enumerate'
     )
   })
 
@@ -450,10 +507,12 @@ describe('WalletController qbit restore with floors', () => {
     await expect(capturedObserve!(account)).resolves.toEqual({
       observedSignatures: 4,
       hasActivity: true,
+      floorSource: 'history',
     })
     await expect(capturedObserve!(account)).resolves.toEqual({
       observedSignatures: 4,
       hasActivity: true,
+      floorSource: 'history',
     })
 
     expect(observeQbitPqcSignatureActivity).toHaveBeenCalledTimes(3)

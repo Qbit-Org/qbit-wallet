@@ -125,6 +125,32 @@ describe('PhishingController message sender checks', () => {
     }
   )
 
+  it('reports that the content script is the only layer without DNR', async () => {
+    await expect(send({ type: PhishingMessageType.GET_PHISHING_STATS }, warningPage)).resolves.toEqual({
+      stats: { blacklist: [], whitelist: [] },
+      networkRules: {
+        status: 'unsupported',
+        attempts: 0,
+        blockedDomains: null,
+        skippedEntries: [],
+        updatedAt: expect.any(Number),
+      },
+    })
+  })
+
+  it('does not let a content script read whether the network layer is down', async () => {
+    await expect(send({ type: PhishingMessageType.GET_PHISHING_STATS }, contentScript)).resolves.toEqual({
+      error: 'Unauthorized sender',
+    })
+  })
+
+  it('installs no network rule without DNR', async () => {
+    await expect(phishingController.initDeclarativeRules()).resolves.toBeUndefined()
+    await expect(phishingController.getNetworkRuleHealth()).resolves.toMatchObject({
+      status: 'unsupported',
+    })
+  })
+
   it('still answers phishing checks from content scripts', async () => {
     await expect(
       send({ type: PhishingMessageType.CHECK_PHISHING, hostname: 'evil.example' }, contentScript)

@@ -186,6 +186,7 @@ function completedReport() {
       accountsScanned: 2,
       totalObservedSignatures: 2,
       restoredFloorCount: 2,
+      floorSources: [],
       gapIndexesWithActivity: [],
       possibleConcurrentInstance: false
     }

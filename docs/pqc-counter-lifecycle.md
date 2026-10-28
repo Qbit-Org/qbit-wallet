@@ -40,9 +40,40 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   scratch; a retry caused by a tip advance additionally waits out
   `tipAdvanceSettleMs` (10 s in the restore controller, covering an electrs
   5 s block poll plus indexing) so it does not read the address before the
-  index holds the block. Retrying per address keeps one churning address from
-  restarting the whole scan, and the cap keeps an endlessly churning mempool
-  from hanging it.
+  index holds the block. The wait applies to any unstable attempt during
+  which the tip advanced, however the instability showed (moved statistics,
+  a count mismatch, a shifted history page): a pending spend can leave the
+  mempool before the index holds the block that confirmed it. A tip that
+  cannot be read after the failure counts as advanced. Retrying per address
+  keeps one churning address from restarting the whole scan, and the cap
+  keeps an endlessly churning mempool from hanging it.
+- The full read covers at most 6,400 transactions per address, with a page
+  budget (257 by default) that lets an Esplora walk reach that cap. When the
+  address statistics show a history the read does not enumerate, the address
+  takes its floor from those statistics instead. That covers a history past
+  the cap, and, on an Esplora surface, more pending transactions than its
+  mempool listing returns (50; mempool-qbit pages them). The floor is
+  `chain_stats.spent_txo_count + mempool_stats.spent_txo_count`: one signature
+  by its key for each of its outputs spent so far. The full read accepts a
+  floor only when its own count equals that sum, so both reads trust the same
+  explorer and agree wherever both can run. The statistics read keeps the
+  tip-and-stats bracket, the per-address retries and the tip-advance settle
+  wait. It continues the bracket the cap check opened, so a block that lands
+  meanwhile still holds the retry for the settle floor. It fails closed on
+  invalid statistics, on statistics that list more transactions than outputs
+  they fund or spend, and on statistics that spend more outputs or value than
+  the address was paid. Every other failure of the full read still fails the
+  observation and leaves the gate closed: an outage, a malformed row, a
+  history that keeps moving, or a walk that hits the client's page or
+  transaction ceiling (`pagination_limit`) while the statistics say the
+  history fits. In that last case the two disagree, and the statistics may be
+  the stale side. The restore report lists which read set each account's floor
+  (`floorSources`) and names the accounts read from statistics. Spender
+  evidence for recovery migration (`observeQbitPqcSpentOutpoints`) still needs
+  the full history.
+- Until a scan completes, signing stays locked and receiving is unaffected.
+  The password-gated P2MR descriptor export (`exportP2mrDescriptors`) is the
+  only other way to the funds, through Qbit Core.
 - While `pqcFloorsPending` is set, `assertPqcSignatureCounterAvailable` and
   `reservePqcSignatureCounter` throw `QbitPqcFloorsPendingError`
   (`code: 'PQC_FLOORS_PENDING'`): a restored wallet cannot sign until its
@@ -63,7 +94,8 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   resolves with `floorScanPending: true` instead of rejecting a creation that
   already happened; the gate stays closed until a deferred scan completes.
 - Floors are minimums: message signatures and never-broadcast transactions are
-  invisible on-chain. The restore report warns about stale backups
+  invisible on-chain, so neither the full history read nor the statistics
+  read can count them. The restore report warns about stale backups
   accordingly.
 - The durable warning, exact-request signing challenge, fresh-seed migration,
   and archived-source resume semantics are specified in

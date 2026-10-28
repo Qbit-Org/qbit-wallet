@@ -5,7 +5,7 @@ export { useEditWalletNameScreenLogic } from './useEditWalletNameScreenLogic'
 export { useFeeRateBarLogic } from './useFeeRateBarLogic'
 export { useLockTimePageLogic } from './useLockTimePageLogic'
 export { useNotificationsLogic, useUnreadNotificationsCount } from './useNotificationsLogic'
-export { useTxCreateScreenLogic } from './useTxCreateScreenLogic'
+export { useTxCreateScreenLogic, type TxCreateSpendSummary } from './useTxCreateScreenLogic'
 export { useQbitConsolidationScreenLogic } from './useQbitConsolidationScreenLogic'
 
 export { useCreateWalletLogicImportWordsStep } from './useCreateWalletLogicImportWordsStep'
@@ -38,6 +38,7 @@ export { useTxSuccessScreenLogic } from './useTxSuccessScreenLogic'
 export {
   useActionOverviewSectionLogic,
   type ActionOverviewSectionProps,
+  type ActionOverviewSpend,
 } from './useActionOverviewSectionLogic'
 export { useSettingsTabScreenLogic, type SettingsItemType } from './useSettingsTabScreenLogic'
 
