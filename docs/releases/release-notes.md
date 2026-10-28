@@ -147,6 +147,10 @@
 
 ### Known limitations
 
+- For a transaction a website asks the wallet to sign that also spends coins
+  not held at the wallet's own addresses, the fee rate is an estimate and can
+  be shown lower than it is, so the fee warning and its confirmation may not
+  appear. The fee and the amount leaving the wallet, shown first, are exact.
 - If the wallet's site access in Chrome is set to "On click" or "On specific
   sites", a denylisted page can load while the wallet's phishing block rule
   is not installed, or while the wallet cannot remove its redirect rule.
