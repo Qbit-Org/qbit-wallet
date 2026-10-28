@@ -51,6 +51,38 @@ describe('PhishingScreen', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it.each(['a_b.phish.example', '-x.phish.example', 'x-.phish.example', 'phish.example:8443', 'phïsh.example'])(
+    'offers no Proceed for %s, which the background cannot lift, and says why',
+    (hostname) => {
+      const sendMessage = renderWarning(
+        { error: 'Invalid hostname parameter' },
+        `/phishing?hostname=${encodeURIComponent(hostname)}&href=${encodeURIComponent(`https://${hostname}/claim`)}`
+      );
+
+      expect(screen.getByText(hostname)).toBeTruthy();
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(screen.getByText('continue_to_unavailable_hostname')).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(sendMessage).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['phish.example', 'WWW.Phish.Example.'])(
+    'offers Proceed for %s, which the background can lift',
+    (hostname) => {
+      renderWarning({ success: true }, `/phishing?hostname=${encodeURIComponent(hostname)}`);
+
+      expect(screen.getByRole('button', { name: new RegExp(hostname.replace(/\./g, '\\.')) })).toBeTruthy();
+      expect(screen.queryByText('continue_to_unavailable_hostname')).toBeNull();
+    }
+  );
+
+  it('does not say a site cannot be opened when the warning names none', () => {
+    renderWarning({ success: true }, '/phishing');
+
+    expect(screen.queryByText('continue_to_unavailable_hostname')).toBeNull();
+  });
+
   it('does not report a failure once the block is lifted', async () => {
     const sendMessage = renderWarning({ success: true });
 

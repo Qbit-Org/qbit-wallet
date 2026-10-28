@@ -5,6 +5,10 @@ import {
   PHISHING_PAGE_PROBE,
   PhishingMessageType,
   type PhishingNetworkRuleHealth,
+  type PhishingProtectionHealth,
+  type PhishingProtectionReason,
+  type PhishingStatsResponse,
+  type PhishingWarningRedirectHealth,
   PlatformEnv,
 } from '@qbit/wallet-shared'
 import { phishingDetectService as phishingService } from 'src/services'
@@ -107,6 +111,38 @@ function blockedPageHref(url: unknown, hostname: string): string {
       : ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * Whether the network layer stops every denylisted page it names, from the
+ * health of both rules. A part that could not be read makes it `unknown`,
+ * never `full`.
+ */
+function summarizeProtection(
+  networkRules: PhishingNetworkRuleHealth,
+  warningRedirect: PhishingWarningRedirectHealth
+): PhishingProtectionHealth {
+  const degraded: PhishingProtectionReason[] = []
+  const unknown: PhishingProtectionReason[] = []
+  if (networkRules.status === 'unknown') unknown.push('block-rule-unknown')
+  else if (networkRules.status !== 'installed') degraded.push('block-rule-not-installed')
+
+  // A redirect rule that does not fire still outranks the block rule.
+  if (warningRedirect.status === 'removing' || warningRedirect.status === 'removal-failed') {
+    degraded.push('redirect-rule-without-host-access')
+  } else if (warningRedirect.status === 'unknown') {
+    unknown.push('redirect-rule-unknown')
+  }
+  // Nor does the content script's hold run where site access is withheld.
+  if (degraded.includes('block-rule-not-installed') && warningRedirect.hostAccess === false) {
+    degraded.push('site-access-withheld')
+  }
+
+  return {
+    status: degraded.length ? 'degraded' : unknown.length ? 'unknown' : 'full',
+    reasons: [...degraded, ...unknown],
+    warningRedirect,
   }
 }
 
@@ -361,10 +397,17 @@ class PhishingController {
         }
 
         case PhishingMessageType.GET_PHISHING_STATS: {
-          this.getNetworkRuleHealth().then(
-            networkRules => sendResponse({ stats: phishingService.getConfig(), networkRules }),
-            () => sendResponse({ error: 'Internal error processing request' })
-          )
+          this.getNetworkRuleHealth()
+            .then(async networkRules => {
+              const protection = await this.getProtectionHealth(networkRules)
+              const response: PhishingStatsResponse = {
+                stats: phishingService.getConfig(),
+                networkRules,
+                ...(protection && { protection }),
+              }
+              return response
+            })
+            .then(sendResponse, () => sendResponse({ error: 'Internal error processing request' }))
           return true
         }
 
@@ -389,9 +432,15 @@ class PhishingController {
           }
 
           const tabId = sender.tab?.id
+          const newTab = message.newTab === true
           return this.respondAfterRestore(sendResponse, async () => {
             const isPhishing = phishingService.checkPhishing(url.hostname).isPhishing
             if (!isPhishing || !tabId) return { isPhishing, redirected: false }
+            // The link opens a new tab or window. Where the redirect rule
+            // shows the warning there, the sender's tab keeps its page.
+            if (newTab && (await this.isCoveredByWarningRedirect(url.hostname))) {
+              return { isPhishing, redirected: false, leftToRedirectRule: true }
+            }
 
             try {
               const href = blockedPageHref(message.url, url.hostname)
@@ -599,6 +648,28 @@ class PhishingController {
       return initialNetworkRuleHealth('unsupported')
     }
     return this.blockRule.getHealth()
+  }
+
+  /**
+   * Whether the network layer as a whole stops denylisted pages, given the
+   * block rule's health, with the warning redirect rule's state read back
+   * from the browser. Undefined without DNR, where the content script is the
+   * only layer.
+   */
+  public async getProtectionHealth(
+    networkRules: PhishingNetworkRuleHealth
+  ): Promise<PhishingProtectionHealth | undefined> {
+    if (!this.hasDeclarativeNetRequest()) return undefined
+    return summarizeProtection(networkRules, await this.warningRedirect.getHealth())
+  }
+
+  /**
+   * Whether the warning redirect rule is in place, with host access, for the
+   * host, so that a top-level navigation to it shows the warning in whichever
+   * tab it happens. False when that is not confirmed.
+   */
+  private async isCoveredByWarningRedirect(hostname: string): Promise<boolean> {
+    return this.hasDeclarativeNetRequest() && this.warningRedirect.covers(hostname)
   }
 
   /**

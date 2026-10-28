@@ -506,6 +506,9 @@
   "continue_to": {
     "message": "へ進む"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "このサイトはここから開けません。アドレスが有効なドメイン名ではありません。"
+  },
   "copied": {
     "message": "コピーしました"
   },

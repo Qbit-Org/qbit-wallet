@@ -1,10 +1,22 @@
 import log from 'loglevel'
 
-import { dnrHostPermissions, partitionDnrDomains } from '@qbit/phishing-detect'
+import { dnrHostPermissions, parseDnrDomain, partitionDnrDomains } from '@qbit/phishing-detect'
+import type {
+  PhishingWarningRedirectHealth,
+  PhishingWarningRedirectStatus,
+} from '@qbit/wallet-shared'
 
 import { hasOnlyKeys, PHISHING_BLOCK_RULE_PRIORITY, sameMembers } from './phishing-block-rule'
 
 type Rule = chrome.declarativeNetRequest.Rule
+
+/** The latest run's last failed update, until one of its attempts succeeds. */
+interface RedirectFailure {
+  readonly error: string
+  /** Whether the update had to remove a rule that may still be in place. */
+  readonly removal: boolean
+  readonly nextRetryAt?: number
+}
 
 /**
  * Outranks the block rule for top-level pages, and is outranked by the allow
@@ -82,6 +94,16 @@ async function hasHostAccess(domains: readonly string[]): Promise<boolean | 'unk
   }
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function readRedirectRule(): Promise<Rule | undefined> {
+  return (await chrome.declarativeNetRequest.getSessionRules()).find(
+    rule => rule.id === PHISHING_WARNING_REDIRECT_RULE_ID
+  )
+}
+
 /**
  * Keeps a session DNR `redirect` rule that sends a top-level navigation to a
  * denylisted host, however it got there (a link, a typed URL or a redirect
@@ -91,6 +113,8 @@ async function hasHostAccess(domains: readonly string[]): Promise<boolean | 'unk
  * denylisted domain, which the user can withhold in the browser's site access
  * settings. Without it the block rule decides alone, and the browser shows its
  * blocked page. Every change of the permissions brings the rule in line again.
+ * Its health tells whether a rule that does not fire may still be in place,
+ * outranking the block rule, while its removal is pending or failing.
  */
 export class PhishingWarningRedirect {
   // Serializes updates, so each one reads the permissions and rules that the
@@ -100,6 +124,7 @@ export class PhishingWarningRedirect {
   // Each trigger starts a new run with its own attempts; only the latest run
   // schedules a retry.
   private latestRun = 0
+  private failure: RedirectFailure | undefined
   private started = false
 
   constructor(private readonly listEntries: () => Iterable<unknown>) {}
@@ -126,29 +151,47 @@ export class PhishingWarningRedirect {
   sync(): Promise<void> {
     clearTimeout(this.retryTimer)
     this.retryTimer = undefined
+    this.failure = undefined
     return this.attempt(++this.latestRun, 1)
   }
 
   private attempt(run: number, attempt: number): Promise<void> {
-    const outcome = { removing: false }
-    const update = this.queue.then(() => this.apply(outcome))
-    this.queue = update.catch(() => undefined)
-    return update.catch(error => {
-      log.error(
-        `[Phishing] Failed to update the warning redirect rule (attempt ${attempt}):`,
-        error
-      )
-      const delay =
-        REDIRECT_RETRY_DELAYS_MS[attempt - 1] ??
-        (attempt < REDIRECT_MAX_ATTEMPTS || outcome.removing
-          ? REDIRECT_LATER_RETRY_DELAY_MS
-          : undefined)
-      if (delay === undefined || run !== this.latestRun) return
-      this.retryTimer = setTimeout(() => {
-        this.retryTimer = undefined
-        void this.attempt(run, attempt + 1)
-      }, delay)
+    // Settles within the queue, so that a health read queued after it sees
+    // its outcome.
+    return this.enqueue(async () => {
+      const outcome = { removing: false }
+      try {
+        await this.apply(outcome)
+        if (run === this.latestRun) this.failure = undefined
+      } catch (error) {
+        log.error(
+          `[Phishing] Failed to update the warning redirect rule (attempt ${attempt}):`,
+          error
+        )
+        const delay =
+          REDIRECT_RETRY_DELAYS_MS[attempt - 1] ??
+          (attempt < REDIRECT_MAX_ATTEMPTS || outcome.removing
+            ? REDIRECT_LATER_RETRY_DELAY_MS
+            : undefined)
+        if (run !== this.latestRun) return
+        this.failure = {
+          error: errorMessage(error),
+          removal: outcome.removing,
+          ...(delay !== undefined && { nextRetryAt: Date.now() + delay }),
+        }
+        if (delay === undefined) return
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = undefined
+          void this.attempt(run, attempt + 1)
+        }, delay)
+      }
     })
+  }
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(task)
+    this.queue = result.catch(() => undefined)
+    return result
   }
 
   /**
@@ -164,9 +207,7 @@ export class PhishingWarningRedirect {
     // Until the rules are read, one may be in place.
     outcome.removing = !wanted
 
-    const current = (await chrome.declarativeNetRequest.getSessionRules()).find(
-      rule => rule.id === PHISHING_WARNING_REDIRECT_RULE_ID
-    )
+    const current = await readRedirectRule()
     outcome.removing = !wanted && !!current
     if (wanted ? !current || !isWantedRule(current, wanted) : current) {
       // One call swaps the rule, so a changed one never lapses in between.
@@ -182,5 +223,67 @@ export class PhishingWarningRedirect {
       )
     }
     if (access === 'unknown') throw new Error('Host access to the denylist is unknown')
+  }
+
+  /**
+   * The rule's state, read from the browser rather than assumed: whether a
+   * rule is in place, and whether it may be, given host access now. A rule
+   * found in place without that access while no attempt is scheduled, as
+   * after a permission change the worker missed, is removed from now on.
+   */
+  getHealth(): Promise<PhishingWarningRedirectHealth> {
+    return this.enqueue(async () => {
+      const { domains } = partitionDnrDomains(this.listEntries())
+      const hostAccess = domains.length ? await hasHostAccess(domains) : false
+      const measured = (
+        status: PhishingWarningRedirectStatus,
+        failure?: { error: string; nextRetryAt?: number }
+      ): PhishingWarningRedirectHealth => ({
+        status,
+        hostAccess,
+        ...(failure && { error: failure.error }),
+        ...(failure?.nextRetryAt !== undefined && { nextRetryAt: failure.nextRetryAt }),
+        updatedAt: Date.now(),
+      })
+
+      let current: Rule | undefined
+      try {
+        current = await readRedirectRule()
+      } catch (error) {
+        return measured('unknown', { error: errorMessage(error) })
+      }
+      if (hostAccess === true) {
+        return current && isWantedRule(current, createRedirectRule(domains))
+          ? measured('installed')
+          : measured('missing', this.failure)
+      }
+      if (!current) return measured('not-wanted')
+
+      // A rule without confirmed access may outrank the block rule.
+      if (this.retryTimer === undefined) void this.sync()
+      if (hostAccess === 'unknown') return measured('unknown', this.failure)
+      return measured(this.failure?.removal ? 'removal-failed' : 'removing', this.failure)
+    })
+  }
+
+  /**
+   * Whether the rule is in place, with host access, for this hostname: a
+   * canonical one that the rule names, or a subdomain of one it names. A
+   * top-level navigation to it then ends on the warning page in whichever tab
+   * it happens. Anything not confirmed, including a failed read, is false.
+   */
+  covers(hostname: string): Promise<boolean> {
+    return this.enqueue(async () => {
+      const parsed = parseDnrDomain(hostname)
+      if (!parsed.ok || parsed.domain !== hostname) return false
+      const { domains } = partitionDnrDomains(this.listEntries())
+      if (!domains.length || (await hasHostAccess(domains)) !== true) return false
+      const current = await readRedirectRule()
+      if (!current || !isWantedRule(current, createRedirectRule(domains))) return false
+      return domains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`))
+    }).catch(error => {
+      log.error('[Phishing] Failed to check the warning redirect rule:', error)
+      return false
+    })
   }
 }

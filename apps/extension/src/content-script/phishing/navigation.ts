@@ -28,15 +28,21 @@ let pageHides = 0;
 
 /**
  * Ask the background to check a link. On a phishing verdict the background
- * sends this tab to the warning page. The callback gets undefined when the
- * background could not be asked.
+ * sends this tab to the warning page, unless the link opens a new tab
+ * (`newTab`) where the warning redirect rule shows it. The callback gets
+ * undefined when the background could not be asked.
  */
-function sendNavigationCheck(url: string, callback?: (response: NavigationCheckResponse) => void): void {
+function sendNavigationCheck(
+  url: string,
+  callback?: (response: NavigationCheckResponse) => void,
+  newTab = false
+): void {
   try {
     chrome.runtime.sendMessage(
       {
         type: PhishingMessageType.CHECK_NAVIGATION,
-        url
+        url,
+        ...(newTab && { newTab })
       },
       (response?: NavigationCheckResponse) => {
         callback?.(chrome.runtime.lastError ? undefined : response);
@@ -132,6 +138,19 @@ function opensInThisTab(e: MouseEvent, link: Element): boolean {
 }
 
 /**
+ * Whether the browser opens the link in a new tab or window: a Ctrl-, Cmd- or
+ * Shift-click, or the `_blank` target. Not an Alt-click, which downloads it,
+ * nor a target that may name a frame of this page.
+ */
+function opensNewTab(e: MouseEvent, link: Element): boolean {
+  if (window !== window.top || e.button !== 0 || e.altKey) return false;
+  if (e.ctrlKey || e.metaKey || e.shiftKey) return true;
+
+  const target = link.getAttribute('target') ?? document.querySelector('base[target]')?.getAttribute('target') ?? '';
+  return target.trim().toLowerCase() === '_blank';
+}
+
+/**
  * Follows a link the click handler cancelled, with its rel and referrer
  * policy. The click on a detached anchor reaches no listener on the page.
  */
@@ -203,9 +222,11 @@ function handleClick(e: MouseEvent): void {
     return;
   }
 
-  // A link that opens another tab or window, which the block rule stops
-  // there: the background sends this tab to the warning page.
-  sendNavigationCheck(url);
+  // A link that opens another tab or window. While the warning redirect rule
+  // is in place, it shows the warning in a new tab, and the background leaves
+  // this tab alone. Otherwise the block rule stops the link there, and the
+  // background sends this tab to the warning page.
+  sendNavigationCheck(url, undefined, !!link && opensNewTab(e, link.element));
 }
 
 /**

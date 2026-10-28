@@ -506,6 +506,9 @@
   "continue_to": {
     "message": "Continuar a"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "Este sitio no se puede abrir desde aquí: su dirección no es un nombre de dominio válido."
+  },
   "copied": {
     "message": "Copiado"
   },

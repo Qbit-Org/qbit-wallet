@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { parseDnrDomain } from '@qbit/phishing-detect';
 import { FEEDBACK_URL } from '@qbit/wallet-shared';
 import { useI18n } from '@qbit/wallet-state';
 
@@ -14,9 +15,12 @@ const PhishingScreen = () => {
   const href = searchParams.get('href');
   const { t } = useI18n();
   const [proceedFailed, setProceedFailed] = useState(false);
+  // The background lifts the block only for a hostname a DNR rule can name,
+  // checked the same way, so Proceed is offered for no other.
+  const canProceed = !!hostname && parseDnrDomain(hostname).ok;
 
   const handleProceed = async () => {
-    if (!hostname) return;
+    if (!hostname || !canProceed) return;
     setProceedFailed(false);
 
     // The background lifts the block for this host for the rest of the browser
@@ -78,7 +82,7 @@ const PhishingScreen = () => {
             {t('think_this_is_a_false_positive_click_here_to_report_an_issue')}
           </a>
           {/* Without a site, as for a malformed blocked URL, there is nothing to proceed to. */}
-          {hostname && (
+          {canProceed && (
             <p className="phishing-proceed-text">
               {t('if_you_insist_on_continuing_proceed_at_your_own_risk')}
               <button onClick={handleProceed} className="phishing-proceed-button">
@@ -86,6 +90,7 @@ const PhishingScreen = () => {
               </button>
             </p>
           )}
+          {hostname && !canProceed && <p className="phishing-proceed-text">{t('continue_to_unavailable_hostname')}</p>}
           {proceedFailed && (
             <p className="phishing-proceed-error" role="alert">
               {t('unknown_error')}
