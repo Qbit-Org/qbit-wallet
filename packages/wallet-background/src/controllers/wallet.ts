@@ -5,6 +5,7 @@ import { getWebsiteSafetyWarning } from '@qbit/phishing-detect'
 import {
   P2MR_LEAF_VERSION_V1,
   PQC_SIGNATURE_BYTES,
+  PSBT_IN_FINAL_SCRIPTWITNESS,
   QbitProtocolError,
   buildControlBlock,
   bytesToHex as qbitBytesToHex,
@@ -74,7 +75,9 @@ import {
   PsbtActionDetailType,
   PsbtActionInfo,
   PsbtActionType,
+  QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
   QBIT_P2MR_DUST,
+  QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
   QbitFeeBumpDetails,
   QbitFeeBumpEligibility,
   QbitFeeBumpUnavailableReason,
@@ -132,6 +135,7 @@ import {
   qbitP2mrInputFee,
   qbitP2mrInputsDominateFee,
   qbitP2mrMaxStandardInputCount,
+  qbitWitnessStackLength,
   sanitizeQbitBroadcastDetail,
   selectQbitP2mrSendAllCoins,
   selectQbitP2mrSendCoins,
@@ -272,7 +276,8 @@ import BaseController from './base'
 
 /**
  * Exact finalized vsize of a single-key P2MR PSBT (every input spends the
- * same leaf), sized from its first leaf script.
+ * same leaf), sized from its first leaf script. Only for PSBTs the wallet
+ * built: a review sizes a PSBT with `qbitPsbtReviewVsize`.
  */
 function qbitP2mrFinalizedVsize(summary: ReturnType<typeof decodeQbitPsbt>): number {
   const firstLeafScript = summary.inputs.find(input => input.leafScripts.length > 0)?.leafScripts[0]
@@ -282,6 +287,41 @@ function qbitP2mrFinalizedVsize(summary: ReturnType<typeof decodeQbitPsbt>): num
     leafScriptLength: firstLeafScript?.script.length ?? 34,
     controlBlockLength: firstLeafScript?.controlBlock.length ?? 1,
   }).vsize
+}
+
+/**
+ * Witness of a single-key spend through a zero-depth leaf, the smallest a
+ * signed v1 `pk` or `multi_a` leaf finalizes to.
+ */
+const QBIT_P2MR_SINGLE_KEY_WITNESS_BYTES = qbitWitnessStackLength([
+  QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
+  34,
+  QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
+])
+
+/**
+ * Finalized vsize a PSBT review rates its fee by. The website supplies every
+ * leaf record and final witness of its PSBT, and a signature commits to
+ * neither the control block it is revealed with nor the witness of another
+ * input, so the transaction broadcast need not carry the witnesses the PSBT
+ * lists (#59). Each input is therefore sized as a single-key spend through a
+ * zero-depth leaf, or by its final witness when that is smaller. The size
+ * errs only small, which can raise the rate shown but never lower it.
+ */
+function qbitPsbtReviewVsize(psbt: QbitPsbt, summary: ReturnType<typeof decodeQbitPsbt>): number {
+  const singleKeyVsize = estimateQbitP2mrTransaction({
+    inputCount: summary.inputs.length,
+    outputScriptLengths: summary.outputs.map(output => output.scriptPubKey.length),
+    leafScriptLength: 34,
+    controlBlockLength: QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
+  }).vsize
+  return summary.inputs.reduce((vsize, input, inputIndex) => {
+    if (!input.finalized) return vsize
+    const finalWitness = psbt.inputs[inputIndex]!.find(
+      entry => entry.key.length === 1 && entry.key[0] === PSBT_IN_FINAL_SCRIPTWITNESS
+    )!.value
+    return vsize + Math.min(0, finalWitness.length - QBIT_P2MR_SINGLE_KEY_WITNESS_BYTES)
+  }, singleKeyVsize)
 }
 
 /**
@@ -8244,7 +8284,7 @@ export class WalletController extends BaseController {
     const psbt = qbitPsbtFromHex(psbtHex)
     const summary = decodeQbitPsbt(psbt)
     const fee = Number(summary.fee ?? 0n)
-    const finalTxVBytes = qbitP2mrFinalizedVsize(summary)
+    const finalTxVBytes = qbitPsbtReviewVsize(psbt, summary)
 
     const inputInfos = summary.inputs.map(input => {
       const witnessUtxo = input.witnessUtxo
