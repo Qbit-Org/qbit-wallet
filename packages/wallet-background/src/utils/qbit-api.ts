@@ -1044,9 +1044,8 @@ async function qbitTipAdvanceSettledError(
  * retry for `tipAdvanceSettleMs`. The read continues from the `anchor` the
  * history read began with. Statistics that spend more than the address was
  * paid, or list more outputs than their transactions can carry, fail the
- * read. So does a floor at or above `PQC_WARNING_SIGNATURE_THRESHOLD`: no
- * path lowers a floor, and one that an explorer inflated would keep the
- * account from signing until the wallet is restored again.
+ * read, as does a floor at the warning threshold
+ * (`assertQbitStatsFloorBelowWarningThreshold`).
  */
 async function observeQbitPqcStatsFloor(
   client: QbitPqcHistoryClient,
@@ -1060,11 +1059,7 @@ async function observeQbitPqcStatsFloor(
     [statsBefore.chain_stats.spent_txo_count, statsBefore.mempool_stats.spent_txo_count],
     `spent output count of ${address}`
   )
-  if (observedSignatures >= PQC_WARNING_SIGNATURE_THRESHOLD) {
-    throw new Error(
-      `qbit address ${address} stats claim ${observedSignatures} signatures, at or above the ${PQC_WARNING_SIGNATURE_THRESHOLD}-signature warning threshold`
-    )
-  }
+  assertQbitStatsFloorBelowWarningThreshold(observedSignatures, `qbit address ${address} stats`)
   const statsAfter = await client.getAddressStats(address)
   assertValidQbitStats(statsAfter, address)
   const tipHashAfter = await client.getTipHash()
@@ -1084,6 +1079,23 @@ async function observeQbitPqcStatsFloor(
     observedSignatures,
     hasActivity: qbitStatsHaveActivity(statsBefore),
     floorSource: 'address-stats',
+  }
+}
+
+/**
+ * Refuses a floor read in whole or in part from address statistics once it
+ * reaches `PQC_WARNING_SIGNATURE_THRESHOLD`: no path lowers a floor, and one
+ * that an explorer inflated would keep the account from signing until the
+ * wallet is restored again. `subject` names what claims the floor.
+ */
+export function assertQbitStatsFloorBelowWarningThreshold(
+  observedSignatures: number,
+  subject: string
+): void {
+  if (observedSignatures >= PQC_WARNING_SIGNATURE_THRESHOLD) {
+    throw new Error(
+      `${subject} claim ${observedSignatures} signatures, at or above the ${PQC_WARNING_SIGNATURE_THRESHOLD}-signature warning threshold`
+    )
   }
 }
 

@@ -179,6 +179,7 @@ import {
   type QbitBroadcastErrorClassification,
 } from '../utils/qbit-broadcast'
 import {
+  assertQbitStatsFloorBelowWarningThreshold,
   classifyQbitProtectedAssetCoverage,
   continueQbitAddressOutputScan,
   createQbitAddressOutputScan,
@@ -2070,15 +2071,24 @@ export class WalletController extends BaseController {
       if (!Number.isSafeInteger(observedSignatures)) {
         throw new Error('qbit signature activity exceeds the safe counter range')
       }
+      const floorSource = activity.some(observation => observation.floorSource === 'address-stats')
+        ? 'address-stats'
+        : 'history'
+      // The sum is the floor the keyring applies, so statistics floors that
+      // each stay below the warning threshold must not reach it together.
+      if (floorSource === 'address-stats') {
+        assertQbitStatsFloorBelowWarningThreshold(
+          observedSignatures,
+          `qbit account ${account.index} floors summed across networks`
+        )
+      }
       return {
         // Testnet4 and regtest share a derivation path and therefore a PQC
         // counter. Summing is conservative if the same spend appears on both
         // chains: over-advancing a counter is safe, while under-advancing is not.
         observedSignatures,
         hasActivity: activity.some(observation => observation.hasActivity),
-        floorSource: activity.some(observation => observation.floorSource === 'address-stats')
-          ? 'address-stats'
-          : 'history',
+        floorSource,
       }
     }
   }

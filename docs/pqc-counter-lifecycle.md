@@ -105,7 +105,9 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   transaction fits in the 2,000,000-byte block, so it carries at most 46,511
   outputs paying a P2MR address and 536 inputs spending one), and a floor at
   or above the warning threshold (`PQC_WARNING_SIGNATURE_THRESHOLD`, 2^28
-  signatures). Either refusal fails the scan like any other, so the gate
+  signatures). The threshold also applies to the floor summed across
+  testnet4 and regtest, which share a counter, when either was read from
+  statistics. Either refusal fails the scan like any other, so the gate
   stays closed and the scan can be retried.
 - The durable warning, exact-request signing challenge, fresh-seed migration,
   and archived-source resume semantics are specified in
