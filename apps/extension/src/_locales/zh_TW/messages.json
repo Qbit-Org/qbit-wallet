@@ -1934,6 +1934,21 @@
   "start_merging": {
     "message": "開始合併"
   },
+  "startup_error_title": {
+    "message": "Qbit Wallet 無法啟動"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet 無法讀取已儲存的設定，因此在未變更設定的情況下停止。"
+  },
+  "startup_error_unknown": {
+    "message": "Qbit Wallet 啟動時發生錯誤。"
+  },
+  "startup_error_retry": {
+    "message": "重試"
+  },
+  "startup_error_retry_hint": {
+    "message": "重試會重新啟動錢包。此視窗可能會關閉，之後請再次開啟 Qbit Wallet。"
+  },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "竊取您的私鑰或助記詞"
   },

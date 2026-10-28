@@ -34,13 +34,29 @@ import storage from '../utils/storage';
 
 export const AppInitEvent = new EventEmitter();
 
+/**
+ * The browser's storage could not be read, so the stored settings are unknown,
+ * not absent. Start-up stops rather than writing defaults over them.
+ */
+export class StoredSettingsReadError extends Error {
+  constructor(cause: unknown) {
+    super('Stored settings could not be read');
+    this.name = 'StoredSettingsReadError';
+    (this as { cause?: unknown }).cause = cause;
+  }
+}
+
 class ExtensionStorageAdapter extends BaseProxyStorageAdapter {
   constructor(private storage) {
     super();
   }
 
   async get(key: string): Promise<any> {
-    return this.storage.get(key);
+    try {
+      return await this.storage.get(key);
+    } catch (error) {
+      throw new StoredSettingsReadError(error);
+    }
   }
 
   async set(key: string, value: any): Promise<void> {
@@ -172,7 +188,24 @@ export async function restoreAppState() {
     walletController.setBackgroundInited(true);
   } catch (err) {
     console.error('[Background] Initialization failed', err);
+    // In memory only: a failed start-up writes nothing to storage.
+    walletController.setBackgroundStartupFailed(startupFailureReason(err));
   }
+}
+
+// Services may wrap the read error (wallet-storage's loadStored does), so look
+// through the causes as well.
+function startupFailureReason(error: unknown): 'stored-settings-unreadable' | 'unknown' {
+  const seen = new Set<unknown>();
+  for (
+    let current: unknown = error;
+    current instanceof Error && !seen.has(current);
+    current = (current as { cause?: unknown }).cause
+  ) {
+    if (current instanceof StoredSettingsReadError) return 'stored-settings-unreadable';
+    seen.add(current);
+  }
+  return 'unknown';
 }
 
 export function isAppStateRestored(): boolean {

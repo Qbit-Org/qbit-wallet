@@ -97,6 +97,12 @@ export interface WalletController {
 
   setBackgroundInited(value: boolean): Promise<void>
   getBackgroundInited(): Promise<boolean>
+  /** Whether background start-up is still running, has finished, or has stopped and why. */
+  getBackgroundStartupStatus(): Promise<
+    | { state: 'starting' }
+    | { state: 'ready' }
+    | { state: 'failed'; reason: 'stored-settings-unreadable' | 'unknown' }
+  >
 
   getDesc: () => string
   boot(password: string): Promise<void>

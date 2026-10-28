@@ -774,12 +774,35 @@ export class WalletController extends BaseController {
   }
 
   private backgroundInited = false
+  private backgroundStartupFailure: 'stored-settings-unreadable' | 'unknown' | undefined
 
   setBackgroundInited = async (value: boolean) => {
     this.backgroundInited = value
   }
   getBackgroundInited = async () => {
     return this.backgroundInited
+  }
+  /**
+   * Record why start-up stopped. Start-up runs once per worker start, so the
+   * failure stands until the worker restarts.
+   */
+  setBackgroundStartupFailed = async (reason: 'stored-settings-unreadable' | 'unknown') => {
+    this.backgroundStartupFailure = reason
+  }
+  /**
+   * Whether start-up is still running, has finished, or has stopped and why,
+   * so the UI can tell "not ready yet" from "will not be ready".
+   */
+  getBackgroundStartupStatus = async (): Promise<
+    | { state: 'starting' }
+    | { state: 'ready' }
+    | { state: 'failed'; reason: 'stored-settings-unreadable' | 'unknown' }
+  > => {
+    if (this.backgroundInited) return { state: 'ready' }
+    if (this.backgroundStartupFailure) {
+      return { state: 'failed', reason: this.backgroundStartupFailure }
+    }
+    return { state: 'starting' }
   }
 
   async init(adapters?: any): Promise<void> {

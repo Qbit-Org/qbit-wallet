@@ -13,6 +13,7 @@ import { AccountUpdater, createAppStore, WalletProvider } from '@qbit/wallet-sta
 import { i18nService } from '@/shared/utils/i18n';
 import { PlatformEnv } from '@qbit/wallet-shared';
 import { AppDimensions } from './components/Responsive';
+import { StartupErrorScreen } from './components/StartupErrorScreen';
 import AsyncMainRoute from './pages/MainRoute';
 import { DeviceProvider } from './providers/DeviceProvider';
 import { I18nProvider } from './providers/I18nProvider';
@@ -20,6 +21,7 @@ import { StorageProvider } from './providers/StorageProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { ToolsProvider } from './providers/ToolsProvider';
 import { getAntdConfig, initializeAppConfig } from './utils/appConfig';
+import { BackgroundStartupFailure, waitForBackgroundStartup } from './utils/backgroundStartup';
 import { applyExternalMonitorFix } from './utils/platformFixes';
 import { createPortMessageChannel, createWalletProxy, setupEventBusListeners } from './web/ui-messaging';
 // Initialize platform environment
@@ -76,24 +78,23 @@ function renderApp() {
   );
 }
 
+function renderStartupError(failure: BackgroundStartupFailure) {
+  const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
+  root.render(<StartupErrorScreen reason={failure.reason} />);
+}
+
 async function waitUntilReady() {
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      if (PlatformEnv.READY_TO_RENDER) {
-        renderApp();
-        return;
-      }
-      const ready = (await wallet.getBackgroundInited()) as boolean; // 一个简单的 background 方法
-      if (ready) {
-        PlatformEnv.READY_TO_RENDER = true;
-        renderApp();
-        return;
-      }
-    } catch {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+  if (PlatformEnv.READY_TO_RENDER) {
+    renderApp();
+    return;
   }
+  const status = await waitForBackgroundStartup(wallet as any);
+  if (status.state === 'failed') {
+    renderStartupError(status);
+    return;
+  }
+  PlatformEnv.READY_TO_RENDER = true;
+  renderApp();
 }
 
 waitUntilReady();
