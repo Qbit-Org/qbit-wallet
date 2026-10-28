@@ -147,13 +147,13 @@ describe('QbitWallet', () => {
 
     it('connects again and retries once when switchChain answers 4100', async () => {
       const { provider, calls, wallet } = createWalletProvider(ChainType.QBIT_TESTNET4)
-      // The wallet moves to regtest between the grant and the switch, so the
-      // grant no longer covers the active chain.
-      const requestAccounts = provider.requestAccounts.getMockImplementation()!
-      provider.requestAccounts.mockImplementationOnce(async () => {
-        const accounts = await requestAccounts()
+      // The wallet moves to regtest after the site connected on testnet4 and
+      // before the switch is handled, so the grant no longer covers the
+      // active chain.
+      const switchChain = provider.switchChain.getMockImplementation()!
+      provider.switchChain.mockImplementationOnce(async (chain: ChainType) => {
         wallet.chain = ChainType.QBIT_REGTEST
-        return accounts
+        return switchChain(chain)
       })
 
       await expect(
@@ -168,6 +168,24 @@ describe('QbitWallet', () => {
         'requestAccounts',
         `switchChain ${ChainType.QBIT_MAINNET}`,
       ])
+    })
+
+    it('passes on a 4100 without connecting again when the active chain did not change', async () => {
+      const { provider, calls, wallet } = createWalletProvider(ChainType.QBIT_TESTNET4)
+      const switchChain = provider.switchChain.getMockImplementation()!
+      provider.switchChain.mockImplementationOnce(async (chain: ChainType) => {
+        // The user revokes the site while the SwitchChain approval is open.
+        wallet.grant = undefined
+        return switchChain(chain)
+      })
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).rejects.toMatchObject({ code: 4100 })
+      expect(calls).toEqual(['requestAccounts', `switchChain ${ChainType.QBIT_MAINNET}`])
+      expect(provider.requestAccounts).toHaveBeenCalledOnce()
+      expect(provider.switchChain).toHaveBeenCalledOnce()
+      expect(wallet.grant).toBeUndefined()
     })
 
     it('passes on any other switch error without connecting again', async () => {

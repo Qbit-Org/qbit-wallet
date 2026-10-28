@@ -92,11 +92,14 @@ export class QbitWallet extends BaseWallet {
     // Connect first: switchChain needs this origin's grant, which
     // requestAccounts asks the user for on the wallet's active chain.
     const addresses = await provider.requestAccounts()
-    if (this.chainType && (await provider.getChain()) !== this.chainType) {
-      // A separate switch the user approves; it moves the grant to the new
-      // chain, whose account is then read like a connected one.
-      await this.switchChainAfterConnect(provider, this.chainType)
-      return this.getAccount()
+    if (this.chainType) {
+      const connectedChain = await provider.getChain()
+      if (connectedChain !== this.chainType) {
+        // A separate switch the user approves; it moves the grant to the new
+        // chain, whose account is then read like a connected one.
+        await this.switchChainAfterConnect(provider, this.chainType, connectedChain)
+        return this.getAccount()
+      }
     }
 
     const publicKey = await provider.getPublicKey()
@@ -261,18 +264,21 @@ export class QbitWallet extends BaseWallet {
   }
 
   /**
-   * Switch a connected origin to `chain`. A 4100 means the origin has no
-   * grant on the wallet's active chain (the active chain changed after it
-   * connected): connect on it, then switch once more.
+   * Switch an origin connected on `connectedChain` to `chain`. A 4100 means
+   * the origin has no grant on the wallet's active chain. When the active
+   * chain changed after it connected, connect on that chain, then switch
+   * once more. On the same chain, the user revoked the grant, which stands.
    */
   private async switchChainAfterConnect(
     provider: NonNullable<typeof window.qbit>,
-    chain: ChainType
+    chain: ChainType,
+    connectedChain: ChainType
   ): Promise<void> {
     try {
       await provider.switchChain(chain)
     } catch (error) {
       if ((error as { code?: unknown } | null)?.code !== UNAUTHORIZED) throw error
+      if ((await provider.getChain()) === connectedChain) throw error
       await provider.requestAccounts()
       await provider.switchChain(chain)
     }
