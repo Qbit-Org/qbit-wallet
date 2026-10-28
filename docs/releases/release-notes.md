@@ -13,8 +13,9 @@
 - A send whose broadcast hits a transient error (a gateway error, a timeout
   after sending, or a reply that is not the transaction's identifier) is no
   longer left as "outcome unknown" at once. Once a lookup shows the network
-  does not have it, the wallet sends the same signed transaction again, up to
-  twice within 30 seconds. This applies to website broadcasts too (#356).
+  does not have it, the wallet sends the same signed transaction again, at
+  most twice, and starts no re-send more than 30 seconds after the first
+  attempt. This applies to website broadcasts too (#356).
 - A fee bump is checked again, right before it is broadcast, for payments
   that spend the original transaction, including one made from another
   device or by a recipient while the confirmation screen was open, and when
@@ -37,16 +38,18 @@
   an account with many outputs no longer leaves the next account's send
   screen showing 0 available. Each account's outputs are kept for that
   account only, a slow read that lands late no longer replaces them, and
-  opening Send again while a read is running joins it instead of starting
-  another (#342).
+  opening Send again while a read for the same address state is running joins
+  it instead of starting another (#342).
 - Consolidation now finds an account's mature outputs when a full page of
   its transactions is still pending, instead of saying nothing is ready
   (#343).
 - Large history pages and transactions now load on slow connections. The
   explorer must still start answering within 15 s, and a download that
-  stops sending data for 15 s is still cut off and retried, but one that
-  keeps arriving may take up to 5 minutes instead of failing after 15 s
-  (#353).
+  stops sending data for 15 s is still cut off and retried. One that keeps
+  arriving may take up to 5 minutes per try instead of failing after 15 s
+  (#353). A read is tried up to three times, so a page that arrives too
+  slowly can take about 15 minutes to fail, and a screen that waits for it,
+  such as Prepare on the consolidation screen, waits as long.
 
 ### Websites and approvals
 
@@ -89,12 +92,15 @@
   on the browser's "blocked by an extension" page. The extension now asks
   for access to the denylisted sites, which adds no new install warning. If
   you restrict the wallet's site access in Chrome, you get the browser's
-  blocked page as before (#348).
+  blocked page as before (#348). If the wallet cannot remove its redirect
+  rule, a denylisted page can load until it does.
 - If the phishing block rule fails to install when the wallet starts, the
   wallet now retries it, removes the unused redirect rules of 1.0.4, and
   reports the rule's state to its diagnostics. Until the rule is in place,
   the wallet stops a page on its phishing denylist before the page's own
-  script can run, and shows its warning instead (#349).
+  script can run, and shows its warning instead (#349). This needs the
+  wallet's site access in Chrome: with "On click" or "On specific sites", a
+  denylisted page can load until the rule is installed.
 
 ### Keys and vault
 
@@ -115,7 +121,10 @@
 - A recovery migration no longer stalls on an account with more than 10,000
   transactions. The other accounts move as usual, the migration screen names
   that account, and it can consolidate its outputs during the migration so
-  that a later pass moves them (#344).
+  that a later pass moves them (#344). One case still stops the whole pass:
+  on a mempool-qbit explorer, an account over the explorer's output limit
+  whose pending transactions fill whole history pages (a multiple of 50)
+  cannot be read until one of them confirms or another arrives.
 
 ### Settings and contacts
 
@@ -135,6 +144,16 @@
   an independent rebuild matched the CI artifact only from the same path.
   Packaging now fails when packaged text contains a `file:///` URL or a path
   inside the builder's checkout or home directory (#338).
+
+### Known limitations
+
+- For a transaction a website asks the wallet to sign that also spends coins
+  not held at the wallet's own addresses, the fee rate is an estimate and can
+  be shown lower than it is, so the fee warning and its confirmation may not
+  appear. The fee and the amount leaving the wallet, shown first, are exact.
+- If the wallet's site access in Chrome is set to "On click" or "On specific
+  sites", a denylisted page can load while the wallet's phishing block rule
+  is not installed, or while the wallet cannot remove its redirect rule.
 
 ## 1.0.5
 
