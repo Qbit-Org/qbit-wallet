@@ -58,6 +58,7 @@ export const ErrorMessages: {
   [ErrorCodes.REGTEST_ACCESS_LOCKED]: 'regtest_access_not_enabled',
   [ErrorCodes.REGTEST_SERVICE_UNREACHABLE]: 'regtest_service_unavailable',
   [ErrorCodes.REGTEST_SERVICE_UNEXPECTED]: 'regtest_service_unexpected',
+  [ErrorCodes.PREFERENCE_NOT_RESTORED]: 'setting_not_saved_may_have_changed',
   [ErrorCodes.METHOD_NOT_FOUND]: 'code_method_not_found',
   [ErrorCodes.INVALID_PARAMS]: 'Invalid provider request parameters',
   [ErrorCodes.UserCancel]: 'user_rejected_the_request',

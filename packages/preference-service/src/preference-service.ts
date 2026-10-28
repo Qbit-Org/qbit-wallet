@@ -78,6 +78,9 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   private pendingPersist: Promise<void> = Promise.resolve()
   // The latest change requested of each setting saved through setAndPersist.
   private persistRequests = new Map<keyof BasePreferenceStore, number>()
+  // resetAllData calls whose new store is not in place yet. The storage refuses
+  // to save the store they replace meanwhile.
+  private pendingResets = 0
 
   // State flags
   protected initialized = false
@@ -141,9 +144,14 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       locale: this.defaultLang,
     }) as BasePreferenceStore
 
-    this.store = await this.storage.createPersistentProxy(this.storageKey, finalTemplate, {
-      reset: true,
-    })
+    this.pendingResets++
+    try {
+      this.store = await this.storage.createPersistentProxy(this.storageKey, finalTemplate, {
+        reset: true,
+      })
+    } finally {
+      this.pendingResets--
+    }
 
     await this.validateAndFixStore(this.defaultLang)
 
@@ -165,8 +173,8 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    * run one at a time. A failed write restores the previous value, unless the
    * store was reset or the value changed some other way meanwhile, saves it
    * again and rejects so the caller can report it. When the restored value
-   * cannot be saved either, it rejects with a PREFERENCE_NOT_RESTORED
-   * WalletError instead: the stored setting may then hold the rejected value.
+   * was not saved, it rejects with a PREFERENCE_NOT_RESTORED WalletError
+   * instead: the stored setting may then hold the rejected value.
    */
   private setAndPersist<K extends keyof BasePreferenceStore>(
     key: K,
@@ -209,9 +217,13 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   /**
    * Save the value setAndPersist put back after a failed write, in case
    * another write got the failed value to disk meanwhile, retrying a few
-   * times. Stops early once the store is replaced, the setting changes some
-   * other way, or a newer change of it is waiting to run: that change decides
-   * what is stored. Resolves with the last error if the value was not saved.
+   * times. A save that the storage has started already lands before this one,
+   * as the storage writes in call order. Stops at once when resetAllData is
+   * replacing the store, which then decides what is stored. Also stops when
+   * the setting changes some other way or a newer change of it is waiting to
+   * run; if a save of the restored value had failed by then, the disk may hold
+   * the rejected value until that change is saved, so it still counts as not
+   * saved. Resolves with the last error if the value was not saved.
    */
   private async saveRestoredValue<K extends keyof BasePreferenceStore>(
     store: BasePreferenceStore,
@@ -219,27 +231,27 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     request: number
   ): Promise<{ error: unknown } | undefined> {
     const restored = store[key]
-    let lastError: unknown
+    const replaced = () => this.store !== store || this.pendingResets > 0
+    let failure: { error: unknown } | undefined
     for (let attempt = 1; attempt <= RESTORE_SAVE_ATTEMPTS; attempt++) {
       if (attempt > 1) {
         await delay(RESTORE_SAVE_RETRY_DELAY_MS * (attempt - 1))
       }
-      if (
-        this.store !== store ||
-        store[key] !== restored ||
-        this.persistRequests.get(key) !== request
-      ) {
+      if (replaced()) {
         return undefined
+      }
+      if (store[key] !== restored || this.persistRequests.get(key) !== request) {
+        return failure
       }
       try {
         await this.persist()
         return undefined
       } catch (error) {
-        lastError = error
+        failure = { error }
         this.logger?.error?.('[PreferenceService] Failed to save a restored preference', error)
       }
     }
-    return { error: lastError }
+    return replaced() ? undefined : failure
   }
 
   /**

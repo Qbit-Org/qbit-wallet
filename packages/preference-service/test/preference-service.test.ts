@@ -559,7 +559,7 @@ describe('PreferenceService persistence', () => {
     expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(true)
   })
 
-  it('stops retrying the restored value once a newer change of the setting is made', async () => {
+  it('stops retrying the restored value once a newer change of the setting is made, and says it was not saved', async () => {
     const service = await load()
     await vi.advanceTimersByTimeAsync(1000)
     const writeError = new Error('write failed')
@@ -575,7 +575,9 @@ describe('PreferenceService persistence', () => {
     const newer = service.setEnableSignData(true)
     await vi.advanceTimersByTimeAsync(500)
 
-    await expect(setting).rejects.toBe(writeError)
+    // A save of the restored value failed, so until the newer change was saved
+    // the disk could hold the rejected value.
+    await expect(setting).rejects.toMatchObject({ code: ErrorCodes.PREFERENCE_NOT_RESTORED })
     await newer
     expect(adapter.written.slice(writesBefore).map(value => value.enableSignData)).toEqual([true])
     expect(service.getEnableSignData()).toBe(true)
@@ -637,8 +639,6 @@ describe('PreferenceService persistence', () => {
     const settingResult = expect(setting).rejects.toThrow('A newer store replaced preference')
     openGate()
     await reset
-    // The setting's retry of the restored value stops once the reset store is in place.
-    await vi.advanceTimersByTimeAsync(100)
     await settingResult
     adapter.writeGate = undefined
 
@@ -646,6 +646,32 @@ describe('PreferenceService persistence', () => {
     const reloaded = await load()
     expect(reloaded.getCurrentAccount()).toBeNull()
     expect(reloaded.getEnableSignData()).toBe(false)
+  })
+
+  it('treats a setting that fails while resetAllData is saving as replaced, without retrying', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    let openGate!: () => void
+    adapter.writeGate = new Promise(resolve => {
+      openGate = resolve
+    })
+    const reset = service.resetAllData()
+    const setting = service.setEnableSignData(true)
+    let settled = false
+    setting.catch(() => undefined).finally(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The reset's own write is still pending; the setting does not wait for it.
+    expect(settled).toBe(true)
+    await expect(setting).rejects.toThrow('A newer store replaced preference')
+    openGate()
+    await reset
+    adapter.writeGate = undefined
+
+    expect(service.getEnableSignData()).toBe(false)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await load()).getEnableSignData()).toBe(false)
   })
 
   it('saves default names and UI cache entries created on read', async () => {
