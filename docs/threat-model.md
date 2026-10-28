@@ -306,9 +306,10 @@ Controls and evidence:
   `full` otherwise, with the reasons and the redirect rule's own state
   (`installed`, `not-wanted`, `missing`, `removing`, `removal-failed` or
   `unknown`), its host access, last error and next retry; the block rule's
-  health comes back whatever happens to that read. A read that finds a
-  redirect rule in place without host access, with no attempt scheduled or
-  queued, starts its removal once it has measured; it neither clears a
+  health comes back whatever happens to that read. Concurrent requests
+  share one read. A read that finds a redirect rule in place without host
+  access, with no attempt scheduled or queued, starts its removal once its
+  answer reaches a request still waiting for it; it neither clears a
   recorded failure nor supersedes a queued retry. No wallet screen shows
   this health yet;
 - above the block rule, a session `redirect` rule sends a top-level
@@ -353,8 +354,9 @@ Controls and evidence:
   (target `_blank`, or a Ctrl-, Cmd- or Shift-click) gets the warning in the
   new tab from that rule, and the background leaves the source tab and its
   page alone. It sends the source tab to the warning page as above unless it
-  confirms, from the browser's rules and host access, that the redirect rule
-  is in place for that canonical host.
+  confirms within a second, from the browser's rules and host access, that
+  the redirect rule is in place for that canonical host with no update to it
+  queued or running.
   After any redirect to the warning page, the background waits for the tab to
   stop loading and redirects it once more if it shows neither one of the
   wallet's pages nor a page the content script runs on, which Chrome's

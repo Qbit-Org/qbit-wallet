@@ -507,7 +507,7 @@
     "message": "繼續前往"
   },
   "continue_to_unavailable_hostname": {
-    "message": "無法從此處開啟此網站：其網址不是有效的網域名稱。"
+    "message": "無法從警告頁面開啟此網站。"
   },
   "copied": {
     "message": "已複製"

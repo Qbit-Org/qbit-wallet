@@ -477,9 +477,7 @@ test.describe('MV3 phishing protection', () => {
     await page.goto(`chrome-extension://${extension.extensionId}/index.html#/phishing?${params}`)
 
     await expect(page.getByText(hostname, { exact: true })).toBeVisible()
-    await expect(
-      page.getByText('This site cannot be opened from here: its address is not a valid domain name.')
-    ).toBeVisible()
+    await expect(page.getByText('This site cannot be opened from the warning page.')).toBeVisible()
     await expect(page.getByRole('button', { name: /Continue to/ })).toHaveCount(0)
     await expect(page.getByText('If you insist on continuing', { exact: false })).toHaveCount(0)
   })

@@ -52,6 +52,10 @@ const WARNING_PAGE_SETTLE_TIMEOUT_MS = 5_000
 // queues behind its updates, before reporting it as unknown.
 const REDIRECT_HEALTH_TIMEOUT_MS = 2_000
 
+// How long a link that opens a new tab waits for the check of the redirect
+// rule before the sender's tab is sent to the warning page anyway.
+const REDIRECT_COVERS_TIMEOUT_MS = 1_000
+
 /** A redirect to the warning page whose outcome the worker still checks. */
 interface WarningRedirect {
   readonly redirectUrl: string
@@ -152,20 +156,31 @@ function summarizeProtection(
   }
 }
 
-/** The redirect rule's health, or `unknown` when it fails or does not arrive in time. */
-async function boundedRedirectHealth(
-  health: () => Promise<PhishingWarningRedirectHealth>
-): Promise<PhishingWarningRedirectHealth> {
+/** Settles as the promise does, or rejects once `ms` pass first. */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`No answer within ${REDIRECT_HEALTH_TIMEOUT_MS} ms`)),
-      REDIRECT_HEALTH_TIMEOUT_MS
-    )
+    timer = setTimeout(() => reject(new Error(`No answer within ${ms} ms`)), ms)
   })
   try {
-    return await Promise.race([health(), timeout])
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * The redirect rule's health, or `unknown` when it fails or does not arrive
+ * in time. A read this gives up on does not act on its answer.
+ */
+async function boundedRedirectHealth(
+  health: (signal: AbortSignal) => Promise<PhishingWarningRedirectHealth>
+): Promise<PhishingWarningRedirectHealth> {
+  const caller = new AbortController()
+  try {
+    return await withTimeout(health(caller.signal), REDIRECT_HEALTH_TIMEOUT_MS)
   } catch (error) {
+    caller.abort()
     log.error('[Phishing] Failed to read the warning redirect rule health:', error)
     return {
       status: 'unknown',
@@ -173,8 +188,6 @@ async function boundedRedirectHealth(
       error: error instanceof Error ? error.message : String(error),
       updatedAt: Date.now(),
     }
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -693,17 +706,25 @@ class PhishingController {
     networkRules: PhishingNetworkRuleHealth
   ): Promise<PhishingProtectionHealth | undefined> {
     if (!this.hasDeclarativeNetRequest()) return undefined
-    const warningRedirect = await boundedRedirectHealth(() => this.warningRedirect.getHealth())
+    const warningRedirect = await boundedRedirectHealth(signal =>
+      this.warningRedirect.getHealth(signal)
+    )
     return summarizeProtection(networkRules, warningRedirect)
   }
 
   /**
    * Whether the warning redirect rule is in place, with host access, for the
    * host, so that a top-level navigation to it shows the warning in whichever
-   * tab it happens. False when that is not confirmed.
+   * tab it happens. False when that is not confirmed within a short wait.
    */
   private async isCoveredByWarningRedirect(hostname: string): Promise<boolean> {
-    return this.hasDeclarativeNetRequest() && this.warningRedirect.covers(hostname)
+    if (!this.hasDeclarativeNetRequest()) return false
+    try {
+      return await withTimeout(this.warningRedirect.covers(hostname), REDIRECT_COVERS_TIMEOUT_MS)
+    } catch (error) {
+      log.error('[Phishing] Failed to check the warning redirect rule:', error)
+      return false
+    }
   }
 
   /**

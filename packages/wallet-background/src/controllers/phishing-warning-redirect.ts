@@ -11,6 +11,12 @@ import { hasOnlyKeys, PHISHING_BLOCK_RULE_PRIORITY, sameMembers } from './phishi
 
 type Rule = chrome.declarativeNetRequest.Rule
 
+/** What a health read found; `stranded` when a rule is in place without confirmed host access. */
+interface HealthRead {
+  readonly health: PhishingWarningRedirectHealth
+  readonly stranded: boolean
+}
+
 /** The latest run's last failed update, until an outcome of the latest run replaces it. */
 interface RedirectFailure {
   readonly error: string
@@ -138,10 +144,11 @@ export class PhishingWarningRedirect {
   // Each trigger starts a new run with its own attempts; only the latest run
   // schedules a retry.
   private latestRun = 0
-  // Attempts queued and not yet finished. A health read, which runs in the
-  // queue, sees only those that will run after it.
+  // Attempts queued and not yet finished, including one running.
   private queuedAttempts = 0
   private failure: RedirectFailure | undefined
+  // The health read in flight, which later callers share.
+  private healthRead: Promise<HealthRead> | undefined
   private started = false
 
   constructor(private readonly listEntries: () => Iterable<unknown>) {}
@@ -248,73 +255,102 @@ export class PhishingWarningRedirect {
   }
 
   /**
-   * The rule's state as this read finds it: whether a rule is in place, and
+   * The rule's state as a read finds it: whether a rule is in place, and
    * whether it may be, given host access now, with the failure and next
-   * retry recorded when the read started. A rule found in place without
-   * confirmed access, while no attempt is scheduled or queued, as after a
-   * permission change the worker missed, gets a new run that removes it.
-   * That starts after the read is measured, and supersedes no attempt of an
-   * earlier run; the recorded failure stays until the new run replaces it.
+   * retry recorded when the read started. Callers share the read in flight.
+   * When it finds a rule in place without confirmed access, while no attempt
+   * is scheduled or queued, as after a permission change the worker missed,
+   * a new run that removes it starts once the answer reaches a caller that
+   * has not given up (`signal`). That run supersedes no attempt of an
+   * earlier run, and the recorded failure stays until it replaces it.
    */
-  getHealth(): Promise<PhishingWarningRedirectHealth> {
-    return this.enqueue(async () => {
-      const failure = this.failure
-      const { domains } = partitionDnrDomains(this.listEntries())
-      const hostAccess = await measureHostAccess(domains)
-      const measured = (
-        status: PhishingWarningRedirectStatus,
-        { error, nextRetryAt }: { error?: string; nextRetryAt?: number } = {}
-      ): PhishingWarningRedirectHealth => ({
+  async getHealth(signal?: AbortSignal): Promise<PhishingWarningRedirectHealth> {
+    const { health, stranded } = await this.sharedHealthRead()
+    if (
+      stranded &&
+      !signal?.aborted &&
+      this.retryTimer === undefined &&
+      this.queuedAttempts === 0
+    ) {
+      void this.attempt(++this.latestRun, 1)
+    }
+    return health
+  }
+
+  private sharedHealthRead(): Promise<HealthRead> {
+    if (!this.healthRead) {
+      const read = this.enqueue(() => this.readHealth())
+      const done = (): void => {
+        if (this.healthRead === read) this.healthRead = undefined
+      }
+      read.then(done, done)
+      this.healthRead = read
+    }
+    return this.healthRead
+  }
+
+  private async readHealth(): Promise<HealthRead> {
+    const failure = this.failure
+    const { domains } = partitionDnrDomains(this.listEntries())
+    const hostAccess = await measureHostAccess(domains)
+    const measured = (
+      status: PhishingWarningRedirectStatus,
+      { error, nextRetryAt }: { error?: string; nextRetryAt?: number } = {},
+      stranded = false
+    ): HealthRead => ({
+      health: {
         status,
         hostAccess,
         ...(error !== undefined && { error }),
         ...(nextRetryAt !== undefined && { nextRetryAt }),
         updatedAt: Date.now(),
-      })
-
-      let current: Rule | undefined
-      try {
-        current = await readRedirectRule()
-      } catch (error) {
-        return measured('unknown', { error: errorMessage(error) })
-      }
-      if (hostAccess === true) {
-        return current && isWantedRule(current, createRedirectRule(domains))
-          ? measured('installed')
-          : measured('missing', failure)
-      }
-      if (!current) return measured('not-wanted')
-
-      // A rule without confirmed access may outrank the block rule.
-      const health =
-        hostAccess === 'unknown'
-          ? measured('unknown', failure)
-          : measured(failure?.removal ? 'removal-failed' : 'removing', failure)
-      if (this.retryTimer === undefined && this.queuedAttempts === 0) {
-        void this.attempt(++this.latestRun, 1)
-      }
-      return health
+      },
+      stranded,
     })
+
+    let current: Rule | undefined
+    try {
+      current = await readRedirectRule()
+    } catch (error) {
+      return measured('unknown', { error: errorMessage(error) })
+    }
+    if (hostAccess === true) {
+      return current && isWantedRule(current, createRedirectRule(domains))
+        ? measured('installed')
+        : measured('missing', failure)
+    }
+    if (!current) return measured('not-wanted')
+
+    // A rule without confirmed access may outrank the block rule.
+    return hostAccess === 'unknown'
+      ? measured('unknown', failure, true)
+      : measured(failure?.removal ? 'removal-failed' : 'removing', failure, true)
   }
 
   /**
-   * Whether the rule is in place, with host access, for this hostname: a
-   * canonical one that the rule names, or a subdomain of one it names. A
-   * top-level navigation to it then ends on the warning page in whichever tab
-   * it happens. Anything not confirmed, including a failed read, is false.
+   * Whether the rule is in place, with host access, for this hostname, as
+   * the browser holds it now: a canonical hostname that the rule names, or a
+   * subdomain of one it names. A top-level navigation to it then ends on the
+   * warning page in whichever tab it happens. It does not wait behind
+   * updates: while one is queued or running, before or after the read, the
+   * rule may be changing, and it is false. Anything not confirmed, including
+   * a failed read, is false.
    */
-  covers(hostname: string): Promise<boolean> {
-    return this.enqueue(async () => {
+  async covers(hostname: string): Promise<boolean> {
+    if (this.queuedAttempts > 0) return false
+    try {
       const parsed = parseDnrDomain(hostname)
       if (!parsed.ok || parsed.domain !== hostname) return false
       const { domains } = partitionDnrDomains(this.listEntries())
       if (!domains.length || (await hasHostAccess(domains)) !== true) return false
       const current = await readRedirectRule()
       if (!current || !isWantedRule(current, createRedirectRule(domains))) return false
+      // An update that started meanwhile may be changing the rule.
+      if (this.queuedAttempts > 0) return false
       return domains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`))
-    }).catch(error => {
+    } catch (error) {
       log.error('[Phishing] Failed to check the warning redirect rule:', error)
       return false
-    })
+    }
   }
 }

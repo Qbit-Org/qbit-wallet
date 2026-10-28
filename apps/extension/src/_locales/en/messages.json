@@ -507,7 +507,7 @@
     "message": "Continue to"
   },
   "continue_to_unavailable_hostname": {
-    "message": "This site cannot be opened from here: its address is not a valid domain name."
+    "message": "This site cannot be opened from the warning page."
   },
   "copied": {
     "message": "Copied"

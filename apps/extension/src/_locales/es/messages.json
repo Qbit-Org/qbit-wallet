@@ -507,7 +507,7 @@
     "message": "Continuar a"
   },
   "continue_to_unavailable_hostname": {
-    "message": "Este sitio no se puede abrir desde aquí: su dirección no es un nombre de dominio válido."
+    "message": "Este sitio no se puede abrir desde la página de advertencia."
   },
   "copied": {
     "message": "Copiado"

@@ -554,6 +554,63 @@ describe('PhishingController protection health', () => {
     })
   })
 
+  it('shares one health read among stats requests while it is in flight', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    const contains = browser.permissions.contains
+    let answer: ((granted: boolean) => void) | undefined
+    contains.mockImplementationOnce(() => new Promise<boolean>(resolve => (answer = resolve)))
+
+    const polls = [phishingStats(browser), phishingStats(browser), phishingStats(browser)]
+    await vi.waitFor(() => expect(answer).toBeDefined())
+    const checks = contains.mock.calls.length
+    answer!(true)
+
+    for (const stats of await Promise.all(polls)) {
+      expect(stats.protection).toMatchObject({
+        status: 'full',
+        warningRedirect: { status: 'installed', hostAccess: true },
+      })
+    }
+    // One read answered all three; none waits in the queue behind it.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(contains).toHaveBeenCalledTimes(checks)
+    // A later poll reads afresh.
+    await protection(browser)
+    expect(contains).toHaveBeenCalledTimes(checks + 1)
+  })
+
+  it('does not start a removal for a health read whose caller gave up', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    const updates = browser.declarativeNetRequest.updateSessionRules
+    // Access is withheld while the worker misses the permission event.
+    setSiteAccess(browser, 'on click', { notify: false })
+    let answer: ((granted: boolean) => void) | undefined
+    browser.permissions.contains.mockImplementationOnce(
+      () => new Promise<boolean>(resolve => (answer = resolve))
+    )
+
+    const stats = phishingStats(browser)
+    await vi.waitFor(() => expect(answer).toBeDefined())
+    await vi.advanceTimersByTimeAsync(2_000)
+    await expect(stats).resolves.toMatchObject({ protection: { status: 'unknown' } })
+    const updatesBefore = updates.mock.calls.length
+
+    // The read finds the rule in place without access only after the stats gave up.
+    answer!(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(updates).toHaveBeenCalledTimes(updatesBefore)
+    expect(redirectRules(browser)).toHaveLength(1)
+
+    // A read answered in time starts the removal.
+    await expect(protection(browser)).resolves.toMatchObject({
+      status: 'degraded',
+      warningRedirect: { status: 'removing' },
+    })
+    await vi.waitFor(() => expect(redirectRules(browser)).toEqual([]))
+  })
+
   it('reports site access as unknown, not withheld, when the browser has no permission check', async () => {
     const browser = createBrowser()
     delete (browser.chrome as { permissions?: unknown }).permissions
@@ -722,6 +779,60 @@ describe('PhishingController links that open a new tab', () => {
       isPhishing: true,
       redirected: true,
     })
+  })
+
+  it('sends the source tab to the warning page for a link clicked while the redirect rule is being installed', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    setSiteAccess(browser, 'on click')
+    await vi.waitFor(() => expect(redirectRules(browser)).toEqual([]))
+    // Access returns, and the install that follows has not finished at the
+    // click: the new tab gets the block rule's page, not the warning.
+    let finishInstall: (() => void) | undefined
+    browser.declarativeNetRequest.updateSessionRules.mockImplementationOnce(
+      options =>
+        new Promise<void>(resolve => {
+          finishInstall = () => {
+            browser.state.sessionRules = applyRuleUpdate(browser.state.sessionRules, options)
+            resolve()
+          }
+        })
+    )
+    setSiteAccess(browser, 'on all sites')
+    await vi.waitFor(() => expect(finishInstall).toBeDefined())
+
+    const click = clickLink(browser, { newTab: true })
+    finishInstall!()
+
+    await expect(click).resolves.toEqual({ isPhishing: true, redirected: true })
+    expect(browser.chrome.tabs.update).toHaveBeenCalledOnce()
+    // Once the rule is in place, a later click leaves the source tab alone.
+    expect(redirectRules(browser)).toHaveLength(1)
+    await expect(clickLink(browser, { newTab: true })).resolves.toMatchObject({
+      leftToRedirectRule: true,
+    })
+  })
+
+  it('sends the source tab to the warning page when the redirect rule check does not answer in time', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    // A browser call that never returns.
+    browser.permissions.contains.mockImplementationOnce(() => new Promise<boolean>(() => undefined))
+
+    const respond = vi.fn()
+    browser.state.listener!(
+      { type: PhishingMessageType.CHECK_NAVIGATION, url: BLOCKED_URL, newTab: true },
+      startPage,
+      respond
+    )
+    await vi.advanceTimersByTimeAsync(999)
+    expect(respond).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    await vi.waitFor(() =>
+      expect(respond).toHaveBeenCalledWith({ isPhishing: true, redirected: true })
+    )
+    expect(browser.chrome.tabs.update).toHaveBeenCalledOnce()
   })
 
   it('sends the source tab to the warning page when the redirect rule cannot be read', async () => {

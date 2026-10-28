@@ -507,7 +507,7 @@
     "message": "へ進む"
   },
   "continue_to_unavailable_hostname": {
-    "message": "このサイトはここから開けません。アドレスが有効なドメイン名ではありません。"
+    "message": "このサイトは警告ページから開くことはできません。"
   },
   "copied": {
     "message": "コピーしました"
