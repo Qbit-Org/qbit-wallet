@@ -80,6 +80,9 @@ export const colors = Object.assign({}, palette, {
   onPrimary: 'var(--qbit-on-accent)',
   onDark: '#FFFFFF',
   onDanger: 'var(--qbit-on-danger)',
+  /** Neutral grey fill for a surface whose content is unavailable, such as an unloaded balance. */
+  neutralFill: 'var(--qbit-neutral-fill)',
+  onNeutralFill: 'var(--qbit-on-neutral-fill)',
   overlay: 'var(--qbit-overlay)',
   shadow: 'var(--qbit-shadow)',
 

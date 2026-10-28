@@ -216,6 +216,14 @@ const $viewPresets = {
     alignItems: 'center',
     paddingTop: 7,
     paddingBottom: 7
+  }) as CSSProperties,
+
+  // For a neutral grey fill, where the accent border and hover would stand out.
+  neutral: Object.assign({}, $baseViewStyle, {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.surface
   }) as CSSProperties
 };
 
@@ -265,6 +273,9 @@ const $hoverViewPresets: Record<Presets, CSSProperties> = {
   },
   swap: {
     backgroundColor: colors.accentWash
+  },
+  neutral: {
+    opacity: 0.85
   }
 };
 
@@ -310,7 +321,8 @@ const $textPresets: Record<Presets, CSSProperties> = {
   swap: Object.assign({}, $baseTextStyle, {
     color: colors.textDim,
     fontSize: 12
-  })
+  }),
+  neutral: $baseTextStyle
 };
 
 const $rightAccessoryStyle: CSSProperties = { marginLeft: spacing.extraSmall, zIndex: 1 };

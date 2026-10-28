@@ -2105,8 +2105,8 @@
   "total": {
     "message": "Total"
   },
-  "total_balance": {
-    "message": "Saldo Total"
+  "wallet_balance": {
+    "message": "Saldo de la Billetera"
   },
   "total_fee": {
     "message": "Tarifa total"
@@ -2884,6 +2884,12 @@
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Los importes disponible y no disponible se desconocen porque el explorador no lista las salidas de esta cuenta."
+  },
+  "balance_load_error": {
+    "message": "No se pudo cargar el saldo. Es posible que el explorador no esté disponible temporalmente."
+  },
+  "balance_refresh_error": {
+    "message": "No se pudo actualizar el saldo; puede que no esté al día."
   },
   "utxo_limit_exceeded_send": {
     "message": "Esta cuenta tiene más salidas de las que el explorador lista, y la billetera no pudo leerlas todas de su historial. Consolida sus salidas para enviar desde ella."

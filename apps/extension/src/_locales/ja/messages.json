@@ -2105,8 +2105,8 @@
   "total": {
     "message": "合計"
   },
-  "total_balance": {
-    "message": "総残高"
+  "wallet_balance": {
+    "message": "ウォレット残高"
   },
   "total_fee": {
     "message": "合計手数料"
@@ -2884,6 +2884,12 @@
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "エクスプローラーがこのアカウントのアウトプットを一覧表示しないため、利用可能額と利用不可額は不明です。"
+  },
+  "balance_load_error": {
+    "message": "残高を読み込めませんでした。エクスプローラーが一時的に利用できない可能性があります。"
+  },
+  "balance_refresh_error": {
+    "message": "残高を更新できませんでした。最新ではない可能性があります。"
   },
   "utxo_limit_exceeded_send": {
     "message": "このアカウントのアウトプットはエクスプローラーが一覧表示できる数を超えており、ウォレットは履歴からすべてを読み取れませんでした。送金するにはアウトプットを統合してください。"

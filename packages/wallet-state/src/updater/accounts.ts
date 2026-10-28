@@ -50,9 +50,13 @@ export function AccountUpdater() {
       return
     }
     self.loadingBalance = true
-    fetchBalance().finally(() => {
-      self.loadingBalance = false
-    })
+    fetchBalance()
+      .catch(() => {
+        // Recorded in balanceStatusMap; the balance card shows it with a retry.
+      })
+      .finally(() => {
+        self.loadingBalance = false
+      })
   }, [fetchBalance, wallet, isUnlocked, self])
 
   useEffect(() => {

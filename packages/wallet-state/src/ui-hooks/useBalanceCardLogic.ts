@@ -1,10 +1,11 @@
 import { numUtils } from '@qbit/base-utils'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppState, uiActions } from 'src'
 import { useI18n } from '../context'
 import {
   useAccountBalance,
+  useAccountBalanceStatus,
   useBalanceCardDetailExpanded,
   useChain,
   useFetchBalanceCallback,
@@ -18,6 +19,7 @@ export function useBalanceCardLogic() {
   const { t } = useI18n()
 
   const accountBalance = useAccountBalance()
+  const balanceStatus = useAccountBalanceStatus()
   const chain = useChain()
   const dispatch = useDispatch()
 
@@ -27,10 +29,26 @@ export function useBalanceCardLogic() {
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  const isCurrentChainBalance = chain.enum == accountBalance.chainType
+
+  // The latest refresh failed. Without a loaded balance the card shows the
+  // error in place of a zero total; otherwise the last known balance stays,
+  // labelled as possibly out of date.
+  const hasLoadedBalance = balanceStatus.loaded && isCurrentChainBalance
+  const balanceLoadFailed = balanceStatus.error && !hasLoadedBalance
+  const balanceRefreshFailed = balanceStatus.error && hasLoadedBalance
+  const balanceErrorText = useMemo(() => {
+    if (balanceLoadFailed) return t('balance_load_error')
+    if (balanceRefreshFailed) return t('balance_refresh_error')
+    return undefined
+  }, [balanceLoadFailed, balanceRefreshFailed, t])
+
   // Detail expand state
   const isDetailExpanded = useBalanceCardDetailExpanded()
   const toggleBalanceCardDetailExpanded = useToggleBalanceCardDetailExpanded()
   const handleExpandToggle = () => {
+    // There is no breakdown to show until a balance loads.
+    if (balanceLoadFailed) return
     toggleBalanceCardDetailExpanded()
   }
 
@@ -41,7 +59,6 @@ export function useBalanceCardLogic() {
     dispatch(uiActions['setBalanceHidden'](!isBalanceHidden))
   }
 
-  const isCurrentChainBalance = chain.enum == accountBalance.chainType
   const balanceValue = useMemo(() => {
     if (!isCurrentChainBalance) {
       return '--'
@@ -114,6 +131,30 @@ export function useBalanceCardLogic() {
     }
   }, [])
 
+  // Retry from the error state runs at once rather than debounced, one at a
+  // time so repeated taps do not stack requests on a failing explorer.
+  const [isRetryingBalance, setIsRetryingBalance] = useState(false)
+  const isRetryingBalanceRef = useRef(false)
+  const retryBalance = useCallback(
+    (e?: React.MouseEvent) => {
+      if (e) {
+        e.stopPropagation()
+      }
+      if (isRetryingBalanceRef.current) return
+      isRetryingBalanceRef.current = true
+      setIsRetryingBalance(true)
+      fetchBalance()
+        .catch(() => {
+          // Recorded in the balance status; the error state stays up.
+        })
+        .finally(() => {
+          isRetryingBalanceRef.current = false
+          setIsRetryingBalance(false)
+        })
+    },
+    [fetchBalance]
+  )
+
   return {
     // state
     totalBalance,
@@ -134,6 +175,9 @@ export function useBalanceCardLogic() {
     utxoLimitExceededText,
     balanceSplitUnknown,
     balanceSplitUnknownText,
+    balanceLoadFailed,
+    balanceRefreshFailed,
+    balanceErrorText,
 
     isDetailExpanded,
     handleExpandToggle,
@@ -142,6 +186,8 @@ export function useBalanceCardLogic() {
     handleHiddenToggle,
 
     refreshBalance,
+    retryBalance,
+    isRetryingBalance,
     qbitUnit,
 
     chain,

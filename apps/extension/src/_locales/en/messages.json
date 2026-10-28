@@ -2105,8 +2105,8 @@
   "total": {
     "message": "Total"
   },
-  "total_balance": {
-    "message": "TOTAL BALANCE"
+  "wallet_balance": {
+    "message": "Wallet Balance"
   },
   "total_fee": {
     "message": "Total fee"
@@ -2884,6 +2884,12 @@
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Available and unavailable amounts are unknown because the explorer does not list this account's outputs."
+  },
+  "balance_load_error": {
+    "message": "Balance could not be loaded. The explorer may be temporarily unavailable."
+  },
+  "balance_refresh_error": {
+    "message": "Balance could not be refreshed and may be out of date."
   },
   "utxo_limit_exceeded_send": {
     "message": "This account holds more outputs than the explorer lists, and the wallet could not read them all from its history. Consolidate its outputs to spend from it."
