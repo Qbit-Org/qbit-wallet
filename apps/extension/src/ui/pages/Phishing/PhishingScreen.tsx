@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { parseDnrDomain } from '@qbit/phishing-detect';
-import { FEEDBACK_URL } from '@qbit/wallet-shared';
+import { FEEDBACK_URL, PHISHING_PROCEED_REFUSED_ERROR } from '@qbit/wallet-shared';
 import { useI18n } from '@qbit/wallet-state';
 
 import { getProceedUrl } from './proceedUrl';
@@ -15,9 +15,12 @@ const PhishingScreen = () => {
   const href = searchParams.get('href');
   const { t } = useI18n();
   const [proceedFailed, setProceedFailed] = useState(false);
+  // Set once the background refuses to lift the block for this host, for
+  // example because the denylist no longer covers it.
+  const [proceedRefused, setProceedRefused] = useState(false);
   // The background lifts the block only for a hostname a DNR rule can name,
   // checked the same way, so Proceed is offered for no other.
-  const canProceed = !!hostname && parseDnrDomain(hostname).ok;
+  const canProceed = !!hostname && parseDnrDomain(hostname).ok && !proceedRefused;
 
   const handleProceed = async () => {
     if (!hostname || !canProceed) return;
@@ -26,11 +29,15 @@ const PhishingScreen = () => {
     // The background lifts the block for this host for the rest of the browser
     // session (not a permanent whitelist entry) and answers once it has.
     // Navigating before then would only reach the browser's blocked page.
-    const response = await new Promise<{ success?: boolean } | undefined>((resolve) => {
+    const response = await new Promise<{ success?: boolean; error?: unknown } | undefined>((resolve) => {
       chrome.runtime.sendMessage({ type: 'SKIP_PHISHING_PROTECTION', hostname }, (reply) => {
         resolve(chrome.runtime.lastError ? undefined : reply);
       });
     });
+    if (response?.error === PHISHING_PROCEED_REFUSED_ERROR) {
+      setProceedRefused(true);
+      return;
+    }
     if (!response?.success) {
       setProceedFailed(true);
       return;
@@ -90,7 +97,11 @@ const PhishingScreen = () => {
               </button>
             </p>
           )}
-          {hostname && !canProceed && <p className="phishing-proceed-text">{t('continue_to_unavailable_hostname')}</p>}
+          {hostname && !canProceed && (
+            <p className="phishing-proceed-text" role={proceedRefused ? 'alert' : undefined}>
+              {t('continue_to_unavailable_hostname')}
+            </p>
+          )}
           {proceedFailed && (
             <p className="phishing-proceed-error" role="alert">
               {t('unknown_error')}

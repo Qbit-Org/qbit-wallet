@@ -83,6 +83,18 @@ describe('PhishingScreen', () => {
     expect(screen.queryByText('continue_to_unavailable_hostname')).toBeNull();
   });
 
+  it('says the site cannot be opened from here when the background refuses a Proceed it offered', async () => {
+    // As when the denylist changed between the warning and the click.
+    const sendMessage = renderWarning({ error: 'Invalid hostname parameter' });
+
+    fireEvent.click(screen.getByRole('button', { name: /phish\.example/ }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('continue_to_unavailable_hostname');
+    expect(screen.queryByText('unknown_error')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
   it('does not report a failure once the block is lifted', async () => {
     const sendMessage = renderWarning({ success: true });
 

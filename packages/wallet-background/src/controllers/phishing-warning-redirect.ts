@@ -3,6 +3,7 @@ import log from 'loglevel'
 import { dnrHostPermissions, parseDnrDomain, partitionDnrDomains } from '@qbit/phishing-detect'
 import type {
   PhishingWarningRedirectHealth,
+  PhishingWarningRedirectHostAccess,
   PhishingWarningRedirectStatus,
 } from '@qbit/wallet-shared'
 
@@ -10,7 +11,7 @@ import { hasOnlyKeys, PHISHING_BLOCK_RULE_PRIORITY, sameMembers } from './phishi
 
 type Rule = chrome.declarativeNetRequest.Rule
 
-/** The latest run's last failed update, until one of its attempts succeeds. */
+/** The latest run's last failed update, until an outcome of the latest run replaces it. */
 interface RedirectFailure {
   readonly error: string
   /** Whether the update had to remove a rule that may still be in place. */
@@ -94,6 +95,19 @@ async function hasHostAccess(domains: readonly string[]): Promise<boolean | 'unk
   }
 }
 
+/**
+ * Host access as a health read reports it: `no-domains` when there is no
+ * domain to ask about, and `unknown` when the browser cannot be asked or
+ * cannot say, so that `false` always means the browser reported it withheld.
+ */
+async function measureHostAccess(
+  domains: readonly string[]
+): Promise<PhishingWarningRedirectHostAccess> {
+  if (!domains.length) return 'no-domains'
+  if (typeof chrome.permissions?.contains !== 'function') return 'unknown'
+  return hasHostAccess(domains)
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -124,6 +138,9 @@ export class PhishingWarningRedirect {
   // Each trigger starts a new run with its own attempts; only the latest run
   // schedules a retry.
   private latestRun = 0
+  // Attempts queued and not yet finished. A health read, which runs in the
+  // queue, sees only those that will run after it.
+  private queuedAttempts = 0
   private failure: RedirectFailure | undefined
   private started = false
 
@@ -151,13 +168,16 @@ export class PhishingWarningRedirect {
   sync(): Promise<void> {
     clearTimeout(this.retryTimer)
     this.retryTimer = undefined
-    this.failure = undefined
     return this.attempt(++this.latestRun, 1)
   }
 
+  /**
+   * One attempt of a run. The latest run's outcome replaces the recorded
+   * failure, or clears it on success; it settles within the queue, so that a
+   * health read queued after it sees that outcome.
+   */
   private attempt(run: number, attempt: number): Promise<void> {
-    // Settles within the queue, so that a health read queued after it sees
-    // its outcome.
+    this.queuedAttempts++
     return this.enqueue(async () => {
       const outcome = { removing: false }
       try {
@@ -184,6 +204,8 @@ export class PhishingWarningRedirect {
           this.retryTimer = undefined
           void this.attempt(run, attempt + 1)
         }, delay)
+      } finally {
+        this.queuedAttempts--
       }
     })
   }
@@ -226,23 +248,27 @@ export class PhishingWarningRedirect {
   }
 
   /**
-   * The rule's state, read from the browser rather than assumed: whether a
-   * rule is in place, and whether it may be, given host access now. A rule
-   * found in place without that access while no attempt is scheduled, as
-   * after a permission change the worker missed, is removed from now on.
+   * The rule's state as this read finds it: whether a rule is in place, and
+   * whether it may be, given host access now, with the failure and next
+   * retry recorded when the read started. A rule found in place without
+   * confirmed access, while no attempt is scheduled or queued, as after a
+   * permission change the worker missed, gets a new run that removes it.
+   * That starts after the read is measured, and supersedes no attempt of an
+   * earlier run; the recorded failure stays until the new run replaces it.
    */
   getHealth(): Promise<PhishingWarningRedirectHealth> {
     return this.enqueue(async () => {
+      const failure = this.failure
       const { domains } = partitionDnrDomains(this.listEntries())
-      const hostAccess = domains.length ? await hasHostAccess(domains) : false
+      const hostAccess = await measureHostAccess(domains)
       const measured = (
         status: PhishingWarningRedirectStatus,
-        failure?: { error: string; nextRetryAt?: number }
+        { error, nextRetryAt }: { error?: string; nextRetryAt?: number } = {}
       ): PhishingWarningRedirectHealth => ({
         status,
         hostAccess,
-        ...(failure && { error: failure.error }),
-        ...(failure?.nextRetryAt !== undefined && { nextRetryAt: failure.nextRetryAt }),
+        ...(error !== undefined && { error }),
+        ...(nextRetryAt !== undefined && { nextRetryAt }),
         updatedAt: Date.now(),
       })
 
@@ -255,14 +281,19 @@ export class PhishingWarningRedirect {
       if (hostAccess === true) {
         return current && isWantedRule(current, createRedirectRule(domains))
           ? measured('installed')
-          : measured('missing', this.failure)
+          : measured('missing', failure)
       }
       if (!current) return measured('not-wanted')
 
       // A rule without confirmed access may outrank the block rule.
-      if (this.retryTimer === undefined) void this.sync()
-      if (hostAccess === 'unknown') return measured('unknown', this.failure)
-      return measured(this.failure?.removal ? 'removal-failed' : 'removing', this.failure)
+      const health =
+        hostAccess === 'unknown'
+          ? measured('unknown', failure)
+          : measured(failure?.removal ? 'removal-failed' : 'removing', failure)
+      if (this.retryTimer === undefined && this.queuedAttempts === 0) {
+        void this.attempt(++this.latestRun, 1)
+      }
+      return health
     })
   }
 

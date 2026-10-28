@@ -3,6 +3,7 @@ import log from 'loglevel'
 import { normalizeHostname, parseDnrDomain } from '@qbit/phishing-detect'
 import {
   PHISHING_PAGE_PROBE,
+  PHISHING_PROCEED_REFUSED_ERROR,
   PhishingMessageType,
   type PhishingNetworkRuleHealth,
   type PhishingProtectionHealth,
@@ -46,6 +47,10 @@ const PHISHING_PROCEED_RULE_PRIORITY = PHISHING_WARNING_REDIRECT_PRIORITY + 1
 // How long a tab sent to the warning page has to finish loading before the
 // worker stops watching it.
 const WARNING_PAGE_SETTLE_TIMEOUT_MS = 5_000
+
+// How long the phishing stats wait for the redirect rule's health, which
+// queues behind its updates, before reporting it as unknown.
+const REDIRECT_HEALTH_TIMEOUT_MS = 2_000
 
 /** A redirect to the warning page whose outcome the worker still checks. */
 interface WarningRedirect {
@@ -135,14 +140,41 @@ function summarizeProtection(
     unknown.push('redirect-rule-unknown')
   }
   // Nor does the content script's hold run where site access is withheld.
-  if (degraded.includes('block-rule-not-installed') && warningRedirect.hostAccess === false) {
-    degraded.push('site-access-withheld')
+  if (degraded.includes('block-rule-not-installed')) {
+    if (warningRedirect.hostAccess === false) degraded.push('site-access-withheld')
+    else if (warningRedirect.hostAccess === 'unknown') degraded.push('site-access-unknown')
   }
 
   return {
     status: degraded.length ? 'degraded' : unknown.length ? 'unknown' : 'full',
     reasons: [...degraded, ...unknown],
     warningRedirect,
+  }
+}
+
+/** The redirect rule's health, or `unknown` when it fails or does not arrive in time. */
+async function boundedRedirectHealth(
+  health: () => Promise<PhishingWarningRedirectHealth>
+): Promise<PhishingWarningRedirectHealth> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`No answer within ${REDIRECT_HEALTH_TIMEOUT_MS} ms`)),
+      REDIRECT_HEALTH_TIMEOUT_MS
+    )
+  })
+  try {
+    return await Promise.race([health(), timeout])
+  } catch (error) {
+    log.error('[Phishing] Failed to read the warning redirect rule health:', error)
+    return {
+      status: 'unknown',
+      hostAccess: 'unknown',
+      error: error instanceof Error ? error.message : String(error),
+      updatedAt: Date.now(),
+    }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -373,7 +405,7 @@ class PhishingController {
 
           const hostname = toDnrDomain(message.hostname)
           if (!hostname) {
-            sendResponse({ error: 'Invalid hostname parameter' })
+            sendResponse({ error: PHISHING_PROCEED_REFUSED_ERROR })
             return false
           }
 
@@ -653,14 +685,16 @@ class PhishingController {
   /**
    * Whether the network layer as a whole stops denylisted pages, given the
    * block rule's health, with the warning redirect rule's state read back
-   * from the browser. Undefined without DNR, where the content script is the
-   * only layer.
+   * from the browser. That read is `unknown` when it fails or takes longer
+   * than a short wait, so it never holds up or fails the block rule's health.
+   * Undefined without DNR, where the content script is the only layer.
    */
   public async getProtectionHealth(
     networkRules: PhishingNetworkRuleHealth
   ): Promise<PhishingProtectionHealth | undefined> {
     if (!this.hasDeclarativeNetRequest()) return undefined
-    return summarizeProtection(networkRules, await this.warningRedirect.getHealth())
+    const warningRedirect = await boundedRedirectHealth(() => this.warningRedirect.getHealth())
+    return summarizeProtection(networkRules, warningRedirect)
   }
 
   /**

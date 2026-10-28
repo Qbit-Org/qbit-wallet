@@ -37,6 +37,8 @@ export enum PhishingMessageType {
    *
    * Response:
    * - success: boolean - Whether the hostname was added to the whitelist
+   * - error?: string - Why not; `PHISHING_PROCEED_REFUSED_ERROR` for a
+   *   hostname the background does not lift
    */
   SKIP_PHISHING_PROTECTION = 'SKIP_PHISHING_PROTECTION',
 
@@ -181,13 +183,18 @@ export type PhishingWarningRedirectStatus =
   | 'removal-failed'
   | 'unknown'
 
+/**
+ * Whether the extension has host access to every denylisted domain, as the
+ * browser's permission check reported it at a read: `false` only when the
+ * check ran and said so. `unknown` when the browser has no permission check
+ * or it failed, and `no-domains` when no denylist entry can be named in a DNR
+ * rule, so there is nothing to check.
+ */
+export type PhishingWarningRedirectHostAccess = boolean | 'unknown' | 'no-domains'
+
 export interface PhishingWarningRedirectHealth {
   status: PhishingWarningRedirectStatus
-  /**
-   * Whether the extension has host access to every denylisted domain, as the
-   * browser reported it at this read, or `unknown` when it could not say.
-   */
-  hostAccess: boolean | 'unknown'
+  hostAccess: PhishingWarningRedirectHostAccess
   /** The last failure, while the rule is not as wanted or could not be read. */
   error?: string
   /** When the next attempt starts, in milliseconds since the epoch, while one is scheduled. */
@@ -203,10 +210,13 @@ export interface PhishingWarningRedirectHealth {
  * - `block-rule-unknown`: the block rule could not be read back;
  * - `redirect-rule-without-host-access`: a redirect rule that does not fire
  *   may still outrank the block rule, so denylisted pages load;
- * - `redirect-rule-unknown`: the redirect rule's state could not be read;
- * - `site-access-withheld`: with the block rule not in place, the user also
- *   withholds site access on some denylisted domains, where the content
- *   script's hold does not run either.
+ * - `redirect-rule-unknown`: the redirect rule's state could not be read, or
+ *   did not arrive in time;
+ * - `site-access-withheld`: with the block rule not in place, the browser
+ *   reports site access withheld on some denylisted domains, where the
+ *   content script's hold does not run either;
+ * - `site-access-unknown`: with the block rule not in place, whether site
+ *   access is withheld, and so whether the hold runs, could not be read.
  */
 export type PhishingProtectionReason =
   | 'block-rule-not-installed'
@@ -214,6 +224,7 @@ export type PhishingProtectionReason =
   | 'redirect-rule-without-host-access'
   | 'redirect-rule-unknown'
   | 'site-access-withheld'
+  | 'site-access-unknown'
 
 /**
  * Whether the MV3 network layer stops every denylisted page it names:
@@ -240,6 +251,13 @@ export interface PhishingStatsResponse {
   /** Only with DNR (MV3); without it the content script is the only layer. */
   protection?: PhishingProtectionHealth
 }
+
+/**
+ * The error `SKIP_PHISHING_PROTECTION` answers for a hostname the background
+ * does not lift: one a DNR rule cannot name, or one the bundled denylist does
+ * not cover.
+ */
+export const PHISHING_PROCEED_REFUSED_ERROR = 'Invalid hostname parameter'
 
 /**
  * Sent by the background to a tab's top frame, where the content script

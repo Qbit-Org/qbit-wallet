@@ -301,12 +301,16 @@ Controls and evidence:
   again, and `FORCE_UPDATE_PHISHING_LIST` installs it again too. With DNR it
   also reports `protection`, the state of the network layer as a whole:
   `degraded` while the block rule is not installed or a redirect rule without
-  host access may still be in place, `unknown` while either cannot be read,
-  and `full` otherwise, with the reasons and the redirect rule's own state
+  host access may still be in place, `unknown` while either cannot be read
+  or the redirect rule's state does not arrive within two seconds, and
+  `full` otherwise, with the reasons and the redirect rule's own state
   (`installed`, `not-wanted`, `missing`, `removing`, `removal-failed` or
-  `unknown`), its host access, last error and next retry. A read that finds
-  a redirect rule in place without host access, with no retry scheduled,
-  starts its removal. No wallet screen shows this health yet;
+  `unknown`), its host access, last error and next retry; the block rule's
+  health comes back whatever happens to that read. A read that finds a
+  redirect rule in place without host access, with no attempt scheduled or
+  queued, starts its removal once it has measured; it neither clears a
+  recorded failure nor supersedes a queued retry. No wallet screen shows
+  this health yet;
 - above the block rule, a session `redirect` rule sends a top-level
   navigation to a denylisted host to the wallet's warning page before it
   reaches the network, however the tab got there: a link, a typed URL, a
@@ -393,7 +397,8 @@ Controls and evidence:
 - the warning screen offers Proceed only for a hostname that passes the same
   DNR hostname check (`parseDnrDomain`) as the background's; for any other,
   such as a denylisted name outside DNS syntax, it offers none and says that
-  the site cannot be opened from there;
+  the site cannot be opened from there, as it does when the background
+  refuses a Proceed it offered;
 - the warning page returns only to an http(s) URL on the warned host, and
   otherwise to that host's HTTPS root;
 - approval checks use the strict `checkWebsite()` verdict, which ignores
@@ -442,7 +447,8 @@ Residual risk:
   a page there: the redirect rule is removed, and the content script's hold
   does not run, so the page loads and runs its own script. The
   `GET_PHISHING_STATS` health reports this as `protection` `degraded` with
-  `block-rule-not-installed` and `site-access-withheld`; no wallet screen
+  `block-rule-not-installed` and `site-access-withheld`, or
+  `site-access-unknown` when the browser cannot say; no wallet screen
   shows it yet;
 - an enterprise policy that blocks the wallet on a denylisted host
   (`runtime_blocked_hosts`) was not tested. If Chrome still reports host

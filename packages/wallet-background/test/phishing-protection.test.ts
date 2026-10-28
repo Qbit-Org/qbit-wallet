@@ -156,14 +156,18 @@ function setSiteAccess(browser: Browser, access: SiteAccess, { notify = true } =
   for (const listener of access === 'on all sites' ? listeners.added : listeners.removed) listener()
 }
 
-async function startController(browser: Browser) {
+async function startController(
+  browser: Browser,
+  service = new PhishingService(),
+  installed = () => expect(browser.declarativeNetRequest.updateDynamicRules).toHaveBeenCalled()
+) {
   vi.stubGlobal('chrome', browser.chrome)
   vi.resetModules()
-  vi.doMock('src/services', () => ({ phishingDetectService: new PhishingService() }))
+  vi.doMock('src/services', () => ({ phishingDetectService: service }))
   const { default: controller } = await import('../src/controllers/phishing')
   controller.init()
   await vi.waitFor(() => {
-    expect(browser.declarativeNetRequest.updateDynamicRules).toHaveBeenCalled()
+    installed()
     expect(browser.declarativeNetRequest.getSessionRules).toHaveBeenCalledTimes(2)
   })
   await vi.advanceTimersByTimeAsync(0)
@@ -175,6 +179,8 @@ async function phishingStats(browser: Browser) {
     browser.state.listener!({ type: PhishingMessageType.GET_PHISHING_STATS }, walletPage, resolve)
   })
   return response as {
+    stats?: unknown
+    error?: string
     networkRules: PhishingNetworkRuleHealth
     protection?: PhishingProtectionHealth
   }
@@ -442,6 +448,145 @@ describe('PhishingController protection health', () => {
       status: 'degraded',
       reasons: ['block-rule-not-installed', 'redirect-rule-unknown'],
     })
+  })
+
+  it('reports a failed removal as found, without erasing it or superseding the retry queued behind the read', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    const updates = browser.declarativeNetRequest.updateSessionRules
+    updates.mockRejectedValue(new Error('quota'))
+    setSiteAccess(browser, 'on click')
+    await vi.waitFor(() => expect(updates).toHaveBeenCalledTimes(2))
+    const failed = (await protection(browser))!.warningRedirect
+    expect(failed).toMatchObject({ status: 'removal-failed', error: 'quota' })
+
+    // The next read waits on the browser's permission check while the
+    // retry's timer fires and queues the retry behind the read.
+    let answer: ((granted: boolean) => void) | undefined
+    browser.permissions.contains.mockImplementationOnce(
+      () => new Promise<boolean>(resolve => (answer = resolve))
+    )
+    const read = protection(browser)
+    await vi.waitFor(() => expect(answer).toBeDefined())
+    await vi.advanceTimersByTimeAsync(failed.nextRetryAt! - Date.now())
+    answer!(false)
+
+    await expect(read).resolves.toMatchObject({
+      status: 'degraded',
+      reasons: ['redirect-rule-without-host-access'],
+      warningRedirect: {
+        status: 'removal-failed',
+        error: 'quota',
+        nextRetryAt: failed.nextRetryAt,
+      },
+    })
+    // The queued retry is the second attempt of the same run, and its
+    // failure is recorded with that attempt's backoff; the read started no
+    // run of its own.
+    await vi.waitFor(() => expect(updates).toHaveBeenCalledTimes(3))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(updates).toHaveBeenCalledTimes(3)
+    expect(log.error).toHaveBeenLastCalledWith(
+      '[Phishing] Failed to update the warning redirect rule (attempt 2):',
+      expect.objectContaining({ message: 'quota' })
+    )
+    const retried = (await protection(browser))!.warningRedirect
+    expect(retried).toMatchObject({ status: 'removal-failed', error: 'quota' })
+    expect(retried.nextRetryAt! - Date.now()).toBeGreaterThan(1_000)
+    expect(retried.nextRetryAt! - Date.now()).toBeLessThanOrEqual(4_000)
+  })
+
+  it('answers the stats with the block rule health when the redirect rule health fails', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    // The controller's own module instance.
+    const { PhishingWarningRedirect } = await import('../src/controllers/phishing-warning-redirect')
+    vi.spyOn(PhishingWarningRedirect.prototype, 'getHealth').mockRejectedValueOnce(
+      new Error('health failed')
+    )
+
+    const stats = await phishingStats(browser)
+    expect(stats).not.toHaveProperty('error')
+    expect(stats.stats).toMatchObject({ blacklist: expect.any(Array) })
+    expect(stats.networkRules).toMatchObject({ status: 'installed' })
+    expect(stats.protection).toEqual({
+      status: 'unknown',
+      reasons: ['redirect-rule-unknown'],
+      warningRedirect: {
+        status: 'unknown',
+        hostAccess: 'unknown',
+        error: 'health failed',
+        updatedAt: Date.now(),
+      },
+    })
+  })
+
+  it('answers the stats within a short wait while the redirect rule health is held up', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    // A removal the browser never finishes holds up the redirect rule's queue.
+    const updates = browser.declarativeNetRequest.updateSessionRules
+    updates.mockImplementationOnce(() => new Promise<void>(() => undefined))
+    setSiteAccess(browser, 'on click')
+    await vi.waitFor(() => expect(updates).toHaveBeenCalledTimes(2))
+
+    const respond = vi.fn()
+    browser.state.listener!({ type: PhishingMessageType.GET_PHISHING_STATS }, walletPage, respond)
+    await vi.advanceTimersByTimeAsync(1_999)
+    expect(respond).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(respond).toHaveBeenCalledOnce()
+    expect(respond).toHaveBeenCalledWith({
+      stats: expect.objectContaining({ blacklist: expect.any(Array) }),
+      networkRules: expect.objectContaining({ status: 'installed' }),
+      // The rule that has to go may still be in place: not full.
+      protection: {
+        status: 'unknown',
+        reasons: ['redirect-rule-unknown'],
+        warningRedirect: {
+          status: 'unknown',
+          hostAccess: 'unknown',
+          error: 'No answer within 2000 ms',
+          updatedAt: Date.now(),
+        },
+      },
+    })
+  })
+
+  it('reports site access as unknown, not withheld, when the browser has no permission check', async () => {
+    const browser = createBrowser()
+    delete (browser.chrome as { permissions?: unknown }).permissions
+    browser.declarativeNetRequest.updateDynamicRules.mockRejectedValue(new Error('Internal error'))
+    await startController(browser)
+
+    await expect(protection(browser)).resolves.toEqual({
+      status: 'degraded',
+      reasons: ['block-rule-not-installed', 'site-access-unknown'],
+      warningRedirect: { status: 'not-wanted', hostAccess: 'unknown', updatedAt: Date.now() },
+    })
+  })
+
+  it('reports no site access reason when no denylist entry can be named in a rule', async () => {
+    const browser = createBrowser()
+    const service = new PhishingService()
+    vi.spyOn(service, 'getConfig').mockReturnValue({
+      ...service.getConfig(),
+      blacklist: ['ü.example'],
+    })
+    await startController(browser, service, () =>
+      expect(browser.declarativeNetRequest.getDynamicRules).toHaveBeenCalled()
+    )
+
+    await expect(phishingStats(browser)).resolves.toMatchObject({
+      networkRules: { status: 'failed' },
+      protection: {
+        status: 'degraded',
+        reasons: ['block-rule-not-installed'],
+        warningRedirect: { status: 'not-wanted', hostAccess: 'no-domains' },
+      },
+    })
+    expect(browser.permissions.contains).not.toHaveBeenCalled()
   })
 
   it('reports a redirect rule that cannot be added as missing, which the block rule covers', async () => {
