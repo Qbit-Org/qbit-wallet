@@ -740,6 +740,9 @@
   "failed_to_save_contact": {
     "message": "Не удалось сохранить контакт"
   },
+  "failed_to_save_contact_order": {
+    "message": "Не удалось сохранить порядок контактов"
+  },
   "fast": {
     "message": "Быстро"
   },

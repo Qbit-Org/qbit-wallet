@@ -740,6 +740,9 @@
   "failed_to_save_contact": {
     "message": "Error al guardar el contacto"
   },
+  "failed_to_save_contact_order": {
+    "message": "Error al guardar el orden de los contactos"
+  },
   "fast": {
     "message": "Rápido"
   },

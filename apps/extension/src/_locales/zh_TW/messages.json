@@ -740,6 +740,9 @@
   "failed_to_save_contact": {
     "message": "保存聯絡人失敗"
   },
+  "failed_to_save_contact_order": {
+    "message": "保存聯絡人順序失敗"
+  },
   "fast": {
     "message": "快"
   },

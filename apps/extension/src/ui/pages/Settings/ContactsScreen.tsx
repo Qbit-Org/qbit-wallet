@@ -28,7 +28,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ContactBookItem } from '@qbit/contact-book';
 import { CHAINS_MAP } from '@qbit/wallet-shared';
-import { useChain, useI18n, useNavigation, useWallet } from '@qbit/wallet-state';
+import { useChain, useI18n, useNavigation, useTools, useWallet } from '@qbit/wallet-state';
 import { ChainType } from '@qbit/wallet-types';
 
 import { ContactChainModal } from './ContactChainModal';
@@ -171,6 +171,7 @@ export default function ContactsScreen() {
   const [isSortingMode, setIsSortingMode] = useState(false);
   const [orderedContacts, setOrderedContacts] = useState<ContactBookItem[]>([]);
   const { t } = useI18n();
+  const tools = useTools();
   const { isSidePanel } = getUiType();
 
   // Setup sensors for touch and keyboard operations
@@ -250,16 +251,16 @@ export default function ContactsScreen() {
     }
   };
 
-  const toggleSortDirection = () => {
+  const toggleSortDirection = async () => {
     try {
       if (!isSortingMode) {
         setOrderedContacts([...filteredContacts]);
 
         setSearchKeyword('');
       } else {
-        saveContactOrder().catch((e) => {
-          console.error('Failed to save contact order on exit sorting mode', e);
-        });
+        // Leave sorting mode once the save settles, so the list shows the new
+        // order only if it was saved
+        await saveContactOrder();
       }
 
       setIsSortingMode(!isSortingMode);
@@ -301,14 +302,14 @@ export default function ContactsScreen() {
       // Merge contact lists
       const newContacts = [...contactsFromOtherNetworks, ...reorderedNetworkContacts];
 
-      // Update local state
-      setContacts(newContacts);
-
-      // Try to save to backend
+      // Save to backend, then update local state. A failed save leaves the
+      // saved order in place, here and in the contact book.
       try {
         await wallet.saveContactsOrder(newContacts);
+        setContacts(newContacts);
       } catch (saveError) {
         console.error('Failed to save contact order to background', saveError);
+        tools.toastError(t('failed_to_save_contact_order'));
       }
     } catch (e) {
       console.error('Failed to handle contact order save operation', e);

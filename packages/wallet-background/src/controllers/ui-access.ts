@@ -160,6 +160,7 @@ export const UI_CONTROLLER_METHODS = [
   'removeConnectedSite',
   'removeContact',
   'removeKeyring',
+  'replaceContact',
   'reserveExternallySignedQbitSend',
   'resolveApproval',
   'resolveUnlockApproval',

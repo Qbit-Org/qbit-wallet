@@ -78,21 +78,24 @@ export function useEditContactScreenLogic() {
     setLoading(true)
 
     try {
-      if (
-        originalAddress &&
-        originalChain &&
-        (originalAddress !== contactAddress.trim() || originalChain !== chainType)
-      ) {
-        await wallet.removeContact(originalAddress, originalChain)
-      }
-
-      await wallet.updateContact({
+      const contact = {
         name: name.trim(),
         address: contactAddress.trim(),
         chain: chainType,
         isContact: true,
         isAlias: false,
-      })
+      }
+
+      if (
+        originalAddress &&
+        originalChain &&
+        (originalAddress !== contact.address || originalChain !== contact.chain)
+      ) {
+        // One write, so a failure keeps the contact under its old address
+        await wallet.replaceContact(originalAddress, originalChain, contact)
+      } else {
+        await wallet.updateContact(contact)
+      }
 
       nav.goBack()
     } catch (err) {
