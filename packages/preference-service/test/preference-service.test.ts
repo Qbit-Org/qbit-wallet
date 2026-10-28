@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { AddressFlagType } from '@qbit/wallet-shared'
+import { AddressFlagType, ErrorCodes } from '@qbit/wallet-shared'
 import { BaseProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
 import { PreferenceService } from '../src/preference-service'
@@ -404,9 +404,11 @@ describe('PreferenceService', () => {
 class DiskAdapter extends BaseProxyStorageAdapter {
   disk = new Map<string, string>()
   readError: Error | undefined
-  writeErrors: Error[] = []
+  // One entry per write, in call order; undefined lets that write succeed.
+  writeErrors: (Error | undefined)[] = []
   writeGate: Promise<void> | undefined
   writes = 0
+  written: any[] = []
 
   async get(key: string): Promise<any> {
     if (this.readError) throw this.readError
@@ -418,6 +420,7 @@ class DiskAdapter extends BaseProxyStorageAdapter {
     const raw = JSON.stringify(value)
     const writeError = this.writeErrors.shift()
     this.writes++
+    this.written.push(JSON.parse(raw))
     await this.writeGate
     if (writeError) throw writeError
     this.disk.set(key, raw)
@@ -494,6 +497,92 @@ describe('PreferenceService persistence', () => {
     expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(false)
   })
 
+  // The setting's write fails while another save of the whole store gets the
+  // new value to disk.
+  const failWhileAnotherWriteSaves = async (
+    service: PreferenceService,
+    change: () => Promise<void>
+  ) => {
+    let openGate!: () => void
+    adapter.writeGate = new Promise(resolve => {
+      openGate = resolve
+    })
+    const writesBefore = adapter.writes
+    const setting = change()
+    setting.catch(() => undefined)
+    await vi.waitFor(() => expect(adapter.writes).toBe(writesBefore + 1))
+    const otherWrite = service.persist()
+    openGate()
+    await otherWrite
+    adapter.writeGate = undefined
+    return { setting }
+  }
+
+  it('retries the restored value when its first save fails after another write saved the failed one', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    const writeError = new Error('write failed')
+    adapter.writeErrors.push(writeError, undefined, new Error('restore failed'))
+
+    const { setting } = await failWhileAnotherWriteSaves(service, () =>
+      service.setEnableSignData(true)
+    )
+    // Well before the store's own debounced save, which would also fix the disk.
+    await vi.advanceTimersByTimeAsync(500)
+
+    await expect(setting).rejects.toBe(writeError)
+    expect(service.getEnableSignData()).toBe(false)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(false)
+    expect((await load()).getEnableSignData()).toBe(false)
+  })
+
+  it('reports a distinct failure when the restored value cannot be saved', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    const writeError = new Error('write failed')
+    const restoreError = new Error('restore failed')
+    adapter.writeErrors.push(writeError, undefined, ...Array(20).fill(restoreError))
+
+    const { setting } = await failWhileAnotherWriteSaves(service, () =>
+      service.setEnableSignData(true)
+    )
+    let settled = false
+    setting.catch(() => undefined).finally(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(500)
+
+    // The retry gives up rather than holding the next change back for long.
+    expect(settled).toBe(true)
+    const failure = await setting.catch(error => error)
+    expect(failure).not.toBe(writeError)
+    expect(failure).toMatchObject({ code: ErrorCodes.PREFERENCE_NOT_RESTORED, cause: restoreError })
+    expect(service.getEnableSignData()).toBe(false)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(true)
+  })
+
+  it('stops retrying the restored value once a newer change of the setting is made', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    const writeError = new Error('write failed')
+    adapter.writeErrors.push(writeError, undefined, new Error('restore failed'))
+
+    const writesAtStart = adapter.writes
+    const { setting } = await failWhileAnotherWriteSaves(service, () =>
+      service.setEnableSignData(true)
+    )
+    // The setting's write, the other write and the first save of the restored value.
+    await vi.waitFor(() => expect(adapter.writes).toBe(writesAtStart + 3))
+    const writesBefore = adapter.writes
+    const newer = service.setEnableSignData(true)
+    await vi.advanceTimersByTimeAsync(500)
+
+    await expect(setting).rejects.toBe(writeError)
+    await newer
+    expect(adapter.written.slice(writesBefore).map(value => value.enableSignData)).toEqual([true])
+    expect(service.getEnableSignData()).toBe(true)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(true)
+    expect((await load()).getEnableSignData()).toBe(true)
+  })
+
   it('does not restore a value that a later change replaced while the failed write was pending', async () => {
     const service = await load()
     const writeError = new Error('write failed')
@@ -548,6 +637,8 @@ describe('PreferenceService persistence', () => {
     const settingResult = expect(setting).rejects.toThrow('A newer store replaced preference')
     openGate()
     await reset
+    // The setting's retry of the restored value stops once the reset store is in place.
+    await vi.advanceTimersByTimeAsync(100)
     await settingResult
     adapter.writeGate = undefined
 

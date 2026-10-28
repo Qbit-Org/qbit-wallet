@@ -1817,6 +1817,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "設定要合併的 UTXO 數量"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "變更未能儲存，已儲存的設定可能已變更。重新啟動後請再次檢查此設定。"
+  },
   "settings": {
     "message": "設定"
   },

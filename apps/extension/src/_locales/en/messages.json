@@ -1817,6 +1817,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "Set UTXO amount to be merged"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "The change was not saved, and the stored setting may have changed. Check this setting again after a restart."
+  },
   "settings": {
     "message": "Settings"
   },

@@ -8,9 +8,11 @@ import {
   QbitBalance,
   DEFAULT_LOCKTIME_ID,
   DEFAULT_THEME_MODE,
+  ErrorCodes,
   THEME_MODES,
   ThemeMode,
   TxHistoryItem,
+  WalletError,
   normalizeAvailableChainType,
 } from '@qbit/wallet-shared'
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
@@ -19,6 +21,10 @@ import { EventEmitter } from 'eventemitter3'
 import cloneDeep from 'lodash/cloneDeep.js'
 import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents } from './types'
 const SUPPORTED_LOCALES = ['en', 'zh_TW', 'fr', 'es', 'ru', 'ja']
+const RESTORE_SAVE_ATTEMPTS = 3
+const RESTORE_SAVE_RETRY_DELAY_MS = 100
+
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 const defaultTemplate = {
   currentKeyringIndex: 0,
@@ -70,6 +76,8 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   protected defaultLang: string = 'en'
   private storageKey: string = 'preference'
   private pendingPersist: Promise<void> = Promise.resolve()
+  // The latest change requested of each setting saved through setAndPersist.
+  private persistRequests = new Map<keyof BasePreferenceStore, number>()
 
   // State flags
   protected initialized = false
@@ -155,13 +163,17 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    * than after the store's debounced save, so a browser quit or extension
    * reload straight after the change cannot bring the old value back. Changes
    * run one at a time. A failed write restores the previous value, unless the
-   * store was reset or the value changed some other way meanwhile, and rejects
-   * so the caller can report it.
+   * store was reset or the value changed some other way meanwhile, saves it
+   * again and rejects so the caller can report it. When the restored value
+   * cannot be saved either, it rejects with a PREFERENCE_NOT_RESTORED
+   * WalletError instead: the stored setting may then hold the rejected value.
    */
   private setAndPersist<K extends keyof BasePreferenceStore>(
     key: K,
     value: BasePreferenceStore[K]
   ): Promise<void> {
+    const request = (this.persistRequests.get(key) ?? 0) + 1
+    this.persistRequests.set(key, request)
     const run = this.pendingPersist.then(async () => {
       const store = this.store
       const hadValue = key in store
@@ -177,20 +189,57 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
           } else {
             delete store[key]
           }
-          // Save the restored value now rather than after the debounce, in case
-          // another write got the failed value to disk meanwhile.
-          this.persist().catch(restoreError => {
-            this.logger?.error?.(
-              '[PreferenceService] Failed to save a restored preference',
-              restoreError
+          const restore = await this.saveRestoredValue(store, key, request)
+          if (restore) {
+            const failure = new WalletError(
+              ErrorCodes.PREFERENCE_NOT_RESTORED,
+              `Failed to save ${String(key)}, and its previous value could not be saved again`
             )
-          })
+            ;(failure as { cause?: unknown }).cause = restore.error
+            throw failure
+          }
         }
         throw error
       }
     })
     this.pendingPersist = run.catch(() => undefined)
     return run
+  }
+
+  /**
+   * Save the value setAndPersist put back after a failed write, in case
+   * another write got the failed value to disk meanwhile, retrying a few
+   * times. Stops early once the store is replaced, the setting changes some
+   * other way, or a newer change of it is waiting to run: that change decides
+   * what is stored. Resolves with the last error if the value was not saved.
+   */
+  private async saveRestoredValue<K extends keyof BasePreferenceStore>(
+    store: BasePreferenceStore,
+    key: K,
+    request: number
+  ): Promise<{ error: unknown } | undefined> {
+    const restored = store[key]
+    let lastError: unknown
+    for (let attempt = 1; attempt <= RESTORE_SAVE_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        await delay(RESTORE_SAVE_RETRY_DELAY_MS * (attempt - 1))
+      }
+      if (
+        this.store !== store ||
+        store[key] !== restored ||
+        this.persistRequests.get(key) !== request
+      ) {
+        return undefined
+      }
+      try {
+        await this.persist()
+        return undefined
+      } catch (error) {
+        lastError = error
+        this.logger?.error?.('[PreferenceService] Failed to save a restored preference', error)
+      }
+    }
+    return { error: lastError }
   }
 
   /**
