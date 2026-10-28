@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { bgEventBus, preferenceService, walletApiService } from '@qbit/wallet-background';
-import { MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
+import { approvalService, bgEventBus, preferenceService, walletApiService } from '@qbit/wallet-background';
+import { ErrorCodes, MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
 
 const EXTENSION_ID = 'wallet';
 vi.stubGlobal('chrome', {
@@ -106,6 +106,12 @@ vi.mock('@qbit/wallet-background', async () => ({
   ...(await vi.importActual<
     Pick<typeof import('@qbit/wallet-background'), 'getUiControllerMethod' | 'isExtensionPageSender'>
   >('../../../../../packages/wallet-background/src/controllers/ui-access')),
+  // A real approval service, so a rejection is the one a pending request sees.
+  approvalService: new (
+    await vi.importActual<typeof import('../../../../../packages/approval-service/src/approval-service')>(
+      '../../../../../packages/approval-service/src/approval-service'
+    )
+  ).ApprovalService(),
   bgEventBus: {
     addEventListener: vi.fn(),
     emit: vi.fn(),
@@ -435,5 +441,100 @@ describe('background provider-port session isolation', () => {
 
     expect(harness.getTabSession(17)).toBe(harness.sessions.get(firstPort));
     expect(harness.sessions.get(firstPort)).not.toBe(harness.sessions.get(secondPort));
+  });
+});
+
+describe('background provider-port approvals', () => {
+  // As rpcFlow does, the request keeps the id of the approval it waits on
+  // with the page that made it.
+  function requestApproval(port: TestPort) {
+    harness.handleRequest.mockImplementationOnce((req: any) =>
+      approvalService.requestApproval({ approvalComponent: 'SignPsbt', origin: req.session.origin }, undefined, (id) =>
+        req.page?.approvalIds.add(id)
+      )
+    );
+    const state: { settled: boolean; error?: any } = { settled: false };
+    Promise.resolve(harness.listeners.get(port)!({ source: 'page', data: { method: 'sendQbit' } })).then(
+      () => Object.assign(state, { settled: true }),
+      (error) => Object.assign(state, { settled: true, error })
+    );
+    return state;
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    harness.connectListener = undefined;
+    harness.listeners.clear();
+    harness.sessions.clear();
+    harness.tabSessions.clear();
+    initMessaging();
+  });
+
+  afterEach(async () => {
+    const approval = approvalService.getApproval();
+    if (approval) await approvalService.rejectApproval(approval.id);
+  });
+
+  it('rejects the pending approval of a page whose provider port disconnects', async () => {
+    const port = providerPort('https://dapp.example/');
+    harness.connectListener!(port);
+    const request = requestApproval(port);
+    await flush();
+    expect(approvalService.getApproval()).toBeDefined();
+
+    port.disconnectListener!();
+    await flush();
+
+    expect(approvalService.getApproval()).toBeUndefined();
+    expect(request.settled).toBe(true);
+    expect(request.error).toMatchObject({ code: ErrorCodes.UserCancel });
+    // Its requests also learn the page is gone, so none acts on a late result.
+    expect(harness.handleRequest.mock.calls[0][0].page.signal.aborted).toBe(true);
+    expect(harness.deleteSession).toHaveBeenCalledWith(port);
+  });
+
+  it("leaves another page's approval pending when a page disconnects", async () => {
+    const firstPort = providerPort('https://first.example/');
+    const secondPort = providerPort('https://second.example/');
+    harness.connectListener!(firstPort);
+    harness.connectListener!(secondPort);
+    const request = requestApproval(firstPort);
+    await flush();
+    const approvalId = approvalService.getApproval()!.id;
+
+    secondPort.disconnectListener!();
+    await flush();
+
+    expect(approvalService.getApproval()?.id).toBe(approvalId);
+    expect(request.settled).toBe(false);
+    expect(harness.handleRequest.mock.calls[0][0].page.signal.aborted).toBe(false);
+
+    firstPort.disconnectListener!();
+    await flush();
+    expect(approvalService.getApproval()).toBeUndefined();
+    expect(request.error).toMatchObject({ code: ErrorCodes.UserCancel });
+  });
+
+  it('leaves an approval that replaced a settled one alone', async () => {
+    const firstPort = providerPort('https://first.example/');
+    const secondPort = providerPort('https://second.example/');
+    harness.connectListener!(firstPort);
+    harness.connectListener!(secondPort);
+    const first = requestApproval(firstPort);
+    await flush();
+    await approvalService.resolveApproval(approvalService.getApproval()!.id);
+    await flush();
+    expect(first.settled).toBe(true);
+    const second = requestApproval(secondPort);
+    await flush();
+    const secondId = approvalService.getApproval()!.id;
+
+    firstPort.disconnectListener!();
+    await flush();
+
+    expect(approvalService.getApproval()?.id).toBe(secondId);
+    expect(second.settled).toBe(false);
   });
 });

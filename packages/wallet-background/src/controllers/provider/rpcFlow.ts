@@ -15,9 +15,63 @@ import providerController from './controller'
 import { isPublicProviderMethod } from './methodList'
 import wallet from '../wallet'
 
+import type { ProviderApprovalData } from '@qbit/approval-service'
 import { ChainType } from '@qbit/wallet-types'
 import approvalService from 'src/services/approval'
 import { bgEventBus } from 'src/utils/eventBus'
+
+/**
+ * The page a provider request came from, as the transport that carries its
+ * requests reports it. `signal` aborts when the page goes away. A request
+ * keeps the id of the approval it waits on in `approvalIds`, and the
+ * transport rejects the approvals listed there when the page goes away.
+ */
+export interface ProviderPage {
+  signal: AbortSignal
+  approvalIds: Set<string>
+}
+
+const pageGoneError = () => new Error('Qbit provider page closed before the request completed')
+
+function assertPageConnected(page: ProviderPage | undefined) {
+  if (page?.signal.aborted) throw pageGoneError()
+}
+
+/**
+ * Waits for `promise` while `page` is connected. A page that goes away stops
+ * waiting and leaves `promise`, which other pages' requests may share, alone.
+ */
+function whilePageConnected<T>(page: ProviderPage | undefined, promise: Promise<T>): Promise<T> {
+  if (!page) return promise
+  const { signal } = page
+  return new Promise<T>((resolve, reject) => {
+    const onPageGone = () => reject(pageGoneError())
+    signal.addEventListener('abort', onPageGone, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onPageGone))
+    if (signal.aborted) onPageGone()
+  })
+}
+
+/**
+ * Asks the user to approve `data` for the request in `ctx`, keeping the
+ * approval's id with the request's page while it is pending. An approval
+ * the page outlived is never acted on.
+ */
+async function requestPageApproval(ctx: any, data: ProviderApprovalData, winProps?: any) {
+  const page: ProviderPage | undefined = ctx.request.page
+  assertPageConnected(page)
+  let approvalId: string | undefined
+  try {
+    const approvalRes = await approvalService.requestApproval(data, winProps, id => {
+      approvalId = id
+      page?.approvalIds.add(id)
+    })
+    assertPageConnected(page)
+    return approvalRes
+  } finally {
+    if (approvalId !== undefined) page?.approvalIds.delete(approvalId)
+  }
+}
 
 class UnlockManager {
   private unlockPromise: Promise<any> | null = null
@@ -210,9 +264,12 @@ async function captureRequestContext(origin: string) {
 
 async function assertRequestContext(
   snapshot: Awaited<ReturnType<typeof captureRequestContext>>,
-  requirePermission = false
+  requirePermission = false,
+  page?: ProviderPage
 ) {
   const current = await captureRequestContext(snapshot.origin)
+  // After the last await: callers act on the request as soon as this returns.
+  assertPageConnected(page)
   if (
     current.chain !== snapshot.chain ||
     current.network !== snapshot.network ||
@@ -432,7 +489,10 @@ const flowContext = flow
 
       if (!isUnlock) {
         ctx.request.requestedApproval = true
-        await unlockManager.getUnlockPromise()
+        // Every waiting request shares the unlock request, so a page that
+        // goes away only stops its own request waiting.
+        assertPageConnected(ctx.request.page)
+        await whilePageConnected(ctx.request.page, unlockManager.getUnlockPromise())
       }
     }
 
@@ -460,7 +520,8 @@ const flowContext = flow
         }
         const context = await captureRequestContext(origin)
         ctx.request.requestedApproval = true
-        await approvalService.requestApproval(
+        await requestPageApproval(
+          ctx,
           {
             params: {
               method: 'connect',
@@ -474,7 +535,7 @@ const flowContext = flow
           },
           { height: windowHeight }
         )
-        await assertRequestContext(context)
+        await assertRequestContext(context, false, ctx.request.page)
         await permissionService.addConnectedSite(origin, name, icon, chain)
       }
     }
@@ -509,7 +570,7 @@ const flowContext = flow
       )
     }
 
-    await assertRequestContext(ctx.requestContext, ctx.requirePermission)
+    await assertRequestContext(ctx.requestContext, ctx.requirePermission, ctx.request.page)
 
     if (approvalType && skipApproval != true) {
       ctx.approvalPayloadSnapshot = approvalPayloadSnapshot({
@@ -518,7 +579,8 @@ const flowContext = flow
         context: ctx.requestContext,
       })
       ctx.request.requestedApproval = true
-      ctx.approvalRes = await approvalService.requestApproval(
+      ctx.approvalRes = await requestPageApproval(
+        ctx,
         {
           approvalComponent: approvalType,
           params: {
@@ -531,7 +593,7 @@ const flowContext = flow
         },
         { height: windowHeight }
       )
-      await assertRequestContext(ctx.requestContext, ctx.requirePermission)
+      await assertRequestContext(ctx.requestContext, ctx.requirePermission, ctx.request.page)
       if (
         ctx.approvalPayloadSnapshot !==
         approvalPayloadSnapshot({ method, params, context: ctx.requestContext })
@@ -556,25 +618,27 @@ const flowContext = flow
     const {
       session: { origin },
     } = request
-    const requestDefer = assertRequestContext(ctx.requestContext, ctx.requirePermission).then(
-      () => {
-        if (
-          ctx.approvalPayloadSnapshot &&
-          ctx.approvalPayloadSnapshot !==
-            approvalPayloadSnapshot({
-              method: request.data.method,
-              params: request.data.params,
-              context: ctx.requestContext,
-            })
-        ) {
-          throw new Error('Qbit approval payload changed before execution')
-        }
-        return providerController[mapMethod]({
-          ...request,
-          approvalRes,
-        })
+    const requestDefer = assertRequestContext(
+      ctx.requestContext,
+      ctx.requirePermission,
+      request.page
+    ).then(() => {
+      if (
+        ctx.approvalPayloadSnapshot &&
+        ctx.approvalPayloadSnapshot !==
+          approvalPayloadSnapshot({
+            method: request.data.method,
+            params: request.data.params,
+            context: ctx.requestContext,
+          })
+      ) {
+        throw new Error('Qbit approval payload changed before execution')
       }
-    )
+      return providerController[mapMethod]({
+        ...request,
+        approvalRes,
+      })
+    })
 
     requestDefer
       .then(result => {
@@ -603,7 +667,7 @@ const flowContext = flow
 
     async function requestApprovalLoop({ uiRequestComponent, ...rest }) {
       ctx.request.requestedApproval = true
-      const res = await approvalService.requestApproval({
+      const res = await requestPageApproval(ctx, {
         approvalComponent: uiRequestComponent,
         params: rest,
         origin,

@@ -1688,6 +1688,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "No está permitido eliminar la última billetera"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "Se canceló la solicitud pendiente de un sitio web porque se abrió la billetera. Vuelve al sitio web para intentarlo de nuevo."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "La solicitud fue Rechazada. Para proceder, por favor reautoriza"
   },

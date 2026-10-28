@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 
 import { getUiType } from '@/ui/web';
-import { useApproval, useWallet } from '@qbit/wallet-state';
+import { useApproval, useI18n, useTools, useWallet } from '@qbit/wallet-state';
 
 import { useNavigate } from '../MainRoute';
 
 export default function BoostScreen() {
   const navigate = useNavigate();
   const wallet = useWallet();
+  const tools = useTools();
+  const { t } = useI18n();
 
   const { getApproval, rejectApproval } = useApproval();
   const loadView = async () => {
@@ -32,10 +34,11 @@ export default function BoostScreen() {
     }
 
     if (!isInNotification) {
-      // Outside an approval window, cancel the approval read above, and only
-      // it: one that replaced it since is left pending.
-      if (approval) {
-        await rejectApproval(approval.id);
+      // Outside an approval window, cancel the website approval read above,
+      // and only it: one that replaced it since is left pending, and so is
+      // the provider's unlock request, which unlocking here answers.
+      if (approval && approval.data?.lock !== true && (await rejectApproval(approval.id))) {
+        tools.toastWarning(t('request_cancelled_by_opening_wallet'));
       }
       approval = undefined;
     }

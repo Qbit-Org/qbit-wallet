@@ -162,6 +162,45 @@ describe('ApprovalService', () => {
       await service.rejectApproval(pendingId(service), 'User cancelled')
       await expect(promise).rejects.toMatchObject({ message: 'User cancelled' })
     })
+
+    it('gives the caller the new approval id before its window opens', async () => {
+      const onPending = vi.fn((id: string) => {
+        expect(service.platformOpenWindow).not.toHaveBeenCalled()
+        return id
+      })
+      const promise = service.requestApproval(makeApprovalData(), undefined, onPending)
+
+      expect(onPending).toHaveBeenCalledOnce()
+      const [id] = onPending.mock.calls[0]
+      expect(id).toBe(pendingId(service))
+      // That id is enough for the caller to reject its own approval.
+      await expect(service.rejectApproval(id, 'Page closed')).resolves.toBe(true)
+      await expect(promise).rejects.toMatchObject({
+        code: ErrorCodes.UserCancel,
+        message: 'Page closed',
+      })
+    })
+
+    it('gives a caller whose request is refused no id', async () => {
+      service.requestApproval(makeApprovalData({ approvalType: 'first' })).catch(() => {})
+      const onPending = vi.fn()
+
+      await expect(
+        service.requestApproval(makeApprovalData({ approvalType: 'second' }), undefined, onPending)
+      ).rejects.toMatchObject({ message: 'Another approval request is already pending' })
+      expect(onPending).not.toHaveBeenCalled()
+    })
+
+    it('leaves nothing pending when the caller fails to take the id', async () => {
+      const promise = service.requestApproval(makeApprovalData(), undefined, () => {
+        throw new Error('caller failed')
+      })
+
+      await expect(promise).rejects.toThrow('caller failed')
+      expect(service.getApproval()).toBeUndefined()
+      await flushAsync()
+      expect(service.platformOpenWindow).not.toHaveBeenCalled()
+    })
   })
 
   // ── resolveApproval ───────────────────────────────────────────────────────

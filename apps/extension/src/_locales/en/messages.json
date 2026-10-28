@@ -1688,6 +1688,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "Removing the last wallet is not allowed"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "A website's pending request was cancelled because the wallet was opened. Return to the website to try again."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "Request was Rejected. To Proceed,please reauthorize"
   },
