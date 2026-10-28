@@ -305,8 +305,10 @@ const QBIT_P2MR_SINGLE_KEY_WITNESS_BYTES = qbitWitnessStackLength([
  * neither the control block it is revealed with nor the witness of another
  * input, so the transaction broadcast need not carry the witnesses the PSBT
  * lists (#59). Each input is therefore sized as a single-key spend through a
- * zero-depth leaf, or by its final witness when that is smaller. The size
- * errs only small, which can raise the rate shown but never lower it.
+ * zero-depth leaf, or by its final witness when that is smaller, so the leaf
+ * records and witnesses the PSBT lists cannot lower the rate shown. An input
+ * that finally spends with a smaller witness than a single-key spend still
+ * can, until a fee check that does not depend on this size is added (#59).
  */
 function qbitPsbtReviewVsize(psbt: QbitPsbt, summary: ReturnType<typeof decodeQbitPsbt>): number {
   const singleKeyVsize = estimateQbitP2mrTransaction({
