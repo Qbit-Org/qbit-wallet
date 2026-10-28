@@ -53,7 +53,8 @@ keeps its own meaning, so an outage is never shown as this state.
   way. If the pending rows change between that empty page and the one after
   the step back, the read fails closed and is retried. Should every retry
   fail, the outputs stay unknown, and recovery skips the source for that
-  pass and names it.
+  pass and names it; the check of an archived migration fails instead and
+  reopens nothing.
 - **Consolidation.** The account can sweep its outputs to its own address one
   batch at a time. Each batch carries the largest mature confirmed outputs, at
   most 106, the limit that keeps it within the 400,000 WU standard weight. The

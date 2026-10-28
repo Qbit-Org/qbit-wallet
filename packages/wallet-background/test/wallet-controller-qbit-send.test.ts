@@ -7412,7 +7412,7 @@ describe('WalletController qbit P2MR send path', () => {
     expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
   })
 
-  it('keeps a migration open, and reopens an archived one, for a source it could not read in full', async () => {
+  it('keeps a migration open for a source it could not read in full, and never reopens an archived one for it', async () => {
     const wallet = new WalletController()
     const fixture = qbitRecoveryMigrationFixture()
     const incomplete = p2mrAccount('44'.repeat(32), 1)
@@ -7455,16 +7455,16 @@ describe('WalletController qbit P2MR send path', () => {
     ).resolves.toMatchObject({ status: 'migrating' })
     expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
 
-    // An archive whose source can no longer be read in full reopens.
+    // On an archived wallet a read that did not settle is no evidence of
+    // new funds: the check fails as it always did and stores nothing.
     vaultState = { ...vaultState, status: 'migrated' }
     await expect(
       withRetryTimers(() => wallet.advanceQbitRecoveryMigration(2))
-    ).resolves.toMatchObject({ status: 'migrating' })
-    expect(keyringService.reopenQbitRecoveryMigration).toHaveBeenCalledWith(
-      fixture.sourceAccount.address,
-      'regtest',
-      []
-    )
+    ).rejects.toMatchObject({ kind: 'invalid_cursor' })
+    expect(keyringService.reopenQbitRecoveryMigration).not.toHaveBeenCalled()
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+    expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+    expect(vaultState.status).toBe('migrated')
   })
 
   it('leaves no small remainder batch that could not pay for itself', async () => {

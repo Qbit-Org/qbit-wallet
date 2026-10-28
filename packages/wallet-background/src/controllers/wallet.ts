@@ -2757,15 +2757,16 @@ export class WalletController extends BaseController {
   /**
    * A recovery source's classified outputs, or why they are unknown: the
    * explorer will not list them, and their history is too long to read them
-   * from, or could not be read in full through the read's own retries. Such
-   * a source is never planned or counted as swept, so its funds keep the
-   * migration open. A history too long may consolidate meanwhile (#344); one
-   * not read in full is read again by the next pass. Any other failure still
-   * fails the pass.
+   * from, or, with `deferIncompleteHistory`, could not be read in full
+   * through the read's own retries. Such a source is never planned or counted
+   * as swept, so its funds keep the migration open. A history too long may
+   * consolidate meanwhile (#344); one not read in full is read again by the
+   * next pass. Any other failure still fails the pass.
    */
   private readQbitRecoverySourceUtxos = async (
     client: QbitWalletApiClient,
-    address: string
+    address: string,
+    { deferIncompleteHistory }: { deferIncompleteHistory: boolean }
   ): Promise<QbitClassifiedUtxos | QbitRecoveryDeferredSource> => {
     try {
       return await getQbitAddressUtxosClassifiedPastLimit(client, address)
@@ -2774,7 +2775,9 @@ export class WalletController extends BaseController {
         return { address, reason: 'history_too_large', maxTransactions: error.maxTransactions }
       }
       // Only the history read, past the listing limit, fails this way.
-      if (isQbitSnapshotUnstableError(error)) return { address, reason: 'history_incomplete' }
+      if (deferIncompleteHistory && isQbitSnapshotUnstableError(error)) {
+        return { address, reason: 'history_incomplete' }
+      }
       throw error
     }
   }
@@ -3068,7 +3071,8 @@ export class WalletController extends BaseController {
       const utxoChain = this.getChainType()
       const classifiedUtxos = await this.readQbitRecoverySourceUtxos(
         this.getQbitApiClient(utxoChain),
-        account.address
+        account.address,
+        { deferIncompleteHistory: true }
       )
       if ('reason' in classifiedUtxos) {
         // Its outputs are unknown, so none of them is planned and the
@@ -3404,9 +3408,13 @@ export class WalletController extends BaseController {
       const newlyReceived = await Promise.all(
         (await this.getQbitKeyringByIndex(sourceKeyringIndex)).accounts.map(async account => {
           const client = this.getQbitApiClient(this.getChainType())
-          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address)
-          // Outputs it cannot read may be new funds: the migration reopens,
-          // and its preparation reports the source.
+          // Outputs too many to read may be new funds: the migration reopens,
+          // and its preparation reports the source. A read that only did not
+          // settle is no such evidence, so it fails the check, and nothing
+          // reopens.
+          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
+            deferIncompleteHistory: false,
+          })
           if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
           }
@@ -3570,7 +3578,9 @@ export class WalletController extends BaseController {
       const remaining = await Promise.all(
         (await this.getQbitKeyringByIndex(sourceKeyringIndex)).accounts.map(async account => {
           const client = this.getQbitApiClient(this.getChainType())
-          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address)
+          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
+            deferIncompleteHistory: true,
+          })
           // A source whose outputs it cannot read is not swept yet;
           // preparation reports it.
           if ('reason' in classifiedUtxos) {

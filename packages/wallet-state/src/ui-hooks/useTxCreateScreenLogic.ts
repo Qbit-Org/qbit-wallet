@@ -271,21 +271,25 @@ export function useTxCreateScreenLogic() {
   const unavailableSats = hasQbitUtxoPreflight
     ? Math.max(0, accountBalance.totalBalance - availableSatoshis)
     : Math.max(0, accountBalance.unavailableBalance)
-  const unavailableAmount = numUtils.satoshisToAmount(unavailableSats)
+  // Before a balance read the rest of the balance is unknown too, even when
+  // the outputs are: those rows show `--` rather than hiding behind the
+  // stand-in zeros, as the balance card does.
+  const unknownAmount = (sats: number) => (balanceRead ? numUtils.satoshisToAmount(sats) : '--')
+  const unavailableAmount = unknownAmount(unavailableSats)
 
-  const showUnavailable = unavailableSats > 0
+  const showUnavailable = !balanceRead || unavailableSats > 0
 
   const immatureSats = Math.min(unavailableSats, Math.max(0, accountBalance.immatureBalance ?? 0))
-  const showImmature = immatureSats > 0
-  const immatureAmount = numUtils.satoshisToAmount(immatureSats)
+  const showImmature = !balanceRead || immatureSats > 0
+  const immatureAmount = unknownAmount(immatureSats)
   // Both detail rows are subsets of Unavailable. Bound Pending to the remainder
   // so a stale or malformed balance payload cannot contradict its parent row.
   const pendingSats = Math.min(
     Math.max(0, accountBalance.pendingBalance ?? 0),
     Math.max(0, unavailableSats - immatureSats)
   )
-  const showPending = pendingSats > 0
-  const pendingAmount = numUtils.satoshisToAmount(pendingSats)
+  const showPending = !balanceRead || pendingSats > 0
+  const pendingAmount = unknownAmount(pendingSats)
 
   useEffect(() => {
     setError('')
