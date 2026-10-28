@@ -44,6 +44,33 @@ await window.qbit.switchChain('QBIT_TESTNET4')
 console.log(await window.qbit.getChain()) // "QBIT_TESTNET4"
 ```
 
+### Connect, then switch
+
+`switchChain()` requires the origin's grant on the wallet's active chain. Without one, it rejects
+with `4100` and shows no switch approval. A dapp set up for a chain other than the wallet's active
+one must connect first, with [`requestAccounts()`](./connect-extension.md#requestaccounts), and
+then switch:
+
+```javascript
+async function connectOn(chain) {
+  await window.qbit.requestAccounts()
+  if ((await window.qbit.getChain()) !== chain) {
+    try {
+      await window.qbit.switchChain(chain)
+    } catch (error) {
+      // The active chain changed after connecting: connect on it, then switch.
+      if (error.code !== 4100) throw error
+      await window.qbit.requestAccounts()
+      await window.qbit.switchChain(chain)
+    }
+  }
+  return window.qbit.getAccounts()
+}
+```
+
+The user approves the connection and the switch separately. If the wallet is locked, Qbit Wallet
+asks the user to unlock it first, then shows the switch approval for the unlocked account.
+
 ## `getNetwork()`
 
 ```typescript
