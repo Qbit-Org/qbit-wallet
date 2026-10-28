@@ -118,6 +118,13 @@ const QBIT_RECENT_SPEND_HISTORY = 3
 export const QBIT_PROVIDER_SIGNING_LIMIT = 256
 
 /**
+ * At most this many transactions whose broadcast ended without a verdict
+ * are remembered (see `QbitSendGuardService.hasUnknownBroadcastOutcome`);
+ * beyond it the oldest go first.
+ */
+export const QBIT_UNKNOWN_BROADCAST_LIMIT = 256
+
+/**
  * An input a broadcast from this wallet spent, or may have spent (the
  * broadcast was inconclusive), after its claim is gone. The explorer's
  * output list can keep listing the input for a while after the node took
@@ -430,6 +437,13 @@ export class QbitSendGuardService {
    * claims, and bounded by `QBIT_PROVIDER_SIGNING_LIMIT`.
    */
   private providerSignings = new Set<string>()
+  /**
+   * Transactions whose dispatched broadcast ended without a verdict, or
+   * whose claim was restored, keyed like the claims, oldest first (see
+   * `hasUnknownBroadcastOutcome`). Memory only, like the claims, and
+   * bounded by `QBIT_UNKNOWN_BROADCAST_LIMIT`.
+   */
+  private unknownBroadcasts = new Set<string>()
   private recentSpendSequence = 0
   private nextExternalSigningLockId = 0
   private nextProviderSendRequestId = 0
@@ -445,6 +459,7 @@ export class QbitSendGuardService {
     this.providerSendRequests.clear()
     this.providerClaimRequests.clear()
     this.providerSignings.clear()
+    this.unknownBroadcasts.clear()
   }
 
   /**
@@ -666,6 +681,9 @@ export class QbitSendGuardService {
    * broadcast passed the guard's conflict check, so it may take an input
    * over (a fee bump); an undispatched one proves nothing and must not hide
    * the spender that is on record.
+   *
+   * A dispatched broadcast's outcome is remembered for
+   * `hasUnknownBroadcastOutcome` as well.
    */
   recordInconclusiveBroadcast(
     chain: ChainType,
@@ -682,6 +700,7 @@ export class QbitSendGuardService {
     return this.enqueue(async () => {
       if (dispatched) {
         this.recordSpendNow(chain, txid, outpoints, boundClaim?.address)
+        this.rememberUnknownBroadcastNow(chain, txid)
         return
       }
       if (
@@ -713,23 +732,42 @@ export class QbitSendGuardService {
 
   /**
    * The node definitively rejected `txid` and repeated lookups found it
-   * absent: forget the inputs an earlier, inconclusive attempt recorded for
-   * it, handing each back to the transaction it replaced, if any. A claim
-   * that still holds them is left to its own release.
+   * absent: forget the inputs an earlier attempt recorded for it, handing
+   * each back to the transaction it replaced, if any. A claim that still
+   * holds them is left to its own release. A broadcast call proving absence
+   * itself goes through `forgetProvenAbsentBroadcast` instead.
    */
   forgetAbsentBroadcast(chain: ChainType, txid: string): Promise<void> {
+    return this.enqueue(async () => this.forgetAbsentBroadcastNow(chain, txid))
+  }
+
+  /**
+   * Whether a dispatched broadcast of `txid` on `chain` ended without a
+   * verdict (see `recordInconclusiveBroadcast`, and
+   * `recordInconclusiveProviderPush` for a push it recorded), the claim
+   * still held for it last had an inconclusive one, or its claim was
+   * restored (see `restoreBroadcastClaim`). That broadcast may have handed
+   * the bytes to another node behind the same endpoint than the one a later
+   * call reaches, so a later call's node rejection proves nothing about it:
+   * a Retry from the recovery screen is such a call.
+   */
+  hasUnknownBroadcastOutcome(chain: ChainType, txid: string): Promise<boolean> {
+    return this.enqueue(async () => this.hasUnknownBroadcastOutcomeNow(chain, txid))
+  }
+
+  /**
+   * A broadcast call for `txid` proved it absent (a node rejection, then
+   * lookups that all missed it): `forgetAbsentBroadcast`, unless a call for
+   * it has ended without a verdict (`hasUnknownBroadcastOutcome`), one
+   * that ended while this call was still looking included. That outcome
+   * stands, and the inputs it recorded stay reserved. Resolves to whether
+   * the absence stands.
+   */
+  forgetProvenAbsentBroadcast(chain: ChainType, txid: string): Promise<boolean> {
     return this.enqueue(async () => {
-      for (const [key, spend] of this.recentSpends) {
-        if (spend.chain !== chain) continue
-        if (spend.spender === txid) {
-          this.fallBackRecentSpendNow(key, spend)
-        } else if (spend.previous) {
-          // Nor may it come back later from behind a newer spender.
-          const previous = withoutSpender(spend.previous, txid)
-          if (previous) spend.previous = previous
-          else delete spend.previous
-        }
-      }
+      if (this.hasUnknownBroadcastOutcomeNow(chain, txid)) return false
+      this.forgetAbsentBroadcastNow(chain, txid)
+      return true
     })
   }
 
@@ -763,7 +801,8 @@ export class QbitSendGuardService {
    * that transaction for a dapp (`recordProviderSigning`). A push needs no
    * approval, and a dapp can push any bytes over the account's public
    * outputs, so reserving the inputs of any other push would let it keep
-   * the user's funds frozen. Resolves to whether the inputs were recorded.
+   * the user's funds frozen. Resolves to whether the inputs were recorded;
+   * a recorded push is remembered for `hasUnknownBroadcastOutcome` too.
    */
   recordInconclusiveProviderPush(
     chain: ChainType,
@@ -777,6 +816,7 @@ export class QbitSendGuardService {
     return this.enqueue(async () => {
       if (!this.providerSignings.has(claimKey({ chain, txid }))) return false
       this.recordSpendNow(chain, txid, outpoints, undefined)
+      this.rememberUnknownBroadcastNow(chain, txid)
       return true
     })
   }
@@ -1130,6 +1170,11 @@ export class QbitSendGuardService {
    * a claim over inputs a recent broadcast of another transaction spent is
    * `refused`.
    *
+   * A restored claim's transaction counts as one whose broadcast ended
+   * without a verdict (see `hasUnknownBroadcastOutcome`): the page kept the
+   * bytes, and this instance cannot tell whether they went out before the
+   * restart.
+   *
    * A fee bump's claim names the transaction it `replaces`, and is restored
    * under the checks its minting applied: it is `refused` while a later
    * payment spends that transaction, and its broadcast checks again (see
@@ -1166,6 +1211,7 @@ export class QbitSendGuardService {
         return 'refused'
       }
       this.replaceBroadcastClaims([...this.broadcastClaims, normalized])
+      this.rememberUnknownBroadcastNow(normalized.chain as ChainType, normalized.txid)
       const record = this.adoptClaim(normalized, owner)
       if (record) record.attempts += 1
       return 'restored'
@@ -1260,6 +1306,7 @@ export class QbitSendGuardService {
       this.recentSpends.clear()
       this.providerSendRequests.clear()
       this.providerSignings.clear()
+      this.unknownBroadcasts.clear()
     })
   }
 
@@ -1397,6 +1444,36 @@ export class QbitSendGuardService {
     for (const [key, spend] of this.recentSpends) {
       if (now - spend.liveAt >= QBIT_RECENT_SPEND_TTL_MS) this.recentSpends.delete(key)
     }
+  }
+
+  private forgetAbsentBroadcastNow(chain: ChainType, txid: string): void {
+    for (const [key, spend] of this.recentSpends) {
+      if (spend.chain !== chain) continue
+      if (spend.spender === txid) {
+        this.fallBackRecentSpendNow(key, spend)
+      } else if (spend.previous) {
+        // Nor may it come back later from behind a newer spender.
+        const previous = withoutSpender(spend.previous, txid)
+        if (previous) spend.previous = previous
+        else delete spend.previous
+      }
+    }
+  }
+
+  /** Remember `txid` for `hasUnknownBroadcastOutcome`, as the newest. */
+  private rememberUnknownBroadcastNow(chain: ChainType, txid: string): void {
+    const key = claimKey({ chain, txid })
+    this.unknownBroadcasts.delete(key)
+    this.unknownBroadcasts.add(key)
+    for (const oldest of this.unknownBroadcasts) {
+      if (this.unknownBroadcasts.size <= QBIT_UNKNOWN_BROADCAST_LIMIT) return
+      this.unknownBroadcasts.delete(oldest)
+    }
+  }
+
+  private hasUnknownBroadcastOutcomeNow(chain: ChainType, txid: string): boolean {
+    const key = claimKey({ chain, txid })
+    return this.unknownBroadcasts.has(key) || this.ownership.get(key)?.inconclusive === true
   }
 
   /**

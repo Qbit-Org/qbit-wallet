@@ -353,7 +353,7 @@ describe('useTxFailScreenLogic', () => {
     const wallet = walletWithBroadcast()
     let settle: (value: unknown) => void = () => undefined
     wallet.broadcastQbitTx.mockReturnValue(new Promise(resolve => (settle = resolve)))
-    const { result, unmount } = renderFailScreen({ result: unknownFailure, retained }, wallet)
+    const { result, unmount } = renderFailScreen({ result: notSentFailure, retained }, wallet)
 
     let retry: Promise<void> | undefined
     act(() => {
@@ -364,8 +364,8 @@ describe('useTxFailScreenLogic', () => {
       window.dispatchEvent(new Event('pagehide'))
     })
 
-    // The retry was dispatched and the node rejected it with absence proven:
-    // the verdict upgrades to not_sent, and the deferred release acts on it.
+    // The retry was dispatched and the node rejected it with absence proven
+    // again: the deferred release acts on the not_sent verdict.
     await act(async () => {
       settle(notSentFailure)
       await retry
@@ -583,7 +583,7 @@ describe('useTxFailScreenLogic', () => {
     expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
   })
 
-  it('releases on exit once a dispatched retry upgrades an unknown verdict to a proven not_sent', async () => {
+  it('hands the claim back on exit after a dispatched retry the node rejected, never releasing it', async () => {
     const wallet = walletWithBroadcast()
     wallet.broadcastQbitTx.mockResolvedValue(notSentFailure)
     const { result } = renderFailScreen({ result: unknownFailure, retained }, wallet)
@@ -591,14 +591,15 @@ describe('useTxFailScreenLogic', () => {
     await act(async () => {
       await result.current.onClickRetry()
     })
-    expect(result.current.outcome).toBe('not_sent')
-    expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(result.current.outcome).toBe('unknown')
 
     act(() => {
       result.current.onClickBack()
     })
 
-    expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+    // The first attempt may still be spending the inputs.
+    expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
+    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
   })
 
   it('does not release when a retry that never left the wallet leaves the verdict unknown', async () => {
@@ -820,17 +821,42 @@ describe('useTxFailScreenLogic', () => {
     expect(result.current.canCheckStatus).toBe(true)
   })
 
-  it('accepts a proven not_sent verdict from a retry that was dispatched and rejected', async () => {
+  it.each([
+    ['as the background reports it', { ...notSentFailure, outcome: 'unknown' as const }],
+    ['even when the background reports not_sent', notSentFailure],
+  ])(
+    'keeps an unknown verdict when the node rejects a dispatched retry, %s',
+    async (_label, verdict) => {
+      const wallet = walletWithBroadcast()
+      wallet.broadcastQbitTx.mockResolvedValue(verdict)
+      const { result } = renderFailScreen({ result: unknownFailure, retained }, wallet)
+
+      await act(async () => {
+        await result.current.onClickRetry()
+      })
+
+      // The first attempt may have reached another node behind the same
+      // endpoint, so the rejection proves nothing about it: the screen
+      // shows the retry's reason, without the certainty.
+      expect(result.current.outcome).toBe('unknown')
+      expect(result.current.reason).toBe('rejected')
+      expect(result.current.detail).toBe('HTTP 400: dust')
+      expect(result.current.retryBlocked).toBeNull()
+      expect(result.current.canCheckStatus).toBe(true)
+    }
+  )
+
+  it('accepts a proven not_sent verdict from a dispatched retry of a not_sent verdict', async () => {
     const wallet = walletWithBroadcast()
-    wallet.broadcastQbitTx.mockResolvedValue(notSentFailure)
-    const { result } = renderFailScreen({ result: unknownFailure, retained }, wallet)
+    wallet.broadcastQbitTx.mockResolvedValue({ ...notSentFailure, detail: 'HTTP 400: dust again' })
+    const { result } = renderFailScreen({ result: notSentFailure, retained }, wallet)
 
     await act(async () => {
       await result.current.onClickRetry()
     })
 
     expect(result.current.outcome).toBe('not_sent')
-    expect(result.current.reason).toBe('rejected')
+    expect(result.current.detail).toBe('HTTP 400: dust again')
     expect(result.current.canCheckStatus).toBe(false)
   })
 
@@ -1012,5 +1038,11 @@ describe('mergeQbitBroadcastRetry', () => {
     })
     expect(merged.result).toBe(unknownFailure)
     expect(merged.retryBlocked).toBe('guard_blocked')
+  })
+
+  it('never downgrades an unknown verdict to not_sent after a dispatched retry', () => {
+    const merged = mergeQbitBroadcastRetry(unknownFailure, notSentFailure)
+    expect(merged.result).toEqual({ ...notSentFailure, outcome: 'unknown' })
+    expect(merged.retryBlocked).toBeNull()
   })
 })

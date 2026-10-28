@@ -18,10 +18,14 @@ const FALLBACK_FAILURE: QbitBroadcastFailure = {
 }
 
 /**
- * Fold a retry verdict into the current one. A retry that never left the
- * wallet (network switched, guard refused, payload unparsable) says nothing
- * about the original attempt, so it must not downgrade an `unknown` verdict
- * to "not sent"; it is surfaced as a notice instead.
+ * Fold a retry verdict into the current one. No retry downgrades an
+ * `unknown` verdict to "not sent". One that never left the wallet (network
+ * switched, guard refused, payload unparsable) says nothing about the
+ * original attempt, and is surfaced as a notice instead. One the node
+ * rejected says nothing about bytes the original attempt may have handed to
+ * another node behind the same endpoint, so its verdict stays `unknown`; the
+ * background reports it that way itself while it remembers the original
+ * outcome.
  */
 export function mergeQbitBroadcastRetry(
   current: QbitBroadcastFailure,
@@ -33,7 +37,10 @@ export function mergeQbitBroadcastRetry(
   }
   // A retry that could not even parse the payload has no txid of its own;
   // keep the one the first attempt computed so status checks stay possible.
-  const result: QbitBroadcastFailure = { ...next }
+  const result: QbitBroadcastFailure = {
+    ...next,
+    outcome: current.outcome === 'unknown' ? 'unknown' : next.outcome,
+  }
   if (!result.txid && current.txid) result.txid = current.txid
   if (result.chain === undefined && current.chain !== undefined) result.chain = current.chain
   return { result, retryBlocked: null }

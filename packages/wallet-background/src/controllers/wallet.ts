@@ -861,21 +861,37 @@ export class WalletController extends BaseController {
    * `qbitRecentSpendProbeWaitMs` for the probes: one still running then
    * settles later, and until it does its inputs stay reserved, which is
    * the safe side.
+   *
+   * With `guardDeadline` (a balance read) the caller does not wait for the
+   * guard past it to be handed the spenders: a broadcast can hold the
+   * guard's queue for as long as the explorer takes to answer it. Those
+   * spenders are probed once the guard hands them out, and settle later.
    */
-  private async settleQbitRecentSpends(chain: ChainType, address: string): Promise<void> {
-    const probes = await qbitSendGuardService.takeRecentSpendersToProbe(chain, address)
+  private async settleQbitRecentSpends(
+    chain: ChainType,
+    address: string,
+    guardDeadline?: Promise<void>
+  ): Promise<void> {
+    const taken = qbitSendGuardService.takeRecentSpendersToProbe(chain, address)
+    const probeAll = (probes: Awaited<typeof taken>): Promise<unknown> =>
+      Promise.all(
+        probes.map(async probe => {
+          let lifecycle: { state: 'confirmed' | 'pending' | 'gone' }
+          try {
+            lifecycle = await this.qbitTxLifecycleStatusOn(chain, probe.txid)
+          } catch {
+            return
+          }
+          await qbitSendGuardService.settleRecentSpendProbe(chain, probe, lifecycle.state)
+        })
+      ).catch(() => undefined)
+    const probes = guardDeadline ? await this.qbitGuardReadBy(taken, guardDeadline) : await taken
+    if (probes === undefined) {
+      void taken.then(probeAll, () => undefined)
+      return
+    }
     if (probes.length === 0) return
-    const settled = Promise.all(
-      probes.map(async probe => {
-        let lifecycle: { state: 'confirmed' | 'pending' | 'gone' }
-        try {
-          lifecycle = await this.qbitTxLifecycleStatusOn(chain, probe.txid)
-        } catch {
-          return
-        }
-        await qbitSendGuardService.settleRecentSpendProbe(chain, probe, lifecycle.state)
-      })
-    ).catch(() => undefined)
+    const settled = probeAll(probes)
     let timer: ReturnType<typeof setTimeout> | undefined
     await Promise.race([
       settled,
@@ -886,8 +902,28 @@ export class WalletController extends BaseController {
     clearTimeout(timer)
   }
 
+  /**
+   * `read`, a send guard read, or `undefined` once `deadline` has passed
+   * and the guard has still not answered. Past the deadline a read still
+   * gets one timer turn, in which a guard whose queue is free answers; one
+   * queued behind a broadcast is not waited for, and its late answer is
+   * dropped.
+   */
+  private qbitGuardReadBy<T>(read: Promise<T>, deadline: Promise<void>): Promise<T | undefined> {
+    return Promise.race([
+      read,
+      deadline.then(() => new Promise<undefined>(resolve => setTimeout(resolve, 0))),
+    ])
+  }
+
   /** How long a UTXO read waits for recent-spend probes; see `settleQbitRecentSpends`. */
   qbitRecentSpendProbeWaitMs = QBIT_RECENT_SPEND_PROBE_WAIT_MS
+
+  /**
+   * How long a balance read waits for the send guard before it reports
+   * the split as unknown; see `getAddressBalanceV2`.
+   */
+  qbitBalanceGuardWaitMs = 1_000
 
   private runWithNoQbitInputConflict<T>(
     chain: ChainType,
@@ -1460,17 +1496,50 @@ export class WalletController extends BaseController {
     // too. The spenders due a probe are looked up while the outputs are
     // listed, and the reservations are read once both are done. The probes
     // never reject.
-    const probed = this.settleQbitRecentSpends(chainType, address)
-    const data = await getQbitSpendableBalanceV2(
-      this.getQbitApiClient(chainType),
-      address,
-      p2mrScriptPubKey,
-      async () => {
-        await probed
-        return qbitSendGuardService.getReservedOutpointKeys(chainType, address)
+    //
+    // A broadcast holds the guard's queue until the explorer answers it,
+    // which can take a minute, so the guard is waited for only until
+    // `qbitBalanceGuardWaitMs` after the read started. Past that, without
+    // the reservations, the split is unknown.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const guardDeadline = new Promise<void>(resolve => {
+      timer = setTimeout(resolve, this.qbitBalanceGuardWaitMs)
+    })
+    let reservedUnknown = false
+    try {
+      const probed = this.settleQbitRecentSpends(chainType, address, guardDeadline)
+      const data = await getQbitSpendableBalanceV2(
+        this.getQbitApiClient(chainType),
+        address,
+        p2mrScriptPubKey,
+        async () => {
+          await probed
+          const reserved = await this.qbitGuardReadBy(
+            qbitSendGuardService.getReservedOutpointKeys(chainType, address),
+            guardDeadline
+          )
+          if (reserved !== undefined) return reserved
+          reservedUnknown = true
+          return new Set<string>()
+        }
+      )
+      if (reservedUnknown) {
+        // Shown as `--`, as past the explorer's UTXO limit, but without
+        // `utxoLimitExceeded`: the total is measured, and nothing counts as
+        // available until a read has the reservations again.
+        return {
+          availableBalance: null,
+          unavailableBalance: Math.max(0, data.totalBalance),
+          totalBalance: data.totalBalance,
+          immatureBalance: null,
+          pendingBalance: null,
+          chainType,
+        }
       }
-    )
-    return { ...data, chainType }
+      return { ...data, chainType }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   getMultiAddressSummaries = async (addresses: string) => {
@@ -7216,7 +7285,9 @@ export class WalletController extends BaseController {
    * (payload, guard, or network-switch failure, observed through the dispatch
    * marker rather than by inspecting the error), or the node definitively
    * rejected the bytes *and* repeated follow-up lookups all found the
-   * transaction absent. Every other failure is `unknown`, because a lost
+   * transaction absent, with no earlier call for them ended `unknown`
+   * (see `QbitSendGuardService.hasUnknownBroadcastOutcome`). Every other
+   * failure is `unknown`, because a lost
    * response may hide an accepted transaction; the API client never re-sends
    * a submission that may have reached the node, and reports one as
    * `unknown_outcome`. An apparent failure whose lookup finds the
@@ -7407,15 +7478,25 @@ export class WalletController extends BaseController {
       } catch (error) {
         if (dispatched) {
           const classification = classifyQbitBroadcastError(error)
+          // A re-send's rejection says nothing about the pass before it,
+          // whose bytes may have reached another node behind the same
+          // endpoint: after an unknown outcome, only success may follow,
+          // and one lookup is all that can find it. The same holds after
+          // an earlier call for these bytes ended unknown: a Retry from the
+          // recovery screen is a new call. A dapp's push is left its own
+          // verdict: its bytes may not be the ones that went out before (a
+          // txid does not cover the witness), and its proven absence
+          // forgets nothing.
+          const afterUnknown =
+            unresolved !== undefined ||
+            (classification.definitiveRejection &&
+              !providerPush &&
+              (await qbitSendGuardService.hasUnknownBroadcastOutcome(chain, txid)))
           const resolved = await this.resolveQbitBroadcastAfterFailure(
             chain,
             txid,
             outpoints,
-            // A re-send's rejection says nothing about the pass before it,
-            // whose bytes may have reached another node behind the same
-            // endpoint: after an unknown outcome, only success may follow,
-            // and one lookup is all that can find it.
-            unresolved ? { ...classification, definitiveRejection: false } : classification,
+            afterUnknown ? { ...classification, definitiveRejection: false } : classification,
             claim,
             true,
             providerPush
@@ -7648,7 +7729,8 @@ export class WalletController extends BaseController {
    * reached the node, and keep the guard's record of its inputs in step: a
    * found transaction consumes its claim and records its inputs as spent,
    * an unknown outcome records them as possibly spent, and proven absence
-   * forgets what an earlier inconclusive attempt recorded. For a dapp's
+   * forgets what an earlier attempt recorded, unless a call for these bytes
+   * ended unknown, which makes this outcome unknown too. For a dapp's
    * push (`providerPush`, see `broadcastQbitProviderTx`), an unknown
    * outcome records them only for a transaction the user approved signing,
    * and proven absence forgets nothing.
@@ -7680,8 +7762,21 @@ export class WalletController extends BaseController {
         break
       }
     }
-    const outcome = classification.definitiveRejection && lookup === 'gone' ? 'not_sent' : 'unknown'
+    let outcome: QbitBroadcastFailure['outcome'] =
+      classification.definitiveRejection && lookup === 'gone' ? 'not_sent' : 'unknown'
     try {
+      // The absence stands only while no call for these bytes has ended
+      // without a verdict, decided in the same step as forgetting what an
+      // earlier attempt recorded: one that ended while this call was still
+      // looking keeps its unknown outcome and its inputs reserved, and so
+      // does this call.
+      if (
+        outcome === 'not_sent' &&
+        !providerPush &&
+        !(await qbitSendGuardService.forgetProvenAbsentBroadcast(chain, txid))
+      ) {
+        outcome = 'unknown'
+      }
       if (providerPush) {
         if (outcome === 'unknown') {
           await qbitSendGuardService.recordInconclusiveProviderPush(chain, txid, outpoints)
@@ -7694,8 +7789,6 @@ export class WalletController extends BaseController {
           claim,
           dispatched
         )
-      } else {
-        await qbitSendGuardService.forgetAbsentBroadcast(chain, txid)
       }
     } catch {
       // The bytes were validated before dispatch; the verdict stands.

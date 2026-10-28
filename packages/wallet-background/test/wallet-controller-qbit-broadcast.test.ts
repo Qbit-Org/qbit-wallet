@@ -1991,14 +1991,19 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       )
     )
     for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
+    // The first broadcast, before the restart, ended unknown and may have
+    // reached another node behind the endpoint; the restored claim is all
+    // the guard has of it. The node's rejection of the retry proves nothing
+    // about that broadcast, so the outcome stays unknown, never not_sent.
     await expect(
       wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
-    ).resolves.toMatchObject({ success: false, outcome: 'not_sent', reason: 'rejected' })
+    ).resolves.toMatchObject({ success: false, outcome: 'unknown', reason: 'rejected' })
 
-    // The verdict alone does not spend the reservation; abandoning it does.
+    // The verdict alone does not spend the reservation. Releasing the claim
+    // leaves the inputs reserved as possibly spent by that broadcast.
     await expect(reservedKeys()).resolves.toEqual(reserved)
     await expect(wallet.releaseQbitSendBroadcastClaim(claim)).resolves.toBe(true)
-    await expect(reservedKeys()).resolves.toEqual(new Set())
+    await expect(reservedKeys()).resolves.toEqual(reserved)
   })
 
   it('refuses to restore the claim while another account is selected, and restores it once the building account is selected again', async () => {
