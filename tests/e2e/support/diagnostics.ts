@@ -326,7 +326,10 @@ export class E2eDiagnostics {
   private async finishRequest(request: Request): Promise<void> {
     const entry = this.networkByRequest.get(request)
     if (!entry) return
-    const response = await request.response()
+    // The listener doesn't await this, and an unhandled rejection fails the
+    // running test. When the page or context closes before the response is
+    // read back, as on an extension restart, the entry keeps no status.
+    const response = await request.response().catch(() => null)
     if (response) entry.status = response.status()
   }
 
