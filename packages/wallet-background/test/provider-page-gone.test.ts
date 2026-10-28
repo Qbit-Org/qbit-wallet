@@ -130,7 +130,8 @@ async function createWalletController(): Promise<WalletController> {
 /**
  * A page as the extension's provider transport presents it to rpcFlow, and
  * its port disconnecting as that transport handles it: the page's signal
- * aborts and the approvals its requests wait on are rejected.
+ * aborts and the approvals its requests wait on are rejected. The extension's
+ * messaging tests run the real disconnect handler.
  */
 async function openPage(origin: string) {
   const rpcFlow = await loadRpcFlow()
@@ -289,6 +290,57 @@ describe('provider requests whose page goes away', () => {
     await vi.waitFor(() => expect(request.settled).toBe(true))
     expect(request.value).toBe('signature')
     expect(background.controller.signMessage).toHaveBeenCalledOnce()
+  })
+
+  it('asks for no unlock for a page already gone when its request reaches the unlock step', async () => {
+    const first = await openPage('https://first.example')
+    const openWindow = vi.spyOn(background.approvalService, 'platformOpenWindow')
+    background.keyringState.isUnlocked = false
+    // The page goes while the request is checked, before the unlock step.
+    background.wallet.getChainType.mockImplementationOnce(() => {
+      first.disconnect()
+      return 'QBIT_REGTEST'
+    })
+
+    await expect(first.request(structuredClone(SEND))).rejects.toThrow(PAGE_GONE)
+    await flush()
+    expect(background.approvalService.getApproval()).toBeUndefined()
+    expect(openWindow).not.toHaveBeenCalled()
+    expect(background.wallet.openQbitProviderSendRequest).not.toHaveBeenCalled()
+    expect(background.controller.sendQbit).not.toHaveBeenCalled()
+  })
+
+  it('leaves the shared unlock request alone for a page already gone when its request reaches the unlock step', async () => {
+    const first = await openPage('https://first.example')
+    const second = await openPage('https://second.example')
+    background.keyringState.isUnlocked = false
+    const secondRequest = track(second.request(structuredClone(SIGN)))
+    await vi.waitFor(() =>
+      expect(background.approvalService.getApproval()?.data).toEqual({ lock: true })
+    )
+    const unlockId = pendingApproval().id
+    background.wallet.getChainType.mockImplementationOnce(() => {
+      first.disconnect()
+      return 'QBIT_REGTEST'
+    })
+
+    await expect(first.request(structuredClone(SIGN))).rejects.toThrow(PAGE_GONE)
+    await flush()
+    expect(pendingApproval().id).toBe(unlockId)
+    expect(secondRequest.settled).toBe(false)
+
+    background.keyringState.isUnlocked = true
+    await expect(background.approvalService.resolveApproval(unlockId)).resolves.toBe(true)
+    await vi.waitFor(() => expect(pendingComponent()).toBe('SignMessage'))
+    await expect(
+      background.approvalService.resolveApproval(pendingApproval().id, ['signature'])
+    ).resolves.toBe(true)
+    await vi.waitFor(() => expect(secondRequest.settled).toBe(true))
+    expect(secondRequest.value).toBe('signature')
+    expect(background.controller.signMessage).toHaveBeenCalledOnce()
+    expect(background.controller.signMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ session: second.session })
+    )
   })
 
   it('keeps the shared unlock request for the other waiting page when one page goes away', async () => {

@@ -538,3 +538,96 @@ describe('background provider-port approvals', () => {
     expect(second.settled).toBe(false);
   });
 });
+
+describe('background provider-port disconnect and the shared unlock request', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  // What the provider flow does with the page a request carries (rpcFlow's
+  // own tests run the real flow): a request's own approval goes in
+  // page.approvalIds, the unlock request every waiting page shares goes in
+  // no page, and a request whose page is gone stops.
+  let unlockRequest: Promise<unknown> | undefined;
+  function waitForUnlock() {
+    unlockRequest ??= approvalService.requestApproval({ lock: true }).finally(() => {
+      unlockRequest = undefined;
+    });
+    return unlockRequest;
+  }
+
+  function signAfterUnlock(port: TestPort) {
+    harness.handleRequest.mockImplementationOnce(async (req: any) => {
+      await waitForUnlock();
+      if (req.page.signal.aborted) throw new Error('page gone');
+      return approvalService.requestApproval(
+        { approvalComponent: 'SignMessage', origin: req.session.origin },
+        undefined,
+        (id) => req.page.approvalIds.add(id)
+      );
+    });
+    const state: { settled: boolean; error?: any } = { settled: false };
+    Promise.resolve(harness.listeners.get(port)!({ source: 'page', data: { method: 'signMessage' } })).then(
+      () => Object.assign(state, { settled: true }),
+      (error) => Object.assign(state, { settled: true, error })
+    );
+    return state;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    harness.connectListener = undefined;
+    harness.listeners.clear();
+    harness.sessions.clear();
+    harness.tabSessions.clear();
+    initMessaging();
+  });
+
+  afterEach(async () => {
+    const approval = approvalService.getApproval();
+    if (approval) await approvalService.rejectApproval(approval.id);
+    await flush();
+  });
+
+  it("rejects the disconnecting page's own approval and leaves the unlock request pending", async () => {
+    const firstPort = providerPort('https://first.example/');
+    const secondPort = providerPort('https://second.example/');
+    harness.connectListener!(firstPort);
+    harness.connectListener!(secondPort);
+    harness.sessions.get(firstPort)!.origin = 'https://first.example';
+    harness.sessions.get(secondPort)!.origin = 'https://second.example';
+
+    // Both pages wait on the one unlock request.
+    const first = signAfterUnlock(firstPort);
+    await flush();
+    expect(approvalService.getApproval()?.data).toEqual({ lock: true });
+    const unlockId = approvalService.getApproval()!.id;
+    const second = signAfterUnlock(secondPort);
+    await flush();
+
+    firstPort.disconnectListener!();
+    await flush();
+
+    // The real disconnect handler leaves the shared unlock request alone.
+    expect(approvalService.getApproval()?.id).toBe(unlockId);
+    expect(harness.handleRequest.mock.calls[0][0].page.signal.aborted).toBe(true);
+    expect(harness.handleRequest.mock.calls[1][0].page.signal.aborted).toBe(false);
+    expect(second.settled).toBe(false);
+
+    // Unlocking lets the page that stayed reach its own approval, held by
+    // its page; that page's disconnect rejects it.
+    await expect(approvalService.resolveApproval(unlockId)).resolves.toBe(true);
+    await flush();
+    expect(first.error).toMatchObject({ message: 'page gone' });
+    expect(approvalService.getApproval()?.data).toMatchObject({
+      approvalComponent: 'SignMessage',
+      origin: 'https://second.example'
+    });
+    const signId = approvalService.getApproval()!.id;
+
+    secondPort.disconnectListener!();
+    await flush();
+
+    expect(approvalService.getApproval()).toBeUndefined();
+    expect(second.error).toMatchObject({ code: ErrorCodes.UserCancel });
+    await expect(approvalService.resolveApproval(signId)).resolves.toBe(false);
+  });
+});
