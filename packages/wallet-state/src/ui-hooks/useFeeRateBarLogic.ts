@@ -230,8 +230,10 @@ export function useFeeRateBarLogic({
     if (lowFeeModeApplies) {
       if (lowFeeRead?.summary !== feeSummary) return undefined
       if (lowFeeRead.lowFeeSummary) {
-        list = withLowFeeSlowRate(list, lowFeeRead.lowFeeSummary)
-        lowFeeSlowRate = true
+        const withSlowRate = withLowFeeSlowRate(list, lowFeeRead.lowFeeSummary)
+        // Only a read with a slow rate to put in changes the list.
+        lowFeeSlowRate = withSlowRate !== list
+        list = withSlowRate
       }
     }
 
@@ -261,6 +263,14 @@ export function useFeeRateBarLogic({
   // After a failed read no tier is left to select, and the relay floor is the
   // rate in use: the input shows it rather than a tier's earlier rate.
   const floorInUse = readFailed && !readonly && feeOptionIndex !== FeeRateType.CUSTOM
+  // The relay floor is also the rate in use from a tier of a quote without
+  // estimates, which offers its tiers at the floor.
+  const relayFloorInUse =
+    floorInUse ||
+    (!readonly &&
+      feeQuote?.availability === 'unavailable' &&
+      feeOptionIndex !== FeeRateType.CUSTOM &&
+      optionAt(feeOptions, feeOptionIndex)?.feeRate === QBIT_MIN_RELAY_FEE_RATE)
 
   // Memoize default value to avoid repeated calculations
   const defaultFeeRate = useMemo(
@@ -395,14 +405,16 @@ export function useFeeRateBarLogic({
           feeRateInputVal: selectedOption.feeRate.toString(),
         })
       } else if (index === FeeRateType.CUSTOM) {
-        // When clicking on CUSTOM, show input with current custom value or empty
+        // When clicking on CUSTOM, show input with current custom value or empty,
+        // or with the relay floor in use rather than a tier's earlier rate
         updateFeeRateBar({
           feeOptionIndex: index,
           showCustomInput: true,
+          ...(floorInUse ? { feeRateInputVal: String(QBIT_MIN_RELAY_FEE_RATE) } : {}),
         })
       }
     },
-    [feeOptions, updateFeeRateBar]
+    [feeOptions, floorInUse, updateFeeRateBar]
   )
 
   const toggleCustomInput = useCallback(
@@ -426,7 +438,8 @@ export function useFeeRateBarLogic({
     supportLowFeeMode,
     feeQuote,
     feeEstimateUnavailable: readFailed || feeQuote?.availability === 'unavailable',
-    // The rate the bar uses without estimates; none for a read-only bar.
-    fallbackFeeRate: readonly ? undefined : QBIT_MIN_RELAY_FEE_RATE,
+    // The relay floor while it is the rate in use for want of estimates; none
+    // for a Custom rate or a tier above it, nor for a read-only bar.
+    fallbackFeeRate: relayFloorInUse ? QBIT_MIN_RELAY_FEE_RATE : undefined,
   }
 }

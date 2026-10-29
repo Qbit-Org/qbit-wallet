@@ -447,6 +447,12 @@ export function useTxCreateScreenLogic() {
   // store after it renders, and the preview follows after that, so for a
   // render or two after a newer quote the preview is at an earlier rate.
   const quoteFeeRate = feeBarQuoteRate(feeQuote, feeRateBarState.feeOptionIndex)
+  // Until the preview is at that rate its fee is not judged against the
+  // quote, and Next waits: a send built now would use the earlier rate.
+  const feeRateCatchingUp =
+    spendPreview !== undefined &&
+    quoteFeeRate !== undefined &&
+    spendPreview.feeRate !== quoteFeeRate
 
   // What leaves the wallet (the recipient's amount plus the fee; change comes
   // back, and so does a payment to another of the wallet's accounts) and
@@ -459,10 +465,7 @@ export function useTxCreateScreenLogic() {
       ? 0
       : recipientSatoshis
     const totalSpend = numUtils.satoshisToAmount(sentToOthers + fee)
-    // A fee at a rate from an earlier quote is not judged against this one.
-    if (quoteFeeRate !== undefined && spendPreview.feeRate !== quoteFeeRate) {
-      return { totalSpend, feeWarnings: [] }
-    }
+    if (feeRateCatchingUp) return { totalSpend, feeWarnings: [] }
     const assessment = assessQbitFee({
       fee,
       feeRate: fee / vsize,
@@ -480,7 +483,7 @@ export function useTxCreateScreenLogic() {
         ? { feeRecommendationUnavailable: warning.recommendationUnavailable }
         : {}),
     }
-  }, [spendPreview, walletOwnership, feeQuote, quoteFeeRate, t, qbitUnit])
+  }, [spendPreview, walletOwnership, feeQuote, feeRateCatchingUp, t, qbitUnit])
 
   // Max past the standard transaction size sends the largest outputs only.
   const leftBehindNote =
@@ -582,7 +585,7 @@ export function useTxCreateScreenLogic() {
     t,
 
     error,
-    disabled,
+    disabled: disabled || feeRateCatchingUp,
     // Over the explorer's listing limit: the account can consolidate its outputs.
     showConsolidate: overExplorerLimit,
 

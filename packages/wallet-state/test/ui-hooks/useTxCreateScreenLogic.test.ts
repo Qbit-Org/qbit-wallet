@@ -2856,4 +2856,75 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     })
     expect(renders.filter(render => render.warnings.length > 0)).toEqual([])
   })
+
+  it('keeps Next disabled while the rate catches up with a newer quote, then judges the fee', async () => {
+    // Fast at 150 bits/vB, 150 times the relay floor.
+    const busyQuote = {
+      ...LIVE_QUOTE,
+      list: [
+        { title: 'Slow', desc: '', feeRate: 50 },
+        { title: 'Normal', desc: '', feeRate: 100 },
+        { title: 'Fast', desc: '', feeRate: 150 },
+      ],
+    }
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 40,
+      quote: busyQuote,
+      utxoValues: [100_000_000],
+    })
+    // Fast at 40 bits/vB, as an earlier quote offered it.
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({ feeRate: 40, feeRateInputVal: '40', feeOptionIndex: 2 })
+    )
+    let resolveQuote!: (quote: unknown) => void
+    wallet.getFeeSummary.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveQuote = resolve
+      })
+    )
+    const renders: {
+      quoteLoaded: boolean
+      totalSpend?: string
+      warnings: string[]
+      disabled: boolean
+    }[] = []
+    const { result } = renderHook(
+      () => {
+        const rendered = useSendScreenWithFeeBar()
+        const { screen } = rendered
+        renders.push({
+          quoteLoaded: screen.feeQuote.status === 'loaded',
+          totalSpend: screen.spendSummary?.totalSpend,
+          warnings: screen.spendSummary?.feeWarnings ?? [],
+          disabled: screen.disabled,
+        })
+        return rendered
+      },
+      { wrapper }
+    )
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10154400'))
+    expect(result.current.screen.disabled).toBe(false)
+
+    await act(async () => {
+      resolveQuote(busyQuote)
+    })
+
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10579000'))
+    // Caught up: the fee is judged, and Next follows the preview.
+    expect(result.current.screen.spendSummary?.feeWarnings).toContainEqual(
+      expect.stringMatching(/^fee_warning_above_relay_floor:/)
+    )
+    expect(result.current.screen.disabled).toBe(false)
+    // In between, at the earlier rate under the newer quote: nothing judged, Next disabled.
+    const held = renders.filter(render => render.quoteLoaded && render.totalSpend === '0.10154400')
+    expect(held.length).toBeGreaterThan(0)
+    for (const render of held) {
+      expect(render.warnings).toEqual([])
+      expect(render.disabled).toBe(true)
+    }
+  })
 })
