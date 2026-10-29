@@ -1,52 +1,57 @@
-# Security-sensitive ownership. The `main` ruleset requires a CODEOWNERS
-# review for these paths, but administrators can bypass it (AR-03 in
-# docs/security/accepted-risks.md).
+# Default owners. GitHub uses the last matching rule, so this must stay
+# first for the security rules below to override it.
+* @Anatolie @kiwidream @djh58 @RobertClarke
 
-/.github/CODEOWNERS @Anatolie @RobertClarke
+# Security-sensitive ownership: changes here need approval from one of
+# these owners. They match the default owners for now, but stay listed so
+# a path can be narrowed later and a new default owner does not get them
+# automatically. The `main` ruleset requires a CODEOWNERS review, but
+# administrators can bypass it (AR-03 in docs/security/accepted-risks.md).
+
+/.github/CODEOWNERS @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Vaults, key material, derivation, and PQC/protocol pins.
-/packages/keyring-service/ @Anatolie @RobertClarke
-/scripts/security/sdk-package-pins.json @Anatolie @RobertClarke
+/packages/keyring-service/ @Anatolie @kiwidream @djh58 @RobertClarke
+/scripts/security/sdk-package-pins.json @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Classical and PQC wallet signing.
-/packages/wallet-core/ @Anatolie @RobertClarke
-/packages/wallet-background/src/controllers/wallet.ts @Anatolie @RobertClarke
-/packages/wallet-background/src/services/qbitPreparedSendReservation.ts @Anatolie @RobertClarke
-/packages/wallet-background/src/utils/qbit-api.ts @Anatolie @RobertClarke
+/packages/wallet-core/ @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/controllers/wallet.ts @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/services/qbitSendGuards.ts @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/utils/qbit-api.ts @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Provider identity, permissions, and approval execution.
-/packages/approval-service/ @Anatolie @RobertClarke
-/packages/permission-service/ @Anatolie @RobertClarke
-/packages/wallet-background/src/controllers/provider/ @Anatolie @RobertClarke
-/packages/wallet-background/src/services/approval.ts @Anatolie @RobertClarke
-/packages/wallet-background/src/services/permission.ts @Anatolie @RobertClarke
-/packages/wallet-background/src/services/session.ts @Anatolie @RobertClarke
-/apps/extension/src/background/runtime/ @Anatolie @RobertClarke
-/apps/extension/src/content-script/pageProvider/ @Anatolie @RobertClarke
-/apps/extension/src/ui/providers/ApprovalProvider.tsx @Anatolie @RobertClarke
+/packages/approval-service/ @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/permission-service/ @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/controllers/provider/ @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/services/approval.ts @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/services/permission.ts @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/services/session.ts @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/src/background/runtime/ @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/src/content-script/pageProvider/ @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/src/ui/providers/ApprovalProvider.tsx @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Extension manifests, executable packaging, and dependency provenance.
-/apps/extension/build/ @Anatolie @RobertClarke
-/apps/extension/webpack.config.js @Anatolie @RobertClarke
-/apps/extension/gulpfile.js @Anatolie @RobertClarke
-/apps/extension/scripts/ @Anatolie @RobertClarke
-/apps/extension/package.json @Anatolie @RobertClarke
-/.nvmrc @Anatolie @RobertClarke
-/package.json @Anatolie @RobertClarke
+/apps/extension/build/ @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/webpack.config.js @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/gulpfile.js @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/scripts/ @Anatolie @kiwidream @djh58 @RobertClarke
+/apps/extension/package.json @Anatolie @kiwidream @djh58 @RobertClarke
+/.nvmrc @Anatolie @kiwidream @djh58 @RobertClarke
+/package.json @Anatolie @kiwidream @djh58 @RobertClarke
 # Any workspace manifest can add an install-time lifecycle script.
-**/package.json @Anatolie @RobertClarke
-/.npmrc @Anatolie @RobertClarke
-/patches/ @Anatolie @RobertClarke
-/pnpm-lock.yaml @Anatolie @RobertClarke
-/pnpm-workspace.yaml @Anatolie @RobertClarke
-/scripts/reproducible-extension-build.mjs @Anatolie @RobertClarke
-/scripts/security/ @Anatolie @RobertClarke
-/scripts/ci/ @Anatolie @RobertClarke
+**/package.json @Anatolie @kiwidream @djh58 @RobertClarke
+/.npmrc @Anatolie @kiwidream @djh58 @RobertClarke
+/patches/ @Anatolie @kiwidream @djh58 @RobertClarke
+/pnpm-lock.yaml @Anatolie @kiwidream @djh58 @RobertClarke
+/pnpm-workspace.yaml @Anatolie @kiwidream @djh58 @RobertClarke
+/scripts/reproducible-extension-build.mjs @Anatolie @kiwidream @djh58 @RobertClarke
+/scripts/security/ @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Release, conformance, and image provenance.
-/.github/workflows/ @Anatolie @RobertClarke
-/.changeset/ @Anatolie @RobertClarke
-/scripts/conformance/ @Anatolie @RobertClarke
-/scripts/regtest/ @Anatolie @RobertClarke
-/docker/regtest/ @Anatolie @RobertClarke
-/docker-compose.regtest.yml @Anatolie @RobertClarke
+/.github/workflows/ @Anatolie @kiwidream @djh58 @RobertClarke
+/.changeset/ @Anatolie @kiwidream @djh58 @RobertClarke
+/scripts/conformance/ @Anatolie @kiwidream @djh58 @RobertClarke
+/scripts/regtest/ @Anatolie @kiwidream @djh58 @RobertClarke
+/docker/regtest/ @Anatolie @kiwidream @djh58 @RobertClarke
+/docker-compose.regtest.yml @Anatolie @kiwidream @djh58 @RobertClarke
