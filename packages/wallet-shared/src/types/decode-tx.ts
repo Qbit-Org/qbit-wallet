@@ -142,10 +142,8 @@ export type PsbtOutputOwner =
  * mined for that many blocks, or that much of the network's median time.
  */
 export interface PsbtRelativeLock {
-  /** The input's index. */
+  /** The input's index; its nSequence, in `inputInfos`, sets the lock. */
   input: number
-  /** The input's nSequence, which sets the lock. */
-  sequence: number
   /** Counted in blocks, or in seconds of the network's median time. */
   type: 'blocks' | 'time'
   /** Blocks, or seconds, a multiple of 512. Never 0, which holds nothing back. */

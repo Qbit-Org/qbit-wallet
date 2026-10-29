@@ -3032,6 +3032,12 @@
   "psbt_finalized_after_lock": {
     "message": "Finalizada: el sitio puede difundirla cuando haya pasado su bloqueo temporal"
   },
+  "psbt_finalized_after_coin_age": {
+    "message": "Finalizada: el sitio puede difundirla cuando las monedas que gasta tengan la antigüedad suficiente"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Finalizada: el sitio puede difundirla cuando haya pasado su bloqueo temporal y las monedas que gasta tengan la antigüedad suficiente"
+  },
   "psbt_not_finalized": {
     "message": "Firmada, sin finalizar: el sitio u otros firmantes deben finalizarla antes de poder difundirla"
   },
@@ -3049,6 +3055,9 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 no se aplica: todas las entradas son finales"
+  },
+  "psbt_relative_lock": {
+    "message": "Bloqueo relativo"
   },
   "psbt_relative_lock_one_block": {
     "message": "Entrada $1: 1 bloque después de que se confirme la moneda que gasta"

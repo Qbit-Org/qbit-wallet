@@ -35,20 +35,7 @@ function relativeLockText(lock: PsbtRelativeLock, t: (key: string, substitutions
   return t('psbt_relative_lock_days', [input, `${Math.round(lock.value / 86400)}`]);
 }
 
-function TermRow({
-  label,
-  value,
-  detail,
-  testId,
-  extraLines = []
-}: {
-  label: string;
-  value?: string;
-  detail?: string;
-  testId: string;
-  /** Further lines under the value and its detail, each with its own test id. */
-  extraLines?: { text: string; testId: string }[];
-}) {
+function TermRow({ label, value, detail, testId }: { label: string; value: string; detail?: string; testId: string }) {
   return (
     <Card
       mt="zero"
@@ -61,12 +48,40 @@ function TermRow({
       <Row justifyBetween itemsCenter fullX>
         <Text text={label} color="textDim" size="sm" />
         <Column gap="zero" style={{ alignItems: 'flex-end', minWidth: 0 }}>
-          {value !== undefined && <Text text={value} preset="bold" size="sm" textEnd wrap data-testid={testId} />}
+          <Text text={value} preset="bold" size="sm" textEnd wrap data-testid={testId} />
           {detail !== undefined && (
             <Text text={detail} size="xs" color="textDim" textEnd wrap data-testid={`${testId}-raw`} />
           )}
-          {extraLines.map((line) => (
-            <Text key={line.testId} text={line.text} preset="bold" size="sm" textEnd wrap data-testid={line.testId} />
+        </Column>
+      </Row>
+    </Card>
+  );
+}
+
+/** The inputs relative locks hold back, one line each. */
+function RelativeLockRow({ label, lines }: { label: string; lines: { input: number; text: string }[] }) {
+  return (
+    <Card
+      mt="zero"
+      style={{
+        borderWidth: 1,
+        borderColor: 'var(--qbit-line)',
+        borderRadius: 0
+      }}
+    >
+      <Row justifyBetween itemsCenter fullX>
+        <Text text={label} color="textDim" size="sm" />
+        <Column gap="zero" style={{ alignItems: 'flex-end', minWidth: 0 }} data-testid="psbt-relative-lock">
+          {lines.map((line) => (
+            <Text
+              key={line.input}
+              text={line.text}
+              preset="bold"
+              size="sm"
+              textEnd
+              wrap
+              data-testid={`psbt-relative-lock-${line.input}`}
+            />
           ))}
         </Column>
       </Row>
@@ -104,28 +119,32 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
     locktime !== undefined &&
     locktime !== 0 &&
     !decodedPsbt.inputInfos.every((input) => input.sequence === SEQUENCE_FINAL);
-  const anyLock = lockEnforced || relativeLocks.length > 0;
+  const relativeLocked = relativeLocks.length > 0;
 
   // A website gets the signed PSBT back. Signing finalizes it unless the
   // request, as the background prepared it, says not to. Left unfinalized, it
   // may still need other signers, or the wallet's signatures may already
   // complete it for the site to finalize. The wallet cannot tell whether an
-  // enforced lock time or a relative lock has passed, so with either it does
-  // not say the site can broadcast the transaction now.
+  // enforced lock time has passed, or whether the coins a relative lock waits
+  // on are old enough, so with either it does not say the site can broadcast
+  // the transaction now, and it names the lock that holds it back.
+  const finalizedKey =
+    lockEnforced && relativeLocked
+      ? 'psbt_finalized_after_locks'
+      : lockEnforced
+        ? 'psbt_finalized_after_lock'
+        : relativeLocked
+          ? 'psbt_finalized_after_coin_age'
+          : 'psbt_finalized';
   const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
-    ? toSignData?.autoFinalized === false
-      ? t('psbt_not_finalized')
-      : anyLock
-        ? t('psbt_finalized_after_lock')
-        : t('psbt_finalized')
+    ? t(toSignData?.autoFinalized === false ? 'psbt_not_finalized' : finalizedKey)
     : undefined;
 
   let locktimeText: string | undefined;
   let locktimeDetail: string | undefined;
   if (locktime !== undefined) {
     if (!lockEnforced) {
-      // Only when nothing else holds the transaction back.
-      locktimeText = relativeLocks.length > 0 ? undefined : t('psbt_locktime_none');
+      locktimeText = t('psbt_locktime_none');
     } else if (locktime < LOCKTIME_THRESHOLD) {
       locktimeText = t('psbt_locktime_block', `${locktime}`);
     } else {
@@ -137,29 +156,19 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
     }
   }
 
-  // One line for each input a relative lock holds back.
-  const relativeLockLines = relativeLocks.map((lock) => ({
-    text: relativeLockText(lock, t),
-    testId: `psbt-relative-lock-${lock.input}`
-  }));
-  const showLocks = locktimeText !== undefined || relativeLockLines.length > 0;
+  const relativeLockLines = relativeLocks.map((lock) => ({ input: lock.input, text: relativeLockText(lock, t) }));
 
   const transactionSection =
-    finalizeDecision !== undefined || showLocks || version !== undefined ? (
+    finalizeDecision !== undefined || locktimeText !== undefined || relativeLocked || version !== undefined ? (
       <SignPsbtSection title={t('transaction')}>
         <Column gap="sm">
           {finalizeDecision !== undefined && (
             <TermRow label={t('psbt_after_signing')} value={finalizeDecision} testId="psbt-finalize-decision" />
           )}
-          {showLocks && (
-            <TermRow
-              label={t('psbt_locktime')}
-              value={locktimeText}
-              detail={locktimeDetail}
-              testId="psbt-locktime"
-              extraLines={relativeLockLines}
-            />
+          {locktimeText !== undefined && (
+            <TermRow label={t('psbt_locktime')} value={locktimeText} detail={locktimeDetail} testId="psbt-locktime" />
           )}
+          {relativeLocked && <RelativeLockRow label={t('psbt_relative_lock')} lines={relativeLockLines} />}
           {version !== undefined && (
             <TermRow label={t('psbt_tx_version')} value={`${version}`} testId="psbt-tx-version" />
           )}

@@ -3032,6 +3032,12 @@
   "psbt_finalized_after_lock": {
     "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé"
   },
+  "psbt_finalized_after_coin_age": {
+    "message": "Finalisée : le site peut la diffuser une fois que les pièces qu'elle dépense sont assez anciennes"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé et les pièces qu'elle dépense assez anciennes"
+  },
   "psbt_not_finalized": {
     "message": "Signée, non finalisée : le site ou d'autres signataires doivent la finaliser avant qu'elle puisse être diffusée"
   },
@@ -3049,6 +3055,9 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 ne s'applique pas : toutes les entrées sont finales"
+  },
+  "psbt_relative_lock": {
+    "message": "Verrouillage relatif"
   },
   "psbt_relative_lock_one_block": {
     "message": "Entrée $1 : 1 bloc après la confirmation de la pièce qu'elle dépense"

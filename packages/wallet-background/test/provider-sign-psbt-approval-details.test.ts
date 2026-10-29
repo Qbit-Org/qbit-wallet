@@ -311,9 +311,9 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
       )
 
       expect(review).toMatchObject({ version: 2, locktime: 0 })
-      expect(review.relativeLocks).toEqual([
-        { input: 0, sequence: 0x00000090, type: 'blocks', value: 144 },
-      ])
+      expect(review.relativeLocks).toEqual([{ input: 0, type: 'blocks', value: 144 }])
+      // The input's sequence, which sets the lock, is where it always was.
+      expect(review.inputInfos[0]!.sequence).toBe(0x00000090)
       // What is signed and finalized is unchanged.
       expect(toSignData.autoFinalized).toBe(true)
       expect(decodePsbt(signed).inputs.map(input => input.sequence)).toEqual([0x00000090])
@@ -327,9 +327,7 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
           sequences: [0xfffffffd, 0x00400090],
         })
       )
-      expect(locked.relativeLocks).toEqual([
-        { input: 1, sequence: 0x00400090, type: 'time', value: 144 * 512 },
-      ])
+      expect(locked.relativeLocks).toEqual([{ input: 1, type: 'time', value: 144 * 512 }])
     })
 
     it('reads only the type bit and the low 16 bits, whatever the bits a lock leaves unused', async () => {
@@ -341,8 +339,8 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
         })
       )
       expect(locked.relativeLocks).toEqual([
-        { input: 0, sequence: 0x7fbf0001, type: 'blocks', value: 1 },
-        { input: 1, sequence: 0x7fff0002, type: 'time', value: 1024 },
+        { input: 0, type: 'blocks', value: 1 },
+        { input: 1, type: 'time', value: 1024 },
       ])
     })
 
@@ -363,9 +361,7 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
     it('enforces them for any version from 2, read as an unsigned number', async () => {
       const locked = await review(websitePsbt({ outputs, version: 0xffffffff, sequences: [0x00000090] }))
       expect(locked.version).toBe(0xffffffff)
-      expect(locked.relativeLocks).toEqual([
-        { input: 0, sequence: 0x00000090, type: 'blocks', value: 144 },
-      ])
+      expect(locked.relativeLocks).toEqual([{ input: 0, type: 'blocks', value: 144 }])
     })
   })
 

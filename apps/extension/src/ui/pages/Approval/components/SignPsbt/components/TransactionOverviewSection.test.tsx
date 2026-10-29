@@ -337,31 +337,50 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
     version: 2,
     locktime: 0,
     inputInfos: [{ sequence: 0x00000090 }],
-    relativeLocks: [{ input: 0, sequence: 0x00000090, type: 'blocks', value: 144 }]
+    relativeLocks: [{ input: 0, type: 'blocks', value: 144 }]
   };
 
-  it('shows a relative lock instead of no lock, and that the site can broadcast it only once it has passed', () => {
+  it('shows a relative lock in its own row, beside the lock time row', () => {
     renderOverview(blockLocked);
-    expect(screen.queryByTestId('psbt-locktime')).toBeNull();
-    expect(screen.queryByText('psbt_locktime_none')).toBeNull();
-    expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_blocks:1,144');
+    // nLockTime holds nothing back, and its row still says so.
+    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_none');
+    // The relative lock row: its label, then one line for the input.
+    const row = screen.getByTestId('psbt-relative-lock');
+    expect(row.parentElement!.firstChild!.textContent).toBe('psbt_relative_lock');
+    expect(row.textContent).toBe('psbt_relative_lock_blocks:1,144');
+    expect(screen.getByTestId('psbt-locktime').parentElement!.contains(row)).toBe(false);
+  });
+
+  it('names the lock that holds a finalized PSBT back', () => {
+    // A relative lock alone: the coins it spends must be old enough.
+    renderOverview(blockLocked);
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_coin_age');
+
+    cleanup();
+    // nLockTime alone: the existing wording.
+    renderOverview({ version: 2, locktime: 900_000, inputInfos: [{ sequence: 0xfffffffd }], relativeLocks: [] });
     expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
 
     cleanup();
-    // Not finalized, the PSBT still needs finalizing whatever its lock.
+    // Both.
+    renderOverview({ ...blockLocked, locktime: 900_000 });
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_locks');
+
+    cleanup();
+    // Not finalized, the PSBT still needs finalizing whatever its locks.
     renderOverview(blockLocked, { ...website, autoFinalized: false });
     expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_not_finalized');
     expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_blocks:1,144');
   });
 
-  it('shows an enforced nLockTime and each input a relative lock holds back, one line each', () => {
+  it('shows an enforced nLockTime, and each input a relative lock holds back on a line of its own', () => {
     renderOverview({
       version: 2,
       locktime: 900_000,
       inputInfos: [{ sequence: 0x00000001 }, { sequence: 0xfffffffd }, { sequence: 0x00400090 }],
       relativeLocks: [
-        { input: 0, sequence: 0x00000001, type: 'blocks', value: 1 },
-        { input: 2, sequence: 0x00400090, type: 'time', value: 144 * 512 }
+        { input: 0, type: 'blocks', value: 1 },
+        { input: 2, type: 'time', value: 144 * 512 }
       ]
     });
     expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_block:900000');
@@ -369,7 +388,9 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
     expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_one_block:1');
     expect(screen.queryByTestId('psbt-relative-lock-1')).toBeNull();
     expect(screen.getByTestId('psbt-relative-lock-2').textContent).toBe('psbt_relative_lock_hours:3,20');
-    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
+    expect(screen.getByTestId('psbt-relative-lock').textContent).toBe(
+      'psbt_relative_lock_one_block:1psbt_relative_lock_hours:3,20'
+    );
   });
 
   it('rounds a time lock to minutes, hours or days, never to a single one', () => {
@@ -387,16 +408,23 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
         version: 2,
         locktime: 0,
         inputInfos: [{ sequence: 0x00400000 | units }],
-        relativeLocks: [{ input: 0, sequence: 0x00400000 | units, type: 'time', value: units * 512 }]
+        relativeLocks: [{ input: 0, type: 'time', value: units * 512 }]
       });
       expect(screen.getByTestId('psbt-relative-lock-0').textContent, `${units} units`).toBe(text);
     }
   });
 
-  it('still says there is no lock when no input has a relative lock', () => {
+  it('shows no relative lock row when no input has a relative lock', () => {
     renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0xfffffffd }], relativeLocks: [] });
     expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_none');
+    expect(screen.queryByTestId('psbt-relative-lock')).toBeNull();
+    expect(screen.queryByText('psbt_relative_lock')).toBeNull();
     expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized');
+
+    cleanup();
+    // A review that did not decode them.
+    renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0x00000090 }] });
+    expect(screen.queryByTestId('psbt-relative-lock')).toBeNull();
   });
 
   describe('in every locale', () => {
@@ -418,6 +446,17 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
       for (const [locale, messages] of Object.entries(locales)) {
         expect(messages.psbt_not_finalized?.message, locale).toEqual(expect.any(String));
         expect(messages.psbt_not_finalized!.message, locale).not.toBe(otherSignersOnly[locale]);
+      }
+    });
+
+    it('names each lock a finalized PSBT waits for, and labels the relative lock row', () => {
+      for (const [locale, messages] of Object.entries(locales)) {
+        for (const key of ['psbt_finalized_after_coin_age', 'psbt_finalized_after_locks', 'psbt_relative_lock']) {
+          expect(messages[key]?.message, `${locale} ${key}`).toEqual(expect.any(String));
+        }
+        // Each wording differs, so each names a different lock.
+        const finalized = ['psbt_finalized_after_lock', 'psbt_finalized_after_coin_age', 'psbt_finalized_after_locks'];
+        expect(new Set(finalized.map((key) => messages[key]!.message)).size, locale).toBe(3);
       }
     });
 

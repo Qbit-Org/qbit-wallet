@@ -362,10 +362,10 @@ function qbitPsbtRelativeLocks(summary: ReturnType<typeof decodeQbitPsbt>): Psbt
     const units = sequence & QBIT_SEQUENCE_LOCKTIME_MASK
     if (units === 0) return []
     if ((sequence & QBIT_SEQUENCE_LOCKTIME_TYPE_FLAG) === 0) {
-      return [{ input, sequence, type: 'blocks', value: units }]
+      return [{ input, type: 'blocks', value: units }]
     }
     const seconds = units * QBIT_SEQUENCE_LOCKTIME_GRANULARITY_SECONDS
-    return [{ input, sequence, type: 'time', value: seconds }]
+    return [{ input, type: 'time', value: seconds }]
   })
 }
 

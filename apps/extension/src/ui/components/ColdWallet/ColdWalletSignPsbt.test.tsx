@@ -101,7 +101,7 @@ describe('ColdWalletSignPsbt request', () => {
       outputOwners: ['none', 'change'],
       version: 2,
       locktime: 900000,
-      relativeLocks: [{ input: 0, sequence: 0x00000090, type: 'blocks', value: 144 }],
+      relativeLocks: [{ input: 0, type: 'blocks', value: 144 }],
       approvalOnlyDetail: 'never for the signer'
     }));
     render(<ColdWalletSignPsbt psbtHex="70736274ff" suppliedByWebsite onSuccess={vi.fn()} onCancel={vi.fn()} />);
