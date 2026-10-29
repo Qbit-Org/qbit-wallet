@@ -612,6 +612,9 @@ function utxoReadAborted(signal: AbortSignal): Error {
  * abandoned read can then never replace the outputs of the account the user
  * moved on to, nor a newer read's.
  *
+ * The caller's abort reaches the background too: the read is abandoned
+ * there, and a walk nothing else waits for stops reading.
+ *
  * The caller gets the answer whether or not it was cached, unless it
  * aborted. An answer for an account or network other than the ones this
  * hook rendered for is an error: those are not the outputs it asked for.
@@ -626,7 +629,17 @@ export function useFetchUtxosCallback() {
     async ({ signal }: { signal?: AbortSignal } = {}): Promise<QbitUtxoSnapshot> => {
       if (signal?.aborted) throw utxoReadAborted(signal)
       const read = ++utxoReads
-      const snapshot = await wallet.getQbitUtxoSnapshot()
+      const readId = String(read)
+      const abandon = (): void => {
+        void wallet.abandonQbitUtxoSnapshot(readId).catch(() => undefined)
+      }
+      signal?.addEventListener('abort', abandon, { once: true })
+      let snapshot: QbitUtxoSnapshot
+      try {
+        snapshot = await wallet.getQbitUtxoSnapshot(readId)
+      } finally {
+        signal?.removeEventListener('abort', abandon)
+      }
       if (signal?.aborted) throw utxoReadAborted(signal)
       if (snapshot.address !== address || snapshot.chain !== chainType) {
         throw new Error('The selected account or network changed while its outputs were loading')

@@ -39,6 +39,7 @@ export {
   QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE,
   QBIT_FEE_WARNING_RECOMMENDED_RATE_MULTIPLE,
   QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE,
+  QBIT_FEE_WARNING_SMALLEST_SEND_VSIZE,
   assessQbitFee,
   qbitRecommendedFeeRate,
 } from './qbit-fee-warnings'
@@ -48,6 +49,7 @@ export {
   type QbitWalletOwnership,
 } from './qbit-wallet-ownership'
 export { statedPsbtRecipients } from './psbt-stated-recipients'
+export { isWebsiteSuppliedPsbt, psbtReviewOptions } from './psbt-review-options'
 export {
   QBIT_MAX_STANDARD_TX_WEIGHT,
   QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,

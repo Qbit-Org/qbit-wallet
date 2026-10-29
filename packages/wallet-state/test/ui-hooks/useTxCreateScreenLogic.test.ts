@@ -10,7 +10,7 @@ import {
   p2mrScriptPubKey,
   singleKeyLeafScript,
 } from '@qbit-oss/protocol'
-import { KeyringType } from '@qbit/wallet-shared'
+import { KeyringType, assessQbitFee } from '@qbit/wallet-shared'
 import * as walletShared from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 
@@ -2416,6 +2416,38 @@ describe('UTXO cache across accounts (#342)', () => {
     expect(result.current.availableAmount).toBe('--')
   })
 
+  it('abandons the background read of a screen that is left, and only that one (#56)', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    const walkA = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
+    select(store, accountA, 70_000)
+    const screenA = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1))
+    const [readId] = wallet.getQbitUtxoSnapshot.mock.calls[0]!
+    expect(readId).toEqual(expect.any(String))
+    expect(wallet.abandonQbitUtxoSnapshot).not.toHaveBeenCalled()
+
+    // Leaving the screen tells the background, which stops the walk once
+    // nothing else waits for it.
+    screenA.unmount()
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledWith(readId)
+    await act(async () => {
+      walkA.resolve(snapshotOf(accountA, outputsOf(accountA, 'a0', [60_000])))
+      await walkA.promise
+    })
+
+    // A read that already answered has nothing to abandon.
+    const outputs = outputsOf(accountA, 'aa', [70_000])
+    wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(snapshotOf(accountA, outputs))
+    const screen = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(store.getState().transactions.utxos).toEqual(outputs))
+    const [secondReadId] = wallet.getQbitUtxoSnapshot.mock.calls[1]!
+    expect(secondReadId).not.toBe(readId)
+    screen.unmount()
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+  })
+
   it('does not cache a read its screen abandoned', async () => {
     const { store, wallet, wrapper } = createHookTestHarness()
     const walkA = deferred<any>()
@@ -2580,7 +2612,15 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     },
   }
 
-  function renderSend({ feeRate, quote }: { feeRate: number; quote: unknown }) {
+  function renderSend({
+    feeRate,
+    quote,
+    utxoValues = [10_000_000],
+  }: {
+    feeRate: number
+    quote: unknown
+    utxoValues?: number[]
+  }) {
     const account = p2mrAccount()
     const { wrapper: baseWrapper, store, wallet } = createHookTestHarness()
     const t = (key: string, substitutions?: string | string[] | Record<string, string | number>) =>
@@ -2600,16 +2640,18 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         },
         createElement(baseWrapper, { children })
       )
-    const utxos = [
-      {
-        txid: 'c7'.repeat(32),
-        vout: 0,
-        satoshis: 10_000_000,
-        scriptPk: account.p2mr.scriptPubKey,
-        pubkey: account.pubkey,
-        addressType: AddressType.P2MR,
-      } as any,
-    ]
+    const utxos = utxoValues.map(
+      (satoshis, index) =>
+        ({
+          txid: (0xc7 + index).toString(16).repeat(32),
+          vout: 0,
+          satoshis,
+          scriptPk: account.p2mr.scriptPubKey,
+          pubkey: account.pubkey,
+          addressType: AddressType.P2MR,
+        }) as any
+    )
+    const balance = utxoValues.reduce((sum, value) => sum + value, 0)
     wallet.getFeeSummary.mockResolvedValue(quote)
     wallet.getQbitUtxoSnapshot.mockResolvedValue({
       address: account.address,
@@ -2621,9 +2663,9 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       accountActions.setBalanceV2({
         address: account.address,
         balance: {
-          availableBalance: 10_000_000,
+          availableBalance: balance,
           unavailableBalance: 0,
-          totalBalance: 10_000_000,
+          totalBalance: balance,
           chainType: ChainType.QBIT_MAINNET,
         },
       })
@@ -2706,6 +2748,36 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         feeRecommendationUnavailable: 'fee_warning_recommendation_unavailable',
       })
     })
+  })
+
+  it('judges a small payment several outputs fund at the recommended rate by its own size', async () => {
+    // Three outputs of 16,000 bits fund 20,000 at the Fast 2 bits/vB: a fee
+    // about as large as the payment. The check a website's PSBT also gets,
+    // which needs no size, would flag it; the send screen built this size.
+    const { result } = renderSend({
+      feeRate: 2,
+      quote: LIVE_QUOTE,
+      utxoValues: [16_000, 16_000, 16_000],
+    })
+    act(() => {
+      result.current.onAmountInputChange('0.00020000')
+    })
+
+    // Until the quote loads the relay floor stands in for it, and 2 bits/vB is twice that.
+    await waitFor(() => {
+      expect(result.current.spendSummary).toMatchObject({ feeWarnings: [] })
+    })
+    expect(result.current.spendSummary?.feeWarningTitle).toBeUndefined()
+    const fee = Math.round(Number(result.current.spendSummary!.totalSpend) * 1e8) - 20_000
+    expect(
+      assessQbitFee({
+        fee,
+        feeRate: 2,
+        amount: 20_000,
+        recommendedFeeRate: 2,
+        checkFeeShareWithoutSize: true,
+      }).reasons
+    ).toEqual(['large_share_of_amount'])
   })
 
   it('counts the whole selection, fee included, for a send-all', async () => {

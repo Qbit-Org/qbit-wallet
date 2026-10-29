@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "sites": [
+    {
+      "origin": "https://stale.example",
+      "name": "Stale",
+      "icon": "https://stale.example/icon.png",
+      "chain": "QBIT_MAINNET",
+      "isSigned": false,
+      "isTop": false,
+      "isConnected": true
+    }
+  ],
+  "dumpCache": [
+    {
+      "k": "https://after-downgrade.example",
+      "v": {
+        "origin": "https://after-downgrade.example",
+        "name": "After downgrade",
+        "icon": "",
+        "chain": "QBIT_TESTNET4",
+        "isSigned": false,
+        "isTop": false,
+        "isConnected": true
+      },
+      "e": 0
+    }
+  ]
+}

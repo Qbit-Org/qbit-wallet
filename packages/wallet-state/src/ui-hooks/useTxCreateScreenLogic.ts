@@ -147,8 +147,10 @@ export function useTxCreateScreenLogic() {
     }
     firstUtxoReadRef.current = false
     // Leaving the screen, or its account or network, abandons the read: its
-    // answer is not cached, and the walk the background may still be running
-    // is joined by the next read for the same account rather than repeated.
+    // answer is not cached, and the background stops waiting for it too, so
+    // a walk that nothing else waits for stops reading. A read the screen
+    // opens again for the same account, whose statistics have not moved,
+    // joins a walk another page still waits for rather than repeating it.
     const read = new AbortController()
     fetchUtxos({ signal: read.signal })
       .then(() => {

@@ -1360,9 +1360,15 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) })
     )
-    // Both assessments read the raw original and checked its one input's
-    // signature against the account key.
-    expect(getTxHexMock).toHaveBeenCalledWith(live.txid)
+    // Both assessments read the raw original, under the assessment's
+    // deadline, and checked its one input's signature against the account
+    // key. The replacement carries the original's output count from those
+    // bytes, for its broadcast to check what spends them.
+    expect(getTxHexMock).toHaveBeenCalledWith(
+      live.txid,
+      expect.objectContaining({ deadlineMs: expect.any(Number) })
+    )
+    expect(replacement.feeBump!.originalOutputCount).toBe(3)
     expect(verifyPqcMock).toHaveBeenCalledTimes(2)
     for (const [pubkey] of verifyPqcMock.mock.calls) {
       expect(bytesToHex(pubkey)).toBe(account.pubkey)
@@ -1814,13 +1820,14 @@ describe('WalletController qbit P2MR send path', () => {
       }))
     const reads: {
       address: string
+      signal: AbortSignal | undefined
       resolve: (value: unknown) => void
       reject: (error: Error) => void
     }[] = []
     getAddressUtxosMock.mockImplementation(
-      (address: string) =>
+      (address: string, options?: { signal?: AbortSignal }) =>
         new Promise((resolve, reject) => {
-          reads.push({ address, resolve, reject })
+          reads.push({ address, signal: options?.signal, resolve, reject })
         })
     )
     const otherTxid = 'af'.repeat(32)
@@ -1850,7 +1857,8 @@ describe('WalletController qbit P2MR send path', () => {
     await vi.waitFor(() => expect(reads).toHaveLength(3))
     // A send took an output while the read ran, and the explorer shows it
     // pending. A read asked for after it starts afresh, so it can see the
-    // send's change.
+    // send's change, and replaces the running read (#56): that one stops,
+    // and the screens still waiting for it are handed the newer answer.
     const spent = 'ae'.repeat(32)
     const kept = 'ad'.repeat(32)
     const change = 'ce'.repeat(32)
@@ -1866,21 +1874,27 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       account.address,
     ])
+    expect(reads.map(read => read.signal?.aborted ?? false)).toEqual([true, false, false, false])
 
-    // The joined read's answer leaves out the output the send took.
-    reads[0]!.resolve(listing(spent, kept))
-    const [firstSnapshot, secondSnapshot] = await Promise.all([first, second])
-    expect(firstSnapshot).toMatchObject({ address: account.address, chain: ChainType.QBIT_REGTEST })
-    expect(txids(firstSnapshot)).toEqual([kept])
-    expect(secondSnapshot).toEqual(firstSnapshot)
     reads[1]!.resolve(listing(otherTxid))
     const otherSnapshot = await otherRead
     expect(otherSnapshot.address).toBe(other.address)
     expect(txids(otherSnapshot)).toEqual([otherTxid])
     reads[2]!.resolve(listing(spent, kept))
     await expect(freshRead).resolves.toHaveLength(1)
+    // The replaced read's late answer reaches no one. The newer one leaves
+    // out the output the send took, for every screen that waited.
+    reads[0]!.resolve(listing(spent, kept))
     reads[3]!.resolve(listing(spent, kept, change))
-    expect(txids(await afterSend)).toEqual([kept, change])
+    const [firstSnapshot, secondSnapshot, afterSendSnapshot] = await Promise.all([
+      first,
+      second,
+      afterSend,
+    ])
+    expect(firstSnapshot).toMatchObject({ address: account.address, chain: ChainType.QBIT_REGTEST })
+    expect(txids(firstSnapshot)).toEqual([kept, change])
+    expect(secondSnapshot).toEqual(firstSnapshot)
+    expect(afterSendSnapshot).toEqual(firstSnapshot)
 
     // Once a read settles the next one reads afresh, and a failure reaches
     // every caller that joined it without being kept.
@@ -2045,7 +2059,10 @@ describe('WalletController qbit P2MR send path', () => {
       await expect(wallet.createBumpFeeQbitPsbt({ txid: live.txid })).rejects.toThrow(
         'fee_bump_unavailable (has_descendants)'
       )
-      expect(getTxOutspendsMock).toHaveBeenCalledWith(live.txid)
+      expect(getTxOutspendsMock).toHaveBeenCalledWith(
+        live.txid,
+        expect.objectContaining({ deadlineMs: expect.any(Number) })
+      )
       expect(getFeeTiersMock).not.toHaveBeenCalled()
       expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
     })

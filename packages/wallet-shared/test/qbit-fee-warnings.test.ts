@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
+import { QBIT_P2MR_DUST } from '../src/constants/common'
 import type { FeeSummary } from '../src/types/common'
 import {
   QBIT_FEE_WARNING_AMOUNT_PERCENT,
   QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE,
   QBIT_FEE_WARNING_RECOMMENDED_RATE_MULTIPLE,
   QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE,
+  QBIT_FEE_WARNING_SMALLEST_SEND_VSIZE,
   assessQbitFee,
   qbitRecommendedFeeRate,
 } from '../src/utils/qbit-fee-warnings'
@@ -96,6 +98,151 @@ describe('qbit fee warnings', () => {
     expect(assessQbitFee({ fee, feeRate, amount }).reasons).toEqual(['large_share_of_amount'])
     // A transfer to the wallet itself has no amount to compare with.
     expect(assessQbitFee({ fee, feeRate, amount: 0 }).reasons).toEqual([])
+  })
+
+  describe('the share check that needs no size', () => {
+    const recommendedFeeRate = 9
+    /** Twice what the smallest send, 3,817 vB, costs at 9 bits/vB. */
+    const FLOOR = 68_706
+    /** A rate below every rate condition, as a size estimate too large would show. */
+    const feeRate = 1
+
+    it('sizes the smallest send as one single-key P2MR input paying one P2MR output', () => {
+      expect(QBIT_FEE_WARNING_SMALLEST_SEND_VSIZE).toBe(3_817)
+      expect(QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE * recommendedFeeRate * 3_817).toBe(FLOOR)
+    })
+
+    it('flags a fee that is a large share of the payout whatever its rate, only when asked', () => {
+      const judged = { fee: 400_000, feeRate, amount: 100_000, recommendedFeeRate }
+      expect(assessQbitFee(judged).reasons).toEqual([])
+      expect(assessQbitFee({ ...judged, checkFeeShareWithoutSize: true })).toEqual({
+        fee: 400_000,
+        feeRate,
+        amount: 100_000,
+        recommendedFeeRate,
+        reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
+      })
+    })
+
+    it('marks the fee as high at a normal rate only when no rate condition holds', () => {
+      const judged = { amount: 100_000, recommendedFeeRate, checkFeeShareWithoutSize: true }
+      expect(assessQbitFee({ ...judged, fee: 400_000, feeRate: 17.9 })).toMatchObject({
+        reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
+      })
+      // Twice the recommended 9 bits/vB: the share check flags it by its rate as well.
+      const byRate = assessQbitFee({ ...judged, fee: 400_000, feeRate: 18 })
+      expect(byRate.reasons).toEqual(['large_share_of_amount'])
+      expect(byRate).not.toHaveProperty('highFeeAtNormalRate')
+      // Below twice a 10,000 bits/vB quote, but a rate the relay floor check flags.
+      const byRelayFloor = assessQbitFee({
+        ...judged,
+        fee: 800_000,
+        feeRate: 100,
+        amount: 1_000_000,
+        recommendedFeeRate: 10_000,
+      })
+      expect(byRelayFloor.reasons).toEqual(['above_relay_floor', 'large_share_of_amount'])
+      expect(byRelayFloor).not.toHaveProperty('highFeeAtNormalRate')
+      expect(assessQbitFee({ ...judged, fee: 1_000, feeRate })).toEqual({
+        fee: 1_000,
+        feeRate,
+        amount: 100_000,
+        recommendedFeeRate,
+        reasons: [],
+      })
+    })
+
+    it('measures with the relay floor when there is no live recommendation', () => {
+      // Twice 3,817 vB at 1 bit/vB: a two-input payment at that rate pays about this much.
+      const judged = { feeRate, amount: 20_000, checkFeeShareWithoutSize: true }
+      expect(assessQbitFee({ ...judged, fee: 7_634 })).toMatchObject({
+        reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
+      })
+      expect(assessQbitFee({ ...judged, fee: 7_633 }).reasons).toEqual([])
+    })
+
+    it('flags a fee at twice what the smallest send costs and not one bit less', () => {
+      const judged = {
+        feeRate,
+        amount: 100_000,
+        recommendedFeeRate,
+        checkFeeShareWithoutSize: true,
+      }
+      expect(assessQbitFee({ ...judged, fee: FLOOR }).reasons).toEqual(['large_share_of_amount'])
+      expect(assessQbitFee({ ...judged, fee: FLOOR - 1 }).reasons).toEqual([])
+    })
+
+    it('flags a fee at the share of the payout and not when the payout is one bit more', () => {
+      const fee = 100_000
+      const amount = (fee * 100) / QBIT_FEE_WARNING_AMOUNT_PERCENT
+      const judged = { fee, feeRate, recommendedFeeRate, checkFeeShareWithoutSize: true }
+      expect(assessQbitFee({ ...judged, amount }).reasons).toEqual(['large_share_of_amount'])
+      expect(assessQbitFee({ ...judged, amount: amount + 1 }).reasons).toEqual([])
+    })
+
+    it('leaves a payment of the dust limit with sub-dust change folded into its fee unflagged', () => {
+      // One input and one output at the recommended 1 bit/vB, plus the
+      // largest change too small to keep: 6,671 bits, below twice 3,817.
+      const fee = 3_817 + QBIT_P2MR_DUST - 1
+      const judged = {
+        fee,
+        feeRate: fee / 3_817,
+        amount: QBIT_P2MR_DUST,
+        checkFeeShareWithoutSize: true,
+      }
+      expect(assessQbitFee({ ...judged, recommendedFeeRate: 1 }).reasons).toEqual([])
+      // Without a recommendation the relay floor stands in for it.
+      expect(assessQbitFee(judged).reasons).toEqual([])
+      // At the busier 9 bits/vB the same payment pays 37,207 bits.
+      expect(
+        assessQbitFee({
+          ...judged,
+          fee: 9 * 3_817 + QBIT_P2MR_DUST - 1,
+          feeRate: 9.75,
+          recommendedFeeRate,
+        }).reasons
+      ).toEqual([])
+    })
+
+    it('confirms a small payment three inputs fund at the recommended rate', () => {
+      // 11,341 vB at 1 bit/vB is more than twice the smallest send.
+      expect(
+        assessQbitFee({
+          fee: 11_341,
+          feeRate: 1,
+          amount: 40_000,
+          recommendedFeeRate: 1,
+          checkFeeShareWithoutSize: true,
+        }).reasons
+      ).toEqual(['large_share_of_amount'])
+    })
+
+    it('never share-checks a transfer to the wallet itself', () => {
+      expect(
+        assessQbitFee({
+          fee: 400_000,
+          feeRate,
+          amount: 0,
+          recommendedFeeRate,
+          checkFeeShareWithoutSize: true,
+        }).reasons
+      ).toEqual([])
+    })
+
+    it('caps the recommendation it is measured with, so a high quote cannot raise it', () => {
+      // A quote of 10,000 bits/vB counts as 100: twice 3,817 vB at 100 is 763,400.
+      const judged = {
+        feeRate: 50,
+        amount: 1_000_000,
+        recommendedFeeRate: 10_000,
+        checkFeeShareWithoutSize: true,
+      }
+      expect(assessQbitFee({ ...judged, fee: 763_400 }).reasons).toEqual(['large_share_of_amount'])
+      expect(assessQbitFee({ ...judged, fee: 763_399 }).reasons).toEqual([])
+    })
   })
 
   it('reports every reason that applies and keeps the inputs it judged', () => {

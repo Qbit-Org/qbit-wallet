@@ -12,6 +12,8 @@ vi.mock('@qbit/wallet-state', () => ({
   useI18n: vi.fn()
 }));
 
+vi.mock('../FeeRateBar', () => ({ FeeRateBar: () => null }));
+
 vi.mock('../Input', () => ({
   Input: ({ onChange, ...props }: { onChange?: ChangeEventHandler<HTMLInputElement>; 'data-testid'?: string }) => (
     <input onChange={onChange} data-testid={props['data-testid']} />
@@ -87,5 +89,38 @@ describe('SignPsbtWithRisksPopover confirmation readiness', () => {
     expect(screen.getByText('unrecognised_output_risk_title')).toBeTruthy();
     expect(screen.getByText('unrecognised_output_risk_description')).toBeTruthy();
     expect(screen.getByTestId('risk-confirm-button').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('names a fee only its share of the amount flagged a high fee, not a high rate', () => {
+    const highFee = (highFeeAtNormalRate: boolean) =>
+      ({
+        feeRate: 15,
+        risks: [{ type: RiskType.HIGH_FEE_RATE, level: 'warning', title: '', desc: '' }],
+        spendSummary: {
+          feeAssessment: {
+            fee: 114_330,
+            feeRate: 15,
+            amount: 10_000,
+            recommendedFeeRate: 9,
+            reasons: ['large_share_of_amount'],
+            ...(highFeeAtNormalRate ? { highFeeAtNormalRate: true } : {})
+          }
+        }
+      }) as unknown as DecodedPsbt;
+
+    render(<SignPsbtWithRisksPopover decodedPsbt={highFee(true)} onConfirm={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText('high_fee_risk_title')).toBeTruthy();
+    expect(screen.getByText('high_fee_risk_description')).toBeTruthy();
+    expect(screen.queryByText('high_fee_rate_risk_title')).toBeNull();
+    expect(screen.getByTestId('risk-confirm-button').getAttribute('aria-disabled')).toBe('true');
+    // The detail beside the rate says the same.
+    fireEvent.click(screen.getByText('view'));
+    expect(screen.getByText('high_fee_risk_title')).toBeTruthy();
+    expect(screen.getByText('15 bits/vB')).toBeTruthy();
+    cleanup();
+
+    render(<SignPsbtWithRisksPopover decodedPsbt={highFee(false)} onConfirm={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText('high_fee_rate_risk_title')).toBeTruthy();
+    expect(screen.queryByText('high_fee_risk_title')).toBeNull();
   });
 });
