@@ -35,12 +35,44 @@ import storage from '../utils/storage';
 export const AppInitEvent = new EventEmitter();
 
 class ExtensionStorageAdapter extends BaseProxyStorageAdapter {
+  // The errors of reads that failed while start-up ran, kept only so start-up
+  // can say why it stopped. Every caller still gets the error storage raised.
+  private startupReadErrors: Set<unknown> | undefined = new Set();
+
   constructor(private storage) {
     super();
   }
 
   async get(key: string): Promise<any> {
-    return this.storage.get(key);
+    try {
+      return await this.storage.get(key);
+    } catch (error) {
+      this.startupReadErrors?.add(error);
+      throw error;
+    }
+  }
+
+  /**
+   * Whether `error` is, or has among its causes, a read that failed during
+   * start-up. Services may wrap the read error (wallet-storage's loadStored
+   * does), so the causes count too.
+   */
+  isStartupReadError(error: unknown): boolean {
+    const seen = new Set<unknown>();
+    for (
+      let current = error;
+      current !== null && current !== undefined && !seen.has(current);
+      current = (current as { cause?: unknown }).cause
+    ) {
+      if (this.startupReadErrors?.has(current)) return true;
+      seen.add(current);
+    }
+    return false;
+  }
+
+  /** Start-up is over: reads that fail from now on are not recorded. */
+  endStartup(): void {
+    this.startupReadErrors = undefined;
   }
 
   async set(key: string, value: any): Promise<void> {
@@ -64,9 +96,8 @@ async function initPqcRuntime() {
 }
 
 export async function restoreAppState() {
+  const proxyStorage = new ExtensionStorageAdapter(storage);
   try {
-    const proxyStorage = new ExtensionStorageAdapter(storage);
-
     await i18nService.init({ storage: proxyStorage });
     bgI18n.t = i18nService.translate.bind(i18nService);
     bgI18n.changeLanguage = async (locale: string) => {
@@ -172,6 +203,12 @@ export async function restoreAppState() {
     walletController.setBackgroundInited(true);
   } catch (err) {
     console.error('[Background] Initialization failed', err);
+    // In memory only: reporting the failure writes nothing to storage.
+    walletController.setBackgroundStartupFailed(
+      proxyStorage.isStartupReadError(err) ? 'stored-settings-unreadable' : 'unknown'
+    );
+  } finally {
+    proxyStorage.endStartup();
   }
 }
 

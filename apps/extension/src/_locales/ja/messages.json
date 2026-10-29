@@ -1937,6 +1937,21 @@
   "start_merging": {
     "message": "マージを開始"
   },
+  "startup_error_title": {
+    "message": "Qbit Wallet を起動できませんでした"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "保存された設定を読み込めなかったため、Qbit Wallet は設定を変更せずに停止しました。"
+  },
+  "startup_error_unknown": {
+    "message": "Qbit Wallet の起動中に問題が発生しました。"
+  },
+  "startup_error_retry": {
+    "message": "再試行"
+  },
+  "startup_error_retry_hint": {
+    "message": "再試行するとウォレットが再起動します。このウィンドウが閉じた場合は、もう一度 Qbit Wallet を開いてください。"
+  },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "秘密鍵やシードフレーズを盗む"
   },

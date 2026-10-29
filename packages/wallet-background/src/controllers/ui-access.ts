@@ -104,7 +104,7 @@ export const UI_CONTROLLER_METHODS = [
   'getAnnouncements',
   'getApproval',
   'getAutoLockTimeId',
-  'getBackgroundInited',
+  'getBackgroundStartupStatus',
   'getBiometricUnlockRecord',
   'getBiometricUnlockStatus',
   'getChainType',

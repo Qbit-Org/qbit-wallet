@@ -1937,6 +1937,21 @@
   "start_merging": {
     "message": "Начать объединение"
   },
+  "startup_error_title": {
+    "message": "Не удалось запустить Qbit Wallet"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet не смог прочитать сохранённые настройки и остановился, не изменив их."
+  },
+  "startup_error_unknown": {
+    "message": "При запуске Qbit Wallet произошла ошибка."
+  },
+  "startup_error_retry": {
+    "message": "Повторить"
+  },
+  "startup_error_retry_hint": {
+    "message": "Повтор перезапускает кошелёк. Это окно может закрыться; затем снова откройте Qbit Wallet."
+  },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "Украсть ваши приватные ключи или сид-фразы"
   },

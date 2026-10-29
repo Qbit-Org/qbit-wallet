@@ -1937,6 +1937,21 @@
   "start_merging": {
     "message": "Iniciar Fusión"
   },
+  "startup_error_title": {
+    "message": "Qbit Wallet no pudo iniciarse"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet no pudo leer su configuración guardada, así que se detuvo sin modificarla."
+  },
+  "startup_error_unknown": {
+    "message": "Algo salió mal mientras Qbit Wallet se iniciaba."
+  },
+  "startup_error_retry": {
+    "message": "Reintentar"
+  },
+  "startup_error_retry_hint": {
+    "message": "Reintentar reinicia la billetera. Esta ventana puede cerrarse; después, vuelve a abrir Qbit Wallet."
+  },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "Robar tus claves privadas o frases semilla"
   },
