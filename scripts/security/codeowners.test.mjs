@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const securityOwners = ['@Anatolie', '@RobertClarke']
+const securityOwners = ['@Anatolie', '@kiwidream', '@djh58', '@RobertClarke'].sort()
 const codeowners = readFileSync(new URL('../../.github/CODEOWNERS', import.meta.url), 'utf8')
 const orderedRules = codeowners
   .split(/\r?\n/)
@@ -71,16 +71,27 @@ test('CODEOWNERS covers every security release surface', () => {
   }
 })
 
-// GitHub applies the last matching rule, so a rule below the security rules,
-// such as a misplaced `*`, would take over the files they cover.
+// GitHub applies the last matching rule, so a rule below the security rules
+// would take over the files they cover. The `*` default has the same owners
+// for now, but it doesn't make a file security-sensitive.
 test('no later CODEOWNERS rule takes over a security file', () => {
-  const matchers = orderedRules.map(([pattern, owners]) => [toRegExp(pattern), owners])
+  const matchers = orderedRules.map(([pattern, owners]) => ({
+    pattern,
+    owners,
+    regex: toRegExp(pattern),
+  }))
+  const isSecurityRule = rule =>
+    rule.pattern !== '*' && isDeepStrictEqual(rule.owners, securityOwners)
   for (const path of trackedFiles) {
-    const matchingOwners = matchers
-      .filter(([regex]) => regex.test(path))
-      .map(([, owners]) => owners)
-    if (matchingOwners.some(owners => isDeepStrictEqual(owners, securityOwners))) {
-      assert.deepEqual(matchingOwners.at(-1), securityOwners, `a later rule takes over ${path}`)
+    const matching = matchers.filter(rule => rule.regex.test(path))
+    if (matching.some(isSecurityRule)) {
+      assert.deepEqual(matching.at(-1).owners, securityOwners, `a later rule takes over ${path}`)
     }
   }
+})
+
+// The security rules can only narrow the `*` default if it comes first.
+test('the `*` default stays the first CODEOWNERS rule', () => {
+  const patterns = orderedRules.map(([pattern]) => pattern)
+  assert.equal(patterns.lastIndexOf('*'), 0, 'keep one `*` rule, at the top of CODEOWNERS')
 })
