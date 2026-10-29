@@ -101,6 +101,22 @@ export class QbitExplorerSpendCheckTimeoutError extends Error {
 }
 
 /**
+ * The explorer check could not reach a verdict: a read failed, or an answer
+ * was not one it could use. `failure` is what went wrong; a broadcast
+ * reports the refusal by it, as it would any explorer error, never as a
+ * conflict with another transaction.
+ */
+export class QbitExplorerSpendCheckFailedError extends Error {
+  constructor(
+    message: string,
+    readonly failure: unknown
+  ) {
+    super(message)
+    this.name = 'QbitExplorerSpendCheckFailedError'
+  }
+}
+
+/**
  * Throw unless the explorer shows that a broadcast about to be dispatched
  * evicts nothing. qbit Core evicts every transaction spending an output of
  * the transaction a fee bump replaces once the replacement's fee covers
@@ -232,7 +248,7 @@ export async function assertNoExplorerSpendConflict(
     if (outOfTime || (QbitApiError.is(error) && error.kind === 'timeout')) {
       throw new QbitExplorerSpendCheckTimeoutError(message)
     }
-    throw new Error(message)
+    throw new QbitExplorerSpendCheckFailedError(message, error)
   } finally {
     clearTimeout(timer)
     parent?.removeEventListener('abort', onParentAbort)

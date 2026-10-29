@@ -2327,6 +2327,48 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     await expectInputSpentNotClaimed()
   })
 
+  it("reports a restored send's failed explorer check by what failed, never as a conflict", async () => {
+    const wallet = newController()
+    const { signedData, claim } = await signThenRestart(wallet)
+    // The recovery screen retries its unknown verdict: whatever refuses the
+    // retry, the first broadcast may have gone out, so it stays unknown.
+    const retry = () =>
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid, true)
+    const unchecked = 'Could not check that the inputs of this transaction are still unspent'
+
+    getTxOutspendsMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    probeGone()
+    await expect(retry()).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'network',
+      detail: unchecked,
+    })
+    getTxOutspendsMock.mockRejectedValueOnce(notFound())
+    probeGone()
+    await expect(retry()).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'server',
+      detail: unchecked,
+    })
+    getTxOutspendsMock.mockResolvedValueOnce('not a list')
+    probeGone()
+    await expect(retry()).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'invalid_response',
+      detail: unchecked,
+    })
+    // A spender the explorer does show is a conflict, as before.
+    explorerShowsInput('ee'.repeat(32))
+    probeGone()
+    await expect(retry()).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'guard_blocked',
+      detail: inputSpentElsewhereDetail,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+  })
+
   it('refuses to dispatch a restored claim whose input the explorer shows another transaction spending', async () => {
     const wallet = newController()
     const { signedData, claim } = await signThenRestart(wallet)
@@ -2369,7 +2411,7 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
     ).resolves.toMatchObject({
       outcome: 'not_sent',
-      reason: 'guard_blocked',
+      reason: 'network',
       detail: 'Could not check that the inputs of this transaction are still unspent',
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
@@ -2504,12 +2546,13 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
       qbitSendGuardService.assertNoOverlap(REGTEST, [{ txid: SOURCE_TXID, vout: 0 }])
     ).rejects.toThrow('claimed by an approved send')
 
-    // An explorer that cannot say refuses it as well.
+    // An explorer that cannot say refuses it as well, for what failed, not
+    // as a conflict.
     getTxOutspendsMock.mockRejectedValueOnce(networkError())
     probeGone()
     await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
       outcome: 'not_sent',
-      reason: 'guard_blocked',
+      reason: 'network',
       detail:
         'Could not check whether a later payment depends on the transaction this fee bump replaces',
     })
@@ -2518,7 +2561,7 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
     probeGone()
     await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
       outcome: 'not_sent',
-      reason: 'guard_blocked',
+      reason: 'invalid_response',
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
 

@@ -248,6 +248,7 @@ import {
 import {
   QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS,
   QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+  QbitExplorerSpendCheckFailedError,
   QbitExplorerSpendCheckTimeoutError,
   assertNoExplorerSpendConflict,
 } from '../utils/qbit-fee-bump-recheck'
@@ -7727,6 +7728,8 @@ export class WalletController extends BaseController {
     let chainChangedBeforeDispatch = false
     let dependentSpendRefused = false
     let deadlineRefused = false
+    // Why the explorer check failed, when it could not reach a verdict.
+    let checkFailureReason: QbitBroadcastFailure['reason'] | undefined
     let firstDispatchAt: number | undefined
     // Re-sends of the same bytes so far (see below), and the verdict the
     // last dispatched pass reached while they are under way, which a
@@ -7786,6 +7789,15 @@ export class WalletController extends BaseController {
           dependentSpendRefused = true
           // Refused for lack of time, as a pass with too little left is.
           if (error instanceof QbitExplorerSpendCheckTimeoutError) deadlineRefused = true
+          // A failed check is reported by its cause, as any explorer error:
+          // never as a conflict. An answer it could not use is an unexpected
+          // response, and a read is no submission the node could reject.
+          if (error instanceof QbitExplorerSpendCheckFailedError) {
+            const { reason } = QbitApiError.is(error.failure)
+              ? classifyQbitBroadcastError(error.failure)
+              : { reason: 'invalid_response' as const }
+            checkFailureReason = reason === 'rejected' ? 'server' : reason
+          }
           throw error
         }
         assertChainUnchanged()
@@ -7817,6 +7829,7 @@ export class WalletController extends BaseController {
       chainChangedBeforeDispatch = false
       dependentSpendRefused = false
       deadlineRefused = false
+      checkFailureReason = undefined
       try {
         if (claim) {
           await qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, broadcast, claim)
@@ -7962,7 +7975,7 @@ export class WalletController extends BaseController {
             ? ('chain_changed' as const)
             : deadlineRefused
               ? ('timeout' as const)
-              : ('guard_blocked' as const),
+              : (checkFailureReason ?? ('guard_blocked' as const)),
           detail: sanitizeQbitBroadcastDetail(qbitBroadcastErrorMessage(error)),
         }
         // Nothing left the wallet in this call, which says nothing about an
