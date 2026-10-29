@@ -1,15 +1,20 @@
 import { Card, Column, Icon, Row, Text, Tooltip } from '@/ui/components';
 import { ColorTypes } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
-import { DecodedPsbt, ToSignData, isWebsiteSuppliedPsbt } from '@qbit/wallet-shared';
+import {
+  DecodedPsbt,
+  RelativeLock,
+  ToSignData,
+  isPsbtLocktimeEnforced,
+  isWebsiteSuppliedPsbt,
+  psbtRelativeLocks
+} from '@qbit/wallet-shared';
 import { useI18n, useQbitUnit } from '@qbit/wallet-state';
 
 import { SignPsbtSection } from './Section';
 
 /** An nLockTime from this value is a Unix time; below it, a block height. */
 const LOCKTIME_THRESHOLD = 500_000_000;
-/** The sequence of a final input. When every input is final, nLockTime is not enforced. */
-const SEQUENCE_FINAL = 0xffffffff;
 
 /** A Unix time as `YYYY-MM-DD hh:mm:ss UTC`. */
 function formatLocktimeTime(locktime: number): string {
@@ -17,6 +22,38 @@ function formatLocktimeTime(locktime: number): string {
     .toISOString()
     .replace('T', ' ')
     .replace(/\.\d{3}Z$/, ' UTC');
+}
+
+/**
+ * A relative lock in plain terms, numbering inputs from 1. A lock of N blocks
+ * lets the transaction into the next block once the coin has N confirmations.
+ * A time lock compares median block times, which move a block at a time, so
+ * it is worded coarsely: under two hours, in hours, or in days.
+ */
+function relativeLockText(lock: RelativeLock, t: (key: string, substitutions?: string[]) => string): string {
+  const input = `${lock.input + 1}`;
+  if (lock.type === 'blocks') {
+    return lock.value === 1
+      ? t('psbt_relative_lock_one_block', [input])
+      : t('psbt_relative_lock_blocks', [input, `${lock.value}`]);
+  }
+  if (lock.value < 2 * 3600) return t('psbt_relative_lock_short', [input]);
+  if (lock.value < 48 * 3600) return t('psbt_relative_lock_hours', [input, `${Math.round(lock.value / 3600)}`]);
+  return t('psbt_relative_lock_days', [input, `${Math.round(lock.value / 86400)}`]);
+}
+
+/**
+ * The relative locks the row shows: the strictest block lock and the
+ * strictest time lock, the first input's on a tie. A website chooses how
+ * many inputs there are, so the row never has a line for each.
+ */
+function strictestRelativeLocks(locks: readonly RelativeLock[]): RelativeLock[] {
+  const strictest = (type: RelativeLock['type']) =>
+    locks.reduce<RelativeLock | undefined>(
+      (max, lock) => (lock.type === type && (max === undefined || lock.value > max.value) ? lock : max),
+      undefined
+    );
+  return [strictest('blocks'), strictest('time')].filter((lock): lock is RelativeLock => lock !== undefined);
 }
 
 function TermRow({ label, value, detail, testId }: { label: string; value: string; detail?: string; testId: string }) {
@@ -35,6 +72,48 @@ function TermRow({ label, value, detail, testId }: { label: string; value: strin
           <Text text={value} preset="bold" size="sm" textEnd wrap data-testid={testId} />
           {detail !== undefined && (
             <Text text={detail} size="xs" color="textDim" textEnd wrap data-testid={`${testId}-raw`} />
+          )}
+        </Column>
+      </Row>
+    </Card>
+  );
+}
+
+/** The strictest relative locks, one line each, and how many inputs carry one when that is more. */
+function RelativeLockRow({
+  label,
+  lines,
+  count
+}: {
+  label: string;
+  lines: { input: number; text: string }[];
+  count?: string;
+}) {
+  return (
+    <Card
+      mt="zero"
+      style={{
+        borderWidth: 1,
+        borderColor: 'var(--qbit-line)',
+        borderRadius: 0
+      }}
+    >
+      <Row justifyBetween itemsCenter fullX>
+        <Text text={label} color="textDim" size="sm" />
+        <Column gap="zero" style={{ alignItems: 'flex-end', minWidth: 0 }} data-testid="psbt-relative-lock">
+          {lines.map((line) => (
+            <Text
+              key={line.input}
+              text={line.text}
+              preset="bold"
+              size="sm"
+              textEnd
+              wrap
+              data-testid={`psbt-relative-lock-${line.input}`}
+            />
+          ))}
+          {count !== undefined && (
+            <Text text={count} size="xs" color="textDim" textEnd wrap data-testid="psbt-relative-lock-count" />
           )}
         </Column>
       </Row>
@@ -66,22 +145,28 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
   const showNetworkFee = decodedPsbt.isCompleted == true;
 
   const { locktime, version } = decodedPsbt;
-  // nLockTime holds the transaction back unless it is 0 or every input is final.
-  const lockEnforced =
-    locktime !== undefined &&
-    locktime !== 0 &&
-    !decodedPsbt.inputInfos.every((input) => input.sequence === SEQUENCE_FINAL);
+  // Both locks are read from the version and each input's sequence, which every review returns.
+  const lockEnforced = locktime !== undefined && isPsbtLocktimeEnforced(locktime, decodedPsbt.inputInfos);
+  const relativeLocks = version === undefined ? [] : psbtRelativeLocks(version, decodedPsbt.inputInfos);
+  const relativeLocked = relativeLocks.length > 0;
 
   // A website gets the signed PSBT back. Signing finalizes it unless the
-  // request, as the background prepared it, says not to. The wallet cannot
-  // tell whether an enforced lock time has passed, so with one it does not
-  // say the site can broadcast the transaction now.
-  const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
-    ? toSignData?.autoFinalized === false
-      ? t('psbt_not_finalized')
+  // request, as the background prepared it, says not to. Left unfinalized, it
+  // may still need other signers, or the wallet's signatures may already
+  // complete it for the site to finalize. The wallet cannot tell whether an
+  // enforced lock time has passed, or whether the coins a relative lock waits
+  // on are old enough, so with either it does not say the site can broadcast
+  // the transaction now, and it names the lock that holds it back.
+  const finalizedKey =
+    lockEnforced && relativeLocked
+      ? 'psbt_finalized_after_locks'
       : lockEnforced
-        ? t('psbt_finalized_after_lock')
-        : t('psbt_finalized')
+        ? 'psbt_finalized_after_lock'
+        : relativeLocked
+          ? 'psbt_finalized_after_coin_age'
+          : 'psbt_finalized';
+  const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
+    ? t(toSignData?.autoFinalized === false ? 'psbt_not_finalized' : finalizedKey)
     : undefined;
 
   let locktimeText: string | undefined;
@@ -100,8 +185,15 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
     }
   }
 
+  const shownRelativeLocks = strictestRelativeLocks(relativeLocks);
+  const relativeLockLines = shownRelativeLocks.map((lock) => ({ input: lock.input, text: relativeLockText(lock, t) }));
+  const relativeLockCount =
+    relativeLocks.length > shownRelativeLocks.length
+      ? t('psbt_relative_lock_count', [`${relativeLocks.length}`, `${decodedPsbt.inputInfos.length}`])
+      : undefined;
+
   const transactionSection =
-    finalizeDecision !== undefined || locktimeText !== undefined || version !== undefined ? (
+    finalizeDecision !== undefined || locktimeText !== undefined || relativeLocked || version !== undefined ? (
       <SignPsbtSection title={t('transaction')}>
         <Column gap="sm">
           {finalizeDecision !== undefined && (
@@ -109,6 +201,9 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
           )}
           {locktimeText !== undefined && (
             <TermRow label={t('psbt_locktime')} value={locktimeText} detail={locktimeDetail} testId="psbt-locktime" />
+          )}
+          {relativeLocked && (
+            <RelativeLockRow label={t('psbt_relative_lock')} lines={relativeLockLines} count={relativeLockCount} />
           )}
           {version !== undefined && (
             <TermRow label={t('psbt_tx_version')} value={`${version}`} testId="psbt-tx-version" />

@@ -51,6 +51,12 @@ export {
 export { statedPsbtRecipients } from './psbt-stated-recipients'
 export { isWebsiteSuppliedPsbt, psbtReviewOptions } from './psbt-review-options'
 export {
+  SEQUENCE_FINAL,
+  isPsbtLocktimeEnforced,
+  psbtRelativeLocks,
+  type RelativeLock,
+} from './psbt-locks'
+export {
   QBIT_MAX_STANDARD_TX_WEIGHT,
   QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,
   isQbitStandardTxSize,
