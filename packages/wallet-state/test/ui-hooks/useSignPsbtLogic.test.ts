@@ -211,6 +211,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
     expect(wallet.decodePsbt).toHaveBeenCalledWith(toSignData.psbtHex, 'https://example.test', {
       statedRecipients: [],
+      suppliedByWebsite: false,
     })
   })
 
@@ -1638,6 +1639,45 @@ describe('useSignPsbtLogic spend summary binding (#271)', () => {
     )
     expect(wallet.decodePsbt).toHaveBeenCalledWith('send-psbt', 'https://example.test', {
       statedRecipients: ['qb1zrecipient'],
+      suppliedByWebsite: false,
+    })
+  })
+
+  it("reviews a website's own PSBT as supplied by it, and its sendQbit as the wallet's", async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.decodePsbt.mockResolvedValue(decodedFor(ACCOUNT, 1_100))
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const providerContext = {
+      origin: 'https://example.test',
+      account: ACCOUNT,
+      chain: ChainType.QBIT_REGTEST,
+      network: 'regtest',
+    } as ToSignData['providerContext']
+    const signPsbt: ToSignData = { psbtHex: 'website-psbt', toSignInputs: [], providerContext }
+    // The wallet built a sendQbit's PSBT and reserved its inputs at approval.
+    const sendQbit: ToSignData = {
+      ...signPsbt,
+      qbitSendBroadcastClaim: { ...SEND_CLAIM, origin: 'https://example.test' },
+    }
+    const { result, rerender } = renderHook(
+      ({ toSignData }) => useSignPsbtLogic(createProps([toSignData])),
+      { wrapper, initialProps: { toSignData: sendQbit } }
+    )
+
+    await waitFor(() =>
+      expect(result.current.currentDecodedPsbt?.spendSummary.netSpend).toBe(1_100)
+    )
+    expect(wallet.decodePsbt).toHaveBeenLastCalledWith('website-psbt', 'https://example.test', {
+      statedRecipients: [],
+      suppliedByWebsite: false,
+    })
+
+    // The same bytes from the website's signPsbt are reviewed again, not taken from the cache.
+    rerender({ toSignData: signPsbt })
+    await waitFor(() => expect(wallet.decodePsbt).toHaveBeenCalledTimes(2))
+    expect(wallet.decodePsbt).toHaveBeenLastCalledWith('website-psbt', 'https://example.test', {
+      statedRecipients: [],
+      suppliedByWebsite: true,
     })
   })
 

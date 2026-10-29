@@ -10,6 +10,8 @@ import TransactionQRDisplay from './TransactionQRDisplay';
 
 interface ColdWalletSignPsbtProps {
   psbtHex: string;
+  /** A website supplied the PSBT's bytes; its review then judges the fee as the approval did. */
+  suppliedByWebsite?: boolean;
   onSuccess: (signedPsbtHex: string) => void;
   onCancel: () => void;
   header?: React.ReactNode;
@@ -32,7 +34,13 @@ interface SignResponse {
   timestamp: number;
 }
 
-export default function ColdWalletSignPsbt({ psbtHex, onSuccess, onCancel, header }: ColdWalletSignPsbtProps) {
+export default function ColdWalletSignPsbt({
+  psbtHex,
+  suppliedByWebsite = false,
+  onSuccess,
+  onCancel,
+  header
+}: ColdWalletSignPsbtProps) {
   const { t } = useI18n();
   const wallet = useWallet();
   const [step, setStep] = useState<'generate' | 'scan'>('generate');
@@ -49,7 +57,9 @@ export default function ColdWalletSignPsbt({ psbtHex, onSuccess, onCancel, heade
       const expectedSignerPubkey = currentAccount.pubkey;
 
       // The approval's spend summary stays in the wallet; the signer's request keeps its fields.
-      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '');
+      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '', {
+        suppliedByWebsite
+      });
 
       const networkType = await wallet.getNetworkType();
       const chainType = await wallet.getChainType();
@@ -97,7 +107,7 @@ export default function ColdWalletSignPsbt({ psbtHex, onSuccess, onCancel, heade
     } catch (error) {
       console.error('Failed to generate sign request:', error);
     }
-  }, [psbtHex, requestId, wallet]);
+  }, [psbtHex, requestId, suppliedByWebsite, wallet]);
 
   useEffect(() => {
     generateSignRequest();
@@ -118,7 +128,13 @@ export default function ColdWalletSignPsbt({ psbtHex, onSuccess, onCancel, heade
 
   if (step === 'generate') {
     return (
-      <TransactionQRDisplay psbtHex={psbtHex} onSuccess={() => setStep('scan')} onCancel={onCancel} header={header} />
+      <TransactionQRDisplay
+        psbtHex={psbtHex}
+        suppliedByWebsite={suppliedByWebsite}
+        onSuccess={() => setStep('scan')}
+        onCancel={onCancel}
+        header={header}
+      />
     );
   }
 

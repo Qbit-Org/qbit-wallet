@@ -331,9 +331,16 @@ describe('qbit PSBT spend summary', () => {
         amount: 10_000,
         recommendedFeeRate: 2,
         reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
       })
-      expect(website.risks.map(risk => [risk.type, risk.level])).toEqual([
-        [RiskType.HIGH_FEE_RATE, 'warning'],
+      // Its rate is not what is high, and the risk does not say it is.
+      expect(website.risks).toEqual([
+        {
+          type: RiskType.HIGH_FEE_RATE,
+          level: 'warning',
+          title: 'High fee detected',
+          desc: 'The fee is a large share of what this transaction sends.',
+        },
       ])
 
       // The wallet's own PSBT is judged by its rate alone, as before.
@@ -351,7 +358,7 @@ describe('qbit PSBT spend summary', () => {
       expect(risks).toEqual([])
     })
 
-    it('has no payout to compare a transfer to the wallet itself, or a shared fee, with', () => {
+    it('has nothing to compare with when nothing but the fee leaves the wallet', () => {
       const selfTransfer = summarizeQbitPsbtSpend(
         params({
           outputs: [output(OWN_SCRIPT, 980_000, 'qbrt1zown')],
@@ -364,16 +371,116 @@ describe('qbit PSBT spend summary', () => {
       expect(selfTransfer.spendSummary.feeAssessment).toMatchObject({ amount: 0, reasons: [] })
       expect(selfTransfer.risks).toEqual([])
 
-      const shared = summarizeQbitPsbtSpend(
+      // Another party funds more than the wallet gets back: nothing leaves it.
+      const gain = summarizeQbitPsbtSpend(
         params({
           ...shareHeavy,
           inputs: [input(STRANGER_SCRIPT, 500_000), input(OWN_SCRIPT, 500_000, 'qbrt1zown')],
           checkFeeShareWithoutSize: true,
         })
       )
-      expect(shared.spendSummary.feeAssessment).toMatchObject({ amount: 0, reasons: [] })
-      expect(shared.risks).toEqual([])
+      expect(gain.spendSummary.netSpend).toBe(-470_000)
+      expect(gain.spendSummary.feeAssessment).toMatchObject({ amount: 0, reasons: [] })
+      expect(gain.risks).toEqual([])
     })
+
+    describe('that another party helps fund', () => {
+      // A website input of 1,000 bits beside the wallet's: 20,000 bits of fee
+      // on the 29,000 that leave the wallet, at a rate that looks normal.
+      const withWebsiteInput = {
+        inputs: [input(STRANGER_SCRIPT, 1_000), input(OWN_SCRIPT, 1_000_000, 'qbrt1zown')],
+        outputs: [
+          output(MERCHANT_SCRIPT, 10_000, 'qbrt1zmerchant'),
+          output(OWN_SCRIPT, 971_000, 'qbrt1zown'),
+        ],
+        fee: 20_000,
+        feeRate: 1,
+      }
+
+      it('compares the fee with what leaves the wallet', () => {
+        const website = summarizeQbitPsbtSpend(
+          params({ ...withWebsiteInput, checkFeeShareWithoutSize: true })
+        )
+        expect(website.spendSummary.netSpend).toBe(29_000)
+        expect(website.spendSummary.feeAssessment).toEqual({
+          fee: 20_000,
+          feeRate: 1,
+          amount: 29_000,
+          recommendedFeeRate: 2,
+          reasons: ['large_share_of_amount'],
+          highFeeAtNormalRate: true,
+        })
+        expect(website.risks.map(risk => [risk.type, risk.level])).toEqual([
+          [RiskType.HIGH_FEE_RATE, 'warning'],
+        ])
+
+        // The wallet's own screens still judge only the rate of a shared fee.
+        const own = summarizeQbitPsbtSpend(params(withWebsiteInput))
+        expect(own.spendSummary.feeAssessment).toMatchObject({ amount: 0, reasons: [] })
+        expect(own.risks).toEqual([])
+      })
+
+      it('flags a fee at a quarter of what leaves the wallet, and not when one bit more leaves', () => {
+        // A 20,000-bit fee on 80,000 bits leaving the wallet, and on 80,001.
+        const leaving = (spent: number) =>
+          summarizeQbitPsbtSpend(
+            params({
+              ...withWebsiteInput,
+              inputs: [
+                input(STRANGER_SCRIPT, 1_000),
+                input(OWN_SCRIPT, 980_000 + spent, 'qbrt1zown'),
+              ],
+              outputs: [
+                output(MERCHANT_SCRIPT, spent - 19_000, 'qbrt1zmerchant'),
+                output(OWN_SCRIPT, 980_000, 'qbrt1zown'),
+              ],
+              checkFeeShareWithoutSize: true,
+            })
+          )
+        expect(leaving(80_000).spendSummary.feeAssessment).toMatchObject({
+          fee: 20_000,
+          amount: 80_000,
+          reasons: ['large_share_of_amount'],
+        })
+        const below = leaving(80_001)
+        expect(below.spendSummary.feeAssessment).toMatchObject({ amount: 80_001, reasons: [] })
+        expect(below.risks).toEqual([])
+      })
+
+      it('asks to confirm an honest PSBT whose counterparty pays the fee', () => {
+        // The wallet pays 10,000 bits and gets no change; the counterparty's
+        // input pays the 20,000-bit fee and takes its change back.
+        const { spendSummary, risks } = summarizeQbitPsbtSpend(
+          params({
+            inputs: [input(OWN_SCRIPT, 10_000, 'qbrt1zown'), input(STRANGER_SCRIPT, 50_000)],
+            outputs: [
+              output(MERCHANT_SCRIPT, 10_000, 'qbrt1zmerchant'),
+              output(STRANGER_SCRIPT, 30_000, 'qbrt1zstranger'),
+            ],
+            fee: 20_000,
+            feeRate: 1,
+            statedRecipients: [],
+            checkFeeShareWithoutSize: true,
+          })
+        )
+        expect(spendSummary.netSpend).toBe(10_000)
+        expect(spendSummary.feeAssessment).toMatchObject({
+          amount: 10_000,
+          reasons: ['large_share_of_amount'],
+        })
+        expect(risks.map(risk => risk.type)).toEqual([RiskType.HIGH_FEE_RATE])
+      })
+    })
+  })
+
+  it('refuses a website flag that is not a boolean', () => {
+    for (const checkFeeShareWithoutSize of ['yes', 1, null]) {
+      expect(() =>
+        summarizeQbitPsbtSpend(
+          params({ checkFeeShareWithoutSize: checkFeeShareWithoutSize as never })
+        )
+      ).toThrow(TypeError)
+    }
   })
 
   it('refuses amounts that are not safe integers', () => {

@@ -163,8 +163,8 @@ import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
 import { assertQbitP2mrSigningLeafRecord } from '../utils/qbit-p2mr-signing-leaf'
 import {
   QBIT_MIN_RELAY_FEE_RATE,
+  psbtReviewOptions,
   qbitWalletOwnership,
-  statedPsbtRecipients,
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
   type QbitWalletOwnership,
@@ -8279,13 +8279,13 @@ export class WalletController extends BaseController {
 
   /**
    * Decode a P2MR PSBT and summarize what its exact bytes do to the wallet.
-   * A website's PSBT also has its fee judged without the size estimate.
+   * A PSBT a website supplied also has its fee judged without the size
+   * estimate; omitted, `suppliedByWebsite` judges it as one the wallet built.
    */
   private reviewQbitP2mrPsbt = (
     psbtHex: string,
     { networkType, account, wallet, feeSummary }: QbitPsbtReviewContext,
-    options: DecodePsbtOptions = {},
-    fromWebsite = false
+    { statedRecipients, suppliedByWebsite = false }: DecodePsbtOptions = {}
   ): DecodedPsbt => {
     const psbt = qbitPsbtFromHex(psbtHex)
     const summary = decodeQbitPsbt(psbt)
@@ -8334,9 +8334,9 @@ export class WalletController extends BaseController {
       isCompleted,
       account: account.address,
       wallet,
-      statedRecipients: options.statedRecipients,
+      statedRecipients,
       feeSummary,
-      checkFeeShareWithoutSize: fromWebsite,
+      checkFeeShareWithoutSize: suppliedByWebsite,
     })
 
     return {
@@ -8358,21 +8358,15 @@ export class WalletController extends BaseController {
 
   private decodeQbitP2mrPsbt = async (
     psbtHex: string,
-    options: DecodePsbtOptions = {},
-    fromWebsite = false
+    options: DecodePsbtOptions = {}
   ): Promise<DecodedPsbt> => {
-    return this.reviewQbitP2mrPsbt(
-      psbtHex,
-      await this.readQbitPsbtReviewContext(),
-      options,
-      fromWebsite
-    )
+    return this.reviewQbitP2mrPsbt(psbtHex, await this.readQbitPsbtReviewContext(), options)
   }
 
-  /** `website` is the requesting origin; the wallet's own screens pass ''. */
   decodePsbt = async (psbtHex: string, website: string, options?: DecodePsbtOptions) => {
+    void website
     try {
-      return await this.decodeQbitP2mrPsbt(psbtHex, options, website !== '')
+      return await this.decodeQbitP2mrPsbt(psbtHex, options)
     } catch (e) {
       log.warn('Failed to decode qbit P2MR PSBT locally:', e)
       throw new Error('Invalid qbit P2MR PSBT')
@@ -8399,8 +8393,7 @@ export class WalletController extends BaseController {
         const decoded = this.reviewQbitP2mrPsbt(
           toSignData.psbtHex,
           context,
-          { statedRecipients: statedPsbtRecipients(toSignData) },
-          Boolean(toSignData.providerContext)
+          psbtReviewOptions(toSignData)
         )
         const itemTotalInput = decoded.inputInfos.reduce((sum, input) => sum + input.value, 0)
         const { fee, isCompleted } = decoded

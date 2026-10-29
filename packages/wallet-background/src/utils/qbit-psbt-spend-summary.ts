@@ -27,7 +27,8 @@ export interface QbitPsbtSpendSummaryParams {
   feeSummary?: FeeSummary | undefined
   /**
    * Set for a website's PSBT, whose `feeRate` rests on a size the wallet did
-   * not build: a fee that is a large share of what it pays others is then
+   * not build: a fee that is a large share of what it pays others, or of what
+   * leaves the wallet when other parties fund some of its inputs, is then
    * flagged whatever that rate says (see `assessQbitFee`).
    */
   checkFeeShareWithoutSize?: boolean
@@ -68,6 +69,9 @@ export function summarizeQbitPsbtSpend({
     !statedRecipients.every(address => typeof address === 'string')
   ) {
     throw new TypeError('statedRecipients must be an array of addresses')
+  }
+  if (typeof checkFeeShareWithoutSize !== 'boolean') {
+    throw new TypeError('checkFeeShareWithoutSize must be a boolean')
   }
   const recipients = new Set(
     statedRecipients.filter(address => address !== '').map(address => address.toLowerCase())
@@ -118,17 +122,26 @@ export function summarizeQbitPsbtSpend({
   })
 
   const known = isCompleted && allInputsKnown
-  // The fee is compared with what the transaction pays others only when the
-  // wallet funds all of it; with another party's inputs neither the fee nor
-  // those payments are the wallet's alone, so only the rate is judged. A
-  // partial PSBT whose outputs exceed its inputs (others add inputs later)
-  // has no fee to judge yet.
+  // The fee is compared with what the transaction pays others when the
+  // wallet funds all of it. With another party's inputs neither the fee nor
+  // those payments are the wallet's alone: the wallet's own screens judge only
+  // the rate, and a website's PSBT, whose rate rests on a size the wallet did
+  // not build, compares the fee with what leaves the wallet, as the approval
+  // shows it. Nothing to compare with means nothing but the fee leaves the
+  // wallet. A partial PSBT whose outputs exceed its inputs (others add inputs
+  // later) has no fee to judge yet.
+  const comparedAmount =
+    otherPartyInputValue === 0
+      ? externalOutputValue
+      : checkFeeShareWithoutSize
+        ? Math.max(0, walletInputValue - walletOutputValue)
+        : 0
   const feeAssessment =
     known && fee >= 0
       ? assessQbitFee({
           fee,
           feeRate,
-          amount: otherPartyInputValue > 0 ? 0 : externalOutputValue,
+          amount: comparedAmount,
           recommendedFeeRate,
           checkFeeShareWithoutSize,
         })
@@ -149,12 +162,21 @@ export function summarizeQbitPsbtSpend({
 
   const risks: Risk[] = []
   if (feeAssessment && feeAssessment.reasons.length > 0) {
-    risks.push({
-      type: RiskType.HIGH_FEE_RATE,
-      level: 'warning',
-      title: 'High fee rate detected',
-      desc: 'The fee is far above what this transaction needs.',
-    })
+    risks.push(
+      feeAssessment.highFeeAtNormalRate
+        ? {
+            type: RiskType.HIGH_FEE_RATE,
+            level: 'warning',
+            title: 'High fee detected',
+            desc: 'The fee is a large share of what this transaction sends.',
+          }
+        : {
+            type: RiskType.HIGH_FEE_RATE,
+            level: 'warning',
+            title: 'High fee rate detected',
+            desc: 'The fee is far above what this transaction needs.',
+          }
+    )
   }
   if (undecodableOutputCount > 0 || (recipients.size > 0 && unrecognisedOutputCount > 0)) {
     risks.push({

@@ -887,6 +887,12 @@
   "high_fee_rate_risk_title": {
     "message": "Taux de frais élevé détecté"
   },
+  "high_fee_risk_description": {
+    "message": "Les frais de cette transaction représentent une part importante de ce qu'elle envoie. Veuillez vous assurer de comprendre les implications de cette action avant de continuer."
+  },
+  "high_fee_risk_title": {
+    "message": "Frais élevés détectés"
+  },
   "high_priority": {
     "message": "Priorité élevée"
   },

@@ -77,7 +77,13 @@ vi.mock('@/ui/components', async () => {
   };
 });
 
-vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', () => ({ default: () => null }));
+const coldWalletSigner = vi.hoisted(() => ({ props: [] as Record<string, unknown>[] }));
+vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', () => ({
+  default: (props: Record<string, unknown>) => {
+    coldWalletSigner.props.push(props);
+    return null;
+  }
+}));
 vi.mock('@/ui/components/ContractPopover', () => ({ ContractPopover: () => null }));
 vi.mock('@/ui/components/PhishingDetection', () => ({ PhishingDetection: () => null }));
 vi.mock('@/ui/components/SignPsbtWithRisksPopover', async () => {
@@ -103,13 +109,14 @@ vi.mock('rc-virtual-list', async () => {
   return { default: React.forwardRef(() => null) };
 });
 
-vi.mock('@qbit/wallet-shared', () => ({
+vi.mock('@qbit/wallet-shared', async (importOriginal) => ({
   AccountSignMethod: {
     Local: 'local',
     ColdWallet: 'coldWallet',
     External: 'external',
     None: 'none'
-  }
+  },
+  isWebsiteSuppliedPsbt: (await importOriginal<typeof import('@qbit/wallet-shared')>()).isWebsiteSuppliedPsbt
 }));
 
 vi.mock('@qbit/wallet-state', () => ({
@@ -496,5 +503,44 @@ describe('SignPsbt restored-floor single-flight signing', () => {
 
     await waitFor(() => expect(onClickSign).toHaveBeenCalledTimes(2));
     expect(confirmQbitRestoredFloorSigning).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('SignPsbt cold-wallet signing', () => {
+  const providerContext = {
+    origin: session.origin,
+    account: 'qbrt1zaccount',
+    chain: 'QBIT_REGTEST',
+    network: 'regtest'
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    coldWalletSigner.props = [];
+    vi.mocked(useCurrentAccountCapabilities).mockReturnValue({ signMethod: 'coldWallet' } as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBIT' as any);
+    vi.mocked(useTools).mockReturnValue({ copyToClipboard: vi.fn(), toastError: vi.fn() } as any);
+    vi.mocked(useWallet).mockReturnValue({} as any);
+  });
+
+  afterEach(cleanup);
+
+  it("tells the signer's request whether a website supplied the PSBT", () => {
+    const supplied = { ...toSignData(), providerContext };
+    renderSignPsbt(signPsbtLogic(supplied, { isColdWalletSigning: true }));
+    cleanup();
+    // A website's sendQbit carries the claim minted at its approval: the wallet built it.
+    renderSignPsbt(
+      signPsbtLogic({ ...supplied, qbitSendBroadcastClaim: { origin: session.origin } }, { isColdWalletSigning: true })
+    );
+    cleanup();
+    renderSignPsbt(signPsbtLogic(toSignData(), { isColdWalletSigning: true }));
+
+    expect(coldWalletSigner.props.map(({ psbtHex, suppliedByWebsite }) => [psbtHex, suppliedByWebsite])).toEqual([
+      ['70736274ff', true],
+      ['70736274ff', false],
+      ['70736274ff', false]
+    ]);
   });
 });

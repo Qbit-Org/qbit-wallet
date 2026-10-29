@@ -887,6 +887,12 @@
   "high_fee_rate_risk_title": {
     "message": "Tasa de comisión alta detectada"
   },
+  "high_fee_risk_description": {
+    "message": "La comisión de esta transacción es una parte importante de lo que envía. Asegúrese de entender las implicaciones de esta acción antes de proceder."
+  },
+  "high_fee_risk_title": {
+    "message": "Comisión alta detectada"
+  },
   "high_priority": {
     "message": "Alta Prioridad"
   },

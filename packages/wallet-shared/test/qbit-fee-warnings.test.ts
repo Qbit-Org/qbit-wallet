@@ -121,7 +121,47 @@ describe('qbit fee warnings', () => {
         amount: 100_000,
         recommendedFeeRate,
         reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
       })
+    })
+
+    it('marks the fee as high at a normal rate only when no rate condition holds', () => {
+      const judged = { amount: 100_000, recommendedFeeRate, checkFeeShareWithoutSize: true }
+      expect(assessQbitFee({ ...judged, fee: 400_000, feeRate: 17.9 })).toMatchObject({
+        reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
+      })
+      // Twice the recommended 9 bits/vB: the share check flags it by its rate as well.
+      const byRate = assessQbitFee({ ...judged, fee: 400_000, feeRate: 18 })
+      expect(byRate.reasons).toEqual(['large_share_of_amount'])
+      expect(byRate).not.toHaveProperty('highFeeAtNormalRate')
+      // Below twice a 10,000 bits/vB quote, but a rate the relay floor check flags.
+      const byRelayFloor = assessQbitFee({
+        ...judged,
+        fee: 800_000,
+        feeRate: 100,
+        amount: 1_000_000,
+        recommendedFeeRate: 10_000,
+      })
+      expect(byRelayFloor.reasons).toEqual(['above_relay_floor', 'large_share_of_amount'])
+      expect(byRelayFloor).not.toHaveProperty('highFeeAtNormalRate')
+      expect(assessQbitFee({ ...judged, fee: 1_000, feeRate })).toEqual({
+        fee: 1_000,
+        feeRate,
+        amount: 100_000,
+        recommendedFeeRate,
+        reasons: [],
+      })
+    })
+
+    it('measures with the relay floor when there is no live recommendation', () => {
+      // Twice 3,817 vB at 1 bit/vB: a two-input payment at that rate pays about this much.
+      const judged = { feeRate, amount: 20_000, checkFeeShareWithoutSize: true }
+      expect(assessQbitFee({ ...judged, fee: 7_634 })).toMatchObject({
+        reasons: ['large_share_of_amount'],
+        highFeeAtNormalRate: true,
+      })
+      expect(assessQbitFee({ ...judged, fee: 7_633 }).reasons).toEqual([])
     })
 
     it('flags a fee at twice what the smallest send costs and not one bit less', () => {

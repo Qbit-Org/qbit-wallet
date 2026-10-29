@@ -10,6 +10,8 @@ import { ChainType } from '@qbit/wallet-types';
 
 interface TransactionQRDisplayProps {
   psbtHex: string;
+  /** A website supplied the PSBT's bytes; its review then judges the fee as the approval did. */
+  suppliedByWebsite?: boolean;
   onSuccess: () => void;
   onCancel: () => void;
   header?: React.ReactNode;
@@ -26,7 +28,13 @@ interface SignRequest {
   expectedSignerPubkey?: string;
 }
 
-export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, header }: TransactionQRDisplayProps) {
+export default function TransactionQRDisplay({
+  psbtHex,
+  suppliedByWebsite = false,
+  onSuccess,
+  onCancel,
+  header
+}: TransactionQRDisplayProps) {
   const { t } = useI18n();
   const wallet = useWallet();
   const [qrData, setQrData] = useState<string>('');
@@ -43,7 +51,9 @@ export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, hea
       const expectedSignerPubkey = currentAccount.pubkey;
 
       // The approval's spend summary stays in the wallet; the signer's request keeps its fields.
-      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '');
+      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '', {
+        suppliedByWebsite
+      });
       const networkType = await wallet.getNetworkType();
       const chainType = await wallet.getChainType();
 
@@ -85,7 +95,7 @@ export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, hea
     } catch (error) {
       console.error('Failed to generate sign request:', error);
     }
-  }, [psbtHex, requestId, wallet]);
+  }, [psbtHex, requestId, suppliedByWebsite, wallet]);
 
   useEffect(() => {
     generateSignRequest();

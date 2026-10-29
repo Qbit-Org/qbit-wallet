@@ -49,6 +49,7 @@ export {
   type QbitWalletOwnership,
 } from './qbit-wallet-ownership'
 export { statedPsbtRecipients } from './psbt-stated-recipients'
+export { isWebsiteSuppliedPsbt, psbtReviewOptions } from './psbt-review-options'
 export {
   QBIT_MAX_STANDARD_TX_WEIGHT,
   QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,

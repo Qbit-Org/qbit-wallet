@@ -887,6 +887,12 @@
   "high_fee_rate_risk_title": {
     "message": "High fee rate detected"
   },
+  "high_fee_risk_description": {
+    "message": "This transaction's fee is a large share of what it sends. Please ensure you understand the implications of this action before proceeding."
+  },
+  "high_fee_risk_title": {
+    "message": "High fee detected"
+  },
   "high_priority": {
     "message": "High Priority"
   },

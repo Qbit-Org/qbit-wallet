@@ -64,10 +64,10 @@ export function qbitRecommendedFeeRate(feeSummary: FeeSummary | undefined): numb
 }
 
 /**
- * Decide whether a fee is abnormal. `amount` is what the transaction pays to
- * others; 0 skips the share check (a transfer to the wallet itself). Without
- * `recommendedFeeRate` only the wallet-side bounds apply, and the caller must
- * say that no comparison with live rates was made.
+ * Decide whether a fee is abnormal. `amount` is what the fee is compared with,
+ * what the transaction pays to others; 0 skips the share check (a transfer to
+ * the wallet itself). Without `recommendedFeeRate` only the wallet-side bounds
+ * apply, and the caller must say that no comparison with live rates was made.
  *
  * `checkFeeShareWithoutSize` is for a fee whose `feeRate` rests on a size the
  * wallet did not build: the share check then also applies when the fee is at
@@ -75,6 +75,9 @@ export function qbitRecommendedFeeRate(feeSummary: FeeSummary | undefined): numb
  * costs at the recommendation, whatever `feeRate` says. That recommendation
  * is capped at `QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE` times the relay floor,
  * above which every rate is flagged already, so a high quote cannot raise it.
+ * Without a live recommendation the relay floor stands in for it, so a small
+ * payment funded by two or more inputs can need the confirmation at a rate
+ * near that floor. A fee only this flags is marked `highFeeAtNormalRate`.
  */
 export function assessQbitFee({
   fee,
@@ -105,20 +108,28 @@ export function assessQbitFee({
   ) {
     reasons.push('above_recommended_rate')
   }
-  if (feeRate >= QBIT_MIN_RELAY_FEE_RATE * QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE) {
+  const relayFloorBound = QBIT_MIN_RELAY_FEE_RATE * QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE
+  if (feeRate >= relayFloorBound) {
     reasons.push('above_relay_floor')
   }
   const shareRate = recommendedFeeRate ?? QBIT_MIN_RELAY_FEE_RATE
-  const aboveShareRate =
-    feeRate >= shareRate * QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE ||
-    (checkFeeShareWithoutSize &&
-      fee >=
-        Math.min(shareRate, QBIT_MIN_RELAY_FEE_RATE * QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE) *
-          QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE *
-          QBIT_FEE_WARNING_SMALLEST_SEND_VSIZE)
-  if (amount > 0 && aboveShareRate && fee * 100 >= amount * QBIT_FEE_WARNING_AMOUNT_PERCENT) {
+  const aboveShareRate = feeRate >= shareRate * QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE
+  const aboveSmallestSendFee =
+    checkFeeShareWithoutSize &&
+    fee >=
+      Math.min(shareRate, relayFloorBound) *
+        QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE *
+        QBIT_FEE_WARNING_SMALLEST_SEND_VSIZE
+  if (
+    amount > 0 &&
+    (aboveShareRate || aboveSmallestSendFee) &&
+    fee * 100 >= amount * QBIT_FEE_WARNING_AMOUNT_PERCENT
+  ) {
     reasons.push('large_share_of_amount')
   }
+  // The share check that needs no size flagged it alone: no rate condition holds.
+  const highFeeAtNormalRate =
+    reasons.length === 1 && reasons[0] === 'large_share_of_amount' && !aboveShareRate
 
   return {
     fee,
@@ -126,5 +137,6 @@ export function assessQbitFee({
     amount,
     ...(recommendedFeeRate !== undefined ? { recommendedFeeRate } : {}),
     reasons,
+    ...(highFeeAtNormalRate ? { highFeeAtNormalRate: true as const } : {}),
   }
 }
