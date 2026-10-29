@@ -48,12 +48,17 @@ export function useBalanceCardLogic() {
     return undefined
   }, [balanceLoadFailed, balanceRefreshFailed, t])
 
+  // balanceV2Map is not persisted, so until this account's first balance for the
+  // current chain lands, accountBalance is a zero placeholder: show it as loading,
+  // never as an empty balance. A failed first load ends loading with the error.
+  const balanceLoading = !hasLoadedBalance && !balanceStatus.error
+
   // Detail expand state
   const isDetailExpanded = useBalanceCardDetailExpanded()
   const toggleBalanceCardDetailExpanded = useToggleBalanceCardDetailExpanded()
   const handleExpandToggle = () => {
     // There is no breakdown to show until a balance loads.
-    if (balanceLoadFailed) return
+    if (balanceLoading || balanceLoadFailed) return
     toggleBalanceCardDetailExpanded()
   }
 
@@ -65,11 +70,11 @@ export function useBalanceCardLogic() {
   }
 
   const balanceValue = useMemo(() => {
-    if (!isCurrentChainBalance) {
+    if (!hasLoadedBalance) {
       return '--'
     }
     return numUtils.satoshisToAmount(accountBalance.totalBalance)
-  }, [accountBalance.totalBalance, isCurrentChainBalance])
+  }, [accountBalance.totalBalance, hasLoadedBalance])
 
   const unavailableTipText = useMemo(() => t('unavailable_tooltip'), [t])
 
@@ -182,6 +187,7 @@ export function useBalanceCardLogic() {
     utxoLimitExceededText,
     balanceSplitUnknown,
     balanceSplitUnknownText,
+    balanceLoading,
     balanceLoadFailed,
     balanceRefreshFailed,
     balanceErrorText,
