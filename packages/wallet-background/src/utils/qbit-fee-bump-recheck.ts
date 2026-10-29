@@ -93,6 +93,40 @@ export interface QbitExplorerSpendCheck {
   restored?: { txid: string; outpoints: readonly { txid: string; vout: number }[] }
 }
 
+/**
+ * The explorer check for a broadcast of `txid`, spending `outpoints`, as
+ * the send guard hands it over: the transaction the claim it runs under
+ * `replaces`, with that transaction's output count, and the inputs of a
+ * claim `restoredFromPage`. `{}`, nothing to check, for any other broadcast.
+ */
+export function qbitExplorerSpendCheckFor(broadcast: {
+  txid: string
+  outpoints: readonly { txid: string; vout: number }[]
+  replaces?: string | undefined
+  replacedOutputCount?: number | undefined
+  restoredFromPage?: boolean
+}): QbitExplorerSpendCheck {
+  const { txid, outpoints, replaces, replacedOutputCount, restoredFromPage = false } = broadcast
+  return {
+    ...(replaces ? { replaces: { txid: replaces, outputCount: replacedOutputCount } } : {}),
+    ...(restoredFromPage ? { restored: { txid, outpoints } } : {}),
+  }
+}
+
+/**
+ * Throw unless `spendCheck` is a check the send guard handed over, `{}`
+ * included. A broadcast handed none is refused rather than taken as having
+ * nothing to check: a fee bump or a restored claim whose check went missing
+ * on the way must not go out unchecked.
+ */
+export function assertQbitExplorerSpendCheck(
+  spendCheck: unknown
+): asserts spendCheck is QbitExplorerSpendCheck {
+  if (typeof spendCheck !== 'object' || spendCheck === null || Array.isArray(spendCheck)) {
+    throw new Error('Qbit broadcast was handed no explorer check')
+  }
+}
+
 export interface QbitExplorerSpendCheckOptions {
   /** The pause between the two rounds; the budget is sized with it. */
   intervalMs?: number

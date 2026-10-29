@@ -53,6 +53,7 @@ import { BUS_EVENTS, BUS_METHODS, CHAINS_MAP } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import type { Encryptor } from '@qbit/keyring-service'
 import { bgEventBus } from '../src/utils/eventBus'
+import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-fee-bump-recheck'
 
 const serviceHolder = vi.hoisted(() => ({
   keyringService: undefined as any,
@@ -105,12 +106,14 @@ vi.mock('../src/services', () => ({
       operation: () => Promise<T>
     ) => operation(),
     runWithBroadcastClaim: async <T>(_claim: unknown, operation: () => Promise<T>) => operation(),
+    // Every broadcast here runs under no claim, so it gets the check the real
+    // guard builds for one: nothing to check.
     broadcastIfAllowed: async <T>(
       _chain: ChainType,
-      _txid: string,
-      _outpoints: readonly unknown[],
-      broadcast: () => Promise<T>
-    ) => broadcast(),
+      txid: string,
+      outpoints: readonly { txid: string; vout: number }[],
+      broadcast: (spendCheck: ReturnType<typeof qbitExplorerSpendCheckFor>) => Promise<T>
+    ) => broadcast(qbitExplorerSpendCheckFor({ txid, outpoints })),
   },
 }))
 

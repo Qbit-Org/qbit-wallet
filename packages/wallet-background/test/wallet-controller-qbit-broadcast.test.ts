@@ -31,6 +31,7 @@ import {
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
 } from '../src/services/qbitSendGuards'
 import { QBIT_BROADCAST_ABSENCE_PROBES } from '../src/utils/qbit-broadcast'
+import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-fee-bump-recheck'
 import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
 
 const broadcastTxMock = vi.hoisted(() => vi.fn())
@@ -392,14 +393,15 @@ describe('WalletController.broadcastQbitTx', () => {
     expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
   })
 
-  it('keeps an ordinary send\'s outage handling under a guard that hands its broadcast no check', async () => {
+  it("keeps an ordinary send's outage handling under the regtest harness's stand-in guard", async () => {
     // As the regtest send-flow harness stands in for the guard: it runs the
-    // broadcast without saying what to check, which asks for no check.
+    // broadcast with the check the guard builds for an ordinary send, which
+    // has nothing to check.
     const wallet = newController()
     const guard = vi
       .spyOn(qbitSendGuardService, 'broadcastIfAllowed')
-      .mockImplementation(async (_chain, _txid, _outpoints, broadcast) =>
-        (broadcast as () => Promise<any>)()
+      .mockImplementation(async (_chain, txid, outpoints, broadcast) =>
+        broadcast(qbitExplorerSpendCheckFor({ txid, outpoints }))
       )
     try {
       // Outage: nothing reaches the node, which the wallet cannot prove.
@@ -427,6 +429,42 @@ describe('WalletController.broadcastQbitTx', () => {
       })
       broadcastTxMock.mockResolvedValueOnce(fixture.txid)
       await expect(wallet.pushTx(fixture.psbtHex, walletClaim())).resolves.toBe(fixture.txid)
+      expect(getTxOutspendsMock).not.toHaveBeenCalled()
+    } finally {
+      guard.mockRestore()
+    }
+  })
+
+  it('refuses before dispatch a broadcast its guard hands no explorer check', async () => {
+    // A path that drops the check must not send a fee bump or a restored
+    // claim unchecked: the broadcast is refused, never taken as unchecked.
+    const wallet = newController()
+    const handOver = vi.fn<(broadcast: (spendCheck: any) => Promise<any>) => Promise<any>>()
+    const guard = vi
+      .spyOn(qbitSendGuardService, 'broadcastIfAllowed')
+      .mockImplementation(async (_chain, _txid, _outpoints, broadcast) => handOver(broadcast))
+    const noCheck = 'Qbit broadcast was handed no explorer check'
+    try {
+      for (const handed of [undefined, null, [], 'nothing']) {
+        handOver.mockImplementation(broadcast => broadcast(handed))
+        await expect(wallet.broadcastQbitTx(fixture.psbtHex)).resolves.toEqual({
+          success: false,
+          chain: ChainType.QBIT_REGTEST,
+          txid: fixture.txid,
+          outcome: 'not_sent',
+          reason: 'guard_blocked',
+          detail: noCheck,
+        })
+        await expect(wallet.pushTx(fixture.psbtHex, walletClaim())).rejects.toThrow(noCheck)
+      }
+      // Without the argument at all, as an older stand-in guard calls it.
+      handOver.mockImplementation(broadcast => (broadcast as () => Promise<any>)())
+      await expect(wallet.broadcastQbitTx(fixture.psbtHex)).resolves.toMatchObject({
+        outcome: 'not_sent',
+        detail: noCheck,
+      })
+      await expect(wallet.pushTx(fixture.psbtHex, walletClaim())).rejects.toThrow(noCheck)
+      expect(broadcastTxMock).not.toHaveBeenCalled()
       expect(getTxOutspendsMock).not.toHaveBeenCalled()
     } finally {
       guard.mockRestore()

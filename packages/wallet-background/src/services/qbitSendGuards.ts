@@ -6,7 +6,10 @@ import type {
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
-import type { QbitExplorerSpendCheck } from '../utils/qbit-fee-bump-recheck'
+import {
+  qbitExplorerSpendCheckFor,
+  type QbitExplorerSpendCheck,
+} from '../utils/qbit-fee-bump-recheck'
 
 export interface QbitOutpoint {
   txid: string
@@ -1333,12 +1336,15 @@ export class QbitSendGuardService {
 
       const restoredFromPage =
         exactClaim !== undefined && this.restoredClaimKeys.has(claimKey(exactClaim))
-      const result = await broadcast({
-        ...(replacedTxid
-          ? { replaces: { txid: replacedTxid, outputCount: exactClaim?.replacedOutputCount } }
-          : {}),
-        ...(restoredFromPage ? { restored: { txid, outpoints } } : {}),
-      })
+      const result = await broadcast(
+        qbitExplorerSpendCheckFor({
+          txid,
+          outpoints,
+          replaces: replacedTxid,
+          replacedOutputCount: exactClaim?.replacedOutputCount,
+          restoredFromPage,
+        })
+      )
       // The claim is consumed, but its inputs stay reserved as recently
       // spent: the explorer may keep listing them for a while yet.
       this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)

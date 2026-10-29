@@ -250,6 +250,7 @@ import {
   QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
   QbitExplorerSpendCheckTimeoutError,
   assertNoExplorerSpendConflict,
+  assertQbitExplorerSpendCheck,
   type QbitExplorerSpendCheck,
 } from '../utils/qbit-fee-bump-recheck'
 import {
@@ -7441,7 +7442,8 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async (spendCheck: QbitExplorerSpendCheck = {}) => {
+      async spendCheck => {
+        assertQbitExplorerSpendCheck(spendCheck)
         await this.checkQbitBroadcastOnExplorer(client, spendCheck)
         return client.broadcastTx(rawtx)
       },
@@ -7754,10 +7756,10 @@ export class WalletController extends BaseController {
         throw new Error('Qbit broadcast re-send window has passed')
       }
     }
-    // A call that hands no check (the guard always hands one, if only `{}`)
-    // asks for none, as for a send that is neither a fee bump nor restored:
-    // the bytes still go out, or fail, as any other send's do.
-    const broadcast = async (spendCheck: QbitExplorerSpendCheck = {}): Promise<string> => {
+    const broadcast = async (spendCheck: QbitExplorerSpendCheck): Promise<string> => {
+      // The guard hands every broadcast its check, `{}` when there is none to
+      // make; one handed none is refused before dispatch, never sent unchecked.
+      assertQbitExplorerSpendCheck(spendCheck)
       operation.start()
       assertTimeToSend()
       assertResendWindowOpen()
