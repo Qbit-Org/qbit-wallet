@@ -175,13 +175,24 @@ Controls and evidence:
 
 Residual risk:
 
-- chain observation cannot see message signatures or transactions that were
-  signed but never broadcast. A stale backup or maliciously incomplete indexer
-  can therefore understate the restored usage floor. This is a bounded-signing
-  budget and stale-backup risk, not evidence that the current SLH-DSA primitive
-  reuses a stateful one-time key. Release UX must retain restored-floor and
+- chain observation cannot see message signatures, transactions that were
+  signed but never broadcast, or transactions a fee bump replaced (each Speed
+  up signs every input again, and the replaced transaction drops out of the
+  history). A stale backup or maliciously incomplete indexer can therefore
+  understate the restored usage floor. This is a bounded-signing budget and
+  stale-backup risk, not evidence that the current SLH-DSA primitive reuses a
+  stateful one-time key. Release UX must retain restored-floor and
   concurrent-instance warnings; a stronger multi-source/authenticated restore
   design requires protocol/product work.
+- a lying or buggy indexer can also overstate the floor of an address whose
+  history is too long to enumerate, since that floor is read from the
+  address statistics. No path lowers a floor, so one near the 2^30 budget
+  would keep the account from signing until the wallet is restored against
+  an honest indexer or its descriptor is exported to Qbit Core. The wallet
+  refuses statistics that list more outputs than their transactions can
+  carry, and floors at or above the 2^28-signature warning threshold;
+  self-consistent statistics below it are still accepted, so an inflated
+  floor can still use up to a quarter of the budget.
 
 ## WASM and extension supply chain
 
@@ -483,6 +494,11 @@ Residual risk:
   estimates. That can deny service or influence a user-approved fee. The wallet
   cannot prove global chain completeness from one unauthenticated indexer.
   Multi-provider/Core-backed verification is separate architecture work.
+- an allowed indexer can inflate the address statistics a restore floor is
+  read from. Statistics that list more outputs than their transactions can
+  carry, and floors at or above the 2^28-signature warning threshold, are
+  refused; a smaller inflated floor stands, because floors only rise. See
+  [PQC counter custody and restoration](#pqc-counter-custody-and-restoration).
 - the explorer refuses to list the outputs of an address over its
   `--utxos-limit` (the wallet assumes electrs' default of 500). The wallet then
   reads them from the address's history, which fails closed, or consolidates

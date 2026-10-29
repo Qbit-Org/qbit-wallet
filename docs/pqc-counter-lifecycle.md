@@ -95,10 +95,22 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   still fails after the account is committed, `deriveNewAccountFromMnemonic`
   resolves with `floorScanPending: true` instead of rejecting a creation that
   already happened; the gate stays closed until a deferred scan completes.
-- Floors are minimums: message signatures and never-broadcast transactions are
-  invisible on-chain, so neither the full history read nor the statistics
-  read can count them. The restore report warns about stale backups
-  accordingly.
+- Floors are minimums: message signatures, never-broadcast transactions and
+  transactions a fee bump replaced are invisible on-chain, so neither the full
+  history read nor the statistics read can count them. Each Speed up signs
+  every input again, and the transaction it replaces drops out of the
+  history. This understates the signature budget used; it does not reuse a
+  one-time key. The restore report warns about stale backups accordingly.
+  The opposite case, a floor that is too high, cannot be undone, because no
+  path lowers a floor. The statistics read therefore refuses statistics that
+  list more funded or spent outputs than their transactions can carry (a
+  transaction fits in the 2,000,000-byte block, so it carries at most 46,511
+  outputs paying a P2MR address and 536 inputs spending one), and a floor at
+  or above the warning threshold (`PQC_WARNING_SIGNATURE_THRESHOLD`, 2^28
+  signatures). The threshold also applies to the floor summed across
+  testnet4 and regtest, which share a counter, when either was read from
+  statistics. Either refusal fails the scan like any other, so the gate
+  stays closed and the scan can be retried.
 - The durable warning, exact-request signing challenge, fresh-seed migration,
   and archived-source resume semantics are specified in
   [Seed-only restored Qbit wallet safety](seed-only-restored-wallet-safety.md).
