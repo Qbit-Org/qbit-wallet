@@ -3009,6 +3009,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     totalSpend?: string
     estimatePending: boolean
     warnings: string[]
+    error: string
     disabled: boolean
   }
 
@@ -3029,6 +3030,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
           totalSpend: screen.spendSummary?.totalSpend,
           estimatePending: screen.feeEstimatePending === true,
           warnings: screen.spendSummary?.feeWarnings ?? [],
+          error: screen.error,
           disabled: screen.disabled,
         })
         return sendScreen
@@ -3089,6 +3091,49 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     expect(held.some(render => !render.quoteLoaded)).toBe(true)
     expect(held.some(render => render.quoteLoaded)).toBe(true)
     expectHeld(held)
+  })
+
+  it('shows no error from the checks at a rate not yet settled, but keeps the input checks', async () => {
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 150,
+      quote: LIVE_QUOTE,
+      utxoValues: [1_000_000],
+    })
+    // At an earlier quote's Fast of 150 bits/vB, 0.0095 of 0.01 cannot cover its fee.
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({
+        feeRate: 150,
+        feeRateInputVal: '150',
+        feeOptionIndex: 2,
+      })
+    )
+    const quoteRead = pendingQuoteRead(wallet)
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00000100')
+    })
+    // An amount below dust is said while the rate is held.
+    await waitFor(() => expect(result.current.screen.error).toMatch(/^amount_must_be_at_least /))
+    expect(result.current.screen.disabled).toBe(true)
+
+    act(() => {
+      result.current.screen.onAmountInputChange('0.00950000')
+    })
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.disabled).toBe(true)
+
+    await act(async () => {
+      quoteRead.resolve(LIVE_QUOTE)
+    })
+
+    // Fast at 2 bits/vB covers it.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.00957720'))
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.disabled).toBe(false)
+    expect(renders.map(render => render.error)).not.toContain(
+      'amount_exceeds_your_available_balance'
+    )
   })
 
   it("settles a tier whose rate in the quote is the store's rate once the fee bar chose it", async () => {

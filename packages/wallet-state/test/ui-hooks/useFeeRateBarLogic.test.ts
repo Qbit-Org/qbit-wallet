@@ -1005,6 +1005,37 @@ describe('useFeeRateBarLogic', () => {
         })
       })
 
+      it('records no source for a fallback rate when the quote does not offer the selected tier', async () => {
+        const { store, rerender } = renderSharedFeeBar({ status: 'loading' })
+        // Fast at 40, as an earlier quote offered it.
+        act(() => {
+          store.dispatch(uiActions.updateFeeRateBar({ feeRate: 40, feeOptionIndex: 2 }))
+        })
+        const summary = qbitFeeSummary()
+        const quote = landed({ ...summary, list: summary.list.slice(0, 2) })
+        rerender({ quote })
+
+        // Normal's rate stands in for Fast, which this quote does not list.
+        await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(2))
+        expect(store.getState().ui.feeRateBar.feeRateSource).toBeNull()
+        expect(origin(store, quote)).toBe('pending')
+      })
+
+      it('records no source for a fallback rate when the quote lists no tiers', async () => {
+        const { store, rerender } = renderSharedFeeBar({ status: 'loading' })
+        // Normal at 40, as an earlier quote offered it.
+        act(() => {
+          store.dispatch(uiActions.updateFeeRateBar({ feeRate: 40, feeOptionIndex: 1 }))
+        })
+        const quote = landed({ ...qbitFeeSummary(), list: [] })
+        rerender({ quote })
+
+        // The default of 1 bit/vB stands in.
+        await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+        expect(store.getState().ui.feeRateBar.feeRateSource).toBeNull()
+        expect(origin(store, quote)).toBe('pending')
+      })
+
       it('records no source for a Custom rate', async () => {
         const quote = landed(qbitFeeSummary())
         const { result, store } = renderSharedFeeBar(quote)

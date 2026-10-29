@@ -100,8 +100,22 @@ export function feeRateOrigin(
     : 'pending'
 }
 
+/**
+ * Whether the selected rate is settled for a screen that reads `quote` and
+ * last ran its checks at `checkedFeeRate`: a Custom rate always; a tier's
+ * once the fee bar chose it from `quote` and the screen's checks ran at it.
+ */
+export function useFeeRateSettled(
+  quote: FeeQuoteState,
+  checkedFeeRate: number | undefined
+): boolean {
+  const feeRateBar = useFeeRateBar()
+  const origin = feeRateOrigin(feeRateBar, quote)
+  return origin === 'custom' || (origin === 'quote' && checkedFeeRate === feeRateBar.feeRate)
+}
+
 function sameFeeRateSource(a: FeeRateSource | null | undefined, b: FeeRateSource | null): boolean {
-  return (a ?? null) === b || (a?.quoteRead === b?.quoteRead && a?.optionIndex === b?.optionIndex)
+  return a?.quoteRead === b?.quoteRead && a?.optionIndex === b?.optionIndex
 }
 
 /** What the fee bar shows for one read of the quote. */
@@ -344,11 +358,14 @@ export function useFeeRateBarLogic({
       return
     } else {
       // From the read the bar shows, which while a newer one loads is an earlier one.
-      source = { quoteRead: shownRead, optionIndex: feeOptionIndex }
       // After a failed read no rates to select from: the relay floor, which the bar says it uses.
-      val = readFailed
-        ? QBIT_MIN_RELAY_FEE_RATE
-        : (optionAt(feeOptions, feeOptionIndex)?.feeRate ?? defaultFeeRate)
+      // A tier the read does not offer falls back to a rate the read did not choose: no source.
+      const option = optionAt(feeOptions, feeOptionIndex)
+      val = readFailed ? QBIT_MIN_RELAY_FEE_RATE : (option?.feeRate ?? defaultFeeRate)
+      source =
+        readFailed || option !== undefined
+          ? { quoteRead: shownRead, optionIndex: feeOptionIndex }
+          : null
     }
 
     if (val === feeRate && sameFeeRateSource(feeRateSource, source)) return

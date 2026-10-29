@@ -165,7 +165,8 @@ describe('TxCreateScreen fee details', () => {
     });
     render(<TxCreateScreen />);
 
-    expect(screen.getByTestId('tx-fee-estimate-pending').textContent).toBe('-- bits');
+    // Through the same translation as the settled estimate.
+    expect(screen.getByTestId('tx-fee-estimate-pending').textContent).toBe('estimated_inputs_and_size:--,-- · -- bits');
     // Not the estimate a reader waits for.
     expect(screen.queryByTestId('tx-size-estimate')).toBeNull();
     expect(screen.getByTestId('tx-total-spend').textContent).toBe('-- QBT');

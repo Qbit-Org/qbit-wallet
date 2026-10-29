@@ -41,7 +41,7 @@ import {
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
-import { feeRateOrigin, useFeeQuoteRead } from './useFeeRateBarLogic'
+import { useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
 
 /** What the previewed send takes from the wallet, for the total and the fee check. */
 interface SendSpendPreview {
@@ -84,6 +84,8 @@ export function useTxCreateScreenLogic() {
   const feeRate = feeRateBarState.feeRate
 
   const [error, setError] = useState('')
+  // An error of the checks of the fee below, which hold only at the rate they ran at.
+  const [feeCheckError, setFeeCheckError] = useState('')
   const [feeDetail, setFeeDetail] = useState<
     | {
         estimatedFee: number
@@ -283,6 +285,7 @@ export function useTxCreateScreenLogic() {
   useEffect(() => {
     setCheckedFeeRate(feeRate)
     setError('')
+    setFeeCheckError('')
     setDisabled(true)
     setFeeDetail(undefined)
     setSpendPreview(undefined)
@@ -355,7 +358,7 @@ export function useTxCreateScreenLogic() {
               memo: memo || undefined,
             })
       if (feeRate > QBIT_MAX_FEE_RATE || preflight.exceedsMaximumTotalFee) {
-        setError(
+        setFeeCheckError(
           t('fee_exceeds_wallet_safety_maximum', [
             String(QBIT_MAX_FEE_RATE),
             numUtils.satoshisToAmount(preflight.maximumTotalFee),
@@ -365,7 +368,7 @@ export function useTxCreateScreenLogic() {
         return
       }
       if ('exceedsStandardSize' in preflight && preflight.exceedsStandardSize) {
-        setError(
+        setFeeCheckError(
           t('send_exceeds_standard_size', [
             String(preflight.maxInputCount),
             numUtils.satoshisToAmount(preflight.maxStandardAmount),
@@ -375,11 +378,11 @@ export function useTxCreateScreenLogic() {
         return
       }
       if (preflight.exceedsAncestorSize) {
-        setError(t('send_exceeds_ancestor_size'))
+        setFeeCheckError(t('send_exceeds_ancestor_size'))
         return
       }
       if (!preflight.canCover) {
-        setError(t('amount_exceeds_your_available_balance'))
+        setFeeCheckError(t('amount_exceeds_your_available_balance'))
         return
       }
       setFeeDetail({
@@ -431,11 +434,9 @@ export function useTxCreateScreenLogic() {
   // Until the fee bar has chosen the selected tier's rate from this screen's
   // quote, the rate is the bar's default or one from an earlier quote,
   // possibly another network's; once it has, the checks above run at that
-  // rate a render later. Until then Next waits, and the fee is neither shown
-  // nor judged. A Custom rate is the user's own.
-  const feeRateFrom = feeRateOrigin(feeRateBarState, feeQuote)
-  const feeRateHeld =
-    feeRateFrom === 'pending' || (feeRateFrom === 'quote' && checkedFeeRate !== feeRate)
+  // rate a render later. Until then Next waits, and the fee is neither shown,
+  // judged nor checked. A Custom rate is the user's own.
+  const feeRateHeld = !useFeeRateSettled(feeQuote, checkedFeeRate)
 
   // What leaves the wallet (the recipient's amount plus the fee; change comes
   // back, and so does a payment to another of the wallet's accounts) and
@@ -569,7 +570,8 @@ export function useTxCreateScreenLogic() {
     qbitUnit,
     t,
 
-    error,
+    // Checks of the fee made at a rate not yet settled say nothing of the settled one.
+    error: error || (feeRateHeld ? '' : feeCheckError),
     disabled: disabled || feeRateHeld,
     // Over the explorer's listing limit: the account can consolidate its outputs.
     showConsolidate: overExplorerLimit,

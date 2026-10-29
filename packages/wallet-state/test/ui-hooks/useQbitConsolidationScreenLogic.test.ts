@@ -348,4 +348,58 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
       expect(render.feeRate).toBe(render.network === ChainType.QBIT_MAINNET ? 5 : 7)
     }
   })
+
+  it('offers no batch priced at an earlier rate, from the render in which the rate changes', async () => {
+    const { wallet, wrapper, store } = setup()
+    // Normal, at 5 bits/vB once the quote lands.
+    store.dispatch(uiActions.resetFeeRateBar())
+    wallet.getFeeSummary.mockResolvedValue(quoteWithNormal(5))
+    const prepared = batch('01')
+    wallet.createQbitConsolidationPsbt.mockResolvedValue(prepared)
+    // The rate in the store and the batch offered, in each render.
+    const renders: { feeRate: number; batch: unknown }[] = []
+    const { result } = renderHook(
+      () => {
+        const screen = useQbitConsolidationScreenLogic()
+        const feeBar = useFeeRateBarLogic({ quote: screen.feeQuote })
+        renders.push({ feeRate: store.getState().ui.feeRateBar.feeRate, batch: screen.batch })
+        return { screen, feeBar }
+      },
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+    act(() => {
+      result.current.screen.onClickPrepare()
+    })
+    await waitFor(() => expect(result.current.screen.batch).toBe(prepared))
+    const prepared5 = renders.length
+
+    // Fast, at 6 bits/vB.
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(2)
+    })
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(6)
+    expect(result.current.screen.batch).toBeUndefined()
+    const switched = renders.length
+
+    act(() => {
+      result.current.screen.onClickPrepare()
+    })
+    await waitFor(() => expect(result.current.screen.batch).toBe(prepared))
+    const prepared6 = renders.length
+
+    // A Custom rate of 7 bits/vB.
+    act(() => {
+      store.dispatch(
+        uiActions.updateFeeRateBar({ feeRate: 7, feeRateInputVal: '7', feeOptionIndex: 3 })
+      )
+    })
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+
+    // Never a batch priced at 5 bits/vB offered at 6, nor one priced at 6 at 7.
+    expect(renders.slice(prepared5, switched).filter(r => r.feeRate !== 5 && r.batch)).toEqual([])
+    expect(renders.slice(prepared6).filter(r => r.feeRate !== 6 && r.batch)).toEqual([])
+    expect(result.current.screen.batch).toBeUndefined()
+  })
 })
