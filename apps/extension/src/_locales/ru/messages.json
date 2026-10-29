@@ -1688,6 +1688,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "Удаление последнего кошелька не допускается"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "Ожидающий запрос веб-сайта отменён, так как был открыт кошелёк. Вернитесь на сайт, чтобы повторить попытку."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "Запрос был отклонен. Чтобы продолжить, пожалуйста, повторно авторизуйтесь"
   },

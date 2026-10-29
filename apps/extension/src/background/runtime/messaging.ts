@@ -1,5 +1,6 @@
 import PortMessage from '@/shared/utils/message/portMessage';
 import {
+  approvalService,
   bgEventBus,
   getUiControllerMethod,
   isExtensionPageSender,
@@ -105,6 +106,13 @@ export function initMessaging() {
       const sessionKey = port as object;
       const session = sessionService.getOrCreateSession(sessionKey, tabId) as any;
 
+      // The document behind this port, as its requests see it: each keeps the
+      // id of the approval it waits on here. When the port disconnects, those
+      // approvals are rejected, and a request whose provider method has not
+      // started never runs it; one already signing or sending completes.
+      const pageGone = new AbortController();
+      const page = { signal: pageGone.signal, approvalIds: new Set<string>() };
+
       // Qbit page-provider port. The isolated content script wraps every
       // page request, so a page cannot label its own request as internal.
       pm.listen(async (envelope) => {
@@ -117,7 +125,7 @@ export function initMessaging() {
           throw new Error('Invalid Qbit provider request envelope');
         }
 
-        const req = { source: envelope.source, data: envelope.data, session, port };
+        const req = { source: envelope.source, data: envelope.data, session, port, page };
         // for background push to respective page
         req.session.pushMessage = (event, data) => {
           // Send a message to the page( SESSION_EVENTS)
@@ -139,6 +147,15 @@ export function initMessaging() {
       });
 
       port.onDisconnect.addListener(() => {
+        pageGone.abort();
+        // Only this page's approvals: another page's request, or the unlock
+        // request every page shares, stays pending.
+        for (const approvalId of page.approvalIds) {
+          void approvalService
+            .rejectApproval(approvalId, 'The page that made this request is gone')
+            .catch(() => undefined);
+        }
+        page.approvalIds.clear();
         sessionService.deleteSession(sessionKey);
       });
 

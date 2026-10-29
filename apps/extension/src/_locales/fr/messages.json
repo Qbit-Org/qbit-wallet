@@ -1688,6 +1688,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "La suppression du dernier portefeuille n'est pas autorisée"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "La demande en attente d'un site web a été annulée car le portefeuille a été ouvert. Revenez sur le site web pour réessayer."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "La demande a été rejetée. Pour continuer, veuillez réautoriser"
   },

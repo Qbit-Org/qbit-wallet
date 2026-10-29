@@ -1688,6 +1688,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "不允許移除最後一個錢包"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "因為開啟了錢包，網站的待處理請求已取消。請返回網站再試一次。"
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "請求已被拒絕。若要繼續，請重新授權"
   },

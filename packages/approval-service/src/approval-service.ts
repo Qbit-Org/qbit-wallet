@@ -83,8 +83,17 @@ export class ApprovalService extends EventEmitter {
     return approval
   }
 
-  // currently it only support one approval at the same time
-  requestApproval = async (data: ApprovalData, winProps?: any): Promise<any> => {
+  /**
+   * Shows `data` for the user to settle; currently only one approval can be
+   * pending at a time. `onPending` receives the new approval's id before
+   * its window opens, so the caller can reject that approval, and no other,
+   * when whoever asked for it goes away.
+   */
+  requestApproval = async (
+    data: ApprovalData,
+    winProps?: any,
+    onPending?: (id: string) => void
+  ): Promise<any> => {
     if (this.approval) {
       if (this.approvalWindowId) {
         try {
@@ -98,6 +107,9 @@ export class ApprovalService extends EventEmitter {
 
     const id = createApprovalId()
     return new Promise((resolve, reject) => {
+      // Before the approval is installed: if the caller throws, nothing is
+      // left pending.
+      onPending?.(id)
       this.approval = {
         id,
         data,

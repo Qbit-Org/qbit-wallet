@@ -1688,6 +1688,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "最後のウォレットを削除することはできません"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "ウォレットを開いたため、ウェブサイトの保留中のリクエストはキャンセルされました。もう一度試すには、ウェブサイトに戻ってください。"
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "リクエストは拒否されました。続行するには、再承認してください"
   },
