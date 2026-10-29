@@ -424,7 +424,8 @@ export function usePushQbitTxCallback() {
   return useCallback(
     async (
       payload: QbitRetainedBroadcast,
-      expectedChain?: ChainType
+      expectedChain?: ChainType,
+      retryOfUnknownOutcome?: boolean
     ): Promise<QbitBroadcastResult> => {
       // The recovery identity has to exist before dispatch: the network and
       // txid the signer fixed, else the ones a provider claim names, else the
@@ -437,7 +438,12 @@ export function usePushQbitTxCallback() {
       const txid = identity?.txid ?? claim?.txid
       tools.showLoading(true)
       try {
-        const result = await wallet.broadcastQbitTx(payload.psbtHex, claim, chain, txid)
+        // Only the recovery screen says its verdict for these bytes is
+        // unknown: after a background restart, the claim restored for this
+        // retry then counts as an earlier unknown outcome.
+        const result = retryOfUnknownOutcome
+          ? await wallet.broadcastQbitTx(payload.psbtHex, claim, chain, txid, true)
+          : await wallet.broadcastQbitTx(payload.psbtHex, claim, chain, txid)
         if (result.success === false) {
           tools.showLoading(false)
           return result

@@ -338,7 +338,8 @@ export interface WalletController {
     txData: string,
     qbitSendBroadcastClaim?: QbitSendBroadcastClaim,
     expectedChain?: ChainType,
-    expectedTxid?: string
+    expectedTxid?: string,
+    retryOfUnknownOutcome?: boolean
   ): Promise<QbitBroadcastResult>
   checkQbitBroadcastStatus(
     txid: string,
