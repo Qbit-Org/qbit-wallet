@@ -3,8 +3,13 @@ import log from 'loglevel'
 import { normalizeHostname, parseDnrDomain } from '@qbit/phishing-detect'
 import {
   PHISHING_PAGE_PROBE,
+  PHISHING_PROCEED_REFUSED_ERROR,
   PhishingMessageType,
   type PhishingNetworkRuleHealth,
+  type PhishingProtectionHealth,
+  type PhishingProtectionReason,
+  type PhishingStatsResponse,
+  type PhishingWarningRedirectHealth,
   PlatformEnv,
 } from '@qbit/wallet-shared'
 import { phishingDetectService as phishingService } from 'src/services'
@@ -42,6 +47,14 @@ const PHISHING_PROCEED_RULE_PRIORITY = PHISHING_WARNING_REDIRECT_PRIORITY + 1
 // How long a tab sent to the warning page has to finish loading before the
 // worker stops watching it.
 const WARNING_PAGE_SETTLE_TIMEOUT_MS = 5_000
+
+// How long the phishing stats wait for the browser to answer the read of the
+// redirect rule's health before reporting it as unknown.
+const REDIRECT_HEALTH_TIMEOUT_MS = 2_000
+
+// How long a link that opens a new tab waits for the check of the redirect
+// rule before the sender's tab is sent to the warning page anyway.
+const REDIRECT_COVERS_TIMEOUT_MS = 1_000
 
 /** A redirect to the warning page whose outcome the worker still checks. */
 interface WarningRedirect {
@@ -107,6 +120,74 @@ function blockedPageHref(url: unknown, hostname: string): string {
       : ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * Whether the network layer stops every denylisted page it names, from the
+ * health of both rules. A part that could not be read makes it `unknown`,
+ * never `full`.
+ */
+function summarizeProtection(
+  networkRules: PhishingNetworkRuleHealth,
+  warningRedirect: PhishingWarningRedirectHealth
+): PhishingProtectionHealth {
+  const degraded: PhishingProtectionReason[] = []
+  const unknown: PhishingProtectionReason[] = []
+  if (networkRules.status === 'unknown') unknown.push('block-rule-unknown')
+  else if (networkRules.status !== 'installed') degraded.push('block-rule-not-installed')
+
+  // A redirect rule that does not fire still outranks the block rule.
+  if (warningRedirect.status === 'removing' || warningRedirect.status === 'removal-failed') {
+    degraded.push('redirect-rule-without-host-access')
+  } else if (warningRedirect.status === 'unknown') {
+    unknown.push('redirect-rule-unknown')
+  }
+  // Nor does the content script's hold run where site access is withheld.
+  if (degraded.includes('block-rule-not-installed')) {
+    if (warningRedirect.hostAccess === false) degraded.push('site-access-withheld')
+    else if (warningRedirect.hostAccess === 'unknown') degraded.push('site-access-unknown')
+  }
+
+  return {
+    status: degraded.length ? 'degraded' : unknown.length ? 'unknown' : 'full',
+    reasons: [...degraded, ...unknown],
+    warningRedirect,
+  }
+}
+
+/** Settles as the promise does, or rejects once `ms` pass first. */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`No answer within ${ms} ms`)), ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * The redirect rule's health, or `unknown` when it fails or does not arrive
+ * in time. A read this gives up on does not act on its answer.
+ */
+async function boundedRedirectHealth(
+  health: (signal: AbortSignal) => Promise<PhishingWarningRedirectHealth>
+): Promise<PhishingWarningRedirectHealth> {
+  const caller = new AbortController()
+  try {
+    return await withTimeout(health(caller.signal), REDIRECT_HEALTH_TIMEOUT_MS)
+  } catch (error) {
+    caller.abort()
+    log.error('[Phishing] Failed to read the warning redirect rule health:', error)
+    return {
+      status: 'unknown',
+      hostAccess: 'unknown',
+      error: error instanceof Error ? error.message : String(error),
+      updatedAt: Date.now(),
+    }
   }
 }
 
@@ -337,7 +418,7 @@ class PhishingController {
 
           const hostname = toDnrDomain(message.hostname)
           if (!hostname) {
-            sendResponse({ error: 'Invalid hostname parameter' })
+            sendResponse({ error: PHISHING_PROCEED_REFUSED_ERROR })
             return false
           }
 
@@ -361,10 +442,17 @@ class PhishingController {
         }
 
         case PhishingMessageType.GET_PHISHING_STATS: {
-          this.getNetworkRuleHealth().then(
-            networkRules => sendResponse({ stats: phishingService.getConfig(), networkRules }),
-            () => sendResponse({ error: 'Internal error processing request' })
-          )
+          this.getNetworkRuleHealth()
+            .then(async networkRules => {
+              const protection = await this.getProtectionHealth(networkRules)
+              const response: PhishingStatsResponse = {
+                stats: phishingService.getConfig(),
+                networkRules,
+                ...(protection && { protection }),
+              }
+              return response
+            })
+            .then(sendResponse, () => sendResponse({ error: 'Internal error processing request' }))
           return true
         }
 
@@ -389,9 +477,15 @@ class PhishingController {
           }
 
           const tabId = sender.tab?.id
+          const newTab = message.newTab === true
           return this.respondAfterRestore(sendResponse, async () => {
             const isPhishing = phishingService.checkPhishing(url.hostname).isPhishing
             if (!isPhishing || !tabId) return { isPhishing, redirected: false }
+            // The link opens a new tab or window. Where the redirect rule
+            // shows the warning there, the sender's tab keeps its page.
+            if (newTab && (await this.isCoveredByWarningRedirect(url.hostname))) {
+              return { isPhishing, redirected: false, leftToRedirectRule: true }
+            }
 
             try {
               const href = blockedPageHref(message.url, url.hostname)
@@ -599,6 +693,38 @@ class PhishingController {
       return initialNetworkRuleHealth('unsupported')
     }
     return this.blockRule.getHealth()
+  }
+
+  /**
+   * Whether the network layer as a whole stops denylisted pages, given the
+   * block rule's health, with the warning redirect rule's state read back
+   * from the browser. That read is `unknown` when it fails or takes longer
+   * than a short wait, so it never holds up or fails the block rule's health.
+   * Undefined without DNR, where the content script is the only layer.
+   */
+  public async getProtectionHealth(
+    networkRules: PhishingNetworkRuleHealth
+  ): Promise<PhishingProtectionHealth | undefined> {
+    if (!this.hasDeclarativeNetRequest()) return undefined
+    const warningRedirect = await boundedRedirectHealth(signal =>
+      this.warningRedirect.getHealth(signal)
+    )
+    return summarizeProtection(networkRules, warningRedirect)
+  }
+
+  /**
+   * Whether the warning redirect rule is in place, with host access, for the
+   * host, so that a top-level navigation to it shows the warning in whichever
+   * tab it happens. False when that is not confirmed within a short wait.
+   */
+  private async isCoveredByWarningRedirect(hostname: string): Promise<boolean> {
+    if (!this.hasDeclarativeNetRequest()) return false
+    try {
+      return await withTimeout(this.warningRedirect.covers(hostname), REDIRECT_COVERS_TIMEOUT_MS)
+    } catch (error) {
+      log.error('[Phishing] Failed to check the warning redirect rule:', error)
+      return false
+    }
   }
 
   /**

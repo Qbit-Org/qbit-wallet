@@ -506,6 +506,9 @@
   "continue_to": {
     "message": "Continuer vers"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "Ce site ne peut pas être ouvert depuis la page d'avertissement."
+  },
   "copied": {
     "message": "Copié"
   },

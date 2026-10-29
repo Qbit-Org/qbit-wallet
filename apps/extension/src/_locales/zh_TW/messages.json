@@ -506,6 +506,9 @@
   "continue_to": {
     "message": "繼續前往"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "無法從警告頁面開啟此網站。"
+  },
   "copied": {
     "message": "已複製"
   },

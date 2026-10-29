@@ -62,6 +62,7 @@ class PhishingFixtureServer {
         path === '/start'
           ? [
               `<a id="blocked-link" href="${BLOCKED_URL}">Claim</a>`,
+              `<a id="new-tab-link" href="${BLOCKED_URL}" target="_blank">Claim in a new tab</a>`,
               `<a id="redirect-link" href="/out?to=${encodeURIComponent(BLOCKED_URL)}">Claim via this site</a>`,
               `<a id="wrapped-link" href="http://${WRAPPER_HOST}/wrap?to=${encodeURIComponent(BLOCKED_URL)}">Claim via a link wrapper</a>`,
             ].join('')
@@ -229,10 +230,22 @@ function pagePaths(server: PhishingFixtureServer): string[] {
 async function phishingStats(page: Page) {
   return page.evaluate(
     () =>
-      new Promise<{ networkRules?: { status?: string; blockedDomains?: number | null; error?: string } }>(
-        resolve => chrome.runtime.sendMessage({ type: 'GET_PHISHING_STATS' }, resolve)
-      )
+      new Promise<{
+        networkRules?: { status?: string; blockedDomains?: number | null; error?: string }
+        protection?: {
+          status?: string
+          reasons?: string[]
+          warningRedirect?: { status?: string; hostAccess?: boolean | 'unknown' }
+        }
+      }>(resolve => chrome.runtime.sendMessage({ type: 'GET_PHISHING_STATS' }, resolve))
   )
+}
+
+/** Opens one of the wallet's own pages, which may ask for the phishing stats. */
+async function openWalletPage(extension: ExtensionSession): Promise<Page> {
+  const page = await extension.context.newPage()
+  await page.goto(`chrome-extension://${extension.extensionId}/index.html`)
+  return page
 }
 
 async function waitForProvider(page: Page): Promise<void> {
@@ -301,6 +314,16 @@ test.describe('MV3 phishing protection', () => {
     // outrank the block rule, so the background removes it.
     await setSiteAccess(extension, 'ON_CLICK')
     await expect.poll(() => hasWarningRedirect(extension)).toBe(false)
+    // Once it is gone, the block rule alone is full protection, and the
+    // health says why there is no warning page.
+    const wallet = await openWalletPage(extension)
+    await expect
+      .poll(async () => (await phishingStats(wallet)).protection)
+      .toMatchObject({
+        status: 'full',
+        reasons: [],
+        warningRedirect: { status: 'not-wanted', hostAccess: false },
+      })
 
     const page = await extension.context.newPage()
     const navigationError = await navigate(page, `http://${BLOCKED_HOST}/landing`)
@@ -312,9 +335,35 @@ test.describe('MV3 phishing protection', () => {
 
     await setSiteAccess(extension, 'ON_ALL_SITES')
     await expect.poll(() => hasWarningRedirect(extension)).toBe(true)
+    await expect
+      .poll(async () => (await phishingStats(wallet)).protection)
+      .toMatchObject({ status: 'full', warningRedirect: { status: 'installed', hostAccess: true } })
     const again = await extension.context.newPage()
     await navigate(again, `http://${BLOCKED_HOST}/landing`)
     await expect(again).toHaveURL(warningPagePattern(extension.extensionId))
+    expect(fixtureServer.requestsTo(BLOCKED_HOST)).toEqual([])
+  })
+
+  test('shows the warning in the new tab for a link that opens one, and leaves the source tab alone', async ({
+    extension,
+    fixtureServer,
+  }) => {
+    const page = await extension.context.newPage()
+    await page.goto(`${fixtureServer.origin}/start`)
+    await waitForProvider(page)
+
+    const [opened] = await Promise.all([
+      extension.context.waitForEvent('page'),
+      page.click('#new-tab-link'),
+    ])
+
+    // The redirect rule shows the warning in the new tab.
+    await expect(opened).toHaveURL(warningPagePattern(extension.extensionId))
+    expect(warningParams(opened).get('hostname')).toBe(BLOCKED_HOST)
+    expect(warningParams(opened).get('href')).toBe(BLOCKED_URL)
+    // The source tab keeps its page, rather than getting a second warning.
+    await page.waitForTimeout(1_000)
+    await expect(page).toHaveURL(`${fixtureServer.origin}/start`)
     expect(fixtureServer.requestsTo(BLOCKED_HOST)).toEqual([])
   })
 
@@ -405,11 +454,32 @@ test.describe('MV3 phishing protection', () => {
     const page = await extension.context.newPage()
     await page.goto(`chrome-extension://${extension.extensionId}/index.html`)
 
-    const { networkRules } = await phishingStats(page)
+    const { networkRules, protection } = await phishingStats(page)
     expect(networkRules).toMatchObject({
       status: 'installed',
       blockedDomains: BUNDLED_PHISHING_DENYLIST.length,
     })
+    // With both rules in place, the network layer stops every denylisted page.
+    expect(protection).toMatchObject({
+      status: 'full',
+      reasons: [],
+      warningRedirect: { status: 'installed', hostAccess: true },
+    })
+  })
+
+  test('offers no Proceed on the warning for a denylisted name outside DNS syntax, and says why', async ({
+    extension,
+  }) => {
+    // The background accepts Proceed only for a hostname a DNR rule can name.
+    const hostname = `a_b.${BLOCKED_HOST}`
+    const params = new URLSearchParams({ hostname, href: `http://${hostname}/claim`, timestamp: '0' })
+    const page = await extension.context.newPage()
+    await page.goto(`chrome-extension://${extension.extensionId}/index.html#/phishing?${params}`)
+
+    await expect(page.getByText(hostname, { exact: true })).toBeVisible()
+    await expect(page.getByText('This site cannot be opened from the warning page.')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Continue to/ })).toHaveCount(0)
+    await expect(page.getByText('If you insist on continuing', { exact: false })).toHaveCount(0)
   })
 
   test('shows the warning before a denylisted page runs script while the block rule is missing', async ({

@@ -506,6 +506,9 @@
   "continue_to": {
     "message": "Перейти на"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "Этот сайт нельзя открыть со страницы предупреждения."
+  },
   "copied": {
     "message": "Скопировано"
   },
