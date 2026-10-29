@@ -53,7 +53,7 @@ import { BUS_EVENTS, BUS_METHODS, CHAINS_MAP } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import type { Encryptor } from '@qbit/keyring-service'
 import { bgEventBus } from '../src/utils/eventBus'
-import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-fee-bump-recheck'
+import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-explorer-spend-check'
 
 const serviceHolder = vi.hoisted(() => ({
   keyringService: undefined as any,

@@ -31,7 +31,7 @@ import {
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
 } from '../src/services/qbitSendGuards'
 import { QBIT_BROADCAST_ABSENCE_PROBES } from '../src/utils/qbit-broadcast'
-import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-fee-bump-recheck'
+import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-explorer-spend-check'
 import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
 
 const broadcastTxMock = vi.hoisted(() => vi.fn())

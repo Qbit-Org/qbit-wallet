@@ -10,6 +10,10 @@ import {
 } from './qbit-api'
 import { QBIT_BROADCAST_MIN_PASS_MS } from './qbit-broadcast'
 import { QbitExplorerOperation } from './qbit-explorer-fetch'
+import {
+  qbitExplorerSpendCheckIsNeeded,
+  type QbitExplorerSpendCheck,
+} from './qbit-explorer-spend-check'
 
 /**
  * The pause between the check's two rounds of reads, from the first one's
@@ -26,20 +30,12 @@ export const QBIT_FEE_BUMP_RECHECK_INTERVAL_MS = 5_000
  * (`QBIT_OUTSPENDS_CONCURRENCY` in flight at once): a restored claim's
  * inputs can come from many transactions, each read once a round. Its
  * reads, `/tx/:txid/outspends`, are small replies, which the explorer's
- * reply budget expects within this too.
+ * reply budget expects within this too. With one wave and the default
+ * pause, the check has 15 s: it runs while the send guard holds its queue,
+ * so a stalled explorer must not hold every other send flow for the
+ * client's full retry budget.
  */
 export const QBIT_FEE_BUMP_RECHECK_WAVE_MS = 5_000
-
-/**
- * The longest a broadcast waits for the explorer to say what spends a fee
- * bump's original, or a restored claim's inputs, when its reads fit one
- * wave, at the default pause: both rounds of reads and the pause between
- * them. The check runs while the send guard holds its queue, so a stalled
- * explorer must not hold every other send flow for the client's full retry
- * budget.
- */
-export const QBIT_FEE_BUMP_RECHECK_WAIT_MS =
-  QBIT_FEE_BUMP_RECHECK_INTERVAL_MS + 2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS
 
 /**
  * The least each wave of reads in a round is given. The check starts only
@@ -47,6 +43,14 @@ export const QBIT_FEE_BUMP_RECHECK_WAIT_MS =
  * up rather than pause when the first round leaves the second less.
  */
 export const QBIT_FEE_BUMP_RECHECK_MIN_READ_MS = 2_000
+
+/**
+ * What the check leaves of a broadcast's deadline besides the submission's
+ * reply budget (`QBIT_BROADCAST_MIN_PASS_MS`): a check that settles as its
+ * budget ends hands back to the broadcast a moment later, which must still
+ * find that budget left for the submission.
+ */
+export const QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS = 250
 
 /**
  * The longest the check may take, however many transactions it reads. The
@@ -72,68 +76,14 @@ export const QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS = 65_000
  */
 export const QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS = 120_000
 
-/**
- * What a broadcast checks on the explorer before it dispatches, as the send
- * guard hands it over (see `QbitSendGuardService.broadcastIfAllowed`):
- * nothing for a broadcast that is neither a fee bump nor restored.
- */
-export interface QbitExplorerSpendCheck {
-  /**
-   * A fee bump's original, and its output count from the assessment:
-   * nothing may spend any of its outputs.
-   */
-  replaces?: { txid: string; outputCount: number | undefined }
-  /**
-   * A claim the send guard restored after a restart (see
-   * `QbitSendGuardService.restoreBroadcastClaim`): its transaction and
-   * inputs. The guard's records of what spends those inputs went with the
-   * restart, so the explorer must show that nothing but that transaction,
-   * or the original in `replaces`, spends them.
-   */
-  restored?: { txid: string; outpoints: readonly { txid: string; vout: number }[] }
-}
-
-/**
- * The explorer check for a broadcast of `txid`, spending `outpoints`, as
- * the send guard hands it over: the transaction the claim it runs under
- * `replaces`, with that transaction's output count, and the inputs of a
- * claim `restoredFromPage`. `{}`, nothing to check, for any other broadcast.
- */
-export function qbitExplorerSpendCheckFor(broadcast: {
-  txid: string
-  outpoints: readonly { txid: string; vout: number }[]
-  replaces?: string | undefined
-  replacedOutputCount?: number | undefined
-  restoredFromPage?: boolean
-}): QbitExplorerSpendCheck {
-  const { txid, outpoints, replaces, replacedOutputCount, restoredFromPage = false } = broadcast
-  return {
-    ...(replaces ? { replaces: { txid: replaces, outputCount: replacedOutputCount } } : {}),
-    ...(restoredFromPage ? { restored: { txid, outpoints } } : {}),
-  }
-}
-
-/**
- * Throw unless `spendCheck` is a check the send guard handed over, `{}`
- * included. A broadcast handed none is refused rather than taken as having
- * nothing to check: a fee bump or a restored claim whose check went missing
- * on the way must not go out unchecked.
- */
-export function assertQbitExplorerSpendCheck(
-  spendCheck: unknown
-): asserts spendCheck is QbitExplorerSpendCheck {
-  if (typeof spendCheck !== 'object' || spendCheck === null || Array.isArray(spendCheck)) {
-    throw new Error('Qbit broadcast was handed no explorer check')
-  }
-}
-
 export interface QbitExplorerSpendCheckOptions {
   /** The pause between the two rounds; the budget is sized with it. */
   intervalMs?: number
   /**
    * The broadcast the check is part of. The check leaves it
-   * `QBIT_BROADCAST_MIN_PASS_MS` of its deadline, so a check that passes
-   * leaves the submission its whole reply budget.
+   * `QBIT_BROADCAST_MIN_PASS_MS` of its deadline and
+   * `QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS` more, so a check that
+   * passes leaves the submission its whole reply budget.
    */
   operation?: QbitExplorerOperation
 }
@@ -188,8 +138,8 @@ export async function assertNoExplorerSpendConflict(
   spendCheck: QbitExplorerSpendCheck,
   options: QbitExplorerSpendCheckOptions = {}
 ): Promise<void> {
+  if (!qbitExplorerSpendCheckIsNeeded(spendCheck)) return
   const { replaces, restored } = spendCheck
-  if (!replaces && !restored) return
   const { intervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS, operation } = options
   const giveUp = new AbortController()
   const parent = operation?.signal
@@ -224,7 +174,11 @@ export async function assertNoExplorerSpendConflict(
     const budgetMs = Math.min(
       intervalMs + 2 * waves * QBIT_FEE_BUMP_RECHECK_WAVE_MS,
       QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS,
-      operation ? operation.remainingMs() - QBIT_BROADCAST_MIN_PASS_MS : Number.POSITIVE_INFINITY
+      operation
+        ? operation.remainingMs() -
+            QBIT_BROADCAST_MIN_PASS_MS -
+            QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS
+        : Number.POSITIVE_INFINITY
     )
     if (!(budgetMs >= intervalMs + 2 * waves * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS)) {
       outOfTime = true
@@ -274,7 +228,8 @@ export async function assertNoExplorerSpendConflict(
     const message = replaces
       ? 'Could not check whether a later payment depends on the transaction this fee bump replaces'
       : 'Could not check that the inputs of this transaction are still unspent'
-    if (outOfTime || (error instanceof QbitApiError && error.kind === 'timeout')) {
+    // Either copy of the API client (CommonJS or ESM) may have thrown it.
+    if (outOfTime || (QbitApiError.is(error) && error.kind === 'timeout')) {
       throw new QbitExplorerSpendCheckTimeoutError(message)
     }
     throw new Error(message)

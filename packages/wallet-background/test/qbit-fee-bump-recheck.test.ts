@@ -17,12 +17,17 @@ import {
   QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
   QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS,
   QBIT_FEE_BUMP_RECHECK_MIN_READ_MS,
-  QBIT_FEE_BUMP_RECHECK_WAIT_MS,
+  QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS,
   QbitExplorerSpendCheckTimeoutError,
   QBIT_FEE_BUMP_RECHECK_WAVE_MS,
   assertNoExplorerSpendConflict,
   type QbitExplorerSpendCheckOptions,
 } from '../src/utils/qbit-fee-bump-recheck'
+
+/** The check's budget for one wave of reads at the default pause: both rounds and the pause. */
+const ONE_WAVE_BUDGET_MS = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS + 2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS
+/** What the check leaves a broadcast it is part of: the submission's budget and a margin. */
+const RESERVED_MS = QBIT_BROADCAST_MIN_PASS_MS + QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS
 
 const ORIGINAL = 'aa'.repeat(32)
 const LATER = 'bb'.repeat(32)
@@ -97,7 +102,7 @@ async function settled(check: Promise<void>): Promise<unknown> {
     () => undefined,
     error => error
   )
-  await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_WAIT_MS)
+  await vi.advanceTimersByTimeAsync(ONE_WAVE_BUDGET_MS)
   return outcome
 }
 
@@ -143,12 +148,12 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
       return options
     })
     expect(first).toEqual({
-      deadlineMs: QBIT_FEE_BUMP_RECHECK_WAIT_MS,
+      deadlineMs: ONE_WAVE_BUDGET_MS,
       signal: expect.any(AbortSignal),
       fresh: true,
     })
     expect(second).toEqual({
-      deadlineMs: QBIT_FEE_BUMP_RECHECK_WAIT_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+      deadlineMs: ONE_WAVE_BUDGET_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
       signal: expect.any(AbortSignal),
       fresh: true,
     })
@@ -228,7 +233,7 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     })
     const check = checkBump(stalled, ORIGINAL, 1)
     const outcome = check.catch(error => error)
-    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_WAIT_MS - 1)
+    await vi.advanceTimersByTimeAsync(ONE_WAVE_BUDGET_MS - 1)
     expect(signal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     expect(((await outcome) as Error).message).toBe(UNCHECKED)
@@ -240,7 +245,7 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
   it('gives up by the deadline of the broadcast it is part of, and reads nothing once that passed', async () => {
     vi.useFakeTimers()
     // The check may spend 10 s of it: the rest is the submission's.
-    const operation = new QbitExplorerOperation(QBIT_BROADCAST_MIN_PASS_MS + 10_000)
+    const operation = new QbitExplorerOperation(RESERVED_MS + 10_000)
     const stalled = explorer([unspent])
     let options: QbitTxOutspendsOptions | undefined
     stalled.getTxOutspends.mockImplementationOnce((_txid, given) => {
@@ -264,22 +269,22 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     await expect(
       settled(checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(60_000) }))
     ).resolves.toBeUndefined()
-    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(QBIT_FEE_BUMP_RECHECK_WAIT_MS)
-    // 29 s left: 14 s for the check, a second short of its own budget,
-    // because the submission keeps 15 s.
+    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(ONE_WAVE_BUDGET_MS)
+    // 29 s left: 13.75 s for the check, short of its own budget, because
+    // the submission keeps 15 s and the margin 250 ms.
     client.getTxOutspends.mockClear()
     await expect(
       settled(checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(29_000) }))
     ).resolves.toBeUndefined()
-    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(14_000)
-    // 25 s left: 10 s for the check, 15 s for the submission.
+    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(13_750)
+    // 25 s left: 9.75 s for the check, the rest for the submission.
     client.getTxOutspends.mockClear()
     await expect(
       settled(checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(25_000) }))
     ).resolves.toBeUndefined()
     expect(client.getTxOutspends.mock.calls.map(([, options]) => options!.deadlineMs)).toEqual([
-      10_000,
-      10_000 - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+      9_750,
+      9_750 - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
     ])
 
     // Too little left for two reads and the pause besides the submission's
@@ -287,15 +292,56 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     // check that could only end in a refusal for lack of time.
     client.getTxOutspends.mockClear()
     const tight =
-      QBIT_BROADCAST_MIN_PASS_MS +
-      2 * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS +
-      QBIT_FEE_BUMP_RECHECK_INTERVAL_MS -
-      1
+      RESERVED_MS + 2 * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS + QBIT_FEE_BUMP_RECHECK_INTERVAL_MS - 1
     await expect(
       checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(tight) })
     ).rejects.toThrow(UNCHECKED)
     expect(client.getTxOutspends).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('leaves the submission its reply budget even when it settles as its own budget ends', async () => {
+    vi.useFakeTimers()
+    const operation = new QbitExplorerOperation(30_000)
+    const client = explorer([unspent])
+    // The second read answers a millisecond before its deadline.
+    client.getTxOutspends.mockImplementation(async (_txid, options) => {
+      if (client.getTxOutspends.mock.calls.length === 1) return [unspent]
+      return new Promise(resolve => setTimeout(() => resolve([unspent]), options!.deadlineMs! - 1))
+    })
+    const startedAt = Date.now()
+    let settledAt: number | undefined
+    const outcome = checkBump(client, ORIGINAL, 1, { operation }).then(
+      () => {
+        settledAt = Date.now()
+      },
+      error => error
+    )
+    await vi.advanceTimersByTimeAsync(ONE_WAVE_BUDGET_MS)
+    expect(await outcome).toBeUndefined()
+    // The broadcast takes over a moment later, and its submission still
+    // finds its whole reply budget left.
+    const leftForTheBroadcast = 30_000 - (settledAt! - startedAt)
+    expect(leftForTheBroadcast - 200).toBeGreaterThanOrEqual(QBIT_BROADCAST_MIN_PASS_MS)
+  })
+
+  it('reports a read that timed out in either copy of the API client as a lack of time', async () => {
+    // The library's CommonJS and ESM builds each have a QbitApiError class;
+    // an error from the other one is not an instance of this one, but
+    // carries the same brand.
+    const brand = Object.defineProperty({}, Symbol.for('qbit-js.QbitApiError'), { value: true })
+    const foreign = Object.assign(Object.create(brand), {
+      name: 'QbitApiError',
+      kind: 'timeout',
+      message: 'deadline',
+    })
+    expect(foreign instanceof QbitApiError).toBe(false)
+    expect(QbitApiError.is(foreign)).toBe(true)
+    const client = explorer([unspent])
+    client.getTxOutspends.mockRejectedValueOnce(foreign)
+    const outcome = (await checkBump(client, ORIGINAL, 1).catch(error => error)) as Error
+    expect(outcome.message).toBe(UNCHECKED)
+    expect(outcome instanceof QbitExplorerSpendCheckTimeoutError).toBe(true)
   })
 
   it('sizes its budget with the pause it is given', async () => {
@@ -340,10 +386,10 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     expect(reads).toHaveLength(2)
     // The second read is given only what is left of the check's budget.
     expect(reads[1]!.deadlineMs).toBe(
-      QBIT_FEE_BUMP_RECHECK_WAIT_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS
+      ONE_WAVE_BUDGET_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS
     )
     await vi.advanceTimersByTimeAsync(
-      QBIT_FEE_BUMP_RECHECK_WAIT_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS - 1
+      ONE_WAVE_BUDGET_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS - 1
     )
     expect(reads[1]!.signal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
@@ -372,7 +418,7 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     const slow = explorer([unspent])
     // 6.999 s are left: enough for the pause, not for the pause and a read.
     const firstReadMs =
-      QBIT_FEE_BUMP_RECHECK_WAIT_MS -
+      ONE_WAVE_BUDGET_MS -
       QBIT_FEE_BUMP_RECHECK_INTERVAL_MS -
       QBIT_FEE_BUMP_RECHECK_MIN_READ_MS +
       1
@@ -562,7 +608,7 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
       return new Promise(() => undefined)
     })
     const outcome = checkRestored(stalled, ORIGINAL).catch(error => error)
-    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_WAIT_MS)
+    await vi.advanceTimersByTimeAsync(ONE_WAVE_BUDGET_MS)
     expect(((await outcome) as Error).message).toBe(UNCHECKED)
     // The original's read and its input's, both aborted.
     expect(signals).toHaveLength(2)
@@ -594,7 +640,7 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
       return new Promise(() => undefined)
     })
     const outcome = checkRestored(stalled, ORIGINAL).catch(error => error)
-    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_WAIT_MS - 1)
+    await vi.advanceTimersByTimeAsync(ONE_WAVE_BUDGET_MS - 1)
     expect(fundingSignal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     expect(((await outcome) as Error).message).toBe(UNCHECKED)

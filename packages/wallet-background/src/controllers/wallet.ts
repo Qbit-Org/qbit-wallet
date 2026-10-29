@@ -250,9 +250,12 @@ import {
   QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
   QbitExplorerSpendCheckTimeoutError,
   assertNoExplorerSpendConflict,
-  assertQbitExplorerSpendCheck,
-  type QbitExplorerSpendCheck,
 } from '../utils/qbit-fee-bump-recheck'
+import {
+  assertQbitExplorerSpendCheck,
+  qbitExplorerSpendCheckIsNeeded,
+  type QbitExplorerSpendCheck,
+} from '../utils/qbit-explorer-spend-check'
 import {
   QBIT_RECEIVE_GAP_LIMIT,
   planQbitReceiveIntent,
@@ -7776,7 +7779,7 @@ export class WalletController extends BaseController {
       // A claim restored after a restart may replace a payment whatever the
       // page says it replaces, and the guard's records of what spends its
       // inputs went with the restart: what spends them is read as well.
-      if (spendCheck.replaces || spendCheck.restored) {
+      if (qbitExplorerSpendCheckIsNeeded(spendCheck)) {
         try {
           await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation)
         } catch (error) {

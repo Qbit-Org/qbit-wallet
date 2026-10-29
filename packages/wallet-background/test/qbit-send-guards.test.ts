@@ -13,7 +13,7 @@ import {
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
   QbitSendGuardService,
 } from '../src/services/qbitSendGuards'
-import type { QbitExplorerSpendCheck } from '../src/utils/qbit-fee-bump-recheck'
+import type { QbitExplorerSpendCheck } from '../src/utils/qbit-explorer-spend-check'
 
 /** How many outputs the original of each fee bump below has. */
 const REPLACED_OUTPUT_COUNT = 2
@@ -56,6 +56,22 @@ function externalSigningLockIdentity(
     entries,
   }
 }
+
+describe('the send guard module', () => {
+  afterEach(() => {
+    vi.doUnmock('../src/utils/qbit-api')
+    vi.resetModules()
+  })
+
+  it('loads without the explorer client: it only builds what the explorer must check', async () => {
+    vi.resetModules()
+    vi.doMock('../src/utils/qbit-api', () => {
+      throw new Error('the send guard loaded the explorer client')
+    })
+    const guard = await import('../src/services/qbitSendGuards')
+    expect(guard.QbitSendGuardService).toBeTypeOf('function')
+  })
+})
 
 describe('QbitSendGuardService', () => {
   let service: QbitSendGuardService

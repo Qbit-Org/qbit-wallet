@@ -9,7 +9,7 @@ import { ChainType } from '@qbit/wallet-types'
 import {
   qbitExplorerSpendCheckFor,
   type QbitExplorerSpendCheck,
-} from '../utils/qbit-fee-bump-recheck'
+} from '../utils/qbit-explorer-spend-check'
 
 export interface QbitOutpoint {
   txid: string
