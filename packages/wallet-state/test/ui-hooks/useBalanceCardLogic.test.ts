@@ -534,6 +534,100 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
   })
 })
 
+describe("useBalanceCardLogic past the explorer's limit, with the background's split", () => {
+  // The background's split from the send screen's read of the outputs, while
+  // the address statistics still read as they did for it.
+  const overLimitSplit = {
+    availableBalance: 60_000_000,
+    unavailableBalance: 31_000_000,
+    totalBalance: 91_000_000,
+    immatureBalance: null,
+    pendingBalance: null,
+    utxoLimitExceeded: true,
+  }
+  const overLimitUnknown = {
+    ...overLimitSplit,
+    availableBalance: null,
+    unavailableBalance: 91_000_000,
+  }
+
+  it('shows the split the background reports', () => {
+    const result = renderBalanceCard(overLimitSplit)
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceValue).toBe('0.91000000')
+    expect(result.current.availableBalance).toBe(60_000_000)
+    expect(result.current.unavailableBalance).toBe(31_000_000)
+    expect(result.current.availableAmount).toBe('0.60000000')
+    expect(result.current.unavailableAmount).toBe('0.31000000')
+    expect(result.current.balanceSplitUnknown).toBe(false)
+    // The total still comes from the address statistics.
+    expect(result.current.utxoLimitExceeded).toBe(true)
+  })
+
+  it('goes back to `--` when a later read has no split', async () => {
+    const { result } = renderWithExplorer({
+      getAddressSummary: vi.fn().mockResolvedValue(summary),
+      getAddressBalanceV2: vi
+        .fn()
+        .mockResolvedValueOnce({ ...overLimitSplit, chainType: ChainType.QBIT_MAINNET })
+        .mockResolvedValue({ ...overLimitUnknown, chainType: ChainType.QBIT_MAINNET }),
+    })
+    // No split while the first read is still loading.
+    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.availableAmount).toBe('--')
+    expect(result.current.card.unavailableAmount).toBe('--')
+
+    await retry(result)
+    expect(result.current.card.balanceLoading).toBe(false)
+    expect(result.current.card.availableAmount).toBe('0.60000000')
+
+    await retry(result)
+    expect(result.current.card.availableAmount).toBe('--')
+    expect(result.current.card.unavailableAmount).toBe('--')
+    expect(result.current.card.balanceSplitUnknown).toBe(true)
+  })
+
+  it("does not show another network's split", () => {
+    const result = renderBalanceCard({ ...overLimitSplit, chainType: ChainType.QBIT_TESTNET4 })
+
+    // Still loading: no balance for this network has landed.
+    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+    expect(result.current.availableAmount).toBe('--')
+    expect(result.current.unavailableAmount).toBe('--')
+  })
+
+  it("does not show another account's split", () => {
+    const harness = createHookTestHarness()
+    harness.store.dispatch(
+      accountActions.setCurrent({
+        address,
+        pubkey: '11'.repeat(32),
+        type: 'Qbit HD Key Tree',
+      } as any)
+    )
+    harness.store.dispatch(
+      accountActions.setBalanceV2({
+        address: 'qbit-another-account',
+        balance: { ...overLimitSplit, chainType: ChainType.QBIT_MAINNET } as any,
+      })
+    )
+    harness.store.dispatch(
+      accountActions.setBalanceV2({
+        address,
+        balance: { ...overLimitUnknown, chainType: ChainType.QBIT_MAINNET } as any,
+      })
+    )
+    const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceValue).toBe('0.91000000')
+    expect(result.current.availableAmount).toBe('--')
+    expect(result.current.unavailableAmount).toBe('--')
+  })
+})
+
 function renderUnloadedBalanceCard() {
   const harness = createHookTestHarness()
   harness.store.dispatch(

@@ -48,6 +48,7 @@ export {
   qbitWalletOwns,
   type QbitWalletOwnership,
 } from './qbit-wallet-ownership'
+export { isQbitAccountOutput } from './qbit-account-outputs'
 export { statedPsbtRecipients } from './psbt-stated-recipients'
 export { isWebsiteSuppliedPsbt, psbtReviewOptions } from './psbt-review-options'
 export {

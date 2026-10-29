@@ -1,4 +1,9 @@
-import { EsploraClient, MempoolQbitClient, QbitApiError } from '@qbit-oss/api'
+import {
+  EsploraClient,
+  MempoolQbitClient,
+  QbitApiError,
+  addressBalanceFromStats,
+} from '@qbit-oss/api'
 import type {
   AddressHistory,
   AddressHistoryOptions,
@@ -20,6 +25,7 @@ import {
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
   estimateQbitP2mrTransaction,
+  isQbitAccountOutput,
 } from '@qbit/wallet-shared'
 import type {
   AddressSummary,
@@ -589,6 +595,19 @@ export async function isQbitUtxoListOverExplorerLimit(
   error: unknown,
   options: QbitReadCancellation = {}
 ): Promise<boolean> {
+  return (await qbitUtxoListOverExplorerLimitStats(client, address, error, options)) !== undefined
+}
+
+/**
+ * `isQbitUtxoListOverExplorerLimit`, answering with the checked address
+ * statistics that show the limit, or undefined when the failure is not it.
+ */
+async function qbitUtxoListOverExplorerLimitStats(
+  client: Pick<QbitEsploraClient, 'getAddressStats'>,
+  address: string,
+  error: unknown,
+  options: QbitReadCancellation = {}
+): Promise<EsploraAddressStats | undefined> {
   // Only the listing request itself: the classifier's per-output lookups
   // can fail with a 500 of their own.
   if (
@@ -598,7 +617,7 @@ export async function isQbitUtxoListOverExplorerLimit(
     !error.url ||
     !/\/address\/[^/?#]+\/utxo(?:[?#]|$)/.test(error.url)
   ) {
-    return false
+    return undefined
   }
   let stats: EsploraAddressStats
   try {
@@ -607,11 +626,43 @@ export async function isQbitUtxoListOverExplorerLimit(
   } catch {
     throwIfQbitReadCancelled(options)
     // Without statistics the listing failure keeps its own meaning.
-    return false
+    return undefined
   }
   const confirmedUnspentOutputs =
     stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count
-  return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT
+  return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT ? stats : undefined
+}
+
+/**
+ * What the past-limit split needs of an output a read of an address's
+ * history found spendable (see `getQbitAddressUtxos`), and no more: a large
+ * address can have tens of thousands. `unconfirmed` marks the account's own
+ * unconfirmed change.
+ */
+export type QbitReadOutput = Pick<UTXO, 'txid' | 'vout' | 'satoshis' | 'scriptPk' | 'unconfirmed'>
+
+/**
+ * A read the past-limit split takes its outputs from, and the tip heights
+ * between which it still says what a send may select. `matureAt`, when the
+ * read left an immature coinbase output out, is the earliest tip height at
+ * which one matures. `matureFrom`, when it took a coinbase output in, is the
+ * lowest tip height at which every one of them is still mature.
+ */
+export interface QbitOutputRead {
+  outputs: readonly QbitReadOutput[]
+  matureAt?: number
+  matureFrom?: number
+}
+
+/** `utxo` as the past-limit split keeps it (`QbitReadOutput`). */
+export function qbitReadOutput(utxo: QbitReadOutput): QbitReadOutput {
+  return {
+    txid: utxo.txid,
+    vout: utxo.vout,
+    satoshis: utxo.satoshis,
+    scriptPk: utxo.scriptPk,
+    ...(utxo.unconfirmed ? { unconfirmed: true } : {}),
+  }
 }
 
 /**
@@ -619,12 +670,18 @@ export async function isQbitUtxoListOverExplorerLimit(
  * given, is read once the outputs are listed and names the outputs
  * (`txid:vout`) a send must not select (see `QbitSendGuardService`); they
  * count as unavailable rather than available.
+ *
+ * Past the explorer's UTXO limit the outputs cannot be listed, and the split
+ * is unknown unless `readOutputs` has the outputs a read of the address's
+ * history found when the address statistics (`qbitStatsSnapshot`) read as
+ * they do now; see `getQbitPastLimitSplit`.
  */
 export async function getQbitSpendableBalanceV2(
   client: QbitEsploraClient,
   address: string,
   p2mrScriptPubKey?: string,
-  readReserved?: () => Promise<ReadonlySet<string>>
+  readReserved?: () => Promise<ReadonlySet<string>>,
+  readOutputs?: (stats: string) => QbitOutputRead | undefined
 ): Promise<QbitBalanceSummaryPayload> {
   const [balanceResult, classifiedResult] = await Promise.allSettled([
     client.getAddressBalance(address),
@@ -634,9 +691,14 @@ export async function getQbitSpendableBalanceV2(
   const balance = balanceResult.value
   const aggregateBalance = qbitBalanceToSummary(balance)
   if (classifiedResult.status === 'rejected') {
-    if (!(await isQbitUtxoListOverExplorerLimit(client, address, classifiedResult.reason))) {
-      throw classifiedResult.reason
-    }
+    const stats = await qbitUtxoListOverExplorerLimitStats(client, address, classifiedResult.reason)
+    if (!stats) throw classifiedResult.reason
+    // The split takes the statistics this check read: one read, so the two
+    // can never disagree.
+    const split = readOutputs
+      ? await getQbitPastLimitSplit(client, stats, p2mrScriptPubKey, readReserved, readOutputs)
+      : undefined
+    if (split) return split
     // The statistics still give the total. With no output list none of it
     // can be classified, so the split is unknown rather than 0, and none of
     // it can be selected until a send reads the outputs from history.
@@ -652,32 +714,17 @@ export async function getQbitSpendableBalanceV2(
   }
   const classified = classifiedResult.value
   const reserved = readReserved ? await readReserved() : undefined
-  const matchesScript = (utxo: UTXO) =>
-    !p2mrScriptPubKey || utxo.scriptPk.toLowerCase() === p2mrScriptPubKey.toLowerCase()
-  const selectable = (utxo: UTXO) =>
-    matchesScript(utxo) && !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
-  const confirmedSpendableSats = classified.confirmedSpendable
-    .filter(selectable)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const unconfirmedSpendableSats = classified.unconfirmedSpendable
-    .filter(matchesScript)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const ownChangeSats = classified.unconfirmedOwnChange
-    .filter(matchesScript)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const selectableOwnChangeSats = classified.unconfirmedOwnChange
-    .filter(selectable)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const classifiedImmatureSats = classified.immature
-    .filter(matchesScript)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  // Available is what a send may select (see `getQbitAddressUtxos`): the
-  // confirmed outputs, plus the unconfirmed change of this script's own
-  // transactions, less the reserved ones.
-  const availableBalance = Math.min(
-    Math.max(0, aggregateBalance.totalBalance),
-    Math.min(Math.max(0, aggregateBalance.availableBalance), confirmedSpendableSats) +
-      selectableOwnChangeSats
+  const unconfirmedSpendableSats = qbitAccountSats(
+    classified.unconfirmedSpendable,
+    p2mrScriptPubKey
+  )
+  const ownChangeSats = qbitAccountSats(classified.unconfirmedOwnChange, p2mrScriptPubKey)
+  const classifiedImmatureSats = qbitAccountSats(classified.immature, p2mrScriptPubKey)
+  const availableBalance = qbitAvailableSats(
+    aggregateBalance.totalBalance,
+    aggregateBalance.availableBalance,
+    qbitAccountSats(classified.confirmedSpendable, p2mrScriptPubKey, reserved),
+    qbitAccountSats(classified.unconfirmedOwnChange, p2mrScriptPubKey, reserved)
   )
   const unavailableBalance = Math.max(0, aggregateBalance.totalBalance - availableBalance)
   const immatureBalance = Math.min(classifiedImmatureSats, unavailableBalance)
@@ -694,6 +741,129 @@ export async function getQbitSpendableBalanceV2(
     immatureBalance,
     pendingBalance,
   }
+}
+
+/**
+ * The split of an address over the explorer's UTXO limit from the outputs a
+ * read of its history found, or `undefined` (unknown) without a read made
+ * against `stats`, the statistics as they read now: any new transaction for
+ * the address changes them, nor once a coinbase output the read left out as
+ * immature has matured, or one it took in is immature again. The total and
+ * the confirmed balance come from
+ * those same statistics, and Available is bounded by them as on the listing
+ * path (`qbitAvailableSats`), less the outputs `readReserved` names;
+ * Unavailable is the rest. The read leaves immature and pending outputs
+ * out, so those stay unknown.
+ */
+async function getQbitPastLimitSplit(
+  client: QbitEsploraClient,
+  stats: EsploraAddressStats,
+  p2mrScriptPubKey: string | undefined,
+  readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
+  readOutputs: (stats: string) => QbitOutputRead | undefined
+): Promise<QbitBalanceSummaryPayload | undefined> {
+  let balance: AddressBalance
+  try {
+    balance = addressBalanceFromStats(stats)
+  } catch {
+    return undefined
+  }
+  const read = readOutputs(qbitStatsSnapshot(stats))
+  if (!read) return undefined
+  // A coinbase output matures with no change to the statistics, and turns
+  // immature again when the chain rolls back: once one the read left out
+  // has matured, or one it took in is immature again, the read is out of
+  // date. The tip is read only for a read with coinbase outputs.
+  if (read.matureAt !== undefined || read.matureFrom !== undefined) {
+    let tipHeight: number
+    try {
+      tipHeight = await client.getTipHeight()
+    } catch {
+      return undefined
+    }
+    if (
+      !Number.isSafeInteger(tipHeight) ||
+      (read.matureAt !== undefined && tipHeight >= read.matureAt) ||
+      (read.matureFrom !== undefined && tipHeight < read.matureFrom)
+    ) {
+      return undefined
+    }
+  }
+  const { outputs } = read
+  const reserved = readReserved ? await readReserved() : undefined
+  // One pass over what may be tens of thousands of outputs, on every poll.
+  let confirmedSelectableSats = 0
+  let ownChangeSelectableSats = 0
+  for (const output of outputs) {
+    if (!isQbitSelectableOutput(output, p2mrScriptPubKey, reserved)) continue
+    if (output.unconfirmed) ownChangeSelectableSats += output.satoshis
+    else confirmedSelectableSats += output.satoshis
+  }
+  const totalBalance = Math.max(0, balance.totalSats)
+  const availableBalance = qbitAvailableSats(
+    totalBalance,
+    balance.confirmedSats,
+    confirmedSelectableSats,
+    ownChangeSelectableSats
+  )
+  return {
+    availableBalance,
+    unavailableBalance: totalBalance - availableBalance,
+    totalBalance,
+    immatureBalance: null,
+    pendingBalance: null,
+    utxoLimitExceeded: true,
+  }
+}
+
+/**
+ * The value of the account's own outputs among `outputs`, less the ones
+ * `reserved` holds (`isQbitSelectableOutput`).
+ */
+function qbitAccountSats(
+  outputs: readonly QbitReadOutput[],
+  p2mrScriptPubKey: string | undefined,
+  reserved?: ReadonlySet<string>
+): number {
+  let sats = 0
+  for (const output of outputs) {
+    if (isQbitSelectableOutput(output, p2mrScriptPubKey, reserved)) sats += output.satoshis
+  }
+  return sats
+}
+
+/**
+ * Whether a send may select `output`: the account's own
+ * (`isQbitAccountOutput`), and not held by `reserved`, which names
+ * outpoints as `txid:vout`, the txid in lower case (`QbitSendGuardService`).
+ */
+function isQbitSelectableOutput(
+  output: QbitReadOutput,
+  p2mrScriptPubKey: string | undefined,
+  reserved: ReadonlySet<string> | undefined
+): boolean {
+  return (
+    isQbitAccountOutput(output, p2mrScriptPubKey) &&
+    !reserved?.has(`${output.txid.toLowerCase()}:${output.vout}`)
+  )
+}
+
+/**
+ * Available as a send sees it (see `getQbitAddressUtxos`), on either balance
+ * path: the confirmed outputs a send may select, never more than the
+ * confirmed balance, plus the selectable unconfirmed change of this
+ * script's own transactions, never more than the total.
+ */
+function qbitAvailableSats(
+  totalSats: number,
+  confirmedSats: number,
+  confirmedSelectableSats: number,
+  ownChangeSelectableSats: number
+): number {
+  return Math.min(
+    Math.max(0, totalSats),
+    Math.min(Math.max(0, confirmedSats), confirmedSelectableSats) + ownChangeSelectableSats
+  )
 }
 
 export function qbitStatsToAddressSummary(stats: EsploraAddressStats): AddressSummary {
@@ -1498,6 +1668,20 @@ export interface QbitClassifiedUtxos {
   unconfirmedOwnChange: UTXO[]
   /** Confirmed coinbase outputs still inside the 1,000-block maturity window. */
   immature: UTXO[]
+  /** With `immature` outputs: the earliest tip height at which one of them matures. */
+  matureAt?: number
+  /**
+   * With coinbase outputs in `spendable`: the lowest tip height at which
+   * every one of them is still mature. Below it, as after a rollback, one
+   * is immature again.
+   */
+  matureFrom?: number
+  /**
+   * Outputs read from history only: the address statistics the walk
+   * verified. They read the same before and after it, and its outputs
+   * reconcile with them.
+   */
+  historyStats?: EsploraAddressStats
 }
 
 /**
@@ -1569,11 +1753,17 @@ async function classifyQbitUtxos(
   // Each output carries its ancestors' sizes, which coin selection keeps
   // within the ancestor size limit for the outputs it actually spends.
   let ownChangeAncestors = new Set<string>()
+  let matureAt: number | undefined
+  let matureFrom: number | undefined
   for (const entry of walletUtxos) {
     if (!entry) continue
     if (entry.immature) {
       immature.push(entry.utxo)
+      if (entry.matureAt !== undefined) matureAt = Math.min(matureAt ?? Infinity, entry.matureAt)
     } else {
+      if (entry.matureAt !== undefined) {
+        matureFrom = Math.max(matureFrom ?? -Infinity, entry.matureAt)
+      }
       spendable.push(entry.utxo)
       if (entry.confirmed) {
         confirmedSpendable.push(entry.utxo)
@@ -1595,7 +1785,15 @@ async function classifyQbitUtxos(
       }
     }
   }
-  return { spendable, confirmedSpendable, unconfirmedSpendable, unconfirmedOwnChange, immature }
+  return {
+    spendable,
+    confirmedSpendable,
+    unconfirmedSpendable,
+    unconfirmedOwnChange,
+    immature,
+    ...(matureAt !== undefined ? { matureAt } : {}),
+    ...(matureFrom !== undefined ? { matureFrom } : {}),
+  }
 }
 
 /**
@@ -1659,7 +1857,7 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     retryBaseDelayMs: options.retryBaseDelayMs ?? QBIT_UTXO_HISTORY_RETRY_BASE_DELAY_MS,
   })
   const read: QbitReadCancellation = options.signal ? { signal: options.signal } : {}
-  const unspent = await loadQbitSnapshotWithStabilityRetries(
+  const { stats, unspent } = await loadQbitSnapshotWithStabilityRetries(
     retry,
     () => readQbitUnspentOutputsFromHistory(client, address, maxTransactions, read),
     read
@@ -1669,7 +1867,7 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
       .filter(({ tx }) => tx.status.confirmed)
       .map(({ tx }) => [tx.txid.toLowerCase(), tx] as const)
   )
-  return classifyQbitUtxos(
+  const classified = await classifyQbitUtxos(
     client,
     unspent.map(({ tx, vout }) => ({
       txid: tx.txid,
@@ -1686,14 +1884,16 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     },
     read
   )
+  return { ...classified, historyStats: stats }
 }
 
+/** The address's unspent outputs read from its history, and the statistics the walk verified. */
 async function readQbitUnspentOutputsFromHistory(
   client: QbitEsploraClient,
   address: string,
   maxTransactions: number,
   options: QbitReadCancellation
-): Promise<{ tx: EsploraTx; vout: number }[]> {
+): Promise<{ stats: EsploraAddressStats; unspent: { tx: EsploraTx; vout: number }[] }> {
   const statsBefore = await client.getAddressStats(address, options)
   assertValidQbitStats(statsBefore, address)
   if (qbitHistoryOverReadLimit(statsBefore, maxTransactions)) {
@@ -1763,7 +1963,10 @@ async function readQbitUnspentOutputsFromHistory(
       `qbit history of ${address} does not reconcile with its statistics`
     )
   }
-  return [...funded].filter(([outpoint]) => !spent.has(outpoint)).map(([, output]) => output)
+  return {
+    stats: statsBefore,
+    unspent: [...funded].filter(([outpoint]) => !spent.has(outpoint)).map(([, output]) => output),
+  }
 }
 
 function qbitHistoryOverReadLimit(stats: EsploraAddressStats, maxTransactions: number): boolean {
@@ -1815,15 +2018,36 @@ export async function getQbitAddressUtxos(
   address: string,
   options: QbitReadCancellation = {}
 ): Promise<UTXO[]> {
-  const { confirmedSpendable, unconfirmedOwnChange } = await getQbitAddressUtxosClassifiedPastLimit(
-    client,
-    address,
-    options
-  )
-  return [
-    ...confirmedSpendable,
-    ...unconfirmedOwnChange.map(utxo => ({ ...utxo, unconfirmed: true })),
-  ]
+  return (await readQbitAddressUtxos(client, address, options)).utxos
+}
+
+/**
+ * `getQbitAddressUtxos`, with the address statistics the walk verified when
+ * the outputs were read from history (`QbitClassifiedUtxos.historyStats`),
+ * and the coinbase maturity heights it depends on
+ * (`QbitClassifiedUtxos.matureAt` and `matureFrom`).
+ */
+export async function readQbitAddressUtxos(
+  client: QbitEsploraClient,
+  address: string,
+  options: QbitReadCancellation = {}
+): Promise<{
+  utxos: UTXO[]
+  historyStats?: EsploraAddressStats
+  matureAt?: number
+  matureFrom?: number
+}> {
+  const { confirmedSpendable, unconfirmedOwnChange, historyStats, matureAt, matureFrom } =
+    await getQbitAddressUtxosClassifiedPastLimit(client, address, options)
+  return {
+    utxos: [
+      ...confirmedSpendable,
+      ...unconfirmedOwnChange.map(utxo => ({ ...utxo, unconfirmed: true })),
+    ],
+    ...(historyStats ? { historyStats } : {}),
+    ...(matureAt !== undefined ? { matureAt } : {}),
+    ...(matureFrom !== undefined ? { matureFrom } : {}),
+  }
 }
 
 /** The address's output counts from its statistics, as the explorer's limit sees them. */
@@ -2549,6 +2773,8 @@ async function qbitUtxoToWalletUtxo(
       utxo: UTXO
       confirmed: boolean
       immature: boolean
+      /** A coinbase output's: the lowest tip height at which it is mature. */
+      matureAt?: number
       ownAncestry: Map<string, number> | undefined
     }
   | undefined
@@ -2585,6 +2811,7 @@ async function qbitUtxoToWalletUtxo(
 
   const isCoinbase = tx.vin.some(input => input.is_coinbase)
   let immature = false
+  let matureAt: number | undefined
   if (isCoinbase) {
     const blockHeight = utxo.status.block_height
     if (!utxo.status.confirmed || blockHeight === undefined) {
@@ -2601,6 +2828,7 @@ async function qbitUtxoToWalletUtxo(
       throw new Error('invalid qbit tip height')
     }
     immature = !isQbitCoinbaseMature(blockHeight, tipHeight)
+    matureAt = blockHeight + QBIT_COINBASE_MATURITY - 1
   }
 
   const ownAncestry =
@@ -2611,6 +2839,7 @@ async function qbitUtxoToWalletUtxo(
   return {
     confirmed: utxo.status.confirmed,
     immature,
+    ...(matureAt !== undefined ? { matureAt } : {}),
     ownAncestry,
     utxo: {
       txid: utxo.txid,
