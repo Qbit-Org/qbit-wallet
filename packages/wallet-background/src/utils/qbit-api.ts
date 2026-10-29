@@ -1,4 +1,9 @@
-import { EsploraClient, MempoolQbitClient, QbitApiError } from '@qbit-oss/api'
+import {
+  EsploraClient,
+  MempoolQbitClient,
+  QbitApiError,
+  addressBalanceFromStats,
+} from '@qbit-oss/api'
 import type {
   AddressHistory,
   AddressHistoryOptions,
@@ -490,17 +495,26 @@ export async function isQbitUtxoListOverExplorerLimit(
   return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT
 }
 
+/** An output a read of an address's history found spendable; see `getQbitAddressUtxos`. */
+export type QbitReadOutput = Pick<UTXO, 'txid' | 'vout' | 'satoshis' | 'scriptPk'>
+
 /**
  * The address's balance split the way a send sees it. `readReserved`, when
  * given, is read once the outputs are listed and names the outputs
  * (`txid:vout`) a send must not select (see `QbitSendGuardService`); they
  * count as unavailable rather than available.
+ *
+ * Past the explorer's UTXO limit the outputs cannot be listed, and the split
+ * is unknown unless `readOutputs` has the outputs a read of the address's
+ * history found when the address statistics (`qbitStatsSnapshot`) read as
+ * they do now; see `getQbitPastLimitSplit`.
  */
 export async function getQbitSpendableBalanceV2(
   client: QbitEsploraClient,
   address: string,
   p2mrScriptPubKey?: string,
-  readReserved?: () => Promise<ReadonlySet<string>>
+  readReserved?: () => Promise<ReadonlySet<string>>,
+  readOutputs?: (stats: string) => readonly QbitReadOutput[] | undefined
 ): Promise<QbitBalanceSummaryPayload> {
   const [balanceResult, classifiedResult] = await Promise.allSettled([
     client.getAddressBalance(address),
@@ -513,6 +527,10 @@ export async function getQbitSpendableBalanceV2(
     if (!(await isQbitUtxoListOverExplorerLimit(client, address, classifiedResult.reason))) {
       throw classifiedResult.reason
     }
+    const split = readOutputs
+      ? await getQbitPastLimitSplit(client, address, p2mrScriptPubKey, readReserved, readOutputs)
+      : undefined
+    if (split) return split
     // The statistics still give the total. With no output list none of it
     // can be classified, so the split is unknown rather than 0, and none of
     // it can be selected until a send reads the outputs from history.
@@ -569,6 +587,54 @@ export async function getQbitSpendableBalanceV2(
     totalBalance: aggregateBalance.totalBalance,
     immatureBalance,
     pendingBalance,
+  }
+}
+
+/**
+ * The split of an address over the explorer's UTXO limit from the outputs a
+ * read of its history found, or `undefined` (unknown) without a read made
+ * against the statistics as they read now: any new transaction for the
+ * address changes them. The total comes from those same statistics.
+ * Available is what a send may select from the read, less the outputs
+ * `readReserved` names, never more than the total; Unavailable is the rest.
+ * The read leaves immature and pending outputs out, so those stay unknown.
+ */
+async function getQbitPastLimitSplit(
+  client: QbitEsploraClient,
+  address: string,
+  p2mrScriptPubKey: string | undefined,
+  readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
+  readOutputs: (stats: string) => readonly QbitReadOutput[] | undefined
+): Promise<QbitBalanceSummaryPayload | undefined> {
+  let stats: EsploraAddressStats
+  let totalBalance: number
+  try {
+    stats = await client.getAddressStats(address)
+    assertValidQbitStats(stats, address)
+    totalBalance = Math.max(0, addressBalanceFromStats(stats).totalSats)
+  } catch {
+    return undefined
+  }
+  const outputs = readOutputs(qbitStatsSnapshot(stats))
+  if (!outputs) return undefined
+  const reserved = readReserved ? await readReserved() : undefined
+  const script = p2mrScriptPubKey?.toLowerCase()
+  const spendableSats = outputs
+    .filter(
+      utxo =>
+        typeof utxo.scriptPk === 'string' &&
+        (!script || utxo.scriptPk.toLowerCase() === script) &&
+        !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
+    )
+    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
+  const availableBalance = Math.min(totalBalance, spendableSats)
+  return {
+    availableBalance,
+    unavailableBalance: totalBalance - availableBalance,
+    totalBalance,
+    immatureBalance: null,
+    pendingBalance: null,
+    utxoLimitExceeded: true,
   }
 }
 

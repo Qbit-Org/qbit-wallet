@@ -41,23 +41,6 @@ export interface TransactionsState {
    * replaces a later read's for the same account and network.
    */
   utxosRead: number
-  /**
-   * When the read whose answer `utxos` holds landed (milliseconds since the
-   * epoch), or 0 for outputs set without one.
-   */
-  utxosReadAt: number
-  /**
-   * `broadcasts` as it stood when the read whose answer `utxos` holds
-   * started, or -1 for outputs set without one.
-   */
-  utxosBroadcasts: number
-  /**
-   * Broadcasts this window published: sends, fee bumps and consolidation
-   * batches, counted as each one's txid lands in `qbitTx`. A read of the
-   * outputs that started before the latest one can still list the outputs
-   * it spent and miss its change.
-   */
-  broadcasts: number
   spendUnavailableUtxos: UnspentOutput[]
 }
 
@@ -80,9 +63,6 @@ export const initialState: TransactionsState = {
   utxosChain: null,
   utxosAddress: null,
   utxosRead: 0,
-  utxosReadAt: 0,
-  utxosBroadcasts: -1,
-  broadcasts: 0,
   spendUnavailableUtxos: [],
 }
 
@@ -111,28 +91,18 @@ const slice: Slice<TransactionsState> = createSlice({
     ) {
       const { payload } = action
       state.qbitTx = Object.assign({}, state.qbitTx, payload)
-      if (payload.txid) state.broadcasts += 1
     },
-    setUtxos(
-      state,
-      action: {
-        payload: QbitUtxoSnapshot & { read?: number; readAt?: number; broadcasts?: number }
-      }
-    ) {
+    setUtxos(state, action: { payload: QbitUtxoSnapshot & { read?: number } }) {
       state.utxos = action.payload.utxos
       state.utxosChain = action.payload.chain
       state.utxosAddress = action.payload.address
       state.utxosRead = action.payload.read ?? 0
-      state.utxosReadAt = action.payload.readAt ?? 0
-      state.utxosBroadcasts = action.payload.broadcasts ?? -1
     },
     setSpendUnavailableUtxos(state, action: { payload: UnspentOutput[] }) {
       state.spendUnavailableUtxos = action.payload
     },
     reset(state) {
-      // The count only grows, so a read that started before the reset can
-      // never pass for one that started after a later broadcast.
-      return { ...initialState, broadcasts: state.broadcasts }
+      return initialState
     },
   },
 
@@ -149,15 +119,6 @@ const slice: Slice<TransactionsState> = createSlice({
       }
       if (state.utxosRead === undefined) {
         state.utxosRead = 0
-      }
-      if (state.utxosReadAt === undefined) {
-        state.utxosReadAt = 0
-      }
-      if (state.utxosBroadcasts === undefined) {
-        state.utxosBroadcasts = -1
-      }
-      if (state.broadcasts === undefined) {
-        state.broadcasts = 0
       }
     })
   },

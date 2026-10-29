@@ -787,6 +787,11 @@ function summarizeError(error: unknown): { name?: string; code?: number } {
   }
 }
 
+/** The key a shared snapshot read runs under: the address and its statistics. */
+function qbitUtxoSnapshotReadKey(address: string, stats: string): string {
+  return `${address}#${stats}`
+}
+
 export class WalletController extends BaseController {
   timer: any = null
   private readonly qbitApiClients = new Map<string, QbitWalletApiClient>()
@@ -1575,10 +1580,21 @@ export class WalletController extends BaseController {
     // which can take a minute, so each wait for the guard lasts at most
     // `qbitBalanceGuardWaitMs`. Past that, without the reservations, the
     // split is unknown.
+    //
+    // Past the explorer's limit the outputs come from the latest output read
+    // for this address on this network (see `getQbitUtxoSnapshot`), and only
+    // while the statistics still read as they did for it.
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
+    const client = this.getQbitApiClient(chainType)
+    const readOutputs = this.qbitUtxoSnapshotReads.latest(client, address)
+      ? (stats: string) => {
+          const latest = this.qbitUtxoSnapshotReads.latest(client, address)
+          return latest?.key === qbitUtxoSnapshotReadKey(address, stats) ? latest.value : undefined
+        }
+      : undefined
     const data = await getQbitSpendableBalanceV2(
-      this.getQbitApiClient(chainType),
+      client,
       address,
       p2mrScriptPubKey,
       async () => {
@@ -1590,18 +1606,21 @@ export class WalletController extends BaseController {
         if (reserved !== undefined) return reserved
         reservedUnknown = true
         return new Set<string>()
-      }
+      },
+      readOutputs
     )
     if (reservedUnknown) {
-      // Shown as `--`, as past the explorer's UTXO limit, but without
-      // `utxoLimitExceeded`: the total is measured, and nothing counts as
-      // available until a read has the reservations again.
+      // Shown as `--`, as past the explorer's UTXO limit: the total is
+      // measured, and nothing counts as available until a read has the
+      // reservations again. An address past the limit keeps
+      // `utxoLimitExceeded`, as its total comes from the statistics.
       return {
         availableBalance: null,
         unavailableBalance: Math.max(0, data.totalBalance),
         totalBalance: data.totalBalance,
         immatureBalance: null,
         pendingBalance: null,
+        ...(data.utxoLimitExceeded ? { utxoLimitExceeded: true } : {}),
         chainType,
       }
     }
@@ -5700,6 +5719,11 @@ export class WalletController extends BaseController {
    * the reservations apply to each answer after the read, so outputs a send
    * took while it ran are still left out. Without statistics the read is
    * not shared.
+   *
+   * A shared read's outputs, before any reservation, stay behind as the
+   * account's latest on that network, with the statistics it ran against:
+   * past the explorer's limit `getAddressBalanceV2` takes its split from them
+   * while the statistics still read the same.
    */
   getQbitUtxoSnapshot = async (): Promise<QbitUtxoSnapshot> => this.readQbitUtxoSnapshot(true)
 
@@ -5719,7 +5743,12 @@ export class WalletController extends BaseController {
     const qbitUtxos =
       activity === undefined
         ? await read()
-        : await this.qbitUtxoSnapshotReads.run(client, `${account.address}#${activity}`, read)
+        : await this.qbitUtxoSnapshotReads.run(
+            client,
+            qbitUtxoSnapshotReadKey(account.address, activity),
+            read,
+            account.address
+          )
     return {
       address: account.address,
       chain,
@@ -5727,7 +5756,10 @@ export class WalletController extends BaseController {
     }
   }
 
-  /** The snapshot reads in flight, per API client, address and address statistics. */
+  /**
+   * The snapshot reads in flight, per API client, address and address
+   * statistics, and the latest answer per API client and address.
+   */
   private qbitUtxoSnapshotReads = new QbitSharedReads<UnspentOutput[]>()
 
   /**

@@ -5,28 +5,16 @@ import { AppState, uiActions } from 'src'
 import { useI18n } from '../context'
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import {
-  getQbitP2mrSpendableSatoshis,
   useAccountBalance,
   useAccountBalanceStatus,
   useBalanceCardDetailExpanded,
   useChain,
-  useCurrentAccount,
   useFetchBalanceCallback,
   useQbitUnit,
   useToggleBalanceCardDetailExpanded,
-  useUtxos,
-  useUtxosLoaded,
 } from '../hooks'
 
 const DEBOUNCE_DELAY = 1000
-
-/**
- * How long after it lands the card takes its split from the send screen's
- * read of the outputs. Only broadcasts from this window make a read out of
- * date at once; a send from another window or a website's approval window
- * does not, so the read is also given up once it is this old.
- */
-export const BALANCE_CARD_OUTPUT_READ_MAX_AGE_MS = 2 * 60 * 1000
 
 export function useBalanceCardLogic() {
   const { t } = useI18n()
@@ -89,59 +77,18 @@ export function useBalanceCardLogic() {
   // the address statistics and is labelled so it is not read as spendable.
   const utxoLimitExceeded = isCurrentChainBalance && accountBalance.utxoLimitExceeded === true
   const utxoLimitExceededText = useMemo(() => t('utxo_limit_exceeded_balance'), [t])
-  // The send screen reads the outputs from the account's history past the
-  // limit. The cache holds that read only for this account on this network
-  // (`useUtxosLoaded`), and the card takes it while no broadcast from this
-  // window came after the read started and it is recent.
-  const currentAccount = useCurrentAccount()
-  const utxos = useUtxos()
-  const utxosLoaded = useUtxosLoaded()
-  const utxosReadAt = useSelector((state: AppState) => state.transactions.utxosReadAt)
-  const utxosReadBeforeBroadcast = useSelector(
-    (state: AppState) => state.transactions.utxosBroadcasts !== state.transactions.broadcasts
-  )
-  // Marks the read too old when its time is up, which also re-renders the
-  // card, even if the timer fires a moment before the clock says so.
-  const [expiredUtxosReadAt, setExpiredUtxosReadAt] = useState(0)
-  useEffect(() => {
-    if (!utxosReadAt) return undefined
-    const timer = setTimeout(
-      () => setExpiredUtxosReadAt(utxosReadAt),
-      Math.max(0, utxosReadAt + BALANCE_CARD_OUTPUT_READ_MAX_AGE_MS - Date.now())
-    )
-    return () => clearTimeout(timer)
-  }, [utxosReadAt])
-  const utxosReadCurrent =
-    utxosLoaded &&
-    utxosReadAt > 0 &&
-    !utxosReadBeforeBroadcast &&
-    expiredUtxosReadAt !== utxosReadAt &&
-    Date.now() - utxosReadAt < BALANCE_CARD_OUTPUT_READ_MAX_AGE_MS
-
   // Without the output list Available is unknown (`null`), and so is how
   // much of the total is unavailable: both show `--` rather than a measured
   // 0 and the whole total, as they do before any read. The send screen
-  // shows them as `--` too. Past the explorer's limit a current read of the
-  // outputs gives the split instead, never more Available than the total.
-  // The note names the explorer's limit, so it shows only when that limit
-  // is the cause, not for another unknown split.
+  // shows Available as `--` too. The note names the explorer's limit, so it
+  // shows only when that limit is the cause, not for another unknown split.
   const availableUnknown = !isCurrentChainBalance || accountBalance.availableBalance === null
-  const totalBalance = accountBalance.totalBalance
-  const readAvailableBalance =
-    utxoLimitExceeded && availableUnknown && utxosReadCurrent
-      ? Math.min(getQbitP2mrSpendableSatoshis(utxos, currentAccount), Math.max(0, totalBalance))
-      : null
-  const balanceSplitUnknown = utxoLimitExceeded && availableUnknown && readAvailableBalance === null
+  const balanceSplitUnknown = utxoLimitExceeded && availableUnknown
   const balanceSplitUnknownText = useMemo(() => t('utxo_limit_exceeded_balance_detail'), [t])
 
-  const availableBalance =
-    readAvailableBalance ?? (availableUnknown ? null : accountBalance.availableBalance)
-  const unavailableBalance =
-    readAvailableBalance !== null
-      ? Math.max(0, totalBalance) - readAvailableBalance
-      : availableUnknown
-        ? null
-        : accountBalance.unavailableBalance
+  const totalBalance = accountBalance.totalBalance
+  const availableBalance = availableUnknown ? null : accountBalance.availableBalance
+  const unavailableBalance = availableUnknown ? null : accountBalance.unavailableBalance
 
   const totalAmount = numUtils.satoshisToAmount(accountBalance.totalBalance)
   const availableAmount =

@@ -10,6 +10,7 @@ import {
   getQbitAddressUtxosClassifiedFromHistory,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitSpendableBalanceV2,
+  qbitStatsSnapshot,
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
@@ -313,6 +314,137 @@ describe('outputs of an address over the explorer UTXO limit (#277)', () => {
       pendingSpent: 10,
       pendingFunded: 2,
     })
+  })
+})
+
+describe('balance split of an address over the explorer UTXO limit, from a read of its outputs', () => {
+  /** The fixture's total as its statistics give it. */
+  function totalOf(explorer: FakeQbitExplorer) {
+    const { chain_stats: chain, mempool_stats: mempool } = explorer.stats(address)
+    return (
+      chain.funded_txo_sum - chain.spent_txo_sum + mempool.funded_txo_sum - mempool.spent_txo_sum
+    )
+  }
+
+  /** A read of the outputs from history, kept with the statistics it ran against. */
+  async function readOf(explorer: FakeQbitExplorer) {
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const utxos = await getQbitAddressUtxos(clientFor(explorer), address)
+    const readOutputs = (current: string) => (current === stats ? utxos : undefined)
+    return { utxos, readOutputs }
+  }
+
+  const sum = (utxos: readonly { satoshis: number }[]) =>
+    utxos.reduce((total, utxo) => total + utxo.satoshis, 0)
+
+  it('takes the split from a read made against the statistics as they read now', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos, readOutputs } = await readOf(explorer)
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      readOutputs
+    )
+
+    const total = totalOf(explorer)
+    expect(sum(utxos)).toBeLessThan(total)
+    expect(balance).toEqual({
+      availableBalance: sum(utxos),
+      unavailableBalance: total - sum(utxos),
+      totalBalance: total,
+      immatureBalance: null,
+      pendingBalance: null,
+      utxoLimitExceeded: true,
+    })
+  })
+
+  it('keeps the split unknown once a transaction moved the statistics', async () => {
+    const { explorer } = overLimitExplorer()
+    const { readOutputs } = await readOf(explorer)
+    explorer.addTx({
+      txid: fakeTxid(4, 8_000_000),
+      inputs: [{ txid: fakeTxid(5, 8_000_000), vout: 0 }],
+      outputs: [{ address, script, value: 3_000 }],
+    })
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      readOutputs
+    )
+
+    expect(balance).toEqual({
+      availableBalance: null,
+      unavailableBalance: totalOf(explorer),
+      totalBalance: totalOf(explorer),
+      immatureBalance: null,
+      pendingBalance: null,
+      utxoLimitExceeded: true,
+    })
+  })
+
+  it('counts a reserved output as unavailable', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos, readOutputs } = await readOf(explorer)
+    const held = utxos[0]!
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      async () => new Set([`${held.txid}:${held.vout}`]),
+      readOutputs
+    )
+
+    expect(balance.availableBalance).toBe(sum(utxos) - held.satoshis)
+    expect(balance.unavailableBalance).toBe(totalOf(explorer) - sum(utxos) + held.satoshis)
+  })
+
+  it("counts only the account's own script, and never more than the total", async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos } = await readOf(explorer)
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const foreign = { ...utxos[0]!, txid: fakeTxid(9, 9_000_000), scriptPk: payerScript }
+    const inflated = utxos.map(utxo => ({ ...utxo, satoshis: utxo.satoshis * 10 }))
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? [...inflated, foreign] : undefined)
+    )
+
+    expect(balance.availableBalance).toBe(totalOf(explorer))
+    expect(balance.unavailableBalance).toBe(0)
+  })
+
+  it('keeps the split unknown when the statistics cannot be read again', async () => {
+    const { explorer } = overLimitExplorer()
+    const { readOutputs } = await readOf(explorer)
+    // The total's read and the listing check answer; the split's read fails,
+    // retries included.
+    let statsReads = 0
+    explorer.failures.push(({ path }) =>
+      path === `/address/${address}` && ++statsReads >= 3 ? { status: 503 } : undefined
+    )
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      readOutputs
+    )
+
+    expect(statsReads).toBeGreaterThanOrEqual(3)
+    expect(balance.availableBalance).toBeNull()
+    expect(balance.utxoLimitExceeded).toBe(true)
   })
 })
 

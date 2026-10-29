@@ -2,16 +2,9 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChainType } from '@qbit/wallet-types'
 
-import { AddressType } from '@qbit/wallet-types'
-
 import { useFetchBalanceCallback } from '../../src/hooks/accounts'
-import { useFetchUtxosCallback, usePushQbitTxCallback } from '../../src/hooks/transactions'
-import {
-  BALANCE_CARD_OUTPUT_READ_MAX_AGE_MS,
-  useBalanceCardLogic,
-} from '../../src/ui-hooks/useBalanceCardLogic'
+import { useBalanceCardLogic } from '../../src/ui-hooks/useBalanceCardLogic'
 import { accountActions } from '../../src/reducers/accounts'
-import { settingsActions } from '../../src/reducers/settings'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const address = 'qbit-many-outputs'
@@ -534,274 +527,87 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
   })
 })
 
-describe("useBalanceCardLogic past the explorer's limit, with the send screen's output read", () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  const otherAddress = 'qbit-another-account'
-  const overLimitBalance = {
-    availableBalance: null,
-    unavailableBalance: 91_000_000,
+describe("useBalanceCardLogic past the explorer's limit, with the background's split", () => {
+  // The background's split from the send screen's read of the outputs, while
+  // the address statistics still read as they did for it.
+  const overLimitSplit = {
+    availableBalance: 60_000_000,
+    unavailableBalance: 31_000_000,
     totalBalance: 91_000_000,
     immatureBalance: null,
     pendingBalance: null,
     utxoLimitExceeded: true,
-    chainType: ChainType.QBIT_MAINNET,
+  }
+  const overLimitUnknown = {
+    ...overLimitSplit,
+    availableBalance: null,
+    unavailableBalance: 91_000_000,
   }
 
-  function outputs(txidByte: string, values: number[]) {
-    return values.map((satoshis, vout) => ({
-      txid: txidByte.repeat(32),
-      vout,
-      satoshis,
-      scriptPk: `5220${'aa'.repeat(32)}`,
-      pubkey: '11'.repeat(32),
-      addressType: AddressType.P2MR,
-    }))
-  }
+  it('shows the split the background reports', () => {
+    const result = renderBalanceCard(overLimitSplit)
 
-  /**
-   * The card for `address` with an over-limit balance, next to the send
-   * screen's output read and a broadcast from this window.
-   */
-  function renderOverLimitCard(balance: Record<string, unknown> = overLimitBalance) {
-    const wallet = {
-      ...createWalletMock(),
-      getAddressSummary: vi.fn().mockResolvedValue(summary),
-      getAddressBalanceV2: vi.fn().mockResolvedValue(balance),
-      broadcastQbitTx: vi.fn().mockResolvedValue({
-        success: true,
-        chain: ChainType.QBIT_MAINNET,
-        txid: 'cd'.repeat(32),
-        via: 'broadcast',
-      }),
-    }
-    const harness = createHookTestHarness({ wallet: wallet as any })
-    const select = (selected: string, chainType = ChainType.QBIT_MAINNET) => {
-      harness.store.dispatch(settingsActions.updateSettings({ chainType }))
-      harness.store.dispatch(
-        accountActions.setCurrent({
-          address: selected,
-          pubkey: '11'.repeat(32),
-          type: 'Qbit HD Key Tree',
-        } as any)
-      )
-      harness.store.dispatch(
-        accountActions.setBalanceV2({
-          address: selected,
-          balance: { ...balance, chainType } as any,
-        })
-      )
-    }
-    select(address)
-    const { result } = renderHook(
-      () => ({
-        card: useBalanceCardLogic(),
-        readOutputs: useFetchUtxosCallback(),
-        broadcast: usePushQbitTxCallback(),
-      }),
-      { wrapper: harness.wrapper }
-    )
-    /** The send screen's read, answered with `utxos` for the selected account and network. */
-    const readOutputs = async (utxos: ReturnType<typeof outputs>) => {
-      const { accounts, settings } = harness.store.getState()
-      wallet.getQbitUtxoSnapshot.mockResolvedValueOnce({
-        address: accounts.current.address,
-        chain: settings.chainType,
-        utxos,
-      })
-      await act(async () => {
-        await result.current.readOutputs()
-      })
-    }
-    /** A send from this window; call with fake timers, past the push's wait. */
-    const broadcast = async () => {
-      await act(async () => {
-        const pushed = result.current.broadcast({ psbtHex: 'signed-rawtx' })
-        await vi.advanceTimersByTimeAsync(3000)
-        await pushed
-      })
-    }
-    return { ...harness, wallet, result, select, readOutputs, broadcast }
-  }
-
-  type Card = ReturnType<typeof useBalanceCardLogic>
-  const expectSplit = (card: Card, available: string, unavailable: string) => {
-    expect(card.availableAmount).toBe(available)
-    expect(card.unavailableAmount).toBe(unavailable)
-    expect(card.balanceSplitUnknown).toBe(false)
-  }
-  const expectUnknownSplit = (card: Card) => {
-    expect(card.availableBalance).toBeNull()
-    expect(card.unavailableBalance).toBeNull()
-    expect(card.availableAmount).toBe('--')
-    expect(card.unavailableAmount).toBe('--')
-  }
-
-  it('shows the split from the send screen read for the same account and network', async () => {
-    const { result, readOutputs } = renderOverLimitCard()
-    expectUnknownSplit(result.current.card)
-    expect(result.current.card.balanceSplitUnknown).toBe(true)
-
-    await readOutputs(outputs('aa', [40_000_000, 20_000_000]))
-
-    expect(result.current.card.balanceValue).toBe('0.91000000')
-    expect(result.current.card.availableBalance).toBe(60_000_000)
-    expect(result.current.card.unavailableBalance).toBe(31_000_000)
-    expectSplit(result.current.card, '0.60000000', '0.31000000')
+    expect(result.current.balanceValue).toBe('0.91000000')
+    expect(result.current.availableBalance).toBe(60_000_000)
+    expect(result.current.unavailableBalance).toBe(31_000_000)
+    expect(result.current.availableAmount).toBe('0.60000000')
+    expect(result.current.unavailableAmount).toBe('0.31000000')
+    expect(result.current.balanceSplitUnknown).toBe(false)
     // The total still comes from the address statistics.
-    expect(result.current.card.utxoLimitExceeded).toBe(true)
+    expect(result.current.utxoLimitExceeded).toBe(true)
   })
 
-  it("keeps `--` for another account's read", async () => {
-    const { result, select, readOutputs } = renderOverLimitCard()
-    act(() => select(otherAddress))
-    await readOutputs(outputs('bb', [40_000_000]))
-    // The read itself is one the card would use for that account.
-    expectSplit(result.current.card, '0.40000000', '0.51000000')
-
-    act(() => select(address))
-
-    expect(result.current.card.balanceValue).toBe('0.91000000')
-    expectUnknownSplit(result.current.card)
-    expect(result.current.card.balanceSplitUnknown).toBe(true)
-  })
-
-  it("keeps `--` for the same account's read on another network", async () => {
-    const { result, select, readOutputs } = renderOverLimitCard()
-    act(() => select(address, ChainType.QBIT_TESTNET4))
-    await readOutputs(outputs('bb', [40_000_000]))
-    expectSplit(result.current.card, '0.40000000', '0.51000000')
-
-    act(() => select(address, ChainType.QBIT_MAINNET))
-
-    expect(result.current.card.balanceValue).toBe('0.91000000')
-    expectUnknownSplit(result.current.card)
-  })
-
-  it('falls back to `--` after a broadcast, until a read started after it', async () => {
-    vi.useFakeTimers()
-    const { result, readOutputs, broadcast } = renderOverLimitCard()
-    await readOutputs(outputs('aa', [40_000_000, 20_000_000]))
-    expectSplit(result.current.card, '0.60000000', '0.31000000')
-
-    await broadcast()
-
-    expectUnknownSplit(result.current.card)
-    expect(result.current.card.balanceSplitUnknown).toBe(true)
-
-    await readOutputs(outputs('ee', [20_000_000, 9_000_000]))
-    expectSplit(result.current.card, '0.29000000', '0.62000000')
-  })
-
-  it('does not take a read that started before a broadcast and landed after it', async () => {
-    vi.useFakeTimers()
-    const { result, wallet, broadcast } = renderOverLimitCard()
-    let answer!: (snapshot: unknown) => void
-    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(new Promise(resolve => (answer = resolve)))
-    let read!: Promise<unknown>
-    act(() => {
-      read = result.current.readOutputs()
+  it('goes back to `--` when a later read has no split', async () => {
+    const { result } = renderWithExplorer({
+      getAddressSummary: vi.fn().mockResolvedValue(summary),
+      getAddressBalanceV2: vi
+        .fn()
+        .mockResolvedValueOnce({ ...overLimitSplit, chainType: ChainType.QBIT_MAINNET })
+        .mockResolvedValue({ ...overLimitUnknown, chainType: ChainType.QBIT_MAINNET }),
     })
 
-    await broadcast()
-    await act(async () => {
-      answer({
+    await retry(result)
+    expect(result.current.card.availableAmount).toBe('0.60000000')
+
+    await retry(result)
+    expect(result.current.card.availableAmount).toBe('--')
+    expect(result.current.card.unavailableAmount).toBe('--')
+    expect(result.current.card.balanceSplitUnknown).toBe(true)
+  })
+
+  it("does not show another network's split", () => {
+    const result = renderBalanceCard({ ...overLimitSplit, chainType: ChainType.QBIT_TESTNET4 })
+
+    expect(result.current.balanceValue).toBe('--')
+    expect(result.current.availableAmount).toBe('--')
+    expect(result.current.unavailableAmount).toBe('--')
+  })
+
+  it("does not show another account's split", () => {
+    const harness = createHookTestHarness()
+    harness.store.dispatch(
+      accountActions.setCurrent({
         address,
-        chain: ChainType.QBIT_MAINNET,
-        utxos: outputs('aa', [40_000_000, 20_000_000]),
+        pubkey: '11'.repeat(32),
+        type: 'Qbit HD Key Tree',
+      } as any)
+    )
+    harness.store.dispatch(
+      accountActions.setBalanceV2({
+        address: 'qbit-another-account',
+        balance: { ...overLimitSplit, chainType: ChainType.QBIT_MAINNET } as any,
       })
-      await read
-    })
+    )
+    harness.store.dispatch(
+      accountActions.setBalanceV2({
+        address,
+        balance: { ...overLimitUnknown, chainType: ChainType.QBIT_MAINNET } as any,
+      })
+    )
+    const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
 
-    expectUnknownSplit(result.current.card)
-  })
-
-  it('falls back to `--` once the read is older than the limit', async () => {
-    vi.useFakeTimers()
-    const { result, readOutputs } = renderOverLimitCard()
-    // Off the 10-second balance poll, so only the read's age re-renders the card.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000)
-    })
-    await readOutputs(outputs('aa', [40_000_000, 20_000_000]))
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(BALANCE_CARD_OUTPUT_READ_MAX_AGE_MS - 1)
-    })
-    expectSplit(result.current.card, '0.60000000', '0.31000000')
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1)
-    })
-    expectUnknownSplit(result.current.card)
-    expect(result.current.card.balanceSplitUnknown).toBe(true)
-  })
-
-  it('does not take a read already older than the limit when the card opens', async () => {
-    vi.useFakeTimers()
-    const { wrapper, result, readOutputs } = renderOverLimitCard()
-    await readOutputs(outputs('aa', [40_000_000, 20_000_000]))
-    expectSplit(result.current.card, '0.60000000', '0.31000000')
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(BALANCE_CARD_OUTPUT_READ_MAX_AGE_MS + 5_000)
-    })
-
-    const reopened = renderHook(() => useBalanceCardLogic(), { wrapper }).result
-
-    expect(reopened.current.balanceValue).toBe('0.91000000')
-    expectUnknownSplit(reopened.current)
-  })
-
-  it('never shows more available than the measured total', async () => {
-    const { result, readOutputs } = renderOverLimitCard()
-
-    await readOutputs(outputs('aa', [60_000_000, 35_000_000]))
-
-    expect(result.current.card.availableBalance).toBe(91_000_000)
-    expect(result.current.card.unavailableBalance).toBe(0)
-    expectSplit(result.current.card, '0.91000000', '0.00000000')
-  })
-
-  it('shows a read with nothing spendable as 0 available', async () => {
-    const { result, readOutputs } = renderOverLimitCard()
-
-    await readOutputs([])
-
-    expectSplit(result.current.card, '0.00000000', '0.91000000')
-  })
-
-  it('keeps `--` while a broadcast holds the send guard, read or not', async () => {
-    const { result, readOutputs } = renderOverLimitCard({
-      ...overLimitBalance,
-      utxoLimitExceeded: undefined,
-    })
-
-    await readOutputs(outputs('aa', [40_000_000, 20_000_000]))
-
-    expectUnknownSplit(result.current.card)
-    expect(result.current.card.utxoLimitExceeded).toBe(false)
-    expect(result.current.card.balanceSplitUnknown).toBe(false)
-  })
-
-  it('keeps `--` before a balance read succeeds, read or not', async () => {
-    const { store, result, readOutputs } = renderOverLimitCard()
-    act(() => {
-      // As before the first read: nothing stored for the selected account.
-      store.dispatch(
-        accountActions.setCurrent({
-          address: otherAddress,
-          pubkey: '11'.repeat(32),
-          type: 'Qbit HD Key Tree',
-        } as any)
-      )
-    })
-
-    await readOutputs(outputs('aa', [40_000_000]))
-
-    expect(result.current.card.balanceValue).toBe('--')
-    expectUnknownSplit(result.current.card)
-    expect(result.current.card.balanceSplitUnknown).toBe(false)
+    expect(result.current.balanceValue).toBe('0.91000000')
+    expect(result.current.availableAmount).toBe('--')
+    expect(result.current.unavailableAmount).toBe('--')
   })
 })

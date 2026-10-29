@@ -73,11 +73,14 @@ export interface QbitBalanceSummary {
   /**
    * Qbit: the explorer would not list this address's outputs because it holds
    * more than the explorer's UTXO limit. `totalBalance` then comes from the
-   * address statistics, and `availableBalance`, `immatureBalance` and
-   * `pendingBalance` are `null`: without the output list the split is
-   * unknown. `unavailableBalance` stays `totalBalance`: the send screen
-   * selects nothing until it has read the outputs from the address's
-   * history, and shows its own split once it has.
+   * address statistics, and `immatureBalance` and `pendingBalance` are
+   * `null`. The split comes from the outputs the wallet last read from the
+   * address's history, while the statistics still read as they did for that
+   * read: `availableBalance` is what a send may select from them, less the
+   * outputs a send holds, never more than the total, and
+   * `unavailableBalance` is the rest. Without such a read, or while the send
+   * guard does not answer, `availableBalance` is `null` and
+   * `unavailableBalance` stays `totalBalance`.
    */
   utxoLimitExceeded?: boolean
   chainType: ChainType
