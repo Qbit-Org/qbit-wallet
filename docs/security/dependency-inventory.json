@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "eede40b04a49997b33a6b64bd9d35a804cd54d5b",
-  "lockfileSha256": "2445dfacd65d6b35cc13b4b1e4e8c7a79c2a52ad84840b32e3192316db3021eb",
+  "auditedCommit": "1039b112029056930563502226ec0642d0e663fe",
+  "lockfileSha256": "f00cb13210b6a135a3045686030c29802eb50edd38937b9455359c68d40ebb1f",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "4f7ee9489ba99e391c1995c52fdd3b0b7d8963cdad209a65e4fb923e860e563b",
+    "sha256": "c48250b71fa7e28bab83a971b8a7ae966ea623ba6450b6cc6d26f90c00e6ff28",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -15,11 +15,11 @@
   "summary": {
     "workspaces": 20,
     "registryLockEntries": 2533,
-    "directDeclarations": 439,
+    "directDeclarations": 438,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 131,
       "extension-build-packaging": 79,
-      "shipped-runtime": 169,
+      "shipped-runtime": 168,
       "test-only-tooling": 36,
       "workspace-contract": 24
     },
@@ -32,25 +32,25 @@
     },
     "auditVulnerableOccurrences": {
       "info": 0,
-      "low": 13,
+      "low": 14,
       "moderate": 37,
       "high": 0,
       "critical": 0
     },
-    "advisoryRecords": 42,
+    "advisoryRecords": 43,
     "advisoryRecordsBySeverity": {
-      "low": 9,
+      "low": 10,
       "moderate": 33
     },
     "advisoryRecordsByDirectness": {
       "direct": 6,
-      "transitive": 36
+      "transitive": 37
     },
     "advisoryPathsByReachability": {
       "development-tooling-path": 884,
-      "extension-build-path": 1674,
-      "test-only-path": 1782,
-      "reachable": 118
+      "extension-build-path": 1677,
+      "test-only-path": 1788,
+      "reachable": 119
     }
   },
   "directDependencies": [
@@ -3336,16 +3336,6 @@
       "section": "dependencies",
       "requested": "workspace:*",
       "resolved": "link:../wallet-types",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/permission-service",
-      "workspacePackage": "@qbit/permission-service",
-      "package": "lru-cache",
-      "section": "dependencies",
-      "requested": "^6.0.0",
-      "resolved": "6.0.0",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -7951,6 +7941,80 @@
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
           "pathCount": 8
+        }
+      ]
+    },
+    {
+      "advisory": "GHSA-gcqx-w48m-w2h4",
+      "package": "deepmerge",
+      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+      "severity": "low",
+      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "vulnerableVersions": [
+        "4.3.1"
+      ],
+      "directness": "transitive",
+      "reachability": [
+        "extension-build-path",
+        "reachable",
+        "test-only-path"
+      ],
+      "acceptedException": null,
+      "findingPathCount": 10,
+      "pathContexts": [
+        {
+          "workspace": ".",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "deepmerge",
+          "directVersion": "4.3.1",
+          "directDelivery": "undetermined",
+          "reachability": "reachable",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "@svgr/webpack",
+          "directVersion": "8.1.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "jest-watch-typeahead",
+          "directVersion": "1.0.0",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "jest",
+          "directVersion": "27.4.3",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "react-dev-utils",
+          "directVersion": "12.0.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "workbox-webpack-plugin",
+          "directVersion": "7.4.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
         }
       ]
     },

@@ -541,6 +541,19 @@
           "bundled": false
         }
       ]
+    },
+    {
+      "action": "review",
+      "module": "deepmerge",
+      "resolves": [
+        {
+          "id": 1243505,
+          "path": "apps__extension>@svgr/webpack>@svgr/plugin-svgo>deepmerge",
+          "dev": false,
+          "bundled": false,
+          "optional": false
+        }
+      ]
     }
   ],
   "advisories": {
@@ -6651,13 +6664,61 @@
         "CWE-407"
       ],
       "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
+    },
+    "1243505": {
+      "findings": [
+        {
+          "version": "4.3.1",
+          "paths": [
+            ". > deepmerge@4.3.1",
+            "apps/extension > @svgr/webpack@8.1.0 > @svgr/plugin-svgo@8.1.0 > deepmerge@4.3.1",
+            "apps/extension > jest@27.4.3 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest@27.4.3 > jest-cli@27.5.1 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest@27.4.3 > jest-cli@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest-watch-typeahead@1.0.0 > jest@27.4.3 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest-watch-typeahead@1.0.0 > jest@27.4.3 > jest-cli@27.5.1 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest-watch-typeahead@1.0.0 > jest@27.4.3 > jest-cli@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > react-dev-utils@12.0.1 > fork-ts-checker-webpack-plugin@6.5.3 > deepmerge@4.3.1",
+            "apps/extension > workbox-webpack-plugin@7.4.1 > workbox-build@7.4.1 > @rollup/plugin-node-resolve@16.0.3 > deepmerge@4.3.1"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://nvd.nist.gov/vuln/detail/CVE-2026-93753\n- https://github.com/TehShrike/deepmerge/issues/273\n- https://github.com/TehShrike/deepmerge/blob/5b87756a5671635679001cbac72aa42f23472c81/index.js#L39-L60\n- https://www.vulncheck.com/advisories/deepmerge-through-4.3.1-prototype-poisoning-via-mergeobject\n- https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "created": "2026-09-18T18:31:44.000Z",
+      "id": 1243505,
+      "npm_advisory_id": null,
+      "overview": "deepmerge through 4.3.1 contains a prototype poisoning vulnerability in the mergeObject() function that fails to properly validate keys being written to target objects. Attackers can supply malicious source objects in merge operations to inject attacker-controlled properties into the returned object's prototype, causing applications to inherit unintended values when accessing properties without own-property checks.",
+      "reported_by": null,
+      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-93753"
+      ],
+      "access": "public",
+      "severity": "low",
+      "module_name": "deepmerge",
+      "vulnerable_versions": ">=4.2.0 <=4.3.1",
+      "github_advisory_id": "GHSA-gcqx-w48m-w2h4",
+      "recommendation": "None",
+      "patched_versions": "<0.0.0",
+      "updated": "2026-10-27T21:34:58.000Z",
+      "cvss": {
+        "score": 5.3,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cwe": [
+        "CWE-1321"
+      ],
+      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4"
     }
   },
   "muted": [],
   "metadata": {
     "vulnerabilities": {
       "info": 0,
-      "low": 13,
+      "low": 14,
       "moderate": 37,
       "high": 0,
       "critical": 0
