@@ -1,6 +1,10 @@
-# Security-sensitive ownership. The `main` ruleset requires a CODEOWNERS
-# review for these paths, but administrators can bypass it (AR-03 in
-# docs/security/accepted-risks.md).
+# Default owners. GitHub uses the last matching rule, so this must stay
+# first for the security rules below to override it.
+* @Anatolie @kiwidream @djh58 @RobertClarke
+
+# Security-sensitive ownership: changes here need approval from one of
+# these owners. The `main` ruleset requires a CODEOWNERS review, but
+# administrators can bypass it (AR-03 in docs/security/accepted-risks.md).
 
 /.github/CODEOWNERS @Anatolie @RobertClarke
 
