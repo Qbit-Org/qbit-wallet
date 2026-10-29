@@ -1,0 +1,9 @@
+---
+'@qbit/permission-service': major
+---
+
+Store connected-site permissions in a record the wallet owns, `{ version: 1, sites }` with the most recently used site first, instead of lru-cache 6's internal dump, and drop the lru-cache dependency. `PermissionService.init` still reads the dump that 1.0.6 and earlier wrote, with every grant, chain, pin, signing and quick multi-sign setting in it, and the record is rewritten in the new form on the next change to a site rather than at start-up. A record that is not an object, has a version this release does not know, or holds a site with a missing or wrongly typed field, a repeated origin, an expiry or a key other than its origin is rejected as a whole: the service logs why, does not throw, and starts with no site connected, so each site has to connect again. A change that would store such a site is rolled back and rejects instead of being written. `updateConnectSite` keeps a site under the origin it was given, even when the new value names another. The service still keeps at most 1000 sites and drops the least recently used.
+
+Breaking change: the exported `PermissionStore` type now describes the versioned record, and the dump's shape is `LRUCacheDumpStore`. Once this release has rewritten the record, a downgrade to 1.0.6 reads no grants, so every site has to connect again. 1.0.6 then keeps the versioned sites and adds its own dump beside them; when this release starts on such a record it reads the dump, which holds what was done after the downgrade, and not the versioned sites, which 1.0.6 never showed and so could not have been disconnected.
+
+The extension's background now starts each service under its own error handling. When the permission service fails to start, the contact book, notifications, phishing protection and the rest of the background still start, with no site connected. A storage read the browser refuses still stops start-up and reports that the stored settings could not be read.

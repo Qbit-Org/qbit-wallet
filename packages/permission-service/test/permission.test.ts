@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { PermissionService } from '../src/permission-service'
+import type { ConnectedSite } from '../src/types'
 import { ChainType } from '@qbit/wallet-types'
 
 const createMockStorage = () => {
@@ -11,6 +14,45 @@ const createMockStorage = () => {
     }),
     _store: store,
   }
+}
+
+// The `permission` record 1.0.6 wrote: lru-cache 6's dump, most recently used
+// first. Captured by running release/1.0.6's PermissionService with lru-cache
+// 6.0.0, the copy it shipped with, on storage that keeps values as JSON the way
+// chrome.storage.local does: four sites connected, one signed, one pinned with
+// quick multi-sign, one moved to testnet4 and one disconnected, then a restart
+// and a request from the local one.
+const readRecord1_0_6 = () =>
+  JSON.parse(readFileSync(join(__dirname, 'fixtures/permission-1.0.6.json'), 'utf8'))
+
+// The `permission` record after a downgrade: this release connected
+// stale.example, then release/1.0.6's PermissionService (lru-cache 6.0.0)
+// started on that record, read no grants, kept the keys it does not know, and
+// connected after-downgrade.example into its dump.
+const readRecordAfterDowngrade = () =>
+  JSON.parse(
+    readFileSync(join(__dirname, 'fixtures/permission-1.0.6-after-downgrade.json'), 'utf8')
+  )
+
+const site = (origin: string, value: Partial<ConnectedSite> = {}): ConnectedSite => ({
+  origin,
+  name: 'Site',
+  icon: 'icon.png',
+  chain: ChainType.QBIT_MAINNET,
+  isSigned: false,
+  isTop: false,
+  isConnected: true,
+  ...value,
+})
+
+// A service started the way the extension starts it, on `record`.
+const startWith = async (record: unknown) => {
+  const storage = createMockStorage()
+  if (record !== undefined) storage._store['permission'] = record
+  const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
+  const service = new PermissionService()
+  await service.init({ storage: storage as any, logger, autoSync: true })
+  return { service, storage, logger }
 }
 
 const mockLogger = {
@@ -85,16 +127,10 @@ describe('PermissionService', () => {
         ChainType.QBIT_MAINNET
       )
 
-      expect(storage.set).toHaveBeenCalledWith(
-        'permission',
-        expect.objectContaining({
-          dumpCache: expect.arrayContaining([
-            expect.objectContaining({
-              k: 'https://autosync.com',
-            }),
-          ]),
-        })
-      )
+      expect(storage.set).toHaveBeenCalledWith('permission', {
+        version: 1,
+        sites: [expect.objectContaining({ origin: 'https://autosync.com' })],
+      })
     })
 
     it('should respect internalRequestOrigin config', async () => {
@@ -444,6 +480,204 @@ describe('PermissionService', () => {
     })
   })
 
+  describe('stored record', () => {
+    it('loads a version 1 record, most recently used first', async () => {
+      const { service, storage, logger } = await startWith({
+        version: 1,
+        sites: [
+          site('https://recent.example', { chain: ChainType.QBIT_TESTNET4, isSigned: true }),
+          site('https://pinned.example', { isTop: true, order: 1, allowQuickMultiSign: true }),
+          site('https://revoked.example', { isConnected: false }),
+        ],
+      })
+
+      expect(service.hasPermission('https://recent.example', ChainType.QBIT_TESTNET4)).toBe(true)
+      expect(service.hasPermission('https://recent.example', ChainType.QBIT_MAINNET)).toBe(false)
+      expect(service.getWithoutUpdate('https://recent.example')?.isSigned).toBe(true)
+      expect(service.getWithoutUpdate('https://pinned.example')).toMatchObject({
+        isTop: true,
+        order: 1,
+        allowQuickMultiSign: true,
+      })
+      expect(service.hasPermission('https://revoked.example')).toBe(false)
+      expect(service.getWithoutUpdate('https://revoked.example')?.isConnected).toBe(false)
+      expect(service.getConnectedSites().map(item => item.origin)).toEqual([
+        'https://recent.example',
+        'https://pinned.example',
+      ])
+      expect(logger.error).not.toHaveBeenCalled()
+      expect(storage.set).not.toHaveBeenCalled()
+    })
+
+    it('converts the record 1.0.6 wrote with every grant, and versions it on the next write', async () => {
+      const record = readRecord1_0_6()
+      const { service, storage, logger } = await startWith(record)
+
+      // Every grant and revocation, on the chain it was given for.
+      expect(service.getStats()).toEqual({ total: 4, connected: 3, pinned: 1 })
+      for (const { k, v } of record.dumpCache) {
+        expect(service.getWithoutUpdate(k)).toEqual(v)
+        expect(service.hasPermission(k, v.chain)).toBe(v.isConnected)
+      }
+      expect(service.hasPermission('https://swap.example', ChainType.QBIT_MAINNET)).toBe(false)
+      expect(service.hasPermission('https://old.example')).toBe(false)
+      // In the order 1.0.6 kept them: pinned first, then most recently used.
+      expect(service.getRecentConnectedSites().map(item => item.origin)).toEqual([
+        'https://nft.example',
+        'http://127.0.0.1:3000',
+        'https://swap.example',
+      ])
+      expect(logger.error).not.toHaveBeenCalled()
+      // The record stays as 1.0.6 wrote it until the next write.
+      expect(storage.set).not.toHaveBeenCalled()
+      expect(storage._store['permission']).toEqual(readRecord1_0_6())
+
+      await service.updateConnectSite('https://swap.example', { name: 'Swap 2' }, true)
+
+      expect(storage.set).toHaveBeenCalledTimes(1)
+      const [swap, local, old, nft] = [2, 0, 1, 3].map(index => record.dumpCache[index].v)
+      expect(storage._store['permission']).toEqual({
+        version: 1,
+        sites: [{ ...swap, name: 'Swap 2' }, local, old, nft],
+      })
+
+      const { service: restarted } = await startWith(storage._store['permission'])
+      expect(restarted.getStats()).toEqual(service.getStats())
+      expect(restarted.getConnectedSites()).toEqual(service.getConnectedSites())
+    })
+
+    it('reads what 1.0.6 did after a downgrade, not the grants it never showed', async () => {
+      const { service, storage, logger } = await startWith(readRecordAfterDowngrade())
+
+      expect(
+        service.hasPermission('https://after-downgrade.example', ChainType.QBIT_TESTNET4)
+      ).toBe(true)
+      expect(service.hasPermission('https://stale.example')).toBe(false)
+      expect(service.getStats().total).toBe(1)
+      expect(logger.error).not.toHaveBeenCalled()
+      expect(storage.set).not.toHaveBeenCalled()
+
+      await service.touchConnectedSite('https://after-downgrade.example')
+
+      expect(storage._store['permission']).toEqual({
+        version: 1,
+        sites: [readRecordAfterDowngrade().dumpCache[0].v],
+      })
+
+      // 1.0.6 started but connected nothing: nothing comes back.
+      const { service: untouched } = await startWith({
+        ...readRecordAfterDowngrade(),
+        dumpCache: [],
+      })
+      expect(untouched.getStats().total).toBe(0)
+    })
+
+    it('starts empty, and writes nothing, when nothing is stored', async () => {
+      for (const record of [undefined, null, { dumpCache: [] }, { version: 1, sites: [] }]) {
+        const { service, storage, logger } = await startWith(record)
+
+        expect(service.getStats().total).toBe(0)
+        expect(logger.error).not.toHaveBeenCalled()
+        expect(storage.set).not.toHaveBeenCalled()
+      }
+    })
+
+    const kept = site('https://kept.example')
+    it.each<[string, unknown]>([
+      ['a string', 'not a record'],
+      ['a list', [kept]],
+      ['an object with neither a version nor a dump', { sites: [kept] }],
+      [
+        'an unknown version that also carries a dump',
+        { version: 2, sites: [kept], dumpCache: [{ k: kept.origin, v: kept, e: 0 }] },
+      ],
+      ['a version given as a string', { version: '1', sites: [kept] }],
+      ['version 1 without a site list', { version: 1 }],
+      [
+        'a site whose grant is not a boolean',
+        { version: 1, sites: [{ ...kept, isConnected: 'true' }] },
+      ],
+      ['a site without an origin', { version: 1, sites: [kept, { ...kept, origin: '' }] }],
+      ['a site without a chain', { version: 1, sites: [{ ...kept, chain: undefined }] }],
+      ['the same origin twice', { version: 1, sites: [kept, { ...kept, isConnected: false }] }],
+      ['a site that is not an object', { version: 1, sites: [kept, null] }],
+      ['a pin order that is not a number', { version: 1, sites: [{ ...kept, order: '1' }] }],
+      ['a dump that is not a list', { dumpCache: { k: kept.origin, v: kept, e: 0 } }],
+      [
+        'a dump entry that is not an object',
+        { dumpCache: [{ k: kept.origin, v: kept, e: 0 }, null] },
+      ],
+      [
+        'a dump in the shape later lru-cache versions write',
+        { dumpCache: [[kept.origin, { value: kept }]] },
+      ],
+      [
+        'a dump entry under another origin',
+        { dumpCache: [{ k: 'https://other.example', v: kept, e: 0 }] },
+      ],
+      [
+        'a dump entry that expires',
+        { dumpCache: [{ k: kept.origin, v: kept, e: Date.now() + 60_000 }] },
+      ],
+    ])('rejects %s without throwing and starts with no grants', async (_shape, record) => {
+      const { service, storage, logger } = await startWith(structuredClone(record))
+
+      expect(service.getStats().total).toBe(0)
+      expect(service.hasPermission(kept.origin)).toBe(false)
+      expect(service.hasPermission('https://other.example')).toBe(false)
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('stored site permissions were not loaded'),
+        expect.any(String)
+      )
+      // Left on disk as it was until the next write, which is versioned.
+      expect(storage.set).not.toHaveBeenCalled()
+      expect(storage._store['permission']).toEqual(record)
+
+      await service.addConnectedSite(
+        'https://new.example',
+        'New',
+        'icon.png',
+        ChainType.QBIT_MAINNET
+      )
+
+      expect(storage._store['permission']).toEqual({
+        version: 1,
+        sites: [site('https://new.example', { name: 'New' })],
+      })
+    })
+
+    it('keeps a site under the origin it was granted to', async () => {
+      const { service, storage } = await startWith(undefined)
+      await service.addConnectedSite('https://a.example', 'A', 'icon.png', ChainType.QBIT_MAINNET)
+
+      await service.updateConnectSite('https://a.example', site('https://b.example'))
+
+      expect(service.getWithoutUpdate('https://a.example')?.origin).toBe('https://a.example')
+      expect(service.hasPermission('https://b.example')).toBe(false)
+      const { service: restarted } = await startWith(storage._store['permission'])
+      expect(restarted.hasPermission('https://a.example')).toBe(true)
+      expect(restarted.hasPermission('https://b.example')).toBe(false)
+    })
+
+    it('keeps the 1000 most recently used sites', async () => {
+      const { service, storage } = await startWith(undefined)
+      for (let index = 0; index <= 1000; index++) {
+        await service.addConnectedSite(
+          `https://site${index}.example`,
+          `Site ${index}`,
+          'icon.png',
+          ChainType.QBIT_MAINNET
+        )
+      }
+
+      expect(service.getStats().total).toBe(1000)
+      expect(service.hasPermission('https://site0.example')).toBe(false)
+      expect(service.hasPermission('https://site1.example')).toBe(true)
+      expect(storage._store['permission'].sites[0].origin).toBe('https://site1000.example')
+      expect(storage._store['permission'].sites).toHaveLength(1000)
+    })
+  })
+
   describe('clearAllPermissions', () => {
     it('should clear all sites', async () => {
       await service.addConnectedSite(
@@ -462,7 +696,7 @@ describe('PermissionService', () => {
       await service.clearAllPermissions()
 
       expect(service.getConnectedSites().length).toBe(0)
-      expect(mockStorage.set).toHaveBeenCalledWith('permission', { dumpCache: [] })
+      expect(mockStorage.set).toHaveBeenCalledWith('permission', { version: 1, sites: [] })
     })
   })
 
