@@ -25,12 +25,20 @@ vi.mock('../src/services', async () => {
   const { QbitSendGuardService } = await import('../src/services/qbitSendGuards')
   const guard = new QbitSendGuardService()
   guard.init()
+  const lock = { isUnlocked: true }
   return {
     keyringService: {
       keyrings: [],
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
-      setLocked: vi.fn(async () => undefined),
+      memStore: { getState: () => lock },
+      // Locks once it resolves, as the keyring service does.
+      setLocked: vi.fn(async () => {
+        lock.isUnlocked = false
+      }),
+      unlockForTest: () => {
+        lock.isUnlocked = true
+      },
       removeKeyring: vi.fn(async () => undefined),
     },
     preferenceService: {
@@ -220,6 +228,7 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
       }
     )
     await qbitSendGuardService.resetAllData()
+    ;(keyringService as any).unlockForTest()
   })
 
   afterEach(async () => {
@@ -405,6 +414,46 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     await running
 
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps no read that ends while the wallet locks', async () => {
+    const wallet = controller()
+    const lockState = (keyringService as any).memStore.getState()
+    let finishLock: () => void = () => undefined
+    const lockFinishes = new Promise<void>(resolve => (finishLock = resolve))
+    vi.mocked(keyringService.setLocked).mockImplementationOnce(async () => {
+      await lockFinishes
+      lockState.isUnlocked = false
+    })
+
+    const locking = wallet.lockWallet()
+    // A read starts and completes while the lock is still under way.
+    await wallet.getQbitUtxoSnapshot()
+    finishLock()
+    await locking
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps no read made while the wallet is locked', async () => {
+    const wallet = controller()
+    await wallet.lockWallet()
+
+    await wallet.getQbitUtxoSnapshot()
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('remembers only what the split needs of each output', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+
+    const client = (wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
+    const kept = (wallet as any).qbitLatestUtxoReads.latest(client, address)
+    expect(kept.utxos).toHaveLength(OUTPUTS)
+    for (const output of kept.utxos) {
+      expect(Object.keys(output).sort()).toEqual(['satoshis', 'scriptPk', 'txid', 'vout'])
+    }
   })
 
   it('keeps no read once a keyring is removed', async () => {

@@ -127,6 +127,7 @@ import {
   getAccountCapabilities,
   getLockTimeInfo,
   getQbitHdPathForChainType,
+  isQbitAccountOutput,
   isQbitFeeRateWithinPolicy,
   isQbitStandardTxSize,
   normalizeChainType,
@@ -226,10 +227,12 @@ import {
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
+  qbitReadOutput,
   readQbitAddressUtxos,
   type QbitAccountHistoryRevision,
   type QbitAddressOutputScan,
   type QbitClassifiedUtxos,
+  type QbitReadOutput,
   type QbitHistoryOutputCandidate,
   type QbitPqcHistoryClient,
   type QbitPqcSignatureActivity,
@@ -1594,9 +1597,12 @@ export class WalletController extends BaseController {
   }
 
   lockWallet = async () => {
-    // A locked wallet keeps no account's outputs in memory.
+    // A locked wallet keeps no account's outputs in memory: none kept so
+    // far, none from a read that ends while it locks, and none afterwards
+    // (`qbitAccountUtxosOn` keeps nothing while locked).
     this.qbitLatestUtxoReads.clear()
     await keyringService.setLocked()
+    this.qbitLatestUtxoReads.clear()
     // Locking keeps every grant, so it must not look like a revocation: no
     // accountsChanged [] here. Pages never see the internal lock event.
     sessionService.broadcastEvent(SESSION_EVENTS.lock)
@@ -2904,13 +2910,13 @@ export class WalletController extends BaseController {
     feeRate: number
   ): UnspentOutput[][] {
     if (!account.p2mr || utxos.length === 0) return []
-    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
+    const accountScriptPubKey = account.p2mr.scriptPubKey
     if (
       utxos.some(
         utxo =>
           !Number.isSafeInteger(utxo.satoshis) ||
           utxo.satoshis <= 0 ||
-          (utxo.scriptPk || account.p2mr!.scriptPubKey).toLowerCase() !== accountScriptPubKey
+          !isQbitAccountOutput(utxo, accountScriptPubKey)
       )
     ) {
       throw new Error('Qbit recovery migration UTXO data is invalid')
@@ -5904,7 +5910,8 @@ export class WalletController extends BaseController {
 
   /**
    * The latest completed read of an account's outputs from history per API
-   * client and address: its outputs before any reservation, with the
+   * client and address: what the balance split needs of its outputs
+   * (`QbitReadOutput`), before any reservation, with the
    * address statistics (`qbitStatsSnapshot`) its walk verified. A read that
    * started later replaces one that started earlier, even when it found
    * less history, as after an eviction. Kept in memory only, and forgotten
@@ -5913,7 +5920,7 @@ export class WalletController extends BaseController {
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
     stats: string
-    utxos: UnspentOutput[]
+    utxos: QbitReadOutput[]
   }>()
 
   /**
@@ -5934,7 +5941,9 @@ export class WalletController extends BaseController {
     providedUtxoChain: ChainType | undefined,
     providedUtxoAddress: string | undefined
   ): Promise<UnspentOutput[]> {
-    if (providedUtxos === undefined) return this.qbitAccountUtxosOn(chain, account)
+    if (providedUtxos === undefined) {
+      return this.assertQbitAccountOutputs(account, await this.qbitAccountUtxosOn(chain, account))
+    }
     if (providedUtxoChain === undefined) {
       throw new Error('Qbit inputs must name the network they were loaded on')
     }
@@ -5949,7 +5958,25 @@ export class WalletController extends BaseController {
     if (providedUtxoAddress !== account.address) {
       throw new Error('Qbit account changed since the inputs were loaded')
     }
-    return providedUtxos
+    return this.assertQbitAccountOutputs(account, providedUtxos)
+  }
+
+  /**
+   * `outputs`, each the account's own (`isQbitAccountOutput`): an output
+   * without a scriptPubKey, or with another, is refused rather than taken
+   * for the account's or skipped. Both send builders' inputs pass here.
+   */
+  private assertQbitAccountOutputs(account: Account, outputs: UnspentOutput[]): UnspentOutput[] {
+    const accountScriptPubKey = account.p2mr?.scriptPubKey
+    for (const output of outputs) {
+      if (!output.scriptPk) {
+        throw new Error('Qbit inputs must carry their scriptPubKey')
+      }
+      if (!isQbitAccountOutput(output, accountScriptPubKey)) {
+        throw new Error('Qbit inputs must belong to the selected account')
+      }
+    }
+    return outputs
   }
 
   /**
@@ -5958,7 +5985,8 @@ export class WalletController extends BaseController {
    * aborts. A read from history that completes is kept as the account's
    * latest on `chain` (`qbitLatestUtxoReads`), in the order reads started,
    * under the address statistics its walk verified, not ones read before
-   * it, which may have moved since; one that fails or stops leaves nothing.
+   * it, which may have moved since; one that fails or stops leaves nothing,
+   * and so does any read while the wallet is locked.
    */
   private async qbitAccountUtxosOn(
     chain: ChainType,
@@ -5981,10 +6009,10 @@ export class WalletController extends BaseController {
       pubkey: account.pubkey,
       ...(v.unconfirmed ? { unconfirmed: true, unconfirmedAncestors: v.unconfirmedAncestors } : {}),
     }))
-    if (historyStats) {
+    if (historyStats && this.isUnlocked()) {
       this.qbitLatestUtxoReads.keep(client, account.address, order, {
         stats: qbitStatsSnapshot(historyStats),
-        utxos: outputs,
+        utxos: utxos.map(qbitReadOutput),
       })
     }
     return outputs
@@ -6544,9 +6572,8 @@ export class WalletController extends BaseController {
     assertQbitFeeRateWithinPolicy(resolvedFeeRate)
 
     // Every output the send may spend is the selected account's: outputs
-    // read for another account are refused (`qbitSendInputsOn`), and so is
-    // an output without the account's scriptPubKey, rather than taken for
-    // its own or skipped.
+    // read for another account are refused, and so is an output without
+    // the account's scriptPubKey (`qbitSendInputsOn`).
     const inputs = await this.qbitSendInputsOn(
       chain,
       account,
@@ -6554,15 +6581,6 @@ export class WalletController extends BaseController {
       providedUtxoChain,
       providedUtxoAddress
     )
-    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
-    for (const utxo of inputs) {
-      if (!utxo.scriptPk) {
-        throw new Error('Qbit inputs must carry their scriptPubKey')
-      }
-      if (utxo.scriptPk.toLowerCase() !== accountScriptPubKey) {
-        throw new Error('Qbit inputs must belong to the selected account')
-      }
-    }
     const spendableUtxos = await this.excludeGuardedQbitUtxos(chain, account.address, inputs)
     if (spendableUtxos.length === 0) {
       throw new Error('Insufficient balance.')
@@ -6772,14 +6790,10 @@ export class WalletController extends BaseController {
       providedUtxoChain,
       providedUtxoAddress
     )
-    const qbitUtxos = reservationsAlreadyFiltered
+    // Each one the account's own, as `qbitSendInputsOn` checked.
+    const spendableUtxos = reservationsAlreadyFiltered
       ? fetchedUtxos
       : await this.excludeGuardedQbitUtxos(chain, account.address, fetchedUtxos)
-    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
-    const spendableUtxos = qbitUtxos.filter(utxo => {
-      const scriptPk = (utxo.scriptPk || accountScriptPubKey).toLowerCase()
-      return scriptPk === accountScriptPubKey
-    })
     if (spendableUtxos.length === 0) {
       throw new Error('Insufficient balance.')
     }
@@ -6820,7 +6834,7 @@ export class WalletController extends BaseController {
         sequence,
         witnessUtxo: {
           value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk || account.p2mr!.scriptPubKey),
+          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
         },
         leafScript,
         controlBlock,

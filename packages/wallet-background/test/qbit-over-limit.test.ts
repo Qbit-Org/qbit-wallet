@@ -430,6 +430,25 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
     expect(balance.unavailableBalance).toBe(totalOf(explorer) - sum(utxos))
   })
 
+  it('never counts an output without a scriptPubKey, script on record or not', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos } = await readOf(explorer)
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const unlabelled = { ...utxos[0]!, txid: fakeTxid(9, 9_000_000), satoshis: 1_000, scriptPk: '' }
+    const outputs = [...utxos, unlabelled]
+
+    for (const accountScript of [script, undefined]) {
+      const balance = await getQbitSpendableBalanceV2(
+        clientFor(explorer),
+        address,
+        accountScript,
+        undefined,
+        current => (current === stats ? outputs : undefined)
+      )
+      expect(balance.availableBalance).toBe(sum(utxos))
+    }
+  })
+
   it('never shows more available than the total', async () => {
     const { explorer } = overLimitExplorer()
     const { utxos } = await readOf(explorer)
@@ -466,6 +485,96 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
     expect(balance.availableBalance).toBe(sum(utxos))
     // One for the total, one for the limit check, which the split reuses.
     expect(statsReads() - before).toBe(2)
+  })
+})
+
+describe('Available past the limit and from the listing, for the same outputs', () => {
+  const OUTPUTS = 510
+  const VALUE = 10_000
+  const CHANGE = 4_000
+  const PAYMENT = 50_000
+
+  /**
+   * An address just past the 500-output limit with its own pending send,
+   * whose change comes back unconfirmed, and a larger pending payment from
+   * someone else. `listingLimit` decides whether the explorer lists it.
+   */
+  function pendingChangeExplorer(listingLimit: number) {
+    const explorer = new FakeQbitExplorer('esplora')
+    explorer.utxoLimit = listingLimit
+    explorer.registerAddress(address, script)
+    explorer.registerAddress(payer, payerScript)
+    for (let index = 0; index < OUTPUTS; index += 1) {
+      explorer.addTx({
+        txid: fakeTxid(index),
+        inputs: [{ txid: fakeTxid(index, 5_000_000), vout: 0 }],
+        outputs: [{ address, script, value: VALUE }],
+        height: 100 + Math.floor(index / 4),
+      })
+    }
+    explorer.addTx({
+      txid: fakeTxid(1, 7_000_000),
+      inputs: [{ txid: fakeTxid(0), vout: 0 }],
+      outputs: [
+        { address: payer, script: payerScript, value: VALUE - CHANGE - 1_000 },
+        { address, script, value: CHANGE },
+      ],
+    })
+    explorer.addTx({
+      txid: fakeTxid(2, 7_000_000),
+      inputs: [{ txid: fakeTxid(3, 8_000_000), vout: 0 }],
+      outputs: [{ address, script, value: PAYMENT }],
+    })
+    return explorer
+  }
+
+  const CONFIRMED = OUTPUTS * VALUE
+  const TOTAL = CONFIRMED - VALUE + CHANGE + PAYMENT
+
+  it('reports the same Available on both paths, own unconfirmed change included', async () => {
+    const listed = await getQbitSpendableBalanceV2(
+      clientFor(pendingChangeExplorer(10_000)),
+      address,
+      script
+    )
+    const pastLimit = pendingChangeExplorer(500)
+    const stats = qbitStatsSnapshot(pastLimit.stats(address))
+    const utxos = await getQbitAddressUtxos(clientFor(pastLimit), address)
+    expect(utxos.filter(utxo => utxo.unconfirmed).map(utxo => utxo.satoshis)).toEqual([CHANGE])
+
+    const read = await getQbitSpendableBalanceV2(
+      clientFor(pastLimit),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? utxos : undefined)
+    )
+
+    expect(listed.availableBalance).toBe(CONFIRMED - VALUE + CHANGE)
+    expect(read.availableBalance).toBe(listed.availableBalance)
+    expect(read.totalBalance).toBe(TOTAL)
+  })
+
+  it('bounds the confirmed outputs by the confirmed balance, as the listing path does', async () => {
+    const pastLimit = pendingChangeExplorer(500)
+    const stats = qbitStatsSnapshot(pastLimit.stats(address))
+    const utxos = await getQbitAddressUtxos(clientFor(pastLimit), address)
+    // More confirmed value than the statistics hold, as from a lagging index.
+    const inflated = utxos.map(utxo =>
+      utxo.unconfirmed ? utxo : { ...utxo, satoshis: utxo.satoshis * 2 }
+    )
+
+    const read = await getQbitSpendableBalanceV2(
+      clientFor(pastLimit),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? inflated : undefined)
+    )
+
+    // The confirmed balance, plus the change, under the total.
+    expect(read.availableBalance).toBe(CONFIRMED + CHANGE)
+    expect(read.availableBalance).toBeLessThan(TOTAL)
   })
 })
 

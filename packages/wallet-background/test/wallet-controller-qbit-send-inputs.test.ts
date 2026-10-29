@@ -152,6 +152,31 @@ describe('createSendQbitPsbt spends only the selected account’s outputs', () =
     expect(decodePsbt(parsePsbt(hexToBytes(toSignData.psbtHex))).inputs).toHaveLength(1)
   })
 
+  it('refuses, in both builders, an output of another script among those it reads itself', async () => {
+    const wallet = new WalletController()
+    vi.spyOn(wallet as any, 'qbitAccountUtxosOn').mockResolvedValue([
+      output(account, 'aa', 50_000),
+      output(otherAccount, 'bb', 50_000),
+    ])
+
+    await expect(
+      wallet.createSendQbitPsbt({ to: recipient, amount: 10_000, feeRate: 1 })
+    ).rejects.toThrow('Qbit inputs must belong to the selected account')
+    await expect(wallet.createSendAllQbitPsbt({ to: recipient, feeRate: 1 })).rejects.toThrow(
+      'Qbit inputs must belong to the selected account'
+    )
+  })
+
+  it('refuses, for send-all too, an output of another script or with none, rather than skip or stamp it', async () => {
+    await expect(
+      sendAll([output(account, 'aa', 50_000), output(otherAccount, 'bb', 50_000)], account.address)
+    ).rejects.toThrow('Qbit inputs must belong to the selected account')
+    const unlabelled = { ...output(account, 'cc', 50_000), scriptPk: '' }
+    await expect(
+      sendAll([output(account, 'aa', 50_000), unlabelled], account.address)
+    ).rejects.toThrow('Qbit inputs must carry their scriptPubKey')
+  })
+
   it('refuses an output of another account among its own', async () => {
     await expect(
       send([output(account, 'aa', 50_000), output(otherAccount, 'bb', 50_000)], account.address)

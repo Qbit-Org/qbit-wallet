@@ -25,6 +25,7 @@ import {
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
   estimateQbitP2mrTransaction,
+  isQbitAccountOutput,
 } from '@qbit/wallet-shared'
 import type {
   AddressSummary,
@@ -586,8 +587,24 @@ async function qbitUtxoListOverExplorerLimitStats(
   return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT ? stats : undefined
 }
 
-/** An output a read of an address's history found spendable; see `getQbitAddressUtxos`. */
-export type QbitReadOutput = Pick<UTXO, 'txid' | 'vout' | 'satoshis' | 'scriptPk'>
+/**
+ * What the past-limit split needs of an output a read of an address's
+ * history found spendable (see `getQbitAddressUtxos`), and no more: a large
+ * address can have tens of thousands. `unconfirmed` marks the account's own
+ * unconfirmed change.
+ */
+export type QbitReadOutput = Pick<UTXO, 'txid' | 'vout' | 'satoshis' | 'scriptPk' | 'unconfirmed'>
+
+/** `utxo` as the past-limit split keeps it (`QbitReadOutput`). */
+export function qbitReadOutput(utxo: QbitReadOutput): QbitReadOutput {
+  return {
+    txid: utxo.txid,
+    vout: utxo.vout,
+    satoshis: utxo.satoshis,
+    scriptPk: utxo.scriptPk,
+    ...(utxo.unconfirmed ? { unconfirmed: true } : {}),
+  }
+}
 
 /**
  * The address's balance split the way a send sees it. `readReserved`, when
@@ -638,30 +655,17 @@ export async function getQbitSpendableBalanceV2(
   }
   const classified = classifiedResult.value
   const reserved = readReserved ? await readReserved() : undefined
-  const matchesScript = (utxo: UTXO) => qbitOutputPaysScript(utxo, p2mrScriptPubKey)
-  const selectable = (utxo: UTXO) => isQbitSelectableOutput(utxo, p2mrScriptPubKey, reserved)
-  const confirmedSpendableSats = classified.confirmedSpendable
-    .filter(selectable)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const unconfirmedSpendableSats = classified.unconfirmedSpendable
-    .filter(matchesScript)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const ownChangeSats = classified.unconfirmedOwnChange
-    .filter(matchesScript)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const selectableOwnChangeSats = classified.unconfirmedOwnChange
-    .filter(selectable)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const classifiedImmatureSats = classified.immature
-    .filter(matchesScript)
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  // Available is what a send may select (see `getQbitAddressUtxos`): the
-  // confirmed outputs, plus the unconfirmed change of this script's own
-  // transactions, less the reserved ones.
-  const availableBalance = Math.min(
-    Math.max(0, aggregateBalance.totalBalance),
-    Math.min(Math.max(0, aggregateBalance.availableBalance), confirmedSpendableSats) +
-      selectableOwnChangeSats
+  const unconfirmedSpendableSats = qbitAccountSats(
+    classified.unconfirmedSpendable,
+    p2mrScriptPubKey
+  )
+  const ownChangeSats = qbitAccountSats(classified.unconfirmedOwnChange, p2mrScriptPubKey)
+  const classifiedImmatureSats = qbitAccountSats(classified.immature, p2mrScriptPubKey)
+  const availableBalance = qbitAvailableSats(
+    aggregateBalance.totalBalance,
+    aggregateBalance.availableBalance,
+    qbitAccountSats(classified.confirmedSpendable, p2mrScriptPubKey, reserved),
+    qbitAccountSats(classified.unconfirmedOwnChange, p2mrScriptPubKey, reserved)
   )
   const unavailableBalance = Math.max(0, aggregateBalance.totalBalance - availableBalance)
   const immatureBalance = Math.min(classifiedImmatureSats, unavailableBalance)
@@ -684,10 +688,11 @@ export async function getQbitSpendableBalanceV2(
  * The split of an address over the explorer's UTXO limit from the outputs a
  * read of its history found, or `undefined` (unknown) without a read made
  * against `stats`, the statistics as they read now: any new transaction for
- * the address changes them. The total comes from those same statistics.
- * Available is what a send may select from the read, less the outputs
- * `readReserved` names, never more than the total; Unavailable is the rest.
- * The read leaves immature and pending outputs out, so those stay unknown.
+ * the address changes them. The total and the confirmed balance come from
+ * those same statistics, and Available is bounded by them as on the listing
+ * path (`qbitAvailableSats`), less the outputs `readReserved` names;
+ * Unavailable is the rest. The read leaves immature and pending outputs
+ * out, so those stay unknown.
  */
 async function getQbitPastLimitSplit(
   stats: EsploraAddressStats,
@@ -695,19 +700,30 @@ async function getQbitPastLimitSplit(
   readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
   readOutputs: (stats: string) => readonly QbitReadOutput[] | undefined
 ): Promise<QbitBalanceSummaryPayload | undefined> {
-  let totalBalance: number
+  let balance: AddressBalance
   try {
-    totalBalance = Math.max(0, addressBalanceFromStats(stats).totalSats)
+    balance = addressBalanceFromStats(stats)
   } catch {
     return undefined
   }
   const outputs = readOutputs(qbitStatsSnapshot(stats))
   if (!outputs) return undefined
   const reserved = readReserved ? await readReserved() : undefined
-  const spendableSats = outputs
-    .filter(utxo => isQbitSelectableOutput(utxo, p2mrScriptPubKey, reserved))
-    .reduce((sum, utxo) => sum + utxo.satoshis, 0)
-  const availableBalance = Math.min(totalBalance, spendableSats)
+  const totalBalance = Math.max(0, balance.totalSats)
+  const availableBalance = qbitAvailableSats(
+    totalBalance,
+    balance.confirmedSats,
+    qbitAccountSats(
+      outputs.filter(output => !output.unconfirmed),
+      p2mrScriptPubKey,
+      reserved
+    ),
+    qbitAccountSats(
+      outputs.filter(output => output.unconfirmed),
+      p2mrScriptPubKey,
+      reserved
+    )
+  )
   return {
     availableBalance,
     unavailableBalance: totalBalance - availableBalance,
@@ -718,30 +734,41 @@ async function getQbitPastLimitSplit(
   }
 }
 
-/** Whether `utxo` carries a script, and `p2mrScriptPubKey` when one is given. */
-function qbitOutputPaysScript(
-  utxo: Pick<UTXO, 'scriptPk'>,
-  p2mrScriptPubKey: string | undefined
-): boolean {
-  return (
-    typeof utxo.scriptPk === 'string' &&
-    (!p2mrScriptPubKey || utxo.scriptPk.toLowerCase() === p2mrScriptPubKey.toLowerCase())
-  )
+/**
+ * The value of the account's own outputs among `outputs`
+ * (`isQbitAccountOutput`), less the ones `reserved` holds. Reservations
+ * name outpoints as `txid:vout`, the txid in lower case
+ * (`QbitSendGuardService`).
+ */
+function qbitAccountSats(
+  outputs: readonly QbitReadOutput[],
+  p2mrScriptPubKey: string | undefined,
+  reserved?: ReadonlySet<string>
+): number {
+  let sats = 0
+  for (const output of outputs) {
+    if (!isQbitAccountOutput(output, p2mrScriptPubKey)) continue
+    if (reserved?.has(`${output.txid.toLowerCase()}:${output.vout}`)) continue
+    sats += output.satoshis
+  }
+  return sats
 }
 
 /**
- * Whether a send may select `utxo`: it pays `p2mrScriptPubKey`
- * (`qbitOutputPaysScript`) and no reservation holds it. Reservations name
- * outpoints as `txid:vout`, the txid in lower case (`QbitSendGuardService`).
+ * Available as a send sees it (see `getQbitAddressUtxos`), on either balance
+ * path: the confirmed outputs a send may select, never more than the
+ * confirmed balance, plus the selectable unconfirmed change of this
+ * script's own transactions, never more than the total.
  */
-function isQbitSelectableOutput(
-  utxo: Pick<UTXO, 'txid' | 'vout' | 'scriptPk'>,
-  p2mrScriptPubKey: string | undefined,
-  reserved: ReadonlySet<string> | undefined
-): boolean {
-  return (
-    qbitOutputPaysScript(utxo, p2mrScriptPubKey) &&
-    !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
+function qbitAvailableSats(
+  totalSats: number,
+  confirmedSats: number,
+  confirmedSelectableSats: number,
+  ownChangeSelectableSats: number
+): number {
+  return Math.min(
+    Math.max(0, totalSats),
+    Math.min(Math.max(0, confirmedSats), confirmedSelectableSats) + ownChangeSelectableSats
   )
 }
 

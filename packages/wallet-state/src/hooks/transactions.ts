@@ -5,6 +5,7 @@ import {
   Account,
   assertQbitFeeRateWithinPolicy,
   canCreateQbitSendRequest,
+  isQbitAccountOutput,
   QBIT_MAX_FEE_RATE,
   QBIT_P2MR_DUST,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
@@ -81,17 +82,13 @@ function qbitMemoOutputScriptLengths(memo?: string, memos?: string[]): number[] 
 }
 
 /**
- * The outputs a send builder accepts as the account's own: an output without
- * its scriptPubKey never counts, as the builder refuses it, so Available and
- * the preflight never include one.
+ * The outputs the send builders accept as the account's own, by the same
+ * rule (`isQbitAccountOutput`): an output without its scriptPubKey, or with
+ * another, never counts, so Available and the preflight never include one.
  */
 export function getQbitP2mrSpendableUtxos(utxos: UnspentOutput[], account: Account) {
-  const accountScriptPubKey = account.p2mr?.scriptPubKey.toLowerCase()
-  return utxos.filter(
-    utxo =>
-      Boolean(utxo.scriptPk) &&
-      (!accountScriptPubKey || utxo.scriptPk.toLowerCase() === accountScriptPubKey)
-  )
+  const accountScriptPubKey = account.p2mr?.scriptPubKey
+  return utxos.filter(utxo => isQbitAccountOutput(utxo, accountScriptPubKey))
 }
 
 export function getQbitP2mrSpendableSatoshis(utxos: UnspentOutput[], account: Account) {
