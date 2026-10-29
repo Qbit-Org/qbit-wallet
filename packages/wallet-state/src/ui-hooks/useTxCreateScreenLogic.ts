@@ -41,7 +41,7 @@ import {
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
-import type { FeeQuoteState } from './useFeeRateBarLogic'
+import { feeBarQuoteRate, type FeeQuoteState } from './useFeeRateBarLogic'
 
 /** What the previewed send takes from the wallet, for the total and the fee check. */
 interface SendSpendPreview {
@@ -52,6 +52,8 @@ interface SendSpendPreview {
   /** Exact fee, including any change folded into it. */
   fee: number
   vsize: number
+  /** The selected rate the preview was built at. */
+  feeRate: number
 }
 
 /** The send screen's total and fee warning for its preview. */
@@ -411,6 +413,7 @@ export function useTxCreateScreenLogic() {
           recipientSatoshis: 'outputSatoshis' in preflight ? preflight.outputSatoshis : toSatoshis,
           fee: preflight.estimatedFee,
           vsize: preflight.estimatedVsize,
+          feeRate,
         })
       }
     }
@@ -440,6 +443,11 @@ export function useTxCreateScreenLogic() {
 
   const unavailableTipText = useMemo(() => t('unavailable_tooltip'), [t])
 
+  // The rate the fee bar selects from the quote. The bar copies it into the
+  // store after it renders, and the preview follows after that, so for a
+  // render or two after a newer quote the preview is at an earlier rate.
+  const quoteFeeRate = feeBarQuoteRate(feeQuote, feeRateBarState.feeOptionIndex)
+
   // What leaves the wallet (the recipient's amount plus the fee; change comes
   // back, and so does a payment to another of the wallet's accounts) and
   // whether that fee is abnormal, from the same preflight that enables Next.
@@ -450,6 +458,11 @@ export function useTxCreateScreenLogic() {
     const sentToOthers = qbitWalletOwns(walletOwnership, { address: recipientAddress })
       ? 0
       : recipientSatoshis
+    const totalSpend = numUtils.satoshisToAmount(sentToOthers + fee)
+    // A fee at a rate from an earlier quote is not judged against this one.
+    if (quoteFeeRate !== undefined && spendPreview.feeRate !== quoteFeeRate) {
+      return { totalSpend, feeWarnings: [] }
+    }
     const assessment = assessQbitFee({
       fee,
       feeRate: fee / vsize,
@@ -459,7 +472,7 @@ export function useTxCreateScreenLogic() {
     })
     const warning = qbitFeeWarningText(assessment, t, qbitUnit)
     return {
-      totalSpend: numUtils.satoshisToAmount(sentToOthers + fee),
+      totalSpend,
       ...(warning.title !== undefined ? { feeWarningTitle: warning.title } : {}),
       feeWarnings: warning.lines,
       // Said only once the quote has been read, not while it loads.
@@ -467,7 +480,7 @@ export function useTxCreateScreenLogic() {
         ? { feeRecommendationUnavailable: warning.recommendationUnavailable }
         : {}),
     }
-  }, [spendPreview, walletOwnership, feeQuote, t, qbitUnit])
+  }, [spendPreview, walletOwnership, feeQuote, quoteFeeRate, t, qbitUnit])
 
   // Max past the standard transaction size sends the largest outputs only.
   const leftBehindNote =

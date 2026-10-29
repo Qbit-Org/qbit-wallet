@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button, Column, Content, Header, Icon, Input, Layout, Row, Text, Tooltip } from '@/ui/components';
 import { FeeRateBar } from '@/ui/components/FeeRateBar';
@@ -7,13 +7,14 @@ import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { useI18n, useTxCreateScreenLogic } from '@qbit/wallet-state';
 
-// Digits grouped for the user's locale. The app's locale codes (zh_TW) use an
-// underscore where Intl expects a hyphen.
-function groupDigits(value: number, locale: string): string {
+// Numbers in the user's locale, with its own group and decimal separators. The
+// app's locale codes (zh_TW) use an underscore where Intl expects a hyphen.
+function localeNumberFormat(locale: string): Intl.NumberFormat {
+  const options = { maximumFractionDigits: 1 };
   try {
-    return value.toLocaleString(locale.replace('_', '-'));
+    return new Intl.NumberFormat(locale.replace('_', '-'), options);
   } catch {
-    return value.toLocaleString();
+    return new Intl.NumberFormat(undefined, options);
   }
 }
 
@@ -56,6 +57,7 @@ export default function TxCreateScreen() {
     onClickConsolidate
   } = useTxCreateScreenLogic();
   const { locale } = useI18n();
+  const numberFormat = useMemo(() => localeNumberFormat(locale), [locale]);
 
   // Keep an already-entered memo visible when returning to this screen.
   const [advancedExpanded, setAdvancedExpanded] = useState(() => Boolean(memo));
@@ -194,8 +196,8 @@ export default function TxCreateScreen() {
                   <Text
                     text={`${t('estimated_inputs_and_size', [
                       String(feeDetail.inputCount),
-                      (feeDetail.estimatedVsize / 1000).toFixed(1)
-                    ])} · ${groupDigits(feeDetail.estimatedFee, locale)} bits`}
+                      numberFormat.format(feeDetail.estimatedVsize / 1000)
+                    ])} · ${numberFormat.format(feeDetail.estimatedFee)} bits`}
                     size="xs"
                     color="textDim"
                     data-testid="tx-size-estimate"

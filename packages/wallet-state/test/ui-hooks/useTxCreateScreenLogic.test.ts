@@ -2774,8 +2774,9 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     }
     const { wallet, store, wrapper } = prepareSend({ feeRate: 400, quote: testnetQuote })
     wallet.getFeeSummary.mockResolvedValueOnce(LIVE_QUOTE)
-    // What each render's fee check compared with, and what its fee bar offered.
-    const renders: { quoteRates: number[]; barRates: number[] }[] = []
+    // What each render's fee check compared with (nothing while the quote
+    // loads), and what its fee bar offered.
+    const renders: { quoteRates?: number[]; barRates: number[] }[] = []
     const { result } = renderHook(
       () => {
         const rendered = useSendScreenWithFeeBar()
@@ -2784,7 +2785,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
           quoteRates:
             feeQuote.status === 'loaded'
               ? (feeQuote.summary?.list.map(tier => tier.feeRate) ?? [])
-              : [],
+              : undefined,
           barRates: feeBarRates(rendered.feeBar),
         })
         return rendered
@@ -2799,6 +2800,60 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
 
     await waitFor(() => expect(feeBarRates(result.current.feeBar)).toEqual([3, 4, 5]))
     expect(wallet.getFeeSummary).toHaveBeenCalledTimes(2)
-    for (const render of renders) expect(render.barRates).toEqual(render.quoteRates)
+    // A loaded quote's rates in the render it lands in; while the next one
+    // loads, the last loaded quote's.
+    let lastQuoteRates: number[] = []
+    for (const render of renders) {
+      lastQuoteRates = render.quoteRates ?? lastQuoteRates
+      expect(render.barRates).toEqual(lastQuoteRates)
+    }
+  })
+
+  it('judges the fee against a newer quote only once the rate has caught up with it', async () => {
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 40,
+      quote: LIVE_QUOTE,
+      utxoValues: [100_000_000],
+    })
+    // Fast at 40 bits/vB, as an earlier quote offered it.
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({ feeRate: 40, feeRateInputVal: '40', feeOptionIndex: 2 })
+    )
+    let resolveQuote!: (quote: unknown) => void
+    wallet.getFeeSummary.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveQuote = resolve
+      })
+    )
+    // The rate in the store and the warnings the screen showed, in each render.
+    const renders: { feeRate: number; warnings: string[] }[] = []
+    const { result } = renderHook(
+      () => {
+        const rendered = useSendScreenWithFeeBar()
+        renders.push({
+          feeRate: store.getState().ui.feeRateBar.feeRate,
+          warnings: rendered.screen.spendSummary?.feeWarnings ?? [],
+        })
+        return rendered
+      },
+      { wrapper }
+    )
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+    await waitFor(() => expect(result.current.screen.spendSummary).toBeDefined())
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(40)
+
+    // This quote's Fast is 2 bits/vB, against which 40 would be abnormal.
+    await act(async () => {
+      resolveQuote(LIVE_QUOTE)
+    })
+
+    await waitFor(() => {
+      expect(store.getState().ui.feeRateBar.feeRate).toBe(2)
+      expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10007720')
+    })
+    expect(renders.filter(render => render.warnings.length > 0)).toEqual([])
   })
 })
