@@ -6267,6 +6267,7 @@ export class WalletController extends BaseController {
     feeRate,
     qbitUtxos: providedUtxos,
     qbitUtxoChain: providedUtxoChain,
+    qbitUtxoAddress: providedUtxoAddress,
     enableRBF = true,
     memo,
     memos,
@@ -6277,6 +6278,8 @@ export class WalletController extends BaseController {
     qbitUtxos?: UnspentOutput[]
     /** Required with `qbitUtxos`: the network they were loaded on. */
     qbitUtxoChain?: ChainType
+    /** With `qbitUtxos`: the account they were read for, refused unless it is the selected one. */
+    qbitUtxoAddress?: string
     enableRBF?: boolean
     memo?: string
     memos?: string[]
@@ -6311,17 +6314,23 @@ export class WalletController extends BaseController {
     }
     assertQbitFeeRateWithinPolicy(resolvedFeeRate)
 
-    const qbitUtxos = await this.excludeGuardedQbitUtxos(
-      chain,
-      account.address,
-      await this.qbitSendInputsOn(chain, account, providedUtxos, providedUtxoChain)
-    )
-
+    // Every output the send may spend is the selected account's: outputs
+    // read for another account are refused, and so is an output without
+    // the account's scriptPubKey, rather than taken for its own or skipped.
+    if (providedUtxoAddress !== undefined && providedUtxoAddress !== account.address) {
+      throw new Error('Qbit account changed since the inputs were loaded')
+    }
+    const inputs = await this.qbitSendInputsOn(chain, account, providedUtxos, providedUtxoChain)
     const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
-    const spendableUtxos = qbitUtxos.filter(utxo => {
-      const scriptPk = (utxo.scriptPk || account.p2mr!.scriptPubKey).toLowerCase()
-      return scriptPk === accountScriptPubKey
-    })
+    for (const utxo of inputs) {
+      if (!utxo.scriptPk) {
+        throw new Error('Qbit inputs must carry their scriptPubKey')
+      }
+      if (utxo.scriptPk.toLowerCase() !== accountScriptPubKey) {
+        throw new Error('Qbit inputs must belong to the selected account')
+      }
+    }
+    const spendableUtxos = await this.excludeGuardedQbitUtxos(chain, account.address, inputs)
     if (spendableUtxos.length === 0) {
       throw new Error('Insufficient balance.')
     }
@@ -6395,7 +6404,7 @@ export class WalletController extends BaseController {
         sequence,
         witnessUtxo: {
           value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk || account.p2mr!.scriptPubKey),
+          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
         },
         leafScript,
         controlBlock,

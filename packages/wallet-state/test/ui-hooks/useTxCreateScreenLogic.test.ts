@@ -1915,6 +1915,71 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.inputAmount).toBeFalsy()
     })
 
+    it('shows Unavailable as unknown, like Available, until the over-limit read lands', async () => {
+      const account = p2mrAccount()
+      const harness = createHookTestHarness()
+      let answer!: (snapshot: unknown) => void
+      harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(resolve => (answer = resolve)))
+      harness.store.dispatch(accountActions.setCurrent(account))
+      harness.store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoLimitExceeded: true,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      // Not the whole total: how much of it is unavailable is unknown too.
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
+
+      await act(async () => {
+        answer({
+          address: account.address,
+          chain: ChainType.QBIT_MAINNET,
+          utxos: manyOutputs(account, Array(500).fill(10_000)),
+        })
+      })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('0.05000000'))
+      expect(result.current.unavailableAmount).toBe('0.01000000')
+      expect(result.current.showUnavailable).toBe(true)
+    })
+
+    it('shows Unavailable as unknown while a broadcast holds the send guard', async () => {
+      const { p2mr: _p2mr, ...account } = p2mrAccount()
+      const harness = createHookTestHarness()
+      harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(() => {}))
+      harness.store.dispatch(accountActions.setCurrent(account as any))
+      harness.store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
+    })
+
     it('takes the loading overlay down once the balance shows the account over the limit', async () => {
       const account = p2mrAccount()
       const harness = createHookTestHarness()
@@ -2465,9 +2530,34 @@ describe('UTXO cache across accounts (#342)', () => {
     })
     expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
     expect(wallet.createSendQbitPsbt).toHaveBeenCalledWith(
-      expect.objectContaining({ qbitUtxos: outputsB, qbitUtxoChain: ChainType.QBIT_MAINNET })
+      expect.objectContaining({
+        qbitUtxos: outputsB,
+        qbitUtxoChain: ChainType.QBIT_MAINNET,
+        qbitUtxoAddress: accountB.address,
+      })
     )
     expect(store.getState().transactions.utxosAddress).toBe(accountB.address)
+  })
+
+  it('prepare send names the account its cached outputs were read for', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    select(store, accountB, 50_000)
+    const outputsB = outputsOf(accountB, 'bb', [50_000])
+    store.dispatch(transactionsActions.setUtxos(snapshotOf(accountB, outputsB)))
+    wallet.createSendQbitPsbt.mockResolvedValue({ psbtHex: 'prepared' } as any)
+    const { result } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
+
+    await act(async () => {
+      await result.current({ toAddressInfo: { address: recipient }, toAmount: 10_000, feeRate: 1 })
+    })
+    expect(wallet.getQbitUtxoSnapshot).not.toHaveBeenCalled()
+    expect(wallet.createSendQbitPsbt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        qbitUtxos: outputsB,
+        qbitUtxoChain: ChainType.QBIT_MAINNET,
+        qbitUtxoAddress: accountB.address,
+      })
+    )
   })
 })
 

@@ -365,6 +365,7 @@ export function usePrepareSendQBTCallback() {
           amount: toAmount,
           qbitUtxos: spendableUtxos,
           qbitUtxoChain: snapshot.chain,
+          qbitUtxoAddress: snapshot.address,
           feeRate,
           enableRBF,
           memo: memo!,
@@ -625,6 +626,9 @@ export function useFetchUtxosCallback() {
     async ({ signal }: { signal?: AbortSignal } = {}): Promise<QbitUtxoSnapshot> => {
       if (signal?.aborted) throw utxoReadAborted(signal)
       const read = ++utxoReads
+      // A broadcast from this window after this point may have spent
+      // outputs the answer still lists.
+      const broadcasts = store.getState().transactions.broadcasts
       const snapshot = await wallet.getQbitUtxoSnapshot()
       if (signal?.aborted) throw utxoReadAborted(signal)
       if (snapshot.address !== address || snapshot.chain !== chainType) {
@@ -639,7 +643,14 @@ export function useFetchUtxosCallback() {
         isSelectedUtxoKey(state, snapshot.address, snapshot.chain) &&
         !(isSelectedUtxoKey(state, utxosAddress, utxosChain) && utxosRead > read)
       ) {
-        dispatch((transactionsActions as any).setUtxos({ ...snapshot, read }))
+        dispatch(
+          (transactionsActions as any).setUtxos({
+            ...snapshot,
+            read,
+            readAt: Date.now(),
+            broadcasts,
+          })
+        )
       }
       return snapshot
     },

@@ -266,8 +266,8 @@ export function useTxCreateScreenLogic() {
   // balance, including outputs a pending send holds. Outputs the explorer
   // would not list and the wallet could not read from history are unknown,
   // not zero.
-  const availableAmount =
-    ownUtxosUnknown || balanceAvailableUnknown ? '--' : numUtils.satoshisToAmount(availableSatoshis)
+  const splitUnknown = ownUtxosUnknown || balanceAvailableUnknown
+  const availableAmount = splitUnknown ? '--' : numUtils.satoshisToAmount(availableSatoshis)
   const unavailableSats = hasQbitUtxoPreflight
     ? Math.max(0, accountBalance.totalBalance - availableSatoshis)
     : Math.max(0, accountBalance.unavailableBalance)
@@ -275,9 +275,11 @@ export function useTxCreateScreenLogic() {
   // the outputs are: those rows show `--` rather than hiding behind the
   // stand-in zeros, as the balance card does.
   const unknownAmount = (sats: number) => (balanceRead ? numUtils.satoshisToAmount(sats) : '--')
-  const unavailableAmount = unknownAmount(unavailableSats)
+  // While Available is unknown so is the rest of the balance: Unavailable
+  // shows `--`, as on the balance card, not the whole total.
+  const unavailableAmount = splitUnknown ? '--' : unknownAmount(unavailableSats)
 
-  const showUnavailable = !balanceRead || unavailableSats > 0
+  const showUnavailable = !balanceRead || splitUnknown || unavailableSats > 0
 
   const immatureSats = Math.min(unavailableSats, Math.max(0, accountBalance.immatureBalance ?? 0))
   const showImmature = !balanceRead || immatureSats > 0
@@ -491,7 +493,7 @@ export function useTxCreateScreenLogic() {
 
   const onAmountMaxClick = () => {
     // Nothing to fill while Available is unknown.
-    if (ownUtxosUnknown || balanceAvailableUnknown) return
+    if (splitUnknown) return
     setAutoAdjust(true)
     // Fill from the same spendable total that validation and the send use
     // (availableSatoshis), not accountBalance.availableBalance — otherwise Max
