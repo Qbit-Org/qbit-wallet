@@ -7441,7 +7441,7 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async spendCheck => {
+      async (spendCheck: QbitExplorerSpendCheck = {}) => {
         await this.checkQbitBroadcastOnExplorer(client, spendCheck)
         return client.broadcastTx(rawtx)
       },
@@ -7754,7 +7754,10 @@ export class WalletController extends BaseController {
         throw new Error('Qbit broadcast re-send window has passed')
       }
     }
-    const broadcast = async (spendCheck: QbitExplorerSpendCheck): Promise<string> => {
+    // A call that hands no check (the guard always hands one, if only `{}`)
+    // asks for none, as for a send that is neither a fee bump nor restored:
+    // the bytes still go out, or fail, as any other send's do.
+    const broadcast = async (spendCheck: QbitExplorerSpendCheck = {}): Promise<string> => {
       operation.start()
       assertTimeToSend()
       assertResendWindowOpen()

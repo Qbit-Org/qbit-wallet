@@ -260,11 +260,18 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
   it("leaves the broadcast's submission its reply budget, and refuses at once without room for both rounds", async () => {
     vi.useFakeTimers()
     const client = explorer([unspent])
-    // 20 s left: the check may take 15 s of them at most, its own budget.
+    // 60 s left: the check's own budget caps it.
     await expect(
-      settled(checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(30_000) }))
+      settled(checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(60_000) }))
     ).resolves.toBeUndefined()
     expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(QBIT_FEE_BUMP_RECHECK_WAIT_MS)
+    // 29 s left: 14 s for the check, a second short of its own budget,
+    // because the submission keeps 15 s.
+    client.getTxOutspends.mockClear()
+    await expect(
+      settled(checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(29_000) }))
+    ).resolves.toBeUndefined()
+    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(14_000)
     // 25 s left: 10 s for the check, 15 s for the submission.
     client.getTxOutspends.mockClear()
     await expect(

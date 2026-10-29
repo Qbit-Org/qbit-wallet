@@ -392,6 +392,47 @@ describe('WalletController.broadcastQbitTx', () => {
     expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
   })
 
+  it('keeps an ordinary send\'s outage handling under a guard that hands its broadcast no check', async () => {
+    // As the regtest send-flow harness stands in for the guard: it runs the
+    // broadcast without saying what to check, which asks for no check.
+    const wallet = newController()
+    const guard = vi
+      .spyOn(qbitSendGuardService, 'broadcastIfAllowed')
+      .mockImplementation(async (_chain, _txid, _outpoints, broadcast) =>
+        (broadcast as () => Promise<any>)()
+      )
+    try {
+      // Outage: nothing reaches the node, which the wallet cannot prove.
+      broadcastTxMock.mockRejectedValueOnce(networkError())
+      probeGone()
+      await expect(wallet.broadcastQbitTx(fixture.psbtHex)).resolves.toMatchObject({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: fixture.txid,
+        outcome: 'unknown',
+        reason: 'network',
+        lookup: 'gone',
+      })
+      expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+
+      // The same bytes go out once the transport is back, through either path.
+      broadcastTxMock.mockResolvedValueOnce(fixture.txid)
+      await expect(
+        wallet.broadcastQbitTx(fixture.psbtHex, undefined, ChainType.QBIT_REGTEST)
+      ).resolves.toEqual({
+        success: true,
+        chain: ChainType.QBIT_REGTEST,
+        txid: fixture.txid,
+        via: 'broadcast',
+      })
+      broadcastTxMock.mockResolvedValueOnce(fixture.txid)
+      await expect(wallet.pushTx(fixture.psbtHex, walletClaim())).resolves.toBe(fixture.txid)
+      expect(getTxOutspendsMock).not.toHaveBeenCalled()
+    } finally {
+      guard.mockRestore()
+    }
+  })
+
   it('accepts a raw transaction hex and an upper-cased txid echo', async () => {
     const wallet = newController()
     broadcastTxMock.mockResolvedValueOnce(` ${fixture.txid.toUpperCase()}\n`)
