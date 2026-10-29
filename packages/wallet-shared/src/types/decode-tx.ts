@@ -124,8 +124,13 @@ export type PsbtOutputRole =
  * the wallet derives for them, never from records the PSBT carries about it.
  */
 export type PsbtOutputOwner =
-  /** The account signing the PSBT: change. */
+  /**
+   * Change to the account signing the PSBT: the wallet funds every input, and
+   * the request does not name the output's address as its recipient.
+   */
   | 'change'
+  /** The account signing the PSBT, as a payment it may be receiving rather than change. */
+  | 'this_account'
   /** Another of the wallet's accounts. */
   | 'other_account'
   /** None of the wallet's accounts, including an OP_RETURN data output. */

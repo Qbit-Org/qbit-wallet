@@ -3011,6 +3011,9 @@
   "psbt_output_change": {
     "message": "Сдача"
   },
+  "psbt_output_this_account": {
+    "message": "На этот аккаунт"
+  },
   "psbt_output_other_account": {
     "message": "Другой ваш аккаунт"
   },
@@ -3019,6 +3022,9 @@
   },
   "psbt_finalized": {
     "message": "Финализирована: сайт может отправить её в сеть"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда истечёт её блокировка по времени"
   },
   "psbt_not_finalized": {
     "message": "Подписана, не финализирована: её завершат другие подписанты"
@@ -3032,8 +3038,8 @@
   "psbt_locktime_block": {
     "message": "После блока $1"
   },
-  "psbt_locktime_time": {
-    "message": "После $1"
+  "psbt_locktime_median_time": {
+    "message": "Действительна, когда медианное время сети превысит $1"
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 не действует: все входы финальные"

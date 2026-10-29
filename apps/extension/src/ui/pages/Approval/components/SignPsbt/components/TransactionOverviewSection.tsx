@@ -65,28 +65,39 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
 
   const showNetworkFee = decodedPsbt.isCompleted == true;
 
+  const { locktime, version } = decodedPsbt;
+  // nLockTime holds the transaction back unless it is 0 or every input is final.
+  const lockEnforced =
+    locktime !== undefined &&
+    locktime !== 0 &&
+    !decodedPsbt.inputInfos.every((input) => input.sequence === SEQUENCE_FINAL);
+
   // A website gets the signed PSBT back. Signing finalizes it unless the
-  // request, as the background prepared it, says not to.
+  // request, as the background prepared it, says not to. The wallet cannot
+  // tell whether an enforced lock time has passed, so with one it does not
+  // say the site can broadcast the transaction now.
   const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
-    ? toSignData?.autoFinalized !== false
-      ? t('psbt_finalized')
-      : t('psbt_not_finalized')
+    ? toSignData?.autoFinalized === false
+      ? t('psbt_not_finalized')
+      : lockEnforced
+        ? t('psbt_finalized_after_lock')
+        : t('psbt_finalized')
     : undefined;
 
-  const { locktime, version } = decodedPsbt;
   let locktimeText: string | undefined;
   let locktimeDetail: string | undefined;
   if (locktime !== undefined) {
-    const enforced = locktime !== 0 && !decodedPsbt.inputInfos.every((input) => input.sequence === SEQUENCE_FINAL);
-    if (!enforced) {
+    if (!lockEnforced) {
       locktimeText = t('psbt_locktime_none');
     } else if (locktime < LOCKTIME_THRESHOLD) {
       locktimeText = t('psbt_locktime_block', `${locktime}`);
     } else {
-      locktimeText = t('psbt_locktime_time', formatLocktimeTime(locktime));
+      // Checked against the network's median time past, which runs about an hour behind clock time.
+      locktimeText = t('psbt_locktime_median_time', formatLocktimeTime(locktime));
     }
-    locktimeDetail =
-      locktime !== 0 && !enforced ? t('psbt_locktime_not_enforced', `${locktime}`) : `nLockTime ${locktime}`;
+    if (locktime !== 0) {
+      locktimeDetail = lockEnforced ? `nLockTime ${locktime}` : t('psbt_locktime_not_enforced', `${locktime}`);
+    }
   }
 
   const transactionSection =

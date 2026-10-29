@@ -3011,6 +3011,9 @@
   "psbt_output_change": {
     "message": "Cambio"
   },
+  "psbt_output_this_account": {
+    "message": "A esta cuenta"
+  },
   "psbt_output_other_account": {
     "message": "Otra de tus cuentas"
   },
@@ -3019,6 +3022,9 @@
   },
   "psbt_finalized": {
     "message": "Finalizada: el sitio puede difundirla"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalizada: el sitio puede difundirla cuando haya pasado su bloqueo temporal"
   },
   "psbt_not_finalized": {
     "message": "Firmada, sin finalizar: otros firmantes la completan"
@@ -3032,8 +3038,8 @@
   "psbt_locktime_block": {
     "message": "Después del bloque $1"
   },
-  "psbt_locktime_time": {
-    "message": "Después de $1"
+  "psbt_locktime_median_time": {
+    "message": "Válida cuando el tiempo mediano de la red supere $1"
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 no se aplica: todas las entradas son finales"

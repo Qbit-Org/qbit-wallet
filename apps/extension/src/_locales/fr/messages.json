@@ -3011,6 +3011,9 @@
   "psbt_output_change": {
     "message": "Monnaie rendue"
   },
+  "psbt_output_this_account": {
+    "message": "Vers ce compte"
+  },
   "psbt_output_other_account": {
     "message": "Un autre de vos comptes"
   },
@@ -3019,6 +3022,9 @@
   },
   "psbt_finalized": {
     "message": "Finalisée : le site peut la diffuser"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé"
   },
   "psbt_not_finalized": {
     "message": "Signée, non finalisée : d'autres signataires la complètent"
@@ -3032,8 +3038,8 @@
   "psbt_locktime_block": {
     "message": "Après le bloc $1"
   },
-  "psbt_locktime_time": {
-    "message": "Après le $1"
+  "psbt_locktime_median_time": {
+    "message": "Valide dès que le temps médian du réseau dépasse $1"
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 ne s'applique pas : toutes les entrées sont finales"

@@ -266,6 +266,14 @@ describe('InputItem output that pays the wallet (#13)', () => {
     expect(screen.queryByTestId('psbt-output-other-account-0')).toBeNull();
   });
 
+  it('labels a payment to the signing account that is not change', () => {
+    renderOwned('qbrt1zcurrent', { outputOwners: ['this_account'], spendSummary: { outputRoles: ['wallet'] } });
+
+    expect(screen.getByTestId('psbt-output-this-account-0').textContent).toBe('psbt_output_this_account');
+    expect(screen.queryByTestId('psbt-output-change-0')).toBeNull();
+    expect(screen.queryByText('my_address')).toBeNull();
+  });
+
   it('labels an output to another of the wallet’s accounts', () => {
     renderOwned('qbrt1zother', { outputOwners: ['other_account'], spendSummary: { outputRoles: ['wallet'] } });
 

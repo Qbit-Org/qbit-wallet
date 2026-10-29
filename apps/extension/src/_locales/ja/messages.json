@@ -3011,6 +3011,9 @@
   "psbt_output_change": {
     "message": "おつり"
   },
+  "psbt_output_this_account": {
+    "message": "このアカウント宛て"
+  },
   "psbt_output_other_account": {
     "message": "あなたの別のアカウント"
   },
@@ -3019,6 +3022,9 @@
   },
   "psbt_finalized": {
     "message": "ファイナライズ済み：サイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "ファイナライズ済み：ロックタイム経過後にサイトがブロードキャストできます"
   },
   "psbt_not_finalized": {
     "message": "署名済み・未ファイナライズ：他の署名者が完成させます"
@@ -3032,8 +3038,8 @@
   "psbt_locktime_block": {
     "message": "ブロック $1 の後"
   },
-  "psbt_locktime_time": {
-    "message": "$1 の後"
+  "psbt_locktime_median_time": {
+    "message": "ネットワークの中央値時間が $1 を過ぎると有効"
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 は適用されません：すべての入力が確定済みです"

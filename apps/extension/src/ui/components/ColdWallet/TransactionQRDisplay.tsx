@@ -8,6 +8,8 @@ import { colors } from '@/ui/theme/colors';
 import { useI18n, useWallet } from '@qbit/wallet-state';
 import { ChainType } from '@qbit/wallet-types';
 
+import { signerDecodedPsbt } from './signerRequest';
+
 interface TransactionQRDisplayProps {
   psbtHex: string;
   /** A website supplied the PSBT's bytes; its review then judges the fee as the approval did. */
@@ -50,16 +52,12 @@ export default function TransactionQRDisplay({
       const addresses = [currentAccount.address];
       const expectedSignerPubkey = currentAccount.pubkey;
 
-      // What only the approval shows stays in the wallet; the signer's request keeps its fields.
-      const {
-        spendSummary: _spendSummary,
-        outputOwners: _outputOwners,
-        version: _version,
-        locktime: _locktime,
-        ...decodedPsbt
-      } = await wallet.decodePsbt(psbtHex, '', {
-        suppliedByWebsite
-      });
+      // The signer's request carries only the decoded fields it reads, never what only the approval shows.
+      const decodedPsbt = signerDecodedPsbt(
+        await wallet.decodePsbt(psbtHex, '', {
+          suppliedByWebsite
+        })
+      );
       const networkType = await wallet.getNetworkType();
       const chainType = await wallet.getChainType();
 

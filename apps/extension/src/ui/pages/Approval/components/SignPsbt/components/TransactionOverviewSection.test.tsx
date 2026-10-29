@@ -209,6 +209,30 @@ describe('TransactionOverviewSection finalize decision, nLockTime and version (#
     expect(screen.queryByTestId('psbt-network-fee-base-units')).toBeNull();
   });
 
+  it('says a finalized PSBT can be broadcast only once an enforced lock time has passed', () => {
+    const locked = { locktime: 900_000, version: 2, inputInfos: [{ sequence: 0xfffffffd }] };
+    renderOverview(locked, websiteToSignData(true));
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
+
+    cleanup();
+    renderOverview({ ...locked, locktime: 1_767_225_600 }, websiteToSignData(true));
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
+
+    cleanup();
+    // Not finalized, the PSBT goes to other signers whatever its lock.
+    renderOverview(locked, websiteToSignData(false));
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_not_finalized');
+  });
+
+  it('says a finalized PSBT can be broadcast when its lock time is 0 or not enforced', () => {
+    renderOverview({ locktime: 0, version: 2, inputInfos: [{ sequence: 0xfffffffd }] }, websiteToSignData(true));
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized');
+
+    cleanup();
+    renderOverview({ locktime: 900_000, version: 2, inputInfos: [{ sequence: 0xffffffff }] }, websiteToSignData(true));
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized');
+  });
+
   it('shows no decision for a PSBT the wallet built and broadcasts itself', () => {
     renderOverview({}, { psbtHex: '00', toSignInputs: [], autoFinalized: true });
     expect(screen.queryByTestId('psbt-finalize-decision')).toBeNull();
@@ -224,10 +248,10 @@ describe('TransactionOverviewSection finalize decision, nLockTime and version (#
     expect(screen.getByTestId('psbt-tx-version').textContent).toBe('3');
   });
 
-  it('shows no lock for an nLockTime of 0', () => {
+  it('shows no lock for an nLockTime of 0, without repeating the raw value', () => {
     renderOverview({ locktime: 0, version: 2 });
     expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_none');
-    expect(screen.getByTestId('psbt-locktime-raw').textContent).toBe('nLockTime 0');
+    expect(screen.queryByTestId('psbt-locktime-raw')).toBeNull();
   });
 
   it('shows an nLockTime below 500,000,000 as a block height', () => {
@@ -236,13 +260,13 @@ describe('TransactionOverviewSection finalize decision, nLockTime and version (#
     expect(screen.getByTestId('psbt-locktime-raw').textContent).toBe('nLockTime 499999999');
   });
 
-  it('shows an nLockTime from 500,000,000 as a time', () => {
+  it('shows an nLockTime from 500,000,000 as the network’s median time it must pass', () => {
     renderOverview({ locktime: 500_000_000, version: 2, inputInfos: [{ sequence: 0xfffffffd }] });
-    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_time:1985-11-05 00:53:20 UTC');
+    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_median_time:1985-11-05 00:53:20 UTC');
 
     cleanup();
     renderOverview({ locktime: 1_767_225_600, version: 2, inputInfos: [{ sequence: 0xfffffffe }] });
-    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_time:2026-01-01 00:00:00 UTC');
+    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_median_time:2026-01-01 00:00:00 UTC');
     expect(screen.getByTestId('psbt-locktime-raw').textContent).toBe('nLockTime 1767225600');
   });
 

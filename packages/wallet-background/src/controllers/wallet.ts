@@ -8495,14 +8495,30 @@ export class WalletController extends BaseController {
       feeSummary,
       checkFeeShareWithoutSize: suppliedByWebsite,
     })
-    // Change and the wallet's other accounts are known only from the scripts
-    // and addresses the wallet derives for its accounts: the PSBT's own
+    // The wallet's outputs are known only from the scripts and addresses it
+    // derives for its accounts, as their 'wallet' role is: the PSBT's own
     // records about an output, such as derivation paths, are its author's.
+    // One paying the signing account is change only when the wallet funds
+    // every input and the request does not name it as its recipient; it may
+    // otherwise be the payment itself.
     const signingAccount = qbitWalletOwnership([account])
-    const outputOwners = outputInfos.map((output): PsbtOutputOwner => {
-      if (output.type === 'op_return') return 'none'
-      if (qbitWalletOwns(signingAccount, output)) return 'change'
-      return qbitWalletOwns(wallet, output) ? 'other_account' : 'none'
+    const walletFundsEveryInput = inputInfos.every(
+      input =>
+        input.witnessUtxoScriptHex !== undefined &&
+        qbitWalletOwns(wallet, {
+          scriptPubKeyHex: input.witnessUtxoScriptHex,
+          address: input.address,
+        })
+    )
+    const namedRecipients = new Set(
+      (statedRecipients ?? []).filter(address => address !== '').map(address => address.toLowerCase())
+    )
+    const outputOwners = outputInfos.map((output, index): PsbtOutputOwner => {
+      if (spendSummary.outputRoles[index] !== 'wallet') return 'none'
+      if (!qbitWalletOwns(signingAccount, output)) return 'other_account'
+      return walletFundsEveryInput && !namedRecipients.has(output.address.toLowerCase())
+        ? 'change'
+        : 'this_account'
     })
 
     return {

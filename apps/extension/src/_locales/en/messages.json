@@ -3011,6 +3011,9 @@
   "psbt_output_change": {
     "message": "Change"
   },
+  "psbt_output_this_account": {
+    "message": "To this account"
+  },
   "psbt_output_other_account": {
     "message": "Your other account"
   },
@@ -3019,6 +3022,9 @@
   },
   "psbt_finalized": {
     "message": "Finalized: the site can broadcast it"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalized: the site can broadcast it once its lock time has passed"
   },
   "psbt_not_finalized": {
     "message": "Signed, not finalized: other signers complete it"
@@ -3032,8 +3038,8 @@
   "psbt_locktime_block": {
     "message": "After block $1"
   },
-  "psbt_locktime_time": {
-    "message": "After $1"
+  "psbt_locktime_median_time": {
+    "message": "Valid once the network's median time passes $1"
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 is not enforced: every input is final"

@@ -3011,6 +3011,9 @@
   "psbt_output_change": {
     "message": "找零"
   },
+  "psbt_output_this_account": {
+    "message": "轉入此帳戶"
+  },
   "psbt_output_other_account": {
     "message": "您的其他帳戶"
   },
@@ -3019,6 +3022,9 @@
   },
   "psbt_finalized": {
     "message": "已完成：網站可以廣播"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "已完成：鎖定時間過後網站即可廣播"
   },
   "psbt_not_finalized": {
     "message": "已簽署，未完成：由其他簽署者完成"
@@ -3032,8 +3038,8 @@
   "psbt_locktime_block": {
     "message": "區塊 $1 之後"
   },
-  "psbt_locktime_time": {
-    "message": "$1 之後"
+  "psbt_locktime_median_time": {
+    "message": "網路中位時間超過 $1 後生效"
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 不生效：所有輸入皆為最終"

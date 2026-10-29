@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   P2MR_LEAF_VERSION_V1,
   PQC_SIGNATURE_BYTES,
+  PSBT_IN_WITNESS_UTXO,
   buildControlBlock,
   bytesToHex,
   createP2mrPsbt,
@@ -108,22 +109,30 @@ const SECOND_STRANGER_SCRIPT = p2mrScriptPubKey(hexToBytes('78'.repeat(32)))
 const OTHER_PARTY_LEAF_SCRIPT = singleKeyLeafScript(hexToBytes('33'.repeat(32)))
 const OTHER_PARTY_ROOT = p2mrLeafHash(P2MR_LEAF_VERSION_V1, OTHER_PARTY_LEAF_SCRIPT)
 
+/** Who owns a second input: another party, another of the wallet's accounts, or nobody known. */
+type SecondInput = 'other_party' | 'other_account' | 'unknown'
+
 /**
- * A website PSBT with one input of `INPUT_VALUE` from the account, and one
- * from another party when `otherPartyInput` is set.
+ * A website PSBT with one input of `INPUT_VALUE` from the account, and a
+ * second one of the same value when `secondInput` says whose. An `unknown`
+ * input is another party's without its witness UTXO, so its owner is unknown.
  */
 function websitePsbt({
   outputs,
   version,
   locktime,
-  otherPartyInput = false,
+  secondInput,
 }: {
   outputs: P2mrTransactionOutput[]
   version?: number
   locktime?: number
-  otherPartyInput?: boolean
+  secondInput?: SecondInput
 }): Psbt {
-  return createP2mrPsbt({
+  const second =
+    secondInput === 'other_account'
+      ? { scriptPubKey: OTHER_ACCOUNT_SCRIPT, leafScript: hexToBytes(otherAccount.p2mr.leafScript) }
+      : { scriptPubKey: p2mrScriptPubKey(OTHER_PARTY_ROOT), leafScript: OTHER_PARTY_LEAF_SCRIPT }
+  const psbt = createP2mrPsbt({
     ...(version === undefined ? {} : { version }),
     ...(locktime === undefined ? {} : { locktime }),
     inputs: [
@@ -133,18 +142,30 @@ function websitePsbt({
         leafScript: hexToBytes(account.p2mr.leafScript),
         controlBlock: SINGLE_LEAF,
       },
-      ...(otherPartyInput
+      ...(secondInput
         ? [
             {
               prevout: { txid: hexToBytes('91'.repeat(32)), vout: 0 },
-              witnessUtxo: { value: INPUT_VALUE, scriptPubKey: p2mrScriptPubKey(OTHER_PARTY_ROOT) },
-              leafScript: OTHER_PARTY_LEAF_SCRIPT,
+              witnessUtxo: { value: INPUT_VALUE, scriptPubKey: second.scriptPubKey },
+              leafScript: second.leafScript,
               controlBlock: SINGLE_LEAF,
             },
           ]
         : []),
     ],
     outputs,
+  })
+  if (secondInput === 'unknown') {
+    psbt.inputs[1] = psbt.inputs[1]!.filter(entry => entry.key[0] !== PSBT_IN_WITNESS_UTXO)
+  }
+  return psbt
+}
+
+/** Review a website PSBT as the approval does, without signing it. */
+function review(psbt: Psbt, statedRecipients?: string[]): Promise<DecodedPsbt> {
+  return wallet.decodePsbt(bytesToHex(serializePsbt(psbt)), ORIGIN, {
+    suppliedByWebsite: true,
+    ...(statedRecipients ? { statedRecipients } : {}),
   })
 }
 
@@ -276,6 +297,64 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
     expect(timeLocked.review).toMatchObject({ version: 1, locktime: 1_767_225_600 })
   })
 
+  describe('change, as against a payment to the signing account', () => {
+    const toAccount = { value: AMOUNT, scriptPubKey: ACCOUNT_SCRIPT }
+
+    it('is change only when the wallet funds every input, its other accounts included', async () => {
+      const own = await review(
+        websitePsbt({
+          secondInput: 'other_account',
+          outputs: [{ value: AMOUNT, scriptPubKey: STRANGER_SCRIPT }, change(AMOUNT, 2n * INPUT_VALUE)],
+        })
+      )
+      expect(own.outputOwners).toEqual(['none', 'change'])
+    })
+
+    it("is a payment to this account when another party's input pays it", async () => {
+      const paid = await review(
+        websitePsbt({
+          secondInput: 'other_party',
+          outputs: [toAccount, { value: 2n * INPUT_VALUE - AMOUNT - FEE, scriptPubKey: STRANGER_SCRIPT }],
+        })
+      )
+      expect(paid.spendSummary.outputRoles).toEqual(['wallet', 'unrecognised'])
+      expect(paid.outputOwners).toEqual(['this_account', 'none'])
+    })
+
+    it('is a payment to this account when an input has no owner the wallet can tell', async () => {
+      const unknown = await review(
+        websitePsbt({
+          secondInput: 'unknown',
+          outputs: [toAccount, { value: AMOUNT, scriptPubKey: STRANGER_SCRIPT }],
+        })
+      )
+      expect(unknown.outputOwners).toEqual(['this_account', 'none'])
+    })
+
+    it("is a payment to this account when the request names the account's address as its recipient", async () => {
+      const psbt = websitePsbt({ outputs: [toAccount, change(AMOUNT)] })
+
+      // The same bytes without a named recipient: the wallet sends to itself.
+      expect((await review(psbt)).outputOwners).toEqual(['change', 'change'])
+      const named = await review(psbt, [account.address.toUpperCase()])
+      expect(named.outputOwners).toEqual(['this_account', 'this_account'])
+    })
+
+    it("labels another of the wallet's accounts the same whoever funds the inputs", async () => {
+      const paid = await review(
+        websitePsbt({
+          secondInput: 'other_party',
+          outputs: [
+            { value: AMOUNT, scriptPubKey: OTHER_ACCOUNT_SCRIPT },
+            { value: 2n * INPUT_VALUE - AMOUNT - FEE, scriptPubKey: STRANGER_SCRIPT },
+          ],
+        }),
+        [otherAccount.address]
+      )
+      expect(paid.outputOwners).toEqual(['other_account', 'none'])
+    })
+  })
+
   it('never labels an output from the derivation records the website puts on it', async () => {
     const psbt = websitePsbt({
       outputs: [
@@ -311,7 +390,7 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
     // Another party's input is left for its signer.
     const shared = await approveWebsitePsbt(
       websitePsbt({
-        otherPartyInput: true,
+        secondInput: 'other_party',
         outputs: [
           { value: AMOUNT, scriptPubKey: STRANGER_SCRIPT },
           change(AMOUNT, 2n * INPUT_VALUE),
