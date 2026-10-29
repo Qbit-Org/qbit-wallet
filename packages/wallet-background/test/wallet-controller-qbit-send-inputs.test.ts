@@ -190,4 +190,22 @@ describe('createSendQbitPsbt spends only the selected account’s outputs', () =
       'Qbit inputs must carry their scriptPubKey'
     )
   })
+
+  it('lets only the recovery sweep refuse an output without a scriptPubKey; status checks count it as needing attention', () => {
+    const wallet = new WalletController() as any
+    const destination = otherAccount.address
+    const unlabelled = { ...output(account, 'cc', 50_000), scriptPk: '' }
+
+    expect(() =>
+      wallet.selectQbitRecoverySweepBatches(account, [unlabelled], destination, 1)
+    ).toThrow('Qbit recovery migration UTXO data is invalid')
+    expect(wallet.qbitRecoveryUtxosNeedMigration(account, [unlabelled], destination)).toBe(true)
+    expect(
+      wallet.qbitRecoveryUtxosNeedMigration(
+        account,
+        [output(account, 'aa', 50_000), output(otherAccount, 'bb', 50_000)],
+        destination
+      )
+    ).toBe(true)
+  })
 })

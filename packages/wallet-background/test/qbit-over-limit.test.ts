@@ -12,6 +12,7 @@ import {
   getQbitSpendableBalanceV2,
   qbitStatsSnapshot,
   QbitUtxoHistoryTooLargeError,
+  readQbitAddressUtxos,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
 } from '../src/utils/qbit-api'
@@ -329,9 +330,12 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
   /** A read of the outputs from history, kept with the statistics it ran against. */
   async function readOf(explorer: FakeQbitExplorer) {
     const stats = qbitStatsSnapshot(explorer.stats(address))
-    const utxos = await getQbitAddressUtxos(clientFor(explorer), address)
-    const readOutputs = (current: string) => (current === stats ? utxos : undefined)
-    return { utxos, readOutputs }
+    const { utxos, matureAt } = await readQbitAddressUtxos(clientFor(explorer), address)
+    const readOutputs = (current: string) =>
+      current === stats
+        ? { outputs: utxos, ...(matureAt !== undefined ? { matureAt } : {}) }
+        : undefined
+    return { utxos, readOutputs, matureAt }
   }
 
   const sum = (utxos: readonly { satoshis: number }[]) =>
@@ -423,7 +427,7 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
       address,
       script,
       undefined,
-      current => (current === stats ? [...utxos, foreign] : undefined)
+      current => (current === stats ? { outputs: [...utxos, foreign] } : undefined)
     )
 
     expect(balance.availableBalance).toBe(sum(utxos))
@@ -443,7 +447,7 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
         address,
         accountScript,
         undefined,
-        current => (current === stats ? outputs : undefined)
+        current => (current === stats ? { outputs } : undefined)
       )
       expect(balance.availableBalance).toBe(sum(utxos))
     }
@@ -460,7 +464,7 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
       address,
       script,
       undefined,
-      current => (current === stats ? inflated : undefined)
+      current => (current === stats ? { outputs: inflated } : undefined)
     )
 
     expect(balance.availableBalance).toBe(totalOf(explorer))
@@ -541,18 +545,23 @@ describe('Available past the limit and from the listing, for the same outputs', 
     const stats = qbitStatsSnapshot(pastLimit.stats(address))
     const utxos = await getQbitAddressUtxos(clientFor(pastLimit), address)
     expect(utxos.filter(utxo => utxo.unconfirmed).map(utxo => utxo.satoshis)).toEqual([CHANGE])
+    const tipReads = () =>
+      pastLimit.requests.filter(request => request.path === '/blocks/tip/height').length
+    const tipReadsBefore = tipReads()
 
     const read = await getQbitSpendableBalanceV2(
       clientFor(pastLimit),
       address,
       script,
       undefined,
-      current => (current === stats ? utxos : undefined)
+      current => (current === stats ? { outputs: utxos } : undefined)
     )
 
     expect(listed.availableBalance).toBe(CONFIRMED - VALUE + CHANGE)
     expect(read.availableBalance).toBe(listed.availableBalance)
     expect(read.totalBalance).toBe(TOTAL)
+    // No coinbase output was left out, so the split did not read the tip.
+    expect(tipReads()).toBe(tipReadsBefore)
   })
 
   it('bounds the confirmed outputs by the confirmed balance, as the listing path does', async () => {
@@ -569,7 +578,7 @@ describe('Available past the limit and from the listing, for the same outputs', 
       address,
       script,
       undefined,
-      current => (current === stats ? inflated : undefined)
+      current => (current === stats ? { outputs: inflated } : undefined)
     )
 
     // The confirmed balance, plus the change, under the total.

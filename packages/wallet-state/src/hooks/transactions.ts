@@ -243,10 +243,9 @@ export function estimateQbitP2mrSendAllPreflight({
 export function usePrepareSendQBTCallback() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
-  const fromAddress = useAccountAddress()
   const currentAccount = useCurrentAccount()
   const utxos = useUtxos()
-  const chainType = useChainType()
+  const { utxosAddress, utxosChain } = useTransactionsState()
   const fetchUtxos = useFetchUtxosCallback()
   const qbitUnit = useQbitUnit()
 
@@ -277,12 +276,13 @@ export function usePrepareSendQBTCallback() {
       // switch in another window, leaves its outputs in the cache (their
       // scriptPubKey is the same on every network); useUtxos reads such a
       // cache as empty, so reload rather than hand another account's or
-      // network's outpoints to the builder. The builder checks the chain
-      // that travels with them either way.
-      let snapshot: QbitUtxoSnapshot = { address: fromAddress, chain: chainType, utxos }
-      if (snapshot.utxos.length === 0) {
-        snapshot = await fetchUtxos()
-      }
+      // network's outpoints to the builder. The outputs travel with the
+      // account and network they were read for, which the builder checks
+      // against its own either way.
+      const snapshot: QbitUtxoSnapshot =
+        utxos.length > 0 && utxosAddress !== null && utxosChain !== null
+          ? { address: utxosAddress, chain: utxosChain, utxos }
+          : await fetchUtxos()
       const spendableUtxos = getQbitP2mrSpendableUtxos(snapshot.utxos, currentAccount)
       const safeBalance = spendableUtxos.reduce((pre, cur) => pre + cur.satoshis, 0)
       if (safeBalance < toAmount) {
@@ -380,11 +380,11 @@ export function usePrepareSendQBTCallback() {
     [
       dispatch,
       wallet,
-      fromAddress,
       currentAccount.type,
       currentAccount.p2mr,
       utxos,
-      chainType,
+      utxosAddress,
+      utxosChain,
       fetchUtxos,
       qbitUnit,
       t,

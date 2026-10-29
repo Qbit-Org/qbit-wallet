@@ -2589,6 +2589,36 @@ describe('UTXO cache across accounts (#342)', () => {
     expect(store.getState().transactions.utxosAddress).toBe(accountB.address)
   })
 
+  it('prepare send labels cached outputs with the read they came from, so a switch since is refused before signing', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    select(store, accountA, 70_000)
+    const outputsA = outputsOf(accountA, 'aa', [70_000])
+    store.dispatch(transactionsActions.setUtxos(snapshotOf(accountA, outputsA)))
+    // The background refuses outputs read for an account other than its
+    // selected one, which another window has switched to B.
+    wallet.createSendQbitPsbt.mockImplementation(async ({ qbitUtxoAddress }: any) => {
+      if (qbitUtxoAddress !== accountB.address) {
+        throw new Error('Qbit account changed since the inputs were loaded')
+      }
+      return { psbtHex: 'prepared' } as any
+    })
+    const { result } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
+
+    await act(async () => {
+      await expect(
+        result.current({ toAddressInfo: { address: recipient }, toAmount: 10_000, feeRate: 1 })
+      ).rejects.toThrow('Qbit account changed since the inputs were loaded')
+    })
+    expect(wallet.createSendQbitPsbt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        qbitUtxos: outputsA,
+        qbitUtxoAddress: accountA.address,
+        qbitUtxoChain: ChainType.QBIT_MAINNET,
+      })
+    )
+    expect(wallet.getQbitUtxoSnapshot).not.toHaveBeenCalled()
+  })
+
   it('prepare send names the account its cached outputs were read for', async () => {
     const { store, wallet, wrapper } = createHookTestHarness()
     select(store, accountB, 50_000)

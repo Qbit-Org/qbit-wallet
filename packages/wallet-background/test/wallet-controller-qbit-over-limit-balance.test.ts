@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   P2MR_LEAF_VERSION_V1,
   PQC_SIGNATURE_BYTES,
+  QBIT_COINBASE_MATURITY,
   bytesToHex,
   hexToBytes,
   p2mrAddressFromPubkey,
@@ -444,6 +445,22 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
   })
 
+  it('remembers the reads of the four addresses most recently used', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    const reads = (wallet as any).qbitLatestUtxoReads
+    const client = (wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
+    const kept = reads.latest(client, address)
+    // Four other over-limit accounts' reads complete since.
+    for (const other of ['qbrt1zother1', 'qbrt1zother2', 'qbrt1zother3', 'qbrt1zother4']) {
+      reads.keep(client, other, reads.start(), kept)
+    }
+
+    expect(reads.latest(client, address)).toBeUndefined()
+    expect(reads.latest(client, 'qbrt1zother1')).toBe(kept)
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
   it('remembers only what the split needs of each output', async () => {
     const wallet = controller()
     await wallet.getQbitUtxoSnapshot()
@@ -471,6 +488,40 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
 
     expect(keyringService.removeKeyring).toHaveBeenCalledWith(0)
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps the split unknown once a coinbase output the read left out matures', async () => {
+    const wallet = controller()
+    const reward = 5_000_000
+    const rewardHeight = explorer.tipHeight - 10
+    explorer.addTx({
+      txid: fakeTxid(7, 7_000_000),
+      inputs: [],
+      outputs: [{ address, script: accountScript, value: reward }],
+      coinbase: true,
+      height: rewardHeight,
+    })
+    await wallet.getQbitUtxoSnapshot()
+    // Immature at the read: in the total, not in Available.
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
+      split(SPENDABLE, TOTAL + reward)
+    )
+
+    // The chain grows to its maturity; the address's statistics do not move.
+    const stats = explorer.stats(address)
+    explorer.tipHeight = rewardHeight + QBIT_COINBASE_MATURITY - 2
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
+      split(SPENDABLE, TOTAL + reward)
+    )
+    explorer.tipHeight += 1
+    expect(explorer.stats(address)).toEqual(stats)
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit(TOTAL + reward))
+
+    // A new read counts it.
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
+      split(SPENDABLE + reward, TOTAL + reward)
+    )
   })
 
   it('counts the outputs a signed send holds as unavailable', async () => {

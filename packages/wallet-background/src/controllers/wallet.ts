@@ -842,6 +842,25 @@ function summarizeError(error: unknown): { name?: string; code?: number } {
   }
 }
 
+/**
+ * How many addresses' latest output reads each API client keeps, the most
+ * recently used first; switching through more over-limit accounts reads
+ * the oldest one's outputs again.
+ */
+const QBIT_LATEST_UTXO_READS_PER_CLIENT = 4
+
+/**
+ * Whether the recovery sweep may spend `utxo` from `account`: a positive
+ * amount, and the account's own (`isQbitAccountOutput`).
+ */
+function isQbitRecoverySweepInput(account: Account, utxo: UnspentOutput): boolean {
+  return (
+    Number.isSafeInteger(utxo.satoshis) &&
+    utxo.satoshis > 0 &&
+    isQbitAccountOutput(utxo, account.p2mr?.scriptPubKey)
+  )
+}
+
 export class WalletController extends BaseController {
   timer: any = null
   private readonly qbitApiClients = new Map<string, QbitWalletApiClient>()
@@ -1597,11 +1616,11 @@ export class WalletController extends BaseController {
   }
 
   lockWallet = async () => {
-    // A locked wallet keeps no account's outputs in memory: none kept so
-    // far, none from a read that ends while it locks, and none afterwards
-    // (`qbitAccountUtxosOn` keeps nothing while locked).
-    this.qbitLatestUtxoReads.clear()
     await keyringService.setLocked()
+    // A locked wallet keeps no account's outputs in memory: the clear drops
+    // every read kept so far, including one that ended while the keyring
+    // locked, and none is kept afterwards: not from a read that started
+    // before the clear, nor while locked (`qbitAccountUtxosOn`).
     this.qbitLatestUtxoReads.clear()
     // Locking keeps every grant, so it must not look like a revocation: no
     // accountsChanged [] here. Pages never see the internal lock event.
@@ -1651,7 +1670,11 @@ export class WalletController extends BaseController {
     // while this balance read runs counts already.
     const readOutputs = (stats: string) => {
       const latest = this.qbitLatestUtxoReads.latest(client, address)
-      return latest?.stats === stats ? latest.utxos : undefined
+      if (latest?.stats !== stats) return undefined
+      return {
+        outputs: latest.utxos,
+        ...(latest.matureAt !== undefined ? { matureAt: latest.matureAt } : {}),
+      }
     }
     const data = await getQbitSpendableBalanceV2(
       client,
@@ -2910,15 +2933,7 @@ export class WalletController extends BaseController {
     feeRate: number
   ): UnspentOutput[][] {
     if (!account.p2mr || utxos.length === 0) return []
-    const accountScriptPubKey = account.p2mr.scriptPubKey
-    if (
-      utxos.some(
-        utxo =>
-          !Number.isSafeInteger(utxo.satoshis) ||
-          utxo.satoshis <= 0 ||
-          !isQbitAccountOutput(utxo, accountScriptPubKey)
-      )
-    ) {
+    if (!utxos.every(utxo => isQbitRecoverySweepInput(account, utxo))) {
       throw new Error('Qbit recovery migration UTXO data is invalid')
     }
 
@@ -3032,6 +3047,9 @@ export class WalletController extends BaseController {
   ): boolean {
     if (utxos.length === 0) return false
     if (!account.p2mr) return true
+    // A read-only check: an output the sweep would refuse needs attention,
+    // as an unreadable source does. Only the sweep itself refuses.
+    if (!utxos.every(utxo => isQbitRecoverySweepInput(account, utxo))) return true
     return (
       this.selectQbitRecoverySweepBatches(
         account,
@@ -5914,14 +5932,17 @@ export class WalletController extends BaseController {
    * (`QbitReadOutput`), before any reservation, with the
    * address statistics (`qbitStatsSnapshot`) its walk verified. A read that
    * started later replaces one that started earlier, even when it found
-   * less history, as after an eviction. Kept in memory only, and forgotten
-   * when the wallet locks or a keyring is removed; see `qbitAccountUtxosOn`
-   * and `getAddressBalanceV2`.
+   * less history, as after an eviction. Kept in memory only, for the
+   * `QBIT_LATEST_UTXO_READS_PER_CLIENT` addresses most recently used, and
+   * forgotten when the wallet locks or a keyring is removed; see
+   * `qbitAccountUtxosOn` and `getAddressBalanceV2`.
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
     stats: string
     utxos: QbitReadOutput[]
-  }>()
+    /** The earliest tip height at which a coinbase output the read left out matures. */
+    matureAt?: number
+  }>(QBIT_LATEST_UTXO_READS_PER_CLIENT)
 
   /**
    * The outputs a send is built from: the ones the caller loaded, or the
@@ -5995,7 +6016,7 @@ export class WalletController extends BaseController {
     signal?: AbortSignal
   ): Promise<UnspentOutput[]> {
     const order = this.qbitLatestUtxoReads.start()
-    const { utxos, historyStats } = await readQbitAddressUtxos(
+    const { utxos, historyStats, matureAt } = await readQbitAddressUtxos(
       client,
       account.address,
       signal ? { signal } : {}
@@ -6013,6 +6034,7 @@ export class WalletController extends BaseController {
       this.qbitLatestUtxoReads.keep(client, account.address, order, {
         stats: qbitStatsSnapshot(historyStats),
         utxos: utxos.map(qbitReadOutput),
+        ...(matureAt !== undefined ? { matureAt } : {}),
       })
     }
     return outputs

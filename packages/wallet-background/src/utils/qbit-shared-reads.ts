@@ -137,14 +137,17 @@ interface SharedRead<T, V> {
  * little, never ranks it, so after an eviction a later read that finds less
  * history still replaces an earlier one. Callers keep only answers to reads
  * that completed. `clear` forgets every answer, and a read that started
- * before it keeps nothing. Kept in memory only, and scopes are held weakly,
- * as above.
+ * before it keeps nothing. Kept in memory only, for the slots most recently
+ * used, and scopes are held weakly, as above.
  */
 export class QbitLatestAnswers<T> {
   private answers = new WeakMap<object, Map<string, { order: number; value: T }>>()
   private started = 0
   /** The last place in line before the latest `clear`. */
   private cleared = 0
+
+  /** Keeps answers for at most `slotsPerScope` slots per scope, the most recently used. */
+  constructor(private readonly slotsPerScope = Infinity) {}
 
   /** The place in line of a read starting now, to `keep` its answer with. */
   start(): number {
@@ -160,12 +163,23 @@ export class QbitLatestAnswers<T> {
     }
     const kept = scoped.get(slot)
     if (kept && kept.order > order) return
+    // Last in the map's order is the most recently used.
+    scoped.delete(slot)
     scoped.set(slot, { order, value })
+    for (const oldest of scoped.keys()) {
+      if (scoped.size <= this.slotsPerScope) break
+      scoped.delete(oldest)
+    }
   }
 
-  /** The answer kept for `slot`. */
+  /** The answer kept for `slot`, which counts as a use of it. */
   latest(scope: object, slot: string): T | undefined {
-    return this.answers.get(scope)?.get(slot)?.value
+    const scoped = this.answers.get(scope)
+    const kept = scoped?.get(slot)
+    if (!scoped || !kept) return undefined
+    scoped.delete(slot)
+    scoped.set(slot, kept)
+    return kept.value
   }
 
   /** Forget every answer, including those of reads still running. */

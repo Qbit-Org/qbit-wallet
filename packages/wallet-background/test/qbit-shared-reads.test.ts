@@ -137,4 +137,19 @@ describe('QbitLatestAnswers', () => {
     answers.keep(client, 'qb1a', answers.start(), 'after')
     expect(answers.latest(client, 'qb1a')).toBe('after')
   })
+
+  it('keeps the slots most recently used, up to its bound', () => {
+    const answers = new QbitLatestAnswers<string>(2)
+    const client = {}
+    answers.keep(client, 'qb1a', answers.start(), 'a')
+    answers.keep(client, 'qb1b', answers.start(), 'b')
+    // Reading a slot counts as using it.
+    expect(answers.latest(client, 'qb1a')).toBe('a')
+
+    answers.keep(client, 'qb1c', answers.start(), 'c')
+
+    expect(answers.latest(client, 'qb1b')).toBeUndefined()
+    expect(answers.latest(client, 'qb1a')).toBe('a')
+    expect(answers.latest(client, 'qb1c')).toBe('c')
+  })
 })
