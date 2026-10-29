@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { useI18n, useQbitUnit } from '@qbit/wallet-state';
 
+import en from '../../../../../../_locales/en/messages.json';
+import es from '../../../../../../_locales/es/messages.json';
+import fr from '../../../../../../_locales/fr/messages.json';
+import ja from '../../../../../../_locales/ja/messages.json';
+import ru from '../../../../../../_locales/ru/messages.json';
+import zhTW from '../../../../../../_locales/zh_TW/messages.json';
 import TransactionOverviewSection from './TransactionOverviewSection';
 
 vi.mock('@/ui/components', async () => {
@@ -293,5 +299,141 @@ describe('TransactionOverviewSection finalize decision, nLockTime and version (#
     renderOverview({});
     expect(screen.queryByTestId('psbt-locktime')).toBeNull();
     expect(screen.queryByTestId('psbt-tx-version')).toBeNull();
+  });
+});
+
+describe('TransactionOverviewSection relative locks and the unfinalized wording', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanup();
+    vi.mocked(useI18n).mockReturnValue({
+      t: (key: string, substitutions?: string | string[]) =>
+        substitutions === undefined
+          ? key
+          : `${key}:${Array.isArray(substitutions) ? substitutions.join(',') : substitutions}`
+    } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+  });
+
+  const website = {
+    psbtHex: '00',
+    toSignInputs: [],
+    providerContext: { method: 'signPsbt', chain: 'QBIT_REGTEST' },
+    autoFinalized: true
+  } as any;
+
+  function renderOverview(overrides: object, toSignData: object = website) {
+    return render(
+      <TransactionOverviewSection
+        decodedPsbt={{ ...decodedPsbt, ...overrides }}
+        networkFee={0.0000386}
+        toSignData={toSignData as any}
+      />
+    );
+  }
+
+  /** A version 2 PSBT with no nLockTime whose one input waits 144 blocks after the coin it spends. */
+  const blockLocked = {
+    version: 2,
+    locktime: 0,
+    inputInfos: [{ sequence: 0x00000090 }],
+    relativeLocks: [{ input: 0, sequence: 0x00000090, type: 'blocks', value: 144 }]
+  };
+
+  it('shows a relative lock instead of no lock, and that the site can broadcast it only once it has passed', () => {
+    renderOverview(blockLocked);
+    expect(screen.queryByTestId('psbt-locktime')).toBeNull();
+    expect(screen.queryByText('psbt_locktime_none')).toBeNull();
+    expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_blocks:1,144');
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
+
+    cleanup();
+    // Not finalized, the PSBT still needs finalizing whatever its lock.
+    renderOverview(blockLocked, { ...website, autoFinalized: false });
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_not_finalized');
+    expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_blocks:1,144');
+  });
+
+  it('shows an enforced nLockTime and each input a relative lock holds back, one line each', () => {
+    renderOverview({
+      version: 2,
+      locktime: 900_000,
+      inputInfos: [{ sequence: 0x00000001 }, { sequence: 0xfffffffd }, { sequence: 0x00400090 }],
+      relativeLocks: [
+        { input: 0, sequence: 0x00000001, type: 'blocks', value: 1 },
+        { input: 2, sequence: 0x00400090, type: 'time', value: 144 * 512 }
+      ]
+    });
+    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_block:900000');
+    expect(screen.getByTestId('psbt-locktime-raw').textContent).toBe('nLockTime 900000');
+    expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_one_block:1');
+    expect(screen.queryByTestId('psbt-relative-lock-1')).toBeNull();
+    expect(screen.getByTestId('psbt-relative-lock-2').textContent).toBe('psbt_relative_lock_hours:3,20');
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
+  });
+
+  it('rounds a time lock to minutes, hours or days, never to a single one', () => {
+    const cases: [number, string][] = [
+      [1, 'psbt_relative_lock_minutes:1,9'],
+      [10, 'psbt_relative_lock_minutes:1,85'],
+      [11, 'psbt_relative_lock_hours:1,2'],
+      [337, 'psbt_relative_lock_hours:1,48'],
+      [338, 'psbt_relative_lock_days:1,2'],
+      [0xffff, 'psbt_relative_lock_days:1,388']
+    ];
+    for (const [units, text] of cases) {
+      cleanup();
+      renderOverview({
+        version: 2,
+        locktime: 0,
+        inputInfos: [{ sequence: 0x00400000 | units }],
+        relativeLocks: [{ input: 0, sequence: 0x00400000 | units, type: 'time', value: units * 512 }]
+      });
+      expect(screen.getByTestId('psbt-relative-lock-0').textContent, `${units} units`).toBe(text);
+    }
+  });
+
+  it('still says there is no lock when no input has a relative lock', () => {
+    renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0xfffffffd }], relativeLocks: [] });
+    expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_none');
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized');
+  });
+
+  describe('in every locale', () => {
+    const locales = { en, es, fr, ja, ru, zh_TW: zhTW } as Record<string, Record<string, { message: string }>>;
+    /** What each locale said before: that only other signers complete the PSBT. */
+    const otherSignersOnly: Record<string, string> = {
+      en: 'Signed, not finalized: other signers complete it',
+      es: 'Firmada, sin finalizar: otros firmantes la completan',
+      fr: "Signée, non finalisée : d'autres signataires la complètent",
+      ja: '署名済み・未ファイナライズ：他の署名者が完成させます',
+      ru: 'Подписана, не финализирована: её завершат другие подписанты',
+      zh_TW: '已簽署，未完成：由其他簽署者完成'
+    };
+
+    it("says an unfinalized PSBT needs finalizing, which the site can do when the wallet's signatures complete it", () => {
+      expect(en.psbt_not_finalized.message).toBe(
+        'Signed, not finalized: the site or other signers must finalize it before it can be broadcast'
+      );
+      for (const [locale, messages] of Object.entries(locales)) {
+        expect(messages.psbt_not_finalized?.message, locale).toEqual(expect.any(String));
+        expect(messages.psbt_not_finalized!.message, locale).not.toBe(otherSignersOnly[locale]);
+      }
+    });
+
+    it('words every relative lock with its input and, but for a single block, its amount', () => {
+      for (const [locale, messages] of Object.entries(locales)) {
+        expect(messages.psbt_relative_lock_one_block?.message, locale).toContain('$1');
+        expect(messages.psbt_relative_lock_one_block!.message, locale).not.toContain('$2');
+        for (const key of [
+          'psbt_relative_lock_blocks',
+          'psbt_relative_lock_minutes',
+          'psbt_relative_lock_hours',
+          'psbt_relative_lock_days'
+        ]) {
+          expect(messages[key]?.message, `${locale} ${key}`).toMatch(/\$1[^]*\$2/);
+        }
+      }
+    });
   });
 });

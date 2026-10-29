@@ -3033,7 +3033,7 @@
     "message": "Finalizada: el sitio puede difundirla cuando haya pasado su bloqueo temporal"
   },
   "psbt_not_finalized": {
-    "message": "Firmada, sin finalizar: otros firmantes la completan"
+    "message": "Firmada, sin finalizar: el sitio u otros firmantes deben finalizarla antes de poder difundirla"
   },
   "psbt_locktime": {
     "message": "Bloqueo temporal"
@@ -3049,6 +3049,21 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 no se aplica: todas las entradas son finales"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Entrada $1: 1 bloque después de que se confirme la moneda que gasta"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Entrada $1: $2 bloques después de que se confirme la moneda que gasta"
+  },
+  "psbt_relative_lock_minutes": {
+    "message": "Entrada $1: unos $2 minutos después de que se confirme la moneda que gasta"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Entrada $1: unas $2 horas después de que se confirme la moneda que gasta"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Entrada $1: unos $2 días después de que se confirme la moneda que gasta"
   },
   "psbt_tx_version": {
     "message": "Versión"

@@ -3033,7 +3033,7 @@
     "message": "Finalized: the site can broadcast it once its lock time has passed"
   },
   "psbt_not_finalized": {
-    "message": "Signed, not finalized: other signers complete it"
+    "message": "Signed, not finalized: the site or other signers must finalize it before it can be broadcast"
   },
   "psbt_locktime": {
     "message": "Lock time"
@@ -3049,6 +3049,21 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 is not enforced: every input is final"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Input $1: 1 block after the coin it spends confirms"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Input $1: $2 blocks after the coin it spends confirms"
+  },
+  "psbt_relative_lock_minutes": {
+    "message": "Input $1: about $2 minutes after the coin it spends confirms"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Input $1: about $2 hours after the coin it spends confirms"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Input $1: about $2 days after the coin it spends confirms"
   },
   "psbt_tx_version": {
     "message": "Version"

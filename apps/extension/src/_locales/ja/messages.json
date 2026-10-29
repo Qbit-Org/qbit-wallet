@@ -3033,7 +3033,7 @@
     "message": "ファイナライズ済み：ロックタイム経過後にサイトがブロードキャストできます"
   },
   "psbt_not_finalized": {
-    "message": "署名済み・未ファイナライズ：他の署名者が完成させます"
+    "message": "署名済み・未ファイナライズ：ブロードキャストの前に、サイトまたは他の署名者がファイナライズする必要があります"
   },
   "psbt_locktime": {
     "message": "ロックタイム"
@@ -3049,6 +3049,21 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 は適用されません：すべての入力が確定済みです"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "インプット $1：使用するコインの承認から 1 ブロック後"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "インプット $1：使用するコインの承認から $2 ブロック後"
+  },
+  "psbt_relative_lock_minutes": {
+    "message": "インプット $1：使用するコインの承認から約 $2 分後"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "インプット $1：使用するコインの承認から約 $2 時間後"
+  },
+  "psbt_relative_lock_days": {
+    "message": "インプット $1：使用するコインの承認から約 $2 日後"
   },
   "psbt_tx_version": {
     "message": "バージョン"

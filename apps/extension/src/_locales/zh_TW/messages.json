@@ -3033,7 +3033,7 @@
     "message": "已完成：鎖定時間過後網站即可廣播"
   },
   "psbt_not_finalized": {
-    "message": "已簽署，未完成：由其他簽署者完成"
+    "message": "已簽署，未完成：須由網站或其他簽署者完成後才能廣播"
   },
   "psbt_locktime": {
     "message": "鎖定時間"
@@ -3049,6 +3049,21 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 不生效：所有輸入皆為最終"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "輸入 $1：所花費的代幣確認後 1 個區塊"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "輸入 $1：所花費的代幣確認後 $2 個區塊"
+  },
+  "psbt_relative_lock_minutes": {
+    "message": "輸入 $1：所花費的代幣確認後約 $2 分鐘"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "輸入 $1：所花費的代幣確認後約 $2 小時"
+  },
+  "psbt_relative_lock_days": {
+    "message": "輸入 $1：所花費的代幣確認後約 $2 天"
   },
   "psbt_tx_version": {
     "message": "版本"

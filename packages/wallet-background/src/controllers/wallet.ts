@@ -169,6 +169,7 @@ import {
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
   type PsbtOutputOwner,
+  type PsbtRelativeLock,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
 import { psbtFromString } from '../utils/psbt-utils'
@@ -338,6 +339,34 @@ function qbitPsbtReviewVsize(psbt: QbitPsbt, summary: ReturnType<typeof decodeQb
     )!.value
     return vsize + Math.min(0, finalWitness.length - QBIT_P2MR_SINGLE_KEY_WITNESS_BYTES)
   }, singleKeyVsize)
+}
+
+/** BIP68: an input whose sequence has this bit set has no relative lock. */
+const QBIT_SEQUENCE_LOCKTIME_DISABLE_FLAG = 0x80000000
+/** BIP68: with this bit set, the lock counts units of median time; otherwise blocks. */
+const QBIT_SEQUENCE_LOCKTIME_TYPE_FLAG = 0x00400000
+const QBIT_SEQUENCE_LOCKTIME_MASK = 0x0000ffff
+/** BIP68: seconds in one unit of a time-based relative lock. */
+const QBIT_SEQUENCE_LOCKTIME_GRANULARITY_SECONDS = 512
+
+/**
+ * The BIP68 relative locks of a transaction's inputs, which nodes enforce
+ * from version 2 (read as qbit Core's uint32). Each holds the transaction
+ * back until the coin its input spends has been mined for that long. A lock
+ * of 0 holds nothing back and is left out.
+ */
+function qbitPsbtRelativeLocks(summary: ReturnType<typeof decodeQbitPsbt>): PsbtRelativeLock[] {
+  if (summary.version < 2) return []
+  return summary.inputs.flatMap(({ sequence }, input): PsbtRelativeLock[] => {
+    if ((sequence & QBIT_SEQUENCE_LOCKTIME_DISABLE_FLAG) !== 0) return []
+    const units = sequence & QBIT_SEQUENCE_LOCKTIME_MASK
+    if (units === 0) return []
+    if ((sequence & QBIT_SEQUENCE_LOCKTIME_TYPE_FLAG) === 0) {
+      return [{ input, sequence, type: 'blocks', value: units }]
+    }
+    const seconds = units * QBIT_SEQUENCE_LOCKTIME_GRANULARITY_SECONDS
+    return [{ input, sequence, type: 'time', value: seconds }]
+  })
 }
 
 /**
@@ -8789,6 +8818,7 @@ export class WalletController extends BaseController {
       outputOwners,
       version: summary.version,
       locktime: summary.locktime,
+      relativeLocks: qbitPsbtRelativeLocks(summary),
     }
   }
 

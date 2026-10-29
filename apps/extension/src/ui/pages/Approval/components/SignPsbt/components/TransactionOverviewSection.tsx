@@ -1,7 +1,7 @@
 import { Card, Column, Icon, Row, Text, Tooltip } from '@/ui/components';
 import { ColorTypes } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
-import { DecodedPsbt, ToSignData, isWebsiteSuppliedPsbt } from '@qbit/wallet-shared';
+import { DecodedPsbt, PsbtRelativeLock, ToSignData, isWebsiteSuppliedPsbt } from '@qbit/wallet-shared';
 import { useI18n, useQbitUnit } from '@qbit/wallet-state';
 
 import { SignPsbtSection } from './Section';
@@ -19,7 +19,36 @@ function formatLocktimeTime(locktime: number): string {
     .replace(/\.\d{3}Z$/, ' UTC');
 }
 
-function TermRow({ label, value, detail, testId }: { label: string; value: string; detail?: string; testId: string }) {
+/**
+ * A relative lock in plain terms, numbering inputs from 1. A time lock is a
+ * multiple of 512 seconds, so it is rounded to minutes, hours or days.
+ */
+function relativeLockText(lock: PsbtRelativeLock, t: (key: string, substitutions?: string[]) => string): string {
+  const input = `${lock.input + 1}`;
+  if (lock.type === 'blocks') {
+    return lock.value === 1
+      ? t('psbt_relative_lock_one_block', [input])
+      : t('psbt_relative_lock_blocks', [input, `${lock.value}`]);
+  }
+  if (lock.value < 90 * 60) return t('psbt_relative_lock_minutes', [input, `${Math.round(lock.value / 60)}`]);
+  if (lock.value < 48 * 3600) return t('psbt_relative_lock_hours', [input, `${Math.round(lock.value / 3600)}`]);
+  return t('psbt_relative_lock_days', [input, `${Math.round(lock.value / 86400)}`]);
+}
+
+function TermRow({
+  label,
+  value,
+  detail,
+  testId,
+  extraLines = []
+}: {
+  label: string;
+  value?: string;
+  detail?: string;
+  testId: string;
+  /** Further lines under the value and its detail, each with its own test id. */
+  extraLines?: { text: string; testId: string }[];
+}) {
   return (
     <Card
       mt="zero"
@@ -32,10 +61,13 @@ function TermRow({ label, value, detail, testId }: { label: string; value: strin
       <Row justifyBetween itemsCenter fullX>
         <Text text={label} color="textDim" size="sm" />
         <Column gap="zero" style={{ alignItems: 'flex-end', minWidth: 0 }}>
-          <Text text={value} preset="bold" size="sm" textEnd wrap data-testid={testId} />
+          {value !== undefined && <Text text={value} preset="bold" size="sm" textEnd wrap data-testid={testId} />}
           {detail !== undefined && (
             <Text text={detail} size="xs" color="textDim" textEnd wrap data-testid={`${testId}-raw`} />
           )}
+          {extraLines.map((line) => (
+            <Text key={line.testId} text={line.text} preset="bold" size="sm" textEnd wrap data-testid={line.testId} />
+          ))}
         </Column>
       </Row>
     </Card>
@@ -66,20 +98,24 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
   const showNetworkFee = decodedPsbt.isCompleted == true;
 
   const { locktime, version } = decodedPsbt;
+  const relativeLocks = decodedPsbt.relativeLocks ?? [];
   // nLockTime holds the transaction back unless it is 0 or every input is final.
   const lockEnforced =
     locktime !== undefined &&
     locktime !== 0 &&
     !decodedPsbt.inputInfos.every((input) => input.sequence === SEQUENCE_FINAL);
+  const anyLock = lockEnforced || relativeLocks.length > 0;
 
   // A website gets the signed PSBT back. Signing finalizes it unless the
-  // request, as the background prepared it, says not to. The wallet cannot
-  // tell whether an enforced lock time has passed, so with one it does not
-  // say the site can broadcast the transaction now.
+  // request, as the background prepared it, says not to. Left unfinalized, it
+  // may still need other signers, or the wallet's signatures may already
+  // complete it for the site to finalize. The wallet cannot tell whether an
+  // enforced lock time or a relative lock has passed, so with either it does
+  // not say the site can broadcast the transaction now.
   const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
     ? toSignData?.autoFinalized === false
       ? t('psbt_not_finalized')
-      : lockEnforced
+      : anyLock
         ? t('psbt_finalized_after_lock')
         : t('psbt_finalized')
     : undefined;
@@ -88,7 +124,8 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
   let locktimeDetail: string | undefined;
   if (locktime !== undefined) {
     if (!lockEnforced) {
-      locktimeText = t('psbt_locktime_none');
+      // Only when nothing else holds the transaction back.
+      locktimeText = relativeLocks.length > 0 ? undefined : t('psbt_locktime_none');
     } else if (locktime < LOCKTIME_THRESHOLD) {
       locktimeText = t('psbt_locktime_block', `${locktime}`);
     } else {
@@ -100,15 +137,28 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
     }
   }
 
+  // One line for each input a relative lock holds back.
+  const relativeLockLines = relativeLocks.map((lock) => ({
+    text: relativeLockText(lock, t),
+    testId: `psbt-relative-lock-${lock.input}`
+  }));
+  const showLocks = locktimeText !== undefined || relativeLockLines.length > 0;
+
   const transactionSection =
-    finalizeDecision !== undefined || locktimeText !== undefined || version !== undefined ? (
+    finalizeDecision !== undefined || showLocks || version !== undefined ? (
       <SignPsbtSection title={t('transaction')}>
         <Column gap="sm">
           {finalizeDecision !== undefined && (
             <TermRow label={t('psbt_after_signing')} value={finalizeDecision} testId="psbt-finalize-decision" />
           )}
-          {locktimeText !== undefined && (
-            <TermRow label={t('psbt_locktime')} value={locktimeText} detail={locktimeDetail} testId="psbt-locktime" />
+          {showLocks && (
+            <TermRow
+              label={t('psbt_locktime')}
+              value={locktimeText}
+              detail={locktimeDetail}
+              testId="psbt-locktime"
+              extraLines={relativeLockLines}
+            />
           )}
           {version !== undefined && (
             <TermRow label={t('psbt_tx_version')} value={`${version}`} testId="psbt-tx-version" />

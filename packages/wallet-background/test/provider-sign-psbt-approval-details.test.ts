@@ -116,17 +116,20 @@ type SecondInput = 'other_party' | 'other_account' | 'unknown'
  * A website PSBT with one input of `INPUT_VALUE` from the account, and a
  * second one of the same value when `secondInput` says whose. An `unknown`
  * input is another party's without its witness UTXO, so its owner is unknown.
+ * `sequences` sets the inputs' nSequence, in input order.
  */
 function websitePsbt({
   outputs,
   version,
   locktime,
   secondInput,
+  sequences = [],
 }: {
   outputs: P2mrTransactionOutput[]
   version?: number
   locktime?: number
   secondInput?: SecondInput
+  sequences?: number[]
 }): Psbt {
   const second =
     secondInput === 'other_account'
@@ -138,6 +141,7 @@ function websitePsbt({
     inputs: [
       {
         prevout: { txid: hexToBytes('90'.repeat(32)), vout: 0 },
+        ...(sequences[0] === undefined ? {} : { sequence: sequences[0] }),
         witnessUtxo: { value: INPUT_VALUE, scriptPubKey: ACCOUNT_SCRIPT },
         leafScript: hexToBytes(account.p2mr.leafScript),
         controlBlock: SINGLE_LEAF,
@@ -146,6 +150,7 @@ function websitePsbt({
         ? [
             {
               prevout: { txid: hexToBytes('91'.repeat(32)), vout: 0 },
+              ...(sequences[1] === undefined ? {} : { sequence: sequences[1] }),
               witnessUtxo: { value: INPUT_VALUE, scriptPubKey: second.scriptPubKey },
               leafScript: second.leafScript,
               controlBlock: SINGLE_LEAF,
@@ -295,6 +300,73 @@ describe('what a website PSBT approval shows besides the fee (#13)', () => {
       websitePsbt({ outputs, version: 1, locktime: 1_767_225_600 })
     )
     expect(timeLocked.review).toMatchObject({ version: 1, locktime: 1_767_225_600 })
+  })
+
+  describe('relative locks', () => {
+    const outputs = [{ value: AMOUNT, scriptPubKey: STRANGER_SCRIPT }, change(AMOUNT)]
+
+    it('hands the approval a 144-block relative lock on a version 2 PSBT with no nLockTime', async () => {
+      const { review, toSignData, signed } = await approveWebsitePsbt(
+        websitePsbt({ outputs, version: 2, locktime: 0, sequences: [0x00000090] })
+      )
+
+      expect(review).toMatchObject({ version: 2, locktime: 0 })
+      expect(review.relativeLocks).toEqual([
+        { input: 0, sequence: 0x00000090, type: 'blocks', value: 144 },
+      ])
+      // What is signed and finalized is unchanged.
+      expect(toSignData.autoFinalized).toBe(true)
+      expect(decodePsbt(signed).inputs.map(input => input.sequence)).toEqual([0x00000090])
+    })
+
+    it('reads a time lock in 512-second units, for each input that has one', async () => {
+      const locked = await review(
+        websitePsbt({
+          outputs: [{ value: AMOUNT, scriptPubKey: STRANGER_SCRIPT }, change(AMOUNT, 2n * INPUT_VALUE)],
+          secondInput: 'other_account',
+          sequences: [0xfffffffd, 0x00400090],
+        })
+      )
+      expect(locked.relativeLocks).toEqual([
+        { input: 1, sequence: 0x00400090, type: 'time', value: 144 * 512 },
+      ])
+    })
+
+    it('reads only the type bit and the low 16 bits, whatever the bits a lock leaves unused', async () => {
+      const locked = await review(
+        websitePsbt({
+          outputs: [{ value: AMOUNT, scriptPubKey: STRANGER_SCRIPT }, change(AMOUNT, 2n * INPUT_VALUE)],
+          secondInput: 'other_account',
+          sequences: [0x7fbf0001, 0x7fff0002],
+        })
+      )
+      expect(locked.relativeLocks).toEqual([
+        { input: 0, sequence: 0x7fbf0001, type: 'blocks', value: 1 },
+        { input: 1, sequence: 0x7fff0002, type: 'time', value: 1024 },
+      ])
+    })
+
+    it('finds none when the disable bit is set, the lock is 0 or the version is below 2', async () => {
+      for (const psbt of [
+        websitePsbt({ outputs }),
+        websitePsbt({ outputs, sequences: [0xfffffffe] }),
+        websitePsbt({ outputs, sequences: [0x80000090] }),
+        websitePsbt({ outputs, sequences: [0x00000000] }),
+        websitePsbt({ outputs, sequences: [0x00400000] }),
+        websitePsbt({ outputs, version: 1, sequences: [0x00000090] }),
+        websitePsbt({ outputs, version: 0, sequences: [0x00000090] }),
+      ]) {
+        expect((await review(psbt)).relativeLocks).toEqual([])
+      }
+    })
+
+    it('enforces them for any version from 2, read as an unsigned number', async () => {
+      const locked = await review(websitePsbt({ outputs, version: 0xffffffff, sequences: [0x00000090] }))
+      expect(locked.version).toBe(0xffffffff)
+      expect(locked.relativeLocks).toEqual([
+        { input: 0, sequence: 0x00000090, type: 'blocks', value: 144 },
+      ])
+    })
   })
 
   describe('change, as against a payment to the signing account', () => {

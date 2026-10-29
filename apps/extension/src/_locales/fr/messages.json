@@ -3033,7 +3033,7 @@
     "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé"
   },
   "psbt_not_finalized": {
-    "message": "Signée, non finalisée : d'autres signataires la complètent"
+    "message": "Signée, non finalisée : le site ou d'autres signataires doivent la finaliser avant qu'elle puisse être diffusée"
   },
   "psbt_locktime": {
     "message": "Verrouillage temporel"
@@ -3049,6 +3049,21 @@
   },
   "psbt_locktime_not_enforced": {
     "message": "nLockTime $1 ne s'applique pas : toutes les entrées sont finales"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Entrée $1 : 1 bloc après la confirmation de la pièce qu'elle dépense"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Entrée $1 : $2 blocs après la confirmation de la pièce qu'elle dépense"
+  },
+  "psbt_relative_lock_minutes": {
+    "message": "Entrée $1 : environ $2 minutes après la confirmation de la pièce qu'elle dépense"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Entrée $1 : environ $2 heures après la confirmation de la pièce qu'elle dépense"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Entrée $1 : environ $2 jours après la confirmation de la pièce qu'elle dépense"
   },
   "psbt_tx_version": {
     "message": "Version"
