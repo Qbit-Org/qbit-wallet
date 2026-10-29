@@ -1272,16 +1272,20 @@ export class QbitSendGuardService {
    * keep the bump from going out.
    *
    * A claim restored from the page's copy (see `restoreBroadcastClaim`)
-   * hands `broadcast` `restored` as well, whatever it replaces: `broadcast`
-   * must then check on the explorer that nothing but `txid`, or the
-   * transaction the claim replaces, spends any of `outpoints`, and reject
-   * otherwise.
+   * hands `broadcast` `restoredFromPage` as well, whatever it replaces:
+   * `broadcast` must then check on the explorer that nothing but `txid`, or
+   * the transaction the claim replaces, spends any of `outpoints`, and
+   * reject otherwise. Any other broadcast is handed false.
    */
   broadcastIfAllowed<T>(
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    broadcast: (replaces?: string, replacedOutputCount?: number, restored?: boolean) => Promise<T>,
+    broadcast: (
+      replaces: string | undefined,
+      replacedOutputCount: number | undefined,
+      restoredFromPage: boolean
+    ) => Promise<T>,
     claim?: QbitSendBroadcastClaim
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
@@ -1332,12 +1336,13 @@ export class QbitSendGuardService {
       if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid)
       this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replacedTxid)
 
-      const restored = exactClaim !== undefined && this.restoredClaimKeys.has(claimKey(exactClaim))
-      const result = restored
-        ? await broadcast(replacedTxid, exactClaim?.replacedOutputCount, true)
-        : replacedTxid === undefined
-          ? await broadcast(replacedTxid)
-          : await broadcast(replacedTxid, exactClaim?.replacedOutputCount)
+      const restoredFromPage =
+        exactClaim !== undefined && this.restoredClaimKeys.has(claimKey(exactClaim))
+      const result = await broadcast(
+        replacedTxid,
+        exactClaim?.replacedOutputCount,
+        restoredFromPage
+      )
       // The claim is consumed, but its inputs stay reserved as recently
       // spent: the explorer may keep listing them for a while yet.
       this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)

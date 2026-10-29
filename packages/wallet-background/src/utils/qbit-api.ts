@@ -2263,51 +2263,98 @@ export async function continueQbitAddressOutputScan(
   return read
 }
 
-const QBIT_OUTSPENDS_CONCURRENCY = 8
+/** The most `/tx/:txid/outspends` reads `findQbitOutpointSpenders` has in flight at once. */
+export const QBIT_OUTSPENDS_CONCURRENCY = 8
 
 /**
  * The outpoints of `outputs` that a transaction spends, as `txid:vout` with
- * a lowercase txid, from one `getQbitTxSpenders` answer per funding
- * transaction, at most eight at a time. A failed or malformed answer throws,
- * so an output is only ever reported unspent on the explorer's explicit word.
- * Each answer is read under `operation`'s deadline, when given.
+ * a lowercase txid: `findQbitOutpointSpenders` without the spenders.
  */
 export async function findQbitSpentOutpoints(
   client: QbitTxOutspendsClient,
   outputs: readonly { txid: string; vout: number; outputCount: number }[],
   operation?: QbitExplorerOperation
 ): Promise<Set<string>> {
-  const byTxid = new Map<string, { outputCount: number; vouts: number[] }>()
+  return new Set((await findQbitOutpointSpenders(client, outputs, { operation })).keys())
+}
+
+/**
+ * The transactions `findQbitOutpointSpenders` reads for `outputs`: each
+ * distinct one they are outputs of, once.
+ */
+export function qbitOutspendsReadCount(outputs: readonly { txid: string }[]): number {
+  return new Set(outputs.map(output => normalizeQbitTxid(output.txid))).size
+}
+
+/**
+ * The txid spending each output of `outputs` that a transaction spends,
+ * keyed `txid:vout` with lowercase txids, from one `/tx/:txid/outspends`
+ * answer per transaction they are outputs of, at most
+ * `QBIT_OUTSPENDS_CONCURRENCY` at a time. With the `outputCount` of that
+ * transaction, `vout` must be below it and the answer must hold exactly one
+ * well-formed entry per output (see `getQbitTxSpenders`). Without it (the
+ * inputs of a transaction the wallet holds only signed bytes of), the answer
+ * must hold a well-formed entry at each `vout`. A failed or malformed answer
+ * throws, so an output is only ever reported unspent on the explorer's
+ * explicit word. Each answer is read under `operation`'s deadline, when
+ * given, and fresh (`QbitTxOutspendsOptions.fresh`) with `fresh`.
+ */
+export async function findQbitOutpointSpenders(
+  client: QbitTxOutspendsClient,
+  outputs: readonly { txid: string; vout: number; outputCount?: number | undefined }[],
+  options: { operation?: QbitExplorerOperation | undefined; fresh?: boolean } = {}
+): Promise<Map<string, string>> {
+  const { operation, fresh = false } = options
+  const byTxid = new Map<string, { outputCount: number | undefined; vouts: number[] }>()
   for (const output of outputs) {
     const txid = normalizeQbitTxid(output.txid)
+    const { outputCount, vout } = output
     if (
-      !Number.isSafeInteger(output.outputCount) ||
-      !Number.isSafeInteger(output.vout) ||
-      output.vout < 0 ||
-      output.vout >= output.outputCount
+      (outputCount !== undefined && !Number.isSafeInteger(outputCount)) ||
+      !Number.isSafeInteger(vout) ||
+      vout < 0 ||
+      (outputCount !== undefined && vout >= outputCount)
     ) {
-      throw new Error(`invalid qbit outpoint ${txid}:${output.vout}`)
+      throw new Error(`invalid qbit outpoint ${txid}:${vout}`)
     }
-    const entry = byTxid.get(txid) ?? { outputCount: output.outputCount, vouts: [] }
-    if (entry.outputCount !== output.outputCount) {
+    const entry = byTxid.get(txid) ?? { outputCount, vouts: [] }
+    if (entry.outputCount !== outputCount) {
       throw new Error(`inconsistent output count for qbit transaction ${txid}`)
     }
-    entry.vouts.push(output.vout)
+    entry.vouts.push(vout)
     byTxid.set(txid, entry)
   }
+  const read = (txid: string): Promise<unknown> => {
+    const deadline = operation?.read()
+    if (fresh) return client.getTxOutspends(txid, { ...deadline, fresh: true })
+    return deadline === undefined
+      ? client.getTxOutspends(txid)
+      : client.getTxOutspends(txid, deadline)
+  }
   const entries = [...byTxid]
-  const spenders = await mapQbitWithConcurrency(
+  // Each answer is validated as it arrives, so a malformed one stops the rest.
+  const answered = await mapQbitWithConcurrency(
     entries,
     QBIT_OUTSPENDS_CONCURRENCY,
-    ([txid, entry]) => getQbitTxSpenders(client, txid, entry.outputCount, operation?.read())
-  )
-  const spent = new Set<string>()
-  entries.forEach(([txid, entry], index) => {
-    for (const vout of entry.vouts) {
-      if (spenders[index]![vout] !== undefined) spent.add(`${txid}:${vout}`)
+    async ([txid, { outputCount, vouts }]) => {
+      const answer = await read(txid)
+      if (outputCount !== undefined) {
+        const all = qbitTxSpendersFromOutspends(answer, txid, outputCount)
+        return vouts.map(vout => all[vout])
+      }
+      return vouts.map(vout =>
+        qbitOutspendSpender(Array.isArray(answer) ? answer[vout] : undefined, txid)
+      )
     }
+  )
+  const spenders = new Map<string, string>()
+  entries.forEach(([txid, { vouts }], index) => {
+    vouts.forEach((vout, at) => {
+      const spender = answered[index]![at]
+      if (spender !== undefined) spenders.set(`${txid}:${vout}`, spender)
+    })
   })
-  return spent
+  return spenders
 }
 
 /**

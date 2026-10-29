@@ -2282,15 +2282,16 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       outcome: 'not_sent',
       detail: inputSpentElsewhereDetail,
     })
-    // So does an explorer that cannot say.
+    // So does an explorer that cannot say, in words about this send, which
+    // replaces nothing it knows of.
     getTxOutspendsMock.mockRejectedValueOnce(networkError())
     probeGone()
     await expect(
       wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
     ).resolves.toMatchObject({
       outcome: 'not_sent',
-      detail:
-        'Could not check whether a later payment depends on the transaction this fee bump replaces',
+      reason: 'guard_blocked',
+      detail: 'Could not check that the inputs of this transaction are still unspent',
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
     expect(outspendsReads()).toEqual(Array(4).fill(SOURCE_TXID))
@@ -2667,6 +2668,82 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(2)
     await expect(reservedKeys()).resolves.toEqual(new Set([`${SOURCE_TXID}:0`]))
+  })
+
+  it('reports an explorer check that ran out of time as a timeout, and unknown after an earlier unknown outcome', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    const timeout = () => new QbitApiError('timeout', `request to ${ENDPOINT} timed out`)
+    const unchecked =
+      'Could not check whether a later payment depends on the transaction this fee bump replaces'
+
+    getTxOutspendsMock.mockRejectedValueOnce(timeout())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'not_sent',
+      reason: 'timeout',
+      detail: unchecked,
+    })
+
+    // After a broadcast of the bump that ended unknown, the refusal for time
+    // leaves the verdict unknown: that broadcast may have gone out.
+    explorerShowsOriginal()
+    broadcastTxMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'network',
+    })
+    getTxOutspendsMock.mockRejectedValueOnce(timeout())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'unknown',
+      reason: 'timeout',
+      detail: unchecked,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends no re-send of a fee bump once the explorer check has taken it past the re-send window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const wallet = newController()
+      const bump = await sendThenSignBump(wallet)
+      wallet.qbitBroadcastResendDelaysMs = [0]
+      // The first dispatch's answer is lost, and its lookup takes 29 s to
+      // miss the bump: a re-send is still due within the 30 s window.
+      broadcastTxMock.mockRejectedValueOnce(networkError())
+      getTxStatusMock.mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + 29_000)
+        throw notFound()
+      })
+      // The re-send's explorer check takes 2 s more, which passes it.
+      let reads = 0
+      getTxOutspendsMock.mockImplementation(async () => {
+        reads += 1
+        if (reads === 3) vi.setSystemTime(Date.now() + 2_000)
+        return [{ spent: false }]
+      })
+      probeGone()
+      await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+        success: false,
+        txid: otherFixture.txid,
+        outcome: 'unknown',
+        reason: 'network',
+        lookup: 'gone',
+      })
+      // Both passes were checked, but only the first went out.
+      expect(reads).toBe(4)
+      expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reports a retried fee bump the node already took as the success its first answer lost', async () => {

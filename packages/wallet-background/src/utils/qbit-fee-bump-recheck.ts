@@ -1,8 +1,10 @@
+import { QbitApiError } from '@qbit-oss/api'
+
 import {
-  mapQbitWithConcurrency,
+  QBIT_OUTSPENDS_CONCURRENCY,
+  findQbitOutpointSpenders,
   normalizeQbitTxid,
-  qbitOutspendSpender,
-  qbitTxSpendersFromOutspends,
+  qbitOutspendsReadCount,
   type QbitTxOutspendsClient,
 } from './qbit-api'
 import { QBIT_BROADCAST_MIN_PASS_MS } from './qbit-broadcast'
@@ -10,11 +12,13 @@ import { QbitExplorerOperation } from './qbit-explorer-fetch'
 
 /**
  * The longest a broadcast waits for the explorer to say what spends a fee
- * bump's original, or a restored claim's inputs: both rounds of reads and
- * the pause between them. The check runs while the send guard holds its
- * queue, so a stalled explorer must not hold every other send flow for the
- * client's full retry budget. Its reads, `/tx/:txid/outspends`, are small
- * replies, which the explorer's reply budget expects within this too.
+ * bump's original, or a restored claim's inputs, when its reads fit one
+ * wave (`QBIT_OUTSPENDS_CONCURRENCY` in flight at once): both rounds of
+ * reads and the pause between them. The check runs while the send guard
+ * holds its queue, so a stalled explorer must not hold every other send
+ * flow for the client's full retry budget. Its reads, `/tx/:txid/outspends`,
+ * are small replies, which the explorer's reply budget expects within this
+ * too.
  */
 export const QBIT_FEE_BUMP_RECHECK_WAIT_MS = 15_000
 
@@ -29,19 +33,33 @@ export const QBIT_FEE_BUMP_RECHECK_WAIT_MS = 15_000
 export const QBIT_FEE_BUMP_RECHECK_INTERVAL_MS = 5_000
 
 /**
- * The least of the check's budget a round of reads starts with. The check
- * starts only with room for both rounds and the pause between them, and
- * gives up rather than pause when the first round leaves less than this
- * for the second.
+ * The least each wave of reads in a round is given. The check starts only
+ * with room for both rounds and the pause between them at this, and gives
+ * up rather than pause when the first round leaves the second less.
  */
 export const QBIT_FEE_BUMP_RECHECK_MIN_READ_MS = 2_000
 
 /**
- * The most reads a round has in flight at once. A restored claim's inputs
- * can come from many transactions: their reads queue behind these, and the
- * check refuses when they do not all finish within its budget.
+ * What each further wave of reads adds to each round of the check's budget,
+ * as the first wave has of `QBIT_FEE_BUMP_RECHECK_WAIT_MS`: a restored
+ * claim's inputs can come from many transactions, each read once a round.
  */
-export const QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS = 4
+export const QBIT_FEE_BUMP_RECHECK_WAVE_MS =
+  (QBIT_FEE_BUMP_RECHECK_WAIT_MS - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS) / 2
+
+/**
+ * The longest the check may take, however many transactions it reads. The
+ * largest standard wallet transaction has 106 single-key inputs (see
+ * `QBIT_MAX_STANDARD_TX_WEIGHT`); from 106 transactions, and a fee bump's
+ * original besides, that is 107 reads, 14 waves, which both rounds and the
+ * pause fit at `QBIT_FEE_BUMP_RECHECK_MIN_READ_MS` a wave in 61 s. This
+ * leaves those a few seconds more, and leaves a broadcast's 120 s deadline,
+ * past the submission's 15 s, about 40 s for the lookups that follow a
+ * refusal or a lost answer. The check holds the send guard's queue, and no
+ * other send moves while it does: more than about a minute of that is
+ * refused instead.
+ */
+export const QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS = 65_000
 
 /**
  * The Speed up assessment's deadline, shared by every explorer read it
@@ -91,6 +109,7 @@ export function qbitExplorerSpendCheck(
 }
 
 export interface QbitExplorerSpendCheckOptions {
+  /** The check's budget when its reads fit one wave; more waves add to it. */
   waitMs?: number
   intervalMs?: number
   /**
@@ -102,6 +121,18 @@ export interface QbitExplorerSpendCheckOptions {
 }
 
 /**
+ * The explorer check refused for lack of time: too little was left for both
+ * rounds of reads or for the second one, or its reads timed out. A
+ * broadcast reports it as a refusal for its deadline (`timeout`).
+ */
+export class QbitExplorerSpendCheckTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'QbitExplorerSpendCheckTimeoutError'
+  }
+}
+
+/**
  * Throw unless the explorer shows that a broadcast about to be dispatched
  * evicts nothing. qbit Core evicts every transaction spending an output of
  * the transaction a fee bump replaces once the replacement's fee covers
@@ -110,25 +141,28 @@ export interface QbitExplorerSpendCheckOptions {
  * on the explorer: with `replaces`, what spends each output of the original
  * is read. A claim restored after a restart may replace a transaction the
  * guard no longer knows of, whatever the page says it replaces: with
- * `restored`, what spends each of its inputs is read as well, once per
- * transaction they are outputs of.
+ * `restored`, what spends each of its inputs is read as well.
  *
  * The original's `outputCount` is the one counted from the raw bytes that
  * hash to its txid when the bump was assessed, before it was signed: the
  * original's bytes are never read again here, since on a slow link they can
  * take longer than the guard may be held, and their signature is spent by
- * now. Every read is fresh (`QbitTxOutspendsOptions.fresh`), each
- * transaction is read once a round, at most
- * `QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS` at a time, and the rounds run
+ * now. All of it is read in one `findQbitOutpointSpenders` fan-out a round,
+ * every read fresh (`QbitTxOutspendsOptions.fresh`), and the rounds run
  * twice, `intervalMs` apart: the broadcast goes out only when both rounds
  * show nothing but the expected spenders. A spender on either refuses it.
- * So does an answer that is not well-formed (for the original, one entry
- * per output), a read that fails, or a check that has not settled within
- * its budget: `waitMs`, and no more of `operation`'s deadline than leaves
- * the submission its reply budget. Its reads are then aborted. A budget
- * without room for both rounds and the pause refuses before any read, and
- * a first round that leaves the second too little of it refuses without
- * the pause. The broadcast goes out only on the explorer's explicit word.
+ * So does an answer that is not well-formed, a read that fails, or a check
+ * that has not settled within its budget, whose reads are then aborted.
+ *
+ * The budget is `waitMs` for reads that fit one wave, and grows by
+ * `QBIT_FEE_BUMP_RECHECK_WAVE_MS` a round for each further wave, up to
+ * `QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS`, and no more of `operation`'s deadline
+ * than leaves the submission its reply budget. A budget without
+ * `QBIT_FEE_BUMP_RECHECK_MIN_READ_MS` a wave for both rounds and the pause
+ * refuses before any read, and a first round that leaves the second less
+ * refuses without the pause; both throw `QbitExplorerSpendCheckTimeoutError`,
+ * as does a check whose reads time out. The broadcast goes out only on the
+ * explorer's explicit word.
  */
 export async function assertNoExplorerSpendConflict(
   client: QbitTxOutspendsClient,
@@ -148,6 +182,7 @@ export async function assertNoExplorerSpendConflict(
   if (parent?.aborted) onParentAbort()
   else parent?.addEventListener('abort', onParentAbort, { once: true })
   let timer: ReturnType<typeof setTimeout> | undefined
+  let outOfTime = false
   let verdict: 'conflict' | 'dependent' | undefined
   try {
     const outputCount = replaces?.outputCount ?? 0
@@ -155,58 +190,59 @@ export async function assertNoExplorerSpendConflict(
       throw new Error('original output count unknown')
     }
     const original = replaces && normalizeQbitTxid(replaces.txid)
+    const originalOutputs = original
+      ? Array.from({ length: outputCount }, (_, vout) => ({ txid: original, vout, outputCount }))
+      : []
     const inputs = (restored?.outpoints ?? []).map(({ txid, vout }) => ({
-      funding: normalizeQbitTxid(txid),
+      txid: normalizeQbitTxid(txid),
       vout,
     }))
-    // Each transaction once a round: the original and every one the inputs
-    // are outputs of.
-    const reads = [
-      ...new Set([...(original ? [original] : []), ...inputs.map(input => input.funding)]),
-    ]
-    const expected = new Set([restored?.txid, original])
+    const outputs = [...originalOutputs, ...inputs]
+    // Nothing but the claim's own transaction, or the original it replaces,
+    // may spend its inputs; spenders come back lowercase, so do these.
+    const expected = new Set([restored && normalizeQbitTxid(restored.txid), original])
 
-    // One budget for the whole check, within the deadline of the broadcast
-    // it is part of, less what its submission needs after it: each read
-    // gets what is left of it, never more.
+    // One budget for the whole check, sized for its reads, within the
+    // deadline of the broadcast it is part of less what its submission
+    // needs after it: each read gets what is left of it, never more.
+    const waves = Math.ceil(qbitOutspendsReadCount(outputs) / QBIT_OUTSPENDS_CONCURRENCY)
     const budgetMs = Math.min(
-      waitMs,
-      operation ? operation.remainingMs() - QBIT_BROADCAST_MIN_PASS_MS : waitMs
+      waitMs + 2 * (waves - 1) * QBIT_FEE_BUMP_RECHECK_WAVE_MS,
+      QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS,
+      operation ? operation.remainingMs() - QBIT_BROADCAST_MIN_PASS_MS : Number.POSITIVE_INFINITY
     )
-    if (!(budgetMs >= 2 * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS + intervalMs)) {
+    if (!(budgetMs >= intervalMs + 2 * waves * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS)) {
+      outOfTime = true
       throw new Error('no time left for both rounds of reads')
     }
     const check = new QbitExplorerOperation(budgetMs, giveUp.signal)
-    const read = (txid: string): Promise<unknown> =>
-      client.getTxOutspends(txid, { ...check.read(), fresh: true }).catch((error: unknown) => {
-        // One failed read decides the check: the others are aborted.
-        giveUp.abort(error)
-        throw error
-      })
+    // One failed read decides the check: the others are aborted.
+    const failFast: QbitTxOutspendsClient = {
+      getTxOutspends: (txid, readOptions) =>
+        client.getTxOutspends(txid, readOptions).catch((error: unknown) => {
+          giveUp.abort(error)
+          throw error
+        }),
+    }
     const round = async (): Promise<typeof verdict> => {
-      const answered = await mapQbitWithConcurrency(
-        reads,
-        QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS,
-        read
-      )
-      const answers = new Map(reads.map((txid, index) => [txid, answered[index]]))
-      const conflict = inputs.some(({ funding, vout }) => {
-        const outspends = answers.get(funding)
-        const spender = qbitOutspendSpender(
-          Array.isArray(outspends) ? outspends[vout] : undefined,
-          funding
-        )
+      const spenders = await findQbitOutpointSpenders(failFast, outputs, {
+        operation: check,
+        fresh: true,
+      })
+      const conflict = inputs.some(({ txid, vout }) => {
+        const spender = spenders.get(`${txid}:${vout}`)
         return spender !== undefined && !expected.has(spender)
       })
       if (conflict) return 'conflict'
-      if (!original) return undefined
-      const spenders = qbitTxSpendersFromOutspends(answers.get(original), original, outputCount)
-      return spenders.some(spender => spender !== undefined) ? 'dependent' : undefined
+      return originalOutputs.some(({ txid, vout }) => spenders.has(`${txid}:${vout}`))
+        ? 'dependent'
+        : undefined
     }
     const lookup = async (): Promise<typeof verdict> => {
       const first = await round()
       if (first) return first
-      if (check.remainingMs() < intervalMs + QBIT_FEE_BUMP_RECHECK_MIN_READ_MS) {
+      if (check.remainingMs() < intervalMs + waves * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS) {
+        outOfTime = true
         throw new Error('no time left for a second read')
       }
       await pauseUnlessAborted(intervalMs, giveUp.signal)
@@ -218,13 +254,20 @@ export async function assertNoExplorerSpendConflict(
         const abandon = (): void => reject(giveUp.signal.reason)
         if (giveUp.signal.aborted) abandon()
         else giveUp.signal.addEventListener('abort', abandon, { once: true })
-        timer = setTimeout(() => giveUp.abort(new Error('timed out')), budgetMs)
+        timer = setTimeout(() => {
+          outOfTime = true
+          giveUp.abort(new Error('timed out'))
+        }, budgetMs)
       }),
     ])
-  } catch {
-    throw new Error(
-      'Could not check whether a later payment depends on the transaction this fee bump replaces'
-    )
+  } catch (error) {
+    const message = replaces
+      ? 'Could not check whether a later payment depends on the transaction this fee bump replaces'
+      : 'Could not check that the inputs of this transaction are still unspent'
+    if (outOfTime || (error instanceof QbitApiError && error.kind === 'timeout')) {
+      throw new QbitExplorerSpendCheckTimeoutError(message)
+    }
+    throw new Error(message)
   } finally {
     clearTimeout(timer)
     parent?.removeEventListener('abort', onParentAbort)

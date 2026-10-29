@@ -248,6 +248,7 @@ import {
 import {
   QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS,
   QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+  QbitExplorerSpendCheckTimeoutError,
   assertNoExplorerSpendConflict,
   qbitExplorerSpendCheck,
 } from '../utils/qbit-fee-bump-recheck'
@@ -7440,15 +7441,48 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async (replaces, replacedOutputCount, restored) => {
-        await assertNoExplorerSpendConflict(
-          client,
-          qbitExplorerSpendCheck(txid, outpoints, replaces, replacedOutputCount, restored),
-          { intervalMs: this.qbitFeeBumpRecheckIntervalMs }
-        )
+      async (replaces, replacedOutputCount, restoredFromPage) => {
+        await this.checkQbitBroadcastOnExplorer(client, txid, outpoints, {
+          replaces,
+          replacedOutputCount,
+          restoredFromPage,
+        })
         return client.broadcastTx(rawtx)
       },
       qbitSendBroadcastClaim
+    )
+  }
+
+  /**
+   * The explorer check a broadcast of `txid`, spending `outpoints`, makes
+   * right before dispatch, from what the send guard hands its callback (see
+   * `QbitSendGuardService.broadcastIfAllowed`): what spends the original a
+   * fee bump `replaces`, and what spends the inputs of a claim restored from
+   * the page's copy. Nothing, for a broadcast that is neither. It runs under
+   * `operation`, the broadcast's deadline, when given; see
+   * `assertNoExplorerSpendConflict`.
+   */
+  private checkQbitBroadcastOnExplorer(
+    client: QbitWalletApiClient,
+    txid: string,
+    outpoints: readonly QbitOutpoint[],
+    from: {
+      replaces: string | undefined
+      replacedOutputCount: number | undefined
+      restoredFromPage: boolean
+    },
+    operation?: QbitExplorerOperation
+  ): Promise<void> {
+    return assertNoExplorerSpendConflict(
+      client,
+      qbitExplorerSpendCheck(
+        txid,
+        outpoints,
+        from.replaces,
+        from.replacedOutputCount,
+        from.restoredFromPage
+      ),
+      { intervalMs: this.qbitFeeBumpRecheckIntervalMs, ...(operation ? { operation } : {}) }
     )
   }
 
@@ -7727,15 +7761,10 @@ export class WalletController extends BaseController {
         throw new Error('Qbit broadcast deadline left no time to send')
       }
     }
-    const broadcast = async (
-      replaces?: string,
-      replacedOutputCount?: number,
-      restored = false
-    ): Promise<string> => {
-      operation.start()
-      assertTimeToSend()
-      // The guard queue may hold a re-send past the window it was due in;
-      // none starts once the window has passed.
+    // The guard queue may hold a re-send past the window it was due in, and
+    // the explorer check takes at least its pause: none goes out once the
+    // window has passed.
+    const assertResendWindowOpen = (): void => {
       if (
         resends > 0 &&
         firstDispatchAt !== undefined &&
@@ -7743,6 +7772,15 @@ export class WalletController extends BaseController {
       ) {
         throw new Error('Qbit broadcast re-send window has passed')
       }
+    }
+    const broadcast = async (
+      replaces: string | undefined,
+      replacedOutputCount: number | undefined,
+      restoredFromPage: boolean
+    ): Promise<string> => {
+      operation.start()
+      assertTimeToSend()
+      assertResendWindowOpen()
       // The guard queue may run this later than it was requested; re-check
       // the network right before the bytes leave the wallet.
       assertChainUnchanged()
@@ -7756,18 +7794,23 @@ export class WalletController extends BaseController {
       // A claim restored after a restart may replace a payment whatever the
       // page says it replaces, and the guard's records of what spends its
       // inputs went with the restart: what spends them is read as well.
-      if (replaces || restored) {
+      if (replaces || restoredFromPage) {
         try {
-          await assertNoExplorerSpendConflict(
+          await this.checkQbitBroadcastOnExplorer(
             client,
-            qbitExplorerSpendCheck(txid, outpoints, replaces, replacedOutputCount, restored),
-            { intervalMs: this.qbitFeeBumpRecheckIntervalMs, operation }
+            txid,
+            outpoints,
+            { replaces, replacedOutputCount, restoredFromPage },
+            operation
           )
         } catch (error) {
           dependentSpendRefused = true
+          // Refused for lack of time, as a pass with too little left is.
+          if (error instanceof QbitExplorerSpendCheckTimeoutError) deadlineRefused = true
           throw error
         }
         assertChainUnchanged()
+        assertResendWindowOpen()
       }
       // Before anything is sent: the fee bump check may have spent the rest.
       assertTimeToSend()

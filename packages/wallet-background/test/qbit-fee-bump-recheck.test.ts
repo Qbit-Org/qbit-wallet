@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { QbitApiError } from '@qbit-oss/api'
 import {
+  QBIT_OUTSPENDS_CONCURRENCY,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
   type QbitTxOutspendsClient,
@@ -14,9 +15,10 @@ import {
 } from '../src/utils/qbit-explorer-fetch'
 import {
   QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
-  QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS,
+  QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS,
   QBIT_FEE_BUMP_RECHECK_MIN_READ_MS,
   QBIT_FEE_BUMP_RECHECK_WAIT_MS,
+  QbitExplorerSpendCheckTimeoutError,
   assertNoExplorerSpendConflict,
   qbitExplorerSpendCheck,
   type QbitExplorerSpendCheckOptions,
@@ -33,6 +35,8 @@ const DEPENDENT = 'A later payment depends on the transaction this fee bump repl
 const CONFLICT = 'Qbit transaction spends an input another transaction already spends'
 const UNCHECKED =
   'Could not check whether a later payment depends on the transaction this fee bump replaces'
+/** The refusal of a restored send that is not a fee bump, when its inputs cannot be checked. */
+const UNCHECKED_RESTORED = 'Could not check that the inputs of this transaction are still unspent'
 
 /**
  * An explorer answering `outspends` for the original. It serves nothing
@@ -96,6 +100,29 @@ async function settled(check: Promise<void>): Promise<unknown> {
 
 const unspent = { spent: false }
 const spentBy = (txid: string) => ({ spent: true, txid, vin: 0, status: { confirmed: false } })
+
+/** The `n`th of a run of distinct txids. */
+const txidOf = (n: number) => n.toString(16).padStart(64, '0')
+
+/** An explorer answering every read with `answer`, `ms` after it was sent. */
+function answeringAfter(ms: number, answer: unknown) {
+  let inFlight = 0
+  let mostInFlight = 0
+  const client = {
+    getTxOutspends: vi.fn(
+      (_txid: string, _options?: QbitTxOutspendsOptions) =>
+        new Promise<any>(resolve => {
+          inFlight += 1
+          mostInFlight = Math.max(mostInFlight, inFlight)
+          setTimeout(() => {
+            inFlight -= 1
+            resolve(answer)
+          }, ms)
+        })
+    ),
+  }
+  return { client, mostInFlight: () => mostInFlight }
+}
 
 afterEach(() => {
   vi.useRealTimers()
@@ -357,6 +384,49 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     await expect(checkBump(stalled, ORIGINAL, 1, { operation })).rejects.toThrow(UNCHECKED)
     expect(stalled.getTxOutspends).toHaveBeenCalledTimes(1)
   })
+  it('reports a refusal for lack of time as such, and no other', async () => {
+    vi.useFakeTimers()
+    const outOfTime = async (check: Promise<void>): Promise<boolean> => {
+      const outcome = (await settled(check)) as Error
+      expect(outcome.message).toBe(UNCHECKED)
+      return outcome instanceof QbitExplorerSpendCheckTimeoutError
+    }
+    const stalled = explorer([unspent])
+    stalled.getTxOutspends.mockImplementation(() => new Promise(() => undefined))
+    const slowFirst = explorer([unspent])
+    slowFirst.getTxOutspends.mockImplementationOnce(
+      () => new Promise(resolve => setTimeout(() => resolve([unspent]), 9_000))
+    )
+    const timedOut = explorer([unspent])
+    timedOut.getTxOutspends.mockRejectedValueOnce(new QbitApiError('timeout', 'deadline'))
+    // No room for both rounds, none for the second, reads that never answer
+    // or that time out: all for lack of time.
+    expect(
+      await outOfTime(
+        checkBump(explorer([unspent]), ORIGINAL, 1, {
+          operation: new QbitExplorerOperation(QBIT_BROADCAST_MIN_PASS_MS + 1_000),
+        })
+      )
+    ).toBe(true)
+    expect(await outOfTime(checkBump(slowFirst, ORIGINAL, 1))).toBe(true)
+    expect(await outOfTime(checkBump(stalled, ORIGINAL, 1))).toBe(true)
+    expect(await outOfTime(checkBump(timedOut, ORIGINAL, 1))).toBe(true)
+
+    // A failed or malformed answer, or a cancelled broadcast, is not.
+    const failing = explorer([unspent])
+    failing.getTxOutspends.mockRejectedValueOnce(new QbitApiError('network', 'offline'))
+    const cancelled = new AbortController()
+    cancelled.abort(new Error('cancelled'))
+    expect(await outOfTime(checkBump(failing, ORIGINAL, 1))).toBe(false)
+    expect(await outOfTime(checkBump(explorer([{ spent: 'no' }]), ORIGINAL, 1))).toBe(false)
+    expect(
+      await outOfTime(
+        checkBump(explorer([unspent]), ORIGINAL, 1, {
+          operation: new QbitExplorerOperation(60_000, cancelled.signal),
+        })
+      )
+    ).toBe(false)
+  })
 })
 
 describe('assertNoExplorerSpendConflict for a claim restored after a restart', () => {
@@ -426,10 +496,10 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
       'not a list',
     ]) {
       const client = explorerOf({ [FUNDING]: answer })
-      expect(((await settled(checkRestored(client))) as Error).message).toBe(UNCHECKED)
+      expect(((await settled(checkRestored(client))) as Error).message).toBe(UNCHECKED_RESTORED)
     }
     const failing = explorerOf({})
-    expect(((await settled(checkRestored(failing))) as Error).message).toBe(UNCHECKED)
+    expect(((await settled(checkRestored(failing))) as Error).message).toBe(UNCHECKED_RESTORED)
   })
 
   it('aborts every read of a restored send when the check runs out of time', async () => {
@@ -451,14 +521,17 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
 
   it('refuses a restored send when one funding read fails, times out or stalls on its own', async () => {
     vi.useFakeTimers()
-    for (const failure of [
-      new QbitApiError('timeout', 'operation exceeded its deadline'),
-      new QbitApiError('aborted', 'request aborted'),
-      new QbitApiError('network', 'offline'),
-    ]) {
+    for (const [failure, timedOut] of [
+      [new QbitApiError('timeout', 'operation exceeded its deadline'), true],
+      [new QbitApiError('aborted', 'request aborted'), false],
+      [new QbitApiError('network', 'offline'), false],
+    ] as const) {
       const client = explorerOf({ [FUNDING]: [unspent, unspent] })
       client.getTxOutspends.mockRejectedValueOnce(failure)
-      expect(((await settled(checkRestored(client))) as Error).message).toBe(UNCHECKED)
+      const outcome = (await settled(checkRestored(client))) as Error
+      expect(outcome.message).toBe(UNCHECKED_RESTORED)
+      // Only a read that ran out of time makes the refusal one for time.
+      expect(outcome instanceof QbitExplorerSpendCheckTimeoutError).toBe(timedOut)
       expect(client.getTxOutspends).toHaveBeenCalledTimes(1)
     }
     // Only the funding read stalls; the original's answers at once.
@@ -486,10 +559,10 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
     expect(client.getTxOutspends).toHaveBeenCalledTimes(1)
   })
 
-  it('reads each funding transaction once a round, at most four at a time, and refuses what cannot finish in time', async () => {
+  it('reads each funding transaction once a round, eight at a time, and refuses what cannot finish in time', async () => {
     vi.useFakeTimers()
     // Twelve inputs from ten transactions, two of them twice.
-    const funding = Array.from({ length: 10 }, (_, index) => (index + 16).toString(16).repeat(32))
+    const funding = Array.from({ length: 10 }, (_, index) => txidOf(index + 1))
     const outpoints = [
       ...funding.map(txid => ({ txid, vout: 0 })),
       { txid: funding[0]!, vout: 1 },
@@ -513,7 +586,7 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
     const check = (): Promise<void> =>
       assertNoExplorerSpendConflict(client, { restored: { txid: BROADCAST, outpoints } })
 
-    // Answered as they come, both rounds pass, and never more than four
+    // Answered as they come, both rounds pass, and never more than eight
     // reads are in flight.
     const passing = check().then(
       () => undefined,
@@ -522,31 +595,120 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
     for (let round = 0; round < 2; round += 1) {
       for (let answered = 0; answered < funding.length; answered += 1) {
         await vi.advanceTimersByTimeAsync(0)
-        expect(inFlight).toBeLessThanOrEqual(QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS)
+        expect(inFlight).toBeLessThanOrEqual(QBIT_OUTSPENDS_CONCURRENCY)
         pending.shift()!()
       }
       await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_INTERVAL_MS)
     }
     await expect(passing).resolves.toBeUndefined()
-    expect(mostInFlight).toBe(QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS)
+    expect(mostInFlight).toBe(QBIT_OUTSPENDS_CONCURRENCY)
     expect(client.getTxOutspends).toHaveBeenCalledTimes(2 * funding.length)
     expect(new Set(client.getTxOutspends.mock.calls.map(([txid]) => txid))).toEqual(
       new Set(funding)
     )
 
-    // Answered too slowly, they do not all finish within the budget: the
-    // check refuses, aborts the reads in flight and starts no more.
+    // Answered too slowly, they do not all finish within the budget, which
+    // two waves of reads make 25 s: the check refuses for lack of time,
+    // aborts the reads in flight and starts no more.
     client.getTxOutspends.mockClear()
     pending.length = 0
     inFlight = 0
     const slow = check().catch(error => error)
-    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_WAIT_MS)
-    expect(((await slow) as Error).message).toBe(UNCHECKED)
-    expect(client.getTxOutspends).toHaveBeenCalledTimes(QBIT_FEE_BUMP_RECHECK_MAX_PARALLEL_READS)
+    await vi.advanceTimersByTimeAsync(25_000 - 1)
+    expect(client.getTxOutspends.mock.calls.some(([, options]) => options?.signal?.aborted)).toBe(
+      false
+    )
+    await vi.advanceTimersByTimeAsync(1)
+    expect(((await slow) as Error).message).toBe(UNCHECKED_RESTORED)
+    expect((await slow) instanceof QbitExplorerSpendCheckTimeoutError).toBe(true)
+    expect(client.getTxOutspends).toHaveBeenCalledTimes(QBIT_OUTSPENDS_CONCURRENCY)
     expect(
       client.getTxOutspends.mock.calls.every(([, options]) => options?.signal?.aborted)
     ).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('passes a restored consolidation of 80 inputs from 80 transactions, with replies of realistic speed', async () => {
+    vi.useFakeTimers()
+    // Each reply takes 400 ms. Ten waves of eight take 4 s a round, which
+    // the 15 s budget of one wave could never hold for both rounds.
+    const { client, mostInFlight } = answeringAfter(400, [unspent])
+    const outpoints = Array.from({ length: 80 }, (_, index) => ({ txid: txidOf(index + 1), vout: 0 }))
+    const operation = new QbitExplorerOperation(120_000)
+    const startedAt = Date.now()
+    let settledAt: number | undefined
+    const outcome = assertNoExplorerSpendConflict(
+      client,
+      { restored: { txid: BROADCAST, outpoints } },
+      { operation }
+    ).then(
+      () => {
+        settledAt = Date.now()
+      },
+      error => error
+    )
+    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS)
+    expect(await outcome).toBeUndefined()
+    expect(client.getTxOutspends).toHaveBeenCalledTimes(160)
+    expect(mostInFlight()).toBe(QBIT_OUTSPENDS_CONCURRENCY)
+    expect(client.getTxOutspends.mock.calls.every(([, options]) => options?.fresh)).toBe(true)
+    // Done in about 13 s: both rounds of ten waves and the pause.
+    expect(settledAt! - startedAt).toBe(2 * 10 * 400 + QBIT_FEE_BUMP_RECHECK_INTERVAL_MS)
+
+    // So does the largest standard transaction: 106 inputs from 106
+    // transactions, as a fee bump whose original is read besides.
+    const largest = answeringAfter(400, [unspent])
+    const bump = assertNoExplorerSpendConflict(largest.client, {
+      replaces: { txid: ORIGINAL, outputCount: 1 },
+      restored: {
+        txid: BROADCAST,
+        outpoints: Array.from({ length: 106 }, (_, index) => ({ txid: txidOf(index + 1), vout: 0 })),
+      },
+    }).then(
+      () => undefined,
+      error => error
+    )
+    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS)
+    expect(await bump).toBeUndefined()
+    expect(largest.client.getTxOutspends).toHaveBeenCalledTimes(2 * 107)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('refuses at once, before any read, a restored send whose reads cannot fit in time', async () => {
+    vi.useFakeTimers()
+    const { client } = answeringAfter(400, [unspent])
+    const restoredFrom = (count: number) => ({
+      restored: {
+        txid: BROADCAST,
+        outpoints: Array.from({ length: count }, (_, index) => ({ txid: txidOf(index + 1), vout: 0 })),
+      },
+    })
+    // Seventeen waves need 73 s at the least, past the cap.
+    const tooMany = assertNoExplorerSpendConflict(client, restoredFrom(130)).catch(error => error)
+    // Eighty transactions need 45 s at the least; the broadcast has 50 s
+    // left, 35 s of it past the submission's reply budget.
+    const tooLate = assertNoExplorerSpendConflict(client, restoredFrom(80), {
+      operation: new QbitExplorerOperation(50_000),
+    }).catch(error => error)
+    for (const outcome of [await tooMany, await tooLate]) {
+      expect((outcome as Error).message).toBe(UNCHECKED_RESTORED)
+      expect(outcome instanceof QbitExplorerSpendCheckTimeoutError).toBe(true)
+    }
+    expect(client.getTxOutspends).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('compares spenders with the claim it restored in one case, whatever case the txid was given in', async () => {
+    vi.useFakeTimers()
+    // The explorer shows the restored transaction itself spending the input.
+    const client = explorerOf({ [FUNDING]: [unspent, spentBy(BROADCAST)] })
+    await expect(
+      settled(
+        assertNoExplorerSpendConflict(client, {
+          restored: { txid: BROADCAST.toUpperCase(), outpoints: INPUTS },
+        })
+      )
+    ).resolves.toBeUndefined()
   })
 })
 
