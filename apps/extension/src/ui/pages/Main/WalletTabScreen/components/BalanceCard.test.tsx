@@ -1,37 +1,67 @@
+import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { colors } from '@/ui/theme/colors';
 import { useBalanceCardLogic } from '@qbit/wallet-state';
 
 import { BalanceCard } from './BalanceCard';
 
-vi.mock('@qbit/wallet-state', () => ({
-  useBalanceCardLogic: vi.fn(),
-  useQbitUnit: vi.fn(() => 'QBT'),
-  useQbitDisplayLogic: (balance: string) => ({
-    totalAmountMainPart: balance.slice(0, -8),
-    totalAmountSubPart: balance.slice(-8)
-  })
-}));
-
 vi.mock('@/ui/components', async () => {
   const React = await import('react');
-  const View = ({ children, 'data-testid': dataTestId }: any) =>
-    React.createElement('div', { 'data-testid': dataTestId }, children);
+  const Container = ({
+    children,
+    style,
+    onClick,
+    'data-testid': dataTestId
+  }: {
+    children?: ReactNode;
+    style?: CSSProperties;
+    onClick?: MouseEventHandler;
+    'data-testid'?: string;
+  }) =>
+    React.createElement(
+      'div',
+      { style, onClick, 'data-testid': dataTestId, 'data-background': style?.backgroundColor },
+      children
+    );
+  const Text = ({ text, 'data-testid': dataTestId }: { text?: string; 'data-testid'?: string }) =>
+    React.createElement('span', { 'data-testid': dataTestId }, text);
+  const Icon = ({ icon }: { icon?: string }) => React.createElement('span', { 'data-icon': icon });
+  const Tooltip = ({ children, title }: { children?: ReactNode; title?: string }) =>
+    React.createElement('div', { 'data-testid': 'tooltip', title }, children);
+  const Button = ({
+    text,
+    preset,
+    loading,
+    onClick,
+    'data-testid': dataTestId
+  }: {
+    text?: string;
+    preset?: string;
+    loading?: boolean;
+    onClick?: MouseEventHandler;
+    'data-testid'?: string;
+  }) =>
+    React.createElement(
+      'button',
+      { disabled: loading, onClick, 'data-testid': dataTestId, 'data-preset': preset },
+      text
+    );
+  return { Button, Column: Container, Icon, Row: Container, Text, Tooltip };
+});
+vi.mock('@/ui/components/RefreshButton', () => ({ RefreshButton: () => null }));
+vi.mock('./QbitDisplay', async () => {
+  const React = await import('react');
   return {
-    Column: View,
-    Icon: () => null,
-    Row: View,
-    Text: ({ text, 'data-testid': dataTestId }: any) =>
-      React.createElement('span', { 'data-testid': dataTestId }, text),
-    Tooltip: ({ children, title }: any) => React.createElement('div', { 'data-testid': 'tooltip', title }, children)
+    QbitDisplay: ({ balance, preset }: { balance: string; preset?: string }) =>
+      React.createElement('span', { 'data-testid': preset === 'sub' ? 'balance-split-amount' : 'balance-amount' }, balance)
   };
 });
+vi.mock('@qbit/wallet-state', () => ({ useBalanceCardLogic: vi.fn() }));
 
-vi.mock('@/ui/components/RefreshButton', () => ({ RefreshButton: () => null }));
-
-function mockLogic(overrides: Partial<ReturnType<typeof useBalanceCardLogic>>) {
-  vi.mocked(useBalanceCardLogic).mockReturnValue({
+function renderCard(state: Partial<ReturnType<typeof useBalanceCardLogic>>) {
+  const logic = {
     availableAmount: '0.00005000',
     unavailableAmount: '0.00000000',
     unavailableTipText: 'unavailable_tooltip',
@@ -42,13 +72,20 @@ function mockLogic(overrides: Partial<ReturnType<typeof useBalanceCardLogic>>) {
     utxoLimitExceededText: 'utxo_limit_exceeded_balance',
     balanceSplitUnknown: false,
     balanceSplitUnknownText: 'utxo_limit_exceeded_balance_detail',
-    isDetailExpanded: true,
+    balanceLoadFailed: false,
+    balanceErrorText: undefined,
+    isDetailExpanded: false,
     handleExpandToggle: vi.fn(),
     isBalanceHidden: false,
     handleHiddenToggle: vi.fn(),
     refreshBalance: vi.fn(),
-    ...overrides
-  } as unknown as ReturnType<typeof useBalanceCardLogic>);
+    retryBalance: vi.fn(),
+    isRetryingBalance: false,
+    ...state
+  };
+  vi.mocked(useBalanceCardLogic).mockReturnValue(logic as unknown as ReturnType<typeof useBalanceCardLogic>);
+  render(<BalanceCard />);
+  return logic;
 }
 
 const overLimit = {
@@ -65,8 +102,7 @@ describe('BalanceCard', () => {
   });
 
   it('shows the split as unknown, with a line saying why, past the explorer UTXO limit (#341)', () => {
-    mockLogic(overLimit);
-    render(<BalanceCard />);
+    renderCard({ ...overLimit, isDetailExpanded: true });
 
     const card = screen.getByTestId('wallet-balance-card');
     expect(card.textContent).toContain('0.91000000');
@@ -80,16 +116,14 @@ describe('BalanceCard', () => {
   });
 
   it('shows the split line only in the expanded rows', () => {
-    mockLogic({ ...overLimit, isDetailExpanded: false });
-    render(<BalanceCard />);
+    renderCard({ ...overLimit, isDetailExpanded: false });
 
     expect(screen.getByTestId('balance-utxo-limit-note')).toBeTruthy();
     expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
   });
 
   it('shows measured amounts and no unknown line for an ordinary balance', () => {
-    mockLogic({});
-    render(<BalanceCard />);
+    renderCard({ isDetailExpanded: true });
 
     const card = screen.getByTestId('wallet-balance-card');
     expect(card.textContent).toContain('available0.00005000');
@@ -97,5 +131,62 @@ describe('BalanceCard', () => {
     expect(screen.getByTestId('tooltip').getAttribute('title')).toBe('unavailable_tooltip');
     expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
     expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
+  });
+
+  it('shows the load error and a retry instead of a zero balance', () => {
+    const logic = renderCard({
+      balanceValue: '0.00000000',
+      balanceLoadFailed: true,
+      balanceErrorText: 'balance_load_error',
+      isDetailExpanded: true
+    });
+
+    expect(screen.queryByTestId('balance-amount')).toBeNull();
+    // Nothing loaded, so there is no breakdown either.
+    expect(screen.queryByTestId('balance-split-amount')).toBeNull();
+    expect(screen.getByTestId('balance-error-note').textContent).toBe('balance_load_error');
+    expect(screen.getByTestId('wallet-balance-card').dataset.background).toBe(colors.neutralFill);
+    expect(screen.getByTestId('balance-retry-button').dataset.preset).toBe('neutral');
+
+    fireEvent.click(screen.getByTestId('balance-retry-button'));
+    expect(logic.retryBalance).toHaveBeenCalledTimes(1);
+    expect(logic.handleExpandToggle).not.toHaveBeenCalled();
+  });
+
+  it('keeps the last balance next to the refresh error', () => {
+    renderCard({ balanceErrorText: 'balance_refresh_error' });
+
+    expect(screen.getByTestId('balance-amount').textContent).toBe('0.00005000');
+    expect(screen.getByTestId('balance-error-note').textContent).toBe('balance_refresh_error');
+    expect(screen.getByTestId('balance-retry-button')).toBeTruthy();
+    expect(screen.getByTestId('wallet-balance-card').dataset.background).toBe(colors.accent);
+    expect(screen.getByTestId('balance-retry-button').dataset.preset).toBe('default');
+  });
+
+  it('keeps an over-limit balance and its unknown split next to the refresh error', () => {
+    renderCard({ ...overLimit, isDetailExpanded: true, balanceErrorText: 'balance_refresh_error' });
+
+    expect(screen.getByTestId('balance-amount').textContent).toBe('0.91000000');
+    expect(screen.getByTestId('balance-error-note').textContent).toBe('balance_refresh_error');
+    expect(screen.getByTestId('balance-utxo-limit-note')).toBeTruthy();
+    expect(screen.getByTestId('balance-split-unknown-note')).toBeTruthy();
+    expect(screen.getByTestId('wallet-balance-card').textContent).toContain('available--');
+  });
+
+  it('does not toggle the card while a retry is running', () => {
+    const logic = renderCard({ balanceErrorText: 'balance_refresh_error', isRetryingBalance: true });
+
+    expect((screen.getByTestId('balance-retry-button') as HTMLButtonElement).disabled).toBe(true);
+    // The real Button drops its handler while loading, so the click reaches the error block.
+    fireEvent.click(screen.getByTestId('balance-error'));
+    expect(logic.retryBalance).not.toHaveBeenCalled();
+    expect(logic.handleExpandToggle).not.toHaveBeenCalled();
+  });
+
+  it('shows no error without a failed refresh', () => {
+    renderCard({});
+
+    expect(screen.getByTestId('balance-amount').textContent).toBe('0.00005000');
+    expect(screen.queryByTestId('balance-error')).toBeNull();
   });
 });

@@ -97,6 +97,14 @@ test('semantic warning and danger foregrounds remain readable on both theme surf
 
     assert.ok(contrast(onAccent, accent) >= 4.5, `${theme}: ${onAccent} must meet 4.5:1 on ${accent}`);
 
+    // The balance card swaps the accent for this fill when no balance loads.
+    const neutralFill = extractCustomProperty(block, 'qbit-neutral-fill');
+    const onNeutralFill = extractCustomProperty(block, 'qbit-on-neutral-fill');
+    assert.ok(
+      contrast(onNeutralFill, neutralFill) >= 4.5,
+      `${theme}: ${onNeutralFill} must meet 4.5:1 on ${neutralFill}`
+    );
+
     // The danger hover fill reuses the danger-text token (Button preset
     // 'danger'), so its label color must stay readable on it per theme.
     const onDanger = extractCustomProperty(block, 'qbit-on-danger');

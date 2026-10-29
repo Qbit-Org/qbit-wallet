@@ -1,7 +1,8 @@
-import { Column, Icon, Row, Text, Tooltip } from '@/ui/components';
+import { Button, Column, Icon, Row, Text, Tooltip } from '@/ui/components';
 import { RefreshButton } from '@/ui/components/RefreshButton';
-import { colors } from '@/ui/theme/colors';
+import { ColorTypes, colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
+import { spacing } from '@/ui/theme/spacing';
 import { useBalanceCardLogic } from '@qbit/wallet-state';
 
 import { QbitDisplay } from './QbitDisplay';
@@ -18,6 +19,8 @@ export function BalanceCard() {
     utxoLimitExceededText,
     balanceSplitUnknown,
     balanceSplitUnknownText,
+    balanceLoadFailed,
+    balanceErrorText,
 
     isDetailExpanded,
     handleExpandToggle,
@@ -25,18 +28,24 @@ export function BalanceCard() {
     isBalanceHidden,
     handleHiddenToggle,
 
-    refreshBalance
+    refreshBalance,
+    retryBalance,
+    isRetryingBalance
   } = useBalanceCardLogic();
 
   const stopCardToggle = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
   };
 
+  // With no balance to show, the card drops the brand fill for a neutral grey.
+  const cardBackground = balanceLoadFailed ? colors.neutralFill : colors.accent;
+  const onCard: ColorTypes = balanceLoadFailed ? 'onNeutralFill' : 'onPrimary';
+
   return (
     <Column
       data-testid="wallet-balance-card"
       style={{
-        backgroundColor: colors.accent,
+        backgroundColor: cardBackground,
         borderRadius: 0,
         padding: 8,
         position: 'relative'
@@ -47,7 +56,7 @@ export function BalanceCard() {
     >
       <Column style={{ padding: 8 }} gap={'md'}>
         <Row itemsCenter>
-          <Text size="sm" text={t('total_balance')} style={{ color: colors.onPrimary }} />
+          <Text size="sm" text={t('wallet_balance')} style={{ color: colors[onCard] }} />
           <Row
             style={{ padding: 6, margin: -6 }}
             onClick={(event) => {
@@ -55,15 +64,44 @@ export function BalanceCard() {
               handleHiddenToggle();
             }}
           >
-            <Icon color={'onPrimary'} icon={isBalanceHidden ? 'balance-eyes-closed' : 'balance-eyes'} size={20} />
+            <Icon color={onCard} icon={isBalanceHidden ? 'balance-eyes-closed' : 'balance-eyes'} size={20} />
           </Row>
-          <RefreshButton onClick={refreshBalance as any} hideText />
+          <RefreshButton onClick={refreshBalance as any} hideText color={onCard} />
         </Row>
 
-        <Row itemsCenter>
-          <QbitDisplay balance={balanceValue} hideBalance={isBalanceHidden} />
-          <Icon color={'onPrimary'} size={16} icon={isDetailExpanded ? 'up' : 'down'} />
-        </Row>
+        {balanceLoadFailed ? null : (
+          <Row itemsCenter>
+            <QbitDisplay balance={balanceValue} hideBalance={isBalanceHidden} />
+            <Icon color={'onPrimary'} size={16} icon={isDetailExpanded ? 'up' : 'down'} />
+          </Row>
+        )}
+        {balanceErrorText ? (
+          <Column gap="md" data-testid="balance-error" onClick={stopCardToggle}>
+            <Row
+              itemsCenter
+              gap="md"
+              style={{
+                // Paper under the translucent warning fill, so the box looks as
+                // it does on other surfaces instead of tinting with the card.
+                backgroundColor: colors.surface,
+                backgroundImage: `linear-gradient(${colors.warning_bg}, ${colors.warning_bg})`,
+                border: `1px solid ${colors.warning_content}`,
+                padding: `${spacing.extraSmall}px ${spacing.small}px`
+              }}
+            >
+              <Icon icon="alert" color="warning" size={16} />
+              <Text size="xs" text={balanceErrorText} style={{ flex: 1 }} data-testid="balance-error-note" />
+            </Row>
+            <Button
+              text={t('try_again')}
+              preset={balanceLoadFailed ? 'neutral' : 'default'}
+              loading={isRetryingBalance}
+              style={{ minHeight: 36 }}
+              data-testid="balance-retry-button"
+              onClick={retryBalance}
+            />
+          </Column>
+        ) : null}
         {utxoLimitExceeded ? (
           <Text
             size="xs"
@@ -74,7 +112,7 @@ export function BalanceCard() {
         ) : null}
       </Column>
 
-      {isDetailExpanded && isCurrentChainBalance && (
+      {isDetailExpanded && isCurrentChainBalance && !balanceLoadFailed && (
         <Column
           gap={'sm'}
           style={{

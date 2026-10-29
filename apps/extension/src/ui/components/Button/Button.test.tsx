@@ -31,7 +31,8 @@ describe('Button border hover state', () => {
     ['primary', colors.primary, colors.accentHover],
     ['defaultV2', colors.accent, colors.ink],
     ['primaryV2', colors.primary, colors.accentHover],
-    ['homeGold', colors.accent, colors.ink]
+    ['homeGold', colors.accent, colors.ink],
+    ['neutral', colors.surface, colors.surface]
   ] as const)(
     'restores the default border colour of a %s button after hover-off',
     (preset, baseBorderColor, hoverBorderColor) => {
@@ -47,6 +48,22 @@ describe('Button border hover state', () => {
       expect(button.style.borderColor).toBe(baseBorderColor);
     }
   );
+});
+
+describe('Button neutral preset', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('stays clear of the accent on hover', () => {
+    render(<Button preset="neutral" text="Try again" data-testid="neutral-button" />);
+
+    const button = screen.getByTestId('neutral-button');
+    fireEvent.mouseEnter(button);
+    expect(button.style.backgroundColor).toBe(colors.surface);
+    expect(button.style.borderColor).toBe(colors.surface);
+    expect(button.style.opacity).toBe('0.85');
+  });
 });
 
 describe('Button loading state', () => {
