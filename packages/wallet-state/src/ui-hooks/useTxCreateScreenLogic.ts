@@ -551,9 +551,10 @@ export function useTxCreateScreenLogic() {
     onRBFChange,
     memo,
     onMemoChange,
-    // None at a rate not yet settled: the estimate is then pending.
+    // None at a rate not yet settled: the estimate is then pending, also
+    // when the check at the earlier rate failed and its error is not shown.
     feeDetail: feeRateHeld ? undefined : feeDetail,
-    feeEstimatePending: feeRateHeld && feeDetail !== undefined,
+    feeEstimatePending: feeRateHeld && (feeDetail !== undefined || feeCheckError !== ''),
     leftBehindNote,
     spendSummary,
     // For the fee bar: the quote the fee check uses.

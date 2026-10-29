@@ -3136,6 +3136,42 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     )
   })
 
+  it('shows the fee as pending while held even when the check at the earlier rate fails', async () => {
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 150,
+      quote: LIVE_QUOTE,
+      utxoValues: [1_000_000],
+    })
+    // At an earlier quote's Fast of 150 bits/vB, 0.0095 of 0.01 cannot cover its fee.
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({
+        feeRate: 150,
+        feeRateInputVal: '150',
+        feeOptionIndex: 2,
+      })
+    )
+    const quoteRead = pendingQuoteRead(wallet)
+    const { result } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00950000')
+    })
+
+    // No estimate and no reason at that rate, but the fee is pending, not blank.
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.feeDetail).toBeUndefined()
+    expect(result.current.screen.feeEstimatePending).toBe(true)
+    expect(result.current.screen.disabled).toBe(true)
+
+    await act(async () => {
+      quoteRead.resolve(LIVE_QUOTE)
+    })
+
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.00957720'))
+    expect(result.current.screen.feeEstimatePending).toBe(false)
+    expect(result.current.screen.feeDetail?.estimatedFee).toBe(7_720)
+  })
+
   it("settles a tier whose rate in the quote is the store's rate once the fee bar chose it", async () => {
     // Normal at 1 bit/vB, the bar's default rate.
     const { store, wrapper, recipient } = prepareSend({ feeRate: 1, quote: LIVE_QUOTE })
