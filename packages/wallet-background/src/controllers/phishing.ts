@@ -48,8 +48,8 @@ const PHISHING_PROCEED_RULE_PRIORITY = PHISHING_WARNING_REDIRECT_PRIORITY + 1
 // worker stops watching it.
 const WARNING_PAGE_SETTLE_TIMEOUT_MS = 5_000
 
-// How long the phishing stats wait for the redirect rule's health, which
-// queues behind its updates, before reporting it as unknown.
+// How long the phishing stats wait for the browser to answer the read of the
+// redirect rule's health before reporting it as unknown.
 const REDIRECT_HEALTH_TIMEOUT_MS = 2_000
 
 // How long a link that opens a new tab waits for the check of the redirect

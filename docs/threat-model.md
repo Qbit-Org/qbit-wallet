@@ -306,12 +306,15 @@ Controls and evidence:
   `full` otherwise, with the reasons and the redirect rule's own state
   (`installed`, `not-wanted`, `missing`, `removing`, `removal-failed` or
   `unknown`), its host access, last error and next retry; the block rule's
-  health comes back whatever happens to that read. Concurrent requests
-  share one read. A read that finds a redirect rule in place without host
-  access, with no attempt scheduled or queued, starts its removal once its
-  answer reaches a request still waiting for it; it neither clears a
-  recorded failure nor supersedes a queued retry. No wallet screen shows
-  this health yet;
+  health comes back whatever happens to that read. The read takes the
+  redirect rule and host access from the browser as they stand: it does not
+  wait for an update to that rule, and no update waits for it, so a read the
+  browser holds up delays no removal. Concurrent requests share one read
+  until a request gives up on it. A read that finds a redirect rule in place
+  without host access, with no attempt scheduled or queued, starts its
+  removal once its answer reaches a request still waiting for it; it
+  neither clears a recorded failure nor supersedes a queued retry. No
+  wallet screen shows this health yet;
 - above the block rule, a session `redirect` rule sends a top-level
   navigation to a denylisted host to the wallet's warning page before it
   reaches the network, however the tab got there: a link, a typed URL, a

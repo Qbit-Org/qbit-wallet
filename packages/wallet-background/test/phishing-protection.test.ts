@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import log from 'loglevel'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
 
 import {
   BUNDLED_PHISHING_DENYLIST,
@@ -198,6 +198,20 @@ function expectRetryWithin({ warningRedirect }: PhishingProtectionHealth, delay:
 
 function redirectRules(browser: Browser): Rule[] {
   return browser.state.sessionRules.filter(rule => rule.id === REDIRECT_RULE_ID)
+}
+
+/**
+ * Holds back the browser's answer to the next call, as it stood at the call,
+ * until it is released.
+ */
+function holdNextAnswer<A extends unknown[], T>(mock: Mock<(...args: A) => Promise<T>>) {
+  const answer = mock.getMockImplementation()!
+  let release: (() => void) | undefined
+  mock.mockImplementationOnce((...args: A) => {
+    const answered = answer(...args)
+    return new Promise<T>(resolve => (release = () => resolve(answered)))
+  })
+  return { called: () => release !== undefined, release: () => release!() }
 }
 
 describe('PhishingController protection health', () => {
@@ -450,7 +464,7 @@ describe('PhishingController protection health', () => {
     })
   })
 
-  it('reports a failed removal as found, without erasing it or superseding the retry queued behind the read', async () => {
+  it('reports a failed removal as found, without erasing it or superseding the retry that runs during the read', async () => {
     const browser = createBrowser()
     await startController(browser)
     const updates = browser.declarativeNetRequest.updateSessionRules
@@ -461,39 +475,30 @@ describe('PhishingController protection health', () => {
     expect(failed).toMatchObject({ status: 'removal-failed', error: 'quota' })
 
     // The next read waits on the browser's permission check while the
-    // retry's timer fires and queues the retry behind the read.
-    let answer: ((granted: boolean) => void) | undefined
-    browser.permissions.contains.mockImplementationOnce(
-      () => new Promise<boolean>(resolve => (answer = resolve))
-    )
+    // retry's timer fires. The retry does not wait for the read, and fails.
+    const held = holdNextAnswer(browser.permissions.contains)
     const read = protection(browser)
-    await vi.waitFor(() => expect(answer).toBeDefined())
+    await vi.waitFor(() => expect(held.called()).toBe(true))
     await vi.advanceTimersByTimeAsync(failed.nextRetryAt! - Date.now())
-    answer!(false)
+    expect(updates).toHaveBeenCalledTimes(3)
+    held.release()
 
-    await expect(read).resolves.toMatchObject({
+    // The read reports the failure of that retry, the second attempt of the
+    // same run, with its backoff, and starts no run of its own.
+    const found = (await read)!
+    expect(found).toMatchObject({
       status: 'degraded',
       reasons: ['redirect-rule-without-host-access'],
-      warningRedirect: {
-        status: 'removal-failed',
-        error: 'quota',
-        nextRetryAt: failed.nextRetryAt,
-      },
+      warningRedirect: { status: 'removal-failed', hostAccess: false, error: 'quota' },
     })
-    // The queued retry is the second attempt of the same run, and its
-    // failure is recorded with that attempt's backoff; the read started no
-    // run of its own.
-    await vi.waitFor(() => expect(updates).toHaveBeenCalledTimes(3))
+    expect(found.warningRedirect.nextRetryAt! - Date.now()).toBeGreaterThan(1_000)
+    expect(found.warningRedirect.nextRetryAt! - Date.now()).toBeLessThanOrEqual(4_000)
     await vi.advanceTimersByTimeAsync(0)
     expect(updates).toHaveBeenCalledTimes(3)
     expect(log.error).toHaveBeenLastCalledWith(
       '[Phishing] Failed to update the warning redirect rule (attempt 2):',
       expect.objectContaining({ message: 'quota' })
     )
-    const retried = (await protection(browser))!.warningRedirect
-    expect(retried).toMatchObject({ status: 'removal-failed', error: 'quota' })
-    expect(retried.nextRetryAt! - Date.now()).toBeGreaterThan(1_000)
-    expect(retried.nextRetryAt! - Date.now()).toBeLessThanOrEqual(4_000)
   })
 
   it('answers the stats with the block rule health when the redirect rule health fails', async () => {
@@ -524,11 +529,8 @@ describe('PhishingController protection health', () => {
   it('answers the stats within a short wait while the redirect rule health is held up', async () => {
     const browser = createBrowser()
     await startController(browser)
-    // A removal the browser never finishes holds up the redirect rule's queue.
-    const updates = browser.declarativeNetRequest.updateSessionRules
-    updates.mockImplementationOnce(() => new Promise<void>(() => undefined))
-    setSiteAccess(browser, 'on click')
-    await vi.waitFor(() => expect(updates).toHaveBeenCalledTimes(2))
+    // A browser call that never returns holds up the read.
+    browser.permissions.contains.mockImplementationOnce(() => new Promise<boolean>(() => undefined))
 
     const respond = vi.fn()
     browser.state.listener!({ type: PhishingMessageType.GET_PHISHING_STATS }, walletPage, respond)
@@ -540,7 +542,7 @@ describe('PhishingController protection health', () => {
     expect(respond).toHaveBeenCalledWith({
       stats: expect.objectContaining({ blacklist: expect.any(Array) }),
       networkRules: expect.objectContaining({ status: 'installed' }),
-      // The rule that has to go may still be in place: not full.
+      // The redirect rule's state is not known: not full.
       protection: {
         status: 'unknown',
         reasons: ['redirect-rule-unknown'],
@@ -552,6 +554,31 @@ describe('PhishingController protection health', () => {
         },
       },
     })
+  })
+
+  it('reports a removal the browser has not finished as degraded, without waiting for it', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    const updates = browser.declarativeNetRequest.updateSessionRules
+    updates.mockImplementationOnce(() => new Promise<void>(() => undefined))
+    setSiteAccess(browser, 'on click')
+    await vi.waitFor(() => expect(updates).toHaveBeenCalledTimes(2))
+
+    const respond = vi.fn()
+    browser.state.listener!({ type: PhishingMessageType.GET_PHISHING_STATS }, walletPage, respond)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(respond).toHaveBeenCalledOnce()
+    expect(respond.mock.lastCall?.[0]).toMatchObject({
+      networkRules: { status: 'installed' },
+      protection: {
+        status: 'degraded',
+        reasons: ['redirect-rule-without-host-access'],
+        warningRedirect: { status: 'removing', hostAccess: false, updatedAt: Date.now() },
+      },
+    })
+    // The removal under way is the only one.
+    expect(updates).toHaveBeenCalledTimes(2)
   })
 
   it('shares one health read among stats requests while it is in flight', async () => {
@@ -572,7 +599,7 @@ describe('PhishingController protection health', () => {
         warningRedirect: { status: 'installed', hostAccess: true },
       })
     }
-    // One read answered all three; none waits in the queue behind it.
+    // One read answered all three, and none reads again.
     await vi.advanceTimersByTimeAsync(0)
     expect(contains).toHaveBeenCalledTimes(checks)
     // A later poll reads afresh.
@@ -609,6 +636,65 @@ describe('PhishingController protection health', () => {
       warningRedirect: { status: 'removing' },
     })
     await vi.waitFor(() => expect(redirectRules(browser)).toEqual([]))
+  })
+
+  it.each([
+    ['the permission check', (browser: Browser) => holdNextAnswer(browser.permissions.contains)],
+    [
+      'the rule read',
+      (browser: Browser) => holdNextAnswer(browser.declarativeNetRequest.getSessionRules),
+    ],
+  ])(
+    'removes a redirect rule without host access at once while the browser holds up a health read in %s',
+    async (_label, hold) => {
+      const browser = createBrowser()
+      await startController(browser)
+      const updates = browser.declarativeNetRequest.updateSessionRules
+      const held = hold(browser)
+      const stats = phishingStats(browser)
+      await vi.waitFor(() => expect(held.called()).toBe(true))
+
+      // The user withholds site access while the read waits on the browser.
+      setSiteAccess(browser, 'on click')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(redirectRules(browser)).toEqual([])
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(stats).resolves.toMatchObject({ protection: { status: 'unknown' } })
+
+      // The read answers late, with what the browser held before the change,
+      // and changes nothing.
+      const updatesBefore = updates.mock.calls.length
+      held.release()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(updates).toHaveBeenCalledTimes(updatesBefore)
+      expect(redirectRules(browser)).toEqual([])
+      await expect(protection(browser)).resolves.toMatchObject({
+        status: 'full',
+        warningRedirect: { status: 'not-wanted', hostAccess: false },
+      })
+    }
+  )
+
+  it('reads afresh for a stats request once an earlier one gave up on a read the browser holds up', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    const held = holdNextAnswer(browser.permissions.contains)
+
+    const first = phishingStats(browser)
+    await vi.waitFor(() => expect(held.called()).toBe(true))
+    await vi.advanceTimersByTimeAsync(2_000)
+    await expect(first).resolves.toMatchObject({ protection: { status: 'unknown' } })
+
+    // The read is still held up; the next request does not wait on it.
+    const respond = vi.fn()
+    browser.state.listener!({ type: PhishingMessageType.GET_PHISHING_STATS }, walletPage, respond)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(respond).toHaveBeenCalledOnce()
+    expect(respond.mock.lastCall?.[0]).toMatchObject({
+      protection: { status: 'full', warningRedirect: { status: 'installed', hostAccess: true } },
+    })
+    held.release()
   })
 
   it('reports site access as unknown, not withheld, when the browser has no permission check', async () => {

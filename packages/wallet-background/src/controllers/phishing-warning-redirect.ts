@@ -138,7 +138,8 @@ async function readRedirectRule(): Promise<Rule | undefined> {
  */
 export class PhishingWarningRedirect {
   // Serializes updates, so each one reads the permissions and rules that the
-  // previous one left.
+  // previous one left. Health reads stay out of it: an update never waits on
+  // a read, nor a read on an update.
   private queue: Promise<unknown> = Promise.resolve()
   private retryTimer: ReturnType<typeof setTimeout> | undefined
   // Each trigger starts a new run with its own attempts; only the latest run
@@ -147,7 +148,7 @@ export class PhishingWarningRedirect {
   // Attempts queued and not yet finished, including one running.
   private queuedAttempts = 0
   private failure: RedirectFailure | undefined
-  // The health read in flight, which later callers share.
+  // The health read in flight, which later callers share until one gives up.
   private healthRead: Promise<HealthRead> | undefined
   private started = false
 
@@ -180,8 +181,7 @@ export class PhishingWarningRedirect {
 
   /**
    * One attempt of a run. The latest run's outcome replaces the recorded
-   * failure, or clears it on success; it settles within the queue, so that a
-   * health read queued after it sees that outcome.
+   * failure, or clears it on success.
    */
   private attempt(run: number, attempt: number): Promise<void> {
     this.queuedAttempts++
@@ -255,17 +255,23 @@ export class PhishingWarningRedirect {
   }
 
   /**
-   * The rule's state as a read finds it: whether a rule is in place, and
+   * The rule's state as the browser holds it: whether a rule is in place, and
    * whether it may be, given host access now, with the failure and next
-   * retry recorded when the read started. Callers share the read in flight.
+   * retry recorded when the browser answered. The read does not wait for
+   * updates, and no update waits for it, so a read the browser holds up
+   * delays no change of the rule. Callers share the read in flight until one
+   * gives up on it (`signal`); later callers then read afresh.
    * When it finds a rule in place without confirmed access, while no attempt
    * is scheduled or queued, as after a permission change the worker missed,
    * a new run that removes it starts once the answer reaches a caller that
-   * has not given up (`signal`). That run supersedes no attempt of an
-   * earlier run, and the recorded failure stays until it replaces it.
+   * has not given up. That run reads the rule and host access again,
+   * supersedes no attempt of an earlier run, and the recorded failure stays
+   * until it replaces it.
    */
   async getHealth(signal?: AbortSignal): Promise<PhishingWarningRedirectHealth> {
-    const { health, stranded } = await this.sharedHealthRead()
+    const read = this.sharedHealthRead()
+    signal?.addEventListener('abort', () => this.releaseHealthRead(read), { once: true })
+    const { health, stranded } = await read
     if (
       stranded &&
       !signal?.aborted &&
@@ -279,18 +285,19 @@ export class PhishingWarningRedirect {
 
   private sharedHealthRead(): Promise<HealthRead> {
     if (!this.healthRead) {
-      const read = this.enqueue(() => this.readHealth())
-      const done = (): void => {
-        if (this.healthRead === read) this.healthRead = undefined
-      }
+      const read = this.readHealth()
+      const done = (): void => this.releaseHealthRead(read)
       read.then(done, done)
       this.healthRead = read
     }
     return this.healthRead
   }
 
+  private releaseHealthRead(read: Promise<HealthRead>): void {
+    if (this.healthRead === read) this.healthRead = undefined
+  }
+
   private async readHealth(): Promise<HealthRead> {
-    const failure = this.failure
     const { domains } = partitionDnrDomains(this.listEntries())
     const hostAccess = await measureHostAccess(domains)
     const measured = (
@@ -314,6 +321,8 @@ export class PhishingWarningRedirect {
     } catch (error) {
       return measured('unknown', { error: errorMessage(error) })
     }
+    // An update may have ended while the browser answered.
+    const failure = this.failure
     if (hostAccess === true) {
       return current && isWantedRule(current, createRedirectRule(domains))
         ? measured('installed')
