@@ -415,6 +415,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
     const getAddressSummary = vi.fn(() => new Promise((resolve) => (answer = resolve)))
     const { result } = renderWithExplorer({ getAddressSummary })
 
+    expect(result.current.card.balanceLoading).toBe(true)
     expect(result.current.card.balanceValue).toBe('--')
     expectNoError(result.current.card)
 
@@ -422,6 +423,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
       result.current.card.retryBalance()
     })
     expect(result.current.card.isRetryingBalance).toBe(true)
+    expect(result.current.card.balanceLoading).toBe(true)
     expect(result.current.card.balanceValue).toBe('--')
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
@@ -431,6 +433,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
       answer(summary)
     })
     await waitFor(() => expect(result.current.card.isRetryingBalance).toBe(false))
+    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.balanceValue).toBe('0.00005000')
     expectNoError(result.current.card)
   })
@@ -445,6 +448,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
 
     expect(result.current.card.balanceLoadFailed).toBe(true)
     expect(result.current.card.balanceErrorText).toBe('balance_load_error')
+    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.isCurrentChainBalance).toBe(false)
     expect(result.current.card.balanceValue).toBe('--')
     expect(result.current.card.availableAmount).toBe('--')
@@ -468,6 +472,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
     expect(result.current.card.balanceLoadFailed).toBe(false)
     expect(result.current.card.balanceRefreshFailed).toBe(true)
     expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
+    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.balanceValue).toBe('0.00005000')
     expect(result.current.card.availableAmount).toBe('0.00005000')
     expect(result.current.card.unavailableAmount).toBe('0.00000000')
@@ -483,6 +488,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
     await retry(result)
 
     expectNoError(result.current.card)
+    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.utxoLimitExceeded).toBe(true)
     expect(result.current.card.balanceSplitUnknown).toBe(true)
@@ -500,6 +506,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
 
     expectNoError(result.current.card)
     expect(result.current.card.isCurrentChainBalance).toBe(true)
+    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
@@ -547,6 +554,7 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
   it('shows the split the background reports', () => {
     const result = renderBalanceCard(overLimitSplit)
 
+    expect(result.current.balanceLoading).toBe(false)
     expect(result.current.balanceValue).toBe('0.91000000')
     expect(result.current.availableBalance).toBe(60_000_000)
     expect(result.current.unavailableBalance).toBe(31_000_000)
@@ -565,8 +573,13 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
         .mockResolvedValueOnce({ ...overLimitSplit, chainType: ChainType.QBIT_MAINNET })
         .mockResolvedValue({ ...overLimitUnknown, chainType: ChainType.QBIT_MAINNET }),
     })
+    // No split while the first read is still loading.
+    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.availableAmount).toBe('--')
+    expect(result.current.card.unavailableAmount).toBe('--')
 
     await retry(result)
+    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.availableAmount).toBe('0.60000000')
 
     await retry(result)
@@ -578,6 +591,8 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
   it("does not show another network's split", () => {
     const result = renderBalanceCard({ ...overLimitSplit, chainType: ChainType.QBIT_TESTNET4 })
 
+    // Still loading: no balance for this network has landed.
+    expect(result.current.balanceLoading).toBe(true)
     expect(result.current.balanceValue).toBe('--')
     expect(result.current.availableAmount).toBe('--')
     expect(result.current.unavailableAmount).toBe('--')
@@ -606,8 +621,143 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
     )
     const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
 
+    expect(result.current.balanceLoading).toBe(false)
     expect(result.current.balanceValue).toBe('0.91000000')
     expect(result.current.availableAmount).toBe('--')
     expect(result.current.unavailableAmount).toBe('--')
+  })
+})
+
+function renderUnloadedBalanceCard() {
+  const harness = createHookTestHarness()
+  harness.store.dispatch(
+    accountActions.setCurrent({ address, pubkey: '11'.repeat(32), type: 'Qbit HD Key Tree' } as any)
+  )
+  const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+  return { result, store: harness.store }
+}
+
+describe('useBalanceCardLogic loading state', () => {
+  it('shows loading rather than a zero balance until the first fetch lands', () => {
+    const { result, store } = renderUnloadedBalanceCard()
+
+    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+
+    const expanded = result.current.isDetailExpanded
+    act(() => {
+      result.current.handleExpandToggle()
+    })
+    expect(result.current.isDetailExpanded).toBe(expanded)
+
+    act(() => {
+      store.dispatch(accountActions.setBalanceV2({ address, balance }))
+    })
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceValue).toBe('0.00005000')
+  })
+
+  it('shows loading while the only balance is from another chain', () => {
+    const { result, store } = renderUnloadedBalanceCard()
+
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address,
+          balance: { ...balance, chainType: ChainType.QBIT_REGTEST },
+        })
+      )
+    })
+
+    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+  })
+
+  it("shows a newly selected account as loading, never the previous account's balance", () => {
+    const { result, store } = renderUnloadedBalanceCard()
+    act(() => {
+      store.dispatch(accountActions.setBalanceV2({ address, balance }))
+    })
+    expect(result.current.balanceValue).toBe('0.00005000')
+
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({
+          address: 'qbit-another-account',
+          pubkey: '22'.repeat(32),
+          type: 'Qbit HD Key Tree',
+        } as any)
+      )
+    })
+
+    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.isCurrentChainBalance).toBe(false)
+    expect(result.current.balanceValue).toBe('--')
+    expect(result.current.availableAmount).toBe('--')
+    expect(result.current.unavailableAmount).toBe('--')
+
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: 'qbit-another-account',
+          balance: { ...balance, availableBalance: 7_000, totalBalance: 7_000 },
+        })
+      )
+    })
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceValue).toBe('0.00007000')
+  })
+
+  it('stops loading when the first fetch fails', () => {
+    const { result, store } = renderUnloadedBalanceCard()
+
+    act(() => {
+      store.dispatch(accountActions.setBalanceError({ address, requestId: 1 }))
+    })
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceLoadFailed).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+  })
+})
+
+describe('useFetchBalanceCallback', () => {
+  it('keeps a newly selected account loading when the previous account fails', async () => {
+    let rejectSummary: (error: Error) => void = () => undefined
+    const wallet = {
+      ...createWalletMock(),
+      getAddressSummary: vi.fn(
+        () =>
+          new Promise((_, reject) => {
+            rejectSummary = reject
+          })
+      ),
+      getAddressBalanceV2: vi.fn(),
+    }
+    const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => ({ fetchBalance: useFetchBalanceCallback(), card: useBalanceCardLogic() }),
+      { wrapper }
+    )
+    const fetching = result.current.fetchBalance()
+
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({ address: 'qb1zotheraccount', key: 'account-2' } as any)
+      )
+    })
+    await act(async () => {
+      rejectSummary(new Error('explorer unavailable'))
+      await expect(fetching).rejects.toThrow('explorer unavailable')
+    })
+
+    expect(wallet.getAddressSummary).toHaveBeenCalledWith('qb1ztestaccount')
+    expect(store.getState().accounts.balanceStatusMap).toEqual({
+      qb1ztestaccount: { requestId: expect.any(Number), error: true },
+    })
+    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.balanceLoadFailed).toBe(false)
   })
 })

@@ -209,6 +209,9 @@
   "balance": {
     "message": "Solde"
   },
+  "balance_loading": {
+    "message": "Chargement du solde..."
+  },
   "bbn": {
     "message": "bbn..."
   },

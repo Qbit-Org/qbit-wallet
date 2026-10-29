@@ -209,6 +209,9 @@
   "balance": {
     "message": "餘額"
   },
+  "balance_loading": {
+    "message": "正在載入餘額..."
+  },
   "bbn": {
     "message": "bbn..."
   },

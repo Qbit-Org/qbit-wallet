@@ -209,6 +209,9 @@
   "balance": {
     "message": "残高"
   },
+  "balance_loading": {
+    "message": "残高を読み込んでいます..."
+  },
   "bbn": {
     "message": "bbn..."
   },
