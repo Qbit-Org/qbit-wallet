@@ -37,8 +37,9 @@
   again fetches at once, and the warning clears on the next refresh that
   succeeds. A refresh that finishes late no longer replaces the balance or
   error of a newer one. The card's label now reads "Wallet Balance". Until
-  the explorer first answers, the card still shows 0, for about 45 seconds
-  if the explorer does not answer at all.
+  the first balance arrives, the card shows it as loading instead of 0, or
+  keeps it masked while the balance is hidden. If the explorer does not
+  answer at all, the error appears after about 45 seconds.
 
 ### Accounts with many outputs
 

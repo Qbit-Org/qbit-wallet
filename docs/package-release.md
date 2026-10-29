@@ -142,9 +142,10 @@ pnpm changeset status --verbose
 
 The store artifact declares `http://127.0.0.1:3002/*` under
 `optional_host_permissions` and names `http://127.0.0.1:3002` in the
-extension-page CSP `connect-src`. Required `host_permissions` stay limited to
-the two public explorer origins. When filling in the Web Store listing and the
-privacy/permission justification, describe it as follows:
+extension-page CSP `connect-src`. Required `host_permissions` hold the two
+public explorer origins and the phishing denylist entries described in
+section 8. When filling in the Web Store listing and the privacy/permission
+justification, describe the loopback permission as follows:
 
 - **What it is for**: an advanced developer feature, *Local Regtest*, that lets
   the wallet talk to a Qbit regtest indexer the user runs on their own machine.
