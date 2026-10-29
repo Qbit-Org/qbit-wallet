@@ -1311,6 +1311,82 @@ describe('TxCreateScreen state hooks', () => {
     })
   })
 
+  it('shows Available as unknown, not 0, until a balance read for the account and network succeeds', async () => {
+    // Without a P2MR script the screen reads no outputs of its own: Available
+    // is the balance's figure alone.
+    const { wrapper, store } = createHookTestHarness()
+    const currentAddress = store.getState().accounts.current.address
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+
+    await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+
+    // A balance read on another network does not count for this one.
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: currentAddress,
+          balance: {
+            availableBalance: 40_000,
+            unavailableBalance: 0,
+            totalBalance: 40_000,
+            chainType: ChainType.QBIT_TESTNET4,
+          },
+        })
+      )
+    })
+    expect(result.current.availableAmount).toBe('--')
+
+    // A read that finds nothing is a measured 0.
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: currentAddress,
+          balance: {
+            availableBalance: 0,
+            unavailableBalance: 0,
+            totalBalance: 0,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+    })
+    expect(result.current.availableAmount).toBe('0.00000000')
+  })
+
+  it('shows Unavailable, Immature and Pending as unknown, not hidden, until a balance read succeeds', async () => {
+    const { wrapper, store } = createHookTestHarness()
+    const currentAddress = store.getState().accounts.current.address
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+
+    await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+    expect(result.current.showUnavailable).toBe(true)
+    expect(result.current.unavailableAmount).toBe('--')
+    expect(result.current.showImmature).toBe(true)
+    expect(result.current.immatureAmount).toBe('--')
+    expect(result.current.showPending).toBe(true)
+    expect(result.current.pendingAmount).toBe('--')
+
+    // A read that finds none of them hides the rows, as before.
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: currentAddress,
+          balance: {
+            availableBalance: 0,
+            unavailableBalance: 0,
+            totalBalance: 0,
+            immatureBalance: 0,
+            pendingBalance: 0,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+    })
+    expect(result.current.showUnavailable).toBe(false)
+    expect(result.current.showImmature).toBe(false)
+    expect(result.current.showPending).toBe(false)
+  })
+
   it('does not take an empty cache from an earlier read as this screen’s outputs (#279)', async () => {
     const account = p2mrAccount()
     const { wrapper, store, wallet } = createHookTestHarness()

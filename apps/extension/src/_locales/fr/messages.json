@@ -2687,6 +2687,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "Ce compte détient plus de sorties que l'explorateur n'en liste et compte plus de $1 transactions, trop pour que le portefeuille lise ses sorties dans son historique : ses fonds n'ont donc pas été déplacés. Passez à ce compte, ouvrez Envoyer et choisissez Consolider les sorties jusqu'à ce qu'il respecte la limite de l'explorateur, puis revenez ici."
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu lire tout son historique auprès de l'explorateur pour les trouver : ses fonds n'ont donc pas encore été déplacés. Cela peut se résoudre lorsque ses transactions en attente changent, par exemple quand l'une d'elles est confirmée. Choisissez Vérifier l’état et reprendre plus tard pour réessayer."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Prêt pour examen et signature"
   },

@@ -52,7 +52,9 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   address statistics show a history the read does not enumerate, the address
   takes its floor from those statistics instead. That covers a history past
   the cap, and, on an Esplora surface, more pending transactions than its
-  mempool listing returns (50; mempool-qbit pages them). The floor is
+  mempool listing returns (50; mempool-qbit pages them, and the read steps
+  back over the empty page qbit-electrs answers after a whole page of them,
+  failing as a moving history if they change meanwhile). The floor is
   `chain_stats.spent_txo_count + mempool_stats.spent_txo_count`: one signature
   by its key for each of its outputs spent so far. The full read accepts a
   floor only when its own count equals that sum, so both reads trust the same

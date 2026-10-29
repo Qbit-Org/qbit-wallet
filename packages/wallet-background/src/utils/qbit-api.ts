@@ -1,6 +1,7 @@
 import { EsploraClient, MempoolQbitClient, QbitApiError } from '@qbit-oss/api'
 import type {
   AddressHistory,
+  AddressHistoryOptions,
   AddressBalance,
   EsploraAddressStats,
   EsploraClientOptions,
@@ -9,6 +10,7 @@ import type {
   EsploraUtxo,
   FeeRateTier,
   MempoolQbitClientOptions,
+  RequestOptions,
 } from '@qbit-oss/api'
 import { QBIT_COINBASE_MATURITY } from '@qbit-oss/protocol'
 import { transactionCore } from '@qbit/wallet-core'
@@ -106,7 +108,7 @@ export interface QbitTxOutspendsClient {
 /**
  * One page of an address's history, newest first. `afterTxid`, the last row
  * of the previous page, continues the walk. An empty page ends it, except
- * after a mempool row on qbit-electrs (see `continueQbitAddressOutputScan`).
+ * after a mempool row on qbit-electrs (see `readQbitHistoryWalkPage`).
  */
 export interface QbitAddressHistoryPageClient {
   getAddressHistoryPage(address: string, afterTxid?: string): Promise<EsploraTx[]>
@@ -159,15 +161,18 @@ export class QbitWalletMempoolClient
   extends MempoolQbitClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
 {
+  /** The most pages one history read fetches, as the client's `maxAddressHistoryPages`. */
+  readonly maxHistoryWalkPages: number
+
   // The client clamps every call's maxPages to this ceiling (default 256), so
-  // the two-read budgets above need it raised to match.
+  // the two-read budgets above need it raised to match. The history reads
+  // below keep to it too.
   constructor(options: MempoolQbitClientOptions) {
-    super(
-      withQbitExplorerBudgets({
-        maxAddressHistoryPages: DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS,
-        ...options,
-      })
-    )
+    const maxAddressHistoryPages =
+      options.maxAddressHistoryPages ??
+      DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS
+    super(withQbitExplorerBudgets({ ...options, maxAddressHistoryPages }))
+    this.maxHistoryWalkPages = maxAddressHistoryPages
   }
 
   getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
@@ -177,8 +182,80 @@ export class QbitWalletMempoolClient
   // The combined route, mempool rows first. `getAddressTxs` would rescan it
   // from the top to find each cursor.
   getAddressHistoryPage(address: string, afterTxid?: string): Promise<EsploraTx[]> {
+    return this.getCombinedHistoryPage(address, afterTxid)
+  }
+
+  /**
+   * `MempoolQbitClient.getAddressHistory`, read past the empty page
+   * qbit-electrs answers after a whole page of mempool rows, where the
+   * library's walk ends and so rejects an address with confirmed history:
+   * see `walkQbitCombinedAddressHistory`. As there, one operation scope (the
+   * client's signal, and the caller's signal and deadline) covers the whole
+   * call, and `maxPages` defaults to and is clamped by the client's ceiling.
+   */
+  override getAddressHistory(
+    address: string,
+    options: AddressHistoryOptions = {}
+  ): Promise<AddressHistory> {
+    return this.runOperation(options, signal =>
+      walkQbitCombinedAddressHistory(this.combinedRoute(address, signal), address, {
+        maxPages: Math.min(
+          positiveQbitHistoryLimit(options.maxPages, this.maxHistoryWalkPages, 'maxPages'),
+          this.maxHistoryWalkPages
+        ),
+        maxTransactions: positiveQbitHistoryLimit(
+          options.maxTransactions,
+          MEMPOOL_QBIT_DEFAULT_MAX_HISTORY_TRANSACTIONS,
+          'maxTransactions'
+        ),
+      })
+    )
+  }
+
+  /**
+   * `MempoolQbitClient.getAddressTxs`, read past the same empty page: see
+   * `walkQbitCombinedConfirmedTxs`. One operation scope covers the call.
+   */
+  override getAddressTxs(
+    address: string,
+    afterTxid?: string,
+    options?: RequestOptions
+  ): Promise<EsploraTx[]> {
+    return this.runOperation(options, signal =>
+      walkQbitCombinedConfirmedTxs(
+        this.combinedRoute(address, signal),
+        address,
+        afterTxid,
+        this.maxHistoryWalkPages
+      )
+    )
+  }
+
+  private getCombinedHistoryPage(
+    address: string,
+    afterTxid?: string,
+    options?: RequestOptions
+  ): Promise<EsploraTx[]> {
     const suffix = afterTxid ? `?after_txid=${encodeURIComponent(afterTxid)}` : ''
-    return this.getJson<EsploraTx[]>(`/address/${encodeURIComponent(address)}/txs${suffix}`)
+    return this.getJson<EsploraTx[]>(
+      `/address/${encodeURIComponent(address)}/txs${suffix}`,
+      options
+    )
+  }
+
+  /** The combined route and statistics of `address`, each request under `signal`. */
+  private combinedRoute(address: string, signal: AbortSignal): QbitCombinedRoute {
+    return {
+      getAddressHistoryPage: (_address, afterTxid) =>
+        this.getCombinedHistoryPage(address, afterTxid, { signal }),
+      // On its own, like the library's: a read already in flight may predate the walk.
+      getAddressStats: () =>
+        this.getJson<EsploraAddressStats>(
+          `/address/${encodeURIComponent(address)}`,
+          { signal },
+          false
+        ),
+    }
   }
 }
 
@@ -1574,6 +1651,298 @@ export interface QbitHistoryOutputCandidate {
 }
 
 /**
+ * Where a newest-first walk of one address's history stands, from one page
+ * to the next (`readQbitHistoryWalkPage`). The empty object starts at the
+ * top of the history.
+ */
+export interface QbitHistoryWalkCursor {
+  /** The row the next page continues after: the last row read, or the one before it. */
+  afterTxid?: string | undefined
+  /**
+   * Set while `afterTxid` is a mempool row: the cursor that lists that row
+   * first, the row read before it or the top of the history.
+   */
+  beforeMempoolCursor?: { afterTxid: string | undefined } | undefined
+  /** A row already walked that the next page must start with, and that it skips. */
+  overlapTxid?: string | undefined
+}
+
+/** One page of a history walk, checked whole. */
+interface QbitHistoryWalkPage {
+  /** How many rows the page held, a row the walk stepped back over included. */
+  size: number
+  /** The rows the walk had not read yet, newest first. */
+  rows: EsploraTx[]
+  /** Their txids, lowercase. */
+  txids: string[]
+  /** Where the walk goes on from. */
+  next: QbitHistoryWalkCursor
+  /** The empty page that ends the history. */
+  ended: boolean
+}
+
+/**
+ * Read the page of `address`'s history after `cursor`, and check it whole,
+ * without changing `cursor`. A malformed page, or one that repeats its
+ * cursor, throws.
+ *
+ * An empty page after a mempool row does not end the history. qbit-electrs
+ * answers a cursor that is the last mempool row with an empty page instead
+ * of the confirmed rows after it (`src/rest.rs:992-998` in
+ * Qbit-Org/qbit-electrs@53102e9), so an address whose mempool rows fill
+ * whole pages would look as if it had no confirmed history. The walk then
+ * steps back one row: the page after the row before it starts with that
+ * mempool row again and goes on into the confirmed rows. If that page holds
+ * the mempool row alone, the history has no confirmed rows and ends there;
+ * if it starts with any other row, the mempool moved and it throws
+ * `invalid_cursor`, as `@qbit-oss/api`'s own history walk does.
+ */
+async function readQbitHistoryWalkPage(
+  client: QbitAddressHistoryPageClient,
+  address: string,
+  cursor: QbitHistoryWalkCursor
+): Promise<QbitHistoryWalkPage> {
+  const page = await client.getAddressHistoryPage(address, cursor.afterTxid)
+  if (!Array.isArray(page)) {
+    throw new Error(`invalid qbit history page for ${address}`)
+  }
+  page.forEach(assertValidQbitHistoryTransaction)
+  const pageTxids = page.map(tx => tx.txid.toLowerCase())
+  const after = cursor.afterTxid?.toLowerCase()
+  if (
+    new Set(pageTxids).size !== pageTxids.length ||
+    (after !== undefined && pageTxids.includes(after))
+  ) {
+    throw new QbitApiError('invalid_cursor', `qbit history page repeated rows for ${address}`)
+  }
+  const overlap = cursor.overlapTxid?.toLowerCase()
+  if (overlap !== undefined && pageTxids[0] !== overlap) {
+    throw new QbitApiError(
+      'invalid_cursor',
+      `qbit history of ${address} moved while the walk stepped back over a mempool row`
+    )
+  }
+  if (page.length === 0 && cursor.beforeMempoolCursor) {
+    return {
+      size: 0,
+      rows: [],
+      txids: [],
+      next: { afterTxid: cursor.beforeMempoolCursor.afterTxid, overlapTxid: cursor.afterTxid },
+      ended: false,
+    }
+  }
+  const rows = overlap === undefined ? page : page.slice(1)
+  const txids = overlap === undefined ? pageTxids : pageTxids.slice(1)
+  if (rows.length === 0) {
+    return {
+      size: page.length,
+      rows,
+      txids,
+      next: { afterTxid: cursor.afterTxid, beforeMempoolCursor: cursor.beforeMempoolCursor },
+      ended: true,
+    }
+  }
+  const last = rows[rows.length - 1]!
+  return {
+    size: page.length,
+    rows,
+    txids,
+    next: {
+      afterTxid: last.txid,
+      beforeMempoolCursor: last.status.confirmed
+        ? undefined
+        : { afterTxid: page.length > 1 ? page[page.length - 2]!.txid : cursor.afterTxid },
+    },
+    ended: false,
+  }
+}
+
+// As `@qbit-oss/api`'s mempool-qbit reads: `getAddressHistory` reads at
+// most this many rows by default, `getAddressTxs` returns this many, and a
+// combined page holds at least this many unless it is the last.
+const MEMPOOL_QBIT_DEFAULT_MAX_HISTORY_TRANSACTIONS = 6_400
+const MEMPOOL_QBIT_ADDRESS_TXS_ROWS = 25
+const MEMPOOL_QBIT_MIN_PAGE_ROWS = 10
+// Walks repeated because the address statistics changed during the previous one.
+const MEMPOOL_QBIT_HISTORY_REWALKS = 1
+
+/** One address's combined history pages and statistics, as one call reads them. */
+type QbitCombinedRoute = QbitAddressHistoryPageClient & Pick<QbitEsploraClient, 'getAddressStats'>
+
+function positiveQbitHistoryLimit(
+  value: number | undefined,
+  defaultValue: number,
+  name: keyof AddressHistoryOptions
+): number {
+  const limit = value ?? defaultValue
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new QbitApiError('http', `${name} must be a positive integer`)
+  }
+  return limit
+}
+
+/**
+ * The complete history of an address on mempool-qbit's combined route, as
+ * `@qbit-oss/api`'s walk returns it, but read past the empty page
+ * qbit-electrs answers after a whole page of mempool rows
+ * (`readQbitHistoryWalkPage`). The library's walk takes that page for the
+ * end, so it rejects with `invalid_cursor` an address with confirmed history
+ * whose pending rows fill whole pages.
+ *
+ * Otherwise it keeps the library's contract. Each row must be well formed,
+ * touch the address and appear once. The address statistics are read before
+ * and after, and the history is returned only if both reads agree and it
+ * holds exactly their transaction counts; otherwise it rejects with
+ * `invalid_cursor`. A walk during which the statistics changed is repeated
+ * once, from the later read. `maxPages` page fetches and `maxTransactions`
+ * rows cover both walks; past either it throws `pagination_limit`.
+ */
+async function walkQbitCombinedAddressHistory(
+  route: QbitCombinedRoute,
+  address: string,
+  limits: { maxPages: number; maxTransactions: number }
+): Promise<AddressHistory> {
+  const budget = { pages: 0, rows: 0 }
+  let before = await readQbitCombinedRouteStats(route, address)
+  for (let walks = 1; ; walks += 1) {
+    const history = await walkQbitCombinedAddressHistoryOnce(route, address, limits, budget)
+    const after = await readQbitCombinedRouteStats(route, address)
+    if (qbitStatsSnapshot(after) !== qbitStatsSnapshot(before)) {
+      if (walks > MEMPOOL_QBIT_HISTORY_REWALKS) {
+        throw new QbitApiError(
+          'invalid_cursor',
+          `mempool-qbit address stats changed during each of ${walks} history walks: ${address}`
+        )
+      }
+      before = after
+      continue
+    }
+    const confirmed = after.chain_stats.tx_count
+    const mempool = after.mempool_stats.tx_count
+    if (history.confirmed.length !== confirmed || history.mempool.length !== mempool) {
+      throw new QbitApiError(
+        'invalid_cursor',
+        `mempool-qbit address history returned ${history.confirmed.length} confirmed and ${history.mempool.length} mempool transactions, but the address stats count ${confirmed} and ${mempool}: ${address}`
+      )
+    }
+    return history
+  }
+}
+
+async function readQbitCombinedRouteStats(
+  route: QbitCombinedRoute,
+  address: string
+): Promise<EsploraAddressStats> {
+  const stats = await route.getAddressStats(address)
+  assertValidQbitStats(stats, address)
+  return stats
+}
+
+async function walkQbitCombinedAddressHistoryOnce(
+  route: QbitCombinedRoute,
+  address: string,
+  limits: { maxPages: number; maxTransactions: number },
+  budget: { pages: number; rows: number }
+): Promise<AddressHistory> {
+  const history: AddressHistory = { confirmed: [], mempool: [] }
+  const seen = new Set<string>()
+  let cursor: QbitHistoryWalkCursor = {}
+  for (;;) {
+    if (budget.pages >= limits.maxPages) {
+      throw new QbitApiError(
+        'pagination_limit',
+        `mempool-qbit address history exceeded ${limits.maxPages} pages: ${address}`
+      )
+    }
+    budget.pages += 1
+    const page = await readQbitHistoryWalkPage(route, address, cursor)
+    budget.rows += page.size
+    if (budget.rows > limits.maxTransactions) {
+      throw new QbitApiError(
+        'pagination_limit',
+        `mempool-qbit address history exceeded ${limits.maxTransactions} transactions: ${address}`
+      )
+    }
+    if (page.ended) return history
+    page.rows.forEach((tx, index) => {
+      const txid = page.txids[index]!
+      if (seen.has(txid)) {
+        throw new QbitApiError(
+          'invalid_cursor',
+          `mempool-qbit address history repeated transaction ${txid}: ${address}`
+        )
+      }
+      if (!qbitTransactionTouchesAddress(tx, address)) {
+        throw new QbitApiError(
+          'parse',
+          `mempool-qbit address history transaction ${txid} did not touch ${address}`
+        )
+      }
+      seen.add(txid)
+      ;(tx.status.confirmed ? history.confirmed : history.mempool).push(tx)
+    })
+    cursor = page.next
+  }
+}
+
+/**
+ * The newest confirmed transactions of an address on mempool-qbit's combined
+ * route, after the confirmed row `afterTxid` when it is given, as
+ * `@qbit-oss/api`'s `getAddressTxs` returns them: at most 25, each once,
+ * a row a later page repeats skipped. It reads from the top and past the
+ * empty page after a whole page of mempool rows
+ * (`readQbitHistoryWalkPage`), where the library's read rejects. Like that
+ * read it stops at a page shorter than a full one (10 rows), since nothing
+ * follows it. A cursor it does not find among the confirmed rows rejects
+ * with `invalid_cursor`; more than `maxPages` pages, with `pagination_limit`.
+ */
+async function walkQbitCombinedConfirmedTxs(
+  route: QbitAddressHistoryPageClient,
+  address: string,
+  afterTxid: string | undefined,
+  maxPages: number
+): Promise<EsploraTx[]> {
+  const after = afterTxid?.toLowerCase()
+  const staleCursor = () =>
+    new QbitApiError(
+      'invalid_cursor',
+      `mempool-qbit address history cursor is stale or not confirmed: ${afterTxid} (${address})`
+    )
+  const confirmed: EsploraTx[] = []
+  const seen = new Set<string>()
+  let continued = after === undefined
+  let cursor: QbitHistoryWalkCursor = {}
+  for (let pages = 0; confirmed.length < MEMPOOL_QBIT_ADDRESS_TXS_ROWS; pages += 1) {
+    if (pages >= maxPages) {
+      throw new QbitApiError(
+        'pagination_limit',
+        `mempool-qbit address history exceeded ${maxPages} pages: ${address}`
+      )
+    }
+    const page = await readQbitHistoryWalkPage(route, address, cursor)
+    if (page.ended) break
+    page.rows.forEach((tx, index) => {
+      const txid = page.txids[index]!
+      if (!continued) {
+        if (tx.status.confirmed) seen.add(txid)
+        if (txid !== after) return
+        if (!tx.status.confirmed) throw staleCursor()
+        continued = true
+        return
+      }
+      if (!tx.status.confirmed || seen.has(txid)) return
+      seen.add(txid)
+      confirmed.push(tx)
+    })
+    // The empty page the walk steps back over has no rows and is not the last.
+    if (page.rows.length > 0 && page.size < MEMPOOL_QBIT_MIN_PAGE_ROWS) break
+    cursor = page.next
+  }
+  if (!continued) throw staleCursor()
+  return confirmed.slice(0, MEMPOOL_QBIT_ADDRESS_TXS_ROWS)
+}
+
+/**
  * A newest-first walk of one address's history that can stop after any page
  * and continue later from `afterTxid`. It changes only once a page has been
  * read and checked whole, so a failed page leaves it where it was.
@@ -1584,17 +1953,8 @@ export interface QbitHistoryOutputCandidate {
  * by a row the walk has not reached, or after it was read, so only
  * `findQbitSpentOutpoints` clears one for spending.
  */
-export interface QbitAddressOutputScan {
+export interface QbitAddressOutputScan extends QbitHistoryWalkCursor {
   readonly address: string
-  /** The row the next page continues after: the last row read, or the one before it. */
-  afterTxid?: string | undefined
-  /**
-   * Set while `afterTxid` is a mempool row: the cursor that lists that row
-   * first, the row read before it or the top of the history.
-   */
-  beforeMempoolCursor?: { afterTxid: string | undefined } | undefined
-  /** A row already walked that the next page must start with, and that it skips. */
-  overlapTxid?: string | undefined
   /** The empty page that ends the history has been read. */
   exhausted: boolean
   pagesRead: number
@@ -1611,18 +1971,9 @@ export function createQbitAddressOutputScan(address: string): QbitAddressOutputS
 /**
  * Read up to `maxPages` more pages of `scan`, stopping early once `enough`
  * holds or the history ends, and return how many were read. A malformed
- * page, or one that repeats its cursor, throws before anything changes.
- *
- * An empty page after a mempool row does not end the history. qbit-electrs
- * answers a cursor that is the last mempool row with an empty page instead
- * of the confirmed rows after it (`src/rest.rs:992-998` in
- * Qbit-Org/qbit-electrs@53102e9), so an address whose mempool rows fill
- * whole pages would look as if it had no confirmed history. The walk then
- * steps back one row: the page after the row before it starts with that
- * mempool row again and goes on into the confirmed rows. If that page holds
- * the mempool row alone, the history has no confirmed rows and ends there;
- * if it starts with any other row, the mempool moved and it throws
- * `invalid_cursor`, as `@qbit-oss/api`'s own history walk does.
+ * page, or one that repeats its cursor, throws before anything changes. An
+ * empty page after a mempool row steps the walk back one row rather than
+ * ending it, and counts as a page read (see `readQbitHistoryWalkPage`).
  */
 export async function continueQbitAddressOutputScan(
   client: QbitAddressHistoryPageClient,
@@ -1634,41 +1985,13 @@ export async function continueQbitAddressOutputScan(
   }
   let read = 0
   while (read < options.maxPages && !scan.exhausted && !options.enough?.(scan)) {
-    const page = await client.getAddressHistoryPage(scan.address, scan.afterTxid)
+    const { rows, txids, next, ended } = await readQbitHistoryWalkPage(client, scan.address, scan)
     read += 1
-    if (!Array.isArray(page)) {
-      throw new Error(`invalid qbit history page for ${scan.address}`)
-    }
-    page.forEach(assertValidQbitHistoryTransaction)
-    const pageTxids = page.map(tx => tx.txid.toLowerCase())
-    const cursor = scan.afterTxid?.toLowerCase()
-    if (
-      new Set(pageTxids).size !== pageTxids.length ||
-      (cursor !== undefined && pageTxids.includes(cursor))
-    ) {
-      throw new QbitApiError(
-        'invalid_cursor',
-        `qbit history page repeated rows for ${scan.address}`
-      )
-    }
-    const overlap = scan.overlapTxid?.toLowerCase()
-    if (overlap !== undefined && pageTxids[0] !== overlap) {
-      throw new QbitApiError(
-        'invalid_cursor',
-        `qbit history of ${scan.address} moved while the walk stepped back over a mempool row`
-      )
-    }
-    const rows = overlap === undefined ? page : page.slice(1)
-    const txids = overlap === undefined ? pageTxids : pageTxids.slice(1)
     scan.pagesRead += 1
-    if (page.length === 0 && scan.beforeMempoolCursor) {
-      scan.overlapTxid = scan.afterTxid
-      scan.afterTxid = scan.beforeMempoolCursor.afterTxid
-      scan.beforeMempoolCursor = undefined
-      continue
-    }
-    scan.overlapTxid = undefined
-    if (rows.length === 0) {
+    scan.afterTxid = next.afterTxid
+    scan.beforeMempoolCursor = next.beforeMempoolCursor
+    scan.overlapTxid = next.overlapTxid
+    if (ended) {
       scan.exhausted = true
       break
     }
@@ -1703,11 +2026,6 @@ export async function continueQbitAddressOutputScan(
         })
       })
     })
-    const last = rows[rows.length - 1]!
-    scan.beforeMempoolCursor = last.status.confirmed
-      ? undefined
-      : { afterTxid: page.length > 1 ? page[page.length - 2]!.txid : scan.afterTxid }
-    scan.afterTxid = last.txid
   }
   return read
 }
@@ -2167,9 +2485,10 @@ export class QbitHistorySnapshotUnstableError extends Error {
  * read: an explicit instability, or Esplora pagination that shifted under a
  * multi-page history read (`invalid_cursor`). Every bounded stability retry
  * classifies with this so a churning address is retried the same way whether
- * it is loading account history or being observed for a floor scan.
+ * it is loading account history or being observed for a floor scan. Once
+ * those retries are spent, the history could not be read in full.
  */
-function isQbitSnapshotUnstableError(error: unknown): boolean {
+export function isQbitSnapshotUnstableError(error: unknown): boolean {
   return (
     error instanceof QbitHistorySnapshotUnstableError ||
     (error instanceof QbitApiError && error.kind === 'invalid_cursor')

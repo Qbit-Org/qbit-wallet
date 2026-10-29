@@ -15,6 +15,7 @@ import {
 import { ChainType } from '@qbit/wallet-types'
 import {
   useAccountBalance,
+  useAccountsState,
   useChain,
   useChainType,
   useCurrentAccount,
@@ -38,6 +39,7 @@ import {
   useUtxos,
   useUtxosLoaded,
 } from '..'
+import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
 
@@ -240,8 +242,13 @@ export function useTxCreateScreenLogic() {
     [qbitSpendableUtxos]
   )
   // The balance's own figure is unknown (null) past the explorer's limit:
-  // nothing can be selected from it, and Available shows it as unknown.
-  const balanceAvailableUnknown = !hasQbitUtxoPreflight && accountBalance.availableBalance === null
+  // nothing can be selected from it, and Available shows it as unknown. So
+  // it is until a balance read for this account on this network succeeds:
+  // the stand-in zeros before that are no measurement.
+  const accountsState = useAccountsState()
+  const balanceRead = hasAccountBalanceRead(accountsState, currentAccount.address, chainType)
+  const balanceAvailableUnknown =
+    !hasQbitUtxoPreflight && (!balanceRead || accountBalance.availableBalance === null)
   const availableSatoshis = hasQbitUtxoPreflight
     ? qbitSpendableSatoshis
     : (accountBalance.availableBalance ?? 0)
@@ -264,21 +271,25 @@ export function useTxCreateScreenLogic() {
   const unavailableSats = hasQbitUtxoPreflight
     ? Math.max(0, accountBalance.totalBalance - availableSatoshis)
     : Math.max(0, accountBalance.unavailableBalance)
-  const unavailableAmount = numUtils.satoshisToAmount(unavailableSats)
+  // Before a balance read the rest of the balance is unknown too, even when
+  // the outputs are: those rows show `--` rather than hiding behind the
+  // stand-in zeros, as the balance card does.
+  const unknownAmount = (sats: number) => (balanceRead ? numUtils.satoshisToAmount(sats) : '--')
+  const unavailableAmount = unknownAmount(unavailableSats)
 
-  const showUnavailable = unavailableSats > 0
+  const showUnavailable = !balanceRead || unavailableSats > 0
 
   const immatureSats = Math.min(unavailableSats, Math.max(0, accountBalance.immatureBalance ?? 0))
-  const showImmature = immatureSats > 0
-  const immatureAmount = numUtils.satoshisToAmount(immatureSats)
+  const showImmature = !balanceRead || immatureSats > 0
+  const immatureAmount = unknownAmount(immatureSats)
   // Both detail rows are subsets of Unavailable. Bound Pending to the remainder
   // so a stale or malformed balance payload cannot contradict its parent row.
   const pendingSats = Math.min(
     Math.max(0, accountBalance.pendingBalance ?? 0),
     Math.max(0, unavailableSats - immatureSats)
   )
-  const showPending = pendingSats > 0
-  const pendingAmount = numUtils.satoshisToAmount(pendingSats)
+  const showPending = !balanceRead || pendingSats > 0
+  const pendingAmount = unknownAmount(pendingSats)
 
   useEffect(() => {
     setError('')

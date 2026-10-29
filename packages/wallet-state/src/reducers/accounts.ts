@@ -240,3 +240,17 @@ const slice: Slice<AccountsState> = createSlice({
 
 export const accountActions = slice.actions
 export default slice.reducer
+
+/**
+ * Whether a balance read for `address` on `chainType` has succeeded: only a
+ * successful read stores one. Until then `useAccountBalance` stands in
+ * zeros, which are no measurement and show as unknown (`--`), unlike a 0 a
+ * read returned.
+ */
+export function hasAccountBalanceRead(
+  state: AccountsState,
+  address: string,
+  chainType: string
+): boolean {
+  return state.balanceV2Map[address]?.chainType === chainType
+}

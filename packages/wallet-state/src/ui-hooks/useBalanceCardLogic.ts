@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppState, uiActions } from 'src'
 import { useI18n } from '../context'
+import { hasAccountBalanceRead } from '../reducers/accounts'
 import {
   useAccountBalance,
   useBalanceCardDetailExpanded,
@@ -41,7 +42,11 @@ export function useBalanceCardLogic() {
     dispatch(uiActions['setBalanceHidden'](!isBalanceHidden))
   }
 
-  const isCurrentChainBalance = chain.enum == accountBalance.chainType
+  // A balance read for this account on this network, not the stand-in zeros
+  // from before the first one succeeded (they show as `--`, not 0).
+  const isCurrentChainBalance = useSelector((state: AppState) =>
+    hasAccountBalanceRead(state.accounts, state.accounts.current.address, chain.enum)
+  )
   const balanceValue = useMemo(() => {
     if (!isCurrentChainBalance) {
       return '--'
@@ -57,13 +62,15 @@ export function useBalanceCardLogic() {
   const utxoLimitExceededText = useMemo(() => t('utxo_limit_exceeded_balance'), [t])
   // Without the output list Available is unknown (`null`), and so is how
   // much of the total is unavailable: both show `--` rather than a measured
-  // 0 and the whole total. The send screen shows Available as `--` too.
-  const availableUnknown = accountBalance.availableBalance === null
-  const balanceSplitUnknown = isCurrentChainBalance && availableUnknown
+  // 0 and the whole total, as they do before any read. The send screen
+  // shows Available as `--` too. The note names the explorer's limit, so it
+  // shows only when that limit is the cause, not for another unknown split.
+  const availableUnknown = !isCurrentChainBalance || accountBalance.availableBalance === null
+  const balanceSplitUnknown = utxoLimitExceeded && availableUnknown
   const balanceSplitUnknownText = useMemo(() => t('utxo_limit_exceeded_balance_detail'), [t])
 
   const totalBalance = accountBalance.totalBalance
-  const availableBalance = accountBalance.availableBalance
+  const availableBalance = availableUnknown ? null : accountBalance.availableBalance
   const unavailableBalance = availableUnknown ? null : accountBalance.unavailableBalance
 
   const totalAmount = numUtils.satoshisToAmount(accountBalance.totalBalance)

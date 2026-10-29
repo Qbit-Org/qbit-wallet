@@ -46,7 +46,15 @@ keeps its own meaning, so an outage is never shown as this state.
   client's page ceiling, are not read: the outputs stay unknown and the send
   screen points to consolidation. So is an address with more pending
   transactions than an Esplora `/txs/mempool` response lists (50). The
-  production mempool-qbit route pages its mempool rows instead.
+  production mempool-qbit route pages its mempool rows instead. When they
+  fill whole pages, the read steps back over the empty page qbit-electrs
+  answers after the last of them, as consolidation does (below); the restore
+  floor scan, recovery's spender check and activity history read the same
+  way. If the pending rows change between that empty page and the one after
+  the step back, the read fails closed and is retried. Should every retry
+  fail, the outputs stay unknown, and recovery skips the source for that
+  pass and names it; the check of an archived migration fails instead and
+  reopens nothing.
 - **Consolidation.** The account can sweep its outputs to its own address one
   batch at a time. Each batch carries the largest mature confirmed outputs, at
   most 106, the limit that keeps it within the 400,000 WU standard weight. The

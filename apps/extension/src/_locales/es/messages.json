@@ -2687,6 +2687,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "Esta cuenta tiene más salidas de las que el explorador lista y más de $1 transacciones, demasiadas para que la cartera lea sus salidas desde su historial, así que sus fondos no se han movido. Cambia a esta cuenta, abre Enviar y elige Consolidar salidas hasta que quede dentro del límite del explorador; después vuelve aquí."
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "Esta cuenta tiene más salidas de las que el explorador lista, y la cartera no pudo leer todo su historial desde el explorador para encontrarlas, así que sus fondos aún no se han movido. Esto puede resolverse cuando cambien sus transacciones pendientes, por ejemplo cuando una se confirme. Elige Comprobar estado y reanudar más tarde para volver a intentarlo."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Lista para revisión y firma"
   },
