@@ -1817,6 +1817,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "Establecer cantidad de UTXO a fusionar"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "No se guardó el cambio y es posible que la configuración guardada haya cambiado. Vuelve a comprobar esta configuración después de reiniciar."
+  },
   "settings": {
     "message": "Ajustes"
   },

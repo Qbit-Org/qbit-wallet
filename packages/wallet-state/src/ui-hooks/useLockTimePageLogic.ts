@@ -1,4 +1,4 @@
-import { getAutoLockTimes } from '@qbit/wallet-shared'
+import { ErrorCodes, getAutoLockTimes } from '@qbit/wallet-shared'
 import { useState } from 'react'
 import { useI18n, useNavigation, useTools, useWallet } from '../context'
 import { useAppDispatch, useAutoLockTimeId } from '../hooks'
@@ -30,7 +30,13 @@ export function useLockTimePageLogic() {
       }, 300)
     } catch (error) {
       console.error('Failed to set lock time:', error)
-      tools.toastError((error as Error)?.message || t('unknown_error'))
+      // The previous value could not be saved again either, so the stored lock
+      // time may differ from the one shown.
+      if ((error as { code?: unknown } | null)?.code === ErrorCodes.PREFERENCE_NOT_RESTORED) {
+        tools.toastError(t('setting_not_saved_may_have_changed'))
+      } else {
+        tools.toastError((error as Error)?.message || t('unknown_error'))
+      }
     } finally {
       setLoading(false)
     }

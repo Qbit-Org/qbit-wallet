@@ -1,9 +1,16 @@
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ErrorCodes, ErrorMessages } from '@qbit/wallet-shared';
 import { useI18n, useTools, useWallet } from '@qbit/wallet-state';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import en from '../../../../_locales/en/messages.json';
+import es from '../../../../_locales/es/messages.json';
+import fr from '../../../../_locales/fr/messages.json';
+import ja from '../../../../_locales/ja/messages.json';
+import ru from '../../../../_locales/ru/messages.json';
+import zhTW from '../../../../_locales/zh_TW/messages.json';
 import { EnableSignDataCard } from './EnableSignData';
 
 vi.mock('@/ui/components', async () => {
@@ -62,6 +69,31 @@ describe('EnableSignDataCard', () => {
     expect(wallet.setEnableSignData).toHaveBeenCalledWith(false);
     expect(tools.toastError).toHaveBeenCalledWith('QUOTA_BYTES quota exceeded');
     expect(screen.getByTestId('sign-data-switch').getAttribute('data-checked')).toBe('true');
+  });
+
+  it('says the stored setting may have changed when the previous value could not be saved again', async () => {
+    // Errors reach the page over the port as plain objects.
+    wallet.setEnableSignData.mockRejectedValue({
+      message: 'Failed to save enableSignData, and its previous value could not be saved again',
+      code: ErrorCodes.PREFERENCE_NOT_RESTORED
+    });
+    render(<EnableSignDataCard />);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('sign-data-switch'));
+    await flush();
+
+    expect(tools.toastError).toHaveBeenCalledTimes(1);
+    expect(tools.toastError).toHaveBeenCalledWith('setting_not_saved_may_have_changed');
+    expect(screen.getByTestId('sign-data-switch').getAttribute('data-checked')).toBe('true');
+  });
+
+  it('has the message for a previous value that could not be saved again in every locale', () => {
+    const key = ErrorMessages[ErrorCodes.PREFERENCE_NOT_RESTORED];
+    expect(key).toBe('setting_not_saved_may_have_changed');
+    for (const [locale, messages] of Object.entries({ en, es, fr, ja, ru, zh_TW: zhTW })) {
+      expect((messages as Record<string, { message: string }>)[key!]?.message, locale).toEqual(expect.any(String));
+    }
   });
 
   it('turns sign-data off once the change is saved', async () => {

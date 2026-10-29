@@ -1817,6 +1817,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "マージするUTXOの量を設定"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "変更を保存できませんでした。保存されている設定が変わっている可能性があります。再起動後にこの設定をもう一度確認してください。"
+  },
   "settings": {
     "message": "設定"
   },
