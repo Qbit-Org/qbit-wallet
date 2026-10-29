@@ -309,6 +309,73 @@ describe('qbit PSBT spend summary', () => {
     })
   })
 
+  describe("a website's PSBT, whose fee is also judged without the size estimate", () => {
+    // 20,000 bits on a 10,000-bit payment, at a rate a size estimate too
+    // large would show; the fastest tier recommends 2 bits/vB.
+    const shareHeavy = {
+      outputs: [
+        output(MERCHANT_SCRIPT, 10_000, 'qbrt1zmerchant'),
+        output(OWN_SCRIPT, 970_000, 'qbrt1zown'),
+      ],
+      fee: 20_000,
+      feeRate: 1,
+    }
+
+    it('gates a fee that is a large share of the payout at a rate that looks normal', () => {
+      const website = summarizeQbitPsbtSpend(
+        params({ ...shareHeavy, checkFeeShareWithoutSize: true })
+      )
+      expect(website.spendSummary.feeAssessment).toEqual({
+        fee: 20_000,
+        feeRate: 1,
+        amount: 10_000,
+        recommendedFeeRate: 2,
+        reasons: ['large_share_of_amount'],
+      })
+      expect(website.risks.map(risk => [risk.type, risk.level])).toEqual([
+        [RiskType.HIGH_FEE_RATE, 'warning'],
+      ])
+
+      // The wallet's own PSBT is judged by its rate alone, as before.
+      const own = summarizeQbitPsbtSpend(params(shareHeavy))
+      expect(own.spendSummary.feeAssessment?.reasons).toEqual([])
+      expect(own.risks).toEqual([])
+    })
+
+    it('leaves a small payment at the recommended rate unflagged', () => {
+      // 3,860 bits is 38% of the payment, but less than twice the smallest send costs.
+      const { spendSummary, risks } = summarizeQbitPsbtSpend(
+        params({ checkFeeShareWithoutSize: true })
+      )
+      expect(spendSummary.feeAssessment?.reasons).toEqual([])
+      expect(risks).toEqual([])
+    })
+
+    it('has no payout to compare a transfer to the wallet itself, or a shared fee, with', () => {
+      const selfTransfer = summarizeQbitPsbtSpend(
+        params({
+          outputs: [output(OWN_SCRIPT, 980_000, 'qbrt1zown')],
+          fee: 20_000,
+          feeRate: 1,
+          statedRecipients: [],
+          checkFeeShareWithoutSize: true,
+        })
+      )
+      expect(selfTransfer.spendSummary.feeAssessment).toMatchObject({ amount: 0, reasons: [] })
+      expect(selfTransfer.risks).toEqual([])
+
+      const shared = summarizeQbitPsbtSpend(
+        params({
+          ...shareHeavy,
+          inputs: [input(STRANGER_SCRIPT, 500_000), input(OWN_SCRIPT, 500_000, 'qbrt1zown')],
+          checkFeeShareWithoutSize: true,
+        })
+      )
+      expect(shared.spendSummary.feeAssessment).toMatchObject({ amount: 0, reasons: [] })
+      expect(shared.risks).toEqual([])
+    })
+  })
+
   it('refuses amounts that are not safe integers', () => {
     for (const value of [Number.MAX_SAFE_INTEGER + 2, -1, 0.5]) {
       expect(() =>

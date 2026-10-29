@@ -26,7 +26,7 @@ import {
   singleKeyLeafScript,
   type Psbt,
 } from '@qbit-oss/protocol'
-import { KeyringType, RiskType } from '@qbit/wallet-shared'
+import { KeyringType, QBIT_P2MR_DUST, RiskType } from '@qbit/wallet-shared'
 import type { DecodedPsbt, ToSignData } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import rpcFlow from '../src/controllers/provider/rpcFlow'
@@ -623,6 +623,137 @@ describe('the fee rate a website PSBT approval shows (#59)', () => {
       expect(decoded.isCompleted).toBe(false)
       expect(decoded.feeRate).toBe(0)
       expect(decoded.risks).toEqual([])
+    })
+  })
+
+  // The fee as a share of what the PSBT pays others needs no size estimate.
+  // The fastest tier recommends 9 bits/vB, so a fee of at least 68,706 bits,
+  // twice what the smallest send (3,817 vB) costs at that rate, and at least
+  // a quarter of the payout needs the confirmation.
+  describe('the fee as a share of the payout, judged without the size estimate', () => {
+    /** Below twice the recommended 9 bits/vB, so no rate condition holds. */
+    const LOW_RATE = 15
+    /** 15 bits/vB of the 11,384 vB three inputs and two outputs finalize to. */
+    const THREE_INPUT_FEE = 170_760n
+
+    /**
+     * A website PSBT spending `inputValues` from the account's address and
+     * paying `amount` to a stranger, with the rest, less `fee`, back to it.
+     */
+    function paymentPsbt(inputValues: bigint[], amount: bigint, fee: bigint): Psbt {
+      const change = inputValues.reduce((sum, value) => sum + value, 0n) - amount - fee
+      return createP2mrPsbt({
+        inputs: inputValues.map((value, index) => ({
+          prevout: { txid: hexToBytes((0xa0 + index).toString(16).repeat(32)), vout: 0 },
+          witnessUtxo: { value, scriptPubKey: ACCOUNT_SCRIPT },
+          leafScript: LEAF_SCRIPT,
+          controlBlock: SINGLE_LEAF,
+        })),
+        outputs: [
+          ...(amount > 0n ? [{ value: amount, scriptPubKey: RECIPIENT_SCRIPT }] : []),
+          ...(change > 0n ? [{ value: change, scriptPubKey: ACCOUNT_SCRIPT }] : []),
+        ],
+      })
+    }
+
+    const THREE_INPUTS = [1_000_000n, 1_000_000n, 1_000_000n]
+
+    it('confirms a fee that is a large share of the payout at a rate below every rate condition', async () => {
+      const psbt = paymentPsbt(THREE_INPUTS, AMOUNT, THREE_INPUT_FEE)
+      const approved = await approveWebsitePsbt(psbt)
+
+      expect(approved.review.feeRate).toBe(
+        Number(THREE_INPUT_FEE) / finalizedVsize(approved.signed)
+      )
+      expect(approved.review.feeRate).toBe(LOW_RATE)
+      expect(confirmation(approved.review)).toEqual({
+        feeRate: LOW_RATE,
+        risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+        reasons: ['large_share_of_amount'],
+        shouldWarnFeeRate: true,
+      })
+
+      // The wallet's own screens, which pass no website, judge the same
+      // bytes by their rate alone, as before.
+      const own = await wallet.decodePsbt(bytesToHex(serializePsbt(psbt)), '')
+      expect(confirmation(own)).toEqual({
+        feeRate: LOW_RATE,
+        risks: [],
+        reasons: [],
+        shouldWarnFeeRate: false,
+      })
+    })
+
+    it('flags a fee at twice what the smallest send costs, and not one bit less', async () => {
+      const atFloor = await approveWebsitePsbt(paymentPsbt([1_000_000n], AMOUNT, 68_706n))
+      // 17.8 bits/vB on the 3,860 vB it finalizes to: below twice 9.
+      expect(atFloor.review.feeRate).toBeLessThan(18)
+      expect(confirmation(atFloor.review)).toMatchObject({
+        risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+        reasons: ['large_share_of_amount'],
+      })
+
+      const below = await approveWebsitePsbt(paymentPsbt([1_000_000n], AMOUNT, 68_705n))
+      expect(confirmation(below.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it('flags a fee at a quarter of the payout, and not when the payout is one bit more', async () => {
+      const atShare = await approveWebsitePsbt(paymentPsbt(THREE_INPUTS, 683_040n, THREE_INPUT_FEE))
+      expect(confirmation(atShare.review)).toMatchObject({
+        feeRate: LOW_RATE,
+        risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+        reasons: ['large_share_of_amount'],
+      })
+
+      const below = await approveWebsitePsbt(paymentPsbt(THREE_INPUTS, 683_041n, THREE_INPUT_FEE))
+      expect(confirmation(below.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it('has no payout to compare a transfer back to the wallet with', async () => {
+      const selfTransfer = await approveWebsitePsbt(paymentPsbt(THREE_INPUTS, 0n, THREE_INPUT_FEE))
+
+      expect(selfTransfer.review.spendSummary?.feeAssessment?.amount).toBe(0)
+      expect(confirmation(selfTransfer.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it('leaves a payment of the dust limit at the recommended rate unflagged', async () => {
+      // One output: change too small to keep is folded into the fee.
+      const fee = BigInt(9 * 3_817 + QBIT_P2MR_DUST - 1)
+      const dust = BigInt(QBIT_P2MR_DUST)
+      const small = await approveWebsitePsbt(paymentPsbt([dust + fee], dust, fee))
+
+      expect(small.review.outputInfos).toHaveLength(1)
+      expect(small.review.spendSummary?.feeAssessment).toMatchObject({
+        fee: Number(fee),
+        amount: QBIT_P2MR_DUST,
+      })
+      expect(confirmation(small.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it("judges each PSBT of a website's batch, and not of the wallet's own, the same way", async () => {
+      const psbtHex = bytesToHex(serializePsbt(paymentPsbt(THREE_INPUTS, AMOUNT, THREE_INPUT_FEE)))
+      const summary = await wallet.analyzeLocalPsbts([
+        {
+          psbtHex,
+          toSignInputs: [],
+          providerContext: {
+            origin: ORIGIN,
+            account: account.address,
+            chain: ChainType.QBIT_REGTEST,
+            network: 'regtest',
+          } as never,
+        },
+        { psbtHex, toSignInputs: [] },
+      ])
+
+      expect(summary.items.map(item => item.risks.map(risk => risk.type))).toEqual([
+        [RiskType.HIGH_FEE_RATE],
+        [],
+      ])
+      expect(summary.items.map(item => item.spendSummary?.feeAssessment?.reasons)).toEqual([
+        ['large_share_of_amount'],
+        [],
+      ])
     })
   })
 })

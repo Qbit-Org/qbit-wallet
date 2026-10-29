@@ -8277,11 +8277,15 @@ export class WalletController extends BaseController {
     }
   }
 
-  /** Decode a P2MR PSBT and summarize what its exact bytes do to the wallet. */
+  /**
+   * Decode a P2MR PSBT and summarize what its exact bytes do to the wallet.
+   * A website's PSBT also has its fee judged without the size estimate.
+   */
   private reviewQbitP2mrPsbt = (
     psbtHex: string,
     { networkType, account, wallet, feeSummary }: QbitPsbtReviewContext,
-    options: DecodePsbtOptions = {}
+    options: DecodePsbtOptions = {},
+    fromWebsite = false
   ): DecodedPsbt => {
     const psbt = qbitPsbtFromHex(psbtHex)
     const summary = decodeQbitPsbt(psbt)
@@ -8332,6 +8336,7 @@ export class WalletController extends BaseController {
       wallet,
       statedRecipients: options.statedRecipients,
       feeSummary,
+      checkFeeShareWithoutSize: fromWebsite,
     })
 
     return {
@@ -8353,15 +8358,21 @@ export class WalletController extends BaseController {
 
   private decodeQbitP2mrPsbt = async (
     psbtHex: string,
-    options: DecodePsbtOptions = {}
+    options: DecodePsbtOptions = {},
+    fromWebsite = false
   ): Promise<DecodedPsbt> => {
-    return this.reviewQbitP2mrPsbt(psbtHex, await this.readQbitPsbtReviewContext(), options)
+    return this.reviewQbitP2mrPsbt(
+      psbtHex,
+      await this.readQbitPsbtReviewContext(),
+      options,
+      fromWebsite
+    )
   }
 
+  /** `website` is the requesting origin; the wallet's own screens pass ''. */
   decodePsbt = async (psbtHex: string, website: string, options?: DecodePsbtOptions) => {
-    void website
     try {
-      return await this.decodeQbitP2mrPsbt(psbtHex, options)
+      return await this.decodeQbitP2mrPsbt(psbtHex, options, website !== '')
     } catch (e) {
       log.warn('Failed to decode qbit P2MR PSBT locally:', e)
       throw new Error('Invalid qbit P2MR PSBT')
@@ -8385,9 +8396,12 @@ export class WalletController extends BaseController {
 
     for (const toSignData of toSignDatas) {
       try {
-        const decoded = this.reviewQbitP2mrPsbt(toSignData.psbtHex, context, {
-          statedRecipients: statedPsbtRecipients(toSignData),
-        })
+        const decoded = this.reviewQbitP2mrPsbt(
+          toSignData.psbtHex,
+          context,
+          { statedRecipients: statedPsbtRecipients(toSignData) },
+          Boolean(toSignData.providerContext)
+        )
         const itemTotalInput = decoded.inputInfos.reduce((sum, input) => sum + input.value, 0)
         const { fee, isCompleted } = decoded
         if (isCompleted) {

@@ -78,7 +78,9 @@ export type QbitFeeWarningReason =
   | 'above_relay_floor'
   /**
    * The fee is at least `QBIT_FEE_WARNING_AMOUNT_PERCENT` of the amount sent, at a rate at least
-   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation.
+   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation. For a website's PSBT it is
+   * also flagged, whatever its rate, when the fee is at least that multiple of what the smallest
+   * send costs at the recommendation (`checkFeeShareWithoutSize`).
    */
   | 'large_share_of_amount'
 

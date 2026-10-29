@@ -25,6 +25,12 @@ export interface QbitPsbtSpendSummaryParams {
   statedRecipients?: readonly string[] | undefined
   /** The current quote; without live rates the fee is checked against the wallet's own bounds only. */
   feeSummary?: FeeSummary | undefined
+  /**
+   * Set for a website's PSBT, whose `feeRate` rests on a size the wallet did
+   * not build: a fee that is a large share of what it pays others is then
+   * flagged whatever that rate says (see `assessQbitFee`).
+   */
+  checkFeeShareWithoutSize?: boolean
 }
 
 function addSafe(total: number, value: number, label: string): number {
@@ -50,6 +56,7 @@ export function summarizeQbitPsbtSpend({
   wallet,
   statedRecipients = [],
   feeSummary,
+  checkFeeShareWithoutSize = false,
 }: QbitPsbtSpendSummaryParams): {
   spendSummary: PsbtSpendSummary
   risks: Risk[]
@@ -123,6 +130,7 @@ export function summarizeQbitPsbtSpend({
           feeRate,
           amount: otherPartyInputValue > 0 ? 0 : externalOutputValue,
           recommendedFeeRate,
+          checkFeeShareWithoutSize,
         })
       : undefined
 

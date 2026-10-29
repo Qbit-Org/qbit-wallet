@@ -1747,6 +1747,48 @@ describe('useSignPsbtLogic spend summary binding (#271)', () => {
     expect(result.current.isPsbtRiskPopoverVisible).toBe(true)
     expect(wallet.signPsbtV2).not.toHaveBeenCalled()
   })
+
+  it('opens the risk review for a fee flagged only as a share of the payout at a low rate', async () => {
+    const wallet = createSignPsbtWallet()
+    const decoded = decodedFor(ACCOUNT, 270_760)
+    wallet.decodePsbt.mockResolvedValue({
+      ...decoded,
+      feeRate: 15,
+      recommendedFeeRate: 9,
+      shouldWarnFeeRate: true,
+      spendSummary: {
+        ...decoded.spendSummary!,
+        externalOutputValue: 100_000,
+        feeAssessment: {
+          fee: 170_760,
+          feeRate: 15,
+          amount: 100_000,
+          recommendedFeeRate: 9,
+          reasons: ['large_share_of_amount'],
+        },
+      },
+      risks: [
+        {
+          type: RiskType.HIGH_FEE_RATE,
+          level: 'warning',
+          title: 'High fee rate detected',
+          desc: 'The fee is far above what this transaction needs.',
+        },
+      ],
+    })
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'website-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.hasRisk).toBe(true))
+
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+    expect(result.current.isPsbtRiskPopoverVisible).toBe(true)
+    expect(wallet.signPsbtV2).not.toHaveBeenCalled()
+  })
 })
 
 describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', () => {
