@@ -76,17 +76,32 @@ export interface QbitExplorerFetchOptions {
  * waits for it any more), never at the deadline itself.
  */
 export class QbitExplorerOperation {
-  private readonly expiresAt: number
+  private expiresAt: number | undefined
 
+  /**
+   * The deadline starts now, or with `started: false` at `start()`: an
+   * operation that first waits its turn (behind another send on the send
+   * guard, or another batch of a consolidation) spends none of it waiting.
+   */
   constructor(
     readonly budgetMs = Number.POSITIVE_INFINITY,
-    readonly signal?: AbortSignal
+    readonly signal?: AbortSignal,
+    options: { started?: boolean } = {}
   ) {
-    this.expiresAt = Date.now() + budgetMs
+    if (options.started !== false) this.start()
   }
 
-  /** The time left before the deadline, in ms: never negative, unbounded without one. */
+  /** Start the deadline, unless it has started already. */
+  start(): void {
+    this.expiresAt ??= Date.now() + this.budgetMs
+  }
+
+  /**
+   * The time left before the deadline, in ms: never negative, unbounded
+   * without one, and the whole budget until it starts.
+   */
   remainingMs(): number {
+    if (this.expiresAt === undefined) return this.budgetMs
     return Math.max(0, this.expiresAt - Date.now())
   }
 

@@ -12,8 +12,11 @@ export const QBIT_FEE_BUMP_RECHECK_WAIT_MS = 15_000
 
 /**
  * The Speed up assessment's deadline, shared by every explorer read it
- * makes before the user signs: the original, its raw bytes (about 800 kB
- * for 106 inputs, which needs about 55 kB/s here) and what spends it.
+ * makes before the user signs: the original, its raw bytes and what spends
+ * it. With 106 inputs the original is about 800 kB both as JSON and as hex,
+ * about 1.6 MB together, which this fits at about 13 kB/s (about
+ * 110 kbit/s), well below the 640 kbit/s under which the hex alone missed
+ * the 10 s check that used to run at broadcast.
  */
 export const QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS = 120_000
 

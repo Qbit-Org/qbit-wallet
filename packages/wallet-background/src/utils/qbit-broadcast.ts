@@ -4,6 +4,7 @@ import {
   sanitizeQbitBroadcastDetail,
   type QbitBroadcastFailureReason,
 } from '@qbit/wallet-shared'
+import { QBIT_EXPLORER_REPLY_TIMEOUT_MS } from './qbit-explorer-fetch'
 
 /**
  * A definitive node rejection is only reported as `not_sent` after this many
@@ -34,11 +35,20 @@ export const QBIT_BROADCAST_RESEND_WINDOW_MS = 30_000
 
 /**
  * The deadline of one broadcast call, shared by every explorer request it
- * makes: the fee bump check, each pass's submission and each lookup. The
- * send screen waits for the verdict; one passing it is `unknown`, so the
+ * makes: the fee bump check, each pass's submission and each lookup. It
+ * starts once the call has the send guard's queue. The send screen waits
+ * for the verdict, and a lookup it cuts short leaves it `unknown`, so the
  * window above plus a lookup's minute or so of slow replies fit inside.
  */
 export const QBIT_BROADCAST_DEADLINE_MS = 120_000
+
+/**
+ * The least of the broadcast deadline a pass needs left to be sent: a
+ * submission's whole reply budget, so the deadline never cuts off a
+ * submission in flight, which would leave its outcome unknown. With less
+ * left, the pass sends nothing.
+ */
+export const QBIT_BROADCAST_MIN_PASS_MS = QBIT_EXPLORER_REPLY_TIMEOUT_MS
 
 /**
  * The deadline of a recovery screen's Check status, which is one lookup:

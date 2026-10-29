@@ -53,7 +53,8 @@ export type FakeFailure = (request: {
  * bytes and never ends; with `stallHeaders` the headers never arrive. Either
  * stall lasts until the request's signal aborts, as on a dead connection.
  * With `resetAfterBytes` the body fails after that many bytes, as when the
- * connection is reset.
+ * connection is reset. With `padToBytes` the body is padded with JSON
+ * whitespace to that size, as a page of large transactions would be.
  */
 export interface FakeSlowResponse {
   match: (request: { method: string; path: string }) => boolean
@@ -62,6 +63,7 @@ export interface FakeSlowResponse {
   stallAfterBytes?: number
   stallHeaders?: boolean
   resetAfterBytes?: number
+  padToBytes?: number
 }
 
 const ESPLORA_PAGE = 25
@@ -321,7 +323,12 @@ export class FakeQbitExplorer {
     url: URL,
     signal: AbortSignal | undefined
   ): Promise<Response> {
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    let bytes = new Uint8Array(await response.arrayBuffer())
+    if (slow.padToBytes !== undefined && slow.padToBytes > bytes.length) {
+      const padded = new Uint8Array(slow.padToBytes).fill(0x20)
+      padded.set(bytes)
+      bytes = padded
+    }
     const timers = new Set<ReturnType<typeof setTimeout>>()
     let aborted: (reason: unknown) => void = () => {}
     const onAbort = () => {

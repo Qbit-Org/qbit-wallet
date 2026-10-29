@@ -781,6 +781,100 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       expect(vi.getTimerCount()).toBe(0)
     })
 
+    /** Build and sign a payment as `send` does, without broadcasting it. */
+    async function signPayment(wallet: WalletController, uiPort: string) {
+      const toSignData = await wallet.createSendQbitPsbt({
+        to: recipient,
+        amount: 10_000,
+        feeRate: 1,
+      })
+      const signed = await wallet.runForUiPort(uiPort, () => wallet.signPsbtV2(toSignData))
+      return {
+        claim: signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim,
+        psbtHex: signed.psbtHex!,
+      }
+    }
+
+    /** Hold the send guard's queue for `ms`, as another send's broadcast does. */
+    const holdGuard = (ms: number) =>
+      qbitSendGuardService.runWithNoOverlap(
+        ChainType.QBIT_REGTEST,
+        [{ txid: fakeTxid(9), vout: 0 }],
+        () => new Promise<void>(resolve => setTimeout(resolve, ms))
+      )
+
+    it('tries a send that waited behind another send for longer than the deadline', async () => {
+      const wallet = controller()
+      const { claim, psbtHex } = await signPayment(wallet, 'popup:1')
+      // Another send holds the guard's queue for longer than a broadcast may
+      // take; its own deadline bounds that wait.
+      const holdMs = QBIT_BROADCAST_DEADLINE_MS + 30_000
+      const held = holdGuard(holdMs)
+
+      const { value: result, elapsedMs } = await settle(
+        wallet.runForUiPort('popup:1', () =>
+          wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid)
+        )
+      )
+      await held
+
+      expect(result).toMatchObject({ success: true, txid: claim.txid, via: 'broadcast' })
+      expect(elapsedMs).toBeGreaterThanOrEqual(holdMs)
+      expect(explorer.requests.filter(isBroadcast)).toHaveLength(1)
+    })
+
+    for (const [label, retryOfUnknownOutcome, outcome] of [
+      ['keeps a Retry of an unknown outcome unknown', true, 'unknown'],
+      ['reports a first broadcast not sent', false, 'not_sent'],
+    ] as const) {
+      for (const [when, holdUntilMs] of [
+        ['with too little of it left', QBIT_BROADCAST_DEADLINE_MS - 2_000],
+        ['once it has passed', QBIT_BROADCAST_DEADLINE_MS + 5_000],
+      ] as const) {
+        it(`sends nothing when a pass is due ${when}, and ${label}`, async () => {
+          const wallet = controller()
+          const { claim, psbtHex } = await signPayment(wallet, 'popup:1')
+          // The background restarts: the guard forgets the claim the page
+          // still holds with the signed bytes.
+          qbitSendGuardService.init()
+          // The lookup that the guard's refusal calls for is slow, and while
+          // it runs another send takes the guard's queue: restoring the
+          // claim waits for it, and so does the pass after that.
+          let statusReads = 0
+          explorer.slowResponses.push({
+            match: request => isStatusLookup(request) && ++statusReads === 1,
+            chunkBytes: 1,
+            intervalMs: 1,
+            stallHeaders: true,
+          })
+          const call = wallet.runForUiPort('popup:1', () =>
+            wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid, retryOfUnknownOutcome)
+          )
+          await vi.advanceTimersByTimeAsync(1_000)
+          const held = holdGuard(holdUntilMs - 1_000)
+
+          const { value: result } = await settle(call)
+          await held
+
+          // Nothing went out: there was not enough of the deadline left.
+          expect(explorer.requests.filter(isBroadcast)).toHaveLength(0)
+          expect(result).toMatchObject({
+            success: false,
+            chain: ChainType.QBIT_REGTEST,
+            txid: claim.txid,
+            outcome,
+            reason: 'timeout',
+          })
+          if (outcome === 'unknown') {
+            // The bytes may have gone out before the restart: nothing frees
+            // the input.
+            await expectInputHeld(wallet, claim)
+          }
+          expect(vi.getTimerCount()).toBe(0)
+        })
+      }
+    }
+
     it("broadcasts a fee bump whose original's raw bytes take longer than 10 s to arrive", async () => {
       const wallet = controller()
       explorer.acceptReplacements = true
