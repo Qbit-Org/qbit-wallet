@@ -276,3 +276,101 @@ describe('useBalanceCardLogic error state', () => {
     expect(result.current.card.balanceValue).toBe('0.00005000')
   })
 })
+
+function renderUnloadedBalanceCard() {
+  const harness = createHookTestHarness()
+  harness.store.dispatch(
+    accountActions.setCurrent({ address, pubkey: '11'.repeat(32), type: 'Qbit HD Key Tree' } as any)
+  )
+  const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+  return { result, store: harness.store }
+}
+
+describe('useBalanceCardLogic loading state', () => {
+  it('shows loading rather than a zero balance until the first fetch lands', () => {
+    const { result, store } = renderUnloadedBalanceCard()
+
+    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+
+    const expanded = result.current.isDetailExpanded
+    act(() => {
+      result.current.handleExpandToggle()
+    })
+    expect(result.current.isDetailExpanded).toBe(expanded)
+
+    act(() => {
+      store.dispatch(accountActions.setBalanceV2({ address, balance }))
+    })
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceValue).toBe('0.00005000')
+  })
+
+  it('shows loading while the only balance is from another chain', () => {
+    const { result, store } = renderUnloadedBalanceCard()
+
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address,
+          balance: { ...balance, chainType: ChainType.QBIT_REGTEST },
+        })
+      )
+    })
+
+    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+  })
+
+  it('stops loading when the first fetch fails', () => {
+    const { result, store } = renderUnloadedBalanceCard()
+
+    act(() => {
+      store.dispatch(accountActions.setBalanceError({ address, requestId: 1 }))
+    })
+
+    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.balanceLoadFailed).toBe(true)
+    expect(result.current.balanceValue).toBe('--')
+  })
+})
+
+describe('useFetchBalanceCallback', () => {
+  it('keeps a newly selected account loading when the previous account fails', async () => {
+    let rejectSummary: (error: Error) => void = () => undefined
+    const wallet = {
+      ...createWalletMock(),
+      getAddressSummary: vi.fn(
+        () =>
+          new Promise((_, reject) => {
+            rejectSummary = reject
+          })
+      ),
+      getAddressBalanceV2: vi.fn(),
+    }
+    const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => ({ fetchBalance: useFetchBalanceCallback(), card: useBalanceCardLogic() }),
+      { wrapper }
+    )
+    const fetching = result.current.fetchBalance()
+
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({ address: 'qb1zotheraccount', key: 'account-2' } as any)
+      )
+    })
+    await act(async () => {
+      rejectSummary(new Error('explorer unavailable'))
+      await expect(fetching).rejects.toThrow('explorer unavailable')
+    })
+
+    expect(wallet.getAddressSummary).toHaveBeenCalledWith('qb1ztestaccount')
+    expect(store.getState().accounts.balanceStatusMap).toEqual({
+      qb1ztestaccount: { requestId: expect.any(Number), error: true },
+    })
+    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.balanceLoadFailed).toBe(false)
+  })
+})

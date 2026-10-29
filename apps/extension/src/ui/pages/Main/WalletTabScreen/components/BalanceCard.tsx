@@ -1,4 +1,4 @@
-import { Button, Column, Icon, Row, Text, Tooltip } from '@/ui/components';
+import { Button, Column, Icon, Row, Spin, Text, Tooltip } from '@/ui/components';
 import { RefreshButton } from '@/ui/components/RefreshButton';
 import { ColorTypes, colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
@@ -19,6 +19,7 @@ export function BalanceCard() {
     utxoLimitExceededText,
     balanceSplitUnknown,
     balanceSplitUnknownText,
+    balanceLoading,
     balanceLoadFailed,
     balanceErrorText,
 
@@ -71,8 +72,20 @@ export function BalanceCard() {
 
         {balanceLoadFailed ? null : (
           <Row itemsCenter>
-            <QbitDisplay balance={balanceValue} hideBalance={isBalanceHidden} />
-            <Icon color={'onPrimary'} size={16} icon={isDetailExpanded ? 'up' : 'down'} />
+            {balanceLoading && !isBalanceHidden ? (
+              // Same height as the amount row, so the card does not jump when the balance arrives.
+              <div
+                role="status"
+                aria-label={t('balance_loading')}
+                data-testid="balance-loading"
+                style={{ display: 'flex', alignItems: 'center', height: 34 }}
+              >
+                <Spin color={colors.onPrimary} trackColor="rgba(0, 0, 0, 0.12)" />
+              </div>
+            ) : (
+              <QbitDisplay balance={balanceValue} hideBalance={isBalanceHidden} />
+            )}
+            {balanceLoading ? null : <Icon color={'onPrimary'} size={16} icon={isDetailExpanded ? 'up' : 'down'} />}
           </Row>
         )}
         {balanceErrorText ? (
@@ -112,7 +125,7 @@ export function BalanceCard() {
         ) : null}
       </Column>
 
-      {isDetailExpanded && isCurrentChainBalance && !balanceLoadFailed && (
+      {isDetailExpanded && isCurrentChainBalance && !balanceLoading && !balanceLoadFailed && (
         <Column
           gap={'sm'}
           style={{

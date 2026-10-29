@@ -30,6 +30,7 @@ vi.mock('@/ui/components', async () => {
   const Icon = ({ icon }: { icon?: string }) => React.createElement('span', { 'data-icon': icon });
   const Tooltip = ({ children, title }: { children?: ReactNode; title?: string }) =>
     React.createElement('div', { 'data-testid': 'tooltip', title }, children);
+  const Spin = () => React.createElement('span', { 'data-testid': 'spin' });
   const Button = ({
     text,
     preset,
@@ -48,7 +49,7 @@ vi.mock('@/ui/components', async () => {
       { disabled: loading, onClick, 'data-testid': dataTestId, 'data-preset': preset },
       text
     );
-  return { Button, Column: Container, Icon, Row: Container, Text, Tooltip };
+  return { Button, Column: Container, Icon, Row: Container, Spin, Text, Tooltip };
 });
 vi.mock('@/ui/components/RefreshButton', () => ({ RefreshButton: () => null }));
 vi.mock('./QbitDisplay', async () => {
@@ -72,6 +73,7 @@ function renderCard(state: Partial<ReturnType<typeof useBalanceCardLogic>>) {
     utxoLimitExceededText: 'utxo_limit_exceeded_balance',
     balanceSplitUnknown: false,
     balanceSplitUnknownText: 'utxo_limit_exceeded_balance_detail',
+    balanceLoading: false,
     balanceLoadFailed: false,
     balanceErrorText: undefined,
     isDetailExpanded: false,
@@ -188,5 +190,17 @@ describe('BalanceCard', () => {
 
     expect(screen.getByTestId('balance-amount').textContent).toBe('0.00005000');
     expect(screen.queryByTestId('balance-error')).toBeNull();
+  });
+
+  it('shows a spinner instead of a zero balance while the first balance loads', () => {
+    renderCard({ balanceLoading: true, balanceValue: '--', isDetailExpanded: true });
+
+    expect(screen.getByRole('status', { name: 'balance_loading' })).toBeTruthy();
+    expect(screen.queryByTestId('balance-amount')).toBeNull();
+    expect(screen.queryByTestId('balance-error')).toBeNull();
+    expect(screen.getByTestId('wallet-balance-card').dataset.background).toBe(colors.accent);
+    // No breakdown, or chevron to open one, until a balance loads.
+    expect(screen.queryByText('available')).toBeNull();
+    expect(document.querySelector('[data-icon="down"], [data-icon="up"]')).toBeNull();
   });
 });
