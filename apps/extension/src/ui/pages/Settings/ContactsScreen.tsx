@@ -40,10 +40,19 @@ const formatAddress = (address: string) => {
 };
 
 // Sortable contact item component
-function SortableContactItem({ contact, index }: { contact: ContactBookItem; index: number }) {
+function SortableContactItem({
+  contact,
+  index,
+  disabled
+}: {
+  contact: ContactBookItem;
+  index: number;
+  disabled: boolean;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${contact.address}_${contact.chain}`,
-    data: { index, contact }
+    data: { index, contact },
+    disabled
   });
 
   const chainInfo = CHAINS_MAP[contact.chain || ChainType.QBIT_TESTNET4];
@@ -102,6 +111,7 @@ function SortableContactItem({ contact, index }: { contact: ContactBookItem; ind
                 className="top-button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (disabled) return;
 
                   const context = document.querySelector('.contacts-sortable-container');
                   if (context) {
@@ -119,7 +129,7 @@ function SortableContactItem({ contact, index }: { contact: ContactBookItem; ind
                   }
                 }}
                 style={{
-                  cursor: 'pointer',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
                   padding: '8px',
                   display: 'flex',
                   alignItems: 'center',
@@ -136,7 +146,7 @@ function SortableContactItem({ contact, index }: { contact: ContactBookItem; ind
               {...listeners}
               className="drag-handle"
               style={{
-                cursor: 'grab',
+                cursor: disabled ? 'not-allowed' : 'grab',
                 padding: '8px',
                 display: 'flex',
                 alignItems: 'center',
@@ -169,6 +179,7 @@ export default function ContactsScreen() {
   const [showNetworkModal, setShowNetworkModal] = useState(false);
   const [selectedNetworkFilter, setSelectedNetworkFilter] = useState<ChainType>(ChainType.QBIT_TESTNET4);
   const [isSortingMode, setIsSortingMode] = useState(false);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [orderedContacts, setOrderedContacts] = useState<ContactBookItem[]>([]);
   const { t } = useI18n();
   const tools = useTools();
@@ -252,6 +263,7 @@ export default function ContactsScreen() {
   };
 
   const toggleSortDirection = async () => {
+    if (isSavingOrder) return;
     try {
       if (!isSortingMode) {
         setOrderedContacts([...filteredContacts]);
@@ -259,7 +271,9 @@ export default function ContactsScreen() {
         setSearchKeyword('');
       } else {
         // Leave sorting mode once the save settles, so the list shows the new
-        // order only if it was saved
+        // order only if it was saved. Until then Finish, Cancel and moves are
+        // held, so the order on screen is the one being saved.
+        setIsSavingOrder(true);
         await saveContactOrder();
       }
 
@@ -267,6 +281,8 @@ export default function ContactsScreen() {
     } catch (error) {
       console.error('Error toggling sort mode', error);
       setIsSortingMode(false);
+    } finally {
+      setIsSavingOrder(false);
     }
   };
 
@@ -337,7 +353,7 @@ export default function ContactsScreen() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!active || !over || active.id === over.id) {
+    if (!active || !over || active.id === over.id || isSavingOrder) {
       return;
     }
 
@@ -520,9 +536,10 @@ export default function ContactsScreen() {
                   fontStyle: 'normal',
                   fontWeight: 500,
                   lineHeight: 'normal',
-                  cursor: 'pointer'
+                  cursor: isSavingOrder ? 'not-allowed' : 'pointer',
+                  opacity: isSavingOrder ? 0.5 : 1
                 }}
-                onClick={cancelSorting}
+                onClick={isSavingOrder ? undefined : cancelSorting}
               />
             </Row>
           ) : (
@@ -627,7 +644,12 @@ export default function ContactsScreen() {
                     }}
                   >
                     {orderedContacts.map((contact, index) => (
-                      <SortableContactItem key={getContactId(contact)} contact={contact} index={index} />
+                      <SortableContactItem
+                        key={getContactId(contact)}
+                        contact={contact}
+                        index={index}
+                        disabled={isSavingOrder}
+                      />
                     ))}
                   </div>
                 </SortableContext>
@@ -642,6 +664,7 @@ export default function ContactsScreen() {
         <Button
           text={isSortingMode ? t('finish') : t('add_address')}
           preset="primary"
+          loading={isSavingOrder}
           onClick={
             isSortingMode
               ? toggleSortDirection
