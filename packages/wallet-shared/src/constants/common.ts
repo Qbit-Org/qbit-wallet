@@ -498,6 +498,15 @@ export const COIN_SYMBOL = 'QBT'
 
 export const COIN_DUST = 1000
 export const QBIT_P2MR_DUST = 2855
+/**
+ * The least value qbit Core relays a pay-to-anchor (P2A, `51024e73`) output
+ * with: `GetDustThreshold` (src/policy/policy.cpp:50-76) of its 13-byte output
+ * plus the 148-byte spend it assumes for every script but P2MR, at the default
+ * dust relay fee of 750 per kvB (src/policy/policy.h:71), rounded up. Core's
+ * src/test/transaction_tests.cpp:1112-1118 relays an anchor of 121 and refuses
+ * one of 120 as dust. A zero-value anchor relays only as ephemeral dust.
+ */
+export const QBIT_P2A_DUST = 121
 
 export const TO_LOCALE_STRING_CONFIG = {
   minimumFractionDigits: 8,

@@ -9,9 +9,27 @@ import {
   DecodedPsbtInput,
   DecodedPsbtOpReturnOutput,
   DecodedPsbtOutput,
+  DecodedPsbtScriptOutput,
   ToSignData
 } from '@qbit/wallet-shared';
 import { useCurrentAddress, useI18n, useQbitUnit } from '@qbit/wallet-state';
+
+/** How an output with no address is named in place of its recipient. */
+const SCRIPT_OUTPUT_LABELS: Record<
+  DecodedPsbtScriptOutput['type'],
+  { title: string; warning: string; color: 'dangerText' | 'warning' }
+> = {
+  p2a: {
+    title: 'P2A anchor (anyone can spend)',
+    warning: 'Anyone can spend the value of this output once the transaction confirms.',
+    color: 'dangerText'
+  },
+  unknown_script: {
+    title: 'Unknown script',
+    warning: 'The wallet cannot decode this output script. Review the raw script in details.',
+    color: 'warning'
+  }
+};
 
 function OpReturnOutputItem({
   index,
@@ -123,6 +141,10 @@ export function InputItem(props: {
   const isMyAddress = itemInfo.address === currentAddress;
   // Neither the wallet's nor the recipient the request named, as the background classified it.
   const isUnrecognised = !!outputInfo && decodedPsbt.spendSummary?.outputRoles[index] === 'unrecognised';
+  const scriptOutputLabel =
+    outputInfo?.type === 'p2a' || outputInfo?.type === 'unknown_script'
+      ? SCRIPT_OUTPUT_LABELS[outputInfo.type]
+      : undefined;
   const qbitUnit = useQbitUnit();
   const { t } = useI18n();
 
@@ -163,7 +185,16 @@ export function InputItem(props: {
             </Row>
 
             <Row justifyBetween itemsCenter fullX>
-              <AddressText address={itemInfo.address} color="accentDark" bold showEye />
+              {scriptOutputLabel ? (
+                <Text
+                  data-testid={`psbt-output-script-label-${index}`}
+                  text={scriptOutputLabel.title}
+                  color={scriptOutputLabel.color}
+                  preset="bold"
+                />
+              ) : (
+                <AddressText address={itemInfo.address} color="accentDark" bold showEye />
+              )}
               {isMyAddress && (
                 <Row style={{ padding: '2px 8px', backgroundColor: colors.accent, borderRadius: 8 }}>
                   <Text text={t('my_address')} color="pureWhite" size="xxs" />
@@ -178,6 +209,16 @@ export function InputItem(props: {
                 </Row>
               )}
             </Row>
+
+            {scriptOutputLabel && (
+              <Text
+                data-testid={`psbt-output-script-warning-${index}`}
+                text={scriptOutputLabel.warning}
+                color={scriptOutputLabel.color}
+                size="xs"
+                wrap
+              />
+            )}
 
             {isToSign && (
               <Row itemsCenter>

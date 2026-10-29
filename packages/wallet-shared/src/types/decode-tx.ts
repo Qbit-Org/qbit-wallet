@@ -68,7 +68,20 @@ export interface DecodedPsbtOpReturnOutput extends DecodedPsbtOutputBase {
   opReturn: DecodedOpReturn
 }
 
-export type DecodedPsbtOutput = DecodedPsbtAddressOutput | DecodedPsbtOpReturnOutput
+/**
+ * An output whose script has no address the wallet can show: `p2a`, the
+ * pay-to-anchor script, which anyone can spend, or `unknown_script`, any other.
+ */
+export interface DecodedPsbtScriptOutput extends DecodedPsbtOutputBase {
+  type: 'p2a' | 'unknown_script'
+  address: ''
+  opReturn?: never
+}
+
+export type DecodedPsbtOutput =
+  | DecodedPsbtAddressOutput
+  | DecodedPsbtOpReturnOutput
+  | DecodedPsbtScriptOutput
 
 /** Why the wallet flagged a fee as abnormal; see `assessQbitFee`. */
 export type QbitFeeWarningReason =
