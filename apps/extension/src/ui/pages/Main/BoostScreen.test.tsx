@@ -30,6 +30,7 @@ describe('BoostScreen', () => {
     isBooted: vi.fn(),
     isReady: vi.fn(),
     isUnlocked: vi.fn(),
+    resolveUnlockApproval: vi.fn(),
     setOpenInSidePanel: vi.fn()
   };
   const approval = {
@@ -57,6 +58,8 @@ describe('BoostScreen', () => {
     wallet.isUnlocked.mockResolvedValue(true);
     wallet.getCurrentAccount.mockResolvedValue({ address: 'qbit-test-address' });
     wallet.setOpenInSidePanel.mockResolvedValue(undefined);
+    // The background answers the unlock request only while unlocked.
+    wallet.resolveUnlockApproval.mockImplementation(async () => wallet.isUnlocked());
     approval.getApproval.mockResolvedValue(undefined);
     approval.rejectApproval.mockResolvedValue(undefined);
   });
@@ -128,6 +131,25 @@ describe('BoostScreen', () => {
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith('UnlockScreen', { autoUnlockByFace: true });
     });
+    expect(approval.rejectApproval).not.toHaveBeenCalled();
+    expect(tools.toastWarning).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['toolbar popup', { isNotification: false, isPop: true, isSidePanel: false, isTab: false }],
+    ['side panel', { isNotification: false, isPop: false, isSidePanel: true, isTab: false }],
+    ['wallet tab', { isNotification: false, isPop: false, isSidePanel: false, isTab: true }]
+  ])("answers a website's unlock request when the %s opens on an unlocked wallet", async (_label, uiType) => {
+    vi.mocked(getUiType).mockReturnValue(uiType);
+    approval.getApproval.mockResolvedValue({ id: 'unlock-approval-id', data: { lock: true } });
+    render(<BoostScreen />);
+
+    // A stale unlock request would otherwise block every later approval.
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('MainScreen');
+    });
+    expect(wallet.resolveUnlockApproval).toHaveBeenCalledOnce();
+    await expect(wallet.resolveUnlockApproval.mock.results[0].value).resolves.toBe(true);
     expect(approval.rejectApproval).not.toHaveBeenCalled();
     expect(tools.toastWarning).not.toHaveBeenCalled();
   });

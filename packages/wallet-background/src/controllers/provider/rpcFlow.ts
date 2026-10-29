@@ -73,26 +73,56 @@ async function requestPageApproval(ctx: any, data: ProviderApprovalData, winProp
   }
 }
 
+/** The wallet's one unlock request, and how many requests wait on it. */
+interface PendingUnlock {
+  promise: Promise<unknown>
+  approvalId?: string
+  waiters: number
+}
+
 class UnlockManager {
-  private unlockPromise: Promise<any> | null = null
-  private isUnlocking = false
+  private pending: PendingUnlock | null = null
 
-  async getUnlockPromise(): Promise<any> {
-    if (keyringService.memStore.getState().isUnlocked) {
-      return Promise.resolve()
+  /**
+   * Waits until the wallet unlocks. Every waiting request shares one unlock
+   * request ({ lock: true }). A request whose page goes away stops waiting;
+   * the unlock request stays open while any request still waits, and is
+   * cancelled once none does, so its window does not block other sites.
+   */
+  async waitForUnlock(page: ProviderPage | undefined): Promise<void> {
+    if (keyringService.memStore.getState().isUnlocked) return
+
+    const unlock = this.pending ?? this.requestUnlock()
+    unlock.waiters += 1
+    try {
+      await whilePageConnected(page, unlock.promise)
+    } finally {
+      unlock.waiters -= 1
+      // Still pending only when this request stopped waiting for its page.
+      if (unlock.waiters === 0 && this.pending === unlock) {
+        this.pending = null
+        if (unlock.approvalId !== undefined) {
+          void approvalService
+            .rejectApproval(unlock.approvalId, 'No website request is waiting for the unlock')
+            .catch(() => undefined)
+        }
+      }
     }
+  }
 
-    if (this.isUnlocking && this.unlockPromise) {
-      return this.unlockPromise
-    }
-
-    this.isUnlocking = true
-    this.unlockPromise = approvalService.requestApproval({ lock: true }).finally(() => {
-      this.isUnlocking = false
-      this.unlockPromise = null
+  private requestUnlock(): PendingUnlock {
+    const unlock: PendingUnlock = { promise: Promise.resolve(), waiters: 0 }
+    unlock.promise = approvalService.requestApproval({ lock: true }, undefined, id => {
+      unlock.approvalId = id
     })
-
-    return this.unlockPromise
+    // Registered before any waiter's handlers, so a settled unlock request
+    // is never pending when its last waiter finishes.
+    const settled = () => {
+      if (this.pending === unlock) this.pending = null
+    }
+    unlock.promise.then(settled, settled)
+    this.pending = unlock
+    return unlock
   }
 }
 
@@ -490,9 +520,10 @@ const flowContext = flow
       if (!isUnlock) {
         ctx.request.requestedApproval = true
         // Every waiting request shares the unlock request, so a page that
-        // goes away only stops its own request waiting.
+        // goes away stops its own request waiting, and cancels the unlock
+        // request only when no other request waits on it.
         assertPageConnected(ctx.request.page)
-        await whilePageConnected(ctx.request.page, unlockManager.getUnlockPromise())
+        await unlockManager.waitForUnlock(ctx.request.page)
       }
     }
 
@@ -618,6 +649,10 @@ const flowContext = flow
     const {
       session: { origin },
     } = request
+    // The last page check: a page gone by now means the method never runs.
+    // Once it runs it completes even if the page goes away, since stopping
+    // it halfway could spend a signature without a broadcast, or leave a
+    // broadcast's outcome unknown.
     const requestDefer = assertRequestContext(
       ctx.requestContext,
       ctx.requirePermission,

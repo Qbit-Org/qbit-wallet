@@ -34,10 +34,16 @@ export default function BoostScreen() {
     }
 
     if (!isInNotification) {
-      // Outside an approval window, cancel the website approval read above,
-      // and only it: one that replaced it since is left pending, and so is
-      // the provider's unlock request, which unlocking here answers.
-      if (approval && approval.data?.lock !== true && (await rejectApproval(approval.id))) {
+      if (approval?.data?.lock === true) {
+        // The provider's unlock request is answered by unlocking, never
+        // rejected. If the wallet is already unlocked (an earlier answer
+        // failed, or the unlock raced the request), answer it now as the
+        // unlock does: the background resolves it only while unlocked, and
+        // otherwise unlocking here answers it.
+        await wallet.resolveUnlockApproval().catch(() => false);
+      } else if (approval && (await rejectApproval(approval.id))) {
+        // Outside an approval window, cancel the website approval read
+        // above, and only it: one that replaced it since is left pending.
         tools.toastWarning(t('request_cancelled_by_opening_wallet'));
       }
       approval = undefined;

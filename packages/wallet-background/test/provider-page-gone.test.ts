@@ -389,4 +389,84 @@ describe('provider requests whose page goes away', () => {
     )
     expect(second.page.approvalIds.size).toBe(0)
   })
+
+  it('cancels the unlock request when the only page waiting on it goes away', async () => {
+    const first = await openPage('https://first.example')
+    const closeWindow = vi.spyOn(background.approvalService, 'platformCloseWindow')
+    background.keyringState.isUnlocked = false
+    const request = track(first.request(structuredClone(SIGN)))
+    await vi.waitFor(() =>
+      expect(background.approvalService.getApproval()?.data).toEqual({ lock: true })
+    )
+    await flush()
+
+    first.disconnect()
+
+    await vi.waitFor(() => expect(request.settled).toBe(true))
+    expect(request.error).toMatchObject({ message: PAGE_GONE })
+    await flush()
+    // Nobody waits on it, so its window closes instead of blocking other sites.
+    expect(background.approvalService.getApproval()).toBeUndefined()
+    expect(closeWindow).toHaveBeenCalledOnce()
+
+    const second = await openPage('https://second.example')
+    const secondRequest = track(second.request(structuredClone(SIGN)))
+    await vi.waitFor(() =>
+      expect(background.approvalService.getApproval()?.data).toEqual({ lock: true })
+    )
+    expect(secondRequest.settled).toBe(false)
+    expect(background.controller.signMessage).not.toHaveBeenCalled()
+  })
+
+  it('keeps the unlock request open until the last waiting page goes away', async () => {
+    const first = await openPage('https://first.example')
+    const second = await openPage('https://second.example')
+    background.keyringState.isUnlocked = false
+    const firstRequest = track(first.request(structuredClone(SIGN)))
+    await vi.waitFor(() =>
+      expect(background.approvalService.getApproval()?.data).toEqual({ lock: true })
+    )
+    const unlockId = pendingApproval().id
+    const secondRequest = track(second.request(structuredClone(SIGN)))
+    await flush()
+
+    second.disconnect()
+    await vi.waitFor(() => expect(secondRequest.settled).toBe(true))
+    await flush()
+    expect(pendingApproval().id).toBe(unlockId)
+    expect(firstRequest.settled).toBe(false)
+
+    first.disconnect()
+    await vi.waitFor(() => expect(firstRequest.settled).toBe(true))
+    await flush()
+    expect(firstRequest.error).toMatchObject({ message: PAGE_GONE })
+    expect(secondRequest.error).toMatchObject({ message: PAGE_GONE })
+    expect(background.approvalService.getApproval()).toBeUndefined()
+    expect(background.controller.signMessage).not.toHaveBeenCalled()
+  })
+
+  it('completes a request whose provider method was already running when its page went away', async () => {
+    const first = await openPage('https://first.example')
+    // Stopping the method halfway could spend a signature without a
+    // broadcast, or leave a broadcast's outcome unknown.
+    background.controller.sendQbit.mockImplementationOnce(async () => {
+      first.disconnect()
+      return 'broadcast-txid'
+    })
+    const request = track(first.request(structuredClone(SEND)))
+    await vi.waitFor(() => expect(pendingComponent()).toBe('SignPsbt'))
+
+    await expect(
+      background.approvalService.resolveApproval(pendingApproval().id, [{ psbtHex: '70736274ff' }])
+    ).resolves.toBe(true)
+
+    await vi.waitFor(() => expect(request.settled).toBe(true))
+    expect(request.value).toBe('broadcast-txid')
+    expect(background.controller.sendQbit).toHaveBeenCalledOnce()
+    // Sent: the claim goes, and its inputs stay reserved.
+    expect(background.wallet.settleQbitProviderSendRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      true
+    )
+  })
 })

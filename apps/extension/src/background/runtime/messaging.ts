@@ -108,8 +108,8 @@ export function initMessaging() {
 
       // The document behind this port, as its requests see it: each keeps the
       // id of the approval it waits on here. When the port disconnects, those
-      // approvals are rejected and the requests stop before anything is
-      // signed or sent for a page that is gone.
+      // approvals are rejected, and a request whose provider method has not
+      // started never runs it; one already signing or sending completes.
       const pageGone = new AbortController();
       const page = { signal: pageGone.signal, approvalIds: new Set<string>() };
 
