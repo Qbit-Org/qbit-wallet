@@ -28,6 +28,18 @@
   then rejected. The wallet now spends that change only in a send small
   enough to fit (#345).
 
+### Balance
+
+- When the explorer cannot be reached, the balance card says so instead of
+  showing a balance of 0. If no balance has loaded, the card turns grey and
+  says the balance could not be loaded, with Try again. If a later refresh
+  fails, the card keeps the last balance and says it may be out of date. Try
+  again fetches at once, and the warning clears on the next refresh that
+  succeeds. A refresh that finishes late no longer replaces the balance or
+  error of a newer one. The card's label now reads "Wallet Balance". Until
+  the explorer first answers, the card still shows 0, for about 45 seconds
+  if the explorer does not answer at all.
+
 ### Accounts with many outputs
 
 - The balance card of an address holding more outputs than the explorer
