@@ -94,30 +94,32 @@ describe('QbitReplaceableReads', () => {
 })
 
 describe('QbitLatestAnswers', () => {
-  it('keeps the latest answer with its version, for its scope and slot only', () => {
-    const answers = new QbitLatestAnswers<string, number>(later)
+  it('keeps the latest answer, for its scope and slot only', () => {
+    const answers = new QbitLatestAnswers<string>()
     const client = {}
     expect(answers.latest(client, 'qb1a')).toBeUndefined()
 
-    answers.keep(client, 'qb1a', 5, 'outputs')
+    answers.keep(client, 'qb1a', answers.start(), 'outputs')
 
-    expect(answers.latest(client, 'qb1a')).toEqual({ version: 5, value: 'outputs' })
+    expect(answers.latest(client, 'qb1a')).toBe('outputs')
     expect(answers.latest(client, 'qb1b')).toBeUndefined()
     expect(answers.latest({}, 'qb1a')).toBeUndefined()
   })
 
-  it('lets an answer at the same or a later version replace the kept one, never an earlier one', () => {
-    const answers = new QbitLatestAnswers<string, number>(later)
+  it('lets a read that started later replace one that started earlier, never the reverse', () => {
+    const answers = new QbitLatestAnswers<string>()
     const client = {}
-    answers.keep(client, 'qb1a', 5, 'first')
+    const firstRead = answers.start()
+    const secondRead = answers.start()
 
-    answers.keep(client, 'qb1a', 4, 'lagging')
-    expect(answers.latest(client, 'qb1a')).toEqual({ version: 5, value: 'first' })
+    answers.keep(client, 'qb1a', secondRead, 'later')
+    // The earlier read finishes last: it does not replace the later one.
+    answers.keep(client, 'qb1a', firstRead, 'earlier')
+    expect(answers.latest(client, 'qb1a')).toBe('later')
 
-    answers.keep(client, 'qb1a', 5, 'again')
-    expect(answers.latest(client, 'qb1a')).toEqual({ version: 5, value: 'again' })
-
-    answers.keep(client, 'qb1a', 6, 'newer')
-    expect(answers.latest(client, 'qb1a')).toEqual({ version: 6, value: 'newer' })
+    // A read started after both replaces them, whatever it found: after an
+    // eviction it may find less history than the one it replaces.
+    answers.keep(client, 'qb1a', answers.start(), 'after an eviction')
+    expect(answers.latest(client, 'qb1a')).toBe('after an eviction')
   })
 })

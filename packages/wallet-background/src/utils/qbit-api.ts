@@ -548,6 +548,19 @@ export async function isQbitUtxoListOverExplorerLimit(
   error: unknown,
   options: QbitReadCancellation = {}
 ): Promise<boolean> {
+  return (await qbitUtxoListOverExplorerLimitStats(client, address, error, options)) !== undefined
+}
+
+/**
+ * `isQbitUtxoListOverExplorerLimit`, answering with the checked address
+ * statistics that show the limit, or undefined when the failure is not it.
+ */
+async function qbitUtxoListOverExplorerLimitStats(
+  client: Pick<QbitEsploraClient, 'getAddressStats'>,
+  address: string,
+  error: unknown,
+  options: QbitReadCancellation = {}
+): Promise<EsploraAddressStats | undefined> {
   // Only the listing request itself: the classifier's per-output lookups
   // can fail with a 500 of their own.
   if (
@@ -557,7 +570,7 @@ export async function isQbitUtxoListOverExplorerLimit(
     !error.url ||
     !/\/address\/[^/?#]+\/utxo(?:[?#]|$)/.test(error.url)
   ) {
-    return false
+    return undefined
   }
   let stats: EsploraAddressStats
   try {
@@ -566,11 +579,11 @@ export async function isQbitUtxoListOverExplorerLimit(
   } catch {
     throwIfQbitReadCancelled(options)
     // Without statistics the listing failure keeps its own meaning.
-    return false
+    return undefined
   }
   const confirmedUnspentOutputs =
     stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count
-  return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT
+  return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT ? stats : undefined
 }
 
 /** An output a read of an address's history found spendable; see `getQbitAddressUtxos`. */
@@ -602,11 +615,12 @@ export async function getQbitSpendableBalanceV2(
   const balance = balanceResult.value
   const aggregateBalance = qbitBalanceToSummary(balance)
   if (classifiedResult.status === 'rejected') {
-    if (!(await isQbitUtxoListOverExplorerLimit(client, address, classifiedResult.reason))) {
-      throw classifiedResult.reason
-    }
+    const stats = await qbitUtxoListOverExplorerLimitStats(client, address, classifiedResult.reason)
+    if (!stats) throw classifiedResult.reason
+    // The split takes the statistics this check read: one read, so the two
+    // can never disagree.
     const split = readOutputs
-      ? await getQbitPastLimitSplit(client, address, p2mrScriptPubKey, readReserved, readOutputs)
+      ? await getQbitPastLimitSplit(stats, p2mrScriptPubKey, readReserved, readOutputs)
       : undefined
     if (split) return split
     // The statistics still give the total. With no output list none of it
@@ -624,10 +638,8 @@ export async function getQbitSpendableBalanceV2(
   }
   const classified = classifiedResult.value
   const reserved = readReserved ? await readReserved() : undefined
-  const matchesScript = (utxo: UTXO) =>
-    !p2mrScriptPubKey || utxo.scriptPk.toLowerCase() === p2mrScriptPubKey.toLowerCase()
-  const selectable = (utxo: UTXO) =>
-    matchesScript(utxo) && !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
+  const matchesScript = (utxo: UTXO) => qbitOutputPaysScript(utxo, p2mrScriptPubKey)
+  const selectable = (utxo: UTXO) => isQbitSelectableOutput(utxo, p2mrScriptPubKey, reserved)
   const confirmedSpendableSats = classified.confirmedSpendable
     .filter(selectable)
     .reduce((sum, utxo) => sum + utxo.satoshis, 0)
@@ -671,24 +683,20 @@ export async function getQbitSpendableBalanceV2(
 /**
  * The split of an address over the explorer's UTXO limit from the outputs a
  * read of its history found, or `undefined` (unknown) without a read made
- * against the statistics as they read now: any new transaction for the
- * address changes them. The total comes from those same statistics.
+ * against `stats`, the statistics as they read now: any new transaction for
+ * the address changes them. The total comes from those same statistics.
  * Available is what a send may select from the read, less the outputs
  * `readReserved` names, never more than the total; Unavailable is the rest.
  * The read leaves immature and pending outputs out, so those stay unknown.
  */
 async function getQbitPastLimitSplit(
-  client: QbitEsploraClient,
-  address: string,
+  stats: EsploraAddressStats,
   p2mrScriptPubKey: string | undefined,
   readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
   readOutputs: (stats: string) => readonly QbitReadOutput[] | undefined
 ): Promise<QbitBalanceSummaryPayload | undefined> {
-  let stats: EsploraAddressStats
   let totalBalance: number
   try {
-    stats = await client.getAddressStats(address)
-    assertValidQbitStats(stats, address)
     totalBalance = Math.max(0, addressBalanceFromStats(stats).totalSats)
   } catch {
     return undefined
@@ -696,14 +704,8 @@ async function getQbitPastLimitSplit(
   const outputs = readOutputs(qbitStatsSnapshot(stats))
   if (!outputs) return undefined
   const reserved = readReserved ? await readReserved() : undefined
-  const script = p2mrScriptPubKey?.toLowerCase()
   const spendableSats = outputs
-    .filter(
-      utxo =>
-        typeof utxo.scriptPk === 'string' &&
-        (!script || utxo.scriptPk.toLowerCase() === script) &&
-        !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
-    )
+    .filter(utxo => isQbitSelectableOutput(utxo, p2mrScriptPubKey, reserved))
     .reduce((sum, utxo) => sum + utxo.satoshis, 0)
   const availableBalance = Math.min(totalBalance, spendableSats)
   return {
@@ -714,6 +716,33 @@ async function getQbitPastLimitSplit(
     pendingBalance: null,
     utxoLimitExceeded: true,
   }
+}
+
+/** Whether `utxo` carries a script, and `p2mrScriptPubKey` when one is given. */
+function qbitOutputPaysScript(
+  utxo: Pick<UTXO, 'scriptPk'>,
+  p2mrScriptPubKey: string | undefined
+): boolean {
+  return (
+    typeof utxo.scriptPk === 'string' &&
+    (!p2mrScriptPubKey || utxo.scriptPk.toLowerCase() === p2mrScriptPubKey.toLowerCase())
+  )
+}
+
+/**
+ * Whether a send may select `utxo`: it pays `p2mrScriptPubKey`
+ * (`qbitOutputPaysScript`) and no reservation holds it. Reservations name
+ * outpoints as `txid:vout`, the txid in lower case (`QbitSendGuardService`).
+ */
+function isQbitSelectableOutput(
+  utxo: Pick<UTXO, 'txid' | 'vout' | 'scriptPk'>,
+  p2mrScriptPubKey: string | undefined,
+  reserved: ReadonlySet<string> | undefined
+): boolean {
+  return (
+    qbitOutputPaysScript(utxo, p2mrScriptPubKey) &&
+    !reserved?.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`)
+  )
 }
 
 export function qbitStatsToAddressSummary(stats: EsploraAddressStats): AddressSummary {

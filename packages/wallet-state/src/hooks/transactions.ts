@@ -80,14 +80,18 @@ function qbitMemoOutputScriptLengths(memo?: string, memos?: string[]): number[] 
   return [scriptLength]
 }
 
+/**
+ * The outputs a send builder accepts as the account's own: an output without
+ * its scriptPubKey never counts, as the builder refuses it, so Available and
+ * the preflight never include one.
+ */
 export function getQbitP2mrSpendableUtxos(utxos: UnspentOutput[], account: Account) {
   const accountScriptPubKey = account.p2mr?.scriptPubKey.toLowerCase()
-  return utxos.filter(utxo => {
-    if (!accountScriptPubKey) return true
-
-    const scriptPk = (utxo.scriptPk || account.p2mr!.scriptPubKey).toLowerCase()
-    return scriptPk === accountScriptPubKey
-  })
+  return utxos.filter(
+    utxo =>
+      Boolean(utxo.scriptPk) &&
+      (!accountScriptPubKey || utxo.scriptPk.toLowerCase() === accountScriptPubKey)
+  )
 }
 
 export function getQbitP2mrSpendableSatoshis(utxos: UnspentOutput[], account: Account) {
@@ -322,6 +326,7 @@ export function usePrepareSendQBTCallback() {
           to: toAddressInfo.address,
           qbitUtxos: spendableUtxos,
           qbitUtxoChain: snapshot.chain,
+          qbitUtxoAddress: snapshot.address,
           feeRate,
           enableRBF,
           memo,

@@ -272,6 +272,75 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     )
   })
 
+  it('takes a fresh read after an eviction, though it finds less history than the kept one', async () => {
+    const wallet = controller()
+    // A payment from someone else is pending: the history counts N + 1.
+    const payment = {
+      txid: fakeTxid(3, 7_000_000),
+      inputs: [{ txid: fakeTxid(4, 8_000_000), vout: 0 }],
+      outputs: [{ address, script: accountScript, value: 4_000 }],
+    }
+    explorer.addTx(payment)
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
+      split(SPENDABLE, TOTAL + 4_000)
+    )
+
+    // It is evicted: the statistics fall back to N, and the kept read no
+    // longer matches them.
+    explorer.removeTx(payment.txid)
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+
+    // A read started since then finds N, and replaces the kept one.
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+  })
+
+  it('keeps the read that started later when an earlier one finishes after it', async () => {
+    const wallet = controller()
+    // The account's own pending send: classifying its change reads the
+    // whole transaction, whose answer this test holds back.
+    const ownSend = {
+      txid: fakeTxid(6, 7_000_000),
+      inputs: [{ txid: fakeTxid(0), vout: 0 }],
+      outputs: [
+        { address: payer, script: payerScript, value: 5_000 },
+        { address, script: accountScript, value: 4_000 },
+      ],
+    }
+    explorer.addTx(ownSend)
+    let release: () => void = () => undefined
+    const released = new Promise<void>(resolve => (release = resolve))
+    let held = false
+    let txHeld: () => void = () => undefined
+    const txArrived = new Promise<void>(resolve => (txHeld = resolve))
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if (!held && String(input).endsWith(`/tx/${ownSend.txid}`)) {
+        held = true
+        // Answered as the explorer stood when asked, delivered later.
+        const answer = await explorer.fetch(input, init)
+        txHeld()
+        await released
+        return answer
+      }
+      return explorer.fetch(input, init)
+    })
+    // An earlier read has verified the statistics and is classifying.
+    const earlier = wallet.getQbitUtxos()
+    await txArrived
+    // A block confirms the mempool, and a read started since then completes
+    // first: it reads every funding transaction from the confirmed history.
+    explorer.confirmMempool()
+    await wallet.getQbitUtxoSnapshot()
+    release()
+    await earlier
+
+    // The earlier read, of the statistics before the block, does not
+    // replace the later one.
+    const total = TOTAL - OUTPUT_VALUE + 4_000
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(total, total))
+  })
+
   it('counts the outputs a signed send holds as unavailable', async () => {
     const wallet = controller()
     await wallet.getQbitUtxoSnapshot()

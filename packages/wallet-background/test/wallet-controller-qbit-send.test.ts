@@ -665,6 +665,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       enableRBF: true,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid,
@@ -741,6 +742,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 100_000,
         feeRate,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: '5a'.repeat(32),
@@ -889,6 +891,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 100_000,
         feeRate,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: txidByte.repeat(32),
@@ -1129,6 +1132,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('41', 50_000)],
       }),
       await wallet.createSendQbitPsbt({
@@ -1136,6 +1140,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 6_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('42', 10_000)],
       }),
       await wallet.createSendQbitPsbt({
@@ -1144,6 +1149,7 @@ describe('WalletController qbit P2MR send path', () => {
         feeRate: 1,
         memo: 'exact memo',
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('43', 50_000)],
       }),
       // Neither output covers the amount alone, so both are spent.
@@ -1152,6 +1158,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 60_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('44', 30_000), utxo('45', 50_000, 1)],
       }),
       await wallet.createSendAllQbitPsbt({
@@ -1159,6 +1166,7 @@ describe('WalletController qbit P2MR send path', () => {
         feeRate: 1,
         memo: 'send all',
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('46', 30_000), utxo('47', 30_000, 1)],
       }),
     ]
@@ -1186,6 +1194,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'a9'.repeat(32),
@@ -1258,6 +1267,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [reservedTxid, availableTxid].map(txid => ({
         txid,
         vout: 0,
@@ -1282,6 +1292,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'fee bump memo',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '31'.repeat(32),
@@ -1438,6 +1449,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '32'.repeat(32),
@@ -1455,6 +1467,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: amountWithFiveThousandChange,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '32'.repeat(32),
@@ -1512,6 +1525,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount,
       feeRate: QBIT_MAX_FEE_RATE - 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '35'.repeat(32),
@@ -1553,6 +1567,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const original = await wallet.createSendQbitPsbt({
@@ -1560,6 +1575,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: inputSats - provisional.estimatedFee! - QBIT_P2MR_DUST,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const live = liveTransactionFromPsbt(original.psbtHex)
@@ -1580,6 +1596,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '32'.repeat(32),
@@ -1668,6 +1685,7 @@ describe('WalletController qbit P2MR send path', () => {
       to: recipientAddress(),
       amount: 10_000,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: utxos(),
     })
     expect(send.qbitBroadcastIdentity).toEqual({
@@ -1683,6 +1701,7 @@ describe('WalletController qbit P2MR send path', () => {
       // one from the quote, which is the await under test here.
       feeRate: undefined as unknown as number,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: utxos(),
     })
     expect(sendAll.qbitBroadcastIdentity).toEqual({
@@ -1718,6 +1737,7 @@ describe('WalletController qbit P2MR send path', () => {
           amount: 10_000,
           feeRate: 1,
           qbitUtxoChain: ChainType.QBIT_TESTNET4,
+          qbitUtxoAddress: account.address,
           qbitUtxos: utxos,
         }),
       () =>
@@ -1725,6 +1745,7 @@ describe('WalletController qbit P2MR send path', () => {
           to: recipientAddress(),
           feeRate: 1,
           qbitUtxoChain: ChainType.QBIT_TESTNET4,
+          qbitUtxoAddress: account.address,
           qbitUtxos: utxos,
         }),
     ]) {
@@ -1801,6 +1822,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: snapshot.chain,
+      qbitUtxoAddress: snapshot.address,
       qbitUtxos: snapshot.utxos,
     })
     expect(send.qbitBroadcastIdentity?.chain).toBe(ChainType.QBIT_REGTEST)
@@ -1936,6 +1958,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const final = await wallet.createSendQbitPsbt({
@@ -1944,12 +1967,14 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       enableRBF: false,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const sendAll = await wallet.createSendAllQbitPsbt({
       to: recipientAddress(),
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
 
@@ -2016,6 +2041,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: '35'.repeat(32),
@@ -2302,6 +2328,7 @@ describe('WalletController qbit P2MR send path', () => {
           feeRate: 1,
           qbitUtxos: snapshot.utxos,
           qbitUtxoChain: snapshot.chain,
+          qbitUtxoAddress: snapshot.address,
         })
       ).rejects.toThrow('send_exceeds_ancestor_size')
       expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
@@ -2330,6 +2357,7 @@ describe('WalletController qbit P2MR send path', () => {
         feeRate: 1,
         qbitUtxos: [snapshot.utxos[0]!, change],
         qbitUtxoChain: snapshot.chain,
+        qbitUtxoAddress: snapshot.address,
       })
       expect(inputTxids(withChange.psbtHex)).toEqual([snapshot.utxos[0]!.txid, parentTxid])
       expect(395_108 + withChange.estimatedVsize!).toBeLessThanOrEqual(404_000)
@@ -2374,6 +2402,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: '61'.repeat(32),
@@ -3544,6 +3573,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 2_854,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
     ).rejects.toThrow(/2855/)
@@ -3553,6 +3583,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: QBIT_P2MR_DUST,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos,
     })
     expect(decodePsbt(parsePsbt(hexToBytes(boundary.psbtHex))).outputs[0]!.value).toBe(
@@ -3570,6 +3601,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 61_829_900,
       feeRate: 10_000,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'eb'.repeat(32),
@@ -3624,6 +3656,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 50_000,
         feeRate,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
 
@@ -3658,6 +3691,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
 
@@ -3694,6 +3728,7 @@ describe('WalletController qbit P2MR send path', () => {
       to: recipientAddress(),
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos,
     })
 
@@ -3731,6 +3766,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 10_001,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
     ).rejects.toThrow(/between 1 and 10000/)
@@ -3741,6 +3777,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 61_829_900,
         feeRate: 10_000,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
     ).rejects.toThrow('Fee exceeds the wallet safety maximum')
@@ -3758,6 +3795,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'hello',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'ff'.repeat(32),
@@ -3807,6 +3845,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'ABCD',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '12'.repeat(32),
@@ -3895,6 +3934,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '34'.repeat(32),
@@ -3929,6 +3969,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bb'.repeat(32),
@@ -4030,6 +4071,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'ba'.repeat(32),
@@ -4100,6 +4142,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bc'.repeat(32),
@@ -4146,6 +4189,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bc'.repeat(32),
@@ -4176,6 +4220,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bd'.repeat(32),
@@ -4238,6 +4283,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'ABCD',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bc'.repeat(32),
@@ -4309,6 +4355,7 @@ describe('WalletController qbit P2MR send path', () => {
       enableRBF: false,
       memo,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'cc'.repeat(32),
@@ -4387,6 +4434,7 @@ describe('WalletController qbit P2MR send path', () => {
       to: recipientAddress(),
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [reservedTxid, availableTxid].map(txid => ({
         txid,
         vout: 0,

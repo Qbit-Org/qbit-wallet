@@ -806,6 +806,7 @@ describe('TxCreateScreen state hooks', () => {
         to: recipient,
         qbitUtxos: utxos,
         qbitUtxoChain: ChainType.QBIT_MAINNET,
+        qbitUtxoAddress: account.address,
         feeRate: 1,
         enableRBF: false,
         memo: 'hello qbit',
@@ -1978,6 +1979,23 @@ describe('TxCreateScreen state hooks', () => {
       await waitFor(() => expect(result.current.availableAmount).toBe('--'))
       expect(result.current.unavailableAmount).toBe('--')
       expect(result.current.showUnavailable).toBe(true)
+    })
+
+    it('does not count an output without its scriptPubKey as spendable, as the builder refuses it', async () => {
+      const account = p2mrAccount()
+      const harness = createHookTestHarness()
+      const own = manyOutputs(account, [40_000, 20_000])
+      const unlabelled = { ...own[0], txid: 'ee'.repeat(32), scriptPk: '' }
+      loadAccount(harness, account, [...own, unlabelled])
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('0.00060000'))
+      expect(result.current.unavailableAmount).toBe('0.00040000')
+      // Max fills what Available shows, never the unlabelled output.
+      act(() => {
+        result.current.onAmountMaxClick()
+      })
+      expect(result.current.inputAmount).toBe('0.00060000')
     })
 
     it('takes the loading overlay down once the balance shows the account over the limit', async () => {

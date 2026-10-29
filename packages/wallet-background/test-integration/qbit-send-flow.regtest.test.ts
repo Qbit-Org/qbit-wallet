@@ -413,6 +413,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount,
       feeRate,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: utxos,
     })
     expect(toSignData.estimatedFee).toBeGreaterThan(0)
@@ -476,6 +477,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
         amount,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: walletAddress,
         qbitUtxos: [fundUtxo!],
         enableRBF: true,
         memo,
@@ -630,6 +632,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 90_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [fundUtxo!],
       enableRBF: true,
     })
@@ -646,6 +649,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 50_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [change],
       enableRBF: true,
     })
@@ -723,6 +727,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 1_000_000,
       feeRate: 2,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [immatureUtxo],
     })
     const immatureSigned = await wallet.signPsbtV2(immatureSpend)
@@ -749,6 +754,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 1_000_000,
       feeRate: 2,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [immatureUtxo],
     })
     expect(retriedSpend.signatureBudget).toMatchObject({ required: 0, cached: 1 })
@@ -806,6 +812,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 100_000,
       feeRate: 2,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [fundUtxo!],
     })
     // Sign exactly once: everything below must reuse these bytes.

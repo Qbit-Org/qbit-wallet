@@ -448,15 +448,12 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
     expect(balance.unavailableBalance).toBe(0)
   })
 
-  it('keeps the split unknown when the statistics cannot be read again', async () => {
+  it('takes the split from the statistics the limit check read, without reading them again', async () => {
     const { explorer } = overLimitExplorer()
-    const { readOutputs } = await readOf(explorer)
-    // The total's read and the listing check answer; the split's read fails,
-    // retries included.
-    let statsReads = 0
-    explorer.failures.push(({ path }) =>
-      path === `/address/${address}` && ++statsReads >= 3 ? { status: 503 } : undefined
-    )
+    const { utxos, readOutputs } = await readOf(explorer)
+    const statsReads = () =>
+      explorer.requests.filter(request => request.path === `/address/${address}`).length
+    const before = statsReads()
 
     const balance = await getQbitSpendableBalanceV2(
       clientFor(explorer),
@@ -466,9 +463,9 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
       readOutputs
     )
 
-    expect(statsReads).toBeGreaterThanOrEqual(3)
-    expect(balance.availableBalance).toBeNull()
-    expect(balance.utxoLimitExceeded).toBe(true)
+    expect(balance.availableBalance).toBe(sum(utxos))
+    // One for the total, one for the limit check, which the split reuses.
+    expect(statsReads() - before).toBe(2)
   })
 })
 

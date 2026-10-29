@@ -105,6 +105,16 @@ function send(qbitUtxos: ReturnType<typeof output>[], qbitUtxoAddress?: string) 
   })
 }
 
+function sendAll(qbitUtxos: ReturnType<typeof output>[], qbitUtxoAddress?: string) {
+  return new WalletController().createSendAllQbitPsbt({
+    to: recipient,
+    feeRate: 1,
+    qbitUtxos,
+    qbitUtxoChain: ChainType.QBIT_REGTEST,
+    ...(qbitUtxoAddress === undefined ? {} : { qbitUtxoAddress }),
+  })
+}
+
 describe('createSendQbitPsbt spends only the selected account’s outputs', () => {
   beforeEach(() => {
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
@@ -122,6 +132,24 @@ describe('createSendQbitPsbt spends only the selected account’s outputs', () =
     await expect(send([output(account, 'aa', 50_000)], otherAccount.address)).rejects.toThrow(
       'Qbit account changed since the inputs were loaded'
     )
+  })
+
+  it('refuses outputs that do not name the account they were read for', async () => {
+    await expect(send([output(account, 'aa', 50_000)])).rejects.toThrow(
+      'Qbit inputs must name the account they were read for'
+    )
+  })
+
+  it('refuses, for send-all too, outputs read for another account or for none', async () => {
+    await expect(
+      sendAll([output(otherAccount, 'bb', 50_000)], otherAccount.address)
+    ).rejects.toThrow('Qbit account changed since the inputs were loaded')
+    await expect(sendAll([output(account, 'aa', 50_000)])).rejects.toThrow(
+      'Qbit inputs must name the account they were read for'
+    )
+
+    const toSignData = await sendAll([output(account, 'aa', 50_000)], account.address)
+    expect(decodePsbt(parsePsbt(hexToBytes(toSignData.psbtHex))).inputs).toHaveLength(1)
   })
 
   it('refuses an output of another account among its own', async () => {

@@ -131,31 +131,35 @@ interface SharedRead<T, V> {
 }
 
 /**
- * The latest answer kept per scope and slot, with the version it was read
- * at. An answer replaces the kept one unless the kept one is newer
- * (`newer`): one read at the same version or a later one does, one read at
- * an earlier version does not. Callers keep only answers to reads that
- * completed. Kept in memory only, and scopes are held weakly, as above.
+ * The latest answer kept per scope and slot. A read takes its place in line
+ * when it starts (`start`), and its answer replaces the kept one unless the
+ * kept one comes from a read that started later: what a read found, however
+ * little, never ranks it, so after an eviction a later read that finds less
+ * history still replaces an earlier one. Callers keep only answers to reads
+ * that completed. Kept in memory only, and scopes are held weakly, as above.
  */
-export class QbitLatestAnswers<T, V> {
-  private readonly answers = new WeakMap<object, Map<string, { version: V; value: T }>>()
+export class QbitLatestAnswers<T> {
+  private readonly answers = new WeakMap<object, Map<string, { order: number; value: T }>>()
+  private started = 0
 
-  /** `newer(candidate, kept)`: whether an answer at `candidate` is newer than one at `kept`. */
-  constructor(private readonly newer: (candidate: V, kept: V) => boolean) {}
+  /** The place in line of a read starting now, to `keep` its answer with. */
+  start(): number {
+    return ++this.started
+  }
 
-  keep(scope: object, slot: string, version: V, value: T): void {
+  keep(scope: object, slot: string, order: number, value: T): void {
     let scoped = this.answers.get(scope)
     if (!scoped) {
       scoped = new Map()
       this.answers.set(scope, scoped)
     }
     const kept = scoped.get(slot)
-    if (kept && this.newer(kept.version, version)) return
-    scoped.set(slot, { version, value })
+    if (kept && kept.order > order) return
+    scoped.set(slot, { order, value })
   }
 
-  /** The answer kept for `slot`, with the version it was read at. */
-  latest(scope: object, slot: string): { version: V; value: T } | undefined {
-    return this.answers.get(scope)?.get(slot)
+  /** The answer kept for `slot`. */
+  latest(scope: object, slot: string): T | undefined {
+    return this.answers.get(scope)?.get(slot)?.value
   }
 }
