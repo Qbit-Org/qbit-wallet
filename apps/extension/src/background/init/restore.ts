@@ -197,8 +197,9 @@ export async function restoreAppState() {
       })
     );
 
-    // Without it no website has a grant until the permissions load again, which
-    // fails closed, so the rest of the background still starts.
+    // Without it no website has a grant, and a change to one is refused, until
+    // the permissions load again. That fails closed, so the rest of the
+    // background still starts.
     await startService(
       'permission',
       () =>

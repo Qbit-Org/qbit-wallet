@@ -583,48 +583,30 @@ describe('PermissionService', () => {
     })
 
     const kept = site('https://kept.example')
+    const bad = site('https://bad.example')
+    const entry = (value: unknown, key = (value as ConnectedSite).origin) => ({
+      k: key,
+      v: value,
+      e: 0,
+    })
+
     it.each<[string, unknown]>([
       ['a string', 'not a record'],
       ['a list', [kept]],
       ['an object with neither a version nor a dump', { sites: [kept] }],
+      ['an unknown version', { version: 2, sites: [kept] }],
       [
         'an unknown version that also carries a dump',
-        { version: 2, sites: [kept], dumpCache: [{ k: kept.origin, v: kept, e: 0 }] },
+        { version: 2, sites: [kept], dumpCache: [entry(kept)] },
       ],
       ['a version given as a string', { version: '1', sites: [kept] }],
       ['version 1 without a site list', { version: 1 }],
-      [
-        'a site whose grant is not a boolean',
-        { version: 1, sites: [{ ...kept, isConnected: 'true' }] },
-      ],
-      ['a site without an origin', { version: 1, sites: [kept, { ...kept, origin: '' }] }],
-      ['a site without a chain', { version: 1, sites: [{ ...kept, chain: undefined }] }],
-      ['the same origin twice', { version: 1, sites: [kept, { ...kept, isConnected: false }] }],
-      ['a site that is not an object', { version: 1, sites: [kept, null] }],
-      ['a pin order that is not a number', { version: 1, sites: [{ ...kept, order: '1' }] }],
-      ['a dump that is not a list', { dumpCache: { k: kept.origin, v: kept, e: 0 } }],
-      [
-        'a dump entry that is not an object',
-        { dumpCache: [{ k: kept.origin, v: kept, e: 0 }, null] },
-      ],
-      [
-        'a dump in the shape later lru-cache versions write',
-        { dumpCache: [[kept.origin, { value: kept }]] },
-      ],
-      [
-        'a dump entry under another origin',
-        { dumpCache: [{ k: 'https://other.example', v: kept, e: 0 }] },
-      ],
-      [
-        'a dump entry that expires',
-        { dumpCache: [{ k: kept.origin, v: kept, e: Date.now() + 60_000 }] },
-      ],
-    ])('rejects %s without throwing and starts with no grants', async (_shape, record) => {
+      ['a dump that is not a list', { dumpCache: entry(kept) }],
+    ])('rejects %s whole, without throwing, and starts with no grants', async (_shape, record) => {
       const { service, storage, logger } = await startWith(structuredClone(record))
 
       expect(service.getStats().total).toBe(0)
       expect(service.hasPermission(kept.origin)).toBe(false)
-      expect(service.hasPermission('https://other.example')).toBe(false)
       expect(logger.error).toHaveBeenCalledWith(
         expect.stringContaining('stored site permissions were not loaded'),
         expect.any(String)
@@ -644,6 +626,189 @@ describe('PermissionService', () => {
         version: 1,
         sites: [site('https://new.example', { name: 'New' })],
       })
+    })
+
+    it.each<[string, unknown]>([
+      [
+        'a site whose grant is not a boolean',
+        { version: 1, sites: [kept, { ...bad, isConnected: 'true' }] },
+      ],
+      ['a site without an origin', { version: 1, sites: [kept, { ...bad, origin: '' }] }],
+      ['a site without a chain', { version: 1, sites: [{ ...bad, chain: undefined }, kept] }],
+      ['a site without a name', { version: 1, sites: [kept, { ...bad, name: undefined }] }],
+      ['a site that is not an object', { version: 1, sites: [kept, null] }],
+      ['a pin order that is not a number', { version: 1, sites: [kept, { ...bad, order: '1' }] }],
+      ['a pin order of null', { dumpCache: [entry(kept), entry({ ...bad, order: null })] }],
+      [
+        'a quick multi-sign setting that is not a boolean',
+        { version: 1, sites: [kept, { ...bad, allowQuickMultiSign: 'yes' }] },
+      ],
+      [
+        'an expiry in the site that is not a number',
+        { dumpCache: [entry(kept), entry({ ...bad, e: '0' })] },
+      ],
+      ['the same origin twice', { version: 1, sites: [bad, kept, { ...bad, isConnected: false }] }],
+      ['a dump entry that is not an object', { dumpCache: [entry(kept), null] }],
+      [
+        'a dump entry in the shape later lru-cache versions write',
+        { dumpCache: [entry(kept), [bad.origin, { value: bad }]] },
+      ],
+      [
+        'a dump entry without a site',
+        { dumpCache: [entry(kept), { k: bad.origin, v: 'bad', e: 0 }] },
+      ],
+      [
+        'a dump entry that expires',
+        { dumpCache: [entry(kept), { ...entry(bad), e: Date.now() + 60_000 }] },
+      ],
+      [
+        'a dump entry kept under a key that is not an origin',
+        { dumpCache: [entry(kept), entry(bad, 'bad')] },
+      ],
+      ['the same key twice in a dump', { dumpCache: [entry(bad), entry(kept), entry(bad)] }],
+    ])('drops only %s, keeps the rest, and logs why', async (_shape, record) => {
+      const { service, storage, logger } = await startWith(structuredClone(record))
+
+      expect(service.getStats().total).toBe(1)
+      expect(service.getWithoutUpdate(kept.origin)).toEqual(kept)
+      expect(service.hasPermission(kept.origin, kept.chain)).toBe(true)
+      expect(service.hasPermission(bad.origin)).toBe(false)
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('a stored site permission was not loaded'),
+        expect.stringMatching(/^site \d+ /)
+      )
+      expect(logger.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('stored site permissions were not loaded'),
+        expect.anything()
+      )
+      expect(storage.set).not.toHaveBeenCalled()
+
+      await service.touchConnectedSite(kept.origin)
+
+      expect(storage._store['permission']).toEqual({ version: 1, sites: [kept] })
+    })
+
+    it('keeps a 1.0.6 grant under the key 1.0.6 checked it by, not the origin inside it', async () => {
+      // 1.0.6's updateConnectSite(origin, value) kept `value` under `origin`
+      // even when value.origin named another site, and checked the grant by
+      // the key.
+      const { service, logger } = await startWith({
+        dumpCache: [entry(kept), entry(bad, 'https://key.example')],
+      })
+
+      expect(service.hasPermission('https://key.example', bad.chain)).toBe(true)
+      expect(service.getWithoutUpdate('https://key.example')).toEqual({
+        ...bad,
+        origin: 'https://key.example',
+      })
+      expect(service.hasPermission(bad.origin)).toBe(false)
+      expect(service.hasPermission(kept.origin)).toBe(true)
+      expect(service.getStats().total).toBe(2)
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    it('drops a renamed 1.0.6 entry whose key another entry also holds', async () => {
+      const { service } = await startWith({
+        dumpCache: [entry(kept), entry(bad, kept.origin)],
+      })
+
+      expect(service.getStats().total).toBe(0)
+      expect(service.hasPermission(kept.origin)).toBe(false)
+      expect(service.hasPermission(bad.origin)).toBe(false)
+    })
+
+    it('rejects, and rolls back, a change that would store a site the next start would drop', async () => {
+      const { service, storage } = await startWith({ version: 1, sites: [kept] })
+
+      await expect(
+        service.updateConnectSite(kept.origin, { order: 'first' } as any, true)
+      ).rejects.toThrow('has an invalid order')
+      await expect(service.setSite({ ...bad, isConnected: 'yes' } as any)).rejects.toThrow(
+        'has no valid isConnected'
+      )
+
+      expect(storage.set).not.toHaveBeenCalled()
+      expect(service.getWithoutUpdate(kept.origin)).toEqual(kept)
+      expect(service.getWithoutUpdate(bad.origin)).toBeUndefined()
+      expect(storage._store['permission']).toEqual({ version: 1, sites: [kept] })
+    })
+
+    describe.each(['resetAllData', 'clearAllPermissions'] as const)('%s', method => {
+      // A service whose init could not read the stored record.
+      const startUnread = async () => {
+        const storage = createMockStorage()
+        storage._store['permission'] = { version: 1, sites: [kept] }
+        storage.get.mockRejectedValueOnce(new Error('read failed'))
+        const service = new PermissionService()
+        await expect(
+          service.init({ storage: storage as any, logger: mockLogger, autoSync: true })
+        ).rejects.toThrow('read failed')
+        return { service, storage }
+      }
+
+      it('stores the empty record even when init could not read the stored one', async () => {
+        const { service, storage } = await startUnread()
+
+        await service[method]()
+
+        expect(storage._store['permission']).toEqual({ version: 1, sites: [] })
+        const { service: restarted } = await startWith(storage._store['permission'])
+        expect(restarted.hasPermission(kept.origin)).toBe(false)
+      })
+
+      it('rejects when the empty record cannot be written', async () => {
+        const { service, storage } = await startUnread()
+        storage.set.mockRejectedValueOnce(new Error('storage unavailable'))
+
+        await expect(service[method]()).rejects.toThrow('storage unavailable')
+
+        expect(storage._store['permission']).toEqual({ version: 1, sites: [kept] })
+        await expect(
+          service.addConnectedSite(kept.origin, 'Kept', 'icon.png', ChainType.QBIT_MAINNET)
+        ).rejects.toThrow('not initialized')
+      })
+
+      it('rejects, keeping every site, when the write fails after init', async () => {
+        const { service, storage } = await startWith({ version: 1, sites: [kept] })
+        storage.set.mockRejectedValueOnce(new Error('storage unavailable'))
+
+        await expect(service[method]()).rejects.toThrow('storage unavailable')
+
+        expect(service.hasPermission(kept.origin)).toBe(true)
+      })
+
+      it('rejects without storage', async () => {
+        await expect(new PermissionService()[method]()).rejects.toThrow(
+          'Storage adapter is required'
+        )
+      })
+    })
+
+    it.each<[string, (service: PermissionService) => Promise<void>]>([
+      [
+        'addConnectedSite',
+        service =>
+          service.addConnectedSite(kept.origin, 'Kept', 'icon.png', ChainType.QBIT_MAINNET),
+      ],
+      ['setSite', service => service.setSite(kept)],
+      ['updateConnectSite', service => service.updateConnectSite(kept.origin, { name: 'K' }, true)],
+      ['touchConnectedSite', service => service.touchConnectedSite(kept.origin)],
+      ['removeConnectedSite', service => service.removeConnectedSite(kept.origin)],
+      ['topConnectedSite', service => service.topConnectedSite(kept.origin)],
+      ['unpinConnectedSite', service => service.unpinConnectedSite(kept.origin)],
+      ['setRecentConnectedSites', service => service.setRecentConnectedSites([kept])],
+    ])('%s rejects, storing nothing, before init has loaded the sites', async (_name, change) => {
+      const storage = createMockStorage()
+      storage._store['permission'] = { version: 1, sites: [kept] }
+      storage.get.mockRejectedValueOnce(new Error('read failed'))
+      const failed = new PermissionService()
+      await failed.init({ storage: storage as any, logger: mockLogger }).catch(() => undefined)
+
+      await expect(change(failed)).rejects.toThrow('not initialized')
+      await expect(change(new PermissionService())).rejects.toThrow('not initialized')
+
+      expect(storage.set).not.toHaveBeenCalled()
+      expect(failed.hasPermission(kept.origin)).toBe(false)
     })
 
     it('keeps a site under the origin it was granted to', async () => {
