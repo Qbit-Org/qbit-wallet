@@ -209,6 +209,9 @@
   "balance": {
     "message": "Balance"
   },
+  "balance_loading": {
+    "message": "Loading balance..."
+  },
   "bbn": {
     "message": "bbn..."
   },

@@ -8,9 +8,20 @@ export interface SpinProps {
   children?: React.ReactNode;
   style?: React.CSSProperties;
   className?: string;
+  /** Arc and ring colors; the defaults are for light surfaces. */
+  color?: string;
+  trackColor?: string;
 }
 
-export function Spin({ size = 'default', spinning = true, children, style, className }: SpinProps) {
+export function Spin({
+  size = 'default',
+  spinning = true,
+  children,
+  style,
+  className,
+  color = colors.accent,
+  trackColor = colors.line
+}: SpinProps) {
   // Size configurations
   const sizeConfig = {
     small: { size: 16, strokeWidth: 2 },
@@ -38,8 +49,8 @@ export function Spin({ size = 'default', spinning = true, children, style, class
         style={{
           width: `${config.size}px`,
           height: `${config.size}px`,
-          border: `${config.strokeWidth}px solid ${colors.line}`,
-          borderTopColor: colors.accent,
+          border: `${config.strokeWidth}px solid ${trackColor}`,
+          borderTopColor: color,
           borderRadius: '50%',
           animation: 'spin 1s linear infinite'
         }}
@@ -73,8 +84,8 @@ export function Spin({ size = 'default', spinning = true, children, style, class
               style={{
                 width: `${config.size}px`,
                 height: `${config.size}px`,
-                border: `${config.strokeWidth}px solid ${colors.line}`,
-                borderTopColor: colors.accent,
+                border: `${config.strokeWidth}px solid ${trackColor}`,
+                borderTopColor: color,
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite'
               }}
