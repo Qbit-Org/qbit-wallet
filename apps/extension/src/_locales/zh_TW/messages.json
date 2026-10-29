@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "費率"
   },
+  "fee_estimates_unavailable": {
+    "message": "目前無法取得手續費估算。"
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "目前無法取得手續費估算，將使用最低轉送費率 $1 bit/vB。"
   },

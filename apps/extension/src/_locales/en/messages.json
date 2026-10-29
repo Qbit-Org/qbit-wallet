@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "Fee Rate"
   },
+  "fee_estimates_unavailable": {
+    "message": "Fee estimates are unavailable."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Fee estimates are unavailable. Using the $1 bit/vB relay floor."
   },

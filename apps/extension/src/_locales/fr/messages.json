@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "Taux de Frais"
   },
+  "fee_estimates_unavailable": {
+    "message": "Les estimations de frais sont indisponibles."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Les estimations de frais sont indisponibles. Le minimum de relais de $1 bit/vB est utilisé."
   },

@@ -1,11 +1,21 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button, Column, Content, Header, Icon, Input, Layout, Row, Text, Tooltip } from '@/ui/components';
 import { FeeRateBar } from '@/ui/components/FeeRateBar';
 import { RBFBar } from '@/ui/components/RBFBar';
 import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
-import { useTxCreateScreenLogic } from '@qbit/wallet-state';
+import { useI18n, useTxCreateScreenLogic } from '@qbit/wallet-state';
+
+// Numbers in the user's locale, with its own group and decimal separators. The
+// app's locale codes (zh_TW) use an underscore where Intl expects a hyphen.
+function localeNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  try {
+    return new Intl.NumberFormat(locale.replace('_', '-'), options);
+  } catch {
+    return new Intl.NumberFormat(undefined, options);
+  }
+}
 
 export default function TxCreateScreen() {
   const {
@@ -25,6 +35,7 @@ export default function TxCreateScreen() {
     feeDetail,
     leftBehindNote,
     spendSummary,
+    feeQuote,
 
     showUnavailable,
     availableAmount,
@@ -44,6 +55,13 @@ export default function TxCreateScreen() {
     onClickNext,
     onClickConsolidate
   } = useTxCreateScreenLogic();
+  const { locale } = useI18n();
+  // The size in kB with one decimal, and the fee in whole bits.
+  const sizeFormat = useMemo(
+    () => localeNumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    [locale]
+  );
+  const feeFormat = useMemo(() => localeNumberFormat(locale, { maximumFractionDigits: 0 }), [locale]);
 
   // Keep an already-entered memo visible when returning to this screen.
   const [advancedExpanded, setAdvancedExpanded] = useState(() => Boolean(memo));
@@ -176,13 +194,14 @@ export default function TxCreateScreen() {
 
           <Column mt="lg">
             <FeeRateBar
+              quote={feeQuote}
               headerRight={
                 feeDetail ? (
                   <Text
                     text={`${t('estimated_inputs_and_size', [
                       String(feeDetail.inputCount),
-                      (feeDetail.estimatedVsize / 1000).toFixed(1)
-                    ])} · ${feeDetail.estimatedFee} bits`}
+                      sizeFormat.format(feeDetail.estimatedVsize / 1000)
+                    ])} · ${feeFormat.format(feeDetail.estimatedFee)} bits`}
                     size="xs"
                     color="textDim"
                     data-testid="tx-size-estimate"

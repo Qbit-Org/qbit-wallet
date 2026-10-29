@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "Tasa de Tarifa"
   },
+  "fee_estimates_unavailable": {
+    "message": "Las estimaciones de tarifas no están disponibles."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Las estimaciones de tarifas no están disponibles. Se usa el mínimo de retransmisión de $1 bit/vB."
   },
