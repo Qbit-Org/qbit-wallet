@@ -76,6 +76,13 @@ export interface QbitSendBroadcastClaim {
    * names one.
    */
   replaces?: string | null
+  /**
+   * With `replaces`: how many outputs the replaced transaction has, from the
+   * raw bytes the fee bump's assessment verified. Its broadcast checks what
+   * spends each of them; a fee bump's claim without it is invalid. Kept with
+   * the claim in memory only, like `replaces`.
+   */
+  replacedOutputCount?: number
 }
 
 export type QbitExternalSigningLockPurpose = 'send' | 'sign'

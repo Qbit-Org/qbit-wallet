@@ -365,8 +365,13 @@ export interface WalletController {
   abandonQbitSendBroadcastClaim(qbitSendBroadcastClaim: QbitSendBroadcastClaim): Promise<void>
 
   getQbitUtxos(): Promise<UnspentOutput[]>
-  /** The spendable outputs together with the network they were loaded on. */
-  getQbitUtxoSnapshot(): Promise<QbitUtxoSnapshot>
+  /**
+   * The spendable outputs together with the network they were loaded on.
+   * With `readId`, `abandonQbitUtxoSnapshot(readId)` stops waiting for it.
+   */
+  getQbitUtxoSnapshot(readId?: string): Promise<QbitUtxoSnapshot>
+  /** Stop waiting for that read; a walk nothing waits for any more stops. */
+  abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
   getNetworkType(): Promise<NetworkType>
   setNetworkType(type: NetworkType): Promise<void>

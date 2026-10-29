@@ -137,6 +137,7 @@ export const UI_CONTROLLER_METHODS = [
   'getQbitRestoreFloorsPending',
   'getQbitTxLifecycleStatus',
   'getQbitUtxoSnapshot',
+  'abandonQbitUtxoSnapshot',
   'getQbitUtxos', // e2e harness
   'getRegtestAccessStatus',
   'getSkippedVersion',
