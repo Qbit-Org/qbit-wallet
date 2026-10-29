@@ -89,4 +89,15 @@ describe('FeeRateBar', () => {
 
     expect(screen.getByTestId('fee-estimates-unavailable').textContent).toBe('fee_estimates_unavailable_using_floor');
   });
+
+  it('offers the rates of the quote its screen shares instead of reading its own', () => {
+    const quote = {
+      status: 'loaded' as const,
+      summary: { list: [{ title: 'slow', desc: '', feeRate: 1 }] }
+    };
+
+    render(<FeeRateBar quote={quote} />);
+
+    expect(useFeeRateBarLogic).toHaveBeenCalledWith(expect.objectContaining({ quote }));
+  });
 });

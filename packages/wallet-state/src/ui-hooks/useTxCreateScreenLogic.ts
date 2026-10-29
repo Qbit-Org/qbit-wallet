@@ -10,7 +10,6 @@ import {
   qbitRecommendedFeeRate,
   qbitWalletOwnership,
   qbitWalletOwns,
-  type FeeSummary,
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import {
@@ -42,6 +41,7 @@ import {
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
+import type { FeeQuoteState } from './useFeeRateBarLogic'
 
 /** What the previewed send takes from the wallet, for the total and the fee check. */
 interface SendSpendPreview {
@@ -53,8 +53,6 @@ interface SendSpendPreview {
   fee: number
   vsize: number
 }
-
-type FeeQuoteState = { status: 'loading' } | { status: 'loaded'; summary?: FeeSummary }
 
 /** The send screen's total and fee warning for its preview. */
 export interface TxCreateSpendSummary {
@@ -203,8 +201,10 @@ export function useTxCreateScreenLogic() {
     [currentAccount, accounts, keyrings]
   )
 
-  // The quote the selected rate is compared with. A failed read leaves no
-  // recommendation, which the screen says instead of skipping the check.
+  // The quote the selected rate is compared with, and the one the fee bar
+  // offers its rates from, so the two never come from different quotes. A
+  // failed read leaves no recommendation, which the screen says instead of
+  // skipping the check.
   useEffect(() => {
     let cancelled = false
     setFeeQuote({ status: 'loading' })
@@ -554,6 +554,8 @@ export function useTxCreateScreenLogic() {
     feeDetail,
     leftBehindNote,
     spendSummary,
+    // For the fee bar: the quote the fee check uses.
+    feeQuote,
 
     showUnavailable,
     availableAmount,

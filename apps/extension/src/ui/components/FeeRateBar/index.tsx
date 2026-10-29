@@ -8,7 +8,11 @@ import { Input } from '../Input';
 import { Row } from '../Row';
 import { Text } from '../Text';
 
-export function FeeRateBar({ readonly, headerRight }: { readonly?: boolean; headerRight?: ReactNode }) {
+export function FeeRateBar({
+  readonly,
+  quote,
+  headerRight
+}: Parameters<typeof useFeeRateBarLogic>[0] & { headerRight?: ReactNode }) {
   const {
     feeOptions,
     feeOptionIndex,
@@ -24,7 +28,8 @@ export function FeeRateBar({ readonly, headerRight }: { readonly?: boolean; head
     feeEstimateUnavailable,
     fallbackFeeRate
   } = useFeeRateBarLogic({
-    readonly
+    readonly,
+    quote
   });
 
   const { t } = useI18n();

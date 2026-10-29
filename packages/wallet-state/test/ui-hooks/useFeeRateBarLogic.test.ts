@@ -379,4 +379,72 @@ describe('useFeeRateBarLogic', () => {
       })
     })
   })
+
+  describe('with a quote its screen shares', () => {
+    type SharedQuote = NonNullable<Parameters<typeof useFeeRateBarLogic>[0]['quote']>
+
+    it('offers the shared quote without reading its own, and moves to a newer one in the same render', async () => {
+      const wallet = createWalletMock()
+      const { wrapper } = createHookTestHarness({ wallet })
+      const first = qbitFeeSummary()
+      const second = {
+        ...qbitFeeSummary('unavailable'),
+        list: [
+          { title: 'slow', desc: 'slow', feeRate: 4, targetBlocks: 12 },
+          { title: 'avg', desc: 'avg', feeRate: 5, targetBlocks: 4 },
+          { title: 'fast', desc: 'fast', feeRate: 6, targetBlocks: 1 },
+        ],
+      }
+      const { result, rerender } = renderHook(
+        ({ quote }: { quote: SharedQuote }) => useFeeRateBarLogic({ quote }),
+        { wrapper, initialProps: { quote: { status: 'loading' } } }
+      )
+      expect(result.current.feeOptions).toEqual([])
+
+      rerender({ quote: { status: 'loaded', summary: first } })
+      expect(result.current.feeOptions.map(option => option.feeRate)).toEqual([1, 2, 3, 0])
+      expect(result.current.feeQuote).toEqual(first.quote)
+
+      rerender({ quote: { status: 'loaded', summary: second } })
+      expect(result.current.feeOptions.map(option => option.feeRate)).toEqual([4, 5, 6, 0])
+      expect(result.current.feeQuote).toEqual(second.quote)
+      expect(result.current.feeEstimateUnavailable).toBe(true)
+
+      // A read that failed leaves nothing to offer, as one of its own would.
+      rerender({ quote: { status: 'loaded' } })
+      expect(result.current.feeOptions).toEqual([])
+      expect(wallet.getFeeSummary).not.toHaveBeenCalled()
+    })
+
+    it('leaves the shared quote as it is when low-fee mode lowers the slow rate', async () => {
+      const wallet = createWalletMock()
+      wallet.getLowFeeSummary.mockResolvedValue({
+        list: [
+          { title: 'slow', desc: 'slow', feeRate: 0.5 },
+          { title: 'avg', desc: 'avg', feeRate: 0.8 },
+          { title: 'fast', desc: 'fast', feeRate: 1.5 },
+        ],
+      })
+      const { store, wrapper } = createHookTestHarness({ wallet })
+      store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_MAINNET }))
+      // A summary without qbit quote metadata, which low-fee mode applies to.
+      const summary = {
+        list: [
+          { title: 'slow', desc: 'slow', feeRate: 2 },
+          { title: 'avg', desc: 'avg', feeRate: 3 },
+          { title: 'fast', desc: 'fast', feeRate: 4 },
+        ],
+      }
+      const before = JSON.parse(JSON.stringify(summary))
+      const quote: SharedQuote = { status: 'loaded', summary }
+
+      const { result } = renderHook(() => useFeeRateBarLogic({ quote }), { wrapper })
+      await waitFor(() => {
+        expect(result.current.feeOptions.map(option => option.feeRate)).toEqual([0.8, 3, 4, 0])
+      })
+      expect(result.current.supportLowFeeMode).toBe(true)
+      expect(summary).toEqual(before)
+      expect(wallet.getFeeSummary).not.toHaveBeenCalled()
+    })
+  })
 })

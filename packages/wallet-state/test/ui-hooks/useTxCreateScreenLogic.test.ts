@@ -15,6 +15,7 @@ import * as walletShared from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 
 import { useTxCreateScreenLogic } from '../../src/ui-hooks/useTxCreateScreenLogic'
+import { useFeeRateBarLogic } from '../../src/ui-hooks/useFeeRateBarLogic'
 import {
   estimateQbitP2mrSendAllPreflight,
   estimateQbitP2mrSendPreflight,
@@ -2522,15 +2523,14 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     },
   }
 
-  function renderSend({
-    feeRate,
-    quote,
-    utxoValues = [10_000_000],
-  }: {
+  interface SendSetup {
     feeRate: number
     quote: unknown
     utxoValues?: number[]
-  }) {
+  }
+
+  /** The store, wallet and wrapper for a send of `utxoValues` at `feeRate`, and its recipient. */
+  function prepareSend({ feeRate, quote, utxoValues = [10_000_000] }: SendSetup) {
     const account = p2mrAccount()
     const { wrapper: baseWrapper, store, wallet } = createHookTestHarness()
     const t = (key: string, substitutions?: string | string[] | Record<string, string | number>) =>
@@ -2595,6 +2595,11 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       })
     )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
+    return { store, wallet, wrapper, recipient }
+  }
+
+  function renderSend(setup: SendSetup) {
+    const { store, wrapper, recipient } = prepareSend(setup)
     const rendered = renderHook(() => useTxCreateScreenLogic(), { wrapper })
     act(() => {
       rendered.result.current.onAddressInputChange({ address: recipient, domain: '' })
@@ -2719,5 +2724,81 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       expect(result.current.spendSummary?.totalSpend).toBe('0.00003860')
     })
     expect(result.current.spendSummary?.feeWarnings).toEqual([])
+  })
+
+  /** The send screen's logic with its fee bar, as the screen renders them. */
+  function useSendScreenWithFeeBar() {
+    const screen = useTxCreateScreenLogic()
+    return { screen, feeBar: useFeeRateBarLogic({ quote: screen.feeQuote }) }
+  }
+
+  const feeBarRates = (feeBar: ReturnType<typeof useFeeRateBarLogic>) =>
+    feeBar.feeOptions.slice(0, 3).map(option => option.feeRate)
+
+  it('reads one quote for the fee bar and the fee check', async () => {
+    // The background's quote refreshes between two reads. A second read would
+    // offer Fast at 400 bits/vB, against which a 400 rate looks recommended.
+    const refreshedQuote = {
+      ...LIVE_QUOTE,
+      list: [
+        { title: 'Slow', desc: '', feeRate: 100 },
+        { title: 'Normal', desc: '', feeRate: 200 },
+        { title: 'Fast', desc: '', feeRate: 400 },
+      ],
+    }
+    const { wallet, wrapper, recipient } = prepareSend({ feeRate: 400, quote: refreshedQuote })
+    wallet.getFeeSummary.mockResolvedValueOnce(LIVE_QUOTE)
+    const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00100000')
+    })
+
+    await waitFor(() => {
+      expect(feeBarRates(result.current.feeBar)).toEqual([1, 1, 2])
+      expect(result.current.screen.spendSummary?.feeWarnings).toContain(
+        'fee_warning_above_recommended:400,200,2'
+      )
+    })
+    expect(wallet.getFeeSummary).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves the fee bar and the fee check to a newer quote in the same render', async () => {
+    const testnetQuote = {
+      ...LIVE_QUOTE,
+      list: [
+        { title: 'Slow', desc: '', feeRate: 3 },
+        { title: 'Normal', desc: '', feeRate: 4 },
+        { title: 'Fast', desc: '', feeRate: 5 },
+      ],
+    }
+    const { wallet, store, wrapper } = prepareSend({ feeRate: 400, quote: testnetQuote })
+    wallet.getFeeSummary.mockResolvedValueOnce(LIVE_QUOTE)
+    // What each render's fee check compared with, and what its fee bar offered.
+    const renders: { quoteRates: number[]; barRates: number[] }[] = []
+    const { result } = renderHook(
+      () => {
+        const rendered = useSendScreenWithFeeBar()
+        const { feeQuote } = rendered.screen
+        renders.push({
+          quoteRates:
+            feeQuote.status === 'loaded'
+              ? (feeQuote.summary?.list.map(tier => tier.feeRate) ?? [])
+              : [],
+          barRates: feeBarRates(rendered.feeBar),
+        })
+        return rendered
+      },
+      { wrapper }
+    )
+    await waitFor(() => expect(feeBarRates(result.current.feeBar)).toEqual([1, 1, 2]))
+
+    act(() => {
+      store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
+    })
+
+    await waitFor(() => expect(feeBarRates(result.current.feeBar)).toEqual([3, 4, 5]))
+    expect(wallet.getFeeSummary).toHaveBeenCalledTimes(2)
+    for (const render of renders) expect(render.barRates).toEqual(render.quoteRates)
   })
 })

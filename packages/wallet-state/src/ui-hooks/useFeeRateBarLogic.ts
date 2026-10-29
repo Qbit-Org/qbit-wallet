@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  QBIT_MAX_FEE_RATE,
-  QBIT_MIN_RELAY_FEE_RATE,
-  type FeeQuoteMetadata,
-} from '@qbit/wallet-shared'
+import { QBIT_MAX_FEE_RATE, QBIT_MIN_RELAY_FEE_RATE, type FeeSummary } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import { useI18n, useWallet } from '../context'
 import { useChain, useFeeRateBar, useUpdateFeeRateBar } from '../hooks'
@@ -22,6 +18,13 @@ interface FeeOption {
   feeRate: number
   targetBlocks?: number
 }
+
+/**
+ * A fee quote a screen reads once and shares with its fee bar, so that the
+ * rates the bar offers and the rate the screen checks come from one quote.
+ * A read that failed is loaded with no summary.
+ */
+export type FeeQuoteState = { status: 'loading' } | { status: 'loaded'; summary?: FeeSummary }
 
 const translationKeys = {
   [FeeRateType.SLOW]: { type: FeeRateType.SLOW, title: 'slow', desc: 'feerate_slow_desc' },
@@ -76,10 +79,39 @@ function formatFeeRateTextKey(
   })
 }
 
-export function useFeeRateBarLogic({ readonly }: { readonly?: boolean }) {
+// The quote's list with low-fee mode's slow rate, below 1 sat/vB, in place of
+// its own. A new list: the quote's may be one its screen checks fees with.
+function withLowFeeSlowRate(list: FeeOption[], lowFeeSummary: FeeSummary): FeeOption[] {
+  let slow: FeeOption = lowFeeSummary.list[1]
+
+  // try use slow fee rate if it's lower than 1 sat/vB
+  if (slow.feeRate > 1) {
+    slow = lowFeeSummary.list[0]
+  }
+
+  // ensure slow fee rate is below 1 sat/vB
+  if (slow.feeRate > 1) {
+    slow = { ...slow, feeRate: 0.1 }
+  }
+
+  return [slow, ...list.slice(1)]
+}
+
+export function useFeeRateBarLogic({
+  readonly,
+  quote,
+}: {
+  readonly?: boolean
+  /** The quote its screen read; without one the fee bar reads its own. */
+  quote?: FeeQuoteState
+}) {
   const wallet = useWallet()
-  const [feeOptions, setFeeOptions] = useState<FeeOption[]>([])
-  const [feeQuote, setFeeQuote] = useState<FeeQuoteMetadata | undefined>()
+  const [ownSummary, setOwnSummary] = useState<FeeSummary | undefined>()
+  // Low-fee rates with the summary they were read for, so that rates read for
+  // an earlier quote never join a newer one.
+  const [lowFeeRead, setLowFeeRead] = useState<
+    { summary: FeeSummary; lowFeeSummary: FeeSummary } | undefined
+  >()
   const feeRateBarState = useFeeRateBar()
   const updateFeeRateBar = useUpdateFeeRateBar()
   const feeRateInputVal = feeRateBarState.feeRateInputVal
@@ -95,45 +127,16 @@ export function useFeeRateBarLogic({ readonly }: { readonly?: boolean }) {
   const fontSize = useMemo(() => (isSpecialLocale ? 'xxxs' : 'xxs'), [isSpecialLocale])
 
   const configuredLowFeeMode = chain.enableLowFeeMode ?? false
+  const sharesQuote = quote !== undefined
 
   useEffect(() => {
+    if (sharesQuote) return undefined
     let cancelled = false
 
     const loadFeeSummary = async () => {
       const feeSummary = await wallet.getFeeSummary()
       if (cancelled) return
-
-      const isQbitQuote = feeSummary.quote !== undefined
-
-      if (configuredLowFeeMode && !isQbitQuote) {
-        const lowFeeSummary = await wallet.getLowFeeSummary()
-        if (cancelled) return
-
-        feeSummary.list[0] = lowFeeSummary.list[1]
-
-        // try use slow fee rate if it's lower than 1 sat/vB
-        if (feeSummary.list[0].feeRate > 1) {
-          feeSummary.list[0] = lowFeeSummary.list[0]
-        }
-
-        // ensure slow fee rate is below 1 sat/vB
-        if (feeSummary.list[0].feeRate > 1) {
-          feeSummary.list[0].feeRate = 0.1
-        }
-      }
-
-      const translatedList = formatFeeRateTextKey(
-        feeSummary.list,
-        configuredLowFeeMode && !isQbitQuote,
-        t
-      )
-      const options = readonly
-        ? translatedList
-        : [...translatedList, { type: FeeRateType.CUSTOM, title: t('custom'), feeRate: 0 }]
-
-      if (cancelled) return
-      setFeeQuote(feeSummary.quote)
-      setFeeOptions(options)
+      setOwnSummary(feeSummary)
     }
 
     void loadFeeSummary()
@@ -141,7 +144,46 @@ export function useFeeRateBarLogic({ readonly }: { readonly?: boolean }) {
     return () => {
       cancelled = true
     }
-  }, [wallet, t, configuredLowFeeMode, readonly, chain.enum])
+  }, [wallet, sharesQuote, chain.enum])
+
+  const feeSummary = quote ? (quote.status === 'loaded' ? quote.summary : undefined) : ownSummary
+  const feeQuote = feeSummary?.quote
+  const lowFeeModeApplies =
+    configuredLowFeeMode && feeSummary !== undefined && feeQuote === undefined
+
+  useEffect(() => {
+    if (!feeSummary || !lowFeeModeApplies) return undefined
+    let cancelled = false
+
+    const loadLowFeeSummary = async () => {
+      const lowFeeSummary = await wallet.getLowFeeSummary()
+      if (cancelled) return
+      setLowFeeRead({ summary: feeSummary, lowFeeSummary })
+    }
+
+    void loadLowFeeSummary()
+
+    return () => {
+      cancelled = true
+    }
+  }, [wallet, feeSummary, lowFeeModeApplies])
+
+  // Derived during render, so the options move to a newer quote in the same
+  // render as the fee check of the screen that shares it.
+  const feeOptions = useMemo((): FeeOption[] => {
+    if (!feeSummary) return []
+
+    let list: FeeOption[] = feeSummary.list
+    if (lowFeeModeApplies) {
+      if (lowFeeRead?.summary !== feeSummary) return []
+      list = withLowFeeSlowRate(list, lowFeeRead.lowFeeSummary)
+    }
+
+    const translatedList = formatFeeRateTextKey(list, lowFeeModeApplies, t)
+    return readonly
+      ? translatedList
+      : [...translatedList, { type: FeeRateType.CUSTOM, title: t('custom'), feeRate: 0 }]
+  }, [feeSummary, lowFeeModeApplies, lowFeeRead, t, readonly])
 
   const supportLowFeeMode = configuredLowFeeMode && feeQuote === undefined
 
