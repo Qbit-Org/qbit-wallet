@@ -84,8 +84,10 @@ function task_clean() {
   return gulp.src(`dist/${options.browser}/*`, { read: false }).pipe(clean());
 }
 
+// Gulp 5 decodes file contents as UTF-8 unless `encoding: false` is set, which
+// corrupts images, fonts and WebAssembly. Tasks that copy files read raw bytes.
 function task_prepare() {
-  return gulp.src('build/_raw/**/*').pipe(gulp.dest(`dist/${options.browser}`));
+  return gulp.src('build/_raw/**/*', { encoding: false }).pipe(gulp.dest(`dist/${options.browser}`));
 }
 
 function task_merge_manifest() {
@@ -142,7 +144,7 @@ function task_uglify(cb) {
 function task_package(cb) {
   if (options.env == 'pro') {
     return gulp
-      .src(`dist/${options.browser}/**/*`, { dot: true, nodir: true })
+      .src(`dist/${options.browser}/**/*`, { dot: true, nodir: true, encoding: false })
       .pipe(createDeterministicArchiveInput())
       .pipe(zip(getArtifactName(), { modifiedTime: FIXED_ARCHIVE_MTIME }))
       .pipe(gulp.dest('./dist'));
