@@ -173,7 +173,9 @@ export function useTxFailScreenLogic() {
     setStatusNotice(null)
     setRetryBlocked(null)
     try {
-      const next = await pushQbitTx(retained, result.chain)
+      // The background is told whether this screen's verdict is unknown:
+      // after a restart, it cannot tell otherwise.
+      const next = await pushQbitTx(retained, result.chain, result.outcome === 'unknown')
       if (next.success === true) {
         leaveForSuccess(next.txid)
         return

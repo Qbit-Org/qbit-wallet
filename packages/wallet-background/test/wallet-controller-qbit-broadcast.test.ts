@@ -1992,11 +1992,12 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     )
     for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
     // The first broadcast, before the restart, ended unknown and may have
-    // reached another node behind the endpoint; the restored claim is all
-    // the guard has of it. The node's rejection of the retry proves nothing
-    // about that broadcast, so the outcome stays unknown, never not_sent.
+    // reached another node behind the endpoint; the recovery screen's retry
+    // says so, and the restored claim is all the guard has of it. The
+    // node's rejection of the retry proves nothing about that broadcast, so
+    // the outcome stays unknown, never not_sent.
     await expect(
-      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid, true)
     ).resolves.toMatchObject({ success: false, outcome: 'unknown', reason: 'rejected' })
 
     // The verdict alone does not spend the reservation. Releasing the claim
@@ -2038,6 +2039,59 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
     ).resolves.toMatchObject({ success: true, via: 'broadcast' })
     expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+  })
+
+  it("proves a restored claim's bytes absent when the recovery screen's verdict was not_sent", async () => {
+    const wallet = newController()
+    const signedData = await signWalletSend(wallet)
+    const claim = signedData.qbitSendBroadcastClaim!
+    // The node rejects the first broadcast and absence is proven: the
+    // recovery screen shows not_sent and keeps the claim for a retry.
+    broadcastTxMock.mockRejectedValueOnce(
+      rejection('sendrawtransaction RPC error: {"code":-26,"message":"min relay fee not met"}')
+    )
+    for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    ).resolves.toMatchObject({ success: false, outcome: 'not_sent', reason: 'rejected' })
+    restartBackground()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
+
+    // Its retry after the restart restores the claim without counting an
+    // earlier unknown outcome, so the node's rejection, with absence proven
+    // again, is not_sent.
+    probeGone()
+    broadcastTxMock.mockRejectedValueOnce(
+      rejection('sendrawtransaction RPC error: {"code":-26,"message":"min relay fee not met"}')
+    )
+    for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid, false)
+    ).resolves.toMatchObject({ success: false, outcome: 'not_sent', reason: 'rejected' })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+
+    // Leaving the screen releases the claim, and nothing else holds the input.
+    await expect(reservedKeys()).resolves.toEqual(reserved)
+    await expect(wallet.releaseQbitSendBroadcastClaim(claim)).resolves.toBe(true)
+    await expect(reservedKeys()).resolves.toEqual(new Set())
+  })
+
+  it('never counts the claim of a provider sendQbit broadcast after a restart as an earlier unknown outcome', async () => {
+    const wallet = newController()
+    const claim = claimFor()
+    await qbitSendGuardService.runWithBroadcastClaim(claim, async () => 'approved')
+    restartBackground()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
+
+    // The provider broadcasts with the claim's own network and txid and
+    // nothing more (see `broadcastQbitProviderSend`).
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(fixture.psbtHex, claim, claim.chain, claim.txid)
+    ).resolves.toMatchObject({ success: false, outcome: 'unknown', reason: 'guard_blocked' })
+    await expect(
+      qbitSendGuardService.hasUnknownBroadcastOutcome(ChainType.QBIT_REGTEST, fixture.txid)
+    ).resolves.toBe(false)
   })
 
   it('never restores a provider claim', async () => {

@@ -725,7 +725,8 @@ describe('useTxFailScreenLogic', () => {
       SIGNED_PSBT_HEX,
       claim,
       ChainType.QBIT_REGTEST,
-      TXID
+      TXID,
+      true
     )
     expect(result.current.outcome).toBe('unknown')
     expect(result.current.reason).toBe('unexpected')
@@ -762,7 +763,8 @@ describe('useTxFailScreenLogic', () => {
       SIGNED_PSBT_HEX,
       claim,
       ChainType.QBIT_REGTEST,
-      TXID
+      TXID,
+      true
     )
     expect(wallet.signPsbtV2).not.toHaveBeenCalled()
     // Replace, not push: this screen and its retained payload must leave
@@ -996,7 +998,8 @@ describe('useTxFailScreenLogic', () => {
       SIGNED_PSBT_HEX,
       undefined,
       ChainType.QBIT_REGTEST,
-      TXID
+      TXID,
+      true
     )
     expect(wallet.signPsbtV2).not.toHaveBeenCalled()
     expect(result.current.outcome).toBe('unknown')

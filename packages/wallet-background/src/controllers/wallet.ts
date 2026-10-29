@@ -862,15 +862,15 @@ export class WalletController extends BaseController {
    * settles later, and until it does its inputs stay reserved, which is
    * the safe side.
    *
-   * With `guardDeadline` (a balance read) the caller does not wait for the
-   * guard past it to be handed the spenders: a broadcast can hold the
+   * With `guardWaitMs` (a balance read) the caller waits at most that long
+   * for the guard to hand out the spenders: a broadcast can hold the
    * guard's queue for as long as the explorer takes to answer it. Those
    * spenders are probed once the guard hands them out, and settle later.
    */
   private async settleQbitRecentSpends(
     chain: ChainType,
     address: string,
-    guardDeadline?: Promise<void>
+    guardWaitMs?: number
   ): Promise<void> {
     const taken = qbitSendGuardService.takeRecentSpendersToProbe(chain, address)
     const probeAll = (probes: Awaited<typeof taken>): Promise<unknown> =>
@@ -885,7 +885,8 @@ export class WalletController extends BaseController {
           await qbitSendGuardService.settleRecentSpendProbe(chain, probe, lifecycle.state)
         })
       ).catch(() => undefined)
-    const probes = guardDeadline ? await this.qbitGuardReadBy(taken, guardDeadline) : await taken
+    const probes =
+      guardWaitMs === undefined ? await taken : await this.qbitGuardReadWithin(taken, guardWaitMs)
     if (probes === undefined) {
       void taken.then(probeAll, () => undefined)
       return
@@ -903,25 +904,31 @@ export class WalletController extends BaseController {
   }
 
   /**
-   * `read`, a send guard read, or `undefined` once `deadline` has passed
-   * and the guard has still not answered. Past the deadline a read still
-   * gets one timer turn, in which a guard whose queue is free answers; one
-   * queued behind a broadcast is not waited for, and its late answer is
-   * dropped.
+   * `read`, a send guard read just queued, or `undefined` when the guard
+   * has not answered it within `waitMs`. A read queued behind a broadcast
+   * is not waited for, and its late answer is dropped.
    */
-  private qbitGuardReadBy<T>(read: Promise<T>, deadline: Promise<void>): Promise<T | undefined> {
-    return Promise.race([
-      read,
-      deadline.then(() => new Promise<undefined>(resolve => setTimeout(resolve, 0))),
-    ])
+  private async qbitGuardReadWithin<T>(read: Promise<T>, waitMs: number): Promise<T | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        read,
+        new Promise<undefined>(resolve => {
+          timer = setTimeout(() => resolve(undefined), waitMs)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   /** How long a UTXO read waits for recent-spend probes; see `settleQbitRecentSpends`. */
   qbitRecentSpendProbeWaitMs = QBIT_RECENT_SPEND_PROBE_WAIT_MS
 
   /**
-   * How long a balance read waits for the send guard before it reports
-   * the split as unknown; see `getAddressBalanceV2`.
+   * How long a balance read waits for the send guard, each time it queues a
+   * read there, before it reports the split as unknown; see
+   * `getAddressBalanceV2`.
    */
   qbitBalanceGuardWaitMs = 1_000
 
@@ -1498,48 +1505,40 @@ export class WalletController extends BaseController {
     // never reject.
     //
     // A broadcast holds the guard's queue until the explorer answers it,
-    // which can take a minute, so the guard is waited for only until
-    // `qbitBalanceGuardWaitMs` after the read started. Past that, without
-    // the reservations, the split is unknown.
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const guardDeadline = new Promise<void>(resolve => {
-      timer = setTimeout(resolve, this.qbitBalanceGuardWaitMs)
-    })
+    // which can take a minute, so each wait for the guard lasts at most
+    // `qbitBalanceGuardWaitMs`. Past that, without the reservations, the
+    // split is unknown.
     let reservedUnknown = false
-    try {
-      const probed = this.settleQbitRecentSpends(chainType, address, guardDeadline)
-      const data = await getQbitSpendableBalanceV2(
-        this.getQbitApiClient(chainType),
-        address,
-        p2mrScriptPubKey,
-        async () => {
-          await probed
-          const reserved = await this.qbitGuardReadBy(
-            qbitSendGuardService.getReservedOutpointKeys(chainType, address),
-            guardDeadline
-          )
-          if (reserved !== undefined) return reserved
-          reservedUnknown = true
-          return new Set<string>()
-        }
-      )
-      if (reservedUnknown) {
-        // Shown as `--`, as past the explorer's UTXO limit, but without
-        // `utxoLimitExceeded`: the total is measured, and nothing counts as
-        // available until a read has the reservations again.
-        return {
-          availableBalance: null,
-          unavailableBalance: Math.max(0, data.totalBalance),
-          totalBalance: data.totalBalance,
-          immatureBalance: null,
-          pendingBalance: null,
-          chainType,
-        }
+    const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
+    const data = await getQbitSpendableBalanceV2(
+      this.getQbitApiClient(chainType),
+      address,
+      p2mrScriptPubKey,
+      async () => {
+        await probed
+        const reserved = await this.qbitGuardReadWithin(
+          qbitSendGuardService.getReservedOutpointKeys(chainType, address),
+          this.qbitBalanceGuardWaitMs
+        )
+        if (reserved !== undefined) return reserved
+        reservedUnknown = true
+        return new Set<string>()
       }
-      return { ...data, chainType }
-    } finally {
-      clearTimeout(timer)
+    )
+    if (reservedUnknown) {
+      // Shown as `--`, as past the explorer's UTXO limit, but without
+      // `utxoLimitExceeded`: the total is measured, and nothing counts as
+      // available until a read has the reservations again.
+      return {
+        availableBalance: null,
+        unavailableBalance: Math.max(0, data.totalBalance),
+        totalBalance: data.totalBalance,
+        immatureBalance: null,
+        pendingBalance: null,
+        chainType,
+      }
     }
+    return { ...data, chainType }
   }
 
   getMultiAddressSummaries = async (addresses: string) => {
@@ -7301,12 +7300,18 @@ export class WalletController extends BaseController {
    * which is what a background restart leaves the page holding, the
    * wallet's own claim is restored under the checks minting applies and the
    * retained bytes are dispatched, so recovery needs no second signature.
+   * `retryOfUnknownOutcome` is passed only by the wallet's recovery screen,
+   * when its verdict for these bytes is `unknown`: a claim restored then
+   * counts as an earlier unknown outcome (see
+   * `QbitSendGuardService.restoreBroadcastClaim`). The provider never
+   * passes it.
    */
   broadcastQbitTx = async (
     txData: string,
     qbitSendBroadcastClaim?: QbitSendBroadcastClaim | null,
     expectedChain?: ChainType | null,
-    expectedTxid?: string | null
+    expectedTxid?: string | null,
+    retryOfUnknownOutcome?: boolean | null
   ): Promise<QbitBroadcastResult> => {
     // Before the first await: the port this verdict is handed back to. The
     // attempt is marked in flight synchronously as well, so that port
@@ -7322,7 +7327,9 @@ export class WalletController extends BaseController {
         claim,
         expectedChain,
         expectedTxid,
-        uiPort
+        uiPort,
+        false,
+        retryOfUnknownOutcome === true
       )
       verdict = result.success
         ? 'accepted'
@@ -7345,7 +7352,8 @@ export class WalletController extends BaseController {
     expectedChain?: ChainType | null,
     expectedTxid?: string | null,
     uiPort?: QbitSendClaimOwner,
-    providerPush = false
+    providerPush = false,
+    retryOfUnknownOutcome = false
   ): Promise<QbitBroadcastResult> => {
     const chain = this.getChainType()
     // Every refusal below happens before dispatch, so nothing was sent and
@@ -7583,7 +7591,8 @@ export class WalletController extends BaseController {
             chain,
             txid,
             outpoints,
-            uiPort
+            uiPort,
+            retryOfUnknownOutcome
           )
           if (restoration === 'restored') {
             restored = true
@@ -7649,7 +7658,8 @@ export class WalletController extends BaseController {
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    uiPort: QbitSendClaimOwner | undefined
+    uiPort: QbitSendClaimOwner | undefined,
+    retryOfUnknownOutcome: boolean
   ): Promise<'restored' | 'account_changed' | 'refused'> {
     if (
       claim.origin !== QBIT_WALLET_SEND_CLAIM_ORIGIN ||
@@ -7666,7 +7676,8 @@ export class WalletController extends BaseController {
     const restoration = await qbitSendGuardService.restoreBroadcastClaim(
       claim,
       account.address,
-      uiPort
+      uiPort,
+      retryOfUnknownOutcome
     )
     return restoration === 'address_mismatch' ? 'account_changed' : restoration
   }
