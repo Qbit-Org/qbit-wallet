@@ -128,13 +128,25 @@ function withLowFeeSlowRate(list: FeeOption[], lowFeeSummary: FeeSummary): FeeOp
 /**
  * The rate the fee bar selects from `quote` for option `feeOptionIndex`, when
  * the quote alone decides it: a recommended option of a quote with qbit
- * metadata, which low-fee mode leaves as it is. Undefined for a Custom rate
- * and for a quote that is loading, failed, or has no qbit metadata.
+ * metadata, which low-fee mode leaves as it is, or the relay floor after a
+ * failed read. Undefined for a Custom rate and for a quote that is loading or
+ * has no qbit metadata.
  */
 export function feeBarQuoteRate(quote: FeeQuoteState, feeOptionIndex: number): number | undefined {
-  if (quote.status !== 'loaded' || quote.summary?.quote === undefined) return undefined
-  if (feeOptionIndex === FeeRateType.CUSTOM) return undefined
+  if (quote.status !== 'loaded' || feeOptionIndex === FeeRateType.CUSTOM) return undefined
+  if (quote.summary === undefined) return QBIT_MIN_RELAY_FEE_RATE
+  if (quote.summary.quote === undefined) return undefined
   return quote.summary.list[feeOptionIndex]?.feeRate
+}
+
+/**
+ * Whether option `feeOptionIndex` waits for `quote` to load. A tier does:
+ * until the bar selects its rate from the quote, the selected rate is the
+ * bar's default or a rate from an earlier quote, after a network change the
+ * other network's. A Custom rate is the user's own and waits for nothing.
+ */
+export function feeBarAwaitsQuote(quote: FeeQuoteState, feeOptionIndex: number): boolean {
+  return quote.status === 'loading' && feeOptionIndex !== FeeRateType.CUSTOM
 }
 
 export function useFeeRateBarLogic({

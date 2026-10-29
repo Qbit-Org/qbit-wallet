@@ -41,7 +41,7 @@ import {
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
-import { feeBarQuoteRate, type FeeQuoteState } from './useFeeRateBarLogic'
+import { feeBarAwaitsQuote, feeBarQuoteRate, type FeeQuoteState } from './useFeeRateBarLogic'
 
 /** What the previewed send takes from the wallet, for the total and the fee check. */
 interface SendSpendPreview {
@@ -448,11 +448,14 @@ export function useTxCreateScreenLogic() {
   // render or two after a newer quote the preview is at an earlier rate.
   const quoteFeeRate = feeBarQuoteRate(feeQuote, feeRateBarState.feeOptionIndex)
   // Until the preview is at that rate its fee is not judged against the
-  // quote, and Next waits: a send built now would use the earlier rate.
+  // quote, and Next waits: a send built now would use the earlier rate. So
+  // too while a tier's quote loads, with or without a preview: its rate is
+  // still the bar's default or, after a network change, the other network's.
   const feeRateCatchingUp =
-    spendPreview !== undefined &&
-    quoteFeeRate !== undefined &&
-    spendPreview.feeRate !== quoteFeeRate
+    feeBarAwaitsQuote(feeQuote, feeRateBarState.feeOptionIndex) ||
+    (spendPreview !== undefined &&
+      quoteFeeRate !== undefined &&
+      spendPreview.feeRate !== quoteFeeRate)
 
   // What leaves the wallet (the recipient's amount plus the fee; change comes
   // back, and so does a payment to another of the wallet's accounts) and

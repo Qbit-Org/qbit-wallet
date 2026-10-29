@@ -2595,7 +2595,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       })
     )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
-    return { store, wallet, wrapper, recipient }
+    return { store, wallet, wrapper, recipient, account, utxos }
   }
 
   function renderSend(setup: SendSetup) {
@@ -2907,7 +2907,8 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       result.current.screen.onAmountInputChange('0.10000000')
     })
     await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10154400'))
-    expect(result.current.screen.disabled).toBe(false)
+    // While the quote loads, Fast is still at the earlier quote's rate.
+    expect(result.current.screen.disabled).toBe(true)
 
     await act(async () => {
       resolveQuote(busyQuote)
@@ -2923,6 +2924,235 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     const held = renders.filter(render => render.quoteLoaded && render.totalSpend === '0.10154400')
     expect(held.length).toBeGreaterThan(0)
     for (const render of held) {
+      expect(render.warnings).toEqual([])
+      expect(render.disabled).toBe(true)
+    }
+  })
+
+  // Slow, Normal and Fast at 50, 100 and 150 bits/vB: 50 to 150 times the relay floor.
+  const BUSY_QUOTE = {
+    ...LIVE_QUOTE,
+    list: [
+      { title: 'Slow', desc: '', feeRate: 50 },
+      { title: 'Normal', desc: '', feeRate: 100 },
+      { title: 'Fast', desc: '', feeRate: 150 },
+    ],
+  }
+
+  /** A fee quote read that settles only when the test settles it. */
+  function pendingQuoteRead(wallet: ReturnType<typeof prepareSend>['wallet']) {
+    const read: { resolve?: (quote: unknown) => void; reject?: (error: unknown) => void } = {}
+    wallet.getFeeSummary.mockReturnValueOnce(
+      new Promise((resolve, reject) => {
+        read.resolve = resolve
+        read.reject = reject
+      })
+    )
+    return read as Required<typeof read>
+  }
+
+  /** What the send screen offered in one render, and the network its outputs were read on. */
+  interface SendRender {
+    outputsNetwork: ChainType | null
+    quoteLoaded: boolean
+    totalSpend?: string
+    warnings: string[]
+    disabled: boolean
+  }
+
+  /** The send screen with its fee bar, recording each render. */
+  function renderSendRecorded(
+    store: ReturnType<typeof prepareSend>['store'],
+    wrapper: ReturnType<typeof prepareSend>['wrapper']
+  ) {
+    const renders: SendRender[] = []
+    const rendered = renderHook(
+      () => {
+        const sendScreen = useSendScreenWithFeeBar()
+        const { screen } = sendScreen
+        renders.push({
+          outputsNetwork: store.getState().transactions.utxosChain,
+          quoteLoaded: screen.feeQuote.status === 'loaded',
+          totalSpend: screen.spendSummary?.totalSpend,
+          warnings: screen.spendSummary?.feeWarnings ?? [],
+          disabled: screen.disabled,
+        })
+        return sendScreen
+      },
+      { wrapper }
+    )
+    return { ...rendered, renders }
+  }
+
+  it('keeps Next disabled and judges nothing while the quote of a selected tier loads on opening', async () => {
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 1,
+      quote: BUSY_QUOTE,
+      utxoValues: [100_000_000],
+    })
+    // As the wallet's Send button leaves it: Normal, at the bar's default of 1 bit/vB.
+    store.dispatch((uiActions as any).resetFeeRateBar())
+    const quoteRead = pendingQuoteRead(wallet)
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+
+    // The outputs load before the quote: a preview at the default rate.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10003860'))
+    expect(result.current.screen.spendSummary).toEqual({
+      totalSpend: '0.10003860',
+      feeWarnings: [],
+    })
+    expect(result.current.screen.disabled).toBe(true)
+
+    await act(async () => {
+      quoteRead.resolve(BUSY_QUOTE)
+    })
+
+    // Normal at 100 bits/vB: the preview follows it, Next with it, and its fee is judged.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10386000'))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(100)
+    expect(result.current.screen.spendSummary?.feeWarnings).toContainEqual(
+      expect.stringMatching(/^fee_warning_above_relay_floor:/)
+    )
+    expect(result.current.screen.disabled).toBe(false)
+    // At the default rate, while the quote loaded and while the rate caught up with it.
+    const atDefaultRate = renders.filter(render => render.totalSpend === '0.10003860')
+    expect(atDefaultRate.some(render => !render.quoteLoaded)).toBe(true)
+    for (const render of atDefaultRate) {
+      expect(render.warnings).toEqual([])
+      expect(render.disabled).toBe(true)
+    }
+  })
+
+  it('leaves a Custom rate to Next and the fee check while the quote loads', async () => {
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 150,
+      quote: BUSY_QUOTE,
+      utxoValues: [100_000_000],
+    })
+    pendingQuoteRead(wallet)
+    const { result } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10579000'))
+    expect(result.current.screen.spendSummary?.feeWarnings).toContainEqual(
+      expect.stringMatching(/^fee_warning_above_relay_floor:/)
+    )
+    expect(result.current.screen.disabled).toBe(false)
+  })
+
+  /**
+   * The send screen at mainnet's Fast, 150 bits/vB, moved to testnet, whose
+   * outputs load while its quote is still being read.
+   */
+  async function sendOnAnotherNetworkWhileItsQuoteLoads() {
+    const { wallet, store, wrapper, recipient, account, utxos } = prepareSend({
+      feeRate: 150,
+      quote: BUSY_QUOTE,
+      utxoValues: [100_000_000],
+    })
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({
+        feeRate: 150,
+        feeRateInputVal: '150',
+        feeOptionIndex: 2,
+      })
+    )
+    // Each read of the outputs answers for the network it was asked on.
+    wallet.getQbitUtxoSnapshot.mockImplementation(async () => ({
+      address: account.address,
+      chain: store.getState().settings.chainType,
+      utxos,
+    }))
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+    await waitFor(() => {
+      expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10579000')
+      expect(result.current.screen.disabled).toBe(false)
+    })
+
+    const quoteRead = pendingQuoteRead(wallet)
+    const testnetRecipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'testnet4')
+    act(() => {
+      store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
+      result.current.screen.onAddressInputChange({ address: testnetRecipient, domain: '' })
+    })
+    // Previews from testnet's outputs.
+    const onTestnet = () =>
+      renders.filter(render => render.outputsNetwork === ChainType.QBIT_TESTNET4)
+    // The outputs load before the quote: a preview at mainnet's Fast.
+    await waitFor(() =>
+      expect(onTestnet().some(render => render.totalSpend === '0.10579000')).toBe(true)
+    )
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(150)
+    expect(result.current.screen.feeQuote.status).toBe('loading')
+    expect(result.current.screen.spendSummary).toEqual({
+      totalSpend: '0.10579000',
+      feeWarnings: [],
+    })
+    expect(result.current.screen.disabled).toBe(true)
+
+    /** Testnet renders at mainnet's rate, while the quote loaded and while the rate caught up. */
+    const atMainnetRate = () => {
+      const held = onTestnet().filter(render => render.totalSpend === '0.10579000')
+      expect(held.some(render => !render.quoteLoaded)).toBe(true)
+      expect(held.some(render => render.quoteLoaded)).toBe(true)
+      return held
+    }
+    return { result, store, quoteRead, atMainnetRate }
+  }
+
+  it('keeps Next disabled and judges nothing after a network change until its quote loads and the rate catches up', async () => {
+    const { result, store, quoteRead, atMainnetRate } =
+      await sendOnAnotherNetworkWhileItsQuoteLoads()
+
+    // Testnet's quote has no estimates: its tiers are at the relay floor.
+    await act(async () => {
+      quoteRead.resolve(FALLBACK_QUOTE)
+    })
+
+    await waitFor(() =>
+      expect(result.current.screen.spendSummary).toEqual({
+        totalSpend: '0.10003860',
+        feeWarnings: [],
+        feeRecommendationUnavailable: 'fee_warning_recommendation_unavailable',
+      })
+    )
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(1)
+    expect(result.current.screen.disabled).toBe(false)
+    for (const render of atMainnetRate()) {
+      expect(render.warnings).toEqual([])
+      expect(render.disabled).toBe(true)
+    }
+  })
+
+  it('keeps Next disabled after a network change whose quote cannot be read until the relay floor is in use', async () => {
+    const { result, store, quoteRead, atMainnetRate } =
+      await sendOnAnotherNetworkWhileItsQuoteLoads()
+
+    await act(async () => {
+      quoteRead.reject(new Error('fee read failed'))
+    })
+
+    await waitFor(() =>
+      expect(result.current.screen.spendSummary).toEqual({
+        totalSpend: '0.10003860',
+        feeWarnings: [],
+        feeRecommendationUnavailable: 'fee_warning_recommendation_unavailable',
+      })
+    )
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(1)
+    expect(result.current.screen.disabled).toBe(false)
+    for (const render of atMainnetRate()) {
       expect(render.warnings).toEqual([])
       expect(render.disabled).toBe(true)
     }
