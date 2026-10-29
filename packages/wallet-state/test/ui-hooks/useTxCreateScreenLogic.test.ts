@@ -31,6 +31,19 @@ import { uiActions } from '../../src/reducers/ui'
 import { keyringsActions } from '../../src/reducers/keyrings'
 import { I18nContext } from '../../src/context/I18nContext'
 
+/**
+ * The hook harness at a Custom rate of 1 bit/vB, the store's default rate.
+ * Most tests here render the send screen without its fee bar, and only a fee
+ * bar chooses a tier's rate: without one a tier's would never be settled.
+ */
+function createSendHarness(options?: Parameters<typeof createHookTestHarness>[0]) {
+  const harness = createHookTestHarness(options)
+  harness.store.dispatch(
+    (uiActions as any).updateFeeRateBar({ feeRate: 1, feeRateInputVal: '1', feeOptionIndex: 3 })
+  )
+  return harness
+}
+
 function p2mrAccount(pubkeyHex = '11'.repeat(32)) {
   const pubkey = hexToBytes(pubkeyHex)
   const leafScript = singleKeyLeafScript(pubkey)
@@ -71,7 +84,7 @@ describe('TxCreateScreen state hooks', () => {
   })
 
   it('loads the persisted RBF setting once instead of on every state update', async () => {
-    const { wrapper, wallet } = createHookTestHarness()
+    const { wrapper, wallet } = createSendHarness()
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
     await waitFor(() => {
@@ -94,7 +107,7 @@ describe('TxCreateScreen state hooks', () => {
     const wallet = createWalletMock()
     const saveError = new Error('QUOTA_BYTES quota exceeded')
     wallet.setEnableRBF.mockRejectedValueOnce(saveError)
-    const { wrapper } = createHookTestHarness({ wallet })
+    const { wrapper } = createSendHarness({ wallet })
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
     await waitFor(() => expect(wallet.getEnableRBF).toHaveBeenCalledTimes(1))
 
@@ -110,7 +123,7 @@ describe('TxCreateScreen state hooks', () => {
   })
 
   it('uses qbit P2MR dust for send screen validation', async () => {
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     const currentAddress = store.getState().accounts.current.address
     store.dispatch(
       accountActions.setBalanceV2({
@@ -148,7 +161,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('blocks wrong-network qbit P2MR recipients inline', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'ab'.repeat(32),
@@ -209,7 +222,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('blocks qbit sends when cached UTXOs are not spendable by the current P2MR script', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'aa'.repeat(32),
@@ -260,7 +273,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('blocks qbit sends that fit balance but cannot cover P2MR fees', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'bb'.repeat(32),
@@ -537,7 +550,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('threads the memo into prepare and sends no memo when it is empty', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'ad'.repeat(32),
@@ -612,7 +625,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('surfaces the immature/pending balance split when immature coinbase exists', async () => {
     const account = p2mrAccount()
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -637,7 +650,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('does not label other-script confirmed funds as pending', async () => {
     const account = p2mrAccount()
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -662,7 +675,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('surfaces pending funds without requiring an immature balance', async () => {
     const account = p2mrAccount()
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -686,7 +699,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('bounds displayed detail rows to their Unavailable parent', async () => {
     const account = p2mrAccount()
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -715,7 +728,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('hides the immature split when the balance reports none', async () => {
     const account = p2mrAccount()
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -735,7 +748,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('passes a send-all memo into the controller after accounting for its exact size', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet, navigation } = createHookTestHarness()
+    const { wrapper, store, wallet, navigation } = createSendHarness()
     const utxos = [
       {
         txid: 'af'.repeat(32),
@@ -822,7 +835,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('rejects memos above the OP_RETURN byte cap using backend byte semantics', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'ae'.repeat(32),
@@ -883,7 +896,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('surfaces preflight fee details including the folded sub-dust change', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'af'.repeat(32),
@@ -968,7 +981,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('blocks a qbit custom rate below the relay minimum before preflight', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'b8'.repeat(32),
@@ -1033,7 +1046,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('blocks an above-ceiling custom rate and reports the exact size-based maximum', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'b9'.repeat(32),
@@ -1093,7 +1106,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('prioritizes an above-ceiling custom rate when the clamped fee cannot be covered', async () => {
     const account = p2mrAccount()
-    const { wrapper: baseWrapper, store, wallet } = createHookTestHarness()
+    const { wrapper: baseWrapper, store, wallet } = createSendHarness()
     const t = vi.fn(
       (key: string, _substitutions?: string | string[] | Record<string, string | number>) => key
     )
@@ -1175,7 +1188,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('keeps Next disabled for P2MR sends until spendable UTXOs load', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     // Balance is cached, but UTXOs have not loaded (the snapshot never
     // arrives), so the fee preflight can't run. Next must stay disabled rather
@@ -1218,7 +1231,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('shows the spendable UTXO total as Available, the amount Max fills and the preflight checks (#279)', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
       {
         txid: 'ee'.repeat(32),
@@ -1273,7 +1286,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('shows Available as 0 once the outputs load with none left to select (#279)', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     wallet.getQbitUtxoSnapshot.mockResolvedValue({
       address: account.address,
       chain: ChainType.QBIT_MAINNET,
@@ -1315,7 +1328,7 @@ describe('TxCreateScreen state hooks', () => {
   it('shows Available as unknown, not 0, until a balance read for the account and network succeeds', async () => {
     // Without a P2MR script the screen reads no outputs of its own: Available
     // is the balance's figure alone.
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     const currentAddress = store.getState().accounts.current.address
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -1355,7 +1368,7 @@ describe('TxCreateScreen state hooks', () => {
   })
 
   it('shows Unavailable, Immature and Pending as unknown, not hidden, until a balance read succeeds', async () => {
-    const { wrapper, store } = createHookTestHarness()
+    const { wrapper, store } = createSendHarness()
     const currentAddress = store.getState().accounts.current.address
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -1390,7 +1403,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('does not take an empty cache from an earlier read as this screen’s outputs (#279)', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     // Left by an earlier read of this account on the same network; this
     // screen's own read has not landed yet.
@@ -1429,7 +1442,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('moves outputs a pending send holds out of Available and refuses amounts above it (#279)', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     // The balance still counts a 30_000 output that a broadcast just spent;
     // the snapshot of selectable outputs already leaves it out.
     const utxos = [
@@ -1486,7 +1499,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('prepare send rejects UTXOs that do not match the current P2MR script', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       transactionsActions.setUtxos({
@@ -1519,7 +1532,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('prepare send reserves P2MR fees before creating the PSBT', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       transactionsActions.setUtxos({
@@ -1552,7 +1565,7 @@ describe('TxCreateScreen state hooks', () => {
 
   it('prepare send hands the builder the network its cached outputs were loaded on, reloading a cache from another network first', async () => {
     const account = p2mrAccount()
-    const { wrapper, store, wallet } = createHookTestHarness()
+    const { wrapper, store, wallet } = createSendHarness()
     store.dispatch(accountActions.setCurrent(account))
     const utxo = (txid: string) => ({
       txid,
@@ -1632,7 +1645,7 @@ describe('TxCreateScreen state hooks', () => {
       .mockImplementation(params => ({ ...realSendAll(params), maximumTotalFee: 1 }))
     try {
       const account = p2mrAccount()
-      const { wrapper, store, wallet } = createHookTestHarness()
+      const { wrapper, store, wallet } = createSendHarness()
       const utxos = [
         {
           txid: 'de'.repeat(32),
@@ -1699,7 +1712,7 @@ describe('TxCreateScreen state hooks', () => {
         chainType: ChainType.QBIT_MAINNET,
       }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createSendHarness({ wallet: wallet as any })
     store.dispatch(accountActions.setCurrent(account))
     const { result } = renderHook(() => usePushQbitTxCallback(), { wrapper })
     let response: Awaited<ReturnType<ReturnType<typeof usePushQbitTxCallback>>> | undefined
@@ -1758,7 +1771,7 @@ describe('TxCreateScreen state hooks', () => {
       getAddressSummary: vi.fn(),
       getAddressBalanceV2: vi.fn(),
     }
-    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper } = createSendHarness({ wallet: wallet as any })
     const { result } = renderHook(() => usePushQbitTxCallback(), { wrapper })
     let response: Awaited<ReturnType<ReturnType<typeof usePushQbitTxCallback>>> | undefined
 
@@ -1842,7 +1855,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('explains an account over the explorer UTXO limit instead of silently disabling Next', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       harness.wallet.getQbitUtxoSnapshot.mockRejectedValue(new Error('HTTP 500'))
       // The cache still holds the previously loaded account's outputs.
       const previousAccount = p2mrAccount('22'.repeat(32))
@@ -1885,7 +1898,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('shows the outputs as unknown, without an error, while an over-limit read is still running', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(() => {}))
       harness.store.dispatch(accountActions.setCurrent(account))
       harness.store.dispatch(
@@ -1918,7 +1931,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('takes the loading overlay down once the balance shows the account over the limit', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(() => {}))
       harness.store.dispatch(accountActions.setCurrent(account))
       renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
@@ -1946,7 +1959,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it("shows 0, not unknown, once an over-limit account's outputs load with all of them held", async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       harness.wallet.getQbitUtxoSnapshot.mockResolvedValue({
         address: account.address,
         chain: ChainType.QBIT_MAINNET,
@@ -1978,7 +1991,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('shows an unknown balance figure as unknown, not 0, for an account without a P2MR script (#341)', async () => {
       const { p2mr: _p2mr, ...account } = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(() => {}))
       harness.store.dispatch(accountActions.setCurrent(account as any))
       harness.store.dispatch(
@@ -2022,7 +2035,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('sends from the outputs read from history while still offering consolidation (#277)', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       const outputs = manyOutputs(account, Array(600).fill(10_000))
       loadAccount(harness, account, outputs)
       harness.store.dispatch(
@@ -2057,7 +2070,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('names the largest standard send when an amount needs more than 106 inputs', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       const { t, wrapper } = withRecordingI18n(harness.wrapper)
       loadAccount(harness, account, manyOutputs(account, Array(150).fill(10_000)))
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
@@ -2088,7 +2101,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('asks to wait for an unconfirmed 105-input parent instead of passing the ancestor size limit (#345)', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       const { wrapper } = withRecordingI18n(harness.wrapper)
       const parentTxid = 'aa'.repeat(32)
       const change = {
@@ -2161,7 +2174,7 @@ describe('TxCreateScreen state hooks', () => {
 
     it('discloses the outputs Max leaves behind past the standard size', async () => {
       const account = p2mrAccount()
-      const harness = createHookTestHarness()
+      const harness = createSendHarness()
       const { t, wrapper } = withRecordingI18n(harness.wrapper)
       loadAccount(
         harness,
@@ -2243,7 +2256,7 @@ describe('UTXO cache across accounts (#342)', () => {
   }
 
   it("keeps an account's outputs when another account's slow walk lands after them", async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     // Account A is over the explorer's limit: its read walks the history.
     const walkA = deferred<any>()
     wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
@@ -2290,7 +2303,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it('reads the outputs again when the account changes under the open screen', async () => {
-    const { store, wallet, wrapper, tools } = createHookTestHarness()
+    const { store, wallet, wrapper, tools } = createSendHarness()
     const walkA = deferred<any>()
     wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
     select(store, accountA, 70_000)
@@ -2317,7 +2330,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it("does not take an earlier read's failure for the account's new read", async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     const overLimit = (account: ReturnType<typeof p2mrAccount>) => {
       store.dispatch(accountActions.setCurrent(account))
       store.dispatch(
@@ -2353,7 +2366,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it('abandons the background read of a screen that is left, and only that one (#56)', async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     const walkA = deferred<any>()
     wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
     select(store, accountA, 70_000)
@@ -2385,7 +2398,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it('does not cache a read its screen abandoned', async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     const walkA = deferred<any>()
     wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
     select(store, accountA, 70_000)
@@ -2402,7 +2415,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it('does not cache an answer for an account that is no longer selected', async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     select(store, accountA, 70_000)
     const walkA = deferred<any>()
     wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
@@ -2421,7 +2434,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it('caches only the newer read when two reads finish out of order', async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     select(store, accountA, 70_000)
     const older = deferred<any>()
     const newer = deferred<any>()
@@ -2443,7 +2456,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it("caches an earlier read's answer when the later read fails", async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     select(store, accountA, 70_000)
     const older = deferred<any>()
     wallet.getQbitUtxoSnapshot
@@ -2461,7 +2474,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it('refuses an answer for an account or network other than the ones it asked for', async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     select(store, accountA, 70_000)
     // The background had already moved to B, or to another network, say
     // from another window.
@@ -2482,7 +2495,7 @@ describe('UTXO cache across accounts (#342)', () => {
   })
 
   it("prepare send reloads a cache that holds another account's outputs instead of spending them", async () => {
-    const { store, wallet, wrapper } = createHookTestHarness()
+    const { store, wallet, wrapper } = createSendHarness()
     // Non-empty and on the active network, but A's.
     store.dispatch(
       transactionsActions.setUtxos(snapshotOf(accountA, outputsOf(accountA, 'aa', [70_000])))
@@ -2527,12 +2540,28 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     feeRate: number
     quote: unknown
     utxoValues?: number[]
+    network?: ChainType
   }
 
-  /** The store, wallet and wrapper for a send of `utxoValues` at `feeRate`, and its recipient. */
-  function prepareSend({ feeRate, quote, utxoValues = [10_000_000] }: SendSetup) {
+  const ADDRESS_NETWORKS = {
+    [ChainType.QBIT_MAINNET]: 'mainnet',
+    [ChainType.QBIT_TESTNET4]: 'testnet4',
+    [ChainType.QBIT_REGTEST]: 'regtest',
+  } as const
+
+  /**
+   * The store, wallet and wrapper for a send of `utxoValues` at a Custom
+   * `feeRate` on `network`, and its recipient.
+   */
+  function prepareSend({
+    feeRate,
+    quote,
+    utxoValues = [10_000_000],
+    network = ChainType.QBIT_MAINNET,
+  }: SendSetup) {
     const account = p2mrAccount()
-    const { wrapper: baseWrapper, store, wallet } = createHookTestHarness()
+    const { wrapper: baseWrapper, store, wallet } = createSendHarness()
+    store.dispatch(settingsActions.updateSettings({ chainType: network }))
     const t = (key: string, substitutions?: string | string[] | Record<string, string | number>) =>
       Array.isArray(substitutions) ? `${key}:${substitutions.join(',')}` : key
     const wrapper = ({ children }: { children: ReactNode }) =>
@@ -2565,7 +2594,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     wallet.getFeeSummary.mockResolvedValue(quote)
     wallet.getQbitUtxoSnapshot.mockResolvedValue({
       address: account.address,
-      chain: ChainType.QBIT_MAINNET,
+      chain: network,
       utxos,
     })
     store.dispatch(accountActions.setCurrent(account))
@@ -2576,14 +2605,14 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
           availableBalance: balance,
           unavailableBalance: 0,
           totalBalance: balance,
-          chainType: ChainType.QBIT_MAINNET,
+          chainType: network,
         },
       })
     )
     store.dispatch(
       transactionsActions.setUtxos({
         address: account.address,
-        chain: ChainType.QBIT_MAINNET,
+        chain: network,
         utxos,
       })
     )
@@ -2594,7 +2623,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         feeOptionIndex: 3,
       })
     )
-    const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
+    const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), ADDRESS_NETWORKS[network])
     return { store, wallet, wrapper, recipient, account, utxos }
   }
 
@@ -2906,8 +2935,9 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
       result.current.screen.onAmountInputChange('0.10000000')
     })
-    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10154400'))
-    // While the quote loads, Fast is still at the earlier quote's rate.
+    await waitFor(() => expect(result.current.screen.spendSummary).toBeDefined())
+    // While the quote loads, Fast is still at the earlier quote's rate: no total at it.
+    expect(result.current.screen.spendSummary).toEqual({ totalSpend: '--', feeWarnings: [] })
     expect(result.current.screen.disabled).toBe(true)
 
     await act(async () => {
@@ -2920,8 +2950,9 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       expect.stringMatching(/^fee_warning_above_relay_floor:/)
     )
     expect(result.current.screen.disabled).toBe(false)
-    // In between, at the earlier rate under the newer quote: nothing judged, Next disabled.
-    const held = renders.filter(render => render.quoteLoaded && render.totalSpend === '0.10154400')
+    // In between, at the earlier rate under the newer quote: nothing shown or judged, Next disabled.
+    expect(renders.map(render => render.totalSpend)).not.toContain('0.10154400')
+    const held = renders.filter(render => render.quoteLoaded && render.totalSpend === '--')
     expect(held.length).toBeGreaterThan(0)
     for (const render of held) {
       expect(render.warnings).toEqual([])
@@ -2937,6 +2968,25 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       { title: 'Normal', desc: '', feeRate: 100 },
       { title: 'Fast', desc: '', feeRate: 150 },
     ],
+  }
+
+  /** Slow, Normal and Fast at 2, 3 and 4 bits/vB, read without qbit metadata. */
+  const QUOTE_WITHOUT_METADATA = {
+    list: [
+      { title: 'Slow', desc: '', feeRate: 2 },
+      { title: 'Normal', desc: '', feeRate: 3 },
+      { title: 'Fast', desc: '', feeRate: 4 },
+    ],
+  }
+
+  /** Fast, or another tier, at 40 bits/vB, as an earlier quote offered it. */
+  function selectTierFromEarlierQuote(
+    store: ReturnType<typeof prepareSend>['store'],
+    feeOptionIndex: number
+  ) {
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({ feeRate: 40, feeRateInputVal: '40', feeOptionIndex })
+    )
   }
 
   /** A fee quote read that settles only when the test settles it. */
@@ -2955,7 +3005,9 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
   interface SendRender {
     outputsNetwork: ChainType | null
     quoteLoaded: boolean
+    feeRate: number
     totalSpend?: string
+    estimatePending: boolean
     warnings: string[]
     disabled: boolean
   }
@@ -2973,7 +3025,9 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         renders.push({
           outputsNetwork: store.getState().transactions.utxosChain,
           quoteLoaded: screen.feeQuote.status === 'loaded',
+          feeRate: store.getState().ui.feeRateBar.feeRate,
           totalSpend: screen.spendSummary?.totalSpend,
+          estimatePending: screen.feeEstimatePending === true,
           warnings: screen.spendSummary?.feeWarnings ?? [],
           disabled: screen.disabled,
         })
@@ -2982,6 +3036,16 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       { wrapper }
     )
     return { ...rendered, renders }
+  }
+
+  /** Renders held for the rate: nothing shown at it, nothing judged, and Next disabled. */
+  function expectHeld(renders: SendRender[]) {
+    expect(renders.length).toBeGreaterThan(0)
+    for (const render of renders) {
+      expect(render.totalSpend).toBe('--')
+      expect(render.warnings).toEqual([])
+      expect(render.disabled).toBe(true)
+    }
   }
 
   it('keeps Next disabled and judges nothing while the quote of a selected tier loads on opening', async () => {
@@ -2999,12 +3063,11 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       result.current.screen.onAmountInputChange('0.10000000')
     })
 
-    // The outputs load before the quote: a preview at the default rate.
-    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10003860'))
-    expect(result.current.screen.spendSummary).toEqual({
-      totalSpend: '0.10003860',
-      feeWarnings: [],
-    })
+    // The outputs load before the quote: an estimate at the default rate is pending.
+    await waitFor(() => expect(result.current.screen.spendSummary).toBeDefined())
+    expect(result.current.screen.spendSummary).toEqual({ totalSpend: '--', feeWarnings: [] })
+    expect(result.current.screen.feeEstimatePending).toBe(true)
+    expect(result.current.screen.feeDetail).toBeUndefined()
     expect(result.current.screen.disabled).toBe(true)
 
     await act(async () => {
@@ -3017,14 +3080,62 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     expect(result.current.screen.spendSummary?.feeWarnings).toContainEqual(
       expect.stringMatching(/^fee_warning_above_relay_floor:/)
     )
+    expect(result.current.screen.feeEstimatePending).toBe(false)
+    expect(result.current.screen.feeDetail?.estimatedFee).toBe(386_000)
     expect(result.current.screen.disabled).toBe(false)
     // At the default rate, while the quote loaded and while the rate caught up with it.
-    const atDefaultRate = renders.filter(render => render.totalSpend === '0.10003860')
-    expect(atDefaultRate.some(render => !render.quoteLoaded)).toBe(true)
-    for (const render of atDefaultRate) {
-      expect(render.warnings).toEqual([])
-      expect(render.disabled).toBe(true)
+    expect(renders.map(render => render.totalSpend)).not.toContain('0.10003860')
+    const held = renders.filter(render => render.estimatePending)
+    expect(held.some(render => !render.quoteLoaded)).toBe(true)
+    expect(held.some(render => render.quoteLoaded)).toBe(true)
+    expectHeld(held)
+  })
+
+  it("settles a tier whose rate in the quote is the store's rate once the fee bar chose it", async () => {
+    // Normal at 1 bit/vB, the bar's default rate.
+    const { store, wrapper, recipient } = prepareSend({ feeRate: 1, quote: LIVE_QUOTE })
+    store.dispatch((uiActions as any).resetFeeRateBar())
+    const { result } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00100000')
+    })
+
+    await waitFor(() => expect(result.current.screen.disabled).toBe(false))
+    expect(result.current.screen.spendSummary?.totalSpend).toBe('0.00103860')
+    expect(store.getState().ui.feeRateBar.feeRateSource).toMatchObject({ optionIndex: 1 })
+  })
+
+  it('keeps Next disabled when another tier is selected until its rate is chosen and checked', async () => {
+    const { store, wrapper, recipient } = prepareSend({
+      feeRate: 1,
+      quote: BUSY_QUOTE,
+      utxoValues: [100_000_000],
+    })
+    store.dispatch((uiActions as any).resetFeeRateBar())
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+    // Normal at 100 bits/vB.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10386000'))
+    expect(result.current.screen.disabled).toBe(false)
+    const beforeSwitch = renders.length
+
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(2)
+    })
+
+    // Fast at 150 bits/vB.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10579000'))
+    expect(result.current.screen.disabled).toBe(false)
+    // With Fast selected, never Normal's rate offered or its total shown.
+    const afterSwitch = renders.slice(beforeSwitch)
+    for (const render of afterSwitch.filter(offered => !offered.disabled)) {
+      expect(render.feeRate).toBe(150)
     }
+    expect(afterSwitch.map(render => render.totalSpend)).not.toContain('0.10386000')
   })
 
   it('leaves a Custom rate to Next and the fee check while the quote loads', async () => {
@@ -3044,7 +3155,120 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     expect(result.current.screen.spendSummary?.feeWarnings).toContainEqual(
       expect.stringMatching(/^fee_warning_above_relay_floor:/)
     )
+    expect(result.current.screen.feeEstimatePending).toBe(false)
     expect(result.current.screen.disabled).toBe(false)
+  })
+
+  it('keeps Next disabled and judges nothing while the low-fee read of a quote without metadata is pending', async () => {
+    // On mainnet, where low-fee mode is configured.
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 40,
+      quote: QUOTE_WITHOUT_METADATA,
+      utxoValues: [100_000_000],
+    })
+    selectTierFromEarlierQuote(store, 1)
+    let resolveLowFee!: (summary: unknown) => void
+    wallet.getLowFeeSummary.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveLowFee = resolve
+      })
+    )
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+    await waitFor(() => {
+      expect(wallet.getLowFeeSummary).toHaveBeenCalled()
+      expect(result.current.screen.spendSummary).toBeDefined()
+    })
+    expect(result.current.screen.feeQuote.status).toBe('loaded')
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(40)
+    expect(result.current.screen.disabled).toBe(true)
+    expect(result.current.screen.spendSummary).toEqual({ totalSpend: '--', feeWarnings: [] })
+
+    await act(async () => {
+      resolveLowFee({
+        list: [
+          { title: 'Slow', desc: '', feeRate: 0.5 },
+          { title: 'Normal', desc: '', feeRate: 0.8 },
+        ],
+      })
+    })
+
+    // Normal at 3 bits/vB.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10011580'))
+    expect(result.current.screen.disabled).toBe(false)
+    expect(renders.map(render => render.totalSpend)).not.toContain('0.10154400')
+    expectHeld(renders.filter(render => render.quoteLoaded && render.estimatePending))
+  })
+
+  it('keeps Next disabled and judges nothing until the rate comes from a quote without metadata', async () => {
+    // On testnet, without low-fee mode.
+    const { wallet, store, wrapper, recipient } = prepareSend({
+      feeRate: 40,
+      quote: QUOTE_WITHOUT_METADATA,
+      utxoValues: [100_000_000],
+      network: ChainType.QBIT_TESTNET4,
+    })
+    selectTierFromEarlierQuote(store, 2)
+    const quoteRead = pendingQuoteRead(wallet)
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.10000000')
+    })
+    await waitFor(() => expect(result.current.screen.spendSummary).toBeDefined())
+
+    await act(async () => {
+      quoteRead.resolve(QUOTE_WITHOUT_METADATA)
+    })
+
+    // Fast at 4 bits/vB, compared with no live rates.
+    await waitFor(() => expect(result.current.screen.spendSummary?.totalSpend).toBe('0.10015440'))
+    expect(result.current.screen.spendSummary?.feeRecommendationUnavailable).toBe(
+      'fee_warning_recommendation_unavailable'
+    )
+    expect(result.current.screen.disabled).toBe(false)
+    expect(wallet.getLowFeeSummary).not.toHaveBeenCalled()
+    // Once the quote landed, until the rate came from it and was checked.
+    expect(
+      renders.filter(render => render.quoteLoaded && render.totalSpend === '0.10154400')
+    ).toEqual([])
+    expectHeld(renders.filter(render => render.quoteLoaded && render.estimatePending))
+  })
+
+  it('keeps Next disabled for a send without a preview until the rate comes from the quote', async () => {
+    const { wallet, store, wrapper, recipient, account } = prepareSend({
+      feeRate: 40,
+      quote: LIVE_QUOTE,
+      utxoValues: [100_000_000],
+    })
+    // An account without a P2MR script: its send has no preview.
+    store.dispatch(accountActions.setCurrent({ ...account, p2mr: undefined } as any))
+    selectTierFromEarlierQuote(store, 2)
+    const quoteRead = pendingQuoteRead(wallet)
+    const { result, renders } = renderSendRecorded(store, wrapper)
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.01000000')
+    })
+    await waitFor(() => expect(renders.length).toBeGreaterThan(2))
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.spendSummary).toBeUndefined()
+    expect(result.current.screen.disabled).toBe(true)
+
+    await act(async () => {
+      quoteRead.resolve(LIVE_QUOTE)
+    })
+
+    // Fast at 2 bits/vB.
+    await waitFor(() => expect(result.current.screen.disabled).toBe(false))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(2)
+    // Next was never offered at the earlier quote's rate.
+    expect(renders.filter(render => !render.disabled).map(render => render.feeRate)).not.toContain(
+      40
+    )
   })
 
   /**
@@ -3091,28 +3315,26 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       renders.filter(render => render.outputsNetwork === ChainType.QBIT_TESTNET4)
     // The outputs load before the quote: a preview at mainnet's Fast.
     await waitFor(() =>
-      expect(onTestnet().some(render => render.totalSpend === '0.10579000')).toBe(true)
+      expect(onTestnet().some(render => render.totalSpend !== undefined)).toBe(true)
     )
     expect(store.getState().ui.feeRateBar.feeRate).toBe(150)
     expect(result.current.screen.feeQuote.status).toBe('loading')
-    expect(result.current.screen.spendSummary).toEqual({
-      totalSpend: '0.10579000',
-      feeWarnings: [],
-    })
+    expect(result.current.screen.spendSummary).toEqual({ totalSpend: '--', feeWarnings: [] })
     expect(result.current.screen.disabled).toBe(true)
 
     /** Testnet renders at mainnet's rate, while the quote loaded and while the rate caught up. */
-    const atMainnetRate = () => {
-      const held = onTestnet().filter(render => render.totalSpend === '0.10579000')
+    const heldOnTestnet = () => {
+      expect(onTestnet().map(render => render.totalSpend)).not.toContain('0.10579000')
+      const held = onTestnet().filter(render => render.estimatePending)
       expect(held.some(render => !render.quoteLoaded)).toBe(true)
       expect(held.some(render => render.quoteLoaded)).toBe(true)
       return held
     }
-    return { result, store, quoteRead, atMainnetRate }
+    return { result, store, quoteRead, heldOnTestnet }
   }
 
   it('keeps Next disabled and judges nothing after a network change until its quote loads and the rate catches up', async () => {
-    const { result, store, quoteRead, atMainnetRate } =
+    const { result, store, quoteRead, heldOnTestnet } =
       await sendOnAnotherNetworkWhileItsQuoteLoads()
 
     // Testnet's quote has no estimates: its tiers are at the relay floor.
@@ -3129,14 +3351,11 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     )
     expect(store.getState().ui.feeRateBar.feeRate).toBe(1)
     expect(result.current.screen.disabled).toBe(false)
-    for (const render of atMainnetRate()) {
-      expect(render.warnings).toEqual([])
-      expect(render.disabled).toBe(true)
-    }
+    expectHeld(heldOnTestnet())
   })
 
   it('keeps Next disabled after a network change whose quote cannot be read until the relay floor is in use', async () => {
-    const { result, store, quoteRead, atMainnetRate } =
+    const { result, store, quoteRead, heldOnTestnet } =
       await sendOnAnotherNetworkWhileItsQuoteLoads()
 
     await act(async () => {
@@ -3152,9 +3371,6 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     )
     expect(store.getState().ui.feeRateBar.feeRate).toBe(1)
     expect(result.current.screen.disabled).toBe(false)
-    for (const render of atMainnetRate()) {
-      expect(render.warnings).toEqual([])
-      expect(render.disabled).toBe(true)
-    }
+    expectHeld(heldOnTestnet())
   })
 })

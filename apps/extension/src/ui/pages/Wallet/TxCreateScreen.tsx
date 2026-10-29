@@ -33,6 +33,7 @@ export default function TxCreateScreen() {
     memo,
     onMemoChange,
     feeDetail,
+    feeEstimatePending,
     leftBehindNote,
     spendSummary,
     feeQuote,
@@ -206,6 +207,9 @@ export default function TxCreateScreen() {
                     color="textDim"
                     data-testid="tx-size-estimate"
                   />
+                ) : feeEstimatePending ? (
+                  // Until the fee rate is settled, no estimate at an earlier rate.
+                  <Text text="-- bits" size="xs" color="textDim" data-testid="tx-fee-estimate-pending" />
                 ) : null
               }
             />

@@ -17,6 +17,7 @@ import {
   useTools,
   useWallet,
 } from '..'
+import { feeRateOrigin, useFeeQuoteRead } from './useFeeRateBarLogic'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -38,7 +39,13 @@ export function useQbitConsolidationScreenLogic() {
   const qbitUnit = useQbitUnit()
   const chainType = useChainType()
   const { address } = useCurrentAccount()
-  const feeRate = useFeeRateBar().feeRate
+  const feeRateBar = useFeeRateBar()
+  const feeRate = feeRateBar.feeRate
+  // The quote the fee bar offers its rates from. Until the bar has chosen the
+  // selected tier's rate from it, the rate is the bar's default or one from
+  // an earlier quote, possibly another network's, and no batch is prepared.
+  const feeQuote = useFeeQuoteRead()
+  const feeRateFromQuote = feeRateOrigin(feeRateBar, feeQuote) !== 'pending'
 
   const [status, setStatus] = useState<QbitConsolidationStatus | undefined>(undefined)
   const [statusError, setStatusError] = useState('')
@@ -185,7 +192,10 @@ export function useQbitConsolidationScreenLogic() {
     // the counts again when it builds one.
     error: error || statusError,
     preparing,
-    canPrepare: (status ? overLimit : statusError !== '') && feeRateValid && !preparing,
+    canPrepare:
+      (status ? overLimit : statusError !== '') && feeRateValid && feeRateFromQuote && !preparing,
+    // For the fee bar: the quote the batch's rate is chosen from.
+    feeQuote,
     onClickPrepare,
     onClickConfirm,
     t,
