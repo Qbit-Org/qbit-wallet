@@ -46,8 +46,7 @@
   "license": "MIT",
   "dependencies": {
     "@qbit/wallet-types": "workspace:*",
-    "@qbit/wallet-storage": "workspace:*",
-    "lru-cache": "^6.0.0"
+    "@qbit/wallet-storage": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

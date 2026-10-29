@@ -170,7 +170,7 @@ describe('restoreAppState', () => {
     ['finished', () => undefined],
     [
       'failed',
-      () => background.permissionService.init.mockRejectedValueOnce(new Error('permission store is malformed'))
+      () => background.notificationService.init.mockRejectedValueOnce(new Error('notification store is malformed'))
     ]
   ])('leaves a read that fails once start-up has %s with its own error', async (_outcome, arrange) => {
     arrange();
@@ -187,11 +187,44 @@ describe('restoreAppState', () => {
   });
 
   it('reports another failure as failed, not as still starting, without blaming the stored settings', async () => {
-    background.permissionService.init.mockRejectedValueOnce(new Error('permission store is malformed'));
+    background.notificationService.init.mockRejectedValueOnce(new Error('notification store is malformed'));
 
     await startWorker();
 
     expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith('unknown');
     expect(background.walletController.setBackgroundInited).not.toHaveBeenCalled();
+  });
+
+  it('starts the rest of the background, phishing protection included, when the permission service fails to start', async () => {
+    background.permissionService.init.mockRejectedValueOnce(new Error('permission store is malformed'));
+
+    const { isAppStateRestored } = await startWorker();
+
+    expect(background.contactBookService.init).toHaveBeenCalledTimes(1);
+    expect(background.notificationService.init).toHaveBeenCalledTimes(1);
+    expect(background.phishingDetectService.init).toHaveBeenCalledTimes(1);
+    expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
+    expect(background.walletController.setBackgroundStartupFailed).not.toHaveBeenCalled();
+    expect(isAppStateRestored()).toBe(true);
+  });
+
+  it('still stops start-up as unreadable when only the permission service cannot read the stored settings', async () => {
+    vi.resetModules();
+    const { default: storage } = await import('../utils/storage');
+    const readStore = storage.get;
+    vi.spyOn(storage, 'get').mockImplementation(async (key?: string) => {
+      if (key === 'permission') throw unreadable();
+      return readStore(key);
+    });
+    const { restoreAppState, isAppStateRestored } = await import('./restore');
+
+    await restoreAppState();
+
+    expect(background.permissionService.init).toHaveBeenCalledTimes(1);
+    expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith('stored-settings-unreadable');
+    expect(background.walletController.setBackgroundInited).not.toHaveBeenCalled();
+    expect(isAppStateRestored()).toBe(false);
+    // Only the write a normal start makes before the permission service.
+    expect(browserStorage.set.mock.calls).toEqual([[{ openapi: null }]]);
   });
 });

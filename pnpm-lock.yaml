@@ -873,9 +873,6 @@ importers:
       '@qbit/wallet-types':
         specifier: workspace:*
         version: link:../wallet-types
-      lru-cache:
-        specifier: ^6.0.0
-        version: 6.0.0
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
