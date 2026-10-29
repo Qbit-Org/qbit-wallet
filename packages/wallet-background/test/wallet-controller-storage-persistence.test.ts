@@ -108,4 +108,46 @@ describe('WalletController storage persistence', () => {
     expect(walletController.listContacts()).toEqual([])
     expect(JSON.parse(adapter.disk.get('contactBook')!)).toEqual({})
   })
+
+  it('moves a contact to a new address in one write and keeps it when that write fails', async () => {
+    const alice = {
+      name: 'Alice',
+      address: 'qb1zalice',
+      chain: ChainType.QBIT_MAINNET,
+      isAlias: false,
+      isContact: true,
+    }
+    const bob = { ...alice, name: 'Bob', address: 'qb1zbob' }
+    await walletController.addContact(alice)
+    await walletController.addContact(bob)
+    const onDisk = adapter.disk.get('contactBook')
+    const set = vi.spyOn(adapter, 'set')
+
+    const writeError = new Error('QUOTA_BYTES quota exceeded')
+    adapter.writeErrors.push(writeError)
+    await expect(
+      walletController.replaceContact('qb1zalice', ChainType.QBIT_MAINNET, {
+        ...alice,
+        address: 'qb1zalicenew',
+      })
+    ).rejects.toBe(writeError)
+    expect(set).toHaveBeenCalledTimes(1)
+    expect(walletController.getContactByAddressAndChain('qb1zalice', ChainType.QBIT_MAINNET)).toEqual(
+      { ...alice, sortIndex: 0 }
+    )
+    expect(walletController.getContactByAddress('qb1zalicenew')).toBeUndefined()
+    expect(adapter.disk.get('contactBook')).toBe(onDisk)
+
+    set.mockClear()
+    await walletController.replaceContact('qb1zalice', ChainType.QBIT_MAINNET, {
+      ...alice,
+      address: 'qb1zalicenew',
+    })
+    expect(set).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(adapter.disk.get('contactBook')!)).toEqual({
+      qb1zbob_QBIT_MAINNET: { ...bob, sortIndex: 0 },
+      qb1zalicenew_QBIT_MAINNET: { ...alice, address: 'qb1zalicenew', sortIndex: 0 },
+    })
+    set.mockRestore()
+  })
 })

@@ -458,6 +458,7 @@ export interface WalletController {
   ): Promise<ContactBookItem | undefined>
   updateContact(data: ContactBookItem): Promise<void>
   removeContact(address: string, chain?: ChainType): Promise<void>
+  replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void>
   listContacts(): Promise<ContactBookItem[]>
   saveContactsOrder(contacts: ContactBookItem[]): Promise<void>
 

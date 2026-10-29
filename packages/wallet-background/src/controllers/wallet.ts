@@ -5180,6 +5180,10 @@ export class WalletController extends BaseController {
     }
   }
 
+  replaceContact = async (address: string, chain: ChainType, data: ContactBookItem) => {
+    await contactBookService.replaceContact(address, chain, data)
+  }
+
   listContact = (includeAlias = true): ContactBookItem[] => {
     const list = contactBookService.listContacts()
     if (includeAlias) {
