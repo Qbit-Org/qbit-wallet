@@ -66,6 +66,20 @@ describe('content-script phishing check', () => {
     expect(window.sessionStorage.getItem('qbit-wallet:phishing-released')).toBeNull();
   });
 
+  it('only reports a denylisted page when the caller shows no warning', async () => {
+    window.sessionStorage.setItem('qbit-wallet:phishing-released', window.location.hostname);
+    try {
+      const sendMessage = stubRuntime(() => ({ isPhishing: true, isDenylisted: true }));
+
+      await expect(initializePhishingDetection(false)).resolves.toBe('phishing');
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({ type: 'CHECK_PHISHING' });
+      expect(window.sessionStorage.getItem('qbit-wallet:phishing-released')).toBe(window.location.hostname);
+    } finally {
+      window.sessionStorage.removeItem('qbit-wallet:phishing-released');
+    }
+  });
+
   it('keeps a page the user proceeded to apart from a clear page', async () => {
     const sendMessage = stubRuntime(() => ({ isPhishing: false, isDenylisted: true }));
 

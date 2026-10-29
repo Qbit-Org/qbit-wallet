@@ -311,8 +311,10 @@ function assertSecureMv3Manifest(manifest) {
   if (contentScript.run_at !== 'document_start') {
     throw new Error('content script must run at document_start');
   }
-  if (contentScript.all_frames === true) {
-    throw new Error('content script must not run in untrusted child frames');
+  // Embedded widgets, such as token swap widgets, need the provider in their
+  // own frame. The background binds each frame to its own origin.
+  if (contentScript.all_frames !== true) {
+    throw new Error('content script must run in every frame');
   }
 
   const webAccessibleResources = manifest.web_accessible_resources;

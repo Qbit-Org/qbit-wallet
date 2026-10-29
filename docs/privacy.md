@@ -102,7 +102,7 @@ The wallet password and decrypted key material exist in extension memory while n
 
 ## Dapps and user-initiated navigation
 
-The extension runs a content script on web pages so a dapp can discover the Qbit provider and request access. A dapp receives an account address only after the user approves connection. Requested messages, PSBTs, transaction parameters, and returned signatures are exchanged with that requesting page through extension messaging. Signing is local; broadcasting a signed transaction contacts the selected chain API.
+The extension runs a content script on web pages, including frames embedded in them such as token swap widgets, so a dapp can discover the Qbit provider and request access. A frame asks under its own origin, not that of the page around it. A dapp receives an account address only after the user approves connection. Requested messages, PSBTs, transaction parameters, and returned signatures are exchanged with that requesting page through extension messaging. Signing is local; broadcasting a signed transaction contacts the selected chain API.
 
 The wallet contains explicit links to Qbit websites, configured explorers, the source repository, social/community sites, documentation, and a release-owned local dapp catalog. Following one of those links leaves the extension and gives the destination the normal data associated with a browser visit. Dapps can also make their own network requests independently of the wallet.
 

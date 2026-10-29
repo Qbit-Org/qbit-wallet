@@ -5,6 +5,7 @@
  */
 import { normalizeHostname } from '@qbit/phishing-detect';
 
+import { isTopFrame } from '../frame';
 import { initializePhishingDetection, isExtensionContextValid, type PhishingVerdict } from './detector';
 import { isBundledDenylistedUrl } from './navigation';
 import { isReleased, recordRelease } from './release';
@@ -171,7 +172,7 @@ export class HeldPage {
  * failed to install, does not let the page run until the warning arrives.
  */
 export function holdDenylistedPage(): HeldPage | undefined {
-  if (window !== window.top || !isBundledDenylistedUrl(window.location.href)) return undefined;
+  if (!isTopFrame() || !isBundledDenylistedUrl(window.location.href)) return undefined;
 
   const hostname = normalizeHostname(window.location.hostname);
   if (isReleased(hostname)) return undefined;

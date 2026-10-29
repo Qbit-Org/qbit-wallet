@@ -110,8 +110,11 @@ describe('holding a denylisted page', () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
-  it('leaves a frame alone', () => {
-    vi.stubGlobal('top', {});
+  it.each([
+    ['a frame', 'top'],
+    ['a fenced frame, which is its own top', 'fence']
+  ])('leaves %s alone', (_label, global) => {
+    vi.stubGlobal(global, {});
 
     expect(holdDenylistedPage()).toBeUndefined();
     expect(stop).not.toHaveBeenCalled();
