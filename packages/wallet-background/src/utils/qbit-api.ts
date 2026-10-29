@@ -37,6 +37,7 @@ import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
   createQbitExplorerFetch,
   isQbitExplorerLargeBodyRoute,
+  qbitExplorerFreshReadPath,
   type QbitExplorerOperation,
 } from './qbit-explorer-fetch'
 
@@ -112,8 +113,19 @@ export interface QbitTxOutspend {
   txid?: string
 }
 
+export interface QbitTxOutspendsOptions extends RequestOptions {
+  /**
+   * Read past every cache: the request goes out on its own, under a URL no
+   * other request has used and with `cache: 'no-store'`, never answered by
+   * an earlier reply the browser or a cache in front of the explorer kept,
+   * nor by an identical read already in flight. See
+   * `QBIT_EXPLORER_FRESH_READ_PARAM`.
+   */
+  fresh?: boolean
+}
+
 export interface QbitTxOutspendsClient {
-  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]>
+  getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]>
 }
 
 /**
@@ -150,6 +162,22 @@ function withQbitExplorerBudgets<T extends EsploraClientOptions>(
     ...budgeted,
     fetchFn: createQbitExplorerFetch({ fetchFn: options.fetchFn, baseUrl: options.baseUrl }),
   }
+}
+
+/**
+ * What `EsploraClient.getJson` is handed for one read: a fresh one (see
+ * `QbitTxOutspendsOptions.fresh`) under its own URL and on its own, any
+ * other unchanged. `getJson` hands `request` only its signal, so freshness
+ * travels in the path itself, request by request.
+ */
+function qbitJsonRead(
+  path: string,
+  options: QbitTxOutspendsOptions | undefined,
+  dedup: boolean | undefined
+): [string, RequestOptions | undefined, boolean | undefined] {
+  if (options?.fresh !== true) return [path, options, dedup]
+  const { fresh: _fresh, ...read } = options
+  return [qbitExplorerFreshReadPath(path), read, false]
 }
 
 /**
@@ -194,7 +222,7 @@ export class QbitWalletEsploraClient
     this.largeReadCeilingMs = budgeted.timeoutMs
   }
 
-  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
+  getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
     return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
@@ -205,6 +233,15 @@ export class QbitWalletEsploraClient
     options?: RequestOptions
   ): Promise<EsploraTx[]> {
     return this.getAddressTxs(address, afterTxid, options)
+  }
+
+  // A fresh read (`QbitTxOutspendsOptions.fresh`) goes out under its own URL, on its own.
+  protected override getJson<T>(
+    path: string,
+    options?: QbitTxOutspendsOptions,
+    dedup?: boolean
+  ): Promise<T> {
+    return super.getJson<T>(...qbitJsonRead(path, options, dedup))
   }
 
   protected override request(
@@ -241,7 +278,7 @@ export class QbitWalletMempoolClient
     this.largeReadCeilingMs = budgeted.timeoutMs
   }
 
-  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
+  getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
     return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
@@ -253,6 +290,15 @@ export class QbitWalletMempoolClient
     options?: RequestOptions
   ): Promise<EsploraTx[]> {
     return this.getCombinedHistoryPage(address, afterTxid, options)
+  }
+
+  // A fresh read (`QbitTxOutspendsOptions.fresh`) goes out under its own URL, on its own.
+  protected override getJson<T>(
+    path: string,
+    options?: QbitTxOutspendsOptions,
+    dedup?: boolean
+  ): Promise<T> {
+    return super.getJson<T>(...qbitJsonRead(path, options, dedup))
   }
 
   protected override request(
@@ -2217,51 +2263,112 @@ export async function continueQbitAddressOutputScan(
   return read
 }
 
-const QBIT_OUTSPENDS_CONCURRENCY = 8
+/** The most `/tx/:txid/outspends` reads `findQbitOutpointSpenders` has in flight at once. */
+export const QBIT_OUTSPENDS_CONCURRENCY = 8
 
 /**
  * The outpoints of `outputs` that a transaction spends, as `txid:vout` with
- * a lowercase txid, from one `getQbitTxSpenders` answer per funding
- * transaction, at most eight at a time. A failed or malformed answer throws,
- * so an output is only ever reported unspent on the explorer's explicit word.
- * Each answer is read under `operation`'s deadline, when given.
+ * a lowercase txid: `findQbitOutpointSpenders` without the spenders.
  */
 export async function findQbitSpentOutpoints(
   client: QbitTxOutspendsClient,
   outputs: readonly { txid: string; vout: number; outputCount: number }[],
   operation?: QbitExplorerOperation
 ): Promise<Set<string>> {
-  const byTxid = new Map<string, { outputCount: number; vouts: number[] }>()
+  return new Set((await findQbitOutpointSpenders(client, outputs, { operation })).keys())
+}
+
+/**
+ * The transactions `findQbitOutpointSpenders` reads for `outputs`: each
+ * distinct one they are outputs of, once.
+ */
+export function qbitOutspendsReadCount(outputs: readonly { txid: string }[]): number {
+  return new Set(outputs.map(output => normalizeQbitTxid(output.txid))).size
+}
+
+/**
+ * The txid spending each output of `outputs` that a transaction spends,
+ * keyed `txid:vout` with lowercase txids, from one `/tx/:txid/outspends`
+ * answer per transaction they are outputs of, at most
+ * `QBIT_OUTSPENDS_CONCURRENCY` at a time. With the `outputCount` of that
+ * transaction, `vout` must be below it and the answer must hold exactly one
+ * well-formed entry per output (see `getQbitTxSpenders`). Without it (the
+ * inputs of a transaction the wallet holds only signed bytes of), the answer
+ * must hold a well-formed entry at each `vout`. A failed or malformed answer
+ * throws, so an output is only ever reported unspent on the explorer's
+ * explicit word. Each answer is read under `operation`'s deadline, when
+ * given, and fresh (`QbitTxOutspendsOptions.fresh`) with `fresh`.
+ *
+ * The first failure, of a read or of an answer, starts no further read and
+ * is handed to `onFailure` at once, so the caller can abort the reads still
+ * in flight under `operation`'s signal: this throws only once they settle.
+ */
+export async function findQbitOutpointSpenders(
+  client: QbitTxOutspendsClient,
+  outputs: readonly { txid: string; vout: number; outputCount?: number | undefined }[],
+  options: {
+    operation?: QbitExplorerOperation | undefined
+    fresh?: boolean
+    onFailure?: (error: unknown) => void
+  } = {}
+): Promise<Map<string, string>> {
+  const { operation, fresh = false, onFailure } = options
+  const byTxid = new Map<string, { outputCount: number | undefined; vouts: number[] }>()
   for (const output of outputs) {
     const txid = normalizeQbitTxid(output.txid)
+    const { outputCount, vout } = output
     if (
-      !Number.isSafeInteger(output.outputCount) ||
-      !Number.isSafeInteger(output.vout) ||
-      output.vout < 0 ||
-      output.vout >= output.outputCount
+      (outputCount !== undefined && !Number.isSafeInteger(outputCount)) ||
+      !Number.isSafeInteger(vout) ||
+      vout < 0 ||
+      (outputCount !== undefined && vout >= outputCount)
     ) {
-      throw new Error(`invalid qbit outpoint ${txid}:${output.vout}`)
+      throw new Error(`invalid qbit outpoint ${txid}:${vout}`)
     }
-    const entry = byTxid.get(txid) ?? { outputCount: output.outputCount, vouts: [] }
-    if (entry.outputCount !== output.outputCount) {
+    const entry = byTxid.get(txid) ?? { outputCount, vouts: [] }
+    if (entry.outputCount !== outputCount) {
       throw new Error(`inconsistent output count for qbit transaction ${txid}`)
     }
-    entry.vouts.push(output.vout)
+    entry.vouts.push(vout)
     byTxid.set(txid, entry)
   }
+  const read = (txid: string): Promise<unknown> => {
+    const deadline = operation?.read()
+    if (fresh) return client.getTxOutspends(txid, { ...deadline, fresh: true })
+    return deadline === undefined
+      ? client.getTxOutspends(txid)
+      : client.getTxOutspends(txid, deadline)
+  }
   const entries = [...byTxid]
-  const spenders = await mapQbitWithConcurrency(
+  // Each answer is validated as it arrives, so a malformed one fails like a
+  // failed read.
+  const answered = await mapQbitWithConcurrency(
     entries,
     QBIT_OUTSPENDS_CONCURRENCY,
-    ([txid, entry]) => getQbitTxSpenders(client, txid, entry.outputCount, operation?.read())
-  )
-  const spent = new Set<string>()
-  entries.forEach(([txid, entry], index) => {
-    for (const vout of entry.vouts) {
-      if (spenders[index]![vout] !== undefined) spent.add(`${txid}:${vout}`)
+    async ([txid, { outputCount, vouts }]) => {
+      try {
+        const answer = await read(txid)
+        if (outputCount !== undefined) {
+          const all = qbitTxSpendersFromOutspends(answer, txid, outputCount)
+          return vouts.map(vout => all[vout])
+        }
+        return vouts.map(vout =>
+          qbitOutspendSpender(Array.isArray(answer) ? answer[vout] : undefined, txid)
+        )
+      } catch (error) {
+        onFailure?.(error)
+        throw error
+      }
     }
+  )
+  const spenders = new Map<string, string>()
+  entries.forEach(([txid, { vouts }], index) => {
+    vouts.forEach((vout, at) => {
+      const spender = answered[index]![at]
+      if (spender !== undefined) spenders.set(`${txid}:${vout}`, spender)
+    })
   })
-  return spent
+  return spenders
 }
 
 /**
@@ -2274,7 +2381,7 @@ export async function getQbitTxSpenders(
   client: QbitTxOutspendsClient,
   txid: string,
   outputCount: number,
-  options?: RequestOptions
+  options?: QbitTxOutspendsOptions
 ): Promise<(string | undefined)[]> {
   const normalizedTxid = normalizeQbitTxid(txid)
   if (!Number.isSafeInteger(outputCount) || outputCount < 1) {
@@ -2284,23 +2391,46 @@ export async function getQbitTxSpenders(
     options === undefined
       ? await client.getTxOutspends(normalizedTxid)
       : await client.getTxOutspends(normalizedTxid, options)
+  return qbitTxSpendersFromOutspends(outspends, normalizedTxid, outputCount)
+}
+
+/**
+ * `getQbitTxSpenders` from `outspends`, the `/tx/:txid/outspends` answer
+ * for `txid` (lowercase): anything other than one well-formed entry per
+ * output throws.
+ */
+export function qbitTxSpendersFromOutspends(
+  outspends: unknown,
+  txid: string,
+  outputCount: number
+): (string | undefined)[] {
   if (!Array.isArray(outspends) || outspends.length !== outputCount) {
-    throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
+    throw new Error(`invalid qbit outspends for ${txid}`)
   }
-  return outspends.map(outspend => {
-    if (!outspend || typeof outspend.spent !== 'boolean') {
-      throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
-    }
-    if (!outspend.spent) return undefined
-    if (
-      typeof outspend.txid !== 'string' ||
-      !QBIT_TXID_PATTERN.test(outspend.txid) ||
-      outspend.txid.toLowerCase() === normalizedTxid
-    ) {
-      throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
-    }
-    return outspend.txid.toLowerCase()
-  })
+  return outspends.map(outspend => qbitOutspendSpender(outspend, txid))
+}
+
+/**
+ * The lowercase txid spending an output of `txid` (lowercase), from that
+ * output's entry in its `/tx/:txid/outspends` answer, or undefined when
+ * nothing spends it. Anything but a well-formed entry throws (a missing
+ * one included), so an output is never read as unspent without the
+ * explorer's explicit word.
+ */
+export function qbitOutspendSpender(outspend: unknown, txid: string): string | undefined {
+  const { spent, txid: spender } = (
+    outspend && typeof outspend === 'object' ? outspend : {}
+  ) as Partial<QbitTxOutspend>
+  if (typeof spent !== 'boolean') throw new Error(`invalid qbit outspends for ${txid}`)
+  if (!spent) return undefined
+  if (
+    typeof spender !== 'string' ||
+    !QBIT_TXID_PATTERN.test(spender) ||
+    spender.toLowerCase() === txid
+  ) {
+    throw new Error(`invalid qbit outspends for ${txid}`)
+  }
+  return spender.toLowerCase()
 }
 
 export interface QbitProtectedAssetOutpoint {
@@ -2741,7 +2871,7 @@ async function loadQbitSnapshotWithStabilityRetries<T>(
 }
 
 /** Wait `ms`, or reject with the abort reason as soon as `options.signal` aborts. */
-function qbitCancellableDelay(ms: number, options: QbitReadCancellation): Promise<void> {
+export function qbitCancellableDelay(ms: number, options: QbitReadCancellation): Promise<void> {
   const { signal } = options
   if (!signal) return new Promise(resolve => setTimeout(resolve, ms))
   return new Promise<void>((resolve, reject) => {

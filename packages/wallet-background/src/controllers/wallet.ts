@@ -249,8 +249,16 @@ import {
 } from '../utils/qbit-explorer-fetch'
 import {
   QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS,
-  assertNoExplorerDependentSpend,
+  QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+  QbitExplorerSpendCheckFailedError,
+  QbitExplorerSpendCheckTimeoutError,
+  assertNoExplorerSpendConflict,
 } from '../utils/qbit-fee-bump-recheck'
+import {
+  assertQbitExplorerSpendCheck,
+  qbitExplorerSpendCheckIsNeeded,
+  type QbitExplorerSpendCheck,
+} from '../utils/qbit-explorer-spend-check'
 import {
   QBIT_RECEIVE_GAP_LIMIT,
   planQbitReceiveIntent,
@@ -7440,12 +7448,31 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async (replaces, replacedOutputCount) => {
-        if (replaces) await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount)
+      async spendCheck => {
+        assertQbitExplorerSpendCheck(spendCheck)
+        await this.checkQbitBroadcastOnExplorer(client, spendCheck)
         return client.broadcastTx(rawtx)
       },
       qbitSendBroadcastClaim
     )
+  }
+
+  /**
+   * The explorer check a broadcast makes right before dispatch: `spendCheck`,
+   * as the send guard hands it to its callback (see
+   * `QbitSendGuardService.broadcastIfAllowed`), with this controller's pause
+   * between its two rounds. It runs under `operation`, the broadcast's
+   * deadline, when given; see `assertNoExplorerSpendConflict`.
+   */
+  private checkQbitBroadcastOnExplorer(
+    client: QbitWalletApiClient,
+    spendCheck: QbitExplorerSpendCheck,
+    operation?: QbitExplorerOperation
+  ): Promise<void> {
+    return assertNoExplorerSpendConflict(client, spendCheck, {
+      intervalMs: this.qbitFeeBumpRecheckIntervalMs,
+      ...(operation ? { operation } : {}),
+    })
   }
 
   /**
@@ -7536,6 +7563,13 @@ export class WalletController extends BaseController {
    * Instance-level for the same reason.
    */
   qbitBroadcastResendDelaysMs: readonly number[] = QBIT_BROADCAST_RESEND_DELAYS_MS
+
+  /**
+   * Pause between the two rounds of explorer reads a fee bump or a
+   * restored claim waits for before it goes out. Instance-level for the
+   * same reason.
+   */
+  qbitFeeBumpRecheckIntervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS
 
   /**
    * UI-facing broadcast that reports a plain, serializable verdict instead of
@@ -7696,6 +7730,8 @@ export class WalletController extends BaseController {
     let chainChangedBeforeDispatch = false
     let dependentSpendRefused = false
     let deadlineRefused = false
+    // Why the explorer check failed, when it could not reach a verdict.
+    let checkFailureReason: QbitBroadcastFailure['reason'] | undefined
     let firstDispatchAt: number | undefined
     // Re-sends of the same bytes so far (see below), and the verdict the
     // last dispatched pass reached while they are under way, which a
@@ -7716,11 +7752,10 @@ export class WalletController extends BaseController {
         throw new Error('Qbit broadcast deadline left no time to send')
       }
     }
-    const broadcast = async (replaces?: string, replacedOutputCount?: number): Promise<string> => {
-      operation.start()
-      assertTimeToSend()
-      // The guard queue may hold a re-send past the window it was due in;
-      // none starts once the window has passed.
+    // The guard queue may hold a re-send past the window it was due in, and
+    // the explorer check takes at least its pause: none goes out once the
+    // window has passed.
+    const assertResendWindowOpen = (): void => {
       if (
         resends > 0 &&
         firstDispatchAt !== undefined &&
@@ -7728,6 +7763,14 @@ export class WalletController extends BaseController {
       ) {
         throw new Error('Qbit broadcast re-send window has passed')
       }
+    }
+    const broadcast = async (spendCheck: QbitExplorerSpendCheck): Promise<string> => {
+      // The guard hands every broadcast its check, `{}` when there is none to
+      // make; one handed none is refused before dispatch, never sent unchecked.
+      assertQbitExplorerSpendCheck(spendCheck)
+      operation.start()
+      assertTimeToSend()
+      assertResendWindowOpen()
       // The guard queue may run this later than it was requested; re-check
       // the network right before the bytes leave the wallet.
       assertChainUnchanged()
@@ -7738,16 +7781,29 @@ export class WalletController extends BaseController {
       // wallet does can come in between; a refusal is still pre-dispatch.
       // Only what spends the original is read: its output count comes with
       // the claim, from the bytes the assessment verified before signing.
-      if (replaces) {
+      // A claim restored after a restart may replace a payment whatever the
+      // page says it replaces, and the guard's records of what spends its
+      // inputs went with the restart: what spends them is read as well.
+      if (qbitExplorerSpendCheckIsNeeded(spendCheck)) {
         try {
-          await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount, {
-            operation,
-          })
+          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation)
         } catch (error) {
           dependentSpendRefused = true
+          // Refused for lack of time, as a pass with too little left is.
+          if (error instanceof QbitExplorerSpendCheckTimeoutError) deadlineRefused = true
+          // A failed check is reported by its cause, as any explorer error:
+          // never as a conflict. An answer it could not use is an unexpected
+          // response, and a read is no submission the node could reject.
+          if (error instanceof QbitExplorerSpendCheckFailedError) {
+            const { reason } = QbitApiError.is(error.failure)
+              ? classifyQbitBroadcastError(error.failure)
+              : { reason: 'invalid_response' as const }
+            checkFailureReason = reason === 'rejected' ? 'server' : reason
+          }
           throw error
         }
         assertChainUnchanged()
+        assertResendWindowOpen()
       }
       // Before anything is sent: the fee bump check may have spent the rest.
       assertTimeToSend()
@@ -7775,6 +7831,7 @@ export class WalletController extends BaseController {
       chainChangedBeforeDispatch = false
       dependentSpendRefused = false
       deadlineRefused = false
+      checkFailureReason = undefined
       try {
         if (claim) {
           await qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, broadcast, claim)
@@ -7920,7 +7977,7 @@ export class WalletController extends BaseController {
             ? ('chain_changed' as const)
             : deadlineRefused
               ? ('timeout' as const)
-              : ('guard_blocked' as const),
+              : (checkFailureReason ?? ('guard_blocked' as const)),
           detail: sanitizeQbitBroadcastDetail(qbitBroadcastErrorMessage(error)),
         }
         // Nothing left the wallet in this call, which says nothing about an
