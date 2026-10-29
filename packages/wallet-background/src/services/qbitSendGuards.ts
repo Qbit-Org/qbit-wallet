@@ -413,6 +413,14 @@ export class QbitSendGuardService {
    */
   private decidedClaimKeys = new Set<string>()
   /**
+   * Keys of the held claims `restoreBroadcastClaim` registered from the
+   * page's copy, dropped with them. What such a claim says it `replaces`
+   * is the page's word, and the records that could confirm it (what spends
+   * its inputs) went with the restart, so its broadcast must check its
+   * inputs on the explorer (see `broadcastIfAllowed`).
+   */
+  private restoredClaimKeys = new Set<string>()
+  /**
    * Inputs spent by broadcasts this instance accepted or could not decide,
    * keyed by `recentSpendKey` in the order they were recorded (see
    * `QbitRecentSpend`). Memory only, like the claims: a background restart
@@ -464,6 +472,7 @@ export class QbitSendGuardService {
     this.externalSigningLocks = []
     this.ownership.clear()
     this.decidedClaimKeys.clear()
+    this.restoredClaimKeys.clear()
     this.recentSpends.clear()
     this.claimSequences.clear()
     this.providerSendRequests.clear()
@@ -1200,7 +1209,13 @@ export class QbitSendGuardService {
    * payment spends that transaction, and its broadcast checks again (see
    * `broadcastIfAllowed`). A claim that names nothing either way was minted
    * before claims carried the field and may be a bump that would evict
-   * such a payment, so it is `refused`.
+   * such a payment, so it is `refused`. What a claim names is still only
+   * the page's word, and after a restart this instance has no record of
+   * what spends its inputs to hold it against: a claim saying it replaces
+   * nothing may replace a payment all the same. Every restored claim is
+   * therefore marked unconfirmed, and its broadcast checks on the explorer
+   * that nothing but its own transaction, or the one it names, spends its
+   * inputs (see `broadcastIfAllowed`).
    */
   restoreBroadcastClaim(
     claim: QbitSendBroadcastClaim,
@@ -1232,6 +1247,7 @@ export class QbitSendGuardService {
         return 'refused'
       }
       this.replaceBroadcastClaims([...this.broadcastClaims, normalized])
+      this.restoredClaimKeys.add(key)
       if (retryOfUnknownOutcome) {
         this.rememberUnknownBroadcastNow(normalized.chain as ChainType, normalized.txid)
       }
@@ -1254,12 +1270,18 @@ export class QbitSendGuardService {
    * the same seed, or a recipient spending their output), so `broadcast`
    * must check the explorer for one before it dispatches, and reject to
    * keep the bump from going out.
+   *
+   * A claim restored from the page's copy (see `restoreBroadcastClaim`)
+   * hands `broadcast` `restored` as well, whatever it replaces: `broadcast`
+   * must then check on the explorer that nothing but `txid`, or the
+   * transaction the claim replaces, spends any of `outpoints`, and reject
+   * otherwise.
    */
   broadcastIfAllowed<T>(
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    broadcast: (replaces?: string, replacedOutputCount?: number) => Promise<T>,
+    broadcast: (replaces?: string, replacedOutputCount?: number, restored?: boolean) => Promise<T>,
     claim?: QbitSendBroadcastClaim
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
@@ -1310,8 +1332,10 @@ export class QbitSendGuardService {
       if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid)
       this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replacedTxid)
 
-      const result =
-        replacedTxid === undefined
+      const restored = exactClaim !== undefined && this.restoredClaimKeys.has(claimKey(exactClaim))
+      const result = restored
+        ? await broadcast(replacedTxid, exactClaim?.replacedOutputCount, true)
+        : replacedTxid === undefined
           ? await broadcast(replacedTxid)
           : await broadcast(replacedTxid, exactClaim?.replacedOutputCount)
       // The claim is consumed, but its inputs stay reserved as recently
@@ -1364,6 +1388,9 @@ export class QbitSendGuardService {
     }
     for (const key of this.providerClaimRequests.keys()) {
       if (!live.has(key)) this.providerClaimRequests.delete(key)
+    }
+    for (const key of this.restoredClaimKeys) {
+      if (!live.has(key)) this.restoredClaimKeys.delete(key)
     }
   }
 

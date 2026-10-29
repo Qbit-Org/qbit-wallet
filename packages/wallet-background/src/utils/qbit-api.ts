@@ -35,6 +35,7 @@ import type {
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QbitExplorerFreshReads,
   createQbitExplorerFetch,
   isQbitExplorerLargeBodyRoute,
   type QbitExplorerOperation,
@@ -112,8 +113,17 @@ export interface QbitTxOutspend {
   txid?: string
 }
 
+export interface QbitTxOutspendsOptions extends RequestOptions {
+  /**
+   * Read past any HTTP cache: the request goes out on its own, with
+   * `cache: 'no-store'`, never answered by an earlier reply the browser
+   * kept or by an identical read already in flight.
+   */
+  fresh?: boolean
+}
+
 export interface QbitTxOutspendsClient {
-  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]>
+  getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]>
 }
 
 /**
@@ -141,15 +151,37 @@ export type QbitWalletApiClient = EsploraClient &
  * the client's own constructor error stands.
  */
 function withQbitExplorerBudgets<T extends EsploraClientOptions>(
-  options: T
+  options: T,
+  freshReads?: QbitExplorerFreshReads
 ): T & { timeoutMs: number } {
   const budgeted = { ...options, timeoutMs: options.timeoutMs ?? QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS }
   if (typeof options.baseUrl !== 'string') return budgeted
   if (options.fetchFn === undefined && typeof globalThis.fetch !== 'function') return budgeted
   return {
     ...budgeted,
-    fetchFn: createQbitExplorerFetch({ fetchFn: options.fetchFn, baseUrl: options.baseUrl }),
+    fetchFn: createQbitExplorerFetch({
+      fetchFn: options.fetchFn,
+      baseUrl: options.baseUrl,
+      freshReads,
+    }),
   }
+}
+
+/**
+ * `/tx/:txid/outspends` through `getJson`; a fresh read (see
+ * `QbitTxOutspendsOptions.fresh`) is sent on its own and marked in
+ * `freshReads` while it runs, its retries included.
+ */
+function readQbitTxOutspends(
+  txid: string,
+  options: QbitTxOutspendsOptions | undefined,
+  freshReads: QbitExplorerFreshReads,
+  getJson: (path: string, options?: RequestOptions, dedup?: boolean) => Promise<QbitTxOutspend[]>
+): Promise<QbitTxOutspend[]> {
+  const path = `/tx/${encodeURIComponent(txid)}/outspends`
+  if (options?.fresh !== true) return getJson(path, options)
+  const { fresh: _fresh, ...read } = options
+  return freshReads.during(path, () => getJson(path, read, false))
 }
 
 /**
@@ -187,15 +219,20 @@ export class QbitWalletEsploraClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
 {
   private readonly largeReadCeilingMs: number
+  private readonly freshReads: QbitExplorerFreshReads
 
   constructor(options: EsploraClientOptions) {
-    const budgeted = withQbitExplorerBudgets(options)
+    const freshReads = new QbitExplorerFreshReads()
+    const budgeted = withQbitExplorerBudgets(options, freshReads)
     super(budgeted)
     this.largeReadCeilingMs = budgeted.timeoutMs
+    this.freshReads = freshReads
   }
 
-  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
-    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
+  getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
+    return readQbitTxOutspends(txid, options, this.freshReads, (path, read, dedup) =>
+      this.getJson<QbitTxOutspend[]>(path, read, dedup)
+    )
   }
 
   // Confirmed rows only (`/txs/chain`, 25 a page); mempool rows are not paged.
@@ -227,6 +264,7 @@ export class QbitWalletMempoolClient
   /** The most pages one history read fetches, as the client's `maxAddressHistoryPages`. */
   readonly maxHistoryWalkPages: number
   private readonly largeReadCeilingMs: number
+  private readonly freshReads: QbitExplorerFreshReads
 
   // The client clamps every call's maxPages to this ceiling (default 256), so
   // the two-read budgets above need it raised to match. The history reads
@@ -235,14 +273,18 @@ export class QbitWalletMempoolClient
     const maxAddressHistoryPages =
       options.maxAddressHistoryPages ??
       DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS
-    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages })
+    const freshReads = new QbitExplorerFreshReads()
+    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages }, freshReads)
     super(budgeted)
     this.maxHistoryWalkPages = maxAddressHistoryPages
     this.largeReadCeilingMs = budgeted.timeoutMs
+    this.freshReads = freshReads
   }
 
-  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
-    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
+  getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
+    return readQbitTxOutspends(txid, options, this.freshReads, (path, read, dedup) =>
+      this.getJson<QbitTxOutspend[]>(path, read, dedup)
+    )
   }
 
   // The combined route, mempool rows first. `getAddressTxs` would rescan it
@@ -2274,7 +2316,7 @@ export async function getQbitTxSpenders(
   client: QbitTxOutspendsClient,
   txid: string,
   outputCount: number,
-  options?: RequestOptions
+  options?: QbitTxOutspendsOptions
 ): Promise<(string | undefined)[]> {
   const normalizedTxid = normalizeQbitTxid(txid)
   if (!Number.isSafeInteger(outputCount) || outputCount < 1) {

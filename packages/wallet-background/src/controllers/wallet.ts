@@ -247,7 +247,9 @@ import {
 } from '../utils/qbit-explorer-fetch'
 import {
   QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS,
-  assertNoExplorerDependentSpend,
+  QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+  assertNoExplorerSpendConflict,
+  qbitExplorerSpendCheck,
 } from '../utils/qbit-fee-bump-recheck'
 import {
   QBIT_RECEIVE_GAP_LIMIT,
@@ -7438,8 +7440,12 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async (replaces, replacedOutputCount) => {
-        if (replaces) await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount)
+      async (replaces, replacedOutputCount, restored) => {
+        await assertNoExplorerSpendConflict(
+          client,
+          qbitExplorerSpendCheck(txid, outpoints, replaces, replacedOutputCount, restored),
+          { intervalMs: this.qbitFeeBumpRecheckIntervalMs }
+        )
         return client.broadcastTx(rawtx)
       },
       qbitSendBroadcastClaim
@@ -7534,6 +7540,13 @@ export class WalletController extends BaseController {
    * Instance-level for the same reason.
    */
   qbitBroadcastResendDelaysMs: readonly number[] = QBIT_BROADCAST_RESEND_DELAYS_MS
+
+  /**
+   * Pause between the two rounds of explorer reads a fee bump or a
+   * restored claim waits for before it goes out. Instance-level for the
+   * same reason.
+   */
+  qbitFeeBumpRecheckIntervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS
 
   /**
    * UI-facing broadcast that reports a plain, serializable verdict instead of
@@ -7714,7 +7727,11 @@ export class WalletController extends BaseController {
         throw new Error('Qbit broadcast deadline left no time to send')
       }
     }
-    const broadcast = async (replaces?: string, replacedOutputCount?: number): Promise<string> => {
+    const broadcast = async (
+      replaces?: string,
+      replacedOutputCount?: number,
+      restored = false
+    ): Promise<string> => {
       operation.start()
       assertTimeToSend()
       // The guard queue may hold a re-send past the window it was due in;
@@ -7736,11 +7753,16 @@ export class WalletController extends BaseController {
       // wallet does can come in between; a refusal is still pre-dispatch.
       // Only what spends the original is read: its output count comes with
       // the claim, from the bytes the assessment verified before signing.
-      if (replaces) {
+      // A claim restored after a restart may replace a payment whatever the
+      // page says it replaces, and the guard's records of what spends its
+      // inputs went with the restart: what spends them is read as well.
+      if (replaces || restored) {
         try {
-          await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount, {
-            operation,
-          })
+          await assertNoExplorerSpendConflict(
+            client,
+            qbitExplorerSpendCheck(txid, outpoints, replaces, replacedOutputCount, restored),
+            { intervalMs: this.qbitFeeBumpRecheckIntervalMs, operation }
+          )
         } catch (error) {
           dependentSpendRefused = true
           throw error

@@ -180,21 +180,58 @@ function probeGone() {
   getTxStatusMock.mockRejectedValueOnce(notFound())
 }
 
+/** What the explorer shows, from now on, spending each output of a transaction, by txid. */
+const explorerOutspends = new Map<string, unknown>()
+
+beforeEach(() => {
+  explorerOutspends.clear()
+})
+
 /**
- * Answer the one explorer lookup a fee bump's broadcast makes for its
- * original, `fixture`: what spends each of its outputs (its one output,
- * unless `spenders` says otherwise). The original's bytes are never read
- * again at broadcast: its output count comes with the bump's claim.
+ * Show, from now on, what spends each output of `txid`; one not shown is
+ * not found. A broadcast's explorer check reads it twice before it goes out.
  */
-function explorerShowsOriginal(spenders: (string | undefined)[] = [undefined]) {
-  getTxOutspendsMock.mockResolvedValueOnce(
+function explorerShowsSpenders(txid: string, spenders: (string | undefined)[]) {
+  explorerOutspends.set(
+    txid,
     spenders.map(spender =>
       spender === undefined
         ? { spent: false }
         : { spent: true, txid: spender, vin: 0, status: { confirmed: false } }
     )
   )
+  getTxOutspendsMock.mockImplementation(async (outspendsOf: string) => {
+    if (!explorerOutspends.has(outspendsOf)) throw notFound()
+    return explorerOutspends.get(outspendsOf)
+  })
 }
+
+/**
+ * What spends each output of a fee bump's original, `fixture` (its one
+ * output, unless `spenders` says otherwise). The original's bytes are never
+ * read again at broadcast: its output count comes with the bump's claim.
+ */
+function explorerShowsOriginal(spenders: (string | undefined)[] = [undefined]) {
+  explorerShowsSpenders(fixture.txid, spenders)
+}
+
+/**
+ * What spends the one input of `fixture` and of its fee bump, which a
+ * claim restored after a restart has checked at its broadcast.
+ */
+function explorerShowsInput(spender?: string) {
+  explorerShowsSpenders(SOURCE_TXID, [spender])
+}
+
+/** The options of a read the explorer check makes: fresh, under the broadcast's deadline. */
+const freshRead = expect.objectContaining({
+  deadlineMs: expect.any(Number),
+  signal: expect.any(AbortSignal),
+  fresh: true,
+})
+
+/** The txids whose outspends the explorer was asked for, in order. */
+const outspendsReads = () => getTxOutspendsMock.mock.calls.map(([txid]) => txid)
 
 /** The options a submission or lookup gets: the broadcast's deadline. */
 const underDeadline = expect.objectContaining({ deadlineMs: expect.any(Number) })
@@ -214,6 +251,7 @@ function newController() {
   // the same bytes would get. Re-sends are covered through the real API
   // client in wallet-controller-qbit-broadcast-resend.test.ts.
   wallet.qbitBroadcastResendDelaysMs = []
+  wallet.qbitFeeBumpRecheckIntervalMs = 0
   return wallet
 }
 
@@ -1878,6 +1916,9 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     getTxOutspendsMock.mockReset()
     broadcastTxMock.mockReset()
     qbitSendGuardService.init()
+    // Nothing spends the fixture's input: its first broadcast's answer was
+    // lost, and the lookups miss it.
+    explorerShowsInput()
   })
 
   afterEach(() => {
@@ -1939,6 +1980,12 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     expect(broadcastTxMock).toHaveBeenLastCalledWith(fixture.rawTxHex, underDeadline)
     expect(getTxStatusMock).toHaveBeenCalledTimes(2)
     expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+    // The guard lost what spends the claim's input with the restart: the
+    // explorer was asked, twice and fresh, that nothing else does.
+    expect(getTxOutspendsMock.mock.calls).toEqual([
+      [SOURCE_TXID, freshRead],
+      [SOURCE_TXID, freshRead],
+    ])
     await expectInputSpentNotClaimed()
 
     // This worker now knows the claim was consumed: a retry whose answer was
@@ -2197,6 +2244,64 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
     await expectInputSpentNotClaimed()
   })
+
+  it('refuses to dispatch a restored claim whose input the explorer shows another transaction spending', async () => {
+    const wallet = newController()
+    const { signedData, claim } = await signThenRestart(wallet)
+
+    // Before the restart nothing would have let these bytes replace another
+    // payment; now only the explorer can show one, made elsewhere, and
+    // dispatching them would evict it. The lookups miss the send itself.
+    const otherTxid = 'ee'.repeat(32)
+    explorerShowsInput(otherTxid)
+    probeGone()
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    ).resolves.toEqual({
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+    expect(outspendsReads()).toEqual([SOURCE_TXID])
+
+    // The explorer disagreeing with itself refuses it as well: a payment
+    // that shows only on the second read.
+    getTxOutspendsMock.mockResolvedValueOnce([{ spent: false }])
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    ).resolves.toMatchObject({
+      outcome: 'not_sent',
+      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+    })
+    // So does an explorer that cannot say.
+    getTxOutspendsMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    ).resolves.toMatchObject({
+      outcome: 'not_sent',
+      detail:
+        'Could not check whether a later payment depends on the transaction this fee bump replaces',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+    expect(outspendsReads()).toEqual(Array(4).fill(SOURCE_TXID))
+
+    // The restored claim still holds the input: once nothing else spends
+    // it, the same bytes go out without another signature.
+    explorerShowsInput()
+    broadcastTxMock.mockResolvedValueOnce(fixture.txid)
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    ).resolves.toMatchObject({ success: true, via: 'broadcast' })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
@@ -2271,9 +2376,14 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
   const broadcastBump = (wallet: WalletController, bump: SignedBump) =>
     wallet.broadcastQbitTx(bump.psbtHex, bump.claim, REGTEST, otherFixture.txid)
 
-  /** Lose the bump's first broadcast (unknown verdict), then restart the worker. */
+  /**
+   * Lose the bump's first broadcast (unknown verdict), then restart the
+   * worker. The explorer shows the original spending the input the bump
+   * spends again, as it does while the original is pending.
+   */
   async function loseBumpThenRestart(wallet: WalletController, bump: SignedBump) {
     explorerShowsOriginal()
+    explorerShowsInput(fixture.txid)
     broadcastTxMock.mockRejectedValueOnce(networkError())
     probeGone()
     await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
@@ -2302,10 +2412,7 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
       reason: 'guard_blocked',
       detail: dependentDetail,
     })
-    expect(getTxOutspendsMock).toHaveBeenCalledWith(
-      fixture.txid,
-      expect.objectContaining({ deadlineMs: expect.any(Number), signal: expect.any(AbortSignal) })
-    )
+    expect(getTxOutspendsMock.mock.calls).toEqual([[fixture.txid, freshRead]])
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
     // Nothing went out, and the bump's claim still holds the original's
     // input for a retry or until the user abandons it.
@@ -2420,6 +2527,83 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
     expect(broadcastTxMock).toHaveBeenCalledTimes(3)
     expect(getTxStatusMock).toHaveBeenCalledTimes(3)
     expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses to dispatch a fee bump when a payment spending its original shows only on the second read', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+
+    // The first read comes before the explorer has seen a payment made
+    // elsewhere moments ago; the second, fresh read shows it.
+    explorerShowsOriginal([laterTxid])
+    getTxOutspendsMock.mockResolvedValueOnce([{ spent: false }])
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      success: false,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: dependentDetail,
+    })
+    expect(getTxOutspendsMock.mock.calls).toEqual([
+      [fixture.txid, freshRead],
+      [fixture.txid, freshRead],
+    ])
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('after a restart, refuses a fee bump whose page says it replaces nothing while a payment spends its original', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    await loseBumpThenRestart(wallet, bump)
+
+    // The page hands back the bump's claim saying it replaces nothing. The
+    // guard has no record left to hold that against, and taken at its word
+    // the bump would go out unchecked and evict the payment that now
+    // spends its original. The explorer shows the original spending the
+    // bump's input, so the bump is refused before dispatch.
+    const { replacedOutputCount: _count, ...held } = bump.claim
+    const unlabelled: QbitSendBroadcastClaim = { ...held, replaces: null }
+    explorerShowsOriginal([laterTxid])
+    probeGone()
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(bump.psbtHex, unlabelled, REGTEST, otherFixture.txid)
+    ).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    expect(getTxOutspendsMock).toHaveBeenLastCalledWith(SOURCE_TXID, freshRead)
+  })
+
+  it('after a restart, refuses a fee bump whose page names another transaction as its original', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    await loseBumpThenRestart(wallet, bump)
+
+    // Nothing spends the transaction the page names, but the bump would
+    // replace the original, which the explorer shows spending its input,
+    // and with it the payment that now spends the original.
+    const namedTxid = 'dd'.repeat(32)
+    const misnamed: QbitSendBroadcastClaim = { ...bump.claim, replaces: namedTxid }
+    explorerShowsOriginal([laterTxid])
+    explorerShowsSpenders(namedTxid, [undefined])
+    probeGone()
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(bump.psbtHex, misnamed, REGTEST, otherFixture.txid)
+    ).resolves.toMatchObject({
+      success: false,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    expect(outspendsReads().slice(-2).sort()).toEqual([SOURCE_TXID, namedTxid].sort())
   })
 
   it('checks the explorer before pushTx broadcasts a fee bump under its claim', async () => {

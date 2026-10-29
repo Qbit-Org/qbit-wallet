@@ -177,6 +177,7 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     const wallet = new WalletController()
     wallet.qbitBroadcastProbeDelayMs = 0
     wallet.qbitBroadcastResendDelaysMs = QBIT_BROADCAST_RESEND_DELAYS_MS.map(() => 0)
+    wallet.qbitFeeBumpRecheckIntervalMs = 0
     vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(account as any)
     return wallet
   }
@@ -899,11 +900,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
 
       expect(result).toMatchObject({ success: true, txid: claim.txid, via: 'broadcast' })
       expect(explorer.spenderOf(SPENT.txid, SPENT.vout)?.txid).toBe(claim.txid)
-      // Only what spends the original was asked at broadcast, never its bytes.
+      // Only what spends the original was asked at broadcast, twice, never its bytes.
       expect(explorer.requests.filter(isOriginalHex)).toHaveLength(0)
       expect(
         explorer.requests.filter(({ path }) => path === `/tx/${original.txid}/outspends`)
-      ).toHaveLength(1)
+      ).toHaveLength(2)
     })
   })
 
