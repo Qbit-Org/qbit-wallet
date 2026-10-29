@@ -3008,6 +3008,39 @@
   "unrecognised_output_risk_description": {
     "message": "Une sortie paie une adresse qui n'est ni la vôtre ni celle du destinataire indiqué par cette demande, ou un script sans adresse. Vérifiez chaque sortie avant de signer."
   },
+  "psbt_output_change": {
+    "message": "Monnaie rendue"
+  },
+  "psbt_output_other_account": {
+    "message": "Un autre de vos comptes"
+  },
+  "psbt_after_signing": {
+    "message": "Après signature"
+  },
+  "psbt_finalized": {
+    "message": "Finalisée : le site peut la diffuser"
+  },
+  "psbt_not_finalized": {
+    "message": "Signée, non finalisée : d'autres signataires la complètent"
+  },
+  "psbt_locktime": {
+    "message": "Verrouillage temporel"
+  },
+  "psbt_locktime_none": {
+    "message": "Aucun verrouillage"
+  },
+  "psbt_locktime_block": {
+    "message": "Après le bloc $1"
+  },
+  "psbt_locktime_time": {
+    "message": "Après le $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 ne s'applique pas : toutes les entrées sont finales"
+  },
+  "psbt_tx_version": {
+    "message": "Version"
+  },
   "multisign_flagged_transactions": {
     "message": "Transactions à confirmer avant de signer : $1"
   },

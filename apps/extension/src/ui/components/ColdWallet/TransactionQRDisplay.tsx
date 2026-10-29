@@ -50,8 +50,14 @@ export default function TransactionQRDisplay({
       const addresses = [currentAccount.address];
       const expectedSignerPubkey = currentAccount.pubkey;
 
-      // The approval's spend summary stays in the wallet; the signer's request keeps its fields.
-      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '', {
+      // What only the approval shows stays in the wallet; the signer's request keeps its fields.
+      const {
+        spendSummary: _spendSummary,
+        outputOwners: _outputOwners,
+        version: _version,
+        locktime: _locktime,
+        ...decodedPsbt
+      } = await wallet.decodePsbt(psbtHex, '', {
         suppliedByWebsite
       });
       const networkType = await wallet.getNetworkType();

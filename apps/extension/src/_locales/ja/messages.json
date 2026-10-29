@@ -3008,6 +3008,39 @@
   "unrecognised_output_risk_description": {
     "message": "あるアウトプットが、あなたのものでもこのリクエストが示す受信者のものでもないアドレス、またはアドレスのないスクリプトに支払っています。署名する前にすべてのアウトプットを確認してください。"
   },
+  "psbt_output_change": {
+    "message": "おつり"
+  },
+  "psbt_output_other_account": {
+    "message": "あなたの別のアカウント"
+  },
+  "psbt_after_signing": {
+    "message": "署名後"
+  },
+  "psbt_finalized": {
+    "message": "ファイナライズ済み：サイトがブロードキャストできます"
+  },
+  "psbt_not_finalized": {
+    "message": "署名済み・未ファイナライズ：他の署名者が完成させます"
+  },
+  "psbt_locktime": {
+    "message": "ロックタイム"
+  },
+  "psbt_locktime_none": {
+    "message": "ロックなし"
+  },
+  "psbt_locktime_block": {
+    "message": "ブロック $1 の後"
+  },
+  "psbt_locktime_time": {
+    "message": "$1 の後"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 は適用されません：すべての入力が確定済みです"
+  },
+  "psbt_tx_version": {
+    "message": "バージョン"
+  },
   "multisign_flagged_transactions": {
     "message": "署名前に確認が必要なトランザクション：$1"
   },

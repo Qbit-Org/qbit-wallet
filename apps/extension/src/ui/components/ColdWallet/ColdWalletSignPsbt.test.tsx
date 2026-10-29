@@ -73,6 +73,25 @@ describe('ColdWalletSignPsbt request', () => {
     }
   });
 
+  it('keeps what only the approval shows out of the signer’s request', async () => {
+    // The approval's display fields: the request the signer reads is unchanged.
+    wallet.decodePsbt.mockImplementation(async () => ({
+      risks: [HIGH_FEE],
+      fee: 3860,
+      spendSummary: { account: 'qbrt1zaccount' },
+      outputOwners: ['none', 'change'],
+      version: 2,
+      locktime: 900000
+    }));
+    render(<ColdWalletSignPsbt psbtHex="70736274ff" suppliedByWebsite onSuccess={vi.fn()} onCancel={vi.fn()} />);
+
+    await waitFor(() => expect(encoded.requests).toHaveLength(2));
+    for (const request of encoded.requests) {
+      const { decodedPsbt } = JSON.parse(request);
+      expect(decodedPsbt).toEqual({ risks: [HIGH_FEE], fee: 3860 });
+    }
+  });
+
   it('reviews a PSBT the wallet built as its own', async () => {
     render(<ColdWalletSignPsbt psbtHex="70736274ff" onSuccess={vi.fn()} onCancel={vi.fn()} />);
 

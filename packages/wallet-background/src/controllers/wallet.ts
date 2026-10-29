@@ -165,8 +165,10 @@ import {
   QBIT_MIN_RELAY_FEE_RATE,
   psbtReviewOptions,
   qbitWalletOwnership,
+  qbitWalletOwns,
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
+  type PsbtOutputOwner,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
 import { psbtFromString } from '../utils/psbt-utils'
@@ -8493,6 +8495,15 @@ export class WalletController extends BaseController {
       feeSummary,
       checkFeeShareWithoutSize: suppliedByWebsite,
     })
+    // Change and the wallet's other accounts are known only from the scripts
+    // and addresses the wallet derives for its accounts: the PSBT's own
+    // records about an output, such as derivation paths, are its author's.
+    const signingAccount = qbitWalletOwnership([account])
+    const outputOwners = outputInfos.map((output): PsbtOutputOwner => {
+      if (output.type === 'op_return') return 'none'
+      if (qbitWalletOwns(signingAccount, output)) return 'change'
+      return qbitWalletOwns(wallet, output) ? 'other_account' : 'none'
+    })
 
     return {
       inputInfos,
@@ -8508,6 +8519,9 @@ export class WalletController extends BaseController {
       shouldWarnFeeRate: (spendSummary.feeAssessment?.reasons.length ?? 0) > 0,
       isCompleted,
       spendSummary,
+      outputOwners,
+      version: summary.version,
+      locktime: summary.locktime,
     }
   }
 

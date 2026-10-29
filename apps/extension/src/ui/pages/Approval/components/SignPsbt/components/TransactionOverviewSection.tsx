@@ -1,10 +1,46 @@
 import { Card, Column, Icon, Row, Text, Tooltip } from '@/ui/components';
 import { ColorTypes } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
-import { DecodedPsbt, ToSignData } from '@qbit/wallet-shared';
+import { DecodedPsbt, ToSignData, isWebsiteSuppliedPsbt } from '@qbit/wallet-shared';
 import { useI18n, useQbitUnit } from '@qbit/wallet-state';
 
 import { SignPsbtSection } from './Section';
+
+/** An nLockTime from this value is a Unix time; below it, a block height. */
+const LOCKTIME_THRESHOLD = 500_000_000;
+/** The sequence of a final input. When every input is final, nLockTime is not enforced. */
+const SEQUENCE_FINAL = 0xffffffff;
+
+/** A Unix time as `YYYY-MM-DD hh:mm:ss UTC`. */
+function formatLocktimeTime(locktime: number): string {
+  return new Date(locktime * 1000)
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d{3}Z$/, ' UTC');
+}
+
+function TermRow({ label, value, detail, testId }: { label: string; value: string; detail?: string; testId: string }) {
+  return (
+    <Card
+      mt="zero"
+      style={{
+        borderWidth: 1,
+        borderColor: 'var(--qbit-line)',
+        borderRadius: 0
+      }}
+    >
+      <Row justifyBetween itemsCenter fullX>
+        <Text text={label} color="textDim" size="sm" />
+        <Column gap="zero" style={{ alignItems: 'flex-end', minWidth: 0 }}>
+          <Text text={value} preset="bold" size="sm" textEnd wrap data-testid={testId} />
+          {detail !== undefined && (
+            <Text text={detail} size="xs" color="textDim" textEnd wrap data-testid={`${testId}-raw`} />
+          )}
+        </Column>
+      </Row>
+    </Card>
+  );
+}
 
 interface TransactionOverviewSectionProps {
   decodedPsbt: DecodedPsbt;
@@ -29,11 +65,52 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
 
   const showNetworkFee = decodedPsbt.isCompleted == true;
 
-  if (showNetworkFee === false) {
-    return null;
+  // A website gets the signed PSBT back. Signing finalizes it unless the
+  // request, as the background prepared it, says not to.
+  const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
+    ? toSignData?.autoFinalized !== false
+      ? t('psbt_finalized')
+      : t('psbt_not_finalized')
+    : undefined;
+
+  const { locktime, version } = decodedPsbt;
+  let locktimeText: string | undefined;
+  let locktimeDetail: string | undefined;
+  if (locktime !== undefined) {
+    const enforced = locktime !== 0 && !decodedPsbt.inputInfos.every((input) => input.sequence === SEQUENCE_FINAL);
+    if (!enforced) {
+      locktimeText = t('psbt_locktime_none');
+    } else if (locktime < LOCKTIME_THRESHOLD) {
+      locktimeText = t('psbt_locktime_block', `${locktime}`);
+    } else {
+      locktimeText = t('psbt_locktime_time', formatLocktimeTime(locktime));
+    }
+    locktimeDetail =
+      locktime !== 0 && !enforced ? t('psbt_locktime_not_enforced', `${locktime}`) : `nLockTime ${locktime}`;
   }
 
-  return (
+  const transactionSection =
+    finalizeDecision !== undefined || locktimeText !== undefined || version !== undefined ? (
+      <SignPsbtSection title={t('transaction')}>
+        <Column gap="sm">
+          {finalizeDecision !== undefined && (
+            <TermRow label={t('psbt_after_signing')} value={finalizeDecision} testId="psbt-finalize-decision" />
+          )}
+          {locktimeText !== undefined && (
+            <TermRow label={t('psbt_locktime')} value={locktimeText} detail={locktimeDetail} testId="psbt-locktime" />
+          )}
+          {version !== undefined && (
+            <TermRow label={t('psbt_tx_version')} value={`${version}`} testId="psbt-tx-version" />
+          )}
+        </Column>
+      </SignPsbtSection>
+    ) : null;
+
+  if (showNetworkFee === false) {
+    return transactionSection;
+  }
+
+  const feeSection = (
     <SignPsbtSection title={title}>
       <Column gap="sm">
         <Card
@@ -117,5 +194,12 @@ export default function TransactionOverviewSection({ decodedPsbt, networkFee, to
         )}
       </Column>
     </SignPsbtSection>
+  );
+
+  return (
+    <>
+      {feeSection}
+      {transactionSection}
+    </>
   );
 }
