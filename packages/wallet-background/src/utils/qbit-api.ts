@@ -1518,6 +1518,12 @@ export interface QbitClassifiedUtxos {
   unconfirmedOwnChange: UTXO[]
   /** Confirmed coinbase outputs still inside the 1,000-block maturity window. */
   immature: UTXO[]
+  /**
+   * Outputs read from history only: the address statistics the walk
+   * verified. They read the same before and after it, and its outputs
+   * reconcile with them.
+   */
+  historyStats?: EsploraAddressStats
 }
 
 /**
@@ -1679,7 +1685,7 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     retryBaseDelayMs: options.retryBaseDelayMs ?? QBIT_UTXO_HISTORY_RETRY_BASE_DELAY_MS,
   })
   const read: QbitReadCancellation = options.signal ? { signal: options.signal } : {}
-  const unspent = await loadQbitSnapshotWithStabilityRetries(
+  const { stats, unspent } = await loadQbitSnapshotWithStabilityRetries(
     retry,
     () => readQbitUnspentOutputsFromHistory(client, address, maxTransactions, read),
     read
@@ -1689,7 +1695,7 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
       .filter(({ tx }) => tx.status.confirmed)
       .map(({ tx }) => [tx.txid.toLowerCase(), tx] as const)
   )
-  return classifyQbitUtxos(
+  const classified = await classifyQbitUtxos(
     client,
     unspent.map(({ tx, vout }) => ({
       txid: tx.txid,
@@ -1706,14 +1712,16 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     },
     read
   )
+  return { ...classified, historyStats: stats }
 }
 
+/** The address's unspent outputs read from its history, and the statistics the walk verified. */
 async function readQbitUnspentOutputsFromHistory(
   client: QbitEsploraClient,
   address: string,
   maxTransactions: number,
   options: QbitReadCancellation
-): Promise<{ tx: EsploraTx; vout: number }[]> {
+): Promise<{ stats: EsploraAddressStats; unspent: { tx: EsploraTx; vout: number }[] }> {
   const statsBefore = await client.getAddressStats(address, options)
   assertValidQbitStats(statsBefore, address)
   if (qbitHistoryOverReadLimit(statsBefore, maxTransactions)) {
@@ -1783,7 +1791,10 @@ async function readQbitUnspentOutputsFromHistory(
       `qbit history of ${address} does not reconcile with its statistics`
     )
   }
-  return [...funded].filter(([outpoint]) => !spent.has(outpoint)).map(([, output]) => output)
+  return {
+    stats: statsBefore,
+    unspent: [...funded].filter(([outpoint]) => !spent.has(outpoint)).map(([, output]) => output),
+  }
 }
 
 function qbitHistoryOverReadLimit(stats: EsploraAddressStats, maxTransactions: number): boolean {
@@ -1835,15 +1846,27 @@ export async function getQbitAddressUtxos(
   address: string,
   options: QbitReadCancellation = {}
 ): Promise<UTXO[]> {
-  const { confirmedSpendable, unconfirmedOwnChange } = await getQbitAddressUtxosClassifiedPastLimit(
-    client,
-    address,
-    options
-  )
-  return [
-    ...confirmedSpendable,
-    ...unconfirmedOwnChange.map(utxo => ({ ...utxo, unconfirmed: true })),
-  ]
+  return (await readQbitAddressUtxos(client, address, options)).utxos
+}
+
+/**
+ * `getQbitAddressUtxos`, with the address statistics the walk verified when
+ * the outputs were read from history (`QbitClassifiedUtxos.historyStats`).
+ */
+export async function readQbitAddressUtxos(
+  client: QbitEsploraClient,
+  address: string,
+  options: QbitReadCancellation = {}
+): Promise<{ utxos: UTXO[]; historyStats?: EsploraAddressStats }> {
+  const { confirmedSpendable, unconfirmedOwnChange, historyStats } =
+    await getQbitAddressUtxosClassifiedPastLimit(client, address, options)
+  return {
+    utxos: [
+      ...confirmedSpendable,
+      ...unconfirmedOwnChange.map(utxo => ({ ...utxo, unconfirmed: true })),
+    ],
+    ...(historyStats ? { historyStats } : {}),
+  }
 }
 
 /** The address's output counts from its statistics, as the explorer's limit sees them. */

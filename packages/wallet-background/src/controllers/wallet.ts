@@ -226,6 +226,7 @@ import {
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
+  readQbitAddressUtxos,
   type QbitAccountHistoryRevision,
   type QbitAddressOutputScan,
   type QbitClassifiedUtxos,
@@ -579,9 +580,10 @@ function isLaterQbitHistoryProgress(
 }
 
 /**
- * The address statistics an output read ran against, as `getAddressBalanceV2`
- * compares them (`qbitStatsSnapshot`), and how far the history had got.
- * Undefined, as `qbitHistoryProgress`, for statistics without counts to rank.
+ * The address statistics an output read's walk verified, as
+ * `getAddressBalanceV2` compares them (`qbitStatsSnapshot`), and how far the
+ * history had got. Undefined, as `qbitHistoryProgress`, for statistics
+ * without counts to rank.
  */
 interface QbitUtxoReadVersion {
   stats: string
@@ -5795,9 +5797,9 @@ export class WalletController extends BaseController {
    * left; so does every read of a page whose UI port disconnects. A walk
    * nothing waits for any more stops reading.
    *
-   * A read that completes leaves its outputs, before any reservation,
-   * behind as the account's latest on that network, with the address
-   * statistics it ran against: past the explorer's limit
+   * A read from history that completes leaves its outputs, before any
+   * reservation, behind as the account's latest on that network, with the
+   * address statistics its walk verified: past the explorer's limit
    * `getAddressBalanceV2` takes its split from them while the statistics
    * still read the same. Only a read whose history had got as far or
    * further replaces them, and a read that fails or stops leaves nothing.
@@ -5876,27 +5878,21 @@ export class WalletController extends BaseController {
 
     const chain = this.getChainType()
     const client = this.getQbitApiClient(chain)
-    const stats = shareRead
+    const activity = shareRead
       ? await Promise.resolve()
           .then(() => client.getAddressStats(account.address, signal ? { signal } : undefined))
+          .then(qbitHistoryProgress)
           .catch(() => undefined)
       : undefined
-    const version = stats === undefined ? undefined : qbitUtxoReadVersion(stats)
     if (signal?.aborted) throw signal.reason
     const qbitUtxos =
-      version === undefined
+      activity === undefined
         ? await this.qbitAccountUtxosOn(chain, account, client, signal)
         : await this.qbitUtxoSnapshotReads.run(
             client,
             account.address,
-            version.progress,
-            async readSignal => {
-              const utxos = await this.qbitAccountUtxosOn(chain, account, client, readSignal)
-              // Kept only once the read completed, never from one that
-              // failed or stopped.
-              this.qbitLatestUtxoReads.keep(client, account.address, version, utxos)
-              return utxos
-            },
+            activity,
+            readSignal => this.qbitAccountUtxosOn(chain, account, client, readSignal),
             signal
           )
     return {
@@ -5916,11 +5912,12 @@ export class WalletController extends BaseController {
   )
 
   /**
-   * The latest completed snapshot read per API client and address: its
-   * outputs before any reservation, with the address statistics
-   * (`qbitStatsSnapshot`) it ran against and how far the history had got.
-   * Only a read that had got as far or further replaces one. Kept in memory
-   * only; see `getAddressBalanceV2`.
+   * The latest completed read of an account's outputs from history per API
+   * client and address: its outputs before any reservation, with the
+   * address statistics (`qbitStatsSnapshot`) its walk verified and how far
+   * the history had got. Only a read that had got as far or further
+   * replaces one. Kept in memory only; see `qbitAccountUtxosOn` and
+   * `getAddressBalanceV2`.
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<
     UnspentOutput[],
@@ -5957,7 +5954,10 @@ export class WalletController extends BaseController {
   /**
    * The account's unspent outputs on `chain`, before any reservation is
    * applied. The read, an over-limit walk included, stops once `signal`
-   * aborts.
+   * aborts. A read from history that completes is kept as the account's
+   * latest on `chain` (`qbitLatestUtxoReads`), under the address statistics
+   * its walk verified, not ones read before it, which may have moved since;
+   * one that fails or stops leaves nothing.
    */
   private async qbitAccountUtxosOn(
     chain: ChainType,
@@ -5965,8 +5965,12 @@ export class WalletController extends BaseController {
     client: QbitWalletApiClient = this.getQbitApiClient(chain),
     signal?: AbortSignal
   ): Promise<UnspentOutput[]> {
-    const utxos = await getQbitAddressUtxos(client, account.address, signal ? { signal } : {})
-    return utxos.map(v => ({
+    const { utxos, historyStats } = await readQbitAddressUtxos(
+      client,
+      account.address,
+      signal ? { signal } : {}
+    )
+    const outputs = utxos.map(v => ({
       txid: v.txid,
       vout: v.vout,
       satoshis: v.satoshis,
@@ -5975,6 +5979,9 @@ export class WalletController extends BaseController {
       pubkey: account.pubkey,
       ...(v.unconfirmed ? { unconfirmed: true, unconfirmedAncestors: v.unconfirmedAncestors } : {}),
     }))
+    const version = historyStats && qbitUtxoReadVersion(historyStats)
+    if (version) this.qbitLatestUtxoReads.keep(client, account.address, version, outputs)
+    return outputs
   }
 
   /**

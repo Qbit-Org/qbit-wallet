@@ -405,11 +405,35 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
     expect(balance.unavailableBalance).toBe(totalOf(explorer) - sum(utxos) + held.satoshis)
   })
 
-  it("counts only the account's own script, and never more than the total", async () => {
+  it("counts only the account's own script", async () => {
     const { explorer } = overLimitExplorer()
     const { utxos } = await readOf(explorer)
     const stats = qbitStatsSnapshot(explorer.stats(address))
-    const foreign = { ...utxos[0]!, txid: fakeTxid(9, 9_000_000), scriptPk: payerScript }
+    const foreign = {
+      ...utxos[0]!,
+      txid: fakeTxid(9, 9_000_000),
+      satoshis: 1_000,
+      scriptPk: payerScript,
+    }
+    // Well under the total even with the foreign output, so no cap hides it.
+    expect(sum(utxos) + foreign.satoshis).toBeLessThan(totalOf(explorer))
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? [...utxos, foreign] : undefined)
+    )
+
+    expect(balance.availableBalance).toBe(sum(utxos))
+    expect(balance.unavailableBalance).toBe(totalOf(explorer) - sum(utxos))
+  })
+
+  it('never shows more available than the total', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos } = await readOf(explorer)
+    const stats = qbitStatsSnapshot(explorer.stats(address))
     const inflated = utxos.map(utxo => ({ ...utxo, satoshis: utxo.satoshis * 10 }))
 
     const balance = await getQbitSpendableBalanceV2(
@@ -417,7 +441,7 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
       address,
       script,
       undefined,
-      current => (current === stats ? [...inflated, foreign] : undefined)
+      current => (current === stats ? inflated : undefined)
     )
 
     expect(balance.availableBalance).toBe(totalOf(explorer))

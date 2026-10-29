@@ -339,7 +339,7 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     expect(balance.utxoLimitExceeded).toBe(true)
   })
 
-  it('gives no split from a read, joined or not, that ran against statistics that have since moved', async () => {
+  it('keeps a read, joined or not, under the statistics its walk verified when they moved during it', async () => {
     const wallet = controller()
     const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
     let release: () => void = () => undefined
@@ -358,11 +358,14 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     const statsReads = () =>
       explorer.requests.filter(request => request.path === `/address/${address}`).length
     const first = wallet.getQbitUtxoSnapshot()
+    // The walk has read the statistics and waits for its first history page.
     await pageArrived
     // The second read finds the statistics unchanged and joins the first.
     const statsReadsBefore = statsReads()
     const joined = wallet.getQbitUtxoSnapshot()
     await vi.waitFor(() => expect(statsReads()).toBe(statsReadsBefore + 1))
+    // A payment arrives mid-walk: the walk reads the history again and
+    // verifies the statistics as they read now.
     explorer.addTx({
       txid: fakeTxid(3, 7_000_000),
       inputs: [{ txid: fakeTxid(4, 8_000_000), vout: 0 }],
@@ -373,11 +376,70 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     // One read of the outputs ran for both.
     expect(walks).toHaveBeenCalledTimes(1)
 
-    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit(TOTAL + 4_000))
-
-    await wallet.getQbitUtxoSnapshot()
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
       split(SPENDABLE, TOTAL + 4_000)
     )
+  })
+
+  it('does not match a read whose statistics moved before its walk and then came back', async () => {
+    const wallet = controller()
+    // The account's own send of one output, seen once the read has taken
+    // its statistics and before its walk starts.
+    const send = {
+      txid: fakeTxid(5, 7_000_000),
+      inputs: [{ txid: fakeTxid(0), vout: 0 }],
+      outputs: [{ address: payer, script: payerScript, value: OUTPUT_VALUE - 1_000 }],
+    }
+    let sent = false
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const response = await explorer.fetch(input, init)
+      if (!sent && String(input).endsWith(`/address/${address}`)) {
+        sent = true
+        explorer.addTx(send)
+      }
+      return response
+    })
+    const snapshot = await wallet.getQbitUtxoSnapshot()
+    expect(snapshot.utxos.reduce((sum, utxo) => sum + utxo.satoshis, 0)).toBe(
+      SPENDABLE - OUTPUT_VALUE
+    )
+
+    // The send is evicted: the statistics read as they did before the walk,
+    // but the walk saw the send, so its read does not count for them.
+    explorer.removeTx(send.txid)
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps nothing from a read that failed or was abandoned', async () => {
+    const wallet = controller()
+    // A history page fails for good.
+    explorer.failures.push(({ path }) =>
+      path.includes('/txs/chain') ? { status: 400, body: 'bad cursor' } : undefined
+    )
+    await expect(wallet.getQbitUtxoSnapshot()).rejects.toThrow()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    explorer.failures.length = 0
+
+    // A page leaves the send screen while the walk waits for a page.
+    let release: () => void = () => undefined
+    const released = new Promise<void>(resolve => (release = resolve))
+    let pageHeld: () => void = () => undefined
+    const pageArrived = new Promise<void>(resolve => (pageHeld = resolve))
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('/txs/chain')) {
+        pageHeld()
+        await released
+      }
+      return explorer.fetch(input, init)
+    })
+    const abandoned = wallet.runForUiPort('popup:1', () => wallet.getQbitUtxoSnapshot('read-1'))
+    await pageArrived
+    await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('read-1'))
+    await expect(abandoned).rejects.toThrow('abandoned')
+    release()
+    vi.stubGlobal('fetch', explorer.fetch)
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
   })
 })
