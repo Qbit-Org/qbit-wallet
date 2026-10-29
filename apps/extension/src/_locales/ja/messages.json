@@ -758,6 +758,9 @@
   "fee_rate": {
     "message": "手数料率"
   },
+  "fee_estimates_unavailable": {
+    "message": "手数料の見積もりを利用できません。"
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "手数料の見積もりを利用できません。リレー最小値の $1 bit/vB を使用しています。"
   },

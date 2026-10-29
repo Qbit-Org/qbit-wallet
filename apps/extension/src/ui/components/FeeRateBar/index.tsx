@@ -7,7 +7,6 @@ import { Column } from '../Column';
 import { Input } from '../Input';
 import { Row } from '../Row';
 import { Text } from '../Text';
-import { FeeRateType } from './const';
 
 export function FeeRateBar({
   readonly,
@@ -43,9 +42,8 @@ export function FeeRateBar({
       </Row>
 
       <Row justifyCenter>
-        {feeOptions.map((v, position) => {
-          // The option a tile selects: Custom wherever it stands, a tier by its position.
-          const index = isCustomOption(v) ? FeeRateType.CUSTOM : position;
+        {feeOptions.map((v) => {
+          const index = v.index;
           let selected = index === feeOptionIndex;
           if (readonly) {
             selected = false;
@@ -114,7 +112,11 @@ export function FeeRateBar({
 
       {feeEstimateUnavailable ? (
         <Text
-          text={t('fee_estimates_unavailable_using_floor', [String(fallbackFeeRate)])}
+          text={
+            fallbackFeeRate === undefined
+              ? t('fee_estimates_unavailable')
+              : t('fee_estimates_unavailable_using_floor', [String(fallbackFeeRate)])
+          }
           size="xs"
           color="warning"
           data-testid="fee-estimates-unavailable"

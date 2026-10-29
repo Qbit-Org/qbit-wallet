@@ -387,14 +387,37 @@ describe('useFeeRateBarLogic', () => {
     const { store, wrapper } = createHookTestHarness({ wallet })
     store.dispatch((uiActions as any).updateFeeRateBar({ feeRate: 5, feeOptionIndex: 1 }))
 
-    const { result } = renderHook(() => useFeeRateBarLogic({ readonly: true }), { wrapper })
+    const { result } = renderHook(() => useFeeRateBarLogic({}), { wrapper })
 
     await waitFor(() => expect(result.current.feeEstimateUnavailable).toBe(true))
-    expect(result.current.feeOptions).toEqual([])
-    await waitFor(() =>
-      expect(store.getState().ui.feeRateBar.feeRate).toBe(result.current.fallbackFeeRate)
-    )
+    expect(result.current.feeOptions.map(result.current.isCustomOption)).toEqual([true])
+    expect(result.current.fallbackFeeRate).toBe(1)
+    await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
   })
+
+  // The website PSBT risk popover shows one; the send screen's rate is in the
+  // same store, and nothing reads a rate from a read-only bar.
+  it.each([
+    ['reads its quote', () => Promise.resolve(qbitFeeSummary())],
+    ['cannot read its quote', () => Promise.reject(new Error('locked'))],
+  ])(
+    'leaves the selected rate alone, and claims no rate, in a read-only bar that %s',
+    async (_label, read) => {
+      const wallet = createWalletMock()
+      wallet.getFeeSummary.mockImplementation(read)
+      const { store, wrapper } = createHookTestHarness({ wallet })
+      store.dispatch(
+        (uiActions as any).updateFeeRateBar({ feeRate: 5, feeRateInputVal: '5', feeOptionIndex: 1 })
+      )
+
+      const { result } = renderHook(() => useFeeRateBarLogic({ readonly: true }), { wrapper })
+      await waitFor(() => expect(wallet.getFeeSummary).toHaveBeenCalled())
+      await act(async () => {})
+
+      expect(store.getState().ui.feeRateBar).toMatchObject({ feeRate: 5, feeOptionIndex: 1 })
+      expect(result.current.fallbackFeeRate).toBeUndefined()
+    }
+  )
 
   describe('with a quote its screen shares', () => {
     type SharedQuote = NonNullable<Parameters<typeof useFeeRateBarLogic>[0]['quote']>
@@ -577,6 +600,63 @@ describe('useFeeRateBarLogic', () => {
       await waitFor(() =>
         expect(store.getState().ui.feeRateBar.feeRate).toBe(result.current.fallbackFeeRate)
       )
+    })
+
+    it('gives each option the index it selects, from three tiers at most', () => {
+      const wallet = createWalletMock()
+      const { wrapper } = createHookTestHarness({ wallet })
+      const fourTiers = {
+        ...qbitFeeSummary(),
+        list: [...qbitFeeSummary().list, { title: 'extra', desc: '', feeRate: 9, targetBlocks: 1 }],
+      }
+      const { result, rerender } = renderHook(
+        ({ quote }: { quote: SharedQuote }) => useFeeRateBarLogic({ quote }),
+        {
+          wrapper,
+          initialProps: { quote: { status: 'loaded', summary: fourTiers } as SharedQuote },
+        }
+      )
+
+      // A fourth tier would stand where Custom's index is.
+      expect(result.current.feeOptions.map(option => [option.index, option.feeRate])).toEqual([
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+      ])
+
+      rerender({ quote: { status: 'loaded' } })
+      expect(result.current.feeOptions.map(option => option.index)).toEqual([3])
+    })
+
+    it('shows the relay floor in the input, not a tier’s earlier rate, once the quote cannot be read', async () => {
+      const { result, rerender, store } = renderSharedFeeBar({
+        status: 'loaded',
+        summary: qbitFeeSummary(),
+      })
+      await waitFor(() => expect(result.current.feeOptions).toHaveLength(4))
+      act(() => {
+        result.current.setFeeOptionIndex(2)
+      })
+      expect(result.current.feeRateInputVal).toBe('3')
+
+      rerender({ quote: { status: 'loaded' } })
+      expect(result.current.feeRateInputVal).toBe('1')
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+
+      // The input hands back the value it is given: not a rate the user typed.
+      act(() => {
+        result.current.adjustFeeRateInput('1')
+      })
+      expect(store.getState().ui.feeRateBar.feeOptionIndex).toBe(2)
+
+      act(() => {
+        result.current.adjustFeeRateInput('4')
+      })
+      await waitFor(() =>
+        expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 3, feeRate: 4 })
+      )
+      expect(result.current.feeRateInputVal).toBe('4')
     })
 
     it('keeps a Custom rate set while the quote cannot be read, and no lower than the floor', async () => {

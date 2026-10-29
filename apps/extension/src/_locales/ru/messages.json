@@ -758,6 +758,9 @@
   "fee_rate": {
     "message": "Ставка комиссии"
   },
+  "fee_estimates_unavailable": {
+    "message": "Оценки комиссии недоступны."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Оценки комиссии недоступны. Используется минимальная ставка ретрансляции $1 бит/vB."
   },

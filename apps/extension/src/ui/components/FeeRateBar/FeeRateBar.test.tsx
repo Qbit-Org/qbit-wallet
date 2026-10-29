@@ -25,8 +25,8 @@ describe('FeeRateBar', () => {
   const toggleCustomInput = vi.fn();
   const defaultFeeRateLogic = {
     feeOptions: [
-      { title: 'slow', desc: 'slow description', feeRate: 1 },
-      { title: 'avg', desc: 'average description', feeRate: 2 }
+      { index: 0, title: 'slow', desc: 'slow description', feeRate: 1 },
+      { index: 1, title: 'avg', desc: 'average description', feeRate: 2 }
     ],
     feeOptionIndex: 1,
     setFeeOptionIndex,
@@ -77,9 +77,9 @@ describe('FeeRateBar', () => {
     vi.mocked(useFeeRateBarLogic).mockReturnValue({
       ...defaultFeeRateLogic,
       feeOptions: [
-        { title: 'slow', desc: '~20 min', feeRate: 1 },
-        { title: 'avg', desc: '~6 min', feeRate: 1 },
-        { title: 'fast', desc: '~2 min', feeRate: 1 }
+        { index: 0, title: 'slow', desc: '~20 min', feeRate: 1 },
+        { index: 1, title: 'avg', desc: '~6 min', feeRate: 1 },
+        { index: 2, title: 'fast', desc: '~2 min', feeRate: 1 }
       ],
       feeEstimateUnavailable: true,
       fallbackFeeRate: 1
@@ -102,7 +102,7 @@ describe('FeeRateBar', () => {
   });
 
   it('selects Custom from a bar that offers only Custom', () => {
-    const customOption = { type: 3, title: 'custom', feeRate: 0 };
+    const customOption = { type: 3, index: 3, title: 'custom', feeRate: 0 };
     const logic = {
       ...defaultFeeRateLogic,
       feeOptions: [customOption],
@@ -121,5 +121,36 @@ describe('FeeRateBar', () => {
     vi.mocked(useFeeRateBarLogic).mockReturnValue({ ...logic, feeOptionIndex: 3 });
     rerender(<FeeRateBar />);
     expect(screen.getByTestId('fee-rate-option-3').getAttribute('data-selected')).toBe('true');
+  });
+
+  it('selects the option each tile stands for, not its position', () => {
+    vi.mocked(useFeeRateBarLogic).mockReturnValue({
+      ...defaultFeeRateLogic,
+      feeOptions: [
+        { index: 0, title: 'slow', desc: '', feeRate: 1 },
+        { index: 2, title: 'fast', desc: '', feeRate: 3 }
+      ],
+      feeOptionIndex: 2
+    } as ReturnType<typeof useFeeRateBarLogic>);
+
+    render(<FeeRateBar />);
+    const fast = screen.getByTestId('fee-rate-option-2');
+    expect(fast.getAttribute('data-selected')).toBe('true');
+    expect(screen.queryByTestId('fee-rate-option-1')).toBeNull();
+    fireEvent.click(screen.getByTestId('fee-rate-option-0'));
+    expect(setFeeOptionIndex).toHaveBeenCalledWith(0);
+  });
+
+  it('says estimates are unavailable without claiming a rate when it picks none', () => {
+    vi.mocked(useFeeRateBarLogic).mockReturnValue({
+      ...defaultFeeRateLogic,
+      feeOptions: [],
+      feeEstimateUnavailable: true,
+      fallbackFeeRate: undefined
+    } as ReturnType<typeof useFeeRateBarLogic>);
+
+    render(<FeeRateBar readonly />);
+
+    expect(screen.getByTestId('fee-estimates-unavailable').textContent).toBe('fee_estimates_unavailable');
   });
 });

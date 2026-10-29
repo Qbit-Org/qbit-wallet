@@ -25,6 +25,12 @@ interface FeeOption {
 }
 
 /**
+ * An option the bar offers, with the option index it selects: a tier's
+ * position, or CUSTOM for the Custom option wherever it stands.
+ */
+type FeeBarOption = FeeOption & { index: number }
+
+/**
  * A fee quote a screen reads once and shares with its fee bar, so that the
  * rates the bar offers and the rate the screen checks come from one quote.
  * A read that failed is loaded with no summary.
@@ -33,7 +39,7 @@ export type FeeQuoteState = { status: 'loading' } | { status: 'loaded'; summary?
 
 /** What the fee bar shows for one read of the quote. */
 interface FeeBarQuote {
-  options: FeeOption[]
+  options: FeeBarOption[]
   quote?: FeeQuoteMetadata
   /** The read failed: no rates to offer but Custom, and the bar says it uses the relay floor. */
   readFailed: boolean
@@ -43,14 +49,8 @@ interface FeeBarQuote {
 
 const NO_QUOTE_YET: FeeBarQuote = { options: [], readFailed: false, lowFeeMode: false }
 
-// The option index a tile selects: a tier's position, or CUSTOM for the
-// Custom tile wherever it stands.
-function optionIndexOf(option: FeeOption, position: number): number {
-  return option.type === FeeRateType.CUSTOM ? FeeRateType.CUSTOM : position
-}
-
-function optionAt(options: FeeOption[], index: number): FeeOption | undefined {
-  return options.find((option, position) => optionIndexOf(option, position) === index)
+function optionAt(options: FeeBarOption[], index: number): FeeBarOption | undefined {
+  return options.find(option => option.index === index)
 }
 
 const translationKeys = {
@@ -214,12 +214,18 @@ export function useFeeRateBarLogic({
   // that shares it. Undefined while the read, or its low-fee read, is pending.
   const readQuote = useMemo((): FeeBarQuote | undefined => {
     if (read.status === 'loading') return undefined
-    const custom: FeeOption = { type: FeeRateType.CUSTOM, title: t('custom'), feeRate: 0 }
+    const custom: FeeBarOption = {
+      type: FeeRateType.CUSTOM,
+      index: FeeRateType.CUSTOM,
+      title: t('custom'),
+      feeRate: 0,
+    }
     if (!feeSummary) {
       return { options: readonly ? [] : [custom], readFailed: true, lowFeeMode: false }
     }
 
-    let list: FeeOption[] = feeSummary.list
+    // Tiers take the indices below Custom's; a summary may list more.
+    let list: FeeOption[] = feeSummary.list.slice(0, FeeRateType.CUSTOM)
     let lowFeeSlowRate = false
     if (lowFeeModeApplies) {
       if (lowFeeRead?.summary !== feeSummary) return undefined
@@ -229,9 +235,11 @@ export function useFeeRateBarLogic({
       }
     }
 
-    const translatedList = formatFeeRateTextKey(list, lowFeeSlowRate, t)
+    const tiers = formatFeeRateTextKey(list, lowFeeSlowRate, t).map(
+      (option, position): FeeBarOption => ({ ...option, index: position })
+    )
     return {
-      options: readonly ? translatedList : [...translatedList, custom],
+      options: readonly ? tiers : [...tiers, custom],
       quote: feeSummary.quote,
       readFailed: false,
       lowFeeMode: lowFeeSlowRate,
@@ -250,6 +258,10 @@ export function useFeeRateBarLogic({
   // nor while its low-fee read is pending or after it failed.
   const supportLowFeeMode = readQuote?.lowFeeMode ?? false
 
+  // After a failed read no tier is left to select, and the relay floor is the
+  // rate in use: the input shows it rather than a tier's earlier rate.
+  const floorInUse = readFailed && !readonly && feeOptionIndex !== FeeRateType.CUSTOM
+
   // Memoize default value to avoid repeated calculations
   const defaultFeeRate = useMemo(
     () => optionAt(feeOptions, AVG_OPTION_INDEX)?.feeRate ?? DEFAULT_FEE_RATE,
@@ -257,6 +269,10 @@ export function useFeeRateBarLogic({
   )
 
   useEffect(() => {
+    // A read-only bar shows rates and picks none. The store's rate is the one
+    // a send or consolidation screen uses, and the website PSBT risk popover
+    // that shows a read-only bar shares the send screen's store.
+    if (readonly) return
     let val = defaultFeeRate
     if (feeOptionIndex === FeeRateType.CUSTOM) {
       val = parseFloat(feeRateInputVal) || 0
@@ -280,6 +296,7 @@ export function useFeeRateBarLogic({
 
     updateFeeRateBar({ feeRate: val })
   }, [
+    readonly,
     feeOptions,
     feeOptionIndex,
     feeRateInputVal,
@@ -293,29 +310,32 @@ export function useFeeRateBarLogic({
     (inputVal: string) => {
       // When user manually changes the input, check if we need to switch to CUSTOM
       const shouldSwitchToCustom = feeOptionIndex !== FeeRateType.CUSTOM && feeOptions.length > 0
-      const selectedOption = optionAt(feeOptions, feeOptionIndex)
+      // The rate the input shows for the selection: the selected tier's, or
+      // the relay floor in use after a failed read.
+      const selectedRate = floorInUse
+        ? QBIT_MIN_RELAY_FEE_RATE
+        : optionAt(feeOptions, feeOptionIndex)?.feeRate
 
       // If currently on SLOW/AVG/FAST and user changes the value, switch to CUSTOM
-      if (shouldSwitchToCustom && selectedOption) {
-        const currentValue = selectedOption.feeRate.toString()
+      if (shouldSwitchToCustom && selectedRate !== undefined) {
+        const currentValue = selectedRate.toString()
         const parsedInput = Number(inputVal)
         const isSelectedRecommendation =
           inputVal === currentValue ||
           (inputVal.trim() !== '' &&
             !inputVal.endsWith('.') &&
             Number.isFinite(parsedInput) &&
-            parsedInput === selectedOption.feeRate)
+            parsedInput === selectedRate)
         if (isSelectedRecommendation) {
           return
         }
       }
 
-      // Without a quote no tier is left to keep: a typed rate is Custom.
       const updateInputValue = (value: string) =>
         updateFeeRateBar({
           feeRateInputVal: value,
           feeOptionIndex:
-            shouldSwitchToCustom && (selectedOption || readFailed) ? FeeRateType.CUSTOM : undefined,
+            shouldSwitchToCustom && selectedRate !== undefined ? FeeRateType.CUSTOM : undefined,
         })
 
       // Allow empty input
@@ -356,7 +376,7 @@ export function useFeeRateBarLogic({
       updateFeeRateBar,
       feeOptionIndex,
       feeOptions,
-      readFailed,
+      floorInUse,
       supportLowFeeMode,
       isQbitChain,
     ]
@@ -396,7 +416,7 @@ export function useFeeRateBarLogic({
     feeOptions,
     feeOptionIndex,
     setFeeOptionIndex,
-    feeRateInputVal,
+    feeRateInputVal: floorInUse ? String(QBIT_MIN_RELAY_FEE_RATE) : feeRateInputVal,
     adjustFeeRateInput,
     isCustomOption,
     fontSize,
@@ -406,6 +426,7 @@ export function useFeeRateBarLogic({
     supportLowFeeMode,
     feeQuote,
     feeEstimateUnavailable: readFailed || feeQuote?.availability === 'unavailable',
-    fallbackFeeRate: QBIT_MIN_RELAY_FEE_RATE,
+    // The rate the bar uses without estimates; none for a read-only bar.
+    fallbackFeeRate: readonly ? undefined : QBIT_MIN_RELAY_FEE_RATE,
   }
 }
