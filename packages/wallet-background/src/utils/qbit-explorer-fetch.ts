@@ -1,4 +1,4 @@
-import { QbitApiError } from '@qbit-oss/api'
+import { QbitApiError, type RequestOptions } from '@qbit-oss/api'
 
 /**
  * Time budgets for the wallet's explorer requests (#353).
@@ -30,7 +30,10 @@ export const QBIT_EXPLORER_REPLY_TIMEOUT_MS = 15_000
  * The clients' per-attempt `timeoutMs`, which only a large-body read can
  * reach: it stops a body that trickles in just faster than the idle budget.
  * The largest page, 50 consolidations of 106 inputs, is about 40 MB, which
- * fits at about 135 KB/s, a link of about 1 Mbit/s.
+ * fits at about 135 KB/s, a link of about 1 Mbit/s. It is also the ceiling
+ * of the whole read, every attempt included (see `QbitWalletEsploraClient`):
+ * a body still arriving when it is reached would arrive no faster on a
+ * second try, so a page too slow for it fails after about 5 minutes, not 15.
  */
 export const QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS = 300_000
 
@@ -49,11 +52,96 @@ export const QBIT_EXPLORER_MAX_BODY_BYTES = 64 * 1024 * 1024
 const LARGE_BODY_ROUTE = /^(?:\/address\/[^/?]+\/txs(?:[/?]|$)|\/tx\/[0-9a-f]{64}(?:\/hex)?$)/i
 const READ_METHODS = new Set(['GET', 'HEAD'])
 
+/** Whether `route`, relative to the base URL, is one whose body can be large. */
+export function isQbitExplorerLargeBodyRoute(route: string): boolean {
+  return LARGE_BODY_ROUTE.test(route)
+}
+
 export interface QbitExplorerFetchOptions {
   /** The fetch to wrap; the global one, looked up per request, by default. */
   fetchFn?: typeof fetch | undefined
   /** The client's base URL: routes are read after it, and errors do not quote it. */
   baseUrl: string
+}
+
+/**
+ * One deadline shared by every explorer read an operation makes (a
+ * broadcast with its lookups, a status check, a fee bump's assessment, a
+ * consolidation batch), and one cancellation for all of them. Each read is
+ * handed `read()`: the operation's signal, and the time left as its
+ * `deadlineMs`, so the client aborts a read still in flight when the
+ * deadline passes and fails it as `timeout`, as for any timeout. A read
+ * that would start after the deadline fails the same way without being
+ * sent. The signal aborts only when the operation is cancelled (nothing
+ * waits for it any more), never at the deadline itself.
+ */
+export class QbitExplorerOperation {
+  private readonly expiresAt: number
+
+  constructor(
+    readonly budgetMs = Number.POSITIVE_INFINITY,
+    readonly signal?: AbortSignal
+  ) {
+    this.expiresAt = Date.now() + budgetMs
+  }
+
+  /** The time left before the deadline, in ms: never negative, unbounded without one. */
+  remainingMs(): number {
+    return Math.max(0, this.expiresAt - Date.now())
+  }
+
+  /**
+   * The options for one read: the operation's signal and the time left, at
+   * most `capMs` (a shorter budget of the read's own). Throws once the
+   * operation is cancelled, and a `timeout` `QbitApiError` once no time is
+   * left.
+   */
+  read(capMs = Number.POSITIVE_INFINITY): RequestOptions {
+    this.throwIfOver()
+    const deadlineMs = Math.min(this.remainingMs(), capMs)
+    return {
+      ...(this.signal === undefined ? {} : { signal: this.signal }),
+      ...(Number.isFinite(deadlineMs) ? { deadlineMs: Math.max(1, Math.ceil(deadlineMs)) } : {}),
+    }
+  }
+
+  /**
+   * Settle with `promise`, a wait no explorer read of this operation bounds
+   * (a shared fee quote, say), or reject as `read` does once the operation
+   * is cancelled or its deadline passes. The wait itself is not cancelled.
+   */
+  async within<T>(promise: Promise<T>): Promise<T> {
+    this.throwIfOver()
+    const remaining = this.remainingMs()
+    if (!Number.isFinite(remaining) && this.signal === undefined) return promise
+    const { signal } = this
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          if (Number.isFinite(remaining)) {
+            timer = setTimeout(() => reject(this.deadlineError()), remaining)
+          }
+          onAbort = (): void => reject(signal?.reason)
+          signal?.addEventListener('abort', onAbort, { once: true })
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      if (onAbort) signal?.removeEventListener('abort', onAbort)
+    }
+  }
+
+  private throwIfOver(): void {
+    if (this.signal?.aborted) throw this.signal.reason
+    if (this.remainingMs() <= 0) throw this.deadlineError()
+  }
+
+  private deadlineError(): QbitApiError {
+    return new QbitApiError('timeout', `operation exceeded its ${this.budgetMs}ms deadline`)
+  }
 }
 
 /**
@@ -82,7 +170,7 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
 
     const href = requestHref(input)
     const route = href.startsWith(baseUrl) ? href.slice(baseUrl.length) : undefined
-    const largeBody = route !== undefined && LARGE_BODY_ROUTE.test(route)
+    const largeBody = route !== undefined && isQbitExplorerLargeBodyRoute(route)
     let status: number | undefined = undefined
     const stalled = (reason: string): void =>
       controller.abort(stallError(errorUrl(href, baseUrl, route), reason, status))

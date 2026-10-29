@@ -260,6 +260,15 @@ function normalizeBroadcastClaim(value: unknown): QbitSendBroadcastClaim | undef
   if (claim.origin === QBIT_WALLET_SEND_CLAIM_ORIGIN && claim.replaces !== undefined) {
     if (claim.replaces !== null && !isTxid(claim.replaces)) return
     normalized.replaces = claim.replaces
+    // A fee bump's broadcast checks what spends each output of the original,
+    // as many as its assessment counted; a bump without that count could
+    // only be checked by reading the original's bytes again, so it is no
+    // claim at all, and neither signed, restored nor broadcast.
+    if (claim.replaces !== null) {
+      const count = claim.replacedOutputCount
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) return
+      normalized.replacedOutputCount = count
+    }
   }
   return normalized
 }
@@ -1238,8 +1247,9 @@ export class QbitSendGuardService {
    * transaction; `claim`, when given, must be the held claim for exactly
    * this transaction, and is consumed once `broadcast` resolves.
    *
-   * A fee bump's claim hands `broadcast` the txid it replaces, after the
-   * guard's own records showed no later payment spending that transaction.
+   * A fee bump's claim hands `broadcast` the txid it replaces, and how many
+   * outputs that transaction has, after the guard's own records showed no
+   * later payment spending it.
    * Those records cannot show a payment made elsewhere (another wallet on
    * the same seed, or a recipient spending their output), so `broadcast`
    * must check the explorer for one before it dispatches, and reject to
@@ -1249,7 +1259,7 @@ export class QbitSendGuardService {
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    broadcast: (replaces?: string) => Promise<T>,
+    broadcast: (replaces?: string, replacedOutputCount?: number) => Promise<T>,
     claim?: QbitSendBroadcastClaim
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
@@ -1300,7 +1310,10 @@ export class QbitSendGuardService {
       if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid)
       this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replacedTxid)
 
-      const result = await broadcast(replacedTxid)
+      const result =
+        replacedTxid === undefined
+          ? await broadcast(replacedTxid)
+          : await broadcast(replacedTxid, exactClaim?.replacedOutputCount)
       // The claim is consumed, but its inputs stay reserved as recently
       // spent: the explorer may keep listing them for a while yet.
       this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)

@@ -26,11 +26,32 @@ export function qbitBroadcastProbeDelay(ms: number): Promise<void> {
  */
 export const QBIT_BROADCAST_RESEND_DELAYS_MS: readonly number[] = [1_000, 3_000]
 /**
- * No re-send starts once this long has passed since the first dispatch, so a
- * backend that keeps timing out holds the send screen for at most one more
- * request (and its lookup) past it.
+ * No re-send starts once this long has passed since the first dispatch. It
+ * bounds when re-sends start, not how long the call runs: that is
+ * `QBIT_BROADCAST_DEADLINE_MS`.
  */
 export const QBIT_BROADCAST_RESEND_WINDOW_MS = 30_000
+
+/**
+ * The deadline of one broadcast call, shared by every explorer request it
+ * makes: the fee bump check, each pass's submission and each lookup. The
+ * send screen waits for the verdict; one passing it is `unknown`, so the
+ * window above plus a lookup's minute or so of slow replies fit inside.
+ */
+export const QBIT_BROADCAST_DEADLINE_MS = 120_000
+
+/**
+ * The deadline of a recovery screen's Check status, which is one lookup:
+ * the screen ignores its exits until it answers.
+ */
+export const QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS = 30_000
+
+/**
+ * A lifecycle lookup's read of the whole transaction, which only shows
+ * that the explorer still has it: a large one on a very slow link then
+ * cannot be confirmed by a lookup, and the verdict stays unknown.
+ */
+export const QBIT_LIFECYCLE_TX_READ_DEADLINE_MS = 15_000
 
 /**
  * Thrown from inside the guarded broadcast callback when a 2xx answer does

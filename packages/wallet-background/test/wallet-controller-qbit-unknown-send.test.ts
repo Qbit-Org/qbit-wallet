@@ -25,7 +25,14 @@ import {
   QBIT_RECENT_SPEND_GONE_GRACE_MS,
   QBIT_RECENT_SPEND_PROBE_INTERVAL_MS,
 } from '../src/services/qbitSendGuards'
-import { QBIT_BROADCAST_RESEND_DELAYS_MS } from '../src/utils/qbit-broadcast'
+import {
+  QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS,
+  QBIT_BROADCAST_DEADLINE_MS,
+  QBIT_BROADCAST_RESEND_DELAYS_MS,
+  QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS,
+  QBIT_LIFECYCLE_TX_READ_DEADLINE_MS,
+} from '../src/utils/qbit-broadcast'
+import { QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
 import { FakeQbitExplorer, fakeTxid, type FakeFailure } from './qbit-fake-explorer'
 
 // The send guard is the real service and the explorer a fake served over
@@ -140,9 +147,25 @@ function feeBumpOf(originalTxid: string): ToSignData {
     toSignInputs: [{ index: 0, publicKey: pubkeyHex }],
     qbitP2mrSigningKeys: [{ inputIndex: 0, publicKey: pubkeyHex, leafHash: bytesToHex(leafHash) }],
     qbitBroadcastIdentity: { chain: ChainType.QBIT_REGTEST, txid },
-    feeBump: { originalTxid } as ToSignData['feeBump'],
+    feeBump: { originalTxid, originalOutputCount: 2 } as ToSignData['feeBump'],
     autoFinalized: true,
   }
+}
+
+/** Advance fake time until `promise` settles; resolves to its outcome and the time it took. */
+async function settle<T>(promise: Promise<T>, stepMs = 100, maxMs = 30 * 60_000) {
+  const startedAt = Date.now()
+  let outcome: { value: T } | { error: unknown } | undefined
+  promise.then(
+    value => (outcome = { value }),
+    error => (outcome = { error })
+  )
+  while (outcome === undefined && Date.now() - startedAt < maxMs) {
+    await vi.advanceTimersByTimeAsync(stepMs)
+  }
+  if (outcome === undefined) throw new Error(`still pending after ${maxMs}ms`)
+  if ('error' in outcome) throw outcome.error
+  return { value: outcome.value, elapsedMs: Date.now() - startedAt }
 }
 
 describe('WalletController wallet send whose broadcast outcome is unknown (#339)', () => {
@@ -617,6 +640,176 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     await expect(available(wallet)).resolves.toEqual({
       balanceCard: SPENT.value + KEPT.value,
       sendScreen: SPENT.value + KEPT.value,
+    })
+  })
+
+  describe('over a slow explorer, within one deadline (#56)', () => {
+    beforeEach(() => {
+      // Every timer, not just the clock: the explorer's replies are timed.
+      vi.useRealTimers()
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-10-27T12:00:00Z'))
+    })
+
+    /** A read of a transaction other than the outputs the send spends. */
+    const isPaymentRead = ({ method, path }: { method: string; path: string }) =>
+      method === 'GET' &&
+      /^\/tx\/[0-9a-f]{64}$/.test(path) &&
+      !path.endsWith(SPENT.txid) &&
+      !path.endsWith(KEPT.txid)
+
+    /** The claim keeps the input, and once the page lets go it stays reserved as possibly spent. */
+    async function expectInputHeld(wallet: WalletController, claim: QbitSendBroadcastClaim) {
+      await expect(
+        qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
+      ).rejects.toThrow('claimed by an approved send')
+      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitSendBroadcastClaim(claim))
+      await expect(
+        qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
+      ).rejects.toThrow('recent broadcast already spent')
+    }
+
+    it('ends a 502 the node took, whose transaction trickles in, within the deadline as unknown', async () => {
+      const wallet = controller()
+      // The node takes the bytes, but the gateway answers 502. The status
+      // says pending, and the whole transaction then trickles in, a few
+      // bytes just inside the idle budget at a time: the lookup used to take
+      // about 901 s (3 attempts of 300 s).
+      failNext(isBroadcast, { status: 502, afterAccepting: true })
+      explorer.slowResponses.push({
+        match: isPaymentRead,
+        chunkBytes: 16,
+        intervalMs: QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS - 1_000,
+      })
+
+      const { value, elapsedMs } = await settle(send(wallet, 'popup:1'))
+
+      const { claim, result } = value
+      expect(result).toMatchObject({
+        success: false,
+        txid: claim.txid,
+        outcome: 'unknown',
+        lookup: 'unavailable',
+      })
+      expect(elapsedMs).toBeLessThanOrEqual(QBIT_BROADCAST_DEADLINE_MS)
+      // The lookup only needs to know the payment exists: its read of the
+      // whole transaction stops at its own short budget, and is released.
+      expect(elapsedMs).toBeLessThan(QBIT_LIFECYCLE_TX_READ_DEADLINE_MS + 5_000)
+      expect(explorer.requests.filter(isBroadcast)).toHaveLength(1)
+      expect(explorer.releasedBodies).toEqual([`/tx/${claim.txid}`])
+
+      // Check status on the recovery screen ends within its own deadline too.
+      const check = await settle(
+        wallet.runForUiPort('popup:1', () =>
+          wallet.checkQbitBroadcastStatus(claim.txid, claim.chain, claim)
+        )
+      )
+      expect(check.value).toMatchObject({ found: false, txid: claim.txid, state: 'unavailable' })
+      expect(check.elapsedMs).toBeLessThanOrEqual(QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS)
+      expect(explorer.releasedBodies).toEqual([`/tx/${claim.txid}`, `/tx/${claim.txid}`])
+
+      // The payment may have landed: nothing releases its input.
+      await expectInputHeld(wallet, claim)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('ends a node rejection whose absence lookups outlast the deadline as unknown, never as not sent', async () => {
+      const wallet = controller()
+      wallet.qbitBroadcastProbeDelayMs = QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS
+      failNext(isBroadcast, {
+        status: 400,
+        body: 'sendrawtransaction RPC error: {"code":-26,"message":"min relay fee not met"}',
+      })
+      // Each lookup gets no answer to its first two attempts, and "not
+      // found" to its third, slowly but within the reply budget: about 43 s
+      // a lookup, so the three that prove absence take longer than the
+      // broadcast may.
+      let statusReads = 0
+      explorer.slowResponses.push(
+        {
+          match: request => isStatusLookup(request) && ++statusReads % 3 !== 0,
+          chunkBytes: 1,
+          intervalMs: 1,
+          stallHeaders: true,
+        },
+        { match: isStatusLookup, chunkBytes: 1, intervalMs: 1_400 }
+      )
+
+      const { value, elapsedMs } = await settle(send(wallet, 'popup:1'))
+
+      const { claim, result } = value
+      expect(result).toMatchObject({
+        success: false,
+        txid: claim.txid,
+        outcome: 'unknown',
+        reason: 'rejected',
+        lookup: 'unavailable',
+      })
+      expect(elapsedMs).toBeLessThanOrEqual(QBIT_BROADCAST_DEADLINE_MS + 1_000)
+      // Two lookups proved nothing yet; the third was cut off at the deadline.
+      expect(elapsedMs).toBeGreaterThan(2 * 40_000)
+      await expectInputHeld(wallet, claim)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('ends Check status within its deadline when the status trickles in', async () => {
+      const wallet = controller()
+      failNext(isBroadcast, { status: 504 }, BROADCAST_ATTEMPTS)
+      const { value } = await settle(send(wallet, 'popup:1'))
+      const { claim, result } = value
+      expect(result).toMatchObject({ success: false, outcome: 'unknown', lookup: 'gone' })
+
+      // The status gets no answer twice, then a slow one: about 43 s.
+      let statusReads = 0
+      explorer.slowResponses.push(
+        {
+          match: request => isStatusLookup(request) && ++statusReads % 3 !== 0,
+          chunkBytes: 1,
+          intervalMs: 1,
+          stallHeaders: true,
+        },
+        { match: isStatusLookup, chunkBytes: 1, intervalMs: 1_400 }
+      )
+      const check = await settle(
+        wallet.runForUiPort('popup:1', () =>
+          wallet.checkQbitBroadcastStatus(claim.txid, claim.chain, claim)
+        )
+      )
+      expect(check.value).toMatchObject({ found: false, txid: claim.txid, state: 'unavailable' })
+      expect(check.elapsedMs).toBeLessThanOrEqual(QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS)
+      await expectInputHeld(wallet, claim)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it("broadcasts a fee bump whose original's raw bytes take longer than 10 s to arrive", async () => {
+      const wallet = controller()
+      explorer.acceptReplacements = true
+      const { value } = await settle(send(wallet, 'popup:1'))
+      const original = value.claim
+      expect(value.result).toMatchObject({ success: true, via: 'broadcast' })
+      // About 64 bytes a second: the original's hex takes minutes. Speed up
+      // read it, and its outputs, before the user signed.
+      const isOriginalHex = ({ path }: { path: string }) => path === `/tx/${original.txid}/hex`
+      explorer.slowResponses.push({ match: isOriginalHex, chunkBytes: 64, intervalMs: 1_000 })
+
+      const signed = await wallet.runForUiPort('popup:1', () =>
+        wallet.signPsbtV2(feeBumpOf(original.txid))
+      )
+      const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
+      expect(claim).toMatchObject({ replaces: original.txid, replacedOutputCount: 2 })
+      const { value: result } = await settle(
+        wallet.runForUiPort('popup:1', () =>
+          wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid)
+        )
+      )
+
+      expect(result).toMatchObject({ success: true, txid: claim.txid, via: 'broadcast' })
+      expect(explorer.spenderOf(SPENT.txid, SPENT.vout)?.txid).toBe(claim.txid)
+      // Only what spends the original was asked at broadcast, never its bytes.
+      expect(explorer.requests.filter(isOriginalHex)).toHaveLength(0)
+      expect(
+        explorer.requests.filter(({ path }) => path === `/tx/${original.txid}/outspends`)
+      ).toHaveLength(1)
     })
   })
 

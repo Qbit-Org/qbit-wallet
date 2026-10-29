@@ -14,6 +14,12 @@ export type QbitFeeBumpUnavailableReason =
 
 export interface QbitFeeBumpDetails {
   originalTxid: string
+  /**
+   * How many outputs the original has, counted from its raw bytes once
+   * they were shown to hash to `originalTxid`. Its broadcast checks what
+   * spends each of them without reading those bytes again.
+   */
+  originalOutputCount: number
   originalFee: number
   replacementFee: number
   feeDelta: number

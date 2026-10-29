@@ -27,7 +27,12 @@ import type {
   UTXO,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
-import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS, createQbitExplorerFetch } from './qbit-explorer-fetch'
+import {
+  QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  createQbitExplorerFetch,
+  isQbitExplorerLargeBodyRoute,
+  type QbitExplorerOperation,
+} from './qbit-explorer-fetch'
 
 const SATS_PER_QBIT = 100_000_000n
 const DEFAULT_MAX_COUNTER_HISTORY_PAGES = 256
@@ -102,7 +107,7 @@ export interface QbitTxOutspend {
 }
 
 export interface QbitTxOutspendsClient {
-  getTxOutspends(txid: string): Promise<QbitTxOutspend[]>
+  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]>
 }
 
 /**
@@ -111,7 +116,11 @@ export interface QbitTxOutspendsClient {
  * after a mempool row on qbit-electrs (see `readQbitHistoryWalkPage`).
  */
 export interface QbitAddressHistoryPageClient {
-  getAddressHistoryPage(address: string, afterTxid?: string): Promise<EsploraTx[]>
+  getAddressHistoryPage(
+    address: string,
+    afterTxid?: string,
+    options?: RequestOptions
+  ): Promise<EsploraTx[]>
 }
 
 export type QbitWalletApiClient = EsploraClient &
@@ -125,7 +134,9 @@ export type QbitWalletApiClient = EsploraClient &
  * `fetchFn` is wrapped, not replaced. With no base URL or no fetch at all,
  * the client's own constructor error stands.
  */
-function withQbitExplorerBudgets<T extends EsploraClientOptions>(options: T): T {
+function withQbitExplorerBudgets<T extends EsploraClientOptions>(
+  options: T
+): T & { timeoutMs: number } {
   const budgeted = { ...options, timeoutMs: options.timeoutMs ?? QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS }
   if (typeof options.baseUrl !== 'string') return budgeted
   if (options.fetchFn === undefined && typeof globalThis.fetch !== 'function') return budgeted
@@ -133,6 +144,32 @@ function withQbitExplorerBudgets<T extends EsploraClientOptions>(options: T): T 
     ...budgeted,
     fetchFn: createQbitExplorerFetch({ fetchFn: options.fetchFn, baseUrl: options.baseUrl }),
   }
+}
+
+/**
+ * A request's options with the ceiling of a large-body read (a history
+ * page, a transaction or its hex): `ceilingMs`, the attempt budget, for all
+ * its attempts together, within any deadline of the caller's. An attempt cut
+ * off at that ceiling while bytes were still arriving is therefore never
+ * tried again: the next would be no faster. Every other request keeps the
+ * client's retries.
+ */
+function withQbitLargeReadCeiling(
+  path: string,
+  method: string,
+  options: RequestOptions | undefined,
+  ceilingMs: number
+): RequestOptions | undefined {
+  if (method.toUpperCase() !== 'GET' || !isQbitExplorerLargeBodyRoute(path)) return options
+  return { ...options, deadlineMs: Math.min(options?.deadlineMs ?? ceilingMs, ceilingMs) }
+}
+
+/** What `EsploraClient.request` is handed besides the path. */
+interface QbitClientRequestInit {
+  method: string
+  body?: string
+  headers?: Record<string, string>
+  dedup: boolean
 }
 
 // `@qbit-oss/api` has no route for a transaction's spenders. Both explorer
@@ -143,17 +180,37 @@ export class QbitWalletEsploraClient
   extends EsploraClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
 {
+  private readonly largeReadCeilingMs: number
+
   constructor(options: EsploraClientOptions) {
-    super(withQbitExplorerBudgets(options))
+    const budgeted = withQbitExplorerBudgets(options)
+    super(budgeted)
+    this.largeReadCeilingMs = budgeted.timeoutMs
   }
 
-  getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
-    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`)
+  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
+    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
   // Confirmed rows only (`/txs/chain`, 25 a page); mempool rows are not paged.
-  getAddressHistoryPage(address: string, afterTxid?: string): Promise<EsploraTx[]> {
-    return this.getAddressTxs(address, afterTxid)
+  getAddressHistoryPage(
+    address: string,
+    afterTxid?: string,
+    options?: RequestOptions
+  ): Promise<EsploraTx[]> {
+    return this.getAddressTxs(address, afterTxid, options)
+  }
+
+  protected override request(
+    path: string,
+    init: QbitClientRequestInit,
+    options?: RequestOptions
+  ): Promise<Response> {
+    return super.request(
+      path,
+      init,
+      withQbitLargeReadCeiling(path, init.method, options, this.largeReadCeilingMs)
+    )
   }
 }
 
@@ -163,6 +220,7 @@ export class QbitWalletMempoolClient
 {
   /** The most pages one history read fetches, as the client's `maxAddressHistoryPages`. */
   readonly maxHistoryWalkPages: number
+  private readonly largeReadCeilingMs: number
 
   // The client clamps every call's maxPages to this ceiling (default 256), so
   // the two-read budgets above need it raised to match. The history reads
@@ -171,18 +229,36 @@ export class QbitWalletMempoolClient
     const maxAddressHistoryPages =
       options.maxAddressHistoryPages ??
       DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS
-    super(withQbitExplorerBudgets({ ...options, maxAddressHistoryPages }))
+    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages })
+    super(budgeted)
     this.maxHistoryWalkPages = maxAddressHistoryPages
+    this.largeReadCeilingMs = budgeted.timeoutMs
   }
 
-  getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
-    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`)
+  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
+    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
   // The combined route, mempool rows first. `getAddressTxs` would rescan it
   // from the top to find each cursor.
-  getAddressHistoryPage(address: string, afterTxid?: string): Promise<EsploraTx[]> {
-    return this.getCombinedHistoryPage(address, afterTxid)
+  getAddressHistoryPage(
+    address: string,
+    afterTxid?: string,
+    options?: RequestOptions
+  ): Promise<EsploraTx[]> {
+    return this.getCombinedHistoryPage(address, afterTxid, options)
+  }
+
+  protected override request(
+    path: string,
+    init: QbitClientRequestInit,
+    options?: RequestOptions
+  ): Promise<Response> {
+    return super.request(
+      path,
+      init,
+      withQbitLargeReadCeiling(path, init.method, options, this.largeReadCeilingMs)
+    )
   }
 
   /**
@@ -458,7 +534,8 @@ export const QBIT_EXPLORER_DEFAULT_UTXO_LIMIT = 500
 export async function isQbitUtxoListOverExplorerLimit(
   client: Pick<QbitEsploraClient, 'getAddressStats'>,
   address: string,
-  error: unknown
+  error: unknown,
+  options: QbitReadCancellation = {}
 ): Promise<boolean> {
   // Only the listing request itself: the classifier's per-output lookups
   // can fail with a 500 of their own.
@@ -473,9 +550,10 @@ export async function isQbitUtxoListOverExplorerLimit(
   }
   let stats: EsploraAddressStats
   try {
-    stats = await client.getAddressStats(address)
+    stats = await client.getAddressStats(address, options)
     assertValidQbitStats(stats, address)
   } catch {
+    throwIfQbitReadCancelled(options)
     // Without statistics the listing failure keeps its own meaning.
     return false
   }
@@ -1306,11 +1384,24 @@ export interface QbitClassifiedUtxos {
   immature: UTXO[]
 }
 
+/**
+ * A read that its caller can cancel: `signal` reaches every request it
+ * makes and every pause between them, so a read nothing waits for any more
+ * stops (an over-limit walk can run for minutes).
+ */
+export type QbitReadCancellation = Pick<RequestOptions, 'signal'>
+
+/** Throw the abort reason once `options.signal` has aborted: a failure then is the cancellation. */
+function throwIfQbitReadCancelled(options: QbitReadCancellation): void {
+  if (options.signal?.aborted) throw options.signal.reason
+}
+
 export async function getQbitAddressUtxosClassified(
   client: QbitEsploraClient,
-  address: string
+  address: string,
+  options: QbitReadCancellation = {}
 ): Promise<QbitClassifiedUtxos> {
-  const utxos = await client.getAddressUtxos(address)
+  const utxos = await client.getAddressUtxos(address, options)
   if (!Array.isArray(utxos)) {
     throw new Error(`invalid qbit UTXO response for ${address}`)
   }
@@ -1323,7 +1414,7 @@ export async function getQbitAddressUtxosClassified(
     }
     seenOutpoints.add(outpoint)
   })
-  return classifyQbitUtxos(client, utxos, txid => client.getTx(txid))
+  return classifyQbitUtxos(client, utxos, txid => client.getTx(txid, options), options)
 }
 
 /**
@@ -1334,15 +1425,17 @@ export async function getQbitAddressUtxosClassified(
 async function classifyQbitUtxos(
   client: QbitEsploraClient,
   utxos: readonly EsploraUtxo[],
-  getFundingTx: (txid: string) => Promise<EsploraTx>
+  getFundingTx: (txid: string) => Promise<EsploraTx>,
+  options: QbitReadCancellation = {}
 ): Promise<QbitClassifiedUtxos> {
   let tipHeightPromise: Promise<number> | undefined
-  const getTipHeightOnce = () => (tipHeightPromise ??= client.getTipHeight())
+  const getTipHeightOnce = (): Promise<number> =>
+    (tipHeightPromise ??= client.getTipHeight(options))
   const ancestors = new Map<string, Promise<EsploraTx | undefined>>()
   const getAncestorOnce = (txid: string) => {
     let ancestor = ancestors.get(txid)
     if (!ancestor) {
-      ancestor = getQbitAncestorTx(client, txid)
+      ancestor = getQbitAncestorTx(client, txid, options)
       ancestors.set(txid, ancestor)
     }
     return ancestor
@@ -1437,7 +1530,9 @@ export class QbitUtxoHistoryTooLargeError extends Error {
 export async function getQbitAddressUtxosClassifiedFromHistory(
   client: QbitEsploraClient,
   address: string,
-  options: QbitSnapshotStabilityRetryOptions & { maxTransactions?: number } = {}
+  options: QbitSnapshotStabilityRetryOptions & {
+    maxTransactions?: number
+  } & QbitReadCancellation = {}
 ): Promise<QbitClassifiedUtxos> {
   const maxTransactions = options.maxTransactions ?? QBIT_UTXO_HISTORY_MAX_TRANSACTIONS
   if (!Number.isSafeInteger(maxTransactions) || maxTransactions < 1) {
@@ -1447,8 +1542,11 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     stabilityRetries: options.stabilityRetries ?? QBIT_UTXO_HISTORY_STABILITY_RETRIES,
     retryBaseDelayMs: options.retryBaseDelayMs ?? QBIT_UTXO_HISTORY_RETRY_BASE_DELAY_MS,
   })
-  const unspent = await loadQbitSnapshotWithStabilityRetries(retry, () =>
-    readQbitUnspentOutputsFromHistory(client, address, maxTransactions)
+  const read: QbitReadCancellation = options.signal ? { signal: options.signal } : {}
+  const unspent = await loadQbitSnapshotWithStabilityRetries(
+    retry,
+    () => readQbitUnspentOutputsFromHistory(client, address, maxTransactions, read),
+    read
   )
   const confirmedTxs = new Map(
     unspent
@@ -1468,17 +1566,19 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     // which a history row may omit.
     txid => {
       const tx = confirmedTxs.get(txid.toLowerCase())
-      return tx ? Promise.resolve(tx) : client.getTx(txid)
-    }
+      return tx ? Promise.resolve(tx) : client.getTx(txid, read)
+    },
+    read
   )
 }
 
 async function readQbitUnspentOutputsFromHistory(
   client: QbitEsploraClient,
   address: string,
-  maxTransactions: number
+  maxTransactions: number,
+  options: QbitReadCancellation
 ): Promise<{ tx: EsploraTx; vout: number }[]> {
-  const statsBefore = await client.getAddressStats(address)
+  const statsBefore = await client.getAddressStats(address, options)
   assertValidQbitStats(statsBefore, address)
   if (qbitHistoryOverReadLimit(statsBefore, maxTransactions)) {
     throw new QbitUtxoHistoryTooLargeError(address, maxTransactions)
@@ -1486,6 +1586,7 @@ async function readQbitUnspentOutputsFromHistory(
   let history: AddressHistory
   try {
     history = await client.getAddressHistory(address, {
+      ...options,
       maxPages:
         (Math.ceil(maxTransactions / QBIT_UTXO_HISTORY_ROWS_PER_PAGE) + 1) *
         QBIT_ADDRESS_HISTORY_READS,
@@ -1497,7 +1598,7 @@ async function readQbitUnspentOutputsFromHistory(
     }
     throw error
   }
-  const statsAfter = await client.getAddressStats(address)
+  const statsAfter = await client.getAddressStats(address, options)
   assertValidQbitStats(statsAfter, address)
   if (qbitStatsSnapshot(statsAfter) !== qbitStatsSnapshot(statsBefore)) {
     throw new QbitHistorySnapshotUnstableError(
@@ -1571,14 +1672,16 @@ export function isQbitHistoryOverReadLimit(stats: EsploraAddressStats): boolean 
  */
 export async function getQbitAddressUtxosClassifiedPastLimit(
   client: QbitEsploraClient,
-  address: string
+  address: string,
+  options: QbitReadCancellation = {}
 ): Promise<QbitClassifiedUtxos> {
   try {
-    return await getQbitAddressUtxosClassified(client, address)
+    return await getQbitAddressUtxosClassified(client, address, options)
   } catch (error) {
-    if (!(await isQbitUtxoListOverExplorerLimit(client, address, error))) throw error
+    throwIfQbitReadCancelled(options)
+    if (!(await isQbitUtxoListOverExplorerLimit(client, address, error, options))) throw error
   }
-  return getQbitAddressUtxosClassifiedFromHistory(client, address)
+  return getQbitAddressUtxosClassifiedFromHistory(client, address, options)
 }
 
 /**
@@ -1588,15 +1691,18 @@ export async function getQbitAddressUtxosClassifiedPastLimit(
  * transactions. An unconfirmed payment from anyone else stays out until it
  * confirms. qbit Core is full-RBF, so its payer can replace it at any time,
  * and that evicts every send built on top of it. An address over the
- * explorer's UTXO limit is read from its history.
+ * explorer's UTXO limit is read from its history, and that walk stops once
+ * `options.signal` aborts.
  */
 export async function getQbitAddressUtxos(
   client: QbitEsploraClient,
-  address: string
+  address: string,
+  options: QbitReadCancellation = {}
 ): Promise<UTXO[]> {
   const { confirmedSpendable, unconfirmedOwnChange } = await getQbitAddressUtxosClassifiedPastLimit(
     client,
-    address
+    address,
+    options
   )
   return [
     ...confirmedSpendable,
@@ -1700,9 +1806,10 @@ interface QbitHistoryWalkPage {
 async function readQbitHistoryWalkPage(
   client: QbitAddressHistoryPageClient,
   address: string,
-  cursor: QbitHistoryWalkCursor
+  cursor: QbitHistoryWalkCursor,
+  options?: RequestOptions
 ): Promise<QbitHistoryWalkPage> {
-  const page = await client.getAddressHistoryPage(address, cursor.afterTxid)
+  const page = await client.getAddressHistoryPage(address, cursor.afterTxid, options)
   if (!Array.isArray(page)) {
     throw new Error(`invalid qbit history page for ${address}`)
   }
@@ -1974,18 +2081,28 @@ export function createQbitAddressOutputScan(address: string): QbitAddressOutputS
  * page, or one that repeats its cursor, throws before anything changes. An
  * empty page after a mempool row steps the walk back one row rather than
  * ending it, and counts as a page read (see `readQbitHistoryWalkPage`).
+ * Each page is read under `operation`'s deadline, when given.
  */
 export async function continueQbitAddressOutputScan(
   client: QbitAddressHistoryPageClient,
   scan: QbitAddressOutputScan,
-  options: { maxPages: number; enough?: (scan: QbitAddressOutputScan) => boolean }
+  options: {
+    maxPages: number
+    enough?: (scan: QbitAddressOutputScan) => boolean
+    operation?: QbitExplorerOperation
+  }
 ): Promise<number> {
   if (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1) {
     throw new Error('maxPages must be a positive integer')
   }
   let read = 0
   while (read < options.maxPages && !scan.exhausted && !options.enough?.(scan)) {
-    const { rows, txids, next, ended } = await readQbitHistoryWalkPage(client, scan.address, scan)
+    const { rows, txids, next, ended } = await readQbitHistoryWalkPage(
+      client,
+      scan.address,
+      scan,
+      options.operation?.read()
+    )
     read += 1
     scan.pagesRead += 1
     scan.afterTxid = next.afterTxid
@@ -2037,10 +2154,12 @@ const QBIT_OUTSPENDS_CONCURRENCY = 8
  * a lowercase txid, from one `getQbitTxSpenders` answer per funding
  * transaction, at most eight at a time. A failed or malformed answer throws,
  * so an output is only ever reported unspent on the explorer's explicit word.
+ * Each answer is read under `operation`'s deadline, when given.
  */
 export async function findQbitSpentOutpoints(
   client: QbitTxOutspendsClient,
-  outputs: readonly { txid: string; vout: number; outputCount: number }[]
+  outputs: readonly { txid: string; vout: number; outputCount: number }[],
+  operation?: QbitExplorerOperation
 ): Promise<Set<string>> {
   const byTxid = new Map<string, { outputCount: number; vouts: number[] }>()
   for (const output of outputs) {
@@ -2064,7 +2183,7 @@ export async function findQbitSpentOutpoints(
   const spenders = await mapQbitWithConcurrency(
     entries,
     QBIT_OUTSPENDS_CONCURRENCY,
-    ([txid, entry]) => getQbitTxSpenders(client, txid, entry.outputCount)
+    ([txid, entry]) => getQbitTxSpenders(client, txid, entry.outputCount, operation?.read())
   )
   const spent = new Set<string>()
   entries.forEach(([txid, entry], index) => {
@@ -2084,13 +2203,17 @@ export async function findQbitSpentOutpoints(
 export async function getQbitTxSpenders(
   client: QbitTxOutspendsClient,
   txid: string,
-  outputCount: number
+  outputCount: number,
+  options?: RequestOptions
 ): Promise<(string | undefined)[]> {
   const normalizedTxid = normalizeQbitTxid(txid)
   if (!Number.isSafeInteger(outputCount) || outputCount < 1) {
     throw new Error('invalid qbit transaction output count')
   }
-  const outspends = await client.getTxOutspends(normalizedTxid)
+  const outspends =
+    options === undefined
+      ? await client.getTxOutspends(normalizedTxid)
+      : await client.getTxOutspends(normalizedTxid, options)
   if (!Array.isArray(outspends) || outspends.length !== outputCount) {
     throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
   }
@@ -2370,12 +2493,14 @@ function qbitTxVsize(tx: EsploraTx): number | undefined {
  */
 async function getQbitAncestorTx(
   client: Pick<QbitEsploraClient, 'getTx'>,
-  txid: string
+  txid: string,
+  options: QbitReadCancellation = {}
 ): Promise<EsploraTx | undefined> {
   let tx: EsploraTx
   try {
-    tx = await client.getTx(txid)
+    tx = await client.getTx(txid, options)
   } catch {
+    throwIfQbitReadCancelled(options)
     return undefined
   }
   if (
@@ -2518,16 +2643,19 @@ function resolveQbitSnapshotStabilityRetries(options: QbitSnapshotStabilityRetry
  * Load a snapshot, retrying a bounded number of times with exponential
  * back-off when it fails only because the snapshot moved while being read.
  * An instability that names a minimum retry delay is never retried sooner
- * than that, whatever the back-off says.
+ * than that, whatever the back-off says. A cancelled read is not retried,
+ * and its back-off ends at once.
  */
 async function loadQbitSnapshotWithStabilityRetries<T>(
   retry: { stabilityRetries: number; retryBaseDelayMs: number },
-  load: () => Promise<T>
+  load: () => Promise<T>,
+  options: QbitReadCancellation = {}
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await load()
     } catch (error) {
+      throwIfQbitReadCancelled(options)
       if (!isQbitSnapshotUnstableError(error) || attempt >= retry.stabilityRetries) {
         throw error
       }
@@ -2537,11 +2665,30 @@ async function loadQbitSnapshotWithStabilityRetries<T>(
         Math.max(retry.retryBaseDelayMs * 2 ** attempt, minRetryDelayMs),
         MAX_QBIT_SNAPSHOT_RETRY_DELAY_MS
       )
-      if (delayMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, delayMs))
-      }
+      if (delayMs > 0) await qbitCancellableDelay(delayMs, options)
     }
   }
+}
+
+/** Wait `ms`, or reject with the abort reason as soon as `options.signal` aborts. */
+function qbitCancellableDelay(ms: number, options: QbitReadCancellation): Promise<void> {
+  const { signal } = options
+  if (!signal) return new Promise(resolve => setTimeout(resolve, ms))
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason)
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function mapQbitHistoryAddressesWithConcurrency<T>(
@@ -3205,10 +3352,14 @@ export async function getQbitRawTransactionHex(
  */
 export async function getQbitRawTransaction(
   client: Pick<QbitEsploraClient, 'getTxHex'>,
-  txid: string
+  txid: string,
+  options?: RequestOptions
 ): Promise<{ hex: string; transaction: transactionCore.Transaction }> {
   const normalizedTxid = normalizeQbitTxid(txid)
-  const hex = await client.getTxHex(normalizedTxid)
+  const hex =
+    options === undefined
+      ? await client.getTxHex(normalizedTxid)
+      : await client.getTxHex(normalizedTxid, options)
   if (
     typeof hex !== 'string' ||
     hex.length === 0 ||

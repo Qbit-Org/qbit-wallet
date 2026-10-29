@@ -103,6 +103,8 @@ export function useQbitConsolidationScreenLogic() {
     setBatch(undefined)
     setPreparing(true)
     preparesInFlightRef.current += 1
+    // The background gives a batch one deadline for all its explorer reads,
+    // so the overlay comes down within it, on a slow link with an error.
     tools.showLoading(true)
     wallet
       .createQbitConsolidationPsbt({ feeRate, enableRBF: true })

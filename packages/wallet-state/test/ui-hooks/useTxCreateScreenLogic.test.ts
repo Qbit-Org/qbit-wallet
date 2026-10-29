@@ -2351,6 +2351,38 @@ describe('UTXO cache across accounts (#342)', () => {
     expect(result.current.availableAmount).toBe('--')
   })
 
+  it('abandons the background read of a screen that is left, and only that one (#56)', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    const walkA = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
+    select(store, accountA, 70_000)
+    const screenA = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1))
+    const [readId] = wallet.getQbitUtxoSnapshot.mock.calls[0]!
+    expect(readId).toEqual(expect.any(String))
+    expect(wallet.abandonQbitUtxoSnapshot).not.toHaveBeenCalled()
+
+    // Leaving the screen tells the background, which stops the walk once
+    // nothing else waits for it.
+    screenA.unmount()
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledWith(readId)
+    await act(async () => {
+      walkA.resolve(snapshotOf(accountA, outputsOf(accountA, 'a0', [60_000])))
+      await walkA.promise
+    })
+
+    // A read that already answered has nothing to abandon.
+    const outputs = outputsOf(accountA, 'aa', [70_000])
+    wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(snapshotOf(accountA, outputs))
+    const screen = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(store.getState().transactions.utxos).toEqual(outputs))
+    const [secondReadId] = wallet.getQbitUtxoSnapshot.mock.calls[1]!
+    expect(secondReadId).not.toBe(readId)
+    screen.unmount()
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+  })
+
   it('does not cache a read its screen abandoned', async () => {
     const { store, wallet, wrapper } = createHookTestHarness()
     const walkA = deferred<any>()
