@@ -1,7 +1,7 @@
 import { RotateCw } from 'lucide-react';
 import { ReactEventHandler, useState } from 'react';
 
-import { colors } from '@/ui/theme/colors';
+import { ColorTypes, colors } from '@/ui/theme/colors';
 import { useI18n } from '@qbit/wallet-state';
 
 import { Row } from '../Row';
@@ -10,10 +10,12 @@ import styles from './index.module.less';
 
 export function RefreshButton({
   onClick,
-  hideText = false
+  hideText = false,
+  color = 'onPrimary'
 }: {
   onClick: ReactEventHandler<HTMLDivElement>;
   hideText?: boolean;
+  color?: ColorTypes;
 }) {
   const [leftTime, setLeftTime] = useState(0);
   const [disabled, setDisabled] = useState(false);
@@ -52,7 +54,7 @@ export function RefreshButton({
       }}
       style={{ padding: '6px 8px', margin: '-6px -8px' }}
     >
-      <RotateCw className={isRotating ? styles.rotate : ''} size={14} style={{ color: colors.onPrimary }} />
+      <RotateCw className={isRotating ? styles.rotate : ''} size={14} style={{ color: colors[color] }} />
       {!hideText && (
         <Text text={disabled ? `${leftTime} ${t('secs')}` : t('refresh')} color="textDim" size="sm" textCenter />
       )}

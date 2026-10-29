@@ -18,12 +18,31 @@ export interface MolelsPopover {
   data: any
 }
 
+export interface BalanceRefreshStatus {
+  requestId: number
+  error: boolean
+}
+
+function isStaleBalanceRequest(state: AccountsState, address: string, requestId?: number): boolean {
+  const latest = state.balanceStatusMap[address]
+  return requestId !== undefined && latest !== undefined && requestId < latest.requestId
+}
+
 export interface AccountsState {
   accounts: Account[]
   current: Account
   loading: boolean
   balanceV2Map: {
     [key: string]: QbitBalanceSummary
+  }
+  /**
+   * Outcome of the latest balance refresh per address. On `error` the
+   * balanceV2Map entry, if any, is the last known-good balance. `requestId`
+   * orders refreshes so a slower, older response cannot replace the outcome
+   * of a newer one.
+   */
+  balanceStatusMap: {
+    [key: string]: BalanceRefreshStatus
   }
   historyMap: {
     [key: string]: {
@@ -64,6 +83,7 @@ export const initialState: AccountsState = {
   current: initialAccount,
   loading: false,
   balanceV2Map: {},
+  balanceStatusMap: {},
   historyMap: {},
   addressSummary: {
     totalSatoshis: 0,
@@ -97,6 +117,8 @@ const slice: Slice<AccountsState> = createSlice({
         payload: {
           address: string
           balance: QbitBalanceSummary
+          /** Orders this result against other refreshes; see balanceStatusMap. */
+          requestId?: number
         }
       }
     ) {
@@ -112,8 +134,14 @@ const slice: Slice<AccountsState> = createSlice({
             chainType,
           },
           address,
+          requestId,
         },
       } = action
+      if (isStaleBalanceRequest(state, address, requestId)) return
+      state.balanceStatusMap[address] = {
+        requestId: requestId ?? state.balanceStatusMap[address]?.requestId ?? 0,
+        error: false,
+      }
       state.balanceV2Map[address] = state.balanceV2Map[address] || {
         availableBalance: 0,
         unavailableBalance: 0,
@@ -127,6 +155,12 @@ const slice: Slice<AccountsState> = createSlice({
       state.balanceV2Map[address].pendingBalance = pendingBalance
       state.balanceV2Map[address].utxoLimitExceeded = utxoLimitExceeded
       state.balanceV2Map[address].chainType = chainType
+    },
+    setBalanceError(state, action: { payload: { address: string; requestId: number } }) {
+      const { address, requestId } = action.payload
+      if (isStaleBalanceRequest(state, address, requestId)) return
+      // The last known-good balance, if any, stays in balanceV2Map.
+      state.balanceStatusMap[address] = { requestId, error: true }
     },
     setAddressSummary(state, action: { payload: any }) {
       state.addressSummary = action.payload
@@ -233,6 +267,10 @@ const slice: Slice<AccountsState> = createSlice({
 
       if (!state.balanceV2Map) {
         state.balanceV2Map = {}
+      }
+
+      if (!state.balanceStatusMap) {
+        state.balanceStatusMap = {}
       }
     })
   },

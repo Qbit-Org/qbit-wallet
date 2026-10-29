@@ -2132,8 +2132,8 @@
   "total": {
     "message": "總計"
   },
-  "total_balance": {
-    "message": "總餘額"
+  "wallet_balance": {
+    "message": "錢包餘額"
   },
   "total_fee": {
     "message": "總手續費"
@@ -2914,6 +2914,12 @@
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "由於瀏覽器未列出此帳戶的輸出，可用與不可用金額未知。"
+  },
+  "balance_load_error": {
+    "message": "無法載入餘額。區塊瀏覽器可能暫時無法使用。"
+  },
+  "balance_refresh_error": {
+    "message": "無法更新餘額，顯示的餘額可能不是最新的。"
   },
   "utxo_limit_exceeded_send": {
     "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，錢包也無法從其歷史記錄讀取全部輸出。請先整合輸出再從此帳戶傳送。"

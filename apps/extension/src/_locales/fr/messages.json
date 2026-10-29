@@ -2132,8 +2132,8 @@
   "total": {
     "message": "Total"
   },
-  "total_balance": {
-    "message": "Solde Total"
+  "wallet_balance": {
+    "message": "Solde du Portefeuille"
   },
   "total_fee": {
     "message": "Frais totaux"
@@ -2914,6 +2914,12 @@
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Les montants disponible et indisponible sont inconnus, car l'explorateur ne liste pas les sorties de ce compte."
+  },
+  "balance_load_error": {
+    "message": "Impossible de charger le solde. L’explorateur est peut-être temporairement indisponible."
+  },
+  "balance_refresh_error": {
+    "message": "Impossible d’actualiser le solde ; il n’est peut-être plus à jour."
   },
   "utxo_limit_exceeded_send": {
     "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu toutes les lire dans son historique. Consolidez ses sorties pour envoyer depuis ce compte."
