@@ -50,6 +50,7 @@ vi.mock('@qbit/wallet-state', () => ({
 }));
 
 const decodedPsbt = {
+  inputInfos: [],
   isCompleted: true,
   fee: 3860,
   feeRate: 1,
@@ -332,13 +333,24 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
     );
   }
 
-  /** A version 2 PSBT with no nLockTime whose one input waits 144 blocks after the coin it spends. */
-  const blockLocked = {
-    version: 2,
-    locktime: 0,
-    inputInfos: [{ sequence: 0x00000090 }],
-    relativeLocks: [{ input: 0, type: 'blocks', value: 144 }]
-  };
+  /** A version 2 PSBT with no nLockTime whose one input waits for its coin to have 144 confirmations. */
+  const blockLocked = { version: 2, locktime: 0, inputInfos: [{ sequence: 0x00000090 }] };
+
+  it('reads relative locks from the version and each input’s sequence, as every review returns them', () => {
+    renderOverview(blockLocked);
+    expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_blocks:1,144');
+
+    cleanup();
+    // Below version 2, nodes do not enforce them.
+    renderOverview({ ...blockLocked, version: 1 });
+    expect(screen.queryByTestId('psbt-relative-lock')).toBeNull();
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized');
+
+    cleanup();
+    // A review that did not decode the version shows none.
+    renderOverview({ ...blockLocked, version: undefined });
+    expect(screen.queryByTestId('psbt-relative-lock')).toBeNull();
+  });
 
   it('shows a relative lock in its own row, beside the lock time row', () => {
     renderOverview(blockLocked);
@@ -358,7 +370,7 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
 
     cleanup();
     // nLockTime alone: the existing wording.
-    renderOverview({ version: 2, locktime: 900_000, inputInfos: [{ sequence: 0xfffffffd }], relativeLocks: [] });
+    renderOverview({ version: 2, locktime: 900_000, inputInfos: [{ sequence: 0xfffffffd }] });
     expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized_after_lock');
 
     cleanup();
@@ -373,58 +385,63 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
     expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_blocks:1,144');
   });
 
-  it('shows an enforced nLockTime, and each input a relative lock holds back on a line of its own', () => {
+  it('shows an enforced nLockTime, and a block lock and a time lock on lines of their own', () => {
     renderOverview({
       version: 2,
       locktime: 900_000,
-      inputInfos: [{ sequence: 0x00000001 }, { sequence: 0xfffffffd }, { sequence: 0x00400090 }],
-      relativeLocks: [
-        { input: 0, type: 'blocks', value: 1 },
-        { input: 2, type: 'time', value: 144 * 512 }
-      ]
+      inputInfos: [{ sequence: 0x00000001 }, { sequence: 0xfffffffd }, { sequence: 0x00400090 }]
     });
     expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_block:900000');
     expect(screen.getByTestId('psbt-locktime-raw').textContent).toBe('nLockTime 900000');
     expect(screen.getByTestId('psbt-relative-lock-0').textContent).toBe('psbt_relative_lock_one_block:1');
     expect(screen.queryByTestId('psbt-relative-lock-1')).toBeNull();
     expect(screen.getByTestId('psbt-relative-lock-2').textContent).toBe('psbt_relative_lock_hours:3,20');
-    expect(screen.getByTestId('psbt-relative-lock').textContent).toBe(
-      'psbt_relative_lock_one_block:1psbt_relative_lock_hours:3,20'
-    );
+    // Every locked input has a line, so there is no count.
+    expect(screen.queryByTestId('psbt-relative-lock-count')).toBeNull();
   });
 
-  it('rounds a time lock to minutes, hours or days, never to a single one', () => {
+  it('words a time lock coarsely: under two hours, then hours, then days', () => {
     const cases: [number, string][] = [
-      [1, 'psbt_relative_lock_minutes:1,9'],
-      [10, 'psbt_relative_lock_minutes:1,85'],
-      [11, 'psbt_relative_lock_hours:1,2'],
+      [1, 'psbt_relative_lock_short:1'],
+      [14, 'psbt_relative_lock_short:1'],
+      [15, 'psbt_relative_lock_hours:1,2'],
       [337, 'psbt_relative_lock_hours:1,48'],
       [338, 'psbt_relative_lock_days:1,2'],
       [0xffff, 'psbt_relative_lock_days:1,388']
     ];
     for (const [units, text] of cases) {
       cleanup();
-      renderOverview({
-        version: 2,
-        locktime: 0,
-        inputInfos: [{ sequence: 0x00400000 | units }],
-        relativeLocks: [{ input: 0, type: 'time', value: units * 512 }]
-      });
+      renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0x00400000 | units }] });
       expect(screen.getByTestId('psbt-relative-lock-0').textContent, `${units} units`).toBe(text);
     }
   });
 
+  it('keeps the row to the strictest block and time locks, with how many inputs carry one', () => {
+    // 250 inputs, 200 of them locked: 199 block locks, the strictest on input
+    // 150 (tied by input 180), and one time lock on input 7.
+    const sequences = Array.from({ length: 250 }, (_, index) =>
+      index >= 200 ? 0xfffffffd : index === 7 ? 0x00400004 : index === 150 || index === 180 ? 1000 : (index % 50) + 1
+    );
+    renderOverview({ version: 2, locktime: 0, inputInfos: sequences.map((sequence) => ({ sequence })) });
+
+    const row = screen.getByTestId('psbt-relative-lock');
+    expect(row.children).toHaveLength(3);
+    expect(Array.from(row.children, (line) => line.textContent)).toEqual([
+      'psbt_relative_lock_blocks:151,1000',
+      'psbt_relative_lock_short:8',
+      'psbt_relative_lock_count:200,250'
+    ]);
+    expect(screen.getByTestId('psbt-relative-lock-150')).toBeTruthy();
+    expect(screen.getByTestId('psbt-relative-lock-7')).toBeTruthy();
+    expect(screen.getByTestId('psbt-relative-lock-count')).toBeTruthy();
+  });
+
   it('shows no relative lock row when no input has a relative lock', () => {
-    renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0xfffffffd }], relativeLocks: [] });
+    renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0xfffffffd }, { sequence: 0x80000090 }] });
     expect(screen.getByTestId('psbt-locktime').textContent).toBe('psbt_locktime_none');
     expect(screen.queryByTestId('psbt-relative-lock')).toBeNull();
     expect(screen.queryByText('psbt_relative_lock')).toBeNull();
     expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_finalized');
-
-    cleanup();
-    // A review that did not decode them.
-    renderOverview({ version: 2, locktime: 0, inputInfos: [{ sequence: 0x00000090 }] });
-    expect(screen.queryByTestId('psbt-relative-lock')).toBeNull();
   });
 
   describe('in every locale', () => {
@@ -460,18 +477,31 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
       }
     });
 
-    it('words every relative lock with its input and, but for a single block, its amount', () => {
+    it('words a block lock by the confirmations the coin needs, and a time lock without false precision', () => {
+      expect(en.psbt_relative_lock_one_block.message).toBe('Input $1: once the coin it spends has 1 confirmation');
+      expect(en.psbt_relative_lock_blocks.message).toBe('Input $1: once the coin it spends has $2 confirmations');
+      expect(en.psbt_relative_lock_short.message).toBe(
+        'Input $1: shortly after the coin it spends confirms (under two hours by block time)'
+      );
+      expect(en.psbt_relative_lock_hours.message).toBe(
+        'Input $1: once the coin it spends is about $2 hours old by block time'
+      );
+      expect(en.psbt_relative_lock_count.message).toBe('$1 of $2 inputs have a relative lock');
+    });
+
+    it('words every relative lock with its input and, but for a single block or a short lock, its amount', () => {
       for (const [locale, messages] of Object.entries(locales)) {
-        expect(messages.psbt_relative_lock_one_block?.message, locale).toContain('$1');
-        expect(messages.psbt_relative_lock_one_block!.message, locale).not.toContain('$2');
-        for (const key of [
-          'psbt_relative_lock_blocks',
-          'psbt_relative_lock_minutes',
-          'psbt_relative_lock_hours',
-          'psbt_relative_lock_days'
-        ]) {
+        for (const key of ['psbt_relative_lock_one_block', 'psbt_relative_lock_short']) {
+          expect(messages[key]?.message, `${locale} ${key}`).toContain('$1');
+          expect(messages[key]!.message, `${locale} ${key}`).not.toContain('$2');
+        }
+        for (const key of ['psbt_relative_lock_blocks', 'psbt_relative_lock_hours', 'psbt_relative_lock_days']) {
           expect(messages[key]?.message, `${locale} ${key}`).toMatch(/\$1[^]*\$2/);
         }
+        // How many of how many: the order may differ by language.
+        expect(messages.psbt_relative_lock_count?.message, locale).toContain('$1');
+        expect(messages.psbt_relative_lock_count!.message, locale).toContain('$2');
+        expect(messages.psbt_relative_lock_minutes, locale).toBeUndefined();
       }
     });
   });

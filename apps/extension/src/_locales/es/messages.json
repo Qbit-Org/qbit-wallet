@@ -3060,19 +3060,22 @@
     "message": "Bloqueo relativo"
   },
   "psbt_relative_lock_one_block": {
-    "message": "Entrada $1: 1 bloque después de que se confirme la moneda que gasta"
+    "message": "Entrada $1: cuando la moneda que gasta tenga 1 confirmación"
   },
   "psbt_relative_lock_blocks": {
-    "message": "Entrada $1: $2 bloques después de que se confirme la moneda que gasta"
+    "message": "Entrada $1: cuando la moneda que gasta tenga $2 confirmaciones"
   },
-  "psbt_relative_lock_minutes": {
-    "message": "Entrada $1: unos $2 minutos después de que se confirme la moneda que gasta"
+  "psbt_relative_lock_short": {
+    "message": "Entrada $1: poco después de que se confirme la moneda que gasta (menos de dos horas según el tiempo de bloque)"
   },
   "psbt_relative_lock_hours": {
-    "message": "Entrada $1: unas $2 horas después de que se confirme la moneda que gasta"
+    "message": "Entrada $1: cuando la moneda que gasta tenga unas $2 horas según el tiempo de bloque"
   },
   "psbt_relative_lock_days": {
-    "message": "Entrada $1: unos $2 días después de que se confirme la moneda que gasta"
+    "message": "Entrada $1: cuando la moneda que gasta tenga unos $2 días según el tiempo de bloque"
+  },
+  "psbt_relative_lock_count": {
+    "message": "$1 de $2 entradas tienen un bloqueo relativo"
   },
   "psbt_tx_version": {
     "message": "Versión"

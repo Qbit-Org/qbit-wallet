@@ -19,8 +19,7 @@ describe('signerDecodedPsbt', () => {
     spendSummary: { account: 'qbrt1zaccount' },
     outputOwners: [],
     version: 2,
-    locktime: 0,
-    relativeLocks: [{ input: 0, type: 'blocks', value: 144 }]
+    locktime: 0
   } as unknown as DecodedPsbt;
 
   it('keeps only the fields a signer reads, in order', () => {

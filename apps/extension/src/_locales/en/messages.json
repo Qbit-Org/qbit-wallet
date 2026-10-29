@@ -3060,19 +3060,22 @@
     "message": "Relative lock"
   },
   "psbt_relative_lock_one_block": {
-    "message": "Input $1: 1 block after the coin it spends confirms"
+    "message": "Input $1: once the coin it spends has 1 confirmation"
   },
   "psbt_relative_lock_blocks": {
-    "message": "Input $1: $2 blocks after the coin it spends confirms"
+    "message": "Input $1: once the coin it spends has $2 confirmations"
   },
-  "psbt_relative_lock_minutes": {
-    "message": "Input $1: about $2 minutes after the coin it spends confirms"
+  "psbt_relative_lock_short": {
+    "message": "Input $1: shortly after the coin it spends confirms (under two hours by block time)"
   },
   "psbt_relative_lock_hours": {
-    "message": "Input $1: about $2 hours after the coin it spends confirms"
+    "message": "Input $1: once the coin it spends is about $2 hours old by block time"
   },
   "psbt_relative_lock_days": {
-    "message": "Input $1: about $2 days after the coin it spends confirms"
+    "message": "Input $1: once the coin it spends is about $2 days old by block time"
+  },
+  "psbt_relative_lock_count": {
+    "message": "$1 of $2 inputs have a relative lock"
   },
   "psbt_tx_version": {
     "message": "Version"

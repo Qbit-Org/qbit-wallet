@@ -3060,19 +3060,22 @@
     "message": "相對鎖定"
   },
   "psbt_relative_lock_one_block": {
-    "message": "輸入 $1：所花費的代幣確認後 1 個區塊"
+    "message": "輸入 $1：所花費的代幣獲得 1 次確認後"
   },
   "psbt_relative_lock_blocks": {
-    "message": "輸入 $1：所花費的代幣確認後 $2 個區塊"
+    "message": "輸入 $1：所花費的代幣獲得 $2 次確認後"
   },
-  "psbt_relative_lock_minutes": {
-    "message": "輸入 $1：所花費的代幣確認後約 $2 分鐘"
+  "psbt_relative_lock_short": {
+    "message": "輸入 $1：所花費的代幣確認後不久（以區塊時間計少於兩小時）"
   },
   "psbt_relative_lock_hours": {
-    "message": "輸入 $1：所花費的代幣確認後約 $2 小時"
+    "message": "輸入 $1：所花費的代幣以區塊時間計存在約 $2 小時後"
   },
   "psbt_relative_lock_days": {
-    "message": "輸入 $1：所花費的代幣確認後約 $2 天"
+    "message": "輸入 $1：所花費的代幣以區塊時間計存在約 $2 天後"
+  },
+  "psbt_relative_lock_count": {
+    "message": "有相對鎖定的輸入：$1 / $2"
   },
   "psbt_tx_version": {
     "message": "版本"

@@ -137,20 +137,6 @@ export type PsbtOutputOwner =
   | 'none'
 
 /**
- * A BIP68 relative lock on one input of a transaction with version 2 or more:
- * the transaction can be mined only once the coin the input spends has been
- * mined for that many blocks, or that much of the network's median time.
- */
-export interface PsbtRelativeLock {
-  /** The input's index; its nSequence, in `inputInfos`, sets the lock. */
-  input: number
-  /** Counted in blocks, or in seconds of the network's median time. */
-  type: 'blocks' | 'time'
-  /** Blocks, or seconds, a multiple of 512. Never 0, which holds nothing back. */
-  value: number
-}
-
-/**
  * What a PSBT does to the wallet, computed by the background from the exact
  * bytes it decoded. It is only valid for those bytes and for `account`.
  */
@@ -216,11 +202,6 @@ export interface DecodedPsbt {
    * and a Unix time from it. Not enforced when every input's sequence is final.
    */
   locktime?: number
-  /**
-   * The inputs' relative locks, in input order: empty when the version is
-   * below 2 or no input's sequence sets one. For display only.
-   */
-  relativeLocks?: PsbtRelativeLock[]
 }
 
 export interface PsbtLocalInfo {
