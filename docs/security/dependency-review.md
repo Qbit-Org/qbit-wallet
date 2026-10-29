@@ -31,7 +31,7 @@ policy, and lockfile that were executed.
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.0, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 439 direct declarations, all 215 resolved packages classified as crypto-,
+all 438 direct declarations, all 208 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -159,16 +159,16 @@ extension is byte-identical. Two new records remain visible: the moderate
 
 ## Package inventory
 
-The 23 workspaces contain 2,530 registry lock entries and 452 direct dependency
+The 20 workspaces contain 2,388 registry lock entries and 438 direct dependency
 declarations. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 171 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 169 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
-| Test-only tooling | 39 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 139 | Lint, formatting, repository tooling, and non-release developer commands |
+| Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
+| Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
 | Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
@@ -183,8 +183,8 @@ package may also serialize attacker-controlled data.
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
 | Crypto | 63 |
-| Serialization | 101 |
-| Networking | 43 |
+| Serialization | 96 |
+| Networking | 44 |
 | Archive/compression | 8 |
 
 ## Advisory directness and reachability
@@ -397,9 +397,9 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,530 integrity-pinned registry entries, 500
+The audited policy checked 2,388 integrity-pinned registry entries, 487
 dependency specifiers, 33 Action references, one tracked package-manager
-configuration file, 306 executable package/workflow commands, and 2,415 exact
+configuration file, 273 executable package/workflow commands, and 2,273 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -413,10 +413,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,415 distinct identities
+version, and normalized license expression for all 2,273 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,530 peer variants must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,388 peer variants must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.

@@ -173,9 +173,10 @@ earlier, private tracker, not to issues or pull requests in this repository.
 - On a slow connection, Speed up can be refused for a large transaction.
   Right before it broadcasts a fee bump, the wallet reads the original
   transaction again and asks what spends it, within 10 seconds for both. An
-  original with about 100 inputs is about 800 kB, which does not arrive in
-  time below about 0.6 Mbit/s. Nothing is sent, and the original
-  transaction stays as it was.
+  original with about 100 inputs is about 400 kB, which the explorer sends
+  as about 800 kB of hex, usually compressed to about 460 kB, so on a
+  connection slower than about 0.4 Mbit/s it does not arrive in time.
+  Nothing is sent, and the original transaction stays as it was.
 
 ## 1.0.5
 
