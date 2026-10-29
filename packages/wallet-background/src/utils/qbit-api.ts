@@ -2298,13 +2298,21 @@ export function qbitOutspendsReadCount(outputs: readonly { txid: string }[]): nu
  * throws, so an output is only ever reported unspent on the explorer's
  * explicit word. Each answer is read under `operation`'s deadline, when
  * given, and fresh (`QbitTxOutspendsOptions.fresh`) with `fresh`.
+ *
+ * The first failure, of a read or of an answer, starts no further read and
+ * is handed to `onFailure` at once, so the caller can abort the reads still
+ * in flight under `operation`'s signal: this throws only once they settle.
  */
 export async function findQbitOutpointSpenders(
   client: QbitTxOutspendsClient,
   outputs: readonly { txid: string; vout: number; outputCount?: number | undefined }[],
-  options: { operation?: QbitExplorerOperation | undefined; fresh?: boolean } = {}
+  options: {
+    operation?: QbitExplorerOperation | undefined
+    fresh?: boolean
+    onFailure?: (error: unknown) => void
+  } = {}
 ): Promise<Map<string, string>> {
-  const { operation, fresh = false } = options
+  const { operation, fresh = false, onFailure } = options
   const byTxid = new Map<string, { outputCount: number | undefined; vouts: number[] }>()
   for (const output of outputs) {
     const txid = normalizeQbitTxid(output.txid)
@@ -2332,19 +2340,25 @@ export async function findQbitOutpointSpenders(
       : client.getTxOutspends(txid, deadline)
   }
   const entries = [...byTxid]
-  // Each answer is validated as it arrives, so a malformed one stops the rest.
+  // Each answer is validated as it arrives, so a malformed one fails like a
+  // failed read.
   const answered = await mapQbitWithConcurrency(
     entries,
     QBIT_OUTSPENDS_CONCURRENCY,
     async ([txid, { outputCount, vouts }]) => {
-      const answer = await read(txid)
-      if (outputCount !== undefined) {
-        const all = qbitTxSpendersFromOutspends(answer, txid, outputCount)
-        return vouts.map(vout => all[vout])
+      try {
+        const answer = await read(txid)
+        if (outputCount !== undefined) {
+          const all = qbitTxSpendersFromOutspends(answer, txid, outputCount)
+          return vouts.map(vout => all[vout])
+        }
+        return vouts.map(vout =>
+          qbitOutspendSpender(Array.isArray(answer) ? answer[vout] : undefined, txid)
+        )
+      } catch (error) {
+        onFailure?.(error)
+        throw error
       }
-      return vouts.map(vout =>
-        qbitOutspendSpender(Array.isArray(answer) ? answer[vout] : undefined, txid)
-      )
     }
   )
   const spenders = new Map<string, string>()
@@ -2857,7 +2871,7 @@ async function loadQbitSnapshotWithStabilityRetries<T>(
 }
 
 /** Wait `ms`, or reject with the abort reason as soon as `options.signal` aborts. */
-function qbitCancellableDelay(ms: number, options: QbitReadCancellation): Promise<void> {
+export function qbitCancellableDelay(ms: number, options: QbitReadCancellation): Promise<void> {
   const { signal } = options
   if (!signal) return new Promise(resolve => setTimeout(resolve, ms))
   return new Promise<void>((resolve, reject) => {
@@ -2885,7 +2899,7 @@ function mapQbitHistoryAddressesWithConcurrency<T>(
 }
 
 /** `load` over `items`, at most `concurrency` at a time; the first failure stops it and throws. */
-export async function mapQbitWithConcurrency<I, T>(
+async function mapQbitWithConcurrency<I, T>(
   items: readonly I[],
   concurrency: number,
   load: (item: I) => Promise<T>

@@ -19,8 +19,8 @@ import {
   QBIT_FEE_BUMP_RECHECK_MIN_READ_MS,
   QBIT_FEE_BUMP_RECHECK_WAIT_MS,
   QbitExplorerSpendCheckTimeoutError,
+  QBIT_FEE_BUMP_RECHECK_WAVE_MS,
   assertNoExplorerSpendConflict,
-  qbitExplorerSpendCheck,
   type QbitExplorerSpendCheckOptions,
 } from '../src/utils/qbit-fee-bump-recheck'
 
@@ -70,7 +70,7 @@ function checkBump(
 ): Promise<void> {
   return assertNoExplorerSpendConflict(
     client,
-    qbitExplorerSpendCheck(BROADCAST, INPUTS, txid, outputCount),
+    { replaces: { txid, outputCount } },
     options
   )
 }
@@ -83,7 +83,10 @@ function checkRestored(
 ): Promise<void> {
   return assertNoExplorerSpendConflict(
     client,
-    qbitExplorerSpendCheck(BROADCAST, INPUTS, replaces, replaces ? 1 : undefined, true),
+    {
+      ...(replaces ? { replaces: { txid: replaces, outputCount: 1 } } : {}),
+      restored: { txid: BROADCAST, outpoints: INPUTS },
+    },
     options
   )
 }
@@ -210,7 +213,7 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
   it('checks nothing for a broadcast that is neither a fee bump nor restored', async () => {
     const client = explorer([unspent])
     await expect(
-      assertNoExplorerSpendConflict(client, qbitExplorerSpendCheck(BROADCAST, INPUTS))
+      assertNoExplorerSpendConflict(client, {})
     ).resolves.toBeUndefined()
     expect(client.getTxOutspends).not.toHaveBeenCalled()
   })
@@ -288,6 +291,30 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('sizes its budget with the pause it is given', async () => {
+    vi.useFakeTimers()
+    // Each read takes 4 s. With a 10 s pause the budget is 20 s: 5 s for
+    // each round, and the pause; the second round still starts with 6 s.
+    const slow = answeringAfter(4_000, [unspent])
+    const outcome = checkBump(slow.client, ORIGINAL, 1, { intervalMs: 10_000 }).then(
+      () => undefined,
+      error => error
+    )
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(await outcome).toBeUndefined()
+    expect(slow.client.getTxOutspends.mock.calls.map(([, options]) => options!.deadlineMs)).toEqual(
+      [10_000 + 2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS, 2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS - 4_000]
+    )
+    // Without a pause, it is the two rounds' alone.
+    const quick = explorer([unspent])
+    await expect(settled(checkBump(quick, ORIGINAL, 1, { intervalMs: 0 }))).resolves.toBe(
+      undefined
+    )
+    expect(quick.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(
+      2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS
+    )
+  })
+
   it('aborts its second read when the check runs out of time, and never lets a read outlive it', async () => {
     vi.useFakeTimers()
     const stalled = explorer([unspent])
@@ -359,6 +386,23 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     const client = explorer([unspent])
     client.getTxOutspends.mockResolvedValueOnce([spentBy(LATER)])
     expect(((await settled(checkBump(client, ORIGINAL, 1))) as Error).message).toBe(DEPENDENT)
+    expect(client.getTxOutspends).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops its pause at once when the broadcast it is part of is cancelled between rounds', async () => {
+    vi.useFakeTimers()
+    const cancel = new AbortController()
+    const client = explorer([unspent])
+    const outcome = checkBump(client, ORIGINAL, 1, {
+      operation: new QbitExplorerOperation(60_000, cancel.signal),
+    }).catch(error => error)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(client.getTxOutspends).toHaveBeenCalledTimes(1)
+    cancel.abort(new Error('cancelled'))
+    expect(((await outcome) as Error).message).toBe(UNCHECKED)
+    // No pause is left running, and no second read follows.
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_INTERVAL_MS)
     expect(client.getTxOutspends).toHaveBeenCalledTimes(1)
   })
 
@@ -709,6 +753,33 @@ describe('assertNoExplorerSpendConflict for a claim restored after a restart', (
         })
       )
     ).resolves.toBeUndefined()
+  })
+  it('refuses at once on the first malformed answer, aborting the reads still in flight', async () => {
+    vi.useFakeTimers()
+    const STALLED = txidOf(1)
+    let stalledSignal: AbortSignal | undefined
+    const client = explorer([unspent])
+    client.getTxOutspends.mockImplementation(async (txid, options) => {
+      if (txid === FUNDING) return 'not a list'
+      stalledSignal = options?.signal
+      return new Promise(() => undefined)
+    })
+    let settledAt: number | undefined
+    const startedAt = Date.now()
+    const outcome = assertNoExplorerSpendConflict(client, {
+      restored: { txid: BROADCAST, outpoints: [{ txid: STALLED, vout: 0 }, ...INPUTS] },
+    }).catch(error => {
+      settledAt = Date.now()
+      return error
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settledAt).toBe(startedAt)
+    const error = (await outcome) as Error
+    expect(error.message).toBe(UNCHECKED_RESTORED)
+    // A malformed answer is no lack of time.
+    expect(error instanceof QbitExplorerSpendCheckTimeoutError).toBe(false)
+    expect(stalledSignal?.aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
 

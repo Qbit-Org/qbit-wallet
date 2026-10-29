@@ -6,6 +6,8 @@ import type {
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
+import type { QbitExplorerSpendCheck } from '../utils/qbit-fee-bump-recheck'
+
 export interface QbitOutpoint {
   txid: string
   vout: number
@@ -1263,29 +1265,22 @@ export class QbitSendGuardService {
    * transaction; `claim`, when given, must be the held claim for exactly
    * this transaction, and is consumed once `broadcast` resolves.
    *
-   * A fee bump's claim hands `broadcast` the txid it replaces, and how many
-   * outputs that transaction has, after the guard's own records showed no
-   * later payment spending it.
-   * Those records cannot show a payment made elsewhere (another wallet on
-   * the same seed, or a recipient spending their output), so `broadcast`
-   * must check the explorer for one before it dispatches, and reject to
-   * keep the bump from going out.
-   *
-   * A claim restored from the page's copy (see `restoreBroadcastClaim`)
-   * hands `broadcast` `restoredFromPage` as well, whatever it replaces:
-   * `broadcast` must then check on the explorer that nothing but `txid`, or
-   * the transaction the claim replaces, spends any of `outpoints`, and
-   * reject otherwise. Any other broadcast is handed false.
+   * `broadcast` is handed what it must check on the explorer before it
+   * dispatches, and must reject to keep the transaction from going out when
+   * the check fails. A fee bump's claim hands it the txid it `replaces`, and
+   * how many outputs that transaction has, after the guard's own records
+   * showed no later payment spending it: those records cannot show a
+   * payment made elsewhere (another wallet on the same seed, or a recipient
+   * spending their output). A claim restored from the page's copy (see
+   * `restoreBroadcastClaim`) hands it `restored` as well, whatever it
+   * replaces: nothing but `txid`, or the transaction the claim replaces, may
+   * spend any of `outpoints`. Any other broadcast is handed nothing to check.
    */
   broadcastIfAllowed<T>(
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    broadcast: (
-      replaces: string | undefined,
-      replacedOutputCount: number | undefined,
-      restoredFromPage: boolean
-    ) => Promise<T>,
+    broadcast: (spendCheck: QbitExplorerSpendCheck) => Promise<T>,
     claim?: QbitSendBroadcastClaim
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
@@ -1338,11 +1333,12 @@ export class QbitSendGuardService {
 
       const restoredFromPage =
         exactClaim !== undefined && this.restoredClaimKeys.has(claimKey(exactClaim))
-      const result = await broadcast(
-        replacedTxid,
-        exactClaim?.replacedOutputCount,
-        restoredFromPage
-      )
+      const result = await broadcast({
+        ...(replacedTxid
+          ? { replaces: { txid: replacedTxid, outputCount: exactClaim?.replacedOutputCount } }
+          : {}),
+        ...(restoredFromPage ? { restored: { txid, outpoints } } : {}),
+      })
       // The claim is consumed, but its inputs stay reserved as recently
       // spent: the explorer may keep listing them for a while yet.
       this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)

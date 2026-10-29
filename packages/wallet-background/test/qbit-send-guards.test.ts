@@ -13,6 +13,7 @@ import {
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
   QbitSendGuardService,
 } from '../src/services/qbitSendGuards'
+import type { QbitExplorerSpendCheck } from '../src/utils/qbit-fee-bump-recheck'
 
 /** How many outputs the original of each fee bump below has. */
 const REPLACED_OUTPUT_COUNT = 2
@@ -1032,9 +1033,7 @@ describe('QbitSendGuardService', () => {
 
       it("hands a held fee bump's original to its broadcast, and nothing for any other send", async () => {
         const original = walletClaim()
-        const broadcast = vi.fn(
-          async (_replaces?: string, _count?: number, _restoredFromPage?: boolean) => 'broadcasted'
-        )
+        const broadcast = vi.fn(async (_spendCheck: QbitExplorerSpendCheck) => 'broadcasted')
         await service.runWithBroadcastClaim(original, async () => 'signed')
         await service.broadcastIfAllowed(
           chain,
@@ -1043,7 +1042,7 @@ describe('QbitSendGuardService', () => {
           broadcast,
           original
         )
-        expect(broadcast).toHaveBeenLastCalledWith(undefined, undefined, false)
+        expect(broadcast).toHaveBeenLastCalledWith({})
 
         // The guard's record decides, whatever the page presents.
         const bump = walletClaim({ txid: bumpTxid, replaces: original.txid })
@@ -1051,21 +1050,22 @@ describe('QbitSendGuardService', () => {
         const presented = walletClaim({ txid: bumpTxid })
         // The explorer shows a later payment: the broadcast refuses before
         // dispatch, and the claim stays held for a retry.
-        const refuse = vi.fn(
-          async (_replaces?: string, _count?: number, _restoredFromPage?: boolean) => {
-            throw new Error(dependentMessage)
-          }
-        )
+        const refuse = vi.fn(async (_spendCheck: QbitExplorerSpendCheck) => {
+          throw new Error(dependentMessage)
+        })
         await expect(
           service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, refuse, presented)
         ).rejects.toThrow(dependentMessage)
-        expect(refuse).toHaveBeenCalledWith(original.txid, REPLACED_OUTPUT_COUNT, false)
+        const checkOriginal = {
+          replaces: { txid: original.txid, outputCount: REPLACED_OUTPUT_COUNT },
+        }
+        expect(refuse).toHaveBeenCalledWith(checkOriginal)
         await expect(
           service.runWithBroadcastClaim(walletClaim({ txid: '23'.repeat(32) }), async () => 'x')
         ).rejects.toThrow('claimed by an approved send')
 
         await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, presented)
-        expect(broadcast).toHaveBeenLastCalledWith(original.txid, REPLACED_OUTPUT_COUNT, false)
+        expect(broadcast).toHaveBeenLastCalledWith(checkOriginal)
       })
 
       it("restores a fee bump's claim with the transaction it replaces and refuses it while a later payment spends that", async () => {
@@ -1109,7 +1109,10 @@ describe('QbitSendGuardService', () => {
         // look for payments made elsewhere, and for what spends its inputs.
         await service.releaseBroadcastClaim(laterOf(original))
         await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
-        expect(broadcast).toHaveBeenCalledWith(original.txid, REPLACED_OUTPUT_COUNT, true)
+        expect(broadcast).toHaveBeenCalledWith({
+          replaces: { txid: original.txid, outputCount: REPLACED_OUTPUT_COUNT },
+          restored: { txid: bumpTxid, outpoints: bump.outpoints },
+        })
       })
 
       it('never restores a wallet claim that does not say what it replaces', async () => {
@@ -1163,7 +1166,10 @@ describe('QbitSendGuardService', () => {
           'restored'
         )
         await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
-        expect(broadcast).toHaveBeenCalledWith(original.txid, REPLACED_OUTPUT_COUNT, true)
+        expect(broadcast).toHaveBeenCalledWith({
+          replaces: { txid: original.txid, outputCount: REPLACED_OUTPUT_COUNT },
+          restored: { txid: bumpTxid, outpoints: bump.outpoints },
+        })
       })
 
       it('asks the broadcast of every restored claim, one naming nothing included, to check what spends its inputs', async () => {
@@ -1180,19 +1186,20 @@ describe('QbitSendGuardService', () => {
         await expect(
           service.broadcastIfAllowed(chain, plain.txid, plain.outpoints, refuse, plain)
         ).rejects.toThrow('recent broadcast already spent')
-        expect(refuse).toHaveBeenCalledWith(undefined, undefined, true)
+        const checkInputs = { restored: { txid: plain.txid, outpoints: plain.outpoints } }
+        expect(refuse).toHaveBeenCalledWith(checkInputs)
         // Refused before dispatch, the claim stays held, and its next
         // broadcast checks again.
         const broadcast = vi.fn(async () => plain.txid)
         await service.broadcastIfAllowed(chain, plain.txid, plain.outpoints, broadcast, plain)
-        expect(broadcast).toHaveBeenCalledWith(undefined, undefined, true)
+        expect(broadcast).toHaveBeenCalledWith(checkInputs)
 
         // A claim minted here is checked against the guard's own records,
         // and its broadcast is asked for nothing more.
         service.init()
         await service.runWithBroadcastClaim(plain, async () => 'signed')
         await service.broadcastIfAllowed(chain, plain.txid, plain.outpoints, broadcast, plain)
-        expect(broadcast).toHaveBeenLastCalledWith(undefined, undefined, false)
+        expect(broadcast).toHaveBeenLastCalledWith({})
       })
 
       it('drops what a provider claim says it replaces', async () => {
