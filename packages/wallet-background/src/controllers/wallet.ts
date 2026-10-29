@@ -165,8 +165,10 @@ import {
   QBIT_MIN_RELAY_FEE_RATE,
   psbtReviewOptions,
   qbitWalletOwnership,
+  qbitWalletOwns,
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
+  type PsbtOutputOwner,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
 import { psbtFromString } from '../utils/psbt-utils'
@@ -8744,6 +8746,31 @@ export class WalletController extends BaseController {
       feeSummary,
       checkFeeShareWithoutSize: suppliedByWebsite,
     })
+    // The wallet's outputs are known only from the scripts and addresses it
+    // derives for its accounts, as their 'wallet' role is: the PSBT's own
+    // records about an output, such as derivation paths, are its author's.
+    // One paying the signing account is change only when the wallet funds
+    // every input and the request does not name it as its recipient; it may
+    // otherwise be the payment itself.
+    const signingAccount = qbitWalletOwnership([account])
+    const walletFundsEveryInput = inputInfos.every(
+      input =>
+        input.witnessUtxoScriptHex !== undefined &&
+        qbitWalletOwns(wallet, {
+          scriptPubKeyHex: input.witnessUtxoScriptHex,
+          address: input.address,
+        })
+    )
+    const namedRecipients = new Set(
+      (statedRecipients ?? []).filter(address => address !== '').map(address => address.toLowerCase())
+    )
+    const outputOwners = outputInfos.map((output, index): PsbtOutputOwner => {
+      if (spendSummary.outputRoles[index] !== 'wallet') return 'none'
+      if (!qbitWalletOwns(signingAccount, output)) return 'other_account'
+      return walletFundsEveryInput && !namedRecipients.has(output.address.toLowerCase())
+        ? 'change'
+        : 'this_account'
+    })
 
     return {
       inputInfos,
@@ -8759,6 +8786,9 @@ export class WalletController extends BaseController {
       shouldWarnFeeRate: (spendSummary.feeAssessment?.reasons.length ?? 0) > 0,
       isCompleted,
       spendSummary,
+      outputOwners,
+      version: summary.version,
+      locktime: summary.locktime,
     }
   }
 

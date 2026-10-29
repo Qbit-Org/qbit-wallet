@@ -123,6 +123,11 @@ export function InputItem(props: {
   const isMyAddress = itemInfo.address === currentAddress;
   // Neither the wallet's nor the recipient the request named, as the background classified it.
   const isUnrecognised = !!outputInfo && decodedPsbt.spendSummary?.outputRoles[index] === 'unrecognised';
+  // Change, a payment to this account or another of the wallet's accounts, as the background labelled it.
+  const outputOwner = outputInfo ? decodedPsbt.outputOwners?.[index] : undefined;
+  const isChange = outputOwner === 'change';
+  const isThisAccount = outputOwner === 'this_account';
+  const isOtherAccount = outputOwner === 'other_account';
   const qbitUnit = useQbitUnit();
   const { t } = useI18n();
 
@@ -164,9 +169,33 @@ export function InputItem(props: {
 
             <Row justifyBetween itemsCenter fullX>
               <AddressText address={itemInfo.address} color="accentDark" bold showEye />
-              {isMyAddress && (
-                <Row style={{ padding: '2px 8px', backgroundColor: colors.accent, borderRadius: 8 }}>
-                  <Text text={t('my_address')} color="pureWhite" size="xxs" />
+              {isChange ? (
+                <Row
+                  style={{ padding: '2px 8px', backgroundColor: colors.accent, borderRadius: 8 }}
+                  data-testid={`psbt-output-change-${index}`}
+                >
+                  <Text text={t('psbt_output_change')} color="pureWhite" size="xxs" />
+                </Row>
+              ) : isThisAccount ? (
+                <Row
+                  style={{ padding: '2px 8px', backgroundColor: colors.accent, borderRadius: 8 }}
+                  data-testid={`psbt-output-this-account-${index}`}
+                >
+                  <Text text={t('psbt_output_this_account')} color="pureWhite" size="xxs" />
+                </Row>
+              ) : (
+                isMyAddress && (
+                  <Row style={{ padding: '2px 8px', backgroundColor: colors.accent, borderRadius: 8 }}>
+                    <Text text={t('my_address')} color="pureWhite" size="xxs" />
+                  </Row>
+                )
+              )}
+              {isOtherAccount && (
+                <Row
+                  style={{ padding: '2px 8px', border: `1px solid ${colors.accent}`, borderRadius: 8 }}
+                  data-testid={`psbt-output-other-account-${index}`}
+                >
+                  <Text text={t('psbt_output_other_account')} color="accent" size="xxs" />
                 </Row>
               )}
               {isUnrecognised && (

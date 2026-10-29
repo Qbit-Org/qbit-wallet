@@ -3014,6 +3014,45 @@
   "unrecognised_output_risk_description": {
     "message": "某筆輸出付款至既不屬於您、也不是此請求所指定接收者的地址，或付款至沒有地址的腳本。簽署前請檢查每一筆輸出。"
   },
+  "psbt_output_change": {
+    "message": "找零"
+  },
+  "psbt_output_this_account": {
+    "message": "轉入此帳戶"
+  },
+  "psbt_output_other_account": {
+    "message": "您的其他帳戶"
+  },
+  "psbt_after_signing": {
+    "message": "簽署後"
+  },
+  "psbt_finalized": {
+    "message": "已完成：網站可以廣播"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "已完成：鎖定時間過後網站即可廣播"
+  },
+  "psbt_not_finalized": {
+    "message": "已簽署，未完成：由其他簽署者完成"
+  },
+  "psbt_locktime": {
+    "message": "鎖定時間"
+  },
+  "psbt_locktime_none": {
+    "message": "無鎖定"
+  },
+  "psbt_locktime_block": {
+    "message": "區塊 $1 之後"
+  },
+  "psbt_locktime_median_time": {
+    "message": "網路中位時間超過 $1 後生效"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 不生效：所有輸入皆為最終"
+  },
+  "psbt_tx_version": {
+    "message": "版本"
+  },
   "multisign_flagged_transactions": {
     "message": "簽署前需要確認的交易：$1"
   },

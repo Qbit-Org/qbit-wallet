@@ -3014,6 +3014,45 @@
   "unrecognised_output_risk_description": {
     "message": "Una salida paga a una dirección que no es suya ni del destinatario que indica esta solicitud, o a un script sin dirección. Revise todas las salidas antes de firmar."
   },
+  "psbt_output_change": {
+    "message": "Cambio"
+  },
+  "psbt_output_this_account": {
+    "message": "A esta cuenta"
+  },
+  "psbt_output_other_account": {
+    "message": "Otra de tus cuentas"
+  },
+  "psbt_after_signing": {
+    "message": "Tras firmar"
+  },
+  "psbt_finalized": {
+    "message": "Finalizada: el sitio puede difundirla"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalizada: el sitio puede difundirla cuando haya pasado su bloqueo temporal"
+  },
+  "psbt_not_finalized": {
+    "message": "Firmada, sin finalizar: otros firmantes la completan"
+  },
+  "psbt_locktime": {
+    "message": "Bloqueo temporal"
+  },
+  "psbt_locktime_none": {
+    "message": "Sin bloqueo"
+  },
+  "psbt_locktime_block": {
+    "message": "Después del bloque $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Válida cuando el tiempo mediano de la red supere $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 no se aplica: todas las entradas son finales"
+  },
+  "psbt_tx_version": {
+    "message": "Versión"
+  },
   "multisign_flagged_transactions": {
     "message": "Transacciones que requieren una confirmación antes de firmar: $1"
   },
