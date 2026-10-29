@@ -17,7 +17,7 @@
 # Classical and PQC wallet signing.
 /packages/wallet-core/ @Anatolie @kiwidream @djh58 @RobertClarke
 /packages/wallet-background/src/controllers/wallet.ts @Anatolie @kiwidream @djh58 @RobertClarke
-/packages/wallet-background/src/services/qbitPreparedSendReservation.ts @Anatolie @kiwidream @djh58 @RobertClarke
+/packages/wallet-background/src/services/qbitSendGuards.ts @Anatolie @kiwidream @djh58 @RobertClarke
 /packages/wallet-background/src/utils/qbit-api.ts @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Provider identity, permissions, and approval execution.
@@ -47,7 +47,6 @@
 /pnpm-workspace.yaml @Anatolie @kiwidream @djh58 @RobertClarke
 /scripts/reproducible-extension-build.mjs @Anatolie @kiwidream @djh58 @RobertClarke
 /scripts/security/ @Anatolie @kiwidream @djh58 @RobertClarke
-/scripts/ci/ @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Release, conformance, and image provenance.
 /.github/workflows/ @Anatolie @kiwidream @djh58 @RobertClarke

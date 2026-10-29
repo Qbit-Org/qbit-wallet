@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { isDeepStrictEqual } from 'node:util'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const securityOwners = ['@Anatolie', '@kiwidream', '@djh58', '@RobertClarke'].sort()
+// GitHub ignores owner order and the case of handles.
+const normalizeOwners = owners => owners.map(owner => owner.toLowerCase()).sort()
+const securityOwners = normalizeOwners(['@Anatolie', '@kiwidream', '@djh58', '@RobertClarke'])
 const codeowners = readFileSync(new URL('../../.github/CODEOWNERS', import.meta.url), 'utf8')
 const orderedRules = codeowners
   .split(/\r?\n/)
@@ -15,8 +16,7 @@ const orderedRules = codeowners
   .filter(line => line && !line.startsWith('#'))
   .map(line => {
     const [pattern, ...owners] = line.split(/\s+/)
-    // Owner order makes no difference to GitHub.
-    return [pattern, owners.sort()]
+    return [pattern, normalizeOwners(owners)]
   })
 const rules = new Map(orderedRules)
 const trackedFiles = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
@@ -63,6 +63,13 @@ test('CODEOWNERS covers every security release surface', () => {
   for (const pattern of requiredPatterns) {
     assert.ok(rules.has(pattern), `missing CODEOWNERS rule for ${pattern}`)
     assert.deepEqual(rules.get(pattern), securityOwners)
+  }
+})
+
+// A rule that matches nothing protects nothing, such as one left behind when
+// the file it names is renamed.
+test('every CODEOWNERS rule matches a tracked file', () => {
+  for (const [pattern] of orderedRules) {
     const regex = toRegExp(pattern)
     assert.ok(
       trackedFiles.some(path => regex.test(path)),
@@ -72,8 +79,9 @@ test('CODEOWNERS covers every security release surface', () => {
 })
 
 // GitHub applies the last matching rule, so a rule below the security rules
-// would take over the files they cover. The `*` default has the same owners
-// for now, but it doesn't make a file security-sensitive.
+// would take over the files they cover. Any rule except the `*` default that
+// lists every security owner counts as a security rule, so a security rule
+// with an extra owner fails here instead of dropping out of the check.
 test('no later CODEOWNERS rule takes over a security file', () => {
   const matchers = orderedRules.map(([pattern, owners]) => ({
     pattern,
@@ -81,7 +89,7 @@ test('no later CODEOWNERS rule takes over a security file', () => {
     regex: toRegExp(pattern),
   }))
   const isSecurityRule = rule =>
-    rule.pattern !== '*' && isDeepStrictEqual(rule.owners, securityOwners)
+    rule.pattern !== '*' && securityOwners.every(owner => rule.owners.includes(owner))
   for (const path of trackedFiles) {
     const matching = matchers.filter(rule => rule.regex.test(path))
     if (matching.some(isSecurityRule)) {
