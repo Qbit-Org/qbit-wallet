@@ -1,5 +1,8 @@
 # Qbit Wallet release notes
 
+Issue numbers in parentheses, such as (#339), refer to the project's
+earlier, private tracker, not to issues or pull requests in this repository.
+
 ## 1.0.6
 
 ### Sending and fees
@@ -167,6 +170,12 @@
 - If the wallet's site access in Chrome is set to "On click" or "On specific
   sites", a denylisted page can load while the wallet's phishing block rule
   is not installed, or while the wallet cannot remove its redirect rule.
+- On a slow connection, Speed up can be refused for a large transaction.
+  Right before it broadcasts a fee bump, the wallet reads the original
+  transaction again and asks what spends it, within 10 seconds for both. An
+  original with about 100 inputs is about 800 kB, which does not arrive in
+  time below about 0.6 Mbit/s. Nothing is sent, and the original
+  transaction stays as it was.
 
 ## 1.0.5
 

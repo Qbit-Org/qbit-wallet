@@ -172,8 +172,10 @@ justification, describe the loopback permission as follows:
 The store artifact also declares `*://*.<entry>/*` under `host_permissions`
 for each domain on the bundled phishing denylist. The build generates them
 from `BUNDLED_PHISHING_DENYLIST`, and `package-artifact-validation.js` pins the
-reviewed list (`EXPECTED_MV3_PHISHING_HOST_PERMISSIONS`), so a denylist change
-fails packaging until that list is reviewed and updated too. The listing will
+reviewed list by its length and SHA-256
+(`REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT` and
+`REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256`), so a denylist change fails
+packaging until it is reviewed and both pins are updated too. The listing will
 show these phishing domains among the extension's sites. Describe them as
 follows:
 
@@ -191,7 +193,8 @@ follows:
   `chrome.management.getPermissionWarningsByManifest` reports that same single
   warning with and without these entries.
 
-`corepack pnpm --filter qbit-extension run package:test` fails the build if
+`corepack pnpm --filter qbit-extension run package:test -- --artifact-version <version>`,
+with the extension's version (for example `1.0.6`), fails the build if
 the generated manifest's required, optional, or CSP loopback entries, or its
 phishing host permissions and web-accessible resources, differ from the
 reviewed values, so inspect the packaged `manifest.json` (not only
