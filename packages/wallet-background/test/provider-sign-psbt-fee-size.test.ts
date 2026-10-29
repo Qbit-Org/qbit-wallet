@@ -26,7 +26,7 @@ import {
   singleKeyLeafScript,
   type Psbt,
 } from '@qbit-oss/protocol'
-import { KeyringType, RiskType } from '@qbit/wallet-shared'
+import { KeyringType, QBIT_P2MR_DUST, RiskType, psbtReviewOptions } from '@qbit/wallet-shared'
 import type { DecodedPsbt, ToSignData } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import rpcFlow from '../src/controllers/provider/rpcFlow'
@@ -319,10 +319,13 @@ describe('the fee rate a website PSBT approval shows (#59)', () => {
         return { ...signed, counterResults: [] } as any
       }
     )
-    // The approval window reviews the PSBT it was handed, then the user signs.
+    // The approval window reviews the PSBT it was handed, with the options
+    // the sign screen builds from the request, then the user signs.
     approvalServiceMock.requestApproval.mockImplementation(async approval => {
       const toSignData: ToSignData = structuredClone(approval.params.data.toSignDatas[0])
-      reviews.push(await wallet.decodePsbt(toSignData.psbtHex, ORIGIN))
+      reviews.push(
+        await wallet.decodePsbt(toSignData.psbtHex, ORIGIN, psbtReviewOptions(toSignData))
+      )
       return [await wallet.signPsbtV2(toSignData)]
     })
   })
@@ -623,6 +626,334 @@ describe('the fee rate a website PSBT approval shows (#59)', () => {
       expect(decoded.isCompleted).toBe(false)
       expect(decoded.feeRate).toBe(0)
       expect(decoded.risks).toEqual([])
+    })
+  })
+
+  // The fee as a share of what the PSBT pays others needs no size estimate.
+  // The fastest tier recommends 9 bits/vB, so a fee of at least 68,706 bits,
+  // twice what the smallest send (3,817 vB) costs at that rate, and at least
+  // a quarter of the payout needs the confirmation.
+  describe('the fee as a share of the payout, judged without the size estimate', () => {
+    /** Below twice the recommended 9 bits/vB, so no rate condition holds. */
+    const LOW_RATE = 15
+    /** 15 bits/vB of the 11,384 vB three inputs and two outputs finalize to. */
+    const THREE_INPUT_FEE = 170_760n
+
+    /**
+     * A website PSBT spending `inputValues` from the account's address and
+     * paying `amount` to a stranger, with the rest, less `fee`, back to it.
+     */
+    function paymentPsbt(inputValues: bigint[], amount: bigint, fee: bigint): Psbt {
+      const change = inputValues.reduce((sum, value) => sum + value, 0n) - amount - fee
+      return createP2mrPsbt({
+        inputs: inputValues.map((value, index) => ({
+          prevout: { txid: hexToBytes((0xa0 + index).toString(16).repeat(32)), vout: 0 },
+          witnessUtxo: { value, scriptPubKey: ACCOUNT_SCRIPT },
+          leafScript: LEAF_SCRIPT,
+          controlBlock: SINGLE_LEAF,
+        })),
+        outputs: [
+          ...(amount > 0n ? [{ value: amount, scriptPubKey: RECIPIENT_SCRIPT }] : []),
+          ...(change > 0n ? [{ value: change, scriptPubKey: ACCOUNT_SCRIPT }] : []),
+        ],
+      })
+    }
+
+    const THREE_INPUTS = [1_000_000n, 1_000_000n, 1_000_000n]
+    /** How a website's approval of the share-heavy three-input payment is confirmed. */
+    const WEBSITE_SHARE_FLAG = {
+      feeRate: LOW_RATE,
+      risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+      reasons: ['large_share_of_amount'],
+      shouldWarnFeeRate: true,
+    }
+
+    it('confirms a fee that is a large share of the payout at a rate below every rate condition', async () => {
+      const psbt = paymentPsbt(THREE_INPUTS, AMOUNT, THREE_INPUT_FEE)
+      const approved = await approveWebsitePsbt(psbt)
+
+      expect(approved.review.feeRate).toBe(
+        Number(THREE_INPUT_FEE) / finalizedVsize(approved.signed)
+      )
+      expect(approved.review.feeRate).toBe(LOW_RATE)
+      expect(confirmation(approved.review)).toEqual({
+        feeRate: LOW_RATE,
+        risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+        reasons: ['large_share_of_amount'],
+        shouldWarnFeeRate: true,
+      })
+
+      // The wallet's own screens, which pass no website, judge the same
+      // bytes by their rate alone, as before.
+      const own = await wallet.decodePsbt(bytesToHex(serializePsbt(psbt)), '')
+      expect(confirmation(own)).toEqual({
+        feeRate: LOW_RATE,
+        risks: [],
+        reasons: [],
+        shouldWarnFeeRate: false,
+      })
+    })
+
+    it('flags a fee at twice what the smallest send costs, and not one bit less', async () => {
+      const atFloor = await approveWebsitePsbt(paymentPsbt([1_000_000n], AMOUNT, 68_706n))
+      // 17.8 bits/vB on the 3,860 vB it finalizes to: below twice 9.
+      expect(atFloor.review.feeRate).toBeLessThan(18)
+      expect(confirmation(atFloor.review)).toMatchObject({
+        risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+        reasons: ['large_share_of_amount'],
+      })
+
+      const below = await approveWebsitePsbt(paymentPsbt([1_000_000n], AMOUNT, 68_705n))
+      expect(confirmation(below.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it('flags a fee at a quarter of the payout, and not when the payout is one bit more', async () => {
+      const atShare = await approveWebsitePsbt(paymentPsbt(THREE_INPUTS, 683_040n, THREE_INPUT_FEE))
+      expect(confirmation(atShare.review)).toMatchObject({
+        feeRate: LOW_RATE,
+        risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+        reasons: ['large_share_of_amount'],
+      })
+
+      const below = await approveWebsitePsbt(paymentPsbt(THREE_INPUTS, 683_041n, THREE_INPUT_FEE))
+      expect(confirmation(below.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it('has no payout to compare a transfer back to the wallet with', async () => {
+      const selfTransfer = await approveWebsitePsbt(paymentPsbt(THREE_INPUTS, 0n, THREE_INPUT_FEE))
+
+      expect(selfTransfer.review.spendSummary?.feeAssessment?.amount).toBe(0)
+      expect(confirmation(selfTransfer.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it('leaves a payment of the dust limit at the recommended rate unflagged', async () => {
+      // One output: change too small to keep is folded into the fee.
+      const fee = BigInt(9 * 3_817 + QBIT_P2MR_DUST - 1)
+      const dust = BigInt(QBIT_P2MR_DUST)
+      const small = await approveWebsitePsbt(paymentPsbt([dust + fee], dust, fee))
+
+      expect(small.review.outputInfos).toHaveLength(1)
+      expect(small.review.spendSummary?.feeAssessment).toMatchObject({
+        fee: Number(fee),
+        amount: QBIT_P2MR_DUST,
+      })
+      expect(confirmation(small.review)).toMatchObject({ risks: [], reasons: [] })
+    })
+
+    it("judges each PSBT of a website's batch, and not of the wallet's own, the same way", async () => {
+      const psbtHex = bytesToHex(serializePsbt(paymentPsbt(THREE_INPUTS, AMOUNT, THREE_INPUT_FEE)))
+      const providerContext = {
+        origin: ORIGIN,
+        account: account.address,
+        chain: ChainType.QBIT_REGTEST,
+        network: 'regtest',
+      } as never
+      const summary = await wallet.analyzeLocalPsbts([
+        { psbtHex, toSignInputs: [], providerContext },
+        { psbtHex, toSignInputs: [] },
+        // A website's sendQbit carries the claim minted at its approval.
+        {
+          psbtHex,
+          toSignInputs: [],
+          providerContext,
+          qbitSendBroadcastClaim: wallet.createQbitSendBroadcastClaim(psbtHex, providerContext),
+        },
+      ])
+
+      expect(summary.items.map(item => item.risks.map(risk => risk.type))).toEqual([
+        [RiskType.HIGH_FEE_RATE],
+        [],
+        [],
+      ])
+      expect(summary.items.map(item => item.spendSummary?.feeAssessment?.reasons)).toEqual([
+        ['large_share_of_amount'],
+        [],
+        [],
+      ])
+    })
+
+    describe("as a website's request carries it to the approval", () => {
+      const psbt = () => paymentPsbt(THREE_INPUTS, AMOUNT, THREE_INPUT_FEE)
+      let approvals: { toSignDatas: ToSignData[]; reviews: DecodedPsbt[]; batch?: unknown }[] = []
+
+      beforeEach(() => {
+        approvals = []
+        // The approval window reviews each PSBT as the sign screen does, and a
+        // batch as its summary does, then the user rejects the request.
+        approvalServiceMock.requestApproval.mockImplementation(async approval => {
+          const toSignDatas: ToSignData[] = structuredClone(approval.params.data.toSignDatas)
+          approvals.push({
+            toSignDatas,
+            reviews: await Promise.all(
+              toSignDatas.map(toSignData =>
+                wallet.decodePsbt(toSignData.psbtHex, ORIGIN, psbtReviewOptions(toSignData))
+              )
+            ),
+            ...(toSignDatas.length > 1
+              ? { batch: await wallet.analyzeLocalPsbts(toSignDatas) }
+              : {}),
+          })
+          throw new Error('User rejected the request')
+        })
+      })
+
+      it("judges a website's sendQbit, which the wallet built, as the wallet's own", async () => {
+        const built = bytesToHex(serializePsbt(psbt()))
+        vi.spyOn(wallet, 'createSendQbitPsbt').mockResolvedValue({
+          psbtHex: built,
+          toSignInputs: [],
+        } as ToSignData)
+
+        await expect(
+          rpcFlow({
+            data: {
+              method: 'sendQbit',
+              params: { sendQbitParams: { toAddress: 'qbrt1zrecipient', satoshis: 100_000 } },
+            },
+            session: { origin: ORIGIN, name: 'Dapp', icon: '' },
+          })
+        ).rejects.toThrow()
+
+        expect(approvals).toHaveLength(1)
+        const [
+          {
+            toSignDatas,
+            reviews: [review],
+          },
+        ] = approvals as [(typeof approvals)[number]]
+        expect(toSignDatas[0]?.qbitSendBroadcastClaim?.origin).toBe(ORIGIN)
+        expect(confirmation(review!)).toEqual({
+          feeRate: LOW_RATE,
+          risks: [],
+          reasons: [],
+          shouldWarnFeeRate: false,
+        })
+        expect(
+          (await wallet.analyzeLocalPsbts(toSignDatas)).items[0]?.risks.map(risk => risk.type)
+        ).toEqual([])
+      })
+
+      it('judges the same bytes supplied by a website signPsbt or signPsbts without the size', async () => {
+        const supplied = bytesToHex(serializePsbt(psbt()))
+        await expect(rpcFlow(signPsbtRequest(supplied))).rejects.toThrow()
+        await expect(
+          rpcFlow({
+            data: {
+              method: 'signPsbts',
+              params: {
+                psbtHexs: [supplied, supplied],
+                options: [{ chain: ChainType.QBIT_REGTEST }, { chain: ChainType.QBIT_REGTEST }],
+              },
+            },
+            session: { origin: ORIGIN, name: 'Dapp', icon: '' },
+          })
+        ).rejects.toThrow()
+
+        expect(approvals.map(approval => approval.reviews.map(confirmation))).toEqual([
+          [WEBSITE_SHARE_FLAG],
+          [WEBSITE_SHARE_FLAG, WEBSITE_SHARE_FLAG],
+        ])
+        const batch = approvals[1]!.batch as Awaited<ReturnType<typeof wallet.analyzeLocalPsbts>>
+        expect(batch.items.map(item => item.spendSummary?.feeAssessment?.reasons)).toEqual([
+          ['large_share_of_amount'],
+          ['large_share_of_amount'],
+        ])
+      })
+    })
+
+    describe('with an input the website funds', () => {
+      const WEBSITE_SCRIPT = p2mrScriptPubKey(OTHER_LEAF_HASH)
+      /** 15 bits/vB of the 7,622 vB one input of each and two outputs finalize to. */
+      const FEE = 114_330n
+
+      /**
+       * A website PSBT spending one output of the account and one of the
+       * website's, which the website signs after the wallet.
+       */
+      function withWebsiteInput(
+        walletValue: bigint,
+        websiteValue: bigint,
+        outputs: { value: bigint; scriptPubKey: Uint8Array }[]
+      ): Psbt {
+        return createP2mrPsbt({
+          inputs: [
+            {
+              prevout: { txid: hexToBytes('b0'.repeat(32)), vout: 0 },
+              witnessUtxo: { value: walletValue, scriptPubKey: ACCOUNT_SCRIPT },
+              leafScript: LEAF_SCRIPT,
+              controlBlock: SINGLE_LEAF,
+            },
+            {
+              prevout: { txid: hexToBytes('b1'.repeat(32)), vout: 0 },
+              witnessUtxo: { value: websiteValue, scriptPubKey: WEBSITE_SCRIPT },
+              leafScript: OTHER_LEAF_SCRIPT,
+              controlBlock: SINGLE_LEAF,
+            },
+          ],
+          outputs,
+        })
+      }
+
+      it('confirms a fee that is a large share of what leaves the wallet', async () => {
+        // 10,000 bits to a stranger and the fee; the rest comes back.
+        const psbt = withWebsiteInput(1_000_000n, 1_000n, [
+          { value: 10_000n, scriptPubKey: RECIPIENT_SCRIPT },
+          { value: 1_001_000n - 10_000n - FEE, scriptPubKey: ACCOUNT_SCRIPT },
+        ])
+        const approved = await approveWebsitePsbt(psbt)
+
+        const vsize = finalizedVsize(approved.signed, [{ inputIndex: 1, ...OTHER_PARTY_KEY }])
+        expect(approved.review.feeRate).toBe(Number(FEE) / vsize)
+        expect(approved.review.feeRate).toBeLessThan(18)
+        expect(approved.review.spendSummary?.netSpend).toBe(123_330)
+        expect(approved.review.spendSummary?.feeAssessment).toMatchObject({
+          amount: 123_330,
+          reasons: ['large_share_of_amount'],
+          highFeeAtNormalRate: true,
+        })
+        expect(approved.review.risks).toEqual([
+          {
+            type: RiskType.HIGH_FEE_RATE,
+            level: 'warning',
+            title: 'High fee detected',
+            desc: 'The fee is a large share of what this transaction sends.',
+          },
+        ])
+
+        // The wallet's own screens judge only the rate of a shared fee, as before.
+        const own = await wallet.decodePsbt(bytesToHex(serializePsbt(psbt)), '')
+        expect(confirmation(own)).toMatchObject({ risks: [], reasons: [] })
+      })
+
+      it('asks to confirm an honest PSBT whose counterparty pays the fee', async () => {
+        // The wallet pays 100,000 bits with no change; the website's input
+        // pays the fee and takes its change back.
+        const approved = await approveWebsitePsbt(
+          withWebsiteInput(100_000n, 300_000n, [
+            { value: 100_000n, scriptPubKey: RECIPIENT_SCRIPT },
+            { value: 300_000n - FEE, scriptPubKey: WEBSITE_SCRIPT },
+          ])
+        )
+
+        expect(approved.review.spendSummary?.netSpend).toBe(100_000)
+        expect(confirmation(approved.review)).toMatchObject({
+          risks: [[RiskType.HIGH_FEE_RATE, 'warning']],
+          reasons: ['large_share_of_amount'],
+        })
+      })
+
+      it('has nothing to compare with when the wallet gets back more than it puts in', async () => {
+        const approved = await approveWebsitePsbt(
+          withWebsiteInput(100_000n, 300_000n, [
+            { value: 150_000n, scriptPubKey: ACCOUNT_SCRIPT },
+            { value: 250_000n - FEE, scriptPubKey: WEBSITE_SCRIPT },
+          ])
+        )
+
+        expect(approved.review.spendSummary?.netSpend).toBe(-50_000)
+        expect(approved.review.spendSummary?.feeAssessment).toMatchObject({ amount: 0 })
+        expect(confirmation(approved.review)).toMatchObject({ risks: [], reasons: [] })
+      })
     })
   })
 })

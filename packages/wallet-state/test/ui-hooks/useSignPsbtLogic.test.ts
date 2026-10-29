@@ -211,6 +211,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
     expect(wallet.decodePsbt).toHaveBeenCalledWith(toSignData.psbtHex, 'https://example.test', {
       statedRecipients: [],
+      suppliedByWebsite: false,
     })
   })
 
@@ -1638,6 +1639,45 @@ describe('useSignPsbtLogic spend summary binding (#271)', () => {
     )
     expect(wallet.decodePsbt).toHaveBeenCalledWith('send-psbt', 'https://example.test', {
       statedRecipients: ['qb1zrecipient'],
+      suppliedByWebsite: false,
+    })
+  })
+
+  it("reviews a website's own PSBT as supplied by it, and its sendQbit as the wallet's", async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.decodePsbt.mockResolvedValue(decodedFor(ACCOUNT, 1_100))
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const providerContext = {
+      origin: 'https://example.test',
+      account: ACCOUNT,
+      chain: ChainType.QBIT_REGTEST,
+      network: 'regtest',
+    } as ToSignData['providerContext']
+    const signPsbt: ToSignData = { psbtHex: 'website-psbt', toSignInputs: [], providerContext }
+    // The wallet built a sendQbit's PSBT and reserved its inputs at approval.
+    const sendQbit: ToSignData = {
+      ...signPsbt,
+      qbitSendBroadcastClaim: { ...SEND_CLAIM, origin: 'https://example.test' },
+    }
+    const { result, rerender } = renderHook(
+      ({ toSignData }) => useSignPsbtLogic(createProps([toSignData])),
+      { wrapper, initialProps: { toSignData: sendQbit } }
+    )
+
+    await waitFor(() =>
+      expect(result.current.currentDecodedPsbt?.spendSummary.netSpend).toBe(1_100)
+    )
+    expect(wallet.decodePsbt).toHaveBeenLastCalledWith('website-psbt', 'https://example.test', {
+      statedRecipients: [],
+      suppliedByWebsite: false,
+    })
+
+    // The same bytes from the website's signPsbt are reviewed again, not taken from the cache.
+    rerender({ toSignData: signPsbt })
+    await waitFor(() => expect(wallet.decodePsbt).toHaveBeenCalledTimes(2))
+    expect(wallet.decodePsbt).toHaveBeenLastCalledWith('website-psbt', 'https://example.test', {
+      statedRecipients: [],
+      suppliedByWebsite: true,
     })
   })
 
@@ -1737,6 +1777,48 @@ describe('useSignPsbtLogic spend summary binding (#271)', () => {
     const { wrapper } = createHookTestHarness({ wallet: wallet as any })
     const { result } = renderHook(
       () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.hasRisk).toBe(true))
+
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+    expect(result.current.isPsbtRiskPopoverVisible).toBe(true)
+    expect(wallet.signPsbtV2).not.toHaveBeenCalled()
+  })
+
+  it('opens the risk review for a fee flagged only as a share of the payout at a low rate', async () => {
+    const wallet = createSignPsbtWallet()
+    const decoded = decodedFor(ACCOUNT, 270_760)
+    wallet.decodePsbt.mockResolvedValue({
+      ...decoded,
+      feeRate: 15,
+      recommendedFeeRate: 9,
+      shouldWarnFeeRate: true,
+      spendSummary: {
+        ...decoded.spendSummary!,
+        externalOutputValue: 100_000,
+        feeAssessment: {
+          fee: 170_760,
+          feeRate: 15,
+          amount: 100_000,
+          recommendedFeeRate: 9,
+          reasons: ['large_share_of_amount'],
+        },
+      },
+      risks: [
+        {
+          type: RiskType.HIGH_FEE_RATE,
+          level: 'warning',
+          title: 'High fee rate detected',
+          desc: 'The fee is far above what this transaction needs.',
+        },
+      ],
+    })
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'website-psbt', toSignInputs: [] }])),
       { wrapper }
     )
     await waitFor(() => expect(result.current.hasRisk).toBe(true))

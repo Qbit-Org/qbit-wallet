@@ -78,7 +78,9 @@ export type QbitFeeWarningReason =
   | 'above_relay_floor'
   /**
    * The fee is at least `QBIT_FEE_WARNING_AMOUNT_PERCENT` of the amount sent, at a rate at least
-   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation.
+   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation. For a website's PSBT it is
+   * also flagged, whatever its rate, when the fee is at least that multiple of what the smallest
+   * send costs at the recommendation (`checkFeeShareWithoutSize`).
    */
   | 'large_share_of_amount'
 
@@ -88,14 +90,22 @@ export interface QbitFeeAssessment {
   /** Fee rate in bits/vB. */
   feeRate: number
   /**
-   * The amount the fee is compared with: what the transaction pays to others. 0 when there is
-   * nothing to compare with: it pays only the wallet, or other parties fund some of its inputs.
+   * The amount the fee is compared with: what the transaction pays to others. When other parties
+   * fund some of its inputs, a website's PSBT compares the fee with what leaves the wallet (its
+   * inputs less the outputs paying it), and the wallet's own screens with nothing. 0 when there is
+   * nothing to compare with: nothing but the fee leaves the wallet.
    */
   amount: number
   /** The fastest live recommended rate. Absent when the explorer's rates are unavailable, so no comparison was made. */
   recommendedFeeRate?: number
   /** Empty when the fee is normal. */
   reasons: QbitFeeWarningReason[]
+  /**
+   * Set when only the share check that needs no size flagged the fee (`checkFeeShareWithoutSize`):
+   * the fee is a large share of the amount, but its rate meets no rate condition, so the fee and
+   * not its rate is what is high.
+   */
+  highFeeAtNormalRate?: true
 }
 
 /** What an output of a reviewed PSBT pays, from the wallet's point of view. */
@@ -144,6 +154,12 @@ export interface PsbtSpendSummary {
 export interface DecodePsbtOptions {
   /** Addresses the request itself names as recipients; their outputs are not unrecognised. */
   statedRecipients?: string[]
+  /**
+   * A website supplied the PSBT's bytes (signPsbt, signPsbts; see `isWebsiteSuppliedPsbt`), so its
+   * size rests on records the website wrote and its fee is also judged without that size. Omitted,
+   * the PSBT is judged as one the wallet built, as a website's sendQbit is.
+   */
+  suppliedByWebsite?: boolean
 }
 
 export interface DecodedPsbt {
