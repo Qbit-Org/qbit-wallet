@@ -7,6 +7,7 @@ import { Column } from '../Column';
 import { Input } from '../Input';
 import { Row } from '../Row';
 import { Text } from '../Text';
+import { FeeRateType } from './const';
 
 export function FeeRateBar({
   readonly,
@@ -42,7 +43,9 @@ export function FeeRateBar({
       </Row>
 
       <Row justifyCenter>
-        {feeOptions.map((v, index) => {
+        {feeOptions.map((v, position) => {
+          // The option a tile selects: Custom wherever it stands, a tier by its position.
+          const index = isCustomOption(v) ? FeeRateType.CUSTOM : position;
           let selected = index === feeOptionIndex;
           if (readonly) {
             selected = false;

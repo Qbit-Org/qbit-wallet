@@ -122,15 +122,33 @@ describe('TxCreateScreen fee details', () => {
     );
   });
 
-  it('builds one number format for the locale, with its Intl tag, across renders', () => {
+  it.each([
+    ['en', '1.0', '4,000'],
+    // Spanish groups only from five digits.
+    ['es', '1,0', '4000']
+  ])('keeps one decimal on a whole size for the %s locale', (locale, size, fee) => {
+    vi.mocked(useI18n).mockReturnValue({ locale } as ReturnType<typeof useI18n>);
+    const logic = vi.mocked(useTxCreateScreenLogic)();
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...logic,
+      feeDetail: { ...logic.feeDetail!, estimatedVsize: 1_000 }
+    });
+    render(<TxCreateScreen />);
+
+    expect(screen.getByTestId('tx-size-estimate').textContent).toBe(
+      `estimated_inputs_and_size:1,${size} · ${fee} bits`
+    );
+  });
+
+  it('builds the size and fee formats once for the locale, with its Intl tag, across renders', () => {
     vi.mocked(useI18n).mockReturnValue({ locale: 'zh_TW' } as ReturnType<typeof useI18n>);
     const numberFormat = vi.spyOn(Intl, 'NumberFormat');
     try {
       const { rerender } = render(<TxCreateScreen />);
       rerender(<TxCreateScreen />);
 
-      expect(numberFormat).toHaveBeenCalledTimes(1);
-      expect(numberFormat.mock.calls[0][0]).toBe('zh-TW');
+      expect(numberFormat).toHaveBeenCalledTimes(2);
+      expect(numberFormat.mock.calls.map(([locale]) => locale)).toEqual(['zh-TW', 'zh-TW']);
     } finally {
       numberFormat.mockRestore();
     }

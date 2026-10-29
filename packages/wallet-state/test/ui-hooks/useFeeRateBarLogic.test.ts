@@ -571,10 +571,117 @@ describe('useFeeRateBarLogic', () => {
       rerender({ quote: { status: 'loaded' } })
 
       expect(result.current.feeEstimateUnavailable).toBe(true)
-      expect(result.current.feeOptions).toEqual([])
+      // Only Custom, to set a rate above the floor.
+      expect(result.current.feeOptions).toHaveLength(1)
+      expect(result.current.isCustomOption(result.current.feeOptions[0])).toBe(true)
       await waitFor(() =>
         expect(store.getState().ui.feeRateBar.feeRate).toBe(result.current.fallbackFeeRate)
       )
+    })
+
+    it('keeps a Custom rate set while the quote cannot be read, and no lower than the floor', async () => {
+      const { result, store } = renderSharedFeeBar({ status: 'loaded' })
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+      expect(result.current.feeOptions.map(result.current.isCustomOption)).toEqual([true])
+
+      act(() => {
+        result.current.setFeeOptionIndex(3)
+      })
+      expect(store.getState().ui.feeRateBar).toMatchObject({
+        feeOptionIndex: 3,
+        showCustomInput: true,
+      })
+      act(() => {
+        result.current.adjustFeeRateInput('5')
+      })
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(5))
+      await act(async () => {})
+      expect(store.getState().ui.feeRateBar.feeRate).toBe(5)
+
+      // Low-fee mode cannot apply without a loaded quote.
+      expect(result.current.supportLowFeeMode).toBe(false)
+      act(() => {
+        result.current.adjustFeeRateInput('0.5')
+      })
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+    })
+
+    it('takes a rate typed while a tier was selected as Custom once the quote cannot be read', async () => {
+      const { result, rerender, store } = renderSharedFeeBar({
+        status: 'loaded',
+        summary: qbitFeeSummary(),
+      })
+      await waitFor(() => expect(result.current.feeOptions).toHaveLength(4))
+      act(() => {
+        result.current.setFeeOptionIndex(0)
+      })
+      expect(store.getState().ui.feeRateBar).toMatchObject({
+        feeOptionIndex: 0,
+        feeRateInputVal: '1',
+      })
+
+      rerender({ quote: { status: 'loaded' } })
+      // The Custom tile now stands first, where Slow stood; it is not Slow.
+      act(() => {
+        result.current.adjustFeeRateInput('0')
+      })
+      expect(store.getState().ui.feeRateBar).toMatchObject({
+        feeOptionIndex: 3,
+        feeRateInputVal: '0',
+      })
+      act(() => {
+        result.current.adjustFeeRateInput('5')
+      })
+
+      await waitFor(() =>
+        expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 3, feeRate: 5 })
+      )
+    })
+
+    it('offers nothing to select in a read-only bar whose quote cannot be read', () => {
+      const wallet = createWalletMock()
+      const { wrapper } = createHookTestHarness({ wallet })
+      const quote: SharedQuote = { status: 'loaded' }
+
+      const { result } = renderHook(() => useFeeRateBarLogic({ readonly: true, quote }), {
+        wrapper,
+      })
+
+      expect(result.current.feeOptions).toEqual([])
+      expect(result.current.feeEstimateUnavailable).toBe(true)
+    })
+
+    it('allows a Custom rate below 1 only once a low-fee read for the quote succeeds', async () => {
+      const { result, rerender, store, wallet } = renderSharedFeeBar({ status: 'loading' })
+      let rejectLowFee!: (error: Error) => void
+      wallet.getLowFeeSummary.mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          rejectLowFee = reject
+        })
+      )
+      act(() => {
+        result.current.setFeeOptionIndex(3)
+      })
+
+      rerender({ quote: { status: 'loaded', summary: noMetadataSummary([2, 3, 4]) } })
+      // Its low-fee read is pending: no Sub 1 tier yet.
+      expect(result.current.supportLowFeeMode).toBe(false)
+      act(() => {
+        result.current.adjustFeeRateInput('0.5')
+      })
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
+
+      // It failed: the quote's own rates, and still no Sub 1 tier.
+      await act(async () => {
+        rejectLowFee(new Error('explorer down'))
+      })
+      expect(feeRates(result.current.feeOptions)).toEqual([2, 3, 4, 0])
+      expect(result.current.supportLowFeeMode).toBe(false)
+      act(() => {
+        result.current.adjustFeeRateInput('0.5')
+      })
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
     })
 
     it('allows a Custom rate below 1 only once low-fee mode applies to a loaded quote', async () => {

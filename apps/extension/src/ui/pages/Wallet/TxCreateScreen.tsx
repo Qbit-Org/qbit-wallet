@@ -9,8 +9,7 @@ import { useI18n, useTxCreateScreenLogic } from '@qbit/wallet-state';
 
 // Numbers in the user's locale, with its own group and decimal separators. The
 // app's locale codes (zh_TW) use an underscore where Intl expects a hyphen.
-function localeNumberFormat(locale: string): Intl.NumberFormat {
-  const options = { maximumFractionDigits: 1 };
+function localeNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
   try {
     return new Intl.NumberFormat(locale.replace('_', '-'), options);
   } catch {
@@ -57,7 +56,12 @@ export default function TxCreateScreen() {
     onClickConsolidate
   } = useTxCreateScreenLogic();
   const { locale } = useI18n();
-  const numberFormat = useMemo(() => localeNumberFormat(locale), [locale]);
+  // The size in kB with one decimal, and the fee in whole bits.
+  const sizeFormat = useMemo(
+    () => localeNumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    [locale]
+  );
+  const feeFormat = useMemo(() => localeNumberFormat(locale, { maximumFractionDigits: 0 }), [locale]);
 
   // Keep an already-entered memo visible when returning to this screen.
   const [advancedExpanded, setAdvancedExpanded] = useState(() => Boolean(memo));
@@ -196,8 +200,8 @@ export default function TxCreateScreen() {
                   <Text
                     text={`${t('estimated_inputs_and_size', [
                       String(feeDetail.inputCount),
-                      numberFormat.format(feeDetail.estimatedVsize / 1000)
-                    ])} · ${numberFormat.format(feeDetail.estimatedFee)} bits`}
+                      sizeFormat.format(feeDetail.estimatedVsize / 1000)
+                    ])} · ${feeFormat.format(feeDetail.estimatedFee)} bits`}
                     size="xs"
                     color="textDim"
                     data-testid="tx-size-estimate"

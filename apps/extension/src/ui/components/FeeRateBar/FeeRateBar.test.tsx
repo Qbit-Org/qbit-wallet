@@ -100,4 +100,26 @@ describe('FeeRateBar', () => {
 
     expect(useFeeRateBarLogic).toHaveBeenCalledWith(expect.objectContaining({ quote }));
   });
+
+  it('selects Custom from a bar that offers only Custom', () => {
+    const customOption = { type: 3, title: 'custom', feeRate: 0 };
+    const logic = {
+      ...defaultFeeRateLogic,
+      feeOptions: [customOption],
+      isCustomOption: (option: { type?: number }) => option.type === 3,
+      feeEstimateUnavailable: true
+    } as ReturnType<typeof useFeeRateBarLogic>;
+    vi.mocked(useFeeRateBarLogic).mockReturnValue(logic);
+
+    const { rerender } = render(<FeeRateBar />);
+    const custom = screen.getByTestId('fee-rate-option-3');
+    expect(custom.getAttribute('data-selected')).toBe('false');
+    fireEvent.click(custom);
+    expect(setFeeOptionIndex).toHaveBeenCalledWith(3);
+    expect(toggleCustomInput).not.toHaveBeenCalled();
+
+    vi.mocked(useFeeRateBarLogic).mockReturnValue({ ...logic, feeOptionIndex: 3 });
+    rerender(<FeeRateBar />);
+    expect(screen.getByTestId('fee-rate-option-3').getAttribute('data-selected')).toBe('true');
+  });
 });
