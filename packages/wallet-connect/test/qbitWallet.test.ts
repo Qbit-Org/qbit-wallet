@@ -76,20 +76,146 @@ describe('QbitWallet', () => {
     expect(aliasProvider.requestAccounts).not.toHaveBeenCalled()
   })
 
-  it('switches to the configured chain before requesting an account', async () => {
-    const provider = createProvider({
-      getChain: vi.fn().mockResolvedValue(ChainType.QBIT_TESTNET4),
-    })
-    ;(globalThis as any).window.qbit = provider
-    const wallet = new QbitWallet()
-    wallet.installed = true
-    wallet.setChainType(ChainType.QBIT_MAINNET)
+  describe('connecting a dapp set up for another chain', () => {
+    const ADDRESSES: Record<string, string> = {
+      [ChainType.QBIT_MAINNET]: 'qb1zaccount',
+      [ChainType.QBIT_TESTNET4]: 'tq1zaccount',
+      [ChainType.QBIT_REGTEST]: 'qbrt1zaccount',
+    }
 
-    await expect(wallet.requestAccount()).resolves.toEqual({
-      address: 'qb1zaccount',
-      pubKey: 'pubkey',
+    // The wallet's side, as the provider exposes it: requestAccounts grants
+    // the origin on the active chain, switchChain needs that grant (4100
+    // without it) and moves it to the new chain.
+    function createWalletProvider(activeChain: ChainType) {
+      const calls: string[] = []
+      const wallet = { chain: activeChain, grant: undefined as ChainType | undefined }
+      const provider = createProvider({
+        requestAccounts: vi.fn(async () => {
+          calls.push('requestAccounts')
+          wallet.grant = wallet.chain
+          return [ADDRESSES[wallet.chain]]
+        }),
+        getAccounts: vi.fn(async () =>
+          wallet.grant === wallet.chain ? [ADDRESSES[wallet.chain]] : []
+        ),
+        getChain: vi.fn(async () => wallet.chain),
+        getPublicKey: vi.fn(async () => `pubkey-${wallet.chain}`),
+        switchChain: vi.fn(async (chain: ChainType) => {
+          calls.push(`switchChain ${chain}`)
+          if (wallet.grant !== wallet.chain) {
+            throw { code: 4100, message: 'Origin is not connected to the active Qbit chain' }
+          }
+          wallet.chain = chain
+          wallet.grant = chain
+        }),
+      })
+      ;(globalThis as any).window.qbit = provider
+      return { provider, calls, wallet }
+    }
+
+    function createConnectingWallet(chain: ChainType) {
+      const wallet = new QbitWallet()
+      wallet.installed = true
+      wallet.setChainType(chain)
+      return wallet
+    }
+
+    it('connects first and then switches to the configured chain', async () => {
+      const { calls } = createWalletProvider(ChainType.QBIT_TESTNET4)
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).resolves.toEqual({
+        address: 'qb1zaccount',
+        pubKey: `pubkey-${ChainType.QBIT_MAINNET}`,
+      })
+      expect(calls).toEqual(['requestAccounts', `switchChain ${ChainType.QBIT_MAINNET}`])
     })
-    expect(provider.switchChain).toHaveBeenCalledWith(ChainType.QBIT_MAINNET)
+
+    it('does not switch when the wallet is already on the configured chain', async () => {
+      const { provider, calls } = createWalletProvider(ChainType.QBIT_MAINNET)
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).resolves.toEqual({
+        address: 'qb1zaccount',
+        pubKey: `pubkey-${ChainType.QBIT_MAINNET}`,
+      })
+      expect(calls).toEqual(['requestAccounts'])
+      expect(provider.switchChain).not.toHaveBeenCalled()
+    })
+
+    it('connects again and retries once when switchChain answers 4100', async () => {
+      const { provider, calls, wallet } = createWalletProvider(ChainType.QBIT_TESTNET4)
+      // The wallet moves to regtest after the site connected on testnet4 and
+      // before the switch is handled, so the grant no longer covers the
+      // active chain.
+      const switchChain = provider.switchChain.getMockImplementation()!
+      provider.switchChain.mockImplementationOnce(async (chain: ChainType) => {
+        wallet.chain = ChainType.QBIT_REGTEST
+        return switchChain(chain)
+      })
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).resolves.toEqual({
+        address: 'qb1zaccount',
+        pubKey: `pubkey-${ChainType.QBIT_MAINNET}`,
+      })
+      expect(calls).toEqual([
+        'requestAccounts',
+        `switchChain ${ChainType.QBIT_MAINNET}`,
+        'requestAccounts',
+        `switchChain ${ChainType.QBIT_MAINNET}`,
+      ])
+    })
+
+    it('passes on a 4100 without connecting again when the active chain did not change', async () => {
+      const { provider, calls, wallet } = createWalletProvider(ChainType.QBIT_TESTNET4)
+      const switchChain = provider.switchChain.getMockImplementation()!
+      provider.switchChain.mockImplementationOnce(async (chain: ChainType) => {
+        // The user revokes the site while the SwitchChain approval is open.
+        wallet.grant = undefined
+        return switchChain(chain)
+      })
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).rejects.toMatchObject({ code: 4100 })
+      expect(calls).toEqual(['requestAccounts', `switchChain ${ChainType.QBIT_MAINNET}`])
+      expect(provider.requestAccounts).toHaveBeenCalledOnce()
+      expect(provider.switchChain).toHaveBeenCalledOnce()
+      expect(wallet.grant).toBeUndefined()
+    })
+
+    it('passes on any other switch error without connecting again', async () => {
+      const { provider, calls } = createWalletProvider(ChainType.QBIT_TESTNET4)
+      provider.switchChain.mockRejectedValueOnce({
+        code: 4001,
+        message: 'User rejected the request',
+      })
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).rejects.toMatchObject({
+        code: 4001,
+      })
+      expect(calls).toEqual(['requestAccounts'])
+      expect(provider.requestAccounts).toHaveBeenCalledOnce()
+    })
+
+    it('returns no account when the wallet left the configured chain after the switch', async () => {
+      const { provider, wallet } = createWalletProvider(ChainType.QBIT_TESTNET4)
+      const switchChain = provider.switchChain.getMockImplementation()!
+      provider.switchChain.mockImplementationOnce(async (chain: ChainType) => {
+        await switchChain(chain)
+        wallet.chain = ChainType.QBIT_REGTEST
+      })
+
+      await expect(
+        createConnectingWallet(ChainType.QBIT_MAINNET).requestAccount()
+      ).resolves.toBeUndefined()
+    })
   })
 
   it('returns an already connected account on the active chain', async () => {
@@ -209,7 +335,9 @@ describe('QbitWallet', () => {
     const onAccountChange = vi.fn()
 
     wallet.addListener({ onAccountChange, onNetworkChange: vi.fn() })
-    const [, accountsChanged] = provider.on.mock.calls.find(([event]) => event === 'accountsChanged')!
+    const [, accountsChanged] = provider.on.mock.calls.find(
+      ([event]) => event === 'accountsChanged'
+    )!
     await accountsChanged([])
 
     expect(onAccountChange).toHaveBeenCalledWith([])

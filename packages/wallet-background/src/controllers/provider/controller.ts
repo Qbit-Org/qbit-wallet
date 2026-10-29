@@ -44,6 +44,7 @@ import {
   ToSignMessage,
   WalletError,
   assertQbitFeeRateWithinPolicy,
+  chainForNetwork,
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
@@ -476,13 +477,6 @@ function getActiveQbitNetwork() {
   return QBIT_NETWORK_BY_CHAIN[getActiveQbitChain()]
 }
 
-function chainForNetwork(network: unknown): ChainType {
-  if (network === 'mainnet') return ChainType.QBIT_MAINNET
-  if (network === 'testnet4') return ChainType.QBIT_TESTNET4
-  if (network === 'regtest') return ChainType.QBIT_REGTEST
-  throw new Error('unsupported Qbit network; expected mainnet, testnet4, or regtest')
-}
-
 function assertSigningChain(origin: string, requestedChain: unknown): ChainType {
   assertSupportedQbitChain(requestedChain)
   const activeChain = getActiveQbitChain()
@@ -536,7 +530,9 @@ class ProviderController extends BaseController {
   @Reflect.metadata('SAFE', true)
   getNetwork = async () => getActiveQbitNetwork()
 
-  @Reflect.metadata('SAFE', true)
+  // switchNetwork and switchChain are not SAFE: requested while the wallet is
+  // locked, they ask for the unlock first, so the context their approval
+  // checks is read from the unlocked wallet.
   @Reflect.metadata('APPROVAL', [
     'SwitchNetwork',
     async req => {
@@ -552,7 +548,6 @@ class ProviderController extends BaseController {
   @Reflect.metadata('SAFE', true)
   getChain = async () => getActiveQbitChain()
 
-  @Reflect.metadata('SAFE', true)
   @Reflect.metadata('APPROVAL', [
     'SwitchChain',
     async req => {

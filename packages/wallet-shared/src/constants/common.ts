@@ -323,6 +323,14 @@ export const normalizeAvailableChainType = (chainType?: ChainType | string): Cha
   return normalized
 }
 
+// The chain for a provider network name, as a website's switchNetwork names it.
+export function chainForNetwork(network: unknown): ChainType {
+  if (network === 'mainnet') return ChainType.QBIT_MAINNET
+  if (network === 'testnet4') return ChainType.QBIT_TESTNET4
+  if (network === 'regtest') return ChainType.QBIT_REGTEST
+  throw new Error('unsupported Qbit network; expected mainnet, testnet4, or regtest')
+}
+
 export const CHAINS = [
   CHAINS_MAP[ChainType.QBIT_MAINNET]!,
   CHAINS_MAP[ChainType.QBIT_TESTNET4]!,

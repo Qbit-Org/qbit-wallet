@@ -9,7 +9,7 @@ import { SignPsbtWithRisksPopover } from '@/ui/components/SignPsbtWithRisksPopov
 import { ProviderMethodArgs, ProviderMethods } from '@qbit/wallet-background/types';
 import { ADDRESS_TYPES, DummyTxType, SignMessageType, ToAddressInfo, ToSignData } from '@qbit/wallet-shared';
 import { useAsyncEffect, useCurrentKeyring, useKeyrings, useTools, useWallet } from '@qbit/wallet-state';
-import { ChainType, NetworkType } from '@qbit/wallet-types';
+import { ChainType } from '@qbit/wallet-types';
 import { Connect, SignMessage, SignPsbt, SwitchNetwork } from '../Approval/components';
 import { useNavigate } from '../MainRoute';
 import { testDecodedTx } from './testDecodedTx';
@@ -304,7 +304,7 @@ function TestApprovalSwitchNetwork() {
     <SwitchNetwork
       params={{
         data: {
-          networkType: NetworkType.MAINNET
+          network: 'mainnet'
         },
         session: {
           origin: 'https://mail.google.com/',
