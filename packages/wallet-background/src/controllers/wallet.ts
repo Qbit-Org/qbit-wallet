@@ -1594,6 +1594,8 @@ export class WalletController extends BaseController {
   }
 
   lockWallet = async () => {
+    // A locked wallet keeps no account's outputs in memory.
+    this.qbitLatestUtxoReads.clear()
     await keyringService.setLocked()
     // Locking keeps every grant, so it must not look like a revocation: no
     // accountsChanged [] here. Pages never see the internal lock event.
@@ -1639,9 +1641,12 @@ export class WalletController extends BaseController {
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
-    const latest = this.qbitLatestUtxoReads.latest(client, address)
-    const readOutputs =
-      latest && ((stats: string) => (latest.stats === stats ? latest.utxos : undefined))
+    // Looked up as the statistics are compared, so a read that completes
+    // while this balance read runs counts already.
+    const readOutputs = (stats: string) => {
+      const latest = this.qbitLatestUtxoReads.latest(client, address)
+      return latest?.stats === stats ? latest.utxos : undefined
+    }
     const data = await getQbitSpendableBalanceV2(
       client,
       address,
@@ -4525,6 +4530,8 @@ export class WalletController extends BaseController {
       throw error
     }
     await keyringService.removeKeyring(target.index)
+    // Nor are the removed accounts' outputs kept; the others are read again.
+    this.qbitLatestUtxoReads.clear()
     const keyrings = await this.getKeyrings()
     const nextKeyring = keyrings[keyrings.length - 1]
     if (nextKeyring && nextKeyring.accounts[0]) {
@@ -5784,8 +5791,9 @@ export class WalletController extends BaseController {
    * reservation, behind as the account's latest on that network, with the
    * address statistics its walk verified: past the explorer's limit
    * `getAddressBalanceV2` takes its split from them while the statistics
-   * still read the same. Only a read whose history had got as far or
-   * further replaces them, and a read that fails or stops leaves nothing.
+   * still read the same. A read that started later replaces them, even when
+   * it found less history, and a read that fails or stops leaves nothing.
+   * Locking the wallet or removing a keyring forgets them.
    */
   getQbitUtxoSnapshot = async (readId?: string | null): Promise<QbitUtxoSnapshot> => {
     // Before the first await: the page this read is tied to.
@@ -5899,8 +5907,9 @@ export class WalletController extends BaseController {
    * client and address: its outputs before any reservation, with the
    * address statistics (`qbitStatsSnapshot`) its walk verified. A read that
    * started later replaces one that started earlier, even when it found
-   * less history, as after an eviction. Kept in memory only; see
-   * `qbitAccountUtxosOn` and `getAddressBalanceV2`.
+   * less history, as after an eviction. Kept in memory only, and forgotten
+   * when the wallet locks or a keyring is removed; see `qbitAccountUtxosOn`
+   * and `getAddressBalanceV2`.
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
     stats: string

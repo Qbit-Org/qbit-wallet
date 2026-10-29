@@ -122,4 +122,19 @@ describe('QbitLatestAnswers', () => {
     answers.keep(client, 'qb1a', answers.start(), 'after an eviction')
     expect(answers.latest(client, 'qb1a')).toBe('after an eviction')
   })
+
+  it('forgets every answer on clear, and keeps nothing from a read that started before it', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    answers.keep(client, 'qb1a', answers.start(), 'kept')
+    const running = answers.start()
+
+    answers.clear()
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+
+    answers.keep(client, 'qb1a', running, 'from before the clear')
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+    answers.keep(client, 'qb1a', answers.start(), 'after')
+    expect(answers.latest(client, 'qb1a')).toBe('after')
+  })
 })

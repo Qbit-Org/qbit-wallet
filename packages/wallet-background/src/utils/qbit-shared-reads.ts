@@ -136,11 +136,15 @@ interface SharedRead<T, V> {
  * kept one comes from a read that started later: what a read found, however
  * little, never ranks it, so after an eviction a later read that finds less
  * history still replaces an earlier one. Callers keep only answers to reads
- * that completed. Kept in memory only, and scopes are held weakly, as above.
+ * that completed. `clear` forgets every answer, and a read that started
+ * before it keeps nothing. Kept in memory only, and scopes are held weakly,
+ * as above.
  */
 export class QbitLatestAnswers<T> {
-  private readonly answers = new WeakMap<object, Map<string, { order: number; value: T }>>()
+  private answers = new WeakMap<object, Map<string, { order: number; value: T }>>()
   private started = 0
+  /** The last place in line before the latest `clear`. */
+  private cleared = 0
 
   /** The place in line of a read starting now, to `keep` its answer with. */
   start(): number {
@@ -148,6 +152,7 @@ export class QbitLatestAnswers<T> {
   }
 
   keep(scope: object, slot: string, order: number, value: T): void {
+    if (order <= this.cleared) return
     let scoped = this.answers.get(scope)
     if (!scoped) {
       scoped = new Map()
@@ -161,5 +166,11 @@ export class QbitLatestAnswers<T> {
   /** The answer kept for `slot`. */
   latest(scope: object, slot: string): T | undefined {
     return this.answers.get(scope)?.get(slot)?.value
+  }
+
+  /** Forget every answer, including those of reads still running. */
+  clear(): void {
+    this.answers = new WeakMap()
+    this.cleared = this.started
   }
 }

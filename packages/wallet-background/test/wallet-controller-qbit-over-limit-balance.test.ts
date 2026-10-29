@@ -16,6 +16,7 @@ import { ChainType } from '@qbit/wallet-types'
 import { WalletController } from '../src/controllers/wallet'
 import { keyringService, preferenceService, qbitSendGuardService } from '../src/services'
 import { QBIT_BROADCAST_RESEND_DELAYS_MS } from '../src/utils/qbit-broadcast'
+import { qbitStatsSnapshot } from '../src/utils/qbit-api'
 import { FakeQbitExplorer, fakeTxid, type FakeFailure } from './qbit-fake-explorer'
 
 // The send guard is the real service and the explorer a fake served over
@@ -29,6 +30,8 @@ vi.mock('../src/services', async () => {
       keyrings: [],
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
+      setLocked: vi.fn(async () => undefined),
+      removeKeyring: vi.fn(async () => undefined),
     },
     preferenceService: {
       getCurrentAccount: vi.fn(),
@@ -37,7 +40,7 @@ vi.mock('../src/services', async () => {
     },
     qbitSendGuardService: guard,
     walletApiService: { transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() } },
-    sessionService: {},
+    sessionService: { broadcastEvent: vi.fn() },
     contactBookService: {},
     notificationService: {},
     permissionService: {},
@@ -339,6 +342,86 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     // replace the later one.
     const total = TOTAL - OUTPUT_VALUE + 4_000
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(total, total))
+  })
+
+  it('takes a read that completes while the balance read is running', async () => {
+    const wallet = controller()
+    const reads = (wallet as any).qbitLatestUtxoReads
+    const client = (wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
+    // The outputs a read of the history finds, kept aside for now.
+    await wallet.getQbitUtxoSnapshot()
+    const completed = reads.latest(client, address)
+    expect(completed.stats).toBe(qbitStatsSnapshot(explorer.stats(address) as any))
+    reads.clear()
+    // The balance read waits for its first answer from the explorer.
+    let release: () => void = () => undefined
+    const released = new Promise<void>(resolve => (release = resolve))
+    let held = false
+    let requestHeld: () => void = () => undefined
+    const requestArrived = new Promise<void>(resolve => (requestHeld = resolve))
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if (!held && String(input).endsWith(`/address/${address}`)) {
+        held = true
+        const answer = await explorer.fetch(input, init)
+        requestHeld()
+        await released
+        return answer
+      }
+      return explorer.fetch(input, init)
+    })
+    const balance = wallet.getAddressBalanceV2(address)
+    await requestArrived
+
+    // Meanwhile a read completes.
+    reads.keep(client, address, reads.start(), completed)
+    release()
+
+    await expect(balance).resolves.toEqual(split(SPENDABLE))
+  })
+
+  it('keeps no read once the wallet locks, not even one still running', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+
+    // A read still walks the history when the wallet locks.
+    let release: () => void = () => undefined
+    const released = new Promise<void>(resolve => (release = resolve))
+    let held = false
+    let pageHeld: () => void = () => undefined
+    const pageArrived = new Promise<void>(resolve => (pageHeld = resolve))
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if (!held && String(input).includes('/txs/chain')) {
+        held = true
+        pageHeld()
+        await released
+      }
+      return explorer.fetch(input, init)
+    })
+    const running = wallet.getQbitUtxos()
+    await pageArrived
+    await wallet.lockWallet()
+    release()
+    await running
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps no read once a keyring is removed', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    const keyring = { type: KeyringType.QbitHdKeyring, index: 0, key: 'k', accounts: [account] }
+    vi.spyOn(wallet, 'getKeyrings')
+      .mockResolvedValueOnce([keyring] as any)
+      .mockResolvedValueOnce([] as any)
+    vi.spyOn(wallet as any, 'resolveQueuedWalletKeyring').mockReturnValue(keyring)
+    vi.spyOn(wallet as any, 'collectQbitRecoveryRemovalReasons').mockResolvedValue([])
+
+    await wallet.removeKeyring(keyring as any)
+
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(0)
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
   })
 
   it('counts the outputs a signed send holds as unavailable', async () => {
