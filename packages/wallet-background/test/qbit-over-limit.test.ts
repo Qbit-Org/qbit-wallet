@@ -330,12 +330,16 @@ describe('balance split of an address over the explorer UTXO limit, from a read 
   /** A read of the outputs from history, kept with the statistics it ran against. */
   async function readOf(explorer: FakeQbitExplorer) {
     const stats = qbitStatsSnapshot(explorer.stats(address))
-    const { utxos, matureAt } = await readQbitAddressUtxos(clientFor(explorer), address)
+    const { utxos, matureAt, matureFrom } = await readQbitAddressUtxos(clientFor(explorer), address)
     const readOutputs = (current: string) =>
       current === stats
-        ? { outputs: utxos, ...(matureAt !== undefined ? { matureAt } : {}) }
+        ? {
+            outputs: utxos,
+            ...(matureAt !== undefined ? { matureAt } : {}),
+            ...(matureFrom !== undefined ? { matureFrom } : {}),
+          }
         : undefined
-    return { utxos, readOutputs, matureAt }
+    return { utxos, readOutputs }
   }
 
   const sum = (utxos: readonly { satoshis: number }[]) =>

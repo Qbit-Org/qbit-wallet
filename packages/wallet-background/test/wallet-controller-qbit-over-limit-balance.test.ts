@@ -33,7 +33,8 @@ vi.mock('../src/services', async () => {
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
       memStore: { getState: () => lock },
-      // Locks once it resolves, as the keyring service does.
+      // Marks the wallet locked at once, before any wait, as the keyring
+      // service does.
       setLocked: vi.fn(async () => {
         lock.isUnlocked = false
       }),
@@ -423,8 +424,8 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     let finishLock: () => void = () => undefined
     const lockFinishes = new Promise<void>(resolve => (finishLock = resolve))
     vi.mocked(keyringService.setLocked).mockImplementationOnce(async () => {
-      await lockFinishes
       lockState.isUnlocked = false
+      await lockFinishes
     })
 
     const locking = wallet.lockWallet()
@@ -432,6 +433,40 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     await wallet.getQbitUtxoSnapshot()
     finishLock()
     await locking
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('serves no split while a slow lock waits', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    const lockState = (keyringService as any).memStore.getState()
+    let finishLock: () => void = () => undefined
+    const lockFinishes = new Promise<void>(resolve => (finishLock = resolve))
+    vi.mocked(keyringService.setLocked).mockImplementationOnce(async () => {
+      lockState.isUnlocked = false
+      await lockFinishes
+    })
+
+    const locking = wallet.lockWallet()
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    finishLock()
+    await locking
+  })
+
+  it('keeps nothing when the lock fails', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    const lockState = (keyringService as any).memStore.getState()
+    vi.mocked(keyringService.setLocked).mockImplementationOnce(async () => {
+      lockState.isUnlocked = false
+      throw new Error('lock failed')
+    })
+
+    await expect(wallet.lockWallet()).rejects.toThrow('lock failed')
 
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
   })
@@ -522,6 +557,30 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
       split(SPENDABLE + reward, TOTAL + reward)
     )
+  })
+
+  it('keeps the split unknown once a rollback makes a coinbase output the read took in immature again', async () => {
+    const wallet = controller()
+    const reward = 5_000_000
+    // Mature at the read, exactly: one block fewer and it is not.
+    explorer.addTx({
+      txid: fakeTxid(8, 7_000_000),
+      inputs: [],
+      outputs: [{ address, script: accountScript, value: reward }],
+      coinbase: true,
+      height: explorer.tipHeight - QBIT_COINBASE_MATURITY + 1,
+    })
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
+      split(SPENDABLE + reward, TOTAL + reward)
+    )
+
+    // The chain rolls back one block; the address's statistics do not move.
+    const stats = explorer.stats(address)
+    explorer.tipHeight -= 1
+    expect(explorer.stats(address)).toEqual(stats)
+
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit(TOTAL + reward))
   })
 
   it('counts the outputs a signed send holds as unavailable', async () => {
@@ -685,13 +744,22 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
       }
       return explorer.fetch(input, init)
     })
+    const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
     const abandoned = wallet.runForUiPort('popup:1', () => wallet.getQbitUtxoSnapshot('read-1'))
     await pageArrived
     await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('read-1'))
+    // The caller stops waiting at once, whatever the walk does.
     await expect(abandoned).rejects.toThrow('abandoned')
     release()
     vi.stubGlobal('fetch', explorer.fetch)
 
+    // The walk itself stops too, and keeps nothing: wait for it to settle,
+    // as a walk that went on would keep its outputs only when it ends.
+    expect(walks).toHaveBeenCalledTimes(1)
+    const [walk] = await Promise.allSettled([walks.mock.results[0]!.value])
+    expect(walk.status).toBe('rejected')
+    const client = (wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
+    expect((wallet as any).qbitLatestUtxoReads.latest(client, address)).toBeUndefined()
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
   })
 })

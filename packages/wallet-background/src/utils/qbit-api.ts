@@ -596,13 +596,16 @@ async function qbitUtxoListOverExplorerLimitStats(
 export type QbitReadOutput = Pick<UTXO, 'txid' | 'vout' | 'satoshis' | 'scriptPk' | 'unconfirmed'>
 
 /**
- * A read the past-limit split takes its outputs from. `matureAt`, when the
+ * A read the past-limit split takes its outputs from, and the tip heights
+ * between which it still says what a send may select. `matureAt`, when the
  * read left an immature coinbase output out, is the earliest tip height at
- * which one matures: past it the read no longer says what a send may select.
+ * which one matures. `matureFrom`, when it took a coinbase output in, is the
+ * lowest tip height at which every one of them is still mature.
  */
 export interface QbitOutputRead {
   outputs: readonly QbitReadOutput[]
   matureAt?: number
+  matureFrom?: number
 }
 
 /** `utxo` as the past-limit split keeps it (`QbitReadOutput`). */
@@ -699,7 +702,8 @@ export async function getQbitSpendableBalanceV2(
  * read of its history found, or `undefined` (unknown) without a read made
  * against `stats`, the statistics as they read now: any new transaction for
  * the address changes them, nor once a coinbase output the read left out as
- * immature has matured. The total and the confirmed balance come from
+ * immature has matured, or one it took in is immature again. The total and
+ * the confirmed balance come from
  * those same statistics, and Available is bounded by them as on the listing
  * path (`qbitAvailableSats`), less the outputs `readReserved` names;
  * Unavailable is the rest. The read leaves immature and pending outputs
@@ -720,17 +724,24 @@ async function getQbitPastLimitSplit(
   }
   const read = readOutputs(qbitStatsSnapshot(stats))
   if (!read) return undefined
-  // A coinbase output matures with no change to the statistics: once one
-  // the read left out has, the read is out of date. The tip is read only
-  // for a read that left one out.
-  if (read.matureAt !== undefined) {
+  // A coinbase output matures with no change to the statistics, and turns
+  // immature again when the chain rolls back: once one the read left out
+  // has matured, or one it took in is immature again, the read is out of
+  // date. The tip is read only for a read with coinbase outputs.
+  if (read.matureAt !== undefined || read.matureFrom !== undefined) {
     let tipHeight: number
     try {
       tipHeight = await client.getTipHeight()
     } catch {
       return undefined
     }
-    if (!Number.isSafeInteger(tipHeight) || tipHeight >= read.matureAt) return undefined
+    if (
+      !Number.isSafeInteger(tipHeight) ||
+      (read.matureAt !== undefined && tipHeight >= read.matureAt) ||
+      (read.matureFrom !== undefined && tipHeight < read.matureFrom)
+    ) {
+      return undefined
+    }
   }
   const { outputs } = read
   const reserved = readReserved ? await readReserved() : undefined
@@ -1614,6 +1625,12 @@ export interface QbitClassifiedUtxos {
   /** With `immature` outputs: the earliest tip height at which one of them matures. */
   matureAt?: number
   /**
+   * With coinbase outputs in `spendable`: the lowest tip height at which
+   * every one of them is still mature. Below it, as after a rollback, one
+   * is immature again.
+   */
+  matureFrom?: number
+  /**
    * Outputs read from history only: the address statistics the walk
    * verified. They read the same before and after it, and its outputs
    * reconcile with them.
@@ -1691,12 +1708,16 @@ async function classifyQbitUtxos(
   // within the ancestor size limit for the outputs it actually spends.
   let ownChangeAncestors = new Set<string>()
   let matureAt: number | undefined
+  let matureFrom: number | undefined
   for (const entry of walletUtxos) {
     if (!entry) continue
     if (entry.immature) {
       immature.push(entry.utxo)
       if (entry.matureAt !== undefined) matureAt = Math.min(matureAt ?? Infinity, entry.matureAt)
     } else {
+      if (entry.matureAt !== undefined) {
+        matureFrom = Math.max(matureFrom ?? -Infinity, entry.matureAt)
+      }
       spendable.push(entry.utxo)
       if (entry.confirmed) {
         confirmedSpendable.push(entry.utxo)
@@ -1725,6 +1746,7 @@ async function classifyQbitUtxos(
     unconfirmedOwnChange,
     immature,
     ...(matureAt !== undefined ? { matureAt } : {}),
+    ...(matureFrom !== undefined ? { matureFrom } : {}),
   }
 }
 
@@ -1956,15 +1978,20 @@ export async function getQbitAddressUtxos(
 /**
  * `getQbitAddressUtxos`, with the address statistics the walk verified when
  * the outputs were read from history (`QbitClassifiedUtxos.historyStats`),
- * and the earliest tip height at which an immature coinbase output it left
- * out matures (`QbitClassifiedUtxos.matureAt`).
+ * and the coinbase maturity heights it depends on
+ * (`QbitClassifiedUtxos.matureAt` and `matureFrom`).
  */
 export async function readQbitAddressUtxos(
   client: QbitEsploraClient,
   address: string,
   options: QbitReadCancellation = {}
-): Promise<{ utxos: UTXO[]; historyStats?: EsploraAddressStats; matureAt?: number }> {
-  const { confirmedSpendable, unconfirmedOwnChange, historyStats, matureAt } =
+): Promise<{
+  utxos: UTXO[]
+  historyStats?: EsploraAddressStats
+  matureAt?: number
+  matureFrom?: number
+}> {
+  const { confirmedSpendable, unconfirmedOwnChange, historyStats, matureAt, matureFrom } =
     await getQbitAddressUtxosClassifiedPastLimit(client, address, options)
   return {
     utxos: [
@@ -1973,6 +2000,7 @@ export async function readQbitAddressUtxos(
     ],
     ...(historyStats ? { historyStats } : {}),
     ...(matureAt !== undefined ? { matureAt } : {}),
+    ...(matureFrom !== undefined ? { matureFrom } : {}),
   }
 }
 
@@ -2615,7 +2643,7 @@ async function qbitUtxoToWalletUtxo(
       utxo: UTXO
       confirmed: boolean
       immature: boolean
-      /** With `immature`: the tip height at which the output matures. */
+      /** A coinbase output's: the lowest tip height at which it is mature. */
       matureAt?: number
       ownAncestry: Map<string, number> | undefined
     }
@@ -2670,7 +2698,7 @@ async function qbitUtxoToWalletUtxo(
       throw new Error('invalid qbit tip height')
     }
     immature = !isQbitCoinbaseMature(blockHeight, tipHeight)
-    if (immature) matureAt = blockHeight + QBIT_COINBASE_MATURITY - 1
+    matureAt = blockHeight + QBIT_COINBASE_MATURITY - 1
   }
 
   const ownAncestry =

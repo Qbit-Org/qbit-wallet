@@ -1616,12 +1616,12 @@ export class WalletController extends BaseController {
   }
 
   lockWallet = async () => {
-    await keyringService.setLocked()
-    // A locked wallet keeps no account's outputs in memory: the clear drops
-    // every read kept so far, including one that ended while the keyring
-    // locked, and none is kept afterwards: not from a read that started
-    // before the clear, nor while locked (`qbitAccountUtxosOn`).
+    // A locked wallet keeps no account's outputs in memory, not even while
+    // the lock waits or if it fails. setLocked marks the wallet locked at
+    // once, before it waits, so nothing is kept after this clear: not from
+    // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
     this.qbitLatestUtxoReads.clear()
+    await keyringService.setLocked()
     // Locking keeps every grant, so it must not look like a revocation: no
     // accountsChanged [] here. Pages never see the internal lock event.
     sessionService.broadcastEvent(SESSION_EVENTS.lock)
@@ -1674,6 +1674,7 @@ export class WalletController extends BaseController {
       return {
         outputs: latest.utxos,
         ...(latest.matureAt !== undefined ? { matureAt: latest.matureAt } : {}),
+        ...(latest.matureFrom !== undefined ? { matureFrom: latest.matureFrom } : {}),
       }
     }
     const data = await getQbitSpendableBalanceV2(
@@ -5942,6 +5943,8 @@ export class WalletController extends BaseController {
     utxos: QbitReadOutput[]
     /** The earliest tip height at which a coinbase output the read left out matures. */
     matureAt?: number
+    /** The lowest tip height at which every coinbase output the read took in is mature. */
+    matureFrom?: number
   }>(QBIT_LATEST_UTXO_READS_PER_CLIENT)
 
   /**
@@ -6016,7 +6019,7 @@ export class WalletController extends BaseController {
     signal?: AbortSignal
   ): Promise<UnspentOutput[]> {
     const order = this.qbitLatestUtxoReads.start()
-    const { utxos, historyStats, matureAt } = await readQbitAddressUtxos(
+    const { utxos, historyStats, matureAt, matureFrom } = await readQbitAddressUtxos(
       client,
       account.address,
       signal ? { signal } : {}
@@ -6035,6 +6038,7 @@ export class WalletController extends BaseController {
         stats: qbitStatsSnapshot(historyStats),
         utxos: utxos.map(qbitReadOutput),
         ...(matureAt !== undefined ? { matureAt } : {}),
+        ...(matureFrom !== undefined ? { matureFrom } : {}),
       })
     }
     return outputs
