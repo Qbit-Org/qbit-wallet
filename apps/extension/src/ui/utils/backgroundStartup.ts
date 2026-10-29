@@ -6,12 +6,13 @@ export type BackgroundStartupStatus = Awaited<ReturnType<WalletController['getBa
 export type BackgroundStartupFailure = Extract<BackgroundStartupStatus, { state: 'failed' }>;
 
 const FIRST_POLL_DELAY_MS = 50;
-const MAX_POLL_DELAY_MS = 1000;
+// Low, so a cold start renders about as soon as it finishes.
+const MAX_POLL_DELAY_MS = 200;
 
 /**
  * Wait until background start-up has finished or failed. While it is still
  * running, or the background does not answer yet, ask again after a delay that
- * doubles from 50 ms up to a second. A failure ends the wait: start-up runs once
+ * doubles from 50 ms up to 200 ms. A failure ends the wait: start-up runs once
  * per worker start, so asking again cannot change the answer.
  */
 export async function waitForBackgroundStartup(

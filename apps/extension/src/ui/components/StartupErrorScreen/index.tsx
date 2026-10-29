@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { browserRuntimeReload } from '@/background/webapi/browser';
 import { i18nService } from '@/shared/utils/i18n';
 import { colors } from '@/ui/theme/colors';
 import type { BackgroundStartupFailure } from '@/ui/utils/backgroundStartup';
@@ -25,12 +26,32 @@ function lastShownLocale(): string {
   return FALLBACK_LOCALE;
 }
 
-function t(key: string): string {
-  try {
-    return i18nService.translate(key);
-  } catch {
-    return key;
+/**
+ * Shown at once, and whenever the page's locale cannot be loaded, so the screen
+ * is never blank or made of message keys. The same text as the English locale
+ * file, which a test checks.
+ */
+export const STARTUP_ERROR_ENGLISH_TEXT = {
+  startup_error_title: 'Qbit Wallet could not start',
+  startup_error_stored_settings_unreadable:
+    'Qbit Wallet could not read its stored settings, so it stopped without changing them.',
+  startup_error_unknown: 'Something went wrong while Qbit Wallet was starting.',
+  startup_error_retry: 'Retry',
+  startup_error_retry_hint: 'Retry restarts Qbit Wallet, which may close this window; open it again afterwards.'
+};
+
+type TextKey = keyof typeof STARTUP_ERROR_ENGLISH_TEXT;
+
+function translate(key: TextKey, localeLoaded: boolean): string {
+  if (localeLoaded) {
+    try {
+      const text = i18nService.translate(key);
+      if (text && text !== key) return text;
+    } catch {
+      // The locale's bundle did not load.
+    }
   }
+  return STARTUP_ERROR_ENGLISH_TEXT[key];
 }
 
 /**
@@ -40,6 +61,7 @@ function t(key: string): string {
  */
 export function StartupErrorScreen({ reason }: { reason: BackgroundStartupFailure['reason'] }) {
   const [localeLoaded, setLocaleLoaded] = useState(false);
+  const t = (key: TextKey) => translate(key, localeLoaded);
 
   useEffect(() => {
     i18nService
@@ -47,8 +69,6 @@ export function StartupErrorScreen({ reason }: { reason: BackgroundStartupFailur
       .catch(() => undefined)
       .finally(() => setLocaleLoaded(true));
   }, []);
-
-  if (!localeLoaded) return null;
 
   return (
     // Not Layout: it reads the wallet's redux state, which is never set up here.
@@ -78,7 +98,7 @@ export function StartupErrorScreen({ reason }: { reason: BackgroundStartupFailur
               preset="primary"
               text={t('startup_error_retry')}
               style={{ width: '280px', height: '48px', flexShrink: 0 }}
-              onClick={() => chrome.runtime.reload()}
+              onClick={() => browserRuntimeReload()}
             />
             <Text preset="sub" text={t('startup_error_retry_hint')} color="textDim" textCenter />
           </Column>

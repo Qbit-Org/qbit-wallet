@@ -1947,7 +1947,7 @@
     "message": "Retry"
   },
   "startup_error_retry_hint": {
-    "message": "Retry restarts the wallet. This window may close; open Qbit Wallet again afterwards."
+    "message": "Retry restarts Qbit Wallet, which may close this window; open it again afterwards."
   },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "Steal your private keys or seed phrases"

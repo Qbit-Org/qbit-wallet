@@ -41,18 +41,32 @@ describe('waitForBackgroundStartup', () => {
     vi.useRealTimers();
   });
 
-  it('asks again after a delay that doubles up to a second while start-up runs', async () => {
+  it('asks again after a delay that doubles from 50 ms up to 200 ms while start-up runs', async () => {
     const wallet = background(starting);
     void waitForBackgroundStartup(wallet);
 
     const askedAt: number[] = [];
-    for (let elapsed = 0; elapsed <= 5000; elapsed += 10) {
+    for (let elapsed = 0; elapsed <= 1200; elapsed += 10) {
       while (askedAt.length < wallet.getBackgroundStartupStatus.mock.calls.length) askedAt.push(elapsed);
       await vi.advanceTimersByTimeAsync(10);
     }
 
-    expect(askedAt.slice(0, 9)).toEqual([0, 50, 150, 350, 750, 1550, 2550, 3550, 4550]);
-    expect(wallet.getBackgroundStartupStatus).toHaveBeenCalledTimes(9);
+    expect(askedAt).toEqual([0, 50, 150, 350, 550, 750, 950, 1150]);
+  });
+
+  it('notices a slow cold start finishing within 200 ms', async () => {
+    // Start-up, PQC wasm init included, finishes 1.2 s after the page opens.
+    const opened = Date.now();
+    const wallet = {
+      getBackgroundStartupStatus: vi.fn(
+        async (): Promise<BackgroundStartupStatus> =>
+          Date.now() - opened >= 1200 ? { state: 'ready' } : starting
+      )
+    };
+    const waiting = settled(waitForBackgroundStartup(wallet));
+
+    await vi.advanceTimersByTimeAsync(1200 + 200);
+    expect(waiting.result).toEqual({ state: 'ready' });
   });
 
   it('stops asking once start-up has failed, and returns why', async () => {

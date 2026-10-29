@@ -96,7 +96,6 @@ export interface WalletController {
   requestMethod: (...params: any) => Promise<any>
 
   setBackgroundInited(value: boolean): Promise<void>
-  getBackgroundInited(): Promise<boolean>
   /** Whether background start-up is still running, has finished, or has stopped and why. */
   getBackgroundStartupStatus(): Promise<
     | { state: 'starting' }

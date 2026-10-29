@@ -166,6 +166,26 @@ describe('restoreAppState', () => {
     expect(browserStorage.set).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['finished', () => undefined],
+    [
+      'failed',
+      () => background.permissionService.init.mockRejectedValueOnce(new Error('permission store is malformed'))
+    ]
+  ])('leaves a read that fails once start-up has %s with its own error', async (_outcome, arrange) => {
+    arrange();
+    await startWorker();
+
+    // The vault, permissions and notifications are read again later, through
+    // the adapter start-up handed to the services.
+    const [[{ storage: adapter }]] = background.keyringService.init.mock.calls;
+    const { default: storage } = await import('../utils/storage');
+    const laterError = new Error('IO error: database is closed');
+    vi.spyOn(storage, 'get').mockRejectedValueOnce(laterError);
+
+    await expect(adapter.get('keyringState')).rejects.toBe(laterError);
+  });
+
   it('reports another failure as failed, not as still starting, without blaming the stored settings', async () => {
     background.permissionService.init.mockRejectedValueOnce(new Error('permission store is malformed'));
 
