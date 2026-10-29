@@ -233,6 +233,9 @@ const freshRead = expect.objectContaining({
 /** The txids whose outspends the explorer was asked for, in order. */
 const outspendsReads = () => getTxOutspendsMock.mock.calls.map(([txid]) => txid)
 
+/** The refusal of a broadcast whose input the explorer shows another transaction spending. */
+const inputSpentElsewhereDetail = 'Qbit transaction spends an input another transaction already spends'
+
 /** The options a submission or lookup gets: the broadcast's deadline. */
 const underDeadline = expect.objectContaining({ deadlineMs: expect.any(Number) })
 
@@ -2264,7 +2267,7 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       txid: fixture.txid,
       outcome: 'not_sent',
       reason: 'guard_blocked',
-      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+      detail: inputSpentElsewhereDetail,
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
     expect(outspendsReads()).toEqual([SOURCE_TXID])
@@ -2277,7 +2280,7 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
     ).resolves.toMatchObject({
       outcome: 'not_sent',
-      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+      detail: inputSpentElsewhereDetail,
     })
     // So does an explorer that cannot say.
     getTxOutspendsMock.mockRejectedValueOnce(networkError())
@@ -2574,7 +2577,7 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
       txid: otherFixture.txid,
       outcome: 'not_sent',
       reason: 'guard_blocked',
-      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+      detail: inputSpentElsewhereDetail,
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(2)
     expect(getTxOutspendsMock).toHaveBeenLastCalledWith(SOURCE_TXID, freshRead)
@@ -2600,7 +2603,7 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
       success: false,
       outcome: 'not_sent',
       reason: 'guard_blocked',
-      detail: 'Qbit transaction spends an input a recent broadcast already spent',
+      detail: inputSpentElsewhereDetail,
     })
     expect(broadcastTxMock).toHaveBeenCalledTimes(2)
     expect(outspendsReads().slice(-2).sort()).toEqual([SOURCE_TXID, namedTxid].sort())
@@ -2618,6 +2621,52 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
     broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
     await expect(wallet.pushTx(bump.psbtHex, bump.claim)).resolves.toBe(otherFixture.txid)
     expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the verdict unknown when the explorer check refuses a retry of a bump whose earlier broadcast ended unknown', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    explorerShowsOriginal()
+    broadcastTxMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'network',
+    })
+
+    // The retry sends nothing, but the first broadcast may still have
+    // reached the node: "not sent" would let the screen free its inputs.
+    explorerShowsOriginal([laterTxid])
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'unknown',
+      reason: 'guard_blocked',
+      detail: dependentDetail,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+
+    // So after a restart, for a retry of that unknown outcome from the
+    // recovery screen: its claim is restored, and the check refuses it.
+    qbitSendGuardService.init()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
+    explorerShowsInput(fixture.txid)
+    probeGone()
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(bump.psbtHex, bump.claim, REGTEST, otherFixture.txid, true)
+    ).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'unknown',
+      reason: 'guard_blocked',
+      detail: dependentDetail,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    await expect(reservedKeys()).resolves.toEqual(new Set([`${SOURCE_TXID}:0`]))
   })
 
   it('reports a retried fee bump the node already took as the success its first answer lost', async () => {

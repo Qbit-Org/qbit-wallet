@@ -62,37 +62,31 @@ export interface QbitExplorerFetchOptions {
   fetchFn?: typeof fetch | undefined
   /** The client's base URL: routes are read after it, and errors do not quote it. */
   baseUrl: string
-  /** Routes the client is reading fresh right now: they bypass the HTTP cache. */
-  freshReads?: QbitExplorerFreshReads | undefined
 }
 
 /**
- * The routes, relative to a client's base URL, that it is reading fresh
- * right now, and how many such reads of each are in flight. Its fetch sends
- * a request for one of them with `cache: 'no-store'`, so the answer is the
- * explorer's current one rather than a reply the browser kept (electrs lets
- * a reply be reused for 10 s). A request for the same route made meanwhile
- * by another read goes out fresh as well, which costs it only the cache.
+ * The query parameter that makes a read fresh: a random nonce no other
+ * request carries, so no cache keyed by URL, the browser's or one in front
+ * of the explorer (electrs lets a reply be reused for 10 s), can answer it
+ * with an earlier reply. The explorer ignores it. The wallet's explorer
+ * fetch also sends such a read with `cache: 'no-store'`.
  */
-export class QbitExplorerFreshReads {
-  private readonly inFlight = new Map<string, number>()
+export const QBIT_EXPLORER_FRESH_READ_PARAM = 'qbit_fresh'
 
-  /** Whether a fresh read of `route` is in flight. */
-  has(route: string): boolean {
-    return this.inFlight.has(route)
-  }
+/** `path`, relative to a base URL, as a fresh read of it (see `QBIT_EXPLORER_FRESH_READ_PARAM`). */
+export function qbitExplorerFreshReadPath(path: string): string {
+  const nonce = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), byte =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+  return `${path}${path.includes('?') ? '&' : '?'}${QBIT_EXPLORER_FRESH_READ_PARAM}=${nonce}`
+}
 
-  /** Run `read`, every request it sends for `route` included, as a fresh read of it. */
-  async during<T>(route: string, read: () => Promise<T>): Promise<T> {
-    this.inFlight.set(route, (this.inFlight.get(route) ?? 0) + 1)
-    try {
-      return await read()
-    } finally {
-      const left = (this.inFlight.get(route) ?? 1) - 1
-      if (left > 0) this.inFlight.set(route, left)
-      else this.inFlight.delete(route)
-    }
-  }
+/** Whether `route`, relative to the base URL, is a fresh read. */
+function isQbitExplorerFreshRead(route: string): boolean {
+  const query = route.indexOf('?')
+  return (
+    query >= 0 && new URLSearchParams(route.slice(query + 1)).has(QBIT_EXPLORER_FRESH_READ_PARAM)
+  )
 }
 
 /**
@@ -203,7 +197,7 @@ export class QbitExplorerOperation {
  * submitted, and the client retries it even when its body is lost.
  */
 export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): typeof fetch {
-  const { fetchFn, freshReads } = options
+  const { fetchFn } = options
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -238,7 +232,7 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
     let response: Response
     try {
       const requestInit: RequestInit = { ...init, signal: controller.signal }
-      if (route !== undefined && freshReads?.has(route)) requestInit.cache = 'no-store'
+      if (route !== undefined && isQbitExplorerFreshRead(route)) requestInit.cache = 'no-store'
       pending = fetchFn ? fetchFn(input, requestInit) : globalThis.fetch(input, requestInit)
       response = await raceAbort(pending, controller.signal)
     } catch (error) {

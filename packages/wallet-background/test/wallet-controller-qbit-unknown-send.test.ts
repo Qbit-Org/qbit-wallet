@@ -902,9 +902,12 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       expect(explorer.spenderOf(SPENT.txid, SPENT.vout)?.txid).toBe(claim.txid)
       // Only what spends the original was asked at broadcast, twice, never its bytes.
       expect(explorer.requests.filter(isOriginalHex)).toHaveLength(0)
-      expect(
-        explorer.requests.filter(({ path }) => path === `/tx/${original.txid}/outspends`)
-      ).toHaveLength(2)
+      const outspendsReads = explorer.requests.filter(({ path }) =>
+        path.startsWith(`/tx/${original.txid}/outspends?`)
+      )
+      expect(outspendsReads).toHaveLength(2)
+      // Each under a URL of its own, which no cache can answer.
+      expect(new Set(outspendsReads.map(({ path }) => path)).size).toBe(2)
     })
   })
 

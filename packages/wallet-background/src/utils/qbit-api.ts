@@ -35,9 +35,9 @@ import type {
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
-  QbitExplorerFreshReads,
   createQbitExplorerFetch,
   isQbitExplorerLargeBodyRoute,
+  qbitExplorerFreshReadPath,
   type QbitExplorerOperation,
 } from './qbit-explorer-fetch'
 
@@ -115,9 +115,11 @@ export interface QbitTxOutspend {
 
 export interface QbitTxOutspendsOptions extends RequestOptions {
   /**
-   * Read past any HTTP cache: the request goes out on its own, with
-   * `cache: 'no-store'`, never answered by an earlier reply the browser
-   * kept or by an identical read already in flight.
+   * Read past every cache: the request goes out on its own, under a URL no
+   * other request has used and with `cache: 'no-store'`, never answered by
+   * an earlier reply the browser or a cache in front of the explorer kept,
+   * nor by an identical read already in flight. See
+   * `QBIT_EXPLORER_FRESH_READ_PARAM`.
    */
   fresh?: boolean
 }
@@ -151,37 +153,31 @@ export type QbitWalletApiClient = EsploraClient &
  * the client's own constructor error stands.
  */
 function withQbitExplorerBudgets<T extends EsploraClientOptions>(
-  options: T,
-  freshReads?: QbitExplorerFreshReads
+  options: T
 ): T & { timeoutMs: number } {
   const budgeted = { ...options, timeoutMs: options.timeoutMs ?? QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS }
   if (typeof options.baseUrl !== 'string') return budgeted
   if (options.fetchFn === undefined && typeof globalThis.fetch !== 'function') return budgeted
   return {
     ...budgeted,
-    fetchFn: createQbitExplorerFetch({
-      fetchFn: options.fetchFn,
-      baseUrl: options.baseUrl,
-      freshReads,
-    }),
+    fetchFn: createQbitExplorerFetch({ fetchFn: options.fetchFn, baseUrl: options.baseUrl }),
   }
 }
 
 /**
- * `/tx/:txid/outspends` through `getJson`; a fresh read (see
- * `QbitTxOutspendsOptions.fresh`) is sent on its own and marked in
- * `freshReads` while it runs, its retries included.
+ * What `EsploraClient.getJson` is handed for one read: a fresh one (see
+ * `QbitTxOutspendsOptions.fresh`) under its own URL and on its own, any
+ * other unchanged. `getJson` hands `request` only its signal, so freshness
+ * travels in the path itself, request by request.
  */
-function readQbitTxOutspends(
-  txid: string,
+function qbitJsonRead(
+  path: string,
   options: QbitTxOutspendsOptions | undefined,
-  freshReads: QbitExplorerFreshReads,
-  getJson: (path: string, options?: RequestOptions, dedup?: boolean) => Promise<QbitTxOutspend[]>
-): Promise<QbitTxOutspend[]> {
-  const path = `/tx/${encodeURIComponent(txid)}/outspends`
-  if (options?.fresh !== true) return getJson(path, options)
+  dedup: boolean | undefined
+): [string, RequestOptions | undefined, boolean | undefined] {
+  if (options?.fresh !== true) return [path, options, dedup]
   const { fresh: _fresh, ...read } = options
-  return freshReads.during(path, () => getJson(path, read, false))
+  return [qbitExplorerFreshReadPath(path), read, false]
 }
 
 /**
@@ -219,20 +215,15 @@ export class QbitWalletEsploraClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
 {
   private readonly largeReadCeilingMs: number
-  private readonly freshReads: QbitExplorerFreshReads
 
   constructor(options: EsploraClientOptions) {
-    const freshReads = new QbitExplorerFreshReads()
-    const budgeted = withQbitExplorerBudgets(options, freshReads)
+    const budgeted = withQbitExplorerBudgets(options)
     super(budgeted)
     this.largeReadCeilingMs = budgeted.timeoutMs
-    this.freshReads = freshReads
   }
 
   getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
-    return readQbitTxOutspends(txid, options, this.freshReads, (path, read, dedup) =>
-      this.getJson<QbitTxOutspend[]>(path, read, dedup)
-    )
+    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
   // Confirmed rows only (`/txs/chain`, 25 a page); mempool rows are not paged.
@@ -242,6 +233,15 @@ export class QbitWalletEsploraClient
     options?: RequestOptions
   ): Promise<EsploraTx[]> {
     return this.getAddressTxs(address, afterTxid, options)
+  }
+
+  // A fresh read (`QbitTxOutspendsOptions.fresh`) goes out under its own URL, on its own.
+  protected override getJson<T>(
+    path: string,
+    options?: QbitTxOutspendsOptions,
+    dedup?: boolean
+  ): Promise<T> {
+    return super.getJson<T>(...qbitJsonRead(path, options, dedup))
   }
 
   protected override request(
@@ -264,7 +264,6 @@ export class QbitWalletMempoolClient
   /** The most pages one history read fetches, as the client's `maxAddressHistoryPages`. */
   readonly maxHistoryWalkPages: number
   private readonly largeReadCeilingMs: number
-  private readonly freshReads: QbitExplorerFreshReads
 
   // The client clamps every call's maxPages to this ceiling (default 256), so
   // the two-read budgets above need it raised to match. The history reads
@@ -273,18 +272,14 @@ export class QbitWalletMempoolClient
     const maxAddressHistoryPages =
       options.maxAddressHistoryPages ??
       DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS
-    const freshReads = new QbitExplorerFreshReads()
-    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages }, freshReads)
+    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages })
     super(budgeted)
     this.maxHistoryWalkPages = maxAddressHistoryPages
     this.largeReadCeilingMs = budgeted.timeoutMs
-    this.freshReads = freshReads
   }
 
   getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
-    return readQbitTxOutspends(txid, options, this.freshReads, (path, read, dedup) =>
-      this.getJson<QbitTxOutspend[]>(path, read, dedup)
-    )
+    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
   // The combined route, mempool rows first. `getAddressTxs` would rescan it
@@ -295,6 +290,15 @@ export class QbitWalletMempoolClient
     options?: RequestOptions
   ): Promise<EsploraTx[]> {
     return this.getCombinedHistoryPage(address, afterTxid, options)
+  }
+
+  // A fresh read (`QbitTxOutspendsOptions.fresh`) goes out under its own URL, on its own.
+  protected override getJson<T>(
+    path: string,
+    options?: QbitTxOutspendsOptions,
+    dedup?: boolean
+  ): Promise<T> {
+    return super.getJson<T>(...qbitJsonRead(path, options, dedup))
   }
 
   protected override request(
@@ -2326,23 +2330,46 @@ export async function getQbitTxSpenders(
     options === undefined
       ? await client.getTxOutspends(normalizedTxid)
       : await client.getTxOutspends(normalizedTxid, options)
+  return qbitTxSpendersFromOutspends(outspends, normalizedTxid, outputCount)
+}
+
+/**
+ * `getQbitTxSpenders` from `outspends`, the `/tx/:txid/outspends` answer
+ * for `txid` (lowercase): anything other than one well-formed entry per
+ * output throws.
+ */
+export function qbitTxSpendersFromOutspends(
+  outspends: unknown,
+  txid: string,
+  outputCount: number
+): (string | undefined)[] {
   if (!Array.isArray(outspends) || outspends.length !== outputCount) {
-    throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
+    throw new Error(`invalid qbit outspends for ${txid}`)
   }
-  return outspends.map(outspend => {
-    if (!outspend || typeof outspend.spent !== 'boolean') {
-      throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
-    }
-    if (!outspend.spent) return undefined
-    if (
-      typeof outspend.txid !== 'string' ||
-      !QBIT_TXID_PATTERN.test(outspend.txid) ||
-      outspend.txid.toLowerCase() === normalizedTxid
-    ) {
-      throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
-    }
-    return outspend.txid.toLowerCase()
-  })
+  return outspends.map(outspend => qbitOutspendSpender(outspend, txid))
+}
+
+/**
+ * The lowercase txid spending an output of `txid` (lowercase), from that
+ * output's entry in its `/tx/:txid/outspends` answer, or undefined when
+ * nothing spends it. Anything but a well-formed entry throws (a missing
+ * one included), so an output is never read as unspent without the
+ * explorer's explicit word.
+ */
+export function qbitOutspendSpender(outspend: unknown, txid: string): string | undefined {
+  const { spent, txid: spender } = (
+    outspend && typeof outspend === 'object' ? outspend : {}
+  ) as Partial<QbitTxOutspend>
+  if (typeof spent !== 'boolean') throw new Error(`invalid qbit outspends for ${txid}`)
+  if (!spent) return undefined
+  if (
+    typeof spender !== 'string' ||
+    !QBIT_TXID_PATTERN.test(spender) ||
+    spender.toLowerCase() === txid
+  ) {
+    throw new Error(`invalid qbit outspends for ${txid}`)
+  }
+  return spender.toLowerCase()
 }
 
 export interface QbitProtectedAssetOutpoint {
@@ -2811,7 +2838,7 @@ function mapQbitHistoryAddressesWithConcurrency<T>(
 }
 
 /** `load` over `items`, at most `concurrency` at a time; the first failure stops it and throws. */
-async function mapQbitWithConcurrency<I, T>(
+export async function mapQbitWithConcurrency<I, T>(
   items: readonly I[],
   concurrency: number,
   load: (item: I) => Promise<T>
