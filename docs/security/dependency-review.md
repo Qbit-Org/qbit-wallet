@@ -20,18 +20,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `9accff3baba6478eec73a95456f988ad8c370dd8` |
+| Audited commit | `77a019d2e16bd437d5fd0b61f91ea95d61ceeab3` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `87b9fb31de464eef495be721b1da2feee9ac332c78f5181de19002e24b8d0175` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `40611505928f733b60d893599ec2d1c64fee775fc2689ce0ffef510beef63bff` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `ba0836d1b9ad6e1dfc7015dd4be9de25ecb444d443740e5e8299e09e2f323f5d` |
+| `pnpm-lock.yaml` SHA-256 | `07e58cd4c3e24c16a79cf31a6d7968a4c5e8749a3e70088e1bf6668985d13a04` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `379dac65b3daeaeb181cb6e0eafb6c36b116374af1709ac2954de87657c2be4d` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `c19a3269386ba11ce96a4121772a7fca42da1026a1c3006c7b464cf2f2458f39` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.0, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 438 direct declarations, all 208 resolved packages classified as crypto-,
+all 437 direct declarations, all 208 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -91,7 +91,8 @@ paths to `decode-uri-component` on 2026-10-29 reduced the current result to
 | Audited result `c702dff` (2026-10-23, `patch-package` moved to development dependencies) | 0 | 0 | 35 | 10 | 45 |
 | Audited result `eede40b` (2026-10-26, Qbit SDK from npm) | 0 | 0 | 37 | 13 | 50 |
 | Advisory-feed drift at unchanged-lock `release/1.0.6` `ea8f3a5` | 0 | 1 | 38 | 14 | 53 |
-| Current audited result `9accff3` (2026-10-29, `decode-uri-component` paths removed) | 0 | 0 | 36 | 14 | 50 |
+| Audited result `9accff3` on `release/1.0.6` (2026-10-29, `decode-uri-component` paths removed) | 0 | 0 | 36 | 14 | 50 |
+| Current audited result `77a019d` (2026-10-30, `release/1.0.6` merged into `release/1.0.7`) | 0 | 0 | 36 | 14 | 50 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 42 advisory records representing 37
@@ -159,13 +160,13 @@ extension is byte-identical. Two new records remain visible: the moderate
 
 ## Package inventory
 
-The 20 workspaces contain 2,388 registry lock entries and 438 direct dependency
+The 20 workspaces contain 2,387 registry lock entries and 437 direct dependency
 declarations. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 169 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 168 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
 | Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
 | Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
@@ -397,9 +398,9 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,388 integrity-pinned registry entries, 487
+The audited policy checked 2,387 integrity-pinned registry entries, 486
 dependency specifiers, 33 Action references, one tracked package-manager
-configuration file, 273 executable package/workflow commands, and 2,273 exact
+configuration file, 273 executable package/workflow commands, and 2,272 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -413,10 +414,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,273 distinct identities
+version, and normalized license expression for all 2,272 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,388 peer variants must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,387 peer variants must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
