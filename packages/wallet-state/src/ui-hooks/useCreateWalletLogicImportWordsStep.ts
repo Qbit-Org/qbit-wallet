@@ -2,7 +2,7 @@ import { WordsType } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n, useTools, useWallet } from 'src/context'
-import { validateMnemonic } from 'src/utils/qbit-utils'
+import { isMnemonicWord, validateMnemonic } from 'src/utils/qbit-utils'
 
 export enum TabType {
   STEP1 = 'STEP1',
@@ -90,6 +90,11 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
   )
   const [inputWordsText, setInputWordsText] = useState('')
   const [inputWordsError, setInputWordsError] = useState(false)
+  // One flag per input: true when it holds a word that is not in the word list.
+  const inputWordsInvalid = useMemo(
+    () => inputWords.map(word => word !== '' && !isMnemonicWord(word)),
+    [inputWords]
+  )
   const tools = useTools()
 
   const [loading, setLoading] = useState(false)
@@ -142,7 +147,13 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
 
     setEnteredWordsCount(enteredWordsCount)
 
-    if (!validateMnemonic(text) && enteredWordsCount >= maxWordsCount) {
+    // A word outside the list is already flagged on its own input, so this
+    // error covers only a phrase whose words are all valid (checksum or order).
+    if (
+      enteredWordsCount >= maxWordsCount &&
+      words.every(isMnemonicWord) &&
+      !validateMnemonic(text)
+    ) {
       setInputWordsError(true)
     } else {
       setInputWordsError(false)
@@ -231,6 +242,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
     updateContextData({ wordsType: wordsItem.key })
     setInputWordsText('')
     setInputWords(new Array(wordsItem.count).fill(''))
+    setInputWordsError(false)
   }
 
   const shouldEnteredWordsCount = wordsItems[contextData.wordsType].count
@@ -245,6 +257,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
     onClickNext,
     onClickWordsItem,
     inputWordsError,
+    inputWordsInvalid,
     onInputWordsTextChange,
     onInputWordsChange,
     loading,

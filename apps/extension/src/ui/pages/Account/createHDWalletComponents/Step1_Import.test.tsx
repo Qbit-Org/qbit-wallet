@@ -105,6 +105,8 @@ describe('Step1_Import', () => {
       t: (key: string) => key,
       onHandleEventPaste: vi.fn(),
       inputWords: ['', ''],
+      inputWordsInvalid: [false, false],
+      inputWordsError: false,
       onClickNext,
       onClickWordsItem: vi.fn(),
       onInputWordsChange: vi.fn(),

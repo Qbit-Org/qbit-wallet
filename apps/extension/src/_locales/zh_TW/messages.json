@@ -3091,5 +3091,8 @@
   },
   "multisign_account_changed": {
     "message": "檢查交易期間帳戶已變更。未簽署任何交易，請重新檢查。"
+  },
+  "recovery_phrase_is_not_valid": {
+    "message": "此助記詞無效。請確認每個單字及其順序都與您的備份一致。"
   }
 }

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Button, Card, Column, Grid, Input, Radio, RadioGroup, Row, Text } from '@/ui/components';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
 import { ContextData, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
+import { colors } from '@/ui/theme/colors';
 import { spacingGap } from '@/ui/theme/spacing';
 import { useCreateWalletLogicImportWordsStep } from '@qbit/wallet-state';
 
@@ -14,8 +15,18 @@ export function Step1_Import(params: {
 
   const [curInputIndex, setCurInputIndex] = useState(0);
 
-  const { wordsItems, t, onHandleEventPaste, inputWords, onClickNext, onClickWordsItem, onInputWordsChange, disabled } =
-    useCreateWalletLogicImportWordsStep(params as any);
+  const {
+    wordsItems,
+    t,
+    onHandleEventPaste,
+    inputWords,
+    inputWordsInvalid,
+    inputWordsError,
+    onClickNext,
+    onClickWordsItem,
+    onInputWordsChange,
+    disabled
+  } = useCreateWalletLogicImportWordsStep(params as any);
 
   const handleOnKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!disabled && 'Enter' == e.key) {
@@ -48,11 +59,17 @@ export function Step1_Import(params: {
       <Row justifyCenter>
         <Grid columns={2}>
           {inputWords.map((_, index) => {
+            // Flag a word outside the list only once the user has left its input.
+            const invalid = inputWordsInvalid[index] && index !== curInputIndex;
             return (
               <Row key={index}>
                 <Card
                   gap="zero"
-                  style={{ paddingLeft: spacingGap.sm }}
+                  style={
+                    invalid
+                      ? { paddingLeft: spacingGap.sm, border: `1px solid ${colors.dangerText}` }
+                      : { paddingLeft: spacingGap.sm }
+                  }
                   onClick={(event) => {
                     event.currentTarget.querySelector('input')?.focus();
                   }}
@@ -86,6 +103,8 @@ export function Step1_Import(params: {
                     autoFocus={index == curInputIndex}
                     preset={'password'}
                     placeholder=""
+                    aria-invalid={invalid}
+                    data-invalid={invalid}
                     data-testid={`mnemonic-import-word-${index}`}
                   />
                 </Card>
@@ -94,6 +113,16 @@ export function Step1_Import(params: {
           })}
         </Grid>
       </Row>
+
+      {inputWordsError ? (
+        <Text
+          text={t('recovery_phrase_is_not_valid')}
+          color="dangerText"
+          size="xs"
+          textCenter
+          data-testid="mnemonic-import-invalid-phrase"
+        />
+      ) : null}
 
       <FooterButtonContainer>
         <Button
