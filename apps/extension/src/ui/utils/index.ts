@@ -1,6 +1,8 @@
 import { bech32 } from 'bech32';
 import BigNumber from 'bignumber.js';
 
+import { PlatformEnv } from '@qbit/wallet-shared';
+
 export * from './hooks';
 
 const UI_TYPE = {
@@ -41,6 +43,9 @@ export const hex2Text = (hex: string) => {
     return hex;
   }
 };
+
+/** True when the UI runs inside the iOS/Android app rather than the extension. */
+export const isMobileApp = (): boolean => PlatformEnv.PLATFORM === 'ios' || PlatformEnv.PLATFORM === 'android';
 
 export const getUITypeName = (): string => {
   // need to refact

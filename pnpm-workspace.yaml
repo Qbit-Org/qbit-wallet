@@ -1,6 +1,7 @@
 packages:
   - 'packages/*'
   - 'apps/extension'
+  - 'apps/mobile'
 
 # Enable strict dependency management
 prefer-workspace-packages: true

@@ -5,7 +5,8 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "apps/extension"
+    "apps/extension",
+    "apps/mobile"
   ],
   "scripts": {
     "build": "lerna run build --no-stream",

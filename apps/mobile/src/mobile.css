@@ -1,0 +1,13 @@
+/*
+ * Phone page basics. The native view controller keeps the WebView inside the
+ * safe area, so the wallet's own 100vw/100vh layout fits the screen as is.
+ */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}

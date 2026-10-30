@@ -1,0 +1,10 @@
+{
+  "appId": "org.qbit.wallet",
+  "appName": "Qbit Wallet",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}

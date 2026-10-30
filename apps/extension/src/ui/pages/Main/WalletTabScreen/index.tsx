@@ -11,7 +11,7 @@ import { UpgradePopover } from '@/ui/components/UpgradePopover';
 import { VersionNotice } from '@/ui/components/VersionNotice';
 import { fontSizes } from '@/ui/theme/font';
 import { getCurrentTab } from '@/ui/web/tabs';
-import { walletErrorMessage } from '@/ui/utils';
+import { isMobileApp, walletErrorMessage } from '@/ui/utils';
 import { KeyringType } from '@qbit/keyring-service/types';
 import { BUS_METHODS, QbitRecoveryState, VersionDetail } from '@qbit/wallet-shared';
 import '@qbit/wallet-state';
@@ -211,7 +211,7 @@ export default function WalletTabScreen() {
         RightComponent={
           <Row gap="lg" itemsCenter>
             <ThemeToggle />
-            <SidePanelExpand />
+            {!isMobileApp() && <SidePanelExpand />}
             <LockWalletButton />
           </Row>
         }

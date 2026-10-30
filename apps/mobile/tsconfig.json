@@ -1,0 +1,10 @@
+{
+  "extends": "../extension/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "paths": { "@/*": ["../extension/src/*"] },
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src/chrome-shim"]
+}

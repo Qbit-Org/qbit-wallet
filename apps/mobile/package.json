@@ -1,0 +1,27 @@
+{
+  "name": "qbit-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Qbit Wallet iOS app: the extension wallet running in a Capacitor WebView",
+  "license": "MIT",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "build:web:dev": "node scripts/build-web.mjs --dev",
+    "dev:web": "node scripts/build-web.mjs --watch",
+    "sync:ios": "cap sync ios",
+    "build:ios": "node scripts/build-web.mjs && cap sync ios",
+    "open:ios": "cap open ios",
+    "test": "vitest run --config vitest.config.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@capacitor/browser": "8.0.5",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3",
+    "@capacitor/preferences": "8.0.1",
+    "@qbit/wallet-shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}
