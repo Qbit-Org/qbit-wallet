@@ -44,18 +44,23 @@ webpack would serve from an `import.meta` object holding the same path. The
 extension build therefore applies `RuntimeImportMetaUrlPlugin`
 (`apps/extension/build/plugins/`) to those two modules: `import.meta.url`
 becomes webpack's runtime base URI, the URL of the bundle that contains it
-(`chrome-extension://<id>/background.js` in the service worker), and a
-non-literal `import.meta.resolve` becomes `undefined`, as a bundle has no
-module resolver. The WASM still loads from the bundled `wasm/pqc.wasm` asset
-through the `locateFile` passed in `src/background/init/restore.ts`.
+(`chrome-extension://<id>/background.js` in the service worker), and
+`import.meta.resolve`, other than a call with a specifier webpack can evaluate
+to a string, reads as `undefined`, as a bundle has no module resolver:
+`typeof import.meta.resolve` is `"undefined"`, and such a call throws a
+`TypeError`. `lib/core.mjs` checks the `typeof` first and rejects a bare
+`moduleUrl`, which the wallet never passes. The WASM still loads from the
+bundled `wasm/pqc.wasm` asset through the `locateFile` passed in
+`src/background/init/restore.ts`.
 
 `package:test`, and so `build:repro:extension`, then scans every packaged
 file except binary images, fonts and WASM. It fails on any `file:///` URL and
 on any `<directory>/<entry>` path, where `<directory>` is the checkout root or
 the builder's home directory (`$HOME`, `os.homedir()` and their real paths)
 and `<entry>` is a file or directory that exists in it. If the check fires,
-find the module that emits the path. A module that reads `import.meta.url`
-belongs in the plugin's `test` in
+find the module that emits the path. A module that reads `import.meta.url`,
+or calls `import.meta.resolve` with a specifier webpack cannot evaluate to a
+string, belongs in the plugin's `test` in
 `apps/extension/build/webpack.common.config.js`; any other source of the path
 needs its own fix rather than an exception.
 

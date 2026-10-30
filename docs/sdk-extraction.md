@@ -76,14 +76,18 @@ under `pnpm test`.
 
    Build the extension (`pnpm build:repro:extension`): a module that newly
    reads `import.meta.url`, or calls `import.meta.resolve` with a specifier
-   that is not a literal, ships the builder's `file://` path and fails
-   packaging until it is added to `RuntimeImportMetaUrlPlugin`'s `test` in
+   webpack cannot evaluate to a string, ships the builder's `file://` path
+   and fails packaging until it is added to `RuntimeImportMetaUrlPlugin`'s
+   `test` in
    `apps/extension/build/webpack.common.config.js` (see
    `docs/reproducible-builds.md`). Compare `hoistedLocations` in
    `node_modules/.modules.yaml` with a clean install of the base, so the bump
    moves no polyfill the extension bundles. Once the lockfile change is
    committed, regenerate the dependency evidence from a clean worktree
-   (`corepack pnpm security:evidence`) and commit it.
+   (`corepack pnpm security:evidence`), copy the audited commit and the
+   lockfile, audit and inventory SHA-256 it prints into the evidence table
+   of `docs/security/dependency-review.md`, whose SDK row names the new
+   version, and commit them.
 
 The keyring vectors must pass unchanged. Do not regenerate them for an SDK
 update: a different pubkey or address means the same seed would derive other

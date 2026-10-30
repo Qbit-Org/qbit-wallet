@@ -230,6 +230,13 @@ test('a second copy of a pinned package fails, from a tarball, git or an npm ali
     `  github.com/someone/pqc/${'a'.repeat(40)}:\n    resolution: {tarball: https://codeload.github.com/someone/pqc/tar.gz/${'a'.repeat(40)}}\n    name: '@qbit-oss/pqc'\n    version: ${pqcPin.version}\n    dev: false\n`
   )
   assert.match(errors(fromGit), /must resolve @qbit-oss\/pqc only as .*github\.com\/someone\/pqc/)
+  const fromTarball = lockfile(pqcPin).concat(
+    `  registry.example/pqc.tgz:\n    resolution: {tarball: 'https://registry.example/pqc.tgz'}\n    name: '@qbit-oss/pqc'\n    version: ${pqcPin.version}\n    dev: false\n`
+  )
+  assert.match(
+    errors(fromTarball),
+    /must resolve @qbit-oss\/pqc only as .*registry\.example\/pqc\.tgz/
+  )
   // A package can take it under an npm alias, which no importer names.
   const aliased = lockfile(pqcPin).concat(
     '  /other-pqc@1.0.0:\n    resolution: {integrity: sha512-x}\n    dev: false\n',

@@ -2449,21 +2449,25 @@ describe('WalletController qbit P2MR send path', () => {
       expect(verifyPqcMock).not.toHaveBeenCalled()
     })
 
-    it('treats raw bytes the API client refuses as unverifiable', async () => {
-      const wallet = new WalletController()
-      const account = p2mrAccount()
-      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
-      const original = await honestOriginal(wallet, account)
-      const live = liveTransactionFromPsbt(original.psbtHex)
-      getTxMock.mockResolvedValue(live)
+    it.each([
       // @qbit-oss/api checks the reply hashes to the requested txid itself.
-      getTxHexMock.mockRejectedValue(
-        new QbitApiError('parse', `transaction hex does not hash to txid ${live.txid}`)
-      )
+      ['bytes that do not hash to the txid', 'parse', 'transaction hex does not hash to txid'],
+      ['a reply past the size limit', 'response_too_large', 'reply exceeded 67108864 bytes'],
+    ] as const)(
+      'treats raw bytes the API client refuses (%s) as unverifiable',
+      async (_shape, kind, message) => {
+        const wallet = new WalletController()
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        const original = await honestOriginal(wallet, account)
+        const live = liveTransactionFromPsbt(original.psbtHex)
+        getTxMock.mockResolvedValue(live)
+        getTxHexMock.mockRejectedValue(new QbitApiError(kind, message))
 
-      await expectUnverifiable(wallet, live.txid)
-      expect(verifyPqcMock).not.toHaveBeenCalled()
-    })
+        await expectUnverifiable(wallet, live.txid)
+        expect(verifyPqcMock).not.toHaveBeenCalled()
+      }
+    )
 
     it('refuses an original whose raw recipient differs from the JSON and carries the honest signatures', async () => {
       const wallet = new WalletController()

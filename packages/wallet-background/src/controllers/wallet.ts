@@ -6184,8 +6184,9 @@ export class WalletController extends BaseController {
           return { eligible: false, reason: 'gone' }
         }
         // @qbit-oss/api refuses malformed bytes, and bytes that do not hash
-        // to the requested txid, as `parse`.
-        if (error.kind === 'parse') {
+        // to the requested txid, as `parse`, and a reply past
+        // `maxResponseBytes` as `response_too_large`.
+        if (error.kind === 'parse' || error.kind === 'response_too_large') {
           return { eligible: false, reason: 'unverifiable' }
         }
         throw error

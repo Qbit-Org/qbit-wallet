@@ -2560,6 +2560,19 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
       detail:
         'Could not check whether a later payment depends on the transaction this fee bump replaces',
     })
+    // A reply past the size limit is an answer it cannot use.
+    getTxOutspendsMock.mockRejectedValueOnce(
+      new QbitApiError(
+        'response_too_large',
+        'HTTP 200 reply from https://explorer.test/... exceeded 67108864 bytes; its body was discarded',
+        { status: 200 }
+      )
+    )
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'not_sent',
+      reason: 'invalid_response',
+    })
     // So does an answer that is not one entry per output of the original.
     explorerShowsOriginal([undefined, undefined])
     probeGone()

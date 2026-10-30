@@ -306,7 +306,10 @@ export function classifyQbitBroadcastError(error: unknown): QbitBroadcastErrorCl
         return withDetail('network', false, sanitizeQbitBroadcastDetail(error.message))
       case 'timeout':
         return withDetail('timeout', false, sanitizeQbitBroadcastDetail(error.message))
+      // A reply past `maxResponseBytes` is an answer the wallet cannot use,
+      // as an unreadable body is (`parse`, which it was before 0.1.1).
       case 'parse':
+      case 'response_too_large':
         return withDetail('invalid_response', false, sanitizeQbitBroadcastDetail(error.message))
       case 'http':
         if (error.status === 400) return classifyHttpRejection(error)
