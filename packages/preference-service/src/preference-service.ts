@@ -23,6 +23,9 @@ import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents }
 const SUPPORTED_LOCALES = ['en', 'zh_TW', 'fr', 'es', 'ru', 'ja']
 const RESTORE_SAVE_ATTEMPTS = 3
 const RESTORE_SAVE_RETRY_DELAY_MS = 100
+// History is cached per account, and Receive selects a new account for each
+// new address, so only the most recently written entries are kept.
+const HISTORY_CACHE_ENTRY_LIMIT = 16
 
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -299,6 +302,21 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.historyMap = {}
     }
 
+    // Earlier builds kept one Qbit history for every account of a wallet
+    // under `qbit:<chain>:<first account's pubkey>`. History is now kept per
+    // account under `qbit-account:` keys and those entries are never read, so
+    // drop them instead of keeping them unread.
+    const walletWideHistoryKeys = Object.keys(this.store.historyMap).filter(key =>
+      key.startsWith('qbit:')
+    )
+    if (walletWideHistoryKeys.length > 0) {
+      const historyMap = { ...this.store.historyMap }
+      for (const key of walletWideHistoryKeys) {
+        delete historyMap[key]
+      }
+      this.store.historyMap = historyMap
+    }
+
     if (!this.store.walletSavedList) {
       this.store.walletSavedList = []
     }
@@ -387,9 +405,10 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    * Address history management
    */
   updateAddressHistory(address: string, data: TxHistoryItem[]): void {
-    const historyMap = this.store.historyMap || {}
+    const { [address]: _replaced, ...others } = this.store.historyMap || {}
+    const kept = Object.entries(others).slice(-(HISTORY_CACHE_ENTRY_LIMIT - 1))
     this.store.historyMap = {
-      ...historyMap,
+      ...Object.fromEntries(kept),
       [address]: data,
     }
   }
