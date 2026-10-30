@@ -79,6 +79,9 @@ export function PhishingProtectionCard() {
       const next = await readPhishingProtection();
       if (!mounted.current || read !== latestRead.current) return null;
       setView(next);
+      // A failed Retry is forgotten once a read finds a different state, so
+      // a later read cannot bring it back.
+      setRetryFailure((failure) => (failure && failure.state !== next.state ? null : failure));
       return next;
     } finally {
       readsInFlight.current -= 1;
@@ -127,19 +130,25 @@ export function PhishingProtectionCard() {
   const networkRules = view?.networkRules;
   const nextRetryAt = state === 'retrying' ? networkRules?.nextRetryAt : undefined;
 
-  // Count down to the next attempt between reads.
+  // Count down to the next attempt between reads, and stop once it is due.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (nextRetryAt === undefined) return;
     setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= nextRetryAt) clearInterval(timer);
+    }, 1_000);
     return () => clearInterval(timer);
   }, [nextRetryAt]);
 
   const canRetry = !!view && state !== 'protected' && state !== 'unsupported';
   const details: string[] = [];
   if (state === 'retrying' && networkRules) {
-    const due = nextRetryAt === undefined ? null : secondsUntilRetry(nextRetryAt, now);
+    // `now` ticks only while a countdown runs, so it is stale on the first
+    // render after entering retrying.
+    const due = nextRetryAt === undefined ? null : secondsUntilRetry(nextRetryAt, Math.max(now, Date.now()));
     details.push(
       due === null
         ? t('phishing_protection_attempts', [String(networkRules.attempts)])
@@ -159,9 +168,8 @@ export function PhishingProtectionCard() {
     );
   }
 
-  // A failure stays up only until a read finds a different state.
   const retryError =
-    canRetry && retryFailure && retryFailure.state === state
+    canRetry && retryFailure
       ? retryFailure.timedOut
         ? t('phishing_protection_retry_no_answer')
         : retryFailure.error

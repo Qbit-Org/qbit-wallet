@@ -25,25 +25,33 @@ export interface PhishingProtectionView {
   reasons: PhishingProtectionReason[];
 }
 
-const NETWORK_RULE_STATUSES: ReadonlySet<PhishingNetworkRuleStatus> = new Set([
-  'installing',
-  'installed',
-  'retrying',
-  'failed',
-  'unknown',
-  'unsupported'
-]);
+// Keyed by the shared unions, so adding a value there fails the typecheck
+// here until it is listed, rather than turning every answer unknown.
+const NETWORK_RULE_STATUSES: ReadonlySet<string> = new Set(
+  Object.keys({
+    installing: true,
+    installed: true,
+    retrying: true,
+    failed: true,
+    unknown: true,
+    unsupported: true
+  } satisfies Record<PhishingNetworkRuleStatus, true>)
+);
 
-const PROTECTION_STATUSES: ReadonlySet<PhishingProtectionStatus> = new Set(['full', 'degraded', 'unknown']);
+const PROTECTION_STATUSES: ReadonlySet<string> = new Set(
+  Object.keys({ full: true, degraded: true, unknown: true } satisfies Record<PhishingProtectionStatus, true>)
+);
 
-export const PHISHING_PROTECTION_REASONS: readonly PhishingProtectionReason[] = [
-  'block-rule-not-installed',
-  'block-rule-unknown',
-  'redirect-rule-without-host-access',
-  'redirect-rule-unknown',
-  'site-access-withheld',
-  'site-access-unknown'
-];
+const PROTECTION_REASONS: ReadonlySet<string> = new Set(
+  Object.keys({
+    'block-rule-not-installed': true,
+    'block-rule-unknown': true,
+    'redirect-rule-without-host-access': true,
+    'redirect-rule-unknown': true,
+    'site-access-withheld': true,
+    'site-access-unknown': true
+  } satisfies Record<PhishingProtectionReason, true>)
+);
 
 const UNKNOWN: PhishingProtectionView = { state: 'unknown', reasons: [] };
 
@@ -63,7 +71,8 @@ function parseNetworkRules(value: unknown): PhishingNetworkRuleHealth | null {
   if (!isRecord(value)) return null;
   const { status, attempts, blockedDomains, skippedEntries, error, nextRetryAt, updatedAt } = value;
   if (
-    !NETWORK_RULE_STATUSES.has(status as PhishingNetworkRuleStatus) ||
+    typeof status !== 'string' ||
+    !NETWORK_RULE_STATUSES.has(status) ||
     !isCount(attempts) ||
     !(blockedDomains === null || isCount(blockedDomains)) ||
     !Array.isArray(skippedEntries) ||
@@ -80,9 +89,10 @@ function parseProtection(value: unknown): PhishingProtectionHealth | null {
   if (!isRecord(value)) return null;
   const { status, reasons, warningRedirect } = value;
   if (
-    !PROTECTION_STATUSES.has(status as PhishingProtectionStatus) ||
+    typeof status !== 'string' ||
+    !PROTECTION_STATUSES.has(status) ||
     !Array.isArray(reasons) ||
-    !reasons.every((reason) => PHISHING_PROTECTION_REASONS.includes(reason)) ||
+    !reasons.every((reason) => typeof reason === 'string' && PROTECTION_REASONS.has(reason)) ||
     !isRecord(warningRedirect) ||
     typeof warningRedirect.status !== 'string'
   ) {

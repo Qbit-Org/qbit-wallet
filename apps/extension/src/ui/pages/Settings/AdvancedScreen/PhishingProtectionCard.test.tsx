@@ -6,12 +6,17 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { PHISHING_PROTECTION_REFRESH_MS, PhishingProtectionCard } from './PhishingProtectionCard';
 import { PHISHING_RETRY_TIMEOUT_MS, PHISHING_STATS_TIMEOUT_MS } from './phishingProtection';
 
+// Every text the card renders, including frames a test cannot observe after act.
+const rendered = vi.hoisted(() => [] as string[]);
+
 vi.mock('@/ui/components', async () => {
   const React = await import('react');
   const Container = ({ children, 'data-testid': dataTestId }: { children?: ReactNode; 'data-testid'?: string }) =>
     React.createElement('div', { 'data-testid': dataTestId }, children);
-  const Text = ({ text, 'data-testid': dataTestId }: { text?: string; 'data-testid'?: string }) =>
-    React.createElement('span', { 'data-testid': dataTestId }, text);
+  const Text = ({ text, 'data-testid': dataTestId }: { text?: string; 'data-testid'?: string }) => {
+    if (text) rendered.push(text);
+    return React.createElement('span', { 'data-testid': dataTestId }, text);
+  };
   // Calls onClick even while disabled, so the card's own guard is what a
   // second click meets.
   const Button = ({
@@ -101,6 +106,7 @@ describe('PhishingProtectionCard', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     vi.setSystemTime(NOW);
     pending = [];
+    rendered.length = 0;
     handler = statsReply(PROTECTED);
     stubChrome();
   });
@@ -220,7 +226,27 @@ describe('PhishingProtectionCard', () => {
 
     await act(async () => vi.advanceTimersByTime(11_000));
     expect(screen.getByText('phishing_protection_next_attempt_due(3)')).toBeTruthy();
+    // Only the poll is left once the countdown is due.
+    expect(vi.getTimerCount()).toBe(1);
     expect(screen.queryByText(/next_attempt_in\(3\|-/)).toBeNull();
+  });
+
+  it('counts down from the current time on the first render after entering retrying', async () => {
+    await renderCard();
+    // Ten minutes with protection fully on, so no countdown has ticked.
+    await act(async () => vi.advanceTimersByTime(600_000));
+    expect(state()).toBe('phishing_protection_status_protected');
+
+    handler = statsReply({
+      ...PROTECTED,
+      networkRules: networkRules({ status: 'retrying', attempts: 2, nextRetryAt: NOW + 5_000 }),
+      protection: protection('degraded', ['block-rule-not-installed'])
+    });
+    rendered.length = 0;
+    await act(async () => vi.advanceTimersByTime(PHISHING_PROTECTION_REFRESH_MS));
+
+    expect(screen.getByText('phishing_protection_next_attempt_due(2)')).toBeTruthy();
+    expect(rendered.filter((text) => text.startsWith('phishing_protection_next_attempt_in'))).toEqual([]);
   });
 
   it('shows failed with the last error', async () => {
@@ -408,6 +434,13 @@ describe('PhishingProtectionCard', () => {
       await act(async () => vi.advanceTimersByTime(PHISHING_PROTECTION_REFRESH_MS));
       expect(state()).toBe('phishing_protection_status_degraded');
       expect(screen.queryByTestId('phishing-protection-retry-error')).toBeNull();
+
+      // Returning to the state the Retry failed in does not bring the old error back.
+      handler = statsReply(FAILED);
+      await act(async () => vi.advanceTimersByTime(PHISHING_PROTECTION_REFRESH_MS));
+      expect(state()).toBe('phishing_protection_status_failed');
+      expect(screen.queryByTestId('phishing-protection-retry-error')).toBeNull();
+      expect(sent('FORCE_UPDATE_PHISHING_LIST')).toBe(1);
     });
 
     it('shows the last error without the Error: prefix', async () => {
