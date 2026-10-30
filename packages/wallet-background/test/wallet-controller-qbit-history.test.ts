@@ -414,6 +414,64 @@ describe('WalletController Qbit account history snapshots', () => {
     expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
   })
 
+  it('falls back to a full scan when the revision probe fails', async () => {
+    const tx = historyTx('69'.repeat(32), 7, [firstAddress])
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [tx], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([tx])
+    const firstPage = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+    })
+    apiMocks.client.getAddressHistory.mockClear()
+    apiMocks.client.getTipHash.mockRejectedValueOnce(new Error('explorer unavailable'))
+
+    const refreshed = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+      refreshSnapshotId: firstPage.snapshotId,
+    })
+
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledOnce()
+    expect(refreshed.snapshotId).not.toBe(firstPage.snapshotId)
+    expect(refreshed.detail.map(item => item.txid)).toEqual([tx.txid])
+  })
+
+  it('ends a refresh whose account changes during a failed revision probe without a full scan', async () => {
+    const tx = historyTx('6a'.repeat(32), 7, [firstAddress])
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [tx], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([tx])
+    const firstPage = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+    })
+    apiMocks.client.getAddressHistory.mockClear()
+    vi.mocked(preferenceService.updateAddressHistory).mockClear()
+    apiMocks.client.getTipHash.mockImplementationOnce(async () => {
+      selectedAccount = keyring.accounts[1]!
+      throw new Error('explorer unavailable')
+    })
+
+    await expect(
+      controller.getAddressHistory({
+        address: firstAddress,
+        start: 0,
+        limit: 20,
+        refreshSnapshotId: firstPage.snapshotId,
+      })
+    ).rejects.toThrow('Qbit history account or network changed while loading')
+    expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
+    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
+  })
+
   it('drops a read that finishes after the selected account changes', async () => {
     const tx = historyTx('65'.repeat(32), 9, [firstAddress])
     const pendingScans: (() => void)[] = []

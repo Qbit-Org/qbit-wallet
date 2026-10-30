@@ -1912,10 +1912,11 @@ export class WalletController extends BaseController {
             this.getQbitApiClient(scope.chainType),
             [scope.address]
           ).catch(() => undefined)
+          // A switch during the probe ends the read now, whether or not the
+          // probe succeeded, not after a full scan of an account that is no
+          // longer selected.
+          await this.assertQbitHistoryScopeStillActive(scope)
           if (revision) {
-            // A switch during the probe ends the read now, not after a full
-            // scan of an account that is no longer selected.
-            await this.assertQbitHistoryScopeStillActive(scope)
             // A reorg can drop the refreshed tip below a cached confirmed
             // height. Reusing the cached list would clamp the reverted
             // transaction to one confirmation, so fall through to a full scan.

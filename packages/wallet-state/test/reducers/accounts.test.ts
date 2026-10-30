@@ -347,7 +347,7 @@ describe('accounts reducer', () => {
 
   describe('expireHistory', () => {
     it('expires history by its explicit Qbit scope key', () => {
-      const scopeKey = `qbit:QBIT_TESTNET4:${'11'.repeat(32)}`
+      const scopeKey = `qbit-account:QBIT_TESTNET4:${'11'.repeat(32)}`
       let state = accountsReducer(
         initialState,
         accountActions.setCurrent({
