@@ -1632,8 +1632,16 @@ export class WalletController extends BaseController {
     // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
     this.qbitLatestUtxoReads.clear()
     await keyringService.setLocked()
-    // Locking keeps every grant, so it must not look like a revocation: no
-    // accountsChanged [] here. Pages never see the internal lock event.
+    this.announceLock()
+  }
+
+  /**
+   * Tell the pages and the wallet's own UI that the wallet locked. Locking
+   * keeps every grant, so it must not look like a revocation: no
+   * accountsChanged [] here. Pages never see the keyring service's internal
+   * lock event.
+   */
+  private announceLock = () => {
     sessionService.broadcastEvent(SESSION_EVENTS.lock)
     bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
       method: BUS_METHODS.LOCKED,
@@ -2073,13 +2081,14 @@ export class WalletController extends BaseController {
   /* keyrings */
 
   resetAllData = async () => {
+    // A reset wallet keeps no account's outputs, not even while the reset
+    // writes or when it fails. The keyring service marks the wallet locked
+    // only after its writes, so a read that completes during them is kept
+    // until the second clear; nothing is kept after that, nor while locked.
+    this.qbitLatestUtxoReads.clear()
     try {
       await keyringService.resetAllData()
     } finally {
-      // The reset marks the wallet locked without `lockWallet`, and a reset
-      // wallet keeps no account's outputs either, not even when the reset
-      // fails. Nothing is kept after this: not from a read that started
-      // before it, nor while locked.
       this.qbitLatestUtxoReads.clear()
     }
     await preferenceService.resetAllData()
@@ -4768,9 +4777,12 @@ export class WalletController extends BaseController {
       await keyringService.changeAddressType(currentKeyringIndex, addressType)
     } catch (error) {
       // A change the keyring service cannot roll back locks the wallet on
-      // its own, without `lockWallet`; it keeps no account's outputs then
-      // either.
-      if (!this.isUnlocked()) this.qbitLatestUtxoReads.clear()
+      // its own, without `lockWallet`: it keeps no account's outputs then
+      // either, and the pages and the UI are told it locked.
+      if (!this.isUnlocked()) {
+        this.qbitLatestUtxoReads.clear()
+        this.announceLock()
+      }
       throw error
     }
     const keyring = await this.getCurrentKeyring()

@@ -38,11 +38,14 @@ keeps its own meaning, so an outage is never shown as this state.
   out or took in has matured or turned immature again since. `availableBalance`
   is then what a send may select from those outputs, less the outputs the send
   guard reserves, never more than the total, and `unavailableBalance` is the
-  rest. Otherwise, with no such read or when the send guard does not answer
-  within the balance read's bounded wait, the Available and Unavailable rows
-  show `--`, with a line saying both are unknown because the explorer does not
-  list the outputs, and the balance reports `availableBalance` as `null`
-  (unknown, not 0) and keeps `unavailableBalance` equal to the total.
+  rest. Otherwise the split is unknown, failing closed: with no such read,
+  when the statistics the limit check read do not give a balance, when the
+  chain tip a read with coinbase outputs needs cannot be read or is not a
+  valid height, or when the send guard does not answer within the balance
+  read's bounded wait. The Available and Unavailable rows then show `--`, with
+  a line saying both are unknown because the explorer does not list the
+  outputs, and the balance reports `availableBalance` as `null` (unknown, not
+  0) and keeps `unavailableBalance` equal to the total.
   `immatureBalance` and `pendingBalance` stay `null` either way. The wallet
   keeps these reads in memory only, for the four addresses most recently used
   on each network, and forgets them whenever the wallet locks, its data is
