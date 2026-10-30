@@ -1,5 +1,8 @@
 # Qbit Wallet release notes
 
+Issue numbers in parentheses, such as (#339), refer to the project's
+earlier, private tracker, not to issues or pull requests in this repository.
+
 ## 1.0.6
 
 ### Sending and fees
@@ -37,8 +40,9 @@
   again fetches at once, and the warning clears on the next refresh that
   succeeds. A refresh that finishes late no longer replaces the balance or
   error of a newer one. The card's label now reads "Wallet Balance". Until
-  the explorer first answers, the card still shows 0, for about 45 seconds
-  if the explorer does not answer at all.
+  the first balance arrives, the card shows it as loading instead of 0, or
+  keeps it masked while the balance is hidden. If the explorer does not
+  answer at all, the error appears after about 45 seconds.
 
 ### Accounts with many outputs
 
@@ -166,6 +170,13 @@
 - If the wallet's site access in Chrome is set to "On click" or "On specific
   sites", a denylisted page can load while the wallet's phishing block rule
   is not installed, or while the wallet cannot remove its redirect rule.
+- On a slow connection, Speed up can be refused for a large transaction.
+  Right before it broadcasts a fee bump, the wallet reads the original
+  transaction again and asks what spends it, within 10 seconds for both. An
+  original with about 100 inputs is about 400 kB, which the explorer sends
+  as about 800 kB of hex, usually compressed to about 460 kB, so on a
+  connection slower than about 0.4 Mbit/s it does not arrive in time.
+  Nothing is sent, and the original transaction stays as it was.
 
 ## 1.0.5
 

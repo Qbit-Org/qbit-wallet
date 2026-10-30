@@ -379,6 +379,37 @@ describe('useBalanceCardLogic error state', () => {
     expect(result.current.card.balanceRefreshFailed).toBe(false)
     expect(result.current.card.balanceValue).toBe('0.00005000')
   })
+
+  it('shows an older refresh that succeeds after a newer one failed, marked out of date', async () => {
+    const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
+    const getAddressSummary = vi.fn(
+      () => new Promise((resolve, reject) => pending.push({ resolve, reject }))
+    )
+    const { result } = renderWithExplorer({ getAddressSummary })
+
+    let older!: Promise<void>
+    let newer!: Promise<void>
+    act(() => {
+      older = result.current.fetchBalance()
+      newer = result.current.fetchBalance()
+    })
+
+    await act(async () => {
+      pending[1].reject(new Error('explorer timed out'))
+      await newer.catch(() => undefined)
+    })
+    expect(result.current.card.balanceLoadFailed).toBe(true)
+
+    await act(async () => {
+      pending[0].resolve(summary)
+      await older
+    })
+
+    expect(result.current.card.balanceLoadFailed).toBe(false)
+    expect(result.current.card.balanceRefreshFailed).toBe(true)
+    expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
+    expect(result.current.card.balanceValue).toBe('0.00005000')
+  })
 })
 
 describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances', () => {

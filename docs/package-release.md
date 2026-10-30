@@ -142,9 +142,10 @@ pnpm changeset status --verbose
 
 The store artifact declares `http://127.0.0.1:3002/*` under
 `optional_host_permissions` and names `http://127.0.0.1:3002` in the
-extension-page CSP `connect-src`. Required `host_permissions` stay limited to
-the two public explorer origins. When filling in the Web Store listing and the
-privacy/permission justification, describe it as follows:
+extension-page CSP `connect-src`. Required `host_permissions` hold the two
+public explorer origins and the phishing denylist entries described in
+section 8. When filling in the Web Store listing and the privacy/permission
+justification, describe the loopback permission as follows:
 
 - **What it is for**: an advanced developer feature, *Local Regtest*, that lets
   the wallet talk to a Qbit regtest indexer the user runs on their own machine.
@@ -171,8 +172,10 @@ privacy/permission justification, describe it as follows:
 The store artifact also declares `*://*.<entry>/*` under `host_permissions`
 for each domain on the bundled phishing denylist. The build generates them
 from `BUNDLED_PHISHING_DENYLIST`, and `package-artifact-validation.js` pins the
-reviewed list (`EXPECTED_MV3_PHISHING_HOST_PERMISSIONS`), so a denylist change
-fails packaging until that list is reviewed and updated too. The listing will
+reviewed list by its length and SHA-256
+(`REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT` and
+`REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256`), so a denylist change fails
+packaging until it is reviewed and both pins are updated too. The listing will
 show these phishing domains among the extension's sites. Describe them as
 follows:
 
@@ -190,7 +193,8 @@ follows:
   `chrome.management.getPermissionWarningsByManifest` reports that same single
   warning with and without these entries.
 
-`corepack pnpm --filter qbit-extension run package:test` fails the build if
+`corepack pnpm --filter qbit-extension run package:test -- --artifact-version <version>`,
+with the extension's version (for example `1.0.6`), fails the build if
 the generated manifest's required, optional, or CSP loopback entries, or its
 phishing host permissions and web-accessible resources, differ from the
 reviewed values, so inspect the packaged `manifest.json` (not only

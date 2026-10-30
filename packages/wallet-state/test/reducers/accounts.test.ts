@@ -153,7 +153,11 @@ describe('accounts reducer', () => {
         state,
         accountActions.setBalanceV2({ address, balance: balance(7000), requestId: 3 })
       )
-      expect(state.balanceStatusMap[address]).toEqual({ requestId: 3, error: false })
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: false,
+        balanceRequestId: 3,
+      })
       expect(state.balanceV2Map[address].totalBalance).toBe(7000)
     })
 
@@ -164,10 +168,14 @@ describe('accounts reducer', () => {
       )
       state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 1 }))
 
-      expect(state.balanceStatusMap[address]).toEqual({ requestId: 2, error: false })
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 2,
+        error: false,
+        balanceRequestId: 2,
+      })
     })
 
-    it('ignores a success from a request older than the applied failure', () => {
+    it('stores a success that arrives after a newer failure, and keeps the failure', () => {
       let state = accountsReducer(
         initialState,
         accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
@@ -178,7 +186,70 @@ describe('accounts reducer', () => {
         accountActions.setBalanceV2({ address, balance: balance(9000), requestId: 2 })
       )
 
-      expect(state.balanceStatusMap[address]).toEqual({ requestId: 3, error: true })
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: true,
+        balanceRequestId: 2,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(9000)
+    })
+
+    it('stores a first balance that arrives after a newer failure', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceError({ address, requestId: 2 })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 2,
+        error: true,
+        balanceRequestId: 1,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(5000)
+    })
+
+    it('clears the failure once a refresh newer than it succeeds, after a late balance', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceError({ address, requestId: 2 })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(7000), requestId: 3 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: false,
+        balanceRequestId: 3,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(7000)
+    })
+
+    it('ignores a success older than the stored balance, after a failure too', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 2 })
+      )
+      state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 3 }))
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(9000), requestId: 1 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: true,
+        balanceRequestId: 2,
+      })
       expect(state.balanceV2Map[address].totalBalance).toBe(5000)
     })
   })

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "source": "reviewed package metadata for every sha512-bound pnpm-lock.yaml name@version identity",
-  "lockfileSha256": "c11941c1f9fc2195d33847eded09b80401644aa4dc0d6b6776762d2d32a0dd23",
+  "lockfileSha256": "07e58cd4c3e24c16a79cf31a6d7968a4c5e8749a3e70088e1bf6668985d13a04",
   "packageCount": 2272,
   "packages": {
     "@acemir/cssom@0.9.31": "MIT",
