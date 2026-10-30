@@ -12,10 +12,21 @@ import {
   signP2mrPsbt,
   singleKeyLeafScript,
 } from '@qbit-oss/protocol'
-import { KeyringType, type QbitSendBroadcastClaim } from '@qbit/wallet-shared'
-import { ChainType } from '@qbit/wallet-types'
+import {
+  DEFAULT_LOCKTIME_ID,
+  KeyringType,
+  getLockTimeInfo,
+  type QbitSendBroadcastClaim,
+} from '@qbit/wallet-shared'
+import { AddressType, ChainType } from '@qbit/wallet-types'
 import { WalletController } from '../src/controllers/wallet'
-import { keyringService, preferenceService, qbitSendGuardService } from '../src/services'
+import {
+  keyringService,
+  preferenceService,
+  qbitSendGuardService,
+  sessionService,
+} from '../src/services'
+import { bgEventBus } from '../src/utils/eventBus'
 import { QBIT_BROADCAST_RESEND_DELAYS_MS } from '../src/utils/qbit-broadcast'
 import { qbitStatsSnapshot } from '../src/utils/qbit-api'
 import { FakeQbitExplorer, fakeTxid, type FakeFailure } from './qbit-fake-explorer'
@@ -42,18 +53,32 @@ vi.mock('../src/services', async () => {
         lock.isUnlocked = true
       },
       removeKeyring: vi.fn(async () => undefined),
+      // Both mark the wallet locked on their own, as the keyring service
+      // does: a reset, once its writes are done, and an address-type change
+      // it cannot roll back.
+      resetAllData: vi.fn(async () => {
+        await Promise.resolve()
+        lock.isUnlocked = false
+      }),
+      changeAddressType: vi.fn(),
     },
     preferenceService: {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
+      getCurrentKeyringIndex: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(),
+      resetAllData: vi.fn(async () => undefined),
     },
     qbitSendGuardService: guard,
-    walletApiService: { transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() } },
+    walletApiService: {
+      transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() },
+      resetAllData: vi.fn(async () => undefined),
+    },
     sessionService: { broadcastEvent: vi.fn() },
-    contactBookService: {},
+    contactBookService: { resetAllData: vi.fn(async () => undefined) },
     notificationService: {},
-    permissionService: {},
+    permissionService: { resetAllData: vi.fn(async () => undefined) },
   }
 })
 
@@ -469,6 +494,152 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     await expect(wallet.lockWallet()).rejects.toThrow('lock failed')
 
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  /** Whether `wallet` still remembers a read of the account's outputs. */
+  const remembersRead = (wallet: WalletController) => {
+    const client = (wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
+    return (wallet as any).qbitLatestUtxoReads.latest(client, address) !== undefined
+  }
+
+  it('keeps no read once the auto-lock timer locks the wallet', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    vi.mocked(preferenceService.getAutoLockTimeId).mockReturnValue(DEFAULT_LOCKTIME_ID)
+    const now = Date.now()
+    // Timers too, from here on: fake timers in use are not set up again.
+    vi.useRealTimers()
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now })
+
+    // The page reports activity, then none for the auto-lock time.
+    await wallet.setLastActiveTime()
+    await vi.advanceTimersByTimeAsync(getLockTimeInfo(DEFAULT_LOCKTIME_ID).time)
+    expect(keyringService.setLocked).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+    vi.useFakeTimers({ toFake: ['Date'], now })
+
+    expect(remembersRead(wallet)).toBe(false)
+    // Unlocked again, the wallet has no read to take the split from.
+    ;(keyringService as any).unlockForTest()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps no read once the wallet data is reset', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+
+    await wallet.resetAllData()
+    clearTimeout(wallet.timer)
+
+    expect(remembersRead(wallet)).toBe(false)
+    // A wallet set up and unlocked since has no read to take the split from.
+    ;(keyringService as any).unlockForTest()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('keeps nothing when the reset fails', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    // A write fails, before the wallet is marked locked.
+    vi.mocked(keyringService.resetAllData).mockRejectedValueOnce(new Error('reset failed'))
+
+    await expect(wallet.resetAllData()).rejects.toThrow('reset failed')
+
+    expect(remembersRead(wallet)).toBe(false)
+  })
+
+  it('serves no split while a reset writes', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    const lockState = (keyringService as any).memStore.getState()
+    let finishWrites: () => void = () => undefined
+    const writesFinish = new Promise<void>(resolve => (finishWrites = resolve))
+    vi.mocked(keyringService.resetAllData).mockImplementationOnce(async () => {
+      // The keyring service writes first, and only then marks the wallet
+      // locked.
+      await writesFinish
+      lockState.isUnlocked = false
+    })
+
+    const resetting = wallet.resetAllData()
+
+    expect(wallet.isUnlocked()).toBe(true)
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    finishWrites()
+    await resetting
+    clearTimeout(wallet.timer)
+  })
+
+  it('keeps no read once the keyring service locks the wallet on its own', async () => {
+    const wallet = controller()
+    await wallet.getQbitUtxoSnapshot()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
+    const lockState = (keyringService as any).memStore.getState()
+    // Another keyring's address-type change fails, and the keyring service
+    // locks the wallet because it cannot roll the change back.
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
+      type: KeyringType.HdKeyring,
+      accounts: [],
+    } as any)
+    vi.mocked(keyringService.changeAddressType).mockImplementationOnce(async () => {
+      lockState.isUnlocked = false
+      throw new Error('address type not restored')
+    })
+
+    await expect(wallet.changeAddressType(AddressType.P2TR)).rejects.toThrow(
+      'address type not restored'
+    )
+
+    expect(keyringService.setLocked).not.toHaveBeenCalled()
+    expect(remembersRead(wallet)).toBe(false)
+    ;(keyringService as any).unlockForTest()
+    await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  it('announces a lock the keyring service makes on its own as lockWallet does', async () => {
+    const wallet = controller()
+    const uiBroadcasts = vi.spyOn(bgEventBus, 'emit')
+    await wallet.lockWallet()
+    const lockWalletAnnounces = {
+      pages: vi.mocked(sessionService.broadcastEvent).mock.calls.slice(),
+      ui: uiBroadcasts.mock.calls.slice(),
+    }
+    expect(lockWalletAnnounces.pages).toHaveLength(1)
+    expect(lockWalletAnnounces.ui).toHaveLength(1)
+    vi.mocked(sessionService.broadcastEvent).mockClear()
+    uiBroadcasts.mockClear()
+    ;(keyringService as any).unlockForTest()
+    const lockState = (keyringService as any).memStore.getState()
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
+      type: KeyringType.HdKeyring,
+      accounts: [],
+    } as any)
+
+    // A change the keyring service rolls back leaves the wallet unlocked:
+    // nothing to announce.
+    vi.mocked(keyringService.changeAddressType).mockRejectedValueOnce(
+      new Error('address type change failed')
+    )
+    await expect(wallet.changeAddressType(AddressType.P2TR)).rejects.toThrow(
+      'address type change failed'
+    )
+    expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+    expect(uiBroadcasts).not.toHaveBeenCalled()
+
+    // One it cannot roll back locks the wallet, and is announced as a lock.
+    vi.mocked(keyringService.changeAddressType).mockImplementationOnce(async () => {
+      lockState.isUnlocked = false
+      throw new Error('address type not restored')
+    })
+    await expect(wallet.changeAddressType(AddressType.P2TR)).rejects.toThrow(
+      'address type not restored'
+    )
+    expect(vi.mocked(sessionService.broadcastEvent).mock.calls).toEqual(lockWalletAnnounces.pages)
+    expect(uiBroadcasts.mock.calls).toEqual(lockWalletAnnounces.ui)
   })
 
   it('keeps no read made while the wallet is locked', async () => {
