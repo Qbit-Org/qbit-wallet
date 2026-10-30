@@ -3,6 +3,112 @@
 Issue numbers in parentheses, such as (#339), refer to the project's
 earlier, private tracker, not to issues or pull requests in this repository.
 
+## 1.0.7
+
+### Sending and fees
+
+- The send screen's fee bar and its abnormal-fee warning now use the same
+  fee quote, and the estimated fee groups its digits for your language (for
+  example 1,544,000 bits), so a very large fee is easier to spot. When fee
+  estimates cannot be read, you can still set a custom fee rate.
+- The send and consolidation screens wait until the fee rate comes from the
+  current fee estimate. Until then they show the fee and total as pending, so
+  nothing can be sent or consolidated at a placeholder rate or at the previous
+  network's rate.
+- Speed up now checks twice, ignoring cached answers, that no later payment
+  depends on the transaction it replaces. A send retried after the wallet
+  restarts is checked the same way before it goes out.
+- On a slow connection, sending, checking a payment's status, speeding up a
+  payment and consolidating no longer hang for up to 15 minutes. Each now ends
+  within its own time limit and keeps an unknown outcome unknown, and a Speed
+  up no longer fails after you have approved it.
+- Retrying a payment whose outcome was unknown can no longer mark it "not
+  sent" and free its coins while the first attempt may still be spending them.
+
+### Balance
+
+- The balance no longer stalls while a payment is being broadcast: it briefly
+  shows Available and Unavailable as `--`.
+- Accounts with more than 500 outputs now see their real Available and
+  Unavailable amounts once the wallet has read their outputs. The send screen
+  no longer shows the whole balance as Unavailable while the split is unknown.
+- On mempool-qbit, accounts whose pending transactions fill whole history
+  pages can be read in full again, for sending, restoring, recovery and
+  activity history. Recovery sets aside, and names, a source it still cannot
+  read instead of stopping, and the balance shows `--` instead of 0 until it
+  has been read.
+
+### Websites and approvals
+
+- A website can switch Qbit chains after you unlock the wallet, the
+  network-switch approval screen opens again, and the wallet-connect library
+  connects before it asks to switch chains.
+- A website request now ends when the page that sent it is closed, so an
+  approval left open for a closed page can no longer sign or send anything.
+  Opening the wallet from the toolbar no longer cancels a site's pending
+  unlock request, and the wallet tells you when opening it does cancel one.
+- Website PSBT approvals:
+  - They say whether the site gets a transaction it can broadcast right away,
+    once its lock time has passed, or once the coins it spends are old enough.
+  - They show the transaction's lock time, its inputs' relative locks and its
+    version.
+  - They mark the outputs that come back to you or to another of your accounts.
+  - They describe a signed but unfinalized result as needing the site or other
+    signers to finalize it.
+- Website PSBT approvals ask you to confirm a fee that is a large share of
+  the payment, even when the estimated fee rate looks normal. This covers the
+  1.0.6 limitation for transactions that also spend coins not held at the
+  wallet's own addresses.
+- Connected websites are saved in a format the wallet controls, and a problem
+  loading them no longer keeps the rest of the wallet, including phishing
+  protection, from starting. Websites you connected in 1.0.6 stay connected.
+
+### Phishing protection
+
+- Phishing protection diagnostics report protection as degraded while a
+  site-access change is still being applied or the block rule is not
+  installed.
+- A link to a blocked site that opens in a new tab shows the warning there
+  without replacing the page you came from.
+- The warning screen offers Continue only for addresses it can open, and says
+  why otherwise.
+
+### Restoring a wallet
+
+- Restoring a wallet can no longer take a signature-counter floor from an
+  explorer that claims impossible or extreme address statistics, which could
+  have left the wallet unable to sign until it was restored again.
+
+### Settings and contacts
+
+- If a change to sign-data requests or the auto-lock time cannot be saved, the
+  wallet tries again to save the previous value. If that fails too, it says
+  the stored setting may have changed, instead of implying the old value will
+  still apply after a restart.
+- If the wallet cannot read its stored settings when it starts, it shows an
+  error screen with Retry instead of an empty window, and Retry never
+  overwrites what is stored.
+- Changing a contact's address or network is a single save, so a failed save
+  no longer loses the contact. A failed reorder says so and shows the saved
+  order.
+
+### Repository and release
+
+- A high-severity advisory published during the release, for a URL-decoding
+  package reached only through build and test tooling, is cleared by removing
+  those paths. The packaged extension is byte-identical to the build before
+  the change.
+
+### Known limitations
+
+- The Available and Unavailable amounts of an account with more than 500
+  outputs come from the last read of its outputs. Any new transaction for the
+  address makes them unknown (`--`) again until the send screen reads its
+  outputs, so a busy address rarely shows them.
+- Speed up, and a send retried after the wallet restarts, are refused rather
+  than sent when the explorer is slow (more than about 5 seconds a read) or
+  has not yet indexed a funding transaction. Try again later.
+
 ## 1.0.6
 
 ### Sending and fees
