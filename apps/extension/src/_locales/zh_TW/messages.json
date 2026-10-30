@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "費率"
   },
+  "fee_estimates_unavailable": {
+    "message": "目前無法取得手續費估算。"
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "目前無法取得手續費估算，將使用最低轉送費率 $1 bit/vB。"
   },
@@ -3010,6 +3013,72 @@
   },
   "unrecognised_output_risk_description": {
     "message": "某筆輸出付款至既不屬於您、也不是此請求所指定接收者的地址，或付款至沒有地址的腳本。簽署前請檢查每一筆輸出。"
+  },
+  "psbt_output_change": {
+    "message": "找零"
+  },
+  "psbt_output_this_account": {
+    "message": "轉入此帳戶"
+  },
+  "psbt_output_other_account": {
+    "message": "您的其他帳戶"
+  },
+  "psbt_after_signing": {
+    "message": "簽署後"
+  },
+  "psbt_finalized": {
+    "message": "已完成：網站可以廣播"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "已完成：鎖定時間過後網站即可廣播"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "已完成：所花費的代幣確認時間足夠後網站即可廣播"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "已完成：鎖定時間過後且所花費的代幣確認時間足夠後，網站即可廣播"
+  },
+  "psbt_not_finalized": {
+    "message": "已簽署，未完成：須由網站或其他簽署者完成後才能廣播"
+  },
+  "psbt_locktime": {
+    "message": "鎖定時間"
+  },
+  "psbt_locktime_none": {
+    "message": "無鎖定"
+  },
+  "psbt_locktime_block": {
+    "message": "區塊 $1 之後"
+  },
+  "psbt_locktime_median_time": {
+    "message": "網路中位時間超過 $1 後生效"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 不生效：所有輸入皆為最終"
+  },
+  "psbt_relative_lock": {
+    "message": "相對鎖定"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "輸入 $1：所花費的代幣獲得 1 次確認後"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "輸入 $1：所花費的代幣獲得 $2 次確認後"
+  },
+  "psbt_relative_lock_short": {
+    "message": "輸入 $1：所花費的代幣確認後不久（以區塊時間計少於兩小時）"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "輸入 $1：所花費的代幣以區塊時間計存在約 $2 小時後"
+  },
+  "psbt_relative_lock_days": {
+    "message": "輸入 $1：所花費的代幣以區塊時間計存在約 $2 天後"
+  },
+  "psbt_relative_lock_count": {
+    "message": "有相對鎖定的輸入：$1 / $2"
+  },
+  "psbt_tx_version": {
+    "message": "版本"
   },
   "multisign_flagged_transactions": {
     "message": "簽署前需要確認的交易：$1"

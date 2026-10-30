@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "手数料率"
   },
+  "fee_estimates_unavailable": {
+    "message": "手数料の見積もりを利用できません。"
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "手数料の見積もりを利用できません。リレー最小値の $1 bit/vB を使用しています。"
   },
@@ -3010,6 +3013,72 @@
   },
   "unrecognised_output_risk_description": {
     "message": "あるアウトプットが、あなたのものでもこのリクエストが示す受信者のものでもないアドレス、またはアドレスのないスクリプトに支払っています。署名する前にすべてのアウトプットを確認してください。"
+  },
+  "psbt_output_change": {
+    "message": "おつり"
+  },
+  "psbt_output_this_account": {
+    "message": "このアカウント宛て"
+  },
+  "psbt_output_other_account": {
+    "message": "あなたの別のアカウント"
+  },
+  "psbt_after_signing": {
+    "message": "署名後"
+  },
+  "psbt_finalized": {
+    "message": "ファイナライズ済み：サイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "ファイナライズ済み：ロックタイム経過後にサイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "ファイナライズ済み：使用するコインが必要な期間を経過した後にサイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "ファイナライズ済み：ロックタイム経過後、かつ使用するコインが必要な期間を経過した後にサイトがブロードキャストできます"
+  },
+  "psbt_not_finalized": {
+    "message": "署名済み・未ファイナライズ：ブロードキャストの前に、サイトまたは他の署名者がファイナライズする必要があります"
+  },
+  "psbt_locktime": {
+    "message": "ロックタイム"
+  },
+  "psbt_locktime_none": {
+    "message": "ロックなし"
+  },
+  "psbt_locktime_block": {
+    "message": "ブロック $1 の後"
+  },
+  "psbt_locktime_median_time": {
+    "message": "ネットワークの中央値時間が $1 を過ぎると有効"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 は適用されません：すべての入力が確定済みです"
+  },
+  "psbt_relative_lock": {
+    "message": "相対ロック"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "インプット $1：使用するコインの承認数が 1 に達した後"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "インプット $1：使用するコインの承認数が $2 に達した後"
+  },
+  "psbt_relative_lock_short": {
+    "message": "インプット $1：使用するコインの承認から間もなく（ブロック時間で 2 時間未満）"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "インプット $1：使用するコインがブロック時間で約 $2 時間経過した後"
+  },
+  "psbt_relative_lock_days": {
+    "message": "インプット $1：使用するコインがブロック時間で約 $2 日経過した後"
+  },
+  "psbt_relative_lock_count": {
+    "message": "相対ロックのあるインプット：$2 件中 $1 件"
+  },
+  "psbt_tx_version": {
+    "message": "バージョン"
   },
   "multisign_flagged_transactions": {
     "message": "署名前に確認が必要なトランザクション：$1"

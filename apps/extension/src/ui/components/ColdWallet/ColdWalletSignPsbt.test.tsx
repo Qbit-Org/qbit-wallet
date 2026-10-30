@@ -33,6 +33,25 @@ vi.mock('@qbit/wallet-state', () => ({
 
 const HIGH_FEE = { type: 4, level: 'warning', title: 'High fee detected', desc: '' };
 
+/** The decoded PSBT fields a signer's request has always carried, in the order the review returns them. */
+const SIGNER_FIELDS = {
+  inputInfos: [
+    { txid: 'ab'.repeat(32), vout: 0, sequence: 4294967293, address: 'qbrt1zaccount', value: 10_000, sighashType: 0 }
+  ],
+  outputInfos: [
+    { address: 'qbrt1zpayee', value: 2_000, scriptPubKeyHex: '5220beef' },
+    { address: 'qbrt1zaccount', value: 4_140, scriptPubKeyHex: '5220cafe' }
+  ],
+  feeRate: 1,
+  fee: 3860,
+  features: { rbf: true },
+  risks: [HIGH_FEE],
+  isScammer: false,
+  recommendedFeeRate: 9,
+  shouldWarnFeeRate: true,
+  isCompleted: true
+};
+
 describe('ColdWalletSignPsbt request', () => {
   const wallet = {
     getCurrentAccount: vi.fn(),
@@ -70,6 +89,26 @@ describe('ColdWalletSignPsbt request', () => {
     for (const request of encoded.requests) {
       const { decodedPsbt } = JSON.parse(request);
       expect(decodedPsbt).toEqual({ risks: [HIGH_FEE] });
+    }
+  });
+
+  it('sends the signer only the fields it reads, in the order it always had them', async () => {
+    // Everything a review returns: the signer's fields, then what only the
+    // approval shows, including a field the signer has never seen.
+    wallet.decodePsbt.mockImplementation(async () => ({
+      ...SIGNER_FIELDS,
+      spendSummary: { account: 'qbrt1zaccount' },
+      outputOwners: ['none', 'change'],
+      version: 2,
+      locktime: 900000,
+      approvalOnlyDetail: 'never for the signer'
+    }));
+    render(<ColdWalletSignPsbt psbtHex="70736274ff" suppliedByWebsite onSuccess={vi.fn()} onCancel={vi.fn()} />);
+
+    await waitFor(() => expect(encoded.requests).toHaveLength(2));
+    for (const request of encoded.requests) {
+      const { decodedPsbt } = JSON.parse(request);
+      expect(JSON.stringify(decodedPsbt)).toBe(JSON.stringify(SIGNER_FIELDS));
     }
   });
 

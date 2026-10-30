@@ -12,6 +12,7 @@ export default function QbitConsolidationScreen() {
     batchSummary,
     error,
     canPrepare,
+    feeQuote,
     onClickPrepare,
     onClickConfirm,
     t
@@ -34,7 +35,7 @@ export default function QbitConsolidationScreen() {
           ) : null}
 
           <Column mt="lg">
-            <FeeRateBar />
+            <FeeRateBar quote={feeQuote} />
           </Column>
 
           {batchSummary ? <Text text={batchSummary} preset="regular" data-testid="consolidation-batch" /> : null}

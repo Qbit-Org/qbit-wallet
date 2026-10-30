@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { QbitReplaceableReads } from '../src/utils/qbit-shared-reads'
+import { QbitLatestAnswers, QbitReplaceableReads } from '../src/utils/qbit-shared-reads'
 
 /** A read the test answers by hand, recording the signal it was started with. */
 function manualRead<T>() {
@@ -90,5 +90,66 @@ describe('QbitReplaceableReads', () => {
     expect(started[0]!.signal.aborted).toBe(false)
     started[0]!.resolve('answer')
     await expect(waiting).resolves.toBe('answer')
+  })
+})
+
+describe('QbitLatestAnswers', () => {
+  it('keeps the latest answer, for its scope and slot only', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+
+    answers.keep(client, 'qb1a', answers.start(), 'outputs')
+
+    expect(answers.latest(client, 'qb1a')).toBe('outputs')
+    expect(answers.latest(client, 'qb1b')).toBeUndefined()
+    expect(answers.latest({}, 'qb1a')).toBeUndefined()
+  })
+
+  it('lets a read that started later replace one that started earlier, never the reverse', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    const firstRead = answers.start()
+    const secondRead = answers.start()
+
+    answers.keep(client, 'qb1a', secondRead, 'later')
+    // The earlier read finishes last: it does not replace the later one.
+    answers.keep(client, 'qb1a', firstRead, 'earlier')
+    expect(answers.latest(client, 'qb1a')).toBe('later')
+
+    // A read started after both replaces them, whatever it found: after an
+    // eviction it may find less history than the one it replaces.
+    answers.keep(client, 'qb1a', answers.start(), 'after an eviction')
+    expect(answers.latest(client, 'qb1a')).toBe('after an eviction')
+  })
+
+  it('forgets every answer on clear, and keeps nothing from a read that started before it', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    answers.keep(client, 'qb1a', answers.start(), 'kept')
+    const running = answers.start()
+
+    answers.clear()
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+
+    answers.keep(client, 'qb1a', running, 'from before the clear')
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+    answers.keep(client, 'qb1a', answers.start(), 'after')
+    expect(answers.latest(client, 'qb1a')).toBe('after')
+  })
+
+  it('keeps the slots most recently used, up to its bound', () => {
+    const answers = new QbitLatestAnswers<string>(2)
+    const client = {}
+    answers.keep(client, 'qb1a', answers.start(), 'a')
+    answers.keep(client, 'qb1b', answers.start(), 'b')
+    // Reading a slot counts as using it.
+    expect(answers.latest(client, 'qb1a')).toBe('a')
+
+    answers.keep(client, 'qb1c', answers.start(), 'c')
+
+    expect(answers.latest(client, 'qb1b')).toBeUndefined()
+    expect(answers.latest(client, 'qb1a')).toBe('a')
+    expect(answers.latest(client, 'qb1c')).toBe('c')
   })
 })

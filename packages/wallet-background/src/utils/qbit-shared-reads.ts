@@ -129,3 +129,62 @@ interface SharedRead<T, V> {
   waiters: number
   replacedBy?: SharedRead<T, V>
 }
+
+/**
+ * The latest answer kept per scope and slot. A read takes its place in line
+ * when it starts (`start`), and its answer replaces the kept one unless the
+ * kept one comes from a read that started later: what a read found, however
+ * little, never ranks it, so after an eviction a later read that finds less
+ * history still replaces an earlier one. Callers keep only answers to reads
+ * that completed. `clear` forgets every answer, and a read that started
+ * before it keeps nothing. Kept in memory only, for the slots most recently
+ * used, and scopes are held weakly, as above.
+ */
+export class QbitLatestAnswers<T> {
+  private answers = new WeakMap<object, Map<string, { order: number; value: T }>>()
+  private started = 0
+  /** The last place in line before the latest `clear`. */
+  private cleared = 0
+
+  /** Keeps answers for at most `slotsPerScope` slots per scope, the most recently used. */
+  constructor(private readonly slotsPerScope = Infinity) {}
+
+  /** The place in line of a read starting now, to `keep` its answer with. */
+  start(): number {
+    return ++this.started
+  }
+
+  keep(scope: object, slot: string, order: number, value: T): void {
+    if (order <= this.cleared) return
+    let scoped = this.answers.get(scope)
+    if (!scoped) {
+      scoped = new Map()
+      this.answers.set(scope, scoped)
+    }
+    const kept = scoped.get(slot)
+    if (kept && kept.order > order) return
+    // Last in the map's order is the most recently used.
+    scoped.delete(slot)
+    scoped.set(slot, { order, value })
+    for (const oldest of scoped.keys()) {
+      if (scoped.size <= this.slotsPerScope) break
+      scoped.delete(oldest)
+    }
+  }
+
+  /** The answer kept for `slot`, which counts as a use of it. */
+  latest(scope: object, slot: string): T | undefined {
+    const scoped = this.answers.get(scope)
+    const kept = scoped?.get(slot)
+    if (!scoped || !kept) return undefined
+    scoped.delete(slot)
+    scoped.set(slot, kept)
+    return kept.value
+  }
+
+  /** Forget every answer, including those of reads still running. */
+  clear(): void {
+    this.answers = new WeakMap()
+    this.cleared = this.started
+  }
+}

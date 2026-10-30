@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "Ставка комиссии"
   },
+  "fee_estimates_unavailable": {
+    "message": "Оценки комиссии недоступны."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Оценки комиссии недоступны. Используется минимальная ставка ретрансляции $1 бит/vB."
   },
@@ -3010,6 +3013,72 @@
   },
   "unrecognised_output_risk_description": {
     "message": "Один из выходов платит на адрес, который не принадлежит ни вам, ни получателю, указанному в этом запросе, или на скрипт без адреса. Проверьте все выходы перед подписью."
+  },
+  "psbt_output_change": {
+    "message": "Сдача"
+  },
+  "psbt_output_this_account": {
+    "message": "На этот аккаунт"
+  },
+  "psbt_output_other_account": {
+    "message": "Другой ваш аккаунт"
+  },
+  "psbt_after_signing": {
+    "message": "После подписи"
+  },
+  "psbt_finalized": {
+    "message": "Финализирована: сайт может отправить её в сеть"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда истечёт её блокировка по времени"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда расходуемые монеты станут достаточно старыми"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда истечёт её блокировка по времени и расходуемые монеты станут достаточно старыми"
+  },
+  "psbt_not_finalized": {
+    "message": "Подписана, не финализирована: до отправки в сеть её должен финализировать сайт или другие подписанты"
+  },
+  "psbt_locktime": {
+    "message": "Блокировка по времени"
+  },
+  "psbt_locktime_none": {
+    "message": "Без блокировки"
+  },
+  "psbt_locktime_block": {
+    "message": "После блока $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Действительна, когда медианное время сети превысит $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 не действует: все входы финальные"
+  },
+  "psbt_relative_lock": {
+    "message": "Относительная блокировка"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Вход $1: когда у расходуемой монеты будет 1 подтверждение"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Вход $1: когда у расходуемой монеты будет подтверждений: $2"
+  },
+  "psbt_relative_lock_short": {
+    "message": "Вход $1: вскоре после подтверждения расходуемой монеты (менее двух часов по времени блоков)"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Вход $1: когда расходуемой монете будет примерно $2 ч по времени блоков"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Вход $1: когда расходуемой монете будет примерно $2 дн. по времени блоков"
+  },
+  "psbt_relative_lock_count": {
+    "message": "Входов с относительной блокировкой: $1 из $2"
+  },
+  "psbt_tx_version": {
+    "message": "Версия"
   },
   "multisign_flagged_transactions": {
     "message": "Транзакции, требующие подтверждения перед подписью: $1"

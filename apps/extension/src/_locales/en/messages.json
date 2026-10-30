@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "Fee Rate"
   },
+  "fee_estimates_unavailable": {
+    "message": "Fee estimates are unavailable."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Fee estimates are unavailable. Using the $1 bit/vB relay floor."
   },
@@ -3010,6 +3013,72 @@
   },
   "unrecognised_output_risk_description": {
     "message": "An output pays an address that is neither yours nor the recipient this request names, or a script with no address. Check every output before you sign."
+  },
+  "psbt_output_change": {
+    "message": "Change"
+  },
+  "psbt_output_this_account": {
+    "message": "To this account"
+  },
+  "psbt_output_other_account": {
+    "message": "Your other account"
+  },
+  "psbt_after_signing": {
+    "message": "After signing"
+  },
+  "psbt_finalized": {
+    "message": "Finalized: the site can broadcast it"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalized: the site can broadcast it once its lock time has passed"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "Finalized: the site can broadcast it once the coins it spends are old enough"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Finalized: the site can broadcast it once its lock time has passed and the coins it spends are old enough"
+  },
+  "psbt_not_finalized": {
+    "message": "Signed, not finalized: the site or other signers must finalize it before it can be broadcast"
+  },
+  "psbt_locktime": {
+    "message": "Lock time"
+  },
+  "psbt_locktime_none": {
+    "message": "No lock"
+  },
+  "psbt_locktime_block": {
+    "message": "After block $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Valid once the network's median time passes $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 is not enforced: every input is final"
+  },
+  "psbt_relative_lock": {
+    "message": "Relative lock"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Input $1: once the coin it spends has 1 confirmation"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Input $1: once the coin it spends has $2 confirmations"
+  },
+  "psbt_relative_lock_short": {
+    "message": "Input $1: shortly after the coin it spends confirms (under two hours by block time)"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Input $1: once the coin it spends is about $2 hours old by block time"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Input $1: once the coin it spends is about $2 days old by block time"
+  },
+  "psbt_relative_lock_count": {
+    "message": "$1 of $2 inputs have a relative lock"
+  },
+  "psbt_tx_version": {
+    "message": "Version"
   },
   "multisign_flagged_transactions": {
     "message": "Transactions that need a confirmation before signing: $1"

@@ -310,6 +310,8 @@ export interface WalletController {
     qbitUtxos: UnspentOutput[]
     /** The network `qbitUtxos` were loaded on; the background refuses any other. */
     qbitUtxoChain: ChainType
+    /** The account `qbitUtxos` were read for; the background refuses any but the selected one. */
+    qbitUtxoAddress: string
     feeRate: number
     enableRBF?: boolean
     memo?: string
@@ -324,6 +326,8 @@ export interface WalletController {
     qbitUtxos: UnspentOutput[]
     /** The network `qbitUtxos` were loaded on; the background refuses any other. */
     qbitUtxoChain: ChainType
+    /** The account `qbitUtxos` were read for; the background refuses any but the selected one. */
+    qbitUtxoAddress: string
     feeRate: number
     enableRBF?: boolean
     memo?: string

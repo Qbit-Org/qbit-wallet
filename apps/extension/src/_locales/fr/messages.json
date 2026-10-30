@@ -761,6 +761,9 @@
   "fee_rate": {
     "message": "Taux de Frais"
   },
+  "fee_estimates_unavailable": {
+    "message": "Les estimations de frais sont indisponibles."
+  },
   "fee_estimates_unavailable_using_floor": {
     "message": "Les estimations de frais sont indisponibles. Le minimum de relais de $1 bit/vB est utilisé."
   },
@@ -3010,6 +3013,72 @@
   },
   "unrecognised_output_risk_description": {
     "message": "Une sortie paie une adresse qui n'est ni la vôtre ni celle du destinataire indiqué par cette demande, ou un script sans adresse. Vérifiez chaque sortie avant de signer."
+  },
+  "psbt_output_change": {
+    "message": "Monnaie rendue"
+  },
+  "psbt_output_this_account": {
+    "message": "Vers ce compte"
+  },
+  "psbt_output_other_account": {
+    "message": "Un autre de vos comptes"
+  },
+  "psbt_after_signing": {
+    "message": "Après signature"
+  },
+  "psbt_finalized": {
+    "message": "Finalisée : le site peut la diffuser"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "Finalisée : le site peut la diffuser une fois que les pièces qu'elle dépense sont assez anciennes"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé et les pièces qu'elle dépense assez anciennes"
+  },
+  "psbt_not_finalized": {
+    "message": "Signée, non finalisée : le site ou d'autres signataires doivent la finaliser avant qu'elle puisse être diffusée"
+  },
+  "psbt_locktime": {
+    "message": "Verrouillage temporel"
+  },
+  "psbt_locktime_none": {
+    "message": "Aucun verrouillage"
+  },
+  "psbt_locktime_block": {
+    "message": "Après le bloc $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Valide dès que le temps médian du réseau dépasse $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 ne s'applique pas : toutes les entrées sont finales"
+  },
+  "psbt_relative_lock": {
+    "message": "Verrouillage relatif"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a 1 confirmation"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a $2 confirmations"
+  },
+  "psbt_relative_lock_short": {
+    "message": "Entrée $1 : peu après la confirmation de la pièce qu'elle dépense (moins de deux heures en temps de bloc)"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a environ $2 heures en temps de bloc"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a environ $2 jours en temps de bloc"
+  },
+  "psbt_relative_lock_count": {
+    "message": "$1 entrées sur $2 ont un verrouillage relatif"
+  },
+  "psbt_tx_version": {
+    "message": "Version"
   },
   "multisign_flagged_transactions": {
     "message": "Transactions à confirmer avant de signer : $1"

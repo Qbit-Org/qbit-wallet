@@ -133,6 +133,23 @@ export type PsbtOutputRole =
   | 'unrecognised'
 
 /**
+ * Which of the wallet's accounts an output pays, from the scripts and addresses
+ * the wallet derives for them, never from records the PSBT carries about it.
+ */
+export type PsbtOutputOwner =
+  /**
+   * Change to the account signing the PSBT: the wallet funds every input, and
+   * the request does not name the output's address as its recipient.
+   */
+  | 'change'
+  /** The account signing the PSBT, as a payment it may be receiving rather than change. */
+  | 'this_account'
+  /** Another of the wallet's accounts. */
+  | 'other_account'
+  /** None of the wallet's accounts, including an OP_RETURN data output. */
+  | 'none'
+
+/**
  * What a PSBT does to the wallet, computed by the background from the exact
  * bytes it decoded. It is only valid for those bytes and for `account`.
  */
@@ -189,6 +206,15 @@ export interface DecodedPsbt {
   shouldWarnFeeRate: boolean
   isCompleted: boolean
   spendSummary: PsbtSpendSummary
+  /** One owner for each output, in output order, for the account `spendSummary` is relative to. */
+  outputOwners?: PsbtOutputOwner[]
+  /** The transaction's version. */
+  version?: number
+  /**
+   * The transaction's nLockTime: 0 for none, a block height below 500,000,000,
+   * and a Unix time from it. Not enforced when every input's sequence is final.
+   */
+  locktime?: number
 }
 
 export interface PsbtLocalInfo {

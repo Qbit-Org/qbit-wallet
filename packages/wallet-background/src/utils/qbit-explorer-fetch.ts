@@ -65,6 +65,31 @@ export interface QbitExplorerFetchOptions {
 }
 
 /**
+ * The query parameter that makes a read fresh: a random nonce no other
+ * request carries, so no cache keyed by URL, the browser's or one in front
+ * of the explorer (electrs lets a reply be reused for 10 s), can answer it
+ * with an earlier reply. The explorer ignores it. The wallet's explorer
+ * fetch also sends such a read with `cache: 'no-store'`.
+ */
+export const QBIT_EXPLORER_FRESH_READ_PARAM = 'qbit_fresh'
+
+/** `path`, relative to a base URL, as a fresh read of it (see `QBIT_EXPLORER_FRESH_READ_PARAM`). */
+export function qbitExplorerFreshReadPath(path: string): string {
+  const nonce = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), byte =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+  return `${path}${path.includes('?') ? '&' : '?'}${QBIT_EXPLORER_FRESH_READ_PARAM}=${nonce}`
+}
+
+/** Whether `route`, relative to the base URL, is a fresh read. */
+function isQbitExplorerFreshRead(route: string): boolean {
+  const query = route.indexOf('?')
+  return (
+    query >= 0 && new URLSearchParams(route.slice(query + 1)).has(QBIT_EXPLORER_FRESH_READ_PARAM)
+  )
+}
+
+/**
  * One deadline shared by every explorer read an operation makes (a
  * broadcast with its lookups, a status check, a fee bump's assessment, a
  * consolidation batch), and one cancellation for all of them. Each read is
@@ -206,7 +231,8 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
     let pending: Promise<Response> | undefined
     let response: Response
     try {
-      const requestInit = { ...init, signal: controller.signal }
+      const requestInit: RequestInit = { ...init, signal: controller.signal }
+      if (route !== undefined && isQbitExplorerFreshRead(route)) requestInit.cache = 'no-store'
       pending = fetchFn ? fetchFn(input, requestInit) : globalThis.fetch(input, requestInit)
       response = await raceAbort(pending, controller.signal)
     } catch (error) {
