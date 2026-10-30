@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Qbit Wallet</string>
+    <string name="title_activity_main">Qbit Wallet</string>
+    <string name="package_name">org.qbit.wallet</string>
+    <string name="custom_url_scheme">org.qbit.wallet</string>
+</resources>

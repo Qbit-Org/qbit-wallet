@@ -688,6 +688,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@capacitor/android':
+        specifier: 8.5.3
+        version: 8.5.3(@capacitor/core@8.5.3)
       '@capacitor/browser':
         specifier: 8.0.5
         version: 8.0.5(@capacitor/core@8.5.3)
@@ -4493,6 +4496,14 @@ packages:
   /@bufbuild/protobuf@2.2.0:
     resolution: {integrity: sha512-+imAQkHf7U/Rwvu0wk1XWgsP3WnpCWmK7B48f0XqSNzgk64+grljTKC7pnO/xBiEMUziF7vKRfbBnOQhg126qQ==}
     dev: true
+
+  /@capacitor/android@8.5.3(@capacitor/core@8.5.3):
+    resolution: {integrity: sha512-ilH4gSSz3DrketMkzDVAvY9JsWJ//rCQnECLTdcFRO7xXDogwAbUvQAnIAbiqefwV/D1xfjEL4Gw1MJXEcaA9g==}
+    peerDependencies:
+      '@capacitor/core': ^8.5.0
+    dependencies:
+      '@capacitor/core': 8.5.3
+    dev: false
 
   /@capacitor/browser@8.0.5(@capacitor/core@8.5.3):
     resolution: {integrity: sha512-qqcEjUqs9kG1naF+tsD8rERuZ3wuIfXzvoIJEERHI4RNWwNSUqAHHduaKhkyb+t01VyVPa0ydx0mZ/eOskk2Ug==}

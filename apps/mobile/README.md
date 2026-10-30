@@ -83,6 +83,8 @@ and open it at phone size. Capacitor's web fallbacks store data in `localStorage
 - **Keychain storage.** The vault (already encrypted with the wallet password) is stored in
   UserDefaults through `@capacitor/preferences`. Moving it to the Keychain is a follow-up.
 - **Regtest.** The local-regtest permission is never granted, so regtest stays locked.
-- **Android.** Only the iOS platform has been added (`npx cap add android` is the next step).
+- **Android.** The platform is added (`corepack pnpm build:android`, then `open:android` or
+  `cd android && ./gradlew assembleDebug`; needs JDK 21 and Android SDK 36). It boots, creates and
+  unlocks a wallet and signs P2MR messages on an API 36 emulator. The back button closes the app.
 - **Release work.** Signing team, App Store metadata, and the dependency license/inventory
   refresh for the new Capacitor packages (`scripts/security/dependency-policy.mjs`).

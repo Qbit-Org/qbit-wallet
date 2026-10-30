@@ -11,10 +11,14 @@
     "sync:ios": "cap sync ios",
     "build:ios": "node scripts/build-web.mjs && cap sync ios",
     "open:ios": "cap open ios",
+    "sync:android": "cap sync android",
+    "build:android": "node scripts/build-web.mjs && cap sync android",
+    "open:android": "cap open android",
     "test": "vitest run --config vitest.config.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@capacitor/android": "8.5.3",
     "@capacitor/browser": "8.0.5",
     "@capacitor/core": "8.5.3",
     "@capacitor/ios": "8.5.3",
