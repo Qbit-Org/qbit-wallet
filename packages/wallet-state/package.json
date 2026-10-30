@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-state",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "private": true,
   "description": "Redux state management for Qbit Wallet, shared between platforms",
   "main": "lib/index.js",

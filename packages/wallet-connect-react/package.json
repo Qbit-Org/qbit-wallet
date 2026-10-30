@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-connect-react",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "React components for Qbit wallet connections",
   "main": "lib/index.js",
