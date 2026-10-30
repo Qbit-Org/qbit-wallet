@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "eede40b04a49997b33a6b64bd9d35a804cd54d5b",
-  "lockfileSha256": "2445dfacd65d6b35cc13b4b1e4e8c7a79c2a52ad84840b32e3192316db3021eb",
+  "auditedCommit": "9accff3baba6478eec73a95456f988ad8c370dd8",
+  "lockfileSha256": "87b9fb31de464eef495be721b1da2feee9ac332c78f5181de19002e24b8d0175",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "4f7ee9489ba99e391c1995c52fdd3b0b7d8963cdad209a65e4fb923e860e563b",
+    "sha256": "40611505928f733b60d893599ec2d1c64fee775fc2689ce0ffef510beef63bff",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,42 +14,42 @@
   },
   "summary": {
     "workspaces": 20,
-    "registryLockEntries": 2533,
-    "directDeclarations": 439,
+    "registryLockEntries": 2388,
+    "directDeclarations": 438,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 131,
       "extension-build-packaging": 79,
       "shipped-runtime": 169,
-      "test-only-tooling": 36,
+      "test-only-tooling": 35,
       "workspace-contract": 24
     },
-    "securityAdjacentResolvedPackages": 215,
+    "securityAdjacentResolvedPackages": 208,
     "securityAdjacentByCategory": {
-      "serialization": 102,
-      "crypto": 64,
+      "serialization": 96,
+      "crypto": 63,
       "networking": 44,
       "archive": 8
     },
     "auditVulnerableOccurrences": {
       "info": 0,
-      "low": 13,
-      "moderate": 37,
+      "low": 14,
+      "moderate": 36,
       "high": 0,
       "critical": 0
     },
     "advisoryRecords": 42,
     "advisoryRecordsBySeverity": {
-      "low": 9,
-      "moderate": 33
+      "low": 10,
+      "moderate": 32
     },
     "advisoryRecordsByDirectness": {
       "direct": 6,
       "transitive": 36
     },
     "advisoryPathsByReachability": {
-      "development-tooling-path": 884,
-      "extension-build-path": 1674,
-      "test-only-path": 1782,
+      "development-tooling-path": 885,
+      "extension-build-path": 1613,
+      "test-only-path": 1862,
       "reachable": 118
     }
   },
@@ -1774,7 +1774,7 @@
       "package": "gulp-zip",
       "section": "devDependencies",
       "requested": "^5.1.0",
-      "resolved": "5.1.0(gulp@4.0.2)",
+      "resolved": "5.1.0(gulp@5.0.1)",
       "delivery": "extension-build-packaging",
       "securityAdjacency": [
         "archive"
@@ -1785,8 +1785,8 @@
       "workspacePackage": "qbit-extension",
       "package": "gulp",
       "section": "devDependencies",
-      "requested": "^4.0.2",
-      "resolved": "4.0.2",
+      "requested": "5.0.1",
+      "resolved": "5.0.1",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -2026,7 +2026,7 @@
       "package": "stylus-loader",
       "section": "devDependencies",
       "requested": "^6.2.0",
-      "resolved": "6.2.0(stylus@0.57.0)(webpack@5.109.2)",
+      "resolved": "6.2.0(stylus@0.64.0)(webpack@5.109.2)",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -2035,8 +2035,8 @@
       "workspacePackage": "qbit-extension",
       "package": "stylus",
       "section": "devDependencies",
-      "requested": "^0.57.0",
-      "resolved": "0.57.0",
+      "requested": "0.64.0",
+      "resolved": "0.64.0",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -3997,16 +3997,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "@testing-library/jest-dom",
-      "section": "dependencies",
-      "requested": "^5.16.4",
-      "resolved": "5.16.4",
-      "delivery": "test-only-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "@testing-library/react",
       "section": "dependencies",
       "requested": "^13.2.0",
@@ -5397,19 +5387,6 @@
       "directDeclarations": []
     },
     {
-      "package": "append-buffer",
-      "version": "1.0.2",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-WLbYiXzD3y/ATLZFufV/rZvWdZOs+Z/+5v1rBZ463Jn398pa6kcde27cvozYnBoxXblGZTFfoPpsaEw0orU5BA==",
-      "directDeclarations": []
-    },
-    {
       "package": "array-buffer-byte-length",
       "version": "1.0.2",
       "categories": [
@@ -5786,19 +5763,6 @@
       "directDeclarations": []
     },
     {
-      "package": "buffer-equal",
-      "version": "1.0.1",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-QoV3ptgEaQpvVwbXdSO39iqPQTCxSF7A5U99AxbHYqUdCizL/lH2Z0A2y6nbZucxMEOtNyZfG2s6gsVugGpKkg==",
-      "directDeclarations": []
-    },
-    {
       "package": "buffer-from",
       "version": "1.1.2",
       "categories": [
@@ -6085,19 +6049,6 @@
     },
     {
       "package": "extend-shallow",
-      "version": "2.0.1",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-zCnTtlxNoAiDc3gqY2aYAWFx7XWWiasuF2K8Me5WbN8otHKTUKBwjPtNpRs/rbUZm7KxWAaNj7P1a/p52GbVug==",
-      "directDeclarations": []
-    },
-    {
-      "package": "extend-shallow",
       "version": "3.0.2",
       "categories": [
         "crypto"
@@ -6173,7 +6124,7 @@
           "section": "devDependencies",
           "delivery": "extension-build-packaging",
           "requested": "^5.1.0",
-          "resolved": "5.1.0(gulp@4.0.2)"
+          "resolved": "5.1.0(gulp@5.0.1)"
         }
       ]
     },
@@ -6439,19 +6390,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-ISWac8drv4ZGfwKl5slpHG9OwPNty4jOWPRIhBpxOoD+hqITiwuipOQ2bNthAzwA3B4fIjO4Nln74N0S9byq8A==",
-      "directDeclarations": []
-    },
-    {
-      "package": "is-utf8",
-      "version": "0.2.1",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-rMYPYvCzsXywIsldgLaSoPlw5PfoB/ssr7hY4pLfcodrA5M/eArza1a9VmTiNIBNMjOGr1Ow9mTyU2o69U6U9Q==",
       "directDeclarations": []
     },
     {
@@ -6794,19 +6732,6 @@
     },
     {
       "package": "load-json-file",
-      "version": "1.1.0",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-cy7ZdNRXdablkXYNI049pthVeXFurRyb9+hA/dZzerZ0pGTx42z+y+ssxBaVV2l70t1muq5IdKhn4UtcoGUY9A==",
-      "directDeclarations": []
-    },
-    {
-      "package": "load-json-file",
       "version": "4.0.0",
       "categories": [
         "serialization"
@@ -7015,19 +6940,6 @@
     },
     {
       "package": "parse-json",
-      "version": "2.2.0",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-QR/GGaKCkhwk1ePQNYDRKYZ3mwU9ypsKhB0XyFnLQdomyEqk3e8wpW3V5Jp88zbxK4n5ST1nqo+g9juTpownhQ==",
-      "directDeclarations": []
-    },
-    {
-      "package": "parse-json",
       "version": "4.0.0",
       "categories": [
         "serialization"
@@ -7167,19 +7079,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-VIMnQi/Z4HT2Fxuwg5KrY174U1VdUIASQVWXXyqtNRtxSr9IYkn1rsI6Tb6HsrHCmB7gVpNwX6JxPTHcH6IoTA==",
-      "directDeclarations": []
-    },
-    {
-      "package": "remove-bom-buffer",
-      "version": "3.0.0",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-8v2rWhaakv18qcvNeli2mZ/TMTL2nEyAKRvzo1WtnZBl15SHyEhrCu2/xKlJyUFKHiHgfXIyuY6g2dObJJycXQ==",
       "directDeclarations": []
     },
     {
@@ -7951,6 +7850,80 @@
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
           "pathCount": 8
+        }
+      ]
+    },
+    {
+      "advisory": "GHSA-gcqx-w48m-w2h4",
+      "package": "deepmerge",
+      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+      "severity": "low",
+      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "vulnerableVersions": [
+        "4.3.1"
+      ],
+      "directness": "transitive",
+      "reachability": [
+        "extension-build-path",
+        "reachable",
+        "test-only-path"
+      ],
+      "acceptedException": null,
+      "findingPathCount": 10,
+      "pathContexts": [
+        {
+          "workspace": ".",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "deepmerge",
+          "directVersion": "4.3.1",
+          "directDelivery": "undetermined",
+          "reachability": "reachable",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "@svgr/webpack",
+          "directVersion": "8.1.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "jest-watch-typeahead",
+          "directVersion": "1.0.0",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "jest",
+          "directVersion": "27.4.3",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "react-dev-utils",
+          "directVersion": "12.0.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "4.3.1",
+          "directPackage": "workbox-webpack-plugin",
+          "directVersion": "7.4.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
         }
       ]
     },
@@ -10562,7 +10535,7 @@
         "test-only-path"
       ],
       "acceptedException": null,
-      "findingPathCount": 766,
+      "findingPathCount": 764,
       "pathContexts": [
         {
           "workspace": ".",
@@ -10792,24 +10765,6 @@
         {
           "workspace": "apps/extension",
           "vulnerableVersion": "5.0.11",
-          "directPackage": "gulp-zip",
-          "directVersion": "5.1.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "5.0.11",
-          "directPackage": "gulp",
-          "directVersion": "4.0.2",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "5.0.11",
           "directPackage": "jest-watch-typeahead",
           "directVersion": "1.0.0",
           "directDelivery": "test-only-tooling",
@@ -10865,7 +10820,7 @@
           "workspace": "apps/extension",
           "vulnerableVersion": "5.0.11",
           "directPackage": "stylus",
-          "directVersion": "0.57.0",
+          "directVersion": "0.64.0",
           "directDelivery": "extension-build-packaging",
           "reachability": "extension-build-path",
           "pathCount": 1
@@ -11336,80 +11291,6 @@
           "directVersion": "7.2.0",
           "directDelivery": "development-quality-tooling",
           "reachability": "development-tooling-path",
-          "pathCount": 1
-        }
-      ]
-    },
-    {
-      "advisory": "GHSA-vcc3-ghjq-m6fr",
-      "package": "decode-uri-component",
-      "title": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input",
-      "severity": "moderate",
-      "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
-      "vulnerableVersions": [
-        "0.2.2"
-      ],
-      "directness": "transitive",
-      "reachability": [
-        "extension-build-path",
-        "reachable",
-        "test-only-path"
-      ],
-      "acceptedException": null,
-      "findingPathCount": 52,
-      "pathContexts": [
-        {
-          "workspace": ".",
-          "vulnerableVersion": "0.2.2",
-          "directPackage": "decode-uri-component",
-          "directVersion": "0.2.2",
-          "directDelivery": "undetermined",
-          "reachability": "reachable",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "0.2.2",
-          "directPackage": "@testing-library/jest-dom",
-          "directVersion": "5.16.4",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "0.2.2",
-          "directPackage": "gulp-zip",
-          "directVersion": "5.1.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 24
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "0.2.2",
-          "directPackage": "gulp",
-          "directVersion": "4.0.2",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 24
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "0.2.2",
-          "directPackage": "stylus-loader",
-          "directVersion": "6.2.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "0.2.2",
-          "directPackage": "stylus",
-          "directVersion": "0.57.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
           "pathCount": 1
         }
       ]
@@ -12888,42 +12769,6 @@
       ]
     },
     {
-      "advisory": "GHSA-952p-6rrq-rcjv",
-      "package": "micromatch",
-      "title": "Regular Expression Denial of Service (ReDoS) in micromatch",
-      "severity": "moderate",
-      "url": "https://github.com/advisories/GHSA-952p-6rrq-rcjv",
-      "vulnerableVersions": [
-        "3.1.10"
-      ],
-      "directness": "transitive",
-      "reachability": [
-        "extension-build-path"
-      ],
-      "acceptedException": null,
-      "findingPathCount": 12,
-      "pathContexts": [
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "3.1.10",
-          "directPackage": "gulp-zip",
-          "directVersion": "5.1.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 6
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "3.1.10",
-          "directPackage": "gulp",
-          "directVersion": "4.0.2",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 6
-        }
-      ]
-    },
-    {
       "advisory": "GHSA-4p3w-j4w9-5jqw",
       "package": "moment",
       "title": "moment vulnerable to Path Traversal via crafted non-string locale name",
@@ -13475,6 +13320,259 @@
           "directDelivery": "shipped-runtime",
           "reachability": "reachable",
           "pathCount": 1
+        }
+      ]
+    },
+    {
+      "advisory": "GHSA-8g5g-mxqh-grgj",
+      "package": "vite",
+      "title": "Vite: `server.fs.deny` bypassed with queries",
+      "severity": "moderate",
+      "url": "https://github.com/advisories/GHSA-8g5g-mxqh-grgj",
+      "vulnerableVersions": [
+        "6.4.4"
+      ],
+      "directness": "transitive",
+      "reachability": [
+        "development-tooling-path",
+        "test-only-path"
+      ],
+      "acceptedException": null,
+      "findingPathCount": 76,
+      "pathContexts": [
+        {
+          "workspace": ".",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vite",
+          "directVersion": "6.4.4",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/approval-service",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/base-utils",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/contact-book",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/keyring-service",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/notification-service",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/permission-service",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/phishing-detect",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/preference-service",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/tx-helpers",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-api",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-background",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-connect-react",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-connect",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-state",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-storage",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
         }
       ]
     },

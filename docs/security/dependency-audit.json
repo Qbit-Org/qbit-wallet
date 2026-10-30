@@ -206,17 +206,19 @@
       "depth": 3
     },
     {
-      "action": "review",
-      "module": "micromatch",
+      "action": "update",
       "resolves": [
         {
-          "id": 1098681,
-          "path": "apps__extension>gulp>glob-watcher>anymatch>micromatch",
+          "id": 1243858,
+          "path": ".>vitest>vite",
           "dev": false,
           "optional": false,
           "bundled": false
         }
-      ]
+      ],
+      "module": "vite",
+      "target": "7.3.7",
+      "depth": 3
     },
     {
       "action": "review",
@@ -432,19 +434,6 @@
     },
     {
       "action": "review",
-      "module": "decode-uri-component",
-      "resolves": [
-        {
-          "id": 1147955,
-          "path": "apps__extension>gulp>glob-watcher>anymatch>micromatch>snapdragon>source-map-resolve>decode-uri-component",
-          "dev": false,
-          "optional": false,
-          "bundled": false
-        }
-      ]
-    },
-    {
-      "action": "review",
       "module": "postcss-selector-parser",
       "resolves": [
         {
@@ -541,59 +530,22 @@
           "bundled": false
         }
       ]
+    },
+    {
+      "action": "review",
+      "module": "deepmerge",
+      "resolves": [
+        {
+          "id": 1243505,
+          "path": "apps__extension>@svgr/webpack>@svgr/plugin-svgo>deepmerge",
+          "dev": false,
+          "bundled": false,
+          "optional": false
+        }
+      ]
     }
   ],
   "advisories": {
-    "1098681": {
-      "findings": [
-        {
-          "version": "3.1.10",
-          "paths": [
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10"
-          ]
-        }
-      ],
-      "found_by": null,
-      "deleted": null,
-      "references": "- https://nvd.nist.gov/vuln/detail/CVE-2024-4067\n- https://github.com/micromatch/micromatch/issues/243\n- https://github.com/micromatch/micromatch/pull/247\n- https://devhub.checkmarx.com/cve-details/CVE-2024-4067\n- https://github.com/micromatch/micromatch/blob/2c56a8604b68c1099e7bc0f807ce0865a339747a/index.js#L448\n- https://github.com/micromatch/micromatch/commit/500d5d6f42f0e8dfa1cb5464c6cb420b1b6aaaa0\n- https://github.com/micromatch/micromatch/pull/266\n- https://github.com/micromatch/micromatch/commit/03aa8052171e878897eee5d7bb2ae0ae83ec2ade\n- https://advisory.checkmarx.net/advisory/CVE-2024-4067\n- https://github.com/micromatch/micromatch/releases/tag/4.0.8\n- https://github.com/advisories/GHSA-952p-6rrq-rcjv",
-      "created": "2024-05-14T18:30:54.000Z",
-      "id": 1098681,
-      "npm_advisory_id": null,
-      "overview": "The NPM package `micromatch` prior to version 4.0.8 is vulnerable to Regular Expression Denial of Service (ReDoS). The vulnerability occurs in `micromatch.braces()` in `index.js` because the pattern `.*` will greedily match anything. By passing a malicious payload, the pattern matching will keep backtracking to the input while it doesn't find the closing bracket. As the input size increases, the consumption time will also increase until it causes the application to hang or slow down. There was a merged fix but further testing shows the issue persisted prior to https://github.com/micromatch/micromatch/pull/266. This issue should be mitigated by using a safe pattern that won't start backtracking the regular expression due to greedy matching.\n",
-      "reported_by": null,
-      "title": "Regular Expression Denial of Service (ReDoS) in micromatch",
-      "metadata": null,
-      "cves": [
-        "CVE-2024-4067"
-      ],
-      "access": "public",
-      "severity": "moderate",
-      "module_name": "micromatch",
-      "vulnerable_versions": "<4.0.8",
-      "github_advisory_id": "GHSA-952p-6rrq-rcjv",
-      "recommendation": "Upgrade to version 4.0.8 or later",
-      "patched_versions": ">=4.0.8",
-      "updated": "2024-08-28T13:12:27.000Z",
-      "cvss": {
-        "score": 5.3,
-        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
-      },
-      "cwe": [
-        "CWE-1333"
-      ],
-      "url": "https://github.com/advisories/GHSA-952p-6rrq-rcjv"
-    },
     "1099838": {
       "findings": [
         {
@@ -3679,99 +3631,6 @@
       ],
       "url": "https://github.com/advisories/GHSA-wrjc-x8rr-h8h6"
     },
-    "1147955": {
-      "findings": [
-        {
-          "version": "0.2.2",
-          "paths": [
-            ". > decode-uri-component@0.2.2",
-            "apps/extension > @testing-library/jest-dom@5.16.4 > css@3.0.0 > source-map-resolve@0.6.0 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > anymatch@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > anymatch@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > glob-watcher@5.0.5 > chokidar@2.1.8 > readdirp@2.2.1 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > liftoff@3.1.0 > findup-sync@3.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > findup-sync@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > expand-brackets@2.1.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > extglob@2.0.4 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > nanomatch@1.2.13 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > gulp-cli@2.3.0 > matchdep@2.0.0 > micromatch@3.1.10 > snapdragon@0.8.2 > source-map-resolve@0.5.3 > decode-uri-component@0.2.2",
-            "apps/extension > stylus@0.57.0 > css@3.0.0 > source-map-resolve@0.6.0 > decode-uri-component@0.2.2",
-            "apps/extension > stylus-loader@6.2.0 > stylus@0.57.0 > css@3.0.0 > source-map-resolve@0.6.0 > decode-uri-component@0.2.2"
-          ]
-        }
-      ],
-      "found_by": null,
-      "deleted": null,
-      "references": "- https://github.com/SamVerschueren/decode-uri-component/security/advisories/GHSA-vcc3-ghjq-m6fr\n- https://nvd.nist.gov/vuln/detail/CVE-2026-45822\n- https://github.com/SamVerschueren/decode-uri-component/commit/fa479dafeede7bedf04e5c89aa78f2a78c664005\n- https://github.com/SamVerschueren/decode-uri-component/blob/00662938dc7c6241547ae8abce7785cc13ffd3f6/index.js\n- https://github.com/SamVerschueren/decode-uri-component/releases/tag/v0.5.0\n- https://www.npmjs.com/package/decode-uri-component\n- https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
-      "created": "2026-08-31T22:10:20.000Z",
-      "id": 1147955,
-      "npm_advisory_id": null,
-      "overview": "### Impact\nAn attacker who can supply input to `decodeUriComponent()` (directly or via a dependency that uses this package on URL/query/path data) can cause excessive CPU usage and application unresponsiveness. This is an availability issue; there is no known memory corruption, data disclosure, or remote code execution impact.\n\n### Patches\nUpgrade to `decode-uri-component@0.5.0`.\n\n### Workarounds\nLimit the size of the input.",
-      "reported_by": null,
-      "title": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input",
-      "metadata": null,
-      "cves": [
-        "CVE-2026-45822"
-      ],
-      "access": "public",
-      "severity": "moderate",
-      "module_name": "decode-uri-component",
-      "vulnerable_versions": "<=0.4.2",
-      "github_advisory_id": "GHSA-vcc3-ghjq-m6fr",
-      "recommendation": "Upgrade to version 0.5.0 or later",
-      "patched_versions": ">=0.5.0",
-      "updated": "2026-08-31T22:10:21.000Z",
-      "cvss": {
-        "score": 0,
-        "vectorString": null
-      },
-      "cwe": [
-        "CWE-400",
-        "CWE-405",
-        "CWE-407",
-        "CWE-1176"
-      ],
-      "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr"
-    },
     "1153169": {
       "findings": [
         {
@@ -5067,12 +4926,10 @@
             "apps/extension > eslint-plugin-unused-imports@2.0.0 > eslint@8.50.0 > @humanwhocodes/config-array@0.11.14 > minimatch@3.1.5 > brace-expansion@5.0.11",
             "apps/extension > eslint-plugin-unused-imports@2.0.0 > eslint@8.50.0 > file-entry-cache@6.0.1 > flat-cache@3.2.0 > rimraf@3.0.2 > glob@7.2.3 > minimatch@3.1.5 > brace-expansion@5.0.11",
             "apps/extension > eslint-plugin-unused-imports@2.0.0 > eslint@8.50.0 > minimatch@3.1.5 > brace-expansion@5.0.11",
-            "apps/extension > gulp@4.0.2 > vinyl-fs@3.0.3 > glob-stream@6.1.0 > glob@7.2.3 > minimatch@3.1.5 > brace-expansion@5.0.11",
             "apps/extension > gulp-clean@0.4.0 > rimraf@2.7.1 > glob@7.2.3 > minimatch@3.1.5 > brace-expansion@5.0.11",
-            "apps/extension > gulp-zip@5.1.0 > gulp@4.0.2 > vinyl-fs@3.0.3 > glob-stream@6.1.0 > glob@7.2.3 > minimatch@3.1.5 > brace-expansion@5.0.11",
             "apps/extension > postinstall@0.11.0 > glob@11.1.0 > minimatch@10.2.6 > brace-expansion@5.0.11",
-            "apps/extension > stylus@0.57.0 > glob@7.2.3 > minimatch@3.1.5 > brace-expansion@5.0.11",
-            "apps/extension > stylus-loader@6.2.0 > stylus@0.57.0 > glob@7.2.3 > minimatch@3.1.5 > brace-expansion@5.0.11",
+            "apps/extension > stylus@0.64.0 > glob@10.5.0 > minimatch@9.0.9 > brace-expansion@5.0.11",
+            "apps/extension > stylus-loader@6.2.0 > stylus@0.64.0 > glob@10.5.0 > minimatch@9.0.9 > brace-expansion@5.0.11",
             "packages/approval-service > tsup@7.2.0 > sucrase@3.35.0 > glob@10.5.0 > minimatch@9.0.9 > brace-expansion@5.0.11",
             "packages/base-utils > @typescript-eslint/eslint-plugin@6.7.0 > @typescript-eslint/parser@6.7.0 > eslint@8.50.0 > @eslint/eslintrc@2.1.4 > minimatch@3.1.5 > brace-expansion@5.0.11",
             "packages/base-utils > @typescript-eslint/eslint-plugin@6.7.0 > @typescript-eslint/parser@6.7.0 > eslint@8.50.0 > @humanwhocodes/config-array@0.11.14 > minimatch@3.1.5 > brace-expansion@5.0.11",
@@ -6651,20 +6508,183 @@
         "CWE-407"
       ],
       "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
+    },
+    "1243505": {
+      "findings": [
+        {
+          "version": "4.3.1",
+          "paths": [
+            ". > deepmerge@4.3.1",
+            "apps/extension > @svgr/webpack@8.1.0 > @svgr/plugin-svgo@8.1.0 > deepmerge@4.3.1",
+            "apps/extension > jest@27.4.3 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest@27.4.3 > jest-cli@27.5.1 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest@27.4.3 > jest-cli@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest-watch-typeahead@1.0.0 > jest@27.4.3 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest-watch-typeahead@1.0.0 > jest@27.4.3 > jest-cli@27.5.1 > @jest/core@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > jest-watch-typeahead@1.0.0 > jest@27.4.3 > jest-cli@27.5.1 > jest-config@27.5.1 > deepmerge@4.3.1",
+            "apps/extension > react-dev-utils@12.0.1 > fork-ts-checker-webpack-plugin@6.5.3 > deepmerge@4.3.1",
+            "apps/extension > workbox-webpack-plugin@7.4.1 > workbox-build@7.4.1 > @rollup/plugin-node-resolve@16.0.3 > deepmerge@4.3.1"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://nvd.nist.gov/vuln/detail/CVE-2026-93753\n- https://github.com/TehShrike/deepmerge/issues/273\n- https://github.com/TehShrike/deepmerge/blob/5b87756a5671635679001cbac72aa42f23472c81/index.js#L39-L60\n- https://www.vulncheck.com/advisories/deepmerge-through-4.3.1-prototype-poisoning-via-mergeobject\n- https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "created": "2026-09-18T18:31:44.000Z",
+      "id": 1243505,
+      "npm_advisory_id": null,
+      "overview": "deepmerge through 4.3.1 contains a prototype poisoning vulnerability in the mergeObject() function that fails to properly validate keys being written to target objects. Attackers can supply malicious source objects in merge operations to inject attacker-controlled properties into the returned object's prototype, causing applications to inherit unintended values when accessing properties without own-property checks.",
+      "reported_by": null,
+      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-93753"
+      ],
+      "access": "public",
+      "severity": "low",
+      "module_name": "deepmerge",
+      "vulnerable_versions": ">=4.2.0 <=4.3.1",
+      "github_advisory_id": "GHSA-gcqx-w48m-w2h4",
+      "recommendation": "None",
+      "patched_versions": "<0.0.0",
+      "updated": "2026-10-27T21:34:58.000Z",
+      "cvss": {
+        "score": 5.3,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cwe": [
+        "CWE-1321"
+      ],
+      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4"
+    },
+    "1243858": {
+      "findings": [
+        {
+          "version": "6.4.4",
+          "paths": [
+            ". > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            ". > vitest@3.2.6 > vite@6.4.4",
+            ". > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            ". > vite@6.4.4",
+            "packages/approval-service > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/approval-service > vitest@3.2.6 > vite@6.4.4",
+            "packages/approval-service > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/base-utils > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/base-utils > vitest@3.2.6 > vite@6.4.4",
+            "packages/base-utils > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/contact-book > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/contact-book > vitest@3.2.6 > vite@6.4.4",
+            "packages/contact-book > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/keyring-service > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/keyring-service > vitest@3.2.6 > vite@6.4.4",
+            "packages/keyring-service > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/notification-service > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/notification-service > vitest@3.2.6 > vite@6.4.4",
+            "packages/notification-service > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/permission-service > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/permission-service > vitest@3.2.6 > vite@6.4.4",
+            "packages/permission-service > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/phishing-detect > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/phishing-detect > vitest@3.2.6 > vite@6.4.4",
+            "packages/phishing-detect > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/preference-service > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/preference-service > vitest@3.2.6 > vite@6.4.4",
+            "packages/preference-service > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/tx-helpers > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/tx-helpers > vitest@3.2.6 > vite@6.4.4",
+            "packages/tx-helpers > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-api > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-api > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-api > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-background > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-background > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-background > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-connect > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-connect > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-connect > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-connect-react > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-connect-react > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-connect-react > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-core > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-core > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-core > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-core > @vitest/ui@3.2.6 > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-core > @vitest/ui@3.2.6 > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-core > @vitest/ui@3.2.6 > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-core > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-core > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-core > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-shared > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-shared > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-shared > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-shared > @vitest/ui@3.2.6 > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-shared > @vitest/ui@3.2.6 > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-shared > @vitest/ui@3.2.6 > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-shared > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-shared > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-shared > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-state > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-state > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-state > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-storage > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-storage > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-storage > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-types > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-types > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-types > @vitest/coverage-v8@3.2.6 > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-types > @vitest/ui@3.2.6 > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-types > @vitest/ui@3.2.6 > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-types > @vitest/ui@3.2.6 > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4",
+            "packages/wallet-types > vitest@3.2.6 > @vitest/mocker@3.2.6 > vite@6.4.4",
+            "packages/wallet-types > vitest@3.2.6 > vite@6.4.4",
+            "packages/wallet-types > vitest@3.2.6 > vite-node@3.2.4 > vite@6.4.4"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/vite/security/advisories/GHSA-8g5g-mxqh-grgj\n- https://nvd.nist.gov/vuln/detail/CVE-2026-118662\n- https://github.com/vitejs/vite/pull/22160\n- https://github.com/vitejs/vite/pull/23855\n- https://github.com/vitejs/vite/commit/91e40d7bf9777057bbd31c3eb036a54c9465697e\n- https://github.com/vitejs/vite/releases/tag/v6.4.5\n- https://github.com/advisories/GHSA-8g5g-mxqh-grgj",
+      "created": "2026-10-29T16:39:56.000Z",
+      "id": 1243858,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\nThe contents of files that are specified by [`server.fs.deny`](https://vite.dev/config/server-options#server-fs-deny) can be returned to the browser. This is the same as https://github.com/vitejs/vite/security/advisories/GHSA-v2wj-q39q-566r.\n\n### Impact\n\nOnly apps that match the following conditions are affected:\n\n- explicitly exposes the Vite dev server to the network (using `--host` or [`server.host` config option](https://vitejs.dev/config/server-options.html#server-host))\n- the sensitive file exists in the allowed directories specified by [`server.fs.allow`](https://vite.dev/config/server-options#server-fs-allow)\n- the sensitive file is denied with a pattern that matches a file by [`server.fs.deny`](https://vite.dev/config/server-options#server-fs-deny)\n\n### Details\n\nOn the Vite dev server, files that should be blocked by `server.fs.deny` (e.g., `.env`, `*.crt`) can be retrieved with HTTP 200 responses when query parameters such as `?raw`, `?import&raw`, or `?import&url&inline` are appended.\n\nFor the fix for https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22, v6.4.4 back-ported https://github.com/vitejs/vite/pull/20410. But while that PR requires https://github.com/vitejs/vite/pull/22160 for https://github.com/vitejs/vite/security/advisories/GHSA-v2wj-q39q-566r, https://github.com/vitejs/vite/pull/22160 wasn't back-ported together causing v6 vulnerable to https://github.com/vitejs/vite/security/advisories/GHSA-v2wj-q39q-566r.",
+      "reported_by": null,
+      "title": "Vite: `server.fs.deny` bypassed with queries",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-118662"
+      ],
+      "access": "public",
+      "severity": "moderate",
+      "module_name": "vite",
+      "vulnerable_versions": "=6.4.4",
+      "github_advisory_id": "GHSA-8g5g-mxqh-grgj",
+      "recommendation": "Upgrade to version 6.4.5 or later",
+      "patched_versions": ">=6.4.5",
+      "updated": "2026-10-29T16:39:59.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-180",
+        "CWE-284"
+      ],
+      "url": "https://github.com/advisories/GHSA-8g5g-mxqh-grgj"
     }
   },
   "muted": [],
   "metadata": {
     "vulnerabilities": {
       "info": 0,
-      "low": 13,
-      "moderate": 37,
+      "low": 14,
+      "moderate": 36,
       "high": 0,
       "critical": 0
     },
-    "dependencies": 2552,
+    "dependencies": 2407,
     "devDependencies": 0,
     "optionalDependencies": 0,
-    "totalDependencies": 2552
+    "totalDependencies": 2407
   }
 }
