@@ -9,6 +9,7 @@ import type {
   EsploraUtxo,
   FeeRateTier,
   MempoolQbitClientOptions,
+  RequestOptions,
 } from '@qbit-oss/api'
 import { QBIT_COINBASE_MATURITY } from '@qbit-oss/protocol'
 import { transactionCore } from '@qbit/wallet-core'
@@ -100,7 +101,7 @@ export interface QbitTxOutspend {
 }
 
 export interface QbitTxOutspendsClient {
-  getTxOutspends(txid: string): Promise<QbitTxOutspend[]>
+  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]>
 }
 
 /**
@@ -145,8 +146,8 @@ export class QbitWalletEsploraClient
     super(withQbitExplorerBudgets(options))
   }
 
-  getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
-    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`)
+  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
+    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
   // Confirmed rows only (`/txs/chain`, 25 a page); mempool rows are not paged.
@@ -170,8 +171,8 @@ export class QbitWalletMempoolClient
     )
   }
 
-  getTxOutspends(txid: string): Promise<QbitTxOutspend[]> {
-    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`)
+  getTxOutspends(txid: string, options?: RequestOptions): Promise<QbitTxOutspend[]> {
+    return this.getJson<QbitTxOutspend[]>(`/tx/${encodeURIComponent(txid)}/outspends`, options)
   }
 
   // The combined route, mempool rows first. `getAddressTxs` would rescan it
@@ -1766,13 +1767,17 @@ export async function findQbitSpentOutpoints(
 export async function getQbitTxSpenders(
   client: QbitTxOutspendsClient,
   txid: string,
-  outputCount: number
+  outputCount: number,
+  options?: RequestOptions
 ): Promise<(string | undefined)[]> {
   const normalizedTxid = normalizeQbitTxid(txid)
   if (!Number.isSafeInteger(outputCount) || outputCount < 1) {
     throw new Error('invalid qbit transaction output count')
   }
-  const outspends = await client.getTxOutspends(normalizedTxid)
+  const outspends =
+    options === undefined
+      ? await client.getTxOutspends(normalizedTxid)
+      : await client.getTxOutspends(normalizedTxid, options)
   if (!Array.isArray(outspends) || outspends.length !== outputCount) {
     throw new Error(`invalid qbit outspends for ${normalizedTxid}`)
   }

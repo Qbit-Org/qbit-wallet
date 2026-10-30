@@ -140,7 +140,8 @@ function feeBumpOf(originalTxid: string): ToSignData {
     toSignInputs: [{ index: 0, publicKey: pubkeyHex }],
     qbitP2mrSigningKeys: [{ inputIndex: 0, publicKey: pubkeyHex, leafHash: bytesToHex(leafHash) }],
     qbitBroadcastIdentity: { chain: ChainType.QBIT_REGTEST, txid },
-    feeBump: { originalTxid } as ToSignData['feeBump'],
+    // The original pays the recipient and its change: two outputs.
+    feeBump: { originalTxid, originalOutputCount: 2 } as ToSignData['feeBump'],
     autoFinalized: true,
   }
 }
