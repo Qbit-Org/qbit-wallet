@@ -302,3 +302,50 @@ describe('InputItem output that pays the wallet (#13)', () => {
     expect(screen.queryByTestId('psbt-output-other-account-0')).toBeNull();
   });
 });
+
+describe('InputItem output with no address', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAddress).mockReturnValue('qbrt1zcurrent');
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+  });
+
+  function renderScriptOutput(outputInfo: DecodedPsbtOutput) {
+    return render(
+      <InputItem
+        index={0}
+        outputInfo={outputInfo}
+        decodedPsbt={{ spendSummary: { outputRoles: ['unrecognised'] } } as any}
+      />
+    );
+  }
+
+  it('names a pay-to-anchor output as one anyone can spend, in place of a recipient', () => {
+    renderScriptOutput({ type: 'p2a', address: '', value: 99_999, scriptPubKeyHex: '51024e73' });
+
+    expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('P2A anchor (anyone can spend)');
+    expect(screen.getByTestId('psbt-output-script-warning-0').textContent).toContain('Anyone can spend');
+    expect(screen.getByTestId('psbt-output-unrecognised-0').textContent).toBe('unrecognised_output');
+    expect(screen.queryByTestId('address-text')).toBeNull();
+    fireEvent.click(screen.getByTestId('psbt-output-details-toggle-0'));
+    expect(screen.getByTestId('psbt-output-script-0').textContent).toBe('51024e73');
+  });
+
+  it('names any other script with no address as an unknown script', () => {
+    renderScriptOutput({ type: 'unknown_script', address: '', value: 5_000, scriptPubKeyHex: '00' });
+
+    expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('Unknown script');
+    expect(screen.getByTestId('psbt-output-script-warning-0').textContent).toContain('cannot decode');
+    expect(screen.queryByTestId('address-text')).toBeNull();
+  });
+
+  it('shows an output with an address as before', () => {
+    renderScriptOutput({ address: 'qbrt1zpayee', value: 10_000, scriptPubKeyHex: '5220beef' });
+
+    expect(screen.getByTestId('address-text').textContent).toBe('qbrt1zpayee');
+    expect(screen.queryByTestId('psbt-output-script-label-0')).toBeNull();
+    expect(screen.queryByTestId('psbt-output-script-warning-0')).toBeNull();
+  });
+});

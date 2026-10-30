@@ -49,6 +49,7 @@ import {
   transactionCore,
   eccManager,
   getAddressType,
+  isPayToAnchorScript,
   isValidAddress,
   publicKeyToAddress,
   scriptPkToAddress,
@@ -75,6 +76,7 @@ import {
   PsbtActionDetailType,
   PsbtActionInfo,
   PsbtActionType,
+  QBIT_P2A_DUST,
   QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
   QBIT_P2MR_DUST,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
@@ -806,6 +808,24 @@ function qbitProviderPsbtAutoFinalized(
     throw new WalletError(
       ErrorCodes.INVALID_PARAMS,
       `autoFinalized needs a PSBT this wallet can finalize after signing: ${error.message}`
+    )
+  }
+}
+
+/**
+ * Refuse a provider PSBT whose pay-to-anchor outputs carry more, together,
+ * than the least value qbit Core relays one with (`QBIT_P2A_DUST`). Anyone
+ * can spend such an output, so an anchor needs no more than that to exist.
+ */
+function assertQbitProviderAnchorValue(outputs: readonly P2mrTransactionOutput[]): void {
+  const anchorValue = outputs
+    .filter(output => isPayToAnchorScript(output.scriptPubKey))
+    .reduce((total, output) => total + output.value, 0n)
+  if (anchorValue > BigInt(QBIT_P2A_DUST)) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `PSBT pays ${anchorValue} sats to pay-to-anchor outputs, which anyone can spend; ` +
+        `at most ${QBIT_P2A_DUST} sats is allowed`
     )
   }
 }
@@ -7450,6 +7470,7 @@ export class WalletController extends BaseController {
     const chain = this.getChainType()
     await qbitSendGuardService.assertNoOverlap(chain, qbitPsbtOutpoints(psbt), qbitPsbtTxid(psbt))
     const summary = decodeQbitPsbt(psbt)
+    assertQbitProviderAnchorValue(summary.outputs)
     const accountLeafScript = account.p2mr.leafScript.toLowerCase()
     const publicKey = account.p2mr.pubkey.toLowerCase()
     if (account.pubkey.toLowerCase() !== publicKey) {
@@ -8911,11 +8932,18 @@ export class WalletController extends BaseController {
         }
       }
 
-      return {
-        address: scriptPkToAddress(qbitBytesToHex(output.scriptPubKey), networkType),
-        value: Number(output.value),
-        scriptPubKeyHex: qbitBytesToHex(output.scriptPubKey),
+      const scriptPubKeyHex = qbitBytesToHex(output.scriptPubKey)
+      const address = scriptPkToAddress(scriptPubKeyHex, networkType)
+      if (address === '') {
+        // Named by its script, so the approval never shows an empty recipient.
+        return {
+          type: isPayToAnchorScript(scriptPubKeyHex) ? 'p2a' : 'unknown_script',
+          address: '',
+          value: Number(output.value),
+          scriptPubKeyHex,
+        }
       }
+      return { address, value: Number(output.value), scriptPubKeyHex }
     })
     const feeRate = finalTxVBytes > 0 ? fee / finalTxVBytes : 0
     const isCompleted = summary.fee !== undefined

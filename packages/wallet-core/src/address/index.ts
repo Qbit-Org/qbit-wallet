@@ -223,6 +223,18 @@ export function getAddressType(
   return decodeAddress(address).addressType
 }
 
+// qbit Core CScript::IsPayToAnchor (src/script/script.cpp:213-220): OP_1 PUSH2 0x4e73.
+const PAY_TO_ANCHOR_SCRIPT_HEX = '51024e73'
+
+/**
+ * Whether `scriptPk` is the pay-to-anchor (P2A) script, which has no address
+ * and which anyone can spend.
+ */
+export function isPayToAnchorScript(scriptPk: string | Uint8Array): boolean {
+  const hex = typeof scriptPk === 'string' ? scriptPk : Buffer.from(scriptPk).toString('hex')
+  return hex.toLowerCase() === PAY_TO_ANCHOR_SCRIPT_HEX
+}
+
 /**
  * Convert scriptPk to address.
  */
