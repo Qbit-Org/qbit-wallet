@@ -8,6 +8,8 @@ import { PersistentProxyOptions, ProxyStorageAdapter } from './types'
 const SAVE_DELAY_MS = 1000
 const LOAD_ATTEMPTS = 3
 const LOAD_RETRY_DELAY_MS = 100
+const TEMPLATE_SAVE_ATTEMPTS = 3
+const TEMPLATE_SAVE_RETRY_DELAY_MS = 100
 
 const frozenValues = new WeakSet<object>()
 
@@ -48,9 +50,11 @@ export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
    * Create a persistent proxy that saves top-level writes to storage after a
    * short debounce. Values below the top level are frozen, so a nested write
    * throws: reassign the top-level key instead. A failed read rejects rather
-   * than replacing the stored data with the template. The new proxy replaces
-   * any earlier one for the same key, which stops saving, so changes it has
-   * not saved yet are dropped.
+   * than replacing the stored data with the template. When nothing is stored,
+   * or on reset, the template is saved before the proxy is returned, retrying
+   * a failed write a few times; a write that keeps failing rejects. The new
+   * proxy replaces any earlier one for the same key, which stops saving, so
+   * changes it has not saved yet are dropped.
    */
   async createPersistentProxy<T extends object>(
     name: string,
@@ -79,8 +83,7 @@ export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
       }
 
       if (!stored) {
-        // Save initial template
-        await this.set(name, { ...data })
+        await this.saveTemplate(name, { ...data }, owner)
       }
     } catch (error) {
       // Hand the key back and save whatever the previous proxy skipped.
@@ -137,6 +140,27 @@ export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
       return Promise.reject(new Error('Not a persistent proxy of this storage adapter'))
     }
     return flush()
+  }
+
+  /**
+   * Save the template of a key that holds nothing yet, or that a reset
+   * replaces, retrying a failed write a few times, so that one failed write
+   * does not stop the service from starting. Every attempt writes the same
+   * value, so an attempt that failed but still landed does no harm. Retrying
+   * stops once a newer proxy owns the key, so this template cannot land after
+   * that proxy's writes. Rejects with the last write error.
+   */
+  private async saveTemplate(name: string, template: object, owner: object): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.set(name, template)
+        return
+      } catch (error) {
+        if (attempt >= TEMPLATE_SAVE_ATTEMPTS) throw error
+        await delay(TEMPLATE_SAVE_RETRY_DELAY_MS * attempt)
+        if (this.persistentProxies.get(name) !== owner) throw error
+      }
+    }
   }
 
   /**

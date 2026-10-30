@@ -95,12 +95,13 @@ internal dependency updates when needed.
 ## 4. Verify Before Versioning
 
 Run focused checks for the changed and affected packages. For broad package
-changes, run the workspace-level checks:
+changes, run the workspace-level checks. Build first, because typecheck and
+some tests read the other workspace packages from their build output:
 
 ```sh
+pnpm build
 pnpm -r typecheck
 pnpm -r test
-pnpm build
 ```
 
 If a package has special build behavior, run its package script directly. For
@@ -193,11 +194,20 @@ follows:
   `chrome.management.getPermissionWarningsByManifest` reports that same single
   warning with and without these entries.
 
-`corepack pnpm --filter qbit-extension run package:test -- --artifact-version <version>`,
-with the extension's version (for example `1.0.6`), fails the build if
-the generated manifest's required, optional, or CSP loopback entries, or its
-phishing host permissions and web-accessible resources, differ from the
+Build the workspace packages first, as CI does (`test:e2e:prepare` runs the
+same two build steps). `package:test` uses their build output, the denylist
+included, so on a fresh install it stops with a missing-module error, and after
+a denylist change it still checks the old list until they are rebuilt.
+
+```sh
+corepack pnpm test:e2e:prepare
+corepack pnpm --filter qbit-extension run package:test -- --artifact-version <version>
+```
+
+With the extension's version (for example `1.0.6`), `package:test` fails the
+build if the generated manifest's required, optional, or CSP loopback entries,
+or its phishing host permissions and web-accessible resources, differ from the
 reviewed values, so inspect the packaged `manifest.json` (not only
-`build/_raw/manifest/_base_v3.json`) before submission. See
+`apps/extension/build/_raw/manifest/_base_v3.json`) before submission. See
 `docs/privacy.md` ("Optional local Regtest connection") for the user-facing
 data-flow description.

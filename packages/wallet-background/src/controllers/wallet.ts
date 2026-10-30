@@ -1065,6 +1065,9 @@ export class WalletController extends BaseController {
       // while a later payment spends the original. The page keeps the claim
       // with the bytes, so a retry after a restart is checked the same way.
       replaces: toSignData.feeBump ? toSignData.feeBump.originalTxid : null,
+      ...(toSignData.feeBump
+        ? { replacedOutputCount: toSignData.feeBump.originalOutputCount }
+        : {}),
     }
   }
 
@@ -5969,6 +5972,7 @@ export class WalletController extends BaseController {
         outputs,
         details: {
           originalTxid,
+          originalOutputCount: original.outputs.length,
           originalFee,
           replacementFee,
           feeDelta,
@@ -7143,8 +7147,8 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async replaces => {
-        if (replaces) await assertNoExplorerDependentSpend(client, replaces)
+      async (replaces, replacedOutputCount) => {
+        if (replaces) await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount)
         return client.broadcastTx(rawtx)
       },
       qbitSendBroadcastClaim
@@ -7390,7 +7394,7 @@ export class WalletController extends BaseController {
         throw new Error('Qbit network changed before broadcast')
       }
     }
-    const broadcast = async (replaces?: string): Promise<string> => {
+    const broadcast = async (replaces?: string, replacedOutputCount?: number): Promise<string> => {
       // The guard queue may hold a re-send past the window it was due in;
       // none starts once the window has passed.
       if (
@@ -7410,7 +7414,7 @@ export class WalletController extends BaseController {
       // wallet does can come in between; a refusal is still pre-dispatch.
       if (replaces) {
         try {
-          await assertNoExplorerDependentSpend(client, replaces)
+          await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount)
         } catch (error) {
           dependentSpendRefused = true
           throw error

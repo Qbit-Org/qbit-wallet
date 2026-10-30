@@ -1799,6 +1799,7 @@ describe('TxCreateScreen state hooks', () => {
       })
       // Unknown, not zero, and the way out is offered.
       expect(result.current.availableAmount).toBe('--')
+      expect(result.current.unavailableAmount).toBe('--')
       expect(result.current.showConsolidate).toBe(true)
       act(() => {
         result.current.onClickConsolidate()
@@ -1837,6 +1838,46 @@ describe('TxCreateScreen state hooks', () => {
         result.current.onAmountMaxClick()
       })
       expect(result.current.inputAmount).toBeFalsy()
+    })
+
+    it('shows Unavailable as unknown, like Available, until the over-limit read lands', async () => {
+      const account = p2mrAccount()
+      const harness = createHookTestHarness()
+      let answer!: (snapshot: unknown) => void
+      harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(resolve => (answer = resolve)))
+      harness.store.dispatch(accountActions.setCurrent(account))
+      harness.store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoLimitExceeded: true,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      // Not the whole total: how much of it is unavailable is unknown too.
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
+
+      await act(async () => {
+        answer({
+          address: account.address,
+          chain: ChainType.QBIT_MAINNET,
+          utxos: manyOutputs(account, Array(500).fill(10_000)),
+        })
+      })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('0.05000000'))
+      expect(result.current.unavailableAmount).toBe('0.01000000')
+      expect(result.current.showUnavailable).toBe(true)
     })
 
     it('takes the loading overlay down once the balance shows the account over the limit', async () => {
@@ -1895,6 +1936,9 @@ describe('TxCreateScreen state hooks', () => {
       await waitFor(() => {
         expect(result.current.availableAmount).toBe('0.00000000')
       })
+      // Read, not unknown: every output is held, so the whole total is Unavailable.
+      expect(result.current.unavailableAmount).toBe('0.06000000')
+      expect(result.current.showUnavailable).toBe(true)
       expect(result.current.error).toBe('')
       expect(result.current.showConsolidate).toBe(true)
     })
@@ -1921,6 +1965,8 @@ describe('TxCreateScreen state hooks', () => {
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
 
       await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
       expect(result.current.showImmature).toBe(false)
       expect(result.current.showPending).toBe(false)
       // Max agrees with Available: nothing is selectable from an unknown figure.

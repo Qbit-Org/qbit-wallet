@@ -29,7 +29,30 @@ class PageStorage {
   }
 }
 
+/**
+ * The tab's history entry for the page. Like a browser's, it keeps the form
+ * of a POST that loaded the page, which a reload sends again, until the page
+ * replaces the entry.
+ */
+class PageHistory {
+  state: unknown = null;
+  method: 'GET' | 'POST' = 'GET';
+  refuses = false;
+
+  replaceState(state: unknown, _unused: string, url?: string | URL | null): void {
+    if (this.refuses) throw new DOMException('The document is not fully active.', 'SecurityError');
+    if (url != null && new URL(url, location.href).href !== location.href) {
+      throw new Error('The entry was replaced with another URL');
+    }
+    this.state = state;
+    this.method = 'GET';
+  }
+}
+
 let storage: PageStorage;
+let pageHistory: PageHistory;
+// The method of each reload the page asked for.
+let reloads: string[];
 let reload: ReturnType<typeof vi.fn>;
 let stop: ReturnType<typeof vi.fn>;
 let verdicts: unknown[];
@@ -63,10 +86,13 @@ beforeEach(() => {
   // running for the next one.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   storage = new PageStorage();
-  reload = vi.fn();
+  pageHistory = new PageHistory();
+  reloads = [];
+  reload = vi.fn(() => reloads.push(pageHistory.method));
   stop = vi.fn();
   verdicts = [];
   vi.stubGlobal('sessionStorage', storage);
+  vi.stubGlobal('history', pageHistory);
   vi.stubGlobal('stop', stop);
   // A load the user started, rather than a reload.
   vi.stubGlobal('performance', { getEntriesByType: () => [{ type: 'navigate' }] });
@@ -242,6 +268,59 @@ describe('releasing a held page', () => {
 
     expect(reload).not.toHaveBeenCalled();
     expect(storage.values.has(RELEASE_KEY)).toBe(false);
+  });
+});
+
+describe('releasing a page that a form POST loaded', () => {
+  beforeEach(() => {
+    // Its server got the form before the hold stopped the page.
+    pageHistory.method = 'POST';
+  });
+
+  it('reloads it with a GET, so that the release does not send the form again', () => {
+    hold().settle('proceeded');
+
+    expect(reloads).toEqual(['GET']);
+    expect(storage.values.get(RELEASE_KEY)).toBe(BLOCKED_HOST);
+  });
+
+  it('keeps the state the page saved in its history entry', () => {
+    pageHistory.state = { step: 2 };
+
+    hold().settle('clear');
+
+    expect(reloads).toEqual(['GET']);
+    expect(pageHistory.state).toEqual({ step: 2 });
+  });
+
+  it('reloads it with a GET when the user asks, after it was held again on a reload', async () => {
+    vi.stubGlobal('performance', { getEntriesByType: () => [{ type: 'reload' }] });
+    hold().settle('proceeded');
+    expect(reloads).toEqual([]);
+
+    verdicts.push({ isPhishing: false, isDenylisted: true });
+    retryButton().click();
+
+    await vi.waitFor(() => expect(reloads).toEqual(['GET']));
+  });
+
+  it('reloads it with a GET on retry once the extension was reloaded', () => {
+    hold().settle('unknown');
+    vi.stubGlobal('chrome', { runtime: { id: undefined }, i18n: { getMessage: () => '' } });
+
+    retryButton().click();
+
+    expect(reloads).toEqual(['GET']);
+  });
+
+  it('does not reload it by itself when its history entry cannot be replaced', () => {
+    pageHistory.refuses = true;
+
+    hold().settle('proceeded');
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(storage.values.get(RELEASE_KEY)).toBe(BLOCKED_HOST);
+    expect(notice()?.textContent).toContain('Select Try again to load it.');
   });
 });
 

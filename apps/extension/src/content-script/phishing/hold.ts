@@ -53,6 +53,24 @@ function isReload(): boolean {
   }
 }
 
+/**
+ * Reloads the page with a GET. When a form POST loaded the page, its server
+ * got the form before the hold stopped the page, and the page's history entry
+ * keeps the form, which a reload would send again. Replacing the entry with
+ * itself, with the same state and URL, drops the form; the load still counts
+ * as a reload. Returns false, without reloading, when the history refuses, as
+ * the reload could then send the form again.
+ */
+function reloadWithGet(): boolean {
+  try {
+    window.history.replaceState(window.history.state, '');
+  } catch {
+    return false;
+  }
+  window.location.reload();
+  return true;
+}
+
 function message(name: string, fallback: string): string {
   try {
     return chrome.i18n.getMessage(name) || fallback;
@@ -81,7 +99,8 @@ export class HeldPage {
 
   /**
    * Acts on the background's verdict. A page the background lets through is
-   * released and reloaded, unless its sessionStorage cannot keep the release,
+   * released and reloaded with a GET, so that a form POST that loaded it is
+   * not sent again, unless its sessionStorage cannot keep the release,
    * as on a sandboxed page or one whose site data is blocked: it stays held,
    * so that its server cannot turn the hold off. Otherwise the page stays
    * held too: the background is
@@ -94,9 +113,7 @@ export class HeldPage {
     if (verdict === 'proceeded' || verdict === 'clear') {
       if (!recordRelease(this.hostname)) {
         this.showNotice('unreleasable');
-      } else if (this.mayReload) {
-        window.location.reload();
-      } else {
+      } else if (!this.mayReload || !reloadWithGet()) {
         this.showNotice('released');
       }
       return;
@@ -112,7 +129,7 @@ export class HeldPage {
     // An extension that was updated or reloaded answers only a new content
     // script, which a reload brings.
     if (!isExtensionContextValid()) {
-      window.location.reload();
+      reloadWithGet();
       return;
     }
     button.disabled = true;
