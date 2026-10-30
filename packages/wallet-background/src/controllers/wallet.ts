@@ -214,10 +214,8 @@ import {
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
   isQbitSnapshotUnstableError,
-  MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES,
   observeQbitPqcSignatureActivity,
   observeQbitPqcSpentOutpoints,
-  probeQbitAccountHistoryAncestry,
   probeQbitAccountHistoryRevision,
   qbitAddressHasUnconfirmedSpends,
   qbitAddressOutputCounts,
@@ -412,7 +410,7 @@ type QbitReceiveControllerContext = {
 type QbitHistoryScope = {
   chainType: ChainType
   scopeKey: string
-  addresses: string[]
+  address: string
   addressFingerprint: string
 }
 
@@ -521,6 +519,13 @@ const QBIT_RECENT_SPEND_PROBE_WAIT_MS = 2_000
 const QBIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000
 const QBIT_HISTORY_SNAPSHOT_LIMIT = 8
 const QBIT_HISTORY_PERSISTED_CACHE_LIMIT = 20
+// History is read and cached per account: that account's own public key on
+// one network. Earlier builds kept one history for every account of the
+// wallet under `qbit:<chain>:<first account's pubkey>`; this prefix never
+// matches those keys, so their rows are never read as one account's.
+// useHistoryScopeKey in @qbit/wallet-state builds the same key.
+const qbitAccountHistoryScopeKey = (chainType: ChainType, pubkey: string): string =>
+  `qbit-account:${chainType}:${pubkey.toLowerCase()}`
 const QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE = 1
 const QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE = 64
 // History pages one consolidation batch may read. An active miner's newest
@@ -1786,40 +1791,37 @@ export class WalletController extends BaseController {
     ) {
       throw new Error('Qbit history account changed while resolving its addresses')
     }
-    const anchorPubkey = keyring.accounts[0]?.pubkey
-    if (!isHexByteString(anchorPubkey, 32)) {
+
+    // History covers one account: its own address, the one its balance
+    // reads. The wallet's other accounts are counterparties like any other.
+    const requested = requestedAddress?.toLowerCase()
+    const matches = requested
+      ? keyring.accounts.filter(
+          account => account.p2mr?.addresses[network]?.toLowerCase() === requested
+        )
+      : []
+    if (matches.length > 1) {
+      throw new Error(`Qbit history account contains duplicate address ${requestedAddress}`)
+    }
+    const account = matches[0]
+    const address = account?.p2mr?.addresses[network]
+    if (!account || !address) {
+      throw new Error('Requested Qbit history address is outside the selected wallet')
+    }
+    if (!isHexByteString(account.pubkey, 32)) {
       throw new Error('Qbit history account is missing its stable public identity')
     }
-
-    const indexedAddresses = keyring.accounts.map(account => {
-      const address = account.p2mr?.addresses[network]
-      const index = account.p2mr?.hkdf.index
-      if (!address || !Number.isSafeInteger(index) || (index ?? -1) < 0) {
-        throw new Error('Qbit history account contains incomplete address metadata')
-      }
-      return { address, index: index! }
-    })
-    indexedAddresses.sort(
-      (left, right) => left.index - right.index || left.address.localeCompare(right.address)
-    )
-    const normalizedAddresses = new Set<string>()
-    const addresses = indexedAddresses.map(item => {
-      const normalized = item.address.toLowerCase()
-      if (normalizedAddresses.has(normalized)) {
-        throw new Error(`Qbit history account contains duplicate address ${item.address}`)
-      }
-      normalizedAddresses.add(normalized)
-      return item.address
-    })
-    if (!requestedAddress || !normalizedAddresses.has(requestedAddress.toLowerCase())) {
-      throw new Error('Requested Qbit history address is outside the selected account')
+    // A request from a page that has not caught up with an account switch
+    // fails here, before it reads the explorer for an account not shown.
+    if (preferenceService.getCurrentAccount()?.address?.toLowerCase() !== address.toLowerCase()) {
+      throw new Error('Requested Qbit history address is not the selected account')
     }
 
     return {
       chainType,
-      scopeKey: `qbit:${chainType}:${anchorPubkey.toLowerCase()}`,
-      addresses,
-      addressFingerprint: JSON.stringify(addresses.map(address => address.toLowerCase())),
+      scopeKey: qbitAccountHistoryScopeKey(chainType, account.pubkey),
+      address,
+      addressFingerprint: address.toLowerCase(),
     }
   }
 
@@ -1904,26 +1906,15 @@ export class WalletController extends BaseController {
         }
 
         if (reusable) {
-          let probeDeferred = false
-          let cachedConfirmedHistoryActive = false
-          let cachedMempoolMembershipActive = false
-          try {
-            const client = this.getQbitApiClient(scope.chainType)
-            probeDeferred = scope.addresses.length > MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES
-            let revision: QbitAccountHistoryRevision
-            if (probeDeferred) {
-              const ancestry = await probeQbitAccountHistoryAncestry(
-                client,
-                reusable.revision,
-                scope.addresses,
-                reusable.list.filter(item => item.confirmations === 0).map(item => item.txid)
-              )
-              revision = ancestry.revision
-              cachedConfirmedHistoryActive = ancestry.cachedConfirmedHistoryActive
-              cachedMempoolMembershipActive = ancestry.cachedMempoolMembershipActive
-            } else {
-              revision = await probeQbitAccountHistoryRevision(client, scope.addresses)
-            }
+          // An invalid or unstable lightweight probe fails closed to the
+          // existing complete, stability-checked account scan below.
+          const revision = await probeQbitAccountHistoryRevision(
+            this.getQbitApiClient(scope.chainType),
+            [scope.address]
+          ).catch(() => undefined)
+          if (revision) {
+            // A switch during the probe ends the read now, not after a full
+            // scan of an account that is no longer selected.
             await this.assertQbitHistoryScopeStillActive(scope)
             // A reorg can drop the refreshed tip below a cached confirmed
             // height. Reusing the cached list would clamp the reverted
@@ -1932,9 +1923,7 @@ export class WalletController extends BaseController {
               item => item.height <= 0 || item.height <= revision.tipHeight
             )
             if (
-              (probeDeferred
-                ? cachedConfirmedHistoryActive && cachedMempoolMembershipActive
-                : revision.activityFingerprint === reusable.revision.activityFingerprint) &&
+              revision.activityFingerprint === reusable.revision.activityFingerprint &&
               tipCoversCachedHeights &&
               Date.now() - reusable.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
             ) {
@@ -1952,17 +1941,13 @@ export class WalletController extends BaseController {
                 }),
               }
             }
-          } catch (error) {
-            if (probeDeferred) throw error
-            // An invalid or unstable lightweight probe fails closed to the
-            // existing complete, stability-checked account scan below.
           }
         }
 
         if (!snapshot) {
           const data = await getQbitAccountHistory(
             this.getQbitApiClient(scope.chainType),
-            scope.addresses,
+            [scope.address],
             { start: 0, limit: Number.MAX_SAFE_INTEGER },
             // Bounded scans at 0/1/3/7/15s cross electrs' 10s response-cache window.
             { stabilityRetries: 4, retryBaseDelayMs: 1_000 }

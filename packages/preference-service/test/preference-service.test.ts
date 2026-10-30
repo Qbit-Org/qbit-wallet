@@ -223,6 +223,45 @@ describe('PreferenceService', () => {
     expect(service.getAddressHistory('bc1q1')).toEqual([])
   })
 
+  it('drops history cached under the earlier wallet-wide Qbit key on init', async () => {
+    const walletWideKey = `qbit:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`
+    const accountKey = `qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`
+    const rawStore: any = {
+      locale: 'en',
+      historyMap: {
+        [walletWideKey]: [{ txid: 'tx-first' }, { txid: 'tx-second' }],
+        [accountKey]: [{ txid: 'tx-first' }],
+        qb1z1: [{ txid: 'tx-address' }],
+      },
+    }
+    storage.createPersistentProxy.mockResolvedValue(rawStore)
+
+    await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
+
+    expect(service.getAddressHistory(walletWideKey)).toEqual([])
+    expect(service.getAddressHistory(accountKey)).toEqual([{ txid: 'tx-first' }])
+    expect(service.getAddressHistory('qb1z1')).toEqual([{ txid: 'tx-address' }])
+    expect(Object.keys(rawStore.historyMap).sort()).toEqual([accountKey, 'qb1z1'].sort())
+  })
+
+  it('keeps only the most recently written history entries', async () => {
+    storage.createPersistentProxy.mockResolvedValue({ locale: 'en', historyMap: {} })
+    await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
+    const key = (index: number) => `qbit-account:${ChainType.QBIT_TESTNET4}:${index}`
+
+    for (let index = 0; index < 16; index += 1) {
+      service.updateAddressHistory(key(index), [{ txid: `tx-${index}` } as any])
+    }
+    // Writing an entry again makes it the newest.
+    service.updateAddressHistory(key(0), [{ txid: 'tx-0-again' } as any])
+    service.updateAddressHistory(key(16), [{ txid: 'tx-16' } as any])
+
+    expect(service.getAddressHistory(key(1))).toEqual([])
+    expect(service.getAddressHistory(key(0))).toEqual([{ txid: 'tx-0-again' }])
+    expect(service.getAddressHistory(key(2))).toEqual([{ txid: 'tx-2' }])
+    expect(service.getAddressHistory(key(16))).toEqual([{ txid: 'tx-16' }])
+  })
+
   it('supports address flag bit operations', async () => {
     storage.createPersistentProxy.mockResolvedValue({
       locale: 'en',

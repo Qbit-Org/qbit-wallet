@@ -98,17 +98,22 @@ export function useHistory() {
   )
 }
 
+/**
+ * The key history is stored under: the selected account's own public key on
+ * the current network, as the background keys it (`getAddressHistory`
+ * returns it as `scopeKey`). The `qbit-account:` prefix never matches the
+ * `qbit:` keys earlier builds used for one history of every account.
+ */
 export function useHistoryScopeKey() {
   const currentAccount = useCurrentAccount()
   const currentKeyring = useCurrentKeyring()
   const chainType = useAppSelector(state => state.settings.chainType)
-  const anchorPubkey = currentKeyring.accounts[0]?.pubkey
   if (
     currentAccount.type === KeyringType.QbitHdKeyring &&
     currentKeyring.type === KeyringType.QbitHdKeyring &&
-    anchorPubkey
+    currentAccount.pubkey
   ) {
-    return `qbit:${chainType}:${anchorPubkey.toLowerCase()}`
+    return `qbit-account:${chainType}:${currentAccount.pubkey.toLowerCase()}`
   }
   return currentAccount.address
 }
@@ -239,7 +244,7 @@ export function useFetchHistoryCallback() {
 }
 
 /**
- * Refetch the active logical account's first history page on mount and on an interval
+ * Refetch the selected account's first history page on mount and on an interval
  * while mounted. The 60s default matches the qbit block cadence, so
  * confirmation counts, reorg flips and replaced (RBF) txs surface within one
  * block. Returns the same generation-guarded callback used by the poller so
