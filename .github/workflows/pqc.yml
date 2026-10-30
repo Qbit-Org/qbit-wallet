@@ -72,6 +72,9 @@ jobs:
       - name: Verify the installed package against its pin
         run: pnpm sdk:packages:check
 
+      - name: Compare each pin with the registry's provenance attestation
+        run: pnpm sdk:packages:check --attestations
+
       - name: Run golden, Core derivation, and Core signature vectors against the package
         run: pnpm test:pqc-golden
 

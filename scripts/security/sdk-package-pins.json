@@ -12,6 +12,8 @@
         "commit": "be0a0f928dfe4d65602e7cfcbff95e13f3d0a6ce"
       },
       "files": {
+        "fixtures/qbit-core-derivation.json": "d840c4cfdf9d8e1a902d43393f2b597224b50d4b77f8d36b7f8cadccc2e3e248",
+        "fixtures/qbit-core-signature-vectors.json": "9b0f8cfa262ef9a5d9e1c78f54779c888c51a2a48d578a4a21a51550a46597d1",
         "wasm/pqc.mjs": "4c9f9d9d00dbf5608c10c674739bced4882701cdde3ee4c428214e8d20ee7c53",
         "wasm/pqc.wasm": "8696a3a4cb53a4c271684f077402255dc8babe89a956937844eb768a0874171e"
       }
