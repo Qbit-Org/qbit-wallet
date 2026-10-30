@@ -1,5 +1,24 @@
 # @qbit/tx-helpers
 
+## 1.2.8
+
+### Patch Changes
+
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-shared@2.0.0
+  - @qbit/keyring-service@1.4.0
+  - @qbit/wallet-core@1.1.5
+
 ## 1.2.7
 
 ### Patch Changes

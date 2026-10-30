@@ -1,5 +1,36 @@
 # @qbit/keyring-service
 
+## 1.4.0
+
+### Minor Changes
+
+- 4091176: Let a restored wallet lift its signing gate when an address's history is too long to enumerate (#61). `observeQbitPqcSignatureActivity` used to throw for an address with more than 6,400 transactions, so the restore floor scan never completed and `PQC_FLOORS_PENDING` locked every signature for good. It now reads such an address's floor from its statistics, `chain_stats.spent_txo_count + mempool_stats.spent_txo_count`. That is the count the full history read must match before it accepts a floor. The statistics read applies only when the statistics themselves show a history the scan does not enumerate: past the transaction cap or, on an Esplora surface, more pending transactions than its mempool listing returns (50; mempool-qbit pages them). It continues the tip-and-statistics bracket the cap check opened, so a block that lands meanwhile holds the retry for the tip-advance settle floor, and it retries per address like the full read. A walk that hits the client's page or transaction ceiling (`pagination_limit`) while the statistics say the history fits still fails, because the two disagree. The default page budget now follows the transaction cap (257 pages for 6,400), enough for an Esplora walk to reach it. It fails closed on invalid statistics, on statistics that list more transactions than outputs they fund or spend, and on statistics that spend more outputs or value than the address was paid. Every other failure still fails the observation. Any unstable floor observation during which the chain tip advanced, or after which the tip cannot be read, now waits out the tip-advance settle floor before its retry, whatever the instability was: moved statistics, a count mismatch, or a shifted history page. `observeQbitPqcSpentOutpoints` still requires the full history.
+
+  `@qbit/wallet-shared` adds `QbitRestoreFloorSource` (`'history' | 'address-stats'`) and `QbitRestoreFloorSourceRecord` (index, pubkey, source). The result now says which read set the floor (`QbitPqcSignatureActivity.floorSource`). `@qbit/keyring-service` passes an observer's `floorSource` through as `QbitPqcRestoreFloorScan.floorSources`, and `QbitRestoreFloorScanSummary.floorSources` carries them to the restore report. The restore report names the accounts read from statistics. No vault field changes.
+
+### Patch Changes
+
+- 4091176: Let consolidation and recovery work for accounts the explorer cannot list (#25, #58). The consolidation walk (`continueQbitAddressOutputScan`) no longer stops at an empty page after a pending row. qbit-electrs answers a cursor that is the last pending row with an empty page instead of the confirmed rows after it, so an account with a whole page of pending transactions was told nothing was ready. The walk now steps back one row and reads on, and it ends only when that page holds the pending row alone. A page that does not start with that row throws `invalid_cursor`, and the walk starts over. `QbitAddressOutputScan` gains `beforeMempoolCursor` and `overlapTxid`.
+
+  `prepareQbitRecoveryMigration` no longer fails the whole pass for a source whose history is longer than the 10,000 transactions the wallet reads (`QbitUtxoHistoryTooLargeError`). It plans the other sources and returns that source in the new `deferredSources` (`QbitRecoveryDeferredSource`), and the migration screen names it. Its funds keep the migration open. `advanceQbitRecoveryMigration` neither archives past such a source nor fails on it, and a check of an archived wallet that finds one reopens its migration. `keyringService.preflightP2mrPsbtSigning` takes `allowMigrationConsolidation`, which `createQbitConsolidationPsbt` passes for an account whose history is past the read limit (`isQbitHistoryOverReadLimit`, read from the same statistics as `qbitAddressOutputCounts`). While a migration is open, the keyring then signs that consolidation, but only if the batch pays everything it spends back to the same script, less a fee within the wallet's highest fee rate, and every input is its own, and only while no plan of the source is open. It checks the last condition again at signing. Every other signing during a migration stays limited to reviewed plans and protected-asset transfers.
+
+- 4091176: Refuse a PQC signature, counter change or keyring change that a lock and unlock cut off from the live keyrings. A signature resolved its keyring before it waited for the account's counter lock. If the wallet was locked and unlocked meanwhile, it reserved its counter on the old keyring, and `persistAllKeyrings` then wrote the keyrings the unlock had loaded, which lacked the reservation, under the new session's password. The signature was released anyway, and the next signature on that account reused its count. Every counter operation (`signPqcDigestWithCounter`, `signP2mrMessageWithCounter`, `signP2mrPsbtWithCounter`, their preflights, `reservePqcSignatureCounter`, `applyPqcSignatureCounterFloor`, `restorePqcSignatureCounterFloors`, `rearmQbitRestoreFloors` and `rearmQbitRestoreFloorsForKeyring`) now checks, under the counter lock, that its keyring is still live, and fails without signing when it is not. `persistAllKeyrings(changedKeyrings)` now requires the keyrings whose changes the write commits (`[]` for a write with no change) and fails, without writing, when any of them is no longer live once the write reaches the persistence queue, so a signature is released only after the vault holds its reservation. `addKeyring` and the create and import paths, `addNewAccount`, `removeAccount`, `changeAddressType`, `removeKeyring`, `syncQbitHdPath`, the receive-state and recovery-state mutations and the migration keyring pass the keyrings they change, as do their failure rollbacks, so they now fail instead of reporting success when a lock and unlock lost their change, and a rollback no longer rewrites a session it did not change. A signature whose reservation was saved before a lock now fails when its signature-cache write lands after the lock. These failures report `The keyring was locked, removed or replaced while this operation was in progress`. No vault field changes.
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-shared@2.0.0
+  - @qbit/wallet-storage@0.3.0
+  - @qbit/wallet-core@1.1.5
+
 ## 1.3.3
 
 ### Patch Changes

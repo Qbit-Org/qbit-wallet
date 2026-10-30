@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-background",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "private": true,
   "description": "Background runtime and wallet controller for Qbit Wallet",
   "main": "lib/index.js",
