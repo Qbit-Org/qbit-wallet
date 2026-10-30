@@ -57,12 +57,17 @@ import {
 } from '../src/services'
 import { QBIT_WALLET_SEND_CLAIM_ORIGIN } from '../src/services/qbitSendGuards'
 import { bgEventBus } from '../src/utils/eventBus'
-import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
+import {
+  QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QBIT_EXPLORER_MAX_BODY_BYTES,
+} from '../src/utils/qbit-explorer-fetch'
 
 const sendQbitMock = vi.hoisted(() => vi.fn())
-// Every explorer client the wallet builds carries its transport budgets (#353).
+// Every explorer client the wallet builds carries its transport budgets (#353)
+// and the response size limit its fetch buffers to.
 const EXPLORER_BUDGETS = {
   timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  maxResponseBytes: QBIT_EXPLORER_MAX_BODY_BYTES,
   fetchFn: expect.any(Function),
 }
 const sendAllQbitMock = vi.hoisted(() => vi.fn())

@@ -146,12 +146,13 @@ test('the lockfile must resolve one copy at the pinned version and integrity', (
     /integrity for .* pinned/
   )
   assert.match(
-    audit({ extraVersion: '0.1.1' }).errors.join('\n'),
+    audit({ extraVersion: '99.0.0' }).errors.join('\n'),
     /must resolve @qbit-oss\/pqc only as/
   )
-  assert.match(
-    audit({ specifier: '^0.1.0' }).errors.join('\n'),
-    /must take @qbit-oss\/pqc at exactly 0\.1\.0/
+  assert.ok(
+    audit({ specifier: `^${pqcPin.version}` })
+      .errors.join('\n')
+      .includes(`must take @qbit-oss/pqc at exactly ${pqcPin.version}`)
   )
 })
 

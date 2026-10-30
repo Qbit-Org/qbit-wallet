@@ -49,7 +49,7 @@ const pqc = await init({
 
 The extension bundle must package `pqc.wasm` next to the loader path resolved by
 `locateFile`. Passing `locateFile` also keeps `init()` from using the copy of
-`pqc.wasm` that `@qbit-oss/pqc` 0.1.0 embeds in `lib/index.mjs`. The
+`pqc.wasm` that `@qbit-oss/pqc` 0.1.1 embeds in `lib/index.mjs`. The
 `apps/extension` smoke is a build/package gate: it statically imports both
 `@qbit-oss/pqc` and `@qbit-oss/pqc/wasm/pqc.mjs`, emits an `init` entry with
 `createModule` and `locateFile`, verifies the checked-in MV3 CSP, and proves

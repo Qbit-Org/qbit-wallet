@@ -269,10 +269,12 @@ function classifyHttpRejection(error: QbitApiError): QbitBroadcastErrorClassific
 
 /**
  * `broadcastTx` never re-sends a submission that may have reached the node:
- * a timeout, a possibly-sent network error, a 5xx without the node's verdict
- * or a 2xx that is not a txid rejects as `unknown_outcome`. Its `cause` or
+ * a timeout, a possibly-sent network error, a 5xx without the node's verdict,
+ * a 2xx that is not a txid, a reply whose body could not be read in full or
+ * passed `maxResponseBytes` (a 429 included), and a 429 relaying the
+ * backend's lost node connection reject as `unknown_outcome`. Its `cause` or
  * `status` names the failure that hid the verdict; the reply text never
- * surfaces.
+ * surfaces, and its message, whose wording the client may change, is not read.
  */
 function classifyUnknownOutcome(error: QbitApiError): QbitBroadcastErrorClassification {
   const { cause, status } = error
@@ -334,10 +336,11 @@ const RESENDABLE_CAUSES: ReadonlySet<string> = new Set(['timeout', 'network', 'p
  * bytes again may get past, and that says nothing about whether the node
  * kept them: `broadcastTx`'s `unknown_outcome` (a timeout or connection lost
  * after sending, a 5xx without the node's verdict, a 2xx that is not the
- * txid, the backend losing its node), a 2xx that echoes another txid, and a
- * connection that provably never opened. A re-send is harmless when the
- * node already holds the transaction: it answers with the txid or as
- * already known (-27), which `broadcastTx` resolves as success.
+ * txid, a reply body cut short, the backend losing its node, a 429 included),
+ * a 2xx that echoes another txid, and a connection that provably never
+ * opened. A re-send is harmless when the node already holds the
+ * transaction: it answers with the txid or as already known (-27), which
+ * `broadcastTx` resolves as success.
  *
  * Nothing else qualifies: a node verdict as the client reports it (`http`,
  * whatever the status, and definitive or not), a 429 the client already
@@ -354,8 +357,9 @@ export function isQbitBroadcastResendable(error: unknown): boolean {
   if (error.kind !== 'unknown_outcome') return false
   // What hid the verdict: the reply alone (no cause), or the transport
   // timing out, failing or cutting the reply short. A refused redirect
-  // (caused by `http`), a cancelled call (`aborted`) and any cause not
-  // listed here are left alone.
+  // (caused by `http`), a cancelled call (`aborted`), a reply over
+  // `maxResponseBytes` (`response_too_large`, which the backend would send
+  // again) and any cause not listed here are left alone.
   const { cause } = error
   return cause === undefined || (QbitApiError.is(cause) && RESENDABLE_CAUSES.has(cause.kind))
 }

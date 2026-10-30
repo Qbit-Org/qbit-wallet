@@ -6,7 +6,7 @@ import {
   QbitWalletMempoolClient,
   getQbitAccountHistory,
 } from '../src/utils/qbit-api'
-import { classifyQbitBroadcastError } from '../src/utils/qbit-broadcast'
+import { classifyQbitBroadcastError, isQbitBroadcastResendable } from '../src/utils/qbit-broadcast'
 import {
   QbitExplorerOperation,
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
@@ -338,7 +338,7 @@ describe('explorer reads over a slow link (#353)', () => {
     expect((error as Error).message).not.toContain('apikey')
   })
 
-  it('fails a body longer than the buffer limit as unreadable, and releases it', async () => {
+  it('fails a body longer than the buffer limit as too large, without trying again, and releases it', async () => {
     // 1 MiB chunks of one shared buffer, without end.
     const chunk = new Uint8Array(MB)
     let sentBytes = 0
@@ -363,7 +363,7 @@ describe('explorer reads over a slow link (#353)', () => {
 
     const error = await client.getAddressHistoryPage(address).catch(e => e)
 
-    expect(error).toMatchObject({ kind: 'parse', status: 200 })
+    expect(error).toMatchObject({ kind: 'response_too_large', status: 200 })
     expect(endless).toHaveBeenCalledTimes(1)
     expect(sentBytes).toBeGreaterThan(QBIT_EXPLORER_MAX_BODY_BYTES)
     expect(sentBytes).toBeLessThanOrEqual(QBIT_EXPLORER_MAX_BODY_BYTES + 3 * MB)
@@ -420,7 +420,7 @@ describe('explorer submissions keep their outcome classification (#353)', () => 
     expect(explorer.releasedBodies).toEqual(['/tx'])
   })
 
-  it('retries a 429 whose body stalls, since nothing was submitted', async () => {
+  it('reports a 429 whose body stalls as an unknown outcome, sent once', async () => {
     const explorer = new FakeQbitExplorer('esplora')
     explorer.failures.push(({ method }) =>
       method === 'POST' ? { status: 429, body: 'slow down' } : undefined
@@ -434,12 +434,18 @@ describe('explorer submissions keep their outcome classification (#353)', () => 
 
     const result = await settle(client.broadcastTx('00'))
 
+    // The unread body may have said the node already has the transaction, so
+    // the client does not send it again, and the wallet reports a timeout.
     const error = (result as { error: unknown }).error
-    expect(QbitApiError.is(error) && error.kind).toBe('rate_limit')
-    expect(explorer.requests.filter(request => request.method === 'POST')).toHaveLength(3)
-    // Each stalled 429 is let go at the idle budget, not the attempt ceiling.
-    expect(result.elapsedMs).toBeLessThan(3 * (QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS + 1_000))
-    expect(explorer.releasedBodies).toEqual(['/tx', '/tx', '/tx'])
+    expect(QbitApiError.is(error) && error.kind).toBe('unknown_outcome')
+    expect(classifyQbitBroadcastError(error)).toMatchObject({
+      reason: 'timeout',
+      definitiveRejection: false,
+    })
+    expect(isQbitBroadcastResendable(error)).toBe(true)
+    expect(explorer.requests.filter(request => request.method === 'POST')).toHaveLength(1)
+    expect(result.elapsedMs).toBeLessThan(QBIT_EXPLORER_REPLY_TIMEOUT_MS + 1_000)
+    expect(explorer.releasedBodies).toEqual(['/tx'])
   })
 })
 

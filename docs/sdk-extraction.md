@@ -7,14 +7,14 @@ wallets and applications can reuse them, and the wallet installs them from npm.
 ## Current Layout
 
 ```text
-@qbit-oss/pqc 0.1.0       <- Qbit-Org/qbit-pqc, signed tag v0.1.0 (be0a0f9)
-@qbit-oss/protocol 0.1.0  <- Qbit-Org/qbit-js,  signed tag v0.1.0 (2f4637f)
-@qbit-oss/api 0.1.0       <- Qbit-Org/qbit-js,  signed tag v0.1.0 (2f4637f)
+@qbit-oss/pqc 0.1.1       <- Qbit-Org/qbit-pqc, signed tag v0.1.1 (4164120)
+@qbit-oss/protocol 0.1.1  <- Qbit-Org/qbit-js,  signed tag v0.1.1 (1cbf4b3)
+@qbit-oss/api 0.1.1       <- Qbit-Org/qbit-js,  signed tag v0.1.1 (1cbf4b3)
 ```
 
-Each package is an exact dependency (`"0.1.0"`, no range) of the wallet
+Each package is an exact dependency (`"0.1.1"`, no range) of the wallet
 packages that import it. Each was published with npm provenance by its
-repository's `.github/workflows/publish.yml` from `refs/tags/v0.1.0`.
+repository's `.github/workflows/publish.yml` from `refs/tags/v0.1.1`.
 `scripts/security/sdk-package-pins.json` records each version, registry
 integrity and provenance, plus the SHA-256 of `@qbit-oss/pqc`'s
 `wasm/pqc.mjs` and `wasm/pqc.wasm` and of the qbit Core derivation and
@@ -54,6 +54,18 @@ under `pnpm test`.
    the fixtures.
 4. For `@qbit-oss/protocol`, refresh `scripts/conformance/qbit-js/` from the
    provenance commit.
+5. Update what else names the version: the license records and lockfile
+   digest in `scripts/security/dependency-license-baseline.json`
+   (`node scripts/security/dependency-policy.mjs --write-license-baseline`,
+   after checking each license), the `qbitSdkPackages` identities in
+   `scripts/conformance/fixtures/matrix.json` (once
+   `node scripts/conformance/generate-matrix-fixture.mjs` derives the same
+   addresses, descriptors and sizes), the qbit-js references in
+   `scripts/conformance/p2mr-v1-coverage.json`, and the docs. Compare
+   `hoistedLocations` in `node_modules/.modules.yaml` with a clean install of
+   the base, so the bump moves no polyfill the extension bundles. Once the
+   lockfile change is committed, regenerate the dependency evidence from a
+   clean worktree (`corepack pnpm security:evidence`) and commit it.
 
 The keyring vectors must pass unchanged. Do not regenerate them for an SDK
 update: a different pubkey or address means the same seed would derive other

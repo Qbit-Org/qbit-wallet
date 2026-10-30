@@ -28,7 +28,7 @@ policy, and lockfile that were executed.
 | `pnpm-lock.yaml` SHA-256 | `07e58cd4c3e24c16a79cf31a6d7968a4c5e8749a3e70088e1bf6668985d13a04` |
 | [Raw audit output](./dependency-audit.json) SHA-256 | `379dac65b3daeaeb181cb6e0eafb6c36b116374af1709ac2954de87657c2be4d` |
 | [Package inventory](./dependency-inventory.json) SHA-256 | `c19a3269386ba11ce96a4121772a7fca42da1026a1c3006c7b464cf2f2458f39` |
-| Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.0, pinned in `scripts/security/sdk-package-pins.json` |
+| Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
 all 437 direct declarations, all 208 resolved packages classified as crypto-,
@@ -255,8 +255,8 @@ and protocol dependencies with the greatest impact:
 
 | Package or source | Reviewed use | Disposition |
 | --- | --- | --- |
-| `@qbit-oss/pqc` 0.1.0 (npm) | PQC keys, signatures, counters, and WASM | Exact version, registry integrity, provenance (`Qbit-Org/qbit-pqc` `v0.1.0`) and WASM digests pinned; golden and qbit Core vectors, pin check, and extension import smoke are required here; package tests, MV3 smoke and reproducible rebuild run upstream |
-| `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.0 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.0`) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
+| `@qbit-oss/pqc` 0.1.1 (npm) | PQC keys, signatures, counters, and WASM | Exact version, registry integrity, provenance (`Qbit-Org/qbit-pqc` `v0.1.1`, compared with the registry attestation), WASM and qbit Core fixture digests pinned; golden and qbit Core vectors, pin check, and extension import smoke are required here; package tests, MV3 smoke and reproducible rebuild run upstream |
+| `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.1`, compared with the registry attestation) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
 | `@noble/curves` 1.4.2/1.7.0; `@noble/hashes` 1.4.0/1.6.0/1.8.0 | Curve and hash primitives | Retain exact closure and conformance evidence |
 | `bitcoinjs-lib@6.1.6`; `tiny-secp256k1@2.2.3` | PSBT and classical signing | Wallet tests bind displayed and signed transaction bytes |
 | `bitcore-lib@10.0.0`; `hdkey@2.1.0`; `bip39@3.1.0` | HD derivation, extended-key parsing, and mnemonics | Derivation/recovery tests required; no signing through transitive `elliptic` |

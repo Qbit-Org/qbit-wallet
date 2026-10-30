@@ -15,6 +15,11 @@ const JAVASCRIPT_MODULE_TYPES = Object.freeze(['javascript/auto', 'javascript/dy
  * `self.location` in the MV3 service worker). Webpack already resolves
  * `new URL('asset', import.meta.url)` against the same base, and that asset
  * handling is left to webpack.
+ *
+ * A non-static `import.meta.resolve(specifier)` is left for the runtime, as
+ * webpack's own `import.meta` object, which carries the same file URL. In the
+ * matched modules it is `undefined` instead, which is what webpack already
+ * makes `typeof import.meta.resolve`: a bundle has no module resolver.
  */
 class RuntimeImportMetaUrlPlugin {
   constructor({ test } = {}) {
@@ -50,6 +55,32 @@ class RuntimeImportMetaUrlPlugin {
           .tap({ name: PLUGIN_NAME, stage: -100 }, (expression) =>
             matches() ? new BasicEvaluatedExpression().setRange(expression.range) : undefined
           );
+        const replaceWithUndefined = (node) => {
+          const dependency = new ConstDependency('undefined', node.range);
+          dependency.loc = parser.getLocation(node);
+          parser.state.module.addPresentationalDependency(dependency);
+        };
+        parser.hooks.expression.for('import.meta.resolve').tap({ name: PLUGIN_NAME, stage: -100 }, (expression) => {
+          if (!matches()) {
+            return undefined;
+          }
+          replaceWithUndefined(expression);
+          return true;
+        });
+        // Webpack walks a call's callee through its object, `import.meta` itself.
+        parser.hooks.call.for('import.meta.resolve').tap({ name: PLUGIN_NAME, stage: -100 }, (expression) => {
+          const [specifier] = expression.arguments;
+          if (
+            !matches() ||
+            // A static specifier is left to webpack, which resolves it to its asset URL.
+            (specifier && specifier.type !== 'SpreadElement' && parser.evaluateExpression(specifier).isString())
+          ) {
+            return undefined;
+          }
+          replaceWithUndefined(expression.callee);
+          parser.walkExpressions(expression.arguments);
+          return true;
+        });
       };
 
       for (const type of JAVASCRIPT_MODULE_TYPES) {

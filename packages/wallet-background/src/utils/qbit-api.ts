@@ -41,6 +41,7 @@ import type {
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QBIT_EXPLORER_MAX_BODY_BYTES,
   createQbitExplorerFetch,
   isQbitExplorerLargeBodyRoute,
   qbitExplorerFreshReadPath,
@@ -156,17 +157,27 @@ export type QbitWalletApiClient = EsploraClient &
  * body are timed separately, so a large history page on a slow link loads
  * while a dead connection still fails; see `qbit-explorer-fetch`. A given
  * `fetchFn` is wrapped, not replaced. With no base URL or no fetch at all,
- * the client's own constructor error stands.
+ * the client's own constructor error stands. Its `maxResponseBytes`, by default
+ * one that holds a full history page of the largest standard spends, is also
+ * the limit the wrapper buffers a reply to.
  */
 function withQbitExplorerBudgets<T extends EsploraClientOptions>(
   options: T
-): T & { timeoutMs: number } {
-  const budgeted = { ...options, timeoutMs: options.timeoutMs ?? QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS }
+): T & { timeoutMs: number; maxResponseBytes: number } {
+  const budgeted = {
+    ...options,
+    timeoutMs: options.timeoutMs ?? QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+    maxResponseBytes: options.maxResponseBytes ?? QBIT_EXPLORER_MAX_BODY_BYTES,
+  }
   if (typeof options.baseUrl !== 'string') return budgeted
   if (options.fetchFn === undefined && typeof globalThis.fetch !== 'function') return budgeted
   return {
     ...budgeted,
-    fetchFn: createQbitExplorerFetch({ fetchFn: options.fetchFn, baseUrl: options.baseUrl }),
+    fetchFn: createQbitExplorerFetch({
+      fetchFn: options.fetchFn,
+      baseUrl: options.baseUrl,
+      maxBodyBytes: budgeted.maxResponseBytes,
+    }),
   }
 }
 
