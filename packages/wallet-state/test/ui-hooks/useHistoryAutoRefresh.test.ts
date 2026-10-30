@@ -683,6 +683,53 @@ describe('useHistoryAutoRefresh', () => {
     unmount()
   })
 
+  it("does not record the previous account's failed read as a history error", async () => {
+    let rejectFirst!: (error: Error) => void
+    const { wrapper, store, secondAccount, firstKey } = qbitAccountsHarness(
+      () => new Promise((_resolve, reject) => (rejectFirst = reject))
+    )
+    store.dispatch(
+      accountActions.setHistory({
+        address: firstKey,
+        list: [{ txid: 'tx-first', confirmations: 1, timestamp: 100 } as any],
+        snapshotId: 'snapshot-1',
+      })
+    )
+    const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
+
+    let firstRead!: Promise<void>
+    act(() => {
+      firstRead = result.current()
+    })
+    act(() => {
+      store.dispatch(accountActions.setCurrent(secondAccount))
+    })
+    unmount()
+    await act(async () => {
+      rejectFirst(new Error('Qbit history account or network changed while loading'))
+      await expect(firstRead).rejects.toThrow('changed while loading')
+    })
+
+    expect(store.getState().accounts.historyMap[firstKey]).toMatchObject({
+      list: [{ txid: 'tx-first' }],
+      error: false,
+    })
+  })
+
+  it('records a failed read for the account still selected as a history error', async () => {
+    const { wrapper, store, firstKey } = qbitAccountsHarness(async () => {
+      throw new Error('explorer unavailable')
+    })
+    const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
+
+    await act(async () => {
+      await expect(result.current()).rejects.toThrow('explorer unavailable')
+    })
+
+    expect(store.getState().accounts.historyMap[firstKey]).toMatchObject({ error: true })
+    unmount()
+  })
+
   it('shows no account the history stored under the earlier wallet-wide key', () => {
     const { wrapper, store, secondAccount } = qbitAccountsHarness(async () => ({
       start: 0,

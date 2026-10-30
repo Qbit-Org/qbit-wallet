@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useStore } from 'react-redux'
 
 import {
   Account,
@@ -19,7 +20,6 @@ import {
 import { keyringsActions } from '../reducers/keyrings'
 import { settingsActions } from '../reducers/settings'
 import { useAppDispatch, useAppSelector } from './base'
-import { useCurrentKeyring } from './keyrings'
 
 export function useAccountsState(): AppState['accounts'] {
   return useAppSelector(state => state.accounts)
@@ -104,18 +104,21 @@ export function useHistory() {
  * returns it as `scopeKey`). The `qbit-account:` prefix never matches the
  * `qbit:` keys earlier builds used for one history of every account.
  */
-export function useHistoryScopeKey() {
-  const currentAccount = useCurrentAccount()
-  const currentKeyring = useCurrentKeyring()
-  const chainType = useAppSelector(state => state.settings.chainType)
+function selectHistoryScopeKey(state: AppState): string {
+  const currentAccount = state.accounts.current
+  const currentKeyring = state.keyrings.current
   if (
     currentAccount.type === KeyringType.QbitHdKeyring &&
     currentKeyring.type === KeyringType.QbitHdKeyring &&
     currentAccount.pubkey
   ) {
-    return `qbit-account:${chainType}:${currentAccount.pubkey.toLowerCase()}`
+    return `qbit-account:${state.settings.chainType}:${currentAccount.pubkey.toLowerCase()}`
   }
   return currentAccount.address
+}
+
+export function useHistoryScopeKey(): string {
+  return useAppSelector(selectHistoryScopeKey)
 }
 
 export function useAccountAddress() {
@@ -152,6 +155,7 @@ const HISTORY_FIRST_PAGE_SIZE = 20
 
 export function useFetchHistoryCallback() {
   const dispatch = useAppDispatch()
+  const store = useStore<AppState>()
   const wallet = useWallet()
   const address = useAccountAddress()
   const historyScopeKey = useHistoryScopeKey()
@@ -235,12 +239,18 @@ export function useFetchHistoryCallback() {
         })
       )
     } catch (error) {
-      if (generation === generationRef.current) {
+      // The background refuses a read whose account is no longer selected.
+      // That says nothing about this account's history, so only a failure
+      // for the account still selected is recorded against it.
+      if (
+        generation === generationRef.current &&
+        selectHistoryScopeKey(store.getState()) === historyScopeKey
+      ) {
         dispatch(accountActions['setHistoryError']!({ address: historyScopeKey }))
       }
       throw error
     }
-  }, [dispatch, wallet, address, historyScopeKey])
+  }, [dispatch, store, wallet, address, historyScopeKey])
 }
 
 /**
