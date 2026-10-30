@@ -3097,5 +3097,80 @@
   },
   "pasted_phrase_has_too_many_words": {
     "message": "The pasted phrase has more words than there are boxes. Choose the phrase length that matches your backup, then paste it into the first box."
+  },
+  "phishing_protection": {
+    "message": "Phishing protection"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Fully on"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Starting"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Retrying"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Failed"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Not supported by this browser"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Degraded"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "Status unknown"
+  },
+  "phishing_protection_attempts": {
+    "message": "Attempts: $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Attempts: $1. Next attempt in $2 s."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Attempts: $1. Next attempt due now."
+  },
+  "phishing_protection_last_error": {
+    "message": "Last error: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Domains in the block rule: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Domains in the block rule: unknown"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "The block rule is not installed."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "The block rule could not be read."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "The warning page rule is still in place without site access, so blocked pages may load."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "The warning page rule could not be read."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "Site access is withheld on some blocked sites, so the page check does not run there."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "Whether site access is withheld could not be read."
+  },
+  "phishing_protection_retry": {
+    "message": "Retry now"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "Retry failed."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "Retry failed: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "The block list ships with the extension and changes only with a release."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "The retry did not answer in time. It may still finish; the status above updates when it does."
   }
 }

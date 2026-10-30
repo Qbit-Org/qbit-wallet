@@ -6,6 +6,7 @@ import { useDeveloperMode, useI18n } from '@qbit/wallet-state';
 
 import { EnableSignDataCard } from './EnableSignData';
 import { LanguageCard } from './Language';
+import { PhishingProtectionCard } from './PhishingProtectionCard';
 import { RegtestAccessCard } from './RegtestAccessCard';
 import { SecurityCard } from './SecurityCard';
 
@@ -36,6 +37,8 @@ export default function AdvancedScreen() {
         <LanguageCard />
 
         <SecurityCard />
+
+        <PhishingProtectionCard />
 
         <RegtestAccessCard />
 

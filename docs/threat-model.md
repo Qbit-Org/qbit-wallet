@@ -324,8 +324,11 @@ Controls and evidence:
   until a request gives up on it. A read that finds a redirect rule in place
   without host access, with no attempt scheduled or queued, starts its
   removal once its answer reaches a request still waiting for it; it
-  neither clears a recorded failure nor supersedes a queued retry. No
-  wallet screen shows this health yet;
+  neither clears a recorded failure nor supersedes a queued retry. The
+  wallet's Advanced settings screen shows the block rule's state, or the
+  overall state once that rule is installed, with the overall reasons and
+  the block rule's health, and Retry now; it does not show the redirect
+  rule's own state;
 - above the block rule, a session `redirect` rule sends a top-level
   navigation to a denylisted host to the wallet's warning page before it
   reaches the network, however the tab got there: a link, a typed URL, a
@@ -464,8 +467,8 @@ Residual risk:
   does not run, so the page loads and runs its own script. The
   `GET_PHISHING_STATS` health reports this as `protection` `degraded` with
   `block-rule-not-installed` and `site-access-withheld`, or
-  `site-access-unknown` when the browser cannot say; no wallet screen
-  shows it yet;
+  `site-access-unknown` when the browser cannot say, and the wallet's
+  Advanced settings screen shows those reasons;
 - an enterprise policy that blocks the wallet on a denylisted host
   (`runtime_blocked_hosts`) was not tested. If Chrome still reports host
   access there through `permissions.contains`, the redirect rule stays in

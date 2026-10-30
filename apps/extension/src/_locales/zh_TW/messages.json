@@ -3097,5 +3097,80 @@
   },
   "pasted_phrase_has_too_many_words": {
     "message": "貼上的助記詞單字數多於輸入欄位。請選擇與您的備份相符的單字數，然後貼到第一個欄位。"
+  },
+  "phishing_protection": {
+    "message": "釣魚防護"
+  },
+  "phishing_protection_status_protected": {
+    "message": "已完全開啟"
+  },
+  "phishing_protection_status_starting": {
+    "message": "啟動中"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "重試中"
+  },
+  "phishing_protection_status_failed": {
+    "message": "失敗"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "此瀏覽器不支援"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "已降級"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "狀態不明"
+  },
+  "phishing_protection_attempts": {
+    "message": "嘗試次數：$1。"
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "嘗試次數：$1。下次嘗試於 $2 秒後。"
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "嘗試次數：$1。下次嘗試已到時間。"
+  },
+  "phishing_protection_last_error": {
+    "message": "最後錯誤：$1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "封鎖規則中的網域數：$1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "封鎖規則中的網域數：不明"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "封鎖規則尚未安裝。"
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "無法讀取封鎖規則。"
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "警告頁面規則在沒有網站存取權的情況下仍然存在，因此被封鎖的網頁可能會載入。"
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "無法讀取警告頁面規則。"
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "部分被封鎖網站的網站存取權受到限制，因此網頁檢查不會在那些網站上執行。"
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "無法得知網站存取權是否受到限制。"
+  },
+  "phishing_protection_retry": {
+    "message": "立即重試"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "重試失敗。"
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "重試失敗：$1"
+  },
+  "phishing_protection_list_note": {
+    "message": "封鎖清單隨擴充功能一起提供，只會隨新版本變更。"
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "重試未在時限內回應。它仍可能完成，完成後上方的狀態會更新。"
   }
 }
