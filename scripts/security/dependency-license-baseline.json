@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "source": "reviewed package metadata for every sha512-bound pnpm-lock.yaml name@version identity",
-  "lockfileSha256": "07e58cd4c3e24c16a79cf31a6d7968a4c5e8749a3e70088e1bf6668985d13a04",
+  "lockfileSha256": "6b9a35ec50bc5fc66be8772b7eda90804f389b659ec240a918df9b535e413546",
   "packageCount": 2272,
   "packages": {
     "@acemir/cssom@0.9.31": "MIT",
@@ -402,9 +402,9 @@
     "@pmmmwh/react-refresh-webpack-plugin@0.5.3": "MIT",
     "@polka/url@1.0.0-next.29": "MIT",
     "@puppeteer/browsers@3.0.6": "Apache-2.0",
-    "@qbit-oss/api@0.1.0": "MIT",
-    "@qbit-oss/pqc@0.1.0": "MIT",
-    "@qbit-oss/protocol@0.1.0": "MIT",
+    "@qbit-oss/api@0.1.1": "MIT",
+    "@qbit-oss/pqc@0.1.1": "MIT",
+    "@qbit-oss/protocol@0.1.1": "MIT",
     "@reduxjs/toolkit@1.9.2": "MIT",
     "@rollup/plugin-babel@6.1.0": "MIT",
     "@rollup/plugin-node-resolve@16.0.3": "MIT",

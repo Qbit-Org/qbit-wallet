@@ -4,8 +4,8 @@
   "provenance": {
     "kind": "wallet-golden-core-validated",
     "qbitSdkPackages": {
-      "@qbit-oss/pqc": "0.1.0 sha512-NZAWoRggBtQHdCyXFfA4odcgnxedrwV57nZMHkhutS/UnPpzNBGwVPUMQcmIfxlF9IPU5Q0FRtJ5VnoQ59vqCA==",
-      "@qbit-oss/protocol": "0.1.0 sha512-7GGEVWwmMgL5XL8FQlFJeXwUkW2y2ciLq6bv5VYz6Bp6cea64HNItg77XpKkupDfz/Hg5ghKaupez3Zp+08uJQ=="
+      "@qbit-oss/pqc": "0.1.1 sha512-+p7hTxDvoRyUTlLifTfkRDuRt6+TO/X7vHMqN7w2XYSTpQGRkZopmQaCdYq2N2WZMtNF9sTAGmBCLgfvkCOfTA==",
+      "@qbit-oss/protocol": "0.1.1 sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww=="
     },
     "coreEvidence": {
       "validated": true,

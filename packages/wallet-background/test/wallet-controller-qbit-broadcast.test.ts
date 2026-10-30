@@ -32,7 +32,10 @@ import {
 } from '../src/services/qbitSendGuards'
 import { QBIT_BROADCAST_ABSENCE_PROBES } from '../src/utils/qbit-broadcast'
 import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-explorer-spend-check'
-import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
+import {
+  QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QBIT_EXPLORER_MAX_BODY_BYTES,
+} from '../src/utils/qbit-explorer-fetch'
 
 const broadcastTxMock = vi.hoisted(() => vi.fn())
 const getTxMock = vi.hoisted(() => vi.fn())
@@ -1144,6 +1147,7 @@ describe('WalletController.broadcastQbitTx', () => {
       {
         baseUrl: REGTEST_ENDPOINT,
         timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+        maxResponseBytes: QBIT_EXPLORER_MAX_BODY_BYTES,
         fetchFn: expect.any(Function),
       },
     ])
@@ -2556,6 +2560,19 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
       detail:
         'Could not check whether a later payment depends on the transaction this fee bump replaces',
     })
+    // A reply past the size limit is an answer it cannot use.
+    getTxOutspendsMock.mockRejectedValueOnce(
+      new QbitApiError(
+        'response_too_large',
+        'HTTP 200 reply from https://explorer.test/... exceeded 67108864 bytes; its body was discarded',
+        { status: 200 }
+      )
+    )
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'not_sent',
+      reason: 'invalid_response',
+    })
     // So does an answer that is not one entry per output of the original.
     explorerShowsOriginal([undefined, undefined])
     probeGone()
@@ -3450,6 +3467,7 @@ describe('WalletController.checkQbitBroadcastStatus', () => {
       {
         baseUrl: REGTEST_ENDPOINT,
         timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+        maxResponseBytes: QBIT_EXPLORER_MAX_BODY_BYTES,
         fetchFn: expect.any(Function),
       },
     ])

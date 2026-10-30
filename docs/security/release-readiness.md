@@ -119,3 +119,11 @@ submodules and `.gitmodules` is gone (#288). `pnpm release:readiness` reports
 remote ownership, executable sources and submodule fetchability (zero
 submodules) as passing; the only open gate is `main` admin enforcement
 (AR-03), so strict mode still exits 2.
+
+## 2026-10-30 update
+
+The SDK packages are at 0.1.1, from the signed `v0.1.1` tags (#15).
+`pnpm sdk:packages:check --attestations` now compares each pin with the npm
+registry's provenance attestation, and keyring derivation vectors pin the
+addresses the wallet derives. `pnpm release:readiness` does not read the SDK
+pins, so its gates are unchanged.

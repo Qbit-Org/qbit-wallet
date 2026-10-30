@@ -38,9 +38,10 @@ export const QBIT_EXPLORER_REPLY_TIMEOUT_MS = 15_000
 export const QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS = 300_000
 
 /**
- * A reply body is buffered whole, so a longer one fails as unreadable rather
- * than exhausting the background worker's memory: about one and a half times
- * the largest page above.
+ * A reply body is buffered whole, so a longer one fails as `response_too_large`
+ * rather than exhausting the background worker's memory: about one and a half
+ * times the largest page above. It is the clients' default `maxResponseBytes`
+ * (see `QbitWalletEsploraClient`), the limit the fetch below buffers to.
  */
 export const QBIT_EXPLORER_MAX_BODY_BYTES = 64 * 1024 * 1024
 
@@ -50,7 +51,6 @@ export const QBIT_EXPLORER_MAX_BODY_BYTES = 64 * 1024 * 1024
  * witness hex per input).
  */
 const LARGE_BODY_ROUTE = /^(?:\/address\/[^/?]+\/txs(?:[/?]|$)|\/tx\/[0-9a-f]{64}(?:\/hex)?$)/i
-const READ_METHODS = new Set(['GET', 'HEAD'])
 
 /** Whether `route`, relative to the base URL, is one whose body can be large. */
 export function isQbitExplorerLargeBodyRoute(route: string): boolean {
@@ -62,6 +62,8 @@ export interface QbitExplorerFetchOptions {
   fetchFn?: typeof fetch | undefined
   /** The client's base URL: routes are read after it, and errors do not quote it. */
   baseUrl: string
+  /** The client's `maxResponseBytes` (default `QBIT_EXPLORER_MAX_BODY_BYTES`). */
+  maxBodyBytes?: number | undefined
 }
 
 /**
@@ -193,12 +195,17 @@ export class QbitExplorerOperation {
  * The body is buffered before the promise resolves, so the client sees the
  * stall before the headers. A body that fails on its own is handed to the
  * client as it arrived, with the failure at its end, so the client judges it
- * as before. So is a submission's 429 that stalls: a 429 proves nothing was
- * submitted, and the client retries it even when its body is lost.
+ * as before. A submission's reply that stalls, a 429 included, rejects as a
+ * timeout, which the client reports as an unknown outcome: a 429 whose body
+ * was not read may have said that the node has the transaction. A body past
+ * `maxBodyBytes` rejects as `response_too_large`, as the client's own limit
+ * does: a read is not retried, and a submission's reply is an unknown outcome
+ * that is not sent again.
  */
 export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): typeof fetch {
   const { fetchFn } = options
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
+  const maxBodyBytes = options.maxBodyBytes ?? QBIT_EXPLORER_MAX_BODY_BYTES
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const controller = new AbortController()
@@ -255,11 +262,8 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
       clearTimeout(replyTimer)
       return response
     }
-    const submission = !READ_METHODS.has((init?.method ?? 'GET').toUpperCase())
-    const keepReply = submission && status === 429
-
     const reader = response.body.getReader()
-    let chunks: (Uint8Array | undefined)[] = []
+    const chunks: (Uint8Array | undefined)[] = []
     let bytes = 0
     let failure: { error: unknown } | undefined
     try {
@@ -274,27 +278,26 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
           const chunk = await raceAbort(reader.read(), controller.signal)
           if (chunk.done) break
           bytes += chunk.value.byteLength
-          if (bytes > QBIT_EXPLORER_MAX_BODY_BYTES) {
-            // Unreadable, as the client reports a body it cannot read.
-            const error = new RangeError(
-              `response body exceeds ${QBIT_EXPLORER_MAX_BODY_BYTES} bytes`
+          if (bytes > maxBodyBytes) {
+            const url = errorUrl(href, baseUrl, route)
+            const error = new QbitApiError(
+              'response_too_large',
+              `HTTP ${response.status} reply from ${url} exceeded ${maxBodyBytes} bytes; its body was discarded`,
+              { status: response.status, url }
             )
-            failure = { error }
-            chunks = []
+            // The catch below releases the body and rethrows the abort's reason.
             controller.abort(error)
-            reader.cancel(error).catch(() => undefined)
-            break
+            throw error
           }
           chunks.push(chunk.value)
         } catch (error) {
           if (!controller.signal.aborted) {
             failure = { error }
           } else {
-            // A stall or the caller's abort: the request is aborted; release the body too.
+            // A stall, a body past the limit or the caller's abort: the request is
+            // aborted; release the body too.
             reader.cancel(controller.signal.reason).catch(() => undefined)
-            if (!keepReply) throw controller.signal.reason
-            // A caller's abort has already ended the client's wait; only a stall reaches it.
-            failure = { error: controller.signal.reason }
+            throw controller.signal.reason
           }
         } finally {
           clearTimeout(idleTimer)
