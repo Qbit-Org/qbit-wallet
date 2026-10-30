@@ -107,6 +107,7 @@ describe('Step1_Import', () => {
       inputWords: ['', ''],
       inputWordsInvalid: [false, false],
       inputWordsError: false,
+      pastedTooManyWords: false,
       onClickNext,
       onClickWordsItem: vi.fn(),
       onInputWordsChange: vi.fn(),

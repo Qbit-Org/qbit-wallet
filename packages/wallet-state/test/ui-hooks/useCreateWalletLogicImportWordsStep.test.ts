@@ -169,4 +169,48 @@ describe('useCreateWalletLogicImportWordsStep word checks', () => {
       expect.objectContaining({ mnemonics: VALID_WORDS.join(' ') })
     )
   })
+
+  it('reports the checksum while a last word is typed through a shorter list word', () => {
+    const { result } = renderImportStep()
+    typeWords(result, VALID_WORDS.slice(0, 11))
+
+    // "act" is itself in the list, so the hook reports it; the screen holds
+    // the message back until the input loses focus.
+    typeWords(result, [...VALID_WORDS.slice(0, 11), 'act'])
+    expect(result.current.inputWordsError).toBe(true)
+
+    typeWords(result, [...VALID_WORDS.slice(0, 11), 'acti'])
+    expect(result.current.inputWordsInvalid[11]).toBe(true)
+    expect(result.current.inputWordsError).toBe(false)
+  })
+
+  it('reports a paste whose extra words were dropped', () => {
+    const { result } = renderImportStep()
+    const twentyFourWords = [...new Array(23).fill('abandon'), 'art']
+
+    paste(result, twentyFourWords.join(' '))
+    expect(result.current.inputWords).toEqual(twentyFourWords.slice(0, 12))
+    expect(result.current.pastedTooManyWords).toBe(true)
+
+    typeWords(result, ['abandon'])
+    expect(result.current.pastedTooManyWords).toBe(false)
+
+    paste(result, twentyFourWords.join(' '))
+    act(() => {
+      result.current.onInputWordsTextChange(VALID_WORDS.join(' '))
+    })
+    expect(result.current.pastedTooManyWords).toBe(false)
+
+    paste(result, VALID_WORDS.join(' '), 5)
+    expect(result.current.pastedTooManyWords).toBe(true)
+
+    paste(result, VALID_WORDS.join(' '))
+    expect(result.current.pastedTooManyWords).toBe(false)
+
+    paste(result, twentyFourWords.join(' '))
+    act(() => {
+      result.current.onClickWordsItem(result.current.wordsItems[WordsType.WORDS_24])
+    })
+    expect(result.current.pastedTooManyWords).toBe(false)
+  })
 })

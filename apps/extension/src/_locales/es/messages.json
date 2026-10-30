@@ -3094,5 +3094,8 @@
   },
   "recovery_phrase_is_not_valid": {
     "message": "Esta frase de recuperación no es válida. Compruebe que cada palabra y su posición coincidan con su copia de seguridad."
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "La frase pegada tiene más palabras que casillas. Elija la longitud de frase que coincida con su copia de seguridad y péguela en la primera casilla."
   }
 }

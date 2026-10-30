@@ -90,6 +90,8 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
   )
   const [inputWordsText, setInputWordsText] = useState('')
   const [inputWordsError, setInputWordsError] = useState(false)
+  // True after a paste whose extra words did not fit and were dropped.
+  const [pastedTooManyWords, setPastedTooManyWords] = useState(false)
   // One flag per input: true when it holds a word that is not in the word list.
   const inputWordsInvalid = useMemo(
     () => inputWords.map(word => word !== '' && !isMnemonicWord(word)),
@@ -166,6 +168,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
     value = normalizeWhitespace(value)
 
     const wordsArr = textToWordsArray(value)
+    setPastedTooManyWords(false)
     updateWords(wordsArr, isEndedWithSpace)
   }
 
@@ -175,6 +178,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
 
     const newKeys = [...inputWords]
     newKeys.splice(index, 1, value)
+    setPastedTooManyWords(false)
     updateWords(newKeys)
   }
 
@@ -190,6 +194,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
         }
         newKeys[index + i] = textArr[i]
       }
+      setPastedTooManyWords(textArr.length > inputWords.length - index)
       updateWords(newKeys)
     }
 
@@ -243,6 +248,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
     setInputWordsText('')
     setInputWords(new Array(wordsItem.count).fill(''))
     setInputWordsError(false)
+    setPastedTooManyWords(false)
   }
 
   const shouldEnteredWordsCount = wordsItems[contextData.wordsType].count
@@ -258,6 +264,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
     onClickWordsItem,
     inputWordsError,
     inputWordsInvalid,
+    pastedTooManyWords,
     onInputWordsTextChange,
     onInputWordsChange,
     loading,

@@ -103,5 +103,5 @@ export function validateMnemonic(mnemonic: string): boolean {
 // normalizes to NFKD and then looks each word up, case-sensitively, in the
 // English list.
 export function isMnemonicWord(word: string): boolean {
-  return bip39.wordlists.english.includes(word.normalize('NFKD'))
+  return bip39.wordlists['english'].includes(word.normalize('NFKD'))
 }

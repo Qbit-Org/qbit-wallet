@@ -65,6 +65,7 @@ type HookResult = ReturnType<typeof useCreateWalletLogicImportWordsStep>;
 
 const WORD_COUNT = 12;
 const INVALID_PHRASE_MESSAGE = 'mnemonic-import-invalid-phrase';
+const TOO_MANY_WORDS_MESSAGE = 'mnemonic-import-too-many-words';
 
 let hookResult: HookResult;
 
@@ -98,6 +99,7 @@ describe('Step1_Import word checks', () => {
       inputWords: new Array(WORD_COUNT).fill(''),
       inputWordsInvalid: flags(),
       inputWordsError: false,
+      pastedTooManyWords: false,
       onClickNext: vi.fn(),
       onClickWordsItem: vi.fn(),
       onInputWordsChange: vi.fn(),
@@ -172,6 +174,63 @@ describe('Step1_Import word checks', () => {
     expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('holds the phrase message back while a word is being typed', () => {
+    const { rerender } = renderStep();
+    // Stands in for the hook's state update after each keystroke.
+    const typeLastWord = (word: string, overrides: Partial<HookResult>) => {
+      setHookResult(overrides);
+      fireEvent.change(wordInput(11), { target: { value: word } });
+      rerender(<Step1_Import contextData={{} as ContextData} updateContextData={() => undefined} />);
+    };
+    fireEvent.focus(wordInput(11));
+
+    // "act" is in the list, so a full grid fails only the checksum.
+    typeLastWord('act', { inputWordsError: true });
+    expect(screen.queryByTestId(INVALID_PHRASE_MESSAGE)).toBeNull();
+
+    typeLastWord('action', { inputWordsError: false, disabled: false });
+    expect(screen.queryByTestId(INVALID_PHRASE_MESSAGE)).toBeNull();
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(false);
+
+    typeLastWord('act', { inputWordsError: true, disabled: true });
+    expect(screen.queryByTestId(INVALID_PHRASE_MESSAGE)).toBeNull();
+    fireEvent.blur(wordInput(11));
+    expect(screen.getByTestId(INVALID_PHRASE_MESSAGE)).toBeTruthy();
+  });
+
+  it('shows the phrase message when Enter is pressed on a phrase that fails the checksum', () => {
+    renderStep();
+    fireEvent.focus(wordInput(11));
+    setHookResult({ inputWordsError: true });
+    fireEvent.change(wordInput(11), { target: { value: 'act' } });
+    expect(screen.queryByTestId(INVALID_PHRASE_MESSAGE)).toBeNull();
+
+    fireEvent.keyUp(wordInput(11), { key: 'Enter' });
+
+    expect(screen.getByTestId(INVALID_PHRASE_MESSAGE)).toBeTruthy();
+    expect(hookResult.onClickNext).not.toHaveBeenCalled();
+  });
+
+  it('shows the phrase message right after a paste into the input being typed in', () => {
+    renderStep();
+    fireEvent.focus(wordInput(0));
+    fireEvent.change(wordInput(0), { target: { value: 'aban' } });
+
+    setHookResult({ inputWordsError: true });
+    fireEvent.paste(wordInput(0));
+
+    expect(document.activeElement).toBe(wordInput(0));
+    expect(screen.getByTestId(INVALID_PHRASE_MESSAGE)).toBeTruthy();
+  });
+
+  it('asks for the matching phrase length when a paste had more words than inputs', () => {
+    setHookResult({ pastedTooManyWords: true, inputWordsError: true });
+    renderStep();
+
+    expect(screen.getByTestId(TOO_MANY_WORDS_MESSAGE).textContent).toBe('pasted_phrase_has_too_many_words');
+    expect(screen.queryByTestId(INVALID_PHRASE_MESSAGE)).toBeNull();
+  });
+
   it('shows no flag or message for a valid phrase and enables Continue', () => {
     setHookResult({ disabled: false });
     renderStep();
@@ -179,6 +238,7 @@ describe('Step1_Import word checks', () => {
 
     expect(flaggedInputs()).toEqual([]);
     expect(screen.queryByTestId(INVALID_PHRASE_MESSAGE)).toBeNull();
+    expect(screen.queryByTestId(TOO_MANY_WORDS_MESSAGE)).toBeNull();
     expect((continueButton() as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(continueButton());
     expect(hookResult.onClickNext).toHaveBeenCalledTimes(1);
