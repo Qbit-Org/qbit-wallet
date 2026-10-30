@@ -17,6 +17,8 @@ const IN_TOTO_PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 const GITHUB_WORKFLOW_BUILD_TYPE =
   'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1'
 const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
+// The resolved dependencies of a lockfile package entry.
+const PACKAGE_DEPENDENCY_SECTIONS = ['dependencies', 'optionalDependencies']
 
 function isMapping(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -77,22 +79,44 @@ export function validateSdkPackagePins(pins) {
 
 /**
  * The lockfile must resolve each pinned package exactly once, at the pinned
- * version and registry integrity, and every importer that names it must ask
- * for that exact version, so no other copy can be installed. A package in the
- * SDK scope without a pin fails too, so a new one cannot arrive unchecked.
- * Returns the importers that depend on each package.
+ * version and registry integrity, and every importer or package that names it
+ * must take that exact version, so no other copy can be installed: not one
+ * from a tarball or git (an entry with its `name`), nor another package under
+ * its name through an npm alias. A package in the SDK scope without a pin
+ * fails too, so a new one cannot arrive unchecked. The checks read the
+ * lockfile v6 layout, so any other version fails rather than passing
+ * unchecked. Returns the importers that depend on each package.
  */
 export function auditSdkLockfile(lockfileText, pins) {
   const errors = []
   const consumers = new Map()
   const lockfile = YAML.parse(lockfileText)
-  const pinned = new Set(pins.packages.map(pin => pin.package))
+  if (!/^6\./.test(String(lockfile?.lockfileVersion))) {
+    errors.push(
+      `pnpm-lock.yaml lockfileVersion ${JSON.stringify(lockfile?.lockfileVersion)} is not the 6.x layout this check reads`
+    )
+  }
+  const pinned = new Map(pins.packages.map(pin => [pin.package, pin.version]))
   for (const [key, entry] of Object.entries(lockfile?.packages ?? {})) {
     const name = /^\/(@[^/@]+\/[^/@]+)@/.exec(key)?.[1] ?? entry?.name
     if (typeof name === 'string' && name.startsWith(SDK_PACKAGE_SCOPE) && !pinned.has(name)) {
       errors.push(
         `pnpm-lock.yaml resolves ${key}, but ${SDK_PACKAGE_PINS_FILE} does not pin ${name}`
       )
+    }
+    for (const section of PACKAGE_DEPENDENCY_SECTIONS) {
+      for (const [dependency, version] of Object.entries(entry?.[section] ?? {})) {
+        if (!dependency.startsWith(SDK_PACKAGE_SCOPE)) continue
+        if (!pinned.has(dependency)) {
+          errors.push(
+            `pnpm-lock.yaml ${key} ${section} takes ${dependency}, but ${SDK_PACKAGE_PINS_FILE} does not pin it`
+          )
+        } else if (version !== pinned.get(dependency)) {
+          errors.push(
+            `pnpm-lock.yaml ${key} ${section} must take ${dependency} at exactly ${pinned.get(dependency)}, found ${JSON.stringify(version)}`
+          )
+        }
+      }
     }
   }
   for (const [importer, sections] of Object.entries(lockfile?.importers ?? {})) {
@@ -108,9 +132,9 @@ export function auditSdkLockfile(lockfileText, pins) {
   }
   for (const pin of pins.packages) {
     const expectedKey = `/${pin.package}@${pin.version}`
-    const resolutions = Object.keys(lockfile?.packages ?? {}).filter(key =>
-      key.startsWith(`/${pin.package}@`)
-    )
+    const resolutions = Object.entries(lockfile?.packages ?? {})
+      .filter(([key, entry]) => key.startsWith(`/${pin.package}@`) || entry?.name === pin.package)
+      .map(([key]) => key)
     if (resolutions.length !== 1 || resolutions[0] !== expectedKey) {
       errors.push(
         `pnpm-lock.yaml must resolve ${pin.package} only as ${expectedKey}, found ${JSON.stringify(resolutions)}`

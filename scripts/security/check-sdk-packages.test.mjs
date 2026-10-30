@@ -222,6 +222,43 @@ test('the lockfile must not resolve an @qbit-oss package without a pin', () => {
   assert.deepEqual(auditSdkLockfile(repoLockfile, pins).errors, [])
 })
 
+test('a second copy of a pinned package fails, from a tarball, git or an npm alias', () => {
+  const only = { schemaVersion: 1, packages: [pqcPin] }
+  const errors = text => auditSdkLockfile(text, only).errors.join('\n')
+  // From git or a tarball the key is not the registry one; the entry names it.
+  const fromGit = lockfile(pqcPin).concat(
+    `  github.com/someone/pqc/${'a'.repeat(40)}:\n    resolution: {tarball: https://codeload.github.com/someone/pqc/tar.gz/${'a'.repeat(40)}}\n    name: '@qbit-oss/pqc'\n    version: ${pqcPin.version}\n    dev: false\n`
+  )
+  assert.match(errors(fromGit), /must resolve @qbit-oss\/pqc only as .*github\.com\/someone\/pqc/)
+  // A package can take it under an npm alias, which no importer names.
+  const aliased = lockfile(pqcPin).concat(
+    '  /other-pqc@1.0.0:\n    resolution: {integrity: sha512-x}\n    dev: false\n',
+    "  /some-dependency@2.0.0:\n    resolution: {integrity: sha512-y}\n    dependencies:\n      '@qbit-oss/pqc': /other-pqc@1.0.0\n    dev: false\n"
+  )
+  assert.match(
+    errors(aliased),
+    /\/some-dependency@2\.0\.0 dependencies must take @qbit-oss\/pqc at exactly .*, found "\/other-pqc@1\.0\.0"/
+  )
+  // So does an unpinned scope package taken by another package.
+  const unpinned = lockfile(pqcPin).concat(
+    "  /some-dependency@2.0.0:\n    resolution: {integrity: sha512-y}\n    optionalDependencies:\n      '@qbit-oss/other': 1.0.0\n    dev: false\n"
+  )
+  assert.match(
+    errors(unpinned),
+    /\/some-dependency@2\.0\.0 optionalDependencies takes @qbit-oss\/other, but .* does not pin it/
+  )
+  // A lockfile layout the check does not read fails rather than passing.
+  assert.match(
+    errors(lockfile(pqcPin).replace("lockfileVersion: '6.1'", "lockfileVersion: '9.0'")),
+    /lockfileVersion "9\.0" is not the 6\.x layout/
+  )
+  // A package that takes the pinned version from the registry passes.
+  const pinnedDependency = lockfile(pqcPin).concat(
+    `  /some-dependency@2.0.0:\n    resolution: {integrity: sha512-y}\n    dependencies:\n      '@qbit-oss/pqc': ${pqcPin.version}\n    dev: false\n`
+  )
+  assert.deepEqual(auditSdkLockfile(pinnedDependency, only).errors, [])
+})
+
 test('the recorded registry attestation matches the pin it was adopted with', () => {
   assert.equal(
     sdkAttestationsUrl(recordedPin),

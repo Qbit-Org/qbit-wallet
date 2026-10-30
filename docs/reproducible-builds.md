@@ -37,13 +37,17 @@ in packaged text (see below).
 
 The ZIP must not depend on the directory it was built in. Webpack inlines
 `import.meta.url` as the module's absolute `file://` path on the build
-machine, and the Emscripten loader `@qbit-oss/pqc/wasm/pqc.mjs` reads it to
-seed `scriptDirectory`. The extension build therefore applies
-`RuntimeImportMetaUrlPlugin` (`apps/extension/build/plugins/`) to that module:
-`import.meta.url` becomes webpack's runtime base URI, the URL of the bundle
-that contains it (`chrome-extension://<id>/background.js` in the service
-worker). The WASM still loads from the bundled `wasm/pqc.wasm` asset through
-the `locateFile` passed in `src/background/init/restore.ts`.
+machine. The Emscripten loader `@qbit-oss/pqc/wasm/pqc.mjs` reads it to seed
+`scriptDirectory`, and `@qbit-oss/pqc/lib/core.mjs` resolves a relative
+`moduleUrl` against it and calls `import.meta.resolve` for a bare one, which
+webpack would serve from an `import.meta` object holding the same path. The
+extension build therefore applies `RuntimeImportMetaUrlPlugin`
+(`apps/extension/build/plugins/`) to those two modules: `import.meta.url`
+becomes webpack's runtime base URI, the URL of the bundle that contains it
+(`chrome-extension://<id>/background.js` in the service worker), and a
+non-literal `import.meta.resolve` becomes `undefined`, as a bundle has no
+module resolver. The WASM still loads from the bundled `wasm/pqc.wasm` asset
+through the `locateFile` passed in `src/background/init/restore.ts`.
 
 `package:test`, and so `build:repro:extension`, then scans every packaged
 file except binary images, fonts and WASM. It fails on any `file:///` URL and

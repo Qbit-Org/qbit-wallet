@@ -54,18 +54,36 @@ under `pnpm test`.
    the fixtures.
 4. For `@qbit-oss/protocol`, refresh `scripts/conformance/qbit-js/` from the
    provenance commit.
-5. Update what else names the version: the license records and lockfile
-   digest in `scripts/security/dependency-license-baseline.json`
-   (`node scripts/security/dependency-policy.mjs --write-license-baseline`,
-   after checking each license), the `qbitSdkPackages` identities in
-   `scripts/conformance/fixtures/matrix.json` (once
-   `node scripts/conformance/generate-matrix-fixture.mjs` derives the same
-   addresses, descriptors and sizes), the qbit-js references in
-   `scripts/conformance/p2mr-v1-coverage.json`, and the docs. Compare
-   `hoistedLocations` in `node_modules/.modules.yaml` with a clean install of
-   the base, so the bump moves no polyfill the extension bundles. Once the
-   lockfile change is committed, regenerate the dependency evidence from a
-   clean worktree (`corepack pnpm security:evidence`) and commit it.
+5. Update what else names the version:
+
+   - the license records and lockfile digest in
+     `scripts/security/dependency-license-baseline.json`
+     (`node scripts/security/dependency-policy.mjs --write-license-baseline`,
+     after checking each license);
+   - the `qbitSdkPackages` identities in
+     `scripts/conformance/fixtures/matrix.json`, once
+     `node scripts/conformance/generate-matrix-fixture.mjs` derives the same
+     addresses, descriptors and sizes. It reads the built keyring and
+     wallet-shared, so run `corepack pnpm --filter "@qbit/keyring-service..." build`
+     first;
+   - the qbit-js references in `scripts/conformance/p2mr-v1-coverage.json`,
+     then its SHA-256 in `provenance.coverageMap.sha256` of
+     `scripts/conformance/fixtures/p2mr-offline.json`, and that fixture's
+     `provenance.fixtureDigest.value` (`fixtureDigestValue` in
+     `scripts/conformance/p2mr-offline-fixture-lib.mjs`), which
+     `pnpm test:conformance:offline` checks;
+   - and the docs.
+
+   Build the extension (`pnpm build:repro:extension`): a module that newly
+   reads `import.meta.url`, or calls `import.meta.resolve` with a specifier
+   that is not a literal, ships the builder's `file://` path and fails
+   packaging until it is added to `RuntimeImportMetaUrlPlugin`'s `test` in
+   `apps/extension/build/webpack.common.config.js` (see
+   `docs/reproducible-builds.md`). Compare `hoistedLocations` in
+   `node_modules/.modules.yaml` with a clean install of the base, so the bump
+   moves no polyfill the extension bundles. Once the lockfile change is
+   committed, regenerate the dependency evidence from a clean worktree
+   (`corepack pnpm security:evidence`) and commit it.
 
 The keyring vectors must pass unchanged. Do not regenerate them for an SDK
 update: a different pubkey or address means the same seed would derive other

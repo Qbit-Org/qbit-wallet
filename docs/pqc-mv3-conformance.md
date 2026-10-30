@@ -65,6 +65,7 @@ npm with provenance from its signed tag. The wallet's PQC workflow runs:
 ```sh
 pnpm pqc:golden:verify:committed
 pnpm sdk:packages:check
+pnpm sdk:packages:check --attestations
 pnpm test:pqc-golden
 pnpm --filter qbit-extension smoke:pqc-import
 ```
