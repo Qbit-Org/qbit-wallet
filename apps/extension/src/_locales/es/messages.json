@@ -3091,5 +3091,80 @@
   },
   "multisign_account_changed": {
     "message": "La cuenta cambió mientras se revisaban las transacciones. No se firmó nada; revíselas de nuevo."
+  },
+  "phishing_protection": {
+    "message": "Protección contra phishing"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Totalmente activada"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Iniciando"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Reintentando"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Falló"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Este navegador no lo admite"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Degradada"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "Estado desconocido"
+  },
+  "phishing_protection_attempts": {
+    "message": "Intentos: $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Intentos: $1. Próximo intento en $2 s."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Intentos: $1. El próximo intento toca ahora."
+  },
+  "phishing_protection_last_error": {
+    "message": "Último error: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Dominios en la regla de bloqueo: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Dominios en la regla de bloqueo: desconocido"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "La regla de bloqueo no está instalada."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "No se pudo leer la regla de bloqueo."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "La regla de la página de advertencia sigue activa sin acceso al sitio, por lo que las páginas bloqueadas pueden cargarse."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "No se pudo leer la regla de la página de advertencia."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "El acceso al sitio está retenido en algunos sitios bloqueados, por lo que la comprobación de la página no se ejecuta allí."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "No se pudo saber si el acceso al sitio está retenido."
+  },
+  "phishing_protection_retry": {
+    "message": "Reintentar ahora"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "El reintento falló."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "El reintento falló: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "La lista de bloqueo viene incluida en la extensión y solo cambia con una nueva versión."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "El reintento no respondió a tiempo. Puede que aún termine; el estado de arriba se actualizará cuando lo haga."
   }
 }

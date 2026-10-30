@@ -3091,5 +3091,80 @@
   },
   "multisign_account_changed": {
     "message": "Le compte a changé pendant la vérification des transactions. Rien n'a été signé ; vérifiez-les à nouveau."
+  },
+  "phishing_protection": {
+    "message": "Protection contre le phishing"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Entièrement activée"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Démarrage"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Nouvelle tentative"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Échec"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Non prise en charge par ce navigateur"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Dégradée"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "État inconnu"
+  },
+  "phishing_protection_attempts": {
+    "message": "Tentatives : $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Tentatives : $1. Prochaine tentative dans $2 s."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Tentatives : $1. Prochaine tentative maintenant."
+  },
+  "phishing_protection_last_error": {
+    "message": "Dernière erreur : $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Domaines dans la règle de blocage : $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Domaines dans la règle de blocage : inconnu"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "La règle de blocage n'est pas installée."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "La règle de blocage n'a pas pu être lue."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "La règle de la page d'avertissement est encore en place sans accès au site, donc les pages bloquées peuvent se charger."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "La règle de la page d'avertissement n'a pas pu être lue."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "L'accès au site est refusé sur certains sites bloqués, donc la vérification de la page n'y fonctionne pas."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "Impossible de savoir si l'accès au site est refusé."
+  },
+  "phishing_protection_retry": {
+    "message": "Réessayer maintenant"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "La nouvelle tentative a échoué."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "La nouvelle tentative a échoué : $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "La liste de blocage est fournie avec l'extension et ne change qu'avec une nouvelle version."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "La nouvelle tentative n'a pas répondu à temps. Elle peut encore aboutir ; l'état ci-dessus se mettra à jour."
   }
 }

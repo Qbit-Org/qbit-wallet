@@ -3091,5 +3091,80 @@
   },
   "multisign_account_changed": {
     "message": "トランザクションの確認中にアカウントが変更されました。何も署名されていません。もう一度確認してください。"
+  },
+  "phishing_protection": {
+    "message": "フィッシング対策"
+  },
+  "phishing_protection_status_protected": {
+    "message": "完全に有効"
+  },
+  "phishing_protection_status_starting": {
+    "message": "起動中"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "再試行中"
+  },
+  "phishing_protection_status_failed": {
+    "message": "失敗"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "このブラウザではサポートされていません"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "低下"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "状態不明"
+  },
+  "phishing_protection_attempts": {
+    "message": "試行回数: $1"
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "試行回数: $1。次の試行まで $2 秒"
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "試行回数: $1。次の試行の予定時刻です"
+  },
+  "phishing_protection_last_error": {
+    "message": "最後のエラー: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "ブロックルール内のドメイン数: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "ブロックルール内のドメイン数: 不明"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "ブロックルールがインストールされていません。"
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "ブロックルールを読み取れませんでした。"
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "サイトアクセスがないまま警告ページのルールが残っているため、ブロック対象のページが読み込まれる可能性があります。"
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "警告ページのルールを読み取れませんでした。"
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "一部のブロック対象サイトでサイトアクセスが制限されているため、そこではページのチェックが動作しません。"
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "サイトアクセスが制限されているかどうかを読み取れませんでした。"
+  },
+  "phishing_protection_retry": {
+    "message": "今すぐ再試行"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "再試行に失敗しました。"
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "再試行に失敗しました: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "ブロックリストは拡張機能に同梱されており、新しいリリースでのみ変更されます。"
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "再試行が時間内に応答しませんでした。まだ完了する可能性があり、完了すると上の状態が更新されます。"
   }
 }

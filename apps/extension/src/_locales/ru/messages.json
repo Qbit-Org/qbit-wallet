@@ -3091,5 +3091,80 @@
   },
   "multisign_account_changed": {
     "message": "Аккаунт сменился во время проверки транзакций. Ничего не подписано; проверьте их ещё раз."
+  },
+  "phishing_protection": {
+    "message": "Защита от фишинга"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Полностью включена"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Запуск"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Повторная попытка"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Сбой"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Не поддерживается этим браузером"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Ослаблена"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "Состояние неизвестно"
+  },
+  "phishing_protection_attempts": {
+    "message": "Попыток: $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Попыток: $1. Следующая попытка через $2 с."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Попыток: $1. Следующая попытка — сейчас."
+  },
+  "phishing_protection_last_error": {
+    "message": "Последняя ошибка: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Доменов в правиле блокировки: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Доменов в правиле блокировки: неизвестно"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "Правило блокировки не установлено."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "Не удалось прочитать правило блокировки."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "Правило страницы предупреждения действует без доступа к сайтам, поэтому заблокированные страницы могут загружаться."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "Не удалось прочитать правило страницы предупреждения."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "Доступ к некоторым заблокированным сайтам ограничен, поэтому проверка страниц там не работает."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "Не удалось узнать, ограничен ли доступ к сайтам."
+  },
+  "phishing_protection_retry": {
+    "message": "Повторить сейчас"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "Повторная попытка не удалась."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "Повторная попытка не удалась: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "Список блокировки поставляется с расширением и меняется только с новым выпуском."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "Повторная попытка не ответила вовремя. Она ещё может завершиться; состояние выше обновится."
   }
 }
