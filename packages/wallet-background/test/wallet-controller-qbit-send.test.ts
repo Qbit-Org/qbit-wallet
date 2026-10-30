@@ -1359,8 +1359,12 @@ describe('WalletController qbit P2MR send path', () => {
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) })
     )
     // Both assessments read the raw original and checked its one input's
-    // signature against the account key.
+    // signature against the account key. The replacement carries the
+    // original's output count from those bytes, for its broadcast to check
+    // what spends them without reading them again.
     expect(getTxHexMock).toHaveBeenCalledWith(live.txid)
+    expect(replacement.feeBump!.originalOutputCount).toBe(originalSummary.outputs.length)
+    expect(originalSummary.outputs).toHaveLength(3)
     expect(verifyPqcMock).toHaveBeenCalledTimes(2)
     for (const [pubkey] of verifyPqcMock.mock.calls) {
       expect(bytesToHex(pubkey)).toBe(account.pubkey)

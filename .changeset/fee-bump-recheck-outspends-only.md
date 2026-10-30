@@ -1,0 +1,6 @@
+---
+'@qbit/wallet-background': patch
+'@qbit/wallet-shared': patch
+---
+
+Let a Speed up broadcast pass its explorer check on a slow connection (#56). Right before a fee bump went out, the check read the original transaction's raw bytes again, then what spends its outputs, within 10 seconds for both. An original with about 100 inputs is about 800 kB of hex, so on a connection slower than about 0.4 Mbit/s every broadcast of the signed bump was refused. The check now reads only what spends the original's outputs. The Speed up assessment counts those outputs from the raw bytes it verified before the user signs (`QbitFeeBumpDetails.originalOutputCount`), the wallet's send claim carries the count in memory (`QbitSendBroadcastClaim.replacedOutputCount`), and `broadcastIfAllowed` hands it to its broadcast callback with the txid the bump replaces. The one read, `/tx/:txid/outspends`, gets 15 seconds (`QBIT_FEE_BUMP_RECHECK_WAIT_MS`, 10 before), the explorer's budget for a small reply, and is aborted when the check gives up. An answer that is not one well-formed entry per output is still refused. A fee bump's claim without the count is refused before signing, restoring or broadcasting. `getQbitTxSpenders` and the wallet clients' `getTxOutspends` take request options (`signal`, `deadlineMs`).

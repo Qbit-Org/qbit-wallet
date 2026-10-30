@@ -13,6 +13,22 @@ import {
   QbitSendGuardService,
 } from '../src/services/qbitSendGuards'
 
+/** How many outputs the original of each fee bump below has. */
+const REPLACED_OUTPUT_COUNT = 2
+
+/**
+ * `overrides` for a wallet-owned claim. One naming a transaction it replaces
+ * carries that transaction's output count too, as the wallet mints a fee
+ * bump's claim.
+ */
+function withReplacedOutputCount(
+  overrides: Partial<QbitSendBroadcastClaim>
+): Partial<QbitSendBroadcastClaim> {
+  return typeof overrides.replaces === 'string' && !('replacedOutputCount' in overrides)
+    ? { replacedOutputCount: REPLACED_OUTPUT_COUNT, ...overrides }
+    : overrides
+}
+
 function broadcastClaim(overrides: Partial<QbitSendBroadcastClaim> = {}): QbitSendBroadcastClaim {
   return {
     chain: ChainType.QBIT_REGTEST,
@@ -411,7 +427,11 @@ describe('QbitSendGuardService', () => {
   describe('claim ownership', () => {
     /** A wallet-owned claim as the wallet mints it for a send that replaces nothing. */
     const walletClaim = (overrides: Partial<QbitSendBroadcastClaim> = {}) =>
-      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, replaces: null, ...overrides })
+      broadcastClaim({
+        origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
+        replaces: null,
+        ...withReplacedOutputCount(overrides),
+      })
     const reserved = () =>
       service.getReservedOutpointKeys(ChainType.QBIT_REGTEST, 'qbrt1zfunding')
     const outpoint = `${'aa'.repeat(32)}:1`
@@ -558,7 +578,11 @@ describe('QbitSendGuardService', () => {
   describe('claim restoration', () => {
     /** A wallet-owned claim as the wallet mints it for a send that replaces nothing. */
     const walletClaim = (overrides: Partial<QbitSendBroadcastClaim> = {}) =>
-      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, replaces: null, ...overrides })
+      broadcastClaim({
+        origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
+        replaces: null,
+        ...withReplacedOutputCount(overrides),
+      })
     const reserved = () => service.getReservedOutpointKeys(ChainType.QBIT_REGTEST, 'qbrt1zfunding')
     const outpoint = `${'aa'.repeat(32)}:1`
     const restore = (claim: QbitSendBroadcastClaim, owner?: string) =>
@@ -717,7 +741,11 @@ describe('QbitSendGuardService', () => {
     const outpoint = `${'aa'.repeat(32)}:1`
     /** A wallet-owned claim as the wallet mints it for a send that replaces nothing. */
     const walletClaim = (overrides: Partial<QbitSendBroadcastClaim> = {}) =>
-      broadcastClaim({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, replaces: null, ...overrides })
+      broadcastClaim({
+        origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
+        replaces: null,
+        ...withReplacedOutputCount(overrides),
+      })
     const reserved = (forAddress = address) => service.getReservedOutpointKeys(chain, forAddress)
     const start = new Date('2026-10-23T12:00:00Z').getTime()
     const advance = (ms: number) => vi.setSystemTime(Date.now() + ms)
@@ -725,7 +753,7 @@ describe('QbitSendGuardService', () => {
     /** Claim, sign and broadcast `claim`, as the wallet's send path does. */
     async function sendAccepted(claim: QbitSendBroadcastClaim, replaces?: string) {
       await service.runWithBroadcastClaim(
-        replaces ? { ...claim, replaces } : claim,
+        replaces ? { ...claim, replaces, replacedOutputCount: REPLACED_OUTPUT_COUNT } : claim,
         async () => 'signed'
       )
       await service.broadcastIfAllowed(
@@ -834,7 +862,11 @@ describe('QbitSendGuardService', () => {
       // Nor can a wallet claim naming some other transaction.
       await expect(
         service.runWithBroadcastClaim(
-          { ...walletClaim({ txid: '22'.repeat(32) }), replaces: '99'.repeat(32) },
+          {
+            ...walletClaim({ txid: '22'.repeat(32) }),
+            replaces: '99'.repeat(32),
+            replacedOutputCount: REPLACED_OUTPUT_COUNT,
+          },
           async () => 'signed'
         )
       ).rejects.toThrow('recent broadcast already spent')
@@ -847,7 +879,11 @@ describe('QbitSendGuardService', () => {
       // is refused, and one of the bump itself is allowed.
       await expect(
         service.runWithBroadcastClaim(
-          { ...walletClaim({ txid: '23'.repeat(32) }), replaces: original.txid },
+          {
+            ...walletClaim({ txid: '23'.repeat(32) }),
+            replaces: original.txid,
+            replacedOutputCount: REPLACED_OUTPUT_COUNT,
+          },
           async () => 'signed'
         )
       ).rejects.toThrow('recent broadcast already spent')
@@ -869,6 +905,7 @@ describe('QbitSendGuardService', () => {
           {
             ...walletClaim({ txid: '22'.repeat(32), outpoints: [second] }),
             replaces: original.txid,
+            replacedOutputCount: REPLACED_OUTPUT_COUNT,
           },
           async () => 'signed'
         )
@@ -888,7 +925,7 @@ describe('QbitSendGuardService', () => {
         // The bump is assessed and signed while nothing spends the original.
         const bump = walletClaim({ txid: '22'.repeat(32) })
         await service.runWithBroadcastClaim(
-          { ...bump, replaces: original.txid },
+          { ...bump, replaces: original.txid, replacedOutputCount: REPLACED_OUTPUT_COUNT },
           async () => 'signed'
         )
         // A send then spends the original's change and goes out first.
@@ -920,7 +957,11 @@ describe('QbitSendGuardService', () => {
         const sign = vi.fn(async () => 'signed')
         await expect(
           service.runWithBroadcastClaim(
-            { ...walletClaim({ txid: '22'.repeat(32) }), replaces: original.txid },
+            {
+              ...walletClaim({ txid: '22'.repeat(32) }),
+              replaces: original.txid,
+              replacedOutputCount: REPLACED_OUTPUT_COUNT,
+            },
             sign
           )
         ).rejects.toThrow(dependentMessage)
@@ -945,7 +986,11 @@ describe('QbitSendGuardService', () => {
         await expect(service.hasDependentSpend(chain, original.txid)).resolves.toBe(true)
         await expect(
           service.runWithBroadcastClaim(
-            { ...walletClaim({ txid: '22'.repeat(32) }), replaces: original.txid },
+            {
+              ...walletClaim({ txid: '22'.repeat(32) }),
+              replaces: original.txid,
+              replacedOutputCount: REPLACED_OUTPUT_COUNT,
+            },
             async () => 'signed'
           )
         ).rejects.toThrow(dependentMessage)
@@ -1003,13 +1048,13 @@ describe('QbitSendGuardService', () => {
         await expect(
           service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, refuse, presented)
         ).rejects.toThrow(dependentMessage)
-        expect(refuse).toHaveBeenCalledWith(original.txid)
+        expect(refuse).toHaveBeenCalledWith(original.txid, REPLACED_OUTPUT_COUNT)
         await expect(
           service.runWithBroadcastClaim(walletClaim({ txid: '23'.repeat(32) }), async () => 'x')
         ).rejects.toThrow('claimed by an approved send')
 
         await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, presented)
-        expect(broadcast).toHaveBeenLastCalledWith(original.txid)
+        expect(broadcast).toHaveBeenLastCalledWith(original.txid, REPLACED_OUTPUT_COUNT)
       })
 
       it("restores a fee bump's claim with the transaction it replaces and refuses it while a later payment spends that", async () => {
@@ -1053,7 +1098,7 @@ describe('QbitSendGuardService', () => {
         // look for payments made elsewhere.
         await service.releaseBroadcastClaim(laterOf(original))
         await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
-        expect(broadcast).toHaveBeenCalledWith(original.txid)
+        expect(broadcast).toHaveBeenCalledWith(original.txid, REPLACED_OUTPUT_COUNT)
       })
 
       it('never restores a wallet claim that does not say what it replaces', async () => {
@@ -1074,6 +1119,40 @@ describe('QbitSendGuardService', () => {
         await expect(service.restoreBroadcastClaim(walletClaim(), address, 'tab:1')).resolves.toBe(
           'restored'
         )
+      })
+
+      it("refuses a fee bump's claim that does not say how many outputs its original has", async () => {
+        // Its broadcast could only check the original's outputs by reading
+        // the original's bytes again, which it never does: such a claim is
+        // refused before signing, restoring or broadcasting.
+        const original = walletClaim()
+        const bump = walletClaim({ txid: bumpTxid, replaces: original.txid })
+        const uncounted: QbitSendBroadcastClaim = { ...bump }
+        delete uncounted.replacedOutputCount
+        const sign = vi.fn(async () => 'signed')
+        await expect(service.runWithBroadcastClaim(uncounted, sign)).rejects.toThrow(
+          'invalid Qbit send broadcast claim'
+        )
+        expect(sign).not.toHaveBeenCalled()
+        for (const replacedOutputCount of [undefined, 0, -1, 1.5, Number.NaN, '2' as any]) {
+          await expect(
+            service.restoreBroadcastClaim({ ...uncounted, replacedOutputCount }, address, 'tab:1')
+          ).resolves.toBe('refused')
+        }
+        const broadcast = vi.fn(async () => bumpTxid)
+        await expect(
+          service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, uncounted)
+        ).rejects.toThrow('invalid Qbit send broadcast claim')
+        expect(broadcast).not.toHaveBeenCalled()
+        await expect(reserved()).resolves.toEqual(new Set())
+
+        // With the count, the same claim is restored, and its broadcast is
+        // handed the count with the original's txid.
+        await expect(service.restoreBroadcastClaim(bump, address, 'tab:1')).resolves.toBe(
+          'restored'
+        )
+        await service.broadcastIfAllowed(chain, bumpTxid, bump.outpoints, broadcast, bump)
+        expect(broadcast).toHaveBeenCalledWith(original.txid, REPLACED_OUTPUT_COUNT)
       })
 
       it('drops what a provider claim says it replaces', async () => {
@@ -1101,7 +1180,7 @@ describe('QbitSendGuardService', () => {
       await sendAccepted(original)
       const bump = walletClaim({ txid: '22'.repeat(32) })
       await service.runWithBroadcastClaim(
-        { ...bump, replaces: original.txid },
+        { ...bump, replaces: original.txid, replacedOutputCount: REPLACED_OUTPUT_COUNT },
         async () => 'signed'
       )
 
