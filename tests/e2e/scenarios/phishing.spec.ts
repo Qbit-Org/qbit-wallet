@@ -352,8 +352,10 @@ test.describe('MV3 phishing protection', () => {
     await page.goto(`${fixtureServer.origin}/start`)
     await waitForProvider(page)
 
+    // The tab the link opens, not any page in the context: the extension can
+    // open its own welcome tab at the same time.
     const [opened] = await Promise.all([
-      extension.context.waitForEvent('page'),
+      page.waitForEvent('popup'),
       page.click('#new-tab-link'),
     ])
 
