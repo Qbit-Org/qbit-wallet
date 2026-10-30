@@ -23,7 +23,15 @@ vi.mock('@/ui/components', async () => {
   };
 });
 
-vi.mock('@/ui/components/FeeRateBar', () => ({ FeeRateBar: () => <div>fee-rate-bar</div> }));
+const feeRateBarProps = vi.hoisted(() => ({ quote: undefined as unknown }));
+vi.mock('@/ui/components/FeeRateBar', () => ({
+  FeeRateBar: ({ quote }: { quote?: unknown }) => {
+    feeRateBarProps.quote = quote;
+    return <div>fee-rate-bar</div>;
+  }
+}));
+
+const feeQuote = { status: 'loaded' as const, read: 'read-1', summary: { list: [] } };
 
 function logic(overrides: Partial<ReturnType<typeof useQbitConsolidationScreenLogic>> = {}) {
   return {
@@ -38,6 +46,7 @@ function logic(overrides: Partial<ReturnType<typeof useQbitConsolidationScreenLo
     error: '',
     preparing: false,
     canPrepare: true,
+    feeQuote,
     onClickPrepare: vi.fn(),
     onClickConfirm: vi.fn(),
     t: (key: string) => key,
@@ -56,6 +65,8 @@ describe('QbitConsolidationScreen (#277)', () => {
     render(<QbitConsolidationScreen />);
 
     expect(screen.getByTestId('consolidation-status').textContent).toBe('consolidation_status:812|500|3');
+    // The fee bar offers its rates from the quote the screen holds preparation on.
+    expect(feeRateBarProps.quote).toBe(feeQuote);
     expect(screen.queryByTestId('consolidation-confirm-button')).toBeNull();
     fireEvent.click(screen.getByTestId('consolidation-prepare-button'));
     expect(state.onClickPrepare).toHaveBeenCalledTimes(1);

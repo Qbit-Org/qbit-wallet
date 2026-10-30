@@ -6,8 +6,10 @@ import { ChainType } from '@qbit/wallet-types'
 
 import { I18nContext } from '../../src/context/I18nContext'
 import { accountActions } from '../../src/reducers/accounts'
+import { settingsActions } from '../../src/reducers/settings'
 import { uiActions } from '../../src/reducers/ui'
 import { useQbitConsolidationScreenLogic } from '../../src/ui-hooks/useQbitConsolidationScreenLogic'
+import { useFeeRateBarLogic } from '../../src/ui-hooks/useFeeRateBarLogic'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const status = {
@@ -51,7 +53,11 @@ function setup() {
     createQbitConsolidationPsbt: vi.fn(),
   }
   const harness = createHookTestHarness({ wallet: wallet as any })
-  harness.store.dispatch(uiActions.updateFeeRateBar({ feeRate: 2 }))
+  // A Custom rate: most tests here render the screen without its fee bar,
+  // which alone chooses a tier's rate.
+  harness.store.dispatch(
+    uiActions.updateFeeRateBar({ feeRate: 2, feeRateInputVal: '2', feeOptionIndex: 3 })
+  )
   const t = vi.fn((key: string, substitutions?: string | string[]) =>
     substitutions ? `${key}:${[substitutions].flat().join('|')}` : key
   )
@@ -275,5 +281,125 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
       expect(result.current.statusText).toBe('consolidation_within_limit:500')
     })
     expect(result.current.canPrepare).toBe(false)
+  })
+
+  /** A quote with qbit metadata whose Normal is `normal` bits/vB. */
+  function quoteWithNormal(normal: number) {
+    return {
+      list: [
+        { title: 'slow', desc: '', feeRate: normal - 1 },
+        { title: 'avg', desc: '', feeRate: normal },
+        { title: 'fast', desc: '', feeRate: normal + 1 },
+      ],
+      quote: { source: 'mempool-qbit', availability: 'available', freshness: 'live' },
+    }
+  }
+
+  it('prepares no batch until its fee bar chose the selected tier’s rate from the screen’s quote, again after a network change', async () => {
+    const { wallet, wrapper, store } = setup()
+    // As the wallet leaves it: Normal, at the fee bar's default of 1 bit/vB.
+    store.dispatch(uiActions.resetFeeRateBar())
+    const mainnetRead = deferred<any>()
+    wallet.getFeeSummary.mockReturnValueOnce(mainnetRead.promise)
+    // Whether each render offered a batch, at which rate and on which network.
+    const renders: { network: ChainType; feeRate: number; canPrepare: boolean }[] = []
+    const { result } = renderHook(
+      () => {
+        const screen = useQbitConsolidationScreenLogic()
+        useFeeRateBarLogic({ quote: screen.feeQuote })
+        renders.push({
+          network: store.getState().settings.chainType,
+          feeRate: store.getState().ui.feeRateBar.feeRate,
+          canPrepare: screen.canPrepare,
+        })
+        return screen
+      },
+      { wrapper }
+    )
+
+    await waitFor(() => expect(result.current.statusText).toBe('consolidation_status:812|500|2'))
+    expect(result.current.canPrepare).toBe(false)
+
+    await act(async () => {
+      mainnetRead.resolve(quoteWithNormal(5))
+    })
+    await waitFor(() => expect(result.current.canPrepare).toBe(true))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(5)
+
+    const testnetRead = deferred<any>()
+    wallet.getFeeSummary.mockReturnValueOnce(testnetRead.promise)
+    act(() => {
+      store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
+    })
+    await waitFor(() => expect(wallet.getQbitConsolidationStatus).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.statusText).toBe('consolidation_status:812|500|2'))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(5)
+    expect(result.current.canPrepare).toBe(false)
+
+    await act(async () => {
+      testnetRead.resolve(quoteWithNormal(7))
+    })
+    await waitFor(() => expect(result.current.canPrepare).toBe(true))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(7)
+    // Never at the default rate, nor on testnet at mainnet's.
+    const offered = renders.filter(render => render.canPrepare)
+    expect(offered.length).toBeGreaterThan(0)
+    for (const render of offered) {
+      expect(render.feeRate).toBe(render.network === ChainType.QBIT_MAINNET ? 5 : 7)
+    }
+  })
+
+  it('offers no batch priced at an earlier rate, from the render in which the rate changes', async () => {
+    const { wallet, wrapper, store } = setup()
+    // Normal, at 5 bits/vB once the quote lands.
+    store.dispatch(uiActions.resetFeeRateBar())
+    wallet.getFeeSummary.mockResolvedValue(quoteWithNormal(5))
+    const prepared = batch('01')
+    wallet.createQbitConsolidationPsbt.mockResolvedValue(prepared)
+    // The rate in the store and the batch offered, in each render.
+    const renders: { feeRate: number; batch: unknown }[] = []
+    const { result } = renderHook(
+      () => {
+        const screen = useQbitConsolidationScreenLogic()
+        const feeBar = useFeeRateBarLogic({ quote: screen.feeQuote })
+        renders.push({ feeRate: store.getState().ui.feeRateBar.feeRate, batch: screen.batch })
+        return { screen, feeBar }
+      },
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+    act(() => {
+      result.current.screen.onClickPrepare()
+    })
+    await waitFor(() => expect(result.current.screen.batch).toBe(prepared))
+    const prepared5 = renders.length
+
+    // Fast, at 6 bits/vB.
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(2)
+    })
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(6)
+    expect(result.current.screen.batch).toBeUndefined()
+    const switched = renders.length
+
+    act(() => {
+      result.current.screen.onClickPrepare()
+    })
+    await waitFor(() => expect(result.current.screen.batch).toBe(prepared))
+    const prepared6 = renders.length
+
+    // A Custom rate of 7 bits/vB.
+    act(() => {
+      store.dispatch(
+        uiActions.updateFeeRateBar({ feeRate: 7, feeRateInputVal: '7', feeOptionIndex: 3 })
+      )
+    })
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+
+    // Never a batch priced at 5 bits/vB offered at 6, nor one priced at 6 at 7.
+    expect(renders.slice(prepared5, switched).filter(r => r.feeRate !== 5 && r.batch)).toEqual([])
+    expect(renders.slice(prepared6).filter(r => r.feeRate !== 6 && r.batch)).toEqual([])
+    expect(result.current.screen.batch).toBeUndefined()
   })
 })

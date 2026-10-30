@@ -33,6 +33,7 @@ export default function TxCreateScreen() {
     memo,
     onMemoChange,
     feeDetail,
+    feeEstimatePending,
     leftBehindNote,
     spendSummary,
     feeQuote,
@@ -62,6 +63,9 @@ export default function TxCreateScreen() {
     [locale]
   );
   const feeFormat = useMemo(() => localeNumberFormat(locale, { maximumFractionDigits: 0 }), [locale]);
+  // The estimate's inputs, size and fee, each `--` while pending.
+  const feeEstimateText = (inputs: string, size: string, fee: string) =>
+    `${t('estimated_inputs_and_size', [inputs, size])} · ${fee} bits`;
 
   // Keep an already-entered memo visible when returning to this screen.
   const [advancedExpanded, setAdvancedExpanded] = useState(() => Boolean(memo));
@@ -198,13 +202,22 @@ export default function TxCreateScreen() {
               headerRight={
                 feeDetail ? (
                   <Text
-                    text={`${t('estimated_inputs_and_size', [
+                    text={feeEstimateText(
                       String(feeDetail.inputCount),
-                      sizeFormat.format(feeDetail.estimatedVsize / 1000)
-                    ])} · ${feeFormat.format(feeDetail.estimatedFee)} bits`}
+                      sizeFormat.format(feeDetail.estimatedVsize / 1000),
+                      feeFormat.format(feeDetail.estimatedFee)
+                    )}
                     size="xs"
                     color="textDim"
                     data-testid="tx-size-estimate"
+                  />
+                ) : feeEstimatePending ? (
+                  // Until the fee rate is settled, no estimate at an earlier rate.
+                  <Text
+                    text={feeEstimateText('--', '--', '--')}
+                    size="xs"
+                    color="textDim"
+                    data-testid="tx-fee-estimate-pending"
                   />
                 ) : null
               }

@@ -17,6 +17,7 @@ import {
   useTools,
   useWallet,
 } from '..'
+import { useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -39,6 +40,13 @@ export function useQbitConsolidationScreenLogic() {
   const chainType = useChainType()
   const { address } = useCurrentAccount()
   const feeRate = useFeeRateBar().feeRate
+  // The quote the fee bar offers its rates from, and the rate the batch's
+  // check below last ran at. Until the bar has chosen the selected tier's
+  // rate from the quote, the rate is the bar's default or one from an
+  // earlier quote, possibly another network's, and no batch is prepared.
+  const feeQuote = useFeeQuoteRead()
+  const [checkedFeeRate, setCheckedFeeRate] = useState<number | undefined>(undefined)
+  const feeRateSettled = useFeeRateSettled(feeQuote, checkedFeeRate)
 
   const [status, setStatus] = useState<QbitConsolidationStatus | undefined>(undefined)
   const [statusError, setStatusError] = useState('')
@@ -85,11 +93,16 @@ export function useQbitConsolidationScreenLogic() {
   // A batch selected for another account or network, or priced at another
   // rate, is stale.
   useEffect(() => {
+    setCheckedFeeRate(feeRate)
     batchRequestRef.current += 1
     setBatch(undefined)
     setError('')
     setPreparing(false)
-  }, [batchScope])
+  }, [batchScope, feeRate])
+
+  // From the render the rate changes in, before the check above drops it, a
+  // batch is priced at an earlier rate; nor is one offered at a rate not settled.
+  const currentBatch = feeRateSettled && checkedFeeRate === feeRate ? batch : undefined
 
   const feeRateValid =
     Number.isFinite(feeRate) && feeRate >= QBIT_MIN_RELAY_FEE_RATE && feeRate <= QBIT_MAX_FEE_RATE
@@ -125,8 +138,8 @@ export function useQbitConsolidationScreenLogic() {
   }
 
   const onClickConfirm = (): void => {
-    if (!batch) return
-    nav.navigate('TxConfirmScreen', { toSignData: batch })
+    if (!currentBatch) return
+    nav.navigate('TxConfirmScreen', { toSignData: currentBatch })
   }
 
   const outputLimit = status?.outputLimit ?? 0
@@ -162,13 +175,13 @@ export function useQbitConsolidationScreenLogic() {
       ? t('consolidation_pending', [String(status.pendingSpent)])
       : ''
 
-  const batchSummary = batch?.qbitConsolidation
+  const batchSummary = currentBatch?.qbitConsolidation
     ? t('consolidation_batch_summary', [
-        String(batch.inputCount ?? 0),
-        numUtils.satoshisToAmount(batch.qbitConsolidation.amount),
+        String(currentBatch.inputCount ?? 0),
+        numUtils.satoshisToAmount(currentBatch.qbitConsolidation.amount),
         qbitUnit,
-        String(batch.estimatedFee ?? 0),
-        ((batch.estimatedVsize ?? 0) / 1000).toFixed(1),
+        String(currentBatch.estimatedFee ?? 0),
+        ((currentBatch.estimatedVsize ?? 0) / 1000).toFixed(1),
       ])
     : ''
 
@@ -179,13 +192,16 @@ export function useQbitConsolidationScreenLogic() {
     statusText,
     pendingText,
     overLimit,
-    batch,
+    batch: currentBatch,
     batchSummary,
     // A status read that failed does not stop a batch: the background checks
     // the counts again when it builds one.
     error: error || statusError,
     preparing,
-    canPrepare: (status ? overLimit : statusError !== '') && feeRateValid && !preparing,
+    canPrepare:
+      (status ? overLimit : statusError !== '') && feeRateValid && feeRateSettled && !preparing,
+    // For the fee bar: the quote the batch's rate is chosen from.
+    feeQuote,
     onClickPrepare,
     onClickConfirm,
     t,

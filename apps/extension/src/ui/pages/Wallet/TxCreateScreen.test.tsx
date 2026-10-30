@@ -42,6 +42,7 @@ vi.mock('@/ui/components/RBFBar', () => ({ RBFBar: () => null }));
 describe('TxCreateScreen fee details', () => {
   const feeQuote = {
     status: 'loaded' as const,
+    read: 'read-1',
     summary: { list: [{ title: 'slow', desc: '', feeRate: 1 }] }
   };
 
@@ -69,6 +70,7 @@ describe('TxCreateScreen fee details', () => {
         maximumTotalFee: 38_170_000,
         inputsDominateFee: true
       },
+      feeEstimatePending: false,
       feeQuote,
       showUnavailable: false,
       availableAmount: '0.00010000',
@@ -152,6 +154,24 @@ describe('TxCreateScreen fee details', () => {
     } finally {
       numberFormat.mockRestore();
     }
+  });
+
+  it('shows the fee and the total as pending until the fee rate is settled', () => {
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      feeDetail: undefined,
+      feeEstimatePending: true,
+      spendSummary: { totalSpend: '--', feeWarnings: [] }
+    });
+    render(<TxCreateScreen />);
+
+    // Through the same translation as the settled estimate.
+    expect(screen.getByTestId('tx-fee-estimate-pending').textContent).toBe('estimated_inputs_and_size:--,-- · -- bits');
+    // Not the estimate a reader waits for.
+    expect(screen.queryByTestId('tx-size-estimate')).toBeNull();
+    expect(screen.getByTestId('tx-total-spend').textContent).toBe('-- QBT');
+    expect(screen.queryByTestId('tx-change-drop-note')).toBeNull();
+    expect(screen.queryByTestId('tx-fee-warning')).toBeNull();
   });
 
   it('gives the fee bar the quote its fee check uses', () => {

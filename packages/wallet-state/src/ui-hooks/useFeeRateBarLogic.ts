@@ -8,6 +8,7 @@ import {
 import { ChainType } from '@qbit/wallet-types'
 import { useI18n, useWallet } from '../context'
 import { useChain, useFeeRateBar, useUpdateFeeRateBar } from '../hooks'
+import type { FeeRateSource, UIState } from '../reducers/ui'
 
 enum FeeRateType {
   SLOW,
@@ -33,12 +34,94 @@ type FeeBarOption = FeeOption & { index: number }
 /**
  * A fee quote a screen reads once and shares with its fee bar, so that the
  * rates the bar offers and the rate the screen checks come from one quote.
- * A read that failed is loaded with no summary.
+ * A read that failed is loaded with no summary. `read` names the read, and
+ * the fee bar records it with each rate it chooses from the quote.
  */
-export type FeeQuoteState = { status: 'loading' } | { status: 'loaded'; summary?: FeeSummary }
+export type FeeQuoteState =
+  | { status: 'loading' }
+  | { status: 'loaded'; read: string; summary?: FeeSummary }
+
+const QUOTE_LOADING: FeeQuoteState = { status: 'loading' }
+
+// The fee-bar store, with the source of its rate, is saved and outlives the
+// page that wrote it, so a read's name is unique to this page as well.
+const FEE_QUOTE_READS_PAGE = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`
+let feeQuoteReads = 0
+
+/**
+ * Reads the selected network's fee quote, again when the network changes,
+ * and names each read. Loading until the read for the selected network
+ * lands, also in the render in which the network changes. Reads nothing
+ * while `enabled` is false.
+ */
+export function useFeeQuoteRead(enabled = true): FeeQuoteState {
+  const wallet = useWallet()
+  const chainType = useChain()?.enum
+  const [landed, setLanded] = useState<{ chainType?: ChainType; quote: FeeQuoteState }>()
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    const read = `${FEE_QUOTE_READS_PAGE}:${++feeQuoteReads}`
+    let cancelled = false
+    setLanded(undefined)
+    wallet
+      .getFeeSummary()
+      .then(summary => {
+        if (!cancelled) setLanded({ chainType, quote: { status: 'loaded', read, summary } })
+      })
+      .catch(e => {
+        console.log(e)
+        if (!cancelled) setLanded({ chainType, quote: { status: 'loaded', read } })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [wallet, chainType, enabled])
+
+  return landed !== undefined && landed.chainType === chainType ? landed.quote : QUOTE_LOADING
+}
+
+/**
+ * Where the fee bar's selected rate stands with `quote`: `custom`, the
+ * user's own; `quote`, a tier's rate the bar chose from that quote; or
+ * `pending`, a tier's rate not yet chosen from it, which is the bar's
+ * default or a rate from an earlier read, possibly another network's.
+ */
+export function feeRateOrigin(
+  feeRateBar: Pick<UIState['feeRateBar'], 'feeOptionIndex' | 'feeRateSource'>,
+  quote: FeeQuoteState
+): 'custom' | 'quote' | 'pending' {
+  if (feeRateBar.feeOptionIndex === FeeRateType.CUSTOM) return 'custom'
+  const source = feeRateBar.feeRateSource
+  return quote.status === 'loaded' &&
+    source?.quoteRead === quote.read &&
+    source.optionIndex === feeRateBar.feeOptionIndex
+    ? 'quote'
+    : 'pending'
+}
+
+/**
+ * Whether the selected rate is settled for a screen that reads `quote` and
+ * last ran its checks at `checkedFeeRate`: a Custom rate always; a tier's
+ * once the fee bar chose it from `quote` and the screen's checks ran at it.
+ */
+export function useFeeRateSettled(
+  quote: FeeQuoteState,
+  checkedFeeRate: number | undefined
+): boolean {
+  const feeRateBar = useFeeRateBar()
+  const origin = feeRateOrigin(feeRateBar, quote)
+  return origin === 'custom' || (origin === 'quote' && checkedFeeRate === feeRateBar.feeRate)
+}
+
+function sameFeeRateSource(a: FeeRateSource | null | undefined, b: FeeRateSource | null): boolean {
+  return a?.quoteRead === b?.quoteRead && a?.optionIndex === b?.optionIndex
+}
 
 /** What the fee bar shows for one read of the quote. */
 interface FeeBarQuote {
+  /** The read the options come from; none before a read lands. */
+  read?: string
   options: FeeBarOption[]
   quote?: FeeQuoteMetadata
   /** The read failed: no rates to offer but Custom, and the bar says it uses the relay floor. */
@@ -125,18 +208,6 @@ function withLowFeeSlowRate(list: FeeOption[], lowFeeSummary: FeeSummary): FeeOp
   return [slow, ...list.slice(1)]
 }
 
-/**
- * The rate the fee bar selects from `quote` for option `feeOptionIndex`, when
- * the quote alone decides it: a recommended option of a quote with qbit
- * metadata, which low-fee mode leaves as it is. Undefined for a Custom rate
- * and for a quote that is loading, failed, or has no qbit metadata.
- */
-export function feeBarQuoteRate(quote: FeeQuoteState, feeOptionIndex: number): number | undefined {
-  if (quote.status !== 'loaded' || quote.summary?.quote === undefined) return undefined
-  if (feeOptionIndex === FeeRateType.CUSTOM) return undefined
-  return quote.summary.list[feeOptionIndex]?.feeRate
-}
-
 export function useFeeRateBarLogic({
   readonly,
   quote,
@@ -146,7 +217,6 @@ export function useFeeRateBarLogic({
   quote?: FeeQuoteState
 }) {
   const wallet = useWallet()
-  const [ownRead, setOwnRead] = useState<FeeQuoteState>({ status: 'loading' })
   // Low-fee rates with the summary they were read for, so that rates read for
   // an earlier quote never join a newer one. No rates: that read failed.
   const [lowFeeRead, setLowFeeRead] = useState<
@@ -158,6 +228,7 @@ export function useFeeRateBarLogic({
   const feeOptionIndex = feeRateBarState.feeOptionIndex
   const showCustomInput = feeRateBarState.showCustomInput
   const feeRate = feeRateBarState.feeRate
+  const feeRateSource = feeRateBarState.feeRateSource
   const { t, isSpecialLocale } = useI18n()
   const chain = useChain()
   const isQbitChain =
@@ -167,26 +238,10 @@ export function useFeeRateBarLogic({
   const fontSize = useMemo(() => (isSpecialLocale ? 'xxxs' : 'xxs'), [isSpecialLocale])
 
   const configuredLowFeeMode = chain.enableLowFeeMode ?? false
-  const sharesQuote = quote !== undefined
-
-  useEffect(() => {
-    if (sharesQuote) return undefined
-    let cancelled = false
-    wallet
-      .getFeeSummary()
-      .then(summary => {
-        if (!cancelled) setOwnRead({ status: 'loaded', summary })
-      })
-      .catch(e => {
-        console.log(e)
-        if (!cancelled) setOwnRead({ status: 'loaded' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [wallet, sharesQuote, chain.enum])
+  const ownRead = useFeeQuoteRead(quote === undefined)
 
   const read = quote ?? ownRead
+  const readName = read.status === 'loaded' ? read.read : undefined
   const feeSummary = read.status === 'loaded' ? read.summary : undefined
   const lowFeeModeApplies =
     configuredLowFeeMode && feeSummary !== undefined && feeSummary.quote === undefined
@@ -213,7 +268,7 @@ export function useFeeRateBarLogic({
   // moves to a newer quote in the same render as the fee check of the screen
   // that shares it. Undefined while the read, or its low-fee read, is pending.
   const readQuote = useMemo((): FeeBarQuote | undefined => {
-    if (read.status === 'loading') return undefined
+    if (readName === undefined) return undefined
     const custom: FeeBarOption = {
       type: FeeRateType.CUSTOM,
       index: FeeRateType.CUSTOM,
@@ -221,7 +276,12 @@ export function useFeeRateBarLogic({
       feeRate: 0,
     }
     if (!feeSummary) {
-      return { options: readonly ? [] : [custom], readFailed: true, lowFeeMode: false }
+      return {
+        read: readName,
+        options: readonly ? [] : [custom],
+        readFailed: true,
+        lowFeeMode: false,
+      }
     }
 
     // Tiers take the indices below Custom's; a summary may list more.
@@ -241,19 +301,24 @@ export function useFeeRateBarLogic({
       (option, position): FeeBarOption => ({ ...option, index: position })
     )
     return {
+      read: readName,
       options: readonly ? tiers : [...tiers, custom],
       quote: feeSummary.quote,
       readFailed: false,
       lowFeeMode: lowFeeSlowRate,
     }
-  }, [read.status, feeSummary, lowFeeModeApplies, lowFeeRead, t, readonly])
+  }, [readName, feeSummary, lowFeeModeApplies, lowFeeRead, t, readonly])
 
   // While a quote loads the bar keeps what it showed, and the rate selected
   // from it, rather than falling to a default rate.
   const [shownQuote, setShownQuote] = useState(NO_QUOTE_YET)
   if (readQuote !== undefined && readQuote !== shownQuote) setShownQuote(readQuote)
-  const { options: feeOptions, quote: feeQuote, readFailed } = readQuote ?? shownQuote
-  const quoteSettled = readQuote !== undefined
+  const {
+    read: shownRead,
+    options: feeOptions,
+    quote: feeQuote,
+    readFailed,
+  } = readQuote ?? shownQuote
 
   // A rate below 1 sat/vB only where the bar offers low-fee mode's slow rate
   // for the current quote: never before a quote arrives with its relay floor,
@@ -283,28 +348,28 @@ export function useFeeRateBarLogic({
     // a send or consolidation screen uses, and the website PSBT risk popover
     // that shows a read-only bar shares the send screen's store.
     if (readonly) return
-    let val = defaultFeeRate
+    let val: number
+    // The read and option the rate is chosen for; none for a Custom rate.
+    let source: FeeRateSource | null = null
     if (feeOptionIndex === FeeRateType.CUSTOM) {
       val = parseFloat(feeRateInputVal) || 0
-    } else if (readFailed) {
-      // No rates to select from: the relay floor, which the bar says it uses.
-      val = QBIT_MIN_RELAY_FEE_RATE
-    } else if (feeOptions.length > 0) {
-      val = optionAt(feeOptions, feeOptionIndex)?.feeRate ?? defaultFeeRate
-    } else if (!quoteSettled) {
-      // Never a default rate while the quote loads: the selected rate stays.
+    } else if (shownRead === undefined) {
+      // Never a default rate before a quote lands: the selected rate stays.
       return
+    } else {
+      // From the read the bar shows, which while a newer one loads is an earlier one.
+      // After a failed read no rates to select from: the relay floor, which the bar says it uses.
+      // A tier the read does not offer falls back to a rate the read did not choose: no source.
+      const option = optionAt(feeOptions, feeOptionIndex)
+      val = readFailed ? QBIT_MIN_RELAY_FEE_RATE : (option?.feeRate ?? defaultFeeRate)
+      source =
+        readFailed || option !== undefined
+          ? { quoteRead: shownRead, optionIndex: feeOptionIndex }
+          : null
     }
 
-    if (val.toString() == feeRate.toString()) {
-      return
-    }
-
-    if (val === feeRate) {
-      return
-    }
-
-    updateFeeRateBar({ feeRate: val })
+    if (val === feeRate && sameFeeRateSource(feeRateSource, source)) return
+    updateFeeRateBar({ feeRate: val, feeRateSource: source })
   }, [
     readonly,
     feeOptions,
@@ -312,8 +377,9 @@ export function useFeeRateBarLogic({
     feeRateInputVal,
     defaultFeeRate,
     feeRate,
+    feeRateSource,
     readFailed,
-    quoteSettled,
+    shownRead,
   ])
 
   const adjustFeeRateInput = useCallback(
