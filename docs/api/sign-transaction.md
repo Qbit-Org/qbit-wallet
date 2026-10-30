@@ -36,6 +36,14 @@ rejected with `-32602` before approval. Unknown and mismatched chains are reject
 Malformed PSBTs, and signing plans that do not belong to the active account, are also rejected
 before approval.
 
+The witness reveals the active account's P2MR leaf with one control block, so an input the account
+signs must list that leaf in exactly one leaf record, whose control block commits to the input's
+witness UTXO. A PSBT that lists the account's leaf more than once on an input, even when every
+record commits, or with a control block that does not commit, is rejected with `-32602` before
+approval, so no signature is spent. So is such an input whose witness UTXO is not a P2MR output, or
+whose P2MR merkle root differs from that output's program. Leaf records for other leaves are not
+checked.
+
 ## `signPsbt(psbtHex, options)`
 
 ```typescript
@@ -128,6 +136,30 @@ interchangeable.
 const txid = await window.qbit.pushTx(rawTransactionHex)
 ```
 
+### Broadcast results
+
+`pushPsbt()` and `pushTx()` resolve with the identifier Qbit Wallet computes from the transaction,
+once the endpoint answers with that identifier. They report a failed broadcast the same way
+`sendQbit()` does:
+
+- When the broadcast fails after the transaction has left the wallet, for example because the
+  endpoint times out, answers with a gateway error, or answers without the transaction identifier,
+  Qbit Wallet looks the transaction up. If the lookup finds it, the call resolves with its
+  identifier as usual. Otherwise the call rejects with code `-32010`, the
+  [unknown broadcast outcome](#unknown-broadcast-outcome) error, and `data.txid` names the
+  transaction the pushed bytes encode. Do not build another transaction over its inputs before you
+  have looked `data.txid` up on the chain.
+- Any other error means the transaction was not broadcast: it was refused before the bytes left the
+  wallet, or the node definitively rejected it and repeated lookups, a few seconds apart, found it
+  absent. The message carries the node's reason when there is one, without the endpoint's address
+  or response body.
+
+After an unknown outcome, Qbit Wallet keeps the transaction's inputs reserved, as it does for
+`sendQbit()`, only when the user approved signing that exact transaction with `signPsbt()` or
+`signPsbts()`, for any site, since the extension's background last started; the wallet remembers
+the last 256 such transactions. A push needs no approval, so the inputs of any other pushed
+transaction stay available to new transactions.
+
 ### Recently spent inputs
 
 `signPsbt()`, `signPsbts()`, `pushPsbt()` and `pushTx()` reject a transaction that spends an
@@ -188,7 +220,7 @@ interface QbitBroadcastOutcomeUnknownError {
   data: {
     outcome: 'unknown'
     chain: QbitChain
-    txid: string // the approved transaction, which may be in the mempool
+    txid: string // the approved or pushed transaction, which may be in the mempool
   }
 }
 ```

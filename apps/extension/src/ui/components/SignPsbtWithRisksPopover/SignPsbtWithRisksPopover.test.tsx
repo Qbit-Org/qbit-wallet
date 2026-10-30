@@ -63,4 +63,29 @@ describe('SignPsbtWithRisksPopover confirmation readiness', () => {
     fireEvent.click(confirmationButton);
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  it('names an unrecognised output and keeps it behind the typed confirmation (#271)', () => {
+    render(
+      <SignPsbtWithRisksPopover
+        decodedPsbt={
+          {
+            risks: [
+              {
+                type: RiskType.UNRECOGNISED_OUTPUT,
+                level: 'danger',
+                title: 'Unrecognised output',
+                desc: 'An output pays a script that is neither yours nor the named recipient.'
+              }
+            ]
+          } as DecodedPsbt
+        }
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('unrecognised_output_risk_title')).toBeTruthy();
+    expect(screen.getByText('unrecognised_output_risk_description')).toBeTruthy();
+    expect(screen.getByTestId('risk-confirm-button').getAttribute('aria-disabled')).toBe('true');
+  });
 });

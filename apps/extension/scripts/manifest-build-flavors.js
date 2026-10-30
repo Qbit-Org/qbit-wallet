@@ -1,6 +1,7 @@
 /* eslint-env node */
 
 const { REGTEST_HOST_PERMISSION, REGTEST_ORIGIN } = require('./package-artifact-validation');
+const { bundledPhishingHostPermissions } = require('./phishing-host-permissions');
 
 function appendConnectSource(contentSecurityPolicy, source) {
   if (typeof contentSecurityPolicy !== 'string') {
@@ -58,8 +59,26 @@ function applyE2eMv3ManifestOverlay(manifest) {
   };
 }
 
+/**
+ * MV3: add host access to the bundled phishing denylist, which the warning
+ * redirect rule needs. It is generated here so that it always matches the
+ * denylist the build ships.
+ */
+function applyPhishingHostPermissions(manifest) {
+  if (!Array.isArray(manifest.host_permissions)) {
+    throw new TypeError('MV3 manifest must define host_permissions');
+  }
+  return {
+    ...manifest,
+    host_permissions: [...manifest.host_permissions, ...bundledPhishingHostPermissions()]
+  };
+}
+
 function mergeExtensionManifest({ baseManifest, browserManifest, version, channel }) {
-  const result = Object.assign({}, baseManifest, browserManifest, { version });
+  let result = Object.assign({}, baseManifest, browserManifest, { version });
+  if (result.manifest_version === 3) {
+    result = applyPhishingHostPermissions(result);
+  }
   if (channel === 'e2e' && result.manifest_version === 3) {
     return applyE2eMv3ManifestOverlay(result);
   }

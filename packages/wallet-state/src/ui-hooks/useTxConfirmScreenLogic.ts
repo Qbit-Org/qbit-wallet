@@ -15,7 +15,8 @@ import { useAbandonQbitBroadcastCallback, usePushQbitTxCallback } from 'src/hook
  * `not_sent` releases the send claim that reserved the transaction's inputs,
  * exactly as leaving the recovery screen on that verdict would, since the
  * retained bytes go with this screen and nothing can retry them afterwards.
- * An `unknown` verdict keeps its claim reserved.
+ * An `unknown` verdict keeps the inputs reserved: the background holds them
+ * as recently spent until it settles the transaction.
  */
 export function useTxConfirmScreenLogic() {
   const { t } = useI18n()
@@ -74,7 +75,8 @@ export function useTxConfirmScreenLogic() {
     // Left mid-broadcast: the user is on another screen, and the retained
     // bytes are unreachable there. Settle the verdict as the recovery screen
     // would on unmount, and never navigate. Fire and forget: the callback
-    // releases only a proven not_sent whose claim matches, and never throws.
+    // releases only a proven not_sent whose claim matches, hands any other
+    // claim back to the background, and never throws.
     if (leftRef.current) {
       if (result.success === false) void abandonBroadcast(result, retained)
       return

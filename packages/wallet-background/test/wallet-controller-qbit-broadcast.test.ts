@@ -1,3 +1,4 @@
+import log from 'loglevel'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { QbitApiError } from '@qbit-oss/api'
@@ -30,14 +31,20 @@ import {
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
 } from '../src/services/qbitSendGuards'
 import { QBIT_BROADCAST_ABSENCE_PROBES } from '../src/utils/qbit-broadcast'
+import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
+import { QBIT_FEE_BUMP_RECHECK_WAIT_MS } from '../src/utils/qbit-fee-bump-recheck'
 
 const broadcastTxMock = vi.hoisted(() => vi.fn())
 const getTxMock = vi.hoisted(() => vi.fn())
 const getTxStatusMock = vi.hoisted(() => vi.fn())
+const getTxHexMock = vi.hoisted(() => vi.fn())
+const getTxOutspendsMock = vi.hoisted(() => vi.fn())
 const apiClientMock = vi.hoisted(() =>
   vi.fn(() => ({
     broadcastTx: broadcastTxMock,
     getTx: getTxMock,
+    getTxHex: getTxHexMock,
+    getTxOutspends: getTxOutspendsMock,
     getTxStatus: getTxStatusMock,
   }))
 )
@@ -174,6 +181,22 @@ function probeGone() {
   getTxStatusMock.mockRejectedValueOnce(notFound())
 }
 
+/**
+ * Answer the one explorer lookup a fee bump's broadcast makes for its
+ * original, `fixture`: what spends each of its outputs (its one output,
+ * unless `spenders` says otherwise). The original's bytes are never read
+ * again at broadcast: its output count comes with the bump's claim.
+ */
+function explorerShowsOriginal(spenders: (string | undefined)[] = [undefined]) {
+  getTxOutspendsMock.mockResolvedValueOnce(
+    spenders.map(spender =>
+      spender === undefined
+        ? { spent: false }
+        : { spent: true, txid: spender, vin: 0, status: { confirmed: false } }
+    )
+  )
+}
+
 function expectNoPayloadLeak(result: unknown) {
   const serialized = JSON.stringify(result)
   expect(serialized).not.toContain(fixture.rawTxHex)
@@ -185,6 +208,10 @@ function expectNoPayloadLeak(result: unknown) {
 function newController() {
   const wallet = new WalletController()
   wallet.qbitBroadcastProbeDelayMs = 0
+  // One dispatch per call: the mocked client cannot say what a re-send of
+  // the same bytes would get. Re-sends are covered through the real API
+  // client in wallet-controller-qbit-broadcast-resend.test.ts.
+  wallet.qbitBroadcastResendDelaysMs = []
   return wallet
 }
 
@@ -196,6 +223,8 @@ function walletClaim(): QbitSendBroadcastClaim {
     origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
     txid: fixture.txid,
     outpoints: [{ txid: SOURCE_TXID, vout: 0 }],
+    // Not a fee bump.
+    replaces: null,
   }
 }
 
@@ -294,6 +323,8 @@ describe('WalletController.broadcastQbitTx', () => {
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     getTxStatusMock.mockReset()
     getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
     broadcastTxMock.mockReset()
     await qbitSendGuardService.resetAllData()
   })
@@ -988,9 +1019,15 @@ describe('WalletController.broadcastQbitTx', () => {
     })
     expect(getTxMock).toHaveBeenCalledTimes(1)
     expect(apiClientMock.mock.calls.map(([options]) => options)).toEqual([
-      { baseUrl: REGTEST_ENDPOINT },
+      {
+        baseUrl: REGTEST_ENDPOINT,
+        timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+        fetchFn: expect.any(Function),
+      },
     ])
-    expect(apiClientMock).not.toHaveBeenCalledWith({ baseUrl: MAINNET_ENDPOINT })
+    expect(apiClientMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ baseUrl: MAINNET_ENDPOINT })
+    )
   })
 
   it('stops probing on the captured network once the wallet has switched between probes', async () => {
@@ -1012,7 +1049,9 @@ describe('WalletController.broadcastQbitTx', () => {
       lookup: 'unavailable',
     })
     expect(getTxStatusMock).toHaveBeenCalledTimes(1)
-    expect(apiClientMock).not.toHaveBeenCalledWith({ baseUrl: MAINNET_ENDPOINT })
+    expect(apiClientMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ baseUrl: MAINNET_ENDPOINT })
+    )
   })
 
   it('does not trust a 2xx response that fails to echo the txid', async () => {
@@ -1194,7 +1233,7 @@ describe('WalletController.broadcastQbitTx', () => {
     await expectInputSpentNotClaimed()
   })
 
-  it('leaves the provider-facing pushTx contract untouched', async () => {
+  it('leaves the bare pushTx contract untouched', async () => {
     const wallet = newController()
     broadcastTxMock.mockResolvedValueOnce(fixture.txid)
     await expect(wallet.pushTx(fixture.psbtHex)).resolves.toBe(fixture.txid)
@@ -1225,8 +1264,7 @@ describe('WalletController.broadcastQbitTx', () => {
     const reserved = () =>
       qbitSendGuardService.getReservedOutpointKeys(ChainType.QBIT_REGTEST, fixture.address)
 
-    // A dapp can push any bytes over the account's public outputs; a failed
-    // push, conclusive or not, must not let it freeze them.
+    // A failed bare push, conclusive or not, records nothing.
     broadcastTxMock.mockRejectedValueOnce(
       rejection('sendrawtransaction RPC error: {"code":-26,"message":"min relay fee not met"}')
     )
@@ -1335,6 +1373,7 @@ describe('WalletController.broadcastQbitTx', () => {
     // A fee bump replaces the original on purpose, so it may take it over.
     const feeBump = {
       originalTxid: fixture.txid,
+      originalOutputCount: 1,
       originalFee: 10_000,
       replacementFee: 11_000,
       feeDelta: 1_000,
@@ -1347,6 +1386,10 @@ describe('WalletController.broadcastQbitTx', () => {
     }
     const replacement = await signWalletSend(wallet, otherFixture, { feeBump })
     expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+    expect(replacement.qbitSendBroadcastClaim?.replaces).toBe(fixture.txid)
+    // Right before it goes out, the explorer still shows nothing spending
+    // the original's outputs.
+    explorerShowsOriginal()
     broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
     await expect(
       wallet.broadcastQbitTx(
@@ -1360,6 +1403,262 @@ describe('WalletController.broadcastQbitTx', () => {
     // The replaced original cannot be pushed back over its replacement.
     await expect(wallet.pushTx(fixture.psbtHex)).rejects.toThrow('recent broadcast already spent')
     expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('WalletController.broadcastQbitProviderTx', () => {
+  const reserved = () =>
+    qbitSendGuardService.getReservedOutpointKeys(ChainType.QBIT_REGTEST, fixture.address)
+  const input = `${SOURCE_TXID}:0`
+  /** The user approved signing the fixture for a dapp (provider signPsbt). */
+  const approveSigning = (wallet: WalletController) =>
+    wallet.recordQbitProviderSignings([{ chain: ChainType.QBIT_REGTEST, txid: fixture.txid }])
+  const timeout = () => new QbitApiError('timeout', `timeout: ${ENDPOINT}`, { url: ENDPOINT })
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
+    getTxStatusMock.mockReset()
+    getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
+    broadcastTxMock.mockReset()
+    await qbitSendGuardService.resetAllData()
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await qbitSendGuardService.resetAllData()
+  })
+
+  it('answers with the txid computed from the bytes once the node echoes it', async () => {
+    const wallet = newController()
+    const accepted = {
+      success: true,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      via: 'broadcast',
+    }
+    broadcastTxMock.mockResolvedValueOnce(fixture.txid)
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toEqual(accepted)
+    broadcastTxMock.mockResolvedValueOnce(fixture.txid.toUpperCase())
+    await expect(wallet.broadcastQbitProviderTx(fixture.rawTxHex)).resolves.toEqual(accepted)
+
+    expect(broadcastTxMock.mock.calls).toEqual([[fixture.rawTxHex], [fixture.rawTxHex]])
+    expect(getTxStatusMock).not.toHaveBeenCalled()
+    // Accepted bytes spend the input now, whoever got them signed.
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+  })
+
+  it('reconciles a lost answer by txid, reporting the transaction a lookup finds as sent', async () => {
+    const wallet = newController()
+    // The node took the bytes, but the answer timed out.
+    broadcastTxMock.mockRejectedValueOnce(timeout())
+    probePending()
+
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toEqual({
+      success: true,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      via: 'lookup',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+    // Found on the network, so its inputs are spent: recorded like an
+    // accepted broadcast, approved or not.
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+  })
+
+  it.each([
+    ['a timeout', timeout, 'timeout'],
+    ['a network error', networkError, 'network'],
+    [
+      'a gateway error',
+      () =>
+        new QbitApiError('http', `HTTP 502 from ${ENDPOINT}`, {
+          status: 502,
+          url: ENDPOINT,
+          responseBody: HTML_BODY,
+        }),
+      'server',
+    ],
+    ['a 2xx that does not echo the txid', undefined, 'invalid_response'],
+  ] as const)(
+    'reports %s a lookup cannot settle as unknown, naming the transaction',
+    async (_label, failure, reason) => {
+      const wallet = newController()
+      if (failure) broadcastTxMock.mockRejectedValueOnce(failure())
+      else broadcastTxMock.mockResolvedValueOnce(HTML_BODY)
+      probeGone()
+
+      const result = await wallet.broadcastQbitProviderTx(fixture.psbtHex)
+
+      expect(result).toMatchObject({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: fixture.txid,
+        outcome: 'unknown',
+        reason,
+        lookup: 'gone',
+      })
+      expect(getTxStatusMock).toHaveBeenCalledTimes(1)
+      expectNoPayloadLeak(result)
+      expect(JSON.stringify(result)).not.toContain('Bad gateway')
+    }
+  )
+
+  it('keeps the inputs of an unknown push reserved only when the user approved signing the transaction', async () => {
+    const wallet = newController()
+    broadcastTxMock.mockRejectedValueOnce(timeout())
+    probeGone()
+
+    // No approval: the push is the dapp's own, and reserving the outputs it
+    // names would let it freeze the account's funds.
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toMatchObject({
+      outcome: 'unknown',
+    })
+    await expect(reserved()).resolves.toEqual(new Set())
+
+    await approveSigning(wallet)
+    broadcastTxMock.mockRejectedValueOnce(timeout())
+    probeGone()
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toMatchObject({
+      outcome: 'unknown',
+      txid: fixture.txid,
+    })
+
+    // The node may hold the transaction: no other spend of its input, by the
+    // wallet or the dapp, can replace it.
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+    await expect(
+      qbitSendGuardService.runWithBroadcastClaim(claimFor(otherFixture.txid), async () => 'signed')
+    ).rejects.toThrow('recent broadcast already spent')
+    await expect(wallet.broadcastQbitProviderTx(otherFixture.psbtHex)).resolves.toMatchObject({
+      success: false,
+      txid: otherFixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+
+    // A retry of the same bytes still goes out, and settles the outcome.
+    broadcastTxMock.mockResolvedValueOnce(fixture.txid)
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toMatchObject({
+      success: true,
+      txid: fixture.txid,
+    })
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+  })
+
+  it('decides a push requested right after the approval was recorded by that approval', async () => {
+    const wallet = newController()
+    // Not awaited, as the provider does not await it before answering, and
+    // an identity the guard refuses does not fail the others.
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined)
+    const recorded = wallet.recordQbitProviderSignings([
+      undefined,
+      { chain: ChainType.QBIT_REGTEST, txid: 'not-a-txid' },
+      { chain: ChainType.QBIT_REGTEST, txid: fixture.txid },
+    ])
+    broadcastTxMock.mockRejectedValueOnce(timeout())
+    probeGone()
+
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toMatchObject({
+      outcome: 'unknown',
+    })
+    await expect(recorded).resolves.toBeUndefined()
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+  })
+
+  it('forgets no reservation when the node definitively rejects the pushed bytes', async () => {
+    const wallet = newController()
+    await approveSigning(wallet)
+    broadcastTxMock.mockRejectedValueOnce(timeout())
+    probeGone()
+    await wallet.broadcastQbitProviderTx(fixture.psbtHex)
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+
+    // A txid does not cover the witness: these may not be the bytes the
+    // node may hold, so their rejection proves nothing about those.
+    broadcastTxMock.mockRejectedValueOnce(
+      rejection(
+        'sendrawtransaction RPC error: {"code":-26,"message":"mandatory-script-verify-flag-failed"}'
+      )
+    )
+    for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toMatchObject({
+      outcome: 'not_sent',
+      reason: 'rejected',
+    })
+    await expect(reserved()).resolves.toEqual(new Set([input]))
+  })
+
+  it('reports not_sent only before dispatch or after a definitive rejection with absence proven', async () => {
+    const wallet = newController()
+
+    await expect(wallet.broadcastQbitProviderTx('zz')).resolves.toMatchObject({
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      outcome: 'not_sent',
+      reason: 'invalid_transaction',
+    })
+
+    // An input a wallet send holds is refused before the bytes leave.
+    const claim = claimFor(otherFixture.txid)
+    await qbitSendGuardService.runWithBroadcastClaim(claim, async () => 'signed')
+    const blocked = await wallet.broadcastQbitProviderTx(fixture.psbtHex)
+    expect(blocked).toEqual({
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: 'Qbit transaction spends an input claimed by an approved send',
+    })
+    expect(broadcastTxMock).not.toHaveBeenCalled()
+    await qbitSendGuardService.releaseBroadcastClaim(claim)
+
+    broadcastTxMock.mockRejectedValueOnce(
+      rejection('sendrawtransaction RPC error: {"code":-26,"message":"min relay fee not met"}')
+    )
+    for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
+    const rejected = await wallet.broadcastQbitProviderTx(fixture.psbtHex)
+    expect(rejected).toEqual({
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      outcome: 'not_sent',
+      reason: 'rejected',
+      lookup: 'gone',
+      detail: 'HTTP 400: min relay fee not met',
+    })
+    expect(getTxStatusMock).toHaveBeenCalledTimes(QBIT_BROADCAST_ABSENCE_PROBES)
+    expectNoPayloadLeak(rejected)
+    await expect(reserved()).resolves.toEqual(new Set())
+  })
+
+  it('reports an unexpected throw as unknown, naming the transaction', async () => {
+    const wallet = newController()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    Object.assign(wallet, {
+      attemptQbitBroadcast: vi.fn().mockRejectedValue(new Error('port closed')),
+    })
+    const unexpected = {
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      outcome: 'unknown',
+      reason: 'unexpected',
+    }
+
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toEqual(unexpected)
+    await expect(reserved()).resolves.toEqual(new Set())
+
+    // The throw may come after the bytes left: an approved transaction's
+    // inputs stay reserved, as for any other unknown outcome.
+    await approveSigning(wallet)
+    await expect(wallet.broadcastQbitProviderTx(fixture.psbtHex)).resolves.toEqual(unexpected)
+    await expect(reserved()).resolves.toEqual(new Set([input]))
   })
 })
 
@@ -1381,6 +1680,8 @@ describe('WalletController recent-spend eviction', () => {
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     getTxStatusMock.mockReset()
     getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
     broadcastTxMock.mockReset()
     await qbitSendGuardService.resetAllData()
   })
@@ -1559,6 +1860,8 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     vi.mocked(preferenceService.getCurrentAccount).mockReset()
     getTxStatusMock.mockReset()
     getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
     broadcastTxMock.mockReset()
     qbitSendGuardService.init()
   })
@@ -1800,32 +2103,386 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     await waitForDispatch()
     const disconnected = wallet.onUiPortDisconnected('tab:2')
 
-    // An inconclusive verdict keeps the restored claim even though its
-    // owner is gone: the node may hold the transaction. Without the attempt
-    // marked in flight at restoration, the disconnect would have released
-    // it before the verdict.
+    // An inconclusive verdict keeps the input reserved even though the
+    // restored claim's owner is gone: the node may hold the transaction. The
+    // bytes went with the page, so the claim is consumed into a recent spend
+    // that lifecycle probes settle, rather than held until a restart.
     probeGone()
     reject(networkError())
     await expect(attempt).resolves.toMatchObject({ success: false, outcome: 'unknown' })
     await disconnected
-    await expect(reservedKeys()).resolves.toEqual(reserved)
+    await expectInputSpentNotClaimed()
 
-    // A later retry from another page proves absence; the claim goes with
-    // that page, exactly like a minted one.
-    broadcastTxMock.mockRejectedValueOnce(
-      rejection(
-        'sendrawtransaction RPC error: {"code":-25,"message":"bad-txns-inputs-missingorspent"}'
-      )
-    )
-    for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
+    // The claim was decided, so it is never restored again: a page still
+    // presenting it is probed, and nothing goes back on the wire.
+    probeGone()
     await expect(
       wallet.runForUiPort('tab:3', () =>
         wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
       )
-    ).resolves.toMatchObject({ success: false, outcome: 'not_sent' })
-    await expect(reservedKeys()).resolves.toEqual(reserved)
-    await wallet.onUiPortDisconnected('tab:3')
-    await expect(reservedKeys()).resolves.toEqual(new Set())
+    ).resolves.toMatchObject({ success: false, outcome: 'unknown', lookup: 'gone' })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+    await expectInputSpentNotClaimed()
+  })
+})
+
+describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
+  const REGTEST = ChainType.QBIT_REGTEST
+  const reservedKeys = () => qbitSendGuardService.getReservedOutpointKeys(REGTEST, fixture.address)
+  const buildingAccount = {
+    type: KeyringType.QbitHdKeyring,
+    address: fixture.address,
+    pubkey: fixture.pubkeyHex,
+    key: 'account-0',
+    flag: 0,
+    index: 0,
+  }
+  /** What `createBumpFeeQbitPsbt` hands the confirm screen for a bump of the fixture. */
+  const feeBump = {
+    originalTxid: fixture.txid,
+    originalOutputCount: 1,
+    originalFee: 10_000,
+    replacementFee: 11_000,
+    feeDelta: 1_000,
+    originalFeeRate: 2,
+    replacementFeeRate: 2.2,
+    replacementVsize: 5_000,
+    changeBefore: 0,
+    changeAfter: 0,
+    changeDropped: false,
+  }
+  /** A payment spending the original's output. */
+  const laterTxid = 'cc'.repeat(32)
+  const dependentDetail = 'A later payment depends on the transaction this fee bump replaces'
+  const notActiveDetail = 'Qbit send broadcast claim is not active'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(preferenceService.getChainType).mockReturnValue(REGTEST)
+    vi.mocked(preferenceService.getCurrentAccount).mockReset()
+    getTxStatusMock.mockReset()
+    getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
+    broadcastTxMock.mockReset()
+    qbitSendGuardService.init()
+  })
+
+  afterEach(() => {
+    vi.mocked(preferenceService.getCurrentAccount).mockReset()
+    qbitSendGuardService.init()
+  })
+
+  /**
+   * Send the fixture, then sign `otherFixture` as a fee bump of it while
+   * nothing spends the original's output, as the confirm screen does.
+   */
+  async function sendThenSignBump(wallet: WalletController) {
+    const original = await signWalletSend(wallet)
+    broadcastTxMock.mockResolvedValueOnce(fixture.txid)
+    await expect(
+      wallet.broadcastQbitTx(
+        original.psbtHex!,
+        original.qbitSendBroadcastClaim,
+        REGTEST,
+        fixture.txid
+      )
+    ).resolves.toMatchObject({ success: true })
+    const bump = await signWalletSend(wallet, otherFixture, { feeBump })
+    return { psbtHex: bump.psbtHex!, claim: bump.qbitSendBroadcastClaim! }
+  }
+
+  type SignedBump = Awaited<ReturnType<typeof sendThenSignBump>>
+
+  /** Broadcast the retained bump as the confirm and recovery screens do. */
+  const broadcastBump = (wallet: WalletController, bump: SignedBump) =>
+    wallet.broadcastQbitTx(bump.psbtHex, bump.claim, REGTEST, otherFixture.txid)
+
+  /** Lose the bump's first broadcast (unknown verdict), then restart the worker. */
+  async function loseBumpThenRestart(wallet: WalletController, bump: SignedBump) {
+    explorerShowsOriginal()
+    broadcastTxMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      success: false,
+      outcome: 'unknown',
+      reason: 'network',
+    })
+    qbitSendGuardService.init()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
+  }
+
+  it('refuses to dispatch a fee bump once the explorer shows a payment spending its original, and keeps it retryable', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+
+    // While the confirm screen was open, another wallet on the same seed
+    // spent the original's output. Only the explorer can show it. The bump
+    // itself is looked up, in case an earlier dispatch went through.
+    explorerShowsOriginal([laterTxid])
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: dependentDetail,
+    })
+    expect(getTxOutspendsMock).toHaveBeenCalledWith(fixture.txid, {
+      deadlineMs: QBIT_FEE_BUMP_RECHECK_WAIT_MS,
+      signal: expect.any(AbortSignal),
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+    // Nothing went out, and the bump's claim still holds the original's
+    // input for a retry or until the user abandons it.
+    await expect(reservedKeys()).resolves.toEqual(new Set([`${SOURCE_TXID}:0`]))
+    await expect(
+      qbitSendGuardService.assertNoOverlap(REGTEST, [{ txid: SOURCE_TXID, vout: 0 }])
+    ).rejects.toThrow('claimed by an approved send')
+
+    // An explorer that cannot say refuses it as well.
+    getTxOutspendsMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail:
+        'Could not check whether a later payment depends on the transaction this fee bump replaces',
+    })
+    // So does an answer that is not one entry per output of the original.
+    explorerShowsOriginal([undefined, undefined])
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+
+    // Once nothing spends the original, the same bytes go out unsigned again.
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      success: true,
+      txid: otherFixture.txid,
+      via: 'broadcast',
+    })
+    expect(broadcastTxMock).toHaveBeenLastCalledWith(otherFixture.rawTxHex)
+    expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(2)
+    // The page keeps the original's txid and output count with the bytes,
+    // for a retry after a restart, and no broadcast read the original's
+    // bytes again.
+    expect(bump.claim.replaces).toBe(fixture.txid)
+    expect(bump.claim.replacedOutputCount).toBe(1)
+    expect(getTxHexMock).not.toHaveBeenCalled()
+  })
+
+  it("broadcasts a fee bump without reading its original's bytes again, however slowly they would arrive", async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+
+    // On a slow link the raw bytes of an original with many inputs take
+    // longer than the check may hold the send guard. The assessment read
+    // them before the bump was signed; the broadcast only asks what spends
+    // the original's outputs, a small reply.
+    getTxHexMock.mockImplementation(() => new Promise(() => undefined))
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const outcome = broadcastBump(wallet, bump)
+      await vi.advanceTimersByTimeAsync(QBIT_FEE_BUMP_RECHECK_WAIT_MS)
+      await expect(outcome).resolves.toEqual({
+        success: true,
+        chain: REGTEST,
+        txid: otherFixture.txid,
+        via: 'broadcast',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(getTxHexMock).not.toHaveBeenCalled()
+    expect(getTxOutspendsMock).toHaveBeenCalledTimes(1)
+    expect(broadcastTxMock).toHaveBeenLastCalledWith(otherFixture.rawTxHex)
+    await expectInputSpentNotClaimed()
+  })
+
+  it('after a restart, never restores a fee bump whose original a later send of this wallet spends', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    await loseBumpThenRestart(wallet, bump)
+
+    // A send from the original's change goes out after the restart.
+    const later: QbitSendBroadcastClaim = {
+      chain: REGTEST,
+      address: fixture.address,
+      origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
+      txid: laterTxid,
+      outpoints: [{ txid: fixture.txid, vout: 0 }],
+      replaces: null,
+    }
+    await qbitSendGuardService.runWithBroadcastClaim(later, async () => 'signed')
+    await qbitSendGuardService.broadcastIfAllowed(
+      REGTEST,
+      laterTxid,
+      later.outpoints,
+      async () => laterTxid,
+      later
+    )
+
+    // The retry finds the claim gone and the bump absent. Restoring it would
+    // let the bump evict that send, so nothing is dispatched.
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'unknown',
+      reason: 'guard_blocked',
+      lookup: 'gone',
+      detail: notActiveDetail,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('after a restart, checks the explorer again before dispatching a restored fee bump', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    await loseBumpThenRestart(wallet, bump)
+
+    // The claim is restored, but a payment made elsewhere now spends the
+    // original's output: the bump is refused before dispatch.
+    probeGone()
+    explorerShowsOriginal([laterTxid])
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: dependentDetail,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    await expect(reservedKeys()).resolves.toEqual(new Set([`${SOURCE_TXID}:0`]))
+
+    // The restored claim is held now: once nothing spends the original, the
+    // next retry dispatches without another probe or signature.
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      success: true,
+      via: 'broadcast',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(3)
+    expect(getTxStatusMock).toHaveBeenCalledTimes(3)
+    expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(2)
+  })
+
+  it('checks the explorer before pushTx broadcasts a fee bump under its claim', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+
+    explorerShowsOriginal([laterTxid])
+    await expect(wallet.pushTx(bump.psbtHex, bump.claim)).rejects.toThrow(dependentDetail)
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    await expect(wallet.pushTx(bump.psbtHex, bump.claim)).resolves.toBe(otherFixture.txid)
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a retried fee bump the node already took as the success its first answer lost', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    explorerShowsOriginal()
+    broadcastTxMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(broadcastBump(wallet, bump)).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'network',
+    })
+
+    // The bump went out after all and replaced its original, which the
+    // explorer no longer serves: the check cannot pass, but the lookup of
+    // the bump finds it, and nothing is dispatched again.
+    getTxOutspendsMock.mockRejectedValueOnce(notFound())
+    getTxStatusMock.mockResolvedValueOnce({ confirmed: false })
+    getTxMock.mockResolvedValueOnce({ txid: otherFixture.txid })
+    await expect(broadcastBump(wallet, bump)).resolves.toEqual({
+      success: true,
+      chain: REGTEST,
+      txid: otherFixture.txid,
+      via: 'lookup',
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(2)
+    await expectInputSpentNotClaimed()
+  })
+
+  it('never signs, restores or broadcasts a fee bump without its original output count', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(2)
+
+    // Details without the count the assessment took from the original's
+    // bytes: refused before a signature is spent on them.
+    const { originalOutputCount: _count, ...uncounted } = feeBump
+    await expect(
+      signWalletSend(wallet, otherFixture, { feeBump: uncounted as typeof feeBump })
+    ).rejects.toThrow('invalid Qbit send broadcast claim')
+    expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(2)
+    // The signature that request queued was never asked for.
+    vi.mocked(keyringService.signP2mrPsbtWithCounter).mockReset()
+
+    // After a restart, a page presenting the bump's claim without the count
+    // gets nothing restored, read or sent: its broadcast could only check
+    // the original by reading its bytes again.
+    qbitSendGuardService.init()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
+    const { replacedOutputCount: _held, ...claim } = bump.claim
+    await expect(
+      wallet.broadcastQbitTx(bump.psbtHex, claim, REGTEST, otherFixture.txid)
+    ).resolves.toMatchObject({
+      success: false,
+      txid: otherFixture.txid,
+      outcome: 'not_sent',
+      reason: 'guard_blocked',
+      detail: 'invalid Qbit send broadcast claim',
+    })
+    expect(getTxOutspendsMock).not.toHaveBeenCalled()
+    expect(getTxHexMock).not.toHaveBeenCalled()
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('never restores a claim that does not say what its transaction replaces', async () => {
+    // A page holding a claim minted before claims carried `replaces`. It
+    // may be a fee bump, so it is never restored as a plain send.
+    const wallet = newController()
+    const signedData = await signWalletSend(wallet)
+    const unlabelled: QbitSendBroadcastClaim = { ...signedData.qbitSendBroadcastClaim! }
+    delete unlabelled.replaces
+    broadcastTxMock.mockRejectedValueOnce(networkError())
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, unlabelled, REGTEST, fixture.txid)
+    ).resolves.toMatchObject({ outcome: 'unknown', reason: 'network' })
+    qbitSendGuardService.init()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
+
+    probeGone()
+    await expect(
+      wallet.broadcastQbitTx(signedData.psbtHex!, unlabelled, REGTEST, fixture.txid)
+    ).resolves.toEqual({
+      success: false,
+      chain: REGTEST,
+      txid: fixture.txid,
+      outcome: 'unknown',
+      reason: 'guard_blocked',
+      lookup: 'gone',
+      detail: notActiveDetail,
+    })
+    expect(broadcastTxMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -1839,6 +2496,8 @@ describe('WalletController send claims owned by a UI port', () => {
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     getTxStatusMock.mockReset()
     getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
     broadcastTxMock.mockReset()
     await qbitSendGuardService.resetAllData()
   })
@@ -2016,6 +2675,8 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     getTxStatusMock.mockReset()
     getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
     broadcastTxMock.mockReset()
     await qbitSendGuardService.resetAllData()
   })
@@ -2199,6 +2860,8 @@ describe('WalletController.checkQbitBroadcastStatus', () => {
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     getTxStatusMock.mockReset()
     getTxMock.mockReset()
+    getTxHexMock.mockReset()
+    getTxOutspendsMock.mockReset()
     await qbitSendGuardService.resetAllData()
   })
 
@@ -2309,7 +2972,11 @@ describe('WalletController.checkQbitBroadcastStatus', () => {
       wallet.checkQbitBroadcastStatus(fixture.txid, ChainType.QBIT_REGTEST)
     ).resolves.toEqual({ found: true, txid: fixture.txid, state: 'pending' })
     expect(apiClientMock.mock.calls.map(([options]) => options)).toEqual([
-      { baseUrl: REGTEST_ENDPOINT },
+      {
+        baseUrl: REGTEST_ENDPOINT,
+        timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+        fetchFn: expect.any(Function),
+      },
     ])
   })
 })

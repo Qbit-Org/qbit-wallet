@@ -9,15 +9,16 @@ vi.mock('@qbit/wallet-state', () => ({
   useI18n: () => ({ t: (key: string) => key })
 }));
 
-function renderWarning(reply: unknown) {
+function renderWarning(
+  reply: unknown,
+  route = `/phishing?hostname=phish.example&href=${encodeURIComponent('https://phish.example/claim')}`
+) {
   const sendMessage = vi.fn((_message: unknown, callback: (response?: unknown) => void) => callback(reply));
   vi.stubGlobal('chrome', {
     runtime: { getURL: (path: string) => `chrome-extension://qbit${path}`, lastError: undefined, sendMessage }
   });
   render(
-    <MemoryRouter
-      initialEntries={[`/phishing?hostname=phish.example&href=${encodeURIComponent('https://phish.example/claim')}`]}
-    >
+    <MemoryRouter initialEntries={[route]}>
       <PhishingScreen />
     </MemoryRouter>
   );
@@ -40,6 +41,14 @@ describe('PhishingScreen', () => {
       { type: 'SKIP_PHISHING_PROTECTION', hostname: 'phish.example' },
       expect.any(Function)
     );
+  });
+
+  it('offers no Proceed when the warning names no site', () => {
+    const sendMessage = renderWarning({ success: true }, '/phishing');
+
+    expect(screen.getByText('danger_potential_phishing_website_detected')).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('does not report a failure once the block is lifted', async () => {

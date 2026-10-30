@@ -24,12 +24,14 @@ export enum ErrorCodes {
   // Something answered at the loopback origin but it is not the Qbit regtest
   // API (wrong genesis, redirect, malformed or oversized response, ...).
   REGTEST_SERVICE_UNEXPECTED = -14,
-  // A provider sendQbit broadcast ended without a verdict: the transaction
-  // named in the error data may be in the mempool, so the dapp must check it
-  // before retrying. Its inputs stay reserved. The code is in the JSON-RPC
-  // implementation-defined server error range (-32000 to -32099, clear of
-  // EIP-1474's -32000 to -32005) because the page provider's serializer
-  // replaces any other unknown code with -32603 and drops the data.
+  // A provider sendQbit, pushTx or pushPsbt broadcast ended without a
+  // verdict: the transaction named in the error data may be in the mempool,
+  // so the dapp must check it before retrying. A sendQbit's inputs stay
+  // reserved, and a push's when the user approved signing that transaction
+  // for a dapp. The code is in the JSON-RPC implementation-defined server
+  // error range (-32000 to -32099, clear of EIP-1474's -32000 to -32005)
+  // because the page provider's serializer replaces any other unknown code
+  // with -32603 and drops the data.
   QBIT_BROADCAST_OUTCOME_UNKNOWN = -32010,
   METHOD_NOT_FOUND = -32601,
   INVALID_PARAMS = -32602,

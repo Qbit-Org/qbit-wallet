@@ -202,6 +202,20 @@ describe('QbitWallet', () => {
     ])
   })
 
+  it('passes an empty account list to the listener without revoking the grant', async () => {
+    const provider = createProvider()
+    ;(globalThis as any).window.qbit = provider
+    const wallet = new QbitWallet()
+    const onAccountChange = vi.fn()
+
+    wallet.addListener({ onAccountChange, onNetworkChange: vi.fn() })
+    const [, accountsChanged] = provider.on.mock.calls.find(([event]) => event === 'accountsChanged')!
+    await accountsChanged([])
+
+    expect(onAccountChange).toHaveBeenCalledWith([])
+    expect(provider.disconnect).not.toHaveBeenCalled()
+  })
+
   it('awaits provider permission revocation', async () => {
     let finishDisconnect: (() => void) | undefined
     const provider = createProvider({

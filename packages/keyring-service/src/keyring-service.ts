@@ -16,6 +16,7 @@ import {
   validateP2mrSigningPlans,
   type P2mrSigningKey,
   type P2mrSpentOutput,
+  type P2mrTransaction,
   type Psbt,
 } from '@qbit-oss/protocol'
 import {
@@ -43,6 +44,7 @@ import {
 import {
   BUS_EVENTS,
   BUS_METHODS,
+  QBIT_MAX_FEE_RATE,
   QBIT_MAX_STANDARD_TX_WEIGHT,
   QbitRecoveryState,
   QbitSignatureBudgetImpact,
@@ -207,6 +209,9 @@ interface QbitRestoredFloorSigningChallenge {
   expiresAt: number
   confirmed: boolean
   allowDuringMigration: boolean
+  // Allowed during a migration as a consolidation of a source no plan of
+  // which is open, which signing checks again.
+  migrationConsolidation?: boolean
   // Present only for resumable operations (a migration plan re-preflighted on
   // every poll); a preflight may reuse an existing challenge only when both
   // sides carry the same scope. One-shot preflights never set it, so two
@@ -731,6 +736,7 @@ export class KeyringService extends EventEmitter {
 
       const sourcePubkeys = await source.getAccounts()
       return this.lockPqcSignatureCounterPubkeys(sourcePubkeys, async () => {
+        this.assertLiveKeyrings([source])
         const lockedSourceState = source.getQbitRecoveryState?.() as
           | QbitRecoveryVaultState
           | undefined
@@ -752,15 +758,20 @@ export class KeyringService extends EventEmitter {
 
         let persisted = false
         try {
-          await this.persistAllKeyrings()
+          await this.persistAllKeyrings([source, destination])
           persisted = true
           this.removePreMnemonics()
           await this._updateMemStoreKeyrings()
           this.fullUpdate()
         } catch (error) {
           if (!persisted) {
-            this.keyrings.pop()
-            this.addressTypes.pop()
+            // A lock during the write replaced the live keyrings; never pop
+            // a keyring of the session unlocked since.
+            const pushedIndex = this.keyrings.indexOf(destination)
+            if (pushedIndex !== -1) {
+              this.keyrings.splice(pushedIndex, 1)
+              this.addressTypes.splice(pushedIndex, 1)
+            }
             source.restoreQbitRecoveryState!(lockedSourceState)
             this.cachedDisplayedKeyring = null
             try {
@@ -768,7 +779,7 @@ export class KeyringService extends EventEmitter {
               // pre-operation vault snapshot: counter persists from other
               // keyrings may have advanced the vault since the snapshot, and a
               // snapshot restore would durably rewind them (signature reuse).
-              await this.persistAllKeyrings()
+              await this.persistAllKeyrings([source])
             } catch (rollbackError) {
               this.logger?.error?.(
                 '[KeyringService] Failed to persist migration-keyring rollback',
@@ -866,6 +877,7 @@ export class KeyringService extends EventEmitter {
 
       const sourcePubkeys = await source.getAccounts()
       return this.lockPqcSignatureCounterPubkeys(sourcePubkeys, async () => {
+        this.assertLiveKeyrings([source])
         const lockedSourceState = source.getQbitRecoveryState?.() as
           | QbitRecoveryVaultState
           | undefined
@@ -884,7 +896,7 @@ export class KeyringService extends EventEmitter {
 
         let persisted = false
         try {
-          await this.persistAllKeyrings()
+          await this.persistAllKeyrings([source])
           persisted = true
           await this._updateMemStoreKeyrings()
           this.fullUpdate()
@@ -897,7 +909,7 @@ export class KeyringService extends EventEmitter {
               // pre-operation vault snapshot: counter persists from other
               // keyrings may have advanced the vault since the snapshot, and a
               // snapshot restore would durably rewind them (signature reuse).
-              await this.persistAllKeyrings()
+              await this.persistAllKeyrings([source])
             } catch (rollbackError) {
               this.logger?.error?.(
                 '[KeyringService] Failed to persist migration-begin rollback',
@@ -943,7 +955,7 @@ export class KeyringService extends EventEmitter {
       this.cachedDisplayedKeyring = null
 
       try {
-        await this.persistAllKeyrings()
+        await this.persistAllKeyrings([keyring])
       } catch (error) {
         const keyringIndex = this.keyrings.indexOf(keyring)
         if (keyringIndex !== -1) {
@@ -1011,7 +1023,7 @@ export class KeyringService extends EventEmitter {
         this.addressTypes[keyringIndex] = addressType
         this.cachedDisplayedKeyring = null
 
-        await this.persistAllKeyrings()
+        await this.persistAllKeyrings([keyring])
       } catch (error) {
         let hdPathRestored = true
         if (changesHdPath && (keyring as any).hdPath !== previousHdPath) {
@@ -1038,7 +1050,7 @@ export class KeyringService extends EventEmitter {
             this.addressTypes[keyringIndex] = previousAddressType
             this.cachedDisplayedKeyring = null
             try {
-              await this.persistAllKeyrings()
+              await this.persistAllKeyrings([rollbackKeyring])
             } catch (rollbackError) {
               this.logger?.error?.(
                 '[KeyringService] Failed to persist address-type rollback',
@@ -1133,7 +1145,7 @@ export class KeyringService extends EventEmitter {
 
         this.cachedDisplayedKeyring = null
         await this.storage.set(this.cachedKey, null)
-        await this.persistAllKeyrings()
+        await this.persistAllKeyrings(pathChanges.map(({ keyring }) => keyring))
         await this._updateMemStoreKeyrings()
         this.fullUpdate()
         return true
@@ -1471,26 +1483,23 @@ export class KeyringService extends EventEmitter {
         includeNextAccount: true,
       })
       return this.lockPqcSignatureCounterPubkeys(lockPubkeys, async () => {
-        const keyringIndex = this.keyrings.indexOf(selectedKeyring)
-        const rollbackSnapshot =
-          keyringIndex === -1 ? null : structuredClone(await selectedKeyring.serialize())
-        const rollbackKeyring =
-          rollbackSnapshot === null
-            ? null
-            : (
-                await this._restoreKeyring({
-                  type: selectedKeyring.type,
-                  data: structuredClone(rollbackSnapshot),
-                  addressType: this.addressTypes[keyringIndex],
-                })
-              ).keyring
-
+        // The caller resolved the keyring before these locks; a lock and
+        // unlock while they were queued detached it.
+        this.assertLiveKeyrings([selectedKeyring])
         const keyrings = this.keyrings
+        const keyringIndex = keyrings.indexOf(selectedKeyring)
+        const rollbackSnapshot = structuredClone(await selectedKeyring.serialize())
+        const { keyring: rollbackKeyring } = await this._restoreKeyring({
+          type: selectedKeyring.type,
+          data: structuredClone(rollbackSnapshot),
+          addressType: this.addressTypes[keyringIndex],
+        })
+
         const accounts = await selectedKeyring.addAccounts(1)
         this.cachedDisplayedKeyring = null
 
         try {
-          await this.persistAllKeyrings()
+          await this.persistAllKeyrings([selectedKeyring])
         } catch (error) {
           this.rollbackAccountMutation(
             keyringIndex,
@@ -1673,7 +1682,7 @@ export class KeyringService extends EventEmitter {
         try {
           mutate(keyring)
           this.cachedDisplayedKeyring = null
-          await this.persistAllKeyrings()
+          await this.persistAllKeyrings([keyring])
           persisted = true
           await this._updateMemStoreKeyrings()
           this.fullUpdate()
@@ -1686,7 +1695,7 @@ export class KeyringService extends EventEmitter {
               // pre-mutation vault snapshot: counter persists from other
               // keyrings may have advanced the vault since the snapshot, and a
               // snapshot restore would durably rewind them (signature reuse).
-              await this.persistAllKeyrings()
+              await this.persistAllKeyrings([keyring])
             } catch (rollbackError) {
               this.logger?.error?.(
                 '[KeyringService] Failed to persist recovery-state rollback',
@@ -1816,7 +1825,7 @@ export class KeyringService extends EventEmitter {
               ...(destination.reuseIndexes ?? []),
             ])
             this.cachedDisplayedKeyring = null
-            await this.persistAllKeyrings()
+            await this.persistAllKeyrings([sourceKeyring, destinationKeyring])
             persisted = true
             await this._updateMemStoreKeyrings()
             this.fullUpdate()
@@ -1833,7 +1842,7 @@ export class KeyringService extends EventEmitter {
               )
               this.cachedDisplayedKeyring = null
               try {
-                await this.persistAllKeyrings()
+                await this.persistAllKeyrings([sourceKeyring, destinationKeyring])
               } catch (rollbackError) {
                 this.logger?.error?.(
                   '[KeyringService] Failed to persist migration-plan rollback',
@@ -1926,8 +1935,8 @@ export class KeyringService extends EventEmitter {
     return keyring.getQbitReceiveState(network)
   }
 
-  private persistQbitReceiveState = async (): Promise<void> => {
-    await this.persistAllKeyrings()
+  private persistQbitReceiveState = async (changedKeyrings: readonly Keyring[]): Promise<void> => {
+    await this.persistAllKeyrings(changedKeyrings)
     this.cachedDisplayedKeyring = null
     await this._updateMemStoreKeyrings()
     this.fullUpdate()
@@ -1956,15 +1965,16 @@ export class KeyringService extends EventEmitter {
         throw new Error(this.t('not_supported'))
       }
       return this.pqcSignatureCounterMutex.lock(targetAccount.pubkey, async () => {
+        this.assertLiveKeyrings([keyring])
+        const keyrings = this.keyrings
         await keyring.assertPqcSignatureCounterAvailable!(targetAddress, 1)
         const previousState = keyring.getQbitReceiveState!(network)
         const previousActiveIndexes = [...((keyring as any).activeIndexes || [])]
-        const keyrings = this.keyrings
         const mutation = await keyring.setQbitReceiveIntent!(network, index)
         if (!mutation.changed) return mutation.account
 
         try {
-          await this.persistQbitReceiveState()
+          await this.persistQbitReceiveState([keyring])
         } catch (error) {
           keyring.replaceQbitReceiveState!(network, previousState, previousActiveIndexes)
           await this.persistMutationRollback('Qbit receive-state', keyrings)
@@ -1988,13 +1998,15 @@ export class KeyringService extends EventEmitter {
       ) {
         throw new Error(this.t('not_supported'))
       }
+      // A lock and unlock while the keyring was resolved detached it.
+      this.assertLiveKeyrings([keyring])
       const previousState = keyring.getQbitReceiveState(network)
       const previousActiveIndexes = [...((keyring as any).activeIndexes || [])]
       const keyrings = this.keyrings
       if (!keyring.markQbitReceiveIndexesIssued(network, indexes)) return
 
       try {
-        await this.persistQbitReceiveState()
+        await this.persistQbitReceiveState([keyring])
       } catch (error) {
         keyring.replaceQbitReceiveState(network, previousState, previousActiveIndexes)
         await this.persistMutationRollback('Qbit receive-state', keyrings)
@@ -2016,12 +2028,14 @@ export class KeyringService extends EventEmitter {
       ) {
         throw new Error(this.t('not_supported'))
       }
+      // A lock and unlock while the keyring was resolved detached it.
+      this.assertLiveKeyrings([keyring])
       const previousState = keyring.getQbitReceiveState(network)
       const keyrings = this.keyrings
       if (!keyring.recordQbitReceiveActivity(network, indexes)) return
 
       try {
-        await this.persistQbitReceiveState()
+        await this.persistQbitReceiveState([keyring])
       } catch (error) {
         keyring.replaceQbitReceiveState(network, previousState)
         await this.persistMutationRollback('Qbit receive-state', keyrings)
@@ -2066,6 +2080,7 @@ export class KeyringService extends EventEmitter {
     }
     const pubkeys = await keyring.getAccounts()
     return this.lockPqcSignatureCounterPubkeys(pubkeys, async () => {
+      this.assertLiveKeyrings([keyring])
       if (!keyring.rearmPqcRestoreFloors!()) return false
       const keyringPubkeys = new Set(pubkeys)
       for (const [challengeId, challenge] of this.qbitRestoredFloorSigningChallenges) {
@@ -2073,7 +2088,7 @@ export class KeyringService extends EventEmitter {
           this.qbitRestoredFloorSigningChallenges.delete(challengeId)
         }
       }
-      await this.persistPqcSignatureCounterState()
+      await this.persistPqcSignatureCounterState([keyring])
       return true
     })
   }
@@ -2089,6 +2104,7 @@ export class KeyringService extends EventEmitter {
       await Promise.all(restoredKeyrings.map(keyring => keyring.getAccounts()))
     ).flat()
     return this.lockPqcSignatureCounterPubkeys(pubkeys, async () => {
+      this.assertLiveKeyrings(restoredKeyrings)
       let changed = false
       for (const keyring of restoredKeyrings) {
         changed = keyring.rearmPqcRestoreFloors!() || changed
@@ -2096,7 +2112,7 @@ export class KeyringService extends EventEmitter {
       if (!changed) return false
 
       this.qbitRestoredFloorSigningChallenges.clear()
-      await this.persistPqcSignatureCounterState()
+      await this.persistPqcSignatureCounterState(restoredKeyrings)
       return true
     })
   }
@@ -2119,8 +2135,10 @@ export class KeyringService extends EventEmitter {
     }
   }
 
-  private persistPqcSignatureCounterState = async (): Promise<void> => {
-    await this.persistAllKeyrings()
+  private persistPqcSignatureCounterState = async (
+    changedKeyrings: readonly Keyring[]
+  ): Promise<void> => {
+    await this.persistAllKeyrings(changedKeyrings)
     this.cachedDisplayedKeyring = null
     await this._updateMemStoreKeyrings()
     this.fullUpdate()
@@ -2191,20 +2209,20 @@ export class KeyringService extends EventEmitter {
    * Undo a failed account mutation on the live keyring. Restores in place when
    * the keyring supports it: PQC counter operations queued on
    * pqcSignatureCounterMutex resolved their keyring reference before this
-   * mutation took the counter locks, so replacing the object would strand
-   * their counter advances on a detached instance. Falls back to swapping in
-   * the pre-mutation clone for keyrings without counter state.
+   * mutation took the counter locks, so replacing the object would detach
+   * their target and fail them. Falls back to swapping in the pre-mutation
+   * clone for keyrings without counter state.
    */
   private rollbackAccountMutation = (
     keyringIndex: number,
     keyring: Keyring,
     rollbackSnapshot: any,
-    rollbackKeyring: Keyring | null
+    rollbackKeyring: Keyring
   ): void => {
     if (this.keyrings[keyringIndex] !== keyring) {
       return
     }
-    if (rollbackSnapshot !== null && keyring.restoreAccountSnapshot) {
+    if (keyring.restoreAccountSnapshot) {
       try {
         keyring.restoreAccountSnapshot(structuredClone(rollbackSnapshot))
         return
@@ -2215,9 +2233,7 @@ export class KeyringService extends EventEmitter {
         )
       }
     }
-    if (rollbackKeyring) {
-      this.keyrings[keyringIndex] = rollbackKeyring
-    }
+    this.keyrings[keyringIndex] = rollbackKeyring
   }
 
   reservePqcSignatureCounter = async (
@@ -2226,9 +2242,10 @@ export class KeyringService extends EventEmitter {
   ): Promise<QbitPqcSignatureCounterReservation> => {
     const { keyring, pubkey } = await this.getPqcSignatureCounterTarget(address)
     return this.pqcSignatureCounterMutex.lock(pubkey, async () => {
+      this.assertLiveKeyrings([keyring])
       const reservation = await keyring.reservePqcSignatureCounter!(pubkey, count)
       try {
-        await this.persistPqcSignatureCounterState()
+        await this.persistPqcSignatureCounterState([keyring])
       } catch (error) {
         await this.rollbackPqcSignatureCounterReservation(keyring, pubkey, reservation)
         throw error
@@ -2247,8 +2264,9 @@ export class KeyringService extends EventEmitter {
       if (!keyring.applyPqcSignatureCounterFloor) {
         throw new Error(this.t('not_supported'))
       }
+      this.assertLiveKeyrings([keyring])
       const floor = await keyring.applyPqcSignatureCounterFloor(pubkey, observedCounter, provenance)
-      await this.persistPqcSignatureCounterState()
+      await this.persistPqcSignatureCounterState([keyring])
       return floor
     })
   }
@@ -2272,16 +2290,17 @@ export class KeyringService extends EventEmitter {
     const targetPubkey = await keyring.getPqcSignatureCounterPubkey(address)
     const pubkeys = [targetPubkey, ...(await keyring.getAccounts())]
     return this.lockPqcSignatureCounterPubkeys(pubkeys, async () => {
+      this.assertLiveKeyrings([keyring])
       const floorsPendingBeforeScan = keyring.pqcFloorsPending === true
       let result: QbitPqcRestoreFloorScan
       try {
         result = await keyring.scanPqcSignatureCounterFloors!(observe, options)
       } catch (error) {
-        await this.persistPqcSignatureCounterState()
+        await this.persistPqcSignatureCounterState([keyring])
         throw error
       }
       try {
-        await this.persistPqcSignatureCounterState()
+        await this.persistPqcSignatureCounterState([keyring])
       } catch (error) {
         if (floorsPendingBeforeScan) {
           // The vault still says floors are pending; memory must not be more
@@ -2351,7 +2370,8 @@ export class KeyringService extends EventEmitter {
     cacheKeys: readonly string[],
     budget: QbitSignatureBudgetImpact,
     allowDuringMigration = false,
-    reuseScope?: string
+    reuseScope?: string,
+    migrationConsolidation = false
   ): Promise<QbitSignatureBudgetImpact> => {
     const metadata = await keyring.getPqcSignatureCounterMetadata?.(pubkey)
     const recoveryStatus =
@@ -2398,6 +2418,8 @@ export class KeyringService extends EventEmitter {
           challenge.pubkey === pubkey &&
           challenge.knownOnChainSignatures === knownOnChainSignatures &&
           challenge.allowDuringMigration === effectiveAllowDuringMigration &&
+          (challenge.migrationConsolidation === true) ===
+            (effectiveAllowDuringMigration && migrationConsolidation) &&
           challenge.cacheKeys.length === cacheKeys.length &&
           challenge.cacheKeys.every((cacheKey, index) => cacheKey === cacheKeys[index])
         if (matchesExactRequest) return budgetWithChallenge(challenge)
@@ -2430,6 +2452,9 @@ export class KeyringService extends EventEmitter {
       expiresAt: now + QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS,
       confirmed: false,
       allowDuringMigration: effectiveAllowDuringMigration,
+      ...(effectiveAllowDuringMigration && migrationConsolidation
+        ? { migrationConsolidation: true }
+        : {}),
       ...(reuseScope === undefined ? {} : { reuseScope }),
     }
     this.qbitRestoredFloorSigningChallenges.set(id, challenge)
@@ -2475,7 +2500,8 @@ export class KeyringService extends EventEmitter {
     }
     if (
       recoveryStatus === 'migrating' &&
-      challenge?.allowDuringMigration !== true
+      (challenge?.allowDuringMigration !== true ||
+        (challenge.migrationConsolidation === true && qbitRecoveryPlanOpenFor(keyring, pubkey)))
     ) {
       if (challengeId) this.qbitRestoredFloorSigningChallenges.delete(challengeId)
       throw new QbitRestoredFloorConfirmationError(
@@ -2577,6 +2603,9 @@ export class KeyringService extends EventEmitter {
     expectedBudget?: QbitSignatureBudgetImpact,
     restoredFloorRiskAlreadyAuthorized = false
   ): Promise<QbitPqcCounteredSignature> => {
+    // The target was resolved before this counter lock was taken. A lock and
+    // unlock since then detached it, and its reservation would never persist.
+    this.assertLiveKeyrings([keyring])
     const digest = normalizeSigningInput(signingInput)
     const cacheKey = pqcSignatureCacheKey(digest)
     const budget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, [cacheKey])
@@ -2605,7 +2634,9 @@ export class KeyringService extends EventEmitter {
 
     const reservation = await keyring.reservePqcSignatureCounter!(pubkey, 1)
     try {
-      await this.persistPqcSignatureCounterState()
+      // Fails unless the keyring is still live when the write commits, so a
+      // signature is only released once the vault holds its reservation.
+      await this.persistPqcSignatureCounterState([keyring])
     } catch (error) {
       await this.rollbackPqcSignatureCounterReservation(keyring, pubkey, reservation)
       throw error
@@ -2627,7 +2658,7 @@ export class KeyringService extends EventEmitter {
         bytesToHex(signature),
         reservation.newCounter
       )
-      await this.persistPqcSignatureCounterState()
+      await this.persistPqcSignatureCounterState([keyring])
     }
 
     this.consumeQbitRestoredFloorSigningChallenge(restoredFloorChallengeId)
@@ -2672,6 +2703,7 @@ export class KeyringService extends EventEmitter {
 
     const cacheKeys = datasigHashes.map(hash => pqcSignatureCacheKey(normalizeSigningInput(hash)))
     return this.pqcSignatureCounterMutex.lock(pubkey, async () => {
+      this.assertLiveKeyrings([keyring])
       const budget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, cacheKeys)
       return this.issueQbitRestoredFloorSigningChallenge(keyring, pubkey, cacheKeys, budget)
     })
@@ -2680,7 +2712,11 @@ export class KeyringService extends EventEmitter {
   preflightP2mrPsbtSigning = async (
     address: string,
     { psbt, keys }: QbitP2mrPsbtCounteredSigningInput,
-    options?: { allowMigrationProtectedAssetTransfer?: boolean; reuseScope?: string }
+    options?: {
+      allowMigrationProtectedAssetTransfer?: boolean
+      allowMigrationConsolidation?: boolean
+      reuseScope?: string
+    }
   ): Promise<QbitSignatureBudgetImpact> => {
     const psbtSnapshot = clonePsbt(psbt)
     const keySnapshots = keys.map(key => ({
@@ -2715,6 +2751,7 @@ export class KeyringService extends EventEmitter {
     })
 
     return this.pqcSignatureCounterMutex.lock(pubkey, async () => {
+      this.assertLiveKeyrings([keyring])
       const budget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, cacheKeys)
       const recoveryState = keyring.getQbitRecoveryState?.() as QbitRecoveryVaultState | undefined
       const serializedPsbt = bytesToHex(serializePsbt(psbtSnapshot))
@@ -2734,13 +2771,25 @@ export class KeyringService extends EventEmitter {
       const isReviewedProtectedAssetTransfer =
         keyring.effectiveQbitRecoveryStatus?.() === 'migrating' &&
         options?.allowMigrationProtectedAssetTransfer === true
+      // Also a trusted controller assertion: the controller grants it only
+      // to a consolidation batch of a source whose outputs a migration cannot
+      // read to plan them (#344). It holds only for a transaction that pays
+      // all it spends, less a fee within the wallet's fee-rate ceiling, back
+      // to the same script, while no plan of the source is open. So funds
+      // still leave the source only through a plan, and no plan's inputs are
+      // spent under it.
+      const isSourceConsolidation =
+        options?.allowMigrationConsolidation === true &&
+        isP2mrSelfConsolidation(psbtSnapshot, tx, spentOutputs, keySnapshots) &&
+        !qbitRecoveryPlanOpenFor(keyring, pubkey)
       return this.issueQbitRestoredFloorSigningChallenge(
         keyring,
         pubkey,
         cacheKeys,
         budget,
-        isReviewedMigration || isReviewedProtectedAssetTransfer,
-        options?.reuseScope
+        isReviewedMigration || isReviewedProtectedAssetTransfer || isSourceConsolidation,
+        options?.reuseScope,
+        isSourceConsolidation
       )
     })
   }
@@ -2818,6 +2867,7 @@ export class KeyringService extends EventEmitter {
       }
     })
     return this.pqcSignatureCounterMutex.lock(pubkey, async () => {
+      this.assertLiveKeyrings([keyring])
       const budget = await this.getPqcSignatureBudgetLocked(
         keyring,
         pubkey,
@@ -2907,7 +2957,11 @@ export class KeyringService extends EventEmitter {
 
       const lockPubkeys = await this.getAccountMutationLockPubkeys(keyring)
       return this.lockPqcSignatureCounterPubkeys(lockPubkeys, async () => {
-        const keyringIndex = this.keyrings.indexOf(keyring)
+        // The keyring was resolved before these locks; a lock and unlock
+        // while they were queued detached it.
+        this.assertLiveKeyrings([keyring])
+        const keyrings = this.keyrings
+        const keyringIndex = keyrings.indexOf(keyring)
         const rollbackSnapshot = structuredClone(await keyring.serialize())
         const { keyring: rollbackKeyring } = await this._restoreKeyring({
           type: keyring.type,
@@ -2915,12 +2969,11 @@ export class KeyringService extends EventEmitter {
           addressType: this.addressTypes[keyringIndex],
         })
 
-        const keyrings = this.keyrings
         keyring.removeAccount(address)
         this.cachedDisplayedKeyring = null
 
         try {
-          await this.persistAllKeyrings()
+          await this.persistAllKeyrings([keyring])
         } catch (error) {
           this.rollbackAccountMutation(keyringIndex, keyring, rollbackSnapshot, rollbackKeyring)
           await this.persistMutationRollback('account-removal', keyrings)
@@ -2941,12 +2994,13 @@ export class KeyringService extends EventEmitter {
         throw new Error(this.t('no_keyring_found_for_the_requested_account'))
       }
 
+      const emptyKeyring = new EmptyKeyring()
       delete keyrings[keyringIndex]
-      keyrings[keyringIndex] = new EmptyKeyring()
+      keyrings[keyringIndex] = emptyKeyring
       this.cachedDisplayedKeyring = null
 
       try {
-        await this.persistAllKeyrings()
+        await this.persistAllKeyrings([emptyKeyring])
       } catch (error) {
         // A lock during the write replaced the live keyrings.
         if (this.keyrings === keyrings) {
@@ -3011,17 +3065,33 @@ export class KeyringService extends EventEmitter {
   }
 
   /**
+   * A lock replaces the live keyrings, an unlock loads new instances from the
+   * vault, and a keyring removal or rollback swaps one out. A keyring resolved
+   * before any of these is detached: persistAllKeyrings serializes only the live list,
+   * so a change made to it never reaches the vault. Refuse such a change
+   * instead of reporting it as saved.
+   */
+  private assertLiveKeyrings = (keyrings: readonly Keyring[]): void => {
+    if (keyrings.some(keyring => !this.keyrings.includes(keyring))) {
+      throw new Error('The keyring was locked, removed or replaced while this operation was in progress')
+    }
+  }
+
+  /**
    * Persist All Keyrings
    *
    * Iterates the current `keyrings` array,
    * serializes each one into a serialized array,
-   * encrypts that array with the provided `password`,
+   * encrypts that array with the current password,
    * and persists that encrypted string to storage.
    *
-   * @param {string} password - The keyring controller password.
+   * @param changedKeyrings - The keyrings whose changes this write commits.
+   *   The write fails, without committing, if any of them is no longer live
+   *   once it reaches the persistence queue. Required, so that no caller can
+   *   skip the check by omission; pass [] only for a write with no change.
    * @returns {Promise<boolean>} Resolves to true once keyrings are persisted.
    */
-  persistAllKeyrings = (): Promise<boolean> =>
+  persistAllKeyrings = (changedKeyrings: readonly Keyring[]): Promise<boolean> =>
     this.persistenceMutex.lock(async () => {
       // A lock can land while the keyrings serialize or encrypt. The write
       // still commits the keyrings it captured, under the password it checked.
@@ -3029,6 +3099,10 @@ export class KeyringService extends EventEmitter {
       if (!password || typeof password !== 'string') {
         throw new Error(this.t('keyringcontroller_password_is_not_a_string'))
       }
+      // A lock and unlock while this write waited in the queue leave a
+      // password set beside new keyring instances. The live list is captured
+      // synchronously below, so a keyring that passes here is serialized.
+      this.assertLiveKeyrings(changedKeyrings)
       const booted = this.store.getState().booted
       const serializedKeyrings = await this.serializeLiveKeyrings()
       const encryptedString = await this.encryptor.encrypt(
@@ -3065,10 +3139,10 @@ export class KeyringService extends EventEmitter {
   ): Promise<void> => {
     this.cachedDisplayedKeyring = null
     try {
-      // Checked right before this write queues on persistenceMutex: a later
-      // lock fails it, and an unlock after that lock waits behind it.
+      // Skips a session already replaced; the write re-checks once it holds
+      // persistenceMutex, so a lock and unlock while it queues fails it too.
       if (this.keyrings === keyrings) {
-        await this.persistAllKeyrings()
+        await this.persistAllKeyrings(keyrings)
       }
     } catch (rollbackError) {
       this.logger?.error?.(
@@ -3663,6 +3737,50 @@ function assertPqcSignatureBytes(signature: Uint8Array): void {
   }
 }
 
+/**
+ * Whether `keys` sign every input of `tx`, every output pays the one script
+ * all of them spend, and the fee is no more than the wallet's highest fee
+ * rate would charge for its signed size: a consolidation that leaves the
+ * funds where they were, less a fee.
+ */
+function isP2mrSelfConsolidation(
+  psbt: Psbt,
+  tx: P2mrTransaction,
+  spentOutputs: readonly P2mrSpentOutput[],
+  keys: readonly { inputIndex: number; hashType?: number }[]
+): boolean {
+  const script = spentOutputs[0] && bytesToHex(spentOutputs[0].scriptPubKey)
+  const signed = new Set(keys.map(key => key.inputIndex))
+  if (
+    script === undefined ||
+    tx.outputs.length === 0 ||
+    !spentOutputs.every(
+      (output, index) => signed.has(index) && bytesToHex(output.scriptPubKey) === script
+    ) ||
+    !tx.outputs.every(output => bytesToHex(output.scriptPubKey) === script)
+  ) {
+    return false
+  }
+  const fee =
+    spentOutputs.reduce((sum, output) => sum + output.value, 0n) -
+    tx.outputs.reduce((sum, output) => sum + output.value, 0n)
+  return (
+    fee >= 0n && fee <= BigInt(p2mrSignedSizeFloor(psbt, keys)) * BigInt(QBIT_MAX_FEE_RATE)
+  )
+}
+
+/** Whether a migration holds a plan of `pubkey`, on any network, that has not confirmed. */
+function qbitRecoveryPlanOpenFor(keyring: Keyring, pubkey: string): boolean {
+  const recoveryState = keyring.getQbitRecoveryState?.() as QbitRecoveryVaultState | undefined
+  return Object.values(recoveryState?.networks ?? {}).some(
+    record =>
+      record?.status === 'migrating' &&
+      record.migration?.plans.some(
+        plan => plan.sourcePubkey === pubkey && plan.status !== 'confirmed'
+      ) === true
+  )
+}
+
 function p2mrSpentOutputsFromPsbt(psbt: Psbt): P2mrSpentOutput[] {
   return decodePsbt(psbt).inputs.map((input, index) => {
     if (!input.witnessUtxo) {
@@ -3688,6 +3806,18 @@ function assertP2mrPsbtWithinStandardWeight(
   psbt: Psbt,
   keys: readonly { inputIndex: number; hashType?: number }[]
 ): void {
+  if (p2mrSignedSizeFloor(psbt, keys) > QBIT_MAX_STANDARD_TX_WEIGHT) {
+    throw new Error(
+      `P2MR transaction would exceed the standard size of ${QBIT_MAX_STANDARD_TX_WEIGHT} vB once signed`
+    )
+  }
+}
+
+/** The floor `assertP2mrPsbtWithinStandardWeight` describes, in vB. */
+function p2mrSignedSizeFloor(
+  psbt: Psbt,
+  keys: readonly { inputIndex: number; hashType?: number }[]
+): number {
   const unsignedTx = psbt.global.find(
     entry => entry.key.length === 1 && entry.key[0] === PSBT_GLOBAL_UNSIGNED_TX
   )
@@ -3716,11 +3846,7 @@ function assertP2mrPsbtWithinStandardWeight(
       )
     )
   })
-  if (size > QBIT_MAX_STANDARD_TX_WEIGHT) {
-    throw new Error(
-      `P2MR transaction would exceed the standard size of ${QBIT_MAX_STANDARD_TX_WEIGHT} vB once signed`
-    )
-  }
+  return size
 }
 
 function clonePsbt(psbt: Psbt): Psbt {

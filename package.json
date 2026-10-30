@@ -155,6 +155,7 @@
       "svgo@4": "4.1.0",
       "tar": "7.5.22",
       "tinypool": "2.1.2",
+      "vinyl-contents@2>bl": "4.1.0",
       "vite": "6.4.4",
       "vitest": "3.2.6",
       "websocket-driver": "0.7.5"

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   QBIT_MAX_STANDARD_TX_WEIGHT,
+  QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,
   isQbitStandardTxSize,
   qbitP2mrMaxStandardInputCount,
   selectQbitP2mrSendAllCoins,
@@ -142,6 +143,7 @@ describe('selectQbitP2mrSendCoins', () => {
     const change = (index: number, satoshis: number) => ({
       ...coin(index, satoshis),
       unconfirmed: true,
+      unconfirmedAncestors: [{ txid: coin(index, 0).txid, vsize: 3_860 }],
     })
     const selectedTxids = (selection: ReturnType<typeof selectQbitP2mrSendCoins>) =>
       selection.ok ? selection.selected.map(utxo => utxo.txid) : []
@@ -178,6 +180,213 @@ describe('selectQbitP2mrSendCoins', () => {
       expect(selection).toMatchObject({ ok: true, inputCount: 1 })
       expect(selectedTxids(selection)).toEqual([coin(106, 0).txid])
     })
+  })
+})
+
+// A send of `inputCount` inputs that pays one P2MR output and returns change.
+const withChangeVsize = (inputCount: number) =>
+  estimateQbitP2mrTransaction({
+    ...SHAPE,
+    outputScriptLengths: [P2MR_SCRIPT, P2MR_SCRIPT],
+    inputCount,
+  }).vsize
+
+/** Change of an unconfirmed transaction of `vsize` with no unconfirmed ancestor. */
+function changeOf(parent: number, vsize: number, satoshis: number, vout = 1) {
+  const txid = parent.toString(16).padStart(2, '0').repeat(32)
+  return {
+    txid,
+    vout,
+    satoshis,
+    unconfirmed: true,
+    unconfirmedAncestors: [{ txid, vsize }],
+  }
+}
+
+describe('unconfirmed ancestor size limit (#345)', () => {
+  const sendShape = { ...SHAPE, changeScriptLength: P2MR_SCRIPT, feeRate: 1 }
+  // Send #1 spent 105 inputs and left change: about 395 kB, still unconfirmed.
+  const parent105 = withChangeVsize(105)
+  const parent106 = withChangeVsize(106)
+  const packageVsize = (selection: ReturnType<typeof selectQbitP2mrSendCoins>, parent: number) =>
+    selection.ok ? parent + selection.estimate.vsize : NaN
+
+  it("uses qbit Core's 404 kvB limit", () => {
+    expect(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT).toBe(404_000)
+    expect(parent105).toBe(395_108)
+    expect(parent106).toBe(398_870)
+  })
+
+  it('refuses a send that needs 45 confirmed outputs plus the change of a 105-input parent', () => {
+    const utxos = [...coins(45, 100_000), changeOf(0xaa, parent105, 1_000_000)]
+    // Unbounded, that send has 46 inputs, about 173 kB: a 568 kB package.
+    expect(withChangeVsize(46)).toBe(173_150)
+    expect(parent105 + withChangeVsize(46)).toBeGreaterThan(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT)
+
+    const selection = selectQbitP2mrSendCoins({ ...sendShape, utxos, amount: 4_500_000 })
+    expect(selection).toMatchObject({ ok: false, reason: 'exceeds_ancestor_size' })
+    // Nothing priced can go out now, so no fee or ceiling is offered for it.
+    expect(selection).not.toHaveProperty('candidate')
+  })
+
+  it('spends the change of a 105-input parent with one more input, not two', () => {
+    expect(parent105 + withChangeVsize(2)).toBeLessThanOrEqual(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT)
+    expect(parent105 + withChangeVsize(3)).toBeGreaterThan(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT)
+    const change = changeOf(0xaa, parent105, 1_000_000)
+
+    const fits = selectQbitP2mrSendCoins({
+      ...sendShape,
+      utxos: [coin(1, 100_000), change],
+      amount: 1_050_000,
+    })
+    expect(fits).toMatchObject({ ok: true, inputCount: 2, includeChange: true })
+    expect(packageVsize(fits, parent105)).toBeLessThanOrEqual(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT)
+
+    const tooBig = selectQbitP2mrSendCoins({
+      ...sendShape,
+      utxos: [coin(1, 100_000), coin(2, 100_000), change],
+      amount: 1_150_000,
+    })
+    expect(tooBig).toMatchObject({ ok: false, reason: 'exceeds_ancestor_size' })
+  })
+
+  it('spends the change of a 106-input parent only on its own', () => {
+    const change = changeOf(0xaa, parent106, 1_000_000)
+    // Even one extra confirmed input goes past the limit.
+    expect(
+      selectQbitP2mrSendCoins({
+        ...sendShape,
+        utxos: [coin(1, 100_000), change],
+        amount: 1_050_000,
+      })
+    ).toMatchObject({ ok: false, reason: 'exceeds_ancestor_size' })
+
+    // Confirmed first would join both; ranked by value, the change alone pays.
+    const alone = selectQbitP2mrSendCoins({
+      ...sendShape,
+      utxos: [coin(1, 100_000), change],
+      amount: 900_000,
+    })
+    expect(alone).toMatchObject({ ok: true, inputCount: 1 })
+    expect(alone.ok && alone.selected).toEqual([change])
+    expect(packageVsize(alone, parent106)).toBe(402_730)
+  })
+
+  it('allows a package of exactly 404,000 vB and nothing over it', () => {
+    const own = withChangeVsize(1)
+    const at = (ancestorVsize: number) =>
+      selectQbitP2mrSendCoins({
+        ...sendShape,
+        utxos: [changeOf(0xaa, ancestorVsize, 100_000)],
+        amount: 50_000,
+      })
+    expect(at(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT - own)).toMatchObject({ ok: true, inputCount: 1 })
+    expect(at(QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT - own + 1)).toMatchObject({
+      ok: false,
+      reason: 'exceeds_ancestor_size',
+    })
+  })
+
+  it('passes over change with large ancestors for change with small ones', () => {
+    const large = changeOf(0xaa, parent105, 500_000)
+    const small = changeOf(0xbb, 4_000, 300_000)
+    const selection = selectQbitP2mrSendCoins({
+      ...sendShape,
+      utxos: [...coins(3, 100_000), large, small],
+      amount: 500_000,
+    })
+    expect(selection).toMatchObject({ ok: true, inputCount: 4 })
+    expect(selection.ok && selection.selected).toContain(small)
+    expect(selection.ok && selection.selected).not.toContain(large)
+  })
+
+  it('counts an ancestor that two selected change outputs share once', () => {
+    // Two outputs of one 200 kB transaction: 207,622 vB together, not 407,622.
+    const first = changeOf(0xaa, 200_000, 300_000, 0)
+    const second = changeOf(0xaa, 200_000, 300_000, 1)
+    const selection = selectQbitP2mrSendCoins({
+      ...sendShape,
+      utxos: [first, second],
+      amount: 550_000,
+    })
+    expect(selection).toMatchObject({ ok: true, inputCount: 2 })
+    expect(packageVsize(selection, 200_000)).toBe(207_622)
+  })
+
+  it('counts every ancestor the change lists', () => {
+    const change = changeOf(0xaa, 200_000, 300_000)
+    change.unconfirmedAncestors.push({ txid: 'bb'.repeat(32), vsize: 201_000 })
+    expect(
+      selectQbitP2mrSendCoins({ ...sendShape, utxos: [change], amount: 100_000 })
+    ).toMatchObject({ ok: false, reason: 'exceeds_ancestor_size' })
+  })
+
+  it('never selects change whose ancestors cannot be sized', () => {
+    const malformed = (unconfirmedAncestors: unknown) => ({
+      ...changeOf(0xaa, 4_000, 300_000),
+      unconfirmedAncestors: unconfirmedAncestors as { txid: string; vsize: number }[],
+    })
+    const own = 'aa'.repeat(32)
+    for (const change of [
+      malformed(undefined),
+      malformed([]),
+      // Its own transaction is missing from the list.
+      malformed([{ txid: 'bb'.repeat(32), vsize: 4_000 }]),
+      malformed([{ txid: own, vsize: 0 }]),
+      malformed([{ txid: own, vsize: 4_000.5 }]),
+      malformed([{ txid: own, vsize: '4000' }]),
+      malformed([
+        { txid: 'not-a-txid', vsize: 4_000 },
+        { txid: own, vsize: 4_000 },
+      ]),
+      malformed([null, { txid: own, vsize: 4_000 }]),
+    ]) {
+      expect(
+        selectQbitP2mrSendCoins({ ...sendShape, utxos: [change], amount: 100_000 })
+      ).toMatchObject({ ok: false, reason: 'exceeds_ancestor_size' })
+      // Confirmed outputs that pay on their own are still used.
+      expect(
+        selectQbitP2mrSendCoins({
+          ...sendShape,
+          utxos: [coin(1, 200_000), change],
+          amount: 100_000,
+        })
+      ).toMatchObject({ ok: true, inputCount: 1 })
+    }
+  })
+
+  it('reports a plain shortfall when even confirmed change would not cover the amount', () => {
+    expect(
+      selectQbitP2mrSendCoins({
+        ...sendShape,
+        utxos: [coin(1, 100_000), changeOf(0xaa, parent106, 100_000)],
+        amount: 500_000,
+      })
+    ).toMatchObject({ ok: false, reason: 'insufficient_balance' })
+  })
+
+  it('flags a send-all whose change and ancestors pass the limit', () => {
+    const sendAll = (utxos: ReturnType<typeof changeOf>[] | ReturnType<typeof coin>[]) =>
+      selectQbitP2mrSendAllCoins({ ...SHAPE, utxos, feeRate: 1 })
+
+    expect(sendAll(coins(106, 10_000)).exceedsAncestorSize).toBe(false)
+    expect(sendAll([changeOf(0xaa, parent106, 100_000)]).exceedsAncestorSize).toBe(false)
+    const withConfirmed = sendAll([
+      ...coins(2, 100_000),
+      changeOf(0xaa, parent105, 100_000),
+    ] as ReturnType<typeof changeOf>[])
+    expect(withConfirmed.selected).toHaveLength(3)
+    expect(withConfirmed.exceedsAncestorSize).toBe(true)
+    // Change the standard weight leaves behind does not count.
+    const leftBehind = sendAll([
+      ...coins(106, 100_000),
+      changeOf(0xaa, parent105, 1_000),
+    ] as ReturnType<typeof changeOf>[])
+    expect(leftBehind.leftBehind).toHaveLength(1)
+    expect(leftBehind.exceedsAncestorSize).toBe(false)
+    expect(
+      sendAll([{ ...changeOf(0xaa, 4_000, 100_000), unconfirmedAncestors: [] }]).exceedsAncestorSize
+    ).toBe(true)
   })
 })
 

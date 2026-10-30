@@ -85,8 +85,9 @@ qbit.removeListener('chainChanged', chainHandler)
 qbit.removeListener('networkChanged', networkHandler)
 ```
 
-Qbit Wallet emits both events after the active chain changes, whether the change originated from
-the provider or wallet controls. Read both values again before preparing another request.
+Qbit Wallet emits both events to every connected origin after the active chain changes, whether
+the change originated from the provider or wallet controls. Read both values again before
+preparing another request.
 
 ```javascript
 async function reloadChainState() {
@@ -103,5 +104,13 @@ window.qbit.on('chainChanged', reloadChainState)
 ```
 
 A wallet-side chain change does not transfer the origin's old grant. In that case,
-`accountsChanged` also reports an empty account list, and permissioned methods remain unavailable
-until the user grants access on the new chain.
+`accountsChanged` also reports an empty account list, before `chainChanged`, and permissioned
+methods remain unavailable until the user grants access on the new chain. An origin whose grant
+matches the new chain receives `accountsChanged` with the active address after `networkChanged`.
+An origin whose grant matches neither chain receives only the chain and network events.
+
+When `switchChain()` or `switchNetwork()` changes the active chain, the requesting origin's grant
+moves with it before any event is sent. That origin receives `chainChanged`, `networkChanged`, and
+then `accountsChanged` with the address on the new chain, never an empty list. Other origins are
+notified according to their own grants. If the wallet is already on the requested chain, no chain
+event is sent.

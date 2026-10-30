@@ -2,6 +2,10 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import {
   DecodedPsbt,
   KeyringType,
+  type LocalPsbtSummary,
+  PsbtActionDetailType,
+  PsbtActionType,
+  RiskType,
   ToSignData,
   createBlockedWebsiteResult,
   createClearWebsiteResult,
@@ -45,14 +49,28 @@ const DECODED_PSBT: DecodedPsbt = {
   isCompleted: true,
 }
 
-const EMPTY_LOCAL_SUMMARY = {
-  totalFee: 0,
-  totalInput: 0,
-  completedCount: 0,
-  hasSighashNone: false,
-  parseErrorCount: 0,
-  hasAssets: false,
-  items: [],
+/** A batch analysis with nothing flagged, for the harness's current account. */
+function localSummaryFor(toSignDatas: ToSignData[], account = 'qb1ztestaccount'): LocalPsbtSummary {
+  return {
+    totalFee: 0,
+    totalInput: 0,
+    completedCount: 0,
+    hasSighashNone: false,
+    parseErrorCount: 0,
+    items: toSignDatas.map(() => ({
+      inputCount: 1,
+      outputCount: 1,
+      feeRate: '1.00',
+      fee: 100,
+      totalInput: 10_000,
+      isCompleted: true,
+      hasSighashNone: false,
+      parseError: false,
+      risks: [],
+    })),
+    account,
+    chain: ChainType.QBIT_REGTEST,
+  }
 }
 
 function createSignPsbtWallet() {
@@ -61,11 +79,13 @@ function createSignPsbtWallet() {
     checkWebsite: vi.fn().mockResolvedValue(SAFE_WEBSITE_RESULT),
     getConnectedSites: vi.fn().mockResolvedValue([]),
     decodePsbt: vi.fn().mockResolvedValue(DECODED_PSBT),
-    analyzeLocalPsbts: vi.fn().mockResolvedValue(EMPTY_LOCAL_SUMMARY),
+    analyzeLocalPsbts: vi.fn(async (toSignDatas: ToSignData[]) => localSummaryFor(toSignDatas)),
     updateConnectSite: vi.fn().mockResolvedValue(undefined),
     signPsbtV2: vi.fn(),
+    signLocalBatchPsbt: vi.fn(),
     reserveExternallySignedQbitSend: vi.fn(),
     releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
+    getCurrentAccount: vi.fn().mockResolvedValue({ address: 'qb1ztestaccount' }),
   }
 }
 
@@ -189,7 +209,9 @@ describe('useSignPsbtLogic approval recovery', () => {
     await waitFor(() => {
       expect(wallet.signPsbtV2).toHaveBeenCalledWith(toSignData)
     })
-    expect(wallet.decodePsbt).toHaveBeenCalledWith(toSignData.psbtHex, 'https://example.test')
+    expect(wallet.decodePsbt).toHaveBeenCalledWith(toSignData.psbtHex, 'https://example.test', {
+      statedRecipients: [],
+    })
   })
 
   it('surfaces a synchronously thrown decode error', async () => {
@@ -648,7 +670,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
     const wallet = createSignPsbtWallet()
     wallet.checkWebsite.mockReturnValueOnce(websiteCheck)
-    wallet.signPsbtV2.mockReturnValueOnce(pendingSign)
+    wallet.signLocalBatchPsbt.mockReturnValueOnce(pendingSign)
     const { approval, wrapper } = createHookTestHarness({ wallet: wallet as any })
     const { result } = renderHook(
       () =>
@@ -674,10 +696,9 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
     await act(async () => {
       vi.advanceTimersByTime(50)
-      await Promise.resolve()
-      await Promise.resolve()
+      await vi.waitFor(() => expect(wallet.signLocalBatchPsbt).toHaveBeenCalled())
     })
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       settleCheck?.(
@@ -692,7 +713,7 @@ describe('useSignPsbtLogic approval recovery', () => {
       await quickSign
     })
 
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1)
     expect(result.current.signedCount).toBe(0)
     expect(approval.resolveApproval).not.toHaveBeenCalled()
   })
@@ -1520,7 +1541,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
     const wallet = createSignPsbtWallet()
     wallet.checkWebsite.mockReturnValue(new Promise(() => undefined))
-    wallet.signPsbtV2.mockReturnValueOnce(pendingSign)
+    wallet.signLocalBatchPsbt.mockReturnValueOnce(pendingSign)
     const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
     const { result } = renderHook(
       () =>
@@ -1545,10 +1566,9 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
     await act(async () => {
       vi.advanceTimersByTime(50)
-      await Promise.resolve()
-      await Promise.resolve()
+      await vi.waitFor(() => expect(wallet.signLocalBatchPsbt).toHaveBeenCalled())
     })
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       result.current.onRetryWebsiteCheck()
@@ -1561,5 +1581,483 @@ describe('useSignPsbtLogic approval recovery', () => {
     expect(result.current.signedCount).toBe(0)
     expect(result.current.multiSignList[0].buttonPreset).toBe('primary')
     expect(tools.toastError).not.toHaveBeenCalled()
+  })
+})
+
+describe('useSignPsbtLogic spend summary binding (#271)', () => {
+  const ACCOUNT = 'qb1ztestaccount'
+  const OTHER_ACCOUNT = 'qb1zsecondaccount'
+
+  function decodedFor(account: string, netSpend: number): DecodedPsbt {
+    return {
+      ...DECODED_PSBT,
+      spendSummary: {
+        account,
+        walletInputValue: 10_000,
+        walletOutputValue: 10_000 - netSpend,
+        netSpend,
+        externalOutputValue: netSpend - 100,
+        outputRoles: [],
+        unrecognisedOutputCount: 0,
+        unrecognisedOutputValue: 0,
+        undecodableOutputCount: 0,
+      },
+    }
+  }
+
+  beforeEach(() => {
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('asks the background for the summary with the recipients the request names', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.decodePsbt.mockResolvedValue(decodedFor(ACCOUNT, 1_100))
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const toSignData: ToSignData = {
+      psbtHex: 'send-psbt',
+      toSignInputs: [],
+      action: {
+        name: 'Send QBT',
+        description: '',
+        type: PsbtActionType.CUSTOM,
+        details: [
+          { label: 'To', value: 'qb1zrecipient', type: PsbtActionDetailType.ADDRESS },
+          { label: 'Amount', value: 1_000, type: PsbtActionDetailType.SATOSHIS },
+        ],
+      },
+    }
+    const { result } = renderHook(() => useSignPsbtLogic(createProps([toSignData])), { wrapper })
+
+    await waitFor(() =>
+      expect(result.current.currentDecodedPsbt?.spendSummary.netSpend).toBe(1_100)
+    )
+    expect(wallet.decodePsbt).toHaveBeenCalledWith('send-psbt', 'https://example.test', {
+      statedRecipients: ['qb1zrecipient'],
+    })
+  })
+
+  it('refuses a summary the background computed for another account instead of showing it', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.decodePsbt.mockResolvedValue(decodedFor(OTHER_ACCOUNT, 1_100))
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+
+    await waitFor(() => expect(result.current.decodeError).toBe(true))
+    expect(result.current.currentDecodedPsbt).toBeUndefined()
+    expect(result.current.isValid).toBe(false)
+    expect(result.current.showLoading).toBe(false)
+  })
+
+  it('adopts the background’s account when this screen lags it, then shows that account’s summary', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.decodePsbt.mockResolvedValue(decodedFor(OTHER_ACCOUNT, 2_200))
+    const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    wallet.getCurrentAccount.mockResolvedValue({
+      ...store.getState().accounts.current,
+      address: OTHER_ACCOUNT,
+    })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+
+    await waitFor(() =>
+      expect(result.current.currentDecodedPsbt?.spendSummary.account).toBe(OTHER_ACCOUNT)
+    )
+    expect(store.getState().accounts.current.address).toBe(OTHER_ACCOUNT)
+    expect(wallet.decodePsbt).toHaveBeenCalledTimes(2)
+    expect(result.current.decodeError).toBe(false)
+  })
+
+  it('decodes again when the account changes and ignores the earlier account’s late summary', async () => {
+    const wallet = createSignPsbtWallet()
+    let resolveFirst: ((decoded: DecodedPsbt) => void) | undefined
+    wallet.decodePsbt
+      .mockImplementationOnce(
+        () =>
+          new Promise<DecodedPsbt>(resolve => {
+            resolveFirst = resolve
+          })
+      )
+      .mockResolvedValueOnce(decodedFor(OTHER_ACCOUNT, 2_200))
+    const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+    await waitFor(() => expect(wallet.decodePsbt).toHaveBeenCalledTimes(1))
+
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({
+          ...store.getState().accounts.current,
+          address: OTHER_ACCOUNT,
+        })
+      )
+    })
+    await waitFor(() =>
+      expect(result.current.currentDecodedPsbt?.spendSummary.account).toBe(OTHER_ACCOUNT)
+    )
+    expect(wallet.decodePsbt).toHaveBeenCalledTimes(2)
+
+    // The first account's decode finishes last; its summary must not replace
+    // the one for the account that will sign.
+    await act(async () => {
+      resolveFirst?.(decodedFor(ACCOUNT, 1_100))
+      await Promise.resolve()
+    })
+    expect(result.current.currentDecodedPsbt?.spendSummary).toMatchObject({
+      account: OTHER_ACCOUNT,
+      netSpend: 2_200,
+    })
+    expect(result.current.decodeError).toBe(false)
+  })
+
+  it('opens the risk review instead of signing when the background flags the fee', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.decodePsbt.mockResolvedValue({
+      ...decodedFor(ACCOUNT, 1_544_100),
+      risks: [
+        {
+          type: RiskType.HIGH_FEE_RATE,
+          level: 'warning',
+          title: 'High fee rate detected',
+          desc: 'The fee is far above what this transaction needs.',
+        },
+      ],
+    })
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.hasRisk).toBe(true))
+
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+    expect(result.current.isPsbtRiskPopoverVisible).toBe(true)
+    expect(wallet.signPsbtV2).not.toHaveBeenCalled()
+  })
+})
+
+describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', () => {
+  const ACCOUNT = 'qb1ztestaccount'
+  const OTHER_ACCOUNT = 'qb1zsecondaccount'
+  const HIGH_FEE_RISK = {
+    type: RiskType.HIGH_FEE_RATE,
+    level: 'warning' as const,
+    title: 'High fee rate detected',
+    desc: 'The fee is far above what this transaction needs.',
+  }
+  const UNRECOGNISED_OUTPUT_RISK = {
+    type: RiskType.UNRECOGNISED_OUTPUT,
+    level: 'danger' as const,
+    title: 'Unrecognised output',
+    desc: 'An output pays a script that is neither yours nor the named recipient.',
+  }
+  const BATCH: ToSignData[] = [
+    { psbtHex: 'clean-psbt', toSignInputs: [] },
+    { psbtHex: 'high-fee-psbt', toSignInputs: [] },
+    { psbtHex: 'unrecognised-output-psbt', toSignInputs: [] },
+  ]
+
+  /** The background's analysis of BATCH: a 400x fee and an unrecognised output beside a clean PSBT. */
+  function flaggedSummary(account = ACCOUNT): LocalPsbtSummary {
+    const summary = localSummaryFor(BATCH, account)
+    summary.items[1] = { ...summary.items[1]!, feeRate: '400.00', risks: [HIGH_FEE_RISK] }
+    summary.items[2] = { ...summary.items[2]!, risks: [UNRECOGNISED_OUTPUT_RISK] }
+    return summary
+  }
+
+  function renderBatch(wallet: ReturnType<typeof createSignPsbtWallet>) {
+    const harness = createHookTestHarness({ wallet: wallet as any })
+    const rendered = renderHook(() => useSignPsbtLogic(createProps(BATCH)), {
+      wrapper: harness.wrapper,
+    })
+    return { ...harness, ...rendered }
+  }
+
+  beforeEach(() => {
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('names the flagged PSBTs and signs none of the batch before an explicit confirmation', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(flaggedSummary())
+    wallet.signLocalBatchPsbt.mockImplementation(async (toSignData: ToSignData) => ({
+      psbtHex: `signed-${toSignData.psbtHex}`,
+    }))
+    const { approval, result } = renderBatch(wallet)
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await waitFor(() => expect(result.current.batchRiskIndexes).toEqual([1, 2]))
+    expect(result.current.multiSignList.map(item => item.psbtInfo?.risks.length)).toEqual([0, 1, 1])
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
+    expect(wallet.signPsbtV2).not.toHaveBeenCalled()
+    expect(result.current.batchRiskReview?.items.map(item => item.risks)).toEqual([
+      [],
+      [HIGH_FEE_RISK],
+      [UNRECOGNISED_OUTPUT_RISK],
+    ])
+
+    await act(async () => {
+      await result.current.onBatchRiskConfirm()
+    })
+
+    // Each PSBT carries only the risks the user confirmed for it; the wallet
+    // reviews its bytes again and refuses any other.
+    expect(wallet.signLocalBatchPsbt.mock.calls).toEqual([
+      [BATCH[0], { account: ACCOUNT, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] }],
+      [
+        BATCH[1],
+        {
+          account: ACCOUNT,
+          chain: ChainType.QBIT_REGTEST,
+          confirmedRisks: [RiskType.HIGH_FEE_RATE],
+        },
+      ],
+      [
+        BATCH[2],
+        {
+          account: ACCOUNT,
+          chain: ChainType.QBIT_REGTEST,
+          confirmedRisks: [RiskType.UNRECOGNISED_OUTPUT],
+        },
+      ],
+    ])
+    expect(result.current.batchRiskReview).toBeNull()
+    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
+      { psbtHex: 'signed-clean-psbt' },
+      { psbtHex: 'signed-high-fee-psbt' },
+      { psbtHex: 'signed-unrecognised-output-psbt' },
+    ])
+  })
+
+  it('analyzes the batch again at quick-sign time instead of trusting the summary on screen', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts
+      .mockResolvedValueOnce(localSummaryFor(BATCH))
+      .mockResolvedValueOnce(flaggedSummary())
+    const { result } = renderBatch(wallet)
+    await waitFor(() => expect(result.current.localPsbtSummary).not.toBeNull())
+    expect(result.current.batchRiskIndexes).toEqual([])
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    expect(wallet.analyzeLocalPsbts).toHaveBeenCalledTimes(2)
+    expect(wallet.analyzeLocalPsbts).toHaveBeenLastCalledWith(BATCH)
+    expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
+    expect(result.current.batchRiskReview).not.toBeNull()
+    expect(result.current.batchRiskIndexes).toEqual([1, 2])
+  })
+
+  it('signs nothing once the review is closed, and a repeated confirm signs the batch once', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(flaggedSummary())
+    wallet.signLocalBatchPsbt.mockImplementation(async (toSignData: ToSignData) => ({
+      psbtHex: `signed-${toSignData.psbtHex}`,
+    }))
+    const { result } = renderBatch(wallet)
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    expect(result.current.batchRiskReview).not.toBeNull()
+    act(() => {
+      result.current.onBatchRiskClose()
+    })
+    await act(async () => {
+      await result.current.onBatchRiskConfirm()
+    })
+    expect(result.current.batchRiskReview).toBeNull()
+    expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    // Two clicks before the popover closes: the review is consumed by the first.
+    await act(async () => {
+      const confirm = result.current.onBatchRiskConfirm
+      await Promise.all([confirm(), confirm()])
+    })
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(BATCH.length)
+  })
+
+  it('refuses to quick-sign a batch the background analyzed for another account', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts
+      .mockResolvedValueOnce(localSummaryFor(BATCH))
+      .mockResolvedValue(localSummaryFor(BATCH, OTHER_ACCOUNT))
+    const { result, store, tools } = renderBatch(wallet)
+    await waitFor(() => expect(result.current.localPsbtSummary).not.toBeNull())
+    wallet.getCurrentAccount.mockResolvedValue({
+      ...store.getState().accounts.current,
+      address: OTHER_ACCOUNT,
+    })
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
+    expect(tools.toastError).toHaveBeenCalledWith('multisign_account_changed')
+    // The screen adopts the background's account, whose batch is analyzed again.
+    await waitFor(() => expect(store.getState().accounts.current.address).toBe(OTHER_ACCOUNT))
+    await waitFor(() => expect(result.current.localPsbtSummary?.account).toBe(OTHER_ACCOUNT))
+  })
+
+  it('analyzes again when the account changes and ignores the earlier account’s late analysis', async () => {
+    const wallet = createSignPsbtWallet()
+    let resolveFirst: ((summary: LocalPsbtSummary) => void) | undefined
+    wallet.analyzeLocalPsbts
+      .mockImplementationOnce(
+        () =>
+          new Promise<LocalPsbtSummary>(resolve => {
+            resolveFirst = resolve
+          })
+      )
+      .mockResolvedValueOnce(localSummaryFor(BATCH, OTHER_ACCOUNT))
+    const { result, store } = renderBatch(wallet)
+    await waitFor(() => expect(wallet.analyzeLocalPsbts).toHaveBeenCalledTimes(1))
+
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({
+          ...store.getState().accounts.current,
+          address: OTHER_ACCOUNT,
+        })
+      )
+    })
+    await waitFor(() => expect(result.current.localPsbtSummary?.account).toBe(OTHER_ACCOUNT))
+    expect(wallet.analyzeLocalPsbts).toHaveBeenCalledTimes(2)
+
+    // The first account's flagged analysis finishes last; it must not
+    // replace the one for the account that will sign.
+    await act(async () => {
+      resolveFirst?.(flaggedSummary(ACCOUNT))
+      await Promise.resolve()
+    })
+    expect(result.current.localPsbtSummary?.account).toBe(OTHER_ACCOUNT)
+    expect(result.current.batchRiskIndexes).toEqual([])
+  })
+
+  it('signs only what is left when a refused PSBT is quick-signed again', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.signLocalBatchPsbt.mockImplementation(async (toSignData: ToSignData) => ({
+      psbtHex: `signed-${toSignData.psbtHex}`,
+    }))
+    // The wallet's review of the last PSBT at signing time differs from the
+    // batch analysis (its fee quote was refreshed), so it is refused once.
+    wallet.signLocalBatchPsbt
+      .mockImplementationOnce(async (toSignData: ToSignData) => ({
+        psbtHex: `signed-${toSignData.psbtHex}`,
+      }))
+      .mockImplementationOnce(async (toSignData: ToSignData) => ({
+        psbtHex: `signed-${toSignData.psbtHex}`,
+      }))
+      .mockRejectedValueOnce(new Error('The transaction has a risk that was not confirmed'))
+    const { approval, result } = renderBatch(wallet)
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(3)
+    expect(result.current.signedCount).toBe(2)
+    expect(approval.resolveApproval).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(4)
+    expect(wallet.signLocalBatchPsbt).toHaveBeenLastCalledWith(BATCH[2], expect.anything())
+    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
+      { psbtHex: 'signed-clean-psbt' },
+      { psbtHex: 'signed-high-fee-psbt' },
+      { psbtHex: 'signed-unrecognised-output-psbt' },
+    ])
+  })
+
+  it('keeps the analysis on screen when quick-sign’s own analysis fails', async () => {
+    const wallet = createSignPsbtWallet()
+    let resolveFirst: ((summary: LocalPsbtSummary) => void) | undefined
+    wallet.analyzeLocalPsbts
+      .mockImplementationOnce(
+        () =>
+          new Promise<LocalPsbtSummary>(resolve => {
+            resolveFirst = resolve
+          })
+      )
+      .mockRejectedValueOnce(new Error('The network changed while the PSBTs were analyzed'))
+    const { result, tools } = renderBatch(wallet)
+    await waitFor(() => expect(wallet.analyzeLocalPsbts).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    expect(tools.toastError).toHaveBeenCalledWith(
+      'The network changed while the PSBTs were analyzed'
+    )
+    expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveFirst?.(flaggedSummary())
+      await Promise.resolve()
+    })
+    expect(result.current.batchRiskIndexes).toEqual([1, 2])
+  })
+
+  it('closes a batch review once the account changes, and its confirm signs nothing', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(flaggedSummary())
+    const { result, store } = renderBatch(wallet)
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    expect(result.current.batchRiskReview).not.toBeNull()
+
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({
+          ...store.getState().accounts.current,
+          address: OTHER_ACCOUNT,
+        })
+      )
+    })
+    expect(result.current.batchRiskReview).toBeNull()
+
+    // Switching back does not reopen the earlier account's review.
+    act(() => {
+      store.dispatch(
+        accountActions.setCurrent({ ...store.getState().accounts.current, address: ACCOUNT })
+      )
+    })
+    expect(result.current.batchRiskReview).toBeNull()
+    await act(async () => {
+      await result.current.onBatchRiskConfirm()
+    })
+    expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
   })
 })

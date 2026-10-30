@@ -5,6 +5,7 @@ import { QBIT_BROADCAST_DETAIL_MAX_LENGTH, sanitizeQbitBroadcastDetail } from '@
 import {
   QbitBroadcastResponseMismatchError,
   classifyQbitBroadcastError,
+  isQbitBroadcastResendable,
   isQbitTxSizeBroadcastRejection,
   qbitBroadcastRejection,
   qbitBroadcastRejectionDetail,
@@ -361,6 +362,75 @@ describe('classifyQbitBroadcastError', () => {
     expect(classification.detail).toBe(detail)
     expect(classification.detail ?? '').not.toContain('127.0.0.1')
     expect(classification.detail ?? '').not.toContain('<html>')
+  })
+})
+
+describe('isQbitBroadcastResendable', () => {
+  const unknownOutcome = (options: ConstructorParameters<typeof QbitApiError>[2] = {}) =>
+    new QbitApiError('unknown_outcome', `transaction submission outcome unknown (${ENDPOINT})`, {
+      url: ENDPOINT,
+      ...options,
+    })
+  const timeout = new QbitApiError('timeout', `request timed out after 15000ms: ${ENDPOINT}`)
+
+  it.each([
+    ['a timeout after sending', unknownOutcome({ cause: timeout })],
+    [
+      'a connection lost after sending',
+      unknownOutcome({ cause: new QbitApiError('network', 'network error') }),
+    ],
+    ['a 5xx without the node verdict', unknownOutcome({ status: 502 })],
+    ['a 2xx that is not the txid', unknownOutcome({ status: 200 })],
+    [
+      'a reply body that could not be read',
+      unknownOutcome({ status: 200, cause: new QbitApiError('parse', 'failed to read') }),
+    ],
+    ['a connection that never opened', new QbitApiError('network', 'getaddrinfo ENOTFOUND')],
+    ['a 2xx echoing another txid', new QbitBroadcastResponseMismatchError()],
+  ])('sends the same bytes again after %s', (_label, error) => {
+    expect(isQbitBroadcastResendable(error)).toBe(true)
+  })
+
+  it.each([
+    [
+      'a definitive node rejection',
+      new QbitApiError('http', 'HTTP 400', {
+        status: 400,
+        responseBody: '{"code":-26,"message":"min relay fee not met"}',
+      }),
+    ],
+    [
+      'a node rejection relayed as a 5xx',
+      new QbitApiError('http', 'HTTP 500', {
+        status: 500,
+        responseBody: '{"code":-25,"message":"bad-txns-inputs-missingorspent"}',
+      }),
+    ],
+    ['a proxy 400', new QbitApiError('http', 'HTTP 400', { status: 400, responseBody: 'Bad' })],
+    ['a 429', new QbitApiError('rate_limit', 'HTTP 429', { status: 429, retryAfterMs: 60_000 })],
+    ['a missing route', new QbitApiError('not_found', 'HTTP 404', { status: 404 })],
+    ['a body too large', new QbitApiError('payload_too_large', 'HTTP 413', { status: 413 })],
+    [
+      'a refused redirect',
+      unknownOutcome({
+        status: 307,
+        cause: new QbitApiError('http', 'HTTP 307 redirect refused', { status: 307 }),
+      }),
+    ],
+    [
+      'a redirect the runtime followed',
+      unknownOutcome({ cause: new QbitApiError('http', 'fetch followed a redirect') }),
+    ],
+    ['a cancelled call', unknownOutcome({ cause: new QbitApiError('aborted', 'request aborted') })],
+    [
+      'a cause it does not know',
+      unknownOutcome({ cause: new QbitApiError('rate_limit', 'HTTP 429', { status: 429 }) }),
+    ],
+    ['a cause that is not an API error', unknownOutcome({ cause: new Error('teardown') })],
+    ['a deadline before sending', timeout],
+    ['an unexpected throw', new Error('socket hang up')],
+  ])('never sends again after %s', (_label, error) => {
+    expect(isQbitBroadcastResendable(error)).toBe(false)
   })
 })
 

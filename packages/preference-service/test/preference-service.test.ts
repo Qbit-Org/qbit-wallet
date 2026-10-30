@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AddressFlagType } from '@qbit/wallet-shared'
+import { BaseProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
 import { PreferenceService } from '../src/preference-service'
 
@@ -389,7 +390,221 @@ describe('PreferenceService', () => {
     await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
     await service.resetAllData()
 
-    expect(storage.set).toHaveBeenCalledWith('preference', null)
     expect(storage.createPersistentProxy).toHaveBeenCalledTimes(2)
+    expect(storage.createPersistentProxy).toHaveBeenLastCalledWith(
+      'preference',
+      expect.objectContaining({ enableSignData: false, currentAccount: undefined }),
+      { reset: true }
+    )
+  })
+})
+
+// Keeps what was written as JSON, like chrome.storage.local, so a new service
+// reading it back sees only what reached disk.
+class DiskAdapter extends BaseProxyStorageAdapter {
+  disk = new Map<string, string>()
+  readError: Error | undefined
+  writeErrors: Error[] = []
+  writeGate: Promise<void> | undefined
+  writes = 0
+
+  async get(key: string): Promise<any> {
+    if (this.readError) throw this.readError
+    const raw = this.disk.get(key)
+    return raw === undefined ? undefined : JSON.parse(raw)
+  }
+
+  async set(key: string, value: any): Promise<void> {
+    const raw = JSON.stringify(value)
+    const writeError = this.writeErrors.shift()
+    this.writes++
+    await this.writeGate
+    if (writeError) throw writeError
+    this.disk.set(key, raw)
+  }
+}
+
+describe('PreferenceService persistence', () => {
+  let adapter: DiskAdapter
+
+  const load = async () => {
+    const service = new PreferenceService()
+    await service.init({ storage: adapter, logger: { debug: vi.fn(), error: vi.fn() } })
+    return service
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    adapter = new DiskAdapter()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keeps security settings changed less than a second before a reload', async () => {
+    const service = await load()
+    expect(service.getEnableSignData()).toBe(false)
+    expect(service.getEnableRBF()).toBe(true)
+
+    await service.setEnableSignData(true)
+    await service.setAutoLockTimeId(1)
+    await service.setEnableRBF(false)
+
+    vi.advanceTimersByTime(500)
+    const reloaded = await load()
+    expect(reloaded.getEnableSignData()).toBe(true)
+    expect(reloaded.getAutoLockTimeId()).toBe(1)
+    expect(reloaded.getEnableRBF()).toBe(false)
+  })
+
+  it('rejects a security setting whose write fails and restores the previous value', async () => {
+    const service = await load()
+    const writeError = new Error('QUOTA_BYTES quota exceeded')
+    adapter.writeErrors.push(writeError)
+
+    await expect(service.setEnableSignData(true)).rejects.toBe(writeError)
+    expect(service.getEnableSignData()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await load()).getEnableSignData()).toBe(false)
+  })
+
+  it('saves the restored value at once when another write saved the failed one', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    const writeError = new Error('write failed')
+    adapter.writeErrors.push(writeError)
+    let openGate!: () => void
+    adapter.writeGate = new Promise(resolve => {
+      openGate = resolve
+    })
+
+    const setting = service.setEnableSignData(true)
+    const settingResult = expect(setting).rejects.toBe(writeError)
+    await vi.waitFor(() => expect(adapter.writes).toBeGreaterThan(0))
+    const otherWrite = service.persist()
+    openGate()
+    await settingResult
+    await otherWrite
+    adapter.writeGate = undefined
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(service.getEnableSignData()).toBe(false)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(false)
+  })
+
+  it('does not restore a value that a later change replaced while the failed write was pending', async () => {
+    const service = await load()
+    const writeError = new Error('write failed')
+    adapter.writeErrors.push(writeError)
+
+    const failed = service.setAutoLockTimeId(1)
+    const succeeded = service.setAutoLockTimeId(3)
+
+    await expect(failed).rejects.toBe(writeError)
+    await succeeded
+    expect(service.getAutoLockTimeId()).toBe(3)
+    expect((await load()).getAutoLockTimeId()).toBe(3)
+  })
+
+  it('saves a security setting with one write', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    const writesBefore = adapter.writes
+
+    await service.setEnableSignData(true)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(adapter.writes - writesBefore).toBe(1)
+  })
+
+  it('keeps a repeated change that saved after an identical one failed', async () => {
+    const service = await load()
+    const writeError = new Error('write failed')
+    adapter.writeErrors.push(writeError)
+
+    const failed = service.setEnableSignData(true)
+    const retried = service.setEnableSignData(true)
+
+    await expect(failed).rejects.toBe(writeError)
+    await retried
+    expect(service.getEnableSignData()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await load()).getEnableSignData()).toBe(true)
+  })
+
+  it('does not let a security setting save the old store while resetAllData runs', async () => {
+    const service = await load()
+    service.setCurrentAccount({ pubkey: 'pubkey-x', address: 'qb1zx' } as any)
+    await service.persist()
+
+    let openGate!: () => void
+    adapter.writeGate = new Promise(resolve => {
+      openGate = resolve
+    })
+    const reset = service.resetAllData()
+    const setting = service.setEnableSignData(true)
+    const settingResult = expect(setting).rejects.toThrow('A newer store replaced preference')
+    openGate()
+    await reset
+    await settingResult
+    adapter.writeGate = undefined
+
+    await vi.advanceTimersByTimeAsync(1000)
+    const reloaded = await load()
+    expect(reloaded.getCurrentAccount()).toBeNull()
+    expect(reloaded.getEnableSignData()).toBe(false)
+  })
+
+  it('saves default names and UI cache entries created on read', async () => {
+    const service = await load()
+    // Let the save scheduled by startup repairs finish, so it cannot carry the
+    // writes below to disk.
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(service.getKeyringAlianName('keyring_7', 'HD Wallet #8')).toBe('HD Wallet #8')
+    expect(service.getAccountAlianName('keyring_7#0', 'Account 1')).toBe('Account 1')
+    expect(service.getUICachedData('qb1zaddress')).toEqual({})
+
+    await vi.advanceTimersByTimeAsync(1000)
+    const reloaded = await load()
+    expect(reloaded.getKeyringAlianName('keyring_7')).toBe('HD Wallet #8')
+    expect(reloaded.getAccountAlianName('keyring_7#0')).toBe('Account 1')
+    expect(JSON.parse(adapter.disk.get('preference')!).uiCachedData).toEqual({ qb1zaddress: {} })
+  })
+
+  it('resetAllData is not undone by a save the previous store still had pending', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    service.setCurrentAccount({ pubkey: 'pubkey-x', address: 'qb1zx' } as any)
+    await service.setEnableSignData(true)
+
+    await service.resetAllData()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    const reloaded = await load()
+    expect(reloaded.getCurrentAccount()).toBeNull()
+    expect(reloaded.getEnableSignData()).toBe(false)
+  })
+
+  it('fails to start instead of replacing stored preferences when they cannot be read', async () => {
+    const service = await load()
+    service.setCurrentAccount({ pubkey: 'pubkey-x', address: 'qb1zx' } as any)
+    service.setChainType(ChainType.QBIT_TESTNET4)
+    await service.persist()
+    const stored = adapter.disk.get('preference')
+
+    adapter.readError = new Error('storage read failed')
+    const starting = load()
+    const assertion = expect(starting).rejects.toThrow('Failed to load stored data for preference')
+    await vi.runAllTimersAsync()
+    await assertion
+
+    expect(adapter.disk.get('preference')).toBe(stored)
+    adapter.readError = undefined
+    const reloaded = await load()
+    expect(reloaded.getCurrentAccount()).toMatchObject({ pubkey: 'pubkey-x' })
+    expect(reloaded.getChainType()).toBe(ChainType.QBIT_TESTNET4)
   })
 })

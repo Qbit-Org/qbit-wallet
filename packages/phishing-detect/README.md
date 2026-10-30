@@ -38,7 +38,12 @@ evaluated safely.
 ignoring navigation bypasses and DNS label syntax. The extension uses it to
 withhold the wallet provider from denylisted pages, including ones the user
 proceeded to. A DNR rule can name only a well-formed public hostname, so
-validate a host before putting it in one.
+validate a host before putting it in one: `parseDnrDomain()` returns the form
+a rule's `requestDomains` takes, or why it cannot, and `partitionDnrDomains()`
+splits a list into the distinct domains a rule can name and the entries it
+cannot, so that one bad entry does not fail the whole rule. A `redirect` rule
+fires only with host access to the page, and `dnrHostPermissions()` returns the
+host permission patterns that cover those domains and their subdomains.
 
 `checkPhishing()` is intended for the extension's navigation warning. It
 accepts a hostname and can honor explicit, locally stored user bypasses.

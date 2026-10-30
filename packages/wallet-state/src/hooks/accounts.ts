@@ -64,6 +64,19 @@ export function useAccountBalance() {
   )
 }
 
+/**
+ * Whether the current account has a balance from the explorer yet, and
+ * whether its latest refresh failed (the balance, if any, is then stale).
+ */
+export function useAccountBalanceStatus() {
+  const accountsState = useAccountsState()
+  const currentAccount = useCurrentAccount()
+  return {
+    loaded: accountsState.balanceV2Map[currentAccount.address] !== undefined,
+    error: accountsState.balanceStatusMap[currentAccount.address]?.error === true,
+  }
+}
+
 export function useAddressSummary() {
   const accountsState = useAccountsState()
   return accountsState.addressSummary
@@ -256,6 +269,10 @@ export function useHistoryAutoRefresh(intervalMs = 60_000) {
   return fetchHistory
 }
 
+// Shared by every fetchBalance instance (updater, balance card, post-broadcast
+// refreshes) so the reducer can order their overlapping responses.
+let lastBalanceRequestId = 0
+
 export function useFetchBalanceCallback() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
@@ -263,17 +280,24 @@ export function useFetchBalanceCallback() {
   const { address } = currentAccount
   return useCallback(async () => {
     if (!address) return
-    const summary = await wallet.getAddressSummary(address)
-    dispatch(accountActions['setAddressSummary']!({ ...summary, address }))
+    const requestId = ++lastBalanceRequestId
+    try {
+      const summary = await wallet.getAddressSummary(address)
+      dispatch(accountActions['setAddressSummary']!({ ...summary, address }))
 
-    const balanceV2 = await wallet.getAddressBalanceV2(address)
-    dispatch(
-      accountActions['setBalanceV2']!({
-        address,
-        balance: balanceV2,
-        chainType: balanceV2.chainType,
-      })
-    )
+      const balanceV2 = await wallet.getAddressBalanceV2(address)
+      dispatch(
+        accountActions['setBalanceV2']!({
+          address,
+          balance: balanceV2,
+          chainType: balanceV2.chainType,
+          requestId,
+        })
+      )
+    } catch (error) {
+      dispatch(accountActions['setBalanceError']!({ address, requestId }))
+      throw error
+    }
   }, [dispatch, wallet, address])
 }
 

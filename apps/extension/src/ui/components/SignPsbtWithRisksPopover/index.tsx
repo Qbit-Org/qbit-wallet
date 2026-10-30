@@ -15,7 +15,7 @@ import { BadFeeRate } from './BadFeeRate';
 
 const visibleRiskDetailTypes = [RiskType.LOW_FEE_RATE, RiskType.HIGH_FEE_RATE];
 
-function getRiskContentKey(riskType: RiskType) {
+export function getRiskContentKey(riskType: RiskType) {
   switch (riskType) {
     case RiskType.SIGHASH_NONE:
       return {
@@ -36,6 +36,11 @@ function getRiskContentKey(riskType: RiskType) {
       return {
         title: 'high_fee_rate_risk_title',
         description: 'high_fee_rate_risk_description'
+      };
+    case RiskType.UNRECOGNISED_OUTPUT:
+      return {
+        title: 'unrecognised_output_risk_title',
+        description: 'unrecognised_output_risk_description'
       };
     default:
       return {

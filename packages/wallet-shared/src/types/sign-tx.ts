@@ -67,6 +67,22 @@ export interface QbitSendBroadcastClaim {
   origin: string
   txid: string
   outpoints: { txid: string; vout: number }[]
+  /**
+   * Wallet-owned claims only: the txid of the transaction this fee bump
+   * replaces, or null for a send that replaces nothing. The page keeps the
+   * claim with the signed bytes, so a retry after the background restarts
+   * still checks for payments the bump would evict. A wallet claim without
+   * it predates the field and is never restored; a provider claim never
+   * names one.
+   */
+  replaces?: string | null
+  /**
+   * With `replaces`: how many outputs the replaced transaction has, from the
+   * raw bytes the fee bump's assessment verified. Its broadcast checks what
+   * spends each of them; a fee bump's claim without it is invalid. Kept with
+   * the claim in memory only, like `replaces`.
+   */
+  replacedOutputCount?: number
 }
 
 export type QbitExternalSigningLockPurpose = 'send' | 'sign'

@@ -14,6 +14,6 @@ have a hardware signer that can produce them.
 - `canCreateQbitSendRequest` requires a P2MR account with a supported signing
   path.
 
-Hardware integration is tracked in issue #44.
+Hardware integration is tracked in [Qbit-Org/qbit-wallet#53](https://github.com/Qbit-Org/qbit-wallet/issues/53).
 It requires a signer that supports Qbit SLH-DSA operations and a reviewed
 external-signer boundary.

@@ -205,3 +205,36 @@ describe('InputItem OP_RETURN confirmation output', () => {
     expect(screen.getByText('Signs with 2 P2MR keys')).toBeTruthy();
   });
 });
+
+describe('InputItem output the wallet does not recognise (#271)', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAddress).mockReturnValue('qbrt1zcurrent');
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+  });
+
+  function renderRole(role: string) {
+    return render(
+      <InputItem
+        index={0}
+        outputInfo={{ address: 'qbrt1zpayee', value: 10_000, scriptPubKeyHex: '5220beef' }}
+        decodedPsbt={{ spendSummary: { outputRoles: [role] } } as any}
+      />
+    );
+  }
+
+  it('flags an output the background classified as unrecognised', () => {
+    renderRole('unrecognised');
+    expect(screen.getByTestId('psbt-output-unrecognised-0').textContent).toBe('unrecognised_output');
+  });
+
+  it('does not flag the named recipient or the wallet’s own outputs', () => {
+    renderRole('recipient');
+    expect(screen.queryByTestId('psbt-output-unrecognised-0')).toBeNull();
+    cleanup();
+    renderRole('wallet');
+    expect(screen.queryByTestId('psbt-output-unrecognised-0')).toBeNull();
+  });
+});

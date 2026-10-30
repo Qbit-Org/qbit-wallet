@@ -72,7 +72,9 @@ export function createWalletMock() {
     getEnableRBF: vi.fn().mockResolvedValue(false),
     setEnableRBF: vi.fn().mockResolvedValue(undefined),
     getQbitUtxos: vi.fn().mockResolvedValue([]),
-    getQbitUtxoSnapshot: vi.fn().mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos: [] }),
+    getQbitUtxoSnapshot: vi
+      .fn()
+      .mockResolvedValue({ address: 'qb1ztestaccount', chain: ChainType.QBIT_MAINNET, utxos: [] }),
     getFeeSummary: vi.fn().mockResolvedValue(feeSummary),
     getLowFeeSummary: vi.fn().mockResolvedValue(feeSummary),
     getAcceptLowFeeMode: vi.fn().mockResolvedValue(true),

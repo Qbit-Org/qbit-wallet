@@ -7,7 +7,6 @@ import {
   finalizeP2mrPsbt,
   hexToBytes as qbitHexToBytes,
   parsePsbt as parseQbitPsbt,
-  p2mrLeafHash,
   p2mrSighash,
   PSBT_IN_FINAL_SCRIPTWITNESS,
   psbtUnsignedTransaction,
@@ -26,6 +25,7 @@ import {
 import { permissionService, sessionService } from '../../services'
 // Module-path import keeps the capability independently mockable in tests.
 import regtestAccessService from '../../services/regtestAccess'
+import { qbitP2mrSigningLeafRecord } from '../../utils/qbit-p2mr-signing-leaf'
 import { amountToSatoshis } from '../../utils/qbit-utils'
 import BaseController from '../base'
 import wallet from '../wallet'
@@ -38,6 +38,7 @@ import {
   SignMessageResult,
   SignMessageType,
   SignPsbtResult,
+  QbitBroadcastResult,
   QbitSendBroadcastClaim,
   ToSignData,
   ToSignMessage,
@@ -140,10 +141,12 @@ function assertRequiredQbitP2mrSignatures(
       throw new Error('signed PSBT changed an approved witness UTXO')
     }
 
-    const expectedLeaf = sourceInput.leafScripts.find(
-      leaf => qbitBytesToHex(p2mrLeafHash(leaf.leafVersion, leaf.script)) === toSignInput.leafHash
+    // The record finalize reveals, as the plan was prepared against it.
+    const expectedLeaf = qbitP2mrSigningLeafRecord(
+      sourceInput,
+      toSignInput.inputIndex,
+      toSignInput.leafHash
     )
-    if (!expectedLeaf) throw new Error('invalid Qbit signing plan')
 
     let witnessSignature: ReturnType<typeof decodeP2mrWitnessSignature>
     if (input.finalized) {
@@ -273,16 +276,39 @@ function sameQbitSendBroadcastClaim(
 }
 
 /**
+ * Turn the wallet send path's verdict on a broadcast of `transaction` into
+ * what the dapp receives. An accepted transaction, or one a follow-up lookup
+ * finds, returns its txid. Proven non-submission throws a plain error.
+ * Anything inconclusive throws QBIT_BROADCAST_OUTCOME_UNKNOWN naming the
+ * transaction: the node may hold it, and the dapp has to check that txid
+ * rather than retry into a second payment.
+ */
+function answerQbitProviderBroadcast(
+  result: QbitBroadcastResult,
+  transaction: { chain?: ChainType | undefined; txid?: string | undefined }
+): string {
+  if (result.success) return result.txid
+  if (result.outcome === 'not_sent') {
+    throw new Error(result.detail ?? `Qbit transaction was not broadcast (${result.reason})`)
+  }
+  const data: { outcome: 'unknown'; chain?: ChainType; txid?: string } = { outcome: 'unknown' }
+  if (transaction.chain !== undefined) data.chain = transaction.chain
+  if (transaction.txid !== undefined) data.txid = transaction.txid
+  const error = new WalletError(
+    ErrorCodes.QBIT_BROADCAST_OUTCOME_UNKNOWN,
+    'Qbit transaction broadcast outcome is unknown; check the transaction before retrying'
+  ) as WalletError & { data: typeof data }
+  error.data = data
+  throw error
+}
+
+/**
  * Broadcast an approved sendQbit under its claim with the wallet send path's
- * verdicts (`broadcastQbitTx`), and turn the verdict into what the dapp
- * receives. An accepted transaction, or one a follow-up lookup finds,
- * returns its txid. Proven non-submission throws a plain error, and the
- * request's failure cleanup releases the claim. Anything inconclusive,
- * including a guard refusal of a claim it no longer holds, throws
- * QBIT_BROADCAST_OUTCOME_UNKNOWN naming the transaction: the node may hold
- * it, so the cleanup retires the claim with its inputs still reserved as
- * recently spent, and the dapp has to check that txid rather than retry
- * into a second payment.
+ * verdicts (`broadcastQbitTx`). Proven non-submission lets the request's
+ * failure cleanup release the claim. Anything inconclusive, including a
+ * guard refusal of a claim it no longer holds, names the claim's
+ * transaction, so the cleanup retires the claim with its inputs still
+ * reserved as recently spent.
  */
 async function broadcastQbitProviderSend(
   psbtHex: string,
@@ -295,18 +321,20 @@ async function broadcastQbitProviderSend(
     .broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid)
     .catch(error => {
       console.error('Unexpected failure broadcasting a Qbit sendQbit transaction', error)
-      return { success: false as const, outcome: 'unknown' as const }
+      return { success: false as const, outcome: 'unknown' as const, reason: 'unexpected' as const }
     })
-  if (result.success) return result.txid
-  if (result.outcome === 'not_sent') {
-    throw new Error(result.detail ?? `Qbit transaction was not broadcast (${result.reason})`)
-  }
-  const error = new WalletError(
-    ErrorCodes.QBIT_BROADCAST_OUTCOME_UNKNOWN,
-    'Qbit transaction broadcast outcome is unknown; check the transaction before retrying'
-  ) as WalletError & { data: { outcome: 'unknown'; chain: ChainType; txid: string } }
-  error.data = { outcome: 'unknown', chain: claim.chain, txid: claim.txid }
-  throw error
+  return answerQbitProviderBroadcast(result, claim)
+}
+
+/**
+ * Broadcast bytes a dapp pushed (pushTx, pushPsbt) with the same verdicts
+ * (`broadcastQbitProviderTx`). An unknown outcome names the transaction the
+ * bytes encode; its inputs stay reserved only when the user approved
+ * signing that transaction for a dapp.
+ */
+async function broadcastQbitProviderPush(txData: string): Promise<string> {
+  const result = await wallet.broadcastQbitProviderTx(txData)
+  return answerQbitProviderBroadcast(result, result)
 }
 
 function sameQbitExternalSigningLock(
@@ -467,16 +495,6 @@ function assertSigningChain(origin: string, requestedChain: unknown): ChainType 
   return activeChain
 }
 
-async function publishConnectedAccount(origin: string): Promise<void> {
-  const account = await wallet.getCurrentAccount()
-  sessionService.broadcastEvent(
-    SESSION_EVENTS.accountsChanged,
-    account ? [account.address] : [],
-    origin,
-    getActiveQbitChain()
-  )
-}
-
 class ProviderController extends BaseController {
   protected override onInitialize(): Promise<void> {
     return Promise.resolve()
@@ -528,9 +546,7 @@ class ProviderController extends BaseController {
   ])
   switchNetwork = async ({ data: { params }, session: { origin } }) => {
     const targetChain = await assertQbitChainSelectable(chainForNetwork(params.network))
-    await wallet.setChainType(targetChain)
-    await permissionService.updateConnectSite(origin, { chain: targetChain }, true)
-    await publishConnectedAccount(origin)
+    await wallet.switchProviderChain(origin, targetChain)
   }
 
   @Reflect.metadata('SAFE', true)
@@ -546,9 +562,7 @@ class ProviderController extends BaseController {
   ])
   switchChain = async ({ data: { params }, session: { origin } }) => {
     await assertQbitChainSelectable(params.chain)
-    await wallet.setChainType(params.chain)
-    await permissionService.updateConnectSite(origin, { chain: params.chain }, true)
-    await publishConnectedAccount(origin)
+    await wallet.switchProviderChain(origin, params.chain)
   }
 
   @Reflect.metadata('SAFE', true)
@@ -710,7 +724,7 @@ class ProviderController extends BaseController {
     ) {
       throw new Error('invalid raw Qbit transaction')
     }
-    return await wallet.pushTx(rawtx.toLowerCase())
+    return await broadcastQbitProviderPush(rawtx.toLowerCase())
   }
 
   @Reflect.metadata('APPROVAL', [
@@ -740,6 +754,9 @@ class ProviderController extends BaseController {
     if (externalSigningLock) {
       await wallet.completeExternalQbitSigningLock(externalSigningLock)
     }
+    // Queued before the dapp gets the bytes, so its broadcast of them is
+    // decided after it, without the answer waiting on the send guard.
+    void wallet.recordQbitProviderSignings([toSignData.qbitBroadcastIdentity])
     return approvedPsbt
   }
 
@@ -808,6 +825,9 @@ class ProviderController extends BaseController {
     if (externalSigningLock) {
       await wallet.completeExternalQbitSigningLock(externalSigningLock)
     }
+    void wallet.recordQbitProviderSignings(
+      toSignDatas.map(toSignData => toSignData.qbitBroadcastIdentity)
+    )
     return approvedPsbts
   }
 
@@ -818,7 +838,7 @@ class ProviderController extends BaseController {
     },
   }) => {
     getActiveQbitChain()
-    return await wallet.pushTx(formatQbitPsbtHex(psbtHex))
+    return await broadcastQbitProviderPush(formatQbitPsbtHex(psbtHex))
   }
 }
 

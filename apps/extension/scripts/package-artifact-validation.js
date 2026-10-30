@@ -1,9 +1,19 @@
 /* eslint-env node */
 
+const fs = require('node:fs');
+const path = require('node:path');
+
+const { bundledPhishingHostPermissions } = require('./phishing-host-permissions');
+
 const REQUIRED_BUNDLE_ENTRIES = Object.freeze(['background.js', 'content-script.js', 'pageProvider.js', 'ui.js']);
+// The page the phishing redirect rule sends a top-level navigation to, and
+// its script.
+const PHISHING_WARNING_PAGE = 'phishing-warning.html';
 const REQUIRED_ARCHIVE_ENTRIES = Object.freeze([
   'manifest.json',
   ...REQUIRED_BUNDLE_ENTRIES,
+  PHISHING_WARNING_PAGE,
+  'phishing-warning.js',
   'wasm/pqc.wasm'
 ]);
 const EXPECTED_MV3_PERMISSIONS = Object.freeze([
@@ -20,9 +30,27 @@ const REGTEST_ORIGIN = 'http://127.0.0.1:3002';
 const REGTEST_HOST_PERMISSION = `${REGTEST_ORIGIN}/*`;
 const E2E_REGTEST_ORIGIN = REGTEST_ORIGIN;
 const E2E_REGTEST_HOST_PERMISSION = REGTEST_HOST_PERMISSION;
-const EXPECTED_MV3_HOST_PERMISSIONS = Object.freeze([
+const EXPECTED_MV3_INDEXER_HOST_PERMISSIONS = Object.freeze([
   'https://mempool.qbit.org/*',
   'https://mempool-testnet.qbit.org/*'
+]);
+// Host access to the bundled phishing denylist, one `*://*.<domain>/*` pattern
+// per domain and its subdomains, generated at build from the denylist
+// (scripts/phishing-host-permissions.js). The warning redirect rule fires only
+// with host access to the blocked page; the content script's `<all_urls>`
+// match already brings the all-sites install warning, so these add none. The
+// reviewed list is pinned by its SHA-256 (the patterns joined by newlines) and
+// length, so that the domains stay only in the reviewed denylist source: a
+// denylist change fails packaging until it is reviewed and these are updated.
+const EXPECTED_MV3_PHISHING_HOST_PERMISSIONS = Object.freeze(bundledPhishingHostPermissions());
+const REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT = 29;
+const REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256 = 'ede26b8e47d19b7057d06c90605fd85c46ceec30306fd3751bfc7e37bcff7c22';
+// A dotted hostname and its subdomains, or an exact IPv4 or IPv6 address.
+const PHISHING_HOST_PERMISSION_PATTERN =
+  /^\*:\/\/(?:\*\.(?:[a-z0-9-]+\.)+[a-z0-9-]+|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\])\/\*$/;
+const EXPECTED_MV3_HOST_PERMISSIONS = Object.freeze([
+  ...EXPECTED_MV3_INDEXER_HOST_PERMISSIONS,
+  ...EXPECTED_MV3_PHISHING_HOST_PERMISSIONS
 ]);
 const EXPECTED_MV3_OPTIONAL_HOST_PERMISSIONS = Object.freeze([REGTEST_HOST_PERMISSION]);
 const EXPECTED_MV3_CSP = [
@@ -55,6 +83,30 @@ const FORBIDDEN_PACKAGE_PATH_PATTERNS = Object.freeze([
   { label: 'test source', pattern: /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i },
   { label: 'repository metadata', pattern: /(?:^|\/)\.git(?:\/|$)/i }
 ]);
+
+// Packaged text must not depend on the build machine: webpack can inline
+// absolute module paths (e.g. `import.meta.url` as a file:// URL), which ships
+// the builder's checkout path and breaks independent rebuilds (#338).
+// Every other entry is scanned as text; these binary formats are not.
+const BUILD_HOST_PATH_UNSCANNED_EXTENSIONS = Object.freeze([
+  '.avif',
+  '.bmp',
+  '.eot',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.otf',
+  '.png',
+  '.ttf',
+  '.wasm',
+  '.webp',
+  '.woff',
+  '.woff2'
+]);
+const FILE_URL_PATTERN = /file:\/\/\//i;
+// A character that continues a file name, so `<entry>X` is not `<entry>`.
+const FILE_NAME_CONTINUATION_PATTERN = /[\w.@+-]/;
 
 function parseArchiveEntries(commandOutput) {
   if (typeof commandOutput !== 'string' && !Buffer.isBuffer(commandOutput)) {
@@ -155,6 +207,59 @@ function assertBundledPqcWasmHash(wasmBytes, sha256Sums) {
   return actual;
 }
 
+// Describes each builder directory whose absolute paths must not be packaged.
+// Only `<directory>/<entry>` for an existing entry counts, so a short checkout
+// root such as `/app` does not match an unrelated route string like "/app".
+function collectBuildHostDirectories(directories) {
+  const buildHostDirectories = [];
+  const seen = new Set();
+  for (const { label, path: directory } of directories) {
+    if (typeof directory !== 'string' || !path.isAbsolute(directory)) {
+      continue;
+    }
+    const candidates = [path.resolve(directory)];
+    try {
+      candidates.push(fs.realpathSync(directory));
+    } catch {
+      // A directory that does not exist has no entries to leak.
+    }
+    for (const candidate of candidates) {
+      if (candidate === path.parse(candidate).root || seen.has(candidate)) {
+        continue;
+      }
+      seen.add(candidate);
+      let entries;
+      try {
+        entries = new Set(fs.readdirSync(candidate));
+      } catch {
+        continue;
+      }
+      buildHostDirectories.push({ label, prefix: `${candidate}/`, entries });
+    }
+  }
+  return buildHostDirectories;
+}
+
+function assertNoBuildHostPaths(entryPath, contents, buildHostDirectories) {
+  if (BUILD_HOST_PATH_UNSCANNED_EXTENSIONS.includes(path.posix.extname(entryPath).toLowerCase())) {
+    return;
+  }
+  const text = Buffer.isBuffer(contents) ? contents.toString('utf8') : String(contents);
+  if (FILE_URL_PATTERN.test(text)) {
+    throw new Error(`artifact entry contains an absolute file:// URL: ${entryPath}`);
+  }
+  for (const { label, prefix, entries } of buildHostDirectories) {
+    for (let index = text.indexOf(prefix); index !== -1; index = text.indexOf(prefix, index + 1)) {
+      const start = index + prefix.length;
+      for (const entry of entries) {
+        if (text.startsWith(entry, start) && !FILE_NAME_CONTINUATION_PATTERN.test(text.charAt(start + entry.length))) {
+          throw new Error(`artifact entry contains the ${label} ${prefix}${entry}: ${entryPath}`);
+        }
+      }
+    }
+  }
+}
+
 function compareArchivePaths(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
@@ -169,7 +274,15 @@ function assertSecureMv3Manifest(manifest) {
     throw new Error('release artifact must use Manifest V3');
   }
   assertExactArray('permissions', manifest.permissions, EXPECTED_MV3_PERMISSIONS);
-  assertNoForbiddenHosts('host_permissions', manifest.host_permissions);
+  assertReviewedPhishingHostPermissions(EXPECTED_MV3_PHISHING_HOST_PERMISSIONS);
+  // The reviewed phishing patterns name a subdomain wildcard and every scheme,
+  // which the broad-host check rejects anywhere else.
+  assertNoForbiddenHosts(
+    'host_permissions',
+    Array.isArray(manifest.host_permissions)
+      ? manifest.host_permissions.filter((entry) => !EXPECTED_MV3_PHISHING_HOST_PERMISSIONS.includes(entry))
+      : manifest.host_permissions
+  );
   assertExactArray('host_permissions', manifest.host_permissions, EXPECTED_MV3_HOST_PERMISSIONS);
   assertNoForbiddenHosts('optional_host_permissions', manifest.optional_host_permissions);
   assertExactArray(
@@ -203,8 +316,8 @@ function assertSecureMv3Manifest(manifest) {
   }
 
   const webAccessibleResources = manifest.web_accessible_resources;
-  if (!Array.isArray(webAccessibleResources) || webAccessibleResources.length !== 1) {
-    throw new Error('release manifest must define exactly one web-accessible resource group');
+  if (!Array.isArray(webAccessibleResources) || webAccessibleResources.length !== 2) {
+    throw new Error('release manifest must define exactly two web-accessible resource groups');
   }
   assertExactArray(
     'web_accessible_resources[0].resources',
@@ -214,6 +327,20 @@ function assertSecureMv3Manifest(manifest) {
   assertExactArray('web_accessible_resources[0].matches', webAccessibleResources[0].matches, [
     '<all_urls>'
   ]);
+  // The warning page must be web-accessible for the redirect rule to reach it
+  // from any site's redirect chain. A dynamic URL keeps websites from opening
+  // or framing it by the extension's fixed id.
+  const warningPageGroup = webAccessibleResources[1];
+  assertExactArray('web_accessible_resources[1] keys', Object.keys(warningPageGroup ?? {}).sort(), [
+    'matches',
+    'resources',
+    'use_dynamic_url'
+  ]);
+  assertExactArray('web_accessible_resources[1].resources', warningPageGroup.resources, [PHISHING_WARNING_PAGE]);
+  assertExactArray('web_accessible_resources[1].matches', warningPageGroup.matches, ['<all_urls>']);
+  if (warningPageGroup.use_dynamic_url !== true) {
+    throw new Error('web_accessible_resources[1] must use a dynamic URL');
+  }
 
   const csp = manifest.content_security_policy?.extension_pages;
   if (typeof csp === 'string') {
@@ -229,6 +356,29 @@ function assertSecureMv3Manifest(manifest) {
   }
   if (csp !== EXPECTED_MV3_CSP) {
     throw new Error('extension page CSP does not match the reviewed release allowlist');
+  }
+}
+
+/**
+ * Throws unless the phishing host permissions are the reviewed list: its
+ * length and SHA-256, and each one a subdomain pattern for a dotted hostname
+ * or an exact IP address.
+ */
+function assertReviewedPhishingHostPermissions(patterns) {
+  if (!Array.isArray(patterns) || patterns.length !== REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT) {
+    throw new Error('phishing host_permissions do not match the reviewed release allowlist');
+  }
+  for (const pattern of patterns) {
+    if (typeof pattern !== 'string' || !PHISHING_HOST_PERMISSION_PATTERN.test(pattern)) {
+      throw new Error(`phishing host_permissions contain an unreviewed pattern: ${pattern}`);
+    }
+  }
+  const crypto = require('node:crypto');
+  const digest = crypto.createHash('sha256').update(patterns.join('\n')).digest('hex');
+  if (digest !== REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256) {
+    throw new Error(
+      'phishing host_permissions do not match the reviewed release allowlist; review the denylist change and update its count and SHA-256'
+    );
   }
 }
 
@@ -259,12 +409,15 @@ function assertExactArray(name, actual, expected) {
 }
 
 module.exports = {
+  BUILD_HOST_PATH_UNSCANNED_EXTENSIONS,
   E2E_REGTEST_HOST_PERMISSION,
   E2E_REGTEST_ORIGIN,
   EXPECTED_MV3_CSP,
   EXPECTED_MV3_HOST_PERMISSIONS,
+  EXPECTED_MV3_INDEXER_HOST_PERMISSIONS,
   EXPECTED_MV3_OPTIONAL_HOST_PERMISSIONS,
   EXPECTED_MV3_PERMISSIONS,
+  EXPECTED_MV3_PHISHING_HOST_PERMISSIONS,
   FORBIDDEN_HOST_PATTERNS,
   FORBIDDEN_PACKAGE_PATH_PATTERNS,
   REGTEST_HOST_PERMISSION,
@@ -273,9 +426,12 @@ module.exports = {
   REQUIRED_BUNDLE_ENTRIES,
   assertArchiveManifestEntryList,
   assertBundledPqcWasmHash,
+  assertNoBuildHostPaths,
+  assertReviewedPhishingHostPermissions,
   assertRequiredBundleEntries,
   assertSecureArchiveEntries,
   assertNoForbiddenHosts,
   assertSecureMv3Manifest,
+  collectBuildHostDirectories,
   parseArchiveEntries
 };

@@ -18,6 +18,7 @@ import { useTxCreateScreenLogic } from '../../src/ui-hooks/useTxCreateScreenLogi
 import {
   estimateQbitP2mrSendAllPreflight,
   estimateQbitP2mrSendPreflight,
+  useFetchUtxosCallback,
   usePrepareSendQBTCallback,
   usePushQbitTxCallback,
 } from '../../src/hooks/transactions'
@@ -26,6 +27,7 @@ import { accountActions } from '../../src/reducers/accounts'
 import { transactionsActions } from '../../src/reducers/transactions'
 import { settingsActions } from '../../src/reducers/settings'
 import { uiActions } from '../../src/reducers/ui'
+import { keyringsActions } from '../../src/reducers/keyrings'
 import { I18nContext } from '../../src/context/I18nContext'
 
 function p2mrAccount(pubkeyHex = '11'.repeat(32)) {
@@ -86,6 +88,26 @@ describe('TxCreateScreen state hooks', () => {
     expect(wallet.getEnableRBF).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the RBF choice for the send when saving it as the default fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wallet = createWalletMock()
+    const saveError = new Error('QUOTA_BYTES quota exceeded')
+    wallet.setEnableRBF.mockRejectedValueOnce(saveError)
+    const { wrapper } = createHookTestHarness({ wallet })
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getEnableRBF).toHaveBeenCalledTimes(1))
+
+    act(() => {
+      result.current.onRBFChange(true)
+    })
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('Failed to save the RBF preference:', saveError)
+    })
+    expect(result.current.enableRBF).toBe(true)
+    errorSpy.mockRestore()
+  })
+
   it('uses qbit P2MR dust for send screen validation', async () => {
     const { wrapper, store } = createHookTestHarness()
     const currentAddress = store.getState().accounts.current.address
@@ -136,7 +158,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -149,7 +175,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const wrongNetworkRecipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'regtest')
     const sameNetworkRecipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
@@ -187,7 +219,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -200,7 +236,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -228,7 +270,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -241,7 +287,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -304,6 +356,7 @@ describe('TxCreateScreen state hooks', () => {
       inputsDominateFee: true,
       exceedsMaximumTotalFee: false,
       exceedsStandardSize: false,
+      exceedsAncestorSize: false,
       maxInputCount: 0,
       maxStandardAmount: 0,
     })
@@ -323,6 +376,7 @@ describe('TxCreateScreen state hooks', () => {
       maximumTotalFee: 38_170_000,
       inputsDominateFee: true,
       exceedsMaximumTotalFee: false,
+      exceedsAncestorSize: false,
       leftBehindInputCount: 0,
       leftBehindSats: 0,
     })
@@ -343,6 +397,7 @@ describe('TxCreateScreen state hooks', () => {
       maximumTotalFee: 38_380_000,
       inputsDominateFee: true,
       exceedsMaximumTotalFee: false,
+      exceedsAncestorSize: false,
       leftBehindInputCount: 0,
       leftBehindSats: 0,
     })
@@ -378,6 +433,7 @@ describe('TxCreateScreen state hooks', () => {
       inputsDominateFee: true,
       exceedsMaximumTotalFee: false,
       exceedsStandardSize: false,
+      exceedsAncestorSize: false,
       maxInputCount: 106,
       maxStandardAmount: 0,
     })
@@ -416,6 +472,7 @@ describe('TxCreateScreen state hooks', () => {
       inputsDominateFee: true,
       exceedsMaximumTotalFee: false,
       exceedsStandardSize: false,
+      exceedsAncestorSize: false,
       maxInputCount: 0,
       maxStandardAmount: 0,
     })
@@ -457,6 +514,7 @@ describe('TxCreateScreen state hooks', () => {
       inputsDominateFee: true,
       exceedsMaximumTotalFee: true,
       exceedsStandardSize: false,
+      exceedsAncestorSize: false,
       maxInputCount: 106,
       maxStandardAmount: 61_830_000,
     })
@@ -470,6 +528,7 @@ describe('TxCreateScreen state hooks', () => {
       inputsDominateFee: true,
       exceedsMaximumTotalFee: false,
       exceedsStandardSize: false,
+      exceedsAncestorSize: false,
       maxInputCount: 0,
       maxStandardAmount: 0,
     })
@@ -488,7 +547,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -501,7 +564,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -676,7 +745,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     const toSignData = { psbtHex: 'send-all-with-memo' }
     wallet.createSendAllQbitPsbt.mockResolvedValue(toSignData as any)
     store.dispatch(accountActions.setCurrent(account))
@@ -691,7 +764,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('44'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -753,7 +832,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -766,7 +849,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -804,7 +893,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -817,7 +910,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -879,7 +978,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -892,7 +995,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     store.dispatch(
       (uiActions as any).updateFeeRateBar({
         feeRate: 0.1,
@@ -934,7 +1043,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -947,7 +1060,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     store.dispatch(
       (uiActions as any).updateFeeRateBar({
         feeRate: 10_001,
@@ -1002,7 +1121,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -1015,7 +1138,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     store.dispatch(
       (uiActions as any).updateFeeRateBar({
         feeRate: 10_001,
@@ -1099,7 +1228,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     // A balance read older than the outputs the send may select: 5_000 of
     // them (own change, say) had not reached it yet.
@@ -1115,7 +1248,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
     expect(result.current.availableAmount).toBe('0.00010000')
@@ -1134,6 +1273,11 @@ describe('TxCreateScreen state hooks', () => {
   it('shows Available as 0 once the outputs load with none left to select (#279)', async () => {
     const account = p2mrAccount()
     const { wrapper, store, wallet } = createHookTestHarness()
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos: [],
+    })
     store.dispatch(accountActions.setCurrent(account))
     // The balance still counts outputs that a pending send holds.
     store.dispatch(
@@ -1171,9 +1315,15 @@ describe('TxCreateScreen state hooks', () => {
     const account = p2mrAccount()
     const { wrapper, store, wallet } = createHookTestHarness()
     store.dispatch(accountActions.setCurrent(account))
-    // Left by another account's read on the same network; this screen's own
-    // read has not landed yet.
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos: [] }))
+    // Left by an earlier read of this account on the same network; this
+    // screen's own read has not landed yet.
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos: [],
+      })
+    )
     wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(() => undefined))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -1215,7 +1365,11 @@ describe('TxCreateScreen state hooks', () => {
         addressType: AddressType.P2MR,
       } as any,
     ]
-    wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       accountActions.setBalanceV2({
@@ -1228,7 +1382,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       })
     )
-    store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
 
@@ -1253,6 +1413,7 @@ describe('TxCreateScreen state hooks', () => {
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       transactionsActions.setUtxos({
+        address: account.address,
         chain: ChainType.QBIT_MAINNET,
         utxos: [
           {
@@ -1285,6 +1446,7 @@ describe('TxCreateScreen state hooks', () => {
     store.dispatch(accountActions.setCurrent(account))
     store.dispatch(
       transactionsActions.setUtxos({
+        address: account.address,
         chain: ChainType.QBIT_MAINNET,
         utxos: [
           {
@@ -1328,7 +1490,11 @@ describe('TxCreateScreen state hooks', () => {
     // A cache loaded on the active network is used as is, and the network
     // it was loaded on travels with the outputs.
     store.dispatch(
-      transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos: [utxo('ee'.repeat(32))] })
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos: [utxo('ee'.repeat(32))],
+      })
     )
     const { result } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
 
@@ -1355,6 +1521,7 @@ describe('TxCreateScreen state hooks', () => {
       store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
     })
     wallet.getQbitUtxoSnapshot.mockResolvedValueOnce({
+      address: account.address,
       chain: ChainType.QBIT_TESTNET4,
       utxos: [utxo('ef'.repeat(32))],
     })
@@ -1400,7 +1567,13 @@ describe('TxCreateScreen state hooks', () => {
         },
       ] as any
       store.dispatch(accountActions.setCurrent(account))
-      store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+      store.dispatch(
+        transactionsActions.setUtxos({
+          address: account.address,
+          chain: ChainType.QBIT_MAINNET,
+          utxos,
+        })
+      )
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
       const { result } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
 
@@ -1564,7 +1737,11 @@ describe('TxCreateScreen state hooks', () => {
       utxos: any[]
     ) {
       const total = utxos.reduce((sum, utxo) => sum + utxo.satoshis, 0)
-      harness.wallet.getQbitUtxoSnapshot.mockResolvedValue({ chain: ChainType.QBIT_MAINNET, utxos })
+      harness.wallet.getQbitUtxoSnapshot.mockResolvedValue({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
       harness.store.dispatch(accountActions.setCurrent(account))
       harness.store.dispatch(
         accountActions.setBalanceV2({
@@ -1577,7 +1754,13 @@ describe('TxCreateScreen state hooks', () => {
           },
         })
       )
-      harness.store.dispatch(transactionsActions.setUtxos({ chain: ChainType.QBIT_MAINNET, utxos }))
+      harness.store.dispatch(
+        transactionsActions.setUtxos({
+          address: account.address,
+          chain: ChainType.QBIT_MAINNET,
+          utxos,
+        })
+      )
     }
 
     it('explains an account over the explorer UTXO limit instead of silently disabling Next', async () => {
@@ -1588,6 +1771,7 @@ describe('TxCreateScreen state hooks', () => {
       const previousAccount = p2mrAccount('22'.repeat(32))
       harness.store.dispatch(
         transactionsActions.setUtxos({
+          address: previousAccount.address,
           chain: ChainType.QBIT_MAINNET,
           utxos: manyOutputs(previousAccount, [50_000]),
         })
@@ -1597,9 +1781,11 @@ describe('TxCreateScreen state hooks', () => {
         accountActions.setBalanceV2({
           address: account.address,
           balance: {
-            availableBalance: 0,
+            availableBalance: null,
             unavailableBalance: 91_000_000,
             totalBalance: 91_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
             utxoLimitExceeded: true,
             chainType: ChainType.QBIT_MAINNET,
           },
@@ -1613,6 +1799,7 @@ describe('TxCreateScreen state hooks', () => {
       })
       // Unknown, not zero, and the way out is offered.
       expect(result.current.availableAmount).toBe('--')
+      expect(result.current.unavailableAmount).toBe('--')
       expect(result.current.showConsolidate).toBe(true)
       act(() => {
         result.current.onClickConsolidate()
@@ -1629,9 +1816,11 @@ describe('TxCreateScreen state hooks', () => {
         accountActions.setBalanceV2({
           address: account.address,
           balance: {
-            availableBalance: 0,
+            availableBalance: null,
             unavailableBalance: 6_000_000,
             totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
             utxoLimitExceeded: true,
             chainType: ChainType.QBIT_MAINNET,
           },
@@ -1651,6 +1840,46 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.inputAmount).toBeFalsy()
     })
 
+    it('shows Unavailable as unknown, like Available, until the over-limit read lands', async () => {
+      const account = p2mrAccount()
+      const harness = createHookTestHarness()
+      let answer!: (snapshot: unknown) => void
+      harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(resolve => (answer = resolve)))
+      harness.store.dispatch(accountActions.setCurrent(account))
+      harness.store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoLimitExceeded: true,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      // Not the whole total: how much of it is unavailable is unknown too.
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
+
+      await act(async () => {
+        answer({
+          address: account.address,
+          chain: ChainType.QBIT_MAINNET,
+          utxos: manyOutputs(account, Array(500).fill(10_000)),
+        })
+      })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('0.05000000'))
+      expect(result.current.unavailableAmount).toBe('0.01000000')
+      expect(result.current.showUnavailable).toBe(true)
+    })
+
     it('takes the loading overlay down once the balance shows the account over the limit', async () => {
       const account = p2mrAccount()
       const harness = createHookTestHarness()
@@ -1664,9 +1893,11 @@ describe('TxCreateScreen state hooks', () => {
           accountActions.setBalanceV2({
             address: account.address,
             balance: {
-              availableBalance: 0,
+              availableBalance: null,
               unavailableBalance: 6_000_000,
               totalBalance: 6_000_000,
+              immatureBalance: null,
+              pendingBalance: null,
               utxoLimitExceeded: true,
               chainType: ChainType.QBIT_MAINNET,
             },
@@ -1677,17 +1908,24 @@ describe('TxCreateScreen state hooks', () => {
       expect(harness.tools.showLoading).toHaveBeenLastCalledWith(false)
     })
 
-    it('shows 0, not unknown, once an over-limit account\'s outputs load with all of them held', async () => {
+    it("shows 0, not unknown, once an over-limit account's outputs load with all of them held", async () => {
       const account = p2mrAccount()
       const harness = createHookTestHarness()
+      harness.wallet.getQbitUtxoSnapshot.mockResolvedValue({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos: [],
+      })
       harness.store.dispatch(accountActions.setCurrent(account))
       harness.store.dispatch(
         accountActions.setBalanceV2({
           address: account.address,
           balance: {
-            availableBalance: 0,
+            availableBalance: null,
             unavailableBalance: 6_000_000,
             totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
             utxoLimitExceeded: true,
             chainType: ChainType.QBIT_MAINNET,
           },
@@ -1698,8 +1936,57 @@ describe('TxCreateScreen state hooks', () => {
       await waitFor(() => {
         expect(result.current.availableAmount).toBe('0.00000000')
       })
+      // Read, not unknown: every output is held, so the whole total is Unavailable.
+      expect(result.current.unavailableAmount).toBe('0.06000000')
+      expect(result.current.showUnavailable).toBe(true)
       expect(result.current.error).toBe('')
       expect(result.current.showConsolidate).toBe(true)
+    })
+
+    it('shows an unknown balance figure as unknown, not 0, for an account without a P2MR script (#341)', async () => {
+      const { p2mr: _p2mr, ...account } = p2mrAccount()
+      const harness = createHookTestHarness()
+      harness.wallet.getQbitUtxoSnapshot.mockReturnValue(new Promise(() => {}))
+      harness.store.dispatch(accountActions.setCurrent(account as any))
+      harness.store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoLimitExceeded: true,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+
+      await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
+      expect(result.current.showImmature).toBe(false)
+      expect(result.current.showPending).toBe(false)
+      // Max agrees with Available: nothing is selectable from an unknown figure.
+      act(() => {
+        result.current.onAmountMaxClick()
+      })
+      expect(result.current.inputAmount).toBeFalsy()
+
+      // Nor can an amount be checked against it: Next stays disabled, without
+      // claiming the amount exceeds an Available shown as unknown.
+      act(() => {
+        result.current.onAddressInputChange({
+          address: p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet'),
+          domain: '',
+        })
+        result.current.onAmountInputChange('0.01')
+      })
+      await waitFor(() => expect(result.current.inputAmount).toBe('0.01'))
+      expect(result.current.error).toBe('')
+      expect(result.current.disabled).toBe(true)
     })
 
     it('sends from the outputs read from history while still offering consolidation (#277)', async () => {
@@ -1711,9 +1998,11 @@ describe('TxCreateScreen state hooks', () => {
         accountActions.setBalanceV2({
           address: account.address,
           balance: {
-            availableBalance: 0,
+            availableBalance: null,
             unavailableBalance: 6_000_000,
             totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
             utxoLimitExceeded: true,
             chainType: ChainType.QBIT_MAINNET,
           },
@@ -1766,6 +2055,79 @@ describe('TxCreateScreen state hooks', () => {
       expect(harness.wallet.createSendQbitPsbt).not.toHaveBeenCalled()
     })
 
+    it('asks to wait for an unconfirmed 105-input parent instead of passing the ancestor size limit (#345)', async () => {
+      const account = p2mrAccount()
+      const harness = createHookTestHarness()
+      const { wrapper } = withRecordingI18n(harness.wrapper)
+      const parentTxid = 'aa'.repeat(32)
+      const change = {
+        ...manyOutputs(account, [1_000_000])[0],
+        txid: parentTxid,
+        vout: 1,
+        unconfirmed: true,
+        unconfirmedAncestors: [{ txid: parentTxid, vsize: 395_108 }],
+      }
+      loadAccount(harness, account, [...manyOutputs(account, Array(45).fill(100_000)), change])
+      const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
+      const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+
+      act(() => {
+        result.current.onAddressInputChange({ address: recipient, domain: '' })
+        result.current.onAmountInputChange('0.04500000')
+      })
+      await waitFor(() => {
+        expect(result.current.error).toBe('send_exceeds_ancestor_size')
+        expect(result.current.disabled).toBe(true)
+      })
+
+      act(() => {
+        result.current.onAmountMaxClick()
+      })
+      await waitFor(() => {
+        expect(result.current.error).toBe('send_exceeds_ancestor_size')
+        expect(result.current.disabled).toBe(true)
+      })
+
+      const { result: prepare } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
+      for (const toAmount of [4_500_000, 5_500_000]) {
+        await expect(
+          prepare.current({ toAddressInfo: { address: recipient }, toAmount, feeRate: 1 })
+        ).rejects.toThrow('send_exceeds_ancestor_size')
+      }
+      expect(harness.wallet.createSendQbitPsbt).not.toHaveBeenCalled()
+      expect(harness.wallet.createSendAllQbitPsbt).not.toHaveBeenCalled()
+
+      // An amount the confirmed outputs pay on their own still goes ahead.
+      act(() => {
+        result.current.onAmountInputChange('0.01000000')
+      })
+      await waitFor(() => {
+        expect(result.current.disabled).toBe(false)
+      })
+      expect(result.current.error).toBe('')
+    })
+
+    it('reports a MAX below dust as short of balance, not as waiting on its parent (#345)', () => {
+      const account = p2mrAccount()
+      const parentTxid = 'aa'.repeat(32)
+      const changeOf = (satoshis: number) => ({
+        ...manyOutputs(account, [satoshis])[0],
+        txid: parentTxid,
+        vout: 1,
+        unconfirmed: true,
+        unconfirmedAncestors: [{ txid: parentTxid, vsize: 401_000 }],
+      })
+      const preflight = (satoshis: number) =>
+        estimateQbitP2mrSendAllPreflight({
+          utxos: [changeOf(satoshis)],
+          account: account as any,
+          feeRate: 1,
+        })
+
+      expect(preflight(3_000)).toMatchObject({ canCover: false, exceedsAncestorSize: false })
+      expect(preflight(100_000)).toMatchObject({ canCover: true, exceedsAncestorSize: true })
+    })
+
     it('discloses the outputs Max leaves behind past the standard size', async () => {
       const account = p2mrAccount()
       const harness = createHookTestHarness()
@@ -1799,5 +2161,461 @@ describe('TxCreateScreen state hooks', () => {
         '44',
       ])
     })
+  })
+})
+
+describe('UTXO cache across accounts (#342)', () => {
+  const accountA = p2mrAccount('11'.repeat(32))
+  const accountB = { ...p2mrAccount('22'.repeat(32)), key: 'qbit-account-2' }
+  const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>(settle => {
+      resolve = settle
+    })
+    return { promise, resolve }
+  }
+
+  function outputsOf(account: ReturnType<typeof p2mrAccount>, txidByte: string, values: number[]) {
+    return values.map((satoshis, vout) => ({
+      txid: txidByte.repeat(32),
+      vout,
+      satoshis,
+      scriptPk: account.p2mr.scriptPubKey,
+      pubkey: account.pubkey,
+      addressType: AddressType.P2MR,
+    }))
+  }
+
+  function snapshotOf(account: ReturnType<typeof p2mrAccount>, utxos: any[]) {
+    return { address: account.address, chain: ChainType.QBIT_MAINNET, utxos }
+  }
+
+  function select(
+    store: ReturnType<typeof createHookTestHarness>['store'],
+    account: ReturnType<typeof p2mrAccount>,
+    total: number
+  ) {
+    store.dispatch(accountActions.setCurrent(account))
+    store.dispatch(
+      accountActions.setBalanceV2({
+        address: account.address,
+        balance: {
+          availableBalance: total,
+          unavailableBalance: 0,
+          totalBalance: total,
+          chainType: ChainType.QBIT_MAINNET,
+        },
+      })
+    )
+  }
+
+  it("keeps an account's outputs when another account's slow walk lands after them", async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    // Account A is over the explorer's limit: its read walks the history.
+    const walkA = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
+    select(store, accountA, 70_000)
+    const screenA = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1))
+
+    // The user leaves, switches to B and opens Send; B's read lands first.
+    screenA.unmount()
+    const outputsB = outputsOf(accountB, 'bb', [50_000])
+    wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(snapshotOf(accountB, outputsB))
+    select(store, accountB, 80_000)
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(store.getState().transactions.utxos).toEqual(outputsB))
+
+    // A's walk lands last.
+    await act(async () => {
+      walkA.resolve(snapshotOf(accountA, outputsOf(accountA, 'aa', [70_000])))
+      await walkA.promise
+    })
+    expect(store.getState().transactions.utxos).toEqual(outputsB)
+    expect(store.getState().transactions.utxosAddress).toBe(accountB.address)
+    expect(result.current.availableAmount).toBe('0.00050000')
+
+    // B's send still spends B's outputs, without another read.
+    wallet.createSendQbitPsbt.mockResolvedValue({ psbtHex: 'prepared' } as any)
+    act(() => {
+      result.current.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.onAmountInputChange('0.0001')
+    })
+    await waitFor(() => {
+      expect(result.current.error).toBe('')
+      expect(result.current.disabled).toBe(false)
+    })
+    act(() => {
+      result.current.onClickNext()
+    })
+    await waitFor(() =>
+      expect(wallet.createSendQbitPsbt).toHaveBeenCalledWith(
+        expect.objectContaining({ qbitUtxos: outputsB, qbitUtxoChain: ChainType.QBIT_MAINNET })
+      )
+    )
+    expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads the outputs again when the account changes under the open screen', async () => {
+    const { store, wallet, wrapper, tools } = createHookTestHarness()
+    const walkA = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
+    select(store, accountA, 70_000)
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1))
+
+    // Another window selects B while A's walk is still running.
+    const outputsB = outputsOf(accountB, 'bb', [50_000])
+    wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(snapshotOf(accountB, outputsB))
+    act(() => {
+      select(store, accountB, 80_000)
+    })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.availableAmount).toBe('0.00050000'))
+
+    await act(async () => {
+      walkA.resolve(snapshotOf(accountA, outputsOf(accountA, 'aa', [70_000])))
+      await walkA.promise
+    })
+    expect(store.getState().transactions.utxos).toEqual(outputsB)
+    expect(result.current.availableAmount).toBe('0.00050000')
+    // Only the read the screen opened with covered it.
+    expect(vi.mocked(tools.showLoading).mock.calls.filter(([shown]) => shown)).toHaveLength(1)
+  })
+
+  it("does not take an earlier read's failure for the account's new read", async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    const overLimit = (account: ReturnType<typeof p2mrAccount>) => {
+      store.dispatch(accountActions.setCurrent(account))
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: 0,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            utxoLimitExceeded: true,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+    }
+    wallet.getQbitUtxoSnapshot
+      .mockRejectedValueOnce(new Error('history too large'))
+      .mockReturnValue(new Promise(() => undefined))
+    overLimit(accountA)
+    const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(result.current.error).toBe('utxo_limit_exceeded_send'))
+
+    // To B and straight back to A: A's new read is still running.
+    act(() => {
+      select(store, accountB, 80_000)
+    })
+    act(() => {
+      overLimit(accountA)
+    })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(3))
+    expect(result.current.error).toBe('')
+    expect(result.current.availableAmount).toBe('--')
+  })
+
+  it('does not cache a read its screen abandoned', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    const walkA = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
+    select(store, accountA, 70_000)
+    const screenA = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1))
+    screenA.unmount()
+
+    await act(async () => {
+      walkA.resolve(snapshotOf(accountA, outputsOf(accountA, 'aa', [70_000])))
+      await walkA.promise
+    })
+    expect(store.getState().transactions.utxos).toEqual([])
+    expect(store.getState().transactions.utxosAddress).toBeNull()
+  })
+
+  it('does not cache an answer for an account that is no longer selected', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    select(store, accountA, 70_000)
+    const walkA = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(walkA.promise)
+    const { result } = renderHook(() => useFetchUtxosCallback(), { wrapper })
+    const read = result.current()
+
+    act(() => {
+      select(store, accountB, 80_000)
+    })
+    const outputsA = outputsOf(accountA, 'aa', [70_000])
+    walkA.resolve(snapshotOf(accountA, outputsA))
+    // Its caller asked for A and still gets A's outputs.
+    await expect(read).resolves.toEqual(snapshotOf(accountA, outputsA))
+    expect(store.getState().transactions.utxos).toEqual([])
+    expect(store.getState().transactions.utxosAddress).toBeNull()
+  })
+
+  it('caches only the newer read when two reads finish out of order', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    select(store, accountA, 70_000)
+    const older = deferred<any>()
+    const newer = deferred<any>()
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
+    const { result } = renderHook(() => useFetchUtxosCallback(), { wrapper })
+    const olderRead = result.current()
+    const newerRead = result.current()
+
+    const newerOutputs = outputsOf(accountA, 'a2', [60_000])
+    newer.resolve(snapshotOf(accountA, newerOutputs))
+    await newerRead
+    expect(store.getState().transactions.utxos).toEqual(newerOutputs)
+
+    const olderOutputs = outputsOf(accountA, 'a1', [70_000])
+    older.resolve(snapshotOf(accountA, olderOutputs))
+    await expect(olderRead).resolves.toEqual(snapshotOf(accountA, olderOutputs))
+    expect(store.getState().transactions.utxos).toEqual(newerOutputs)
+    expect(store.getState().transactions.utxosAddress).toBe(accountA.address)
+  })
+
+  it("caches an earlier read's answer when the later read fails", async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    select(store, accountA, 70_000)
+    const older = deferred<any>()
+    wallet.getQbitUtxoSnapshot
+      .mockReturnValueOnce(older.promise)
+      .mockRejectedValueOnce(new Error('explorer unavailable'))
+    const { result } = renderHook(() => useFetchUtxosCallback(), { wrapper })
+    const olderRead = result.current()
+    await expect(result.current()).rejects.toThrow('explorer unavailable')
+
+    const outputs = outputsOf(accountA, 'a1', [70_000])
+    older.resolve(snapshotOf(accountA, outputs))
+    await olderRead
+    expect(store.getState().transactions.utxos).toEqual(outputs)
+    expect(store.getState().transactions.utxosAddress).toBe(accountA.address)
+  })
+
+  it('refuses an answer for an account or network other than the ones it asked for', async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    select(store, accountA, 70_000)
+    // The background had already moved to B, or to another network, say
+    // from another window.
+    wallet.getQbitUtxoSnapshot
+      .mockResolvedValueOnce(snapshotOf(accountB, outputsOf(accountB, 'bb', [50_000])))
+      .mockResolvedValueOnce({
+        ...snapshotOf(accountA, outputsOf(accountA, 'aa', [70_000])),
+        chain: ChainType.QBIT_TESTNET4,
+      })
+    const { result } = renderHook(() => useFetchUtxosCallback(), { wrapper })
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(result.current()).rejects.toThrow(
+        'The selected account or network changed while its outputs were loading'
+      )
+    }
+    expect(store.getState().transactions.utxos).toEqual([])
+  })
+
+  it("prepare send reloads a cache that holds another account's outputs instead of spending them", async () => {
+    const { store, wallet, wrapper } = createHookTestHarness()
+    // Non-empty and on the active network, but A's.
+    store.dispatch(
+      transactionsActions.setUtxos(snapshotOf(accountA, outputsOf(accountA, 'aa', [70_000])))
+    )
+    select(store, accountB, 50_000)
+    const outputsB = outputsOf(accountB, 'bb', [50_000])
+    wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(snapshotOf(accountB, outputsB))
+    wallet.createSendQbitPsbt.mockResolvedValue({ psbtHex: 'prepared' } as any)
+    const { result } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
+
+    await act(async () => {
+      await result.current({ toAddressInfo: { address: recipient }, toAmount: 10_000, feeRate: 1 })
+    })
+    expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+    expect(wallet.createSendQbitPsbt).toHaveBeenCalledWith(
+      expect.objectContaining({ qbitUtxos: outputsB, qbitUtxoChain: ChainType.QBIT_MAINNET })
+    )
+    expect(store.getState().transactions.utxosAddress).toBe(accountB.address)
+  })
+})
+
+describe('TxCreateScreen spend total and fee warning (#271)', () => {
+  const LIVE_QUOTE = {
+    list: [
+      { title: 'Slow', desc: '', feeRate: 1 },
+      { title: 'Normal', desc: '', feeRate: 1 },
+      { title: 'Fast', desc: '', feeRate: 2 },
+    ],
+    quote: { source: 'mempool-qbit', availability: 'available', freshness: 'live' },
+  }
+  const FALLBACK_QUOTE = {
+    list: LIVE_QUOTE.list.map(tier => ({ ...tier, feeRate: 1 })),
+    quote: {
+      source: 'mempool-qbit',
+      availability: 'unavailable',
+      freshness: 'fallback',
+      fallbackReason: 'unavailable',
+    },
+  }
+
+  function renderSend({ feeRate, quote }: { feeRate: number; quote: unknown }) {
+    const account = p2mrAccount()
+    const { wrapper: baseWrapper, store, wallet } = createHookTestHarness()
+    const t = (key: string, substitutions?: string | string[] | Record<string, string | number>) =>
+      Array.isArray(substitutions) ? `${key}:${substitutions.join(',')}` : key
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        I18nContext.Provider,
+        {
+          value: {
+            t,
+            locale: 'en',
+            supportedLocales: [],
+            localeNames: {},
+            changeLocale: async () => {},
+            isSpecialLocale: false,
+          },
+        },
+        createElement(baseWrapper, { children })
+      )
+    const utxos = [
+      {
+        txid: 'c7'.repeat(32),
+        vout: 0,
+        satoshis: 10_000_000,
+        scriptPk: account.p2mr.scriptPubKey,
+        pubkey: account.pubkey,
+        addressType: AddressType.P2MR,
+      } as any,
+    ]
+    wallet.getFeeSummary.mockResolvedValue(quote)
+    wallet.getQbitUtxoSnapshot.mockResolvedValue({
+      address: account.address,
+      chain: ChainType.QBIT_MAINNET,
+      utxos,
+    })
+    store.dispatch(accountActions.setCurrent(account))
+    store.dispatch(
+      accountActions.setBalanceV2({
+        address: account.address,
+        balance: {
+          availableBalance: 10_000_000,
+          unavailableBalance: 0,
+          totalBalance: 10_000_000,
+          chainType: ChainType.QBIT_MAINNET,
+        },
+      })
+    )
+    store.dispatch(
+      transactionsActions.setUtxos({
+        address: account.address,
+        chain: ChainType.QBIT_MAINNET,
+        utxos,
+      })
+    )
+    store.dispatch(
+      (uiActions as any).updateFeeRateBar({
+        feeRate,
+        feeRateInputVal: String(feeRate),
+        feeOptionIndex: 3,
+      })
+    )
+    const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
+    const rendered = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    act(() => {
+      rendered.result.current.onAddressInputChange({ address: recipient, domain: '' })
+    })
+    return { ...rendered, store }
+  }
+
+  it('shows the amount plus fee leaving the wallet and no warning at a recommended rate', async () => {
+    const { result } = renderSend({ feeRate: 1, quote: LIVE_QUOTE })
+    act(() => {
+      result.current.onAmountInputChange('0.00100000')
+    })
+
+    await waitFor(() => {
+      expect(result.current.spendSummary).toEqual({
+        totalSpend: '0.00103860',
+        feeWarningTitle: undefined,
+        feeWarnings: [],
+        feeRecommendationUnavailable: undefined,
+      })
+    })
+    expect(result.current.disabled).toBe(false)
+  })
+
+  it('names each reason a 400x custom rate is abnormal without blocking Next', async () => {
+    const { result } = renderSend({ feeRate: 400, quote: LIVE_QUOTE })
+    act(() => {
+      result.current.onAmountInputChange('0.00100000')
+    })
+
+    await waitFor(() => {
+      expect(result.current.spendSummary).toEqual({
+        totalSpend: '0.01644000',
+        feeWarningTitle: 'the_fee_rate_is_much_higher_than_recommended_fee_rate',
+        feeWarnings: [
+          'fee_warning_above_recommended:400,200,2',
+          'fee_warning_above_relay_floor:400,400,1',
+          'fee_warning_amount_share:1544,0.00100000,QBT',
+        ],
+        feeRecommendationUnavailable: undefined,
+      })
+    })
+    // The confirm screen asks for an explicit confirmation of the same risk.
+    expect(result.current.disabled).toBe(false)
+  })
+
+  it('says the fee was not compared with live rates when the quote is unavailable', async () => {
+    const { result } = renderSend({ feeRate: 400, quote: FALLBACK_QUOTE })
+    act(() => {
+      result.current.onAmountInputChange('0.00100000')
+    })
+
+    await waitFor(() => {
+      expect(result.current.spendSummary).toEqual({
+        totalSpend: '0.01644000',
+        feeWarningTitle: 'high_fee_rate_risk_title',
+        feeWarnings: [
+          'fee_warning_above_relay_floor:400,400,1',
+          'fee_warning_amount_share:1544,0.00100000,QBT',
+        ],
+        feeRecommendationUnavailable: 'fee_warning_recommendation_unavailable',
+      })
+    })
+  })
+
+  it('counts the whole selection, fee included, for a send-all', async () => {
+    const { result } = renderSend({ feeRate: 1, quote: LIVE_QUOTE })
+    act(() => {
+      result.current.onAmountMaxClick()
+    })
+
+    await waitFor(() => {
+      expect(result.current.spendSummary?.totalSpend).toBe('0.10000000')
+    })
+    expect(result.current.spendSummary?.feeWarnings).toEqual([])
+  })
+
+  it('counts only the fee as leaving when the recipient is another of the wallet’s accounts', async () => {
+    const { result, store } = renderSend({ feeRate: 1, quote: LIVE_QUOTE })
+    const otherAccount = { ...p2mrAccount('44'.repeat(32)), key: 'qbit-account-2' }
+    act(() => {
+      store.dispatch(
+        keyringsActions.setKeyrings([
+          { key: 'keyring-2', index: 1, type: KeyringType.QbitHdKeyring, accounts: [otherAccount] },
+        ] as any)
+      )
+      result.current.onAddressInputChange({ address: otherAccount.address, domain: '' })
+      result.current.onAmountInputChange('0.00100000')
+    })
+
+    await waitFor(() => {
+      expect(result.current.spendSummary?.totalSpend).toBe('0.00003860')
+    })
+    expect(result.current.spendSummary?.feeWarnings).toEqual([])
   })
 })

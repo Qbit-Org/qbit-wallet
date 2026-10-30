@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { verifyArtifactManifests } = require('./deterministic-package');
@@ -7,11 +8,14 @@ const { getPackageArtifactName, removePackageArtifact } = require('./package-art
 const {
   assertArchiveManifestEntryList,
   assertBundledPqcWasmHash,
+  assertNoBuildHostPaths,
   assertSecureArchiveEntries,
-  assertSecureMv3Manifest
+  assertSecureMv3Manifest,
+  collectBuildHostDirectories
 } = require('./package-artifact-validation');
 
 const extensionDir = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(extensionDir, '../..');
 const packageJsonPath = path.join(extensionDir, 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const packageVersion = packageJson.version;
@@ -130,12 +134,18 @@ try {
     path.join(extensionDir, 'dist', 'chrome')
   );
   assertArchiveManifestEntryList(archiveEntries, artifactManifest);
+  const buildHostDirectories = collectBuildHostDirectories([
+    { label: 'builder checkout path', path: repoRoot },
+    { label: 'builder home directory', path: os.homedir() },
+    { label: 'builder home directory', path: process.env.HOME }
+  ]);
   for (const entry of artifactManifest.entries) {
     const contents = run('unzip', ['-p', artifactPath, entry.path], { encoding: null });
     const entrySha256 = crypto.createHash('sha256').update(contents).digest('hex');
     if (contents.length !== entry.size || entrySha256 !== entry.sha256) {
       fail(`packaged entry does not match SHA-256 manifest: ${entry.path}`);
     }
+    assertNoBuildHostPaths(entry.path, contents, buildHostDirectories);
   }
   const pqcWasm = run('unzip', ['-p', artifactPath, 'wasm/pqc.wasm'], { encoding: null });
   const pqcSums = fs.readFileSync(

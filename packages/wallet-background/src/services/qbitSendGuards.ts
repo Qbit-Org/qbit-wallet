@@ -70,7 +70,9 @@ interface QbitSendClaimOwnership {
   /**
    * The last dispatched verdict may hide an accepted transaction. Such a
    * claim is never released on the owner's behalf: a second send over its
-   * inputs could replace a payment the node already holds.
+   * inputs could replace a payment the node already holds. Once its owner
+   * is gone it is consumed into recent spends instead, which keep the inputs
+   * reserved until a lifecycle probe settles the transaction.
    */
   inconclusive: boolean
 }
@@ -107,6 +109,13 @@ export const QBIT_RECENT_SPEND_LIMIT = 1024
 
 /** How many earlier spenders of one input are kept behind the current one. */
 const QBIT_RECENT_SPEND_HISTORY = 3
+
+/**
+ * At most this many transactions the user approved signing for a dapp are
+ * remembered (see `QbitSendGuardService.recordProviderSigning`); beyond it
+ * the oldest go first.
+ */
+export const QBIT_PROVIDER_SIGNING_LIMIT = 256
 
 /**
  * An input a broadcast from this wallet spent, or may have spent (the
@@ -148,9 +157,9 @@ export interface QbitRecentSpendProbe {
   txid: string
   probedAt: number
   /**
-   * The last recording made before the probe was handed out. A record made
-   * after it, even within the same millisecond, is newer than anything the
-   * probe can have seen.
+   * The last recording (of a spent input or a claim) made before the probe
+   * was handed out. A record or claim made after it, even within the same
+   * millisecond, is newer than anything the probe can have seen.
    */
   sequence: number
 }
@@ -232,13 +241,34 @@ function normalizeBroadcastClaim(value: unknown): QbitSendBroadcastClaim | undef
   if (outpoints.length === 0 || outpoints.length !== claim.outpoints.length) return
   if (new Set(outpoints.map(outpointKey)).size !== outpoints.length) return
 
-  return {
+  const normalized: QbitSendBroadcastClaim = {
     chain: claim.chain!,
     address: claim.address,
     origin: claim.origin,
     txid: claim.txid,
     outpoints,
   }
+  // Only the wallet's own claims name the transaction they replace; a
+  // provider claim's is dropped, so it can never pass for a fee bump.
+  if (claim.origin === QBIT_WALLET_SEND_CLAIM_ORIGIN && claim.replaces !== undefined) {
+    if (claim.replaces !== null && !isTxid(claim.replaces)) return
+    normalized.replaces = claim.replaces
+    // A fee bump's broadcast checks what spends each output of the original,
+    // as many as its assessment counted; a bump without that count could
+    // only be checked by reading the original's bytes again, so it is no
+    // claim at all, and neither signed, restored nor broadcast.
+    if (claim.replaces !== null) {
+      const count = claim.replacedOutputCount
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) return
+      normalized.replacedOutputCount = count
+    }
+  }
+  return normalized
+}
+
+/** The transaction a normalized claim's fee bump replaces, if it is one. */
+function replacedTxidOf(claim: QbitSendBroadcastClaim): string | undefined {
+  return claim.replaces ?? undefined
 }
 
 /** `claim`, normalized, when it authorized exactly `txid` on `chain`; else nothing. */
@@ -383,11 +413,12 @@ export class QbitSendGuardService {
    */
   private recentSpends = new Map<string, QbitRecentSpend>()
   /**
-   * The txid a held wallet-owned claim deliberately replaces (a fee bump),
-   * keyed like the claims and dropped with them: the only claim allowed to
-   * spend inputs that transaction recently spent.
+   * When each held claim was registered, in the recording order of recent
+   * spends (see `QbitRecentSpendProbe.sequence`), keyed like the claims and
+   * dropped with them. A probe settles only a claim registered before it
+   * was handed out, which its answer can speak for.
    */
-  private replacedTxids = new Map<string, string>()
+  private claimSequences = new Map<string, number>()
   /**
    * The provider sendQbit requests still being decided, each with the claim
    * its approval carries. A provider claim is registered only while the
@@ -400,6 +431,14 @@ export class QbitSendGuardService {
   private providerSendRequests = new Map<QbitProviderSendRequest, QbitSendBroadcastClaim>()
   /** The provider request each held provider claim is filed under, keyed like the claims. */
   private providerClaimRequests = new Map<string, QbitProviderSendRequest>()
+  /**
+   * Transactions the user approved signing for a dapp (provider signPsbt and
+   * signPsbts), keyed like the claims, oldest first. A dapp's own broadcast
+   * of one through the wallet that ends without a verdict keeps its inputs
+   * reserved (see `recordInconclusiveProviderPush`). Memory only, like the
+   * claims, and bounded by `QBIT_PROVIDER_SIGNING_LIMIT`.
+   */
+  private providerSignings = new Set<string>()
   private recentSpendSequence = 0
   private nextExternalSigningLockId = 0
   private nextProviderSendRequestId = 0
@@ -411,9 +450,10 @@ export class QbitSendGuardService {
     this.ownership.clear()
     this.decidedClaimKeys.clear()
     this.recentSpends.clear()
-    this.replacedTxids.clear()
+    this.claimSequences.clear()
     this.providerSendRequests.clear()
     this.providerClaimRequests.clear()
+    this.providerSignings.clear()
   }
 
   /**
@@ -494,6 +534,14 @@ export class QbitSendGuardService {
    * are touched,
    * so a probe that started before the same transaction was recorded again
    * cannot free the newer record.
+   *
+   * A spender found pending or confirmed is in the network's hands, so a
+   * claim still held for exactly that transaction is decided too (see
+   * `settleClaimFoundNow`), and a fee bump may then replace it. A gone
+   * answer never releases a held claim, nor drops its transaction's records,
+   * so later probes keep watching for it: its owner may still retry the
+   * bytes, and once the owner is gone the claim is consumed into recent
+   * spends, which such answers settle.
    */
   settleRecentSpendProbe(
     chain: ChainType,
@@ -501,6 +549,10 @@ export class QbitSendGuardService {
     state: 'confirmed' | 'pending' | 'gone'
   ): Promise<void> {
     return this.enqueue(async () => {
+      if (state !== 'gone') this.settleClaimFoundNow(chain, probe, state)
+      const claimHeld = this.broadcastClaims.some(
+        item => item.chain === chain && item.txid === probe.txid
+      )
       for (const [key, spend] of this.recentSpends) {
         if (spend.chain !== chain || spend.spender !== probe.txid) continue
         if (state === 'pending') {
@@ -510,7 +562,7 @@ export class QbitSendGuardService {
         if (spend.sequence > probe.sequence) continue
         if (state === 'confirmed') {
           this.recentSpends.delete(key)
-        } else if (probe.probedAt - spend.liveAt >= QBIT_RECENT_SPEND_GONE_GRACE_MS) {
+        } else if (!claimHeld && probe.probedAt - spend.liveAt >= QBIT_RECENT_SPEND_GONE_GRACE_MS) {
           this.fallBackRecentSpendNow(key, spend)
         }
       }
@@ -690,6 +742,54 @@ export class QbitSendGuardService {
     })
   }
 
+  /**
+   * The user approved signing `txid` on `chain` for a dapp, which now holds
+   * bytes it can broadcast. Remembered so that the dapp's broadcast of that
+   * transaction through the wallet keeps its inputs reserved when it ends
+   * without a verdict (`recordInconclusiveProviderPush`). Recording the same
+   * transaction again makes it the newest.
+   */
+  recordProviderSigning(chain: ChainType, txid: string): Promise<void> {
+    if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
+      return Promise.reject(new Error('invalid Qbit transaction'))
+    }
+    return this.enqueue(async () => {
+      const key = claimKey({ chain, txid })
+      this.providerSignings.delete(key)
+      this.providerSignings.add(key)
+      for (const oldest of this.providerSignings) {
+        if (this.providerSignings.size <= QBIT_PROVIDER_SIGNING_LIMIT) return
+        this.providerSignings.delete(oldest)
+      }
+    })
+  }
+
+  /**
+   * A dapp's claim-less broadcast of `txid` (provider pushTx or pushPsbt)
+   * was dispatched and ended without a verdict: the node may hold it. Its
+   * inputs are recorded as possibly spent, as `recordInconclusiveBroadcast`
+   * records a dispatched broadcast's, only when the user approved signing
+   * that transaction for a dapp (`recordProviderSigning`). A push needs no
+   * approval, and a dapp can push any bytes over the account's public
+   * outputs, so reserving the inputs of any other push would let it keep
+   * the user's funds frozen. Resolves to whether the inputs were recorded.
+   */
+  recordInconclusiveProviderPush(
+    chain: ChainType,
+    txid: string,
+    outpoints: readonly QbitOutpoint[]
+  ): Promise<boolean> {
+    if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
+      return Promise.reject(new Error('invalid Qbit transaction broadcast'))
+    }
+    assertValidOutpoints(outpoints)
+    return this.enqueue(async () => {
+      if (!this.providerSignings.has(claimKey({ chain, txid }))) return false
+      this.recordSpendNow(chain, txid, outpoints, undefined)
+      return true
+    })
+  }
+
   acquireExternalSigningLock(
     identity: QbitExternalSigningLockIdentity
   ): Promise<QbitExternalSigningLock> {
@@ -818,15 +918,11 @@ export class QbitSendGuardService {
   runWithBroadcastClaim<T>(
     claim: QbitSendBroadcastClaim,
     operation: () => Promise<T>,
-    owner?: QbitSendClaimOwner,
-    replaces?: string
+    owner?: QbitSendClaimOwner
   ): Promise<T> {
     return this.enqueue(async () => {
       const normalized = this.normalizeAvailableBroadcastClaim(claim)
-      const replacedTxid =
-        normalized.origin === QBIT_WALLET_SEND_CLAIM_ORIGIN && isTxid(replaces)
-          ? replaces
-          : undefined
+      const replacedTxid = replacedTxidOf(normalized)
       if (replacedTxid) this.assertNoDependentSpendNow(normalized.chain as ChainType, replacedTxid)
       this.assertNoRecentSpendConflictNow(
         normalized.chain as ChainType,
@@ -835,7 +931,6 @@ export class QbitSendGuardService {
         replacedTxid
       )
       this.replaceBroadcastClaims([...this.broadcastClaims, normalized])
-      if (replacedTxid) this.replacedTxids.set(claimKey(normalized), replacedTxid)
       this.adoptClaim(normalized, owner)
       return this.keepClaimIfResolved(normalized, operation)
     })
@@ -950,9 +1045,10 @@ export class QbitSendGuardService {
 
   /**
    * Record what a broadcast attempt concluded and, once no attempt is in
-   * flight and the owner is gone, release the claim unless the transaction
-   * may already be in the node's hands. An `accepted` attempt has already
-   * consumed the claim, so there is nothing left to decide.
+   * flight and the owner is gone, decide the claim: it is released, or
+   * consumed into recent spends when the transaction may already be in the
+   * node's hands (see `releaseIfOrphaned`). An `accepted` attempt has
+   * already consumed the claim, so there is nothing left to decide.
    */
   settleBroadcastAttempt(
     claim: QbitSendBroadcastClaim,
@@ -973,11 +1069,13 @@ export class QbitSendGuardService {
 
   /**
    * The UI port `owner` disconnected. Every wallet-owned claim it holds
-   * whose bytes no broadcast is still deciding is released now; one with
-   * an attempt in flight is released by that attempt's settle, and one
-   * whose last dispatched verdict was inconclusive stays reserved (the
-   * inputs may be spent by a transaction the node holds), as it would had
-   * the recovery screen been left on that verdict.
+   * whose bytes no broadcast is still deciding is decided now; one with an
+   * attempt in flight is decided by that attempt's settle. A claim whose
+   * last dispatched verdict was inconclusive keeps its inputs reserved (they
+   * may be spent by a transaction the node holds), but as recent spends
+   * rather than as a claim, so lifecycle probes settle it and a fee bump may
+   * replace its transaction; any other is released (see
+   * `releaseIfOrphaned`).
    */
   releaseClaimsOwnedBy(owner: QbitSendClaimOwner): Promise<void> {
     return this.enqueue(async () => {
@@ -986,6 +1084,29 @@ export class QbitSendGuardService {
         record.ownerGone = true
         this.releaseIfOrphaned(key)
       }
+    })
+  }
+
+  /**
+   * The page behind UI port `owner` dropped `claim`'s signed bytes without
+   * a proven verdict (the recovery screen was left on an unknown outcome)
+   * while the port itself stays open. The claim is decided as if that port
+   * had disconnected (see `releaseClaimsOwnedBy`), and only when `owner`
+   * still owns it: a page that has since broadcast the claim itself holds
+   * the bytes now. A claim no UI port owns (a provider claim, which its
+   * request decides, or one minted outside a UI port) is left alone.
+   */
+  abandonBroadcastClaim(claim: QbitSendBroadcastClaim, owner?: QbitSendClaimOwner): Promise<void> {
+    return this.enqueue(async () => {
+      const normalized = normalizeBroadcastClaim(claim)
+      if (!normalized || normalized.origin !== QBIT_WALLET_SEND_CLAIM_ORIGIN) return
+      const held = this.broadcastClaims.find(item => sameBroadcastClaim(item, normalized))
+      if (!held) return
+      const key = claimKey(held)
+      const record = this.ownership.get(key)
+      if (!record || record.owner !== owner) return
+      record.ownerGone = true
+      this.releaseIfOrphaned(key)
     })
   }
 
@@ -1017,6 +1138,13 @@ export class QbitSendGuardService {
    * `settleBroadcastAttempt`. Nothing is registered unless `restored`, and
    * a claim over inputs a recent broadcast of another transaction spent is
    * `refused`.
+   *
+   * A fee bump's claim names the transaction it `replaces`, and is restored
+   * under the checks its minting applied: it is `refused` while a later
+   * payment spends that transaction, and its broadcast checks again (see
+   * `broadcastIfAllowed`). A claim that names nothing either way was minted
+   * before claims carried the field and may be a bump that would evict
+   * such a payment, so it is `refused`.
    */
   restoreBroadcastClaim(
     claim: QbitSendBroadcastClaim,
@@ -1026,16 +1154,22 @@ export class QbitSendGuardService {
     return this.enqueue(async () => {
       const normalized = normalizeBroadcastClaim(claim)
       if (!normalized || normalized.origin !== QBIT_WALLET_SEND_CLAIM_ORIGIN) return 'refused'
+      if (normalized.replaces === undefined) return 'refused'
       const key = claimKey(normalized)
       if (this.decidedClaimKeys.has(key)) return 'refused'
       if (this.broadcastClaims.some(item => claimKey(item) === key)) return 'refused'
       if (normalized.address !== address) return 'address_mismatch'
+      const replacedTxid = replacedTxidOf(normalized)
       try {
         this.assertNoOverlapNow(normalized.chain as ChainType, normalized.outpoints)
+        if (replacedTxid) {
+          this.assertNoDependentSpendNow(normalized.chain as ChainType, replacedTxid)
+        }
         this.assertNoRecentSpendConflictNow(
           normalized.chain as ChainType,
           normalized.txid,
-          normalized.outpoints
+          normalized.outpoints,
+          replacedTxid
         )
       } catch {
         return 'refused'
@@ -1047,11 +1181,25 @@ export class QbitSendGuardService {
     })
   }
 
+  /**
+   * Run `broadcast` for `txid` unless its inputs are claimed by another
+   * send, externally locked, or spent by a recent broadcast of another
+   * transaction; `claim`, when given, must be the held claim for exactly
+   * this transaction, and is consumed once `broadcast` resolves.
+   *
+   * A fee bump's claim hands `broadcast` the txid it replaces, and how many
+   * outputs that transaction has, after the guard's own records showed no
+   * later payment spending it.
+   * Those records cannot show a payment made elsewhere (another wallet on
+   * the same seed, or a recipient spending their output), so `broadcast`
+   * must check the explorer for one before it dispatches, and reject to
+   * keep the bump from going out.
+   */
   broadcastIfAllowed<T>(
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    broadcast: () => Promise<T>,
+    broadcast: (replaces?: string, replacedOutputCount?: number) => Promise<T>,
     claim?: QbitSendBroadcastClaim
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
@@ -1098,11 +1246,14 @@ export class QbitSendGuardService {
       if (overlappingExternalLocks.length > 0) {
         throw new Error('Qbit transaction spends an input locked by an external signing approval')
       }
-      const replacedTxid = exactClaim ? this.replacedTxids.get(claimKey(exactClaim)) : undefined
+      const replacedTxid = exactClaim ? replacedTxidOf(exactClaim) : undefined
       if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid)
       this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replacedTxid)
 
-      const result = await broadcast()
+      const result =
+        replacedTxid === undefined
+          ? await broadcast(replacedTxid)
+          : await broadcast(replacedTxid, exactClaim?.replacedOutputCount)
       // The claim is consumed, but its inputs stay reserved as recently
       // spent: the explorer may keep listing them for a while yet.
       this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)
@@ -1121,6 +1272,7 @@ export class QbitSendGuardService {
       this.externalSigningLocks = []
       this.recentSpends.clear()
       this.providerSendRequests.clear()
+      this.providerSignings.clear()
     })
   }
 
@@ -1129,7 +1281,8 @@ export class QbitSendGuardService {
    * outlives its claim: a consumed, released, or reset claim drops its
    * record, and a later settle for it finds nothing to decide. The same
    * claim's key is recorded as decided, so it is never restored from a
-   * UI's copy.
+   * UI's copy. A newly registered claim takes its place in the recording
+   * order (see `claimSequences`).
    */
   private replaceBroadcastClaims(next: QbitSendBroadcastClaim[]): void {
     const live = new Set(next.map(claimKey))
@@ -1138,11 +1291,14 @@ export class QbitSendGuardService {
       if (!live.has(key)) this.decidedClaimKeys.add(key)
     }
     this.broadcastClaims = next
+    for (const key of live) {
+      if (!this.claimSequences.has(key)) this.claimSequences.set(key, ++this.recentSpendSequence)
+    }
+    for (const key of this.claimSequences.keys()) {
+      if (!live.has(key)) this.claimSequences.delete(key)
+    }
     for (const key of this.ownership.keys()) {
       if (!live.has(key)) this.ownership.delete(key)
-    }
-    for (const key of this.replacedTxids.keys()) {
-      if (!live.has(key)) this.replacedTxids.delete(key)
     }
     for (const key of this.providerClaimRequests.keys()) {
       if (!live.has(key)) this.providerClaimRequests.delete(key)
@@ -1312,8 +1468,9 @@ export class QbitSendGuardService {
    * A fee bump of `replaces` is assessed against the transactions spending
    * its original's outputs, but a send can take the original's change while
    * the bump waits to be signed or broadcast. Admitting its claim (before a
-   * local key signs it, after an external signer has) and broadcasting it
-   * check again, in the same step that admits the claim or the broadcast.
+   * local key signs it, after an external signer has, or when a restart
+   * left only the page's copy) and broadcasting it check again, in the same
+   * step that admits the claim or the broadcast.
    */
   private assertNoDependentSpendNow(chain: ChainType, replaces: string): void {
     if (this.hasDependentSpendNow(chain, replaces)) {
@@ -1353,10 +1510,56 @@ export class QbitSendGuardService {
     return created
   }
 
+  /**
+   * Decide the claim at `key` once its owner is gone and no broadcast
+   * attempt is in flight. Its bytes went with the page, so nothing can
+   * retry them: a claim whose last dispatched verdict was inconclusive is
+   * consumed into recent spends, which keep its inputs reserved until a
+   * lifecycle probe finds its transaction confirmed or gone (or the
+   * backstop expires them), and any other is released.
+   */
   private releaseIfOrphaned(key: string): void {
     const record = this.ownership.get(key)
-    if (!record || !record.ownerGone || record.attempts > 0 || record.inconclusive) return
-    this.replaceBroadcastClaims(this.broadcastClaims.filter(item => claimKey(item) !== key))
+    if (!record || !record.ownerGone || record.attempts > 0) return
+    const held = this.broadcastClaims.find(item => claimKey(item) === key)
+    if (!held) return
+    if (record.inconclusive) {
+      this.consumeHeldClaimNow(held)
+    } else {
+      this.replaceBroadcastClaims(this.broadcastClaims.filter(item => item !== held))
+    }
+  }
+
+  /**
+   * Probe `probe` found its spender `state` on `chain`: the network holds
+   * that transaction, so a wallet-owned claim still held for exactly it is
+   * decided. A pending one is consumed into recent spends, as a status
+   * check finding it would consume it, and a confirmed one is dropped,
+   * since a block spends its inputs for good. Only a claim registered
+   * before the probe was handed out: a later one may be for the same bytes
+   * signed again after the transaction left the mempool, which the answer
+   * cannot speak for. A provider claim is left to its request's settlement.
+   */
+  private settleClaimFoundNow(
+    chain: ChainType,
+    probe: QbitRecentSpendProbe,
+    state: 'confirmed' | 'pending'
+  ): void {
+    const held = this.broadcastClaims.find(item => item.chain === chain && item.txid === probe.txid)
+    const registered = held ? this.claimSequences.get(claimKey(held)) : undefined
+    if (
+      !held ||
+      held.origin !== QBIT_WALLET_SEND_CLAIM_ORIGIN ||
+      registered === undefined ||
+      registered > probe.sequence
+    ) {
+      return
+    }
+    if (state === 'pending') {
+      this.consumeHeldClaimNow(held)
+    } else {
+      this.replaceBroadcastClaims(this.broadcastClaims.filter(item => item !== held))
+    }
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

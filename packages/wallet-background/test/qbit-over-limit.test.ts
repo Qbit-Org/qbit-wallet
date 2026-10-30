@@ -174,6 +174,10 @@ describe('outputs of an address over the explorer UTXO limit (#277)', () => {
     const pagesBefore = pageRequests(explorer)
     await expect(getQbitSpendableBalanceV2(client, address)).resolves.toMatchObject({
       utxoLimitExceeded: true,
+      // Unknown, not a measured 0 (#341).
+      availableBalance: null,
+      immatureBalance: null,
+      pendingBalance: null,
       totalBalance:
         explorer.stats(address).chain_stats.funded_txo_sum -
         explorer.stats(address).chain_stats.spent_txo_sum +
@@ -417,6 +421,100 @@ describe('resumable output scan for consolidation (#277)', () => {
     })
     expect(scan.candidates.size).toBe(candidates)
     expect(scan.pagesRead).toBe(1)
+  })
+})
+
+describe('output scan past a page of mempool rows on qbit-electrs (#343)', () => {
+  /** `count` more pending payments to the address, from someone else. */
+  function addPendingPayments(explorer: FakeQbitExplorer, count: number): FakeTx[] {
+    return Array.from({ length: count }, (_, index) =>
+      explorer.addTx({
+        txid: fakeTxid(index, 9_000_000),
+        inputs: [{ txid: fakeTxid(index, 9_500_000), vout: 0 }],
+        outputs: [{ address, script, value: 3_000 }],
+      })
+    )
+  }
+
+  /** The over-limit fixture with exactly one combined page (50 rows) of mempool rows. */
+  function fullMempoolPage() {
+    const fixture = overLimitExplorer('mempool-qbit')
+    const { explorer } = fixture
+    explorer.emptyPageAfterLastMempoolRow = true
+    const pending = () => explorer.history(address).filter(tx => tx.height === undefined)
+    addPendingPayments(explorer, 50 - pending().length)
+    expect(pending()).toHaveLength(50)
+    return { ...fixture, lastMempoolRow: pending().at(-1)!, rowBefore: pending().at(-2)! }
+  }
+
+  it('reads on into the confirmed rows when the page after the last mempool row is empty', async () => {
+    const { explorer, lastMempoolRow, rowBefore } = fullMempoolPage()
+    const client = clientFor(explorer)
+    // The explorer does answer the last mempool row's cursor with nothing.
+    await expect(client.getAddressHistoryPage(address, lastMempoolRow.txid)).resolves.toEqual([])
+    const scan = createQbitAddressOutputScan(address)
+
+    await continueQbitAddressOutputScan(client, scan, { maxPages: 1_000 })
+
+    expect(scan.exhausted).toBe(true)
+    expect(new Set(scan.candidates.keys())).toEqual(
+      explorer.unspent(address, { confirmedOnly: true })
+    )
+    expect(scan.candidates.size).toBeGreaterThan(500)
+    // It stepped back one row, to the cursor that lists the mempool row again.
+    const pages = explorer.requests.map(request => request.path).filter(path => /\/txs/.test(path))
+    expect(pages.slice(1, 4)).toEqual([
+      `/address/${address}/txs`,
+      `/address/${address}/txs?after_txid=${lastMempoolRow.txid}`,
+      `/address/${address}/txs?after_txid=${rowBefore.txid}`,
+    ])
+  })
+
+  it('reads on when a call ends on the empty page and the next continues', async () => {
+    const { explorer } = fullMempoolPage()
+    const client = clientFor(explorer)
+    const scan = createQbitAddressOutputScan(address)
+
+    for (let calls = 0; calls < 100 && !scan.exhausted; calls += 1) {
+      await continueQbitAddressOutputScan(client, scan, { maxPages: 1 })
+    }
+
+    expect(scan.exhausted).toBe(true)
+    expect(new Set(scan.candidates.keys())).toEqual(
+      explorer.unspent(address, { confirmedOnly: true })
+    )
+  })
+
+  it('ends at the last mempool row of an address with no confirmed history', async () => {
+    const explorer = new FakeQbitExplorer('mempool-qbit')
+    explorer.emptyPageAfterLastMempoolRow = true
+    addPendingPayments(explorer, 50)
+    const scan = createQbitAddressOutputScan(address)
+
+    const read = await continueQbitAddressOutputScan(clientFor(explorer), scan, {
+      maxPages: 1_000,
+    })
+
+    // The full page, the empty one, and the stepped-back page holding the last row alone.
+    expect(read).toBe(3)
+    expect(scan.exhausted).toBe(true)
+    expect(scan.candidates.size).toBe(0)
+  })
+
+  it('refuses a stepped-back page that does not start with the row it stepped back over', async () => {
+    const { explorer, lastMempoolRow } = fullMempoolPage()
+    const client = clientFor(explorer)
+    const scan = createQbitAddressOutputScan(address)
+    await continueQbitAddressOutputScan(client, scan, { maxPages: 2 })
+    expect(scan.exhausted).toBe(false)
+    const snapshot = { ...scan, candidates: scan.candidates.size, spent: scan.spent.size }
+    // The last mempool row leaves the mempool, so the row before it is now last.
+    explorer.removeTx(lastMempoolRow.txid)
+
+    await expect(
+      continueQbitAddressOutputScan(client, scan, { maxPages: 1 })
+    ).rejects.toMatchObject({ kind: 'invalid_cursor' })
+    expect({ ...scan, candidates: scan.candidates.size, spent: scan.spent.size }).toEqual(snapshot)
   })
 })
 

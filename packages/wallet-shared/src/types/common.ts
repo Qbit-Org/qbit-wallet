@@ -58,21 +58,26 @@ export interface VersionDetail {
  * script (confirmed, mature value plus the unconfirmed change of the script's
  * own transactions) and `unavailableBalance` is the remainder of
  * `totalBalance`. The optional qbit detail fields remain absent for providers
- * that do not support this breakdown.
+ * that do not support this breakdown. `null` marks a value that could not be
+ * measured, which is never the same as 0.
  */
 export interface QbitBalanceSummary {
-  availableBalance: number
+  /** `null` when unknown (see `utxoLimitExceeded`). */
+  availableBalance: number | null
   unavailableBalance: number
   totalBalance: number
-  /** Qbit: current-script coinbase value below 1,000 confirmations (subset of unavailable). */
-  immatureBalance?: number
-  /** Qbit: unconfirmed current-script value sends wait for, such as payments from others (subset of unavailable). */
-  pendingBalance?: number
+  /** Qbit: current-script coinbase value below 1,000 confirmations (subset of unavailable); `null` when unknown. */
+  immatureBalance?: number | null
+  /** Qbit: unconfirmed current-script value sends wait for, such as payments from others (subset of unavailable); `null` when unknown. */
+  pendingBalance?: number | null
   /**
    * Qbit: the explorer would not list this address's outputs because it holds
    * more than the explorer's UTXO limit. `totalBalance` then comes from the
-   * address statistics and nothing is reported available, since the wallet
-   * cannot select inputs it cannot see.
+   * address statistics, and `availableBalance`, `immatureBalance` and
+   * `pendingBalance` are `null`: without the output list the split is
+   * unknown. `unavailableBalance` stays `totalBalance`: the send screen
+   * selects nothing until it has read the outputs from the address's
+   * history, and shows its own split once it has.
    */
   utxoLimitExceeded?: boolean
   chainType: ChainType

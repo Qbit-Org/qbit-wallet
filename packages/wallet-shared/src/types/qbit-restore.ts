@@ -12,6 +12,21 @@ export interface QbitRestoreDiscoverySummary {
   truncated: boolean
 }
 
+/**
+ * The read a scanned account's floor came from: its enumerated history, or
+ * its explorer address statistics when that history is too long to
+ * enumerate. Both count the same on-chain spends.
+ */
+export type QbitRestoreFloorSource = 'history' | 'address-stats'
+
+export interface QbitRestoreFloorSourceRecord {
+  /** Derivation index of the scanned account. */
+  index: number
+  pubkey: string
+  /** `address-stats` when any network's floor for the account came from statistics. */
+  source: QbitRestoreFloorSource
+}
+
 /** Outcome of the PQC signature-counter floor reconstruction pass. */
 export interface QbitRestoreFloorScanSummary {
   network: QbitRestoreNetworkName
@@ -21,6 +36,8 @@ export interface QbitRestoreFloorScanSummary {
   totalObservedSignatures: number
   /** How many accounts had their counter raised to a restored floor. */
   restoredFloorCount: number
+  /** The read behind each scanned account's floor. */
+  floorSources: QbitRestoreFloorSourceRecord[]
   /** Derivation indexes beyond the restored range that show unexpected activity. */
   gapIndexesWithActivity: number[]
   /** True when gap activity suggests another live instance of this seed. */

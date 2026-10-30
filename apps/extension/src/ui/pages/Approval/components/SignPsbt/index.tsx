@@ -20,7 +20,7 @@ import { AutoFitVirtualList } from '@/ui/components/AutoFitVirtualList';
 import ColdWalletSignPsbt from '@/ui/components/ColdWallet/ColdWalletSignPsbt';
 import { PhishingDetection } from '@/ui/components/PhishingDetection';
 import { QbitRestoredFloorWarning } from '@/ui/components/QbitRestoredFloorWarning';
-import { SignPsbtWithRisksPopover } from '@/ui/components/SignPsbtWithRisksPopover';
+import { SignPsbtWithRisksPopover, getRiskContentKey } from '@/ui/components/SignPsbtWithRisksPopover';
 import WebsiteBar from '@/ui/components/WebsiteBar';
 import { walletErrorMessage } from '@/ui/utils';
 import { colors } from '@/ui/theme/colors';
@@ -43,6 +43,7 @@ import ActionOverviewSection from './components/ActionOverviewSection';
 import TransactionOverviewSection from './components/TransactionOverviewSection';
 import { InputsList } from './components/InputsList';
 import MultiSignDisclaimerModal from './components/MultiSignDisclaimerModal';
+import MultiSignRisksPopover from './components/MultiSignRisksPopover';
 import { OutputsList } from './components/OutputsList';
 import PsbtDataSection from './components/PsbtDataSection';
 import { SignPsbtSection } from './components/Section';
@@ -77,7 +78,18 @@ function TransactionItem(
     <Card style={{ height: ITEM_HEIGHT - 8, marginTop: 8 }}>
       <Row justifyBetween fullX itemsCenter>
         <Column gap="zero" style={{ flex: 1, minWidth: 0 }}>
-          <Text text={`${t('transaction')} ${index + 1}`} preset="bold" />
+          <Row gap="sm" itemsCenter style={{ minWidth: 0 }}>
+            <Text text={`${t('transaction')} ${index + 1}`} preset="bold" style={{ flexShrink: 0 }} />
+            {psbtInfo && psbtInfo.risks.length > 0 && (
+              <Text
+                text={`⚠ ${psbtInfo.risks.map((risk) => t(getRiskContentKey(risk.type).title)).join(', ')}`}
+                size="xs"
+                color="dangerText"
+                ellipsis
+                data-testid={`multisign-transaction-risk-${index}`}
+              />
+            )}
+          </Row>
           {psbtInfo && !psbtInfo.parseError ? (
             <Row gap="sm" itemsCenter style={{ flexWrap: 'wrap' }}>
               <Text text={`${t('inputs')}: ${psbtInfo.inputCount}`} size="xs" color="textDim" />
@@ -145,6 +157,8 @@ export default function SignPsbt(props: SignPsbtProps) {
 
     disclaimerVisible,
     localPsbtSummary,
+    batchRiskReview,
+    batchRiskIndexes,
 
     // state
     decodeError,
@@ -177,7 +191,10 @@ export default function SignPsbt(props: SignPsbtProps) {
     onRiskPopoverConfirm,
     onRiskPopoverClose,
 
-    onDisclaimerModalClose
+    onDisclaimerModalClose,
+
+    onBatchRiskConfirm,
+    onBatchRiskClose
   } = useSignPsbtLogic(props as any);
   const isProviderBatch =
     toSignDatas.length > 1 &&
@@ -448,6 +465,7 @@ export default function SignPsbt(props: SignPsbtProps) {
   if (showMultiSignView) {
     const hasSighashNoneRisk = localPsbtSummary?.hasSighashNone;
     const hasParseError = localPsbtSummary && localPsbtSummary.parseErrorCount > 0;
+    const hasBatchRisk = batchRiskIndexes.length > 0;
 
     return (
       <Layout>
@@ -469,7 +487,7 @@ export default function SignPsbt(props: SignPsbtProps) {
               style={{
                 marginTop: 8,
                 padding: '8px 12px',
-                borderColor: hasSighashNoneRisk || hasParseError ? '#ff4d4f' : colors.border,
+                borderColor: hasSighashNoneRisk || hasParseError || hasBatchRisk ? '#ff4d4f' : colors.border,
                 borderWidth: 1,
                 background: colors.surface
               }}
@@ -486,6 +504,14 @@ export default function SignPsbt(props: SignPsbtProps) {
                   />
                 )}
               </Row>
+              {hasBatchRisk && (
+                <Text
+                  text={t('multisign_flagged_transactions', batchRiskIndexes.map((index) => `${index + 1}`).join(', '))}
+                  size="xs"
+                  color="dangerText"
+                  data-testid="multisign-flagged-transactions"
+                />
+              )}
             </Card>
           )}
 
@@ -521,7 +547,7 @@ export default function SignPsbt(props: SignPsbtProps) {
                 preset="primary"
                 text={isAllSigned ? t('submit') : `(${signedCount}/${toSignDatas.length}) ${t('signed')}`}
                 onClick={handleTryMultiSign}
-                icon={allowQuickMultiSign ? undefined : 'alert'}
+                icon={hasBatchRisk ? 'risk' : allowQuickMultiSign ? undefined : 'alert'}
                 disabled={isUnverifiedWebsiteBlocked}
                 aria-disabled={isUnverifiedWebsiteBlocked}
                 full
@@ -539,6 +565,20 @@ export default function SignPsbt(props: SignPsbtProps) {
               onQuickMultiSign();
             }}
             onClose={onDisclaimerModalClose}
+          />
+        )}
+
+        {batchRiskReview && !isProviderBatch && (
+          <MultiSignRisksPopover
+            summary={batchRiskReview}
+            onConfirm={() => {
+              if (isUnverifiedWebsiteBlocked) {
+                onBatchRiskClose();
+                return;
+              }
+              void onBatchRiskConfirm();
+            }}
+            onClose={onBatchRiskClose}
           />
         )}
       </Layout>

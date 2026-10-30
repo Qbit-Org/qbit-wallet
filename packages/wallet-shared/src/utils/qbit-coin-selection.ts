@@ -1,4 +1,5 @@
 import { QBIT_P2MR_DUST } from '../constants/common'
+import type { QbitUnconfirmedAncestor } from '../types/create-tx'
 import {
   QBIT_MIN_RELAY_FEE_RATE,
   estimateQbitP2mrTransaction,
@@ -19,6 +20,17 @@ export function isQbitStandardTxSize(vsize: number): boolean {
   return Number.isSafeInteger(vsize) && vsize > 0 && vsize <= QBIT_MAX_STANDARD_TX_WEIGHT
 }
 
+/**
+ * qbit Core's `DEFAULT_ANCESTOR_SIZE_LIMIT_KVB{404}` (`src/policy/policy.h`)
+ * in vbytes: a transaction and all of its in-mempool ancestors may total at
+ * most this much, or the node refuses it as `too-long-mempool-chain`. Its
+ * `DEFAULT_DESCENDANT_SIZE_LIMIT_KVB` is also 404, and each ancestor's
+ * descendants the wallet knows of lie in the same package, so this one budget
+ * covers them too. Spends of an ancestor's other outputs stay invisible here.
+ * A parent near the standard weight leaves room for about one more input.
+ */
+export const QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT = 404_000
+
 /** The outpoint fields coin selection reads; wallet UTXO records satisfy it. */
 export interface QbitSelectableCoin {
   txid: string
@@ -26,6 +38,54 @@ export interface QbitSelectableCoin {
   satoshis: number
   /** The account's own unconfirmed change; absent for a confirmed output. */
   unconfirmed?: boolean
+  /**
+   * With `unconfirmed`: the change's own transaction and each unconfirmed
+   * ancestor of it. Change without a readable list is never selected.
+   */
+  unconfirmedAncestors?: readonly QbitUnconfirmedAncestor[]
+}
+
+const QBIT_TXID_PATTERN = /^[0-9a-f]{64}$/i
+
+function isQbitUnconfirmedAncestor(ancestor: unknown): ancestor is QbitUnconfirmedAncestor {
+  const { txid, vsize } = (ancestor ?? {}) as { txid?: unknown; vsize?: unknown }
+  return (
+    typeof txid === 'string' &&
+    QBIT_TXID_PATTERN.test(txid) &&
+    typeof vsize === 'number' &&
+    Number.isSafeInteger(vsize) &&
+    vsize > 0
+  )
+}
+
+/**
+ * `ancestors` (txid to vsize) together with the unconfirmed transactions a
+ * spend of `coin` builds on; the same map for a confirmed output. Undefined
+ * when unconfirmed change does not list a readable ancestry that includes its
+ * own transaction, since the package it would join cannot then be sized.
+ */
+function withUnconfirmedAncestors(
+  ancestors: ReadonlyMap<string, number>,
+  coin: QbitSelectableCoin
+): ReadonlyMap<string, number> | undefined {
+  if (!coin.unconfirmed) return ancestors
+  const listed = coin.unconfirmedAncestors
+  if (
+    !Array.isArray(listed) ||
+    !listed.every(isQbitUnconfirmedAncestor) ||
+    !listed.some(ancestor => ancestor.txid.toLowerCase() === coin.txid.toLowerCase())
+  ) {
+    return undefined
+  }
+  const joined = new Map(ancestors)
+  for (const ancestor of listed) joined.set(ancestor.txid.toLowerCase(), ancestor.vsize)
+  return joined
+}
+
+function totalVsize(ancestors: ReadonlyMap<string, number>): number {
+  let total = 0
+  for (const vsize of ancestors.values()) total += vsize
+  return total
 }
 
 /** The transaction every candidate selection shares, apart from its inputs and change. */
@@ -98,7 +158,11 @@ export type QbitP2mrSendSelection<T extends QbitSelectableCoin> =
     })
   | {
       ok: false
-      reason: 'insufficient_balance' | 'exceeds_maximum_total_fee' | 'exceeds_standard_size'
+      reason:
+        | 'insufficient_balance'
+        | 'exceeds_maximum_total_fee'
+        | 'exceeds_standard_size'
+        | 'exceeds_ancestor_size'
       /** The closest selection the wallet could price, for previews. */
       candidate?: QbitP2mrSendCandidate
       /** Inputs the standard weight allows for this shape. */
@@ -123,7 +187,11 @@ export type QbitP2mrSendSelection<T extends QbitSelectableCoin> =
  * Confirmed outputs are taken before the account's own unconfirmed change,
  * so an earlier payment keeps no descendant and can still be fee-bumped.
  * When that order cannot build a standard transaction, every output is
- * ranked by value alone.
+ * ranked by value alone. Either way a selection holding change stays within
+ * `QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT` together with the change's unconfirmed
+ * ancestors: change that would pass it is skipped. A send that only that
+ * limit stops reports `exceeds_ancestor_size`; it goes through once the
+ * ancestors confirm.
  */
 export function selectQbitP2mrSendCoins<T extends QbitSelectableCoin>(
   params: QbitP2mrSelectionShape & {
@@ -135,48 +203,95 @@ export function selectQbitP2mrSendCoins<T extends QbitSelectableCoin>(
   const { utxos, amount, changeScriptLength, ...shape } = params
   const inputFee = qbitP2mrInputFee(shape)
   const byValue = sortQbitCoinsByValue(utxos.filter(utxo => utxo.satoshis > inputFee))
-  const select = (candidates: readonly T[]) =>
-    selectQbitP2mrSendCoinsInOrder(shape, candidates, amount, changeScriptLength, utxos.length)
+  const select = (candidates: readonly T[], ancestorLimit?: { reached: boolean }) =>
+    selectQbitP2mrSendCoinsInOrder(
+      shape,
+      candidates,
+      amount,
+      changeScriptLength,
+      utxos.length,
+      ancestorLimit
+    )
   if (!byValue.some(utxo => utxo.unconfirmed)) return select(byValue)
-  const preferred = select([
+  const confirmedFirst = [
     ...byValue.filter(utxo => !utxo.unconfirmed),
     ...byValue.filter(utxo => utxo.unconfirmed),
-  ])
-  return preferred.ok ? preferred : select(byValue)
+  ]
+  const ancestorLimit = { reached: false }
+  const preferred = select(confirmedFirst, ancestorLimit)
+  if (preferred.ok) return preferred
+  const ranked = select(byValue, ancestorLimit)
+  if (ranked.ok) return ranked
+  if (ancestorLimit.reached && (select(confirmedFirst).ok || select(byValue).ok)) {
+    // No candidate: none that was priced can be sent before the ancestors confirm.
+    return {
+      ok: false,
+      reason: 'exceeds_ancestor_size',
+      maxInputCount: ranked.maxInputCount,
+      maxStandardAmount: ranked.maxStandardAmount,
+    }
+  }
+  return ranked
 }
 
-/** The first prefix of `candidates` that pays `amount`, as described above. */
+/**
+ * The first prefix of `candidates` that pays `amount`, as described above.
+ * Unconfirmed ancestors count only with `ancestorLimit`, which records
+ * whether they stopped the pass; without it the pass tells whether they
+ * alone stand in the way.
+ */
 function selectQbitP2mrSendCoinsInOrder<T extends QbitSelectableCoin>(
   shape: QbitP2mrSelectionShape,
   candidates: readonly T[],
   amount: number,
   changeScriptLength: number,
-  utxoCount: number
+  utxoCount: number,
+  ancestorLimit: { reached: boolean } | undefined
 ): QbitP2mrSendSelection<T> {
   const changeOutputs = [...shape.outputScriptLengths, changeScriptLength]
   const selected: T[] = []
   let selectedSatoshis = 0
+  let ancestors: ReadonlyMap<string, number> = new Map()
+  let ancestorVsize = 0
   let overMaximum: QbitP2mrSendCandidate | undefined
   let lastNoChange: QbitP2mrSendCandidate | undefined
   let reachedStandardSize = false
   for (const utxo of candidates) {
-    selected.push(utxo)
-    selectedSatoshis += utxo.satoshis
-    const inputCount = selected.length
-
+    const inputCount = selected.length + 1
     const withoutChange = estimate(shape, inputCount)
     if (!isQbitStandardTxSize(withoutChange.vsize)) {
       reachedStandardSize = true
       break
     }
     const withChange = estimate(shape, inputCount, changeOutputs)
-    const change = selectedSatoshis - amount - withChange.fee
+    const change = selectedSatoshis + utxo.satoshis - amount - withChange.fee
     if (change >= QBIT_P2MR_DUST && !isQbitStandardTxSize(withChange.vsize)) {
       // Real change is owed but its output no longer fits; only a sub-dust
       // remainder may ever be folded into the fee.
       reachedStandardSize = true
       break
     }
+    if (ancestorLimit) {
+      // A longer prefix keeps these ancestors and only adds inputs.
+      if (ancestorVsize + withoutChange.vsize > QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT) {
+        ancestorLimit.reached = true
+        break
+      }
+      const joined = withUnconfirmedAncestors(ancestors, utxo)
+      const joinedVsize =
+        joined === ancestors ? ancestorVsize : joined ? totalVsize(joined) : Infinity
+      const vsize = change >= QBIT_P2MR_DUST ? withChange.vsize : withoutChange.vsize
+      if (!joined || joinedVsize + vsize > QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT) {
+        // An output that does not bring these ancestors may still fit.
+        ancestorLimit.reached = true
+        continue
+      }
+      ancestors = joined
+      ancestorVsize = joinedVsize
+    }
+    selected.push(utxo)
+    selectedSatoshis += utxo.satoshis
+
     if (change >= QBIT_P2MR_DUST) {
       return {
         ok: true,
@@ -254,6 +369,12 @@ export interface QbitP2mrSendAllSelection<T extends QbitSelectableCoin> {
   /** Inputs the standard weight keeps out of this transaction; they stay in the account. */
   leftBehind: T[]
   leftBehindSatoshis: number
+  /**
+   * `selected` holds unconfirmed change, and this transaction with the
+   * change's unconfirmed ancestors would pass `QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT`
+   * (or the ancestors cannot be sized). It must wait for them to confirm.
+   */
+  exceedsAncestorSize: boolean
   totalInput: number
   /** Exact fee for `selected`, or 0 when nothing is selected. */
   fee: number
@@ -284,6 +405,7 @@ export function selectQbitP2mrSendAllCoins<T extends QbitSelectableCoin>(
       selected,
       leftBehind,
       leftBehindSatoshis,
+      exceedsAncestorSize: false,
       totalInput,
       fee: 0,
       amount: 0,
@@ -292,10 +414,14 @@ export function selectQbitP2mrSendAllCoins<T extends QbitSelectableCoin>(
     }
   }
   const sized = estimate(shape, selected.length)
+  let ancestors: ReadonlyMap<string, number> | undefined = new Map()
+  for (const utxo of selected) ancestors = ancestors && withUnconfirmedAncestors(ancestors, utxo)
   return {
     selected,
     leftBehind,
     leftBehindSatoshis,
+    exceedsAncestorSize:
+      !ancestors || totalVsize(ancestors) + sized.vsize > QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,
     totalInput,
     fee: sized.fee,
     amount: totalInput - sized.fee,

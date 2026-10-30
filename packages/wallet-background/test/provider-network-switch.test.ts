@@ -8,6 +8,7 @@ const walletMock = vi.hoisted(() => ({
   getChainType: vi.fn(),
   getCurrentAccount: vi.fn(),
   setChainType: vi.fn(),
+  switchProviderChain: vi.fn(),
 }))
 const permissionServiceMock = vi.hoisted(() => ({
   updateConnectSite: vi.fn(),
@@ -38,6 +39,7 @@ describe('ProviderController network switching', () => {
     walletMock.getChainType.mockReturnValue(ChainType.QBIT_TESTNET4)
     walletMock.getCurrentAccount.mockResolvedValue({ address: 'qbrt1zaccount' })
     walletMock.setChainType.mockResolvedValue(undefined)
+    walletMock.switchProviderChain.mockResolvedValue(undefined)
     permissionServiceMock.updateConnectSite.mockResolvedValue(undefined)
     regtestAccessMock.assertAvailable.mockResolvedValue(undefined)
   })
@@ -57,12 +59,15 @@ describe('ProviderController network switching', () => {
     await expect(validateSwitch(request)).resolves.toBe(false)
     await expect(provider.switchChain(request as any)).resolves.toBeUndefined()
 
-    expect(walletMock.setChainType).toHaveBeenCalledWith(ChainType.QBIT_MAINNET)
-    expect(permissionServiceMock.updateConnectSite).toHaveBeenCalledWith(
+    // The grant moves inside the wallet's queued chain switch, before any
+    // event is published, not in a second step afterwards.
+    expect(walletMock.switchProviderChain).toHaveBeenCalledWith(
       'https://dapp.example',
-      { chain: ChainType.QBIT_MAINNET },
-      true
+      ChainType.QBIT_MAINNET
     )
+    expect(walletMock.setChainType).not.toHaveBeenCalled()
+    expect(permissionServiceMock.updateConnectSite).not.toHaveBeenCalled()
+    expect(sessionServiceMock.broadcastEvent).not.toHaveBeenCalled()
   })
 
   it('allows switching to regtest once the background capability reports it available', async () => {
@@ -80,7 +85,10 @@ describe('ProviderController network switching', () => {
     await expect(validateSwitch(request)).resolves.toBe(false)
     await expect(provider.switchNetwork(request as any)).resolves.toBeUndefined()
     expect(regtestAccessMock.assertAvailable).toHaveBeenCalled()
-    expect(walletMock.setChainType).toHaveBeenCalledWith(ChainType.QBIT_REGTEST)
+    expect(walletMock.switchProviderChain).toHaveBeenCalledWith(
+      'https://dapp.example',
+      ChainType.QBIT_REGTEST
+    )
   })
 
   it('rejects a dapp regtest switch while the capability is locked, before any approval or prompt', async () => {
@@ -123,7 +131,7 @@ describe('ProviderController network switching', () => {
       code: ErrorCodes.REGTEST_ACCESS_LOCKED,
     })
 
-    expect(walletMock.setChainType).not.toHaveBeenCalled()
+    expect(walletMock.switchProviderChain).not.toHaveBeenCalled()
     expect(permissionServiceMock.updateConnectSite).not.toHaveBeenCalled()
     // The dapp path only ever consults the guard; nothing here can open a
     // browser permission prompt.
@@ -144,7 +152,7 @@ describe('ProviderController network switching', () => {
       regtestAccessMock.assertAvailable.mockRejectedValueOnce(new WalletError(code, 'x'))
       await expect(provider.switchChain(request as any)).rejects.toMatchObject({ code })
     }
-    expect(walletMock.setChainType).not.toHaveBeenCalled()
+    expect(walletMock.switchProviderChain).not.toHaveBeenCalled()
   })
 
   it('does not consult the regtest capability for public networks', async () => {
@@ -155,7 +163,10 @@ describe('ProviderController network switching', () => {
     }
     await expect(provider.switchNetwork(request as any)).resolves.toBeUndefined()
     expect(regtestAccessMock.assertAvailable).not.toHaveBeenCalled()
-    expect(walletMock.setChainType).toHaveBeenCalledWith(ChainType.QBIT_TESTNET4)
+    expect(walletMock.switchProviderChain).toHaveBeenCalledWith(
+      'https://dapp.example',
+      ChainType.QBIT_TESTNET4
+    )
   })
 
   it('rejects unsupported network names before switching', async () => {
@@ -172,6 +183,6 @@ describe('ProviderController network switching', () => {
 
     await expect(validateSwitch(request)).rejects.toThrow('unsupported Qbit network')
     await expect(provider.switchNetwork(request as any)).rejects.toThrow('unsupported Qbit network')
-    expect(walletMock.setChainType).not.toHaveBeenCalled()
+    expect(walletMock.switchProviderChain).not.toHaveBeenCalled()
   })
 })

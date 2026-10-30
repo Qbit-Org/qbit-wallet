@@ -6,13 +6,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   P2MR_LEAF_VERSION_V1,
   PQC_SIGNATURE_BYTES,
+  PSBT_IN_P2MR_LEAF_SCRIPT,
   buildControlBlock,
   bytesToHex,
   createP2mrPsbt,
+  encodeP2mrPsbtLeafScriptField,
   extractP2mrTransaction,
   finalizeP2mrPsbt,
   hexToBytes,
   parsePsbt,
+  p2mrBranchHash,
   p2mrLeafHash,
   p2mrScriptPubKey,
   serializePsbt,
@@ -30,6 +33,7 @@ vi.mock('@qbit-oss/pqc', () => ({
 
 const walletMock = vi.hoisted(() => ({
   acquireExternalQbitSigningLock: vi.fn(),
+  broadcastQbitProviderTx: vi.fn(),
   broadcastQbitTx: vi.fn(),
   completeExternalQbitSigningLock: vi.fn(),
   createQbitSendBroadcastClaim: vi.fn(),
@@ -39,6 +43,7 @@ const walletMock = vi.hoisted(() => ({
   prepareQbitProviderPsbt: vi.fn(),
   promoteExternalQbitSendBroadcastClaim: vi.fn(),
   pushTx: vi.fn(),
+  recordQbitProviderSignings: vi.fn(),
 }))
 
 const preferenceServiceMock = vi.hoisted(() => ({
@@ -71,6 +76,9 @@ function externalSigningLock(purpose: 'send' | 'sign') {
   } as const
 }
 
+/** The txid the wallet computes for the bytes a dapp pushes. */
+const PUSHED_TXID = '12'.repeat(32)
+
 describe('ProviderController qbit send', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -84,6 +92,13 @@ describe('ProviderController qbit send', () => {
     })
     walletMock.getChainType.mockReturnValue(ChainType.QBIT_REGTEST)
     walletMock.pushTx.mockResolvedValue('qbit-txid')
+    walletMock.broadcastQbitProviderTx.mockResolvedValue({
+      success: true,
+      chain: ChainType.QBIT_REGTEST,
+      txid: PUSHED_TXID,
+      via: 'broadcast',
+    })
+    walletMock.recordQbitProviderSignings.mockResolvedValue(undefined)
     walletMock.broadcastQbitTx.mockImplementation(async (_psbtHex, claim) => ({
       success: true,
       chain: claim.chain,
@@ -383,6 +398,74 @@ describe('ProviderController qbit send', () => {
     }
   )
 
+  it.each(['signPsbt', 'signPsbts'] as const)(
+    'records the transactions %s returns only once the approved signatures check out',
+    async method => {
+      const provider = (await import('../src/controllers/provider/controller')).default
+      const pubkey = hexToBytes('66'.repeat(32))
+      const leafScript = singleKeyLeafScript(pubkey)
+      const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
+      const scriptPubKey = p2mrScriptPubKey(leafHash)
+      const entry = (prevoutByte: string, txidByte: string) => {
+        const psbt = createP2mrPsbt({
+          inputs: [
+            {
+              prevout: { txid: hexToBytes(prevoutByte.repeat(32)), vout: 0 },
+              witnessUtxo: { value: 50_000n, scriptPubKey },
+              leafScript,
+              controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+              merkleRoot: leafHash,
+            },
+          ],
+          outputs: [{ value: 40_000n, scriptPubKey }],
+        })
+        const signed = signP2mrPsbt({
+          psbt,
+          keys: [{ inputIndex: 0, pubkey, leafHash }],
+          sign: () => new Uint8Array(PQC_SIGNATURE_BYTES).fill(6),
+        }).psbt
+        return {
+          toSignData: {
+            psbtHex: bytesToHex(serializePsbt(psbt)),
+            toSignInputs: [],
+            autoFinalized: true,
+            qbitP2mrSigningKeys: [
+              { inputIndex: 0, publicKey: bytesToHex(pubkey), leafHash: bytesToHex(leafHash) },
+            ],
+            qbitBroadcastIdentity: { chain: ChainType.QBIT_REGTEST, txid: txidByte.repeat(32) },
+          },
+          approved: { psbtHex: bytesToHex(serializePsbt(signed)) },
+        }
+      }
+      const entries =
+        method === 'signPsbt' ? [entry('ab', '14')] : [entry('ab', '14'), entry('ac', '15')]
+      const request = {
+        data: {
+          params: {
+            psbtHexs: entries.map(item => item.toSignData.psbtHex),
+            toSignDatas: entries.map(item => item.toSignData),
+          },
+        },
+        approvalRes: entries.map(item => item.approved),
+      }
+
+      // A signature that does not verify hands the dapp nothing to push.
+      verifyPqcMock.mockReturnValueOnce(false)
+      await expect(provider[method](request as any)).rejects.toThrow('invalid P2MR signature')
+      expect(walletMock.recordQbitProviderSignings).not.toHaveBeenCalled()
+
+      // Recorded before the dapp gets the bytes, so its broadcast of them
+      // keeps the inputs reserved should the outcome be unknown; the answer
+      // does not wait on the send guard's queue.
+      walletMock.recordQbitProviderSignings.mockReturnValueOnce(new Promise(() => undefined))
+      await expect(provider[method](request as any)).resolves.toBeTruthy()
+      expect(walletMock.recordQbitProviderSignings).toHaveBeenCalledTimes(1)
+      expect(walletMock.recordQbitProviderSignings).toHaveBeenCalledWith(
+        entries.map(item => item.toSignData.qbitBroadcastIdentity)
+      )
+    }
+  )
+
   it('returns a partially signed PSBT with an input another signer already finalized', async () => {
     const provider = (await import('../src/controllers/provider/controller')).default
     const p2mrInput = (pubkey: Uint8Array, txidByte: string) => {
@@ -477,6 +560,97 @@ describe('ProviderController qbit send', () => {
         )
       }
     }
+  })
+
+  it('checks a signed PSBT against the one leaf record finalize reveals (#352)', async () => {
+    const provider = (await import('../src/controllers/provider/controller')).default
+    const pubkey = hexToBytes('66'.repeat(32))
+    const leafScript = singleKeyLeafScript(pubkey)
+    const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
+    const otherLeafHash = p2mrLeafHash(
+      P2MR_LEAF_VERSION_V1,
+      singleKeyLeafScript(hexToBytes('88'.repeat(32)))
+    )
+    // The account's leaf sits twice in `((leaf, other), leaf)`, and finalize
+    // reveals the shorter of its two committing control blocks.
+    const root = p2mrBranchHash(p2mrBranchHash(leafHash, otherLeafHash), leafHash)
+    const deep = buildControlBlock(P2MR_LEAF_VERSION_V1, [otherLeafHash, leafHash])
+    const shallow = buildControlBlock(P2MR_LEAF_VERSION_V1, [
+      p2mrBranchHash(leafHash, otherLeafHash),
+    ])
+    const sourceWith = (controlBlocks: Uint8Array[]) => {
+      const psbt = createP2mrPsbt({
+        inputs: [
+          {
+            prevout: { txid: hexToBytes('ab'.repeat(32)), vout: 0 },
+            witnessUtxo: { value: 50_000n, scriptPubKey: p2mrScriptPubKey(root) },
+            leafScript,
+            controlBlock: deep,
+          },
+        ],
+        outputs: [{ value: 40_000n, scriptPubKey: p2mrScriptPubKey(root) }],
+      })
+      psbt.inputs[0] = [
+        ...psbt.inputs[0]!.filter(entry => entry.key[0] !== PSBT_IN_P2MR_LEAF_SCRIPT),
+        ...controlBlocks.map(controlBlock =>
+          encodeP2mrPsbtLeafScriptField(controlBlock, leafScript)
+        ),
+      ]
+      return psbt
+    }
+    const signPsbt = (source: ReturnType<typeof sourceWith>, autoFinalized: boolean) => {
+      const signed = signP2mrPsbt({
+        psbt: source,
+        keys: [{ inputIndex: 0, pubkey, leafHash }],
+        sign: () => new Uint8Array(PQC_SIGNATURE_BYTES).fill(6),
+      }).psbt
+      const approved = autoFinalized ? finalizeP2mrPsbt(signed) : signed
+      return provider.signPsbt({
+        data: {
+          params: {
+            toSignDatas: [
+              {
+                psbtHex: bytesToHex(serializePsbt(source)),
+                toSignInputs: [],
+                autoFinalized,
+                qbitP2mrSigningKeys: [
+                  { inputIndex: 0, publicKey: bytesToHex(pubkey), leafHash: bytesToHex(leafHash) },
+                ],
+              },
+            ],
+          },
+        },
+        approvalRes: [{ psbtHex: bytesToHex(serializePsbt(approved)) }],
+      } as any)
+    }
+
+    const single = sourceWith([deep])
+    await expect(signPsbt(single, true)).resolves.toBe(
+      bytesToHex(
+        serializePsbt(
+          finalizeP2mrPsbt(
+            signP2mrPsbt({
+              psbt: single,
+              keys: [{ inputIndex: 0, pubkey, leafHash }],
+              sign: () => new Uint8Array(PQC_SIGNATURE_BYTES).fill(6),
+            }).psbt
+          )
+        )
+      )
+    )
+    // Listed twice, the leaf is refused rather than checked against the
+    // first record when finalize revealed the other. The signature is spent
+    // by now, so this is an internal error, not a request the dapp can fix.
+    for (const autoFinalized of [true, false]) {
+      const error = await signPsbt(sourceWith([deep, shallow]), autoFinalized).catch(e => e)
+      expect(error).not.toBeInstanceOf(WalletError)
+      expect(error.message).toBe(
+        "invalid Qbit signing plan: input 0: PSBT lists the account's P2MR leaf more than once; " +
+          'give it one leaf record, with the control block that spends the input'
+      )
+    }
+    // Only the accepted PSBT is handed to the dapp.
+    expect(walletMock.recordQbitProviderSignings).toHaveBeenCalledTimes(1)
   })
 
   it('validates readonly qbit P2MR PSBTs and preserves local claim validation', async () => {
@@ -770,10 +944,104 @@ describe('ProviderController qbit send', () => {
           },
         },
       } as any)
-    ).resolves.toBe('qbit-txid')
+    ).resolves.toBe(PUSHED_TXID)
 
-    expect(walletMock.pushTx).toHaveBeenCalledWith(psbtHex)
+    // Through the wallet's verdict-reporting broadcast, never the bare pushTx.
+    expect(walletMock.broadcastQbitProviderTx).toHaveBeenCalledWith(psbtHex)
+    expect(walletMock.pushTx).not.toHaveBeenCalled()
   })
+
+  it.each(['pushTx', 'pushPsbt'] as const)(
+    'reports a %s broadcast verdict to the dapp, naming the transaction when the outcome is unknown',
+    async method => {
+      const provider = (await import('../src/controllers/provider/controller')).default
+      const pubkey = hexToBytes('22'.repeat(32))
+      const leafScript = singleKeyLeafScript(pubkey)
+      const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
+      const scriptPubKey = p2mrScriptPubKey(leafHash)
+      const psbtHex = bytesToHex(
+        serializePsbt(
+          createP2mrPsbt({
+            inputs: [
+              {
+                prevout: { txid: hexToBytes('cc'.repeat(32)), vout: 0 },
+                witnessUtxo: { value: 50_000n, scriptPubKey },
+                leafScript,
+                controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+                merkleRoot: leafHash,
+              },
+            ],
+            outputs: [{ value: 40_000n, scriptPubKey }],
+          })
+        )
+      )
+      const rawtx = 'AB'.repeat(60)
+      const push = () =>
+        method === 'pushTx'
+          ? provider.pushTx({ data: { params: { rawtx } } } as any)
+          : provider.pushPsbt({ data: { params: { psbtHex } } } as any)
+
+      // The answer was lost, and the follow-up lookup found the transaction.
+      walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
+        success: true,
+        chain: ChainType.QBIT_REGTEST,
+        txid: PUSHED_TXID,
+        via: 'lookup',
+      })
+      await expect(push()).resolves.toBe(PUSHED_TXID)
+      expect(walletMock.broadcastQbitProviderTx).toHaveBeenLastCalledWith(
+        method === 'pushTx' ? rawtx.toLowerCase() : psbtHex
+      )
+
+      // Proven not sent: a plain failure carrying the node's reason.
+      walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: PUSHED_TXID,
+        outcome: 'not_sent',
+        reason: 'rejected',
+        lookup: 'gone',
+        detail: 'HTTP 400: min relay fee not met',
+      })
+      const notSent = await push().catch(error => error)
+      expect(notSent).toBeInstanceOf(Error)
+      expect(notSent.message).toBe('HTTP 400: min relay fee not met')
+      expect(notSent.code).toBeUndefined()
+      walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        outcome: 'not_sent',
+        reason: 'invalid_transaction',
+      })
+      await expect(push()).rejects.toThrow(
+        'Qbit transaction was not broadcast (invalid_transaction)'
+      )
+
+      // Inconclusive: the node may hold the transaction. The dapp gets the
+      // distinct code and the txid to look up, not a plain failure it would
+      // retry into a second payment.
+      for (const reason of ['timeout', 'server', 'invalid_response', 'unexpected'] as const) {
+        walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
+          success: false,
+          chain: ChainType.QBIT_REGTEST,
+          txid: PUSHED_TXID,
+          outcome: 'unknown',
+          reason,
+          lookup: 'gone',
+        })
+        const unknown = await push().catch(error => error)
+        expect(unknown).toBeInstanceOf(WalletError)
+        expect(unknown.code).toBe(ErrorCodes.QBIT_BROADCAST_OUTCOME_UNKNOWN)
+        expect(unknown.data).toEqual({
+          outcome: 'unknown',
+          chain: ChainType.QBIT_REGTEST,
+          txid: PUSHED_TXID,
+        })
+        expect(unknown.message).toMatch(/outcome is unknown/)
+      }
+      expect(walletMock.pushTx).not.toHaveBeenCalled()
+    }
+  )
 
   it('rejects non-hex PSBT encodings instead of invoking a fallback parser', async () => {
     const provider = (await import('../src/controllers/provider/controller')).default

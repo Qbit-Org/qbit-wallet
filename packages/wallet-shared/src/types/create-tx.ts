@@ -10,6 +10,20 @@ export interface UnspentOutput {
   rawtx?: string
   /** The account's own unconfirmed change; coin selection spends confirmed outputs first. */
   unconfirmed?: boolean
+  /** With `unconfirmed`: the in-mempool transactions a spend of this output builds on. */
+  unconfirmedAncestors?: QbitUnconfirmedAncestor[]
+}
+
+/**
+ * An unconfirmed transaction that a spend of the account's own unconfirmed
+ * change depends on: the change's own transaction, or one of its unconfirmed
+ * ancestors. qbit Core counts each against the spend's mempool ancestor
+ * limits.
+ */
+export interface QbitUnconfirmedAncestor {
+  txid: string
+  /** Virtual size in vbytes: the serialized size, as `WITNESS_SCALE_FACTOR` is 1. */
+  vsize: number
 }
 
 /**
@@ -19,8 +33,14 @@ export interface UnspentOutput {
  * tell the builder which network it belongs to; a send built from a cached
  * list has to carry this chain back so the builder can refuse outputs that
  * were loaded before a switch to another network.
+ *
+ * `address` names the account the outputs were read for. The read can take
+ * minutes for an account past the explorer's output limit, and the UI may
+ * have moved to another account by the time it lands, so the UI keeps only
+ * a snapshot whose account is still the selected one.
  */
 export interface QbitUtxoSnapshot {
+  address: string
   chain: ChainType
   utxos: UnspentOutput[]
 }
@@ -33,6 +53,8 @@ export interface UTXO {
   addressType: AddressType
   /** The account's own unconfirmed change; coin selection spends confirmed outputs first. */
   unconfirmed?: boolean
+  /** With `unconfirmed`: the in-mempool transactions a spend of this output builds on. */
+  unconfirmedAncestors?: QbitUnconfirmedAncestor[]
 }
 
 export interface UTXO_Detail {

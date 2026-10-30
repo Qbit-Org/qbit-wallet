@@ -2,6 +2,7 @@
  * Phishing detection module
  * Handles phishing site detection and redirection
  */
+import { forgetRelease } from './release';
 
 export function isExtensionContextValid(): boolean {
   try {
@@ -70,6 +71,8 @@ export async function checkPhishing(): Promise<PhishingVerdict> {
     });
 
     if (response?.isPhishing === true) {
+      // The next load of this page is held again.
+      forgetRelease();
       requestWarningPage(hostname);
       return 'phishing';
     }

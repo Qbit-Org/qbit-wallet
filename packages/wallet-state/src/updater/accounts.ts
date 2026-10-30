@@ -19,7 +19,7 @@ export function AccountUpdater() {
   const isUnlocked = useIsUnlocked()
   const selfRef = useRef({
     preAccountKey: '_',
-    loadingBalance: false,
+    balanceFetch: undefined as { address: string } | undefined,
     loadingHistory: false,
   })
   const self = selfRef.current
@@ -43,17 +43,30 @@ export function AccountUpdater() {
 
   const fetchBalance = useFetchBalanceCallback()
   useEffect(() => {
-    if (self.loadingBalance) {
+    // Skip a second fetch for the account already loading, but not for a newly
+    // selected one: it loads at once instead of on the balance card's next poll.
+    // Outcomes are recorded per address, so the two fetches cannot clash.
+    const address = currentAccount.address
+    if (self.balanceFetch?.address === address) {
       return
     }
     if (!isUnlocked) {
       return
     }
-    self.loadingBalance = true
-    fetchBalance().finally(() => {
-      self.loadingBalance = false
-    })
-  }, [fetchBalance, wallet, isUnlocked, self])
+    // Only this fetch clears the marker: an older fetch for the same account
+    // settling must not, while this one is still in flight.
+    const balanceFetch = { address }
+    self.balanceFetch = balanceFetch
+    fetchBalance()
+      .catch(() => {
+        // Recorded in balanceStatusMap; the balance card shows it with a retry.
+      })
+      .finally(() => {
+        if (self.balanceFetch === balanceFetch) {
+          self.balanceFetch = undefined
+        }
+      })
+  }, [fetchBalance, wallet, isUnlocked, self, currentAccount.address])
 
   useEffect(() => {
     const accountChangeHandler = (account: Account) => {

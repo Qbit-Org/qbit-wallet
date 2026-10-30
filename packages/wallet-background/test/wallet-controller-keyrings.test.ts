@@ -56,6 +56,7 @@ vi.mock('../src/services', () => ({
   },
   sessionService: {
     broadcastEvent: vi.fn(),
+    broadcastChainChange: vi.fn(),
   },
   contactBookService: {
     listAlias: vi.fn(() => []),
@@ -63,6 +64,8 @@ vi.mock('../src/services', () => ({
   notificationService: {},
   permissionService: {
     removeConnectedSite: vi.fn(),
+    hasPermission: vi.fn(() => false),
+    updateConnectSite: vi.fn(),
   },
 }))
 
@@ -146,7 +149,7 @@ describe('WalletController keyring recovery', () => {
     })
     const wallet = new WalletController()
     const currentAccount = { index: 0 }
-    const currentKeyring = { index: 0, accounts: [{}] }
+    const currentKeyring = { index: 0, accounts: [{ address: 'mainnet-address' }] }
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(currentAccount as any)
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
     const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
@@ -162,15 +165,14 @@ describe('WalletController keyring recovery', () => {
       persistPreference: true,
       broadcastAccountChange: false,
     })
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(SESSION_EVENTS.accountsChanged, [])
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_MAINNET
-    )
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.networkChanged,
-      'mainnet'
-    )
+    // Scoped per origin by the session service; nothing is broadcast to all.
+    expect(sessionService.broadcastChainChange).toHaveBeenCalledExactlyOnceWith({
+      previousChain: ChainType.QBIT_TESTNET4,
+      chain: ChainType.QBIT_MAINNET,
+      network: 'mainnet',
+      accounts: ['mainnet-address'],
+    })
+    expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
   })
 
   it('re-arms restored floors before switching between Qbit networks with the same HD path', async () => {
@@ -233,11 +235,17 @@ describe('WalletController keyring recovery', () => {
 
     await expect(wallet.setChainType(ChainType.QBIT_MAINNET)).resolves.toBeUndefined()
 
-    expect(getCurrentAccount).not.toHaveBeenCalled()
     expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 0, {
       persistPreference: true,
       broadcastAccountChange: false,
     })
+    // The selection never consults getCurrentAccount; only the announcement
+    // afterwards reads what getAccounts() will return.
+    expect(
+      getCurrentAccount.mock.invocationCallOrder.every(
+        order => order > changeKeyring.mock.invocationCallOrder[0]!
+      )
+    ).toBe(true)
   })
 
   it('persists the chain and account selection before publishing switch events', async () => {
@@ -278,14 +286,16 @@ describe('WalletController keyring recovery', () => {
 
     expect(switchSettled).toBe(false)
     expect(preferenceService.setCurrentAccount).toHaveBeenCalledWith(targetAccount)
-    expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+    expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
     releasePersist.resolve()
     await chainSwitch
 
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(SESSION_EVENTS.accountsChanged, [])
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_MAINNET
+    expect(sessionService.broadcastChainChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousChain: ChainType.QBIT_TESTNET4,
+        chain: ChainType.QBIT_MAINNET,
+        accounts: ['mainnet-address'],
+      })
     )
   })
 
@@ -350,6 +360,7 @@ describe('WalletController keyring recovery', () => {
       'https://mempool-testnet.qbit.org/api',
     ])
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+    expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
     expect(floorScan).toHaveBeenCalledTimes(1)
   })
 
@@ -472,11 +483,7 @@ describe('WalletController keyring recovery', () => {
     expect(preferenceService.setChainType).toHaveBeenCalledTimes(1)
     expect(walletApiService.setEndpoint).toHaveBeenCalledTimes(2)
     expect(changeKeyring).toHaveBeenCalledTimes(2)
-    expect(
-      vi
-        .mocked(sessionService.broadcastEvent)
-        .mock.calls.filter(([event]) => event === SESSION_EVENTS.chainChanged)
-    ).toHaveLength(1)
+    expect(sessionService.broadcastChainChange).toHaveBeenCalledTimes(1)
   })
 
   it('continues queued chain switches after an earlier switch fails', async () => {
@@ -528,6 +535,7 @@ describe('WalletController keyring recovery', () => {
     expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 0, { persistPreference: true })
     expect(preferenceService.setChainType).not.toHaveBeenCalled()
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+    expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
   })
 
   it('restores the persisted mainnet HD path when the wallet unlocks', async () => {

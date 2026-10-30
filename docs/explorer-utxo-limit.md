@@ -29,8 +29,12 @@ keeps its own meaning, so an outage is never shown as this state.
 ## What happens above the limit
 
 - **Balance.** The balance card shows the total from the address statistics and
-  labels it as such. That total is reported as unavailable, because the wallet
-  cannot classify outputs it has not read.
+  labels it as such. Its Available and Unavailable rows show `--`, with a line
+  saying both are unknown because the explorer does not list the outputs: the
+  wallet cannot classify outputs it has not read, and the balance poll never
+  reads them from history. The balance reports
+  `availableBalance`, `immatureBalance` and `pendingBalance` as `null`
+  (unknown, not 0), and keeps `unavailableBalance` equal to the total.
 - **Sending.** The send screen reads the account's outputs from its complete
   history instead (`getQbitAddressUtxosClassifiedFromHistory`). That read fails
   closed. The statistics must match before and after the walk, the walk must
@@ -54,17 +58,31 @@ keeps its own meaning, so an outage is never shown as this state.
   spent. Inputs a send claim, signing lock or recent broadcast holds stay out,
   so an interrupted run resumes without spending anything twice. The inputs of
   a batch that was never signed come back for the next one. Consolidation needs no full history read, so it also works
-  for accounts above the 10,000-transaction read limit.
+  for accounts above the 10,000-transaction read limit. On mempool-qbit the
+  walk pages the combined route, pending rows first. qbit-electrs answers a
+  cursor that is the last pending row with an empty page instead of the
+  confirmed rows after it, so when the pending rows fill whole pages (50
+  each) the walk steps back one row and reads on from there. It ends only
+  when that page holds the pending row alone.
+- **Restored wallets.** Rebuilding a restored wallet's signature-counter
+  floors reads no outputs. An address whose history is too long to read in
+  full takes its floor from its statistics instead, so a restored account
+  over either limit can lift its signing gate and then consolidate. See
+  [PQC Signature Counter Lifecycle](pqc-counter-lifecycle.md#restore-safety).
 - **Recovery migration.** Preparing a migration reads an over-limit source
   account's outputs from its history as the send screen does, and the usual
   batching splits them into plans of at most 106 inputs. A source whose history
-  exceeds the read limit cannot be prepared, and it fails the whole prepare
-  pass, so the wallet's other source accounts are not prepared either.
-  Consolidate such an account before starting recovery. Once a migration has
-  begun, the wallet signs only the migration's own transactions, so
-  consolidation is refused, and a migration cannot be cancelled. From then on,
-  the source can be prepared only once the explorer's limit is raised to cover
-  all of its unspent outputs, so that the explorer lists them again.
+  exceeds the read limit cannot be planned. Preparation skips it, plans the
+  other sources, and names it on the migration screen. Its funds keep the
+  migration open, so it is never archived with them, and a check of an
+  archived wallet that finds one reopens its migration. While a migration is
+  open, the recovered wallet signs nothing but its reviewed plans, with one
+  exception for such a source. Its consolidation batches can be signed, but
+  only while none of its plans is open. The keyring checks that each batch
+  pays everything it spends back to the same address, less a fee no higher
+  than the wallet's highest fee rate allows. Once consolidation
+  brings the source within the listing limit, the next preparation lists its
+  outputs and plans them. Consolidating before starting recovery works too.
 
 ## Limits consolidation cannot lift
 

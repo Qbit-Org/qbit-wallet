@@ -120,6 +120,140 @@ describe('accounts reducer', () => {
     })
   })
 
+  describe('balance refresh status', () => {
+    const address = 'qb1ztest123'
+    const balance = (totalBalance: number) => ({
+      availableBalance: totalBalance,
+      unavailableBalance: 0,
+      totalBalance,
+      chainType: 'QBIT_MAINNET',
+    })
+
+    it('records a failure without inventing a balance', () => {
+      const state = accountsReducer(
+        initialState,
+        accountActions.setBalanceError({ address, requestId: 1 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({ requestId: 1, error: true })
+      expect(state.balanceV2Map[address]).toBeUndefined()
+    })
+
+    it('keeps the last known balance on failure and clears the error on success', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
+      )
+      state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 2 }))
+
+      expect(state.balanceStatusMap[address].error).toBe(true)
+      expect(state.balanceV2Map[address].totalBalance).toBe(5000)
+
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(7000), requestId: 3 })
+      )
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: false,
+        balanceRequestId: 3,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(7000)
+    })
+
+    it('ignores a failure from a request older than the applied success', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 2 })
+      )
+      state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 1 }))
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 2,
+        error: false,
+        balanceRequestId: 2,
+      })
+    })
+
+    it('stores a success that arrives after a newer failure, and keeps the failure', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
+      )
+      state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 3 }))
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(9000), requestId: 2 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: true,
+        balanceRequestId: 2,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(9000)
+    })
+
+    it('stores a first balance that arrives after a newer failure', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceError({ address, requestId: 2 })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 2,
+        error: true,
+        balanceRequestId: 1,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(5000)
+    })
+
+    it('clears the failure once a refresh newer than it succeeds, after a late balance', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceError({ address, requestId: 2 })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 1 })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(7000), requestId: 3 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: false,
+        balanceRequestId: 3,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(7000)
+    })
+
+    it('ignores a success older than the stored balance, after a failure too', () => {
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 2 })
+      )
+      state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 3 }))
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: balance(9000), requestId: 1 })
+      )
+
+      expect(state.balanceStatusMap[address]).toEqual({
+        requestId: 3,
+        error: true,
+        balanceRequestId: 2,
+      })
+      expect(state.balanceV2Map[address].totalBalance).toBe(5000)
+    })
+  })
+
   describe('setHistory', () => {
     it('should set transaction history for an address', () => {
       const payload = {

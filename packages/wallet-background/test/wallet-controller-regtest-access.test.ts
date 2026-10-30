@@ -7,7 +7,6 @@ import {
   QBIT_REGTEST_GENESIS_HASH,
   QBIT_REGTEST_ORIGIN,
   REGTEST_ACCESS_ACK_VERSION,
-  SESSION_EVENTS,
 } from '@qbit/wallet-shared'
 import { KeyringType } from '@qbit/keyring-service/types'
 import { ChainType } from '@qbit/wallet-types'
@@ -58,6 +57,7 @@ vi.mock('../src/services', () => ({
   },
   sessionService: {
     broadcastEvent: vi.fn(),
+    broadcastChainChange: vi.fn(),
   },
   contactBookService: {
     listAlias: vi.fn(() => []),
@@ -162,6 +162,7 @@ function expectNoChainMutation() {
   expect(preferenceService.setChainType).not.toHaveBeenCalled()
   expect(walletApiService.setEndpoint).not.toHaveBeenCalled()
   expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+  expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
 }
 
 describe('WalletController local regtest capability', () => {
@@ -232,14 +233,12 @@ describe('WalletController local regtest capability', () => {
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith(REGTEST_HD_PATH)
     expect(walletApiService.setEndpoint).toHaveBeenCalledWith(QBIT_REGTEST_ORIGIN)
     expect(changeKeyring).toHaveBeenCalled()
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_REGTEST
-    )
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.networkChanged,
-      'regtest'
-    )
+    expect(sessionService.broadcastChainChange).toHaveBeenCalledWith({
+      previousChain: ChainType.QBIT_MAINNET,
+      chain: ChainType.QBIT_REGTEST,
+      network: 'regtest',
+      accounts: [],
+    })
     expect(emitted).toContainEqual(
       expect.objectContaining({ method: BUS_METHODS.REGTEST_ACCESS_CHANGED })
     )
@@ -354,9 +353,14 @@ describe('WalletController local regtest capability', () => {
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
     expect(changeKeyring).toHaveBeenCalled()
     expect(walletApiService.setEndpoint).not.toHaveBeenCalledWith(QBIT_REGTEST_ORIGIN)
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_MAINNET
+    await waitFor(() =>
+      expect(sessionService.broadcastChainChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previousChain: ChainType.QBIT_REGTEST,
+          chain: ChainType.QBIT_MAINNET,
+          network: 'mainnet',
+        })
+      )
     )
     await waitFor(() =>
       expect(emitted).toContainEqual({
@@ -394,9 +398,14 @@ describe('WalletController local regtest capability', () => {
     await waitFor(() => expect(walletApiService.setEndpoint).toHaveBeenCalledWith(MAINNET_ENDPOINT))
     expect(preferenceService.persist).toHaveBeenCalled()
     expect(changeKeyring).not.toHaveBeenCalled()
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_MAINNET
+    await waitFor(() =>
+      expect(sessionService.broadcastChainChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previousChain: ChainType.QBIT_REGTEST,
+          chain: ChainType.QBIT_MAINNET,
+          network: 'mainnet',
+        })
+      )
     )
   })
 
@@ -407,6 +416,10 @@ describe('WalletController local regtest capability', () => {
   it('re-syncs the keyring onto the mainnet path when the serialized transition fails', async () => {
     const current = trackChain(ChainType.QBIT_REGTEST)
     const { wallet, changeKeyring } = prepareWallet()
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
+      index: 0,
+      accounts: [{ address: 'mainnet-path-address' }],
+    } as any)
     const { adapter, fireRemoved } = createAdapter({ containsPermission: vi.fn(async () => false) })
     wallet.initRegtestAccess({
       adapter,
@@ -430,15 +443,23 @@ describe('WalletController local regtest capability', () => {
     // can only come from the fallback re-syncing the keyring itself.
     expect(changeKeyring).toHaveBeenCalledTimes(1)
     expect(keyringService.setLocked).not.toHaveBeenCalled()
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_MAINNET
+    await waitFor(() =>
+      expect(sessionService.broadcastChainChange).toHaveBeenCalledWith({
+        previousChain: ChainType.QBIT_REGTEST,
+        chain: ChainType.QBIT_MAINNET,
+        network: 'mainnet',
+        accounts: ['mainnet-path-address'],
+      })
     )
   })
 
   it('locks the wallet rather than announcing mainnet over an unmoved keyring', async () => {
     const current = trackChain(ChainType.QBIT_REGTEST)
     const { wallet } = prepareWallet()
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
+      index: 0,
+      accounts: [{ address: 'regtest-path-address' }],
+    } as any)
     const { adapter, fireRemoved } = createAdapter({ containsPermission: vi.fn(async () => false) })
     wallet.initRegtestAccess({
       adapter,
@@ -453,9 +474,15 @@ describe('WalletController local regtest capability', () => {
 
     await waitFor(() => expect(current()).toBe(ChainType.QBIT_MAINNET))
     await waitFor(() => expect(keyringService.setLocked).toHaveBeenCalled())
-    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
-      SESSION_EVENTS.chainChanged,
-      ChainType.QBIT_MAINNET
+    // Whatever the keyring still holds was derived on the regtest path and is
+    // never announced as a mainnet account.
+    await waitFor(() =>
+      expect(sessionService.broadcastChainChange).toHaveBeenCalledWith({
+        previousChain: ChainType.QBIT_REGTEST,
+        chain: ChainType.QBIT_MAINNET,
+        network: 'mainnet',
+        accounts: [],
+      })
     )
   })
 
@@ -655,7 +682,11 @@ describe('WalletController restore floor scan and the regtest sibling', () => {
     wallet.initRegtestAccess({ adapter, fetch, ackStore: createAckStore() })
 
     const observe = await scanTestnet4(wallet)
-    await expect(observe(account)).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+    await expect(observe(account)).resolves.toEqual({
+      observedSignatures: 1,
+      hasActivity: true,
+      floorSource: 'history',
+    })
 
     expect(observedAddresses()).toEqual(['tb1qtestnetaddr'])
     // No permission means no identity probe either: nothing touches the loopback port.
@@ -675,7 +706,11 @@ describe('WalletController restore floor scan and the regtest sibling', () => {
     })
 
     const observe = await scanTestnet4(wallet)
-    await expect(observe(account)).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+    await expect(observe(account)).resolves.toEqual({
+      observedSignatures: 1,
+      hasActivity: true,
+      floorSource: 'history',
+    })
 
     expect(observedAddresses()).toEqual(['tb1qtestnetaddr'])
     await expect(wallet.getRegtestAccessStatus()).resolves.toMatchObject({
@@ -697,7 +732,11 @@ describe('WalletController restore floor scan and the regtest sibling', () => {
     wallet.initRegtestAccess({ adapter, fetch: healthyFetch(), ackStore: createAckStore() })
 
     const observe = await scanTestnet4(wallet)
-    await expect(observe(account)).resolves.toEqual({ observedSignatures: 1, hasActivity: true })
+    await expect(observe(account)).resolves.toEqual({
+      observedSignatures: 1,
+      hasActivity: true,
+      floorSource: 'history',
+    })
 
     expect(observedAddresses()).toEqual(['tb1qtestnetaddr'])
     expect(log.warn).toHaveBeenCalledWith(
@@ -716,7 +755,11 @@ describe('WalletController restore floor scan and the regtest sibling', () => {
     })
 
     const observe = await scanTestnet4(wallet)
-    await expect(observe(account)).resolves.toEqual({ observedSignatures: 2, hasActivity: true })
+    await expect(observe(account)).resolves.toEqual({
+      observedSignatures: 2,
+      hasActivity: true,
+      floorSource: 'history',
+    })
 
     expect(observedAddresses()).toEqual(['tb1qtestnetaddr', 'bcrt1qregtestaddr'])
   })

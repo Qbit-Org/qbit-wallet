@@ -41,12 +41,21 @@ function createBrowser() {
     contexts: [] as { frameId: number; documentUrl: string }[],
     // Whether the tab's top frame shows a page the content script runs on.
     contentScriptPage: false,
+    dynamicRules: [] as chrome.declarativeNetRequest.Rule[],
   }
   const declarativeNetRequest = {
     RuleActionType: { BLOCK: 'block', REDIRECT: 'redirect', ALLOW: 'allow' },
     ResourceType: { MAIN_FRAME: 'main_frame', SUB_FRAME: 'sub_frame' },
-    getDynamicRules: vi.fn(async () => []),
-    updateDynamicRules: vi.fn(async () => undefined),
+    // The startup install reads its block rule back.
+    getDynamicRules: vi.fn(async () => structuredClone(state.dynamicRules)),
+    updateDynamicRules: vi.fn(
+      async ({ removeRuleIds = [], addRules = [] }: chrome.declarativeNetRequest.UpdateRuleOptions) => {
+        state.dynamicRules = [
+          ...state.dynamicRules.filter(rule => !removeRuleIds.includes(rule.id)),
+          ...structuredClone(addRules),
+        ]
+      }
+    ),
     getSessionRules: vi.fn(async () => []),
     updateSessionRules: vi.fn(async () => undefined),
   }

@@ -77,12 +77,15 @@ const PhishingScreen = () => {
           <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer" className="phishing-report-link">
             {t('think_this_is_a_false_positive_click_here_to_report_an_issue')}
           </a>
-          <p className="phishing-proceed-text">
-            {t('if_you_insist_on_continuing_proceed_at_your_own_risk')}
-            <button onClick={handleProceed} className="phishing-proceed-button">
-              {t('continue_to')} {hostname}
-            </button>
-          </p>
+          {/* Without a site, as for a malformed blocked URL, there is nothing to proceed to. */}
+          {hostname && (
+            <p className="phishing-proceed-text">
+              {t('if_you_insist_on_continuing_proceed_at_your_own_risk')}
+              <button onClick={handleProceed} className="phishing-proceed-button">
+                {t('continue_to')} {hostname}
+              </button>
+            </p>
+          )}
           {proceedFailed && (
             <p className="phishing-proceed-error" role="alert">
               {t('unknown_error')}

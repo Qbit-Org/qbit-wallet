@@ -37,8 +37,6 @@ export {
 export { notification } from './webapi'
 
 // Utils
-export { initPersistStoreStorage } from './utils/persistStore'
-
 export { bgEventBus } from './utils/eventBus'
 
 export {

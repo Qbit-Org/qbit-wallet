@@ -156,6 +156,7 @@ function completedReport(overrides: Record<string, unknown> = {}) {
       accountsScanned: 3,
       totalObservedSignatures: 5,
       restoredFloorCount: 2,
+      floorSources: [],
       gapIndexesWithActivity: [],
       possibleConcurrentInstance: false
     },
@@ -371,6 +372,7 @@ describe('Step2 restore flow', () => {
       accountsScanned: 3,
       totalObservedSignatures: 4,
       restoredFloorCount: 1,
+      floorSources: [],
       gapIndexesWithActivity: [],
       possibleConcurrentInstance: false
     });
@@ -412,6 +414,7 @@ describe('Step2 restore flow', () => {
       accountsScanned: 3,
       totalObservedSignatures: 4,
       restoredFloorCount: 1,
+      floorSources: [],
       gapIndexesWithActivity: [],
       possibleConcurrentInstance: false
     });
@@ -444,6 +447,7 @@ describe('Step2 restore flow', () => {
           accountsScanned: 3,
           totalObservedSignatures: 5,
           restoredFloorCount: 2,
+          floorSources: [],
           gapIndexesWithActivity: [7],
           possibleConcurrentInstance: true
         }
@@ -455,6 +459,51 @@ describe('Step2 restore flow', () => {
 
     await screen.findByTestId('restore-report');
     expect(screen.getByTestId('restore-report-warning-concurrent')).toBeTruthy();
+  });
+
+  it('names the accounts whose floor was read from address statistics', async () => {
+    vi.mocked(useI18n).mockReturnValue({
+      t: (key: string, substitutions?: string[]) =>
+        (englishTranslations[key]?.message ?? key).replace('$1', substitutions?.[0] ?? '$1')
+    } as any);
+    restoreQbitWallet.mockResolvedValue(
+      completedReport({
+        floorScan: {
+          ...completedReport().floorScan,
+          floorSources: [
+            { index: 0, pubkey: 'pubkey-a', source: 'history' },
+            { index: 7, pubkey: 'pubkey-h', source: 'address-stats' },
+            { index: 2, pubkey: 'pubkey-c', source: 'address-stats' }
+          ]
+        }
+      })
+    );
+    renderStep2(true);
+
+    fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+
+    await screen.findByTestId('restore-report');
+    // Each statistics-read account once, in derivation order.
+    expect(screen.getByTestId('restore-report-stats-floor').textContent).toBe(
+      englishTranslations.qbit_restore_stats_floor_notice.message.replace('$1', '2, 7')
+    );
+  });
+
+  it('omits the statistics notice when every floor came from enumerated history', async () => {
+    restoreQbitWallet.mockResolvedValue(
+      completedReport({
+        floorScan: {
+          ...completedReport().floorScan,
+          floorSources: [{ index: 0, pubkey: 'pubkey-a', source: 'history' }]
+        }
+      })
+    );
+    renderStep2(true);
+
+    fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+
+    await screen.findByTestId('restore-report');
+    expect(screen.queryByTestId('restore-report-stats-floor')).toBeNull();
   });
 
   it('separates and bolds the restored-counter reuse recommendation', async () => {
@@ -536,6 +585,7 @@ describe('Step2 restore flow', () => {
       accountsScanned: 3,
       totalObservedSignatures: 4,
       restoredFloorCount: 1,
+      floorSources: [],
       gapIndexesWithActivity: [],
       possibleConcurrentInstance: false
     });
@@ -584,6 +634,7 @@ describe('Step2 restore flow', () => {
       accountsScanned: 0,
       totalObservedSignatures: 0,
       restoredFloorCount: 0,
+      floorSources: [],
       gapIndexesWithActivity: [],
       possibleConcurrentInstance: false
     });

@@ -1,8 +1,8 @@
 # Dependency security and license review
 
-Review date: 2026-10-23 (advisory refresh of the 2026-09-02 review; evidence
-regenerated the same day after `patch-package` moved to development
-dependencies)
+Review date: 2026-10-29 (advisory refresh of the 2026-09-02 review; evidence
+regenerated the same day after the build and test tooling paths to
+`decode-uri-component` were removed)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -20,18 +20,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `eede40b04a49997b33a6b64bd9d35a804cd54d5b` |
+| Audited commit | `9accff3baba6478eec73a95456f988ad8c370dd8` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `2445dfacd65d6b35cc13b4b1e4e8c7a79c2a52ad84840b32e3192316db3021eb` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `4f7ee9489ba99e391c1995c52fdd3b0b7d8963cdad209a65e4fb923e860e563b` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `fd7e972addc52112574d1450c92184ca8639fdb417013136530904df7f93c447` |
+| `pnpm-lock.yaml` SHA-256 | `87b9fb31de464eef495be721b1da2feee9ac332c78f5181de19002e24b8d0175` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `40611505928f733b60d893599ec2d1c64fee775fc2689ce0ffef510beef63bff` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `ba0836d1b9ad6e1dfc7015dd4be9de25ecb444d443740e5e8299e09e2f323f5d` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.0, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 439 direct declarations, all 215 resolved packages classified as crypto-,
+all 438 direct declarations, all 208 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -67,7 +67,13 @@ moderate, and 10 low. On 2026-10-26 the Qbit SDK moved from submodules to the
 npm packages `@qbit-oss/pqc`, `@qbit-oss/protocol` and `@qbit-oss/api`, which
 add no advisory. Records published since October 23 for `fast-uri` and
 `serialize-javascript` raised the result to 50 occurrences: 0 critical,
-0 high, 37 moderate, and 13 low.
+0 high, 37 moderate, and 13 low. With the lockfile unchanged, records
+published or updated from October 27 to 29 raised the live result at
+`ea8f3a5` on `release/1.0.6` to 53 occurrences, including the high
+`decode-uri-component` record `GHSA-qr28-fpjm-wq7f`, and the
+dependency-policy job failed again. Removing the build and test tooling
+paths to `decode-uri-component` on 2026-10-29 reduced the current result to
+50 occurrences: 0 critical, 0 high, 36 moderate, and 14 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -83,7 +89,9 @@ add no advisory. Records published since October 23 for `fast-uri` and
 | Advisory-feed drift at unchanged-lock `release/1.0.4` `e14fe9d` | 0 | 3 | 38 | 11 | 52 |
 | Audited result `64309e9` (2026-10-23) | 0 | 0 | 35 | 10 | 45 |
 | Audited result `c702dff` (2026-10-23, `patch-package` moved to development dependencies) | 0 | 0 | 35 | 10 | 45 |
-| Current audited result `eede40b` (2026-10-26, Qbit SDK from npm) | 0 | 0 | 37 | 13 | 50 |
+| Audited result `eede40b` (2026-10-26, Qbit SDK from npm) | 0 | 0 | 37 | 13 | 50 |
+| Advisory-feed drift at unchanged-lock `release/1.0.6` `ea8f3a5` | 0 | 1 | 38 | 14 | 53 |
+| Current audited result `9accff3` (2026-10-29, `decode-uri-component` paths removed) | 0 | 0 | 36 | 14 | 50 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 42 advisory records representing 37
@@ -97,10 +105,11 @@ job on every pull request into `main` or a `release/*` branch and on every
 push to `main`, and that job fails on any unaccepted critical or high
 advisory. It is not a required status check: the `main` ruleset requires only
 `Typecheck, test, and build` and `Playwright G3 scenarios`, so a failing
-dependency-policy run does not block a merge (#280). It failed on
+dependency-policy run does not block a merge ([Qbit-Org/qbit-wallet#5](https://github.com/Qbit-Org/qbit-wallet/issues/5)). It failed on
 `main` at `e14fe9d4` (run 39671024040), and it passes on current pull
 requests into `release/1.0.5` after #307 cleared the late-October advisories
-(for example run 40008140587). The job also runs only on those events, so an
+(for example run 40008140587). It failed again on the 1.0.6 release pull
+request at `ea8f3a5` (run 40939007581). The job also runs only on those events, so an
 advisory published in a week without pushes is not reported until the next
 run. The August feed drift introduced the Nx
 remote-cache advisory `GHSA-vp3h-ghgh-jr7g`, two `image-size` advisories
@@ -133,19 +142,33 @@ advisory `GHSA-hp3w-g68c-fv3c` on 2026-10-23 and 2026-10-22 respectively, so
 the `braces` exception was deleted. Two new moderate records remain visible:
 `@vitest/mocker` `GHSA-qxg6-89mg-rqv8`, patched only in Vitest 4.1.12 and
 5.0.3, and `ip-address` `GHSA-rxp7-6hxx-x8q5`, patched in 10.7.4.
+On 2026-10-29 the feed added the `decode-uri-component` high
+`GHSA-qr28-fpjm-wq7f`: quadratic time in the fallback decoder, in 0.5.0 and
+earlier. The only installed copy, 0.2.2, came in through `source-map-resolve`,
+under gulp 4's `snapdragon` and under the `css` package that
+`@testing-library/jest-dom` and `stylus` used. The patched 0.5.1 is an ES
+module only, and `source-map-resolve` loads it with `require()`, so it was
+not overridden. As on `release/1.0.7` (#90), the unused
+`@testing-library/jest-dom` declaration was removed and gulp moved to 5.0.1
+and `stylus` to 0.64.0, which removes every path to it. That cleared the
+high, the moderate `GHSA-vcc3-ghjq-m6fr` for the same package and the
+moderate `micromatch` 3 record `GHSA-952p-6rrq-rcjv`, and the packaged
+extension is byte-identical. Two new records remain visible: the moderate
+`vite` `GHSA-8g5g-mxqh-grgj`, patched in 6.4.5, and the low `deepmerge`
+`GHSA-gcqx-w48m-w2h4`, which has no patched release.
 
 ## Package inventory
 
-The 23 workspaces contain 2,530 registry lock entries and 452 direct dependency
+The 20 workspaces contain 2,388 registry lock entries and 438 direct dependency
 declarations. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 171 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 169 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
-| Test-only tooling | 39 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 139 | Lint, formatting, repository tooling, and non-release developer commands |
+| Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
+| Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
 | Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
@@ -160,8 +183,8 @@ package may also serialize attacker-controlled data.
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
 | Crypto | 63 |
-| Serialization | 101 |
-| Networking | 43 |
+| Serialization | 96 |
+| Networking | 44 |
 | Archive/compression | 8 |
 
 ## Advisory directness and reachability
@@ -177,9 +200,9 @@ The final audit has the following direct advisory records:
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths |
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
-Across all advisory dependency paths, the inventory records 113 reachable
-path occurrences, 954 extension-build occurrences, 1,803 test-only
-occurrences, and 902 development-tooling occurrences. Moving `patch-package`
+Across all advisory dependency paths, the inventory records 118 reachable
+path occurrences, 1,613 extension-build occurrences, 1,862 test-only
+occurrences, and 885 development-tooling occurrences. Moving `patch-package`
 from `@qbit/keyring-service` dependencies to devDependencies (#289) took its
 closure out of the production closure and removed 10 reachable path
 occurrences; the advisory counts are unchanged. These are combinatorial
@@ -374,9 +397,9 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,530 integrity-pinned registry entries, 500
+The audited policy checked 2,388 integrity-pinned registry entries, 487
 dependency specifiers, 33 Action references, one tracked package-manager
-configuration file, 306 executable package/workflow commands, and 2,415 exact
+configuration file, 273 executable package/workflow commands, and 2,273 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -390,10 +413,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,415 distinct identities
+version, and normalized license expression for all 2,273 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,530 peer variants must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,388 peer variants must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.

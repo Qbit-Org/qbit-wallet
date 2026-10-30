@@ -299,6 +299,17 @@ export function Step2({
   }
 
   if (phase === 'report' && report) {
+    // Accounts whose history is too long to enumerate had their floor read
+    // from the explorer's address statistics; name them so support can tell.
+    const statsFloorIndexes = report.floorsCompleted
+      ? [
+          ...new Set(
+            report.floorScan.floorSources
+              .filter((record) => record.source === 'address-stats')
+              .map((record) => record.index)
+          )
+        ].sort((left, right) => left - right)
+      : [];
     return (
       <Column data-testid="restore-report-page">
         <Text
@@ -336,6 +347,14 @@ export function Step2({
           <Card data-testid="restore-report-warning-concurrent">
             <Text text={t('qbit_restore_concurrent_instance_warning')} color="error" />
           </Card>
+        )}
+
+        {statsFloorIndexes.length > 0 && (
+          <Text
+            text={t('qbit_restore_stats_floor_notice', [statsFloorIndexes.join(', ')])}
+            preset="sub"
+            data-testid="restore-report-stats-floor"
+          />
         )}
 
         {report.discovery.truncated && (

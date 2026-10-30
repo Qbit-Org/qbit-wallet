@@ -1,4 +1,5 @@
 import permissionService from './permission'
+import { SESSION_EVENTS } from '@qbit/wallet-shared'
 import type { ChainType } from '@qbit/wallet-types'
 
 export interface SessionData {
@@ -74,6 +75,18 @@ const deleteSession = (id: SessionKey): void => {
   })
 }
 
+const pushToSession = (key: SessionKey, session: Session, ev: string, data?: any): boolean => {
+  try {
+    ;(session as any).pushMessage?.(ev, data)
+    return true
+  } catch (e) {
+    if (sessionMap.has(key)) {
+      deleteSession(key)
+    }
+    return false
+  }
+}
+
 const broadcastEvent = (
   ev: string,
   data?: any,
@@ -81,30 +94,57 @@ const broadcastEvent = (
   requiredChain?: ChainType,
   includeRevokedOrigin = false
 ): void => {
-  let sessions: any[] = []
+  const sessions: Array<[SessionKey, Session]> = []
   sessionMap.forEach((session, key) => {
+    if (origin && session.origin !== origin) {
+      return
+    }
     const isExplicitRevokedTarget = includeRevokedOrigin && origin === session.origin
     if (isExplicitRevokedTarget || permissionService.hasPermission(session.origin, requiredChain)) {
-      sessions.push({
-        key,
-        ...session,
-      })
+      sessions.push([key, session])
     }
   })
 
-  // same origin
-  if (origin) {
-    sessions = sessions.filter(session => session.origin === origin)
-  }
+  sessions.forEach(([key, session]) => pushToSession(key, session, ev, data))
+}
 
-  sessions.forEach(session => {
-    try {
-      session.pushMessage?.(ev, data)
-    } catch (e) {
-      if (sessionMap.has(session.key)) {
-        deleteSession(session.key)
-      }
+export interface ChainChange {
+  previousChain: ChainType
+  chain: ChainType
+  network: string
+  /** What an origin with a grant for `chain` reads from getAccounts(). */
+  accounts: string[]
+}
+
+/**
+ * Announce a change of the active chain. Every connected origin receives
+ * chainChanged and networkChanged. accountsChanged reaches only an origin
+ * whose readable accounts changed, and carries only what that origin may
+ * read: [] first when its grant matched the previous chain but not the new
+ * one, or the new accounts last when its grant matches the new chain. An
+ * origin whose grant belongs to neither chain gets no account event.
+ */
+const broadcastChainChange = ({ previousChain, chain, network, accounts }: ChainChange): void => {
+  const deliveries: Array<[SessionKey, Session, Array<[string, any]>]> = []
+  sessionMap.forEach((session, key) => {
+    if (!permissionService.hasPermission(session.origin)) {
+      return
     }
+    const canRead = permissionService.hasPermission(session.origin, chain)
+    const couldRead = permissionService.hasPermission(session.origin, previousChain)
+    const events: Array<[string, any]> = []
+    if (couldRead && !canRead) {
+      events.push([SESSION_EVENTS.accountsChanged, []])
+    }
+    events.push([SESSION_EVENTS.chainChanged, chain], [SESSION_EVENTS.networkChanged, network])
+    if (canRead && accounts.length > 0) {
+      events.push([SESSION_EVENTS.accountsChanged, [...accounts]])
+    }
+    deliveries.push([key, session, events])
+  })
+
+  deliveries.forEach(([key, session, events]) => {
+    events.every(([ev, data]) => pushToSession(key, session, ev, data))
   })
 }
 
@@ -113,6 +153,7 @@ class SessionService {
   getOrCreateSession = getOrCreateSession
   deleteSession = deleteSession
   broadcastEvent = broadcastEvent
+  broadcastChainChange = broadcastChainChange
 
   async init(): Promise<void> {
     console.log('[SessionService] Initialized')
@@ -131,4 +172,5 @@ export default {
   getOrCreateSession,
   deleteSession,
   broadcastEvent,
+  broadcastChainChange,
 }

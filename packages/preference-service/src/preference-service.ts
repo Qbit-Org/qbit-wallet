@@ -69,6 +69,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   protected platformDefaults: Partial<BasePreferenceStore> = {}
   protected defaultLang: string = 'en'
   private storageKey: string = 'preference'
+  private pendingPersist: Promise<void> = Promise.resolve()
 
   // State flags
   protected initialized = false
@@ -132,8 +133,9 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       locale: this.defaultLang,
     }) as BasePreferenceStore
 
-    await this.storage.set(this.storageKey, null)
-    this.store = await this.storage.createPersistentProxy(this.storageKey, finalTemplate)
+    this.store = await this.storage.createPersistentProxy(this.storageKey, finalTemplate, {
+      reset: true,
+    })
 
     await this.validateAndFixStore(this.defaultLang)
 
@@ -141,7 +143,54 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   }
 
   persist = async (): Promise<void> => {
-    await this.storage.set(this.storageKey, cloneDeep(this.store))
+    if (this.storage.flushPersistentProxy) {
+      await this.storage.flushPersistentProxy(this.store)
+    } else {
+      await this.storage.set(this.storageKey, cloneDeep(this.store))
+    }
+  }
+
+  /**
+   * Set a security-relevant preference and resolve once it is on disk rather
+   * than after the store's debounced save, so a browser quit or extension
+   * reload straight after the change cannot bring the old value back. Changes
+   * run one at a time. A failed write restores the previous value, unless the
+   * store was reset or the value changed some other way meanwhile, and rejects
+   * so the caller can report it.
+   */
+  private setAndPersist<K extends keyof BasePreferenceStore>(
+    key: K,
+    value: BasePreferenceStore[K]
+  ): Promise<void> {
+    const run = this.pendingPersist.then(async () => {
+      const store = this.store
+      const hadValue = key in store
+      const previous = store[key]
+      store[key] = value
+      const applied = store[key]
+      try {
+        await this.persist()
+      } catch (error) {
+        if (this.store === store && store[key] === applied) {
+          if (hadValue) {
+            store[key] = previous
+          } else {
+            delete store[key]
+          }
+          // Save the restored value now rather than after the debounce, in case
+          // another write got the failed value to disk meanwhile.
+          this.persist().catch(restoreError => {
+            this.logger?.error?.(
+              '[PreferenceService] Failed to save a restored preference',
+              restoreError
+            )
+          })
+        }
+        throw error
+      }
+    })
+    this.pendingPersist = run.catch(() => undefined)
+    return run
   }
 
   /**
@@ -364,7 +413,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   getKeyringAlianName(keyringKey: string, defaultName?: string): string {
     const name = this.store.keyringAlianNames[keyringKey]
     if (!name && defaultName) {
-      this.store.keyringAlianNames[keyringKey] = defaultName
+      this.setKeyringAlianName(keyringKey, defaultName)
     }
     return this.store.keyringAlianNames[keyringKey] || ''
   }
@@ -381,7 +430,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   getAccountAlianName(accountKey: string, defaultName?: string): string {
     const name = this.store.accountAlianNames[accountKey]
     if (!name && defaultName) {
-      this.store.accountAlianNames[accountKey] = defaultName
+      this.setAccountAlianName(accountKey, defaultName)
     }
     return this.store.accountAlianNames[accountKey] || ''
   }
@@ -433,13 +482,13 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    */
   getUICachedData(address: string): any {
     if (!this.store.uiCachedData[address]) {
-      this.store.uiCachedData[address] = {}
+      this.expireUICachedData(address)
     }
     return this.store.uiCachedData[address]
   }
 
   expireUICachedData(address: string): void {
-    this.store.uiCachedData[address] = {}
+    this.store.uiCachedData = { ...this.store.uiCachedData, [address]: {} }
   }
 
   /**
@@ -457,8 +506,8 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     return this.store.enableSignData
   }
 
-  setEnableSignData(enableSignData: boolean): void {
-    this.store.enableSignData = enableSignData
+  setEnableSignData(enableSignData: boolean): Promise<void> {
+    return this.setAndPersist('enableSignData', enableSignData)
   }
 
   /**
@@ -514,8 +563,8 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     return this.store.autoLockTimeId ?? DEFAULT_LOCKTIME_ID
   }
 
-  setAutoLockTimeId(id: number): void {
-    this.store.autoLockTimeId = id
+  setAutoLockTimeId(id: number): Promise<void> {
+    return this.setAndPersist('autoLockTimeId', id)
   }
 
   /**
@@ -646,8 +695,8 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     return this.store.enableRBF
   }
 
-  setEnableRBF = (enableRBF: boolean): void => {
-    this.store.enableRBF = enableRBF
+  setEnableRBF = (enableRBF: boolean): Promise<void> => {
+    return this.setAndPersist('enableRBF', enableRBF)
   }
 
   /**

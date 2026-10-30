@@ -8,6 +8,7 @@ import {
   ErrorCodes,
   PsbtActionDetailType,
   QBIT_MAX_FEE_RATE,
+  RiskType,
   QBIT_P2MR_DUST,
   SignMessageType,
   type ToSignData,
@@ -17,6 +18,7 @@ import {
   KeyringType as SharedKeyringType,
   WalletError,
   qbitMaximumTotalFee,
+  statedPsbtRecipients,
 } from '@qbit/wallet-shared'
 import { QbitApiError } from '@qbit-oss/api'
 import {
@@ -55,8 +57,14 @@ import {
 } from '../src/services'
 import { QBIT_WALLET_SEND_CLAIM_ORIGIN } from '../src/services/qbitSendGuards'
 import { bgEventBus } from '../src/utils/eventBus'
+import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
 
 const sendQbitMock = vi.hoisted(() => vi.fn())
+// Every explorer client the wallet builds carries its transport budgets (#353).
+const EXPLORER_BUDGETS = {
+  timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  fetchFn: expect.any(Function),
+}
 const sendAllQbitMock = vi.hoisted(() => vi.fn())
 const signMessageOfBIP322SimpleMock = vi.hoisted(() => vi.fn())
 const broadcastTxMock = vi.hoisted(() => vi.fn())
@@ -134,6 +142,7 @@ vi.mock('@qbit-oss/pqc', () => ({
 vi.mock('../src/services', () => ({
   keyringService: {
     keyrings: [],
+    getAllDisplayedKeyrings: vi.fn(async () => []),
     signMessage: vi.fn(),
     preflightP2mrMessageSigning: vi.fn(),
     preflightP2mrPsbtSigning: vi.fn(),
@@ -719,6 +728,386 @@ describe('WalletController qbit P2MR send path', () => {
     expect(decoded.outputInfos[0]!.type).not.toBe('op_return')
   })
 
+  describe('spend summary of a reviewed PSBT (#271)', () => {
+    async function buildSend(
+      wallet: WalletController,
+      account: ReturnType<typeof p2mrAccount>,
+      { to = recipientAddress(), feeRate = 1 }: { to?: string; feeRate?: number } = {}
+    ) {
+      return wallet.createSendQbitPsbt({
+        to,
+        amount: 100_000,
+        feeRate,
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxos: [
+          {
+            txid: '5a'.repeat(32),
+            vout: 0,
+            satoshis: 10_000_000,
+            scriptPk: account.p2mr.scriptPubKey,
+            pubkey: account.pubkey,
+            addressType: AddressType.P2MR,
+          },
+        ],
+      })
+    }
+
+    it('reports what leaves the wallet from the exact bytes, with change excluded', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const send = await buildSend(wallet, account)
+
+      const decoded = await wallet.decodePsbt(send.psbtHex, 'https://example.test', {
+        statedRecipients: [recipientAddress()],
+      })
+
+      expect(decoded.fee).toBe(3_860)
+      expect(decoded.spendSummary).toEqual({
+        account: account.address,
+        walletInputValue: 10_000_000,
+        walletOutputValue: 10_000_000 - 100_000 - 3_860,
+        netSpend: 103_860,
+        externalOutputValue: 100_000,
+        outputRoles: ['recipient', 'wallet'],
+        unrecognisedOutputCount: 0,
+        unrecognisedOutputValue: 0,
+        undecodableOutputCount: 0,
+        // The regtest quote's fastest tier is 9 bits/vB.
+        feeAssessment: {
+          fee: 3_860,
+          feeRate: 1,
+          amount: 100_000,
+          recommendedFeeRate: 9,
+          reasons: [],
+        },
+      })
+      expect(decoded.risks).toEqual([])
+      expect(decoded.shouldWarnFeeRate).toBe(false)
+      expect(decoded.recommendedFeeRate).toBe(9)
+    })
+
+    it('flags a 400x fee and gates signing on it, with or without a live quote', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const send = await buildSend(wallet, account, { feeRate: 400 })
+
+      const decoded = await wallet.decodePsbt(send.psbtHex, 'https://example.test', {
+        statedRecipients: [recipientAddress()],
+      })
+      expect(decoded.fee).toBe(1_544_000)
+      expect(decoded.spendSummary.netSpend).toBe(1_644_000)
+      expect(decoded.spendSummary.feeAssessment?.reasons).toEqual([
+        'above_recommended_rate',
+        'above_relay_floor',
+        'large_share_of_amount',
+      ])
+      expect(decoded.shouldWarnFeeRate).toBe(true)
+      expect(decoded.risks.map(risk => [risk.type, risk.level])).toEqual([
+        [RiskType.HIGH_FEE_RATE, 'warning'],
+      ])
+
+      // A failed quote leaves no recommendation, which the summary records,
+      // and the wallet's own bound still flags the rate.
+      getFeeTiersMock.mockRejectedValue(new Error('offline'))
+      const unquoted = await new WalletController().decodePsbt(
+        send.psbtHex,
+        'https://example.test',
+        { statedRecipients: [recipientAddress()] }
+      )
+      expect(unquoted.spendSummary.feeAssessment?.recommendedFeeRate).toBeUndefined()
+      expect(unquoted.spendSummary.feeAssessment?.reasons).toEqual([
+        'above_relay_floor',
+        'large_share_of_amount',
+      ])
+      expect(unquoted.risks.map(risk => risk.type)).toEqual([RiskType.HIGH_FEE_RATE])
+    })
+
+    it('flags a payee the request does not name and treats the wallet’s other accounts as its own', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      const otherAccount = { ...p2mrAccount('33'.repeat(32), 1), key: 'account-1' }
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      vi.spyOn(wallet, 'getAccounts').mockResolvedValue([account, otherAccount] as any)
+
+      const toStranger = await buildSend(wallet, account)
+      const unnamed = await wallet.decodePsbt(toStranger.psbtHex, 'https://example.test')
+      expect(unnamed.spendSummary.outputRoles).toEqual(['unrecognised', 'wallet'])
+      expect(unnamed.spendSummary.unrecognisedOutputValue).toBe(100_000)
+      expect(unnamed.risks).toEqual([])
+
+      const misnamed = await wallet.decodePsbt(toStranger.psbtHex, 'https://example.test', {
+        statedRecipients: [otherAccount.address],
+      })
+      expect(misnamed.risks.map(risk => [risk.type, risk.level])).toEqual([
+        [RiskType.UNRECOGNISED_OUTPUT, 'danger'],
+      ])
+
+      const toOwnAccount = await buildSend(wallet, account, { to: otherAccount.address })
+      const own = await wallet.decodePsbt(toOwnAccount.psbtHex, 'https://example.test')
+      expect(own.spendSummary.outputRoles).toEqual(['wallet', 'wallet'])
+      // Only the fee leaves the wallet.
+      expect(own.spendSummary.netSpend).toBe(3_860)
+      expect(own.risks).toEqual([])
+    })
+
+    it('refuses a summary when the account changes while the decode reads the quote', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      const otherAccount = { ...p2mrAccount('33'.repeat(32), 1), key: 'account-1' }
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const send = await buildSend(wallet, account)
+
+      getFeeTiersMock.mockImplementationOnce(async () => {
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(otherAccount as any)
+        return [{ target: 2, feeRate: 1 }]
+      })
+      await expect(wallet.decodePsbt(send.psbtHex, 'https://example.test')).rejects.toThrow(
+        'Invalid qbit P2MR PSBT'
+      )
+
+      // Decoded again for the account now current, the same bytes spend
+      // nothing of its own.
+      const decoded = await wallet.decodePsbt(send.psbtHex, 'https://example.test')
+      expect(decoded.spendSummary.account).toBe(otherAccount.address)
+      expect(decoded.spendSummary.walletInputValue).toBe(0)
+      expect(decoded.spendSummary.netSpend).toBe(0)
+    })
+  })
+
+  describe('quick multi-sign of a local batch (#367)', () => {
+    async function buildSend(
+      wallet: WalletController,
+      account: ReturnType<typeof p2mrAccount>,
+      { feeRate = 1, txidByte = '5b' }: { feeRate?: number; txidByte?: string } = {}
+    ) {
+      return wallet.createSendQbitPsbt({
+        to: recipientAddress(),
+        amount: 100_000,
+        feeRate,
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxos: [
+          {
+            txid: txidByte.repeat(32),
+            vout: 0,
+            satoshis: 10_000_000,
+            scriptPk: account.p2mr.scriptPubKey,
+            pubkey: account.pubkey,
+            addressType: AddressType.P2MR,
+          },
+        ],
+      })
+    }
+
+    /** The same send, but its request names another recipient than the one it pays. */
+    function misnamed(toSignData: ToSignData, namedRecipient: string): ToSignData {
+      return {
+        ...toSignData,
+        action: {
+          ...toSignData.action!,
+          details: toSignData.action!.details!.map(detail =>
+            detail.type === PsbtActionDetailType.ADDRESS
+              ? { ...detail, value: namedRecipient }
+              : detail
+          ),
+        },
+      }
+    }
+
+    /** A local batch: a normal send, a 400x fee and an output the request does not name. */
+    async function buildBatch(wallet: WalletController, account: ReturnType<typeof p2mrAccount>) {
+      const stranger = p2mrAddressFromPubkey(hexToBytes('44'.repeat(32)), 'regtest')
+      return [
+        await buildSend(wallet, account, { txidByte: '5b' }),
+        await buildSend(wallet, account, { feeRate: 400, txidByte: '5c' }),
+        misnamed(await buildSend(wallet, account, { txidByte: '5d' }), stranger),
+      ]
+    }
+
+    function mockSigning() {
+      vi.mocked(keyringService.signP2mrPsbtWithCounter).mockImplementation(
+        async (_address, { psbt, keys }) => {
+          const signed = signP2mrPsbt({
+            psbt,
+            keys,
+            sign: () => new Uint8Array(PQC_SIGNATURE_BYTES).fill(7),
+          })
+          return { psbt: signed.psbt, signed: signed.signed, counterResults: [] }
+        }
+      )
+    }
+
+    it('reviews each PSBT of the batch from its exact bytes and flags a 400x fee and an unrecognised output', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const batch = await buildBatch(wallet, account)
+
+      const summary = await wallet.analyzeLocalPsbts(batch)
+
+      expect(summary.account).toBe(account.address)
+      expect(summary.chain).toBe(ChainType.QBIT_REGTEST)
+      expect(summary.parseErrorCount).toBe(0)
+      expect(summary.items.map(item => item.risks.map(risk => [risk.type, risk.level]))).toEqual([
+        [],
+        [[RiskType.HIGH_FEE_RATE, 'warning']],
+        [[RiskType.UNRECOGNISED_OUTPUT, 'danger']],
+      ])
+      // The same summary and risks a review of each PSBT on its own shows.
+      for (const [index, toSignData] of batch.entries()) {
+        const decoded = await wallet.decodePsbt(toSignData.psbtHex, '', {
+          statedRecipients: statedPsbtRecipients(toSignData),
+        })
+        expect(summary.items[index]!.risks).toEqual(decoded.risks)
+        expect(summary.items[index]!.spendSummary).toEqual(decoded.spendSummary)
+      }
+      expect(summary.items[1]).toMatchObject({ fee: 1_544_000, feeRate: '400.00' })
+      expect(summary.items[1]!.spendSummary!.feeAssessment!.reasons).toContain('above_relay_floor')
+      expect(summary.items[2]!.spendSummary!.outputRoles).toEqual(['unrecognised', 'wallet'])
+    })
+
+    it('signs a flagged PSBT of the batch only with its risks explicitly confirmed', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(account as any)
+      mockSigning()
+      const [clean, highFee, unrecognised] = await buildBatch(wallet, account)
+      const { account: reviewedAccount, chain } = await wallet.analyzeLocalPsbts([
+        clean!,
+        highFee!,
+        unrecognised!,
+      ])
+      const review = (confirmedRisks: RiskType[]) => ({
+        account: reviewedAccount,
+        chain,
+        confirmedRisks,
+      })
+
+      await expect(wallet.signLocalBatchPsbt(highFee!, review([]))).rejects.toThrow(
+        'risk that was not confirmed'
+      )
+      await expect(
+        wallet.signLocalBatchPsbt(highFee!, review([RiskType.UNRECOGNISED_OUTPUT]))
+      ).rejects.toThrow('risk that was not confirmed')
+      await expect(wallet.signLocalBatchPsbt(unrecognised!, review([]))).rejects.toThrow(
+        'risk that was not confirmed'
+      )
+      expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+
+      const signedHighFee = await wallet.signLocalBatchPsbt(
+        highFee!,
+        review([RiskType.HIGH_FEE_RATE])
+      )
+      const signedUnrecognised = await wallet.signLocalBatchPsbt(
+        unrecognised!,
+        review([RiskType.UNRECOGNISED_OUTPUT])
+      )
+      const signedClean = await wallet.signLocalBatchPsbt(clean!, review([]))
+
+      expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(3)
+      for (const signed of [signedHighFee, signedUnrecognised, signedClean]) {
+        expect(decodePsbt(parsePsbt(hexToBytes(signed.psbtHex!))).inputs[0]!.finalized).toBe(true)
+      }
+      expect(signedHighFee.qbitBroadcastIdentity).toEqual(highFee!.qbitBroadcastIdentity)
+    })
+
+    it('refuses a batch PSBT once the account or network differs from the one it was analyzed for', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      const otherAccount = { ...p2mrAccount('33'.repeat(32), 1), key: 'account-1' }
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(account as any)
+      mockSigning()
+      const [clean] = await buildBatch(wallet, account)
+      const summary = await wallet.analyzeLocalPsbts([clean!])
+      const review = { account: summary.account, chain: summary.chain, confirmedRisks: [] }
+
+      // Another account is current when signing starts.
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(otherAccount as any)
+      await expect(wallet.signLocalBatchPsbt(clean!, review)).rejects.toThrow(
+        'changed after the batch was reviewed'
+      )
+
+      // The account switches while signing re-reads the wallet's accounts.
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      vi.spyOn(wallet, 'getAccounts').mockImplementationOnce(async () => {
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(otherAccount as any)
+        return []
+      })
+      await expect(wallet.signLocalBatchPsbt(clean!, review)).rejects.toThrow('account changed')
+
+      // Same account, another network.
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      await expect(
+        wallet.signLocalBatchPsbt(clean!, { ...review, chain: ChainType.QBIT_TESTNET4 })
+      ).rejects.toThrow('changed after the batch was reviewed')
+      expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+
+      await expect(wallet.signLocalBatchPsbt(clean!, review)).resolves.toMatchObject({
+        qbitBroadcastIdentity: clean!.qbitBroadcastIdentity,
+      })
+    })
+
+    it('refuses an analysis when the account changes while it is read, and any provider request', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      const otherAccount = { ...p2mrAccount('33'.repeat(32), 1), key: 'account-1' }
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const [clean] = await buildBatch(wallet, account)
+
+      vi.spyOn(wallet, 'getAccounts').mockImplementationOnce(async () => {
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(otherAccount as any)
+        return []
+      })
+      await expect(wallet.analyzeLocalPsbts([clean!])).rejects.toThrow('account changed')
+
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      await expect(
+        wallet.signLocalBatchPsbt(
+          { ...clean!, providerContext: { origin: 'https://dapp.example' } as any },
+          { account: account.address, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] }
+        )
+      ).rejects.toThrow('A provider request is signed one transaction at a time')
+      await expect(
+        wallet.signLocalBatchPsbt(
+          { ...clean!, qbitRecoveryMigration: { planId: 'plan' } as any },
+          { account: account.address, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] }
+        )
+      ).rejects.toThrow('A recovery migration is signed from its own review')
+      await expect(
+        wallet.signLocalBatchPsbt(clean!, { account: account.address } as any)
+      ).rejects.toThrow('invalid batch review')
+      expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+    })
+
+    it('refuses a critical risk however it is confirmed', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      mockSigning()
+      const [clean] = await buildBatch(wallet, account)
+      const review = (wallet as any).reviewQbitP2mrPsbt
+      vi.spyOn(wallet as any, 'reviewQbitP2mrPsbt').mockImplementation((...args: unknown[]) => {
+        const decoded = review(...args)
+        return {
+          ...decoded,
+          risks: [{ type: RiskType.SCAMMER_ADDRESS, level: 'critical', title: '', desc: '' }],
+        }
+      })
+
+      await expect(
+        wallet.signLocalBatchPsbt(clean!, {
+          account: account.address,
+          chain: ChainType.QBIT_REGTEST,
+          confirmedRisks: [RiskType.SCAMMER_ADDRESS],
+        })
+      ).rejects.toThrow('a risk that cannot be confirmed')
+      expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+    })
+  })
+
   it('keeps previewed fee and size exact across change, no-change, memo, multi-input, and send-all', async () => {
     const wallet = new WalletController()
     const account = p2mrAccount()
@@ -970,8 +1359,12 @@ describe('WalletController qbit P2MR send path', () => {
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) })
     )
     // Both assessments read the raw original and checked its one input's
-    // signature against the account key.
+    // signature against the account key. The replacement carries the
+    // original's output count from those bytes, for its broadcast to check
+    // what spends them without reading them again.
     expect(getTxHexMock).toHaveBeenCalledWith(live.txid)
+    expect(replacement.feeBump!.originalOutputCount).toBe(originalSummary.outputs.length)
+    expect(originalSummary.outputs).toHaveLength(3)
     expect(verifyPqcMock).toHaveBeenCalledTimes(2)
     for (const [pubkey] of verifyPqcMock.mock.calls) {
       expect(bytesToHex(pubkey)).toBe(account.pubkey)
@@ -1393,6 +1786,7 @@ describe('WalletController qbit P2MR send path', () => {
     }))
 
     const snapshot = await wallet.getQbitUtxoSnapshot()
+    expect(snapshot.address).toBe(account.address)
     expect(snapshot.chain).toBe(ChainType.QBIT_REGTEST)
     expect(snapshot.utxos.map(utxo => utxo.txid)).toEqual([availableTxid])
     await expect(wallet.getQbitUtxos()).resolves.toEqual(snapshot.utxos)
@@ -1406,6 +1800,111 @@ describe('WalletController qbit P2MR send path', () => {
       qbitUtxos: snapshot.utxos,
     })
     expect(send.qbitBroadcastIdentity?.chain).toBe(ChainType.QBIT_REGTEST)
+  })
+
+  it('joins a snapshot read already running for the account instead of walking again (#342)', async () => {
+    const wallet = new WalletController()
+    const account = p2mrAccount()
+    const other = p2mrAccount('22'.repeat(32))
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+    const listing = (...txids: string[]) =>
+      txids.map(txid => ({
+        txid,
+        vout: 0,
+        value: 50_000,
+        status: { confirmed: true, block_height: 10 },
+      }))
+    const reads: {
+      address: string
+      resolve: (value: unknown) => void
+      reject: (error: Error) => void
+    }[] = []
+    getAddressUtxosMock.mockImplementation(
+      (address: string) =>
+        new Promise((resolve, reject) => {
+          reads.push({ address, resolve, reject })
+        })
+    )
+    const otherTxid = 'af'.repeat(32)
+    getTxMock.mockImplementation(async txid => ({
+      txid,
+      vin: [{ is_coinbase: false }],
+      vout: [
+        {
+          value: 50_000,
+          scriptpubkey: txid === otherTxid ? other.p2mr.scriptPubKey : account.p2mr.scriptPubKey,
+        },
+      ],
+    }))
+    const txids = (snapshot: { utxos: { txid: string }[] }) => snapshot.utxos.map(utxo => utxo.txid)
+
+    // The Send screen opened, left and opened again while the read runs.
+    const first = wallet.getQbitUtxoSnapshot()
+    const second = wallet.getQbitUtxoSnapshot()
+    await vi.waitFor(() => expect(reads).toHaveLength(1))
+    // Another account's read does not join it, and neither does a read
+    // that must be fresh.
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(other as any)
+    const otherRead = wallet.getQbitUtxoSnapshot()
+    await vi.waitFor(() => expect(reads).toHaveLength(2))
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+    const freshRead = wallet.getQbitUtxos()
+    await vi.waitFor(() => expect(reads).toHaveLength(3))
+    // A send took an output while the read ran, and the explorer shows it
+    // pending. A read asked for after it starts afresh, so it can see the
+    // send's change.
+    const spent = 'ae'.repeat(32)
+    const kept = 'ad'.repeat(32)
+    const change = 'ce'.repeat(32)
+    vi.mocked(qbitSendGuardService.getReservedOutpointKeys).mockResolvedValue(
+      new Set([`${spent}:0`])
+    )
+    getAddressStatsMock.mockImplementation(async address => quietAddressStats(address, 1))
+    const afterSend = wallet.getQbitUtxoSnapshot()
+    await vi.waitFor(() => expect(reads).toHaveLength(4))
+    expect(reads.map(read => read.address)).toEqual([
+      account.address,
+      other.address,
+      account.address,
+      account.address,
+    ])
+
+    // The joined read's answer leaves out the output the send took.
+    reads[0]!.resolve(listing(spent, kept))
+    const [firstSnapshot, secondSnapshot] = await Promise.all([first, second])
+    expect(firstSnapshot).toMatchObject({ address: account.address, chain: ChainType.QBIT_REGTEST })
+    expect(txids(firstSnapshot)).toEqual([kept])
+    expect(secondSnapshot).toEqual(firstSnapshot)
+    reads[1]!.resolve(listing(otherTxid))
+    const otherSnapshot = await otherRead
+    expect(otherSnapshot.address).toBe(other.address)
+    expect(txids(otherSnapshot)).toEqual([otherTxid])
+    reads[2]!.resolve(listing(spent, kept))
+    await expect(freshRead).resolves.toHaveLength(1)
+    reads[3]!.resolve(listing(spent, kept, change))
+    expect(txids(await afterSend)).toEqual([kept, change])
+
+    // Once a read settles the next one reads afresh, and a failure reaches
+    // every caller that joined it without being kept.
+    const failing = [wallet.getQbitUtxoSnapshot(), wallet.getQbitUtxoSnapshot()]
+    await vi.waitFor(() => expect(reads).toHaveLength(5))
+    reads[4]!.reject(new Error('explorer unavailable'))
+    for (const read of failing) {
+      await expect(read).rejects.toThrow('explorer unavailable')
+    }
+    const retry = wallet.getQbitUtxoSnapshot()
+    await vi.waitFor(() => expect(reads).toHaveLength(6))
+    reads[5]!.resolve(listing(kept))
+    expect(txids(await retry)).toEqual([kept])
+
+    // Without the statistics there is nothing to tell the reads apart by,
+    // so none is shared.
+    getAddressStatsMock.mockRejectedValue(new Error('stats unavailable'))
+    const unshared = [wallet.getQbitUtxoSnapshot(), wallet.getQbitUtxoSnapshot()]
+    await vi.waitFor(() => expect(reads).toHaveLength(8))
+    reads[6]!.resolve(listing(kept))
+    reads[7]!.resolve(listing(kept))
+    await expect(Promise.all(unshared)).resolves.toHaveLength(2)
   })
 
   it('fails fee-bump eligibility closed across confirmed, gone, final, foreign and no-change transactions', async () => {
@@ -1671,6 +2170,8 @@ describe('WalletController qbit P2MR send path', () => {
         txid,
         vin: parents[txid]!.vin,
         vout: [{ scriptpubkey: account.p2mr.scriptPubKey, value: parents[txid]!.value }],
+        size: 3_860,
+        weight: 3_860,
         status: { confirmed: txid === fundingTxid || txid === confirmedTxid },
       }))
 
@@ -1694,6 +2195,129 @@ describe('WalletController qbit P2MR send path', () => {
       await expect(
         wallet.createSendQbitPsbt({ to: recipientAddress(), amount: 40_000, feeRate: 1 })
       ).rejects.toThrow('Insufficient balance.')
+    })
+  })
+
+  describe('unconfirmed ancestor size limit (#345)', () => {
+    // Send #1 spent 105 inputs and left 1,000,000 of change: 395,108 vB, unconfirmed.
+    function largeParentAccount() {
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const script = account.p2mr.scriptPubKey
+      const fundingTxid = '70'.repeat(32)
+      const parentTxid = '71'.repeat(32)
+      const confirmedTxids = Array.from({ length: 45 }, (_, index) =>
+        (0x80 + index).toString(16).repeat(32)
+      )
+      const txs = new Map<string, unknown>([
+        [
+          parentTxid,
+          {
+            txid: parentTxid,
+            vin: [
+              {
+                txid: fundingTxid,
+                vout: 0,
+                is_coinbase: false,
+                prevout: { scriptpubkey: script, value: 1_500_000 },
+              },
+            ],
+            vout: [
+              { scriptpubkey: recipientAddressScript(), value: 100_000 },
+              { scriptpubkey: script, value: 1_000_000 },
+            ],
+            size: 395_108,
+            weight: 395_108,
+            status: { confirmed: false },
+          },
+        ],
+        [fundingTxid, { txid: fundingTxid, vin: [], vout: [], status: { confirmed: true } }],
+        ...confirmedTxids.map(
+          txid =>
+            [
+              txid,
+              {
+                txid,
+                vin: [{ is_coinbase: false }],
+                vout: [{ scriptpubkey: script, value: 100_000 }],
+                status: { confirmed: true, block_height: 10 },
+              },
+            ] as const
+        ),
+      ])
+      getAddressUtxosMock.mockResolvedValue([
+        ...confirmedTxids.map(txid => ({
+          txid,
+          vout: 0,
+          value: 100_000,
+          status: { confirmed: true, block_height: 10 },
+        })),
+        { txid: parentTxid, vout: 1, value: 1_000_000, status: { confirmed: false } },
+      ])
+      getTxMock.mockImplementation(async (txid: string) => txs.get(txid))
+      return { parentTxid }
+    }
+
+    it('refuses before signing a send of 45 confirmed outputs and the change of a 105-input parent', async () => {
+      const { parentTxid } = largeParentAccount()
+      const wallet = new WalletController()
+
+      await expect(wallet.getQbitUtxos()).resolves.toContainEqual(
+        expect.objectContaining({
+          txid: parentTxid,
+          unconfirmed: true,
+          unconfirmedAncestors: [{ txid: parentTxid, vsize: 395_108 }],
+        })
+      )
+      // 46 inputs (173,150 vB) behind the parent make a 568 kB package.
+      await expect(
+        wallet.createSendQbitPsbt({ to: recipientAddress(), amount: 4_500_000, feeRate: 1 })
+      ).rejects.toThrow('send_exceeds_ancestor_size')
+      await expect(
+        wallet.createSendAllQbitPsbt({ to: recipientAddress(), feeRate: 1 })
+      ).rejects.toThrow('send_exceeds_ancestor_size')
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+
+      // UI-loaded outputs are held to the same limit.
+      const snapshot = await wallet.getQbitUtxoSnapshot()
+      await expect(
+        wallet.createSendQbitPsbt({
+          to: recipientAddress(),
+          amount: 4_500_000,
+          feeRate: 1,
+          qbitUtxos: snapshot.utxos,
+          qbitUtxoChain: snapshot.chain,
+        })
+      ).rejects.toThrow('send_exceeds_ancestor_size')
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+    })
+
+    it('still builds a smaller send from the confirmed outputs, or from the change and one more', async () => {
+      const { parentTxid } = largeParentAccount()
+      const wallet = new WalletController()
+      const inputTxids = (psbtHex: string) =>
+        decodePsbt(parsePsbt(hexToBytes(psbtHex))).inputs.map(input =>
+          reverseTxid(bytesToHex(input.prevout.txid))
+        )
+
+      const confirmedOnly = await wallet.createSendQbitPsbt({
+        to: recipientAddress(),
+        amount: 1_050_000,
+        feeRate: 1,
+      })
+      expect(inputTxids(confirmedOnly.psbtHex)).not.toContain(parentTxid)
+
+      const snapshot = await wallet.getQbitUtxoSnapshot()
+      const change = snapshot.utxos.find(utxo => utxo.txid === parentTxid)!
+      const withChange = await wallet.createSendQbitPsbt({
+        to: recipientAddress(),
+        amount: 1_050_000,
+        feeRate: 1,
+        qbitUtxos: [snapshot.utxos[0]!, change],
+        qbitUtxoChain: snapshot.chain,
+      })
+      expect(inputTxids(withChange.psbtHex)).toEqual([snapshot.utxos[0]!.txid, parentTxid])
+      expect(395_108 + withChange.estimatedVsize!).toBeLessThanOrEqual(404_000)
     })
   })
 
@@ -1952,6 +2576,7 @@ describe('WalletController qbit P2MR send path', () => {
       // Raised so a rescan fits within the client's page ceiling.
       maxAddressHistoryPages: 512,
       baseUrl: 'http://127.0.0.1:3002',
+      ...EXPLORER_BUDGETS,
     })
   })
 
@@ -2117,7 +2742,10 @@ describe('WalletController qbit P2MR send path', () => {
     }
 
     expect(getFeeTiersMock).toHaveBeenCalledTimes(4)
-    expect(esploraClientMock).toHaveBeenCalledWith({ baseUrl: 'http://127.0.0.1:3999' })
+    expect(esploraClientMock).toHaveBeenCalledWith({
+      baseUrl: 'http://127.0.0.1:3999',
+      ...EXPLORER_BUDGETS,
+    })
   })
 
   it('constructs separate mainnet and Testnet4 mempool clients from exact chain endpoints', async () => {
@@ -2132,10 +2760,12 @@ describe('WalletController qbit P2MR send path', () => {
     expect(mempoolQbitClientMock).toHaveBeenNthCalledWith(1, {
       maxAddressHistoryPages: 512,
       baseUrl: 'https://mempool.qbit.org/api',
+      ...EXPLORER_BUDGETS,
     })
     expect(mempoolQbitClientMock).toHaveBeenNthCalledWith(2, {
       maxAddressHistoryPages: 512,
       baseUrl: 'https://mempool-testnet.qbit.org/api',
+      ...EXPLORER_BUDGETS,
     })
     expect(esploraClientMock).not.toHaveBeenCalled()
   })
@@ -3362,14 +3992,14 @@ describe('WalletController qbit P2MR send path', () => {
       origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
       txid: toSignData.qbitBroadcastIdentity!.txid,
       outpoints: [{ txid: 'bb'.repeat(32), vout: 0 }],
+      // Not a fee bump: the claim takes over no other transaction's inputs.
+      replaces: null,
     }
     expect(result.qbitSendBroadcastClaim).toEqual(walletClaim)
     // Signed outside any UI port (as here), the wallet claim has no owner.
     expect(qbitSendGuardService.runWithBroadcastClaim).toHaveBeenCalledWith(
       walletClaim,
       expect.any(Function),
-      undefined,
-      // Not a fee bump: the claim takes over no other transaction's inputs.
       undefined
     )
     expect(qbitSendGuardService.runWithNoOverlap).not.toHaveBeenCalled()
@@ -6560,6 +7190,141 @@ describe('WalletController qbit P2MR send path', () => {
     expect(getAddressHistoryMock).toHaveBeenCalledWith(
       source.address,
       expect.objectContaining({ maxTransactions: 20_000 })
+    )
+  })
+
+  /**
+   * A source the explorer will not list (620 confirmed unspent outputs) whose
+   * history is longer than the 10,000 transactions the wallet reads.
+   */
+  function mockUnreadableRecoverySource(address: string) {
+    const ordinary = getAddressUtxosMock.getMockImplementation()
+    getAddressUtxosMock.mockImplementation(async (requested: string) => {
+      if (requested === address) {
+        throw new QbitApiError('http', 'HTTP 500 from /utxo', {
+          status: 500,
+          url: `http://127.0.0.1:3002/address/${address}/utxo`,
+        })
+      }
+      return ordinary ? ordinary(requested) : []
+    })
+    const ordinaryStats = getAddressStatsMock.getMockImplementation()!
+    getAddressStatsMock.mockImplementation(async (requested: string) =>
+      requested === address
+        ? {
+            address,
+            chain_stats: {
+              funded_txo_count: 620,
+              funded_txo_sum: 620 * 50_000,
+              spent_txo_count: 0,
+              spent_txo_sum: 0,
+              tx_count: 10_001,
+            },
+            mempool_stats: {
+              funded_txo_count: 0,
+              funded_txo_sum: 0,
+              spent_txo_count: 0,
+              spent_txo_sum: 0,
+              tx_count: 0,
+            },
+          }
+        : ordinaryStats(requested)
+    )
+  }
+
+  it('plans the other sources and reports one whose history is too long to read (#344)', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const { state } = mockManyOutputRecoverySource(wallet, fixture, [], 3)
+    // Read first, so its failure would stop the whole pass.
+    const unreadable = p2mrAccount('43'.repeat(32), 1)
+    fixture.sourceKeyring.accounts.unshift(unreadable as any)
+    mockUnreadableRecoverySource(unreadable.address)
+
+    const prepared = await wallet.prepareQbitRecoveryMigration(2, 1)
+
+    expect(prepared.deferredSources).toEqual([
+      { address: unreadable.address, reason: 'history_too_large', maxTransactions: 10_000 },
+    ])
+    // The readable source is planned as usual; the other one is not, and
+    // nothing of its history was read past the statistics.
+    expect(state.vault.migration.plans.map((plan: any) => plan.sourceAddress)).toEqual([
+      fixture.sourceAccount.address,
+    ])
+    expect(prepared.toSignDatas).toHaveLength(1)
+    expect(prepared.state.status).toBe('migrating')
+    expect(getAddressHistoryMock).not.toHaveBeenCalledWith(unreadable.address, expect.anything())
+
+    // With nothing else left to plan, the migration stays open and still names it.
+    state.vault = {
+      ...state.vault,
+      migration: {
+        ...state.vault.migration,
+        plans: state.vault.migration.plans.map((plan: any) => ({ ...plan, status: 'confirmed' })),
+      },
+    }
+    getAddressUtxosMock.mockResolvedValue([])
+    mockUnreadableRecoverySource(unreadable.address)
+    const again = await wallet.prepareQbitRecoveryMigration(2, 1)
+    expect(again).toMatchObject({
+      toSignDatas: [],
+      deferredSources: [{ address: unreadable.address, reason: 'history_too_large' }],
+    })
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+  })
+
+  it('keeps a migration open, and reopens an archived one, for a source too long to read (#344)', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const unreadable = p2mrAccount('43'.repeat(32), 1)
+    fixture.sourceKeyring.accounts.push(unreadable as any)
+    let vaultState: any = {
+      ...fixture.vaultState,
+      migration: {
+        ...fixture.vaultState.migration,
+        plans: [{ ...fixture.vaultState.migration.plans[0], status: 'confirmed' }],
+      },
+    }
+    vi.spyOn(wallet as any, 'loadQbitRecoveryMigration').mockImplementation(async () => ({
+      sourceKeyring: fixture.sourceKeyring,
+      anchor: fixture.sourceAccount,
+      state: vaultState,
+      network: 'regtest' as const,
+      destination: fixture.destinationKeyring,
+      destinationKeyringIndex: 3,
+    }))
+    vi.spyOn(wallet as any, 'getQbitKeyringByIndex').mockImplementation(async index =>
+      index === 3 ? fixture.destinationKeyring : fixture.sourceKeyring
+    )
+    vi.spyOn(wallet, 'getQbitRecoveryState').mockImplementation(async () =>
+      fixture.publicState(vaultState)
+    )
+    vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async () =>
+      wrapRegtestVaultState(vaultState)
+    )
+    vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockResolvedValue({ state: 'confirmed' })
+    vi.mocked(keyringService.reopenQbitRecoveryMigration).mockImplementation(async () => {
+      vaultState = { ...vaultState, status: 'migrating' }
+      return fixture.publicState(vaultState)
+    })
+    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    getAddressUtxosMock.mockResolvedValue([])
+    mockUnreadableRecoverySource(unreadable.address)
+
+    await expect(wallet.advanceQbitRecoveryMigration(2)).resolves.toMatchObject({
+      status: 'migrating',
+    })
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+
+    // An archive whose source has since grown past the read limit reopens.
+    vaultState = { ...vaultState, status: 'migrated' }
+    await expect(wallet.advanceQbitRecoveryMigration(2)).resolves.toMatchObject({
+      status: 'migrating',
+    })
+    expect(keyringService.reopenQbitRecoveryMigration).toHaveBeenCalledWith(
+      fixture.sourceAccount.address,
+      'regtest',
+      []
     )
   })
 

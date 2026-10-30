@@ -209,6 +209,9 @@
   "balance": {
     "message": "Solde"
   },
+  "balance_loading": {
+    "message": "Chargement du solde..."
+  },
   "bbn": {
     "message": "bbn..."
   },
@@ -241,6 +244,9 @@
   },
   "qbit_restore_scanning": {
     "message": "Analyse de l'historique de la chaîne et reconstruction des compteurs de signatures…"
+  },
+  "qbit_restore_stats_floor_notice": {
+    "message": "Les compteurs de signatures des comptes à l'index de dérivation $1 ont été reconstruits à partir des totaux d'adresse de l'explorateur, car leur historique est trop long pour être lu en entier. Ces totaux comptent les mêmes dépenses sur la chaîne."
   },
   "qbit_signatures_remaining": {
     "message": "$1 restante(s)"
@@ -1520,6 +1526,15 @@
   "phishing_detection": {
     "message": "Détection de Phishing"
   },
+  "phishing_page_held_message": {
+    "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Le portefeuille n’a pas répondu à temps pour ouvrir l’avertissement complet ou laisser la page se charger. Réessayez ou fermez cet onglet."
+  },
+  "phishing_page_held_released_message": {
+    "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Sélectionnez Réessayer pour la charger, ou fermez cet onglet."
+  },
+  "phishing_page_held_unreleasable_message": {
+    "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Il ne peut pas laisser la page se charger, car la page ne conserve pas l’enregistrement nécessaire. Réessayez ou fermez cet onglet."
+  },
   "phrase_optional": {
     "message": "Phrase (Optionnel)"
   },
@@ -2093,8 +2108,8 @@
   "total": {
     "message": "Total"
   },
-  "total_balance": {
-    "message": "Solde Total"
+  "wallet_balance": {
+    "message": "Solde du Portefeuille"
   },
   "total_fee": {
     "message": "Frais totaux"
@@ -2669,6 +2684,12 @@
   "qbit_recovery_pending_body": {
     "message": "Les données signées du mouvement sont stockées dans le coffre chiffré. Conservez les deux portefeuilles ; revenez ici pour rediffuser, vérifier la confirmation ou reprendre en sécurité."
   },
+  "qbit_recovery_deferred_title": {
+    "message": "Pas encore déplacé"
+  },
+  "qbit_recovery_deferred_history_too_large": {
+    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste et compte plus de $1 transactions, trop pour que le portefeuille lise ses sorties dans son historique : ses fonds n'ont donc pas été déplacés. Passez à ce compte, ouvrez Envoyer et choisissez Consolider les sorties jusqu'à ce qu'il respecte la limite de l'explorateur, puis revenez ici."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Prêt pour examen et signature"
   },
@@ -2858,8 +2879,20 @@
   "send_all_leaves_outputs_behind": {
     "message": "MAX envoie vos $1 plus grandes sorties, le maximum qu'une transaction peut contenir. $2 $3 répartis sur $4 sorties plus petites restent sur ce compte."
   },
+  "send_exceeds_ancestor_size": {
+    "message": "Avec votre envoi précédent, pas encore confirmé, cet envoi dépasserait la taille acceptée par le réseau. Attendez que l'envoi précédent soit confirmé, ou envoyez un montant plus faible."
+  },
   "utxo_limit_exceeded_balance": {
     "message": "Trop de sorties pour que l'explorateur les liste. Ce total provient du résumé de l'adresse."
+  },
+  "utxo_limit_exceeded_balance_detail": {
+    "message": "Les montants disponible et indisponible sont inconnus, car l'explorateur ne liste pas les sorties de ce compte."
+  },
+  "balance_load_error": {
+    "message": "Impossible de charger le solde. L’explorateur est peut-être temporairement indisponible."
+  },
+  "balance_refresh_error": {
+    "message": "Impossible d’actualiser le solde ; il n’est peut-être plus à jour."
   },
   "utxo_limit_exceeded_send": {
     "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu toutes les lire dans son historique. Consolidez ses sorties pour envoyer depuis ce compte."
@@ -2908,5 +2941,50 @@
   },
   "consolidation_error_keep_reading": {
     "message": "Le portefeuille a lu une partie de l'historique de ce compte sans trouver de sorties prêtes à fusionner. Préparez de nouveau pour lire plus loin."
+  },
+  "net_spend_leaves_wallet": {
+    "message": "Quitte votre portefeuille"
+  },
+  "net_spend_breakdown": {
+    "message": "$1 $2 vers des tiers + $3 $4 de frais de réseau"
+  },
+  "net_spend_unknown": {
+    "message": "Inconnu : le montant d'une entrée est manquant"
+  },
+  "fee_warning_above_recommended": {
+    "message": "$1 bits/vB représente $2× le taux recommandé le plus rapide de $3 bits/vB."
+  },
+  "fee_warning_above_relay_floor": {
+    "message": "$1 bits/vB représente $2× le minimum du réseau de $3 bit/vB."
+  },
+  "fee_warning_amount_share": {
+    "message": "Les frais représentent $1 % des $2 $3 que cette transaction envoie à des tiers."
+  },
+  "fee_warning_recommendation_unavailable": {
+    "message": "Les taux de frais recommandés sont indisponibles : ces frais n'ont donc pas été comparés à ceux-ci."
+  },
+  "unrecognised_output": {
+    "message": "Non reconnue"
+  },
+  "unrecognised_outputs_summary": {
+    "message": "Sorties vers des adresses que ce portefeuille ne reconnaît pas : $1, pour $2 $3"
+  },
+  "unrecognised_output_risk_title": {
+    "message": "Sortie non reconnue"
+  },
+  "unrecognised_output_risk_description": {
+    "message": "Une sortie paie une adresse qui n'est ni la vôtre ni celle du destinataire indiqué par cette demande, ou un script sans adresse. Vérifiez chaque sortie avant de signer."
+  },
+  "multisign_flagged_transactions": {
+    "message": "Transactions à confirmer avant de signer : $1"
+  },
+  "multisign_risks_description": {
+    "message": "Sachez que la signature des transactions suivantes comporte des risques."
+  },
+  "understand_and_accept_the_risks_of_these_transactions": {
+    "message": "Je comprends et accepte les risques associés à ces transactions."
+  },
+  "multisign_account_changed": {
+    "message": "Le compte a changé pendant la vérification des transactions. Rien n'a été signé ; vérifiez-les à nouveau."
   }
 }

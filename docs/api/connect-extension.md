@@ -39,8 +39,9 @@ parameters.
 
 If the user changes the active chain inside Qbit Wallet, the old chain grant does not authorize
 the new chain. `getAccounts()` then returns an empty array and the dapp must request access again
-from a user action. A provider-driven chain switch that the user approves updates that origin's
-grant to the new chain.
+from a user action. The grant for the old chain is kept: when the wallet returns to that chain, the
+origin can read its account again and receives `accountsChanged` with it. A provider-driven chain
+switch that the user approves updates that origin's grant to the new chain.
 
 ## `disconnect()`
 
@@ -57,6 +58,9 @@ await window.qbit.disconnect()
 
 During revocation, subscribed pages receive `accountsChanged` with an empty array and then the
 `disconnect` event. Treat either signal as a reason to clear account-derived application state.
+An empty `accountsChanged` without `disconnect` means the wallet is on a chain this origin has no
+grant for. Do not call `disconnect()` in response to an event: it revokes the grant, and only an
+explicit user action should do that.
 
 ```javascript
 function handleDisconnect() {

@@ -95,12 +95,13 @@ internal dependency updates when needed.
 ## 4. Verify Before Versioning
 
 Run focused checks for the changed and affected packages. For broad package
-changes, run the workspace-level checks:
+changes, run the workspace-level checks. Build first, because typecheck and
+some tests read the other workspace packages from their build output:
 
 ```sh
+pnpm build
 pnpm -r typecheck
 pnpm -r test
-pnpm build
 ```
 
 If a package has special build behavior, run its package script directly. For
@@ -142,9 +143,10 @@ pnpm changeset status --verbose
 
 The store artifact declares `http://127.0.0.1:3002/*` under
 `optional_host_permissions` and names `http://127.0.0.1:3002` in the
-extension-page CSP `connect-src`. Required `host_permissions` stay limited to
-the two public explorer origins. When filling in the Web Store listing and the
-privacy/permission justification, describe it as follows:
+extension-page CSP `connect-src`. Required `host_permissions` hold the two
+public explorer origins and the phishing denylist entries described in
+section 8. When filling in the Web Store listing and the privacy/permission
+justification, describe the loopback permission as follows:
 
 - **What it is for**: an advanced developer feature, *Local Regtest*, that lets
   the wallet talk to a Qbit regtest indexer the user runs on their own machine.
@@ -166,9 +168,46 @@ privacy/permission justification, describe it as follows:
   origin a required scriptable host), and revoking there returns the wallet
   to Mainnet immediately.
 
-`corepack pnpm --filter qbit-extension run package:test` fails the build if
-the generated manifest's required, optional, or CSP loopback entries differ
-from the reviewed values, so inspect the packaged `manifest.json` (not only
-`build/_raw/manifest/_base_v3.json`) before submission. See
+## 8. Chrome Web Store: phishing denylist host permissions
+
+The store artifact also declares `*://*.<entry>/*` under `host_permissions`
+for each domain on the bundled phishing denylist. The build generates them
+from `BUNDLED_PHISHING_DENYLIST`, and `package-artifact-validation.js` pins the
+reviewed list by its length and SHA-256
+(`REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT` and
+`REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256`), so a denylist change fails
+packaging until it is reviewed and both pins are updated too. The listing will
+show these phishing domains among the extension's sites. Describe them as
+follows:
+
+- **What they are for**: a `declarativeNetRequest` `redirect` rule sends a
+  top-level navigation to a known phishing domain, including one reached
+  through a redirect or link wrapper, to the wallet's own warning page, which
+  explains the block and lets the user proceed. Chrome fires a redirect only
+  with host access to the site; the `block` rule that stops these sites
+  otherwise needs none, but shows only the browser's generic error page.
+- **What is accessed**: nothing is fetched from or injected into those sites
+  beyond what the `<all_urls>` content script already does; the access lets
+  the redirect fire.
+- **Install warning**: none added. The content script's `<all_urls>` match
+  already brings "Read and change all your data on all websites", and
+  `chrome.management.getPermissionWarningsByManifest` reports that same single
+  warning with and without these entries.
+
+Build the workspace packages first, as CI does (`test:e2e:prepare` runs the
+same two build steps). `package:test` uses their build output, the denylist
+included, so on a fresh install it stops with a missing-module error, and after
+a denylist change it still checks the old list until they are rebuilt.
+
+```sh
+corepack pnpm test:e2e:prepare
+corepack pnpm --filter qbit-extension run package:test -- --artifact-version <version>
+```
+
+With the extension's version (for example `1.0.6`), `package:test` fails the
+build if the generated manifest's required, optional, or CSP loopback entries,
+or its phishing host permissions and web-accessible resources, differ from the
+reviewed values, so inspect the packaged `manifest.json` (not only
+`apps/extension/build/_raw/manifest/_base_v3.json`) before submission. See
 `docs/privacy.md` ("Optional local Regtest connection") for the user-facing
 data-flow description.
