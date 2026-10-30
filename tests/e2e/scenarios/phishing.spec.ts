@@ -14,12 +14,16 @@ import { assertRepositoryRoot } from '../support/paths'
 // real hosts.
 const [BLOCKED_HOST, OTHER_BLOCKED_HOST] = BUNDLED_PHISHING_DENYLIST as [string, string]
 const BLOCKED_URL = `http://${BLOCKED_HOST}/claim?ref=e2e`
+// Where a form on the start page posts to.
+const FORM_PATH = '/claim?ref=form'
+const FORM_URL = `http://${BLOCKED_HOST}${FORM_PATH}`
 // A link wrapper on another site, such as a search result or mail link
 // redirector, that the browser also resolves to the fixture server.
 const WRAPPER_HOST = 'links.wrapper-e2e.test'
 
 interface RecordedRequest {
   host: string
+  method: string
   path: string
 }
 
@@ -46,7 +50,7 @@ class PhishingFixtureServer {
     const server = createServer((request, response) => {
       const host = (request.headers.host ?? '').replace(/:\d+$/, '')
       const path = request.url ?? '/'
-      this.requests.push({ host, path })
+      this.requests.push({ host, method: request.method ?? 'GET', path })
 
       // Redirectors, on this site and on the wrapper's: a 302 to `?to=`.
       const redirectTo = /^\/(?:out|wrap)\?/.test(path)
@@ -64,6 +68,7 @@ class PhishingFixtureServer {
               `<a id="blocked-link" href="${BLOCKED_URL}">Claim</a>`,
               `<a id="redirect-link" href="/out?to=${encodeURIComponent(BLOCKED_URL)}">Claim via this site</a>`,
               `<a id="wrapped-link" href="http://${WRAPPER_HOST}/wrap?to=${encodeURIComponent(BLOCKED_URL)}">Claim via a link wrapper</a>`,
+              `<form method="post" action="${FORM_URL}"><input type="hidden" name="amount" value="1"><button id="blocked-form">Claim with a form</button></form>`,
             ].join('')
           : `<h1>phishing fixture</h1><script>fetch('/beacon?stage=inline')</script>`
       response.writeHead(200, {
@@ -347,6 +352,7 @@ test.describe('MV3 phishing protection', () => {
     expect(await page.evaluate(() => 'qbit' in window)).toBe(false)
     expect(fixtureServer.requestsTo(BLOCKED_HOST)).toContainEqual({
       host: BLOCKED_HOST,
+      method: 'GET',
       path: '/claim?ref=e2e',
     })
 
@@ -368,6 +374,34 @@ test.describe('MV3 phishing protection', () => {
     await expect(again).toHaveURL(BLOCKED_URL)
     await expect(again.locator('h1')).toHaveText('phishing fixture')
     expect(fixtureServer.requestsTo(BLOCKED_HOST).length).toBeGreaterThan(earlierRequests)
+  })
+
+  test('lets a form from another tab reach a host the user proceeded to once', async ({
+    extension,
+    fixtureServer,
+  }) => {
+    const page = await extension.context.newPage()
+    await navigate(page, BLOCKED_URL)
+    await expect(page).toHaveURL(warningPagePattern(extension.extensionId))
+    await page.getByRole('button', { name: new RegExp(BLOCKED_HOST.replace(/\./g, '\\.')) }).click()
+    await expect(page.locator('h1')).toHaveText('phishing fixture')
+
+    // Proceed lifts the host for the browser session, but a page's release
+    // is kept in its tab. In another tab, the page that a form's POST to the
+    // host loads is held, then released.
+    const formTab = await extension.context.newPage()
+    await formTab.goto(`${fixtureServer.origin}/start`)
+    await formTab.click('#blocked-form')
+    await expect(formTab).toHaveURL(FORM_URL)
+    await expect(formTab.locator('h1')).toHaveText('phishing fixture')
+    await formTab.waitForTimeout(1_000)
+
+    // The server got the form once, before the hold stopped the page. The
+    // release reloaded the page with a GET instead of sending the form again.
+    const formRequests = fixtureServer
+      .requestsTo(BLOCKED_HOST)
+      .filter(({ path }) => path === FORM_PATH)
+    expect(formRequests.map(({ method }) => method)).toEqual(['POST', 'GET'])
   })
 
   test('warns on a link clicked while the service worker is already running', async ({

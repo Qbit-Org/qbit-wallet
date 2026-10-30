@@ -350,7 +350,10 @@ Controls and evidence:
   and one whose check does not answer within 3 seconds, or whose warning page
   does not arrive, shows a notice with a retry instead of a blank page. A
   page the background lets through, because the user proceeded to it, is
-  recorded in the page's own sessionStorage and reloaded once; later loads of
+  recorded in the page's own sessionStorage and reloaded once, with a GET:
+  the content script first replaces the page's history entry with itself, so
+  that a form POST that loaded the page, which its server already got, is
+  not sent again. Later loads of
   that origin in the tab run, and are still checked. A page whose check finds
   it denylisted again loses that record. A page whose sessionStorage the
   content script cannot use, such as one its server sandboxes or one whose
@@ -395,7 +398,9 @@ Controls and evidence:
   still gets the warning. With the block rule removed, a direct navigation
   shows the warning without running the page's inline script, the reported
   health is `retrying` until the rule is installed again, and Proceed then
-  loads the page after one reload.
+  loads the page after one reload. After Proceed, a form that another tab
+  posts to the host reaches the server once, and the page it loads is
+  released with a GET.
 
 Residual risk:
 
