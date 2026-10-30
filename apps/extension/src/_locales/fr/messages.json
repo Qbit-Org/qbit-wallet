@@ -3092,6 +3092,12 @@
   "multisign_account_changed": {
     "message": "Le compte a changé pendant la vérification des transactions. Rien n'a été signé ; vérifiez-les à nouveau."
   },
+  "recovery_phrase_is_not_valid": {
+    "message": "Cette phrase de récupération n'est pas valide. Vérifiez que chaque mot et sa position correspondent à votre sauvegarde."
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "La phrase collée contient plus de mots qu'il n'y a de cases. Choisissez la longueur de phrase qui correspond à votre sauvegarde, puis collez-la dans la première case."
+  },
   "phishing_protection": {
     "message": "Protection contre le phishing"
   },

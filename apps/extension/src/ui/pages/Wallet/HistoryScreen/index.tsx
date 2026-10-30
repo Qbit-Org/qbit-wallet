@@ -383,7 +383,7 @@ export default function HistoryScreen() {
   // page safely, so hold the session unavailable until the auto-refresh pins a
   // fresh snapshot.
   const laterPageSnapshotMissing =
-    historyScopeKey.startsWith('qbit:') && accountHistory.snapshotId === undefined;
+    historyScopeKey.startsWith('qbit-account:') && accountHistory.snapshotId === undefined;
   const laterPageSessionTxids =
     page === 1 || accountHistory.expired || laterPageSnapshotMissing
       ? undefined

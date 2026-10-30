@@ -3092,6 +3092,12 @@
   "multisign_account_changed": {
     "message": "The account changed while the transactions were checked. Nothing was signed; check them again."
   },
+  "recovery_phrase_is_not_valid": {
+    "message": "This recovery phrase is not valid. Check that each word and its position match your backup."
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "The pasted phrase has more words than there are boxes. Choose the phrase length that matches your backup, then paste it into the first box."
+  },
   "phishing_protection": {
     "message": "Phishing protection"
   },

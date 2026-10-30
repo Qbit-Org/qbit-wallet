@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Button, Card, Column, Grid, Input, Radio, RadioGroup, Row, Text } from '@/ui/components';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
 import { ContextData, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
+import { colors } from '@/ui/theme/colors';
 import { spacingGap } from '@/ui/theme/spacing';
 import { useCreateWalletLogicImportWordsStep } from '@qbit/wallet-state';
 
@@ -13,12 +14,32 @@ export function Step1_Import(params: {
   const { contextData } = params;
 
   const [curInputIndex, setCurInputIndex] = useState(0);
+  // The input the user is typing in, until it loses focus. The phrase message
+  // waits for it, so a word typed letter by letter does not flash the message.
+  const [typingIndex, setTypingIndex] = useState<number | null>(null);
 
-  const { wordsItems, t, onHandleEventPaste, inputWords, onClickNext, onClickWordsItem, onInputWordsChange, disabled } =
-    useCreateWalletLogicImportWordsStep(params as any);
+  const {
+    wordsItems,
+    t,
+    onHandleEventPaste,
+    inputWords,
+    inputWordsInvalid,
+    inputWordsError,
+    pastedTooManyWords,
+    onClickNext,
+    onClickWordsItem,
+    onInputWordsChange,
+    disabled
+  } = useCreateWalletLogicImportWordsStep(params as any);
 
   const handleOnKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!disabled && 'Enter' == e.key) {
+    if ('Enter' != e.key) {
+      return;
+    }
+    if (disabled) {
+      // The user is done typing: show why Continue is disabled.
+      setTypingIndex(null);
+    } else {
       onClickNext();
     }
   };
@@ -48,11 +69,17 @@ export function Step1_Import(params: {
       <Row justifyCenter>
         <Grid columns={2}>
           {inputWords.map((_, index) => {
+            // Flag a word outside the list only once the user has left its input.
+            const invalid = inputWordsInvalid[index] && index !== curInputIndex;
             return (
               <Row key={index}>
                 <Card
                   gap="zero"
-                  style={{ paddingLeft: spacingGap.sm }}
+                  style={
+                    invalid
+                      ? { paddingLeft: spacingGap.sm, border: `1px solid ${colors.dangerText}` }
+                      : { paddingLeft: spacingGap.sm }
+                  }
                   onClick={(event) => {
                     event.currentTarget.querySelector('input')?.focus();
                   }}
@@ -71,9 +98,11 @@ export function Step1_Import(params: {
                     style={{ padding: '0 4px' }}
                     value={_}
                     onPaste={(e) => {
+                      setTypingIndex(null);
                       onHandleEventPaste(e, index);
                     }}
                     onChange={(e) => {
+                      setTypingIndex(index);
                       onInputWordsChange(e, index);
                     }}
                     onFocus={(e) => {
@@ -81,11 +110,14 @@ export function Step1_Import(params: {
                     }}
                     onBlur={(e) => {
                       setCurInputIndex(999);
+                      setTypingIndex(null);
                     }}
                     onKeyUp={(e) => handleOnKeyUp(e as React.KeyboardEvent<HTMLInputElement>)}
                     autoFocus={index == curInputIndex}
                     preset={'password'}
                     placeholder=""
+                    aria-invalid={invalid}
+                    data-invalid={invalid}
                     data-testid={`mnemonic-import-word-${index}`}
                   />
                 </Card>
@@ -94,6 +126,24 @@ export function Step1_Import(params: {
           })}
         </Grid>
       </Row>
+
+      {pastedTooManyWords ? (
+        <Text
+          text={t('pasted_phrase_has_too_many_words')}
+          color="dangerText"
+          size="xs"
+          textCenter
+          data-testid="mnemonic-import-too-many-words"
+        />
+      ) : inputWordsError && typingIndex === null ? (
+        <Text
+          text={t('recovery_phrase_is_not_valid')}
+          color="dangerText"
+          size="xs"
+          textCenter
+          data-testid="mnemonic-import-invalid-phrase"
+        />
+      ) : null}
 
       <FooterButtonContainer>
         <Button

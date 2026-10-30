@@ -325,8 +325,9 @@ Controls and evidence:
   without host access, with no attempt scheduled or queued, starts its
   removal once its answer reaches a request still waiting for it; it
   neither clears a recorded failure nor supersedes a queued retry. The
-  wallet's Advanced settings screen shows the overall state with its
-  reasons and the block rule's health, with Retry now, but not the redirect
+  wallet's Advanced settings screen shows the block rule's state, or the
+  overall state once that rule is installed, with the overall reasons and
+  the block rule's health, and Retry now; it does not show the redirect
   rule's own state;
 - above the block rule, a session `redirect` rule sends a top-level
   navigation to a denylisted host to the wallet's warning page before it

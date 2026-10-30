@@ -51,11 +51,27 @@ test('G3 receive/fund/rotate: tracks funded addresses and preserves safety state
     expect.arrayContaining([rotation.previous, rotation.current])
   )
 
-  await setup.page.goto(`chrome-extension://${extension.extensionId}/index.html#/wallet/history`, {
-    waitUntil: 'domcontentloaded',
-  })
+  // History covers the selected account only, as the balance card does, and
+  // Receive has moved the wallet on to nextAddress. Each funding shows under
+  // the account it paid and not under the other.
   const history = new HistoryPage(setup.page)
-  await history.waitUntilReady()
-  expect(await history.rowStatus(firstFundingTxid)).toBe('Confirmed')
-  expect(await history.rowStatus(secondFundingTxid)).toBe('Confirmed')
+  for (const { address, funding, other } of [
+    { address: rotation.previous, funding: firstFundingTxid, other: secondFundingTxid },
+    { address: rotation.current, funding: secondFundingTxid, other: firstFundingTxid },
+  ]) {
+    await setup.page.goto(`chrome-extension://${extension.extensionId}/index.html#/main`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await setup.home.waitUntilReady()
+    await setup.home.switchAccount(address)
+    const selected = await extension.requestWalletController<{ address: string }>(
+      setup.page,
+      'getCurrentAccount'
+    )
+    expect(selected.address).toBe(address)
+    await setup.home.openHistory()
+    await history.waitUntilReady()
+    expect(await history.rowStatus(funding)).toBe('Confirmed')
+    expect(await history.transactionIds()).not.toContain(other)
+  }
 })
