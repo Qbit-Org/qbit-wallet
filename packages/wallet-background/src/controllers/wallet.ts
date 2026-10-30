@@ -1677,8 +1677,11 @@ export class WalletController extends BaseController {
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
     // Looked up as the statistics are compared, so a read that completes
-    // while this balance read runs counts already.
+    // while this balance read runs counts already. None counts while the
+    // wallet reads locked: a lock the keyring service makes on its own, or a
+    // reset, forgets the kept reads only once it is done.
     const readOutputs = (stats: string) => {
+      if (!this.isUnlocked()) return undefined
       const latest = this.qbitLatestUtxoReads.latest(client, address)
       if (latest?.stats !== stats) return undefined
       return {
@@ -2070,7 +2073,15 @@ export class WalletController extends BaseController {
   /* keyrings */
 
   resetAllData = async () => {
-    await keyringService.resetAllData()
+    try {
+      await keyringService.resetAllData()
+    } finally {
+      // The reset marks the wallet locked without `lockWallet`, and a reset
+      // wallet keeps no account's outputs either, not even when the reset
+      // fails. Nothing is kept after this: not from a read that started
+      // before it, nor while locked.
+      this.qbitLatestUtxoReads.clear()
+    }
     await preferenceService.resetAllData()
     await qbitSendGuardService.resetAllData()
     await permissionService.resetAllData()
@@ -4753,7 +4764,15 @@ export class WalletController extends BaseController {
       throw new Error(t('not_supported'))
     }
     const currentKeyringIndex = preferenceService.getCurrentKeyringIndex()
-    await keyringService.changeAddressType(currentKeyringIndex, addressType)
+    try {
+      await keyringService.changeAddressType(currentKeyringIndex, addressType)
+    } catch (error) {
+      // A change the keyring service cannot roll back locks the wallet on
+      // its own, without `lockWallet`; it keeps no account's outputs then
+      // either.
+      if (!this.isUnlocked()) this.qbitLatestUtxoReads.clear()
+      throw error
+    }
     const keyring = await this.getCurrentKeyring()
     if (!keyring) throw new Error('no current keyring')
     await this.changeKeyring(keyring, currentAccount?.index)
@@ -5945,8 +5964,12 @@ export class WalletController extends BaseController {
    * started later replaces one that started earlier, even when it found
    * less history, as after an eviction. Kept in memory only, for the
    * `QBIT_LATEST_UTXO_READS_PER_CLIENT` addresses most recently used, and
-   * forgotten when the wallet locks or a keyring is removed; see
-   * `qbitAccountUtxosOn` and `getAddressBalanceV2`.
+   * forgotten whenever the wallet locks (`lockWallet`, which the auto-lock
+   * timer uses too, and the keyring service's own lock after an address-type
+   * change it cannot roll back, in `changeAddressType`), when its data is
+   * reset (`resetAllData`) or when a keyring is removed; none counts while
+   * the wallet reads locked. See `qbitAccountUtxosOn` and
+   * `getAddressBalanceV2`.
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
     stats: string
