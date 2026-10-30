@@ -20,14 +20,14 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `77a019d2e16bd437d5fd0b61f91ea95d61ceeab3` |
+| Audited commit | `f1017d97b7bb006ec572b53777019c8ece98d2d2` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `07e58cd4c3e24c16a79cf31a6d7968a4c5e8749a3e70088e1bf6668985d13a04` |
+| `pnpm-lock.yaml` SHA-256 | `6b9a35ec50bc5fc66be8772b7eda90804f389b659ec240a918df9b535e413546` |
 | [Raw audit output](./dependency-audit.json) SHA-256 | `379dac65b3daeaeb181cb6e0eafb6c36b116374af1709ac2954de87657c2be4d` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `c19a3269386ba11ce96a4121772a7fca42da1026a1c3006c7b464cf2f2458f39` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `4a20ee38b22ea8968cec3478da6153ab2e0e859f99fd32bf2aed609256b3c2e2` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
@@ -92,7 +92,8 @@ paths to `decode-uri-component` on 2026-10-29 reduced the current result to
 | Audited result `eede40b` (2026-10-26, Qbit SDK from npm) | 0 | 0 | 37 | 13 | 50 |
 | Advisory-feed drift at unchanged-lock `release/1.0.6` `ea8f3a5` | 0 | 1 | 38 | 14 | 53 |
 | Audited result `9accff3` on `release/1.0.6` (2026-10-29, `decode-uri-component` paths removed) | 0 | 0 | 36 | 14 | 50 |
-| Current audited result `77a019d` (2026-10-30, `release/1.0.6` merged into `release/1.0.7`) | 0 | 0 | 36 | 14 | 50 |
+| Audited result `77a019d` (2026-10-30, `release/1.0.6` merged into `release/1.0.7`) | 0 | 0 | 36 | 14 | 50 |
+| Current audited result `f1017d9` (2026-10-30, Qbit SDK 0.1.1) | 0 | 0 | 36 | 14 | 50 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 42 advisory records representing 37
