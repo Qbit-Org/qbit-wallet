@@ -62,7 +62,6 @@
     "bip39": "^3.1.0",
     "bitcoinjs-lib": "^6.1.5",
     "bitcore-lib": "^10.0.0",
-    "browser-passworder": "^2.0.3",
     "bs58check": "^3.0.1",
     "events": "^3.3.0",
     "hdkey": "^2.1.0"
@@ -71,8 +70,8 @@
     "@types/node": "^20.8.0",
     "@typescript-eslint/eslint-plugin": "^6.7.0",
     "@typescript-eslint/parser": "^6.7.0",
+    "browser-passworder": "^2.0.3",
     "eslint": "^8.50.0",
-    "patch-package": "8.0.1",
     "tsup": "^7.2.0",
     "typescript": "^5.2.0",
     "vitest": "3.2.6"
