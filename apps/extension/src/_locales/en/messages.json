@@ -1544,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. The wallet did not answer in time to open its full warning or let the page load. Try again, or close this tab."
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. It can let the page load now, but a reload could send again a form that opened the page. Select Try again to open its address afresh, without the form, or close this tab."
+  },
   "phishing_page_held_released_message": {
     "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. Select Try again to load it, or close this tab."
   },

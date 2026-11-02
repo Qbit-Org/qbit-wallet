@@ -1544,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Le portefeuille n’a pas répondu à temps pour ouvrir l’avertissement complet ou laisser la page se charger. Réessayez ou fermez cet onglet."
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Il peut maintenant laisser la page se charger, mais un rechargement pourrait renvoyer un formulaire qui a ouvert la page. Sélectionnez Réessayer pour rouvrir son adresse, sans le formulaire, ou fermez cet onglet."
+  },
   "phishing_page_held_released_message": {
     "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Sélectionnez Réessayer pour la charger, ou fermez cet onglet."
   },

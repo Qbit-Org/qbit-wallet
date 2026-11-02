@@ -108,6 +108,162 @@ describe('BaseProxyStorageAdapter.createPersistentProxy', () => {
     expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
   })
 
+  it('writes no template once a newer proxy took the key during the read', async () => {
+    let finishRead: (value: unknown) => void = () => {}
+    adapter.get.mockReturnValueOnce(new Promise(resolve => (finishRead = resolve)))
+    adapter.set.mockResolvedValue(undefined)
+
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    const current = await adapter.createPersistentProxy<{ n: number }>(
+      'prefs',
+      { n: 5 },
+      { reset: true }
+    )
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 5 })
+
+    // The older proxy's read started before the newer proxy saved.
+    finishRead(undefined)
+    await expect(replaced).rejects.toThrow('A newer store replaced prefs; not saved')
+    await vi.runAllTimersAsync()
+
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    current.n = 6
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenCalledTimes(2)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
+  })
+
+  it('rejects a proxy whose read returns stored data after a newer proxy took the key', async () => {
+    let finishRead: (value: unknown) => void = () => {}
+    adapter.get.mockReturnValueOnce(new Promise(resolve => (finishRead = resolve)))
+    adapter.set.mockResolvedValue(undefined)
+
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    const current = await adapter.createPersistentProxy<{ n: number }>(
+      'prefs',
+      { n: 5 },
+      { reset: true }
+    )
+
+    finishRead({ n: 1 })
+    await expect(replaced).rejects.toThrow('A newer store replaced prefs; not saved')
+
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    current.n = 6
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
+  })
+
+  it('rejects a proxy that a newer proxy replaced while its template write was running', async () => {
+    let finishWrite: () => void = () => {}
+    adapter.set
+      .mockReturnValueOnce(new Promise<void>(resolve => (finishWrite = resolve)))
+      .mockResolvedValue(undefined)
+
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    const current = await adapter.createPersistentProxy<{ n: number }>(
+      'prefs',
+      { n: 5 },
+      { reset: true }
+    )
+
+    finishWrite()
+    await expect(replaced).rejects.toThrow('A newer store replaced prefs; not saved')
+
+    expect(adapter.set).toHaveBeenCalledTimes(2)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 5 })
+    current.n = 6
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
+  })
+
+  it('hands the key back past a replaced proxy that rejected when its replacement cannot be saved', async () => {
+    adapter.get.mockResolvedValue({ n: 1 })
+    adapter.set.mockResolvedValue(undefined)
+    const live = await adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    live.n = 2
+
+    let finishWrite: () => void = () => {}
+    const writeError = new Error('write failed')
+    adapter.set
+      .mockReturnValueOnce(new Promise<void>(resolve => (finishWrite = resolve)))
+      .mockRejectedValue(writeError)
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    await vi.advanceTimersByTimeAsync(0)
+    const failing = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    const failure = expect(failing).rejects.toBe(writeError)
+
+    finishWrite()
+    await expect(replaced).rejects.toThrow('A newer store replaced prefs; not saved')
+    await vi.advanceTimersByTimeAsync(300)
+    await failure
+
+    // The proxy the caller still holds owns the key again and saves.
+    adapter.set.mockClear()
+    adapter.set.mockResolvedValue(undefined)
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 2 })
+  })
+
+  it('hands the key back past a proxy that stopped retrying its template when its replacement cannot be saved', async () => {
+    adapter.get.mockResolvedValue({ n: 1 })
+    adapter.set.mockResolvedValue(undefined)
+    const live = await adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    live.n = 2
+
+    const writeError = new Error('write failed')
+    adapter.set.mockRejectedValue(writeError)
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    const replacedFailure = expect(replaced).rejects.toBe(writeError)
+    // The first attempt has failed, and the retry is waiting.
+    await vi.advanceTimersByTimeAsync(50)
+    const failing = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    const failure = expect(failing).rejects.toBe(writeError)
+    await vi.advanceTimersByTimeAsync(400)
+    await replacedFailure
+    await failure
+
+    adapter.set.mockClear()
+    adapter.set.mockResolvedValue(undefined)
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 2 })
+  })
+
+  it('hands the key back to a proxy still reading without saving its unread data', async () => {
+    let finishRead: (value: unknown) => void = () => {}
+    adapter.get
+      .mockResolvedValueOnce({ n: 1 })
+      .mockReturnValueOnce(new Promise(resolve => (finishRead = resolve)))
+    adapter.set.mockResolvedValue(undefined)
+    await adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+
+    const reading = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    const writeError = new Error('write failed')
+    adapter.set.mockRejectedValue(writeError)
+    const failing = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    const failure = expect(failing).rejects.toBe(writeError)
+    await vi.advanceTimersByTimeAsync(300)
+    await failure
+
+    adapter.set.mockClear()
+    adapter.set.mockResolvedValue(undefined)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(adapter.set).not.toHaveBeenCalled()
+
+    finishRead({ n: 1 })
+    const current = await reading
+    expect(current.n).toBe(1)
+    current.n = 3
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 3 })
+  })
+
   it('rejects without writing the template when the stored data cannot be read', async () => {
     const readError = new Error('read failed')
     adapter.get.mockRejectedValue(readError)

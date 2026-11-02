@@ -1544,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。錢包未能及時回應，無法開啟完整警告或載入此頁面。請再試一次，或關閉此分頁。"
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。現在可以載入此頁面，但重新載入可能會再次送出開啟此頁面的表單。請選擇「再試一次」以重新開啟此網址且不送出表單，或關閉此分頁。"
+  },
   "phishing_page_held_released_message": {
     "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。請選擇「再試一次」以載入此頁面，或關閉此分頁。"
   },

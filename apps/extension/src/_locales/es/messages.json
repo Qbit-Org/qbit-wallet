@@ -1544,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "Qbit Wallet detuvo esta página antes de que se ejecutara, porque el sitio está en su lista de sitios web de phishing. La billetera no respondió a tiempo para abrir la advertencia completa o dejar que la página se cargue. Inténtalo de nuevo o cierra esta pestaña."
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "Qbit Wallet detuvo esta página antes de que se ejecutara, porque el sitio está en su lista de sitios web de phishing. Ahora puede dejar que la página se cargue, pero recargarla podría volver a enviar un formulario que abrió la página. Selecciona Intentar de nuevo para abrir su dirección otra vez, sin el formulario, o cierra esta pestaña."
+  },
   "phishing_page_held_released_message": {
     "message": "Qbit Wallet detuvo esta página antes de que se ejecutara, porque el sitio está en su lista de sitios web de phishing. Selecciona Intentar de nuevo para cargarla o cierra esta pestaña."
   },
