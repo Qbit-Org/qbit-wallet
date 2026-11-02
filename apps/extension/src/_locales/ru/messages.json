@@ -3146,6 +3146,9 @@
   "phishing_protection_reason_block_rule_not_installed": {
     "message": "Правило блокировки не установлено."
   },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "Правило блокировки не обновлено. Предыдущее правило по-прежнему блокирует доменов: $1."
+  },
   "phishing_protection_reason_block_rule_unknown": {
     "message": "Не удалось прочитать правило блокировки."
   },

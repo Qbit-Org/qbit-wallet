@@ -3146,6 +3146,9 @@
   "phishing_protection_reason_block_rule_not_installed": {
     "message": "ブロックルールがインストールされていません。"
   },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "ブロックルールは更新されていません。以前のルールが引き続き $1 件のドメインをブロックしています。"
+  },
   "phishing_protection_reason_block_rule_unknown": {
     "message": "ブロックルールを読み取れませんでした。"
   },

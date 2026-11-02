@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { PHISHING_PROTECTION_REFRESH_MS, PhishingProtectionCard } from './PhishingProtectionCard';
-import { PHISHING_RETRY_TIMEOUT_MS, PHISHING_STATS_TIMEOUT_MS } from './phishingProtection';
+import { describePhishingProtection, PHISHING_RETRY_TIMEOUT_MS, PHISHING_STATS_TIMEOUT_MS } from './phishingProtection';
 
 // Every text the card renders, including frames a test cannot observe after act.
 const rendered = vi.hoisted(() => [] as string[]);
@@ -262,6 +262,33 @@ describe('PhishingProtectionCard', () => {
     expect(screen.getByTestId('phishing-protection-retry')).toBeTruthy();
   });
 
+  it('shows an outdated block rule with the domains the earlier rule still blocks, never protected', async () => {
+    handler = statsReply({
+      ...PROTECTED,
+      networkRules: networkRules({ status: 'failed', attempts: 10, blockedDomains: 95, error: 'rule limit' }),
+      protection: protection('degraded', ['block-rule-outdated'])
+    });
+    await renderCard();
+
+    expect(state()).toBe('phishing_protection_status_failed');
+    expect(screen.getByText('phishing_protection_blocked_domains(95)')).toBeTruthy();
+    expect(reasons()).toEqual(['phishing_protection_reason_block_rule_outdated(95)']);
+    expect(rendered).not.toContain('phishing_protection_reason_block_rule_not_installed');
+    expect(rendered).not.toContain('phishing_protection_status_protected');
+    expect(screen.getByTestId('phishing-protection-retry')).toBeTruthy();
+  });
+
+  it('still says not installed when no earlier rule blocks any domain', async () => {
+    handler = statsReply({
+      ...PROTECTED,
+      networkRules: networkRules({ status: 'retrying', attempts: 2, blockedDomains: 0 }),
+      protection: protection('degraded', ['block-rule-not-installed'])
+    });
+    await renderCard();
+
+    expect(reasons()).toEqual(['phishing_protection_reason_block_rule_not_installed']);
+  });
+
   it('shows not supported, with no Retry, where the browser has no network rules', async () => {
     handler = statsReply({ stats: {}, networkRules: networkRules({ status: 'unsupported', blockedDomains: null }) });
     await renderCard();
@@ -470,5 +497,40 @@ describe('PhishingProtectionCard', () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
+  });
+});
+
+describe('describePhishingProtection', () => {
+  it('keeps an outdated block rule degraded, with the count it still blocks', () => {
+    expect(
+      describePhishingProtection({
+        networkRules: networkRules({ status: 'retrying', attempts: 2, blockedDomains: 95 }),
+        protection: protection('degraded', ['block-rule-outdated'])
+      })
+    ).toMatchObject({
+      state: 'retrying',
+      networkRules: { blockedDomains: 95 },
+      reasons: ['block-rule-outdated']
+    });
+  });
+
+  it('reads an outdated block rule without a count as unknown', () => {
+    for (const blockedDomains of [0, null]) {
+      expect(
+        describePhishingProtection({
+          networkRules: networkRules({ status: 'retrying', attempts: 2, blockedDomains }),
+          protection: protection('degraded', ['block-rule-outdated'])
+        })
+      ).toEqual({ state: 'unknown', reasons: [] });
+    }
+  });
+
+  it('keeps a missing block rule as not installed', () => {
+    expect(
+      describePhishingProtection({
+        networkRules: networkRules({ status: 'failed', attempts: 10, blockedDomains: 0 }),
+        protection: protection('degraded', ['block-rule-not-installed'])
+      })
+    ).toMatchObject({ state: 'failed', reasons: ['block-rule-not-installed'] });
   });
 });

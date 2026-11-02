@@ -45,6 +45,7 @@ const PROTECTION_STATUSES: ReadonlySet<string> = new Set(
 const PROTECTION_REASONS: ReadonlySet<string> = new Set(
   Object.keys({
     'block-rule-not-installed': true,
+    'block-rule-outdated': true,
     'block-rule-unknown': true,
     'redirect-rule-without-host-access': true,
     'redirect-rule-unknown': true,
@@ -117,6 +118,13 @@ export function describePhishingProtection(reply: unknown): PhishingProtectionVi
     protection = parsed;
   }
   const reasons = protection && protection.status !== 'full' ? protection.reasons : [];
+  // An outdated rule is shown with the domains it still blocks.
+  if (
+    reasons.includes('block-rule-outdated') &&
+    !(networkRules.blockedDomains !== null && networkRules.blockedDomains > 0)
+  ) {
+    return UNKNOWN;
+  }
 
   switch (networkRules.status) {
     case 'unsupported':

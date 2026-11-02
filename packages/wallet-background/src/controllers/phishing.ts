@@ -134,8 +134,18 @@ function summarizeProtection(
 ): PhishingProtectionHealth {
   const degraded: PhishingProtectionReason[] = []
   const unknown: PhishingProtectionReason[] = []
+  const blockRuleMissing = networkRules.status !== 'unknown' && networkRules.status !== 'installed'
   if (networkRules.status === 'unknown') unknown.push('block-rule-unknown')
-  else if (networkRules.status !== 'installed') degraded.push('block-rule-not-installed')
+  else if (blockRuleMissing) {
+    // A block rule an earlier install left still blocks its domains, but not
+    // the current list's.
+    const { blockedDomains } = networkRules
+    degraded.push(
+      blockedDomains !== null && blockedDomains > 0
+        ? 'block-rule-outdated'
+        : 'block-rule-not-installed'
+    )
+  }
 
   // A redirect rule that does not fire still outranks the block rule.
   if (warningRedirect.status === 'removing' || warningRedirect.status === 'removal-failed') {
@@ -144,7 +154,7 @@ function summarizeProtection(
     unknown.push('redirect-rule-unknown')
   }
   // Nor does the content script's hold run where site access is withheld.
-  if (degraded.includes('block-rule-not-installed')) {
+  if (blockRuleMissing) {
     if (warningRedirect.hostAccess === false) degraded.push('site-access-withheld')
     else if (warningRedirect.hostAccess === 'unknown') degraded.push('site-access-unknown')
   }

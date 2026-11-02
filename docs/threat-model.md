@@ -471,9 +471,10 @@ Residual risk:
   a page there: the redirect rule is removed, and the content script's hold
   does not run, so the page loads and runs its own script. The
   `GET_PHISHING_STATS` health reports this as `protection` `degraded` with
-  `block-rule-not-installed` and `site-access-withheld`, or
-  `site-access-unknown` when the browser cannot say, and the wallet's
-  Advanced settings screen shows those reasons;
+  `block-rule-not-installed`, or `block-rule-outdated` while a block rule
+  from an earlier install still blocks some domains, and
+  `site-access-withheld`, or `site-access-unknown` when the browser cannot
+  say, and the wallet's Advanced settings screen shows those reasons;
 - an enterprise policy that blocks the wallet on a denylisted host
   (`runtime_blocked_hosts`) was not tested. If Chrome still reports host
   access there through `permissions.contains`, the redirect rule stays in

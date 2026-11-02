@@ -3146,6 +3146,9 @@
   "phishing_protection_reason_block_rule_not_installed": {
     "message": "封鎖規則尚未安裝。"
   },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "封鎖規則尚未更新。先前的規則仍封鎖 $1 個網域。"
+  },
   "phishing_protection_reason_block_rule_unknown": {
     "message": "無法讀取封鎖規則。"
   },
