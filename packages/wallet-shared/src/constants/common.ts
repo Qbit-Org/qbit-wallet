@@ -84,11 +84,6 @@ export const ADDRESS_TYPES: {
   },
 ]
 
-export const KEYRING_CLASS = {
-  PRIVATE_KEY: 'Simple Key Pair',
-  MNEMONIC: 'HD Key Tree',
-}
-
 export const KEYRING_TYPE_TEXT = {
   [KeyringType.HdKeyring]: 'Created by Mnemonic',
   [KeyringType.QbitHdKeyring]: 'Created by Mnemonic',
@@ -169,13 +164,6 @@ if (IS_CHROME) {
 }
 
 export const IS_AFTER_CHROME91 = IS_CHROME ? chromeVersion && chromeVersion >= 91 : false
-
-export const GAS_LEVEL_TEXT = {
-  slow: 'Standard',
-  normal: 'Fast',
-  fast: 'Instant',
-  custom: 'Custom',
-}
 
 export const IS_WINDOWS =
   // @ts-ignore
@@ -375,19 +363,8 @@ export const DEV_CHAIN_GROUPS: TypeChainGroup[] = [
 
 export const CHAIN_GROUPS = PROD_CHAIN_GROUPS
 
-export const MINIMUM_GAS_LIMIT = 21000
-
 export enum WATCH_ADDRESS_CONNECT_TYPE {
   WalletConnect = 'WalletConnect',
-}
-
-export const WALLETCONNECT_STATUS_MAP = {
-  PENDING: 1,
-  CONNECTED: 2,
-  WAITING: 3,
-  SIBMITTED: 4,
-  REJECTED: 5,
-  FAILD: 6,
 }
 
 export const INTERNAL_REQUEST_ORIGIN = 'https://qbit.org'

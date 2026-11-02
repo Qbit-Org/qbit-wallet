@@ -1,5 +1,4 @@
 import { decodeP2mrAddress, type QbitNetworkName } from '@qbit-oss/protocol'
-import { QBIT_P2MR_DUST } from '@qbit/wallet-shared'
 import { AddressType, NetworkType } from '@qbit/wallet-types'
 import * as bip39 from 'bip39'
 
@@ -33,15 +32,6 @@ export function getAddressType(address: string, networkType?: NetworkType) {
 
 export function isValidAddress(address: string, networkType?: NetworkType) {
   return isP2mrPrefix(address) && isValidP2mrAddress(address, networkType)
-}
-
-export function getAddressUtxoDust(address: string) {
-  const addressType = getAddressType(address)
-  if (addressType === AddressType.P2MR) {
-    return QBIT_P2MR_DUST
-  } else {
-    return QBIT_P2MR_DUST
-  }
 }
 
 export function isValidHdPath(path: string): boolean {
