@@ -101,6 +101,38 @@ describe('common constants', () => {
   it('falls back to Qbit Mainnet for unknown or missing chain values', () => {
     expect(normalizeChainType(UNKNOWN_CHAIN)).toBe(ChainType.QBIT_MAINNET)
     expect(normalizeChainType(undefined)).toBe(ChainType.QBIT_MAINNET)
+    expect(normalizeChainType('')).toBe(ChainType.QBIT_MAINNET)
+  })
+
+  // A stored or requested chain that names a property every object inherits
+  // is not a chain: the wallet treats every chain it normalizes as a Qbit one.
+  it.each(['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'falls back to Qbit Mainnet for the inherited key %s',
+    key => {
+      expect(normalizeChainType(key)).toBe(ChainType.QBIT_MAINNET)
+      expect(normalizeAvailableChainType(key)).toBe(ChainType.QBIT_MAINNET)
+    }
+  )
+
+  // Stored data can hold any value. One that converts to a chain name, such as
+  // an array or a String object, is still not a chain: both return the
+  // primitive Mainnet string, never the value itself.
+  it.each<[string, unknown]>([
+    ["['QBIT_MAINNET']", ['QBIT_MAINNET']],
+    ["['QBIT_TESTNET4']", ['QBIT_TESTNET4']],
+    ["['QBIT_REGTEST']", ['QBIT_REGTEST']],
+    ["new String('QBIT_TESTNET4')", new String('QBIT_TESTNET4')],
+    ["{ toString: () => 'QBIT_MAINNET' }", { toString: () => 'QBIT_MAINNET' }],
+    ['null', null],
+    ['123', 123],
+  ])('falls back to Qbit Mainnet for the non-string value %s', (_label, value) => {
+    expect(normalizeChainType(value as string)).toBe(ChainType.QBIT_MAINNET)
+    expect(normalizeAvailableChainType(value as string)).toBe(ChainType.QBIT_MAINNET)
+  })
+
+  it.each(Object.values(ChainType))('keeps the chain %s', chainType => {
+    expect(normalizeChainType(chainType)).toBe(chainType)
+    expect(normalizeAvailableChainType(chainType)).toBe(chainType)
   })
 
   it('normalizeAvailableChainType keeps regtest and only rewrites unknown chains', () => {
@@ -113,6 +145,7 @@ describe('common constants', () => {
       }
       expect(normalizeAvailableChainType(UNKNOWN_CHAIN)).toBe(ChainType.QBIT_MAINNET)
       expect(normalizeAvailableChainType(undefined)).toBe(ChainType.QBIT_MAINNET)
+      expect(normalizeAvailableChainType('')).toBe(ChainType.QBIT_MAINNET)
     } finally {
       PlatformEnv.CHANNEL = originalChannel
     }

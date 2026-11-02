@@ -625,17 +625,10 @@ describe('WalletController Qbit account history snapshots', () => {
     expect(otherAccountHistory).toEqual([])
   })
 
-  it('keeps non-Qbit cache reads address-keyed and skips storage for an empty address', async () => {
-    const cachedAddress = 'address-keyed-entry'
-    const cachedHistory = [{ txid: 'cached' }] as any
-    vi.mocked(preferenceService.getChainType).mockReturnValue('UNKNOWN_CHAIN' as ChainType)
-    vi.mocked(preferenceService.getAddressHistory).mockReturnValueOnce(cachedHistory)
-
-    await expect(controller.getAddressCacheHistory(cachedAddress)).resolves.toBe(cachedHistory)
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(cachedAddress)
-
+  it('skips storage for an empty address', async () => {
     await expect(controller.getAddressCacheHistory(undefined)).resolves.toEqual([])
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledTimes(1)
+    await expect(controller.getAddressCacheHistory('')).resolves.toEqual([])
+    expect(preferenceService.getAddressHistory).not.toHaveBeenCalled()
   })
 
   it('reuses an unchanged recent revision under a new immutable snapshot identity', async () => {

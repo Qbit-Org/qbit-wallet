@@ -231,10 +231,6 @@ export function useFeeRateBarLogic({
   const feeRateSource = feeRateBarState.feeRateSource
   const { t, isSpecialLocale } = useI18n()
   const chain = useChain()
-  const isQbitChain =
-    chain.enum === ChainType.QBIT_MAINNET ||
-    chain.enum === ChainType.QBIT_TESTNET4 ||
-    chain.enum === ChainType.QBIT_REGTEST
   const fontSize = useMemo(() => (isSpecialLocale ? 'xxxs' : 'xxs'), [isSpecialLocale])
 
   const configuredLowFeeMode = chain.enableLowFeeMode ?? false
@@ -438,7 +434,8 @@ export function useFeeRateBarLogic({
       if (val <= 0) {
         updateInputValue(defaultFeeRate.toString())
       } else if (val > QBIT_MAX_FEE_RATE) {
-        updateInputValue(isQbitChain ? inputVal : QBIT_MAX_FEE_RATE.toString())
+        // Kept as typed, not clamped: the screen blocks the rate and says why.
+        updateInputValue(inputVal)
       } else if (val < 1 && supportLowFeeMode == false) {
         updateInputValue('1')
       } else if (val < 0.1) {
@@ -447,15 +444,7 @@ export function useFeeRateBarLogic({
         updateInputValue(inputVal)
       }
     },
-    [
-      defaultFeeRate,
-      updateFeeRateBar,
-      feeOptionIndex,
-      feeOptions,
-      floorInUse,
-      supportLowFeeMode,
-      isQbitChain,
-    ]
+    [defaultFeeRate, updateFeeRateBar, feeOptionIndex, feeOptions, floorInUse, supportLowFeeMode]
   )
 
   const isCustomOption = useCallback((option: FeeOption) => option.type === FeeRateType.CUSTOM, [t])

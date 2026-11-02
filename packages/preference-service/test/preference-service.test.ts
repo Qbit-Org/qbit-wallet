@@ -818,3 +818,23 @@ describe('PreferenceService persistence', () => {
     expect(reloaded.getChainType()).toBe(ChainType.QBIT_TESTNET4)
   })
 })
+
+describe('PreferenceService stored chain', () => {
+  // Stored preferences are JSON that anything with storage access can rewrite.
+  // A chain value that only converts to a chain name, or that names a property
+  // every object inherits, loads as Mainnet and is saved back as Mainnet.
+  it.each<[string, unknown]>([
+    ["['QBIT_REGTEST']", ['QBIT_REGTEST']],
+    ["['QBIT_MAINNET']", ['QBIT_MAINNET']],
+    ["'constructor'", 'constructor'],
+  ])('loads the stored chain %s as Qbit Mainnet', async (_label, chainType) => {
+    const adapter = new DiskAdapter()
+    adapter.disk.set('preference', JSON.stringify({ locale: 'en', chainType }))
+    const service = new PreferenceService()
+    await service.init({ storage: adapter, logger: { debug: vi.fn(), error: vi.fn() } })
+
+    expect(service.getChainType()).toBe(ChainType.QBIT_MAINNET)
+    await service.persist()
+    expect(JSON.parse(adapter.disk.get('preference')!).chainType).toBe(ChainType.QBIT_MAINNET)
+  })
+})

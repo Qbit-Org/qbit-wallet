@@ -287,8 +287,15 @@ const DEV_CHAINS_MAP: { [key: string]: TypeChain } = {}
 
 export const CHAINS_MAP = PROD_CHAINS_MAP
 
+// Only a string that CHAINS_MAP defines as its own key is a chain. A name every
+// object inherits, such as `constructor` or `__proto__`, is not, and nor is a
+// value that merely converts to a chain name, such as an array or a String
+// object. Every value this returns is one of the ChainType strings.
 export const normalizeChainType = (chainType?: ChainType | string): ChainType => {
-  if (chainType && CHAINS_MAP[chainType]) {
+  if (
+    typeof chainType === 'string' &&
+    Object.prototype.hasOwnProperty.call(CHAINS_MAP, chainType)
+  ) {
     return chainType as ChainType
   }
   return ChainType.QBIT_MAINNET
@@ -473,7 +480,6 @@ export const SESSION_EVENTS = {
 export const COIN_NAME = 'QBT'
 export const COIN_SYMBOL = 'QBT'
 
-export const COIN_DUST = 1000
 export const QBIT_P2MR_DUST = 2855
 /**
  * The most a PSBT's pay-to-anchor (P2A, `51024e73`) outputs may carry
