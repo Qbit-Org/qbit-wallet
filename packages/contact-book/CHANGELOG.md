@@ -1,5 +1,14 @@
 # @qbit/contact-book
 
+## 1.1.7
+
+### Patch Changes
+
+- eb9f779: Keep a contact's place in the list when it is edited. `updateContact` and `replaceContact` now keep the stored contact's `sortIndex` unless `data` sets one, so renaming a contact, or changing its address or network, no longer moves it to the top after the user has reordered the list. `replaceContact` takes the `sortIndex` of the contact it replaces and stores the new entry where the old one was, so it also keeps its place among contacts that share a `sortIndex`, as contacts the user never reordered do. A new contact, including one added for an address that has only an alias, still gets 0. `replaceContact` is still one write, and a failed write still changes nothing.
+- eb9f779: Stop losing a contact when changing its address or network fails to save. The new `ContactBookService.replaceContact(address, chain, data)` removes the contact under the old address and network and stores `data` in one write. The result is the one `removeContact` followed by `updateContact` gave, except that the contact keeps its place in the list: an old entry that is also an alias stays as an alias, the new entry is stored where the old contact was, with the given `sortIndex` or else the old contact's, and an entry already stored under the new address is replaced. A failed write rejects and leaves the original contact in place, in memory and on disk. The stored contact book keeps its key and shape. The wallet controller's new `replaceContact` is open to the wallet's own pages, and `useEditContactScreenLogic` uses it when the address or network changes, so a failed save keeps the contact under its old address.
+- Updated dependencies [eb9f779]
+  - @qbit/wallet-storage@0.3.1
+
 ## 1.1.6
 
 ### Patch Changes
