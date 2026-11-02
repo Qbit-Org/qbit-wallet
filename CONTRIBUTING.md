@@ -125,11 +125,11 @@ pnpm test:security-tooling
   `Playwright G3 scenarios`. The other CI jobs, including `Lint` and
   `Dependency policy`, are not required, so reviewers check them before
   merging.
-- Changes to security-sensitive paths need a review from the code owners
-  listed in [`.github/CODEOWNERS`](.github/CODEOWNERS). These include key
-  management, signing, approvals, permissions, the provider API, build
-  scripts, dependencies, and CI workflows. Expect a slower, more careful
-  review for these.
+- Every change needs a review from one of the code owners listed in
+  [`.github/CODEOWNERS`](.github/CODEOWNERS). Security-sensitive paths also
+  have their own rules there: key management, signing, approvals,
+  permissions, the provider API, build scripts, dependencies, and CI
+  workflows. Expect a slower, more careful review for these.
 - Repository and organization administrators can bypass these rules. This is
   tracked as AR-03 in
   [`docs/security/accepted-risks.md`](docs/security/accepted-risks.md).

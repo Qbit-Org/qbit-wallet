@@ -25,7 +25,7 @@ To skip the electrs source build, pull the public pinned image that the browser
 release gate uses:
 
 ```sh
-ELECTRS_QBIT_IMAGE=ghcr.io/qbit-org/electrs-qbit-regtest:5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2@sha256:6299aeaa7d321effbabb76406ef5a275fb807b23e3e6d0c0b728a6a6bef593f0 \
+ELECTRS_QBIT_IMAGE=ghcr.io/qbit-org/electrs-qbit-regtest:5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2@sha256:2b84bc3d4c56f700e36c9d70f8dc92c2e6d383c4251c8bf48dcb4606a5d7e6d1 \
 ELECTRS_QBIT_PULL_POLICY=always \
 corepack pnpm regtest:up
 ```
