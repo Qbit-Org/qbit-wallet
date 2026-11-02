@@ -6014,7 +6014,7 @@ export class WalletController extends BaseController {
    * showed (`orderQbitHistoryStates`): a caller at the same state as one of
    * them joins it, one whose history has got further than the latest
    * replaces that one, and any other starts a read for its own state beside
-   * the latest.
+   * the latest, which no later caller replaces.
    */
   private qbitUtxoSnapshotReads = new QbitReplaceableReads<UnspentOutput[], QbitHistoryState>(
     orderQbitHistoryStates

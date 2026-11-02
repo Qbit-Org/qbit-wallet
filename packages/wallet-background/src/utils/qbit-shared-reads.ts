@@ -12,16 +12,22 @@ export type QbitReadVersionOrder = 'same' | 'later' | 'other'
  * version stands to theirs (`order`):
  *
  * - The same as one of them: it joins that read.
- * - Later than the key's latest read: its read replaces that one, which is
- *   aborted, and the callers that were waiting for it wait for the new one
- *   instead, whose answer is the later.
+ * - Later than the key's latest read, or with no latest read running: its
+ *   read becomes the latest, replacing the one there, which is aborted, and
+ *   the callers that were waiting for it wait for the new one instead, whose
+ *   answer is the later.
  * - Another, not later: it never gets the latest read's answer, which is for
  *   a state it has not seen, and it does not replace that read either. Its
  *   read runs beside the latest, and only callers at its own state join it.
  *   A version that cannot be told apart from an older one (an eviction, or
  *   a lagging node behind a load balancer answering out of order) is one of
  *   these, so such answers cost a read per state but cannot keep restarting
- *   the latest.
+ *   the latest. No later caller replaces a read beside the latest: its
+ *   caller ranked no later than a running read, which an eviction can cause,
+ *   so a caller ranked later may come from a node that has not seen that
+ *   eviction. A read that became the latest with no latest running carries
+ *   no such sign: a later caller replaces it, and its rank is all there is
+ *   to go on.
  *
  * Once a read settles the next caller starts a new one, so no answer
  * outlives its read. A failure reaches every caller still waiting and is not
@@ -54,25 +60,32 @@ export class QbitReplaceableReads<T, V> {
       scoped = new Map()
       this.reads.set(scope, scoped)
     }
-    const reads = scoped.get(key) ?? { others: new Set<SharedRead<T, V>>() }
-    scoped.set(key, reads)
-    const running = [...(reads.latest ? [reads.latest] : []), ...reads.others]
-    const same = running.find(entry => this.order(version, entry.version) === 'same')
-    if (same) return this.wait(scoped, key, same, signal)
-    const replaced = reads.latest
+    let reads = scoped.get(key)
+    const latest = reads?.latest
+    const latestOrder = latest ? this.order(version, latest.version) : undefined
+    if (latest && latestOrder === 'same') return this.wait(scoped, key, latest, signal)
+    for (const other of reads?.others ?? []) {
+      if (this.order(version, other.version) === 'same') {
+        return this.wait(scoped, key, other, signal)
+      }
+    }
     const current = this.start(scoped, key, version, read)
-    if (replaced && this.order(version, replaced.version) === 'other') {
+    if (!reads) {
+      reads = { others: new Set() }
+      scoped.set(key, reads)
+    }
+    if (latestOrder === 'other') {
       reads.others.add(current)
       return this.wait(scoped, key, current, signal)
     }
     reads.latest = current
-    if (replaced) {
+    if (latest) {
       // Its callers move to the new read, which they keep running.
-      replaced.replacedBy = current
-      current.waiters += replaced.waiters
-      replaced.waiters = 0
-      replaced.follow(current.answer)
-      replaced.controller.abort(new Error('replaced by a later read'))
+      latest.replacedBy = current
+      current.waiters += latest.waiters
+      latest.waiters = 0
+      latest.follow(current.answer)
+      latest.controller.abort(new Error('replaced by a later read'))
     }
     return this.wait(scoped, key, current, signal)
   }
