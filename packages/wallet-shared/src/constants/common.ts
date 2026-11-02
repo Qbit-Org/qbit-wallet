@@ -323,6 +323,14 @@ export const normalizeAvailableChainType = (chainType?: ChainType | string): Cha
   return normalized
 }
 
+// The chain for a provider network name, as a website's switchNetwork names it.
+export function chainForNetwork(network: unknown): ChainType {
+  if (network === 'mainnet') return ChainType.QBIT_MAINNET
+  if (network === 'testnet4') return ChainType.QBIT_TESTNET4
+  if (network === 'regtest') return ChainType.QBIT_REGTEST
+  throw new Error('unsupported Qbit network; expected mainnet, testnet4, or regtest')
+}
+
 export const CHAINS = [
   CHAINS_MAP[ChainType.QBIT_MAINNET]!,
   CHAINS_MAP[ChainType.QBIT_TESTNET4]!,
@@ -490,6 +498,17 @@ export const COIN_SYMBOL = 'QBT'
 
 export const COIN_DUST = 1000
 export const QBIT_P2MR_DUST = 2855
+/**
+ * The most a PSBT's pay-to-anchor (P2A, `51024e73`) outputs may carry
+ * together: a website's PSBT that pays them more is refused, and the approval
+ * shows anchors within it as fee anchors rather than unrecognised outputs.
+ * Anyone can spend an anchor, so this bounds what a request can move out of
+ * the wallet through one. A marketplace's buys pay a 330 anchor, fixed when
+ * the item is listed (#115). qbit Core relays an anchor of 121 or more, and
+ * a zero-value one only as ephemeral dust (`GetDustThreshold`,
+ * src/policy/policy.cpp:50-76; src/test/transaction_tests.cpp:1112-1118).
+ */
+export const QBIT_P2A_MAX_VALUE = 330
 
 export const TO_LOCALE_STRING_CONFIG = {
   minimumFractionDigits: 8,

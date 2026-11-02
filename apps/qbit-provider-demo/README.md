@@ -54,7 +54,7 @@ context.
 
 **Load deterministic format fixture** inserts a compact unsigned P2MR PSBT derived from
 `packages/protocol/test/p2mr-psbt-signing.test.ts` in
-[Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js/blob/2f4637f08be83d4d47ddb6d79eb384d61fccecfb/packages/protocol/test/p2mr-psbt-signing.test.ts):
+[Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js/blob/1cbf4b3e8fd3c7e51eba0d953910d5dafc9ae88f/packages/protocol/test/p2mr-psbt-signing.test.ts):
 
 - input value: 100,000 base units;
 - output value: 90,000 base units;

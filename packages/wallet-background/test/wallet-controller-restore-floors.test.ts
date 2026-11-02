@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
+import { QbitHdKeyring, QbitPqcFloorsPendingError } from '@qbit/keyring-service/qbit-hd-keyring'
 import { KeyringType } from '@qbit/keyring-service/types'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import log from 'loglevel'
@@ -476,6 +478,52 @@ describe('WalletController qbit restore with floors', () => {
     expect(log.warn).toHaveBeenCalledWith(
       'qbit restore floor for account 3 on regtest read from address statistics: its history is too long to enumerate'
     )
+  })
+
+  it('refuses statistics floors whose sum across networks reaches the warning threshold', async () => {
+    const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
+    const threshold = 1 << 28
+    await init()
+    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_TESTNET4)
+    const keyring = new QbitHdKeyring({
+      mnemonic,
+      activeIndexes: [0],
+      hdPath: "m/87'/1'/0'/0",
+      pqcFloorsPending: true,
+    })
+    const [account] = await keyring.getQbitAccounts()
+    ;(keyringService.keyrings as any[]).push(keyring)
+    vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
+      (_address, observe) => keyring.scanPqcSignatureCounterFloors(observe, { lookahead: 0 })
+    )
+    // Each network's statistics floor stays below the threshold on its own.
+    const observeEach = (testnet4: number, regtest: number) =>
+      vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async (_client, address) => ({
+        observedSignatures: address === account!.addresses.regtest ? regtest : testnet4,
+        hasActivity: true,
+        floorSource: 'address-stats',
+      }))
+
+    observeEach(threshold / 2, threshold / 2)
+    await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+      `qbit account 0 floors summed across networks claim ${threshold} signatures, at or above the ${threshold}-signature warning threshold`
+    )
+    expect(
+      vi.mocked(observeQbitPqcSignatureActivity).mock.calls.map(([, address]) => address)
+    ).toEqual([account!.addresses.testnet4, account!.addresses.regtest])
+    expect(keyring.pqcFloorsPending).toBe(true)
+    expect(await controller.getQbitRestoreFloorsPending()).toBe(true)
+    expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
+    await expect(
+      keyring.assertPqcSignatureCounterAvailable(account!.pubkey)
+    ).rejects.toBeInstanceOf(QbitPqcFloorsPendingError)
+
+    observeEach(threshold / 2, threshold / 2 - 1)
+    await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
+      totalObservedSignatures: threshold - 1,
+    })
+    expect(keyring.pqcFloorsPending).toBe(false)
+    expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold - 1)
   })
 
   it('does not require local regtest history to complete a Testnet4 floor scan', async () => {

@@ -24,6 +24,41 @@ const getCompositeKey = (address: string, chain: ChainType): string => {
 }
 
 /**
+ * The store without the contact under `key`, or undefined when there is none.
+ * An entry that is also an alias stays, as an alias only.
+ */
+const withoutContact = (store: ContactBookStore, key: string): ContactBookStore | undefined => {
+  const contact = store[key]
+
+  if (!contact) return undefined
+
+  if (contact.isAlias) {
+    // If it's also an alias, just remove the contact flag
+    return { ...store, [key]: { ...contact, isContact: false } }
+  }
+  // Remove completely if it's not an alias
+  const next = { ...store }
+  delete next[key]
+  return next
+}
+
+/**
+ * The entry stored for a contact that is added or updated. An edit of the
+ * contact `stored` keeps its place in the list unless `data` sets a sortIndex.
+ */
+const toContactEntry = (data: ContactBookItem, stored?: ContactBookItem): ContactBookItem => {
+  const sortIndex = data.sortIndex ?? (stored?.isContact ? stored.sortIndex : 0)
+  return {
+    name: data.name,
+    address: data.address,
+    chain: data.chain,
+    isContact: true,
+    isAlias: data.isAlias || false,
+    ...(sortIndex === undefined ? {} : { sortIndex }),
+  }
+}
+
+/**
  * Universal contact book management with multi-chain support
  */
 export class ContactBookService {
@@ -217,20 +252,7 @@ export class ContactBookService {
     // Use composite key to remove contact
     const key = getCompositeKey(address, chain)
 
-    await this.commit(store => {
-      const contact = store[key]
-
-      if (!contact) return undefined
-
-      if (contact.isAlias) {
-        // If it's also an alias, just remove the contact flag
-        return { ...store, [key]: { ...contact, isContact: false } }
-      }
-      // Remove completely if it's not an alias
-      const next = { ...store }
-      delete next[key]
-      return next
-    })
+    await this.commit(store => withoutContact(store, key))
   }
 
   /**
@@ -245,15 +267,41 @@ export class ContactBookService {
     // Store contact using composite key
     await this.commit(store => ({
       ...store,
-      [compositeKey]: {
-        name: data.name,
-        address: data.address,
-        chain: data.chain,
-        isContact: true,
-        isAlias: data.isAlias || false,
-        sortIndex: data.sortIndex || 0,
-      },
+      [compositeKey]: toContactEntry(data, store[compositeKey]),
     }))
+  }
+
+  /**
+   * Replace the contact under `address` and `chain` with `data`, which may have
+   * another address or chain, in one write: the old contact is removed as
+   * removeContact removes it and `data` is stored as updateContact stores it,
+   * in the old contact's place in the list: its sortIndex and, for contacts
+   * that tie on it, its position in the store. A failed write leaves the old
+   * contact in place.
+   */
+  async replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void> {
+    this.ensureInitialized()
+
+    const key = getCompositeKey(address, chain)
+    const compositeKey = getCompositeKey(data.address, data.chain)
+
+    await this.commit(store => {
+      const remaining = withoutContact(store, key) ?? store
+      const entry = toContactEntry(data, store[key])
+      const next: ContactBookStore = {}
+      let placed = false
+      for (const [entryKey, value] of Object.entries(store)) {
+        if (entryKey === key) {
+          if (remaining[key]) next[key] = remaining[key]
+          next[compositeKey] = entry
+          placed = true
+        } else if (entryKey !== compositeKey) {
+          next[entryKey] = value
+        }
+      }
+      if (!placed) next[compositeKey] = entry
+      return next
+    })
   }
 
   /**

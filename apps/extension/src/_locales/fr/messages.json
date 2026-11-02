@@ -509,6 +509,9 @@
   "continue_to": {
     "message": "Continuer vers"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "Ce site ne peut pas être ouvert depuis la page d'avertissement."
+  },
   "copied": {
     "message": "Copié"
   },
@@ -743,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "Échec de la sauvegarde du contact"
   },
+  "failed_to_save_contact_order": {
+    "message": "Échec de la sauvegarde de l'ordre des contacts"
+  },
   "fast": {
     "message": "Rapide"
   },
@@ -754,6 +760,9 @@
   },
   "fee_rate": {
     "message": "Taux de Frais"
+  },
+  "fee_estimates_unavailable": {
+    "message": "Les estimations de frais sont indisponibles."
   },
   "fee_estimates_unavailable_using_floor": {
     "message": "Les estimations de frais sont indisponibles. Le minimum de relais de $1 bit/vB est utilisé."
@@ -889,6 +898,12 @@
   },
   "high_fee_rate_risk_title": {
     "message": "Taux de frais élevé détecté"
+  },
+  "high_fee_risk_description": {
+    "message": "Les frais de cette transaction représentent une part importante de ce qu'elle envoie. Veuillez vous assurer de comprendre les implications de cette action avant de continuer."
+  },
+  "high_fee_risk_title": {
+    "message": "Frais élevés détectés"
   },
   "high_priority": {
     "message": "Priorité élevée"
@@ -1529,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Le portefeuille n’a pas répondu à temps pour ouvrir l’avertissement complet ou laisser la page se charger. Réessayez ou fermez cet onglet."
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Il peut maintenant laisser la page se charger, mais un rechargement pourrait renvoyer un formulaire qui a ouvert la page. Sélectionnez Réessayer pour rouvrir son adresse, sans le formulaire, ou fermez cet onglet."
+  },
   "phishing_page_held_released_message": {
     "message": "Qbit Wallet a arrêté cette page avant son exécution, car le site figure sur sa liste de sites web de phishing. Sélectionnez Réessayer pour la charger, ou fermez cet onglet."
   },
@@ -1691,6 +1709,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "La suppression du dernier portefeuille n'est pas autorisée"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "La demande en attente d'un site web a été annulée car le portefeuille a été ouvert. Revenez sur le site web pour réessayer."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "La demande a été rejetée. Pour continuer, veuillez réautoriser"
   },
@@ -1820,6 +1841,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "Définir le montant d'UTXO à fusionner"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "La modification n'a pas été enregistrée et le paramètre enregistré a peut-être changé. Vérifiez à nouveau ce paramètre après un redémarrage."
+  },
   "settings": {
     "message": "Paramètres"
   },
@@ -1936,6 +1960,21 @@
   },
   "start_merging": {
     "message": "Démarrer la Fusion"
+  },
+  "startup_error_title": {
+    "message": "Qbit Wallet n'a pas pu démarrer"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet n'a pas pu lire ses paramètres enregistrés et s'est arrêté sans les modifier."
+  },
+  "startup_error_unknown": {
+    "message": "Une erreur s'est produite au démarrage de Qbit Wallet."
+  },
+  "startup_error_retry": {
+    "message": "Réessayer"
+  },
+  "startup_error_retry_hint": {
+    "message": "Réessayer redémarre le portefeuille. Cette fenêtre peut se fermer ; rouvrez ensuite Qbit Wallet."
   },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "Voler vos clés privées ou phrases secrètes"
@@ -2690,6 +2729,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "Ce compte détient plus de sorties que l'explorateur n'en liste et compte plus de $1 transactions, trop pour que le portefeuille lise ses sorties dans son historique : ses fonds n'ont donc pas été déplacés. Passez à ce compte, ouvrez Envoyer et choisissez Consolider les sorties jusqu'à ce qu'il respecte la limite de l'explorateur, puis revenez ici."
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu lire tout son historique auprès de l'explorateur pour les trouver : ses fonds n'ont donc pas encore été déplacés. Cela peut se résoudre lorsque ses transactions en attente changent, par exemple quand l'une d'elles est confirmée. Choisissez Vérifier l’état et reprendre plus tard pour réessayer."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Prêt pour examen et signature"
   },
@@ -2975,6 +3017,72 @@
   "unrecognised_output_risk_description": {
     "message": "Une sortie paie une adresse qui n'est ni la vôtre ni celle du destinataire indiqué par cette demande, ou un script sans adresse. Vérifiez chaque sortie avant de signer."
   },
+  "psbt_output_change": {
+    "message": "Monnaie rendue"
+  },
+  "psbt_output_this_account": {
+    "message": "Vers ce compte"
+  },
+  "psbt_output_other_account": {
+    "message": "Un autre de vos comptes"
+  },
+  "psbt_after_signing": {
+    "message": "Après signature"
+  },
+  "psbt_finalized": {
+    "message": "Finalisée : le site peut la diffuser"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "Finalisée : le site peut la diffuser une fois que les pièces qu'elle dépense sont assez anciennes"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Finalisée : le site peut la diffuser une fois son verrouillage temporel passé et les pièces qu'elle dépense assez anciennes"
+  },
+  "psbt_not_finalized": {
+    "message": "Signée, non finalisée : le site ou d'autres signataires doivent la finaliser avant qu'elle puisse être diffusée"
+  },
+  "psbt_locktime": {
+    "message": "Verrouillage temporel"
+  },
+  "psbt_locktime_none": {
+    "message": "Aucun verrouillage"
+  },
+  "psbt_locktime_block": {
+    "message": "Après le bloc $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Valide dès que le temps médian du réseau dépasse $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 ne s'applique pas : toutes les entrées sont finales"
+  },
+  "psbt_relative_lock": {
+    "message": "Verrouillage relatif"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a 1 confirmation"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a $2 confirmations"
+  },
+  "psbt_relative_lock_short": {
+    "message": "Entrée $1 : peu après la confirmation de la pièce qu'elle dépense (moins de deux heures en temps de bloc)"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a environ $2 heures en temps de bloc"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Entrée $1 : dès que la pièce qu'elle dépense a environ $2 jours en temps de bloc"
+  },
+  "psbt_relative_lock_count": {
+    "message": "$1 entrées sur $2 ont un verrouillage relatif"
+  },
+  "psbt_tx_version": {
+    "message": "Version"
+  },
   "multisign_flagged_transactions": {
     "message": "Transactions à confirmer avant de signer : $1"
   },
@@ -2986,5 +3094,89 @@
   },
   "multisign_account_changed": {
     "message": "Le compte a changé pendant la vérification des transactions. Rien n'a été signé ; vérifiez-les à nouveau."
+  },
+  "recovery_phrase_is_not_valid": {
+    "message": "Cette phrase de récupération n'est pas valide. Vérifiez que chaque mot et sa position correspondent à votre sauvegarde."
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "La phrase collée contient plus de mots qu'il n'y a de cases. Choisissez la longueur de phrase qui correspond à votre sauvegarde, puis collez-la dans la première case."
+  },
+  "phishing_protection": {
+    "message": "Protection contre le phishing"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Entièrement activée"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Démarrage"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Nouvelle tentative"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Échec"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Non prise en charge par ce navigateur"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Dégradée"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "État inconnu"
+  },
+  "phishing_protection_attempts": {
+    "message": "Tentatives : $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Tentatives : $1. Prochaine tentative dans $2 s."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Tentatives : $1. Prochaine tentative maintenant."
+  },
+  "phishing_protection_last_error": {
+    "message": "Dernière erreur : $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Domaines dans la règle de blocage : $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Domaines dans la règle de blocage : inconnu"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "La règle de blocage n'est pas installée."
+  },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "La règle de blocage n'a pas été mise à jour. La règle précédente bloque toujours $1 domaines."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "La règle de blocage n'a pas pu être lue."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "La règle de la page d'avertissement est encore en place sans accès au site, donc les pages bloquées peuvent se charger."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "La règle de la page d'avertissement n'a pas pu être lue."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "L'accès au site est refusé sur certains sites bloqués, donc la vérification de la page n'y fonctionne pas."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "Impossible de savoir si l'accès au site est refusé."
+  },
+  "phishing_protection_retry": {
+    "message": "Réessayer maintenant"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "La nouvelle tentative a échoué."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "La nouvelle tentative a échoué : $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "La liste de blocage est fournie avec l'extension et ne change qu'avec une nouvelle version."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "La nouvelle tentative n'a pas répondu à temps. Elle peut encore aboutir ; l'état ci-dessus se mettra à jour."
   }
 }

@@ -42,7 +42,7 @@ vi.mock('@/ui/utils', () => ({ copyToClipboard: vi.fn() }));
 vi.mock('@qbit/wallet-shared', () => {
   const entry = { icon: 'icon', label: 'label', name: 'name' };
   const anyKey = new Proxy({}, { get: () => entry });
-  return { CHAINS_MAP: anyKey, NETWORK_TYPES: anyKey };
+  return { CHAINS_MAP: anyKey, chainForNetwork: () => 'QBIT_TESTNET4' };
 });
 vi.mock('@qbit/wallet-state', () => ({
   useApproval: vi.fn(),
@@ -50,7 +50,6 @@ vi.mock('@qbit/wallet-state', () => ({
   useChainType: () => 'QBIT_MAINNET',
   useCurrentAccount: () => ({ address: 'qbit-address' }),
   useI18n: () => ({ t: (key: string) => key }),
-  useNetworkType: () => 0,
   useTools: () => ({ toastSuccess: vi.fn() }),
   useWallet: vi.fn()
 }));
@@ -86,7 +85,7 @@ describe('approval screens settle the approval they render', () => {
     ],
     [
       'SwitchNetwork',
-      () => <SwitchNetwork approvalId={APPROVAL_ID} params={{ data: { networkType: 1 as any }, session }} />,
+      () => <SwitchNetwork approvalId={APPROVAL_ID} params={{ data: { network: 'testnet4' }, session }} />,
       'switch_network',
       'cancel',
       ['user_rejected_the_request']

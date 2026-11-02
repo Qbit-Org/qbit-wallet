@@ -155,6 +155,49 @@ describe('ContactBookService', () => {
     expect(after[0]?.sortIndex).toBe(0)
   })
 
+  describe('updateContact', () => {
+    const contact = (name: string): ContactBookItem => ({
+      name,
+      address: `bc1q${name}`,
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+      isAlias: false,
+    })
+
+    it('keeps a reordered contact in its place when only its name changes', async () => {
+      for (const name of ['one', 'two', 'three']) await contactBook.addContact(contact(name))
+      await contactBook.saveContactsOrder([contact('one'), contact('two'), contact('three')])
+
+      // The edit screen sends the contact without a sortIndex
+      await contactBook.updateContact({ ...contact('three'), name: 'renamed' })
+
+      expect(contactBook.listContacts().map(item => item.name)).toEqual(['one', 'two', 'renamed'])
+      expect(contactBook.getContactByAddressAndChain('bc1qthree', ChainType.QBIT_MAINNET)?.sortIndex).toBe(2)
+    })
+
+    it('uses a sortIndex the caller sets', async () => {
+      await contactBook.addContact(contact('one'))
+      await contactBook.updateContact({ ...contact('one'), sortIndex: 4 })
+
+      expect(contactBook.getContactByAddressAndChain('bc1qone', ChainType.QBIT_MAINNET)?.sortIndex).toBe(4)
+    })
+
+    it('puts a new contact first, as before', async () => {
+      await contactBook.addContact({ ...contact('one'), sortIndex: 3 })
+      await contactBook.addContact(contact('two'))
+
+      expect(contactBook.listContacts().map(item => item.name)).toEqual(['two', 'one'])
+    })
+
+    it('puts a contact added for an alias-only entry first', async () => {
+      await contactBook.addContact({ ...contact('one'), sortIndex: 3 })
+      await contactBook.addAlias({ name: 'Account 1', address: 'bc1qtwo', chain: ChainType.QBIT_MAINNET })
+      await contactBook.addContact(contact('two'))
+
+      expect(contactBook.listContacts().map(item => item.name)).toEqual(['two', 'one'])
+    })
+  })
+
   it('getContactsByMap returns composite-key map', async () => {
     await contactBook.addContact({
       name: 'map',
@@ -271,6 +314,185 @@ describe('ContactBookService', () => {
     expect(Object.keys(mockStorage.getStorage().testContactBook)).toEqual([
       'bc1qalice_QBIT_MAINNET',
     ])
+  })
+
+  describe('replaceContact', () => {
+    // A contact book as 1.0.6 saved it: composite keys, a contact with a
+    // sortIndex, an alias-only entry and an entry that is both.
+    const savedBook = () => ({
+      bc1qalice_QBIT_MAINNET: {
+        name: 'alice',
+        address: 'bc1qalice',
+        chain: ChainType.QBIT_MAINNET,
+        isContact: true,
+        isAlias: false,
+        sortIndex: 1,
+      },
+      bc1qbob_QBIT_MAINNET: {
+        name: 'bob',
+        address: 'bc1qbob',
+        chain: ChainType.QBIT_MAINNET,
+        isContact: true,
+        isAlias: false,
+        sortIndex: 0,
+      },
+      bc1qwallet_QBIT_MAINNET: {
+        name: 'Account 1',
+        address: 'bc1qwallet',
+        chain: ChainType.QBIT_MAINNET,
+        isAlias: true,
+        isContact: false,
+      },
+      bc1qboth_QBIT_TESTNET4: {
+        name: 'both',
+        address: 'bc1qboth',
+        chain: ChainType.QBIT_TESTNET4,
+        isContact: true,
+        isAlias: true,
+        sortIndex: 2,
+      },
+    })
+
+    let service: ContactBookService
+
+    beforeEach(async () => {
+      await mockStorage.set('savedBook', savedBook())
+      service = new ContactBookService()
+      await service.init({ storage: mockStorage as any, storageKey: 'savedBook' })
+    })
+
+    const moved: ContactBookItem = {
+      name: 'alice',
+      address: 'bc1qalicenew',
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+      isAlias: false,
+    }
+
+    it('moves a contact to a new address in one write and leaves every other entry as it was', async () => {
+      const set = vi.spyOn(mockStorage, 'set')
+
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, moved)
+
+      expect(set).toHaveBeenCalledTimes(1)
+      const { bc1qalice_QBIT_MAINNET: _old, ...others } = savedBook()
+      // The new entry is the one updateContact stores, in alice's place in the list.
+      const expected = { ...others, bc1qalicenew_QBIT_MAINNET: { ...moved, sortIndex: 1 } }
+      expect(service.getRawStore()).toEqual(expected)
+      expect(mockStorage.getStorage().savedBook).toEqual(expected)
+    })
+
+    it('moves a contact to another chain', async () => {
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, {
+        ...moved,
+        address: 'bc1qalice',
+        chain: ChainType.QBIT_TESTNET4,
+      })
+
+      expect(service.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_MAINNET)).toBeUndefined()
+      expect(service.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_TESTNET4)?.name).toBe('alice')
+    })
+
+    it('keeps an old entry that is also an alias, as an alias only, like removeContact', async () => {
+      await service.replaceContact('bc1qboth', ChainType.QBIT_TESTNET4, {
+        ...moved,
+        name: 'both',
+        address: 'bc1qbothnew',
+        chain: ChainType.QBIT_TESTNET4,
+      })
+
+      expect(service.getContactByAddressAndChain('bc1qboth', ChainType.QBIT_TESTNET4)).toEqual({
+        ...savedBook().bc1qboth_QBIT_TESTNET4,
+        isContact: false,
+      })
+      expect(service.listAlias().map(item => item?.address)).toContain('bc1qboth')
+      expect(service.listContacts().map(item => item.address)).toContain('bc1qbothnew')
+      expect(service.listContacts().map(item => item.address)).not.toContain('bc1qboth')
+    })
+
+    it('overwrites an entry already stored under the new address, as updateContact does', async () => {
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, {
+        ...moved,
+        address: 'bc1qbob',
+      })
+
+      expect(service.getContactByAddressAndChain('bc1qbob', ChainType.QBIT_MAINNET)).toEqual({
+        ...moved,
+        address: 'bc1qbob',
+        sortIndex: 1,
+      })
+      expect(service.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_MAINNET)).toBeUndefined()
+    })
+
+    it('stores the new contact when the old one is already gone', async () => {
+      await service.replaceContact('bc1qmissing', ChainType.QBIT_MAINNET, moved)
+
+      expect(service.getContactByAddressAndChain(moved.address, moved.chain)?.name).toBe('alice')
+      expect(service.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_MAINNET)?.name).toBe('alice')
+    })
+
+    it('keeps a reordered contact in its place when its address or network changes', async () => {
+      await service.saveContactsOrder([
+        savedBook().bc1qbob_QBIT_MAINNET,
+        savedBook().bc1qboth_QBIT_TESTNET4,
+        savedBook().bc1qalice_QBIT_MAINNET,
+      ])
+
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, moved)
+      expect(service.listContacts().map(item => item.address)).toEqual(['bc1qbob', 'bc1qboth', 'bc1qalicenew'])
+
+      await service.replaceContact('bc1qalicenew', ChainType.QBIT_MAINNET, {
+        ...moved,
+        chain: ChainType.QBIT_TESTNET4,
+      })
+      expect(service.listContacts().map(item => [item.address, item.chain])).toEqual([
+        ['bc1qbob', ChainType.QBIT_MAINNET],
+        ['bc1qboth', ChainType.QBIT_TESTNET4],
+        ['bc1qalicenew', ChainType.QBIT_TESTNET4],
+      ])
+    })
+
+    it('keeps a contact in its place among contacts that were never reordered', async () => {
+      const book = new ContactBookService()
+      await book.init({ storage: new MockStorageAdapter() as any })
+      for (const name of ['one', 'two', 'three']) {
+        await book.addContact({ ...moved, name, address: `bc1q${name}` })
+      }
+
+      await book.replaceContact('bc1qtwo', ChainType.QBIT_MAINNET, { ...moved, name: 'two', address: 'bc1qtwonew' })
+
+      expect(book.listContacts().map(item => item.address)).toEqual(['bc1qone', 'bc1qtwonew', 'bc1qthree'])
+    })
+
+    it('uses a sortIndex the caller sets', async () => {
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, { ...moved, sortIndex: 5 })
+
+      expect(service.getContactByAddressAndChain(moved.address, moved.chain)?.sortIndex).toBe(5)
+    })
+
+    it('keeps the original contact, in memory and in storage, when the write fails', async () => {
+      // Storage refuses any write that would hold the new address.
+      const writeError = new Error('QUOTA_BYTES quota exceeded')
+      const set = mockStorage.set.bind(mockStorage)
+      const setSpy = vi.spyOn(mockStorage, 'set').mockImplementation(async (key, value) => {
+        if (value?.bc1qalicenew_QBIT_MAINNET) throw writeError
+        return set(key, value)
+      })
+
+      await expect(service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, moved)).rejects.toBe(
+        writeError
+      )
+
+      expect(setSpy).toHaveBeenCalledTimes(1)
+      expect(service.getRawStore()).toEqual(savedBook())
+      expect(mockStorage.getStorage().savedBook).toEqual(savedBook())
+
+      const reloaded = new ContactBookService()
+      await reloaded.init({ storage: mockStorage as any, storageKey: 'savedBook' })
+      expect(reloaded.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_MAINNET)).toEqual(
+        savedBook().bc1qalice_QBIT_MAINNET
+      )
+    })
   })
 
   it('writes concurrent changes one at a time, in call order', async () => {

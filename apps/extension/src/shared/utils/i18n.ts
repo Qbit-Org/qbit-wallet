@@ -1,8 +1,10 @@
-import { FALLBACK_LOCALE, SUPPORTED_LOCALES, SupportedLocale } from '@qbit/wallet-shared';
-import { ProxyStorageAdapter } from '@qbit/wallet-storage';
 import i18n from 'i18next';
 import log from 'loglevel';
 import { initReactI18next } from 'react-i18next';
+
+import { FALLBACK_LOCALE, SUPPORTED_LOCALES, SupportedLocale } from '@qbit/wallet-shared';
+import { ProxyStorageAdapter } from '@qbit/wallet-storage';
+
 const fetchLocale = async (locale: string) => {
   const res = await fetch(`./_locales/${locale}/messages.json`);
   const data: Record<string, { message: string; description: string }> = await res.json();
@@ -29,12 +31,16 @@ const processSubstitutions = (
 ): string => {
   try {
     if (substitutions) {
+      // Replacer functions insert the text as it is; a replacement string
+      // would expand patterns such as `$&` or `$'` inside it. The array form
+      // fills every placeholder in one pass, so text inserted for one is not
+      // read again as another.
       if (typeof substitutions === 'string') {
-        message = message.replace(/\$1/g, substitutions);
+        message = message.replace(/\$1/g, () => substitutions);
       } else if (Array.isArray(substitutions)) {
-        substitutions.forEach((substitution, index) => {
-          const regex = new RegExp(`\\$${index + 1}`, 'g');
-          message = message.replace(regex, substitution);
+        message = message.replace(/\$(\d)/g, (placeholder, digit: string) => {
+          const substitution = substitutions[Number(digit) - 1];
+          return substitution === undefined ? placeholder : substitution;
         });
       }
     }

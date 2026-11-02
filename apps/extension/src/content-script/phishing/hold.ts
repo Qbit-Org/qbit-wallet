@@ -18,10 +18,11 @@ export const WARNING_PAGE_TIMEOUT_MS = 3_000;
 
 /**
  * Why a held page shows a notice: the background did not answer or no
- * warning page arrived, the page cannot be released, or it was released but
- * must not reload by itself.
+ * warning page arrived, the page cannot be released, it was released but
+ * must not reload by itself, or it was released but its history entry may
+ * keep a form that a reload would send again.
  */
-type NoticeReason = 'unanswered' | 'unreleasable' | 'released';
+type NoticeReason = 'unanswered' | 'unreleasable' | 'released' | 'reloadRefused';
 
 const FALLBACK_TEXT = {
   title: 'Danger! Potential phishing website detected',
@@ -31,13 +32,16 @@ const FALLBACK_TEXT = {
     'Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. It cannot let the page load, as the page does not keep the record that this needs. Try again, or close this tab.',
   released:
     'Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. Select Try again to load it, or close this tab.',
+  reloadRefused:
+    'Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. It can let the page load now, but a reload could send again a form that opened the page. Select Try again to open its address afresh, without the form, or close this tab.',
   retry: 'Try again'
 };
 
 const NOTICE_MESSAGES: Record<NoticeReason, string> = {
   unanswered: 'phishing_page_held_message',
   unreleasable: 'phishing_page_held_unreleasable_message',
-  released: 'phishing_page_held_released_message'
+  released: 'phishing_page_held_released_message',
+  reloadRefused: 'phishing_page_held_reload_refused_message'
 };
 
 /**
@@ -71,6 +75,27 @@ function reloadWithGet(): boolean {
   return true;
 }
 
+/**
+ * Opens the page's address again as a new load, which is always a GET, so
+ * that a form that loaded the page is not sent again even when the history
+ * refuses to drop it. The new load replaces the page's history entry, and
+ * with it the form. The address loses its fragment, as opening the same
+ * address with one would only scroll the stopped page.
+ */
+function openWithGet(): void {
+  const url = new URL(window.location.href);
+  url.hash = '';
+  window.location.replace(url.href);
+}
+
+/**
+ * Loads the page again without sending a form that loaded it: a reload when
+ * the history drops the form, and otherwise a new load of its address.
+ */
+function loadAgain(): void {
+  if (!reloadWithGet()) openWithGet();
+}
+
 function message(name: string, fallback: string): string {
   try {
     return chrome.i18n.getMessage(name) || fallback;
@@ -102,7 +127,9 @@ export class HeldPage {
    * released and reloaded with a GET, so that a form POST that loaded it is
    * not sent again, unless its sessionStorage cannot keep the release,
    * as on a sandboxed page or one whose site data is blocked: it stays held,
-   * so that its server cannot turn the hold off. Otherwise the page stays
+   * so that its server cannot turn the hold off. A released page that must
+   * not reload by itself, or whose history refuses to drop the form, waits
+   * behind a notice for the user to load it. Otherwise the page stays
    * held too: the background is
    * sending a phishing page to the warning page, and a page whose check did
    * not complete gets a notice it can retry from.
@@ -113,8 +140,12 @@ export class HeldPage {
     if (verdict === 'proceeded' || verdict === 'clear') {
       if (!recordRelease(this.hostname)) {
         this.showNotice('unreleasable');
-      } else if (!this.mayReload || !reloadWithGet()) {
+      } else if (!this.mayReload) {
         this.showNotice('released');
+      } else if (!reloadWithGet()) {
+        // Try again loads the page without the form instead of reaching this
+        // again.
+        this.showNotice('reloadRefused');
       }
       return;
     }
@@ -127,9 +158,9 @@ export class HeldPage {
 
   private async retry(button: HTMLButtonElement): Promise<void> {
     // An extension that was updated or reloaded answers only a new content
-    // script, which a reload brings.
+    // script, which a new load of the page brings.
     if (!isExtensionContextValid()) {
-      reloadWithGet();
+      loadAgain();
       return;
     }
     button.disabled = true;
@@ -162,7 +193,12 @@ export class HeldPage {
     const button = create('button', message('try_again', FALLBACK_TEXT.retry)) as HTMLButtonElement;
     button.type = 'button';
     button.style.cssText = 'font:inherit;padding:8px 16px;cursor:pointer;';
-    button.addEventListener('click', () => void this.retry(button));
+    button.addEventListener('click', () => {
+      // A page already released needs no new verdict, only a load that does
+      // not send its form again.
+      if (reason === 'reloadRefused') loadAgain();
+      else void this.retry(button);
+    });
     notice.append(title, host, text, button);
 
     const body = create('body');

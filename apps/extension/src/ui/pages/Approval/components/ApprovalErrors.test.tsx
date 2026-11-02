@@ -140,13 +140,14 @@ vi.mock('rc-virtual-list', async () => {
   return { default: React.forwardRef(() => null) };
 });
 
-vi.mock('@qbit/wallet-shared', () => ({
+vi.mock('@qbit/wallet-shared', async (importOriginal) => ({
   AccountSignMethod: {
     Local: 'local',
     ColdWallet: 'coldWallet',
     External: 'external',
     None: 'none'
-  }
+  },
+  isWebsiteSuppliedPsbt: (await importOriginal<typeof import('@qbit/wallet-shared')>()).isWebsiteSuppliedPsbt
 }));
 
 vi.mock('@qbit/wallet-state', () => ({

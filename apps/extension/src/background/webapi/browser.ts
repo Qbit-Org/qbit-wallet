@@ -163,4 +163,8 @@ export function browserRuntimeConnect(extensionId?: string, connectInfo?: any) {
   return browser.runtime.connect(extensionId, connectInfo);
 }
 
+export function browserRuntimeReload() {
+  browser.runtime.reload();
+}
+
 export default browser;

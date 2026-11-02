@@ -96,7 +96,12 @@ export interface WalletController {
   requestMethod: (...params: any) => Promise<any>
 
   setBackgroundInited(value: boolean): Promise<void>
-  getBackgroundInited(): Promise<boolean>
+  /** Whether background start-up is still running, has finished, or has stopped and why. */
+  getBackgroundStartupStatus(): Promise<
+    | { state: 'starting' }
+    | { state: 'ready' }
+    | { state: 'failed'; reason: 'stored-settings-unreadable' | 'unknown' }
+  >
 
   getDesc: () => string
   boot(password: string): Promise<void>
@@ -305,6 +310,8 @@ export interface WalletController {
     qbitUtxos: UnspentOutput[]
     /** The network `qbitUtxos` were loaded on; the background refuses any other. */
     qbitUtxoChain: ChainType
+    /** The account `qbitUtxos` were read for; the background refuses any but the selected one. */
+    qbitUtxoAddress: string
     feeRate: number
     enableRBF?: boolean
     memo?: string
@@ -319,6 +326,8 @@ export interface WalletController {
     qbitUtxos: UnspentOutput[]
     /** The network `qbitUtxos` were loaded on; the background refuses any other. */
     qbitUtxoChain: ChainType
+    /** The account `qbitUtxos` were read for; the background refuses any but the selected one. */
+    qbitUtxoAddress: string
     feeRate: number
     enableRBF?: boolean
     memo?: string
@@ -338,7 +347,8 @@ export interface WalletController {
     txData: string,
     qbitSendBroadcastClaim?: QbitSendBroadcastClaim,
     expectedChain?: ChainType,
-    expectedTxid?: string
+    expectedTxid?: string,
+    retryOfUnknownOutcome?: boolean
   ): Promise<QbitBroadcastResult>
   checkQbitBroadcastStatus(
     txid: string,
@@ -359,8 +369,13 @@ export interface WalletController {
   abandonQbitSendBroadcastClaim(qbitSendBroadcastClaim: QbitSendBroadcastClaim): Promise<void>
 
   getQbitUtxos(): Promise<UnspentOutput[]>
-  /** The spendable outputs together with the network they were loaded on. */
-  getQbitUtxoSnapshot(): Promise<QbitUtxoSnapshot>
+  /**
+   * The spendable outputs together with the network they were loaded on.
+   * With `readId`, `abandonQbitUtxoSnapshot(readId)` stops waiting for it.
+   */
+  getQbitUtxoSnapshot(readId?: string): Promise<QbitUtxoSnapshot>
+  /** Stop waiting for that read; a walk nothing waits for any more stops. */
+  abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
   getNetworkType(): Promise<NetworkType>
   setNetworkType(type: NetworkType): Promise<void>
@@ -452,6 +467,7 @@ export interface WalletController {
   ): Promise<ContactBookItem | undefined>
   updateContact(data: ContactBookItem): Promise<void>
   removeContact(address: string, chain?: ChainType): Promise<void>
+  replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void>
   listContacts(): Promise<ContactBookItem[]>
   saveContactsOrder(contacts: ContactBookItem[]): Promise<void>
 

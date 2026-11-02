@@ -1,0 +1,58 @@
+{
+  "dumpCache": [
+    {
+      "k": "http://127.0.0.1:3000",
+      "v": {
+        "origin": "http://127.0.0.1:3000",
+        "name": "Local dev",
+        "icon": "",
+        "chain": "QBIT_REGTEST",
+        "isSigned": false,
+        "isTop": false,
+        "isConnected": true
+      },
+      "e": 0
+    },
+    {
+      "k": "https://old.example",
+      "v": {
+        "origin": "https://old.example",
+        "name": "Old dApp",
+        "icon": "",
+        "chain": "QBIT_MAINNET",
+        "isSigned": false,
+        "isTop": false,
+        "isConnected": false
+      },
+      "e": 0
+    },
+    {
+      "k": "https://swap.example",
+      "v": {
+        "origin": "https://swap.example",
+        "name": "Swap",
+        "icon": "https://swap.example/icon.png",
+        "chain": "QBIT_TESTNET4",
+        "isSigned": true,
+        "isTop": false,
+        "isConnected": true
+      },
+      "e": 0
+    },
+    {
+      "k": "https://nft.example",
+      "v": {
+        "origin": "https://nft.example",
+        "name": "NFT Market",
+        "icon": "https://nft.example/favicon.ico",
+        "chain": "QBIT_TESTNET4",
+        "isSigned": false,
+        "isTop": true,
+        "isConnected": true,
+        "order": 1,
+        "allowQuickMultiSign": true
+      },
+      "e": 0
+    }
+  ]
+}

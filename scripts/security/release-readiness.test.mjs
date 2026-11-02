@@ -922,7 +922,13 @@ test('probes with git isolated from every inherited credential source', t => {
     url,
     'HEAD',
   ])
-  assert.doesNotMatch(JSON.stringify(env), /secret|c2VjcmV0|extraheader|store|not-a-repository/)
+  // The credential material is matched by its exact shapes: a bare `store` or
+  // `secret` would false-positive on a checkout path those words happen to sit
+  // in, and the child keeps the parent's PATH.
+  assert.doesNotMatch(
+    JSON.stringify(env),
+    /c2VjcmV0|extraheader|not-a-repository|'credential\.helper'='store'|credential\.helper=store|credential-store|gh-secret|github-secret|sdk-secret/
+  )
   assert.deepEqual(
     Object.keys(env).sort(),
     Object.keys(anonymousGitEnvironment(cwd, inheritedEnv)).sort()

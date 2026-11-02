@@ -4,6 +4,7 @@ import {
   addressToScriptPk,
   decodeAddress,
   getAddressType,
+  isPayToAnchorScript,
   isValidAddress,
   publicKeyToAddress,
   scriptPkToAddress,
@@ -203,6 +204,23 @@ describe('address', () => {
       expect(scriptPkToAddress(p2mr_data.regtest_script_pk, NetworkType.REGTEST)).toBe(
         p2mr_data.regtest_address
       )
+    })
+  })
+
+  describe('pay-to-anchor script', () => {
+    it('recognises exactly OP_1 <0x4e73>, which has no address', () => {
+      expect(isPayToAnchorScript('51024e73')).toBe(true)
+      expect(isPayToAnchorScript('51024E73')).toBe(true)
+      expect(isPayToAnchorScript(Buffer.from('51024e73', 'hex'))).toBe(true)
+      expect(isPayToAnchorScript(Uint8Array.of(0x51, 0x02, 0x4e, 0x73))).toBe(true)
+      expect(scriptPkToAddress('51024e73', NetworkType.REGTEST)).toBe('')
+    })
+
+    it('does not recognise near scripts', () => {
+      for (const script of ['', '51024e7300', '52024e73', '51024e74', '0051024e73']) {
+        expect(isPayToAnchorScript(script)).toBe(false)
+      }
+      expect(isPayToAnchorScript(p2mr_data.regtest_script_pk)).toBe(false)
     })
   })
 

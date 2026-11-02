@@ -42,7 +42,7 @@
     },
     {
       "path": "node_modules/@qbit-oss/pqc/fixtures/qbit-core-derivation.json",
-      "coverage": "Qbit-Org/qbit v1.0.0 deterministic PQC derivation bytes, shipped in the pinned @qbit-oss/pqc 0.1.0 tarball"
+      "coverage": "Qbit-Org/qbit v1.0.0 deterministic PQC derivation bytes, shipped in the pinned @qbit-oss/pqc 0.1.1 tarball"
     },
     {
       "path": "experiments/pqc-wasm/fixtures/slh-dsa-golden.json",
@@ -68,7 +68,7 @@
       "status": "uncovered",
       "currentCoverage": [
         "addresses live row observes only the final address",
-        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-script.test.ts uses synthetic bytes"
+        "Qbit-Org/qbit-js v0.1.1 packages/protocol/test/p2mr-script.test.ts uses synthetic bytes"
       ],
       "byteLevelReason": "No signed-release fixture pinned the c00151 leaf preimage, P2MRLeaf hash, c1 control byte, root, and 5220 scriptPubKey together.",
       "resolution": "scripts/conformance/fixtures/p2mr-offline.json#commitments.valid"
@@ -168,7 +168,7 @@
       "status": "covered",
       "currentCoverage": [
         "scripts/conformance/qbit-js/fixtures/p2mr-sighash.json default hash type",
-        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-psbt-signing.test.ts canonical three-item witness",
+        "Qbit-Org/qbit-js v0.1.1 packages/protocol/test/p2mr-psbt-signing.test.ts canonical three-item witness",
         "sighash-sign live row"
       ],
       "byteLevelReason": "The default digest, 3680-byte implicit-hashtype signature, leaf, control block, and final witness shape are already asserted.",
@@ -243,7 +243,7 @@
       "case": "single_key_sighash_single_missing_first",
       "status": "covered",
       "currentCoverage": [
-        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-sighash.test.ts SIGHASH_SINGLE output-range guard"
+        "Qbit-Org/qbit-js v0.1.1 packages/protocol/test/p2mr-sighash.test.ts SIGHASH_SINGLE output-range guard"
       ],
       "byteLevelReason": "Core defines no digest for this case; the wallet guard rejects before serialization whenever inputIndex is outside outputs.",
       "resolution": "No fixture bytes exist to import; retain the deterministic range-check test."
@@ -253,7 +253,7 @@
       "case": "single_key_sighash_single_missing_beyond",
       "status": "covered",
       "currentCoverage": [
-        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-sighash.test.ts constructs the same beyond-output condition"
+        "Qbit-Org/qbit-js v0.1.1 packages/protocol/test/p2mr-sighash.test.ts constructs the same beyond-output condition"
       ],
       "byteLevelReason": "Core defines no sighash bytes, and the current package test directly asserts rejection for a later input without an output.",
       "resolution": "No additional fixture."
@@ -543,7 +543,7 @@
       "case": "opcode-checksigadd-pqc",
       "status": "covered",
       "currentCoverage": [
-        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-script.test.ts multi_a byte construction"
+        "Qbit-Org/qbit-js v0.1.1 packages/protocol/test/p2mr-script.test.ts multi_a byte construction"
       ],
       "byteLevelReason": "Wallet protocol pins CHECKSIGPQC/CHECKSIGADD/NUMEQUAL script bytes; threshold execution is not reimplemented client-side.",
       "resolution": "No Core interpreter fixture."
@@ -799,7 +799,7 @@
       "status": "covered",
       "currentCoverage": [
         "scripts/conformance/fixtures/message-proof.json",
-        "Qbit-Org/qbit-js v0.1.0 packages/protocol/test/p2mr-message.test.ts",
+        "Qbit-Org/qbit-js v0.1.1 packages/protocol/test/p2mr-message.test.ts",
         "message-proof live row"
       ],
       "byteLevelReason": "The signed-release message/data domains, pubkey, P2MR leaf/control/root, and Core-to-wallet proofs are already asserted in both directions.",

@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 
 import { AppState } from '..'
 import { useAppDispatch, useAppSelector } from '../hooks/base'
-import { uiActions } from '../reducers/ui'
+import { uiActions, type FeeRateSource } from '../reducers/ui'
 export function useUIState(): AppState['ui'] {
   return useAppSelector(state => state.ui)
 }
@@ -53,12 +53,15 @@ export function useUpdateFeeRateBar() {
       enableLowFeeRate,
       feeOptionIndex,
       showCustomInput,
+      feeRateSource,
     }: {
       feeRate?: number
       feeRateInputVal?: string
       enableLowFeeRate?: boolean
       feeOptionIndex?: number
       showCustomInput?: boolean
+      /** Where `feeRate` came from; a rate written without one has none. */
+      feeRateSource?: FeeRateSource | null
     }) => {
       dispatch(
         (uiActions as any).updateFeeRateBar({
@@ -67,6 +70,7 @@ export function useUpdateFeeRateBar() {
           enableLowFeeRate,
           feeOptionIndex,
           showCustomInput,
+          feeRateSource,
         })
       )
     },

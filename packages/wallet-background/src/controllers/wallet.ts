@@ -1,6 +1,6 @@
 import bitcore from 'bitcore-lib'
 
-import { QbitApiError, type EsploraTx } from '@qbit-oss/api'
+import { QbitApiError, type EsploraAddressStats, type EsploraTx } from '@qbit-oss/api'
 import { getWebsiteSafetyWarning } from '@qbit/phishing-detect'
 import {
   P2MR_LEAF_VERSION_V1,
@@ -49,6 +49,7 @@ import {
   transactionCore,
   eccManager,
   getAddressType,
+  isPayToAnchorScript,
   isValidAddress,
   publicKeyToAddress,
   scriptPkToAddress,
@@ -75,6 +76,7 @@ import {
   PsbtActionDetailType,
   PsbtActionInfo,
   PsbtActionType,
+  QBIT_P2A_MAX_VALUE,
   QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
   QBIT_P2MR_DUST,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
@@ -127,6 +129,7 @@ import {
   getAccountCapabilities,
   getLockTimeInfo,
   getQbitHdPathForChainType,
+  isQbitAccountOutput,
   isQbitFeeRateWithinPolicy,
   isQbitStandardTxSize,
   normalizeChainType,
@@ -163,18 +166,24 @@ import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
 import { assertQbitP2mrSigningLeafRecord } from '../utils/qbit-p2mr-signing-leaf'
 import {
   QBIT_MIN_RELAY_FEE_RATE,
+  psbtReviewOptions,
   qbitWalletOwnership,
-  statedPsbtRecipients,
+  qbitWalletOwns,
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
+  type PsbtOutputOwner,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
 import { psbtFromString } from '../utils/psbt-utils'
 import {
   QBIT_BROADCAST_ABSENCE_PROBES,
   QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS,
+  QBIT_BROADCAST_DEADLINE_MS,
+  QBIT_BROADCAST_MIN_PASS_MS,
   QBIT_BROADCAST_RESEND_DELAYS_MS,
   QBIT_BROADCAST_RESEND_WINDOW_MS,
+  QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS,
+  QBIT_LIFECYCLE_TX_READ_DEADLINE_MS,
   QbitBroadcastResponseMismatchError,
   classifyQbitBroadcastError,
   isQbitBroadcastResendable,
@@ -183,6 +192,7 @@ import {
   type QbitBroadcastErrorClassification,
 } from '../utils/qbit-broadcast'
 import {
+  assertQbitStatsFloorBelowWarningThreshold,
   classifyQbitProtectedAssetCoverage,
   continueQbitAddressOutputScan,
   createQbitAddressOutputScan,
@@ -203,10 +213,9 @@ import {
   isQbitChainType,
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
-  MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES,
+  isQbitSnapshotUnstableError,
   observeQbitPqcSignatureActivity,
   observeQbitPqcSpentOutpoints,
-  probeQbitAccountHistoryAncestry,
   probeQbitAccountHistoryRevision,
   qbitAddressHasUnconfirmedSpends,
   qbitAddressOutputCounts,
@@ -220,9 +229,12 @@ import {
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
+  qbitReadOutput,
+  readQbitAddressUtxos,
   type QbitAccountHistoryRevision,
   type QbitAddressOutputScan,
   type QbitClassifiedUtxos,
+  type QbitReadOutput,
   type QbitHistoryOutputCandidate,
   type QbitPqcHistoryClient,
   type QbitPqcSignatureActivity,
@@ -236,13 +248,32 @@ import {
   qbitRawP2mrTransaction,
   type QbitRawP2mrTransaction,
 } from '../utils/qbit-fee-bump'
-import { assertNoExplorerDependentSpend } from '../utils/qbit-fee-bump-recheck'
+import {
+  QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QbitExplorerOperation,
+} from '../utils/qbit-explorer-fetch'
+import {
+  QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS,
+  QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+  QbitExplorerSpendCheckFailedError,
+  QbitExplorerSpendCheckTimeoutError,
+  assertNoExplorerSpendConflict,
+} from '../utils/qbit-fee-bump-recheck'
+import {
+  assertQbitExplorerSpendCheck,
+  qbitExplorerSpendCheckIsNeeded,
+  type QbitExplorerSpendCheck,
+} from '../utils/qbit-explorer-spend-check'
 import {
   QBIT_RECEIVE_GAP_LIMIT,
   planQbitReceiveIntent,
   type QbitReceiveAllocationAddress,
 } from '../utils/qbit-receive'
-import { QbitSharedReads } from '../utils/qbit-shared-reads'
+import {
+  QbitLatestAnswers,
+  QbitReplaceableReads,
+  type QbitReadVersionOrder,
+} from '../utils/qbit-shared-reads'
 
 import { paramsUtils } from '@qbit/base-utils'
 import {
@@ -383,7 +414,7 @@ type QbitReceiveControllerContext = {
 type QbitHistoryScope = {
   chainType: ChainType
   scopeKey: string
-  addresses: string[]
+  address: string
   addressFingerprint: string
 }
 
@@ -492,6 +523,13 @@ const QBIT_RECENT_SPEND_PROBE_WAIT_MS = 2_000
 const QBIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000
 const QBIT_HISTORY_SNAPSHOT_LIMIT = 8
 const QBIT_HISTORY_PERSISTED_CACHE_LIMIT = 20
+// History is read and cached per account: that account's own public key on
+// one network. Earlier builds kept one history for every account of the
+// wallet under `qbit:<chain>:<first account's pubkey>`; this prefix never
+// matches those keys, so their rows are never read as one account's.
+// useHistoryScopeKey in @qbit/wallet-state builds the same key.
+const qbitAccountHistoryScopeKey = (chainType: ChainType, pubkey: string): string =>
+  `qbit-account:${chainType}:${pubkey.toLowerCase()}`
 const QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE = 1
 const QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE = 64
 // History pages one consolidation batch may read. An active miner's newest
@@ -499,6 +537,14 @@ const QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE = 64
 // past them: 40 Esplora pages, 20 of the 50-row pages the production
 // mempool-qbit serves. 64 leaves room for the 106 mature outputs after them.
 const QBIT_CONSOLIDATION_PAGES_PER_BATCH = 64
+// The deadline of one batch's Prepare, which covers the screen until it
+// answers: every read it makes once it has the account's scan (pages,
+// outspends, the tip). A page may take the whole large-read ceiling, sized
+// for a 40 MB page at about 1 Mbit/s, so the deadline is that ceiling and a
+// minute for the small reads around it: every Prepare can finish at least
+// one such page. A batch it cuts short keeps what its walk read, and the
+// next Prepare reads on from there.
+export const QBIT_CONSOLIDATION_BATCH_DEADLINE_MS = QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS + 60_000
 // A consolidation scan stops reading once it holds this many candidates.
 const QBIT_CONSOLIDATION_MAX_CANDIDATES = 10_000
 // Rounds of outspends checks one batch makes while its choices keep turning out spent.
@@ -525,6 +571,68 @@ function isQbitTransientApiError(error: unknown): boolean {
       (error.kind === 'http' && error.status !== undefined && error.status >= 500))
   )
 }
+
+/**
+ * How far an address's history had got when its statistics were read: its
+ * transactions in all, then its confirmed ones. Payments only add to the
+ * first and confirmations only to the second, so statistics that rank
+ * higher are newer; an eviction or a lagging node's answer ranks lower or
+ * the same. Undefined for statistics without counts to rank.
+ */
+type QbitHistoryProgress = readonly [all: number, confirmed: number]
+
+function qbitHistoryProgress(stats: EsploraAddressStats): QbitHistoryProgress | undefined {
+  const confirmed = stats?.chain_stats?.tx_count
+  const pending = stats?.mempool_stats?.tx_count
+  if (
+    !Number.isSafeInteger(confirmed) ||
+    !Number.isSafeInteger(pending) ||
+    !Number.isSafeInteger(confirmed + pending) ||
+    confirmed < 0 ||
+    pending < 0
+  ) {
+    return undefined
+  }
+  return [confirmed + pending, confirmed]
+}
+
+function isLaterQbitHistoryProgress(
+  candidate: QbitHistoryProgress,
+  running: QbitHistoryProgress
+): boolean {
+  return candidate[0] > running[0] || (candidate[0] === running[0] && candidate[1] > running[1])
+}
+
+/**
+ * The state of an address's history its statistics show: how far it had got
+ * (`QbitHistoryProgress`), and the statistics as one value
+ * (`qbitStatsSnapshot`), which any change moves, a replacement that leaves
+ * the counts as they were included. Undefined for statistics without counts
+ * to rank.
+ */
+type QbitHistoryState = { readonly progress: QbitHistoryProgress; readonly snapshot: string }
+
+function qbitHistoryState(stats: EsploraAddressStats): QbitHistoryState | undefined {
+  const progress = qbitHistoryProgress(stats)
+  return progress && { progress, snapshot: qbitStatsSnapshot(stats) }
+}
+
+/**
+ * The same state when the statistics read the same; later only when the
+ * history has got further (`isLaterQbitHistoryProgress`), an order in which
+ * of two different states at most one is later, so answers from two nodes
+ * cannot keep replacing each other's read. Any other difference (counts
+ * that are the same with other sums, as after a replacement, or lower, as
+ * after an eviction or from a lagging node) is another state.
+ */
+function orderQbitHistoryStates(
+  candidate: QbitHistoryState,
+  running: QbitHistoryState
+): QbitReadVersionOrder {
+  if (candidate.snapshot === running.snapshot) return 'same'
+  return isLaterQbitHistoryProgress(candidate.progress, running.progress) ? 'later' : 'other'
+}
+
 // Per-address stability retries for restore floor scans. Mempool churn is
 // re-observed on the bounded 1/2/4/8 s back-off (which crosses electrs' 10 s
 // response-cache window like the history loader). A tip advance during one
@@ -743,6 +851,24 @@ function qbitProviderPsbtAutoFinalized(
   }
 }
 
+/**
+ * Refuse a provider PSBT whose pay-to-anchor outputs carry more, together,
+ * than `QBIT_P2A_MAX_VALUE`. Anyone can spend such an output, so the bound
+ * limits what a website can move out of the wallet through one.
+ */
+function assertQbitProviderAnchorValue(outputs: readonly P2mrTransactionOutput[]): void {
+  const anchorValue = outputs
+    .filter(output => isPayToAnchorScript(output.scriptPubKey))
+    .reduce((total, output) => total + output.value, 0n)
+  if (anchorValue > BigInt(QBIT_P2A_MAX_VALUE)) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `PSBT pays ${anchorValue} sats to pay-to-anchor outputs, which anyone can spend; ` +
+        `at most ${QBIT_P2A_MAX_VALUE} sats is allowed`
+    )
+  }
+}
+
 function isHexBytesText(value: string): boolean {
   return value.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(value)
 }
@@ -785,6 +911,25 @@ function summarizeError(error: unknown): { name?: string; code?: number } {
   }
 }
 
+/**
+ * How many addresses' latest output reads each API client keeps, the most
+ * recently used first; switching through more over-limit accounts reads
+ * the oldest one's outputs again.
+ */
+const QBIT_LATEST_UTXO_READS_PER_CLIENT = 4
+
+/**
+ * Whether the recovery sweep may spend `utxo` from `account`: a positive
+ * amount, and the account's own (`isQbitAccountOutput`).
+ */
+function isQbitRecoverySweepInput(account: Account, utxo: UnspentOutput): boolean {
+  return (
+    Number.isSafeInteger(utxo.satoshis) &&
+    utxo.satoshis > 0 &&
+    isQbitAccountOutput(utxo, account.p2mr?.scriptPubKey)
+  )
+}
+
 export class WalletController extends BaseController {
   timer: any = null
   private readonly qbitApiClients = new Map<string, QbitWalletApiClient>()
@@ -816,12 +961,35 @@ export class WalletController extends BaseController {
   }
 
   private backgroundInited = false
+  private backgroundStartupFailure: 'stored-settings-unreadable' | 'unknown' | undefined
 
   setBackgroundInited = async (value: boolean) => {
     this.backgroundInited = value
   }
   getBackgroundInited = async () => {
     return this.backgroundInited
+  }
+  /**
+   * Record why start-up stopped. Start-up runs once per worker start, so the
+   * failure stands until the worker restarts.
+   */
+  setBackgroundStartupFailed = async (reason: 'stored-settings-unreadable' | 'unknown') => {
+    this.backgroundStartupFailure = reason
+  }
+  /**
+   * Whether start-up is still running, has finished, or has stopped and why,
+   * so the UI can tell "not ready yet" from "will not be ready".
+   */
+  getBackgroundStartupStatus = async (): Promise<
+    | { state: 'starting' }
+    | { state: 'ready' }
+    | { state: 'failed'; reason: 'stored-settings-unreadable' | 'unknown' }
+  > => {
+    if (this.backgroundInited) return { state: 'ready' }
+    if (this.backgroundStartupFailure) {
+      return { state: 'failed', reason: this.backgroundStartupFailure }
+    }
+    return { state: 'starting' }
   }
 
   async init(adapters?: any): Promise<void> {
@@ -903,21 +1071,38 @@ export class WalletController extends BaseController {
    * `qbitRecentSpendProbeWaitMs` for the probes: one still running then
    * settles later, and until it does its inputs stay reserved, which is
    * the safe side.
+   *
+   * With `guardWaitMs` (a balance read) the caller waits at most that long
+   * for the guard to hand out the spenders: a broadcast can hold the
+   * guard's queue for as long as the explorer takes to answer it. Those
+   * spenders are probed once the guard hands them out, and settle later.
    */
-  private async settleQbitRecentSpends(chain: ChainType, address: string): Promise<void> {
-    const probes = await qbitSendGuardService.takeRecentSpendersToProbe(chain, address)
+  private async settleQbitRecentSpends(
+    chain: ChainType,
+    address: string,
+    guardWaitMs?: number
+  ): Promise<void> {
+    const taken = qbitSendGuardService.takeRecentSpendersToProbe(chain, address)
+    const probeAll = (probes: Awaited<typeof taken>): Promise<unknown> =>
+      Promise.all(
+        probes.map(async probe => {
+          let lifecycle: { state: 'confirmed' | 'pending' | 'gone' }
+          try {
+            lifecycle = await this.qbitTxLifecycleStatusOn(chain, probe.txid)
+          } catch {
+            return
+          }
+          await qbitSendGuardService.settleRecentSpendProbe(chain, probe, lifecycle.state)
+        })
+      ).catch(() => undefined)
+    const probes =
+      guardWaitMs === undefined ? await taken : await this.qbitGuardReadWithin(taken, guardWaitMs)
+    if (probes === undefined) {
+      void taken.then(probeAll, () => undefined)
+      return
+    }
     if (probes.length === 0) return
-    const settled = Promise.all(
-      probes.map(async probe => {
-        let lifecycle: { state: 'confirmed' | 'pending' | 'gone' }
-        try {
-          lifecycle = await this.qbitTxLifecycleStatusOn(chain, probe.txid)
-        } catch {
-          return
-        }
-        await qbitSendGuardService.settleRecentSpendProbe(chain, probe, lifecycle.state)
-      })
-    ).catch(() => undefined)
+    const settled = probeAll(probes)
     let timer: ReturnType<typeof setTimeout> | undefined
     await Promise.race([
       settled,
@@ -928,8 +1113,34 @@ export class WalletController extends BaseController {
     clearTimeout(timer)
   }
 
+  /**
+   * `read`, a send guard read just queued, or `undefined` when the guard
+   * has not answered it within `waitMs`. A read queued behind a broadcast
+   * is not waited for, and its late answer is dropped.
+   */
+  private async qbitGuardReadWithin<T>(read: Promise<T>, waitMs: number): Promise<T | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        read,
+        new Promise<undefined>(resolve => {
+          timer = setTimeout(() => resolve(undefined), waitMs)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   /** How long a UTXO read waits for recent-spend probes; see `settleQbitRecentSpends`. */
   qbitRecentSpendProbeWaitMs = QBIT_RECENT_SPEND_PROBE_WAIT_MS
+
+  /**
+   * How long a balance read waits for the send guard, each time it queues a
+   * read there, before it reports the split as unknown; see
+   * `getAddressBalanceV2`.
+   */
+  qbitBalanceGuardWaitMs = 1_000
 
   private runWithNoQbitInputConflict<T>(
     chain: ChainType,
@@ -1312,8 +1523,10 @@ export class WalletController extends BaseController {
    * gone, and one whose last broadcast was inconclusive keeps its inputs
    * reserved as recently spent until a lifecycle probe settles it.
    */
-  onUiPortDisconnected = (uiPort: QbitSendClaimOwner): Promise<void> =>
-    qbitSendGuardService.releaseClaimsOwnedBy(uiPort)
+  onUiPortDisconnected = (uiPort: QbitSendClaimOwner): Promise<void> => {
+    this.abandonQbitUtxoSnapshotsOf(uiPort)
+    return qbitSendGuardService.releaseClaimsOwnedBy(uiPort)
+  }
 
   /**
    * The calling page dropped the signed bytes behind a wallet-owned send
@@ -1472,9 +1685,22 @@ export class WalletController extends BaseController {
   }
 
   lockWallet = async () => {
+    // A locked wallet keeps no account's outputs in memory, not even while
+    // the lock waits or if it fails. setLocked marks the wallet locked at
+    // once, before it waits, so nothing is kept after this clear: not from
+    // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
+    this.qbitLatestUtxoReads.clear()
     await keyringService.setLocked()
-    // Locking keeps every grant, so it must not look like a revocation: no
-    // accountsChanged [] here. Pages never see the internal lock event.
+    this.announceLock()
+  }
+
+  /**
+   * Tell the pages and the wallet's own UI that the wallet locked. Locking
+   * keeps every grant, so it must not look like a revocation: no
+   * accountsChanged [] here. Pages never see the keyring service's internal
+   * lock event.
+   */
+  private announceLock = () => {
     sessionService.broadcastEvent(SESSION_EVENTS.lock)
     bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
       method: BUS_METHODS.LOCKED,
@@ -1505,16 +1731,63 @@ export class WalletController extends BaseController {
     // too. The spenders due a probe are looked up while the outputs are
     // listed, and the reservations are read once both are done. The probes
     // never reject.
-    const probed = this.settleQbitRecentSpends(chainType, address)
+    //
+    // A broadcast holds the guard's queue until the explorer answers it,
+    // which can take a minute, so each wait for the guard lasts at most
+    // `qbitBalanceGuardWaitMs`. Past that, without the reservations, the
+    // split is unknown.
+    //
+    // Past the explorer's limit the outputs come from the latest output read
+    // for this address on this network (see `getQbitUtxoSnapshot`), and only
+    // while the statistics still read as they did for it.
+    let reservedUnknown = false
+    const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
+    const client = this.getQbitApiClient(chainType)
+    // Looked up as the statistics are compared, so a read that completes
+    // while this balance read runs counts already. None counts while the
+    // wallet reads locked: a lock the keyring service makes on its own, or a
+    // reset, forgets the kept reads only once it is done.
+    const readOutputs = (stats: string) => {
+      if (!this.isUnlocked()) return undefined
+      const latest = this.qbitLatestUtxoReads.latest(client, address)
+      if (latest?.stats !== stats) return undefined
+      return {
+        outputs: latest.utxos,
+        ...(latest.matureAt !== undefined ? { matureAt: latest.matureAt } : {}),
+        ...(latest.matureFrom !== undefined ? { matureFrom: latest.matureFrom } : {}),
+      }
+    }
     const data = await getQbitSpendableBalanceV2(
-      this.getQbitApiClient(chainType),
+      client,
       address,
       p2mrScriptPubKey,
       async () => {
         await probed
-        return qbitSendGuardService.getReservedOutpointKeys(chainType, address)
-      }
+        const reserved = await this.qbitGuardReadWithin(
+          qbitSendGuardService.getReservedOutpointKeys(chainType, address),
+          this.qbitBalanceGuardWaitMs
+        )
+        if (reserved !== undefined) return reserved
+        reservedUnknown = true
+        return new Set<string>()
+      },
+      readOutputs
     )
+    if (reservedUnknown) {
+      // Shown as `--`, as past the explorer's UTXO limit: the total is
+      // measured, and nothing counts as available until a read has the
+      // reservations again. An address past the limit keeps
+      // `utxoLimitExceeded`, as its total comes from the statistics.
+      return {
+        availableBalance: null,
+        unavailableBalance: Math.max(0, data.totalBalance),
+        totalBalance: data.totalBalance,
+        immatureBalance: null,
+        pendingBalance: null,
+        ...(data.utxoLimitExceeded ? { utxoLimitExceeded: true } : {}),
+        chainType,
+      }
+    }
     return { ...data, chainType }
   }
 
@@ -1552,40 +1825,37 @@ export class WalletController extends BaseController {
     ) {
       throw new Error('Qbit history account changed while resolving its addresses')
     }
-    const anchorPubkey = keyring.accounts[0]?.pubkey
-    if (!isHexByteString(anchorPubkey, 32)) {
+
+    // History covers one account: its own address, the one its balance
+    // reads. The wallet's other accounts are counterparties like any other.
+    const requested = requestedAddress?.toLowerCase()
+    const matches = requested
+      ? keyring.accounts.filter(
+          account => account.p2mr?.addresses[network]?.toLowerCase() === requested
+        )
+      : []
+    if (matches.length > 1) {
+      throw new Error(`Qbit history account contains duplicate address ${requestedAddress}`)
+    }
+    const account = matches[0]
+    const address = account?.p2mr?.addresses[network]
+    if (!account || !address) {
+      throw new Error('Requested Qbit history address is outside the selected wallet')
+    }
+    if (!isHexByteString(account.pubkey, 32)) {
       throw new Error('Qbit history account is missing its stable public identity')
     }
-
-    const indexedAddresses = keyring.accounts.map(account => {
-      const address = account.p2mr?.addresses[network]
-      const index = account.p2mr?.hkdf.index
-      if (!address || !Number.isSafeInteger(index) || (index ?? -1) < 0) {
-        throw new Error('Qbit history account contains incomplete address metadata')
-      }
-      return { address, index: index! }
-    })
-    indexedAddresses.sort(
-      (left, right) => left.index - right.index || left.address.localeCompare(right.address)
-    )
-    const normalizedAddresses = new Set<string>()
-    const addresses = indexedAddresses.map(item => {
-      const normalized = item.address.toLowerCase()
-      if (normalizedAddresses.has(normalized)) {
-        throw new Error(`Qbit history account contains duplicate address ${item.address}`)
-      }
-      normalizedAddresses.add(normalized)
-      return item.address
-    })
-    if (!requestedAddress || !normalizedAddresses.has(requestedAddress.toLowerCase())) {
-      throw new Error('Requested Qbit history address is outside the selected account')
+    // A request from a page that has not caught up with an account switch
+    // fails here, before it reads the explorer for an account not shown.
+    if (preferenceService.getCurrentAccount()?.address?.toLowerCase() !== address.toLowerCase()) {
+      throw new Error('Requested Qbit history address is not the selected account')
     }
 
     return {
       chainType,
-      scopeKey: `qbit:${chainType}:${anchorPubkey.toLowerCase()}`,
-      addresses,
-      addressFingerprint: JSON.stringify(addresses.map(address => address.toLowerCase())),
+      scopeKey: qbitAccountHistoryScopeKey(chainType, account.pubkey),
+      address,
+      addressFingerprint: address.toLowerCase(),
     }
   }
 
@@ -1670,27 +1940,17 @@ export class WalletController extends BaseController {
         }
 
         if (reusable) {
-          let probeDeferred = false
-          let cachedConfirmedHistoryActive = false
-          let cachedMempoolMembershipActive = false
-          try {
-            const client = this.getQbitApiClient(scope.chainType)
-            probeDeferred = scope.addresses.length > MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES
-            let revision: QbitAccountHistoryRevision
-            if (probeDeferred) {
-              const ancestry = await probeQbitAccountHistoryAncestry(
-                client,
-                reusable.revision,
-                scope.addresses,
-                reusable.list.filter(item => item.confirmations === 0).map(item => item.txid)
-              )
-              revision = ancestry.revision
-              cachedConfirmedHistoryActive = ancestry.cachedConfirmedHistoryActive
-              cachedMempoolMembershipActive = ancestry.cachedMempoolMembershipActive
-            } else {
-              revision = await probeQbitAccountHistoryRevision(client, scope.addresses)
-            }
-            await this.assertQbitHistoryScopeStillActive(scope)
+          // An invalid or unstable lightweight probe fails closed to the
+          // existing complete, stability-checked account scan below.
+          const revision = await probeQbitAccountHistoryRevision(
+            this.getQbitApiClient(scope.chainType),
+            [scope.address]
+          ).catch(() => undefined)
+          // A switch during the probe ends the read now, whether or not the
+          // probe succeeded, not after a full scan of an account that is no
+          // longer selected.
+          await this.assertQbitHistoryScopeStillActive(scope)
+          if (revision) {
             // A reorg can drop the refreshed tip below a cached confirmed
             // height. Reusing the cached list would clamp the reverted
             // transaction to one confirmation, so fall through to a full scan.
@@ -1698,9 +1958,7 @@ export class WalletController extends BaseController {
               item => item.height <= 0 || item.height <= revision.tipHeight
             )
             if (
-              (probeDeferred
-                ? cachedConfirmedHistoryActive && cachedMempoolMembershipActive
-                : revision.activityFingerprint === reusable.revision.activityFingerprint) &&
+              revision.activityFingerprint === reusable.revision.activityFingerprint &&
               tipCoversCachedHeights &&
               Date.now() - reusable.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
             ) {
@@ -1718,17 +1976,13 @@ export class WalletController extends BaseController {
                 }),
               }
             }
-          } catch (error) {
-            if (probeDeferred) throw error
-            // An invalid or unstable lightweight probe fails closed to the
-            // existing complete, stability-checked account scan below.
           }
         }
 
         if (!snapshot) {
           const data = await getQbitAccountHistory(
             this.getQbitApiClient(scope.chainType),
-            scope.addresses,
+            [scope.address],
             { start: 0, limit: Number.MAX_SAFE_INTEGER },
             // Bounded scans at 0/1/3/7/15s cross electrs' 10s response-cache window.
             { stabilityRetries: 4, retryBaseDelayMs: 1_000 }
@@ -1807,21 +2061,25 @@ export class WalletController extends BaseController {
    * The same lookup bound to an explicit network. Both requests go through a
    * client resolved from the captured chain, never from whatever network the
    * wallet is on by the time the second request runs, so a switch mid-lookup
-   * cannot answer for another chain.
+   * cannot answer for another chain. Both run under `operation`'s deadline,
+   * when the lookup is part of one (a broadcast, a status check).
    */
   private async qbitTxLifecycleStatusOn(
     chain: ChainType,
-    txid: string
+    txid: string,
+    operation: QbitExplorerOperation = new QbitExplorerOperation()
   ): Promise<{ state: 'confirmed' | 'pending' | 'gone' }> {
     try {
       const client = this.getQbitApiClient(chain)
-      const status = await client.getTxStatus(txid)
+      const status = await client.getTxStatus(txid, operation.read())
       if (status.confirmed) return { state: 'confirmed' }
 
       // electrs-qbit can retain an evicted transaction's unconfirmed status
       // after RBF even though its full transaction lookup is already gone.
-      // Require both live endpoints to agree before reporting pending.
-      await client.getTx(txid)
+      // Require both live endpoints to agree before reporting pending. Only
+      // its existence counts, so the whole transaction, a large-body read,
+      // gets a short budget: past it the lookup fails, which is unknown.
+      await client.getTx(txid, operation.read(QBIT_LIFECYCLE_TX_READ_DEADLINE_MS))
       return { state: 'pending' }
     } catch (error) {
       if (error instanceof QbitApiError && error.kind === 'not_found' && error.status === 404) {
@@ -1863,7 +2121,16 @@ export class WalletController extends BaseController {
   /* keyrings */
 
   resetAllData = async () => {
-    await keyringService.resetAllData()
+    // A reset wallet keeps no account's outputs, not even while the reset
+    // writes or when it fails. The keyring service marks the wallet locked
+    // only after its writes, so a read that completes during them is kept
+    // until the second clear; nothing is kept after that, nor while locked.
+    this.qbitLatestUtxoReads.clear()
+    try {
+      await keyringService.resetAllData()
+    } finally {
+      this.qbitLatestUtxoReads.clear()
+    }
     await preferenceService.resetAllData()
     await qbitSendGuardService.resetAllData()
     await permissionService.resetAllData()
@@ -2115,15 +2382,24 @@ export class WalletController extends BaseController {
       if (!Number.isSafeInteger(observedSignatures)) {
         throw new Error('qbit signature activity exceeds the safe counter range')
       }
+      const floorSource = activity.some(observation => observation.floorSource === 'address-stats')
+        ? 'address-stats'
+        : 'history'
+      // The sum is the floor the keyring applies, so statistics floors that
+      // each stay below the warning threshold must not reach it together.
+      if (floorSource === 'address-stats') {
+        assertQbitStatsFloorBelowWarningThreshold(
+          observedSignatures,
+          `qbit account ${account.index} floors summed across networks`
+        )
+      }
       return {
         // Testnet4 and regtest share a derivation path and therefore a PQC
         // counter. Summing is conservative if the same spend appears on both
         // chains: over-advancing a counter is safe, while under-advancing is not.
         observedSignatures,
         hasActivity: activity.some(observation => observation.hasActivity),
-        floorSource: activity.some(observation => observation.floorSource === 'address-stats')
-          ? 'address-stats'
-          : 'history',
+        floorSource,
       }
     }
   }
@@ -2728,15 +3004,7 @@ export class WalletController extends BaseController {
     feeRate: number
   ): UnspentOutput[][] {
     if (!account.p2mr || utxos.length === 0) return []
-    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
-    if (
-      utxos.some(
-        utxo =>
-          !Number.isSafeInteger(utxo.satoshis) ||
-          utxo.satoshis <= 0 ||
-          (utxo.scriptPk || account.p2mr!.scriptPubKey).toLowerCase() !== accountScriptPubKey
-      )
-    ) {
+    if (!utxos.every(utxo => isQbitRecoverySweepInput(account, utxo))) {
       throw new Error('Qbit recovery migration UTXO data is invalid')
     }
 
@@ -2799,19 +3067,29 @@ export class WalletController extends BaseController {
   }
 
   /**
-   * A recovery source's classified outputs, or the error saying the explorer
-   * will not list them and its history is too long to read them from. Such a
-   * source is never planned or counted as swept, so its funds keep the
-   * migration open, and it may consolidate meanwhile (#344).
+   * A recovery source's classified outputs, or why they are unknown: the
+   * explorer will not list them, and their history is too long to read them
+   * from, or, with `deferIncompleteHistory`, could not be read in full
+   * through the read's own retries. Such a source is never planned or counted
+   * as swept, so its funds keep the migration open. A history too long may
+   * consolidate meanwhile (#344); one not read in full is read again by the
+   * next pass. Any other failure still fails the pass.
    */
   private readQbitRecoverySourceUtxos = async (
     client: QbitWalletApiClient,
-    address: string
-  ): Promise<QbitClassifiedUtxos | QbitUtxoHistoryTooLargeError> => {
+    address: string,
+    { deferIncompleteHistory }: { deferIncompleteHistory: boolean }
+  ): Promise<QbitClassifiedUtxos | QbitRecoveryDeferredSource> => {
     try {
       return await getQbitAddressUtxosClassifiedPastLimit(client, address)
     } catch (error) {
-      if (error instanceof QbitUtxoHistoryTooLargeError) return error
+      if (error instanceof QbitUtxoHistoryTooLargeError) {
+        return { address, reason: 'history_too_large', maxTransactions: error.maxTransactions }
+      }
+      // Only the history read, past the listing limit, fails this way.
+      if (deferIncompleteHistory && isQbitSnapshotUnstableError(error)) {
+        return { address, reason: 'history_incomplete' }
+      }
       throw error
     }
   }
@@ -2840,6 +3118,9 @@ export class WalletController extends BaseController {
   ): boolean {
     if (utxos.length === 0) return false
     if (!account.p2mr) return true
+    // A read-only check: an output the sweep would refuse needs attention,
+    // as an unreadable source does. Only the sweep itself refuses.
+    if (!utxos.every(utxo => isQbitRecoverySweepInput(account, utxo))) return true
     return (
       this.selectQbitRecoverySweepBatches(
         account,
@@ -3105,17 +3386,14 @@ export class WalletController extends BaseController {
       const utxoChain = this.getChainType()
       const classifiedUtxos = await this.readQbitRecoverySourceUtxos(
         this.getQbitApiClient(utxoChain),
-        account.address
+        account.address,
+        { deferIncompleteHistory: true }
       )
-      if (classifiedUtxos instanceof QbitUtxoHistoryTooLargeError) {
+      if ('reason' in classifiedUtxos) {
         // Its outputs are unknown, so none of them is planned and the
         // migration stays open. The other sources are planned as usual.
         hasDeferredFunds = true
-        deferredSources.push({
-          address: account.address,
-          reason: 'history_too_large',
-          maxTransactions: classifiedUtxos.maxTransactions,
-        })
+        deferredSources.push(classifiedUtxos)
         continue
       }
       // Immature coinbase rewards cannot enter a sweep plan yet, but they are
@@ -3166,6 +3444,7 @@ export class WalletController extends BaseController {
             feeRate: resolvedFeeRate,
             qbitUtxos: selectedUtxos,
             qbitUtxoChain: utxoChain,
+            qbitUtxoAddress: account.address,
             enableRBF: true,
           },
           account,
@@ -3445,10 +3724,14 @@ export class WalletController extends BaseController {
       const newlyReceived = await Promise.all(
         (await this.getQbitKeyringByIndex(sourceKeyringIndex)).accounts.map(async account => {
           const client = this.getQbitApiClient(this.getChainType())
-          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address)
           // Outputs too many to read may be new funds: the migration reopens,
-          // and its preparation reports the source.
-          if (classifiedUtxos instanceof QbitUtxoHistoryTooLargeError) {
+          // and its preparation reports the source. A read that only did not
+          // settle is no such evidence, so it fails the check, and nothing
+          // reopens.
+          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
+            deferIncompleteHistory: false,
+          })
+          if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
           }
           const rawUtxos = classifiedUtxos.spendable
@@ -3611,10 +3894,12 @@ export class WalletController extends BaseController {
       const remaining = await Promise.all(
         (await this.getQbitKeyringByIndex(sourceKeyringIndex)).accounts.map(async account => {
           const client = this.getQbitApiClient(this.getChainType())
-          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address)
-          // A source whose outputs are too many to read is not swept yet;
+          const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
+            deferIncompleteHistory: true,
+          })
+          // A source whose outputs it cannot read is not swept yet;
           // preparation reports it.
-          if (classifiedUtxos instanceof QbitUtxoHistoryTooLargeError) {
+          if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
           }
           const rawUtxos = classifiedUtxos.spendable
@@ -4340,6 +4625,8 @@ export class WalletController extends BaseController {
       throw error
     }
     await keyringService.removeKeyring(target.index)
+    // Nor are the removed accounts' outputs kept; the others are read again.
+    this.qbitLatestUtxoReads.clear()
     const keyrings = await this.getKeyrings()
     const nextKeyring = keyrings[keyrings.length - 1]
     if (nextKeyring && nextKeyring.accounts[0]) {
@@ -4526,7 +4813,18 @@ export class WalletController extends BaseController {
       throw new Error(t('not_supported'))
     }
     const currentKeyringIndex = preferenceService.getCurrentKeyringIndex()
-    await keyringService.changeAddressType(currentKeyringIndex, addressType)
+    try {
+      await keyringService.changeAddressType(currentKeyringIndex, addressType)
+    } catch (error) {
+      // A change the keyring service cannot roll back locks the wallet on
+      // its own, without `lockWallet`: it keeps no account's outputs then
+      // either, and the pages and the UI are told it locked.
+      if (!this.isUnlocked()) {
+        this.qbitLatestUtxoReads.clear()
+        this.announceLock()
+      }
+      throw error
+    }
     const keyring = await this.getCurrentKeyring()
     if (!keyring) throw new Error('no current keyring')
     await this.changeKeyring(keyring, currentAccount?.index)
@@ -5068,6 +5366,10 @@ export class WalletController extends BaseController {
     }
   }
 
+  replaceContact = async (address: string, chain: ChainType, data: ContactBookItem) => {
+    await contactBookService.replaceContact(address, chain, data)
+  }
+
   listContact = (includeAlias = true): ContactBookItem[] => {
     const list = contactBookService.listContacts()
     if (includeAlias) {
@@ -5574,36 +5876,131 @@ export class WalletController extends BaseController {
    * for an account it has since left.
    *
    * Past the explorer's output limit the read walks the account's whole
-   * history, which the UI cannot cancel once it asked. A send screen opened
-   * again meanwhile joins the read already running for the account instead
-   * of starting another walk, as long as the address statistics read the
-   * same as when that read started. A broadcast, payment or confirmation the
-   * explorer has seen since then changes them, so a read asked for after it
-   * starts afresh and sees, for example, a send's change. The walk itself
-   * reads the history again whenever the statistics moved while it ran, and
-   * the reservations apply to each answer after the read, so outputs a send
-   * took while it ran are still left out. Without statistics the read is
-   * not shared.
+   * history. A send screen opened again meanwhile joins the read already
+   * running for the account instead of starting another walk only while
+   * the address statistics read exactly as they did when that read started
+   * (`orderQbitHistoryStates`). When they show the history has got further
+   * (a broadcast, payment or confirmation the explorer has seen since),
+   * the new read replaces the running one, which stops, and whose callers
+   * are handed the new read's answer instead; it sees, for example, a
+   * send's change. When they differ any other way (a pending send replaced
+   * with the counts unchanged, or evicted so that they drop, or a lagging
+   * node's older answer) the screen never gets the running read's outputs,
+   * which may include change that no longer exists: it reads beside it,
+   * sharing that read only with screens whose statistics read as its own
+   * did. The running read carries on, so such answers cannot keep
+   * restarting it, and its own screens get the outputs of the state they
+   * saw, as a read of their own would have given them; a replacement or
+   * eviction after its walk's statistics check is not in them. The walk
+   * itself reads the history again whenever the statistics moved while it
+   * ran, and the reservations apply to each answer after the read, so
+   * outputs a send took while it ran are still left out. Without
+   * statistics the read is not shared.
+   *
+   * A caller that passes `readId` can stop waiting with
+   * `abandonQbitUtxoSnapshot(readId)`, as the send screen does when it is
+   * left; so does every read of a page whose UI port disconnects. A walk
+   * nothing waits for any more stops reading.
+   *
+   * A read from history that completes leaves its outputs, before any
+   * reservation, behind as the account's latest on that network, with the
+   * address statistics its walk verified: past the explorer's limit
+   * `getAddressBalanceV2` takes its split from them while the statistics
+   * still read the same. A read that started later replaces them, even when
+   * it found less history, and a read that fails or stops leaves nothing.
+   * Locking the wallet or removing a keyring forgets them.
    */
-  getQbitUtxoSnapshot = async (): Promise<QbitUtxoSnapshot> => this.readQbitUtxoSnapshot(true)
+  getQbitUtxoSnapshot = async (readId?: string | null): Promise<QbitUtxoSnapshot> => {
+    // Before the first await: the page this read is tied to.
+    const waiter = this.openQbitUtxoSnapshotWaiter(readId)
+    try {
+      return await this.readQbitUtxoSnapshot(true, waiter?.signal)
+    } finally {
+      waiter?.close()
+    }
+  }
 
-  private readQbitUtxoSnapshot = async (shareRead: boolean): Promise<QbitUtxoSnapshot> => {
+  /**
+   * The calling page stopped waiting for its `getQbitUtxoSnapshot(readId)`:
+   * that call rejects, and the read behind it stops once no other caller
+   * waits for it. An id the page has no read under is ignored.
+   */
+  abandonQbitUtxoSnapshot = async (readId: string): Promise<void> => {
+    const waiters = this.qbitUtxoSnapshotWaiters.get(this.callingUiPort)
+    if (typeof readId !== 'string') return
+    waiters?.get(readId)?.abort(new Error('Qbit output read abandoned'))
+  }
+
+  /** Every output read the page behind `uiPort` waits for, which is gone. */
+  private abandonQbitUtxoSnapshotsOf(uiPort: QbitSendClaimOwner): void {
+    const waiters = this.qbitUtxoSnapshotWaiters.get(uiPort)
+    this.qbitUtxoSnapshotWaiters.delete(uiPort)
+    for (const waiter of waiters?.values() ?? []) {
+      waiter.abort(new Error('Qbit output read abandoned'))
+    }
+  }
+
+  /**
+   * Register a snapshot read the calling page may abandon by `readId`.
+   * Undefined, and so not abandonable, without a usable id.
+   */
+  private openQbitUtxoSnapshotWaiter(
+    readId: string | null | undefined
+  ): { signal: AbortSignal; close: () => void } | undefined {
+    if (typeof readId !== 'string' || readId.length === 0 || readId.length > 64) return undefined
+    const owner = this.callingUiPort
+    let waiters = this.qbitUtxoSnapshotWaiters.get(owner)
+    if (!waiters) {
+      waiters = new Map()
+      this.qbitUtxoSnapshotWaiters.set(owner, waiters)
+    }
+    const controller = new AbortController()
+    const held = waiters
+    held.set(readId, controller)
+    return {
+      signal: controller.signal,
+      close: (): void => {
+        if (held.get(readId) !== controller) return
+        held.delete(readId)
+        if (held.size === 0 && this.qbitUtxoSnapshotWaiters.get(owner) === held) {
+          this.qbitUtxoSnapshotWaiters.delete(owner)
+        }
+      },
+    }
+  }
+
+  /** The snapshot reads pages wait for, by UI port and the page's read id. */
+  private readonly qbitUtxoSnapshotWaiters = new Map<
+    QbitSendClaimOwner | undefined,
+    Map<string, AbortController>
+  >()
+
+  private readQbitUtxoSnapshot = async (
+    shareRead: boolean,
+    signal?: AbortSignal
+  ): Promise<QbitUtxoSnapshot> => {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
 
     const chain = this.getChainType()
     const client = this.getQbitApiClient(chain)
-    const read = () => this.qbitAccountUtxosOn(chain, account, client)
     const activity = shareRead
       ? await Promise.resolve()
-          .then(() => client.getAddressStats(account.address))
-          .then(qbitStatsSnapshot)
+          .then(() => client.getAddressStats(account.address, signal ? { signal } : undefined))
+          .then(qbitHistoryState)
           .catch(() => undefined)
       : undefined
+    if (signal?.aborted) throw signal.reason
     const qbitUtxos =
       activity === undefined
-        ? await read()
-        : await this.qbitUtxoSnapshotReads.run(client, `${account.address}#${activity}`, read)
+        ? await this.qbitAccountUtxosOn(chain, account, client, signal)
+        : await this.qbitUtxoSnapshotReads.run(
+            client,
+            account.address,
+            activity,
+            readSignal => this.qbitAccountUtxosOn(chain, account, client, readSignal),
+            signal
+          )
     return {
       address: account.address,
       chain,
@@ -5611,8 +6008,41 @@ export class WalletController extends BaseController {
     }
   }
 
-  /** The snapshot reads in flight, per API client, address and address statistics. */
-  private qbitUtxoSnapshotReads = new QbitSharedReads<UnspentOutput[]>()
+  /**
+   * The shared snapshot reads in flight, per API client and address, each
+   * for the state of the address's history its first caller's statistics
+   * showed (`orderQbitHistoryStates`): a caller at the same state as one of
+   * them joins it, one whose history has got further than the latest
+   * replaces that one, and any other starts a read for its own state beside
+   * the latest, which no later caller replaces.
+   */
+  private qbitUtxoSnapshotReads = new QbitReplaceableReads<UnspentOutput[], QbitHistoryState>(
+    orderQbitHistoryStates
+  )
+
+  /**
+   * The latest completed read of an account's outputs from history per API
+   * client and address: what the balance split needs of its outputs
+   * (`QbitReadOutput`), before any reservation, with the
+   * address statistics (`qbitStatsSnapshot`) its walk verified. A read that
+   * started later replaces one that started earlier, even when it found
+   * less history, as after an eviction. Kept in memory only, for the
+   * `QBIT_LATEST_UTXO_READS_PER_CLIENT` addresses most recently used, and
+   * forgotten whenever the wallet locks (`lockWallet`, which the auto-lock
+   * timer uses too, and the keyring service's own lock after an address-type
+   * change it cannot roll back, in `changeAddressType`), when its data is
+   * reset (`resetAllData`) or when a keyring is removed; none counts while
+   * the wallet reads locked. See `qbitAccountUtxosOn` and
+   * `getAddressBalanceV2`.
+   */
+  private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
+    stats: string
+    utxos: QbitReadOutput[]
+    /** The earliest tip height at which a coinbase output the read left out matures. */
+    matureAt?: number
+    /** The lowest tip height at which every coinbase output the read took in is mature. */
+    matureFrom?: number
+  }>(QBIT_LATEST_UTXO_READS_PER_CLIENT)
 
   /**
    * The outputs a send is built from: the ones the caller loaded, or the
@@ -5629,26 +6059,69 @@ export class WalletController extends BaseController {
     chain: ChainType,
     account: Account,
     providedUtxos: UnspentOutput[] | undefined,
-    providedUtxoChain: ChainType | undefined
+    providedUtxoChain: ChainType | undefined,
+    providedUtxoAddress: string | undefined
   ): Promise<UnspentOutput[]> {
-    if (providedUtxos === undefined) return this.qbitAccountUtxosOn(chain, account)
+    if (providedUtxos === undefined) {
+      return this.assertQbitAccountOutputs(account, await this.qbitAccountUtxosOn(chain, account))
+    }
     if (providedUtxoChain === undefined) {
       throw new Error('Qbit inputs must name the network they were loaded on')
     }
     if (providedUtxoChain !== chain) {
       throw new Error('Qbit network changed since the inputs were loaded')
     }
-    return providedUtxos
+    // Nor may another account's outputs, cached before a switch in another
+    // window, stand in for the selected account's.
+    if (providedUtxoAddress === undefined) {
+      throw new Error('Qbit inputs must name the account they were read for')
+    }
+    if (providedUtxoAddress !== account.address) {
+      throw new Error('Qbit account changed since the inputs were loaded')
+    }
+    return this.assertQbitAccountOutputs(account, providedUtxos)
   }
 
-  /** The account's unspent outputs on `chain`, before any reservation is applied. */
+  /**
+   * `outputs`, each the account's own (`isQbitAccountOutput`): an output
+   * without a scriptPubKey, or with another, is refused rather than taken
+   * for the account's or skipped. Both send builders' inputs pass here.
+   */
+  private assertQbitAccountOutputs(account: Account, outputs: UnspentOutput[]): UnspentOutput[] {
+    const accountScriptPubKey = account.p2mr?.scriptPubKey
+    for (const output of outputs) {
+      if (!output.scriptPk) {
+        throw new Error('Qbit inputs must carry their scriptPubKey')
+      }
+      if (!isQbitAccountOutput(output, accountScriptPubKey)) {
+        throw new Error('Qbit inputs must belong to the selected account')
+      }
+    }
+    return outputs
+  }
+
+  /**
+   * The account's unspent outputs on `chain`, before any reservation is
+   * applied. The read, an over-limit walk included, stops once `signal`
+   * aborts. A read from history that completes is kept as the account's
+   * latest on `chain` (`qbitLatestUtxoReads`), in the order reads started,
+   * under the address statistics its walk verified, not ones read before
+   * it, which may have moved since; one that fails or stops leaves nothing,
+   * and so does any read while the wallet is locked.
+   */
   private async qbitAccountUtxosOn(
     chain: ChainType,
     account: Account,
-    client: QbitWalletApiClient = this.getQbitApiClient(chain)
+    client: QbitWalletApiClient = this.getQbitApiClient(chain),
+    signal?: AbortSignal
   ): Promise<UnspentOutput[]> {
-    const utxos = await getQbitAddressUtxos(client, account.address)
-    return utxos.map(v => ({
+    const order = this.qbitLatestUtxoReads.start()
+    const { utxos, historyStats, matureAt, matureFrom } = await readQbitAddressUtxos(
+      client,
+      account.address,
+      signal ? { signal } : {}
+    )
+    const outputs = utxos.map(v => ({
       txid: v.txid,
       vout: v.vout,
       satoshis: v.satoshis,
@@ -5657,6 +6130,15 @@ export class WalletController extends BaseController {
       pubkey: account.pubkey,
       ...(v.unconfirmed ? { unconfirmed: true, unconfirmedAncestors: v.unconfirmedAncestors } : {}),
     }))
+    if (historyStats && this.isUnlocked()) {
+      this.qbitLatestUtxoReads.keep(client, account.address, order, {
+        stats: qbitStatsSnapshot(historyStats),
+        utxos: utxos.map(qbitReadOutput),
+        ...(matureAt !== undefined ? { matureAt } : {}),
+        ...(matureFrom !== undefined ? { matureFrom } : {}),
+      })
+    }
+    return outputs
   }
 
   /**
@@ -5672,12 +6154,18 @@ export class WalletController extends BaseController {
    * account's signature over them verifies on every input, so a backend can
    * neither redirect the original's outputs nor present a send the account
    * never signed.
+   *
+   * Every explorer read here shares one deadline,
+   * `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`, and these are the slow reads of
+   * a bump: they all happen before the user signs. The original's output
+   * count goes with the plan, so its broadcast only asks what spends them.
    */
   private assessQbitFeeBump = async (
     txid: string,
     requestedFeeRate?: number,
     chain: ChainType = this.getChainType()
   ): Promise<QbitFeeBumpAssessment> => {
+    const operation = new QbitExplorerOperation(QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS)
     if (!isQbitChainType(chain) || !isHexByteString(txid, 32)) {
       return { eligible: false, reason: 'unverifiable' }
     }
@@ -5716,7 +6204,7 @@ export class WalletController extends BaseController {
     const client = this.getQbitApiClient(chain)
     let transaction: EsploraTx
     try {
-      transaction = await client.getTx(originalTxid)
+      transaction = await client.getTx(originalTxid, operation.read())
     } catch (error) {
       if (error instanceof QbitApiError && error.kind === 'not_found' && error.status === 404) {
         return { eligible: false, reason: 'gone' }
@@ -5733,15 +6221,18 @@ export class WalletController extends BaseController {
 
     let raw: QbitRawP2mrTransaction | undefined
     try {
-      raw = qbitRawP2mrTransaction((await getQbitRawTransaction(client, originalTxid)).transaction)
+      raw = qbitRawP2mrTransaction(
+        (await getQbitRawTransaction(client, originalTxid, operation.read())).transaction
+      )
     } catch (error) {
       if (error instanceof QbitApiError) {
         if (error.kind === 'not_found' && error.status === 404) {
           return { eligible: false, reason: 'gone' }
         }
         // @qbit-oss/api refuses malformed bytes, and bytes that do not hash
-        // to the requested txid, as `parse`.
-        if (error.kind === 'parse') {
+        // to the requested txid, as `parse`, and a reply past
+        // `maxResponseBytes` as `response_too_large`.
+        if (error.kind === 'parse' || error.kind === 'response_too_large') {
           return { eligible: false, reason: 'unverifiable' }
         }
         throw error
@@ -5877,7 +6368,12 @@ export class WalletController extends BaseController {
     }
     let spenders: (string | undefined)[]
     try {
-      spenders = await getQbitTxSpenders(client, originalTxid, original.outputs.length)
+      spenders = await getQbitTxSpenders(
+        client,
+        originalTxid,
+        original.outputs.length,
+        operation.read()
+      )
     } catch (error) {
       if (error instanceof QbitApiError) throw error
       return { eligible: false, reason: 'unverifiable' }
@@ -5888,7 +6384,7 @@ export class WalletController extends BaseController {
 
     let feeRate = requestedFeeRate
     if (feeRate === undefined) {
-      const feeSummary = await this.getFeeSummary(chain)
+      const feeSummary = await operation.within(this.getFeeSummary(chain))
       feeRate = Math.max(
         ...feeSummary.list
           .map(item => item.feeRate)
@@ -6152,6 +6648,7 @@ export class WalletController extends BaseController {
     feeRate,
     qbitUtxos: providedUtxos,
     qbitUtxoChain: providedUtxoChain,
+    qbitUtxoAddress: providedUtxoAddress,
     enableRBF = true,
     memo,
     memos,
@@ -6162,6 +6659,8 @@ export class WalletController extends BaseController {
     qbitUtxos?: UnspentOutput[]
     /** Required with `qbitUtxos`: the network they were loaded on. */
     qbitUtxoChain?: ChainType
+    /** Required with `qbitUtxos`: the account they were read for; see `qbitSendInputsOn`. */
+    qbitUtxoAddress?: string
     enableRBF?: boolean
     memo?: string
     memos?: string[]
@@ -6196,17 +6695,17 @@ export class WalletController extends BaseController {
     }
     assertQbitFeeRateWithinPolicy(resolvedFeeRate)
 
-    const qbitUtxos = await this.excludeGuardedQbitUtxos(
+    // Every output the send may spend is the selected account's: outputs
+    // read for another account are refused, and so is an output without
+    // the account's scriptPubKey (`qbitSendInputsOn`).
+    const inputs = await this.qbitSendInputsOn(
       chain,
-      account.address,
-      await this.qbitSendInputsOn(chain, account, providedUtxos, providedUtxoChain)
+      account,
+      providedUtxos,
+      providedUtxoChain,
+      providedUtxoAddress
     )
-
-    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
-    const spendableUtxos = qbitUtxos.filter(utxo => {
-      const scriptPk = (utxo.scriptPk || account.p2mr!.scriptPubKey).toLowerCase()
-      return scriptPk === accountScriptPubKey
-    })
+    const spendableUtxos = await this.excludeGuardedQbitUtxos(chain, account.address, inputs)
     if (spendableUtxos.length === 0) {
       throw new Error('Insufficient balance.')
     }
@@ -6280,7 +6779,7 @@ export class WalletController extends BaseController {
         sequence,
         witnessUtxo: {
           value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk || account.p2mr!.scriptPubKey),
+          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
         },
         leafScript,
         controlBlock,
@@ -6356,6 +6855,8 @@ export class WalletController extends BaseController {
       qbitUtxos?: UnspentOutput[]
       /** Required with `qbitUtxos`: the network they were loaded on. */
       qbitUtxoChain?: ChainType
+      /** Required with `qbitUtxos`: the account they were read for; see `qbitSendInputsOn`. */
+      qbitUtxoAddress?: string
       enableRBF?: boolean
       memo?: string
       memos?: string[]
@@ -6372,6 +6873,7 @@ export class WalletController extends BaseController {
       to,
       qbitUtxos: providedUtxos,
       qbitUtxoChain: providedUtxoChain,
+      qbitUtxoAddress: providedUtxoAddress,
       enableRBF = true,
       memo,
       memos,
@@ -6409,16 +6911,13 @@ export class WalletController extends BaseController {
       chain,
       account,
       providedUtxos,
-      providedUtxoChain
+      providedUtxoChain,
+      providedUtxoAddress
     )
-    const qbitUtxos = reservationsAlreadyFiltered
+    // Each one the account's own, as `qbitSendInputsOn` checked.
+    const spendableUtxos = reservationsAlreadyFiltered
       ? fetchedUtxos
       : await this.excludeGuardedQbitUtxos(chain, account.address, fetchedUtxos)
-    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
-    const spendableUtxos = qbitUtxos.filter(utxo => {
-      const scriptPk = (utxo.scriptPk || accountScriptPubKey).toLowerCase()
-      return scriptPk === accountScriptPubKey
-    })
     if (spendableUtxos.length === 0) {
       throw new Error('Insufficient balance.')
     }
@@ -6459,7 +6958,7 @@ export class WalletController extends BaseController {
         sequence,
         witnessUtxo: {
           value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk || account.p2mr!.scriptPubKey),
+          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
         },
         leafScript,
         controlBlock,
@@ -6534,6 +7033,8 @@ export class WalletController extends BaseController {
     qbitUtxos?: UnspentOutput[]
     /** Required with `qbitUtxos`: the network they were loaded on. */
     qbitUtxoChain?: ChainType
+    /** Required with `qbitUtxos`: the account they were read for; see `qbitSendInputsOn`. */
+    qbitUtxoAddress?: string
     enableRBF?: boolean
     memo?: string
     memos?: string[]
@@ -6575,6 +7076,11 @@ export class WalletController extends BaseController {
   createQbitConsolidationPsbt = async (
     data: { feeRate?: number; enableRBF?: boolean } = {}
   ): Promise<ToSignData> => {
+    // Started once the batch has the account's scan: waiting behind another
+    // batch, which its own deadline bounds, spends none of it.
+    const operation = new QbitExplorerOperation(QBIT_CONSOLIDATION_BATCH_DEADLINE_MS, undefined, {
+      started: false,
+    })
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
     assertCanCreateQbitP2mrSend(account)
@@ -6584,11 +7090,12 @@ export class WalletController extends BaseController {
     const chain = this.getChainType()
     if (!isQbitChainType(chain)) throw new Error(t('not_supported'))
     // Unless given, the normal rate, or the relay floor without a quote.
-    const feeRate = data.feeRate ?? (await this.getFeeSummary(chain)).list[1]?.feeRate ?? 1
+    const feeRate =
+      data.feeRate ?? (await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ?? 1
     assertQbitFeeRateWithinPolicy(feeRate)
 
     const client = this.getQbitApiClient(chain)
-    const stats = await client.getAddressStats(account.address)
+    const stats = await client.getAddressStats(account.address, operation.read())
     const counts = qbitAddressOutputCounts(stats, account.address)
     if (counts.confirmedUnspent <= QBIT_EXPLORER_DEFAULT_UTXO_LIMIT) {
       throw new Error(t('consolidation_error_within_limit'))
@@ -6601,13 +7108,15 @@ export class WalletController extends BaseController {
     // A batch with too few inputs is not a failure of the walk, so it is
     // reported once the walk's operation has settled.
     const batch = await this.withQbitConsolidationScan(chain, account.address, async entry => {
+      operation.start()
       const inputs = await this.selectQbitConsolidationInputs(
         chain,
         account,
         client,
         entry,
         maxInputCount,
-        feeRate
+        feeRate,
+        operation
       )
       // One input merges nothing. A walk with history left to read may
       // still find more on the next request.
@@ -6625,6 +7134,7 @@ export class WalletController extends BaseController {
             pubkey: account.pubkey,
           })),
           qbitUtxoChain: chain,
+          qbitUtxoAddress: account.address,
           enableRBF: data.enableRBF ?? true,
         },
         account,
@@ -6714,6 +7224,7 @@ export class WalletController extends BaseController {
    * its page budget runs out, so the largest-first choice spans everything
    * read so far. Outputs found spent leave the scan and the next largest
    * take their place. Empty when what was read cannot make such a batch.
+   * Every read runs under `operation`, the batch's deadline.
    */
   private async selectQbitConsolidationInputs(
     chain: ChainType,
@@ -6721,10 +7232,11 @@ export class WalletController extends BaseController {
     client: QbitWalletApiClient,
     entry: QbitConsolidationScanEntry,
     maxInputCount: number,
-    feeRate: number
+    feeRate: number,
+    operation: QbitExplorerOperation
   ): Promise<QbitHistoryOutputCandidate[]> {
     const { scan, handedOut } = entry
-    const tipHeight = await client.getTipHeight()
+    const tipHeight = await client.getTipHeight(operation.read())
     if (!Number.isSafeInteger(tipHeight) || tipHeight < 0) {
       throw new Error('invalid qbit tip height')
     }
@@ -6774,7 +7286,9 @@ export class WalletController extends BaseController {
       .filter(candidate => !reserved.has(`${candidate.txid}:${candidate.vout}`))
       .slice(0, 2 * maxInputCount)
     if (released.length > 0) {
-      const spent = await resettingScanOnLastingFailure(findQbitSpentOutpoints(client, released))
+      const spent = await resettingScanOnLastingFailure(
+        findQbitSpentOutpoints(client, released, operation)
+      )
       for (const candidate of released) {
         const outpoint = `${candidate.txid}:${candidate.vout}`
         handedOut.delete(outpoint)
@@ -6789,6 +7303,7 @@ export class WalletController extends BaseController {
     for (let round = 1; ; round += 1) {
       pagesLeft -= await resettingScanOnLastingFailure(
         continueQbitAddressOutputScan(client, scan, {
+          operation,
           maxPages: Math.max(1, pagesLeft),
           enough: () => {
             if (pagesLeft <= 0) return true
@@ -6811,7 +7326,9 @@ export class WalletController extends BaseController {
         if (scan.exhausted) resetScan()
         return []
       }
-      const spent = await resettingScanOnLastingFailure(findQbitSpentOutpoints(client, chosen))
+      const spent = await resettingScanOnLastingFailure(
+        findQbitSpentOutpoints(client, chosen, operation)
+      )
       if (spent.size === 0) return chosen
       for (const outpoint of spent) {
         scan.candidates.delete(outpoint)
@@ -7021,6 +7538,7 @@ export class WalletController extends BaseController {
     const chain = this.getChainType()
     await qbitSendGuardService.assertNoOverlap(chain, qbitPsbtOutpoints(psbt), qbitPsbtTxid(psbt))
     const summary = decodeQbitPsbt(psbt)
+    assertQbitProviderAnchorValue(summary.outputs)
     const accountLeafScript = account.p2mr.leafScript.toLowerCase()
     const publicKey = account.p2mr.pubkey.toLowerCase()
     if (account.pubkey.toLowerCase() !== publicKey) {
@@ -7147,12 +7665,31 @@ export class WalletController extends BaseController {
       chain,
       txid,
       outpoints,
-      async (replaces, replacedOutputCount) => {
-        if (replaces) await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount)
+      async spendCheck => {
+        assertQbitExplorerSpendCheck(spendCheck)
+        await this.checkQbitBroadcastOnExplorer(client, spendCheck)
         return client.broadcastTx(rawtx)
       },
       qbitSendBroadcastClaim
     )
+  }
+
+  /**
+   * The explorer check a broadcast makes right before dispatch: `spendCheck`,
+   * as the send guard hands it to its callback (see
+   * `QbitSendGuardService.broadcastIfAllowed`), with this controller's pause
+   * between its two rounds. It runs under `operation`, the broadcast's
+   * deadline, when given; see `assertNoExplorerSpendConflict`.
+   */
+  private checkQbitBroadcastOnExplorer(
+    client: QbitWalletApiClient,
+    spendCheck: QbitExplorerSpendCheck,
+    operation?: QbitExplorerOperation
+  ): Promise<void> {
+    return assertNoExplorerSpendConflict(client, spendCheck, {
+      intervalMs: this.qbitFeeBumpRecheckIntervalMs,
+      ...(operation ? { operation } : {}),
+    })
   }
 
   /**
@@ -7245,6 +7782,13 @@ export class WalletController extends BaseController {
   qbitBroadcastResendDelaysMs: readonly number[] = QBIT_BROADCAST_RESEND_DELAYS_MS
 
   /**
+   * Pause between the two rounds of explorer reads a fee bump or a
+   * restored claim waits for before it goes out. Instance-level for the
+   * same reason.
+   */
+  qbitFeeBumpRecheckIntervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS
+
+  /**
    * UI-facing broadcast that reports a plain, serializable verdict instead of
    * throwing across the extension port (which strips error prototypes); the
    * provider's sendQbit broadcasts its approved claim through it as well, so
@@ -7262,7 +7806,9 @@ export class WalletController extends BaseController {
    * (payload, guard, or network-switch failure, observed through the dispatch
    * marker rather than by inspecting the error), or the node definitively
    * rejected the bytes *and* repeated follow-up lookups all found the
-   * transaction absent. Every other failure is `unknown`, because a lost
+   * transaction absent, with no earlier call for them ended `unknown`
+   * (see `QbitSendGuardService.hasUnknownBroadcastOutcome`). Every other
+   * failure is `unknown`, because a lost
    * response may hide an accepted transaction; the API client never re-sends
    * a submission that may have reached the node, and reports one as
    * `unknown_outcome`. An apparent failure whose lookup finds the
@@ -7276,12 +7822,18 @@ export class WalletController extends BaseController {
    * which is what a background restart leaves the page holding, the
    * wallet's own claim is restored under the checks minting applies and the
    * retained bytes are dispatched, so recovery needs no second signature.
+   * `retryOfUnknownOutcome` is passed only by the wallet's recovery screen,
+   * when its verdict for these bytes is `unknown`: a claim restored then
+   * counts as an earlier unknown outcome (see
+   * `QbitSendGuardService.restoreBroadcastClaim`). The provider never
+   * passes it.
    */
   broadcastQbitTx = async (
     txData: string,
     qbitSendBroadcastClaim?: QbitSendBroadcastClaim | null,
     expectedChain?: ChainType | null,
-    expectedTxid?: string | null
+    expectedTxid?: string | null,
+    retryOfUnknownOutcome?: boolean | null
   ): Promise<QbitBroadcastResult> => {
     // Before the first await: the port this verdict is handed back to. The
     // attempt is marked in flight synchronously as well, so that port
@@ -7297,7 +7849,9 @@ export class WalletController extends BaseController {
         claim,
         expectedChain,
         expectedTxid,
-        uiPort
+        uiPort,
+        false,
+        retryOfUnknownOutcome === true
       )
       verdict = result.success
         ? 'accepted'
@@ -7320,8 +7874,18 @@ export class WalletController extends BaseController {
     expectedChain?: ChainType | null,
     expectedTxid?: string | null,
     uiPort?: QbitSendClaimOwner,
-    providerPush = false
+    providerPush = false,
+    retryOfUnknownOutcome = false
   ): Promise<QbitBroadcastResult> => {
+    // One deadline for the whole call: every pass, its fee bump check and
+    // submission, and every lookup. It starts once the call has the send
+    // guard's queue, so a send waiting behind another (which its own
+    // deadline bounds) is still tried. Once it passes, a lookup fails, which
+    // leaves the verdict unknown, and a pass with too little of it left
+    // sends nothing.
+    const operation = new QbitExplorerOperation(QBIT_BROADCAST_DEADLINE_MS, undefined, {
+      started: false,
+    })
     const chain = this.getChainType()
     // Every refusal below happens before dispatch, so nothing was sent and
     // the caller may abandon the retained bytes. The recovery screen releases
@@ -7382,6 +7946,9 @@ export class WalletController extends BaseController {
     let dispatched = false
     let chainChangedBeforeDispatch = false
     let dependentSpendRefused = false
+    let deadlineRefused = false
+    // Why the explorer check failed, when it could not reach a verdict.
+    let checkFailureReason: QbitBroadcastFailure['reason'] | undefined
     let firstDispatchAt: number | undefined
     // Re-sends of the same bytes so far (see below), and the verdict the
     // last dispatched pass reached while they are under way, which a
@@ -7394,9 +7961,18 @@ export class WalletController extends BaseController {
         throw new Error('Qbit network changed before broadcast')
       }
     }
-    const broadcast = async (replaces?: string, replacedOutputCount?: number): Promise<string> => {
-      // The guard queue may hold a re-send past the window it was due in;
-      // none starts once the window has passed.
+    // A pass is sent only with at least a submission's reply budget of the
+    // deadline left: one cut off in flight would only add an unknown outcome.
+    const assertTimeToSend = (): void => {
+      if (operation.remainingMs() < QBIT_BROADCAST_MIN_PASS_MS) {
+        deadlineRefused = true
+        throw new Error('Qbit broadcast deadline left no time to send')
+      }
+    }
+    // The guard queue may hold a re-send past the window it was due in, and
+    // the explorer check takes at least its pause: none goes out once the
+    // window has passed.
+    const assertResendWindowOpen = (): void => {
       if (
         resends > 0 &&
         firstDispatchAt !== undefined &&
@@ -7404,6 +7980,14 @@ export class WalletController extends BaseController {
       ) {
         throw new Error('Qbit broadcast re-send window has passed')
       }
+    }
+    const broadcast = async (spendCheck: QbitExplorerSpendCheck): Promise<string> => {
+      // The guard hands every broadcast its check, `{}` when there is none to
+      // make; one handed none is refused before dispatch, never sent unchecked.
+      assertQbitExplorerSpendCheck(spendCheck)
+      operation.start()
+      assertTimeToSend()
+      assertResendWindowOpen()
       // The guard queue may run this later than it was requested; re-check
       // the network right before the bytes leave the wallet.
       assertChainUnchanged()
@@ -7412,18 +7996,38 @@ export class WalletController extends BaseController {
       // again; a payment made elsewhere since then shows only on the
       // explorer. Asked here, with the guard's queue held, so nothing this
       // wallet does can come in between; a refusal is still pre-dispatch.
-      if (replaces) {
+      // Only what spends the original is read: its output count comes with
+      // the claim, from the bytes the assessment verified before signing.
+      // A claim restored after a restart may replace a payment whatever the
+      // page says it replaces, and the guard's records of what spends its
+      // inputs went with the restart: what spends them is read as well.
+      if (qbitExplorerSpendCheckIsNeeded(spendCheck)) {
         try {
-          await assertNoExplorerDependentSpend(client, replaces, replacedOutputCount)
+          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation)
         } catch (error) {
           dependentSpendRefused = true
+          // Refused for lack of time, as a pass with too little left is.
+          if (error instanceof QbitExplorerSpendCheckTimeoutError) deadlineRefused = true
+          // A failed check is reported by its cause, as any explorer error:
+          // never as a conflict. An answer it could not use is an unexpected
+          // response, and a read is no submission the node could reject.
+          if (error instanceof QbitExplorerSpendCheckFailedError) {
+            const { reason } = QbitApiError.is(error.failure)
+              ? classifyQbitBroadcastError(error.failure)
+              : { reason: 'invalid_response' as const }
+            checkFailureReason = reason === 'rejected' ? 'server' : reason
+          }
           throw error
         }
         assertChainUnchanged()
+        assertResendWindowOpen()
       }
+      // Before anything is sent: the fee bump check may have spent the rest.
+      assertTimeToSend()
+      const submission = operation.read()
       dispatched = true
       if (firstDispatchAt === undefined) firstDispatchAt = Date.now()
-      const response = await client.broadcastTx(rawtx)
+      const response = await client.broadcastTx(rawtx, submission)
       // Validate inside the guard: `broadcastIfAllowed` consumes the send
       // claim as soon as this callback resolves, so a 2xx that does not echo
       // the txid (a proxy page, an unexpected backend) must reject here to
@@ -7443,6 +8047,8 @@ export class WalletController extends BaseController {
       dispatched = false
       chainChangedBeforeDispatch = false
       dependentSpendRefused = false
+      deadlineRefused = false
+      checkFailureReason = undefined
       try {
         if (claim) {
           await qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, broadcast, claim)
@@ -7451,18 +8057,31 @@ export class WalletController extends BaseController {
         }
         return { success: true, chain, txid, via: 'broadcast' }
       } catch (error) {
+        // The guard may refuse a pass in its queue without running it.
+        operation.start()
         if (dispatched) {
           const classification = classifyQbitBroadcastError(error)
+          // A re-send's rejection says nothing about the pass before it,
+          // whose bytes may have reached another node behind the same
+          // endpoint: after an unknown outcome, only success may follow,
+          // and one lookup is all that can find it. The same holds after
+          // an earlier call for these bytes ended unknown: a Retry from the
+          // recovery screen is a new call. A dapp's push is left its own
+          // verdict: its bytes may not be the ones that went out before (a
+          // txid does not cover the witness), and its proven absence
+          // forgets nothing.
+          const afterUnknown =
+            unresolved !== undefined ||
+            (classification.definitiveRejection &&
+              !providerPush &&
+              (await qbitSendGuardService.hasUnknownBroadcastOutcome(chain, txid)))
           const resolved = await this.resolveQbitBroadcastAfterFailure(
             chain,
             txid,
             outpoints,
-            // A re-send's rejection says nothing about the pass before it,
-            // whose bytes may have reached another node behind the same
-            // endpoint: after an unknown outcome, only success may follow,
-            // and one lookup is all that can find it.
-            unresolved ? { ...classification, definitiveRejection: false } : classification,
+            afterUnknown ? { ...classification, definitiveRejection: false } : classification,
             claim,
+            operation,
             true,
             providerPush
           )
@@ -7505,7 +8124,8 @@ export class WalletController extends BaseController {
         // during the pause.
         if (unresolved) {
           return (
-            (await this.qbitBroadcastFoundAfterRefusal(chain, txid, outpoints, claim)) ?? unresolved
+            (await this.qbitBroadcastFoundAfterRefusal(chain, txid, outpoints, claim, operation)) ??
+            unresolved
           )
         }
         // A retry of a fee bump whose earlier dispatch the node took finds
@@ -7514,7 +8134,13 @@ export class WalletController extends BaseController {
         // it is the success the first answer lost. Anything else leaves
         // this call's refusal standing, as nothing was dispatched.
         if (dependentSpendRefused) {
-          const found = await this.qbitBroadcastFoundAfterRefusal(chain, txid, outpoints, claim)
+          const found = await this.qbitBroadcastFoundAfterRefusal(
+            chain,
+            txid,
+            outpoints,
+            claim,
+            operation
+          )
           if (found) return found
         }
         // The guard consumes a send claim the moment its broadcast callback
@@ -7538,6 +8164,7 @@ export class WalletController extends BaseController {
             outpoints,
             { reason: 'guard_blocked', definitiveRejection: false, detail: error.message },
             claim,
+            operation,
             false
           )
           if (restored || !claim || resolved.success === true || resolved.lookup !== 'gone') {
@@ -7548,7 +8175,8 @@ export class WalletController extends BaseController {
             chain,
             txid,
             outpoints,
-            uiPort
+            uiPort,
+            retryOfUnknownOutcome
           )
           if (restoration === 'restored') {
             restored = true
@@ -7559,13 +8187,38 @@ export class WalletController extends BaseController {
           }
           return resolved
         }
-        return this.qbitBroadcastFailure({
+        const refusal = {
           chain,
           txid,
-          outcome: 'not_sent',
-          reason: chainChangedBeforeDispatch ? 'chain_changed' : 'guard_blocked',
+          reason: chainChangedBeforeDispatch
+            ? ('chain_changed' as const)
+            : deadlineRefused
+              ? ('timeout' as const)
+              : (checkFailureReason ?? ('guard_blocked' as const)),
           detail: sanitizeQbitBroadcastDetail(qbitBroadcastErrorMessage(error)),
-        })
+        }
+        // Nothing left the wallet in this call, which says nothing about an
+        // earlier call for these bytes whose outcome stayed unknown: a Retry
+        // from the recovery screen, a claim restored on its unknown verdict,
+        // or one whose last verdict was inconclusive. That outcome stands,
+        // and the inputs stay reserved; "not sent" would let the screen free
+        // inputs a payment may still be spending. A dapp's push keeps its own
+        // verdict, as above.
+        if (!providerPush && (await qbitSendGuardService.hasUnknownBroadcastOutcome(chain, txid))) {
+          try {
+            await qbitSendGuardService.recordInconclusiveBroadcast(
+              chain,
+              txid,
+              outpoints,
+              claim,
+              false
+            )
+          } catch {
+            // The bytes were validated before dispatch; the verdict stands.
+          }
+          return this.qbitBroadcastFailure({ ...refusal, outcome: 'unknown' })
+        }
+        return this.qbitBroadcastFailure({ ...refusal, outcome: 'not_sent' })
       }
     }
   }
@@ -7580,10 +8233,11 @@ export class WalletController extends BaseController {
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    claim: QbitSendBroadcastClaim | undefined
+    claim: QbitSendBroadcastClaim | undefined,
+    operation: QbitExplorerOperation
   ): Promise<QbitBroadcastResult | undefined> {
     try {
-      const lifecycle = await this.probeQbitBroadcastLifecycle(chain, txid)
+      const lifecycle = await this.probeQbitBroadcastLifecycle(chain, txid, operation)
       if (lifecycle.state === 'gone') return undefined
     } catch {
       return undefined
@@ -7614,7 +8268,8 @@ export class WalletController extends BaseController {
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    uiPort: QbitSendClaimOwner | undefined
+    uiPort: QbitSendClaimOwner | undefined,
+    retryOfUnknownOutcome: boolean
   ): Promise<'restored' | 'account_changed' | 'refused'> {
     if (
       claim.origin !== QBIT_WALLET_SEND_CLAIM_ORIGIN ||
@@ -7631,7 +8286,8 @@ export class WalletController extends BaseController {
     const restoration = await qbitSendGuardService.restoreBroadcastClaim(
       claim,
       account.address,
-      uiPort
+      uiPort,
+      retryOfUnknownOutcome
     )
     return restoration === 'address_mismatch' ? 'account_changed' : restoration
   }
@@ -7640,6 +8296,8 @@ export class WalletController extends BaseController {
    * Probe a transaction the UI already tried to broadcast. Reports plain
    * values instead of throwing so a lookup failure stays distinguishable from
    * a definitive absence; neither ever proves the transaction was not sent.
+   * The lookup has `QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS`, past which it
+   * is `unavailable`: the recovery screen ignores its exits until then.
    */
   checkQbitBroadcastStatus = async (
     txid: string,
@@ -7660,7 +8318,11 @@ export class WalletController extends BaseController {
       }
     }
     try {
-      const lifecycle = await this.probeQbitBroadcastLifecycle(currentChain, normalized)
+      const lifecycle = await this.probeQbitBroadcastLifecycle(
+        currentChain,
+        normalized,
+        new QbitExplorerOperation(QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS)
+      )
       if (lifecycle.state === 'gone') return { found: false, txid: normalized, state: 'gone' }
       if (lifecycle.state === 'pending') {
         await qbitSendGuardService.observePendingSpender(currentChain, normalized)
@@ -7681,12 +8343,13 @@ export class WalletController extends BaseController {
 
   private async probeQbitBroadcastLifecycle(
     chain: ChainType,
-    txid: string
+    txid: string,
+    operation: QbitExplorerOperation
   ): Promise<{ state: 'confirmed' | 'pending' | 'gone' }> {
     if (this.getChainType() !== chain) {
       throw new Error('Qbit network changed while checking the broadcast')
     }
-    return this.qbitTxLifecycleStatusOn(chain, txid)
+    return this.qbitTxLifecycleStatusOn(chain, txid, operation)
   }
 
   /**
@@ -7694,10 +8357,13 @@ export class WalletController extends BaseController {
    * reached the node, and keep the guard's record of its inputs in step: a
    * found transaction consumes its claim and records its inputs as spent,
    * an unknown outcome records them as possibly spent, and proven absence
-   * forgets what an earlier inconclusive attempt recorded. For a dapp's
+   * forgets what an earlier attempt recorded, unless a call for these bytes
+   * ended unknown, which makes this outcome unknown too. For a dapp's
    * push (`providerPush`, see `broadcastQbitProviderTx`), an unknown
    * outcome records them only for a transaction the user approved signing,
-   * and proven absence forgets nothing.
+   * and proven absence forgets nothing. The lookups run under `operation`,
+   * the broadcast's deadline: one it cuts short is `unavailable`, and the
+   * outcome unknown, so the claim and inputs stay reserved.
    */
   private async resolveQbitBroadcastAfterFailure(
     chain: ChainType,
@@ -7705,6 +8371,7 @@ export class WalletController extends BaseController {
     outpoints: readonly QbitOutpoint[],
     classification: QbitBroadcastErrorClassification,
     claim: QbitSendBroadcastClaim | undefined,
+    operation: QbitExplorerOperation,
     dispatched = true,
     providerPush = false
   ): Promise<QbitBroadcastResult> {
@@ -7716,7 +8383,7 @@ export class WalletController extends BaseController {
     for (let attempt = 0; attempt < probes; attempt += 1) {
       if (attempt > 0) await qbitBroadcastProbeDelay(this.qbitBroadcastProbeDelayMs)
       try {
-        const lifecycle = await this.probeQbitBroadcastLifecycle(chain, txid)
+        const lifecycle = await this.probeQbitBroadcastLifecycle(chain, txid, operation)
         if (lifecycle.state !== 'gone') {
           await this.recordQbitBroadcastAcceptance(claim, chain, txid, outpoints)
           return { success: true, chain, txid, via: 'lookup' }
@@ -7726,8 +8393,21 @@ export class WalletController extends BaseController {
         break
       }
     }
-    const outcome = classification.definitiveRejection && lookup === 'gone' ? 'not_sent' : 'unknown'
+    let outcome: QbitBroadcastFailure['outcome'] =
+      classification.definitiveRejection && lookup === 'gone' ? 'not_sent' : 'unknown'
     try {
+      // The absence stands only while no call for these bytes has ended
+      // without a verdict, decided in the same step as forgetting what an
+      // earlier attempt recorded: one that ended while this call was still
+      // looking keeps its unknown outcome and its inputs reserved, and so
+      // does this call.
+      if (
+        outcome === 'not_sent' &&
+        !providerPush &&
+        !(await qbitSendGuardService.forgetProvenAbsentBroadcast(chain, txid))
+      ) {
+        outcome = 'unknown'
+      }
       if (providerPush) {
         if (outcome === 'unknown') {
           await qbitSendGuardService.recordInconclusiveProviderPush(chain, txid, outpoints)
@@ -7740,8 +8420,6 @@ export class WalletController extends BaseController {
           claim,
           dispatched
         )
-      } else {
-        await qbitSendGuardService.forgetAbsentBroadcast(chain, txid)
       }
     } catch {
       // The bytes were validated before dispatch; the verdict stands.
@@ -8281,11 +8959,15 @@ export class WalletController extends BaseController {
     }
   }
 
-  /** Decode a P2MR PSBT and summarize what its exact bytes do to the wallet. */
+  /**
+   * Decode a P2MR PSBT and summarize what its exact bytes do to the wallet.
+   * A PSBT a website supplied also has its fee judged without the size
+   * estimate; omitted, `suppliedByWebsite` judges it as one the wallet built.
+   */
   private reviewQbitP2mrPsbt = (
     psbtHex: string,
     { networkType, account, wallet, feeSummary }: QbitPsbtReviewContext,
-    options: DecodePsbtOptions = {}
+    { statedRecipients, suppliedByWebsite = false }: DecodePsbtOptions = {}
   ): DecodedPsbt => {
     const psbt = qbitPsbtFromHex(psbtHex)
     const summary = decodeQbitPsbt(psbt)
@@ -8318,11 +9000,18 @@ export class WalletController extends BaseController {
         }
       }
 
-      return {
-        address: scriptPkToAddress(qbitBytesToHex(output.scriptPubKey), networkType),
-        value: Number(output.value),
-        scriptPubKeyHex: qbitBytesToHex(output.scriptPubKey),
+      const scriptPubKeyHex = qbitBytesToHex(output.scriptPubKey)
+      const address = scriptPkToAddress(scriptPubKeyHex, networkType)
+      if (address === '') {
+        // Named by its script, so the approval never shows an empty recipient.
+        return {
+          type: isPayToAnchorScript(scriptPubKeyHex) ? 'p2a' : 'unknown_script',
+          address: '',
+          value: Number(output.value),
+          scriptPubKeyHex,
+        }
       }
+      return { address, value: Number(output.value), scriptPubKeyHex }
     })
     const feeRate = finalTxVBytes > 0 ? fee / finalTxVBytes : 0
     const isCompleted = summary.fee !== undefined
@@ -8334,8 +9023,34 @@ export class WalletController extends BaseController {
       isCompleted,
       account: account.address,
       wallet,
-      statedRecipients: options.statedRecipients,
+      statedRecipients,
       feeSummary,
+      checkFeeShareWithoutSize: suppliedByWebsite,
+    })
+    // The wallet's outputs are known only from the scripts and addresses it
+    // derives for its accounts, as their 'wallet' role is: the PSBT's own
+    // records about an output, such as derivation paths, are its author's.
+    // One paying the signing account is change only when the wallet funds
+    // every input and the request does not name it as its recipient; it may
+    // otherwise be the payment itself.
+    const signingAccount = qbitWalletOwnership([account])
+    const walletFundsEveryInput = inputInfos.every(
+      input =>
+        input.witnessUtxoScriptHex !== undefined &&
+        qbitWalletOwns(wallet, {
+          scriptPubKeyHex: input.witnessUtxoScriptHex,
+          address: input.address,
+        })
+    )
+    const namedRecipients = new Set(
+      (statedRecipients ?? []).filter(address => address !== '').map(address => address.toLowerCase())
+    )
+    const outputOwners = outputInfos.map((output, index): PsbtOutputOwner => {
+      if (spendSummary.outputRoles[index] !== 'wallet') return 'none'
+      if (!qbitWalletOwns(signingAccount, output)) return 'other_account'
+      return walletFundsEveryInput && !namedRecipients.has(output.address.toLowerCase())
+        ? 'change'
+        : 'this_account'
     })
 
     return {
@@ -8352,6 +9067,9 @@ export class WalletController extends BaseController {
       shouldWarnFeeRate: (spendSummary.feeAssessment?.reasons.length ?? 0) > 0,
       isCompleted,
       spendSummary,
+      outputOwners,
+      version: summary.version,
+      locktime: summary.locktime,
     }
   }
 
@@ -8389,9 +9107,11 @@ export class WalletController extends BaseController {
 
     for (const toSignData of toSignDatas) {
       try {
-        const decoded = this.reviewQbitP2mrPsbt(toSignData.psbtHex, context, {
-          statedRecipients: statedPsbtRecipients(toSignData),
-        })
+        const decoded = this.reviewQbitP2mrPsbt(
+          toSignData.psbtHex,
+          context,
+          psbtReviewOptions(toSignData)
+        )
         const itemTotalInput = decoded.inputInfos.reduce((sum, input) => sum + input.value, 0)
         const { fee, isCompleted } = decoded
         if (isCompleted) {

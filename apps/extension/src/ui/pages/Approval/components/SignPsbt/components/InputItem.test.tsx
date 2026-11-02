@@ -238,3 +238,119 @@ describe('InputItem output the wallet does not recognise (#271)', () => {
     expect(screen.queryByTestId('psbt-output-unrecognised-0')).toBeNull();
   });
 });
+
+describe('InputItem output that pays the wallet (#13)', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAddress).mockReturnValue('qbrt1zcurrent');
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+  });
+
+  function renderOwned(address: string, decodedPsbt: object) {
+    return render(
+      <InputItem
+        index={0}
+        outputInfo={{ address, value: 10_000, scriptPubKeyHex: '5220beef' }}
+        decodedPsbt={decodedPsbt as any}
+      />
+    );
+  }
+
+  it('labels change to the signing account in place of its address chip', () => {
+    renderOwned('qbrt1zcurrent', { outputOwners: ['change'], spendSummary: { outputRoles: ['wallet'] } });
+
+    expect(screen.getByTestId('psbt-output-change-0').textContent).toBe('psbt_output_change');
+    expect(screen.queryByText('my_address')).toBeNull();
+    expect(screen.queryByTestId('psbt-output-other-account-0')).toBeNull();
+  });
+
+  it('labels a payment to the signing account that is not change', () => {
+    renderOwned('qbrt1zcurrent', { outputOwners: ['this_account'], spendSummary: { outputRoles: ['wallet'] } });
+
+    expect(screen.getByTestId('psbt-output-this-account-0').textContent).toBe('psbt_output_this_account');
+    expect(screen.queryByTestId('psbt-output-change-0')).toBeNull();
+    expect(screen.queryByText('my_address')).toBeNull();
+  });
+
+  it('labels an output to another of the wallet’s accounts', () => {
+    renderOwned('qbrt1zother', { outputOwners: ['other_account'], spendSummary: { outputRoles: ['wallet'] } });
+
+    expect(screen.getByTestId('psbt-output-other-account-0').textContent).toBe('psbt_output_other_account');
+    expect(screen.queryByTestId('psbt-output-change-0')).toBeNull();
+    expect(screen.queryByTestId('psbt-output-unrecognised-0')).toBeNull();
+  });
+
+  it('labels no output the wallet did not derive, whatever the PSBT claims for it', () => {
+    // The website put a derivation record claiming this script for the
+    // account; the background does not derive it, so it pays a stranger.
+    renderOwned('qbrt1zstranger', { outputOwners: ['none'], spendSummary: { outputRoles: ['unrecognised'] } });
+
+    expect(screen.queryByTestId('psbt-output-change-0')).toBeNull();
+    expect(screen.queryByTestId('psbt-output-other-account-0')).toBeNull();
+    expect(screen.queryByText('my_address')).toBeNull();
+    expect(screen.getByTestId('psbt-output-unrecognised-0')).toBeTruthy();
+  });
+
+  it('labels outputs only from the owners the background decoded', () => {
+    // A review without owners keeps the address chip and adds no label.
+    renderOwned('qbrt1zcurrent', { spendSummary: { outputRoles: ['wallet'] } });
+
+    expect(screen.getByText('my_address')).toBeTruthy();
+    expect(screen.queryByTestId('psbt-output-change-0')).toBeNull();
+    expect(screen.queryByTestId('psbt-output-other-account-0')).toBeNull();
+  });
+});
+
+describe('InputItem output with no address', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAddress).mockReturnValue('qbrt1zcurrent');
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+  });
+
+  function renderScriptOutput(outputInfo: DecodedPsbtOutput, role = 'unrecognised') {
+    return render(
+      <InputItem index={0} outputInfo={outputInfo} decodedPsbt={{ spendSummary: { outputRoles: [role] } } as any} />
+    );
+  }
+
+  it('names a pay-to-anchor output within the bound as a fee anchor, with no unrecognised flag', () => {
+    renderScriptOutput({ type: 'p2a', address: '', value: 330, scriptPubKeyHex: '51024e73' }, 'anchor');
+
+    expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('Fee anchor');
+    expect(screen.getByTestId('psbt-output-script-warning-0').textContent).toContain('Anyone can spend');
+    expect(screen.queryByTestId('psbt-output-unrecognised-0')).toBeNull();
+    expect(screen.queryByTestId('address-text')).toBeNull();
+  });
+
+  it('names a pay-to-anchor output over the bound as one anyone can spend, in place of a recipient', () => {
+    renderScriptOutput({ type: 'p2a', address: '', value: 99_999, scriptPubKeyHex: '51024e73' });
+
+    expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('P2A anchor (anyone can spend)');
+    expect(screen.getByTestId('psbt-output-script-warning-0').textContent).toContain('Anyone can spend');
+    expect(screen.getByTestId('psbt-output-unrecognised-0').textContent).toBe('unrecognised_output');
+    expect(screen.queryByTestId('address-text')).toBeNull();
+    fireEvent.click(screen.getByTestId('psbt-output-details-toggle-0'));
+    expect(screen.getByTestId('psbt-output-script-0').textContent).toBe('51024e73');
+  });
+
+  it('names any other script with no address as an unknown script', () => {
+    renderScriptOutput({ type: 'unknown_script', address: '', value: 5_000, scriptPubKeyHex: '00' });
+
+    expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('Unknown script');
+    expect(screen.getByTestId('psbt-output-script-warning-0').textContent).toContain('cannot decode');
+    expect(screen.queryByTestId('address-text')).toBeNull();
+  });
+
+  it('shows an output with an address as before', () => {
+    renderScriptOutput({ address: 'qbrt1zpayee', value: 10_000, scriptPubKeyHex: '5220beef' });
+
+    expect(screen.getByTestId('address-text').textContent).toBe('qbrt1zpayee');
+    expect(screen.queryByTestId('psbt-output-script-label-0')).toBeNull();
+    expect(screen.queryByTestId('psbt-output-script-warning-0')).toBeNull();
+  });
+});

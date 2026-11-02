@@ -1,4 +1,4 @@
-import { QbitApiError } from '@qbit-oss/api'
+import { QbitApiError, type RequestOptions } from '@qbit-oss/api'
 
 /**
  * Time budgets for the wallet's explorer requests (#353).
@@ -30,14 +30,18 @@ export const QBIT_EXPLORER_REPLY_TIMEOUT_MS = 15_000
  * The clients' per-attempt `timeoutMs`, which only a large-body read can
  * reach: it stops a body that trickles in just faster than the idle budget.
  * The largest page, 50 consolidations of 106 inputs, is about 40 MB, which
- * fits at about 135 KB/s, a link of about 1 Mbit/s.
+ * fits at about 135 KB/s, a link of about 1 Mbit/s. It is also the ceiling
+ * of the whole read, every attempt included (see `QbitWalletEsploraClient`):
+ * a body still arriving when it is reached would arrive no faster on a
+ * second try, so a page too slow for it fails after about 5 minutes, not 15.
  */
 export const QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS = 300_000
 
 /**
- * A reply body is buffered whole, so a longer one fails as unreadable rather
- * than exhausting the background worker's memory: about one and a half times
- * the largest page above.
+ * A reply body is buffered whole, so a longer one fails as `response_too_large`
+ * rather than exhausting the background worker's memory: about one and a half
+ * times the largest page above. It is the clients' default `maxResponseBytes`
+ * (see `QbitWalletEsploraClient`), the limit the fetch below buffers to.
  */
 export const QBIT_EXPLORER_MAX_BODY_BYTES = 64 * 1024 * 1024
 
@@ -47,13 +51,139 @@ export const QBIT_EXPLORER_MAX_BODY_BYTES = 64 * 1024 * 1024
  * witness hex per input).
  */
 const LARGE_BODY_ROUTE = /^(?:\/address\/[^/?]+\/txs(?:[/?]|$)|\/tx\/[0-9a-f]{64}(?:\/hex)?$)/i
-const READ_METHODS = new Set(['GET', 'HEAD'])
+
+/** Whether `route`, relative to the base URL, is one whose body can be large. */
+export function isQbitExplorerLargeBodyRoute(route: string): boolean {
+  return LARGE_BODY_ROUTE.test(route)
+}
 
 export interface QbitExplorerFetchOptions {
   /** The fetch to wrap; the global one, looked up per request, by default. */
   fetchFn?: typeof fetch | undefined
   /** The client's base URL: routes are read after it, and errors do not quote it. */
   baseUrl: string
+  /** The client's `maxResponseBytes` (default `QBIT_EXPLORER_MAX_BODY_BYTES`). */
+  maxBodyBytes?: number | undefined
+}
+
+/**
+ * The query parameter that makes a read fresh: a random nonce no other
+ * request carries, so no cache keyed by URL, the browser's or one in front
+ * of the explorer (electrs lets a reply be reused for 10 s), can answer it
+ * with an earlier reply. The explorer ignores it. The wallet's explorer
+ * fetch also sends such a read with `cache: 'no-store'`.
+ */
+export const QBIT_EXPLORER_FRESH_READ_PARAM = 'qbit_fresh'
+
+/** `path`, relative to a base URL, as a fresh read of it (see `QBIT_EXPLORER_FRESH_READ_PARAM`). */
+export function qbitExplorerFreshReadPath(path: string): string {
+  const nonce = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), byte =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+  return `${path}${path.includes('?') ? '&' : '?'}${QBIT_EXPLORER_FRESH_READ_PARAM}=${nonce}`
+}
+
+/** Whether `route`, relative to the base URL, is a fresh read. */
+function isQbitExplorerFreshRead(route: string): boolean {
+  const query = route.indexOf('?')
+  return (
+    query >= 0 && new URLSearchParams(route.slice(query + 1)).has(QBIT_EXPLORER_FRESH_READ_PARAM)
+  )
+}
+
+/**
+ * One deadline shared by every explorer read an operation makes (a
+ * broadcast with its lookups, a status check, a fee bump's assessment, a
+ * consolidation batch), and one cancellation for all of them. Each read is
+ * handed `read()`: the operation's signal, and the time left as its
+ * `deadlineMs`, so the client aborts a read still in flight when the
+ * deadline passes and fails it as `timeout`, as for any timeout. A read
+ * that would start after the deadline fails the same way without being
+ * sent. The signal aborts only when the operation is cancelled (nothing
+ * waits for it any more), never at the deadline itself.
+ */
+export class QbitExplorerOperation {
+  private expiresAt: number | undefined
+
+  /**
+   * The deadline starts now, or with `started: false` at `start()`: an
+   * operation that first waits its turn (behind another send on the send
+   * guard, or another batch of a consolidation) spends none of it waiting.
+   */
+  constructor(
+    readonly budgetMs = Number.POSITIVE_INFINITY,
+    readonly signal?: AbortSignal,
+    options: { started?: boolean } = {}
+  ) {
+    if (options.started !== false) this.start()
+  }
+
+  /** Start the deadline, unless it has started already. */
+  start(): void {
+    this.expiresAt ??= Date.now() + this.budgetMs
+  }
+
+  /**
+   * The time left before the deadline, in ms: never negative, unbounded
+   * without one, and the whole budget until it starts.
+   */
+  remainingMs(): number {
+    if (this.expiresAt === undefined) return this.budgetMs
+    return Math.max(0, this.expiresAt - Date.now())
+  }
+
+  /**
+   * The options for one read: the operation's signal and the time left, at
+   * most `capMs` (a shorter budget of the read's own). Throws once the
+   * operation is cancelled, and a `timeout` `QbitApiError` once no time is
+   * left.
+   */
+  read(capMs = Number.POSITIVE_INFINITY): RequestOptions {
+    this.throwIfOver()
+    const deadlineMs = Math.min(this.remainingMs(), capMs)
+    return {
+      ...(this.signal === undefined ? {} : { signal: this.signal }),
+      ...(Number.isFinite(deadlineMs) ? { deadlineMs: Math.max(1, Math.ceil(deadlineMs)) } : {}),
+    }
+  }
+
+  /**
+   * Settle with `promise`, a wait no explorer read of this operation bounds
+   * (a shared fee quote, say), or reject as `read` does once the operation
+   * is cancelled or its deadline passes. The wait itself is not cancelled.
+   */
+  async within<T>(promise: Promise<T>): Promise<T> {
+    this.throwIfOver()
+    const remaining = this.remainingMs()
+    if (!Number.isFinite(remaining) && this.signal === undefined) return promise
+    const { signal } = this
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          if (Number.isFinite(remaining)) {
+            timer = setTimeout(() => reject(this.deadlineError()), remaining)
+          }
+          onAbort = (): void => reject(signal?.reason)
+          signal?.addEventListener('abort', onAbort, { once: true })
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      if (onAbort) signal?.removeEventListener('abort', onAbort)
+    }
+  }
+
+  private throwIfOver(): void {
+    if (this.signal?.aborted) throw this.signal.reason
+    if (this.remainingMs() <= 0) throw this.deadlineError()
+  }
+
+  private deadlineError(): QbitApiError {
+    return new QbitApiError('timeout', `operation exceeded its ${this.budgetMs}ms deadline`)
+  }
 }
 
 /**
@@ -65,12 +195,17 @@ export interface QbitExplorerFetchOptions {
  * The body is buffered before the promise resolves, so the client sees the
  * stall before the headers. A body that fails on its own is handed to the
  * client as it arrived, with the failure at its end, so the client judges it
- * as before. So is a submission's 429 that stalls: a 429 proves nothing was
- * submitted, and the client retries it even when its body is lost.
+ * as before. A submission's reply that stalls, a 429 included, rejects as a
+ * timeout, which the client reports as an unknown outcome: a 429 whose body
+ * was not read may have said that the node has the transaction. A body past
+ * `maxBodyBytes` rejects as `response_too_large`, as the client's own limit
+ * does: a read is not retried, and a submission's reply is an unknown outcome
+ * that is not sent again.
  */
 export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): typeof fetch {
   const { fetchFn } = options
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
+  const maxBodyBytes = options.maxBodyBytes ?? QBIT_EXPLORER_MAX_BODY_BYTES
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const controller = new AbortController()
@@ -82,7 +217,7 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
 
     const href = requestHref(input)
     const route = href.startsWith(baseUrl) ? href.slice(baseUrl.length) : undefined
-    const largeBody = route !== undefined && LARGE_BODY_ROUTE.test(route)
+    const largeBody = route !== undefined && isQbitExplorerLargeBodyRoute(route)
     let status: number | undefined = undefined
     const stalled = (reason: string): void =>
       controller.abort(stallError(errorUrl(href, baseUrl, route), reason, status))
@@ -103,7 +238,8 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
     let pending: Promise<Response> | undefined
     let response: Response
     try {
-      const requestInit = { ...init, signal: controller.signal }
+      const requestInit: RequestInit = { ...init, signal: controller.signal }
+      if (route !== undefined && isQbitExplorerFreshRead(route)) requestInit.cache = 'no-store'
       pending = fetchFn ? fetchFn(input, requestInit) : globalThis.fetch(input, requestInit)
       response = await raceAbort(pending, controller.signal)
     } catch (error) {
@@ -126,11 +262,8 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
       clearTimeout(replyTimer)
       return response
     }
-    const submission = !READ_METHODS.has((init?.method ?? 'GET').toUpperCase())
-    const keepReply = submission && status === 429
-
     const reader = response.body.getReader()
-    let chunks: (Uint8Array | undefined)[] = []
+    const chunks: (Uint8Array | undefined)[] = []
     let bytes = 0
     let failure: { error: unknown } | undefined
     try {
@@ -145,27 +278,26 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
           const chunk = await raceAbort(reader.read(), controller.signal)
           if (chunk.done) break
           bytes += chunk.value.byteLength
-          if (bytes > QBIT_EXPLORER_MAX_BODY_BYTES) {
-            // Unreadable, as the client reports a body it cannot read.
-            const error = new RangeError(
-              `response body exceeds ${QBIT_EXPLORER_MAX_BODY_BYTES} bytes`
+          if (bytes > maxBodyBytes) {
+            const url = errorUrl(href, baseUrl, route)
+            const error = new QbitApiError(
+              'response_too_large',
+              `HTTP ${response.status} reply from ${url} exceeded ${maxBodyBytes} bytes; its body was discarded`,
+              { status: response.status, url }
             )
-            failure = { error }
-            chunks = []
+            // The catch below releases the body and rethrows the abort's reason.
             controller.abort(error)
-            reader.cancel(error).catch(() => undefined)
-            break
+            throw error
           }
           chunks.push(chunk.value)
         } catch (error) {
           if (!controller.signal.aborted) {
             failure = { error }
           } else {
-            // A stall or the caller's abort: the request is aborted; release the body too.
+            // A stall, a body past the limit or the caller's abort: the request is
+            // aborted; release the body too.
             reader.cancel(controller.signal.reason).catch(() => undefined)
-            if (!keepReply) throw controller.signal.reason
-            // A caller's abort has already ended the client's wait; only a stall reaches it.
-            failure = { error: controller.signal.reason }
+            throw controller.signal.reason
           }
         } finally {
           clearTimeout(idleTimer)

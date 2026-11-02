@@ -132,6 +132,26 @@ function historyTx(txid: string, height: number, ownedAddresses: string[]) {
   }
 }
 
+function paymentTx(
+  txid: string,
+  height: number,
+  from: string,
+  outputs: { address: string; value: number }[]
+) {
+  const tx = historyTx(txid, height, [])
+  return {
+    ...tx,
+    vin: [{ ...tx.vin[0]!, prevout: { ...tx.vin[0]!.prevout, scriptpubkey_address: from } }],
+    vout: outputs.map(output => ({
+      scriptpubkey: '51',
+      scriptpubkey_asm: 'OP_PUSHNUM_1',
+      scriptpubkey_type: 'v2_p2mr',
+      scriptpubkey_address: output.address,
+      value: output.value,
+    })),
+  }
+}
+
 function stats(address: string, confirmed: number, mempool = 0) {
   return {
     address,
@@ -181,20 +201,20 @@ describe('WalletController Qbit account history snapshots', () => {
     apiMocks.client.getAddressTxs.mockResolvedValue([])
   })
 
-  it('paginates one immutable globally deduplicated snapshot across receive-address rotation', async () => {
+  it("pages one immutable snapshot of the selected account's own address", async () => {
     const newest = historyTx('33'.repeat(32), 9, [firstAddress])
     const shared = historyTx('22'.repeat(32), 8, [firstAddress, secondAddress])
-    const oldest = historyTx('11'.repeat(32), 7, [secondAddress])
+    const oldest = historyTx('11'.repeat(32), 7, [firstAddress])
     apiMocks.client.getAddressStats.mockImplementation(async address =>
-      stats(address, address === firstAddress ? 2 : 2)
+      stats(address, address === firstAddress ? 3 : 1)
     )
     apiMocks.client.getAddressHistory.mockImplementation(async address =>
       address === firstAddress
-        ? { confirmed: [newest, shared], mempool: [] }
-        : { confirmed: [shared, oldest], mempool: [] }
+        ? { confirmed: [newest, shared, oldest], mempool: [] }
+        : { confirmed: [shared], mempool: [] }
     )
     apiMocks.client.getAddressTxs.mockImplementation(async address =>
-      address === firstAddress ? [newest, shared] : [shared, oldest]
+      address === firstAddress ? [newest, shared, oldest] : [shared]
     )
 
     const firstPage = await controller.getAddressHistory({
@@ -202,15 +222,14 @@ describe('WalletController Qbit account history snapshots', () => {
       start: 0,
       limit: 2,
     })
-    selectedAccount = keyring.accounts[1]!
     const secondPage = await controller.getAddressHistory({
-      address: secondAddress,
+      address: firstAddress,
       start: 2,
       limit: 2,
       snapshotId: firstPage.snapshotId,
     })
 
-    expect(firstPage.scopeKey).toBe(`qbit:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`)
+    expect(firstPage.scopeKey).toBe(`qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`)
     expect(firstPage.total).toBe(3)
     expect(firstPage.detail.map(item => item.txid)).toEqual(['33'.repeat(32), '22'.repeat(32)])
     expect(secondPage).toMatchObject({
@@ -218,14 +237,295 @@ describe('WalletController Qbit account history snapshots', () => {
       snapshotId: firstPage.snapshotId,
       detail: [{ txid: '11'.repeat(32) }],
     })
-    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(1)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledWith(firstAddress, expect.anything())
     expect(preferenceService.updateAddressHistory).toHaveBeenCalledWith(
       firstPage.scopeKey,
-      expect.arrayContaining([
+      [
         expect.objectContaining({ txid: '33'.repeat(32) }),
         expect.objectContaining({ txid: '22'.repeat(32) }),
         expect.objectContaining({ txid: '11'.repeat(32) }),
-      ])
+      ]
+    )
+  })
+
+  it("leaves another account's transactions out of the selected account's history", async () => {
+    const firstOnly = historyTx('61'.repeat(32), 9, [firstAddress])
+    const secondOnly = historyTx('62'.repeat(32), 8, [secondAddress])
+    const histories: Record<string, unknown[]> = {
+      [firstAddress]: [firstOnly],
+      [secondAddress]: [secondOnly],
+    }
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, histories[address]?.length ?? 0)
+    )
+    apiMocks.client.getAddressHistory.mockImplementation(async address => ({
+      confirmed: histories[address] ?? [],
+      mempool: [],
+    }))
+    apiMocks.client.getAddressTxs.mockImplementation(async address => histories[address] ?? [])
+
+    selectedAccount = keyring.accounts[1]!
+    const page = await controller.getAddressHistory({ address: secondAddress, start: 0, limit: 20 })
+
+    expect(page.total).toBe(1)
+    expect(page.detail.map(item => item.txid)).toEqual([secondOnly.txid])
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(1)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledWith(secondAddress, expect.anything())
+  })
+
+  it('shows a payment between two accounts as a send in one and a receive in the other', async () => {
+    const payment = paymentTx('63'.repeat(32), 9, firstAddress, [
+      { address: secondAddress, value: 60 },
+      { address: firstAddress, value: 31 },
+    ])
+    apiMocks.client.getAddressStats.mockImplementation(async address => stats(address, 1))
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [payment], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([payment])
+
+    const sent = await controller.getAddressHistory({ address: firstAddress, start: 0, limit: 20 })
+    selectedAccount = keyring.accounts[1]!
+    const received = await controller.getAddressHistory({
+      address: secondAddress,
+      start: 0,
+      limit: 20,
+    })
+
+    expect(sent.detail).toMatchObject([
+      {
+        txid: payment.txid,
+        direction: 'send',
+        amount: 60,
+        netAmount: -70,
+        counterparties: [secondAddress],
+        vin: [{ address: firstAddress, owned: true }],
+        vout: [
+          { address: secondAddress, owned: false },
+          { address: firstAddress, owned: true },
+        ],
+      },
+    ])
+    expect(received.detail).toMatchObject([
+      {
+        txid: payment.txid,
+        direction: 'receive',
+        amount: 60,
+        netAmount: 60,
+        counterparties: [firstAddress],
+        vin: [{ address: firstAddress, owned: false }],
+        vout: [
+          { address: secondAddress, owned: true },
+          { address: firstAddress, owned: false },
+        ],
+      },
+    ])
+  })
+
+  it("keys each account's history apart and refuses one account's snapshot for another", async () => {
+    const tx = historyTx('64'.repeat(32), 9, [firstAddress, secondAddress])
+    apiMocks.client.getAddressStats.mockImplementation(async address => stats(address, 1))
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [tx], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([tx])
+
+    const first = await controller.getAddressHistory({ address: firstAddress, start: 0, limit: 20 })
+    selectedAccount = keyring.accounts[1]!
+    const second = await controller.getAddressHistory({
+      address: secondAddress,
+      start: 0,
+      limit: 20,
+    })
+
+    expect(first.scopeKey).toBe(`qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`)
+    expect(second.scopeKey).toBe(`qbit-account:${ChainType.QBIT_TESTNET4}:${'22'.repeat(32)}`)
+    await expect(
+      controller.getAddressHistory({
+        address: secondAddress,
+        start: 0,
+        limit: 20,
+        snapshotId: first.snapshotId,
+      })
+    ).rejects.toThrow('stale or belongs to another account')
+    selectedAccount = keyring.accounts[0]!
+    await expect(
+      controller.getAddressHistory({
+        address: firstAddress,
+        start: 0,
+        limit: 20,
+        snapshotId: second.snapshotId,
+      })
+    ).rejects.toThrow('stale or belongs to another account')
+
+    // A refresh never reuses the other account's snapshot: it scans afresh.
+    selectedAccount = keyring.accounts[1]!
+    apiMocks.client.getAddressHistory.mockClear()
+    const refreshed = await controller.getAddressHistory({
+      address: secondAddress,
+      start: 0,
+      limit: 20,
+      refreshSnapshotId: first.snapshotId,
+    })
+    expect(refreshed.scopeKey).toBe(second.scopeKey)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledOnce()
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledWith(secondAddress, expect.anything())
+  })
+
+  it('refuses a read for an account that is not selected before reading the explorer', async () => {
+    await expect(
+      controller.getAddressHistory({ address: secondAddress, start: 0, limit: 20 })
+    ).rejects.toThrow('Requested Qbit history address is not the selected account')
+    await expect(controller.getAddressCacheHistory(secondAddress)).rejects.toThrow(
+      'Requested Qbit history address is not the selected account'
+    )
+
+    expect(apiMocks.client.getTipHash).not.toHaveBeenCalled()
+    expect(apiMocks.client.getAddressStats).not.toHaveBeenCalled()
+    expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
+    expect(preferenceService.getAddressHistory).not.toHaveBeenCalled()
+  })
+
+  it('ends a refresh whose account changes during the revision probe without a full scan', async () => {
+    const tx = historyTx('68'.repeat(32), 7, [firstAddress])
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [tx], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([tx])
+    const firstPage = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+    })
+    apiMocks.client.getAddressHistory.mockClear()
+    vi.mocked(preferenceService.updateAddressHistory).mockClear()
+    apiMocks.client.getAddressTxs.mockImplementation(async () => {
+      selectedAccount = keyring.accounts[1]!
+      return [tx]
+    })
+
+    await expect(
+      controller.getAddressHistory({
+        address: firstAddress,
+        start: 0,
+        limit: 20,
+        refreshSnapshotId: firstPage.snapshotId,
+      })
+    ).rejects.toThrow('Qbit history account or network changed while loading')
+    expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
+    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a full scan when the revision probe fails', async () => {
+    const tx = historyTx('69'.repeat(32), 7, [firstAddress])
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [tx], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([tx])
+    const firstPage = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+    })
+    apiMocks.client.getAddressHistory.mockClear()
+    apiMocks.client.getTipHash.mockRejectedValueOnce(new Error('explorer unavailable'))
+
+    const refreshed = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+      refreshSnapshotId: firstPage.snapshotId,
+    })
+
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledOnce()
+    expect(refreshed.snapshotId).not.toBe(firstPage.snapshotId)
+    expect(refreshed.detail.map(item => item.txid)).toEqual([tx.txid])
+  })
+
+  it('ends a refresh whose account changes during a failed revision probe without a full scan', async () => {
+    const tx = historyTx('6a'.repeat(32), 7, [firstAddress])
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressHistory.mockResolvedValue({ confirmed: [tx], mempool: [] })
+    apiMocks.client.getAddressTxs.mockResolvedValue([tx])
+    const firstPage = await controller.getAddressHistory({
+      address: firstAddress,
+      start: 0,
+      limit: 20,
+    })
+    apiMocks.client.getAddressHistory.mockClear()
+    vi.mocked(preferenceService.updateAddressHistory).mockClear()
+    apiMocks.client.getTipHash.mockImplementationOnce(async () => {
+      selectedAccount = keyring.accounts[1]!
+      throw new Error('explorer unavailable')
+    })
+
+    await expect(
+      controller.getAddressHistory({
+        address: firstAddress,
+        start: 0,
+        limit: 20,
+        refreshSnapshotId: firstPage.snapshotId,
+      })
+    ).rejects.toThrow('Qbit history account or network changed while loading')
+    expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
+    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
+  })
+
+  it('drops a read that finishes after the selected account changes', async () => {
+    const tx = historyTx('65'.repeat(32), 9, [firstAddress])
+    const pendingScans: (() => void)[] = []
+    const finishScan = () => pendingScans.forEach(finish => finish())
+    const scanStarted = new Promise<void>(resolve => {
+      apiMocks.client.getAddressHistory.mockImplementation(
+        address =>
+          new Promise(done => {
+            pendingScans.push(() =>
+              done({ confirmed: address === firstAddress ? [tx] : [], mempool: [] })
+            )
+            resolve()
+          })
+      )
+    })
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressTxs.mockImplementation(async address =>
+      address === firstAddress ? [tx] : []
+    )
+
+    const read = controller.getAddressHistory({ address: firstAddress, start: 0, limit: 20 })
+    const settled = read.catch(error => error)
+    await scanStarted
+    selectedAccount = keyring.accounts[1]!
+    finishScan()
+
+    await expect(settled).resolves.toMatchObject({
+      message: 'Qbit history account or network changed while loading',
+    })
+    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
+  })
+
+  it('never reads history cached under the earlier wallet-wide key as an account history', async () => {
+    const combinedRows = [
+      { txid: '66'.repeat(32), direction: 'self' },
+      { txid: '67'.repeat(32), direction: 'self' },
+    ] as any
+    const persisted = new Map<string, ReturnType<typeof preferenceService.getAddressHistory>>([
+      [`qbit:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`, combinedRows],
+    ])
+    vi.mocked(preferenceService.getAddressHistory).mockImplementation(
+      key => persisted.get(key) ?? []
+    )
+
+    await expect(controller.getAddressCacheHistory(firstAddress)).resolves.toEqual([])
+    selectedAccount = keyring.accounts[1]!
+    await expect(controller.getAddressCacheHistory(secondAddress)).resolves.toEqual([])
+    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(
+      `qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`
+    )
+    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(
+      `qbit-account:${ChainType.QBIT_TESTNET4}:${'22'.repeat(32)}`
     )
   })
 
@@ -293,10 +593,10 @@ describe('WalletController Qbit account history snapshots', () => {
       string,
       ReturnType<typeof preferenceService.getAddressHistory>
     >()
-    vi.mocked(preferenceService.updateAddressHistory).mockImplementationOnce((key, history) => {
+    vi.mocked(preferenceService.updateAddressHistory).mockImplementation((key, history) => {
       persistedHistory.set(key, history)
     })
-    vi.mocked(preferenceService.getAddressHistory).mockImplementationOnce(
+    vi.mocked(preferenceService.getAddressHistory).mockImplementation(
       key => persistedHistory.get(key) ?? []
     )
     apiMocks.client.getAddressStats.mockImplementation(async address =>
@@ -315,11 +615,14 @@ describe('WalletController Qbit account history snapshots', () => {
       start: 0,
       limit: 20,
     })
-    const cachedHistory = await controller.getAddressCacheHistory(secondAddress)
+    const cachedHistory = await controller.getAddressCacheHistory(firstAddress)
+    selectedAccount = keyring.accounts[1]!
+    const otherAccountHistory = await controller.getAddressCacheHistory(secondAddress)
 
     expect(preferenceService.updateAddressHistory).toHaveBeenCalledWith(page.scopeKey, page.detail)
     expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(page.scopeKey)
     expect(cachedHistory).toEqual(page.detail)
+    expect(otherAccountHistory).toEqual([])
   })
 
   it('keeps non-Qbit cache reads address-keyed and skips storage for an empty address', async () => {
@@ -368,7 +671,7 @@ describe('WalletController Qbit account history snapshots', () => {
       snapshotId: firstPage.snapshotId,
     })
 
-    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(1)
     expect(refreshed).toMatchObject({
       total: firstPage.total,
       detail: [
@@ -431,7 +734,7 @@ describe('WalletController Qbit account history snapshots', () => {
       refreshSnapshotId: firstPage.snapshotId,
     })
 
-    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(4)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
   })
 
   it('falls back to a full scan when a same-size mempool identity changes', async () => {
@@ -468,7 +771,7 @@ describe('WalletController Qbit account history snapshots', () => {
       refreshSnapshotId: firstPage.snapshotId,
     })
 
-    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(4)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
     expect(refreshed.detail).toMatchObject([{ txid: replacement.txid }])
   })
 
@@ -505,7 +808,7 @@ describe('WalletController Qbit account history snapshots', () => {
       refreshSnapshotId: firstPage.snapshotId,
     })
 
-    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(4)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
   })
 
   it('forces a full scan when the original full-scan revision reaches its age bound', async () => {
@@ -536,455 +839,57 @@ describe('WalletController Qbit account history snapshots', () => {
         refreshSnapshotId: firstPage.snapshotId,
       })
 
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(4)
-      expect(apiMocks.client.getAddressTxs).toHaveBeenCalledTimes(4)
+      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
+      expect(apiMocks.client.getAddressTxs).toHaveBeenCalledTimes(2)
     } finally {
       now.mockRestore()
     }
   })
 
-  it('probes every large-account mempool address while reusing confirmed ancestry', async () => {
+  it('full-scans a refresh when the tip drops below a cached confirmed height', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
     try {
-      const largeAccounts = Array.from({ length: 33 }, (_, index) =>
-        account(index, (index + 1).toString(16).padStart(64, '0'), `tq1zhistorylarge-${index}`)
-      )
-      keyring = {
-        ...keyring,
-        accounts: largeAccounts,
-      }
-      selectedAccount = largeAccounts[0]!
-      const firstTx = historyTx('57'.repeat(32), 7, [largeAccounts[0]!.address])
-      const laterTx = historyTx('58'.repeat(32), 10, [largeAccounts[32]!.address])
-      const confirmedByAddress = new Map(
-        largeAccounts.map(item => [
-          item.address,
-          item.address === largeAccounts[0]!.address ? [firstTx] : [],
-        ])
-      )
+      const confirmedTx = historyTx('59'.repeat(32), 7, [firstAddress])
       apiMocks.client.getAddressStats.mockImplementation(async address =>
-        stats(address, confirmedByAddress.get(address)?.length ?? 0)
+        stats(address, address === firstAddress ? 1 : 0)
       )
       apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-        confirmed: confirmedByAddress.get(address) ?? [],
+        confirmed: address === firstAddress ? [confirmedTx] : [],
         mempool: [],
       }))
       apiMocks.client.getAddressTxs.mockImplementation(async address =>
-        (confirmedByAddress.get(address) ?? []).slice(0, 25)
+        address === firstAddress ? [confirmedTx] : []
       )
 
       const firstPage = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-      })
-      apiMocks.client.getAddressHistory.mockClear()
-      apiMocks.client.getAddressMempoolTxs.mockClear()
-      apiMocks.client.getAddressStats.mockClear()
-      apiMocks.client.getAddressTxs.mockClear()
-      apiMocks.client.getTipHash.mockClear()
-      apiMocks.client.getTipHeight.mockClear()
-
-      now.mockReturnValue(61_000)
-      const unchangedTipRefresh = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: firstPage.snapshotId,
-      })
-
-      expect(unchangedTipRefresh).toMatchObject({
-        total: 1,
-        detail: [{ txid: firstTx.txid, confirmations: 4 }],
-      })
-      expect(apiMocks.client.getTipHeight).toHaveBeenCalledTimes(1)
-      expect(apiMocks.client.getTipHash).toHaveBeenCalledTimes(2)
-      expect(apiMocks.client.getTxStatus).not.toHaveBeenCalled()
-      expect(apiMocks.client.getAddressMempoolTxs).toHaveBeenCalledTimes(
-        largeAccounts.length * 2
-      )
-      for (const item of largeAccounts) {
-        expect(
-          apiMocks.client.getAddressMempoolTxs.mock.calls.filter(
-            ([calledAddress]) => calledAddress === item.address
-          )
-        ).toHaveLength(2)
-      }
-      expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-
-      confirmedByAddress.set(largeAccounts[32]!.address, [laterTx])
-      apiMocks.client.getTipHash.mockClear()
-      apiMocks.client.getTipHeight.mockClear()
-      apiMocks.client.getTxStatus.mockClear()
-      apiMocks.client.getAddressMempoolTxs.mockClear()
-      apiMocks.client.getTipHash.mockResolvedValue('ee'.repeat(32))
-      apiMocks.client.getTipHeight.mockResolvedValueOnce(11)
-      apiMocks.client.getTxStatus.mockResolvedValue(firstTx.status)
-
-      now.mockReturnValue(121_000)
-      const refreshed = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: unchangedTipRefresh.snapshotId,
-      })
-
-      expect(refreshed).toMatchObject({
-        total: 1,
-        detail: [{ txid: firstTx.txid, confirmations: 5 }],
-      })
-      expect(refreshed.snapshotId).not.toBe(firstPage.snapshotId)
-      expect(apiMocks.client.getTipHeight).toHaveBeenCalledTimes(1)
-      expect(apiMocks.client.getTipHash).toHaveBeenCalledTimes(2)
-      expect(apiMocks.client.getTxStatus).toHaveBeenCalledOnce()
-      expect(apiMocks.client.getTxStatus).toHaveBeenCalledWith(firstTx.txid)
-      expect(apiMocks.client.getAddressStats).not.toHaveBeenCalled()
-      expect(apiMocks.client.getAddressMempoolTxs).toHaveBeenCalledTimes(
-        largeAccounts.length * 2
-      )
-      expect(apiMocks.client.getAddressTxs).not.toHaveBeenCalled()
-      expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-
-      apiMocks.client.getTipHeight.mockClear()
-      apiMocks.client.getTipHeight.mockRejectedValueOnce(new Error('tip unavailable'))
-      now.mockReturnValue(181_000)
-      await expect(
-        controller.getAddressHistory({
-          address: largeAccounts[0]!.address,
-          start: 0,
-          limit: 20,
-          refreshSnapshotId: refreshed.snapshotId,
-        })
-      ).rejects.toThrow('tip unavailable')
-      expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-
-      apiMocks.client.getTipHeight.mockReset().mockResolvedValueOnce(-1)
-      now.mockReturnValue(241_000)
-      await expect(
-        controller.getAddressHistory({
-          address: largeAccounts[0]!.address,
-          start: 0,
-          limit: 20,
-          refreshSnapshotId: refreshed.snapshotId,
-        })
-      ).rejects.toThrow('invalid qbit tip height')
-      expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-
-      apiMocks.client.getTipHeight.mockReset().mockResolvedValue(12)
-      now.mockReturnValue(301_001)
-      const fullRefresh = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: refreshed.snapshotId,
-      })
-
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(largeAccounts.length)
-      expect(fullRefresh.total).toBe(2)
-      expect(fullRefresh.detail.map(item => item.txid)).toEqual([laterTx.txid, firstTx.txid])
-    } finally {
-      now.mockRestore()
-    }
-  })
-
-  it('full-scans a large confirmed account when pending membership changes at the same tip', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    try {
-      const largeAccounts = Array.from({ length: 33 }, (_, index) =>
-        account(index, (index + 1).toString(16).padStart(64, '0'), `tq1zhistorylarge-${index}`)
-      )
-      keyring = {
-        ...keyring,
-        accounts: largeAccounts,
-      }
-      selectedAccount = largeAccounts[0]!
-      const confirmedTx = historyTx('5e'.repeat(32), 7, [largeAccounts[0]!.address])
-      const pendingTx = {
-        ...historyTx('5f'.repeat(32), 0, [largeAccounts[32]!.address]),
-        status: { confirmed: false },
-      }
-      let hasPending = false
-      apiMocks.client.getAddressStats.mockImplementation(async address =>
-        stats(
-          address,
-          address === largeAccounts[0]!.address ? 1 : 0,
-          hasPending && address === largeAccounts[32]!.address ? 1 : 0
-        )
-      )
-      apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-        confirmed: address === largeAccounts[0]!.address ? [confirmedTx] : [],
-        mempool: hasPending && address === largeAccounts[32]!.address ? [pendingTx] : [],
-      }))
-      apiMocks.client.getAddressMempoolTxs.mockImplementation(async address =>
-        hasPending && address === largeAccounts[32]!.address ? [pendingTx] : []
-      )
-      apiMocks.client.getAddressTxs.mockImplementation(async address =>
-        address === largeAccounts[0]!.address ? [confirmedTx] : []
-      )
-
-      const firstPage = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
+        address: firstAddress,
         start: 0,
         limit: 20,
       })
       expect(firstPage.detail).toMatchObject([{ txid: confirmedTx.txid, confirmations: 4 }])
 
-      hasPending = true
-      apiMocks.client.getAddressHistory.mockClear()
-      now.mockReturnValue(61_000)
-      const refreshed = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: firstPage.snapshotId,
-      })
-
-      expect(apiMocks.client.getTxStatus).not.toHaveBeenCalled()
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(largeAccounts.length)
-      expect(refreshed.detail.map(item => item.txid)).toEqual([pendingTx.txid, confirmedTx.txid])
-    } finally {
-      now.mockRestore()
-    }
-  })
-
-  it('full-scans a large pending-only account refresh when the tip changes', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    try {
-      const largeAccounts = Array.from({ length: 33 }, (_, index) =>
-        account(index, (index + 1).toString(16).padStart(64, '0'), `tq1zhistorylarge-${index}`)
-      )
-      keyring = {
-        ...keyring,
-        accounts: largeAccounts,
-      }
-      selectedAccount = largeAccounts[0]!
-      const original = {
-        ...historyTx('5c'.repeat(32), 0, [largeAccounts[0]!.address]),
-        status: { confirmed: false },
-      }
-      const replacement = {
-        ...original,
-        txid: '5d'.repeat(32),
-      }
-      let pendingTx = original
-      apiMocks.client.getAddressStats.mockImplementation(async address =>
-        stats(address, 0, address === largeAccounts[0]!.address ? 1 : 0)
-      )
-      apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-        confirmed: [],
-        mempool: address === largeAccounts[0]!.address ? [pendingTx] : [],
-      }))
-      apiMocks.client.getAddressMempoolTxs.mockImplementation(async address =>
-        address === largeAccounts[0]!.address ? [pendingTx] : []
-      )
-
-      const firstPage = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-      })
-      expect(firstPage.detail).toMatchObject([{ txid: original.txid, confirmations: 0 }])
-
-      pendingTx = replacement
-      apiMocks.client.getAddressHistory.mockClear()
-      apiMocks.client.getTipHash.mockReset().mockResolvedValue('ee'.repeat(32))
-      apiMocks.client.getTipHeight.mockReset().mockResolvedValue(11)
-
-      now.mockReturnValue(61_000)
-      const refreshed = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: firstPage.snapshotId,
-      })
-
-      expect(apiMocks.client.getTxStatus).not.toHaveBeenCalled()
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(largeAccounts.length)
-      expect(refreshed.detail).toMatchObject([{ txid: replacement.txid, confirmations: 0 }])
-    } finally {
-      now.mockRestore()
-    }
-  })
-
-  it('full-scans a large-account refresh when a same-height reorg removes cached history', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    try {
-      const largeAccounts = Array.from({ length: 33 }, (_, index) =>
-        account(index, (index + 1).toString(16).padStart(64, '0'), `tq1zhistorylarge-${index}`)
-      )
-      keyring = {
-        ...keyring,
-        accounts: largeAccounts,
-      }
-      selectedAccount = largeAccounts[0]!
-      const confirmedTx = historyTx('5a'.repeat(32), 7, [largeAccounts[0]!.address])
-      const confirmedByAddress = new Map(
-        largeAccounts.map(item => [
-          item.address,
-          item.address === largeAccounts[0]!.address ? [confirmedTx] : [],
-        ])
-      )
-      apiMocks.client.getAddressStats.mockImplementation(async address =>
-        stats(address, confirmedByAddress.get(address)?.length ?? 0)
-      )
-      apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-        confirmed: confirmedByAddress.get(address) ?? [],
-        mempool: [],
-      }))
-      apiMocks.client.getAddressTxs.mockImplementation(async address =>
-        (confirmedByAddress.get(address) ?? []).slice(0, 25)
-      )
-
-      const firstPage = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-      })
-      expect(firstPage.detail).toMatchObject([{ txid: confirmedTx.txid, confirmations: 4 }])
-
-      confirmedByAddress.set(largeAccounts[0]!.address, [])
-      apiMocks.client.getAddressHistory.mockClear()
-      apiMocks.client.getTipHash.mockReset().mockResolvedValue('dd'.repeat(32))
-      apiMocks.client.getTipHeight.mockReset().mockResolvedValue(10)
-
-      now.mockReturnValue(61_000)
-      const refreshed = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: firstPage.snapshotId,
-      })
-
-      expect(apiMocks.client.getTxStatus).not.toHaveBeenCalled()
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(largeAccounts.length)
-      expect(refreshed.total).toBe(0)
-      expect(refreshed.detail).toEqual([])
-      expect(refreshed.snapshotId).not.toBe(firstPage.snapshotId)
-    } finally {
-      now.mockRestore()
-    }
-  })
-
-  it('full-scans a large-account refresh when an advancing tip no longer has its anchor', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    try {
-      const largeAccounts = Array.from({ length: 33 }, (_, index) =>
-        account(index, (index + 1).toString(16).padStart(64, '0'), `tq1zhistorylarge-${index}`)
-      )
-      keyring = {
-        ...keyring,
-        accounts: largeAccounts,
-      }
-      selectedAccount = largeAccounts[0]!
-      const confirmedTx = historyTx('5b'.repeat(32), 7, [largeAccounts[0]!.address])
-      const confirmedByAddress = new Map(
-        largeAccounts.map(item => [
-          item.address,
-          item.address === largeAccounts[0]!.address ? [confirmedTx] : [],
-        ])
-      )
-      apiMocks.client.getAddressStats.mockImplementation(async address =>
-        stats(address, confirmedByAddress.get(address)?.length ?? 0)
-      )
-      apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-        confirmed: confirmedByAddress.get(address) ?? [],
-        mempool: [],
-      }))
-      apiMocks.client.getAddressTxs.mockImplementation(async address =>
-        (confirmedByAddress.get(address) ?? []).slice(0, 25)
-      )
-
-      const firstPage = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-      })
-
-      confirmedByAddress.set(largeAccounts[0]!.address, [])
-      apiMocks.client.getAddressHistory.mockClear()
-      apiMocks.client.getTipHash.mockReset().mockResolvedValue('cc'.repeat(32))
-      apiMocks.client.getTipHeight.mockReset().mockResolvedValue(11)
-      apiMocks.client.getTxStatus.mockRejectedValue(
-        new QbitApiError('not_found', 'transaction not found')
-      )
-
-      now.mockReturnValue(61_000)
-      const refreshed = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-        refreshSnapshotId: firstPage.snapshotId,
-      })
-
-      expect(apiMocks.client.getTxStatus).toHaveBeenCalledWith(confirmedTx.txid)
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(largeAccounts.length)
-      expect(refreshed.detail).toEqual([])
-    } finally {
-      now.mockRestore()
-    }
-  })
-
-  it('full-scans a large-account refresh when the tip drops below a cached confirmed height', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    try {
-      const largeAccounts = Array.from({ length: 33 }, (_, index) =>
-        account(index, (index + 1).toString(16).padStart(64, '0'), `tq1zhistorylarge-${index}`)
-      )
-      keyring = {
-        ...keyring,
-        accounts: largeAccounts,
-      }
-      selectedAccount = largeAccounts[0]!
-      const confirmedTx = historyTx('59'.repeat(32), 7, [largeAccounts[0]!.address])
-      const confirmedByAddress = new Map(
-        largeAccounts.map(item => [
-          item.address,
-          item.address === largeAccounts[0]!.address ? [confirmedTx] : [],
-        ])
-      )
-      apiMocks.client.getAddressStats.mockImplementation(async address =>
-        stats(address, confirmedByAddress.get(address)?.length ?? 0)
-      )
-      apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-        confirmed: confirmedByAddress.get(address) ?? [],
-        mempool: [],
-      }))
-      apiMocks.client.getAddressTxs.mockImplementation(async address =>
-        (confirmedByAddress.get(address) ?? []).slice(0, 25)
-      )
-
-      const firstPage = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
-        start: 0,
-        limit: 20,
-      })
-      expect(firstPage.detail).toMatchObject([{ txid: confirmedTx.txid, confirmations: 4 }])
-
-      // A reorg reverts the cached transaction and lowers the tip below its
-      // block height; the deferred-probe reuse path must not report it as
-      // still confirmed.
-      confirmedByAddress.set(largeAccounts[0]!.address, [])
+      // The explorer still lists the transaction while the tip has dropped
+      // below its block: the activity matches, but reusing the cached list
+      // would clamp the reverted transaction to one confirmation.
       apiMocks.client.getAddressHistory.mockClear()
       apiMocks.client.getTipHeight.mockReset().mockResolvedValue(6)
 
       now.mockReturnValue(61_000)
       const refreshed = await controller.getAddressHistory({
-        address: largeAccounts[0]!.address,
+        address: firstAddress,
         start: 0,
         limit: 20,
         refreshSnapshotId: firstPage.snapshotId,
       })
 
-      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(largeAccounts.length)
-      expect(refreshed.total).toBe(0)
-      expect(refreshed.detail).toEqual([])
+      expect(apiMocks.client.getAddressHistory).toHaveBeenCalledOnce()
       expect(refreshed.snapshotId).not.toBe(firstPage.snapshotId)
     } finally {
       now.mockRestore()
     }
   })
 
-  it('keeps plain snapshots scoped and full-scans a refresh after the logical account changes', async () => {
+  it('keeps plain snapshots scoped and full-scans a refresh after the wallet changes', async () => {
     const tx = historyTx('11'.repeat(32), 7, [firstAddress])
     apiMocks.client.getAddressStats.mockImplementation(async address =>
       stats(address, address === firstAddress ? 1 : 0)
@@ -1027,7 +932,7 @@ describe('WalletController Qbit account history snapshots', () => {
       refreshSnapshotId: page.snapshotId,
     })
     expect(refreshed.snapshotId).not.toBe(page.snapshotId)
-    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(3)
+    expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(2)
   })
 
   it('validates raw hex at the background boundary and returns exact bytes', async () => {

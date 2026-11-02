@@ -10,7 +10,9 @@ import {
   getQbitAddressUtxosClassifiedFromHistory,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitSpendableBalanceV2,
+  qbitStatsSnapshot,
   QbitUtxoHistoryTooLargeError,
+  readQbitAddressUtxos,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
 } from '../src/utils/qbit-api'
@@ -316,6 +318,279 @@ describe('outputs of an address over the explorer UTXO limit (#277)', () => {
   })
 })
 
+describe('balance split of an address over the explorer UTXO limit, from a read of its outputs', () => {
+  /** The fixture's total as its statistics give it. */
+  function totalOf(explorer: FakeQbitExplorer) {
+    const { chain_stats: chain, mempool_stats: mempool } = explorer.stats(address)
+    return (
+      chain.funded_txo_sum - chain.spent_txo_sum + mempool.funded_txo_sum - mempool.spent_txo_sum
+    )
+  }
+
+  /** A read of the outputs from history, kept with the statistics it ran against. */
+  async function readOf(explorer: FakeQbitExplorer) {
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const { utxos, matureAt, matureFrom } = await readQbitAddressUtxos(clientFor(explorer), address)
+    const readOutputs = (current: string) =>
+      current === stats
+        ? {
+            outputs: utxos,
+            ...(matureAt !== undefined ? { matureAt } : {}),
+            ...(matureFrom !== undefined ? { matureFrom } : {}),
+          }
+        : undefined
+    return { utxos, readOutputs }
+  }
+
+  const sum = (utxos: readonly { satoshis: number }[]) =>
+    utxos.reduce((total, utxo) => total + utxo.satoshis, 0)
+
+  it('takes the split from a read made against the statistics as they read now', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos, readOutputs } = await readOf(explorer)
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      readOutputs
+    )
+
+    const total = totalOf(explorer)
+    expect(sum(utxos)).toBeLessThan(total)
+    expect(balance).toEqual({
+      availableBalance: sum(utxos),
+      unavailableBalance: total - sum(utxos),
+      totalBalance: total,
+      immatureBalance: null,
+      pendingBalance: null,
+      utxoLimitExceeded: true,
+    })
+  })
+
+  it('keeps the split unknown once a transaction moved the statistics', async () => {
+    const { explorer } = overLimitExplorer()
+    const { readOutputs } = await readOf(explorer)
+    explorer.addTx({
+      txid: fakeTxid(4, 8_000_000),
+      inputs: [{ txid: fakeTxid(5, 8_000_000), vout: 0 }],
+      outputs: [{ address, script, value: 3_000 }],
+    })
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      readOutputs
+    )
+
+    expect(balance).toEqual({
+      availableBalance: null,
+      unavailableBalance: totalOf(explorer),
+      totalBalance: totalOf(explorer),
+      immatureBalance: null,
+      pendingBalance: null,
+      utxoLimitExceeded: true,
+    })
+  })
+
+  it('counts a reserved output as unavailable', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos, readOutputs } = await readOf(explorer)
+    const held = utxos[0]!
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      async () => new Set([`${held.txid}:${held.vout}`]),
+      readOutputs
+    )
+
+    expect(balance.availableBalance).toBe(sum(utxos) - held.satoshis)
+    expect(balance.unavailableBalance).toBe(totalOf(explorer) - sum(utxos) + held.satoshis)
+  })
+
+  it("counts only the account's own script", async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos } = await readOf(explorer)
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const foreign = {
+      ...utxos[0]!,
+      txid: fakeTxid(9, 9_000_000),
+      satoshis: 1_000,
+      scriptPk: payerScript,
+    }
+    // Well under the total even with the foreign output, so no cap hides it.
+    expect(sum(utxos) + foreign.satoshis).toBeLessThan(totalOf(explorer))
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? { outputs: [...utxos, foreign] } : undefined)
+    )
+
+    expect(balance.availableBalance).toBe(sum(utxos))
+    expect(balance.unavailableBalance).toBe(totalOf(explorer) - sum(utxos))
+  })
+
+  it('never counts an output without a scriptPubKey, script on record or not', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos } = await readOf(explorer)
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const unlabelled = { ...utxos[0]!, txid: fakeTxid(9, 9_000_000), satoshis: 1_000, scriptPk: '' }
+    const outputs = [...utxos, unlabelled]
+
+    for (const accountScript of [script, undefined]) {
+      const balance = await getQbitSpendableBalanceV2(
+        clientFor(explorer),
+        address,
+        accountScript,
+        undefined,
+        current => (current === stats ? { outputs } : undefined)
+      )
+      expect(balance.availableBalance).toBe(sum(utxos))
+    }
+  })
+
+  it('never shows more available than the total', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos } = await readOf(explorer)
+    const stats = qbitStatsSnapshot(explorer.stats(address))
+    const inflated = utxos.map(utxo => ({ ...utxo, satoshis: utxo.satoshis * 10 }))
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? { outputs: inflated } : undefined)
+    )
+
+    expect(balance.availableBalance).toBe(totalOf(explorer))
+    expect(balance.unavailableBalance).toBe(0)
+  })
+
+  it('takes the split from the statistics the limit check read, without reading them again', async () => {
+    const { explorer } = overLimitExplorer()
+    const { utxos, readOutputs } = await readOf(explorer)
+    const statsReads = () =>
+      explorer.requests.filter(request => request.path === `/address/${address}`).length
+    const before = statsReads()
+
+    const balance = await getQbitSpendableBalanceV2(
+      clientFor(explorer),
+      address,
+      script,
+      undefined,
+      readOutputs
+    )
+
+    expect(balance.availableBalance).toBe(sum(utxos))
+    // One for the total, one for the limit check, which the split reuses.
+    expect(statsReads() - before).toBe(2)
+  })
+})
+
+describe('Available past the limit and from the listing, for the same outputs', () => {
+  const OUTPUTS = 510
+  const VALUE = 10_000
+  const CHANGE = 4_000
+  const PAYMENT = 50_000
+
+  /**
+   * An address just past the 500-output limit with its own pending send,
+   * whose change comes back unconfirmed, and a larger pending payment from
+   * someone else. `listingLimit` decides whether the explorer lists it.
+   */
+  function pendingChangeExplorer(listingLimit: number) {
+    const explorer = new FakeQbitExplorer('esplora')
+    explorer.utxoLimit = listingLimit
+    explorer.registerAddress(address, script)
+    explorer.registerAddress(payer, payerScript)
+    for (let index = 0; index < OUTPUTS; index += 1) {
+      explorer.addTx({
+        txid: fakeTxid(index),
+        inputs: [{ txid: fakeTxid(index, 5_000_000), vout: 0 }],
+        outputs: [{ address, script, value: VALUE }],
+        height: 100 + Math.floor(index / 4),
+      })
+    }
+    explorer.addTx({
+      txid: fakeTxid(1, 7_000_000),
+      inputs: [{ txid: fakeTxid(0), vout: 0 }],
+      outputs: [
+        { address: payer, script: payerScript, value: VALUE - CHANGE - 1_000 },
+        { address, script, value: CHANGE },
+      ],
+    })
+    explorer.addTx({
+      txid: fakeTxid(2, 7_000_000),
+      inputs: [{ txid: fakeTxid(3, 8_000_000), vout: 0 }],
+      outputs: [{ address, script, value: PAYMENT }],
+    })
+    return explorer
+  }
+
+  const CONFIRMED = OUTPUTS * VALUE
+  const TOTAL = CONFIRMED - VALUE + CHANGE + PAYMENT
+
+  it('reports the same Available on both paths, own unconfirmed change included', async () => {
+    const listed = await getQbitSpendableBalanceV2(
+      clientFor(pendingChangeExplorer(10_000)),
+      address,
+      script
+    )
+    const pastLimit = pendingChangeExplorer(500)
+    const stats = qbitStatsSnapshot(pastLimit.stats(address))
+    const utxos = await getQbitAddressUtxos(clientFor(pastLimit), address)
+    expect(utxos.filter(utxo => utxo.unconfirmed).map(utxo => utxo.satoshis)).toEqual([CHANGE])
+    const tipReads = () =>
+      pastLimit.requests.filter(request => request.path === '/blocks/tip/height').length
+    const tipReadsBefore = tipReads()
+
+    const read = await getQbitSpendableBalanceV2(
+      clientFor(pastLimit),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? { outputs: utxos } : undefined)
+    )
+
+    expect(listed.availableBalance).toBe(CONFIRMED - VALUE + CHANGE)
+    expect(read.availableBalance).toBe(listed.availableBalance)
+    expect(read.totalBalance).toBe(TOTAL)
+    // No coinbase output was left out, so the split did not read the tip.
+    expect(tipReads()).toBe(tipReadsBefore)
+  })
+
+  it('bounds the confirmed outputs by the confirmed balance, as the listing path does', async () => {
+    const pastLimit = pendingChangeExplorer(500)
+    const stats = qbitStatsSnapshot(pastLimit.stats(address))
+    const utxos = await getQbitAddressUtxos(clientFor(pastLimit), address)
+    // More confirmed value than the statistics hold, as from a lagging index.
+    const inflated = utxos.map(utxo =>
+      utxo.unconfirmed ? utxo : { ...utxo, satoshis: utxo.satoshis * 2 }
+    )
+
+    const read = await getQbitSpendableBalanceV2(
+      clientFor(pastLimit),
+      address,
+      script,
+      undefined,
+      current => (current === stats ? { outputs: inflated } : undefined)
+    )
+
+    // The confirmed balance, plus the change, under the total.
+    expect(read.availableBalance).toBe(CONFIRMED + CHANGE)
+    expect(read.availableBalance).toBeLessThan(TOTAL)
+  })
+})
+
 describe('resumable output scan for consolidation (#277)', () => {
   it('reads only as many pages as it needs and continues from its cursor', async () => {
     const { explorer } = overLimitExplorer()
@@ -424,18 +699,18 @@ describe('resumable output scan for consolidation (#277)', () => {
   })
 })
 
-describe('output scan past a page of mempool rows on qbit-electrs (#343)', () => {
-  /** `count` more pending payments to the address, from someone else. */
-  function addPendingPayments(explorer: FakeQbitExplorer, count: number): FakeTx[] {
-    return Array.from({ length: count }, (_, index) =>
-      explorer.addTx({
-        txid: fakeTxid(index, 9_000_000),
-        inputs: [{ txid: fakeTxid(index, 9_500_000), vout: 0 }],
-        outputs: [{ address, script, value: 3_000 }],
-      })
-    )
-  }
+/** `count` more pending payments to the address, from someone else. */
+function addPendingPayments(explorer: FakeQbitExplorer, count: number): FakeTx[] {
+  return Array.from({ length: count }, (_, index) =>
+    explorer.addTx({
+      txid: fakeTxid(index, 9_000_000),
+      inputs: [{ txid: fakeTxid(index, 9_500_000), vout: 0 }],
+      outputs: [{ address, script, value: 3_000 }],
+    })
+  )
+}
 
+describe('output scan past a page of mempool rows on qbit-electrs (#343)', () => {
   /** The over-limit fixture with exactly one combined page (50 rows) of mempool rows. */
   function fullMempoolPage() {
     const fixture = overLimitExplorer('mempool-qbit')
@@ -515,6 +790,98 @@ describe('output scan past a page of mempool rows on qbit-electrs (#343)', () =>
       continueQbitAddressOutputScan(client, scan, { maxPages: 1 })
     ).rejects.toMatchObject({ kind: 'invalid_cursor' })
     expect({ ...scan, candidates: scan.candidates.size, spent: scan.spent.size }).toEqual(snapshot)
+  })
+})
+
+describe('outputs read from history past whole pages of mempool rows on qbit-electrs', () => {
+  /** The over-limit fixture with `pendingRows` pending rows, a whole number of combined pages. */
+  function fullMempoolPages(pendingRows: number) {
+    const fixture = overLimitExplorer('mempool-qbit')
+    const { explorer } = fixture
+    explorer.emptyPageAfterLastMempoolRow = true
+    const pending = () => explorer.history(address).filter(tx => tx.height === undefined)
+    const payments = addPendingPayments(explorer, pendingRows - pending().length)
+    expect(pending()).toHaveLength(pendingRows)
+    return { ...fixture, payments, lastMempoolRow: pending().at(-1)!, rowBefore: pending().at(-2)! }
+  }
+
+  for (const pendingRows of [50, 100]) {
+    it(`reads every output with ${pendingRows} pending rows`, async () => {
+      const fixture = fullMempoolPages(pendingRows)
+      const { explorer, lastMempoolRow, rowBefore } = fixture
+
+      const classified = await getQbitAddressUtxosClassifiedFromHistory(
+        clientFor(explorer),
+        address,
+        { stabilityRetries: 0 }
+      )
+
+      // Pending payments from someone else are not sendable.
+      const expected = expectedSendable(fixture)
+      for (const payment of fixture.payments) expected.delete(`${payment.txid}:0`)
+      expect(keys([...classified.confirmedSpendable, ...classified.unconfirmedOwnChange])).toEqual(
+        expected
+      )
+      expect(classified.confirmedSpendable.length).toBeGreaterThan(500)
+      // It stepped back one row, to the cursor that lists the last pending row again.
+      const pages = explorer.requests
+        .map(request => request.path)
+        .filter(path => /\/txs/.test(path))
+      const emptyPage = pages.indexOf(`/address/${address}/txs?after_txid=${lastMempoolRow.txid}`)
+      expect(emptyPage).toBeGreaterThan(0)
+      expect(pages[emptyPage + 1]).toBe(`/address/${address}/txs?after_txid=${rowBefore.txid}`)
+    })
+  }
+
+  it('reads them on the send path without waiting for a retry', async () => {
+    const fixture = fullMempoolPages(50)
+    const expected = expectedSendable(fixture)
+    for (const payment of fixture.payments) expected.delete(`${payment.txid}:0`)
+
+    await expect(
+      getQbitAddressUtxos(clientFor(fixture.explorer), address).then(keys)
+    ).resolves.toEqual(expected)
+  })
+
+  it('refuses a page row that does not touch the address, as the library walk does', async () => {
+    const { explorer } = fullMempoolPages(50)
+    const foreign = explorer.esploraTx({
+      txid: fakeTxid(1, 9_900_000),
+      inputs: [],
+      outputs: [{ address: payer, script: payerScript, value: 1_000 }],
+      coinbase: true,
+      height: 150,
+      order: 0,
+    })
+    explorer.failures.push(({ path }) => {
+      if (!path.endsWith(`/address/${address}/txs`)) return undefined
+      const rows = explorer
+        .history(address)
+        .slice(0, 50)
+        .map(tx => explorer.esploraTx(tx))
+      rows[10] = foreign
+      return { status: 200, body: JSON.stringify(rows) }
+    })
+
+    await expect(
+      getQbitAddressUtxosClassifiedFromHistory(clientFor(explorer), address, {
+        stabilityRetries: 0,
+      })
+    ).rejects.toMatchObject({ kind: 'parse' })
+  })
+
+  it('leaves the outputs unknown when the pending row it stepped back over has left', async () => {
+    const { explorer, lastMempoolRow, rowBefore } = fullMempoolPages(50)
+    explorer.failures.push(({ path }) => {
+      if (path.endsWith(`?after_txid=${rowBefore.txid}`)) explorer.removeTx(lastMempoolRow.txid)
+      return undefined
+    })
+
+    await expect(
+      getQbitAddressUtxosClassifiedFromHistory(clientFor(explorer), address, {
+        stabilityRetries: 0,
+      })
+    ).rejects.toMatchObject({ kind: 'invalid_cursor' })
   })
 })
 

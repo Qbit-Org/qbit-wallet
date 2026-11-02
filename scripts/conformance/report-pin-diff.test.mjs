@@ -26,7 +26,12 @@ import {
 } from './report-pin-diff.mjs'
 
 function git(repo, args) {
-  const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  // Throwaway repositories must not depend on the developer's signing config.
+  const result = spawnSync(
+    'git',
+    ['-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-C', repo, ...args],
+    { encoding: 'utf8' }
+  )
   assert.equal(result.status, 0, result.stderr || result.stdout)
   return result.stdout.trim()
 }

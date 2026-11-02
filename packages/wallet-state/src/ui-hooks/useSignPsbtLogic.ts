@@ -10,6 +10,8 @@ import {
   SignState,
   ToSignData,
   ToSignInput,
+  isWebsiteSuppliedPsbt,
+  psbtReviewOptions,
   statedPsbtRecipients,
 } from '@qbit/wallet-shared'
 import logger from 'loglevel'
@@ -33,6 +35,7 @@ interface PsbtDecodeState {
   website: string
   account: string
   statedRecipients: string
+  suppliedByWebsite: boolean
   status: AsyncStatus
 }
 
@@ -41,6 +44,7 @@ interface DecodedPsbtCacheEntry {
   website: string
   account: string
   statedRecipients: string
+  suppliedByWebsite: boolean
   decodedPsbt: DecodedPsbt
 }
 
@@ -186,6 +190,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     website: initialWebsite,
     account: currentAddress,
     statedRecipients: statedPsbtRecipients(initialToSignData).join('\n'),
+    suppliedByWebsite: isWebsiteSuppliedPsbt(initialToSignData),
     status: initialToSignData ? 'loading' : 'idle',
   })
   const [decodeAttempt, setDecodeAttempt] = useState(0)
@@ -247,6 +252,8 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const currentWebsite = session?.origin || ''
   // Joined so the decode effect re-runs only when the named recipients change.
   const currentStatedRecipients = statedPsbtRecipients(currentToSignData).join('\n')
+  // A website's sendQbit, which the wallet built, is reviewed as the wallet's own.
+  const currentSuppliedByWebsite = isWebsiteSuppliedPsbt(currentToSignData)
 
   const signedDatas = useRef<SignedData[]>([])
 
@@ -258,6 +265,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         website: currentWebsite,
         account: currentAddress,
         statedRecipients: currentStatedRecipients,
+        suppliedByWebsite: currentSuppliedByWebsite,
         status: 'idle',
       })
       return undefined
@@ -268,7 +276,8 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       cachedEntry?.psbtHex === currentToSignData.psbtHex &&
       cachedEntry.website === currentWebsite &&
       cachedEntry.account === currentAddress &&
-      cachedEntry.statedRecipients === currentStatedRecipients
+      cachedEntry.statedRecipients === currentStatedRecipients &&
+      cachedEntry.suppliedByWebsite === currentSuppliedByWebsite
     ) {
       setDecodeState({
         index: signingTxIndex,
@@ -276,6 +285,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         website: currentWebsite,
         account: currentAddress,
         statedRecipients: currentStatedRecipients,
+        suppliedByWebsite: currentSuppliedByWebsite,
         status: 'success',
       })
       return undefined
@@ -288,6 +298,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       website: currentWebsite,
       account: currentAddress,
       statedRecipients: currentStatedRecipients,
+      suppliedByWebsite: currentSuppliedByWebsite,
       status: 'loading',
     })
 
@@ -303,15 +314,18 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         website: currentWebsite,
         account: currentAddress,
         statedRecipients: currentStatedRecipients,
+        suppliedByWebsite: currentSuppliedByWebsite,
         status: 'error',
       })
     }, PSBT_DECODE_TIMEOUT_MS)
 
     Promise.resolve()
       .then(() =>
-        wallet.decodePsbt(currentToSignData.psbtHex, currentWebsite, {
-          statedRecipients: statedPsbtRecipients(currentToSignData),
-        })
+        wallet.decodePsbt(
+          currentToSignData.psbtHex,
+          currentWebsite,
+          psbtReviewOptions(currentToSignData)
+        )
       )
       .then(decodedPsbt => {
         if (generation !== decodeRequestGeneration.current) {
@@ -332,6 +346,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
             website: currentWebsite,
             account: currentAddress,
             statedRecipients: currentStatedRecipients,
+            suppliedByWebsite: currentSuppliedByWebsite,
             status: 'error',
           })
           return
@@ -341,6 +356,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
           website: currentWebsite,
           account: currentAddress,
           statedRecipients: currentStatedRecipients,
+          suppliedByWebsite: currentSuppliedByWebsite,
           decodedPsbt,
         }
         setDecodeState({
@@ -349,6 +365,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
           website: currentWebsite,
           account: currentAddress,
           statedRecipients: currentStatedRecipients,
+          suppliedByWebsite: currentSuppliedByWebsite,
           status: 'success',
         })
       })
@@ -365,6 +382,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
           website: currentWebsite,
           account: currentAddress,
           statedRecipients: currentStatedRecipients,
+          suppliedByWebsite: currentSuppliedByWebsite,
           status: 'error',
         })
       })
@@ -380,6 +398,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     currentWebsite,
     currentAddress,
     currentStatedRecipients,
+    currentSuppliedByWebsite,
     decodeAttempt,
     setCurrentAccount,
     signingTxIndex,
@@ -391,7 +410,8 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     currentDecodedPsbtEntry?.website === currentWebsite &&
     currentDecodedPsbtEntry.psbtHex === currentToSignData?.psbtHex &&
     currentDecodedPsbtEntry.account === currentAddress &&
-    currentDecodedPsbtEntry.statedRecipients === currentStatedRecipients
+    currentDecodedPsbtEntry.statedRecipients === currentStatedRecipients &&
+    currentDecodedPsbtEntry.suppliedByWebsite === currentSuppliedByWebsite
       ? currentDecodedPsbtEntry.decodedPsbt
       : undefined
 
@@ -400,7 +420,8 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     decodeState.psbtHex === (currentToSignData?.psbtHex || '') &&
     decodeState.website === currentWebsite &&
     decodeState.account === currentAddress &&
-    decodeState.statedRecipients === currentStatedRecipients
+    decodeState.statedRecipients === currentStatedRecipients &&
+    decodeState.suppliedByWebsite === currentSuppliedByWebsite
   const decodeError = isDecodeStateCurrent && decodeState.status === 'error'
 
   const networkFee = currentDecodedPsbt ? numUtils.satoshisToAmount(currentDecodedPsbt.fee) : '0'
@@ -439,6 +460,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       website: currentWebsite,
       account: currentAddress,
       statedRecipients: currentStatedRecipients,
+      suppliedByWebsite: currentSuppliedByWebsite,
       status: 'loading',
     })
     setDecodeAttempt(attempt => attempt + 1)
@@ -529,12 +551,15 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     setBatchRiskReview(null)
   }, [currentAddress])
 
-  // Joined so the analysis re-runs only when the batch's bytes or named
-  // recipients change, not on every render's new array.
+  // Joined so the analysis re-runs only when the batch's bytes, named
+  // recipients or who supplied them change, not on every render's new array.
   const localBatchKey = useMemo(
     () =>
       toSignDatas
-        .map(toSignData => `${toSignData.psbtHex}:${statedPsbtRecipients(toSignData).join(',')}`)
+        .map(
+          toSignData =>
+            `${toSignData.psbtHex}:${statedPsbtRecipients(toSignData).join(',')}:${isWebsiteSuppliedPsbt(toSignData)}`
+        )
         .join('\n'),
     [toSignDatas]
   )

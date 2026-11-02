@@ -509,6 +509,9 @@
   "continue_to": {
     "message": "Continue to"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "This site cannot be opened from the warning page."
+  },
   "copied": {
     "message": "Copied"
   },
@@ -743,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "Failed to save contact"
   },
+  "failed_to_save_contact_order": {
+    "message": "Failed to save the contact order"
+  },
   "fast": {
     "message": "Fast"
   },
@@ -754,6 +760,9 @@
   },
   "fee_rate": {
     "message": "Fee Rate"
+  },
+  "fee_estimates_unavailable": {
+    "message": "Fee estimates are unavailable."
   },
   "fee_estimates_unavailable_using_floor": {
     "message": "Fee estimates are unavailable. Using the $1 bit/vB relay floor."
@@ -889,6 +898,12 @@
   },
   "high_fee_rate_risk_title": {
     "message": "High fee rate detected"
+  },
+  "high_fee_risk_description": {
+    "message": "This transaction's fee is a large share of what it sends. Please ensure you understand the implications of this action before proceeding."
+  },
+  "high_fee_risk_title": {
+    "message": "High fee detected"
   },
   "high_priority": {
     "message": "High Priority"
@@ -1529,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. The wallet did not answer in time to open its full warning or let the page load. Try again, or close this tab."
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. It can let the page load now, but a reload could send again a form that opened the page. Select Try again to open its address afresh, without the form, or close this tab."
+  },
   "phishing_page_held_released_message": {
     "message": "Qbit Wallet stopped this page before it could run, because the site is on its list of phishing websites. Select Try again to load it, or close this tab."
   },
@@ -1691,6 +1709,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "Removing the last wallet is not allowed"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "A website's pending request was cancelled because the wallet was opened. Return to the website to try again."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "Request was Rejected. To Proceed,please reauthorize"
   },
@@ -1820,6 +1841,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "Set UTXO amount to be merged"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "The change was not saved, and the stored setting may have changed. Check this setting again after a restart."
+  },
   "settings": {
     "message": "Settings"
   },
@@ -1936,6 +1960,21 @@
   },
   "start_merging": {
     "message": "Start Merging"
+  },
+  "startup_error_title": {
+    "message": "Qbit Wallet could not start"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet could not read its stored settings, so it stopped without changing them."
+  },
+  "startup_error_unknown": {
+    "message": "Something went wrong while Qbit Wallet was starting."
+  },
+  "startup_error_retry": {
+    "message": "Retry"
+  },
+  "startup_error_retry_hint": {
+    "message": "Retry restarts Qbit Wallet, which may close this window; open it again afterwards."
   },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "Steal your private keys or seed phrases"
@@ -2690,6 +2729,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "This account holds more outputs than the explorer lists and has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Switch to it, open Send and choose Consolidate outputs until it is within the explorer's limit, then return here."
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "This account holds more outputs than the explorer lists, and the wallet could not read its whole history from the explorer to find them, so its funds have not been moved yet. This can clear once its pending transactions change, for example when one confirms. Choose Check status and resume later to try again."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Ready for review and signing"
   },
@@ -2975,6 +3017,72 @@
   "unrecognised_output_risk_description": {
     "message": "An output pays an address that is neither yours nor the recipient this request names, or a script with no address. Check every output before you sign."
   },
+  "psbt_output_change": {
+    "message": "Change"
+  },
+  "psbt_output_this_account": {
+    "message": "To this account"
+  },
+  "psbt_output_other_account": {
+    "message": "Your other account"
+  },
+  "psbt_after_signing": {
+    "message": "After signing"
+  },
+  "psbt_finalized": {
+    "message": "Finalized: the site can broadcast it"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Finalized: the site can broadcast it once its lock time has passed"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "Finalized: the site can broadcast it once the coins it spends are old enough"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Finalized: the site can broadcast it once its lock time has passed and the coins it spends are old enough"
+  },
+  "psbt_not_finalized": {
+    "message": "Signed, not finalized: the site or other signers must finalize it before it can be broadcast"
+  },
+  "psbt_locktime": {
+    "message": "Lock time"
+  },
+  "psbt_locktime_none": {
+    "message": "No lock"
+  },
+  "psbt_locktime_block": {
+    "message": "After block $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Valid once the network's median time passes $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 is not enforced: every input is final"
+  },
+  "psbt_relative_lock": {
+    "message": "Relative lock"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Input $1: once the coin it spends has 1 confirmation"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Input $1: once the coin it spends has $2 confirmations"
+  },
+  "psbt_relative_lock_short": {
+    "message": "Input $1: shortly after the coin it spends confirms (under two hours by block time)"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Input $1: once the coin it spends is about $2 hours old by block time"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Input $1: once the coin it spends is about $2 days old by block time"
+  },
+  "psbt_relative_lock_count": {
+    "message": "$1 of $2 inputs have a relative lock"
+  },
+  "psbt_tx_version": {
+    "message": "Version"
+  },
   "multisign_flagged_transactions": {
     "message": "Transactions that need a confirmation before signing: $1"
   },
@@ -2986,5 +3094,89 @@
   },
   "multisign_account_changed": {
     "message": "The account changed while the transactions were checked. Nothing was signed; check them again."
+  },
+  "recovery_phrase_is_not_valid": {
+    "message": "This recovery phrase is not valid. Check that each word and its position match your backup."
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "The pasted phrase has more words than there are boxes. Choose the phrase length that matches your backup, then paste it into the first box."
+  },
+  "phishing_protection": {
+    "message": "Phishing protection"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Fully on"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Starting"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Retrying"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Failed"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Not supported by this browser"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Degraded"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "Status unknown"
+  },
+  "phishing_protection_attempts": {
+    "message": "Attempts: $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Attempts: $1. Next attempt in $2 s."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Attempts: $1. Next attempt due now."
+  },
+  "phishing_protection_last_error": {
+    "message": "Last error: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Domains in the block rule: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Domains in the block rule: unknown"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "The block rule is not installed."
+  },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "The block rule has not been updated. The previous rule still blocks $1 domains."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "The block rule could not be read."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "The warning page rule is still in place without site access, so blocked pages may load."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "The warning page rule could not be read."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "Site access is withheld on some blocked sites, so the page check does not run there."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "Whether site access is withheld could not be read."
+  },
+  "phishing_protection_retry": {
+    "message": "Retry now"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "Retry failed."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "Retry failed: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "The block list ships with the extension and changes only with a release."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "The retry did not answer in time. It may still finish; the status above updates when it does."
   }
 }

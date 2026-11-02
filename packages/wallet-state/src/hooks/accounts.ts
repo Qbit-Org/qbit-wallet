@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useStore } from 'react-redux'
 
 import {
   Account,
@@ -19,7 +20,6 @@ import {
 import { keyringsActions } from '../reducers/keyrings'
 import { settingsActions } from '../reducers/settings'
 import { useAppDispatch, useAppSelector } from './base'
-import { useCurrentKeyring } from './keyrings'
 
 export function useAccountsState(): AppState['accounts'] {
   return useAppSelector(state => state.accounts)
@@ -98,19 +98,27 @@ export function useHistory() {
   )
 }
 
-export function useHistoryScopeKey() {
-  const currentAccount = useCurrentAccount()
-  const currentKeyring = useCurrentKeyring()
-  const chainType = useAppSelector(state => state.settings.chainType)
-  const anchorPubkey = currentKeyring.accounts[0]?.pubkey
+/**
+ * The key history is stored under: the selected account's own public key on
+ * the current network, as the background keys it (`getAddressHistory`
+ * returns it as `scopeKey`). The `qbit-account:` prefix never matches the
+ * `qbit:` keys earlier builds used for one history of every account.
+ */
+function selectHistoryScopeKey(state: AppState): string {
+  const currentAccount = state.accounts.current
+  const currentKeyring = state.keyrings.current
   if (
     currentAccount.type === KeyringType.QbitHdKeyring &&
     currentKeyring.type === KeyringType.QbitHdKeyring &&
-    anchorPubkey
+    currentAccount.pubkey
   ) {
-    return `qbit:${chainType}:${anchorPubkey.toLowerCase()}`
+    return `qbit-account:${state.settings.chainType}:${currentAccount.pubkey.toLowerCase()}`
   }
   return currentAccount.address
+}
+
+export function useHistoryScopeKey(): string {
+  return useAppSelector(selectHistoryScopeKey)
 }
 
 export function useAccountAddress() {
@@ -147,6 +155,7 @@ const HISTORY_FIRST_PAGE_SIZE = 20
 
 export function useFetchHistoryCallback() {
   const dispatch = useAppDispatch()
+  const store = useStore<AppState>()
   const wallet = useWallet()
   const address = useAccountAddress()
   const historyScopeKey = useHistoryScopeKey()
@@ -230,16 +239,22 @@ export function useFetchHistoryCallback() {
         })
       )
     } catch (error) {
-      if (generation === generationRef.current) {
+      // The background refuses a read whose account is no longer selected.
+      // That says nothing about this account's history, so only a failure
+      // for the account still selected is recorded against it.
+      if (
+        generation === generationRef.current &&
+        selectHistoryScopeKey(store.getState()) === historyScopeKey
+      ) {
         dispatch(accountActions['setHistoryError']!({ address: historyScopeKey }))
       }
       throw error
     }
-  }, [dispatch, wallet, address, historyScopeKey])
+  }, [dispatch, store, wallet, address, historyScopeKey])
 }
 
 /**
- * Refetch the active logical account's first history page on mount and on an interval
+ * Refetch the selected account's first history page on mount and on an interval
  * while mounted. The 60s default matches the qbit block cadence, so
  * confirmation counts, reorg flips and replaced (RBF) txs surface within one
  * block. Returns the same generation-guarded callback used by the poller so

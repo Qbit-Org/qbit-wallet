@@ -175,13 +175,24 @@ Controls and evidence:
 
 Residual risk:
 
-- chain observation cannot see message signatures or transactions that were
-  signed but never broadcast. A stale backup or maliciously incomplete indexer
-  can therefore understate the restored usage floor. This is a bounded-signing
-  budget and stale-backup risk, not evidence that the current SLH-DSA primitive
-  reuses a stateful one-time key. Release UX must retain restored-floor and
+- chain observation cannot see message signatures, transactions that were
+  signed but never broadcast, or transactions a fee bump replaced (each Speed
+  up signs every input again, and the replaced transaction drops out of the
+  history). A stale backup or maliciously incomplete indexer can therefore
+  understate the restored usage floor. This is a bounded-signing budget and
+  stale-backup risk, not evidence that the current SLH-DSA primitive reuses a
+  stateful one-time key. Release UX must retain restored-floor and
   concurrent-instance warnings; a stronger multi-source/authenticated restore
   design requires protocol/product work.
+- a lying or buggy indexer can also overstate the floor of an address whose
+  history is too long to enumerate, since that floor is read from the
+  address statistics. No path lowers a floor, so one near the 2^30 budget
+  would keep the account from signing until the wallet is restored against
+  an honest indexer or its descriptor is exported to Qbit Core. The wallet
+  refuses statistics that list more outputs than their transactions can
+  carry, and floors at or above the 2^28-signature warning threshold;
+  self-consistent statistics below it are still accepted, so an inflated
+  floor can still use up to a quarter of the budget.
 
 ## WASM and extension supply chain
 
@@ -298,7 +309,26 @@ Controls and evidence:
   `failed`, `unknown` or `unsupported`, with the reason and the number of
   domains the browser holds), read back from the browser rather than assumed.
   A rule found missing at such a read reads as `retrying` and is installed
-  again, and `FORCE_UPDATE_PHISHING_LIST` installs it again too;
+  again, and `FORCE_UPDATE_PHISHING_LIST` installs it again too. With DNR it
+  also reports `protection`, the state of the network layer as a whole:
+  `degraded` while the block rule is not installed or a redirect rule without
+  host access may still be in place, `unknown` while either cannot be read
+  or the redirect rule's state does not arrive within two seconds, and
+  `full` otherwise, with the reasons and the redirect rule's own state
+  (`installed`, `not-wanted`, `missing`, `removing`, `removal-failed` or
+  `unknown`), its host access, last error and next retry; the block rule's
+  health comes back whatever happens to that read. The read takes the
+  redirect rule and host access from the browser as they stand: it does not
+  wait for an update to that rule, and no update waits for it, so a read the
+  browser holds up delays no removal. Concurrent requests share one read
+  until a request gives up on it. A read that finds a redirect rule in place
+  without host access, with no attempt scheduled or queued, starts its
+  removal once its answer reaches a request still waiting for it; it
+  neither clears a recorded failure nor supersedes a queued retry. The
+  wallet's Advanced settings screen shows the block rule's state, or the
+  overall state once that rule is installed, with the overall reasons and
+  the block rule's health, and Retry now; it does not show the redirect
+  rule's own state;
 - above the block rule, a session `redirect` rule sends a top-level
   navigation to a denylisted host to the wallet's warning page before it
   reaches the network, however the tab got there: a link, a typed URL, a
@@ -337,6 +367,13 @@ Controls and evidence:
   link in the same tab is cancelled before the browser starts that
   navigation, so the blocked page cannot replace the warning page; for a host
   the user proceeded to, the content script then follows the link itself.
+  While the redirect rule is in place, a link that opens a new tab or window
+  (target `_blank`, or a Ctrl-, Cmd- or Shift-click) gets the warning in the
+  new tab from that rule, and the background leaves the source tab and its
+  page alone. It sends the source tab to the warning page as above unless it
+  confirms within a second, from the browser's rules and host access, that
+  the redirect rule is in place for that canonical host with no update to it
+  queued or running.
   After any redirect to the warning page, the background waits for the tab to
   stop loading and redirects it once more if it shows neither one of the
   wallet's pages nor a page the content script runs on, which Chrome's
@@ -346,7 +383,9 @@ Controls and evidence:
   script stops the page (`window.stop()`) at `document_start`, before any of
   the page's own script runs, and waits for the background. That covers a
   network layer that is missing, for example because its rule failed to
-  install. A page the background sends to the warning page stays stopped,
+  install, on the sites the wallet may access: the browser runs no content
+  script where the user withholds site access. A page the background sends
+  to the warning page stays stopped,
   and one whose check does not answer within 3 seconds, or whose warning page
   does not arrive, shows a notice with a retry instead of a blank page. A
   page the background lets through, because the user proceeded to it, is
@@ -377,6 +416,11 @@ Controls and evidence:
   hosts and is restored from the session rules when the service worker
   restarts, so the content script's verdict agrees with the network layer.
   Session rules end with the browser session or an extension update;
+- the warning screen offers Proceed only for a hostname that passes the same
+  DNR hostname check (`parseDnrDomain`) as the background's; for any other,
+  such as a denylisted name outside DNS syntax, it offers none and says that
+  the site cannot be opened from there, as it does when the background
+  refuses a Proceed it offered;
 - the warning page returns only to an http(s) URL on the warned host, and
   otherwise to that host's HTTPS root;
 - approval checks use the strict `checkWebsite()` verdict, which ignores
@@ -391,9 +435,14 @@ Controls and evidence:
   reaching the server, after which Proceed loads the site; that with site
   access withheld in the browser's extension settings a direct navigation
   fails with `net::ERR_BLOCKED_BY_CLIENT` without reaching the server, and
-  shows the warning again once access is granted; and that a link click shows
-  the warning with the full URL, also when the service worker is already
-  running at the click, after which Proceed loads that URL once, without
+  shows the warning again once access is granted, while the reported
+  protection stays `full` with the redirect rule `not-wanted` and then
+  `installed`; that a link opening a new tab shows the warning in that tab
+  while the source tab keeps its page; that the reported protection is
+  `full` with both rules in place; that the warning screen for a denylisted
+  name outside DNS syntax offers no Proceed and says why; and that a link
+  click shows the warning with the full URL, also when the service worker is
+  already running at the click, after which Proceed loads that URL once, without
   returning to the warning or exposing the provider, while the other host
   still gets the warning. With the block rule removed, a direct navigation
   shows the warning without running the page's inline script, the reported
@@ -412,8 +461,21 @@ Residual risk:
   offers Proceed. The content script does not run on withheld sites either.
   Between the moment access is withheld and the background removing the
   rule, and for as long as that removal keeps failing, a navigation to a
-  denylisted host is redirected nowhere and loads. A
+  denylisted host is redirected nowhere and loads; `GET_PHISHING_STATS`
+  reports that window as `protection` `degraded`, with the redirect rule
+  `removing` or `removal-failed`. A
   denylisted page in a frame always gets the browser's blocked page;
+- while the block rule is not installed (`installing`, `retrying` or
+  `failed`) and the user withholds the wallet's site access on a denylisted
+  site ("On click", or "On specific sites" without that site), nothing stops
+  a page there unless an earlier block rule still names its domain: the
+  redirect rule is removed, and the content script's hold
+  does not run, so the page loads and runs its own script. The
+  `GET_PHISHING_STATS` health reports this as `protection` `degraded` with
+  `block-rule-not-installed`, or `block-rule-outdated` while a block rule
+  from an earlier install still blocks some domains, and
+  `site-access-withheld`, or `site-access-unknown` when the browser cannot
+  say, and the wallet's Advanced settings screen shows those reasons;
 - an enterprise policy that blocks the wallet on a denylisted host
   (`runtime_blocked_hosts`) was not tested. If Chrome still reports host
   access there through `permissions.contains`, the redirect rule stays in
@@ -488,6 +550,11 @@ Residual risk:
   estimates. That can deny service or influence a user-approved fee. The wallet
   cannot prove global chain completeness from one unauthenticated indexer.
   Multi-provider/Core-backed verification is separate architecture work.
+- an allowed indexer can inflate the address statistics a restore floor is
+  read from. Statistics that list more outputs than their transactions can
+  carry, and floors at or above the 2^28-signature warning threshold, are
+  refused; a smaller inflated floor stands, because floors only rise. See
+  [PQC counter custody and restoration](#pqc-counter-custody-and-restoration).
 - the explorer refuses to list the outputs of an address over its
   `--utxos-limit` (the wallet assumes electrs' default of 500). The wallet then
   reads them from the address's history, which fails closed, or consolidates

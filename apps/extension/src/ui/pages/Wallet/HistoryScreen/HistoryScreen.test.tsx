@@ -119,7 +119,7 @@ describe('HistoryScreen lifecycle badges', () => {
     vi.mocked(useAccountAddress).mockReturnValue(ADDRESS);
     refreshHistory.mockResolvedValue(undefined);
     vi.mocked(useHistoryAutoRefresh).mockReturnValue(refreshHistory);
-    vi.mocked(useHistoryScopeKey).mockReturnValue('qbit:regtest:keyring-one');
+    vi.mocked(useHistoryScopeKey).mockReturnValue('qbit-account:regtest:account-one');
     vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
     vi.mocked(useQbitUnit).mockReturnValue('QBIT' as any);
     vi.mocked(useTools).mockReturnValue({ showLoading: vi.fn() } as any);

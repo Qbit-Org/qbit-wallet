@@ -6,8 +6,9 @@ import {
   QbitWalletMempoolClient,
   getQbitAccountHistory,
 } from '../src/utils/qbit-api'
-import { classifyQbitBroadcastError } from '../src/utils/qbit-broadcast'
+import { classifyQbitBroadcastError, isQbitBroadcastResendable } from '../src/utils/qbit-broadcast'
 import {
+  QbitExplorerOperation,
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
   QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS,
   QBIT_EXPLORER_HEADERS_TIMEOUT_MS,
@@ -195,7 +196,7 @@ describe('explorer reads over a slow link (#353)', () => {
     ['by default', {}],
     ['when timeoutMs is passed as undefined', { timeoutMs: undefined }],
   ] as const) {
-    it(`stops a body that trickles in just inside the idle budget at the attempt ceiling ${label}`, async () => {
+    it(`stops a body that trickles in just inside the idle budget at the attempt ceiling, without trying again, ${label}`, async () => {
       const explorer = consolidatedExplorer('esplora')
       explorer.slowResponses.push({
         match: isHistoryPage,
@@ -210,12 +211,63 @@ describe('explorer reads over a slow link (#353)', () => {
 
       const result = await settle(client.getAddressHistoryPage(address), 1_000)
 
+      // Bytes were still arriving at the ceiling, so a second attempt would
+      // be no faster: the read fails after about 5 minutes, not 15 (#56).
       expectTimeout((result as { error: unknown }).error)
-      expect(result.elapsedMs).toBeGreaterThanOrEqual(3 * QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS)
-      expect(result.elapsedMs).toBeLessThan(3 * QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS + 5_000)
-      expect(explorer.releasedBodies).toHaveLength(3)
+      expect(result.elapsedMs).toBeGreaterThanOrEqual(QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS)
+      expect(result.elapsedMs).toBeLessThan(QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS + 5_000)
+      expect(explorer.requests.filter(isHistoryPage)).toHaveLength(1)
+      expect(explorer.releasedBodies).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
     })
   }
+
+  for (const surface of ['esplora', 'mempool-qbit'] as const) {
+    it(`keeps one ceiling for a ${surface} transaction read whose first attempt failed fast`, async () => {
+      const explorer = consolidatedExplorer(surface)
+      const txid = fakeTxid(0)
+      const isTx = ({ path }: { path: string }) => path === `/tx/${txid}`
+      // A 502, then a body that trickles in just inside the idle budget.
+      let failed = false
+      explorer.failures.push(request => {
+        if (failed || !isTx(request)) return undefined
+        failed = true
+        return { status: 502 }
+      })
+      explorer.slowResponses.push({
+        match: isTx,
+        chunkBytes: 16,
+        intervalMs: QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS - 1_000,
+      })
+      const client =
+        surface === 'esplora'
+          ? new QbitWalletEsploraClient({ baseUrl: BASE, fetchFn: explorer.fetch })
+          : new QbitWalletMempoolClient({ baseUrl: BASE, fetchFn: explorer.fetch })
+
+      const result = await settle(client.getTx(txid), 1_000)
+
+      expectTimeout((result as { error: unknown }).error)
+      expect(result.elapsedMs).toBeLessThan(QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS + 5_000)
+      expect(explorer.requests.filter(isTx)).toHaveLength(2)
+      expect(explorer.releasedBodies).toEqual([`/tx/${txid}`])
+    })
+  }
+
+  it('still retries a small reply that fails, under its own budget', async () => {
+    const explorer = consolidatedExplorer('esplora')
+    let failures = 2
+    explorer.failures.push(request => {
+      if (failures === 0 || request.path !== '/blocks/tip/height') return undefined
+      failures -= 1
+      return { status: 503 }
+    })
+    const client = new QbitWalletEsploraClient({ baseUrl: BASE, fetchFn: explorer.fetch })
+
+    const result = await settle(client.getTipHeight())
+
+    expect(result).toMatchObject({ value: explorer.tipHeight })
+    expect(explorer.requests.filter(({ path }) => path === '/blocks/tip/height')).toHaveLength(3)
+  })
 
   it('reports a body cut off by a reset as the client always has: parse, with its status, not retried', async () => {
     const explorer = consolidatedExplorer('mempool-qbit')
@@ -286,7 +338,7 @@ describe('explorer reads over a slow link (#353)', () => {
     expect((error as Error).message).not.toContain('apikey')
   })
 
-  it('fails a body longer than the buffer limit as unreadable, and releases it', async () => {
+  it('fails a body longer than the buffer limit as too large, without trying again, and releases it', async () => {
     // 1 MiB chunks of one shared buffer, without end.
     const chunk = new Uint8Array(MB)
     let sentBytes = 0
@@ -311,7 +363,7 @@ describe('explorer reads over a slow link (#353)', () => {
 
     const error = await client.getAddressHistoryPage(address).catch(e => e)
 
-    expect(error).toMatchObject({ kind: 'parse', status: 200 })
+    expect(error).toMatchObject({ kind: 'response_too_large', status: 200 })
     expect(endless).toHaveBeenCalledTimes(1)
     expect(sentBytes).toBeGreaterThan(QBIT_EXPLORER_MAX_BODY_BYTES)
     expect(sentBytes).toBeLessThanOrEqual(QBIT_EXPLORER_MAX_BODY_BYTES + 3 * MB)
@@ -368,7 +420,7 @@ describe('explorer submissions keep their outcome classification (#353)', () => 
     expect(explorer.releasedBodies).toEqual(['/tx'])
   })
 
-  it('retries a 429 whose body stalls, since nothing was submitted', async () => {
+  it('reports a 429 whose body stalls as an unknown outcome, sent once', async () => {
     const explorer = new FakeQbitExplorer('esplora')
     explorer.failures.push(({ method }) =>
       method === 'POST' ? { status: 429, body: 'slow down' } : undefined
@@ -382,11 +434,69 @@ describe('explorer submissions keep their outcome classification (#353)', () => 
 
     const result = await settle(client.broadcastTx('00'))
 
+    // The unread body may have said the node already has the transaction, so
+    // the client does not send it again, and the wallet reports a timeout.
     const error = (result as { error: unknown }).error
-    expect(QbitApiError.is(error) && error.kind).toBe('rate_limit')
-    expect(explorer.requests.filter(request => request.method === 'POST')).toHaveLength(3)
-    // Each stalled 429 is let go at the idle budget, not the attempt ceiling.
-    expect(result.elapsedMs).toBeLessThan(3 * (QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS + 1_000))
-    expect(explorer.releasedBodies).toEqual(['/tx', '/tx', '/tx'])
+    expect(QbitApiError.is(error) && error.kind).toBe('unknown_outcome')
+    expect(classifyQbitBroadcastError(error)).toMatchObject({
+      reason: 'timeout',
+      definitiveRejection: false,
+    })
+    expect(isQbitBroadcastResendable(error)).toBe(true)
+    expect(explorer.requests.filter(request => request.method === 'POST')).toHaveLength(1)
+    expect(result.elapsedMs).toBeLessThan(QBIT_EXPLORER_REPLY_TIMEOUT_MS + 1_000)
+    expect(explorer.releasedBodies).toEqual(['/tx'])
+  })
+})
+
+describe('one deadline for the explorer reads of an operation (#56)', () => {
+  it('hands each read the time left, at most its own budget, and none once it has passed', () => {
+    const operation = new QbitExplorerOperation(120_000)
+    expect(operation.read()).toEqual({ deadlineMs: 120_000 })
+    vi.advanceTimersByTime(110_000)
+    expect(operation.read()).toEqual({ deadlineMs: 10_000 })
+    expect(operation.read(15_000)).toEqual({ deadlineMs: 10_000 })
+    expect(operation.read(5_000)).toEqual({ deadlineMs: 5_000 })
+    vi.advanceTimersByTime(10_000)
+    expect(() => operation.read()).toThrow('operation exceeded its 120000ms deadline')
+    try {
+      operation.read()
+    } catch (error) {
+      expectTimeout(error)
+    }
+  })
+
+  it('carries its signal to every read, and stops them all once it aborts', () => {
+    const controller = new AbortController()
+    const operation = new QbitExplorerOperation(undefined, controller.signal)
+    expect(operation.read()).toEqual({ signal: controller.signal })
+    expect(operation.read(15_000)).toEqual({ signal: controller.signal, deadlineMs: 15_000 })
+    controller.abort(new Error('nothing waits'))
+    expect(() => operation.read()).toThrow('nothing waits')
+  })
+
+  it('stops waiting for work no read of it bounds once the deadline passes', async () => {
+    const operation = new QbitExplorerOperation(30_000)
+    const outcome = operation.within(new Promise(() => undefined)).catch(error => error)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expectTimeout(await outcome)
+    expect(vi.getTimerCount()).toBe(0)
+    await expect(operation.within(Promise.resolve(1))).rejects.toMatchObject({ kind: 'timeout' })
+  })
+
+  it('aborts the reads of a client still in flight when the deadline passes', async () => {
+    const explorer = consolidatedExplorer('mempool-qbit')
+    explorer.slowResponses.push({ match: isHistoryPage, ...SLOW_LINK })
+    const client = new QbitWalletMempoolClient({ baseUrl: BASE, fetchFn: explorer.fetch })
+    const operation = new QbitExplorerOperation(5_000)
+
+    const result = await settle(client.getAddressHistoryPage(address, undefined, operation.read()))
+
+    expectTimeout((result as { error: unknown }).error)
+    expect(result.elapsedMs).toBe(5_000)
+    const page = `/address/${address}/txs`
+    expect(explorer.releasedBodies).toEqual([page])
+    expect(explorer.requests.filter(isHistoryPage)).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

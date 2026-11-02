@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Button, Card, Checkbox, Column, Icon, Row, Switch, Text } from '@/ui/components';
 import { Popover } from '@/ui/components/Popover';
 import { colors } from '@/ui/theme/colors';
+import { ErrorCodes } from '@qbit/wallet-shared';
 import { useI18n, useTools, useWallet } from '@qbit/wallet-state';
 
 export function EnableSignDataCard() {
@@ -11,6 +12,12 @@ export function EnableSignDataCard() {
   const [enableSignData, setEnableSignData] = useState(false);
   const { t } = useI18n();
   const reportSaveError = (e: unknown) => {
+    // The previous value could not be saved again either, so the switch may not
+    // match what the wallet loads after a restart.
+    if ((e as { code?: unknown } | null)?.code === ErrorCodes.PREFERENCE_NOT_RESTORED) {
+      tools.toastError(t('setting_not_saved_may_have_changed'));
+      return;
+    }
     tools.toastError((e as Error)?.message || t('unknown_error'));
   };
   const [enableSignDataPopoverVisible, setEnableSignDataPopoverVisible] = useState(false);

@@ -91,12 +91,12 @@
     },
     "coverageMap": {
       "path": "scripts/conformance/p2mr-v1-coverage.json",
-      "sha256": "d3e70d06a2078e3be6f4bd1cf5b533933bc58cca7481aab75da969dc2d738b7b"
+      "sha256": "54ae6652c6522ee1fb012e8034701e6e5ffe2b1bb98c665e58aebdc5319994c3"
     },
     "fixtureDigest": {
       "algorithm": "sha256",
       "canonicalization": "sha256-canonical-json-v1: recursively sort object keys, preserve array order, omit provenance.fixtureDigest.value, JSON.stringify without whitespace, UTF-8",
-      "value": "be97f31818af2a8751d90f5ec41fd9e59a6b0d8301c70e801b38e9a80aa8d7f2"
+      "value": "01f9a62ab21cd105908f8b8f3b4d41d04c005b22f9ad3605fd3346e3653b5fb9"
     }
   },
   "commitments": {

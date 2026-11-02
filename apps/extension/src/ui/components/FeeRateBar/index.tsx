@@ -8,7 +8,11 @@ import { Input } from '../Input';
 import { Row } from '../Row';
 import { Text } from '../Text';
 
-export function FeeRateBar({ readonly, headerRight }: { readonly?: boolean; headerRight?: ReactNode }) {
+export function FeeRateBar({
+  readonly,
+  quote,
+  headerRight
+}: Parameters<typeof useFeeRateBarLogic>[0] & { headerRight?: ReactNode }) {
   const {
     feeOptions,
     feeOptionIndex,
@@ -24,7 +28,8 @@ export function FeeRateBar({ readonly, headerRight }: { readonly?: boolean; head
     feeEstimateUnavailable,
     fallbackFeeRate
   } = useFeeRateBarLogic({
-    readonly
+    readonly,
+    quote
   });
 
   const { t } = useI18n();
@@ -37,7 +42,8 @@ export function FeeRateBar({ readonly, headerRight }: { readonly?: boolean; head
       </Row>
 
       <Row justifyCenter>
-        {feeOptions.map((v, index) => {
+        {feeOptions.map((v) => {
+          const index = v.index;
           let selected = index === feeOptionIndex;
           if (readonly) {
             selected = false;
@@ -106,7 +112,11 @@ export function FeeRateBar({ readonly, headerRight }: { readonly?: boolean; head
 
       {feeEstimateUnavailable ? (
         <Text
-          text={t('fee_estimates_unavailable_using_floor', [String(fallbackFeeRate)])}
+          text={
+            fallbackFeeRate === undefined
+              ? t('fee_estimates_unavailable')
+              : t('fee_estimates_unavailable_using_floor', [String(fallbackFeeRate)])
+          }
           size="xs"
           color="warning"
           data-testid="fee-estimates-unavailable"

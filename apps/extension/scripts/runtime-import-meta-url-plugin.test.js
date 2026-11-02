@@ -16,6 +16,8 @@ const extensionDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(extensionDir, '../..');
 const pqcLoaderPath = fs.realpathSync(require.resolve('@qbit-oss/pqc/wasm/pqc.mjs', { paths: [extensionDir] }));
 const pqcWasmPath = fs.realpathSync(require.resolve('@qbit-oss/pqc/wasm/pqc.wasm', { paths: [extensionDir] }));
+const pqcEntryPath = fs.realpathSync(require.resolve('@qbit-oss/pqc', { paths: [extensionDir] }));
+const pqcCorePath = path.join(path.dirname(pqcEntryPath), 'core.mjs');
 const extensionOrigin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
 
 // The configuration `build:chrome:mv3` compiles (it also sets the production
@@ -77,13 +79,31 @@ function bundle(context, entry, plugins) {
   });
 }
 
-test('the extension build rewrites import.meta.url only in the PQC Emscripten loader', () => {
+test('the extension build rewrites import.meta.url only in the PQC Emscripten loader and lib/core.mjs', () => {
   const plugin = releasePlugin();
 
   assert.equal(plugin.test.test(pqcLoaderPath), true);
+  assert.equal(plugin.test.test(pqcCorePath), true);
   assert.equal(plugin.test.test(pqcWasmPath), false);
-  assert.equal(plugin.test.test(path.join(path.dirname(pqcLoaderPath), '../lib/index.mjs')), false);
+  assert.equal(plugin.test.test(pqcEntryPath), false);
   assert.throws(() => new RuntimeImportMetaUrlPlugin({ test: 'pqc.mjs' }), /requires a RegExp/);
+});
+
+// @qbit-oss/pqc 0.1.1's lib/core.mjs resolves a relative `moduleUrl` with
+// `new URL(moduleUrl, import.meta.url)`, which webpack cannot treat as an asset.
+test('without the plugin webpack inlines the builder path into the PQC package entry', async (context) => {
+  const { bundle: output } = await bundle(context, pqcEntryPath, []);
+
+  assert.ok(output.includes(pathToFileURL(pqcCorePath).href), 'webpack no longer inlines lib/core.mjs');
+});
+
+test('the bundled PQC package entry carries no builder path and still emits the WASM asset', async (context) => {
+  const { outputPath, bundle: output } = await bundle(context, pqcEntryPath, [releasePlugin()]);
+
+  assert.doesNotMatch(output, /file:\/\/\//);
+  assert.equal(output.includes(repoRoot), false, 'bundle embeds the checkout path');
+  assert.equal(output.includes(os.homedir()), false, 'bundle embeds the home directory');
+  assert.deepEqual(fs.readFileSync(path.join(outputPath, 'wasm/pqc.wasm')), fs.readFileSync(pqcWasmPath));
 });
 
 test('without the plugin webpack inlines the builder path into the PQC loader (#338 control)', async (context) => {
@@ -154,8 +174,12 @@ test('the parser does not fold conditions on import.meta.url to the builder path
   const fixturePath = path.join(fixtureDirectory, 'loader.mjs');
   fs.writeFileSync(
     fixturePath,
-    // Webpack folds `indexOf` on a compile-time string.
-    'export const where = import.meta.url.indexOf("file:") === 0 ? "node" : "web";\nexport const url = import.meta.url;\n'
+    // Webpack folds `indexOf` on a compile-time string. A non-static
+    // `import.meta.resolve` would make webpack build an `import.meta` object
+    // holding the file URL.
+    'export const where = import.meta.url.indexOf("file:") === 0 ? "node" : "web";\nexport const url = import.meta.url;\n' +
+      'export const resolver = typeof import.meta.resolve;\n' +
+      'export const resolve = (specifier) => import.meta.resolve(specifier);\n'
   );
   const { bundle: output } = await bundle(context, fixturePath, [
     new RuntimeImportMetaUrlPlugin({ test: /loader\.mjs$/ })
@@ -168,4 +192,9 @@ test('the parser does not fold conditions on import.meta.url to the builder path
   vm.runInContext(output, sandbox, { filename: 'background.js' });
   assert.equal(sandbox.bundled.where, 'web');
   assert.equal(sandbox.bundled.url, `${extensionOrigin}/background.js`);
+  assert.equal(sandbox.bundled.resolver, 'undefined');
+  assert.throws(
+    () => sandbox.bundled.resolve('./x.js'),
+    (error) => error.name === 'TypeError'
+  );
 });

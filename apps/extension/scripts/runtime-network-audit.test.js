@@ -85,7 +85,7 @@ function loadRuntimeModules() {
   );
   const qbitApi = loadTypeScriptModule(path.relative(repoRoot, path.join(qbitApiRoot, 'lib/index.mjs')), {
     // Hashing only, for txid checks; it opens no connections.
-    '@noble/hashes/sha256': require(require.resolve('@noble/hashes/sha256', { paths: [qbitApiRoot] }))
+    '@noble/hashes/sha2': require(require.resolve('@noble/hashes/sha2', { paths: [qbitApiRoot] }))
   });
 
   return { common, explorer, qbitApi };

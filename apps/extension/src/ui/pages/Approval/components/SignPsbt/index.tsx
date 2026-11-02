@@ -27,7 +27,7 @@ import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
 import { numUtils } from '@qbit/base-utils';
-import { AccountSignMethod, ToSignData } from '@qbit/wallet-shared';
+import { AccountSignMethod, ToSignData, isWebsiteSuppliedPsbt } from '@qbit/wallet-shared';
 import {
   PsbtLocalInfo,
   SignPsbtProps,
@@ -82,7 +82,9 @@ function TransactionItem(
             <Text text={`${t('transaction')} ${index + 1}`} preset="bold" style={{ flexShrink: 0 }} />
             {psbtInfo && psbtInfo.risks.length > 0 && (
               <Text
-                text={`⚠ ${psbtInfo.risks.map((risk) => t(getRiskContentKey(risk.type).title)).join(', ')}`}
+                text={`⚠ ${psbtInfo.risks
+                  .map((risk) => t(getRiskContentKey(risk.type, psbtInfo.spendSummary?.feeAssessment).title))
+                  .join(', ')}`}
                 size="xs"
                 color="dangerText"
                 ellipsis
@@ -424,6 +426,7 @@ export default function SignPsbt(props: SignPsbtProps) {
     return (
       <ColdWalletSignPsbt
         psbtHex={currentToSignData.psbtHex}
+        suppliedByWebsite={isWebsiteSuppliedPsbt(currentToSignData)}
         onSuccess={onColdWalletSigningSuccess}
         onCancel={onColdWalletSigningBack}
         header={header}

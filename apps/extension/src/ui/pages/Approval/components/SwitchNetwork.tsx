@@ -1,16 +1,18 @@
 import { Button, Card, Column, Content, Footer, Header, Layout, Row, Text } from '@/ui/components';
 import WebsiteBar from '@/ui/components/WebsiteBar';
-import { NETWORK_TYPES } from '@qbit/wallet-shared';
-import { useApproval, useI18n, useNetworkType } from '@qbit/wallet-state';
-import { NetworkType } from '@qbit/wallet-types';
+import { CHAINS_MAP, chainForNetwork } from '@qbit/wallet-shared';
+import type { QbitProviderApprovalContext, QbitProviderNetwork } from '@qbit/wallet-shared';
+import { useApproval, useChainType, useI18n } from '@qbit/wallet-state';
 
 interface Props {
   /** The approval this screen renders; its buttons settle only it. */
   approvalId?: string;
   params: {
     data: {
-      networkType: NetworkType;
+      network: QbitProviderNetwork;
     };
+    /** The request's context: the chain it switches from. */
+    context?: QbitProviderApprovalContext;
     session: {
       origin: string;
       icon: string;
@@ -19,10 +21,10 @@ interface Props {
   };
 }
 
-export default function SwitchNetwork({ approvalId, params: { data, session } }: Props) {
-  const networkType = useNetworkType();
-  const from = NETWORK_TYPES[networkType];
-  const to = NETWORK_TYPES[data.networkType];
+export default function SwitchNetwork({ approvalId, params: { data, context, session } }: Props) {
+  const chainType = useChainType();
+  const from = CHAINS_MAP[context?.chain ?? chainType];
+  const to = CHAINS_MAP[chainForNetwork(data.network)];
   const { t } = useI18n();
 
   const { resolveApproval, rejectApproval } = useApproval();

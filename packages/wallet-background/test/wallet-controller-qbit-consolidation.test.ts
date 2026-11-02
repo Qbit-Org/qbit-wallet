@@ -15,7 +15,7 @@ import {
 } from '@qbit-oss/protocol'
 import { KeyringType, isQbitStandardTxSize, type ToSignData } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
-import { WalletController } from '../src/controllers/wallet'
+import { QBIT_CONSOLIDATION_BATCH_DEADLINE_MS, WalletController } from '../src/controllers/wallet'
 import { keyringService, preferenceService, qbitSendGuardService } from '../src/services'
 import { FakeQbitExplorer, fakeTxid, type FakeTx } from './qbit-fake-explorer'
 
@@ -31,6 +31,7 @@ vi.mock('../src/services', async () => {
       keyrings: [],
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
+      memStore: { getState: () => ({ isUnlocked: true }) },
     },
     preferenceService: {
       getCurrentAccount: vi.fn(),
@@ -141,6 +142,40 @@ function inputsOf(toSignData: ToSignData): string[] {
   )
 }
 
+const isHistoryPage = ({ path }: { path: string }) => /\/txs(\/chain|\?|$)/.test(path)
+const MB = 1024 * 1024
+
+/**
+ * The account's first history page, about 30 MB as a page of large
+ * consolidations would be, at about 1 Mbit/s: four minutes, longer than a
+ * batch used to be allowed, within the large-read ceiling.
+ */
+function firstPageAtOneMegabit() {
+  let pages = 0
+  return {
+    match: (request: { method: string; path: string }) => isHistoryPage(request) && ++pages === 1,
+    chunkBytes: 128 * 1024,
+    intervalMs: 1_000,
+    padToBytes: 30 * MB,
+  }
+}
+const pageRequests = (explorer: FakeQbitExplorer) => explorer.requests.filter(isHistoryPage).length
+
+/** Advance fake time until `promise` settles; resolves to its outcome and the time it took. */
+async function settle<T>(promise: Promise<T>, stepMs = 100, maxMs = 30 * 60_000) {
+  const startedAt = Date.now()
+  let outcome: { value: T } | { error: unknown } | undefined
+  promise.then(
+    value => (outcome = { value }),
+    error => (outcome = { error })
+  )
+  while (outcome === undefined && Date.now() - startedAt < maxMs) {
+    await vi.advanceTimersByTimeAsync(stepMs)
+  }
+  if (outcome === undefined) throw new Error(`still pending after ${maxMs}ms`)
+  return { ...outcome, elapsedMs: Date.now() - startedAt }
+}
+
 async function signBatch(wallet: WalletController, toSignData: ToSignData) {
   return wallet.signPsbtV2(toSignData)
 }
@@ -175,6 +210,7 @@ describe('WalletController consolidation of an account over the explorer UTXO li
   })
 
   afterEach(async () => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     await qbitSendGuardService.resetAllData()
   })
@@ -613,5 +649,295 @@ describe('WalletController consolidation of an account over the explorer UTXO li
     const expected = explorer.unspent(account.address, { confirmedOnly: true })
     expected.delete(`${fixture.immature.txid}:0`)
     expect(new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))).toEqual(expected)
+  })
+
+  describe('over a slow explorer (#56)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    it('finishes a batch whose first page arrives at about 1 Mbit/s and takes four minutes', async () => {
+      explorer = overLimitAccount().explorer
+      explorer.slowResponses.push(firstPageAtOneMegabit())
+      const wallet = controller()
+
+      const result = await settle(wallet.createQbitConsolidationPsbt({ feeRate: 1 }), 1_000)
+
+      expect(result).not.toHaveProperty('error')
+      expect(inputsOf((result as { value: ToSignData }).value)).toHaveLength(106)
+      // Longer than the 180 s a batch had before, within its deadline now.
+      expect(result.elapsedMs).toBeGreaterThan(180_000)
+      expect(result.elapsedMs).toBeLessThanOrEqual(QBIT_CONSOLIDATION_BATCH_DEADLINE_MS)
+      expect(explorer.releasedBodies).toEqual([])
+    })
+
+    it("starts a batch's deadline once it has the account's scan, not while it waits for another", async () => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+      // Another Prepare holds the account's scan for five minutes.
+      let release: () => void = () => undefined
+      vi.spyOn(wallet as any, 'selectQbitConsolidationInputs').mockImplementationOnce(
+        () => new Promise(resolve => (release = () => resolve([])))
+      )
+      const first = wallet.createQbitConsolidationPsbt({ feeRate: 1 }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(0)
+      const second = wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      // The page the waiting batch reads first takes four minutes.
+      explorer.slowResponses.push(firstPageAtOneMegabit())
+      await vi.advanceTimersByTimeAsync(300_000)
+      release()
+      expect(await first).toBeInstanceOf(Error)
+
+      const result = await settle(second, 1_000)
+
+      expect(result).not.toHaveProperty('error')
+      expect(inputsOf((result as { value: ToSignData }).value)).toHaveLength(106)
+      expect(explorer.releasedBodies).toEqual([])
+    })
+
+    it('ends a batch whose history page trickles in within the batch deadline, and keeps its walk', async () => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+      // Each page arrives just inside the idle budget, about 1 KB every 14 s:
+      // a batch used to hold the screen for up to 3 attempts of 300 s a page.
+      explorer.slowResponses.push({ match: isHistoryPage, chunkBytes: 1_024, intervalMs: 14_000 })
+
+      const result = await settle(wallet.createQbitConsolidationPsbt({ feeRate: 1 }), 1_000)
+
+      expect((result as { error: unknown }).error).toMatchObject({ kind: 'timeout' })
+      expect(result.elapsedMs).toBeLessThanOrEqual(QBIT_CONSOLIDATION_BATCH_DEADLINE_MS + 1_000)
+      // The page still arriving is aborted, not left downloading.
+      expect(explorer.releasedBodies).toHaveLength(1)
+      expect(explorer.abortedRequests).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
+      // A timeout is transient: the walk is kept for the next Prepare.
+      const key = `${ChainType.QBIT_REGTEST}:${account.address}`
+      expect((wallet as any).qbitConsolidationScans.has(key)).toBe(true)
+
+      explorer.slowResponses.length = 0
+      const batch = await settle(wallet.createQbitConsolidationPsbt({ feeRate: 1 }))
+      expect(inputsOf((batch as { value: ToSignData }).value)).toHaveLength(106)
+    })
+
+    /** The send screen of `uiPort` reads the account's outputs as read `readId`. */
+    const openSend = (wallet: WalletController, uiPort: string, readId: string) =>
+      wallet.runForUiPort(uiPort, () => wallet.getQbitUtxoSnapshot(readId))
+
+    it("stops a send screen's walk once the screen is left", async () => {
+      explorer = overLimitAccount().explorer
+      // About 4 KB a second: each page takes a few seconds.
+      explorer.slowResponses.push({ match: isHistoryPage, chunkBytes: 4_096, intervalMs: 1_000 })
+      const wallet = controller()
+      const read = openSend(wallet, 'popup:1', '1').catch(error => error)
+      await vi.advanceTimersByTimeAsync(10_000)
+      const pagesRead = pageRequests(explorer)
+      expect(pagesRead).toBeGreaterThan(0)
+
+      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('1'))
+      expect(await read).toBeInstanceOf(Error)
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+
+      // No page is asked for once nothing waits, and the one arriving is released.
+      expect(pageRequests(explorer)).toBe(pagesRead)
+      expect(explorer.releasedBodies).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('keeps a walk another page still waits for, and stops it when that page closes', async () => {
+      explorer = overLimitAccount().explorer
+      explorer.slowResponses.push({ match: isHistoryPage, chunkBytes: 4_096, intervalMs: 1_000 })
+      const wallet = controller()
+      const popup = openSend(wallet, 'popup:1', '1').catch(error => error)
+      const tab = openSend(wallet, 'tab:2', '1').catch(error => error)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      // The popup's screen is left; the tab's still waits, for the same walk.
+      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('1'))
+      expect(await popup).toBeInstanceOf(Error)
+      const pagesRead = pageRequests(explorer)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(pageRequests(explorer)).toBeGreaterThan(pagesRead)
+      expect(explorer.releasedBodies).toHaveLength(0)
+
+      // The tab closes: its port goes, and the walk with it.
+      await wallet.onUiPortDisconnected('tab:2')
+      expect(await tab).toBeInstanceOf(Error)
+      const pagesAtClose = pageRequests(explorer)
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      expect(pageRequests(explorer)).toBe(pagesAtClose)
+      expect(explorer.releasedBodies).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('lets a read that sees older statistics walk on its own, never restarting the running walk', async () => {
+      const fixture = overLimitAccount()
+      explorer = fixture.explorer
+      explorer.slowResponses.push({ match: isHistoryPage, chunkBytes: 4_096, intervalMs: 1_000 })
+      const before = explorer.stats(account.address)
+      // A payment to the account confirms, and Send opens: the walk starts.
+      const payment = explorer.addTx({
+        txid: fakeTxid(2, 7_000_000),
+        inputs: [{ txid: fakeTxid(3, 7_000_000), vout: 0 }],
+        outputs: [{ address: account.address, script: account.p2mr.scriptPubKey, value: 77_000 }],
+        height: explorer.tipHeight,
+      })
+      const wallet = controller()
+      const first = openSend(wallet, 'popup:1', '1')
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      // Another page opens Send, and a lagging node behind the explorer
+      // answers its statistics read from before the payment.
+      let lagged = false
+      explorer.failures.push(({ method, path }) => {
+        if (lagged || method !== 'GET' || path !== `/address/${account.address}`) return undefined
+        lagged = true
+        return { status: 200, body: JSON.stringify(before) }
+      })
+      const second = openSend(wallet, 'tab:2', '1')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(lagged).toBe(true)
+
+      const answers = await settle(Promise.all([first, second]), 1_000)
+      const [firstSnapshot, secondSnapshot] = (answers as { value: [any, any] }).value
+      const keys = (snapshot: { utxos: { txid: string; vout: number }[] }) =>
+        new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))
+      // The first walk is never restarted. The second screen cannot tell the
+      // older statistics from an eviction, so it walks on its own; that walk
+      // reads the current node and finds the payment too.
+      expect(explorer.releasedBodies).toEqual([])
+      expect(explorer.abortedRequests).toEqual([])
+      expect(keys(firstSnapshot).has(`${payment.txid}:0`)).toBe(true)
+      expect(keys(secondSnapshot)).toEqual(keys(firstSnapshot))
+    })
+
+    /**
+     * A pending send from the account, with change, whose funding
+     * transaction the walk fetches only after its statistics check: that
+     * fetch is slow, so the walk is past the check while the test moves the
+     * history under it.
+     */
+    function pendingSendPastTheCheck() {
+      const fixture = overLimitAccount()
+      const funding = fixture.funding[10]!
+      const send = fixture.explorer.addTx({
+        txid: fakeTxid(4, 7_000_000),
+        inputs: [{ txid: funding.txid, vout: 0 }],
+        outputs: [
+          { address: payer, script: payerScript, value: 10_000 },
+          {
+            address: account.address,
+            script: account.p2mr.scriptPubKey,
+            value: funding.outputs[0]!.value - 11_000,
+          },
+        ],
+      })
+      fixture.explorer.slowResponses.push({
+        match: ({ path }) => path === `/tx/${send.txid}`,
+        chunkBytes: 64,
+        intervalMs: 1_000,
+      })
+      return { ...fixture, funding, send }
+    }
+
+    const outpoints = (snapshot: { utxos: { txid: string; vout: number }[] }) =>
+      new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))
+
+    /** Advance until the walk of the first screen asks for `txid`, past its statistics check. */
+    async function untilFetched(txid: string) {
+      for (let step = 0; step < 600; step += 1) {
+        if (explorer.requests.some(({ path }) => path === `/tx/${txid}`)) return
+        await vi.advanceTimersByTimeAsync(100)
+      }
+      throw new Error(`/tx/${txid} never asked for`)
+    }
+
+    it('does not hand a screen the outputs of a walk that a replacement of its send made stale', async () => {
+      const fixture = pendingSendPastTheCheck()
+      explorer = fixture.explorer
+      const wallet = controller()
+      const first = openSend(wallet, 'popup:1', '1')
+      await untilFetched(fixture.send.txid)
+      const before = explorer.stats(account.address)
+
+      // The send is replaced (RBF) at a higher fee: the counts stay the same,
+      // the sums do not. Another page opens Send.
+      explorer.removeTx(fixture.send.txid)
+      const replacement = explorer.addTx({
+        txid: fakeTxid(5, 7_000_000),
+        inputs: fixture.send.inputs,
+        outputs: [
+          fixture.send.outputs[0]!,
+          { ...fixture.send.outputs[1]!, value: fixture.send.outputs[1]!.value - 500 },
+        ],
+      })
+      const after = explorer.stats(account.address)
+      expect(after.mempool_stats.tx_count).toBe(before.mempool_stats.tx_count)
+      expect(after).not.toEqual(before)
+      const second = openSend(wallet, 'tab:2', '1')
+
+      const answers = await settle(Promise.all([first, second]), 1_000)
+      const [firstSnapshot, secondSnapshot] = (answers as { value: [any, any] }).value
+      // The screen that saw the replacement gets its change, not the
+      // replaced send's, which no longer exists.
+      expect(outpoints(secondSnapshot).has(`${fixture.send.txid}:1`)).toBe(false)
+      expect(outpoints(secondSnapshot).has(`${replacement.txid}:1`)).toBe(true)
+      // The walk the first screen started was not restarted for it.
+      expect(outpoints(firstSnapshot).has(`${fixture.send.txid}:1`)).toBe(true)
+      expect(explorer.releasedBodies).toEqual([])
+    })
+
+    it('does not hand a screen the outputs of a walk that an eviction of its send made stale', async () => {
+      const fixture = pendingSendPastTheCheck()
+      explorer = fixture.explorer
+      const wallet = controller()
+      const first = openSend(wallet, 'popup:1', '1')
+      await untilFetched(fixture.send.txid)
+      const before = explorer.stats(account.address)
+
+      // The send is evicted: the counts drop. Another page opens Send.
+      explorer.removeTx(fixture.send.txid)
+      expect(explorer.stats(account.address).mempool_stats.tx_count).toBe(
+        before.mempool_stats.tx_count - 1
+      )
+      const second = openSend(wallet, 'tab:2', '1')
+
+      const answers = await settle(Promise.all([first, second]), 1_000)
+      const [, secondSnapshot] = (answers as { value: [any, any] }).value
+      // No change of a send that is gone; the output it spent is back.
+      expect(outpoints(secondSnapshot).has(`${fixture.send.txid}:1`)).toBe(false)
+      expect(outpoints(secondSnapshot).has(`${fixture.funding.txid}:0`)).toBe(true)
+      expect(explorer.releasedBodies).toEqual([])
+    })
+
+    it('replaces a walk once a newer read sees the history move, and answers both screens from it', async () => {
+      const fixture = overLimitAccount()
+      explorer = fixture.explorer
+      explorer.slowResponses.push({ match: isHistoryPage, chunkBytes: 4_096, intervalMs: 1_000 })
+      const wallet = controller()
+      const first = openSend(wallet, 'popup:1', '1')
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      // A payment to the account confirms while that walk runs, and another
+      // page opens Send: its read sees the new statistics.
+      const payment = explorer.addTx({
+        txid: fakeTxid(2, 7_000_000),
+        inputs: [{ txid: fakeTxid(3, 7_000_000), vout: 0 }],
+        outputs: [{ address: account.address, script: account.p2mr.scriptPubKey, value: 77_000 }],
+        height: explorer.tipHeight,
+      })
+      const second = openSend(wallet, 'tab:2', '1')
+      await vi.advanceTimersByTimeAsync(0)
+      // The older walk stops at once; its page in flight is released.
+      expect(explorer.releasedBodies).toHaveLength(1)
+
+      const answers = await settle(Promise.all([first, second]), 1_000)
+      const [firstSnapshot, secondSnapshot] = (answers as { value: [any, any] }).value
+      const keys = (snapshot: { utxos: { txid: string; vout: number }[] }) =>
+        new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))
+      // The screen that asked first gets the newer answer, with the payment.
+      expect(keys(firstSnapshot).has(`${payment.txid}:0`)).toBe(true)
+      expect(keys(firstSnapshot)).toEqual(keys(secondSnapshot))
+      expect(explorer.releasedBodies).toHaveLength(1)
+    })
   })
 })

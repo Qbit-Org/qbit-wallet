@@ -509,6 +509,9 @@
   "continue_to": {
     "message": "へ進む"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "このサイトは警告ページから開くことはできません。"
+  },
   "copied": {
     "message": "コピーしました"
   },
@@ -743,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "連絡先の保存に失敗しました"
   },
+  "failed_to_save_contact_order": {
+    "message": "連絡先の並び順の保存に失敗しました"
+  },
   "fast": {
     "message": "速い"
   },
@@ -754,6 +760,9 @@
   },
   "fee_rate": {
     "message": "手数料率"
+  },
+  "fee_estimates_unavailable": {
+    "message": "手数料の見積もりを利用できません。"
   },
   "fee_estimates_unavailable_using_floor": {
     "message": "手数料の見積もりを利用できません。リレー最小値の $1 bit/vB を使用しています。"
@@ -889,6 +898,12 @@
   },
   "high_fee_rate_risk_title": {
     "message": "高い手数料率が検出されました"
+  },
+  "high_fee_risk_description": {
+    "message": "このトランザクションの手数料は、送金額に対して大きな割合を占めています。続行する前に、この操作の影響を理解していることを確認してください。"
+  },
+  "high_fee_risk_title": {
+    "message": "高い手数料が検出されました"
   },
   "high_priority": {
     "message": "高優先度"
@@ -1529,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "このサイトはフィッシングサイトのリストに含まれているため、Qbit Wallet はページが実行される前に停止しました。ウォレットが時間内に応答しなかったため、警告ページを開くことも、ページを読み込むこともできませんでした。再試行するか、このタブを閉じてください。"
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "このサイトはフィッシングサイトのリストに含まれているため、Qbit Wallet はページが実行される前に停止しました。ページは読み込めるようになりましたが、再読み込みすると、このページを開いたフォームが再送信されるおそれがあります。フォームを送信せずにこのアドレスを開き直すには「再試行」を選択するか、このタブを閉じてください。"
+  },
   "phishing_page_held_released_message": {
     "message": "このサイトはフィッシングサイトのリストに含まれているため、Qbit Wallet はページが実行される前に停止しました。読み込むには「再試行」を選択するか、このタブを閉じてください。"
   },
@@ -1691,6 +1709,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "最後のウォレットを削除することはできません"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "ウォレットを開いたため、ウェブサイトの保留中のリクエストはキャンセルされました。もう一度試すには、ウェブサイトに戻ってください。"
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "リクエストは拒否されました。続行するには、再承認してください"
   },
@@ -1820,6 +1841,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "マージするUTXOの量を設定"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "変更を保存できませんでした。保存されている設定が変わっている可能性があります。再起動後にこの設定をもう一度確認してください。"
+  },
   "settings": {
     "message": "設定"
   },
@@ -1936,6 +1960,21 @@
   },
   "start_merging": {
     "message": "マージを開始"
+  },
+  "startup_error_title": {
+    "message": "Qbit Wallet を起動できませんでした"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "保存された設定を読み込めなかったため、Qbit Wallet は設定を変更せずに停止しました。"
+  },
+  "startup_error_unknown": {
+    "message": "Qbit Wallet の起動中に問題が発生しました。"
+  },
+  "startup_error_retry": {
+    "message": "再試行"
+  },
+  "startup_error_retry_hint": {
+    "message": "再試行するとウォレットが再起動します。このウィンドウが閉じた場合は、もう一度 Qbit Wallet を開いてください。"
   },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "秘密鍵やシードフレーズを盗む"
@@ -2690,6 +2729,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "このアカウントはエクスプローラーが一覧表示できる数を超えるアウトプットを持ち、取引数も $1 件を超えているため、ウォレットは履歴からアウトプットを読み取れず、資金はまだ移動されていません。このアカウントに切り替え、送金を開いて「アウトプットを統合」を選び、エクスプローラーの上限内に収まるまで統合してから、ここに戻ってください。"
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "このアカウントはエクスプローラーが一覧表示できる数を超えるアウトプットを持ち、ウォレットはそれらを見つけるための履歴をエクスプローラーからすべて読み取れなかったため、資金はまだ移動されていません。保留中の取引が変わると（たとえば1件が承認されると）解消されることがあります。しばらくしてから「状態を確認して再開」を選んで、もう一度お試しください。"
+  },
   "qbit_recovery_plan_prepared": {
     "message": "確認と署名の準備完了"
   },
@@ -2975,6 +3017,72 @@
   "unrecognised_output_risk_description": {
     "message": "あるアウトプットが、あなたのものでもこのリクエストが示す受信者のものでもないアドレス、またはアドレスのないスクリプトに支払っています。署名する前にすべてのアウトプットを確認してください。"
   },
+  "psbt_output_change": {
+    "message": "おつり"
+  },
+  "psbt_output_this_account": {
+    "message": "このアカウント宛て"
+  },
+  "psbt_output_other_account": {
+    "message": "あなたの別のアカウント"
+  },
+  "psbt_after_signing": {
+    "message": "署名後"
+  },
+  "psbt_finalized": {
+    "message": "ファイナライズ済み：サイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "ファイナライズ済み：ロックタイム経過後にサイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "ファイナライズ済み：使用するコインが必要な期間を経過した後にサイトがブロードキャストできます"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "ファイナライズ済み：ロックタイム経過後、かつ使用するコインが必要な期間を経過した後にサイトがブロードキャストできます"
+  },
+  "psbt_not_finalized": {
+    "message": "署名済み・未ファイナライズ：ブロードキャストの前に、サイトまたは他の署名者がファイナライズする必要があります"
+  },
+  "psbt_locktime": {
+    "message": "ロックタイム"
+  },
+  "psbt_locktime_none": {
+    "message": "ロックなし"
+  },
+  "psbt_locktime_block": {
+    "message": "ブロック $1 の後"
+  },
+  "psbt_locktime_median_time": {
+    "message": "ネットワークの中央値時間が $1 を過ぎると有効"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 は適用されません：すべての入力が確定済みです"
+  },
+  "psbt_relative_lock": {
+    "message": "相対ロック"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "インプット $1：使用するコインの承認数が 1 に達した後"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "インプット $1：使用するコインの承認数が $2 に達した後"
+  },
+  "psbt_relative_lock_short": {
+    "message": "インプット $1：使用するコインの承認から間もなく（ブロック時間で 2 時間未満）"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "インプット $1：使用するコインがブロック時間で約 $2 時間経過した後"
+  },
+  "psbt_relative_lock_days": {
+    "message": "インプット $1：使用するコインがブロック時間で約 $2 日経過した後"
+  },
+  "psbt_relative_lock_count": {
+    "message": "相対ロックのあるインプット：$2 件中 $1 件"
+  },
+  "psbt_tx_version": {
+    "message": "バージョン"
+  },
   "multisign_flagged_transactions": {
     "message": "署名前に確認が必要なトランザクション：$1"
   },
@@ -2986,5 +3094,89 @@
   },
   "multisign_account_changed": {
     "message": "トランザクションの確認中にアカウントが変更されました。何も署名されていません。もう一度確認してください。"
+  },
+  "recovery_phrase_is_not_valid": {
+    "message": "このリカバリーフレーズは無効です。各単語とその順番がバックアップと一致しているか確認してください。"
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "貼り付けたフレーズの単語数が入力欄の数より多いです。バックアップと同じ単語数を選択してから、最初の入力欄に貼り付けてください。"
+  },
+  "phishing_protection": {
+    "message": "フィッシング対策"
+  },
+  "phishing_protection_status_protected": {
+    "message": "完全に有効"
+  },
+  "phishing_protection_status_starting": {
+    "message": "起動中"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "再試行中"
+  },
+  "phishing_protection_status_failed": {
+    "message": "失敗"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "このブラウザではサポートされていません"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "低下"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "状態不明"
+  },
+  "phishing_protection_attempts": {
+    "message": "試行回数: $1"
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "試行回数: $1。次の試行まで $2 秒"
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "試行回数: $1。次の試行の予定時刻です"
+  },
+  "phishing_protection_last_error": {
+    "message": "最後のエラー: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "ブロックルール内のドメイン数: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "ブロックルール内のドメイン数: 不明"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "ブロックルールがインストールされていません。"
+  },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "ブロックルールは更新されていません。以前のルールが引き続き $1 件のドメインをブロックしています。"
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "ブロックルールを読み取れませんでした。"
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "サイトアクセスがないまま警告ページのルールが残っているため、ブロック対象のページが読み込まれる可能性があります。"
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "警告ページのルールを読み取れませんでした。"
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "一部のブロック対象サイトでサイトアクセスが制限されているため、そこではページのチェックが動作しません。"
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "サイトアクセスが制限されているかどうかを読み取れませんでした。"
+  },
+  "phishing_protection_retry": {
+    "message": "今すぐ再試行"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "再試行に失敗しました。"
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "再試行に失敗しました: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "ブロックリストは拡張機能に同梱されており、新しいリリースでのみ変更されます。"
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "再試行が時間内に応答しませんでした。まだ完了する可能性があり、完了すると上の状態が更新されます。"
   }
 }

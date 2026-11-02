@@ -3,7 +3,12 @@ import { act, renderHook } from '@testing-library/react'
 
 import { KeyringType } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
-import { useFetchHistoryCallback, useHistoryAutoRefresh } from '../../src/hooks/accounts'
+import {
+  useFetchHistoryCallback,
+  useHistory,
+  useHistoryAutoRefresh,
+  useHistoryScopeKey,
+} from '../../src/hooks/accounts'
 import { accountActions } from '../../src/reducers/accounts'
 import { keyringsActions } from '../../src/reducers/keyrings'
 import { settingsActions } from '../../src/reducers/settings'
@@ -524,45 +529,26 @@ describe('useHistoryAutoRefresh', () => {
     unmount()
   })
 
-  it('shares Qbit history state across receive-address rotation on one keyring and network', async () => {
-    const anchorPubkey = '11'.repeat(32)
-    const firstAddress = 'tq1zhistoryfirst'
-    const secondAddress = 'tq1zhistorysecond'
-    const scopeKey = `qbit:${ChainType.QBIT_TESTNET4}:${anchorPubkey}`
+  function qbitAccountsHarness(getAddressHistory: (...args: any[]) => unknown) {
     const firstAccount = {
       type: KeyringType.QbitHdKeyring,
-      address: firstAddress,
+      address: 'tq1zhistoryfirst',
       index: 0,
-      pubkey: anchorPubkey,
+      pubkey: '11'.repeat(32),
       key: 'keyring_0#0',
       flag: 0,
     }
     const secondAccount = {
       ...firstAccount,
-      address: secondAddress,
+      address: 'tq1zhistorysecond',
       index: 1,
       pubkey: '22'.repeat(32),
       key: 'keyring_0#1',
     }
-    const wallet = {
-      ...createWalletMock(),
-      getAddressHistory: vi.fn(async ({ address }: { address: string }) => ({
-        start: 0,
-        total: 1,
-        detail: [
-          {
-            txid: address === firstAddress ? 'tx-first' : 'tx-second',
-            confirmations: 1,
-            timestamp: 100,
-          },
-        ],
-        snapshotId: address === firstAddress ? 'snapshot-1' : 'snapshot-2',
-        scopeKey,
-      })),
-    }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
-    store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
-    store.dispatch(
+    const wallet = { ...createWalletMock(), getAddressHistory: vi.fn(getAddressHistory) }
+    const harness = createHookTestHarness({ wallet: wallet as any })
+    harness.store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
+    harness.store.dispatch(
       keyringsActions.setCurrent({
         key: 'keyring_0',
         index: 0,
@@ -573,13 +559,48 @@ describe('useHistoryAutoRefresh', () => {
         hdPath: "m/87'/1'/0'/0",
       })
     )
-    store.dispatch(accountActions.setCurrent(firstAccount))
-    const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
+    harness.store.dispatch(accountActions.setCurrent(firstAccount))
+    return {
+      ...harness,
+      wallet,
+      firstAccount,
+      secondAccount,
+      firstKey: `qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`,
+      secondKey: `qbit-account:${ChainType.QBIT_TESTNET4}:${'22'.repeat(32)}`,
+    }
+  }
+
+  it("keeps each Qbit account's history under its own key", async () => {
+    const pageFor = (address: string) => ({
+      start: 0,
+      total: 1,
+      detail: [
+        {
+          txid: address === 'tq1zhistoryfirst' ? 'tx-first' : 'tx-second',
+          confirmations: 1,
+          timestamp: 100,
+        },
+      ],
+      snapshotId: address === 'tq1zhistoryfirst' ? 'snapshot-1' : 'snapshot-2',
+      scopeKey: `qbit-account:${ChainType.QBIT_TESTNET4}:${
+        address === 'tq1zhistoryfirst' ? '11'.repeat(32) : '22'.repeat(32)
+      }`,
+    })
+    const { wrapper, store, wallet, firstAccount, secondAccount, firstKey, secondKey } =
+      qbitAccountsHarness(async ({ address }: { address: string }) => pageFor(address))
+    const { result, unmount } = renderHook(
+      () => {
+        useHistoryAutoRefresh()
+        return { key: useHistoryScopeKey(), history: useHistory() }
+      },
+      { wrapper }
+    )
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
     })
-    expect(store.getState().accounts.historyMap[scopeKey]).toMatchObject({
+    expect(result.current.key).toBe(firstKey)
+    expect(result.current.history).toMatchObject({
       list: [{ txid: 'tx-first' }],
       snapshotId: 'snapshot-1',
     })
@@ -587,22 +608,152 @@ describe('useHistoryAutoRefresh', () => {
     act(() => {
       store.dispatch(accountActions.setCurrent(secondAccount))
     })
+    expect(result.current.key).toBe(secondKey)
+    expect(result.current.history).toMatchObject({ list: [], expired: true })
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
     })
 
+    // The second account has no snapshot of its own yet, so its first read
+    // scans afresh rather than refreshing the first account's snapshot.
     expect(wallet.getAddressHistory).toHaveBeenLastCalledWith({
-      address: secondAddress,
+      address: secondAccount.address,
       start: 0,
       limit: 20,
-      refreshSnapshotId: 'snapshot-1',
     })
-    expect(store.getState().accounts.historyMap[scopeKey]).toMatchObject({
+    expect(result.current.history).toMatchObject({
       list: [{ txid: 'tx-second' }],
       snapshotId: 'snapshot-2',
     })
-    expect(store.getState().accounts.historyMap[firstAddress]).toBeUndefined()
-    expect(store.getState().accounts.historyMap[secondAddress]).toBeUndefined()
+    expect(store.getState().accounts.historyMap[firstKey]).toMatchObject({
+      list: [{ txid: 'tx-first' }],
+      snapshotId: 'snapshot-1',
+    })
+
+    act(() => {
+      store.dispatch(accountActions.setCurrent(firstAccount))
+    })
+    expect(result.current.history.list).toMatchObject([{ txid: 'tx-first' }])
+    unmount()
+  })
+
+  it("drops the previous account's read when it finishes after an account switch", async () => {
+    let resolveFirst!: (value: unknown) => void
+    const { wrapper, store, secondAccount, firstKey, secondKey } = qbitAccountsHarness(
+      () => new Promise(resolve => (resolveFirst = resolve))
+    )
+    store.dispatch(
+      accountActions.setHistory({
+        address: secondKey,
+        list: [{ txid: 'tx-second', confirmations: 1, timestamp: 300 } as any],
+        snapshotId: 'snapshot-2',
+      })
+    )
+    const { result, unmount } = renderHook(
+      () => ({ fetch: useFetchHistoryCallback(), history: useHistory() }),
+      { wrapper }
+    )
+
+    let firstRead!: Promise<void>
+    act(() => {
+      firstRead = result.current.fetch()
+    })
+    act(() => {
+      store.dispatch(accountActions.setCurrent(secondAccount))
+    })
+    await act(async () => {
+      resolveFirst({
+        start: 0,
+        total: 1,
+        detail: [{ txid: 'tx-first', confirmations: 1, timestamp: 100 }],
+        snapshotId: 'snapshot-1',
+        scopeKey: firstKey,
+      })
+      await firstRead
+    })
+
+    expect(result.current.history).toMatchObject({
+      list: [{ txid: 'tx-second' }],
+      snapshotId: 'snapshot-2',
+    })
+    expect(store.getState().accounts.historyMap[secondKey].list).toHaveLength(1)
+    expect(store.getState().accounts.historyMap[firstKey]).toMatchObject({
+      list: [{ txid: 'tx-first' }],
+    })
+    unmount()
+  })
+
+  it("does not record the previous account's failed read as a history error", async () => {
+    let rejectFirst!: (error: Error) => void
+    const { wrapper, store, secondAccount, firstKey } = qbitAccountsHarness(
+      () => new Promise((_resolve, reject) => (rejectFirst = reject))
+    )
+    store.dispatch(
+      accountActions.setHistory({
+        address: firstKey,
+        list: [{ txid: 'tx-first', confirmations: 1, timestamp: 100 } as any],
+        snapshotId: 'snapshot-1',
+      })
+    )
+    const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
+
+    let firstRead!: Promise<void>
+    act(() => {
+      firstRead = result.current()
+    })
+    act(() => {
+      store.dispatch(accountActions.setCurrent(secondAccount))
+    })
+    unmount()
+    await act(async () => {
+      rejectFirst(new Error('Qbit history account or network changed while loading'))
+      await expect(firstRead).rejects.toThrow('changed while loading')
+    })
+
+    expect(store.getState().accounts.historyMap[firstKey]).toMatchObject({
+      list: [{ txid: 'tx-first' }],
+      error: false,
+    })
+  })
+
+  it('records a failed read for the account still selected as a history error', async () => {
+    const { wrapper, store, firstKey } = qbitAccountsHarness(async () => {
+      throw new Error('explorer unavailable')
+    })
+    const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
+
+    await act(async () => {
+      await expect(result.current()).rejects.toThrow('explorer unavailable')
+    })
+
+    expect(store.getState().accounts.historyMap[firstKey]).toMatchObject({ error: true })
+    unmount()
+  })
+
+  it('shows no account the history stored under the earlier wallet-wide key', () => {
+    const { wrapper, store, secondAccount } = qbitAccountsHarness(async () => ({
+      start: 0,
+      total: 0,
+      detail: [],
+    }))
+    store.dispatch(
+      accountActions.setHistory({
+        address: `qbit:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`,
+        list: [
+          { txid: 'tx-first', confirmations: 1, timestamp: 200 } as any,
+          { txid: 'tx-second', confirmations: 1, timestamp: 100 } as any,
+        ],
+        total: 2,
+        snapshotId: 'snapshot-wallet',
+      })
+    )
+    const { result, unmount } = renderHook(() => useHistory(), { wrapper })
+
+    expect(result.current).toMatchObject({ list: [], expired: true, snapshotId: undefined })
+    act(() => {
+      store.dispatch(accountActions.setCurrent(secondAccount))
+    })
+    expect(result.current).toMatchObject({ list: [], expired: true, snapshotId: undefined })
     unmount()
   })
 

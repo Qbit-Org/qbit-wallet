@@ -53,6 +53,7 @@ import { BUS_EVENTS, BUS_METHODS, CHAINS_MAP } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import type { Encryptor } from '@qbit/keyring-service'
 import { bgEventBus } from '../src/utils/eventBus'
+import { qbitExplorerSpendCheckFor } from '../src/utils/qbit-explorer-spend-check'
 
 const serviceHolder = vi.hoisted(() => ({
   keyringService: undefined as any,
@@ -94,7 +95,8 @@ vi.mock('../src/services', () => ({
     settleRecentSpendProbe: async () => undefined,
     recordAcceptedBroadcast: async () => undefined,
     recordInconclusiveBroadcast: async () => undefined,
-    forgetAbsentBroadcast: async () => undefined,
+    hasUnknownBroadcastOutcome: async () => false,
+    forgetProvenAbsentBroadcast: async () => true,
     consumeBroadcastClaim: async () => false,
     observePendingSpender: async () => undefined,
     assertNoOverlap: async () => undefined,
@@ -104,12 +106,14 @@ vi.mock('../src/services', () => ({
       operation: () => Promise<T>
     ) => operation(),
     runWithBroadcastClaim: async <T>(_claim: unknown, operation: () => Promise<T>) => operation(),
+    // Every broadcast here runs under no claim, so it gets the check the real
+    // guard builds for one: nothing to check.
     broadcastIfAllowed: async <T>(
       _chain: ChainType,
-      _txid: string,
-      _outpoints: readonly unknown[],
-      broadcast: () => Promise<T>
-    ) => broadcast(),
+      txid: string,
+      outpoints: readonly { txid: string; vout: number }[],
+      broadcast: (spendCheck: ReturnType<typeof qbitExplorerSpendCheckFor>) => Promise<T>
+    ) => broadcast(qbitExplorerSpendCheckFor({ txid, outpoints })),
   },
 }))
 
@@ -412,6 +416,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount,
       feeRate,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: utxos,
     })
     expect(toSignData.estimatedFee).toBeGreaterThan(0)
@@ -475,6 +480,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
         amount,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: walletAddress,
         qbitUtxos: [fundUtxo!],
         enableRBF: true,
         memo,
@@ -629,6 +635,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 90_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [fundUtxo!],
       enableRBF: true,
     })
@@ -645,6 +652,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 50_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [change],
       enableRBF: true,
     })
@@ -722,6 +730,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 1_000_000,
       feeRate: 2,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [immatureUtxo],
     })
     const immatureSigned = await wallet.signPsbtV2(immatureSpend)
@@ -748,6 +757,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 1_000_000,
       feeRate: 2,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [immatureUtxo],
     })
     expect(retriedSpend.signatureBudget).toMatchObject({ required: 0, cached: 1 })
@@ -805,6 +815,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       amount: 100_000,
       feeRate: 2,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
       qbitUtxos: [fundUtxo!],
     })
     // Sign exactly once: everything below must reuse these bytes.

@@ -509,6 +509,9 @@
   "continue_to": {
     "message": "Перейти на"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "Этот сайт нельзя открыть со страницы предупреждения."
+  },
   "copied": {
     "message": "Скопировано"
   },
@@ -743,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "Не удалось сохранить контакт"
   },
+  "failed_to_save_contact_order": {
+    "message": "Не удалось сохранить порядок контактов"
+  },
   "fast": {
     "message": "Быстро"
   },
@@ -754,6 +760,9 @@
   },
   "fee_rate": {
     "message": "Ставка комиссии"
+  },
+  "fee_estimates_unavailable": {
+    "message": "Оценки комиссии недоступны."
   },
   "fee_estimates_unavailable_using_floor": {
     "message": "Оценки комиссии недоступны. Используется минимальная ставка ретрансляции $1 бит/vB."
@@ -889,6 +898,12 @@
   },
   "high_fee_rate_risk_title": {
     "message": "Обнаружена высокая ставка комиссии"
+  },
+  "high_fee_risk_description": {
+    "message": "Комиссия этой транзакции составляет большую долю от отправляемой суммы. Пожалуйста, убедитесь, что вы понимаете последствия этого действия, прежде чем продолжить."
+  },
+  "high_fee_risk_title": {
+    "message": "Обнаружена высокая комиссия"
   },
   "high_priority": {
     "message": "Высокий приоритет"
@@ -1529,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "Qbit Wallet остановил эту страницу до её запуска, так как сайт входит в его список фишинговых сайтов. Кошелёк не ответил вовремя, чтобы открыть полное предупреждение или загрузить страницу. Попробуйте снова или закройте эту вкладку."
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "Qbit Wallet остановил эту страницу до её запуска, так как сайт входит в его список фишинговых сайтов. Теперь страницу можно загрузить, но при перезагрузке может повторно отправиться форма, которая открыла эту страницу. Нажмите «Попробовать снова», чтобы открыть её адрес заново, без формы, или закройте эту вкладку."
+  },
   "phishing_page_held_released_message": {
     "message": "Qbit Wallet остановил эту страницу до её запуска, так как сайт входит в его список фишинговых сайтов. Нажмите «Попробовать снова», чтобы загрузить её, или закройте эту вкладку."
   },
@@ -1691,6 +1709,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "Удаление последнего кошелька не допускается"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "Ожидающий запрос веб-сайта отменён, так как был открыт кошелёк. Вернитесь на сайт, чтобы повторить попытку."
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "Запрос был отклонен. Чтобы продолжить, пожалуйста, повторно авторизуйтесь"
   },
@@ -1820,6 +1841,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "Установите сумму UTXO для объединения"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "Изменение не сохранено, и сохранённая настройка могла измениться. Проверьте эту настройку ещё раз после перезапуска."
+  },
   "settings": {
     "message": "Настройки"
   },
@@ -1936,6 +1960,21 @@
   },
   "start_merging": {
     "message": "Начать объединение"
+  },
+  "startup_error_title": {
+    "message": "Не удалось запустить Qbit Wallet"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet не смог прочитать сохранённые настройки и остановился, не изменив их."
+  },
+  "startup_error_unknown": {
+    "message": "При запуске Qbit Wallet произошла ошибка."
+  },
+  "startup_error_retry": {
+    "message": "Повторить"
+  },
+  "startup_error_retry_hint": {
+    "message": "Повтор перезапускает кошелёк. Это окно может закрыться; затем снова откройте Qbit Wallet."
   },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "Украсть ваши приватные ключи или сид-фразы"
@@ -2690,6 +2729,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "На этом счёте больше выходов, чем показывает обозреватель, и более $1 транзакций — слишком много, чтобы кошелёк прочитал его выходы из истории, поэтому средства не перемещены. Переключитесь на этот счёт, откройте «Отправить» и выберите «Объединить выходы», пока счёт не уложится в лимит обозревателя, затем вернитесь сюда."
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "На этом счёте больше выходов, чем показывает обозреватель, и кошелёк не смог прочитать у обозревателя всю его историю, чтобы найти их, поэтому средства ещё не перемещены. Это может пройти, когда изменятся его ожидающие транзакции, например когда одна из них подтвердится. Позже нажмите «Проверить статус и продолжить», чтобы попробовать снова."
+  },
   "qbit_recovery_plan_prepared": {
     "message": "Готово к проверке и подписи"
   },
@@ -2975,6 +3017,72 @@
   "unrecognised_output_risk_description": {
     "message": "Один из выходов платит на адрес, который не принадлежит ни вам, ни получателю, указанному в этом запросе, или на скрипт без адреса. Проверьте все выходы перед подписью."
   },
+  "psbt_output_change": {
+    "message": "Сдача"
+  },
+  "psbt_output_this_account": {
+    "message": "На этот аккаунт"
+  },
+  "psbt_output_other_account": {
+    "message": "Другой ваш аккаунт"
+  },
+  "psbt_after_signing": {
+    "message": "После подписи"
+  },
+  "psbt_finalized": {
+    "message": "Финализирована: сайт может отправить её в сеть"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда истечёт её блокировка по времени"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда расходуемые монеты станут достаточно старыми"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "Финализирована: сайт может отправить её в сеть, когда истечёт её блокировка по времени и расходуемые монеты станут достаточно старыми"
+  },
+  "psbt_not_finalized": {
+    "message": "Подписана, не финализирована: до отправки в сеть её должен финализировать сайт или другие подписанты"
+  },
+  "psbt_locktime": {
+    "message": "Блокировка по времени"
+  },
+  "psbt_locktime_none": {
+    "message": "Без блокировки"
+  },
+  "psbt_locktime_block": {
+    "message": "После блока $1"
+  },
+  "psbt_locktime_median_time": {
+    "message": "Действительна, когда медианное время сети превысит $1"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 не действует: все входы финальные"
+  },
+  "psbt_relative_lock": {
+    "message": "Относительная блокировка"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "Вход $1: когда у расходуемой монеты будет 1 подтверждение"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "Вход $1: когда у расходуемой монеты будет подтверждений: $2"
+  },
+  "psbt_relative_lock_short": {
+    "message": "Вход $1: вскоре после подтверждения расходуемой монеты (менее двух часов по времени блоков)"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "Вход $1: когда расходуемой монете будет примерно $2 ч по времени блоков"
+  },
+  "psbt_relative_lock_days": {
+    "message": "Вход $1: когда расходуемой монете будет примерно $2 дн. по времени блоков"
+  },
+  "psbt_relative_lock_count": {
+    "message": "Входов с относительной блокировкой: $1 из $2"
+  },
+  "psbt_tx_version": {
+    "message": "Версия"
+  },
   "multisign_flagged_transactions": {
     "message": "Транзакции, требующие подтверждения перед подписью: $1"
   },
@@ -2986,5 +3094,89 @@
   },
   "multisign_account_changed": {
     "message": "Аккаунт сменился во время проверки транзакций. Ничего не подписано; проверьте их ещё раз."
+  },
+  "recovery_phrase_is_not_valid": {
+    "message": "Эта фраза восстановления недействительна. Проверьте, что каждое слово и его позиция совпадают с вашей резервной копией."
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "Во вставленной фразе больше слов, чем полей. Выберите длину фразы, совпадающую с вашей резервной копией, и вставьте её в первое поле."
+  },
+  "phishing_protection": {
+    "message": "Защита от фишинга"
+  },
+  "phishing_protection_status_protected": {
+    "message": "Полностью включена"
+  },
+  "phishing_protection_status_starting": {
+    "message": "Запуск"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "Повторная попытка"
+  },
+  "phishing_protection_status_failed": {
+    "message": "Сбой"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "Не поддерживается этим браузером"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "Ослаблена"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "Состояние неизвестно"
+  },
+  "phishing_protection_attempts": {
+    "message": "Попыток: $1."
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "Попыток: $1. Следующая попытка через $2 с."
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "Попыток: $1. Следующая попытка — сейчас."
+  },
+  "phishing_protection_last_error": {
+    "message": "Последняя ошибка: $1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "Доменов в правиле блокировки: $1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "Доменов в правиле блокировки: неизвестно"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "Правило блокировки не установлено."
+  },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "Правило блокировки не обновлено. Предыдущее правило по-прежнему блокирует доменов: $1."
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "Не удалось прочитать правило блокировки."
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "Правило страницы предупреждения действует без доступа к сайтам, поэтому заблокированные страницы могут загружаться."
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "Не удалось прочитать правило страницы предупреждения."
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "Доступ к некоторым заблокированным сайтам ограничен, поэтому проверка страниц там не работает."
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "Не удалось узнать, ограничен ли доступ к сайтам."
+  },
+  "phishing_protection_retry": {
+    "message": "Повторить сейчас"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "Повторная попытка не удалась."
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "Повторная попытка не удалась: $1"
+  },
+  "phishing_protection_list_note": {
+    "message": "Список блокировки поставляется с расширением и меняется только с новым выпуском."
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "Повторная попытка не ответила вовремя. Она ещё может завершиться; состояние выше обновится."
   }
 }

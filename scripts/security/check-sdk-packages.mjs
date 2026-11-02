@@ -9,7 +9,16 @@ import YAML from 'yaml'
 export const SDK_PACKAGE_PINS_FILE = 'scripts/security/sdk-package-pins.json'
 // The SDK packages the conformance matrix fixture's derivation runs through.
 export const MATRIX_SDK_PACKAGES = ['@qbit-oss/pqc', '@qbit-oss/protocol']
+// Every package in this scope must have a pin.
+export const SDK_PACKAGE_SCOPE = '@qbit-oss/'
+export const NPM_ATTESTATIONS_URL = 'https://registry.npmjs.org/-/npm/v1/attestations'
+const SLSA_PROVENANCE_V1 = 'https://slsa.dev/provenance/v1'
+const IN_TOTO_PAYLOAD_TYPE = 'application/vnd.in-toto+json'
+const GITHUB_WORKFLOW_BUILD_TYPE =
+  'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1'
 const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
+// The resolved dependencies of a lockfile package entry.
+const PACKAGE_DEPENDENCY_SECTIONS = ['dependencies', 'optionalDependencies']
 
 function isMapping(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -70,19 +79,62 @@ export function validateSdkPackagePins(pins) {
 
 /**
  * The lockfile must resolve each pinned package exactly once, at the pinned
- * version and registry integrity, and every importer that names it must ask
- * for that exact version, so no other copy can be installed. Returns the
- * importers that depend on each package.
+ * version and registry integrity, and every importer or package that names it
+ * must take that exact version, so no other copy can be installed: not one
+ * from a tarball or git (an entry with its `name`), nor another package under
+ * its name through an npm alias. A package in the SDK scope without a pin
+ * fails too, so a new one cannot arrive unchecked. The checks read the
+ * lockfile v6 layout, so any other version fails rather than passing
+ * unchecked. Returns the importers that depend on each package.
  */
 export function auditSdkLockfile(lockfileText, pins) {
   const errors = []
   const consumers = new Map()
   const lockfile = YAML.parse(lockfileText)
+  if (!/^6\./.test(String(lockfile?.lockfileVersion))) {
+    errors.push(
+      `pnpm-lock.yaml lockfileVersion ${JSON.stringify(lockfile?.lockfileVersion)} is not the 6.x layout this check reads`
+    )
+  }
+  const pinned = new Map(pins.packages.map(pin => [pin.package, pin.version]))
+  for (const [key, entry] of Object.entries(lockfile?.packages ?? {})) {
+    const name = /^\/(@[^/@]+\/[^/@]+)@/.exec(key)?.[1] ?? entry?.name
+    if (typeof name === 'string' && name.startsWith(SDK_PACKAGE_SCOPE) && !pinned.has(name)) {
+      errors.push(
+        `pnpm-lock.yaml resolves ${key}, but ${SDK_PACKAGE_PINS_FILE} does not pin ${name}`
+      )
+    }
+    for (const section of PACKAGE_DEPENDENCY_SECTIONS) {
+      for (const [dependency, version] of Object.entries(entry?.[section] ?? {})) {
+        if (!dependency.startsWith(SDK_PACKAGE_SCOPE)) continue
+        if (!pinned.has(dependency)) {
+          errors.push(
+            `pnpm-lock.yaml ${key} ${section} takes ${dependency}, but ${SDK_PACKAGE_PINS_FILE} does not pin it`
+          )
+        } else if (version !== pinned.get(dependency)) {
+          errors.push(
+            `pnpm-lock.yaml ${key} ${section} must take ${dependency} at exactly ${pinned.get(dependency)}, found ${JSON.stringify(version)}`
+          )
+        }
+      }
+    }
+  }
+  for (const [importer, sections] of Object.entries(lockfile?.importers ?? {})) {
+    for (const section of DEPENDENCY_SECTIONS) {
+      for (const name of Object.keys(sections?.[section] ?? {})) {
+        if (name.startsWith(SDK_PACKAGE_SCOPE) && !pinned.has(name)) {
+          errors.push(
+            `pnpm-lock.yaml importer ${importer} ${section} takes ${name}, but ${SDK_PACKAGE_PINS_FILE} does not pin it`
+          )
+        }
+      }
+    }
+  }
   for (const pin of pins.packages) {
     const expectedKey = `/${pin.package}@${pin.version}`
-    const resolutions = Object.keys(lockfile?.packages ?? {}).filter(key =>
-      key.startsWith(`/${pin.package}@`)
-    )
+    const resolutions = Object.entries(lockfile?.packages ?? {})
+      .filter(([key, entry]) => key.startsWith(`/${pin.package}@`) || entry?.name === pin.package)
+      .map(([key]) => key)
     if (resolutions.length !== 1 || resolutions[0] !== expectedKey) {
       errors.push(
         `pnpm-lock.yaml must resolve ${pin.package} only as ${expectedKey}, found ${JSON.stringify(resolutions)}`
@@ -208,6 +260,122 @@ export function sdkPackageIdentities(pins, names) {
   )
 }
 
+/** The registry URL of a pinned version's attestations, in the form npm uses. */
+export function sdkAttestationsUrl(pin) {
+  return `${NPM_ATTESTATIONS_URL}/${pin.package.replace('/', '%2f')}@${pin.version}`
+}
+
+/**
+ * Compares the registry's attestations for a pinned package version with the
+ * pin: each must name this version's tarball with the pinned sha512, and its
+ * one SLSA provenance must name the pinned repository, workflow, ref and
+ * commit, built by a GitHub Actions workflow. It compares what the
+ * attestations state, as the registry serves them over HTTPS, and does not
+ * verify their Sigstore signatures: the registry checks those when a version
+ * is published, and `npm audit signatures` checks them when a pin is updated
+ * (docs/sdk-extraction.md). A version published without provenance, or from
+ * another repository, workflow, ref or commit, then cannot take a pin copied
+ * from `npm view`. `body` is the registry's parsed reply, or undefined when it
+ * has no attestations for the version.
+ */
+export function auditSdkAttestations(pin, body) {
+  const label = `${pin.package}@${pin.version}`
+  const attestations = body?.attestations
+  if (!Array.isArray(attestations) || attestations.length === 0) {
+    return [`${label} has no npm provenance attestation`]
+  }
+  const errors = []
+  const subjectName = `pkg:npm/${pin.package.replace('@', '%40')}@${pin.version}`
+  const digest = Buffer.from(pin.integrity.slice('sha512-'.length), 'base64').toString('hex')
+  const provenance = []
+  attestations.forEach((attestation, index) => {
+    const envelope = attestation?.bundle?.dsseEnvelope
+    let statement
+    try {
+      if (envelope?.payloadType !== IN_TOTO_PAYLOAD_TYPE) throw new Error(envelope?.payloadType)
+      statement = JSON.parse(Buffer.from(envelope.payload, 'base64').toString('utf8'))
+    } catch {
+      errors.push(`${label} attestation ${index} is not an in-toto statement`)
+      return
+    }
+    const type = statement?.predicateType
+    if (type !== attestation.predicateType) {
+      errors.push(
+        `${label} attestation ${index} states ${JSON.stringify(type)} but is listed as ${JSON.stringify(attestation.predicateType)}`
+      )
+      return
+    }
+    const subjects = Array.isArray(statement.subject) ? statement.subject : []
+    if (
+      subjects.length !== 1 ||
+      subjects[0]?.name !== subjectName ||
+      subjects[0]?.digest?.sha512 !== digest
+    ) {
+      errors.push(
+        `${label} ${type} attestation subject ${JSON.stringify(subjects)} is not ${subjectName} with the pinned integrity ${pin.integrity}`
+      )
+    }
+    if (type === SLSA_PROVENANCE_V1) provenance.push(statement.predicate)
+  })
+  if (provenance.length !== 1) {
+    errors.push(
+      `${label} must have one ${SLSA_PROVENANCE_V1} attestation, found ${provenance.length}`
+    )
+    return errors
+  }
+  const build = provenance[0]?.buildDefinition
+  const workflow = build?.externalParameters?.workflow
+  const repositoryUrl = `https://github.com/${pin.provenance.repository}`
+  const dependencies = Array.isArray(build?.resolvedDependencies) ? build.resolvedDependencies : []
+  const sources = dependencies.filter(dependency => dependency?.digest?.gitCommit !== undefined)
+  const fields = [
+    ['build type', build?.buildType, GITHUB_WORKFLOW_BUILD_TYPE],
+    ['repository', workflow?.repository, repositoryUrl],
+    ['workflow', workflow?.path, pin.provenance.workflow],
+    ['ref', workflow?.ref, pin.provenance.ref],
+    [
+      'source',
+      sources.length === 1 ? sources[0].uri : sources,
+      `git+${repositoryUrl}@${pin.provenance.ref}`,
+    ],
+    ['commit', sources.length === 1 ? sources[0].digest.gitCommit : sources, pin.provenance.commit],
+  ]
+  for (const [field, actual, expected] of fields) {
+    if (actual !== expected) {
+      errors.push(
+        `${label} provenance ${field} is ${JSON.stringify(actual)}, ${SDK_PACKAGE_PINS_FILE} expects ${JSON.stringify(expected)}`
+      )
+    }
+  }
+  return errors
+}
+
+/** The registry's attestations for a pinned version, or undefined on a 404. */
+export async function fetchSdkAttestations(pin, fetchFn = fetch) {
+  const url = sdkAttestationsUrl(pin)
+  const response = await fetchFn(url, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (response.status === 404) return undefined
+  if (!response.ok) throw new Error(`${url} answered HTTP ${response.status}`)
+  return response.json()
+}
+
+/** Fetches and audits every pin's attestations; needs the network. */
+export async function checkSdkAttestations(pins, fetchFn = fetch) {
+  const results = await Promise.all(
+    pins.packages.map(async pin => {
+      try {
+        return auditSdkAttestations(pin, await fetchSdkAttestations(pin, fetchFn))
+      } catch (error) {
+        return [`${pin.package}@${pin.version} attestations could not be read: ${error.message}`]
+      }
+    })
+  )
+  return results.flat()
+}
+
 export function checkSdkPackages(repoRoot) {
   const pins = JSON.parse(readFileSync(join(repoRoot, SDK_PACKAGE_PINS_FILE), 'utf8'))
   const pinErrors = validateSdkPackagePins(pins)
@@ -232,7 +400,16 @@ export function checkSdkPackages(repoRoot) {
 const scriptPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : ''
 if (import.meta.url === scriptPath) {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+  // --attestations also compares each pin with the registry's provenance
+  // attestation, which needs the network; without it the check runs offline.
+  const args = process.argv.slice(2).filter(arg => arg !== '--')
+  const unknown = args.filter(arg => arg !== '--attestations')
+  if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(' ')}`)
+  const attestations = args.includes('--attestations')
   const { errors, pins } = checkSdkPackages(repoRoot)
+  if (attestations && validateSdkPackagePins(pins).length === 0) {
+    errors.push(...(await checkSdkAttestations(pins)))
+  }
   if (errors.length > 0) {
     console.error(`SDK package check failed:\n- ${errors.join('\n- ')}`)
     process.exitCode = 1
@@ -240,7 +417,7 @@ if (import.meta.url === scriptPath) {
     for (const pin of pins.packages) {
       const files = Object.keys(pin.files ?? {})
       console.log(
-        `${pin.package}@${pin.version} matches ${SDK_PACKAGE_PINS_FILE}: lockfile integrity and one installed copy${files.length > 0 ? `, and ${files.join(', ')} digests` : ''}`
+        `${pin.package}@${pin.version} matches ${SDK_PACKAGE_PINS_FILE}: lockfile integrity and one installed copy${files.length > 0 ? `, and ${files.join(', ')} digests` : ''}${attestations ? `, and the registry's provenance attestation (${pin.provenance.repository} ${pin.provenance.ref} ${pin.provenance.commit})` : ''}`
       )
     }
   }

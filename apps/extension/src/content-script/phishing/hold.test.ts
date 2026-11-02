@@ -54,6 +54,9 @@ let pageHistory: PageHistory;
 // The method of each reload the page asked for.
 let reloads: string[];
 let reload: ReturnType<typeof vi.fn>;
+// Each address the page opened afresh, replacing its history entry.
+let opened: string[];
+let replace: ReturnType<typeof vi.fn>;
 let stop: ReturnType<typeof vi.fn>;
 let verdicts: unknown[];
 let sendMessage: ReturnType<typeof vi.fn>;
@@ -61,7 +64,7 @@ let sendMessage: ReturnType<typeof vi.fn>;
 /** Puts the content script on a top-frame page at the URL, as a new load would. */
 function loadPage(url: string) {
   const parsed = new URL(url);
-  vi.stubGlobal('location', { href: parsed.href, hostname: parsed.hostname, protocol: parsed.protocol, reload });
+  vi.stubGlobal('location', { href: parsed.href, hostname: parsed.hostname, protocol: parsed.protocol, reload, replace });
 }
 
 function notice() {
@@ -89,6 +92,8 @@ beforeEach(() => {
   pageHistory = new PageHistory();
   reloads = [];
   reload = vi.fn(() => reloads.push(pageHistory.method));
+  opened = [];
+  replace = vi.fn((url: string) => opened.push(url));
   stop = vi.fn();
   verdicts = [];
   vi.stubGlobal('sessionStorage', storage);
@@ -105,6 +110,7 @@ beforeEach(() => {
     phishing_page_held_message: 'Qbit Wallet stopped this page.',
     phishing_page_held_unreleasable_message: 'The page does not keep the record that lets it load.',
     phishing_page_held_released_message: 'Select Try again to load it.',
+    phishing_page_held_reload_refused_message: 'Select Try again to open its address afresh.',
     try_again: 'Try again'
   };
   vi.stubGlobal('chrome', {
@@ -313,14 +319,63 @@ describe('releasing a page that a form POST loaded', () => {
     expect(reloads).toEqual(['GET']);
   });
 
-  it('does not reload it by itself when its history entry cannot be replaced', () => {
+  it('does not reload it when its history entry cannot be replaced, and opens its address afresh on Try again', () => {
     pageHistory.refuses = true;
 
     hold().settle('proceeded');
 
     expect(reload).not.toHaveBeenCalled();
     expect(storage.values.get(RELEASE_KEY)).toBe(BLOCKED_HOST);
+    expect(notice()?.textContent).toContain('Select Try again to open its address afresh.');
+
+    retryButton().click();
+
+    expect(opened).toEqual([`https://${BLOCKED_HOST}/claim?ref=1`]);
+    expect(reload).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not bring back the same notice on Try again when its history entry cannot be replaced', async () => {
+    vi.stubGlobal('performance', { getEntriesByType: () => [{ type: 'reload' }] });
+    pageHistory.refuses = true;
+    hold().settle('proceeded');
     expect(notice()?.textContent).toContain('Select Try again to load it.');
+
+    verdicts.push({ isPhishing: false, isDenylisted: true });
+    retryButton().click();
+
+    await vi.waitFor(() =>
+      expect(notice()?.textContent).toContain('Select Try again to open its address afresh.')
+    );
+    expect(reload).not.toHaveBeenCalled();
+    expect(opened).toEqual([]);
+
+    retryButton().click();
+
+    expect(opened).toEqual([`https://${BLOCKED_HOST}/claim?ref=1`]);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('opens its address afresh without the fragment, which would only scroll the stopped page', () => {
+    loadPage(`https://${BLOCKED_HOST}/claim?ref=1#step-2`);
+    pageHistory.refuses = true;
+    hold().settle('clear');
+
+    retryButton().click();
+
+    expect(opened).toEqual([`https://${BLOCKED_HOST}/claim?ref=1`]);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('opens its address afresh on retry once the extension was reloaded, when its history entry cannot be replaced', () => {
+    hold().settle('unknown');
+    pageHistory.refuses = true;
+    vi.stubGlobal('chrome', { runtime: { id: undefined }, i18n: { getMessage: () => '' } });
+
+    retryButton().click();
+
+    expect(opened).toEqual([`https://${BLOCKED_HOST}/claim?ref=1`]);
+    expect(reload).not.toHaveBeenCalled();
   });
 });
 

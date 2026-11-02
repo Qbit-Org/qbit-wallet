@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "9accff3baba6478eec73a95456f988ad8c370dd8",
-  "lockfileSha256": "87b9fb31de464eef495be721b1da2feee9ac332c78f5181de19002e24b8d0175",
+  "auditedCommit": "ea3fee079df27c1f509860eaa8237e5ffac409db",
+  "lockfileSha256": "6991b9325661f13f8d3b09ea3b86287303d18457d130a661675d86709ddb228a",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "40611505928f733b60d893599ec2d1c64fee775fc2689ce0ffef510beef63bff",
+    "sha256": "0db56142eaad896ede23103181c815efd40077db5d2d3bc36740e58ef28329b4",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,12 +14,12 @@
   },
   "summary": {
     "workspaces": 20,
-    "registryLockEntries": 2388,
-    "directDeclarations": 438,
+    "registryLockEntries": 2387,
+    "directDeclarations": 437,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 131,
       "extension-build-packaging": 79,
-      "shipped-runtime": 169,
+      "shipped-runtime": 168,
       "test-only-tooling": 35,
       "workspace-contract": 24
     },
@@ -33,24 +33,24 @@
     "auditVulnerableOccurrences": {
       "info": 0,
       "low": 14,
-      "moderate": 36,
+      "moderate": 43,
       "high": 0,
       "critical": 0
     },
-    "advisoryRecords": 42,
+    "advisoryRecords": 44,
     "advisoryRecordsBySeverity": {
       "low": 10,
-      "moderate": 32
+      "moderate": 34
     },
     "advisoryRecordsByDirectness": {
       "direct": 6,
-      "transitive": 36
+      "transitive": 38
     },
     "advisoryPathsByReachability": {
-      "development-tooling-path": 885,
-      "extension-build-path": 1613,
-      "test-only-path": 1862,
-      "reachable": 118
+      "development-tooling-path": 1408,
+      "extension-build-path": 1637,
+      "test-only-path": 2149,
+      "reachable": 119
     }
   },
   "directDependencies": [
@@ -2251,8 +2251,8 @@
       "workspacePackage": "qbit-extension",
       "package": "@qbit-oss/api",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "networking"
@@ -2263,8 +2263,8 @@
       "workspacePackage": "qbit-extension",
       "package": "@qbit-oss/pqc",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "crypto"
@@ -2275,8 +2275,8 @@
       "workspacePackage": "qbit-extension",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3134,8 +3134,8 @@
       "workspacePackage": "@qbit/keyring-service",
       "package": "@qbit-oss/pqc",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "crypto"
@@ -3146,8 +3146,8 @@
       "workspacePackage": "@qbit/keyring-service",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3336,16 +3336,6 @@
       "section": "dependencies",
       "requested": "workspace:*",
       "resolved": "link:../wallet-types",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/permission-service",
-      "workspacePackage": "@qbit/permission-service",
-      "package": "lru-cache",
-      "section": "dependencies",
-      "requested": "^6.0.0",
-      "resolved": "6.0.0",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -3678,8 +3668,8 @@
       "workspacePackage": "@qbit/wallet-connect",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3726,8 +3716,8 @@
       "workspacePackage": "@qbit/wallet-core",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3807,8 +3797,8 @@
       "workspacePackage": "@qbit/wallet-shared",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3829,8 +3819,8 @@
       "workspacePackage": "@qbit/wallet-state",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.0",
-      "resolved": "0.1.0",
+      "requested": "0.1.1",
+      "resolved": "0.1.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -4329,7 +4319,7 @@
       "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit-oss/api",
       "section": "peerDependencies",
-      "requested": "0.1.0",
+      "requested": "0.1.1",
       "resolved": null,
       "delivery": "workspace-contract",
       "securityAdjacency": [
@@ -4341,7 +4331,7 @@
       "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit-oss/pqc",
       "section": "peerDependencies",
-      "requested": "0.1.0",
+      "requested": "0.1.1",
       "resolved": null,
       "delivery": "workspace-contract",
       "securityAdjacency": [
@@ -4353,7 +4343,7 @@
       "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit-oss/protocol",
       "section": "peerDependencies",
-      "requested": "0.1.0",
+      "requested": "0.1.1",
       "resolved": null,
       "delivery": "workspace-contract",
       "securityAdjacency": [
@@ -4855,7 +4845,7 @@
     },
     {
       "package": "@qbit-oss/api",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "categories": [
         "networking"
       ],
@@ -4863,20 +4853,20 @@
         "production-closure"
       ],
       "peerVariants": 1,
-      "integrity": "sha512-65G3jsen1uPrTO9W0+oWXcKia2IcbTmw+C0LZTcc1gb3KOx848/BYoZJTna/+9n78k/UJgdCAx/XqhjLwnbQNg==",
+      "integrity": "sha512-8m9I2pqU7ndUiipbXvcUWYhFsHl7Fod2I7RBCyGj4ZpH7atnm1DOd91gz1PebEQNN1NWb+oC7lzeLhA75bSh9g==",
       "directDeclarations": [
         {
           "workspace": "apps/extension",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         }
       ]
     },
     {
       "package": "@qbit-oss/pqc",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "categories": [
         "crypto"
       ],
@@ -4884,27 +4874,27 @@
         "production-closure"
       ],
       "peerVariants": 1,
-      "integrity": "sha512-NZAWoRggBtQHdCyXFfA4odcgnxedrwV57nZMHkhutS/UnPpzNBGwVPUMQcmIfxlF9IPU5Q0FRtJ5VnoQ59vqCA==",
+      "integrity": "sha512-+p7hTxDvoRyUTlLifTfkRDuRt6+TO/X7vHMqN7w2XYSTpQGRkZopmQaCdYq2N2WZMtNF9sTAGmBCLgfvkCOfTA==",
       "directDeclarations": [
         {
           "workspace": "apps/extension",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         },
         {
           "workspace": "packages/keyring-service",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         }
       ]
     },
     {
       "package": "@qbit-oss/protocol",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "categories": [
         "serialization"
       ],
@@ -4912,49 +4902,49 @@
         "production-closure"
       ],
       "peerVariants": 1,
-      "integrity": "sha512-7GGEVWwmMgL5XL8FQlFJeXwUkW2y2ciLq6bv5VYz6Bp6cea64HNItg77XpKkupDfz/Hg5ghKaupez3Zp+08uJQ==",
+      "integrity": "sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww==",
       "directDeclarations": [
         {
           "workspace": "apps/extension",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         },
         {
           "workspace": "packages/keyring-service",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         },
         {
           "workspace": "packages/wallet-connect",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         },
         {
           "workspace": "packages/wallet-core",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         },
         {
           "workspace": "packages/wallet-shared",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         },
         {
           "workspace": "packages/wallet-state",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.0",
-          "resolved": "0.1.0"
+          "requested": "0.1.1",
+          "resolved": "0.1.1"
         }
       ]
     },
@@ -12589,6 +12579,316 @@
       ]
     },
     {
+      "advisory": "GHSA-3g3m-2fjr-6pw4",
+      "package": "glob",
+      "title": "Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal",
+      "severity": "moderate",
+      "url": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4",
+      "vulnerableVersions": [
+        "10.5.0",
+        "11.1.0",
+        "13.0.6"
+      ],
+      "directness": "transitive",
+      "reachability": [
+        "development-tooling-path",
+        "extension-build-path",
+        "test-only-path"
+      ],
+      "acceptedException": null,
+      "findingPathCount": 70,
+      "pathContexts": [
+        {
+          "workspace": ".",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "rimraf",
+          "directVersion": "5.0.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "11.1.0",
+          "directPackage": "lerna",
+          "directVersion": "9.0.7",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 13
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "13.0.6",
+          "directPackage": "lerna",
+          "directVersion": "9.0.7",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 27
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "stylus-loader",
+          "directVersion": "6.2.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "stylus",
+          "directVersion": "0.64.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "11.1.0",
+          "directPackage": "postinstall",
+          "directVersion": "0.11.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "11.1.0",
+          "directPackage": "workbox-webpack-plugin",
+          "directVersion": "7.4.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/approval-service",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/base-utils",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/contact-book",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/keyring-service",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/notification-service",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/permission-service",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/phishing-detect",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/preference-service",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/tx-helpers",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-api",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-background",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-connect-react",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-connect",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "glob",
+          "directVersion": "10.5.0",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "glob",
+          "directVersion": "10.5.0",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-state",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-storage",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "glob",
+          "directVersion": "10.5.0",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        }
+      ]
+    },
+    {
       "advisory": "GHSA-2vr4-cq9g-pvrc",
       "package": "ip-address",
       "title": "ip-address: no classifier recognizes the NAT64 local-use range 64:ff9b:1::/48, allowing SSRF and trust-boundary bypass",
@@ -12765,6 +13065,858 @@
           "directDelivery": "development-quality-tooling",
           "reachability": "development-tooling-path",
           "pathCount": 21
+        }
+      ]
+    },
+    {
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "title": "minimatch has potential denial of service via globparts amplification",
+      "severity": "moderate",
+      "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+      "vulnerableVersions": [
+        "10.2.6",
+        "3.1.5",
+        "5.1.9",
+        "9.0.9"
+      ],
+      "directness": "transitive",
+      "reachability": [
+        "development-tooling-path",
+        "extension-build-path",
+        "reachable",
+        "test-only-path"
+      ],
+      "acceptedException": null,
+      "findingPathCount": 765,
+      "pathContexts": [
+        {
+          "workspace": ".",
+          "vulnerableVersion": "10.2.6",
+          "directPackage": "lerna",
+          "directVersion": "9.0.7",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 53
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@humanwhocodes/config-array",
+          "directVersion": "0.13.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-config-prettier",
+          "directVersion": "9.0.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-prettier",
+          "directVersion": "5.4.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 8
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-react-hooks",
+          "directVersion": "4.5.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "lerna",
+          "directVersion": "9.0.7",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "minimatch",
+          "directVersion": "3.1.5",
+          "directDelivery": "undetermined",
+          "reachability": "reachable",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "rimraf",
+          "directVersion": "5.0.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": ".",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "10.2.6",
+          "directPackage": "postinstall",
+          "directVersion": "0.11.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "10.2.6",
+          "directPackage": "workbox-webpack-plugin",
+          "directVersion": "7.4.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "5.59.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "5.59.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "babel-jest",
+          "directVersion": "27.4.2",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "browserify",
+          "directVersion": "17.0.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-config-prettier",
+          "directVersion": "8.5.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-import",
+          "directVersion": "2.27.5",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 17
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-prettier",
+          "directVersion": "4.0.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 8
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-react-hooks",
+          "directVersion": "4.5.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-react",
+          "directVersion": "7.37.5",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 5
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-simple-import-sort",
+          "directVersion": "10.0.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-plugin-unused-imports",
+          "directVersion": "2.0.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 24
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint-webpack-plugin",
+          "directVersion": "3.1.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "gulp-clean",
+          "directVersion": "0.4.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "jest-watch-typeahead",
+          "directVersion": "1.0.0",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 137
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "jest",
+          "directVersion": "27.4.3",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 137
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "react-dev-utils",
+          "directVersion": "12.0.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 7
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "style-resources-loader",
+          "directVersion": "1.5.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "typescript-transform-paths",
+          "directVersion": "3.3.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "5.1.9",
+          "directPackage": "workbox-webpack-plugin",
+          "directVersion": "7.4.1",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "stylus-loader",
+          "directVersion": "6.2.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "apps/extension",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "stylus",
+          "directVersion": "0.64.0",
+          "directDelivery": "extension-build-packaging",
+          "reachability": "extension-build-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/approval-service",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/base-utils",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/base-utils",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/base-utils",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/base-utils",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/contact-book",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/keyring-service",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/keyring-service",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/keyring-service",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/keyring-service",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/notification-service",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/permission-service",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/phishing-detect",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/phishing-detect",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/preference-service",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/preference-service",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/tx-helpers",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/tx-helpers",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/tx-helpers",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/tx-helpers",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-api",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-background",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-background",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-connect-react",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/wallet-connect-react",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-connect-react",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-connect-react",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-connect",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/wallet-connect",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-connect",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-connect",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.2.6",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "minimatch",
+          "directVersion": "9.0.9",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "10.2.6",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "minimatch",
+          "directVersion": "9.0.9",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-state",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-state",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-storage",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-storage",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "10.2.6",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/eslint-plugin",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 20
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "@typescript-eslint/parser",
+          "directVersion": "6.7.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "3.1.5",
+          "directPackage": "eslint",
+          "directVersion": "8.50.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 4
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "@vitest/coverage-v8",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "minimatch",
+          "directVersion": "9.0.9",
+          "directDelivery": "undetermined",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-types",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
         }
       ]
     },

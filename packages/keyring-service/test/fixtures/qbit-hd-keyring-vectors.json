@@ -1,0 +1,2157 @@
+{
+  "schemaVersion": 1,
+  "name": "qbit-hd-keyring-vectors",
+  "generatedBy": "scripts/conformance/generate-keyring-vectors.mjs",
+  "generatedWith": {
+    "@qbit-oss/pqc": "0.1.0 sha512-NZAWoRggBtQHdCyXFfA4odcgnxedrwV57nZMHkhutS/UnPpzNBGwVPUMQcmIfxlF9IPU5Q0FRtJ5VnoQ59vqCA==",
+    "@qbit-oss/protocol": "0.1.0 sha512-7GGEVWwmMgL5XL8FQlFJeXwUkW2y2ciLq6bv5VYz6Bp6cea64HNItg77XpKkupDfz/Hg5ghKaupez3Zp+08uJQ=="
+  },
+  "networks": ["mainnet", "testnet4", "signet", "regtest"],
+  "indexes": [0, 1, 19, 2147483646, 2147483647],
+  "cases": [
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "db5a5783cdff0315138c525d3e3e649166f3231da617c8e8c3b2e63ea354b71e",
+          "scriptPubKey": "522064f504444103f0c8256c898648756a5a666fc0fc7a3c07903427b3b01311cb36",
+          "addresses": {
+            "mainnet": "qb1zvn6sg3zpq0cvsftv3xrysat2tfnxls8u0g7q0yp5y7emqyc3evmq39ys3f",
+            "testnet4": "tq1zvn6sg3zpq0cvsftv3xrysat2tfnxls8u0g7q0yp5y7emqyc3evmq8vnssg",
+            "signet": "tq1zvn6sg3zpq0cvsftv3xrysat2tfnxls8u0g7q0yp5y7emqyc3evmq8vnssg",
+            "regtest": "qbrt1zvn6sg3zpq0cvsftv3xrysat2tfnxls8u0g7q0yp5y7emqyc3evmqynswer"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "42739dce80efd4b1ee9460a8b424dfc208d50628ed02f299545b1b3a1eb2d6d3",
+          "scriptPubKey": "52207513a1acf3ef21f3e357273619039d561cc05889f37ed7a22d6905f9041a6cef",
+          "addresses": {
+            "mainnet": "qb1zw5f6rt8nausl8c6hyumpjqua2cwvqkyf7dld0g3ddyzljpq6dnhssy0e35",
+            "testnet4": "tq1zw5f6rt8nausl8c6hyumpjqua2cwvqkyf7dld0g3ddyzljpq6dnhsxdces4",
+            "signet": "tq1zw5f6rt8nausl8c6hyumpjqua2cwvqkyf7dld0g3ddyzljpq6dnhsxdces4",
+            "regtest": "qbrt1zw5f6rt8nausl8c6hyumpjqua2cwvqkyf7dld0g3ddyzljpq6dnhs9jm8e7"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "35c3719dac613ae5a7963819839ed0f1091069b69739ce0de25d455037c26aeb",
+          "scriptPubKey": "5220ce456be9590ad8ec1a0ba604acba6e7595a7a0b5ecb9dd6814c2a82d6644b8f2",
+          "addresses": {
+            "mainnet": "qb1zeezkh62eptvwcxst5cz2ewnwwk260g94ajua66q5c25z6ejyhreq4h796y",
+            "testnet4": "tq1zeezkh62eptvwcxst5cz2ewnwwk260g94ajua66q5c25z6ejyhreqr7f9m9",
+            "signet": "tq1zeezkh62eptvwcxst5cz2ewnwwk260g94ajua66q5c25z6ejyhreqr7f9m9",
+            "regtest": "qbrt1zeezkh62eptvwcxst5cz2ewnwwk260g94ajua66q5c25z6ejyhreqqp2mjw"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "2d04e845017eb2367ec2f6142ec733dc0db43e570d655592928cf6ce55241c47",
+          "scriptPubKey": "5220a3f74e069ac2c05102b792a5fff59a76be9708d901051b3319619862c886bb70",
+          "addresses": {
+            "mainnet": "qb1z50m5up56ctq9zq4hj2jllav6w6lfwzxeqyz3kvcevxvx9jyxhdcqg58lxs",
+            "testnet4": "tq1z50m5up56ctq9zq4hj2jllav6w6lfwzxeqyz3kvcevxvx9jyxhdcq7asl83",
+            "signet": "tq1z50m5up56ctq9zq4hj2jllav6w6lfwzxeqyz3kvcevxvx9jyxhdcq7asl83",
+            "regtest": "qbrt1z50m5up56ctq9zq4hj2jllav6w6lfwzxeqyz3kvcevxvx9jyxhdcqaznpw6"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "ae860954e7d1130a68fa03731572d8744692493be8eafa637f313baaaffa845d",
+          "scriptPubKey": "5220afca96271172d27f06a2eda8b8fd3bdc51871536eebaa1af7a04150c8e50060d",
+          "addresses": {
+            "mainnet": "qb1z4l9fvfc3wtf87p4zak5t3lfmm3gcw9fka6a2rtm6qs2serjsqcxsd4g70n",
+            "testnet4": "tq1z4l9fvfc3wtf87p4zak5t3lfmm3gcw9fka6a2rtm6qs2serjsqcxsmul7wj",
+            "signet": "tq1z4l9fvfc3wtf87p4zak5t3lfmm3gcw9fka6a2rtm6qs2serjsqcxsmul7wj",
+            "regtest": "qbrt1z4l9fvfc3wtf87p4zak5t3lfmm3gcw9fka6a2rtm6qs2serjsqcxscruq8e"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "8d4cfe77bdde0dfcb58a020200646dc764525fb23da2fccd6bbef0c19ea19ab6",
+          "scriptPubKey": "52204e5aa9c370a31795dbef619246373cebd87898125e60b7b55e88d5bab2697130",
+          "addresses": {
+            "mainnet": "qb1zfed2nsms5vtetkl0vxfyvdeua0v83xqjtest0d273r2m4vnfwycqcwm5w4",
+            "testnet4": "tq1zfed2nsms5vtetkl0vxfyvdeua0v83xqjtest0d273r2m4vnfwycqw8v505",
+            "signet": "tq1zfed2nsms5vtetkl0vxfyvdeua0v83xqjtest0d273r2m4vnfwycqw8v505",
+            "regtest": "qbrt1zfed2nsms5vtetkl0vxfyvdeua0v83xqjtest0d273r2m4vnfwycqdc02xl"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "afe7db9518e56601b92bcf5c2dd6284d2b2584126ce4b5bffa50e1a8fc21d773",
+          "scriptPubKey": "5220a187e2e1f3b50436e1736eac0f490cfcf2eb5d8f6a00cb7c9b0c4e23b59d9051",
+          "addresses": {
+            "mainnet": "qb1z5xr79c0nk5zrdctnd6kq7jgvlnewkhv0dgqvklymp38z8dvajpgsartdqm",
+            "testnet4": "tq1z5xr79c0nk5zrdctnd6kq7jgvlnewkhv0dgqvklymp38z8dvajpgst2udp6",
+            "signet": "tq1z5xr79c0nk5zrdctnd6kq7jgvlnewkhv0dgqvklymp38z8dvajpgst2udp6",
+            "regtest": "qbrt1z5xr79c0nk5zrdctnd6kq7jgvlnewkhv0dgqvklymp38z8dvajpgsg4lng3"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "1f96b49eeb9d8e0c3ecf87ebcb6e711040bfea70692f26badc080b7091aeee59",
+          "scriptPubKey": "522019af674e6ee79467f3852fbdd1c33b8b3643c85c838baf6a0214d02833901228",
+          "addresses": {
+            "mainnet": "qb1zrxhkwnnwu72x0uu9977arsem3vmy8jzusw9676szzngzsvuszg5qpatwqw",
+            "testnet4": "tq1zrxhkwnnwu72x0uu9977arsem3vmy8jzusw9676szzngzsvuszg5qh5uwp0",
+            "signet": "tq1zrxhkwnnwu72x0uu9977arsem3vmy8jzusw9676szzngzsvuszg5qh5uwp0",
+            "regtest": "qbrt1zrxhkwnnwu72x0uu9977arsem3vmy8jzusw9676szzngzsvuszg5q5tlsgy"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "eb4852bea5c0facd1c1c60b19945ee11614bce8b1d50712f33d89c21955ab887",
+          "scriptPubKey": "52208e6ee2636d3b6256cf860c03894a3991a32f6753ea215a8434a76ad7afcef942",
+          "addresses": {
+            "mainnet": "qb1z3ehwycmd8d39dnuxpspcjj3ejx3j7e6nags44pp55a4d0t7wl9pq4vu69d",
+            "testnet4": "tq1z3ehwycmd8d39dnuxpspcjj3ejx3j7e6nags44pp55a4d0t7wl9pqr9t6yv",
+            "signet": "tq1z3ehwycmd8d39dnuxpspcjj3ejx3j7e6nags44pp55a4d0t7wl9pqr9t6yv",
+            "regtest": "qbrt1z3ehwycmd8d39dnuxpspcjj3ejx3j7e6nags44pp55a4d0t7wl9pqq6gyd8"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "e6eecb1d70f7a831805044871c79eb31cb5538bcf018017e38d8040e72f2871f",
+          "scriptPubKey": "5220a96de5a632d626127b1e03d9f22730d66a98df6d1084502b6385257a6ea03d3b",
+          "addresses": {
+            "mainnet": "qb1z49k7tf3j6cnpy7c7q0vlyfes6e4f3hmdzzz9q2mrs5jh5m4q85asrsjs8y",
+            "testnet4": "tq1z49k7tf3j6cnpy7c7q0vlyfes6e4f3hmdzzz9q2mrs5jh5m4q85as4e9sx9",
+            "signet": "tq1z49k7tf3j6cnpy7c7q0vlyfes6e4f3hmdzzz9q2mrs5jh5m4q85as4e9sx9",
+            "regtest": "qbrt1z49k7tf3j6cnpy7c7q0vlyfes6e4f3hmdzzz9q2mrs5jh5m4q85askxxw0w"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "777474445b1c4d7ef0f6f6951b4ef82e8a041d70df8763f99a3b1be8ae02b2b6",
+          "scriptPubKey": "522017f71355a9e6dde428a7eafd3f7785b3d53e0547ffc05853154645a018c72b89",
+          "addresses": {
+            "mainnet": "qb1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysjhqxmm",
+            "testnet4": "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66",
+            "signet": "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66",
+            "regtest": "qbrt1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wys8p5cn3"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "552084b52173270c9f4dc95e800dab39f7164546c858268cb40f138e65512a63",
+          "scriptPubKey": "522031730fd891df21aa77316f05253a575b23532d0b3e9844fcf9c06e99406f5ee3",
+          "addresses": {
+            "mainnet": "qb1zx9eslky3mus65ae3duzj2wjhtv34xtgt86vyfl8ecphfjsr0tm3sm3s8a4",
+            "testnet4": "tq1zx9eslky3mus65ae3duzj2wjhtv34xtgt86vyfl8ecphfjsr0tm3sdc88u5",
+            "signet": "tq1zx9eslky3mus65ae3duzj2wjhtv34xtgt86vyfl8ecphfjsr0tm3sdc88u5",
+            "regtest": "qbrt1zx9eslky3mus65ae3duzj2wjhtv34xtgt86vyfl8ecphfjsr0tm3sw8ye4l"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "0243cf97e177ab42c59da0888d064ffa79c29e805986ff585211be73491ca7e5",
+          "scriptPubKey": "5220497376b3b7a03256e5baa6e72cf674872334a14f0b5516b34f95e6b1fb7df5dc",
+          "addresses": {
+            "mainnet": "qb1zf9ehdvah5qe9ded65mnjean5su3nfg20pd23dv60jhntr7ma7hwq0qqjeu",
+            "testnet4": "tq1zf9ehdvah5qe9ded65mnjean5su3nfg20pd23dv60jhntr7ma7hwqefhjca",
+            "signet": "tq1zf9ehdvah5qe9ded65mnjean5su3nfg20pd23dv60jhntr7ma7hwqefhjca",
+            "regtest": "qbrt1zf9ehdvah5qe9ded65mnjean5su3nfg20pd23dv60jhntr7ma7hwq6k5v3k"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "ad2870f9330ded96b3bd85f102a9cab55a270cf462c1bb310d925d3d5f539b9e",
+          "scriptPubKey": "5220ab8b443e103f260a433f2d7758e7f124e0a3e332627caba551d3f1745666cbb1",
+          "addresses": {
+            "mainnet": "qb1z4w95g0ss8unq5sel94m43el3yns28cejvf72hf2360chg4nxewcsdphk9w",
+            "testnet4": "tq1z4w95g0ss8unq5sel94m43el3yns28cejvf72hf2360chg4nxewcsmgqky0",
+            "signet": "tq1z4w95g0ss8unq5sel94m43el3yns28cejvf72hf2360chg4nxewcsmgqky0",
+            "regtest": "qbrt1z4w95g0ss8unq5sel94m43el3yns28cejvf72hf2360chg4nxewcschrgdy"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "3f9807fbe7c6b75d02c9949d07db09c98fb089b2495e7c3adac97e6237b289a8",
+          "scriptPubKey": "5220ea3543afb0e0acb5c31f92359bb23ceec331b6d92d54339722bb7981deff50b5",
+          "addresses": {
+            "mainnet": "qb1zag658tasuzkttscljg6ehv3uampnrdke942r89ezhducrhhl2z6sal4km3",
+            "testnet4": "tq1zag658tasuzkttscljg6ehv3uampnrdke942r89ezhducrhhl2z6stkzk6s",
+            "signet": "tq1zag658tasuzkttscljg6ehv3uampnrdke942r89ezhducrhhl2z6stkzk6s",
+            "regtest": "qbrt1zag658tasuzkttscljg6ehv3uampnrdke942r89ezhducrhhl2z6sgfpgnm"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "f0d324da995d71fc45d868d68cabfd5e91755cd184d337f5f965aec5c0b9b192",
+          "scriptPubKey": "52207e02e951e44e72ee9efe0184cb57613777ab5f8b7a44fe8da221244af05fb684",
+          "addresses": {
+            "mainnet": "qb1z0cpwj50yfeewa8h7qxzvk4mpxam6khut0fz0ardzyyjy4uzlk6zquup6vx",
+            "testnet4": "tq1z0cpwj50yfeewa8h7qxzvk4mpxam6khut0fz0ardzyyjy4uzlk6zq24k6d8",
+            "signet": "tq1z0cpwj50yfeewa8h7qxzvk4mpxam6khut0fz0ardzyyjy4uzlk6zq24k6d8",
+            "regtest": "qbrt1z0cpwj50yfeewa8h7qxzvk4mpxam6khut0fz0ardzyyjy4uzlk6zqf24yyv"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "5cb22377e01b32f34f15f549c4483bd94ad61e6fa409ccb1699a1ab18acfe3a2",
+          "scriptPubKey": "522035c0cddfb1222e481b82a3470b51c18b6ee4dd2b3bde2177aa55ef1acd09685f",
+          "addresses": {
+            "mainnet": "qb1zxhqvmha3yghysxuz5drsk5wp3dhwfhft800zzaa22hh34ngfdp0s77662r",
+            "testnet4": "tq1zxhqvmha3yghysxuz5drsk5wp3dhwfhft800zzaa22hh34ngfdp0sghd6tz",
+            "signet": "tq1zxhqvmha3yghysxuz5drsk5wp3dhwfhft800zzaa22hh34ngfdp0sghd6tz",
+            "regtest": "qbrt1zxhqvmha3yghysxuz5drsk5wp3dhwfhft800zzaa22hh34ngfdp0stgwyzf"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "71ce1e363245482a9b1980252597542755577a8014fb426f0f908e7a8edea67f",
+          "scriptPubKey": "5220bfa34ab0df13f67a31a91a6baae3823b4f4dc08de43a924073eaca75626c754c",
+          "addresses": {
+            "mainnet": "qb1zh7354vxlz0m85vdfrf464cuz8d85msydusafysrnat982cnvw4xqvyt9nt",
+            "testnet4": "tq1zh7354vxlz0m85vdfrf464cuz8d85msydusafysrnat982cnvw4xq6du9j2",
+            "signet": "tq1zh7354vxlz0m85vdfrf464cuz8d85msydusafysrnat982cnvw4xq6du9j2",
+            "regtest": "qbrt1zh7354vxlz0m85vdfrf464cuz8d85msydusafysrnat982cnvw4xqejlmmp"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "c5bd5a76d41ea5a709a4a78b52c2beaa186f41fa3955b427ccdf5d6349057353",
+          "scriptPubKey": "5220a8498df57e086a958a9a686d9ef0d0dd36e7dc322e6c4c0c057e17e09fe0ecc7",
+          "addresses": {
+            "mainnet": "qb1z4pycmat7pp4ftz56dpkeauxsm5mw0hpj9ekycrq90ct7p8lqanrsk8w30y",
+            "testnet4": "tq1z4pycmat7pp4ftz56dpkeauxsm5mw0hpj9ekycrq90ct7p8lqanrsqwe3w9",
+            "signet": "tq1z4pycmat7pp4ftz56dpkeauxsm5mw0hpj9ekycrq90ct7p8lqanrsqwe3w9",
+            "regtest": "qbrt1z4pycmat7pp4ftz56dpkeauxsm5mw0hpj9ekycrq90ct7p8lqanrsr3608w"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "0c53bed72f75dd967948f9497825294ba540044d4694888c7522a2aaf30b5c52",
+          "scriptPubKey": "5220e0ae8db390f1a96dc2b8b6876f2bf572835f74590e1e6822dc6b3c6fbbe94cfe",
+          "addresses": {
+            "mainnet": "qb1zuzhgmvus7x5kms4ck6rk72l4w2p47azepc0xsgkudv7xlwlffnlqdzsrse",
+            "testnet4": "tq1zuzhgmvus7x5kms4ck6rk72l4w2p47azepc0xsgkudv7xlwlffnlqmt8r3c",
+            "signet": "tq1zuzhgmvus7x5kms4ck6rk72l4w2p47azepc0xsgkudv7xlwlffnlqmt8r3c",
+            "regtest": "qbrt1zuzhgmvus7x5kms4ck6rk72l4w2p47azepc0xsgkudv7xlwlffnlqc5yacn"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "f9f2cf400f3fe6130081522ff1690642d4c7785c2179e5b6192623cc19a0f76d",
+          "scriptPubKey": "52209ca5b918eedfed65b34cf5898a48ca8d9c63323360641f373029a4f7e5683b0b",
+          "addresses": {
+            "mainnet": "qb1znjjmjx8wmlkktv6v7kyc5jx23kwxxv3nvpjp7des9xj00etg8v9sx46x24",
+            "testnet4": "tq1znjjmjx8wmlkktv6v7kyc5jx23kwxxv3nvpjp7des9xj00etg8v9ssudxt5",
+            "signet": "tq1znjjmjx8wmlkktv6v7kyc5jx23kwxxv3nvpjp7des9xj00etg8v9ssudxt5",
+            "regtest": "qbrt1znjjmjx8wmlkktv6v7kyc5jx23kwxxv3nvpjp7des9xj00etg8v9snrwczl"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "e8dcf8194904d1fae0101db561627b7d7ff0feece488f682b219681655dde01d",
+          "scriptPubKey": "5220c1e65781122062c93997afefc97aca2d652596eeb3f177333b9fea1fe6c2c7b6",
+          "addresses": {
+            "mainnet": "qb1zc8n90qgjyp3vjwvh4lhuj7k294jjt9hwk0chwvemnl4plekzc7mq22xsng",
+            "testnet4": "tq1zc8n90qgjyp3vjwvh4lhuj7k294jjt9hwk0chwvemnl4plekzc7mqur3sjf",
+            "signet": "tq1zc8n90qgjyp3vjwvh4lhuj7k294jjt9hwk0chwvemnl4plekzc7mqur3sjf",
+            "regtest": "qbrt1zc8n90qgjyp3vjwvh4lhuj7k294jjt9hwk0chwvemnl4plekzc7mqlujwmz"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "9b15d6377bec2b43f1abbd1caddabb703af7bac423cd21281f7a2c17258a13b0",
+          "scriptPubKey": "5220440c1de66347a79908f01c3788b0ec74ebe7375c0c1b11a11032bdcd443b7a52",
+          "addresses": {
+            "mainnet": "qb1zgsxpmenrg7nejz8srsmc3v8vwn47wd6upsd3rggsx27u63pm0ffq9spass",
+            "testnet4": "tq1zgsxpmenrg7nejz8srsmc3v8vwn47wd6upsd3rggsx27u63pm0ffqneka33",
+            "signet": "tq1zgsxpmenrg7nejz8srsmc3v8vwn47wd6upsd3rggsx27u63pm0ffqneka33",
+            "regtest": "qbrt1zgsxpmenrg7nejz8srsmc3v8vwn47wd6upsd3rggsx27u63pm0ffqsx4rc6"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "8192549103dc4dd2f2119ec2f5727aad37f48af95f10d5093f7aeebccf27a147",
+          "scriptPubKey": "5220578dd08e08adb3b45705588777f001df56e6c4e92951cb3e7bf81bf954706792",
+          "addresses": {
+            "mainnet": "qb1z27xaprsg4kemg4c9tzrh0uqpmatwd38f99guk0nmlqdlj4rsv7fq4hrl5p",
+            "testnet4": "tq1z27xaprsg4kemg4c9tzrh0uqpmatwd38f99guk0nmlqdlj4rsv7fqr75l4q",
+            "signet": "tq1z27xaprsg4kemg4c9tzrh0uqpmatwd38f99guk0nmlqdlj4rsv7fqr75l4q",
+            "regtest": "qbrt1z27xaprsg4kemg4c9tzrh0uqpmatwd38f99guk0nmlqdlj4rsv7fqqphput"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "a5fe2204188e060d8b312329e4a91dc29e92f2193bd856319221f9919770c665",
+          "scriptPubKey": "52208a35d4b5cbe8aece8dbeb563bc1efc73e11d183dcb087cb84ec7eef7ef8c09d1",
+          "addresses": {
+            "mainnet": "qb1z3g6afdwtazhvard7k43mc8huw0s36xpaevy8ewzwclh00muvp8gsprzt5d",
+            "testnet4": "tq1z3g6afdwtazhvard7k43mc8huw0s36xpaevy8ewzwclh00muvp8gsh24t4v",
+            "signet": "tq1z3g6afdwtazhvard7k43mc8huw0s36xpaevy8ewzwclh00muvp8gsh24t4v",
+            "regtest": "qbrt1z3g6afdwtazhvard7k43mc8huw0s36xpaevy8ewzwclh00muvp8gs54k4u8"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "f84619be78eed653da9a0a9129562eaa24710bf2056780d6e23837164fc8852a",
+          "scriptPubKey": "522091112d2cdd427287a74b96001a42b215ccf29b07c7bf50285dde48d21bc00061",
+          "addresses": {
+            "mainnet": "qb1zjygj6txagfeg0f6tjcqp5s4jzhx09xc8c7l4q2zameydyx7qqpssexxlpq",
+            "testnet4": "tq1zjygj6txagfeg0f6tjcqp5s4jzhx09xc8c7l4q2zameydyx7qqpss003lqp",
+            "signet": "tq1zjygj6txagfeg0f6tjcqp5s4jzhx09xc8c7l4q2zameydyx7qqpss003lqp",
+            "regtest": "qbrt1zjygj6txagfeg0f6tjcqp5s4jzhx09xc8c7l4q2zameydyx7qqpssvsjpf2"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "34146eb17da5142017e61aac0c7be2e27b579a7325d58a126850a0fea963f176",
+          "scriptPubKey": "52201a25f453640434c636e91f56b877f6383ae9ce741e83b6c885312964ff17bbc7",
+          "addresses": {
+            "mainnet": "qb1zrgjlg5myqs6vvdhfrattsalk8qawnnn5r6pmdjy9xy5kflchh0rs4vzfjr",
+            "testnet4": "tq1zrgjlg5myqs6vvdhfrattsalk8qawnnn5r6pmdjy9xy5kflchh0rsr94fnz",
+            "signet": "tq1zrgjlg5myqs6vvdhfrattsalk8qawnnn5r6pmdjy9xy5kflchh0rsr94fnz",
+            "regtest": "qbrt1zrgjlg5myqs6vvdhfrattsalk8qawnnn5r6pmdjy9xy5kflchh0rsq6kh6f"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "29b808aee610261cffc060dfe121cb584bd941ba0ff8a591c54409a203a39fe7",
+          "scriptPubKey": "5220bc4b45c82536782b33a0cb26f71c35c6b780a275a606e82a69407c1e15fc4d77",
+          "addresses": {
+            "mainnet": "qb1zh395tjp9xeuzkvaqevn0w8p4c6mcpgn45crws2nfgp7pu90uf4msvhfdvl",
+            "testnet4": "tq1zh395tjp9xeuzkvaqevn0w8p4c6mcpgn45crws2nfgp7pu90uf4ms677dd7",
+            "signet": "tq1zh395tjp9xeuzkvaqevn0w8p4c6mcpgn45crws2nfgp7pu90uf4ms677dd7",
+            "regtest": "qbrt1zh395tjp9xeuzkvaqevn0w8p4c6mcpgn45crws2nfgp7pu90uf4msepany4"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "8e4087c360bedbc4b856eb639e9cc1f298d5efc59475639c530d8ef2038bc7b7",
+          "scriptPubKey": "52203a415f32a54f99cd27230d36abe7b486289f2b703869c6d55b567c8f182aad4e",
+          "addresses": {
+            "mainnet": "qb1z8fq47v49f7vu6ferp5m2hea5sc5f72ms8p5ud42m2e7g7xp2448qp785pv",
+            "testnet4": "tq1z8fq47v49f7vu6ferp5m2hea5sc5f72ms8p5ud42m2e7g7xp2448qhhs5qd",
+            "signet": "tq1z8fq47v49f7vu6ferp5m2hea5sc5f72ms8p5ud42m2e7g7xp2448qhhs5qd",
+            "regtest": "qbrt1z8fq47v49f7vu6ferp5m2hea5sc5f72ms8p5ud42m2e7g7xp2448q5gn2fx"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "91a182f3c584e2d8d244fb51267000f0910ebb34585db5d1fd6cff235e9bfa44",
+          "scriptPubKey": "522091401ff707bc438499529e05917e998f3b375e38db7a20c480772a6e9f781e7d",
+          "addresses": {
+            "mainnet": "qb1zj9qplac8h3pcfx2jnczezl5e3uanwh3cmdazp3yqwu4xa8mcre7saxnjs3",
+            "testnet4": "tq1zj9qplac8h3pcfx2jnczezl5e3uanwh3cmdazp3yqwu4xa8mcre7st0yj3s",
+            "signet": "tq1zj9qplac8h3pcfx2jnczezl5e3uanwh3cmdazp3yqwu4xa8mcre7st0yj3s",
+            "regtest": "qbrt1zj9qplac8h3pcfx2jnczezl5e3uanwh3cmdazp3yqwu4xa8mcre7sgs8vcm"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "df6f65567394a28e69d8b84d10b4a050ecf00ad066eb88387ed11e4de7b10e88",
+          "scriptPubKey": "5220e9f8f9f2d185fe5d85018dafc565c6151876624b30f1ba59786b5d8bf49a0fbb",
+          "addresses": {
+            "mainnet": "qb1za8u0nuk3shl9mpgp3khu2ewxz5v8vcjtxrcm5ktcddwchay6p7askltgtj",
+            "testnet4": "tq1za8u0nuk3shl9mpgp3khu2ewxz5v8vcjtxrcm5ktcddwchay6p7asqkug2n",
+            "signet": "tq1za8u0nuk3shl9mpgp3khu2ewxz5v8vcjtxrcm5ktcddwchay6p7asqkug2n",
+            "regtest": "qbrt1za8u0nuk3shl9mpgp3khu2ewxz5v8vcjtxrcm5ktcddwchay6p7asrflkrc"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "b67a704fc3d5cb8390c8f91b6ae2a6410e7dfc029cd24770ee7ca5c39985da93",
+          "scriptPubKey": "5220b6407d325c19f2098161648638746ca4d8118669d320d9a7b6162df78de47ea0",
+          "addresses": {
+            "mainnet": "qb1zkeq86vjur8eqnqtpvjrrsarv5nvprpnf6vsdnfakzckl0r0y06sq4qwzfy",
+            "testnet4": "tq1zkeq86vjur8eqnqtpvjrrsarv5nvprpnf6vsdnfakzckl0r0y06sqrfezg9",
+            "signet": "tq1zkeq86vjur8eqnqtpvjrrsarv5nvprpnf6vsdnfakzckl0r0y06sqrfezg9",
+            "regtest": "qbrt1zkeq86vjur8eqnqtpvjrrsarv5nvprpnf6vsdnfakzckl0r0y06sqqk6upw"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "e4877f02f1ad95072516f21ed9cb2d82b9a60dea28a9f3ddb469ec39f800e479",
+          "scriptPubKey": "52206aaa40bb129203d1314d4eea10ea127704379d5af56a07947b9e89650bf78360",
+          "addresses": {
+            "mainnet": "qb1zd24ypwcjjgpazv2dfm4pp6sjwuzr0826744q09rmn6yk2zlhsdsqku5kdy",
+            "testnet4": "tq1zd24ypwcjjgpazv2dfm4pp6sjwuzr0826744q09rmn6yk2zlhsdsqq4rkv9",
+            "signet": "tq1zd24ypwcjjgpazv2dfm4pp6sjwuzr0826744q09rmn6yk2zlhsdsqq4rkv9",
+            "regtest": "qbrt1zd24ypwcjjgpazv2dfm4pp6sjwuzr0826744q09rmn6yk2zlhsdsqr2qg9w"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "eaa6f10d86ed0889fb2ccf59b804c552eaa28abb14ea5b3ecd2cb4b39beadcfb",
+          "scriptPubKey": "5220f8af5b392acb376f5d1eb9298ba38d2981f562d07c5a513177ab25972e59525d",
+          "addresses": {
+            "mainnet": "qb1zlzh4kwf2evmk7hg7hy5chgud9xql2cks03d9zvth4vjewtje2fws8k27ra",
+            "testnet4": "tq1zlzh4kwf2evmk7hg7hy5chgud9xql2cks03d9zvth4vjewtje2fws3la7zu",
+            "signet": "tq1zlzh4kwf2evmk7hg7hy5chgud9xql2cks03d9zvth4vjewtje2fws3la7zu",
+            "regtest": "qbrt1zlzh4kwf2evmk7hg7hy5chgud9xql2cks03d9zvth4vjewtje2fwsjq7qth"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "eedc624fcb73f0c1a2e4813c1d7e18506027b95275ce17980a9af70d95f33c84",
+          "scriptPubKey": "52201c57a7213af499fdfca697fec3b2996db17ebb57e8cc731a6b70399cdf434092",
+          "addresses": {
+            "mainnet": "qb1zr3t6wgf67jvlml9xjllv8v5edkchaw6harx8xxntwqueeh6rgzfq7w64av",
+            "testnet4": "tq1zr3t6wgf67jvlml9xjllv8v5edkchaw6harx8xxntwqueeh6rgzfqg8d4ud",
+            "signet": "tq1zr3t6wgf67jvlml9xjllv8v5edkchaw6harx8xxntwqueeh6rgzfqg8d4ud",
+            "regtest": "qbrt1zr3t6wgf67jvlml9xjllv8v5edkchaw6harx8xxntwqueeh6rgzfqtcwt4x"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "852a88a16c33f989afcdcdb3a07e35acf6b40bce31b67a9bb316a0a00ee5e3cf",
+          "scriptPubKey": "5220df6dc13a708d270bd20278a58777b26cdf476bb1a2ea85a8edf74b81e3cda7e4",
+          "addresses": {
+            "mainnet": "qb1zmakuzwns35nsh5sz0zjcwaajdn05w6a35t4gt28d7a9crc7d5ljq7kqjmq",
+            "testnet4": "tq1zmakuzwns35nsh5sz0zjcwaajdn05w6a35t4gt28d7a9crc7d5ljqglhj6p",
+            "signet": "tq1zmakuzwns35nsh5sz0zjcwaajdn05w6a35t4gt28d7a9crc7d5ljqglhj6p",
+            "regtest": "qbrt1zmakuzwns35nsh5sz0zjcwaajdn05w6a35t4gt28d7a9crc7d5ljqtq5vn2"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "d33c4235886d953949024e9b9e85cbc9bbcc1b491129442d3e6e6f1ebbcf3b18",
+          "scriptPubKey": "52206b10398f8fbe204b44db5a0d4e7b9fb3af381b4d1118cf3ea146bfc626720b94",
+          "addresses": {
+            "mainnet": "qb1zdvgrnru0hcsyk3xmtgx5u7ulkwhnsx6dzyvv704pg6luvfnjpw2qfl9laq",
+            "testnet4": "tq1zdvgrnru0hcsyk3xmtgx5u7ulkwhnsx6dzyvv704pg6luvfnjpw2qlkjlup",
+            "signet": "tq1zdvgrnru0hcsyk3xmtgx5u7ulkwhnsx6dzyvv704pg6luvfnjpw2qlkjlup",
+            "regtest": "qbrt1zdvgrnru0hcsyk3xmtgx5u7ulkwhnsx6dzyvv704pg6luvfnjpw2quf3p42"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "b984c70bba0994de99969ec75735f5a4f812ced8b08aa3ff048b8d5b7bdc1f68",
+          "scriptPubKey": "5220fb2b8a19570ac7cbca599be3429ece1432f017ba6ee1843408a3c2ae50a4d37c",
+          "addresses": {
+            "mainnet": "qb1zlv4c5x2hptruhjjen03598kwzse0q9a6dmscgdqg50p2u59y6d7qgp97a6",
+            "testnet4": "tq1zlv4c5x2hptruhjjen03598kwzse0q9a6dmscgdqg50p2u59y6d7q7gj7um",
+            "signet": "tq1zlv4c5x2hptruhjjen03598kwzse0q9a6dmscgdqg50p2u59y6d7q7gj7um",
+            "regtest": "qbrt1zlv4c5x2hptruhjjen03598kwzse0q9a6dmscgdqg50p2u59y6d7qah3q4s"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "fc4ba29e2da2c2bd0d1585f92bbf2e5b730b04f1be1b6dad4d11cc26478bba26",
+          "scriptPubKey": "522070fd224222a6070823f9163f2b4255c7d91ad5bdc9155d38397e32308c08f27a",
+          "addresses": {
+            "mainnet": "qb1zwr7jys3z5crssglezcljksj4clv344daey246wpe0cerprqg7faqdcqdfh",
+            "testnet4": "tq1zwr7jys3z5crssglezcljksj4clv344daey246wpe0cerprqg7faqm3hdgk",
+            "signet": "tq1zwr7jys3z5crssglezcljksj4clv344daey246wpe0cerprqg7faqm3hdgk",
+            "regtest": "qbrt1zwr7jys3z5crssglezcljksj4clv344daey246wpe0cerprqg7faqcw5npa"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "fac923d5b3b7fb5efa23443dee79f3ce7136fa086a923a54fec655a14b64926d",
+          "scriptPubKey": "52203d8d713948ec04a85a9b9a910204b63435ce80c72eb82d97d482d38fcff125bb",
+          "addresses": {
+            "mainnet": "qb1z8kxhzw2gasz2sk5mn2gsyp9kxs6uaqx896uzm975stfclnl3ykasykc6r7",
+            "testnet4": "tq1z8kxhzw2gasz2sk5mn2gsyp9kxs6uaqx896uzm975stfclnl3ykasjl06zl",
+            "signet": "tq1z8kxhzw2gasz2sk5mn2gsyp9kxs6uaqx896uzm975stfclnl3ykasjl06zl",
+            "regtest": "qbrt1z8kxhzw2gasz2sk5mn2gsyp9kxs6uaqx896uzm975stfclnl3ykas3qvyt5"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "98868919cfff86a03ec029cdd4787e48c450a59479c18b003d62175d6cd71f3f",
+          "scriptPubKey": "52201aa2c8159b774b7bbfa15e25de85d7103fc66dd0e039121bc546d401037a5a8e",
+          "addresses": {
+            "mainnet": "qb1zr23vs9vmwa9hh0aptcjaapwhzqluvmwsuqu3yx79gm2qzqm6t28qu3xjs7",
+            "testnet4": "tq1zr23vs9vmwa9hh0aptcjaapwhzqluvmwsuqu3yx79gm2qzqm6t28q2c3j3l",
+            "signet": "tq1zr23vs9vmwa9hh0aptcjaapwhzqluvmwsuqu3yx79gm2qzqm6t28q2c3j3l",
+            "regtest": "qbrt1zr23vs9vmwa9hh0aptcjaapwhzqluvmwsuqu3yx79gm2qzqm6t28qf8jvc5"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "7d1c3445736acfc9f8b0e763e87dd5aa62558c60623ebda60c71581592115fbc",
+          "scriptPubKey": "5220fcce064fdf57d797a14c991f72ecf0b7d368a3e04185ddef4afc62d1c1f6cf1e",
+          "addresses": {
+            "mainnet": "qb1zln8qvn7l2lte0g2vny0h9m8sklfk3glqgxzamm62l33drs0keu0qwj6k8m",
+            "testnet4": "tq1zln8qvn7l2lte0g2vny0h9m8sklfk3glqgxzamm62l33drs0keu0qcmdkx6",
+            "signet": "tq1zln8qvn7l2lte0g2vny0h9m8sklfk3glqgxzamm62l33drs0keu0qcmdkx6",
+            "regtest": "qbrt1zln8qvn7l2lte0g2vny0h9m8sklfk3glqgxzamm62l33drs0keu0qmywg03"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "67e833c6aa28e7eef74bc8447d546d9980e4fef8219659d58e26be46ceb927da",
+          "scriptPubKey": "5220c7540b2fb04f1df144a32147ad136822fc25ab82caeffceeee0af312827b2c19",
+          "addresses": {
+            "mainnet": "qb1zca2qktasfuwlz39ry9r66ymgyt7zt2uzethlemhwpte39qnm9svsfsgeg6",
+            "testnet4": "tq1zca2qktasfuwlz39ry9r66ymgyt7zt2uzethlemhwpte39qnm9svslelefm",
+            "signet": "tq1zca2qktasfuwlz39ry9r66ymgyt7zt2uzethlemhwpte39qnm9svslelefm",
+            "regtest": "qbrt1zca2qktasfuwlz39ry9r66ymgyt7zt2uzethlemhwpte39qnm9svsuxu8qs"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "4cb9678b8d354a0be8e23ef983049f67cf357b8bb48cac98d0da192923fbf5a8",
+          "scriptPubKey": "52200673d545fe765fe59a4f48debd136934557813edfd8591408c37322984edfda7",
+          "addresses": {
+            "mainnet": "qb1zqeea2307we07txj0fr0t6ymfx32hsyldlkzezsyvxueznp8dlknsa85c9d",
+            "testnet4": "tq1zqeea2307we07txj0fr0t6ymfx32hsyldlkzezsyvxueznp8dlknstwrcyv",
+            "signet": "tq1zqeea2307we07txj0fr0t6ymfx32hsyldlkzezsyvxueznp8dlknstwrcyv",
+            "regtest": "qbrt1zqeea2307we07txj0fr0t6ymfx32hsyldlkzezsyvxueznp8dlknsg3qxd8"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "ec5fec8939779b61487a9b90693c2c4081409439ef2bbe8a54e5df089c788e11",
+          "scriptPubKey": "522064fd7221a6b78a20d0e0dafb4e251fdcce01a9a7bc682055801ae954801667bb",
+          "addresses": {
+            "mainnet": "qb1zvn7hygdxk79zp58qmta5ufglmn8qr2d8h35zq4vqrt54fqqkv7aspl0ckv",
+            "testnet4": "tq1zvn7hygdxk79zp58qmta5ufglmn8qr2d8h35zq4vqrt54fqqkv7ashkcchd",
+            "signet": "tq1zvn7hygdxk79zp58qmta5ufglmn8qr2d8h35zq4vqrt54fqqkv7ashkcchd",
+            "regtest": "qbrt1zvn7hygdxk79zp58qmta5ufglmn8qr2d8h35zq4vqrt54fqqkv7as5fmx7x"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "d8e1868875c0cfc233e16549565a0ba3692ab7f8def1d320ad38f291b72c4fae",
+          "scriptPubKey": "522013d10fac6f570d73c278264811c2d311ad0e6c6c5e1da181c3c715ee05e24b48",
+          "addresses": {
+            "mainnet": "qb1zz0gsltr02uxh8sncyeyprsknzxksumrvtcw6rqwrcu27up0zfdyq0xznu4",
+            "testnet4": "tq1zz0gsltr02uxh8sncyeyprsknzxksumrvtcw6rqwrcu27up0zfdyqe04na5",
+            "signet": "tq1zz0gsltr02uxh8sncyeyprsknzxksumrvtcw6rqwrcu27up0zfdyqe04na5",
+            "regtest": "qbrt1zz0gsltr02uxh8sncyeyprsknzxksumrvtcw6rqwrcu27up0zfdyq6skd5l"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "0a9fe155123e08e51fa19057b68b56b29a8e94699475ddad6e02c437a3166103",
+          "scriptPubKey": "5220d10a3d8509cd8a1484a95a845dedf1bef3e60b4f34944a0b1738bfb0cba3536d",
+          "addresses": {
+            "mainnet": "qb1z6y9rmpgfek9pfp9ft2z9mm03hme7vz60xj2y5zch8zlmpjar2dksvy43g5",
+            "testnet4": "tq1z6y9rmpgfek9pfp9ft2z9mm03hme7vz60xj2y5zch8zlmpjar2dks6dz3f4",
+            "signet": "tq1z6y9rmpgfek9pfp9ft2z9mm03hme7vz60xj2y5zch8zlmpjar2dks6dz3f4",
+            "regtest": "qbrt1z6y9rmpgfek9pfp9ft2z9mm03hme7vz60xj2y5zch8zlmpjar2dksejp0q7"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "81ceaca9802dbe3434d9c95b6ecf3dceacd2e892da425076875171516448febd",
+          "scriptPubKey": "52205031595bb4ddcd940fd57aecad844989f0e91d6112c3dad819ff887d490c5a5b",
+          "addresses": {
+            "mainnet": "qb1z2qc4jka5mhxegr740tk2mpzf38cwj8tpztpa4kqel7y86jgvtfds7h9w28",
+            "testnet4": "tq1z2qc4jka5mhxegr740tk2mpzf38cwj8tpztpa4kqel7y86jgvtfdsg7jwtx",
+            "signet": "tq1z2qc4jka5mhxegr740tk2mpzf38cwj8tpztpa4kqel7y86jgvtfdsg7jwtx",
+            "regtest": "qbrt1z2qc4jka5mhxegr740tk2mpzf38cwj8tpztpa4kqel7y86jgvtfdstp3szd"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "fe5e56bb0f16acf738e8e909c126d052a4ff4623a57b7933269014380b161523",
+          "scriptPubKey": "5220452ca131eb688f5c6601a99bcd4ef474b99b77443967265c0e8cb0de3601c738",
+          "addresses": {
+            "mainnet": "qb1zg5k2zv0tdz84cesp4xdu6nh5wjueka6y89njvhqw3jcdudspcuuqhd4s6w",
+            "testnet4": "tq1zg5k2zv0tdz84cesp4xdu6nh5wjueka6y89njvhqw3jcdudspcuuqpyzsm0",
+            "signet": "tq1zg5k2zv0tdz84cesp4xdu6nh5wjueka6y89njvhqw3jcdudspcuuqpyzsm0",
+            "regtest": "qbrt1zg5k2zv0tdz84cesp4xdu6nh5wjueka6y89njvhqw3jcdudspcuuqzmpwjy"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "669b7e7d7879ca64638d70e59e66ba7d952e395b53c69f9ca361916030e2d614",
+          "scriptPubKey": "52208395c82904e914d21cdf9812d8688b94e7fb197cbac9bd1fa3d95cc5a217d60b",
+          "addresses": {
+            "mainnet": "qb1zsw2us2gyay2dy8xlnqfds6ytjnnlkxtuhtym68arm9wvtgsh6c9src0ytk",
+            "testnet4": "tq1zsw2us2gyay2dy8xlnqfds6ytjnnlkxtuhtym68arm9wvtgsh6c9s43cy2h",
+            "signet": "tq1zsw2us2gyay2dy8xlnqfds6ytjnnlkxtuhtym68arm9wvtgsh6c9s43cy2h",
+            "regtest": "qbrt1zsw2us2gyay2dy8xlnqfds6ytjnnlkxtuhtym68arm9wvtgsh6c9skwm6ru"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "d74e26b0e3f87c31edfb6e33a884c0b0c9995629f453ca96abc4451027841eb4",
+          "scriptPubKey": "5220aa65c8d364d02d2e293e77642a8d6cebf67e0a9f0240ddf7a59b1357aab7e088",
+          "addresses": {
+            "mainnet": "qb1z4fju35my6qkju2f7wajz4rtva0m8uz5lqfqdmaa9nvf4024huzyqxnxlm0",
+            "testnet4": "tq1z4fju35my6qkju2f7wajz4rtva0m8uz5lqfqdmaa9nvf4024huzyqs63l6w",
+            "signet": "tq1z4fju35my6qkju2f7wajz4rtva0m8uz5lqfqdmaa9nvf4024huzyqs63l6w",
+            "regtest": "qbrt1z4fju35my6qkju2f7wajz4rtva0m8uz5lqfqdmaa9nvf4024huzyqn9jpn9"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "b662046b88251081ea6016aba649748f6c7cb4fd4aadfdce88296d8ea0a133b0",
+          "scriptPubKey": "5220f9d02ce7073121a5dba2a896294118c920abeda5bdbb1e75ff27914bb0fd0447",
+          "addresses": {
+            "mainnet": "qb1zl8gzeec8xys6tkaz4ztzjsgceys2hmd9hka3ua0ly7g5hv8aq3rs5n5cvg",
+            "testnet4": "tq1zl8gzeec8xys6tkaz4ztzjsgceys2hmd9hka3ua0ly7g5hv8aq3rsz6rcdf",
+            "signet": "tq1zl8gzeec8xys6tkaz4ztzjsgceys2hmd9hka3ua0ly7g5hv8aq3rsz6rcdf",
+            "regtest": "qbrt1zl8gzeec8xys6tkaz4ztzjsgceys2hmd9hka3ua0ly7g5hv8aq3rsp9qxyz"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "455ebf8a13a16b1fe11909a8be924c200180f416338f9db0431ca68059241cc7",
+          "scriptPubKey": "52203c390c4337a566ec71ec2cd004dcfaa922667d1b69635a735d0680d3edd20364",
+          "addresses": {
+            "mainnet": "qb1z8suscseh54nwcu0v9ngqfh864y3xvlgmd9345u6aq6qd8mwjqdjqwk87xz",
+            "testnet4": "tq1z8suscseh54nwcu0v9ngqfh864y3xvlgmd9345u6aq6qd8mwjqdjqcls78r",
+            "signet": "tq1z8suscseh54nwcu0v9ngqfh864y3xvlgmd9345u6aq6qd8mwjqdjqcls78r",
+            "regtest": "qbrt1z8suscseh54nwcu0v9ngqfh864y3xvlgmd9345u6aq6qd8mwjqdjqmqnqwg"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "38ae98c94e7f2fb72141bcbaaf566873478f499721bb692b5024c886c23ead79",
+          "scriptPubKey": "522098c0fc0a958a8915e91f646c275d98bd0be0fb33b5280d13d00aaf1e68fa3e22",
+          "addresses": {
+            "mainnet": "qb1znrq0cz5432y3t6glv3kzwhvch597p7enk55q6y7sp2h3u6868c3qdh3y0q",
+            "testnet4": "tq1znrq0cz5432y3t6glv3kzwhvch597p7enk55q6y7sp2h3u6868c3qm7xywp",
+            "signet": "tq1znrq0cz5432y3t6glv3kzwhvch597p7enk55q6y7sp2h3u6868c3qm7xywp",
+            "regtest": "qbrt1znrq0cz5432y3t6glv3kzwhvch597p7enk55q6y7sp2h3u6868c3qcp9682"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "45696b81212ecfbe11d14d9c7fb8936c8e99ea5c2489806c442b5e15f329f2b2",
+          "scriptPubKey": "5220d66303350126fd4a2f6d4048ea23ab28d6afe489c463e22531aea19063c8c4f9",
+          "addresses": {
+            "mainnet": "qb1z6e3sxdgpym755tmdgpyw5gat9rt2leyfc337yff346seqc7gcnusfcn37c",
+            "testnet4": "tq1z6e3sxdgpym755tmdgpyw5gat9rt2leyfc337yff346seqc7gcnusl3y3le",
+            "signet": "tq1z6e3sxdgpym755tmdgpyw5gat9rt2leyfc337yff346seqc7gcnusl3y3le",
+            "regtest": "qbrt1z6e3sxdgpym755tmdgpyw5gat9rt2leyfc337yff346seqc7gcnusuw80kj"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "a3a678b9e2964419686461f725d9135e7068f62fffe446638ad14b0a2a5acb14",
+          "scriptPubKey": "5220c24ecc14588c120ac9c4e108bac49dc64a1072720997372c9080f12c44431529",
+          "addresses": {
+            "mainnet": "qb1zcf8vc9zc3sfq4jwyuyyt43yace9pqunjpxtnwtyssrcjc3zrz55s5mlesm",
+            "testnet4": "tq1zcf8vc9zc3sfq4jwyuyyt43yace9pqunjpxtnwtyssrcjc3zrz55szjge36",
+            "signet": "tq1zcf8vc9zc3sfq4jwyuyyt43yace9pqunjpxtnwtyssrcjc3zrz55szjge36",
+            "regtest": "qbrt1zcf8vc9zc3sfq4jwyuyyt43yace9pqunjpxtnwtyssrcjc3zrz55spdt8c3"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "ad28b93d911f0d13a3ac9414245123e7d4313185ccfe575daa0ada135b131f4b",
+          "scriptPubKey": "5220043b71306433e4bd6ff8312f1244d939ccc20610b27480713fb887c0fd274dee",
+          "addresses": {
+            "mainnet": "qb1zqsahzvryx0jt6mlcxyh3y3xe88xvypsskf6gquflhzruplf8fhhqyd0et9",
+            "testnet4": "tq1zqsahzvryx0jt6mlcxyh3y3xe88xvypsskf6gquflhzruplf8fhhqjyce2y",
+            "signet": "tq1zqsahzvryx0jt6mlcxyh3y3xe88xvypsskf6gquflhzruplf8fhhqjyce2y",
+            "regtest": "qbrt1zqsahzvryx0jt6mlcxyh3y3xe88xvypsskf6gquflhzruplf8fhhq3mm8r0"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "88daafee3c83ca61e583059493bdec31bd32628da4fb60c7479710f074aca6ac",
+          "scriptPubKey": "522072a954e5bc328a6c38a333045e6f5d86f50734e8d8e35535f8cf8ff858dee9f3",
+          "addresses": {
+            "mainnet": "qb1zw254fedux29xcw9rxvz9um6asm6swd8gmr342d0ce78lskx7a8eswqgcha",
+            "testnet4": "tq1zw254fedux29xcw9rxvz9um6asm6swd8gmr342d0ce78lskx7a8escflcku",
+            "signet": "tq1zw254fedux29xcw9rxvz9um6asm6swd8gmr342d0ce78lskx7a8escflcku",
+            "regtest": "qbrt1zw254fedux29xcw9rxvz9um6asm6swd8gmr342d0ce78lskx7a8esmkuxlh"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "7b2fd773e60c3de0703791ae4835873b43690549a6c3076d52dba4ca4689399d",
+          "scriptPubKey": "5220d8bc71231d5377eeec82b5504e03b312b162f9ac94e9766834dbc2dcf1d63c2d",
+          "addresses": {
+            "mainnet": "qb1zmz78zgca2dm7amyzk4gyuqanz2ck97dvjn5hv6p5m0pdeuwk8sksfkajrd",
+            "testnet4": "tq1zmz78zgca2dm7amyzk4gyuqanz2ck97dvjn5hv6p5m0pdeuwk8sksll2jzv",
+            "signet": "tq1zmz78zgca2dm7amyzk4gyuqanz2ck97dvjn5hv6p5m0pdeuwk8sksll2jzv",
+            "regtest": "qbrt1zmz78zgca2dm7amyzk4gyuqanz2ck97dvjn5hv6p5m0pdeuwk8sksuqfvt8"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "fe9887091155157745a6f5ad0ec5371699363ca2134fc1accc0f6a287504e8a0",
+          "scriptPubKey": "5220019795cb4e6fb36c13566160846413c1fb6e670ced18f0c41af61fc384c908ab",
+          "addresses": {
+            "mainnet": "qb1zqxtetj6wd7ekcy6kv9sggeqnc8akuecva5v0p3q67c0u8pxfpz4s95y6pc",
+            "testnet4": "tq1zqxtetj6wd7ekcy6kv9sggeqnc8akuecva5v0p3q67c0u8pxfpz4snan6qe",
+            "signet": "tq1zqxtetj6wd7ekcy6kv9sggeqnc8akuecva5v0p3q67c0u8pxfpz4snan6qe",
+            "regtest": "qbrt1zqxtetj6wd7ekcy6kv9sggeqnc8akuecva5v0p3q67c0u8pxfpz4sszsyfj"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "ec655dfdc2b5620b381eb58a931fa56258c83f765151f775e8ac21161e774a02",
+          "scriptPubKey": "52201fc42d773dc79fff077d42fdfe3582d274669058cc36542dad27c5bc76d862cb",
+          "addresses": {
+            "mainnet": "qb1zrlzz6aeac70l7pmagt7ludvz6f6xdyzcesm9gtddylzmcakcvt9st4fxw7",
+            "testnet4": "tq1zrlzz6aeac70l7pmagt7ludvz6f6xdyzcesm9gtddylzmcakcvt9sau7x0l",
+            "signet": "tq1zrlzz6aeac70l7pmagt7ludvz6f6xdyzcesm9gtddylzmcakcvt9sau7x0l",
+            "regtest": "qbrt1zrlzz6aeac70l7pmagt7ludvz6f6xdyzcesm9gtddylzmcakcvt9s7racx5"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "2b7c08cd61599cfb0913abbb1f448c21e2f6d1bd21b0721dddecd0b2cd502fe3",
+          "scriptPubKey": "522089dd9e83947e982630bb3702d4bb43e66d638a682aa2eaeed88f92a0425e8f74",
+          "addresses": {
+            "mainnet": "qb1z38weaqu506vzvv9mxupdfw6ruekk8zng923w4mkc37f2qsj73a6q9e78wg",
+            "testnet4": "tq1z38weaqu506vzvv9mxupdfw6ruekk8zng923w4mkc37f2qsj73a6qnsf80f",
+            "signet": "tq1z38weaqu506vzvv9mxupdfw6ruekk8zng923w4mkc37f2qsj73a6qnsf80f",
+            "regtest": "qbrt1z38weaqu506vzvv9mxupdfw6ruekk8zng923w4mkc37f2qsj73a6qs02exz"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "4db7ded98554640d5ddda4a2e2932a33932155566f9b66de96d74a07b5fd34d3",
+          "scriptPubKey": "522063be23ddec99ace839883a20bfb40ffa18e6ab2a10067159afbd968564c7a410",
+          "addresses": {
+            "mainnet": "qb1zvwlz8h0vnxkwswvg8gstldq0lgvwd2e2zqr8zkd0hktg2ex85sgq6qvdka",
+            "testnet4": "tq1zvwlz8h0vnxkwswvg8gstldq0lgvwd2e2zqr8zkd0hktg2ex85sgqvfmdhu",
+            "signet": "tq1zvwlz8h0vnxkwswvg8gstldq0lgvwd2e2zqr8zkd0hktg2ex85sgqvfmdhu",
+            "regtest": "qbrt1zvwlz8h0vnxkwswvg8gstldq0lgvwd2e2zqr8zkd0hktg2ex85sgq0kcn7h"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "fc799dcf80749baefa42110c041716f54fa6d81f47381849bc05f6896a774ba8",
+          "scriptPubKey": "52205b3945ce03fdd31e2fed32a338ea50ce042c663ec96012b1cea797a802f9ff08",
+          "addresses": {
+            "mainnet": "qb1ztvu5tnsrlhf3utldx23n36jseczzce37e9sp9vww57t6sqheluyqh3hc0l",
+            "testnet4": "tq1ztvu5tnsrlhf3utldx23n36jseczzce37e9sp9vww57t6sqheluyqpcqcw7",
+            "signet": "tq1ztvu5tnsrlhf3utldx23n36jseczzce37e9sp9vww57t6sqheluyqpcqcw7",
+            "regtest": "qbrt1ztvu5tnsrlhf3utldx23n36jseczzce37e9sp9vww57t6sqheluyqz8rx84"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "6b08165e0b20482fffcdb78df23ac8bbc961ffd1b8e2f235e60db47592698596",
+          "scriptPubKey": "5220fa2fc34b653305a851b53119dd89b882c580809c61982f0b155ac82443e909e2",
+          "addresses": {
+            "mainnet": "qb1zlghuxjm9xvz6s5d4xyvamzdcstzcpqyuvxvz7zc4ttyzgslfp83qvmf6n6",
+            "testnet4": "tq1zlghuxjm9xvz6s5d4xyvamzdcstzcpqyuvxvz7zc4ttyzgslfp83q6j76jm",
+            "signet": "tq1zlghuxjm9xvz6s5d4xyvamzdcstzcpqyuvxvz7zc4ttyzgslfp83q6j76jm",
+            "regtest": "qbrt1zlghuxjm9xvz6s5d4xyvamzdcstzcpqyuvxvz7zc4ttyzgslfp83qedayms"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "80b966f167ae991611fe479093f89d2af915bbe91a4223bb3e1ec728232d970f",
+          "scriptPubKey": "52200062cca2c32c6a579b8de9b8c4980f71bc7defe361b44c3c7f42d38c501c4f78",
+          "addresses": {
+            "mainnet": "qb1zqp3vegkr93490xudaxuvfxq0wx78mmlrvx6yc0rlgtfcc5qufauq08f7kr",
+            "testnet4": "tq1zqp3vegkr93490xudaxuvfxq0wx78mmlrvx6yc0rlgtfcc5qufauqew77hz",
+            "signet": "tq1zqp3vegkr93490xudaxuvfxq0wx78mmlrvx6yc0rlgtfcc5qufauqew77hz",
+            "regtest": "qbrt1zqp3vegkr93490xudaxuvfxq0wx78mmlrvx6yc0rlgtfcc5qufauq63aq7f"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "5b46361c7139dd7d56583980a561b9ac91e615ae66b4db71b7b3805eddafdbbc",
+          "scriptPubKey": "522045a0a01bce90b544900b0e032c3daf28021cee216028b7c867fe6a8d890072a8",
+          "addresses": {
+            "mainnet": "qb1zgks2qx7wjz65fyqtpcpjc0d09qppem3pvq5t0jr8le4gmzgqw25qxg7wqa",
+            "testnet4": "tq1zgks2qx7wjz65fyqtpcpjc0d09qppem3pvq5t0jr8le4gmzgqw25qspfwpu",
+            "signet": "tq1zgks2qx7wjz65fyqtpcpjc0d09qppem3pvq5t0jr8le4gmzgqw25qspfwpu",
+            "regtest": "qbrt1zgks2qx7wjz65fyqtpcpjc0d09qppem3pvq5t0jr8le4gmzgqw25qn72sgh"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "3272756048239716d8250bd6e3b76e8aa0f5bbf518589728dc1128192a8d7bdf",
+          "scriptPubKey": "52202e39497e05e5ac77803e9ebd621eeb4c31870865957f87dd328c44c4abf3dd6c",
+          "addresses": {
+            "mainnet": "qb1z9cu5jls9ukk80qp7n67ky8htfsccwzr9j4lc0hfj33zvf2lnm4kqr28jww",
+            "testnet4": "tq1z9cu5jls9ukk80qp7n67ky8htfsccwzr9j4lc0hfj33zvf2lnm4kq4rsj00",
+            "signet": "tq1z9cu5jls9ukk80qp7n67ky8htfsccwzr9j4lc0hfj33zvf2lnm4kq4rsj00",
+            "regtest": "qbrt1z9cu5jls9ukk80qp7n67ky8htfsccwzr9j4lc0hfj33zvf2lnm4kqkunvxy"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "c0684641add57c751724921fa3a4cbf5b477a16f66bf7bdaf5d0ac645dc58b4f",
+          "scriptPubKey": "522058cf5324f2eddc519096a81e73cf17e779312afb9b82ea2291fdba3700db0b6b",
+          "addresses": {
+            "mainnet": "qb1ztr84xf8jahw9ryyk4q088nchuaunz2hmnwpw5g53lkarwqxmpd4stkkc6e",
+            "testnet4": "tq1ztr84xf8jahw9ryyk4q088nchuaunz2hmnwpw5g53lkarwqxmpd4salpcmc",
+            "signet": "tq1ztr84xf8jahw9ryyk4q088nchuaunz2hmnwpw5g53lkarwqxmpd4salpcmc",
+            "regtest": "qbrt1ztr84xf8jahw9ryyk4q088nchuaunz2hmnwpw5g53lkarwqxmpd4s7qzxjn"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "172358ac11b06366faf2047e1a125cc12293ea46dce9453d79d57a0fece49cda",
+          "scriptPubKey": "52208a30abef5487ff38ee0e736d242ed1e6a87bd378d10bc378c57f79b8800ef3fc",
+          "addresses": {
+            "mainnet": "qb1z3gc2hm65slln3mswwdkjgtk3u658h5mc6y9ux7x90aum3qqw707qnn5wdd",
+            "testnet4": "tq1z3gc2hm65slln3mswwdkjgtk3u658h5mc6y9ux7x90aum3qqw707q96rwvv",
+            "signet": "tq1z3gc2hm65slln3mswwdkjgtk3u658h5mc6y9ux7x90aum3qqw707q96rwvv",
+            "regtest": "qbrt1z3gc2hm65slln3mswwdkjgtk3u658h5mc6y9ux7x90aum3qqw707qx9qs98"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "ad5012f5bc544bcce35847a275369fa0fec6e4b037655f2b56d5ff494795b196",
+          "scriptPubKey": "52200e70c7f96cf1f13e09ae2703b8976e5604ca2533d0ef8ce1f193195b1485b8aa",
+          "addresses": {
+            "mainnet": "qb1zpecv07tv78cnuzdwyupm39mw2czv5ffn6rhcec03jvv4k9y9hz4qd3u0je",
+            "testnet4": "tq1zpecv07tv78cnuzdwyupm39mw2czv5ffn6rhcec03jvv4k9y9hz4qmct0nc",
+            "signet": "tq1zpecv07tv78cnuzdwyupm39mw2czv5ffn6rhcec03jvv4k9y9hz4qmct0nc",
+            "regtest": "qbrt1zpecv07tv78cnuzdwyupm39mw2czv5ffn6rhcec03jvv4k9y9hz4qc8g36n"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "64186963999ad76e154c62cc7cfd3bd35b4b93a4e789b0590d308c8dc28f61c9",
+          "scriptPubKey": "5220155ee2a5a783570fe3177935f5f278c1dc1c14fcb045d107e8e16255ce895a8b",
+          "addresses": {
+            "mainnet": "qb1zz40w9fd8sdtslcch0y6ltuncc8wpc98ukpzazplgu939tn5ft29sagp6ty",
+            "testnet4": "tq1zz40w9fd8sdtslcch0y6ltuncc8wpc98ukpzazplgu939tn5ft29stpk629",
+            "signet": "tq1zz40w9fd8sdtslcch0y6ltuncc8wpc98ukpzazplgu939tn5ft29stpk629",
+            "regtest": "qbrt1zz40w9fd8sdtslcch0y6ltuncc8wpc98ukpzazplgu939tn5ft29sg74yrw"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "e03911b0637cb6bda1bf61eb17de0b69f950dc5d74380b19b55dcdcc5994e3e4",
+          "scriptPubKey": "522095636191914d46606ede959e778cbd18a8963ffe3d75c9df75f86069178fda18",
+          "addresses": {
+            "mainnet": "qb1zj43kryv3f4rxqmk7jk080r9arz5fv0l7846unhm4lpsxj9u0mgvq6he2sq",
+            "testnet4": "tq1zj43kryv3f4rxqmk7jk080r9arz5fv0l7846unhm4lpsxj9u0mgvqv7w23p",
+            "signet": "tq1zj43kryv3f4rxqmk7jk080r9arz5fv0l7846unhm4lpsxj9u0mgvqv7w23p",
+            "regtest": "qbrt1zj43kryv3f4rxqmk7jk080r9arz5fv0l7846unhm4lpsxj9u0mgvq0pd5c2"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "3d16cb7516fa17c44f78c60113e4a70af302baa083b9d267b60c15461b366340",
+          "scriptPubKey": "5220dff26294bd39892b275d312142374d8f56fd3fedf7b15aa2a1cdb8c2268f7c49",
+          "addresses": {
+            "mainnet": "qb1zmlex999a8xyjkf6axys5yd6d3at060ld77c44g4pekuvyf5003ysne2tw9",
+            "testnet4": "tq1zmlex999a8xyjkf6axys5yd6d3at060ld77c44g4pekuvyf5003ys9sat0y",
+            "signet": "tq1zmlex999a8xyjkf6axys5yd6d3at060ld77c44g4pekuvyf5003ys9sat0y",
+            "regtest": "qbrt1zmlex999a8xyjkf6axys5yd6d3at060ld77c44g4pekuvyf5003ysx074x0"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "7aeed3f0f54516ef6354d711578ee7d56e033923de42543ea83ccc2faa237dcf",
+          "scriptPubKey": "5220561cb6542b1c5b54d1381e2b8c104ae3663edf3ddb2eb304f1375f5ca1cdbeb8",
+          "addresses": {
+            "mainnet": "qb1z2cwtv4ptr3d4f5fcrc4ccyz2udnraheamvhtxp83xa04egwdh6uqmh6rwq",
+            "testnet4": "tq1z2cwtv4ptr3d4f5fcrc4ccyz2udnraheamvhtxp83xa04egwdh6uqd7dr0p",
+            "signet": "tq1z2cwtv4ptr3d4f5fcrc4ccyz2udnraheamvhtxp83xa04egwdh6uqd7dr0p",
+            "regtest": "qbrt1z2cwtv4ptr3d4f5fcrc4ccyz2udnraheamvhtxp83xa04egwdh6uqwpwax2"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "ac0c14bc5b63868d4d9e514fba9921f046eb9a935946e09545383b288f19a02f",
+          "scriptPubKey": "52203302fe4ef99911a6a9cd536c70f5d9a403f00daede1b031965ac5897061b036e",
+          "addresses": {
+            "mainnet": "qb1zxvp0unhenyg6d2wd2dk8pawe5splqrdwmcdsxxt943vfwpsmqdhqevsj0n",
+            "testnet4": "tq1zxvp0unhenyg6d2wd2dk8pawe5splqrdwmcdsxxt943vfwpsmqdhq098jwj",
+            "signet": "tq1zxvp0unhenyg6d2wd2dk8pawe5splqrdwmcdsxxt943vfwpsmqdhq098jwj",
+            "regtest": "qbrt1zxvp0unhenyg6d2wd2dk8pawe5splqrdwmcdsxxt943vfwpsmqdhqv6yv8e"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "5274aec2196718c28c11021a18a30103580cff553cf3144cbfdc1027e48500e1",
+          "scriptPubKey": "52208d6590c75eb042bef863ddf2108f196119f784262bbcdfcb5c2be52b7499170a",
+          "addresses": {
+            "mainnet": "qb1z34jep367kppta7rrmhepprcevyvl0ppx9w7dlj6u90jjkayezu9q44qqrn",
+            "testnet4": "tq1z34jep367kppta7rrmhepprcevyvl0ppx9w7dlj6u90jjkayezu9qruhqzj",
+            "signet": "tq1z34jep367kppta7rrmhepprcevyvl0ppx9w7dlj6u90jjkayezu9qruhqzj",
+            "regtest": "qbrt1z34jep367kppta7rrmhepprcevyvl0ppx9w7dlj6u90jjkayezu9qqr57te"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "ee5c521ff87659149986ed1876feaec8aad94112b78fd591df3390b861ec899b",
+          "scriptPubKey": "52204909124bc22d47f511d0d492a98e8750a60cadf9e3a77fb3932ab0752186dffe",
+          "addresses": {
+            "mainnet": "qb1zfyy3yj7z94rl2yws6jf2nr582znqet0euwnhlvun92c82gvxmllqmmnrgp",
+            "testnet4": "tq1zfyy3yj7z94rl2yws6jf2nr582znqet0euwnhlvun92c82gvxmllqdjyrfq",
+            "signet": "tq1zfyy3yj7z94rl2yws6jf2nr582znqet0euwnhlvun92c82gvxmllqdjyrfq",
+            "regtest": "qbrt1zfyy3yj7z94rl2yws6jf2nr582znqet0euwnhlvun92c82gvxmllqwd8aqt"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "cda757448fed7274ae273f50d5b5297017e01bf4e2076fa30c79b98267cd26c4",
+          "scriptPubKey": "522004f7ea0a0cb25de2875435e9db71968c19921029764b69059e1673f475147340",
+          "addresses": {
+            "mainnet": "qb1zqnm75zsvkfw79p65xh5akuvk3sveyypfwe9kjpv7zeelgag5wdqq4uj5ch",
+            "testnet4": "tq1zqnm75zsvkfw79p65xh5akuvk3sveyypfwe9kjpv7zeelgag5wdqqr495ek",
+            "signet": "tq1zqnm75zsvkfw79p65xh5akuvk3sveyypfwe9kjpv7zeelgag5wdqqr495ek",
+            "regtest": "qbrt1zqnm75zsvkfw79p65xh5akuvk3sveyypfwe9kjpv7zeelgag5wdqqq2x2sa"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "c44ccf196e42df4ac6f3ed29d24aa907b236f59a211693c373439ddbe8219926",
+          "scriptPubKey": "52208479178487b4760209be354e945029e8a2f0345d56b3b363be356edb2ae5e981",
+          "addresses": {
+            "mainnet": "qb1zs3u30py8k3mqyzd7x48fg5pfaz30qdza26emxca7x4hdk2h9axqskcpgj5",
+            "testnet4": "tq1zs3u30py8k3mqyzd7x48fg5pfaz30qdza26emxca7x4hdk2h9axqsq3kgn4",
+            "signet": "tq1zs3u30py8k3mqyzd7x48fg5pfaz30qdza26emxca7x4hdk2h9axqsq3kgn4",
+            "regtest": "qbrt1zs3u30py8k3mqyzd7x48fg5pfaz30qdza26emxca7x4hdk2h9axqsrw4k67"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "c9c9752c240379202a56c0ccb78ff42fcab6e8f50a8ff2041660411c7ce122ef",
+          "scriptPubKey": "5220113b013d5a321f668f5f7b1a2609c757387ccefe5fb8d8f30434dabb3f19d556",
+          "addresses": {
+            "mainnet": "qb1zzyasz026xg0kdr6l0vdzvzw82uu8enh7t7ud3ucyxndtk0ce64tqp6l6lv",
+            "testnet4": "tq1zzyasz026xg0kdr6l0vdzvzw82uu8enh7t7ud3ucyxndtk0ce64tqhng67d",
+            "signet": "tq1zzyasz026xg0kdr6l0vdzvzw82uu8enh7t7ud3ucyxndtk0ce64tqhng67d",
+            "regtest": "qbrt1zzyasz026xg0kdr6l0vdzvzw82uu8enh7t7ud3ucyxndtk0ce64tq5vtyhx"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "a698e7e99b853d4209210cac2239d1e8fb7d60f5d97e14af61c97754d80fd79a",
+          "scriptPubKey": "522097543ba5ee15b006e46c066f4ce3235dbd2d329f55acdae4a8f5cbb63723bfe2",
+          "addresses": {
+            "mainnet": "qb1zja2rhf0wzkcqdervqeh5ecertk7j6v5l2kkd4e9g7h9mvderhl3q2yeg5e",
+            "testnet4": "tq1zja2rhf0wzkcqdervqeh5ecertk7j6v5l2kkd4e9g7h9mvderhl3qudwg4c",
+            "signet": "tq1zja2rhf0wzkcqdervqeh5ecertk7j6v5l2kkd4e9g7h9mvderhl3qudwg4c",
+            "regtest": "qbrt1zja2rhf0wzkcqdervqeh5ecertk7j6v5l2kkd4e9g7h9mvderhl3qljdkun"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "436d7091f09a40afff931edcd5aea27f9ec4d0d7f88d5b04be047518f5dc133e",
+          "scriptPubKey": "5220bccd9ee749d28d64a561ad1b34f36e09721025747f7cade17f98feb31c3c027a",
+          "addresses": {
+            "mainnet": "qb1zhnxeae6f62xkfftp45dnfumwp9epqft50a72mctlnrltx8puqfaq9jcnkd",
+            "testnet4": "tq1zhnxeae6f62xkfftp45dnfumwp9epqft50a72mctlnrltx8puqfaqnm0nhv",
+            "signet": "tq1zhnxeae6f62xkfftp45dnfumwp9epqft50a72mctlnrltx8puqfaqnm0nhv",
+            "regtest": "qbrt1zhnxeae6f62xkfftp45dnfumwp9epqft50a72mctlnrltx8puqfaqsyvd78"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "9490823bacc4785dc6c2d399e3a4d4dad7c8b1f0881da302e6c4919a11aff003",
+          "scriptPubKey": "522001a2282d91f4b8dff0e80424e38606d82399b7425b4c2aa874c1fb0a139cb011",
+          "addresses": {
+            "mainnet": "qb1zqx3zstv37judlu8gqsjw8psxmq3end6ztdxz42r5c8as5yuukqgsdk5sg0",
+            "testnet4": "tq1zqx3zstv37judlu8gqsjw8psxmq3end6ztdxz42r5c8as5yuukqgsmlrsfw",
+            "signet": "tq1zqx3zstv37judlu8gqsjw8psxmq3end6ztdxz42r5c8as5yuukqgsmlrsfw",
+            "regtest": "qbrt1zqx3zstv37judlu8gqsjw8psxmq3end6ztdxz42r5c8as5yuukqgscqqwq9"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "43df9b700e14a6a4cbff3ae018649fe8fa3e1a8fd77ba630a5dc3d3fae641c19",
+          "scriptPubKey": "5220916d8b257801b01fb9872879c37c7ac5698214b6b4c8e63c0dda0da56a5fbb63",
+          "addresses": {
+            "mainnet": "qb1zj9kckftcqxcplwv89puuxlr6c45cy99kknywv0qdmgx626jlhd3s9qaq9r",
+            "testnet4": "tq1zj9kckftcqxcplwv89puuxlr6c45cy99kknywv0qdmgx626jlhd3snf2qyz",
+            "signet": "tq1zj9kckftcqxcplwv89puuxlr6c45cy99kknywv0qdmgx626jlhd3snf2qyz",
+            "regtest": "qbrt1zj9kckftcqxcplwv89puuxlr6c45cy99kknywv0qdmgx626jlhd3sskf7df"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "6d5c20bb98843f7f2e4c7cc9df34995f1b549b05d9ea472cc28330404b239d1a",
+          "scriptPubKey": "5220bece2558b5a96a97304f4a5e4f19cdd62af50255e9d28e61944899684382fb51",
+          "addresses": {
+            "mainnet": "qb1zhm8z2k94494fwvz0ff0y7xwd6c402qj4a8fgucv5fzvkssuzldgsk9thyw",
+            "testnet4": "tq1zhm8z2k94494fwvz0ff0y7xwd6c402qj4a8fgucv5fzvkssuzldgsqvuh90",
+            "signet": "tq1zhm8z2k94494fwvz0ff0y7xwd6c402qj4a8fgucv5fzvkssuzldgsqvuh90",
+            "regtest": "qbrt1zhm8z2k94494fwvz0ff0y7xwd6c402qj4a8fgucv5fzvkssuzldgsrnlfvy"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "b18e9a92eaa8f45e0c1361a4872ed5c0050155a710f358136cf31aee68dc6d9d",
+          "scriptPubKey": "5220a2e322d4f90e666da0227a72ab329512d2af5e2e9c5d431d7ffe6fd0efd4b796",
+          "addresses": {
+            "mainnet": "qb1z5t3j948epenxmgpz0fe2kv54ztf27h3wn3w5x8tllehapm75k7tqfhxvcj",
+            "testnet4": "tq1z5t3j948epenxmgpz0fe2kv54ztf27h3wn3w5x8tllehapm75k7tql73ven",
+            "signet": "tq1z5t3j948epenxmgpz0fe2kv54ztf27h3wn3w5x8tllehapm75k7tql73ven",
+            "regtest": "qbrt1z5t3j948epenxmgpz0fe2kv54ztf27h3wn3w5x8tllehapm75k7tqupjjsc"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "28bdd19505be235499f988616eef59dffad29bdf94b4c242167a462056439b25",
+          "scriptPubKey": "52205bfcded7d198addc9910a7e88ae0c32843c920084b9611ff264e5c922af0a00e",
+          "addresses": {
+            "mainnet": "qb1zt07da473nzkaexgs5l5g4cxr9ppujgqgfwtprlexfewfy2hs5q8q5fsrnx",
+            "testnet4": "tq1zt07da473nzkaexgs5l5g4cxr9ppujgqgfwtprlexfewfy2hs5q8qzq8rj8",
+            "signet": "tq1zt07da473nzkaexgs5l5g4cxr9ppujgqgfwtprlexfewfy2hs5q8qzq8rj8",
+            "regtest": "qbrt1zt07da473nzkaexgs5l5g4cxr9ppujgqgfwtprlexfewfy2hs5q8qplyamv"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "d02ea53294dedb43cc3c58a92276443b28f8d1a68f6e0470d15157cb0641bcb8",
+          "scriptPubKey": "522054021b5e5b14258cdaa998131c7b0cafdeb7d9372ecfc215a5a887768851fbd6",
+          "addresses": {
+            "mainnet": "qb1z2sppkhjmzsjcek4fnqf3c7cv4l0t0kfh9m8uy9d94zrhdzz3l0tqx8pj4e",
+            "testnet4": "tq1z2sppkhjmzsjcek4fnqf3c7cv4l0t0kfh9m8uy9d94zrhdzz3l0tqswkj5c",
+            "signet": "tq1z2sppkhjmzsjcek4fnqf3c7cv4l0t0kfh9m8uy9d94zrhdzz3l0tqswkj5c",
+            "regtest": "qbrt1z2sppkhjmzsjcek4fnqf3c7cv4l0t0kfh9m8uy9d94zrhdzz3l0tqn34van"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "2877f2e55d7921d739d33b5d9438c47d5dcb6ed95d740ba4d1c7e99966bfbeb2",
+          "scriptPubKey": "522001fe3a14a7c0d99e716313eb04e48f1126995c455c1fae52e05e332b92933c4f",
+          "addresses": {
+            "mainnet": "qb1zq8lr5998crveuutrz04sfey0zynfjhz9ts06u5hqtcejhy5n838stlh8jq",
+            "testnet4": "tq1zq8lr5998crveuutrz04sfey0zynfjhz9ts06u5hqtcejhy5n838sakq8np",
+            "signet": "tq1zq8lr5998crveuutrz04sfey0zynfjhz9ts06u5hqtcejhy5n838sakq8np",
+            "regtest": "qbrt1zq8lr5998crveuutrz04sfey0zynfjhz9ts06u5hqtcejhy5n838s7fre62"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "1e9e1ef8c0275438987b0ddcb7591b862dd258fbfe8d20a5648ae47fd2de0392",
+          "scriptPubKey": "5220aa2f1261f09678c91f2f120d8eded113a3e44b63e1223815620e3ee7890621a3",
+          "addresses": {
+            "mainnet": "qb1z4gh3yc0sjeuvj8e0zgxcahk3zw37gjmruy3rs9tzpclw0zgxyx3sarcwqu",
+            "testnet4": "tq1z4gh3yc0sjeuvj8e0zgxcahk3zw37gjmruy3rs9tzpclw0zgxyx3st20wpa",
+            "signet": "tq1z4gh3yc0sjeuvj8e0zgxcahk3zw37gjmruy3rs9tzpclw0zgxyx3st20wpa",
+            "regtest": "qbrt1z4gh3yc0sjeuvj8e0zgxcahk3zw37gjmruy3rs9tzpclw0zgxyx3sg4vsgk"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "29ffd079f795c981023574b2965ff2e1f6d6cb6ee8832112ca6633ebbe62451e",
+          "scriptPubKey": "52203ea6a1469a39de38eace30cf806b2126489f5f6137d76c7c5846318bd7bd995e",
+          "addresses": {
+            "mainnet": "qb1z86n2z356880r36kwxr8cq6epyeyf7hmpxltkclzcgccch4aan90qj4l72u",
+            "testnet4": "tq1z86n2z356880r36kwxr8cq6epyeyf7hmpxltkclzcgccch4aan90qyug7ta",
+            "signet": "tq1z86n2z356880r36kwxr8cq6epyeyf7hmpxltkclzcgccch4aan90qyug7ta",
+            "regtest": "qbrt1z86n2z356880r36kwxr8cq6epyeyf7hmpxltkclzcgccch4aan90q8rtqzk"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "59b5a983d6542e57801a9b798ee38f8b7c9e1af4a223eee21de163e252f9d03a",
+          "scriptPubKey": "5220d908eb9110867d552f8732bfeeef2896680b85577ecee2d3ebec31be6618a9ba",
+          "addresses": {
+            "mainnet": "qb1zmyywhygsse742tu8x2l7amegje5qhp2h0m8w95ltascmuesc4xaqcdmya8",
+            "testnet4": "tq1zmyywhygsse742tu8x2l7amegje5qhp2h0m8w95ltascmuesc4xaqwyvyux",
+            "signet": "tq1zmyywhygsse742tu8x2l7amegje5qhp2h0m8w95ltascmuesc4xaqwyvyux",
+            "regtest": "qbrt1zmyywhygsse742tu8x2l7amegje5qhp2h0m8w95ltascmuesc4xaqdm064d"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "27255663b525e40bd5e925dab97119064018da3a7d03fa60abac3e7cb7482629",
+          "scriptPubKey": "522057b69ead3201508b32bf7ae3789d26ac02bbb434471476840065040c31e346eb",
+          "addresses": {
+            "mainnet": "qb1z27mfatfjq9ggkv4l0t3h38fx4spthdp5gu28dpqqv5zqcv0rgm4sh4lkpn",
+            "testnet4": "tq1z27mfatfjq9ggkv4l0t3h38fx4spthdp5gu28dpqqv5zqcv0rgm4spugkqj",
+            "signet": "tq1z27mfatfjq9ggkv4l0t3h38fx4spthdp5gu28dpqqv5zqcv0rgm4spugkqj",
+            "regtest": "qbrt1z27mfatfjq9ggkv4l0t3h38fx4spthdp5gu28dpqqv5zqcv0rgm4szrtgfe"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "48bb15362c65f290e53c6ac2eecbecafee6d9aa0a1b69c4a1187116f1db66ac8",
+          "scriptPubKey": "5220895599ed52e60f4782ddb78e04e0bf801d9102748ea30d9486f6ddc8fefe1435",
+          "addresses": {
+            "mainnet": "qb1z392enm2juc850qkak78qfc9lsqwezqn5363sm9yx7mwu3lh7zs6sg8z354",
+            "testnet4": "tq1z392enm2juc850qkak78qfc9lsqwezqn5363sm9yx7mwu3lh7zs6s7w4345",
+            "signet": "tq1z392enm2juc850qkak78qfc9lsqwezqn5363sm9yx7mwu3lh7zs6s7w4345",
+            "regtest": "qbrt1z392enm2juc850qkak78qfc9lsqwezqn5363sm9yx7mwu3lh7zs6sa3k0ul"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "cfa2b49df1b4f67665caffeec3f8f943ed1d0702c12c95ff4c78c5d07540acca",
+          "scriptPubKey": "5220cd0e5eac69c0a5254d711e14b5b202aba4ea387ed80412576b76bcc737337dda",
+          "addresses": {
+            "mainnet": "qb1ze589atrfczjj2nt3rc2ttvsz4wjw5wr7mqzpy4mtw67vwden0hdqwsev9f",
+            "testnet4": "tq1ze589atrfczjj2nt3rc2ttvsz4wjw5wr7mqzpy4mtw67vwden0hdqcewvyg",
+            "signet": "tq1ze589atrfczjj2nt3rc2ttvsz4wjw5wr7mqzpy4mtw67vwden0hdqcewvyg",
+            "regtest": "qbrt1ze589atrfczjj2nt3rc2ttvsz4wjw5wr7mqzpy4mtw67vwden0hdqmxdjdr"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "450b1a2b560d5702c380b07bd7c726d10b8f314a00efa13ca37e0f457a06be1c",
+          "scriptPubKey": "522016bd188153ea0f6111fef9f24f08a54be4d26f76a75d91f1a0247b1acd9da78e",
+          "addresses": {
+            "mainnet": "qb1zz6733q2nag8kzy07l8ey7z99f0jdymmk5awerudqy3a34nva578qxmt6vd",
+            "testnet4": "tq1zz6733q2nag8kzy07l8ey7z99f0jdymmk5awerudqy3a34nva578qsju6dv",
+            "signet": "tq1zz6733q2nag8kzy07l8ey7z99f0jdymmk5awerudqy3a34nva578qsju6dv",
+            "regtest": "qbrt1zz6733q2nag8kzy07l8ey7z99f0jdymmk5awerudqy3a34nva578qndlyy8"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "e39f7c663293a002fa2547bedfede664944f926c7cd527379d58dfcb4eff9816",
+          "scriptPubKey": "5220d4a8da3641e7b5f5440d86f22d8c7399b28b97dc04719693e273fa9cc194e2be",
+          "addresses": {
+            "mainnet": "qb1z6j5d5djpu76l23qdsmezmrrnnxegh97uq3cedylzw0afesv5u2lq9d2xm9",
+            "testnet4": "tq1z6j5d5djpu76l23qdsmezmrrnnxegh97uq3cedylzw0afesv5u2lqnyax6y",
+            "signet": "tq1z6j5d5djpu76l23qdsmezmrrnnxegh97uq3cedylzw0afesv5u2lqnyax6y",
+            "regtest": "qbrt1z6j5d5djpu76l23qdsmezmrrnnxegh97uq3cedylzw0afesv5u2lqsm7cn0"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "1d70e27f82047643e9f40dc0ae41f2c4c3a066f1d09eb443b6a8d556ebc822cb",
+          "scriptPubKey": "5220af51c7ef49a11d69195ffd85cedb7ab2742664f688a75d377aafd3ad44bb2711",
+          "addresses": {
+            "mainnet": "qb1z4agu0m6f5ywkjx2llkzuakm6kf6zve8k3zn46dm64lf6639myugszkyr3a",
+            "testnet4": "tq1z4agu0m6f5ywkjx2llkzuakm6kf6zve8k3zn46dm64lf6639myugs5lnrsu",
+            "signet": "tq1z4agu0m6f5ywkjx2llkzuakm6kf6zve8k3zn46dm64lf6639myugs5lnrsu",
+            "regtest": "qbrt1z4agu0m6f5ywkjx2llkzuakm6kf6zve8k3zn46dm64lf6639myugshqsaeh"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "27074d8cb67589f844cc6146e0de0f0ad0351b7659acdda9eaeadfac65705d0f",
+          "scriptPubKey": "52201b274571d3d8f839dafc9e03e8ca8e63c6b7d6323871484f6318c3bf7927f1dd",
+          "addresses": {
+            "mainnet": "qb1zrvn52uwnmrurnkhuncp73j5wv0rt043j8pc5snmrrrpm77f878wsrgs00e",
+            "testnet4": "tq1zrvn52uwnmrurnkhuncp73j5wv0rt043j8pc5snmrrrpm77f878ws4p80wc",
+            "signet": "tq1zrvn52uwnmrurnkhuncp73j5wv0rt043j8pc5snmrrrpm77f878ws4p80wc",
+            "regtest": "qbrt1zrvn52uwnmrurnkhuncp73j5wv0rt043j8pc5snmrrrpm77f878wsk7y38n"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "ff115c656af75444a365578a587dd96d15792bef843f2d6e05be12709515d0df",
+          "scriptPubKey": "52205fbfa7844d2a5e359e02d16b7e0fcb1c0bc1454ba8c97a17a53563492f8a2449",
+          "addresses": {
+            "mainnet": "qb1zt7l60pzd9f0rt8sz694hur7trs9uz32t4ryh59a9x435jtu2y3ysj5360d",
+            "testnet4": "tq1zt7l60pzd9f0rt8sz694hur7trs9uz32t4ryh59a9x435jtu2y3ysyax6wv",
+            "signet": "tq1zt7l60pzd9f0rt8sz694hur7trs9uz32t4ryh59a9x435jtu2y3ysyax6wv",
+            "regtest": "qbrt1zt7l60pzd9f0rt8sz694hur7trs9uz32t4ryh59a9x435jtu2y3ys8z9y88"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "c66b761921e551e6ea4cb55b0c02ea0d43c8f7b26545a4d09eb115fc09ba7dd6",
+          "scriptPubKey": "52204a9178185d3fa78618208d8da0fc1608d36683c1349394083026af177a450e74",
+          "addresses": {
+            "mainnet": "qb1zf2ghsxza87ncvxpq3kx6plqkprfkdq7pxjfegzpsy6h3w7j9pe6q63aetk",
+            "testnet4": "tq1zf2ghsxza87ncvxpq3kx6plqkprfkdq7pxjfegzpsy6h3w7j9pe6qvc2e2h",
+            "signet": "tq1zf2ghsxza87ncvxpq3kx6plqkprfkdq7pxjfegzpsy6h3w7j9pe6qvc2e2h",
+            "regtest": "qbrt1zf2ghsxza87ncvxpq3kx6plqkprfkdq7pxjfegzpsy6h3w7j9pe6q08f8ru"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "43756c0f629eafc80c9fce1c27c2ee52231c9679b52fd353d84394f4525b9d5d",
+          "scriptPubKey": "522021ec364bf4c59b176aff57f52816b653afa68184bc30c61950ea81ad150fd593",
+          "addresses": {
+            "mainnet": "qb1zy8krvjl5ckd3w6hl2l6js94k2wh6dqvyhscvvx2sa2q669g06kfsfj9aql",
+            "testnet4": "tq1zy8krvjl5ckd3w6hl2l6js94k2wh6dqvyhscvvx2sa2q669g06kfslmjap7",
+            "signet": "tq1zy8krvjl5ckd3w6hl2l6js94k2wh6dqvyhscvvx2sa2q669g06kfslmjap7",
+            "regtest": "qbrt1zy8krvjl5ckd3w6hl2l6js94k2wh6dqvyhscvvx2sa2q669g06kfsuy3rg4"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "7f7a6c208e002064923a5ebbfcc786113b9a3f7e6a795221aabcbe1c009096d9",
+          "scriptPubKey": "5220985257859ba058630bc69f8395a0270fe7246b959ba533cee12c9592df952d09",
+          "addresses": {
+            "mainnet": "qb1znpf90pvm5pvxxz7xn7petgp8plnjg6u4nwjn8nhp9j2e9hu495ys9cde4m",
+            "testnet4": "tq1znpf90pvm5pvxxz7xn7petgp8plnjg6u4nwjn8nhp9j2e9hu495ysn36e56",
+            "signet": "tq1znpf90pvm5pvxxz7xn7petgp8plnjg6u4nwjn8nhp9j2e9hu495ysn36e56",
+            "regtest": "qbrt1znpf90pvm5pvxxz7xn7petgp8plnjg6u4nwjn8nhp9j2e9hu495ysswe8a3"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "456a7587981ddaa00d2eef9075c7bda54fc27fe97e6a6c737853b1e0c861e1f7",
+          "scriptPubKey": "522096017afb86a3db7da2fc0206fbfc8a731b8038ada86f815c92ee301f99c1d609",
+          "addresses": {
+            "mainnet": "qb1zjcqh47ux50dhmghuqgr0hly2wvdcqw9d4phczhyjaccplxwp6cysuahxrn",
+            "testnet4": "tq1zjcqh47ux50dhmghuqgr0hly2wvdcqw9d4phczhyjaccplxwp6cys25qxzj",
+            "signet": "tq1zjcqh47ux50dhmghuqgr0hly2wvdcqw9d4phczhyjaccplxwp6cys25qxzj",
+            "regtest": "qbrt1zjcqh47ux50dhmghuqgr0hly2wvdcqw9d4phczhyjaccplxwp6cysftrcte"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "8805061764d75d5c97c2e4620baa01d88062083ff40eabc9752bbf74dba1cd6f",
+          "scriptPubKey": "5220126413a1a0f8f26854af2d021700170f70ae3a1307381357ccf7c4dac2c911bb",
+          "addresses": {
+            "mainnet": "qb1zzfjp8gdqlrexs49095ppwqqhpac2uwsnquupx47v7lzd4skfzxasegvm95",
+            "testnet4": "tq1zzfjp8gdqlrexs49095ppwqqhpac2uwsnquupx47v7lzd4skfzxas0pmmy4",
+            "signet": "tq1zzfjp8gdqlrexs49095ppwqqhpac2uwsnquupx47v7lzd4skfzxas0pmmy4",
+            "regtest": "qbrt1zzfjp8gdqlrexs49095ppwqqhpac2uwsnquupx47v7lzd4skfzxasv7c9d7"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "5dc293bf41c007383703bbd68b427f6072544837e16b75ff9140818223e3b525",
+          "scriptPubKey": "522021a464d1be41dcf7fe4541949bd9bd61be8c271b9d1124633f5274bdbaabf777",
+          "addresses": {
+            "mainnet": "qb1zyxjxf5d7g8w00lj9gx2fhkdavxlgcfcmn5gjgcel2f6tmw4t7ams2849eq",
+            "testnet4": "tq1zyxjxf5d7g8w00lj9gx2fhkdavxlgcfcmn5gjgcel2f6tmw4t7amsuwz9cp",
+            "signet": "tq1zyxjxf5d7g8w00lj9gx2fhkdavxlgcfcmn5gjgcel2f6tmw4t7amsuwz9cp",
+            "regtest": "qbrt1zyxjxf5d7g8w00lj9gx2fhkdavxlgcfcmn5gjgcel2f6tmw4t7amsl3pm32"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "c0cb2543b4f6504c3155a4dc227027d28294b2fd520efc8349a1af4031693c70",
+          "scriptPubKey": "522005f7f6153e67cc23dc43be1af26d48861705aaf226ff1803417122eb0d95d374",
+          "addresses": {
+            "mainnet": "qb1zqhmlv9f7vlxz8hzrhcd0ym2gsctst2hjyml3sq6pwy3wkrv46d6qm8shpe",
+            "testnet4": "tq1zqhmlv9f7vlxz8hzrhcd0ym2gsctst2hjyml3sq6pwy3wkrv46d6qdw8hqc",
+            "signet": "tq1zqhmlv9f7vlxz8hzrhcd0ym2gsctst2hjyml3sq6pwy3wkrv46d6qdw8hqc",
+            "regtest": "qbrt1zqhmlv9f7vlxz8hzrhcd0ym2gsctst2hjyml3sq6pwy3wkrv46d6qw3yffn"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "6c12a186c23097098fd079a91ea9483c1134f398b658317a010578470f8e1fdb",
+          "scriptPubKey": "5220456bd01dee2d5a4ddea23355fdb937c559ca47c06ff3034382d2e2f7cbca2d09",
+          "addresses": {
+            "mainnet": "qb1zg44aq80w94dymh4zxd2lmwfhc4vu537qdlesxsuz6t300j7295ysaf94h8",
+            "testnet4": "tq1zg44aq80w94dymh4zxd2lmwfhc4vu537qdlesxsuz6t300j7295ystqj4kx",
+            "signet": "tq1zg44aq80w94dymh4zxd2lmwfhc4vu537qdlesxsuz6t300j7295ystqj4kx",
+            "regtest": "qbrt1zg44aq80w94dymh4zxd2lmwfhc4vu537qdlesxsuz6t300j7295ysgl3tld"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "d2257cbbe92f33d24c3bec66cdd6ff8b3b6aedefb95bd138a34ada9c30bced49",
+          "scriptPubKey": "522043131312e77e00b11b448d2295971d4ac5104f963ca5af0fc6d26fd95911a8c0",
+          "addresses": {
+            "mainnet": "qb1zgvf3xyh80cqtzx6y353ft9caftz3qnuk8jj67r7x6fhajkg34rqqj4zcgt",
+            "testnet4": "tq1zgvf3xyh80cqtzx6y353ft9caftz3qnuk8jj67r7x6fhajkg34rqqyu4cf2",
+            "signet": "tq1zgvf3xyh80cqtzx6y353ft9caftz3qnuk8jj67r7x6fhajkg34rqqyu4cf2",
+            "regtest": "qbrt1zgvf3xyh80cqtzx6y353ft9caftz3qnuk8jj67r7x6fhajkg34rqq8rkxqp"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "1fe2d3a286d295fa3a61d71fdc23a53ca8a6f1c9cdee2c5b492ea3f72d3410a9",
+          "scriptPubKey": "522068aedc9a06c35255df667c89e3dbc4ce88388fbe645e17b86f867151ba728622",
+          "addresses": {
+            "mainnet": "qb1zdzhdexsxcdf9thmx0jy78k7ye6yr3ra7v30p0wr0sec4rwnjsc3quvfksu",
+            "testnet4": "tq1zdzhdexsxcdf9thmx0jy78k7ye6yr3ra7v30p0wr0sec4rwnjsc3q297k3a",
+            "signet": "tq1zdzhdexsxcdf9thmx0jy78k7ye6yr3ra7v30p0wr0sec4rwnjsc3q297k3a",
+            "regtest": "qbrt1zdzhdexsxcdf9thmx0jy78k7ye6yr3ra7v30p0wr0sec4rwnjsc3qf6agck"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "fce1033e4d1253c8a9ce749a4a9ea13eeb88a413052caa71cc0033bb223ee6f5",
+          "scriptPubKey": "52207ebf9e78caa3b493596cde894bc397928e1086b5b46ba473974eb141e84b3caf",
+          "addresses": {
+            "mainnet": "qb1z06leu7x25w6fxktvm6y5hsuhj28ppp44k346guuhf6c5r6zt8jhs26qd4t",
+            "testnet4": "tq1z06leu7x25w6fxktvm6y5hsuhj28ppp44k346guuhf6c5r6zt8jhsunhd52",
+            "signet": "tq1z06leu7x25w6fxktvm6y5hsuhj28ppp44k346guuhf6c5r6zt8jhsunhd52",
+            "regtest": "qbrt1z06leu7x25w6fxktvm6y5hsuhj28ppp44k346guuhf6c5r6zt8jhslv5nap"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "74d06f8e25dc4c0af0862b4ae1675539310c5245eb1b92c45c7d57d9b3a5e98c",
+          "scriptPubKey": "5220cb7ab3619f1752e059ebf24e1d3cb09c4df1d60783883f31eedc8137d309272f",
+          "addresses": {
+            "mainnet": "qb1zedatxcvlzafwqk0t7f8p609sn3xlr4s8swyr7v0wmjqn05cfyuhsw2gk5g",
+            "testnet4": "tq1zedatxcvlzafwqk0t7f8p609sn3xlr4s8swyr7v0wmjqn05cfyuhscrlk4f",
+            "signet": "tq1zedatxcvlzafwqk0t7f8p609sn3xlr4s8swyr7v0wmjqn05cfyuhscrlk4f",
+            "regtest": "qbrt1zedatxcvlzafwqk0t7f8p609sn3xlr4s8swyr7v0wmjqn05cfyuhsmuuguz"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "d3b89fa374dac8fc7f8e15c7ac583afaa82e0894b752b851d60426338052f5a0",
+          "scriptPubKey": "522087c2ef0275b7dd44fa6a5efb5c3c4c284d36c329a0c03e7f2b65ad2c8f547f0e",
+          "addresses": {
+            "mainnet": "qb1zslpw7qn4klw5f7n2tma4c0zv9pxndsef5rqruletvkkjer650u8qpvxgw0",
+            "testnet4": "tq1zslpw7qn4klw5f7n2tma4c0zv9pxndsef5rqruletvkkjer650u8qh93g0w",
+            "signet": "tq1zslpw7qn4klw5f7n2tma4c0zv9pxndsef5rqruletvkkjer650u8qh93g0w",
+            "regtest": "qbrt1zslpw7qn4klw5f7n2tma4c0zv9pxndsef5rqruletvkkjer650u8q56jkx9"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "de1655f0967111624eab62f4e5b5e0e22ba69b290d726fcec0f61d195cdef412",
+          "scriptPubKey": "522064f8fadf7d1f1111c3c30564dc47beeabc66f2289513f71770e55240c28b732e",
+          "addresses": {
+            "mainnet": "qb1zvnu04hmarug3rs7rq4jdc3a7a27xdu3gj5flw9msu4fyps5twvhqzhl92c",
+            "testnet4": "tq1zvnu04hmarug3rs7rq4jdc3a7a27xdu3gj5flw9msu4fyps5twvhq57g9te",
+            "signet": "tq1zvnu04hmarug3rs7rq4jdc3a7a27xdu3gj5flw9msu4fyps5twvhq57g9te",
+            "regtest": "qbrt1zvnu04hmarug3rs7rq4jdc3a7a27xdu3gj5flw9msu4fyps5twvhqhptmzj"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "e86d5645ecdb22c3c3e7080dae82b03fd961b9be9c32c4b222f664356e241b8f",
+          "scriptPubKey": "52201fe97e4bcdedcf8887ff8470b19e09a0702381f0df913df9861f6c7c60ef606b",
+          "addresses": {
+            "mainnet": "qb1zrl5huj7dah8c3plls3ctr8sf5pcz8q0sm7gnm7vxrak8cc80vp4szasghp",
+            "testnet4": "tq1zrl5huj7dah8c3plls3ctr8sf5pcz8q0sm7gnm7vxrak8cc80vp4s558gkq",
+            "signet": "tq1zrl5huj7dah8c3plls3ctr8sf5pcz8q0sm7gnm7vxrak8cc80vp4s558gkq",
+            "regtest": "qbrt1zrl5huj7dah8c3plls3ctr8sf5pcz8q0sm7gnm7vxrak8cc80vp4shtyklt"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "92fbcb419d1bff7690fdd8a00850a39cf90622a19edb02b4eef97da89234b8b4",
+          "scriptPubKey": "5220f18cc071f1a676c4ab747dcfed0f40fb0bbc668c674a79721bbf23bfa75052c7",
+          "addresses": {
+            "mainnet": "qb1z7xxvqu035emvf2m50h876r6qlv9mce5vva98jusmhu3mlf6s2trs7kag2v",
+            "testnet4": "tq1z7xxvqu035emvf2m50h876r6qlv9mce5vva98jusmhu3mlf6s2trsgl2gtd",
+            "signet": "tq1z7xxvqu035emvf2m50h876r6qlv9mce5vva98jusmhu3mlf6s2trsgl2gtd",
+            "regtest": "qbrt1z7xxvqu035emvf2m50h876r6qlv9mce5vva98jusmhu3mlf6s2trstqfkzx"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "6ad01247dc36c92f7331164631317db09bdaa8a491f40df8b44b1e2d9d35e5a2",
+          "scriptPubKey": "52206982c4f9b8ce7212604edc02b09802ebd1c0edd50624e30bb2169326f38705c4",
+          "addresses": {
+            "mainnet": "qb1zdxpvf7dceeepyczwmsptpxqza0gupmw4qcjwxzajz6fjduu8qhzq3c268f",
+            "testnet4": "tq1zdxpvf7dceeepyczwmsptpxqza0gupmw4qcjwxzajz6fjduu8qhzq83a6xg",
+            "signet": "tq1zdxpvf7dceeepyczwmsptpxqza0gupmw4qcjwxzajz6fjduu8qhzq83a6xg",
+            "regtest": "qbrt1zdxpvf7dceeepyczwmsptpxqza0gupmw4qcjwxzajz6fjduu8qhzqyw7y0r"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "70c3a4345889af64401b5bc6f61618ecd3c01411d4cad259446b57359302dc80",
+          "scriptPubKey": "52209fc9e9bcdf9ef202454eb0eefa664edc45d6a2ff884c68f8068ff9ffdb97509b",
+          "addresses": {
+            "mainnet": "qb1znly7n0xlnmeqy32wkrh05ejwm3zadghl3pxx37qx3lullkuh2zdshnhzvp",
+            "testnet4": "tq1znly7n0xlnmeqy32wkrh05ejwm3zadghl3pxx37qx3lullkuh2zdsp6qzdq",
+            "signet": "tq1znly7n0xlnmeqy32wkrh05ejwm3zadghl3pxx37qx3lullkuh2zdsp6qzdq",
+            "regtest": "qbrt1znly7n0xlnmeqy32wkrh05ejwm3zadghl3pxx37qx3lullkuh2zdsz9ruyt"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "1aa33300a0ed2dc7484b6010b45d3d20b514191f8ec487ac9b3c896e1cb5475e",
+          "scriptPubKey": "522071998c4b314c186a4e96b3b09245072e862793ff6b35c60e7bcd555a39a78580",
+          "addresses": {
+            "mainnet": "qb1zwxvccje3fsvx5n5kkwcfy3g896rz0ylldv6uvrnme4245wd8skqqrjdhuh",
+            "testnet4": "tq1zwxvccje3fsvx5n5kkwcfy3g896rz0ylldv6uvrnme4245wd8skqq4m6hak",
+            "signet": "tq1zwxvccje3fsvx5n5kkwcfy3g896rz0ylldv6uvrnme4245wd8skqq4m6hak",
+            "regtest": "qbrt1zwxvccje3fsvx5n5kkwcfy3g896rz0ylldv6uvrnme4245wd8skqqkyef5a"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "1709753269895979359978fc685b1b3483fce963fce50e69feea84f8298854a0",
+          "scriptPubKey": "522013bdeae85b12c17bb1def924e2bc5f4ab6aa6ef6cdd2f296f277d611e2e6a592",
+          "addresses": {
+            "mainnet": "qb1zzw7746zmztqhhvw7lyjw90zlf2m25mhkehf099hjwltprchx5kfqh68rmt",
+            "testnet4": "tq1zzw7746zmztqhhvw7lyjw90zlf2m25mhkehf099hjwltprchx5kfqpnsr62",
+            "signet": "tq1zzw7746zmztqhhvw7lyjw90zlf2m25mhkehf099hjwltprchx5kfqpnsr62",
+            "regtest": "qbrt1zzw7746zmztqhhvw7lyjw90zlf2m25mhkehf099hjwltprchx5kfqzvnanp"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "929100003e7e27b8541bb3ffebbd10a2014dedcad11fcb441670b169312e9e6f",
+          "scriptPubKey": "5220b333530b7aebb815ecd574d963ffab131cd2d6364aa96a0d4ddf5d2ab8744a37",
+          "addresses": {
+            "mainnet": "qb1zkve4xzm6awuptmx4wnvk8latzvwd943kf25k5r2dmawj4wr5fgmsrndch6",
+            "testnet4": "tq1zkve4xzm6awuptmx4wnvk8latzvwd943kf25k5r2dmawj4wr5fgms466ckm",
+            "signet": "tq1zkve4xzm6awuptmx4wnvk8latzvwd943kf25k5r2dmawj4wr5fgms466ckm",
+            "regtest": "qbrt1zkve4xzm6awuptmx4wnvk8latzvwd943kf25k5r2dmawj4wr5fgmsk9exls"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "ba076f0b70633a69e523624d213c062a01451072a27302b018baa03b7fec85f8",
+          "scriptPubKey": "52200c4b9e8ad78fc9c66c229ba4809dd3702c34c8a5e7cc740a2c49e0d56cbf1ac8",
+          "addresses": {
+            "mainnet": "qb1zp39eazkh3lyuvmpznwjgp8wnwqkrfj99ulx8gz3vf8sd2m9lrtyq0we3pm",
+            "testnet4": "tq1zp39eazkh3lyuvmpznwjgp8wnwqkrfj99ulx8gz3vf8sd2m9lrtyqe8w3q6",
+            "signet": "tq1zp39eazkh3lyuvmpznwjgp8wnwqkrfj99ulx8gz3vf8sd2m9lrtyqe8w3q6",
+            "regtest": "qbrt1zp39eazkh3lyuvmpznwjgp8wnwqkrfj99ulx8gz3vf8sd2m9lrtyq6cd0f3"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "58625a4ca8fe650343584cf0b6c05ac0e26dcfaeb04ec01560089d8dc01aca0a",
+          "scriptPubKey": "52203215eba132a6d28b9eb4e657bf8a25df9dfeddb0b27890fa556170272beb01b7",
+          "addresses": {
+            "mainnet": "qb1zxg27hgfj5mfgh845uetmlz39m7wlahdskfufp7j4v9czw2ltqxms8dskkk",
+            "testnet4": "tq1zxg27hgfj5mfgh845uetmlz39m7wlahdskfufp7j4v9czw2ltqxms3y8khh",
+            "signet": "tq1zxg27hgfj5mfgh845uetmlz39m7wlahdskfufp7j4v9czw2ltqxms3y8khh",
+            "regtest": "qbrt1zxg27hgfj5mfgh845uetmlz39m7wlahdskfufp7j4v9czw2ltqxmsjmyg7u"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "228bde58206f8721e51c7f40c9d23c64a4b7722a4f01367655a0df7315d890e4",
+          "scriptPubKey": "522081f2bce875d0889e6c635e7432b4840967d93a7c4766a3f9ade1f55dcfc4d213",
+          "addresses": {
+            "mainnet": "qb1zs8ete6r46zyfumrrte6r9dyyp9najwnugan287ddu864mn7y6gfss2nw4j",
+            "testnet4": "tq1zs8ete6r46zyfumrrte6r9dyyp9najwnugan287ddu864mn7y6gfsxryw5n",
+            "signet": "tq1zs8ete6r46zyfumrrte6r9dyyp9najwnugan287ddu864mn7y6gfsxryw5n",
+            "regtest": "qbrt1zs8ete6r46zyfumrrte6r9dyyp9najwnugan287ddu864mn7y6gfs9u8sac"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "098b4dd36c4757c55c7b8a2db1809a33d3faf9b6ba50270cc387473a12d1ee53",
+          "scriptPubKey": "5220bb85c93db45593fc5a6edd9395fc8770fbd7b7c7f48b8ce68b6b601349face84",
+          "addresses": {
+            "mainnet": "qb1zhwzuj0d52kflcknwmkfetly8wraa0d787j9cee5tddspxj06e6zqycvtn9",
+            "testnet4": "tq1zhwzuj0d52kflcknwmkfetly8wraa0d787j9cee5tddspxj06e6zqj3mtjy",
+            "signet": "tq1zhwzuj0d52kflcknwmkfetly8wraa0d787j9cee5tddspxj06e6zqj3mtjy",
+            "regtest": "qbrt1zhwzuj0d52kflcknwmkfetly8wraa0d787j9cee5tddspxj06e6zq3wc4m0"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "4fe91dc4599a4986b8c40f279ef67fdeaee5974aa27ad4ff8d1afd51b08a7831",
+          "scriptPubKey": "5220338f0fcda6bb1e0f79272d5dabed1f3ff0cf2adc3cb9dceb6b26204b86863814",
+          "addresses": {
+            "mainnet": "qb1zxw8slndxhv0q77f894w6hmgl8lcv72ku8juae6mtycsyhp5x8q2qt9du3z",
+            "testnet4": "tq1zxw8slndxhv0q77f894w6hmgl8lcv72ku8juae6mtycsyhp5x8q2qav6usr",
+            "signet": "tq1zxw8slndxhv0q77f894w6hmgl8lcv72ku8juae6mtycsyhp5x8q2qav6usr",
+            "regtest": "qbrt1zxw8slndxhv0q77f894w6hmgl8lcv72ku8juae6mtycsyhp5x8q2q7nezeg"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "ee870f2f56c289a38a88df53223eca3c5514bb0f9fec4adcf0b7ff0ddb2a6d9d",
+          "scriptPubKey": "522012d4eec73c75ede22da0d9719973a3865ca826a7d886a90a8b247d0036a3d511",
+          "addresses": {
+            "mainnet": "qb1zzt2wa3euwhk7ytdqm9cejuarsew2sf48mzr2jz5ty37sqd4r65gsv4mwlc",
+            "testnet4": "tq1zzt2wa3euwhk7ytdqm9cejuarsew2sf48mzr2jz5ty37sqd4r65gs6uvw7e",
+            "signet": "tq1zzt2wa3euwhk7ytdqm9cejuarsew2sf48mzr2jz5ty37sqd4r65gs6uvw7e",
+            "regtest": "qbrt1zzt2wa3euwhk7ytdqm9cejuarsew2sf48mzr2jz5ty37sqd4r65gser0shj"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "a23d98881cb5c583ca15102a87b5657dc6071821532235a394843d1a56fb6416",
+          "scriptPubKey": "5220e770bee9a9fb705d1f8e2b3c9c6301b84baefe68f52224af461b9acc76b5c7e4",
+          "addresses": {
+            "mainnet": "qb1zuacta6dfldc968uw9v7fcccphp96alng753zft6xrwdvca44cljqm5tdt0",
+            "testnet4": "tq1zuacta6dfldc968uw9v7fcccphp96alng753zft6xrwdvca44cljqdaud2w",
+            "signet": "tq1zuacta6dfldc968uw9v7fcccphp96alng753zft6xrwdvca44cljqdaud2w",
+            "regtest": "qbrt1zuacta6dfldc968uw9v7fcccphp96alng753zft6xrwdvca44cljqwzlnr9"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "d6239224de38392e2ace7d6c7971083f16525bc43ab5159fcb94d1a639cb721c",
+          "scriptPubKey": "5220538f59ec9e7c9cc1e03a9c977faea352a1584ad6998255ea96dc497a2bff5218",
+          "addresses": {
+            "mainnet": "qb1z2w84nmy70jwvrcp6njthlt4r22s4sjkknxp9t65km3yh52ll2gvqr9335g",
+            "testnet4": "tq1z2w84nmy70jwvrcp6njthlt4r22s4sjkknxp9t65km3yh52ll2gvq4vx34f",
+            "signet": "tq1z2w84nmy70jwvrcp6njthlt4r22s4sjkknxp9t65km3yh52ll2gvq4vx34f",
+            "regtest": "qbrt1z2w84nmy70jwvrcp6njthlt4r22s4sjkknxp9t65km3yh52ll2gvqkn90uz"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "ea3ed40fe243cf4f4a518ee983a8b041984697e9cf994d50c0f1d46f00afe852",
+          "scriptPubKey": "52205742482e07313ae35c788d9c602271cb2cbcbe30da465b72ab2d9b222ce07f32",
+          "addresses": {
+            "mainnet": "qb1z2apysts8xyawxhrc3kwxqgn3evkte03smfr9ku4t9kdjyt8q0ueq6j8uk3",
+            "testnet4": "tq1z2apysts8xyawxhrc3kwxqgn3evkte03smfr9ku4t9kdjyt8q0ueqvmsuhs",
+            "signet": "tq1z2apysts8xyawxhrc3kwxqgn3evkte03smfr9ku4t9kdjyt8q0ueqvmsuhs",
+            "regtest": "qbrt1z2apysts8xyawxhrc3kwxqgn3evkte03smfr9ku4t9kdjyt8q0ueq0ynz7m"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "09f45a7e9e8c8c1c5bbd7104660901c046e475fe5a9b3ba2a43dad371b3f2a01",
+          "scriptPubKey": "5220029cd26e366172671bf3e1186bd16d01343cac6c970f406a365137e09888fef8",
+          "addresses": {
+            "mainnet": "qb1zq2wdym3kv9exwxlnuyvxh5tdqy6retrvju85q63k2ym7pxyglmuqq8kaeq",
+            "testnet4": "tq1zq2wdym3kv9exwxlnuyvxh5tdqy6retrvju85q63k2ym7pxyglmuqkwpacp",
+            "signet": "tq1zq2wdym3kv9exwxlnuyvxh5tdqy6retrvju85q63k2ym7pxyglmuqkwpacp",
+            "regtest": "qbrt1zq2wdym3kv9exwxlnuyvxh5tdqy6retrvju85q63k2ym7pxyglmuq43zr32"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "9eaa50e9187846ef04cbcda7d7cd30bd1a24b481c97599976a0946ae69f79a19",
+          "scriptPubKey": "5220c938de61d3ed5c31be7410d4e64d3e46e6812a782311c464b1fa96c80b09dff9",
+          "addresses": {
+            "mainnet": "qb1zeyuducwna4wrr0n5zr2wvnf7gmngz2ncyvguge93l2tvszcfmluszljtjg",
+            "testnet4": "tq1zeyuducwna4wrr0n5zr2wvnf7gmngz2ncyvguge93l2tvszcfmlus5k9tnf",
+            "signet": "tq1zeyuducwna4wrr0n5zr2wvnf7gmngz2ncyvguge93l2tvszcfmlus5k9tnf",
+            "regtest": "qbrt1zeyuducwna4wrr0n5zr2wvnf7gmngz2ncyvguge93l2tvszcfmlushfx46z"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "eaf9fff4f93ff13f68facf6b34b99ace7786b9e04cbc1716e5491111bd872d2c",
+          "scriptPubKey": "52201cc22c139f299b12fbd21089b641e197876b119294d995232ae611fd6c3ee53c",
+          "addresses": {
+            "mainnet": "qb1zrnpzcyul9xd3977jzzymvs0pj7rkkyvjjnve2ge2ucgl6mp7u57qfhlrqj",
+            "testnet4": "tq1zrnpzcyul9xd3977jzzymvs0pj7rkkyvjjnve2ge2ucgl6mp7u57ql7grpn",
+            "signet": "tq1zrnpzcyul9xd3977jzzymvs0pj7rkkyvjjnve2ge2ucgl6mp7u57ql7grpn",
+            "regtest": "qbrt1zrnpzcyul9xd3977jzzymvs0pj7rkkyvjjnve2ge2ucgl6mp7u57quptagc"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "8d7c2f1cee32264fbfb3d73d0a0f925cb01fac414fe1db8d1c430ed19c149a96",
+          "scriptPubKey": "5220c728f95d0e5e59a3944d2105874de688b94dc258e6b4fb827d89e595c5fac537",
+          "addresses": {
+            "mainnet": "qb1zcu50jhgwtev689zdyyzcwn0x3zu5msjcu660hqna38jet306c5ms3rvcwv",
+            "testnet4": "tq1zcu50jhgwtev689zdyyzcwn0x3zu5msjcu660hqna38jet306c5ms82mc0d",
+            "signet": "tq1zcu50jhgwtev689zdyyzcwn0x3zu5msjcu660hqna38jet306c5ms82mc0d",
+            "regtest": "qbrt1zcu50jhgwtev689zdyyzcwn0x3zu5msjcu660hqna38jet306c5msy4cxxx"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "1f1dc18af24f987b608eb9075d5bab54ee85d43c19c5f27791f90a3f4a109f56",
+          "scriptPubKey": "52201102b15a4ec4cf1610dbe945824ce66a80f35c0b117c3d0d97c272162f351493",
+          "addresses": {
+            "mainnet": "qb1zzyptzkjwcn83vyxma9zcyn8xd2q0xhqtz97r6rvhcfepvte4zjfslazppw",
+            "testnet4": "tq1zzyptzkjwcn83vyxma9zcyn8xd2q0xhqtz97r6rvhcfepvte4zjfsf54pq0",
+            "signet": "tq1zzyptzkjwcn83vyxma9zcyn8xd2q0xhqtz97r6rvhcfepvte4zjfsf54pq0",
+            "regtest": "qbrt1zzyptzkjwcn83vyxma9zcyn8xd2q0xhqtz97r6rvhcfepvte4zjfs2tklfy"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "0416ab426901cebca20ca2db67c4ae7ef0cb0ca742e628195cecf1c86e596c9d",
+          "scriptPubKey": "5220ff2ccdd2aa256ed779586845ff3fb60e2b02d80d704ea97a17f07a8ef043f6f6",
+          "addresses": {
+            "mainnet": "qb1zlukvm542y4hdw72cdpzl70akpc4s9kqdwp82j7sh7pagauzr7mmqmfcm54",
+            "testnet4": "tq1zlukvm542y4hdw72cdpzl70akpc4s9kqdwp82j7sh7pagauzr7mmqdq0m45",
+            "signet": "tq1zlukvm542y4hdw72cdpzl70akpc4s9kqdwp82j7sh7pagauzr7mmqdq0m45",
+            "regtest": "qbrt1zlukvm542y4hdw72cdpzl70akpc4s9kqdwp82j7sh7pagauzr7mmqwlv9ul"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "8ab387652bb87a2621db1f239932bd65d43b8efeb37be612a5dae25bbac032a9",
+          "scriptPubKey": "52206515de770036a9b0e54925736bc390746b7cbd413307f6489fcb00ec0f1b6a73",
+          "addresses": {
+            "mainnet": "qb1zv52auacqx65mpe2fy4ekhsusw34he02pxvrlvjylevqwcrcmdfeswrtejf",
+            "testnet4": "tq1zv52auacqx65mpe2fy4ekhsusw34he02pxvrlvjylevqwcrcmdfesc2ueng",
+            "signet": "tq1zv52auacqx65mpe2fy4ekhsusw34he02pxvrlvjylevqwcrcmdfesc2ueng",
+            "regtest": "qbrt1zv52auacqx65mpe2fy4ekhsusw34he02pxvrlvjylevqwcrcmdfesm4l86r"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "a3e9291732b8bddbd2c8cb7fe7885884704d7b64ff645792268338c5e3870d23",
+          "scriptPubKey": "5220db445d4908d45613b701ded75f2bd1e559c15828d3e19080b1e17c7b566845f5",
+          "addresses": {
+            "mainnet": "qb1zmdz96jgg63tp8dcpmmt47273u4vuzkpg60sepq93u978k4nggh6s5fm300",
+            "testnet4": "tq1zmdz96jgg63tp8dcpmmt47273u4vuzkpg60sepq93u978k4nggh6szqv3ww",
+            "signet": "tq1zmdz96jgg63tp8dcpmmt47273u4vuzkpg60sepq93u978k4nggh6szqv3ww",
+            "regtest": "qbrt1zmdz96jgg63tp8dcpmmt47273u4vuzkpg60sepq93u978k4nggh6spl0089"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "e881d2fa0870d1c4f2cb3e0e1fd0931b3c6dc50e79dbcf2ab635a8e98f7838d7",
+          "scriptPubKey": "5220434cbb22a42a642060349e5d686140a491c5b6d59add2f3aac07b96e8249be1c",
+          "addresses": {
+            "mainnet": "qb1zgdxtkg4y9fjzqcp5newksc2q5jgutdk4ntwj7w4vq7ukaqjfhcwq0dfrv9",
+            "testnet4": "tq1zgdxtkg4y9fjzqcp5newksc2q5jgutdk4ntwj7w4vq7ukaqjfhcwqey7rdy",
+            "signet": "tq1zgdxtkg4y9fjzqcp5newksc2q5jgutdk4ntwj7w4vq7ukaqjfhcwqey7rdy",
+            "regtest": "qbrt1zgdxtkg4y9fjzqcp5newksc2q5jgutdk4ntwj7w4vq7ukaqjfhcwq6maay0"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/0/0",
+          "pubkey": "db6662e659f614e577ea3f5d35e3e6f935368cebf9eedff9ee63d5144463cec0",
+          "scriptPubKey": "5220f6a88ebbcb8884c9ca90ecbd65d965428c6fe2826feb79670d27b1f4db55ac05",
+          "addresses": {
+            "mainnet": "qb1z765gaw7t3zzvnj5saj7ktkt9g2xxlc5zdl4hjecdy7clfk644szsdjlyff",
+            "testnet4": "tq1z765gaw7t3zzvnj5saj7ktkt9g2xxlc5zdl4hjecdy7clfk644szsmmgygg",
+            "signet": "tq1z765gaw7t3zzvnj5saj7ktkt9g2xxlc5zdl4hjecdy7clfk644szsmmgygg",
+            "regtest": "qbrt1z765gaw7t3zzvnj5saj7ktkt9g2xxlc5zdl4hjecdy7clfk644szscyt6pr"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/0/1",
+          "pubkey": "b62934210f29292edb6c58f8e080ec31ca15353adb8c35fe12f0bf3786bacd53",
+          "scriptPubKey": "52203a9df3044f1cbdbd666a180be3366fff7ac43e317873bdc72259feca78cc5091",
+          "addresses": {
+            "mainnet": "qb1z82wlxpz0rj7m6en2rq97xdn0laavg0330pemm3ezt8lv57xv2zgsf738q6",
+            "testnet4": "tq1z82wlxpz0rj7m6en2rq97xdn0laavg0330pemm3ezt8lv57xv2zgslhx8pm",
+            "signet": "tq1z82wlxpz0rj7m6en2rq97xdn0laavg0330pemm3ezt8lv57xv2zgslhx8pm",
+            "regtest": "qbrt1z82wlxpz0rj7m6en2rq97xdn0laavg0330pemm3ezt8lv57xv2zgsug9egs"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/0/19",
+          "pubkey": "12b75585d7a5d6e72e891429d28479aad1d25a43132093efd1ccbb5c059ff1d6",
+          "scriptPubKey": "52209fb29a2bed402e4f187986f0c93df9ce26d456661a9ba7d2aeac1e2f9e0ce547",
+          "addresses": {
+            "mainnet": "qb1zn7ef52ldgqhy7xresmcvj00eecndg4nxr2d6054w4s0zl8svu4rsjhlz7t",
+            "testnet4": "tq1zn7ef52ldgqhy7xresmcvj00eecndg4nxr2d6054w4s0zl8svu4rsy7gzl2",
+            "signet": "tq1zn7ef52ldgqhy7xresmcvj00eecndg4nxr2d6054w4s0zl8svu4rsy7gzl2",
+            "regtest": "qbrt1zn7ef52ldgqhy7xresmcvj00eecndg4nxr2d6054w4s0zl8svu4rs8ptukp"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/0/2147483646",
+          "pubkey": "9180226b5e295ef43f6596e7b19d3485601c7788be1cba7d2838b490a93c7be8",
+          "scriptPubKey": "5220be251c025b132fb7ba72f75202066ded5123a00325508e27328d59d01be779aa",
+          "addresses": {
+            "mainnet": "qb1zhcj3cqjmzvhm0wnj7afqypnda4gj8gqry4ggufej34vaqxl80x4qkxj0xr",
+            "testnet4": "tq1zhcj3cqjmzvhm0wnj7afqypnda4gj8gqry4ggufej34vaqxl80x4qq0908z",
+            "signet": "tq1zhcj3cqjmzvhm0wnj7afqypnda4gj8gqry4ggufej34vaqxl80x4qq0908z",
+            "regtest": "qbrt1zhcj3cqjmzvhm0wnj7afqypnda4gj8gqry4ggufej34vaqxl80x4qrsx3wf"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/0/2147483647",
+          "pubkey": "0859e8b5f78d9309f39b83b93a1028bf1cbc54468c2d9c035360d9dd932954ef",
+          "scriptPubKey": "522037ab421f22dcbe761fed94774d7834f62a6feca91ab7b1e0531f0a7d7abdd243",
+          "addresses": {
+            "mainnet": "qb1zx745y8ezmjl8v8ldj3m567p57c4xlm9fr2mmrcznru98674a6fps24wwe9",
+            "testnet4": "tq1zx745y8ezmjl8v8ldj3m567p57c4xlm9fr2mmrcznru98674a6fpsuuewcy",
+            "signet": "tq1zx745y8ezmjl8v8ldj3m567p57c4xlm9fr2mmrcznru98674a6fpsuuewcy",
+            "regtest": "qbrt1zx745y8ezmjl8v8ldj3m567p57c4xlm9fr2mmrcznru98674a6fpslr6s30"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/0'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/0'/0'/1/0",
+          "pubkey": "9103cb3c324e1532e7c15aaf16ff228f801a33cc939688515712c2dee51535c8",
+          "scriptPubKey": "5220a79bca0fcfc094fb89ca80c0c70a37f8b278c15db93ae38cdc6bf10e5925b348",
+          "addresses": {
+            "mainnet": "qb1z57du5r70cz20hzw2srqvwz3hlze83s2ahyaw8rxud0csukf9kdyqhejk2k",
+            "testnet4": "tq1z57du5r70cz20hzw2srqvwz3hlze83s2ahyaw8rxud0csukf9kdyqps9kth",
+            "signet": "tq1z57du5r70cz20hzw2srqvwz3hlze83s2ahyaw8rxud0csukf9kdyqps9kth",
+            "regtest": "qbrt1z57du5r70cz20hzw2srqvwz3hlze83s2ahyaw8rxud0csukf9kdyqz0xgzu"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/0'/0'/1/1",
+          "pubkey": "d4d15a147cb6412cae224f3eb0a1364e09eb0a654c3c4738c29be9c484cc6601",
+          "scriptPubKey": "5220fcff8026b10633265ac51df60e8396fc54075f0eee822492374a2db9df0ce386",
+          "addresses": {
+            "mainnet": "qb1zlnlcqf43qcejvkk9rhmqaqukl32qwhcwa6pzfy3hfgkmnhcvuwrqwy9lut",
+            "testnet4": "tq1zlnlcqf43qcejvkk9rhmqaqukl32qwhcwa6pzfy3hfgkmnhcvuwrqcdjla2",
+            "signet": "tq1zlnlcqf43qcejvkk9rhmqaqukl32qwhcwa6pzfy3hfgkmnhcvuwrqcdjla2",
+            "regtest": "qbrt1zlnlcqf43qcejvkk9rhmqaqukl32qwhcwa6pzfy3hfgkmnhcvuwrqmj3p5p"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/0'/0'/1/19",
+          "pubkey": "2f196147ef30f28cec8aa175c8b64cc314439045d2199e88338ba6fbda3ac260",
+          "scriptPubKey": "5220a143abbc7d9905763fb33752d86e9891f680734997c4d3978e90794ea3e4f6b5",
+          "addresses": {
+            "mainnet": "qb1z59p6h0ranyzhv0anxafdsm5cj8mgqu6fjlzd89uwjpu5agly766stlgvhw",
+            "testnet4": "tq1z59p6h0ranyzhv0anxafdsm5cj8mgqu6fjlzd89uwjpu5agly766saklvk0",
+            "signet": "tq1z59p6h0ranyzhv0anxafdsm5cj8mgqu6fjlzd89uwjpu5agly766saklvk0",
+            "regtest": "qbrt1z59p6h0ranyzhv0anxafdsm5cj8mgqu6fjlzd89uwjpu5agly766s7fujly"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/0'/0'/1/2147483646",
+          "pubkey": "5997cdc402212b76690230a95fc48111a3b0dc4f068ffb836e0ee99186924feb",
+          "scriptPubKey": "52203a0fe874c25b449bbe97390fe22a01ce6f0399c2ee11faa529dae50aa6c7e0ae",
+          "addresses": {
+            "mainnet": "qb1z8g87saxztdzfh05h8y87y2speehs8xwzacgl4fffmtjs4fk8uzhqnl6das",
+            "testnet4": "tq1z8g87saxztdzfh05h8y87y2speehs8xwzacgl4fffmtjs4fk8uzhq9kddu3",
+            "signet": "tq1z8g87saxztdzfh05h8y87y2speehs8xwzacgl4fffmtjs4fk8uzhq9kddu3",
+            "regtest": "qbrt1z8g87saxztdzfh05h8y87y2speehs8xwzacgl4fffmtjs4fk8uzhqxfwn46"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/0'/0'/1/2147483647",
+          "pubkey": "bb61a265a7c7a1d6507638a79076a6ef5f20eb9d629b55a04cd5d0b7239c6a69",
+          "scriptPubKey": "52202c14943732cedeee9a7bd731c63ceb6da407b6fbd4fa694768d4906c0482a950",
+          "addresses": {
+            "mainnet": "qb1z9s2fgdejem0waxnm6ucuv08tdkjq0dhm6naxj3mg6jgxcpyz49gq76plxf",
+            "testnet4": "tq1z9s2fgdejem0waxnm6ucuv08tdkjq0dhm6naxj3mg6jgxcpyz49gqgnkl8g",
+            "signet": "tq1z9s2fgdejem0waxnm6ucuv08tdkjq0dhm6naxj3mg6jgxcpyz49gqgnkl8g",
+            "regtest": "qbrt1z9s2fgdejem0waxnm6ucuv08tdkjq0dhm6naxj3mg6jgxcpyz49gqtv4pwr"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/0",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/0/0",
+          "pubkey": "dc831938f0fac75e57ea7c0530b77857796bf02a97287c7276f0e950df43c037",
+          "scriptPubKey": "5220832ab0e646eafe443213e455fd5ba9f2c7881d06cf5c87c8609197047f5e5be5",
+          "addresses": {
+            "mainnet": "qb1zsv4tpejxatlygvsnu32l6kaf7trcs8gxeawg0jrqjxtsgl67t0js5nhru8",
+            "testnet4": "tq1zsv4tpejxatlygvsnu32l6kaf7trcs8gxeawg0jrqjxtsgl67t0jsz6qrax",
+            "signet": "tq1zsv4tpejxatlygvsnu32l6kaf7trcs8gxeawg0jrqjxtsgl67t0jsz6qrax",
+            "regtest": "qbrt1zsv4tpejxatlygvsnu32l6kaf7trcs8gxeawg0jrqjxtsgl67t0jsp9ra5d"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/0/1",
+          "pubkey": "da1c0c321d63d5e2c4afd80545ceeaeefe3cfce264cacae2278f60ef586f2e04",
+          "scriptPubKey": "5220a789ac5afde339ac2ebcb99c95cd010dc42087c8463be0d4ed69cc6249a8992a",
+          "addresses": {
+            "mainnet": "qb1z57y6ckhauvu6ct4uhxwftngpphzzpp7ggca7p48dd8xxyjdgny4ql8jdqn",
+            "testnet4": "tq1z57y6ckhauvu6ct4uhxwftngpphzzpp7ggca7p48dd8xxyjdgny4qfw9dpj",
+            "signet": "tq1z57y6ckhauvu6ct4uhxwftngpphzzpp7ggca7p48dd8xxyjdgny4qfw9dpj",
+            "regtest": "qbrt1z57y6ckhauvu6ct4uhxwftngpphzzpp7ggca7p48dd8xxyjdgny4q23xnge"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/0/19",
+          "pubkey": "c057a6b7890fb15ce0c4bde72c6549b8327517a3ecccff187fffc5227056e7d3",
+          "scriptPubKey": "5220062fdea7644664d35c53cda35ba7e3e39c7fe3a2b7dea0b56297fa4911d616e8",
+          "addresses": {
+            "mainnet": "qb1zqchaafmygejdxhznek34hflruww8lcazkl02pdtzjlayjywkzm5qplppq2",
+            "testnet4": "tq1zqchaafmygejdxhznek34hflruww8lcazkl02pdtzjlayjywkzm5qhkkppt",
+            "signet": "tq1zqchaafmygejdxhznek34hflruww8lcazkl02pdtzjlayjywkzm5qhkkppt",
+            "regtest": "qbrt1zqchaafmygejdxhznek34hflruww8lcazkl02pdtzjlayjywkzm5q5f4lgq"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/0/2147483646",
+          "pubkey": "e847f3bdd96fc206ddd8037aa28d57f99b9a54e4a6b268c3a3f959d9fc2a4935",
+          "scriptPubKey": "52203714432854b387f47202bd5774d9b0fbf82eac07abeaa33ae91165d3d3b901d2",
+          "addresses": {
+            "mainnet": "qb1zxu2yx2z5kwrlguszh4thfkdsl0uzatq84042xwhfz9ja85aeq8fqdchrnp",
+            "testnet4": "tq1zxu2yx2z5kwrlguszh4thfkdsl0uzatq84042xwhfz9ja85aeq8fqm3qrjq",
+            "signet": "tq1zxu2yx2z5kwrlguszh4thfkdsl0uzatq84042xwhfz9ja85aeq8fqm3qrjq",
+            "regtest": "qbrt1zxu2yx2z5kwrlguszh4thfkdsl0uzatq84042xwhfz9ja85aeq8fqcwramt"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/0/2147483647",
+          "pubkey": "844a91cad777c46153dfdbc70c4758bed76dcbf69f1d9fbd3870f0516e4a7407",
+          "scriptPubKey": "5220f124470bcc35a4921c30bf6d1eb5e36ea4dae20135466909cb64a4bd1bdb59e2",
+          "addresses": {
+            "mainnet": "qb1z7yjywz7vxkjfy8pshak3ad0rd6jd4cspx4rxjzwtvjjt6x7mt83qmdkpst",
+            "testnet4": "tq1z7yjywz7vxkjfy8pshak3ad0rd6jd4cspx4rxjzwtvjjt6x7mt83qdypp32",
+            "signet": "tq1z7yjywz7vxkjfy8pshak3ad0rd6jd4cspx4rxjzwtvjjt6x7mt83qdypp32",
+            "regtest": "qbrt1z7yjywz7vxkjfy8pshak3ad0rd6jd4cspx4rxjzwtvjjt6x7mt83qwmzlcp"
+          }
+        }
+      ]
+    },
+    {
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "qbit keyring test vectors: Ünïcödé",
+      "hdPath": "m/87'/1'/0'/1",
+      "accounts": [
+        {
+          "index": 0,
+          "path": "m/87'/1'/0'/1/0",
+          "pubkey": "dbeb109f63e725bd6c412a6f0cb988eec5dc3c9da5884e0028dc75a9ca474a14",
+          "scriptPubKey": "52201e37e6c1c6b58c2f81b0b54b1ab27cd689ed18244598bc523d13f6b4661118d9",
+          "addresses": {
+            "mainnet": "qb1zrcm7dswxkkxzlqdsk4934vnu66y76xpygkvtc53az0mtges3rrvs0gvz3v",
+            "testnet4": "tq1zrcm7dswxkkxzlqdsk4934vnu66y76xpygkvtc53az0mtges3rrvsepmzsd",
+            "signet": "tq1zrcm7dswxkkxzlqdsk4934vnu66y76xpygkvtc53az0mtges3rrvsepmzsd",
+            "regtest": "qbrt1zrcm7dswxkkxzlqdsk4934vnu66y76xpygkvtc53az0mtges3rrvs67cuex"
+          }
+        },
+        {
+          "index": 1,
+          "path": "m/87'/1'/0'/1/1",
+          "pubkey": "aea093c13532dc5d9e4993fe667d50d5598ec9095030f25f5b3e9362ae5ebb27",
+          "scriptPubKey": "5220e72b271bf7371a0b5fcec67dc1d992ebff9f2ebaaf8a04ef353da172cd4ffeda",
+          "addresses": {
+            "mainnet": "qb1zuu4jwxlhxudqkh7wce7urkvja0le7t46479qfme48ksh9n20lmdqm9el2v",
+            "testnet4": "tq1zuu4jwxlhxudqkh7wce7urkvja0le7t46479qfme48ksh9n20lmdqdvwltd",
+            "signet": "tq1zuu4jwxlhxudqkh7wce7urkvja0le7t46479qfme48ksh9n20lmdqdvwltd",
+            "regtest": "qbrt1zuu4jwxlhxudqkh7wce7urkvja0le7t46479qfme48ksh9n20lmdqwndpzx"
+          }
+        },
+        {
+          "index": 19,
+          "path": "m/87'/1'/0'/1/19",
+          "pubkey": "fbe3aae15cf31d7725a5c692f25b12617c5667f265f4a3930f5ad59d85f32dd0",
+          "scriptPubKey": "522055328d578352051116c6507184cfa8eba7845da817bcd4d36590f810db59c7e0",
+          "addresses": {
+            "mainnet": "qb1z25eg64ur2gz3z9kx2pccfnagawncghdgz77df5m9jruppk6eclsqv90ux6",
+            "testnet4": "tq1z25eg64ur2gz3z9kx2pccfnagawncghdgz77df5m9jruppk6eclsq6vcu8m",
+            "signet": "tq1z25eg64ur2gz3z9kx2pccfnagawncghdgz77df5m9jruppk6eclsq6vcu8m",
+            "regtest": "qbrt1z25eg64ur2gz3z9kx2pccfnagawncghdgz77df5m9jruppk6eclsqenmzws"
+          }
+        },
+        {
+          "index": 2147483646,
+          "path": "m/87'/1'/0'/1/2147483646",
+          "pubkey": "ce57a6d7d1eee590260c871ef62a40e95db363ae7d029e32aaa88ec0ccb7904d",
+          "scriptPubKey": "52204db64c069ae44dbf51e4f6267a55b6fd1a20e966bba3aff8c5fe03f693583de9",
+          "addresses": {
+            "mainnet": "qb1zfkmycp56u3xm750y7cn854dkl5dzp6txhw36l7x9lcpldy6c8h5s2277ev",
+            "testnet4": "tq1zfkmycp56u3xm750y7cn854dkl5dzp6txhw36l7x9lcpldy6c8h5surf7cd",
+            "signet": "tq1zfkmycp56u3xm750y7cn854dkl5dzp6txhw36l7x9lcpldy6c8h5surf7cd",
+            "regtest": "qbrt1zfkmycp56u3xm750y7cn854dkl5dzp6txhw36l7x9lcpldy6c8h5slu2q3x"
+          }
+        },
+        {
+          "index": 2147483647,
+          "path": "m/87'/1'/0'/1/2147483647",
+          "pubkey": "5ed3707070003c9f6e5b5f42f5d057ce9df38aa122aaa126c93ec92574898129",
+          "scriptPubKey": "5220992db9e4f05d9fee330b22298c8616b75542084518a0fe06901e8baf2d4de44a",
+          "addresses": {
+            "mainnet": "qb1znykmne8stk07uvctyg5cepskka25yzz9rzs0up5sr6967t2du39qu6vlgr",
+            "testnet4": "tq1znykmne8stk07uvctyg5cepskka25yzz9rzs0up5sr6967t2du39q2nmlfz",
+            "signet": "tq1znykmne8stk07uvctyg5cepskka25yzz9rzs0up5sr6967t2du39q2nmlfz",
+            "regtest": "qbrt1znykmne8stk07uvctyg5cepskka25yzz9rzs0up5sr6967t2du39qfvcpqf"
+          }
+        }
+      ]
+    }
+  ]
+}

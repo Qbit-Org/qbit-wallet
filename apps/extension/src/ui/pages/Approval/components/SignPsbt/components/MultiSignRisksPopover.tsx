@@ -4,7 +4,7 @@ import { Button, Column, Icon, Input, Row, Text } from '@/ui/components';
 import { Popover } from '@/ui/components/Popover';
 import { getRiskContentKey } from '@/ui/components/SignPsbtWithRisksPopover';
 import { colors } from '@/ui/theme/colors';
-import type { LocalPsbtSummary, RiskType } from '@qbit/wallet-shared';
+import type { LocalPsbtSummary, PsbtLocalInfo, Risk } from '@qbit/wallet-shared';
 import { useI18n } from '@qbit/wallet-state';
 
 const AGREEMENT_TEXT = 'CONFIRM';
@@ -29,8 +29,12 @@ export default function MultiSignRisksPopover({
 
   const flagged = summary.items.flatMap((item, index) => (item.risks.length > 0 ? [{ item, index }] : []));
   const confirmable = !flagged.some(({ item }) => item.risks.some((risk) => risk.level === 'critical'));
+  const contentKey = (item: PsbtLocalInfo, risk: Risk) =>
+    getRiskContentKey(risk.type, item.spendSummary?.feeAssessment);
   // Each kind of risk is explained once, after the transactions that carry it.
-  const riskTypes = [...new Set(flagged.flatMap(({ item }) => item.risks.map((risk) => risk.type)))] as RiskType[];
+  const riskDescriptions = [
+    ...new Set(flagged.flatMap(({ item }) => item.risks.map((risk) => contentKey(item, risk).description)))
+  ];
 
   return (
     <Popover data-testid="multisign-risks-popover">
@@ -56,7 +60,7 @@ export default function MultiSignRisksPopover({
               {item.risks.map((risk, riskIndex) => (
                 <Text
                   key={'risk_' + riskIndex}
-                  text={t(getRiskContentKey(risk.type).title)}
+                  text={t(contentKey(item, risk).title)}
                   size="xs"
                   color={risk.level === 'warning' ? 'warning' : 'dangerText'}
                 />
@@ -64,8 +68,8 @@ export default function MultiSignRisksPopover({
             </Column>
           ))}
 
-          {riskTypes.map((riskType) => (
-            <Text key={'desc_' + riskType} text={t(getRiskContentKey(riskType).description)} preset="sub" />
+          {riskDescriptions.map((description) => (
+            <Text key={'desc_' + description} text={t(description)} preset="sub" />
           ))}
 
           {confirmable && (

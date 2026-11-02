@@ -59,19 +59,31 @@ export interface QbitRecoveryState {
 
 /**
  * A source account a migration pass could not plan, and why. Its funds keep
- * the migration open until a later pass plans them.
+ * the migration open until a later pass plans them. A pass returns these to
+ * the UI; they are not stored.
  */
-export interface QbitRecoveryDeferredSource {
-  address: string
-  /**
-   * The explorer will not list its outputs, and its history is longer than
-   * the wallet reads to find them (more than `maxTransactions`).
-   * Consolidating it to within the listing limit lets a later pass list
-   * them.
-   */
-  reason: 'history_too_large'
-  maxTransactions: number
-}
+export type QbitRecoveryDeferredSource =
+  | {
+      address: string
+      /**
+       * The explorer will not list its outputs, and its history is longer than
+       * the wallet reads to find them (more than `maxTransactions`).
+       * Consolidating it to within the listing limit lets a later pass list
+       * them.
+       */
+      reason: 'history_too_large'
+      maxTransactions: number
+    }
+  | {
+      address: string
+      /**
+       * The explorer will not list its outputs, and its history, which the
+       * wallet reads them from, could not be read in full: the explorer's
+       * pages did not match the address statistics through every retry. A
+       * later pass reads it again.
+       */
+      reason: 'history_incomplete'
+    }
 
 /**
  * One way removing a wallet would touch an active recovery migration.

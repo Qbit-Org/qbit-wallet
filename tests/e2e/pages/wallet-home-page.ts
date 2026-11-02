@@ -55,6 +55,17 @@ export class WalletHomePage extends ExtensionPageObject {
     await this.waitForHashRoute('/wallet/history')
   }
 
+  /** Select the current wallet's account at `address` from the account list. */
+  async switchAccount(address: string): Promise<void> {
+    await this.clickTestId('account-select')
+    await this.waitForHashRoute('/account/switch-account')
+    const item = this.byTestId(`account-item-${address}`)
+    await expect(item).toBeVisible()
+    // The row's name and short address select the account; its edges do not.
+    await item.getByText(`${address.slice(0, 8)}...${address.slice(-8)}`, { exact: true }).click()
+    await this.waitUntilReady()
+  }
+
   async openSettings(): Promise<void> {
     await this.clickTestId('tab-settings')
     await this.waitForHashRoute('/settings')

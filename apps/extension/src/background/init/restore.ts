@@ -35,12 +35,44 @@ import storage from '../utils/storage';
 export const AppInitEvent = new EventEmitter();
 
 class ExtensionStorageAdapter extends BaseProxyStorageAdapter {
+  // The errors of reads that failed while start-up ran, kept only so start-up
+  // can say why it stopped. Every caller still gets the error storage raised.
+  private startupReadErrors: Set<unknown> | undefined = new Set();
+
   constructor(private storage) {
     super();
   }
 
   async get(key: string): Promise<any> {
-    return this.storage.get(key);
+    try {
+      return await this.storage.get(key);
+    } catch (error) {
+      this.startupReadErrors?.add(error);
+      throw error;
+    }
+  }
+
+  /**
+   * Whether `error` is, or has among its causes, a read that failed during
+   * start-up. Services may wrap the read error (wallet-storage's loadStored
+   * does), so the causes count too.
+   */
+  isStartupReadError(error: unknown): boolean {
+    const seen = new Set<unknown>();
+    for (
+      let current = error;
+      current !== null && current !== undefined && !seen.has(current);
+      current = (current as { cause?: unknown }).cause
+    ) {
+      if (this.startupReadErrors?.has(current)) return true;
+      seen.add(current);
+    }
+    return false;
+  }
+
+  /** Start-up is over: reads that fail from now on are not recorded. */
+  endStartup(): void {
+    this.startupReadErrors = undefined;
   }
 
   async set(key: string, value: any): Promise<void> {
@@ -64,10 +96,25 @@ async function initPqcRuntime() {
 }
 
 export async function restoreAppState() {
-  try {
-    const proxyStorage = new ExtensionStorageAdapter(storage);
+  const proxyStorage = new ExtensionStorageAdapter(storage);
+  // Each service starts under its own handler, which names it in the log. A
+  // required service that fails stops start-up. An optional one is logged and
+  // the rest of the background starts without it, unless it could not read the
+  // stored settings: that still stops start-up, so the pages can say why.
+  const startService = async (name: string, init: () => unknown, { required = true } = {}) => {
+    try {
+      await init();
+    } catch (err) {
+      if (required || proxyStorage.isStartupReadError(err)) {
+        logger.error(`[Background] ${name} failed to start`, err);
+        throw err;
+      }
+      logger.error(`[Background] ${name} failed to start; starting the rest without it`, err);
+    }
+  };
 
-    await i18nService.init({ storage: proxyStorage });
+  try {
+    await startService('i18n', () => i18nService.init({ storage: proxyStorage }));
     bgI18n.t = i18nService.translate.bind(i18nService);
     bgI18n.changeLanguage = async (locale: string) => {
       await i18nService.changeLanguage(locale);
@@ -81,27 +128,33 @@ export async function restoreAppState() {
       logger.error('[qbit] PQC runtime init failed; P2MR features disabled', pqcInitError);
     }
 
-    await keyringService.init({
-      storage: proxyStorage,
-      logger: logger,
-      encryptor: encryptor,
-      t: t,
-      eventBus: bgEventBus
-    });
+    await startService('keyring', () =>
+      keyringService.init({
+        storage: proxyStorage,
+        logger: logger,
+        encryptor: encryptor,
+        t: t,
+        eventBus: bgEventBus
+      })
+    );
 
-    await preferenceService.init({
-      storage: proxyStorage,
-      logger: logger,
-      t: t,
-      eventBus: bgEventBus as any
-    });
+    await startService('preference', () =>
+      preferenceService.init({
+        storage: proxyStorage,
+        logger: logger,
+        t: t,
+        eventBus: bgEventBus as any
+      })
+    );
 
-    await biometricUnlockService.init({
-      storage: proxyStorage,
-      logger: logger
-    });
+    await startService('biometric unlock', () =>
+      biometricUnlockService.init({
+        storage: proxyStorage,
+        logger: logger
+      })
+    );
 
-    qbitSendGuardService.init();
+    await startService('send guard', () => qbitSendGuardService.init());
 
     // Local regtest is gated by a background capability (optional loopback
     // host permission + acknowledgement + verified service). Resolve it before
@@ -135,36 +188,52 @@ export async function restoreAppState() {
     }
     const endpoint = CHAINS_MAP[chainType].endpoints[0];
     const httpClient = new HttpClient();
-    await walletApiService.init({
-      storage: proxyStorage,
-      logger: logger,
-      endpoint,
-      httpClient: httpClient
-    });
+    await startService('wallet API', () =>
+      walletApiService.init({
+        storage: proxyStorage,
+        logger: logger,
+        endpoint,
+        httpClient: httpClient
+      })
+    );
 
-    await permissionService.init({
-      storage: proxyStorage,
-      logger: logger,
-      autoSync: true
-    });
+    // Without it no website has a grant, and a change to one is refused, until
+    // the permissions load again. That fails closed, so the rest of the
+    // background still starts.
+    await startService(
+      'permission',
+      () =>
+        permissionService.init({
+          storage: proxyStorage,
+          logger: logger,
+          autoSync: true
+        }),
+      { required: false }
+    );
 
-    await contactBookService.init({
-      storage: proxyStorage,
-      logger: logger
-    });
+    await startService('contact book', () =>
+      contactBookService.init({
+        storage: proxyStorage,
+        logger: logger
+      })
+    );
 
-    await notificationService.init({
-      storage: proxyStorage,
-      logger: logger,
-      api: walletApiService
-    });
+    await startService('notification', () =>
+      notificationService.init({
+        storage: proxyStorage,
+        logger: logger,
+        api: walletApiService
+      })
+    );
 
     const adapter = new ExtensionAdapter();
-    await phishingDetectService.init({
-      adapter,
-      logger: logger,
-      t: t
-    });
+    await startService('phishing detection', () =>
+      phishingDetectService.init({
+        adapter,
+        logger: logger,
+        t: t
+      })
+    );
     // Initialize phishing service early to ensure protection is active
 
     appStateRestored = true;
@@ -172,6 +241,12 @@ export async function restoreAppState() {
     walletController.setBackgroundInited(true);
   } catch (err) {
     console.error('[Background] Initialization failed', err);
+    // In memory only: reporting the failure writes nothing to storage.
+    walletController.setBackgroundStartupFailed(
+      proxyStorage.isStartupReadError(err) ? 'stored-settings-unreadable' : 'unknown'
+    );
+  } finally {
+    proxyStorage.endStartup();
   }
 }
 

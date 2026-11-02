@@ -33,7 +33,7 @@
     "prepublishOnly": "pnpm test && pnpm build"
   },
   "dependencies": {
-    "@qbit-oss/protocol": "0.1.0",
+    "@qbit-oss/protocol": "0.1.1",
     "@qbit/base-utils": "workspace:*",
     "@qbit/keyring-service": "workspace:*",
     "@qbit/wallet-shared": "workspace:*",

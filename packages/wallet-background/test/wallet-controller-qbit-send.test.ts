@@ -57,12 +57,17 @@ import {
 } from '../src/services'
 import { QBIT_WALLET_SEND_CLAIM_ORIGIN } from '../src/services/qbitSendGuards'
 import { bgEventBus } from '../src/utils/eventBus'
-import { QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS } from '../src/utils/qbit-explorer-fetch'
+import {
+  QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QBIT_EXPLORER_MAX_BODY_BYTES,
+} from '../src/utils/qbit-explorer-fetch'
 
 const sendQbitMock = vi.hoisted(() => vi.fn())
-// Every explorer client the wallet builds carries its transport budgets (#353).
+// Every explorer client the wallet builds carries its transport budgets (#353)
+// and the response size limit its fetch buffers to.
 const EXPLORER_BUDGETS = {
   timeoutMs: QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  maxResponseBytes: QBIT_EXPLORER_MAX_BODY_BYTES,
   fetchFn: expect.any(Function),
 }
 const sendAllQbitMock = vi.hoisted(() => vi.fn())
@@ -176,8 +181,10 @@ vi.mock('../src/services', () => ({
     acquireExternalSigningLock: vi.fn(),
     assertNoOverlap: vi.fn(),
     broadcastIfAllowed: vi.fn(),
+    forgetProvenAbsentBroadcast: vi.fn(async () => true),
     getReservedOutpointKeys: vi.fn(async () => new Set()),
     hasDependentSpend: vi.fn(async () => false),
+    hasUnknownBroadcastOutcome: vi.fn(async () => false),
     promoteExternalSigningLockToBroadcastClaim: vi.fn(),
     recordInconclusiveBroadcast: vi.fn(),
     releaseBroadcastClaim: vi.fn(),
@@ -663,6 +670,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       enableRBF: true,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid,
@@ -739,6 +747,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 100_000,
         feeRate,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: '5a'.repeat(32),
@@ -887,6 +896,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 100_000,
         feeRate,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: txidByte.repeat(32),
@@ -1127,6 +1137,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('41', 50_000)],
       }),
       await wallet.createSendQbitPsbt({
@@ -1134,6 +1145,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 6_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('42', 10_000)],
       }),
       await wallet.createSendQbitPsbt({
@@ -1142,6 +1154,7 @@ describe('WalletController qbit P2MR send path', () => {
         feeRate: 1,
         memo: 'exact memo',
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('43', 50_000)],
       }),
       // Neither output covers the amount alone, so both are spent.
@@ -1150,6 +1163,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 60_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('44', 30_000), utxo('45', 50_000, 1)],
       }),
       await wallet.createSendAllQbitPsbt({
@@ -1157,6 +1171,7 @@ describe('WalletController qbit P2MR send path', () => {
         feeRate: 1,
         memo: 'send all',
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [utxo('46', 30_000), utxo('47', 30_000, 1)],
       }),
     ]
@@ -1184,6 +1199,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'a9'.repeat(32),
@@ -1256,6 +1272,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [reservedTxid, availableTxid].map(txid => ({
         txid,
         vout: 0,
@@ -1280,6 +1297,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'fee bump memo',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '31'.repeat(32),
@@ -1358,11 +1376,14 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) })
     )
-    // Both assessments read the raw original and checked its one input's
-    // signature against the account key. The replacement carries the
-    // original's output count from those bytes, for its broadcast to check
-    // what spends them without reading them again.
-    expect(getTxHexMock).toHaveBeenCalledWith(live.txid)
+    // Both assessments read the raw original, under the assessment's
+    // deadline, and checked its one input's signature against the account
+    // key. The replacement carries the original's output count from those
+    // bytes, for its broadcast to check what spends them.
+    expect(getTxHexMock).toHaveBeenCalledWith(
+      live.txid,
+      expect.objectContaining({ deadlineMs: expect.any(Number) })
+    )
     expect(replacement.feeBump!.originalOutputCount).toBe(originalSummary.outputs.length)
     expect(originalSummary.outputs).toHaveLength(3)
     expect(verifyPqcMock).toHaveBeenCalledTimes(2)
@@ -1434,6 +1455,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '32'.repeat(32),
@@ -1451,6 +1473,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: amountWithFiveThousandChange,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '32'.repeat(32),
@@ -1508,6 +1531,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount,
       feeRate: QBIT_MAX_FEE_RATE - 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '35'.repeat(32),
@@ -1549,6 +1573,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const original = await wallet.createSendQbitPsbt({
@@ -1556,6 +1581,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: inputSats - provisional.estimatedFee! - QBIT_P2MR_DUST,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const live = liveTransactionFromPsbt(original.psbtHex)
@@ -1576,6 +1602,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '32'.repeat(32),
@@ -1664,6 +1691,7 @@ describe('WalletController qbit P2MR send path', () => {
       to: recipientAddress(),
       amount: 10_000,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: utxos(),
     })
     expect(send.qbitBroadcastIdentity).toEqual({
@@ -1679,6 +1707,7 @@ describe('WalletController qbit P2MR send path', () => {
       // one from the quote, which is the await under test here.
       feeRate: undefined as unknown as number,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: utxos(),
     })
     expect(sendAll.qbitBroadcastIdentity).toEqual({
@@ -1714,6 +1743,7 @@ describe('WalletController qbit P2MR send path', () => {
           amount: 10_000,
           feeRate: 1,
           qbitUtxoChain: ChainType.QBIT_TESTNET4,
+          qbitUtxoAddress: account.address,
           qbitUtxos: utxos,
         }),
       () =>
@@ -1721,6 +1751,7 @@ describe('WalletController qbit P2MR send path', () => {
           to: recipientAddress(),
           feeRate: 1,
           qbitUtxoChain: ChainType.QBIT_TESTNET4,
+          qbitUtxoAddress: account.address,
           qbitUtxos: utxos,
         }),
     ]) {
@@ -1797,6 +1828,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: snapshot.chain,
+      qbitUtxoAddress: snapshot.address,
       qbitUtxos: snapshot.utxos,
     })
     expect(send.qbitBroadcastIdentity?.chain).toBe(ChainType.QBIT_REGTEST)
@@ -1816,13 +1848,14 @@ describe('WalletController qbit P2MR send path', () => {
       }))
     const reads: {
       address: string
+      signal: AbortSignal | undefined
       resolve: (value: unknown) => void
       reject: (error: Error) => void
     }[] = []
     getAddressUtxosMock.mockImplementation(
-      (address: string) =>
+      (address: string, options?: { signal?: AbortSignal }) =>
         new Promise((resolve, reject) => {
-          reads.push({ address, resolve, reject })
+          reads.push({ address, signal: options?.signal, resolve, reject })
         })
     )
     const otherTxid = 'af'.repeat(32)
@@ -1852,7 +1885,8 @@ describe('WalletController qbit P2MR send path', () => {
     await vi.waitFor(() => expect(reads).toHaveLength(3))
     // A send took an output while the read ran, and the explorer shows it
     // pending. A read asked for after it starts afresh, so it can see the
-    // send's change.
+    // send's change, and replaces the running read (#56): that one stops,
+    // and the screens still waiting for it are handed the newer answer.
     const spent = 'ae'.repeat(32)
     const kept = 'ad'.repeat(32)
     const change = 'ce'.repeat(32)
@@ -1868,21 +1902,27 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       account.address,
     ])
+    expect(reads.map(read => read.signal?.aborted ?? false)).toEqual([true, false, false, false])
 
-    // The joined read's answer leaves out the output the send took.
-    reads[0]!.resolve(listing(spent, kept))
-    const [firstSnapshot, secondSnapshot] = await Promise.all([first, second])
-    expect(firstSnapshot).toMatchObject({ address: account.address, chain: ChainType.QBIT_REGTEST })
-    expect(txids(firstSnapshot)).toEqual([kept])
-    expect(secondSnapshot).toEqual(firstSnapshot)
     reads[1]!.resolve(listing(otherTxid))
     const otherSnapshot = await otherRead
     expect(otherSnapshot.address).toBe(other.address)
     expect(txids(otherSnapshot)).toEqual([otherTxid])
     reads[2]!.resolve(listing(spent, kept))
     await expect(freshRead).resolves.toHaveLength(1)
+    // The replaced read's late answer reaches no one. The newer one leaves
+    // out the output the send took, for every screen that waited.
+    reads[0]!.resolve(listing(spent, kept))
     reads[3]!.resolve(listing(spent, kept, change))
-    expect(txids(await afterSend)).toEqual([kept, change])
+    const [firstSnapshot, secondSnapshot, afterSendSnapshot] = await Promise.all([
+      first,
+      second,
+      afterSend,
+    ])
+    expect(firstSnapshot).toMatchObject({ address: account.address, chain: ChainType.QBIT_REGTEST })
+    expect(txids(firstSnapshot)).toEqual([kept, change])
+    expect(secondSnapshot).toEqual(firstSnapshot)
+    expect(afterSendSnapshot).toEqual(firstSnapshot)
 
     // Once a read settles the next one reads afresh, and a failure reaches
     // every caller that joined it without being kept.
@@ -1924,6 +1964,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const final = await wallet.createSendQbitPsbt({
@@ -1932,12 +1973,14 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       enableRBF: false,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
     const sendAll = await wallet.createSendAllQbitPsbt({
       to: recipientAddress(),
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [utxo],
     })
 
@@ -2004,6 +2047,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: '35'.repeat(32),
@@ -2047,7 +2091,10 @@ describe('WalletController qbit P2MR send path', () => {
       await expect(wallet.createBumpFeeQbitPsbt({ txid: live.txid })).rejects.toThrow(
         'fee_bump_unavailable (has_descendants)'
       )
-      expect(getTxOutspendsMock).toHaveBeenCalledWith(live.txid)
+      expect(getTxOutspendsMock).toHaveBeenCalledWith(
+        live.txid,
+        expect.objectContaining({ deadlineMs: expect.any(Number) })
+      )
       expect(getFeeTiersMock).not.toHaveBeenCalled()
       expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
     })
@@ -2287,6 +2334,7 @@ describe('WalletController qbit P2MR send path', () => {
           feeRate: 1,
           qbitUtxos: snapshot.utxos,
           qbitUtxoChain: snapshot.chain,
+          qbitUtxoAddress: snapshot.address,
         })
       ).rejects.toThrow('send_exceeds_ancestor_size')
       expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
@@ -2315,6 +2363,7 @@ describe('WalletController qbit P2MR send path', () => {
         feeRate: 1,
         qbitUtxos: [snapshot.utxos[0]!, change],
         qbitUtxoChain: snapshot.chain,
+        qbitUtxoAddress: snapshot.address,
       })
       expect(inputTxids(withChange.psbtHex)).toEqual([snapshot.utxos[0]!.txid, parentTxid])
       expect(395_108 + withChange.estimatedVsize!).toBeLessThanOrEqual(404_000)
@@ -2359,6 +2408,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos: [
           {
             txid: '61'.repeat(32),
@@ -2400,21 +2450,25 @@ describe('WalletController qbit P2MR send path', () => {
       expect(verifyPqcMock).not.toHaveBeenCalled()
     })
 
-    it('treats raw bytes the API client refuses as unverifiable', async () => {
-      const wallet = new WalletController()
-      const account = p2mrAccount()
-      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
-      const original = await honestOriginal(wallet, account)
-      const live = liveTransactionFromPsbt(original.psbtHex)
-      getTxMock.mockResolvedValue(live)
+    it.each([
       // @qbit-oss/api checks the reply hashes to the requested txid itself.
-      getTxHexMock.mockRejectedValue(
-        new QbitApiError('parse', `transaction hex does not hash to txid ${live.txid}`)
-      )
+      ['bytes that do not hash to the txid', 'parse', 'transaction hex does not hash to txid'],
+      ['a reply past the size limit', 'response_too_large', 'reply exceeded 67108864 bytes'],
+    ] as const)(
+      'treats raw bytes the API client refuses (%s) as unverifiable',
+      async (_shape, kind, message) => {
+        const wallet = new WalletController()
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        const original = await honestOriginal(wallet, account)
+        const live = liveTransactionFromPsbt(original.psbtHex)
+        getTxMock.mockResolvedValue(live)
+        getTxHexMock.mockRejectedValue(new QbitApiError(kind, message))
 
-      await expectUnverifiable(wallet, live.txid)
-      expect(verifyPqcMock).not.toHaveBeenCalled()
-    })
+        await expectUnverifiable(wallet, live.txid)
+        expect(verifyPqcMock).not.toHaveBeenCalled()
+      }
+    )
 
     it('refuses an original whose raw recipient differs from the JSON and carries the honest signatures', async () => {
       const wallet = new WalletController()
@@ -3529,6 +3583,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 2_854,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
     ).rejects.toThrow(/2855/)
@@ -3538,6 +3593,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: QBIT_P2MR_DUST,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos,
     })
     expect(decodePsbt(parsePsbt(hexToBytes(boundary.psbtHex))).outputs[0]!.value).toBe(
@@ -3555,6 +3611,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 61_829_900,
       feeRate: 10_000,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'eb'.repeat(32),
@@ -3609,6 +3666,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 50_000,
         feeRate,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
 
@@ -3643,6 +3701,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount,
         feeRate: 1,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
 
@@ -3679,6 +3738,7 @@ describe('WalletController qbit P2MR send path', () => {
       to: recipientAddress(),
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos,
     })
 
@@ -3716,6 +3776,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 10_000,
         feeRate: 10_001,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
     ).rejects.toThrow(/between 1 and 10000/)
@@ -3726,6 +3787,7 @@ describe('WalletController qbit P2MR send path', () => {
         amount: 61_829_900,
         feeRate: 10_000,
         qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
         qbitUtxos,
       })
     ).rejects.toThrow('Fee exceeds the wallet safety maximum')
@@ -3743,6 +3805,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'hello',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'ff'.repeat(32),
@@ -3792,6 +3855,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'ABCD',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '12'.repeat(32),
@@ -3880,6 +3944,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: '34'.repeat(32),
@@ -3914,6 +3979,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bb'.repeat(32),
@@ -4015,6 +4081,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'ba'.repeat(32),
@@ -4085,6 +4152,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bc'.repeat(32),
@@ -4131,6 +4199,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bc'.repeat(32),
@@ -4161,6 +4230,7 @@ describe('WalletController qbit P2MR send path', () => {
       amount: 10_000,
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bd'.repeat(32),
@@ -4223,6 +4293,7 @@ describe('WalletController qbit P2MR send path', () => {
       feeRate: 1,
       memo: 'ABCD',
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'bc'.repeat(32),
@@ -4294,6 +4365,7 @@ describe('WalletController qbit P2MR send path', () => {
       enableRBF: false,
       memo,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [
         {
           txid: 'cc'.repeat(32),
@@ -4372,6 +4444,7 @@ describe('WalletController qbit P2MR send path', () => {
       to: recipientAddress(),
       feeRate: 1,
       qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
       qbitUtxos: [reservedTxid, availableTxid].map(txid => ({
         txid,
         vout: 0,
@@ -7326,6 +7399,149 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       []
     )
+  })
+
+  /**
+   * A source the explorer will not list (620 confirmed unspent outputs), short
+   * enough to read from its history, whose history never reads in full: every
+   * walk of it rejects with `invalid_cursor`, as mempool-qbit's did on whole
+   * pages of pending rows.
+   */
+  function mockIncompleteRecoverySource(address: string) {
+    mockUnreadableRecoverySource(address)
+    const unreadableStats = getAddressStatsMock.getMockImplementation()!
+    getAddressStatsMock.mockImplementation(async (requested: string) => {
+      const stats = await unreadableStats(requested)
+      return requested === address
+        ? { ...stats, chain_stats: { ...stats.chain_stats, tx_count: 620 } }
+        : stats
+    })
+    const ordinaryHistory = getAddressHistoryMock.getMockImplementation()
+    getAddressHistoryMock.mockImplementation(async (requested: string, options: unknown) => {
+      if (requested === address) {
+        throw new QbitApiError(
+          'invalid_cursor',
+          `mempool-qbit address history returned 0 confirmed and 50 mempool transactions, but the address stats count 620 and 50: ${address}`
+        )
+      }
+      return ordinaryHistory ? ordinaryHistory(requested, options) : { confirmed: [], mempool: [] }
+    })
+  }
+
+  /** Run `call` on a fake clock that moves on while it waits, past the history read's retries. */
+  async function withRetryTimers<T>(call: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let settled = false
+      const result = call()
+      result.then(
+        () => (settled = true),
+        () => (settled = true)
+      )
+      while (!settled) await vi.advanceTimersByTimeAsync(1_000)
+      return await result
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  const historyReadsOf = (address: string) =>
+    getAddressHistoryMock.mock.calls.filter(([requested]) => requested === address)
+
+  it('plans the other sources and reports one whose history it could not read in full', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const { state } = mockManyOutputRecoverySource(wallet, fixture, [], 3)
+    // Read first, so its failure would stop the whole pass.
+    const incomplete = p2mrAccount('44'.repeat(32), 1)
+    fixture.sourceKeyring.accounts.unshift(incomplete as any)
+    mockIncompleteRecoverySource(incomplete.address)
+
+    const prepared = await withRetryTimers(() => wallet.prepareQbitRecoveryMigration(2, 1))
+
+    expect(prepared.deferredSources).toEqual([
+      { address: incomplete.address, reason: 'history_incomplete' },
+    ])
+    // The read was retried before the source was deferred.
+    expect(historyReadsOf(incomplete.address)).toHaveLength(3)
+    // The readable source is planned as usual; the other one is not.
+    expect(state.vault.migration.plans.map((plan: any) => plan.sourceAddress)).toEqual([
+      fixture.sourceAccount.address,
+    ])
+    expect(prepared.toSignDatas).toHaveLength(1)
+    expect(prepared.state.status).toBe('migrating')
+
+    // With nothing else left to plan, the migration stays open and still names it.
+    state.vault = {
+      ...state.vault,
+      migration: {
+        ...state.vault.migration,
+        plans: state.vault.migration.plans.map((plan: any) => ({ ...plan, status: 'confirmed' })),
+      },
+    }
+    getAddressUtxosMock.mockResolvedValue([])
+    mockIncompleteRecoverySource(incomplete.address)
+    const again = await withRetryTimers(() => wallet.prepareQbitRecoveryMigration(2, 1))
+    expect(again).toMatchObject({
+      toSignDatas: [],
+      deferredSources: [{ address: incomplete.address, reason: 'history_incomplete' }],
+    })
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+  })
+
+  it('keeps a migration open for a source it could not read in full, and never reopens an archived one for it', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const incomplete = p2mrAccount('44'.repeat(32), 1)
+    fixture.sourceKeyring.accounts.push(incomplete as any)
+    let vaultState: any = {
+      ...fixture.vaultState,
+      migration: {
+        ...fixture.vaultState.migration,
+        plans: [{ ...fixture.vaultState.migration.plans[0], status: 'confirmed' }],
+      },
+    }
+    vi.spyOn(wallet as any, 'loadQbitRecoveryMigration').mockImplementation(async () => ({
+      sourceKeyring: fixture.sourceKeyring,
+      anchor: fixture.sourceAccount,
+      state: vaultState,
+      network: 'regtest' as const,
+      destination: fixture.destinationKeyring,
+      destinationKeyringIndex: 3,
+    }))
+    vi.spyOn(wallet as any, 'getQbitKeyringByIndex').mockImplementation(async index =>
+      index === 3 ? fixture.destinationKeyring : fixture.sourceKeyring
+    )
+    vi.spyOn(wallet, 'getQbitRecoveryState').mockImplementation(async () =>
+      fixture.publicState(vaultState)
+    )
+    vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async () =>
+      wrapRegtestVaultState(vaultState)
+    )
+    vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockResolvedValue({ state: 'confirmed' })
+    vi.mocked(keyringService.reopenQbitRecoveryMigration).mockImplementation(async () => {
+      vaultState = { ...vaultState, status: 'migrating' }
+      return fixture.publicState(vaultState)
+    })
+    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    getAddressUtxosMock.mockResolvedValue([])
+    mockIncompleteRecoverySource(incomplete.address)
+
+    await expect(
+      withRetryTimers(() => wallet.advanceQbitRecoveryMigration(2))
+    ).resolves.toMatchObject({ status: 'migrating' })
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+
+    // On an archived wallet a read that did not settle is no evidence of
+    // new funds: the check fails as it always did and stores nothing.
+    vaultState = { ...vaultState, status: 'migrated' }
+    await expect(
+      withRetryTimers(() => wallet.advanceQbitRecoveryMigration(2))
+    ).rejects.toMatchObject({ kind: 'invalid_cursor' })
+    expect(keyringService.reopenQbitRecoveryMigration).not.toHaveBeenCalled()
+    expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
+    expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+    expect(vaultState.status).toBe('migrated')
   })
 
   it('leaves no small remainder batch that could not pay for itself', async () => {

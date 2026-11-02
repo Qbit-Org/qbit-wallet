@@ -55,6 +55,9 @@ export function qbitFeeWarningText(
   let title: string | undefined
   if (reasons.includes('above_recommended_rate')) {
     title = t('the_fee_rate_is_much_higher_than_recommended_fee_rate')
+  } else if (assessment.highFeeAtNormalRate) {
+    // Only its share of the amount flagged the fee; its rate is not high.
+    title = t('high_fee_risk_title')
   } else if (reasons.length > 0) {
     title = t('high_fee_rate_risk_title')
   }

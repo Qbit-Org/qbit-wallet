@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { colors } from '@/ui/theme/colors';
-import { DecodedPsbt, Risk, RiskType } from '@qbit/wallet-shared';
+import { DecodedPsbt, QbitFeeAssessment, Risk, RiskType } from '@qbit/wallet-shared';
 import { useI18n } from '@qbit/wallet-state';
 
 import { Button } from '../Button';
@@ -15,7 +15,11 @@ import { BadFeeRate } from './BadFeeRate';
 
 const visibleRiskDetailTypes = [RiskType.LOW_FEE_RATE, RiskType.HIGH_FEE_RATE];
 
-export function getRiskContentKey(riskType: RiskType) {
+/**
+ * The title and description keys of a risk. A high fee that only its share of
+ * the amount flagged, at a rate that is not high, is named a high fee.
+ */
+export function getRiskContentKey(riskType: RiskType, feeAssessment?: QbitFeeAssessment) {
   switch (riskType) {
     case RiskType.SIGHASH_NONE:
       return {
@@ -33,6 +37,12 @@ export function getRiskContentKey(riskType: RiskType) {
         description: 'network_not_matched_risk_description'
       };
     case RiskType.HIGH_FEE_RATE:
+      if (feeAssessment?.highFeeAtNormalRate) {
+        return {
+          title: 'high_fee_risk_title',
+          description: 'high_fee_risk_description'
+        };
+      }
       return {
         title: 'high_fee_rate_risk_title',
         description: 'high_fee_rate_risk_description'
@@ -85,7 +95,7 @@ export const SignPsbtWithRisksPopover = ({
 
   if (detailRisk) {
     if (detailRisk.type === RiskType.LOW_FEE_RATE || detailRisk.type === RiskType.HIGH_FEE_RATE) {
-      const riskContentKey = getRiskContentKey(detailRisk.type);
+      const riskContentKey = getRiskContentKey(detailRisk.type, decodedPsbt.spendSummary?.feeAssessment);
       return (
         <BadFeeRate decodedPsbt={decodedPsbt} riskContentKey={riskContentKey} onClose={() => setDetailRisk(null)} />
       );
@@ -101,7 +111,7 @@ export const SignPsbtWithRisksPopover = ({
 
         <Column gap="md" fullX mb="md">
           {decodedPsbt.risks.map((risk, index) => {
-            const riskContentKey = getRiskContentKey(risk.type);
+            const riskContentKey = getRiskContentKey(risk.type, decodedPsbt.spendSummary?.feeAssessment);
             const title = riskContentKey.title ? t(riskContentKey.title) : risk.title;
             const desc = riskContentKey.description ? t(riskContentKey.description) : risk.desc;
             return (

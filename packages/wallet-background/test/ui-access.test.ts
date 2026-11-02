@@ -198,6 +198,29 @@ describe('getUiControllerMethod', () => {
     }
   })
 
+  it('lets the UI read the start-up status, failed and ready, but not set it', async () => {
+    const failing = new WalletController()
+    const failingStatus = getUiControllerMethod(failing, 'getBackgroundStartupStatus')
+    expect(await failingStatus()).toEqual({ state: 'starting' })
+    await failing.setBackgroundStartupFailed('stored-settings-unreadable')
+    expect(await failingStatus()).toEqual({
+      state: 'failed',
+      reason: 'stored-settings-unreadable',
+    })
+
+    const started = new WalletController()
+    await started.setBackgroundInited(true)
+    expect(await getUiControllerMethod(started, 'getBackgroundStartupStatus')()).toEqual({
+      state: 'ready',
+    })
+
+    for (const setter of ['setBackgroundStartupFailed', 'setBackgroundInited']) {
+      expect(() => getUiControllerMethod(failing, setter), setter).toThrow(
+        `Unknown wallet method: ${setter}`
+      )
+    }
+  })
+
   it.each([undefined, null, 42, {}, ['getAccounts'], ''])('refuses the method name %j', method => {
     expect(() => getUiControllerMethod(new WalletController(), method)).toThrow(
       /^Unknown wallet method/
@@ -285,7 +308,7 @@ describe('UI_CONTROLLER_METHODS', () => {
 
   it('scans the sources it is meant to', () => {
     expect(uiCalls.size).toBeGreaterThan(100)
-    expect(extensionUiCalls.has('getBackgroundInited')).toBe(true)
+    expect(extensionUiCalls.has('getBackgroundStartupStatus')).toBe(true)
     expect(walletStateCalls.has('signPsbtV2')).toBe(true)
     expect(e2eCalls.size).toBeGreaterThan(10)
     expect(e2eCalls.has('getQbitUtxos')).toBe(true)

@@ -71,7 +71,10 @@ vi.mock('@/ui/components/PhishingDetection', () => ({ PhishingDetection: () => n
 vi.mock('@/ui/components/QbitRestoredFloorWarning', () => ({ QbitRestoredFloorWarning: () => null }));
 vi.mock('@/ui/components/SignPsbtWithRisksPopover', () => ({
   SignPsbtWithRisksPopover: () => null,
-  getRiskContentKey: (type: number) => ({ title: `risk_title_${type}`, description: `risk_description_${type}` })
+  getRiskContentKey: (type: number, feeAssessment?: { highFeeAtNormalRate?: true }) => ({
+    title: `risk_title_${type}${feeAssessment?.highFeeAtNormalRate ? '_fee_share' : ''}`,
+    description: `risk_description_${type}`
+  })
 }));
 vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
 vi.mock('@/ui/theme/colors', () => ({ colors: { border: '', surface: '' } }));
@@ -222,6 +225,29 @@ describe('SignPsbt quick multi-sign of a flagged local batch (#367)', () => {
   });
 
   afterEach(cleanup);
+
+  it("names each transaction's risk from its own fee assessment", () => {
+    const shareOnly = {
+      ...psbtInfo([{ type: HIGH_FEE_RATE, level: 'warning' }]),
+      spendSummary: { feeAssessment: { reasons: ['large_share_of_amount'], highFeeAtNormalRate: true } }
+    };
+    renderMultiSign(
+      multiSignLogic({
+        multiSignList: [shareOnly, items[1]].map((info, index) => ({
+          index,
+          buttonText: 'view',
+          buttonPreset: 'primary',
+          psbtInfo: info,
+          onClick: vi.fn()
+        }))
+      })
+    );
+
+    expect(screen.getByTestId('multisign-transaction-risk-0').textContent).toBe(
+      `⚠ risk_title_${HIGH_FEE_RATE}_fee_share`
+    );
+    expect(screen.getByTestId('multisign-transaction-risk-1').textContent).toBe(`⚠ risk_title_${HIGH_FEE_RATE}`);
+  });
 
   it('marks each flagged transaction and names them in the batch summary', () => {
     renderMultiSign(multiSignLogic());

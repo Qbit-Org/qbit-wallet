@@ -509,6 +509,9 @@
   "continue_to": {
     "message": "繼續前往"
   },
+  "continue_to_unavailable_hostname": {
+    "message": "無法從警告頁面開啟此網站。"
+  },
   "copied": {
     "message": "已複製"
   },
@@ -743,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "保存聯絡人失敗"
   },
+  "failed_to_save_contact_order": {
+    "message": "保存聯絡人順序失敗"
+  },
   "fast": {
     "message": "快"
   },
@@ -754,6 +760,9 @@
   },
   "fee_rate": {
     "message": "費率"
+  },
+  "fee_estimates_unavailable": {
+    "message": "目前無法取得手續費估算。"
   },
   "fee_estimates_unavailable_using_floor": {
     "message": "目前無法取得手續費估算，將使用最低轉送費率 $1 bit/vB。"
@@ -889,6 +898,12 @@
   },
   "high_fee_rate_risk_title": {
     "message": "偵測到高手續費率"
+  },
+  "high_fee_risk_description": {
+    "message": "此交易的手續費佔其發送金額的很大比例。請確保您了解此操作的影響，然後再繼續。"
+  },
+  "high_fee_risk_title": {
+    "message": "偵測到高手續費"
   },
   "high_priority": {
     "message": "高優先級"
@@ -1529,6 +1544,9 @@
   "phishing_page_held_message": {
     "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。錢包未能及時回應，無法開啟完整警告或載入此頁面。請再試一次，或關閉此分頁。"
   },
+  "phishing_page_held_reload_refused_message": {
+    "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。現在可以載入此頁面，但重新載入可能會再次送出開啟此頁面的表單。請選擇「再試一次」以重新開啟此網址且不送出表單，或關閉此分頁。"
+  },
   "phishing_page_held_released_message": {
     "message": "此網站在 Qbit Wallet 的釣魚網站清單中，因此 Qbit Wallet 已在頁面執行前將其停止。請選擇「再試一次」以載入此頁面，或關閉此分頁。"
   },
@@ -1691,6 +1709,9 @@
   "removing_the_last_wallet_is_not_allowed": {
     "message": "不允許移除最後一個錢包"
   },
+  "request_cancelled_by_opening_wallet": {
+    "message": "因為開啟了錢包，網站的待處理請求已取消。請返回網站再試一次。"
+  },
   "request_was_rejected_to_proceed_please_reauthorize": {
     "message": "請求已被拒絕。若要繼續，請重新授權"
   },
@@ -1820,6 +1841,9 @@
   "set_utxo_amount_to_be_merged": {
     "message": "設定要合併的 UTXO 數量"
   },
+  "setting_not_saved_may_have_changed": {
+    "message": "變更未能儲存，已儲存的設定可能已變更。重新啟動後請再次檢查此設定。"
+  },
   "settings": {
     "message": "設定"
   },
@@ -1936,6 +1960,21 @@
   },
   "start_merging": {
     "message": "開始合併"
+  },
+  "startup_error_title": {
+    "message": "Qbit Wallet 無法啟動"
+  },
+  "startup_error_stored_settings_unreadable": {
+    "message": "Qbit Wallet 無法讀取已儲存的設定，因此在未變更設定的情況下停止。"
+  },
+  "startup_error_unknown": {
+    "message": "Qbit Wallet 啟動時發生錯誤。"
+  },
+  "startup_error_retry": {
+    "message": "重試"
+  },
+  "startup_error_retry_hint": {
+    "message": "重試會重新啟動錢包。此視窗可能會關閉，之後請再次開啟 Qbit Wallet。"
   },
   "steal_your_private_keys_or_seed_phrases": {
     "message": "竊取您的私鑰或助記詞"
@@ -2690,6 +2729,9 @@
   "qbit_recovery_deferred_history_too_large": {
     "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，且交易超過 $1 筆，錢包無法從其歷史讀取輸出，因此資金尚未移轉。請切換到此帳戶，開啟「傳送」並選擇「整合輸出」，直到帳戶符合瀏覽器的上限後再返回此處。"
   },
+  "qbit_recovery_deferred_history_incomplete": {
+    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，且錢包無法從瀏覽器讀取其完整歷史以找出這些輸出，因此資金尚未移轉。待其未確認交易有所變動（例如其中一筆獲得確認）後，此情況可能會解除。請稍後選擇「檢查狀態並繼續」再試一次。"
+  },
   "qbit_recovery_plan_prepared": {
     "message": "已準備檢查與簽署"
   },
@@ -2975,6 +3017,72 @@
   "unrecognised_output_risk_description": {
     "message": "某筆輸出付款至既不屬於您、也不是此請求所指定接收者的地址，或付款至沒有地址的腳本。簽署前請檢查每一筆輸出。"
   },
+  "psbt_output_change": {
+    "message": "找零"
+  },
+  "psbt_output_this_account": {
+    "message": "轉入此帳戶"
+  },
+  "psbt_output_other_account": {
+    "message": "您的其他帳戶"
+  },
+  "psbt_after_signing": {
+    "message": "簽署後"
+  },
+  "psbt_finalized": {
+    "message": "已完成：網站可以廣播"
+  },
+  "psbt_finalized_after_lock": {
+    "message": "已完成：鎖定時間過後網站即可廣播"
+  },
+  "psbt_finalized_after_coin_age": {
+    "message": "已完成：所花費的代幣確認時間足夠後網站即可廣播"
+  },
+  "psbt_finalized_after_locks": {
+    "message": "已完成：鎖定時間過後且所花費的代幣確認時間足夠後，網站即可廣播"
+  },
+  "psbt_not_finalized": {
+    "message": "已簽署，未完成：須由網站或其他簽署者完成後才能廣播"
+  },
+  "psbt_locktime": {
+    "message": "鎖定時間"
+  },
+  "psbt_locktime_none": {
+    "message": "無鎖定"
+  },
+  "psbt_locktime_block": {
+    "message": "區塊 $1 之後"
+  },
+  "psbt_locktime_median_time": {
+    "message": "網路中位時間超過 $1 後生效"
+  },
+  "psbt_locktime_not_enforced": {
+    "message": "nLockTime $1 不生效：所有輸入皆為最終"
+  },
+  "psbt_relative_lock": {
+    "message": "相對鎖定"
+  },
+  "psbt_relative_lock_one_block": {
+    "message": "輸入 $1：所花費的代幣獲得 1 次確認後"
+  },
+  "psbt_relative_lock_blocks": {
+    "message": "輸入 $1：所花費的代幣獲得 $2 次確認後"
+  },
+  "psbt_relative_lock_short": {
+    "message": "輸入 $1：所花費的代幣確認後不久（以區塊時間計少於兩小時）"
+  },
+  "psbt_relative_lock_hours": {
+    "message": "輸入 $1：所花費的代幣以區塊時間計存在約 $2 小時後"
+  },
+  "psbt_relative_lock_days": {
+    "message": "輸入 $1：所花費的代幣以區塊時間計存在約 $2 天後"
+  },
+  "psbt_relative_lock_count": {
+    "message": "有相對鎖定的輸入：$1 / $2"
+  },
+  "psbt_tx_version": {
+    "message": "版本"
+  },
   "multisign_flagged_transactions": {
     "message": "簽署前需要確認的交易：$1"
   },
@@ -2986,5 +3094,89 @@
   },
   "multisign_account_changed": {
     "message": "檢查交易期間帳戶已變更。未簽署任何交易，請重新檢查。"
+  },
+  "recovery_phrase_is_not_valid": {
+    "message": "此助記詞無效。請確認每個單字及其順序都與您的備份一致。"
+  },
+  "pasted_phrase_has_too_many_words": {
+    "message": "貼上的助記詞單字數多於輸入欄位。請選擇與您的備份相符的單字數，然後貼到第一個欄位。"
+  },
+  "phishing_protection": {
+    "message": "釣魚防護"
+  },
+  "phishing_protection_status_protected": {
+    "message": "已完全開啟"
+  },
+  "phishing_protection_status_starting": {
+    "message": "啟動中"
+  },
+  "phishing_protection_status_retrying": {
+    "message": "重試中"
+  },
+  "phishing_protection_status_failed": {
+    "message": "失敗"
+  },
+  "phishing_protection_status_unsupported": {
+    "message": "此瀏覽器不支援"
+  },
+  "phishing_protection_status_degraded": {
+    "message": "已降級"
+  },
+  "phishing_protection_status_unknown": {
+    "message": "狀態不明"
+  },
+  "phishing_protection_attempts": {
+    "message": "嘗試次數：$1。"
+  },
+  "phishing_protection_next_attempt_in": {
+    "message": "嘗試次數：$1。下次嘗試於 $2 秒後。"
+  },
+  "phishing_protection_next_attempt_due": {
+    "message": "嘗試次數：$1。下次嘗試已到時間。"
+  },
+  "phishing_protection_last_error": {
+    "message": "最後錯誤：$1"
+  },
+  "phishing_protection_blocked_domains": {
+    "message": "封鎖規則中的網域數：$1"
+  },
+  "phishing_protection_blocked_domains_unknown": {
+    "message": "封鎖規則中的網域數：不明"
+  },
+  "phishing_protection_reason_block_rule_not_installed": {
+    "message": "封鎖規則尚未安裝。"
+  },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "封鎖規則尚未更新。先前的規則仍封鎖 $1 個網域。"
+  },
+  "phishing_protection_reason_block_rule_unknown": {
+    "message": "無法讀取封鎖規則。"
+  },
+  "phishing_protection_reason_redirect_rule_without_host_access": {
+    "message": "警告頁面規則在沒有網站存取權的情況下仍然存在，因此被封鎖的網頁可能會載入。"
+  },
+  "phishing_protection_reason_redirect_rule_unknown": {
+    "message": "無法讀取警告頁面規則。"
+  },
+  "phishing_protection_reason_site_access_withheld": {
+    "message": "部分被封鎖網站的網站存取權受到限制，因此網頁檢查不會在那些網站上執行。"
+  },
+  "phishing_protection_reason_site_access_unknown": {
+    "message": "無法得知網站存取權是否受到限制。"
+  },
+  "phishing_protection_retry": {
+    "message": "立即重試"
+  },
+  "phishing_protection_retry_failed": {
+    "message": "重試失敗。"
+  },
+  "phishing_protection_retry_failed_with": {
+    "message": "重試失敗：$1"
+  },
+  "phishing_protection_list_note": {
+    "message": "封鎖清單隨擴充功能一起提供，只會隨新版本變更。"
+  },
+  "phishing_protection_retry_no_answer": {
+    "message": "重試未在時限內回應。它仍可能完成，完成後上方的狀態會更新。"
   }
 }

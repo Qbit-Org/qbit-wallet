@@ -4,6 +4,7 @@ import {
   sanitizeQbitBroadcastDetail,
   type QbitBroadcastFailureReason,
 } from '@qbit/wallet-shared'
+import { QBIT_EXPLORER_REPLY_TIMEOUT_MS } from './qbit-explorer-fetch'
 
 /**
  * A definitive node rejection is only reported as `not_sent` after this many
@@ -26,11 +27,41 @@ export function qbitBroadcastProbeDelay(ms: number): Promise<void> {
  */
 export const QBIT_BROADCAST_RESEND_DELAYS_MS: readonly number[] = [1_000, 3_000]
 /**
- * No re-send starts once this long has passed since the first dispatch, so a
- * backend that keeps timing out holds the send screen for at most one more
- * request (and its lookup) past it.
+ * No re-send starts once this long has passed since the first dispatch. It
+ * bounds when re-sends start, not how long the call runs: that is
+ * `QBIT_BROADCAST_DEADLINE_MS`.
  */
 export const QBIT_BROADCAST_RESEND_WINDOW_MS = 30_000
+
+/**
+ * The deadline of one broadcast call, shared by every explorer request it
+ * makes: the fee bump check, each pass's submission and each lookup. It
+ * starts once the call has the send guard's queue. The send screen waits
+ * for the verdict, and a lookup it cuts short leaves it `unknown`, so the
+ * window above plus a lookup's minute or so of slow replies fit inside.
+ */
+export const QBIT_BROADCAST_DEADLINE_MS = 120_000
+
+/**
+ * The least of the broadcast deadline a pass needs left to be sent: a
+ * submission's whole reply budget, so the deadline never cuts off a
+ * submission in flight, which would leave its outcome unknown. With less
+ * left, the pass sends nothing.
+ */
+export const QBIT_BROADCAST_MIN_PASS_MS = QBIT_EXPLORER_REPLY_TIMEOUT_MS
+
+/**
+ * The deadline of a recovery screen's Check status, which is one lookup:
+ * the screen ignores its exits until it answers.
+ */
+export const QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS = 30_000
+
+/**
+ * A lifecycle lookup's read of the whole transaction, which only shows
+ * that the explorer still has it: a large one on a very slow link then
+ * cannot be confirmed by a lookup, and the verdict stays unknown.
+ */
+export const QBIT_LIFECYCLE_TX_READ_DEADLINE_MS = 15_000
 
 /**
  * Thrown from inside the guarded broadcast callback when a 2xx answer does
@@ -238,10 +269,12 @@ function classifyHttpRejection(error: QbitApiError): QbitBroadcastErrorClassific
 
 /**
  * `broadcastTx` never re-sends a submission that may have reached the node:
- * a timeout, a possibly-sent network error, a 5xx without the node's verdict
- * or a 2xx that is not a txid rejects as `unknown_outcome`. Its `cause` or
+ * a timeout, a possibly-sent network error, a 5xx without the node's verdict,
+ * a 2xx that is not a txid, a reply whose body could not be read in full or
+ * passed `maxResponseBytes` (a 429 included), and a 429 relaying the
+ * backend's lost node connection reject as `unknown_outcome`. Its `cause` or
  * `status` names the failure that hid the verdict; the reply text never
- * surfaces.
+ * surfaces, and its message, whose wording the client may change, is not read.
  */
 function classifyUnknownOutcome(error: QbitApiError): QbitBroadcastErrorClassification {
   const { cause, status } = error
@@ -273,7 +306,10 @@ export function classifyQbitBroadcastError(error: unknown): QbitBroadcastErrorCl
         return withDetail('network', false, sanitizeQbitBroadcastDetail(error.message))
       case 'timeout':
         return withDetail('timeout', false, sanitizeQbitBroadcastDetail(error.message))
+      // A reply past `maxResponseBytes` is an answer the wallet cannot use,
+      // as an unreadable body is (`parse`, which it was before 0.1.1).
       case 'parse':
+      case 'response_too_large':
         return withDetail('invalid_response', false, sanitizeQbitBroadcastDetail(error.message))
       case 'http':
         if (error.status === 400) return classifyHttpRejection(error)
@@ -303,10 +339,11 @@ const RESENDABLE_CAUSES: ReadonlySet<string> = new Set(['timeout', 'network', 'p
  * bytes again may get past, and that says nothing about whether the node
  * kept them: `broadcastTx`'s `unknown_outcome` (a timeout or connection lost
  * after sending, a 5xx without the node's verdict, a 2xx that is not the
- * txid, the backend losing its node), a 2xx that echoes another txid, and a
- * connection that provably never opened. A re-send is harmless when the
- * node already holds the transaction: it answers with the txid or as
- * already known (-27), which `broadcastTx` resolves as success.
+ * txid, a reply body cut short, the backend losing its node, a 429 included),
+ * a 2xx that echoes another txid, and a connection that provably never
+ * opened. A re-send is harmless when the node already holds the
+ * transaction: it answers with the txid or as already known (-27), which
+ * `broadcastTx` resolves as success.
  *
  * Nothing else qualifies: a node verdict as the client reports it (`http`,
  * whatever the status, and definitive or not), a 429 the client already
@@ -323,8 +360,9 @@ export function isQbitBroadcastResendable(error: unknown): boolean {
   if (error.kind !== 'unknown_outcome') return false
   // What hid the verdict: the reply alone (no cause), or the transport
   // timing out, failing or cutting the reply short. A refused redirect
-  // (caused by `http`), a cancelled call (`aborted`) and any cause not
-  // listed here are left alone.
+  // (caused by `http`), a cancelled call (`aborted`), a reply over
+  // `maxResponseBytes` (`response_too_large`, which the backend would send
+  // again) and any cause not listed here are left alone.
   const { cause } = error
   return cause === undefined || (QbitApiError.is(cause) && RESENDABLE_CAUSES.has(cause.kind))
 }

@@ -6,10 +6,13 @@ import { dirname, join, resolve } from 'node:path'
 import { before, test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { auditSdkPackageFiles, SDK_PACKAGE_PINS_FILE } from '../security/check-sdk-packages.mjs'
+
 // The wallet's PQC vectors, run against the installed @qbit-oss/pqc that the
 // keyring signs with: the SLH-DSA golden vectors this repository commits, and
-// the qbit Core derivation and signature vectors the package ships (bound by
-// the lockfile integrity that scripts/security/check-sdk-packages.mjs checks).
+// the qbit Core derivation and signature vectors the package ships, which must
+// match the digests scripts/security/sdk-package-pins.json commits, so a new
+// package version cannot change them without a reviewed change to the pin.
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const requireFromKeyring = createRequire(join(repoRoot, 'packages/keyring-service/package.json'))
@@ -17,8 +20,13 @@ const packageRoot = dirname(requireFromKeyring.resolve('@qbit-oss/pqc/package.js
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 
 const golden = readJson(join(repoRoot, 'experiments/pqc-wasm/fixtures/slh-dsa-golden.json'))
-const coreDerivation = readJson(join(packageRoot, 'fixtures/qbit-core-derivation.json'))
-const coreSignatures = readJson(join(packageRoot, 'fixtures/qbit-core-signature-vectors.json'))
+const CORE_DERIVATION_FIXTURE = 'fixtures/qbit-core-derivation.json'
+const CORE_SIGNATURE_FIXTURE = 'fixtures/qbit-core-signature-vectors.json'
+const coreDerivation = readJson(join(packageRoot, CORE_DERIVATION_FIXTURE))
+const coreSignatures = readJson(join(packageRoot, CORE_SIGNATURE_FIXTURE))
+const pqcPin = readJson(join(repoRoot, SDK_PACKAGE_PINS_FILE)).packages.find(
+  pin => pin.package === '@qbit-oss/pqc'
+)
 
 const fromHex = hex => Uint8Array.from(Buffer.from(hex, 'hex'))
 const toHex = bytes => Buffer.from(bytes).toString('hex')
@@ -37,6 +45,12 @@ test('the committed golden fixture is the copy the package ships', () => {
     readFileSync(join(repoRoot, 'experiments/pqc-wasm/fixtures/slh-dsa-golden.json'), 'utf8')
   )
   assert.equal(golden.algorithm, pqc.constants.ALGORITHM)
+})
+
+test('the qbit Core fixtures the package ships match their pinned digests', () => {
+  assert.ok(Object.hasOwn(pqcPin.files, CORE_DERIVATION_FIXTURE))
+  assert.ok(Object.hasOwn(pqcPin.files, CORE_SIGNATURE_FIXTURE))
+  assert.deepEqual(auditSdkPackageFiles(packageRoot, pqcPin), [])
 })
 
 for (const vector of golden.vectors) {

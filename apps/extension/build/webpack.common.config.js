@@ -29,9 +29,10 @@ const { getBrowserPaths } = require('./paths');
 const RuntimeImportMetaUrlPlugin = require('./plugins/RuntimeImportMetaUrlPlugin');
 
 // The Emscripten loader of @qbit-oss/pqc seeds `scriptDirectory` from
-// `import.meta.url`. Webpack would inline that as the builder's absolute
+// `import.meta.url`, and since 0.1.1 its `lib/core.mjs` resolves a relative
+// `moduleUrl` against it. Webpack would inline that as the builder's absolute
 // file:// path, so independent rebuilds in other directories differ (#338).
-const pqcEmscriptenLoaderRegex = /[\\/]@qbit-oss[\\/]pqc[\\/]wasm[\\/]pqc\.mjs$/;
+const pqcImportMetaUrlRegex = /[\\/]@qbit-oss[\\/]pqc[\\/](?:wasm[\\/]pqc|lib[\\/]core)\.mjs$/;
 
 const singletonPackages = {
   react: path.dirname(require.resolve('react/package.json')),
@@ -559,7 +560,7 @@ const config = (env) => {
         ]
       }),
       new WasmModuleWebpackPlugin.WebpackPlugin(),
-      new RuntimeImportMetaUrlPlugin({ test: pqcEmscriptenLoaderRegex })
+      new RuntimeImportMetaUrlPlugin({ test: pqcImportMetaUrlRegex })
     ],
     resolve: {
       alias: {

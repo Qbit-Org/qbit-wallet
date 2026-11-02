@@ -33,10 +33,19 @@ export interface FakeTx {
   order: number
 }
 
+/**
+ * A failure injected into one request: a reply, or a thrown error. With
+ * `afterAccepting`, the request is served first (a broadcast reaches the
+ * node) and the reply then replaces its answer, as a gateway's 502 would.
+ */
 export type FakeFailure = (request: {
   method: string
   path: string
-}) => { status: number; body?: string } | Error | 'accept-then-fail' | undefined
+}) =>
+  | { status: number; body?: string; afterAccepting?: boolean }
+  | Error
+  | 'accept-then-fail'
+  | undefined
 
 /**
  * Matching responses served as over a slow link: `chunkBytes` of the body
@@ -44,7 +53,8 @@ export type FakeFailure = (request: {
  * bytes and never ends; with `stallHeaders` the headers never arrive. Either
  * stall lasts until the request's signal aborts, as on a dead connection.
  * With `resetAfterBytes` the body fails after that many bytes, as when the
- * connection is reset.
+ * connection is reset. With `padToBytes` the body is padded with JSON
+ * whitespace to that size, as a page of large transactions would be.
  */
 export interface FakeSlowResponse {
   match: (request: { method: string; path: string }) => boolean
@@ -53,6 +63,7 @@ export interface FakeSlowResponse {
   stallAfterBytes?: number
   stallHeaders?: boolean
   resetAfterBytes?: number
+  padToBytes?: number
 }
 
 const ESPLORA_PAGE = 25
@@ -85,6 +96,14 @@ export class FakeQbitExplorer {
   readonly releasedBodies: string[] = []
   /** Slow requests whose signal aborted, so the connection was released. */
   readonly abortedRequests: string[] = []
+  /**
+   * Accept a broadcast that spends an output an unconfirmed transaction
+   * already spends, evicting that one, as qbit Core's full-RBF does for a
+   * replacement paying enough. Off by default: the conflict is refused.
+   */
+  acceptReplacements = false
+  /** Raw bytes of broadcast transactions, served at `/tx/:txid/hex`. */
+  private readonly rawHex = new Map<string, string>()
   private order = 0
   private spenders: Map<string, FakeTx> | undefined
   /** Script to address, for outputs of broadcast transactions. */
@@ -249,6 +268,7 @@ export class FakeQbitExplorer {
     const request = { method, path }
     this.requests.push(request)
     let failAfterAccepting = false
+    let replyAfterAccepting: { status: number; body?: string } | undefined
     for (const failure of this.failures) {
       const injected = failure(request)
       if (injected === undefined) continue
@@ -257,6 +277,10 @@ export class FakeQbitExplorer {
         continue
       }
       if (injected instanceof Error) throw injected
+      if (injected.afterAccepting) {
+        replyAfterAccepting = injected
+        continue
+      }
       return this.deliver(
         request,
         withUrl(
@@ -269,6 +293,15 @@ export class FakeQbitExplorer {
     }
     const response = withUrl(this.route(method, url, init), url)
     if (failAfterAccepting) throw new TypeError('fetch failed')
+    if (replyAfterAccepting) {
+      const { status, body } = replyAfterAccepting
+      return this.deliver(
+        request,
+        withUrl(new Response(body ?? 'injected failure', { status }), url),
+        url,
+        init
+      )
+    }
     return this.deliver(request, response, url, init)
   }
 
@@ -290,7 +323,12 @@ export class FakeQbitExplorer {
     url: URL,
     signal: AbortSignal | undefined
   ): Promise<Response> {
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    let bytes = new Uint8Array(await response.arrayBuffer())
+    if (slow.padToBytes !== undefined && slow.padToBytes > bytes.length) {
+      const padded = new Uint8Array(slow.padToBytes).fill(0x20)
+      padded.set(bytes)
+      bytes = padded
+    }
     const timers = new Set<ReturnType<typeof setTimeout>>()
     let aborted: (reason: unknown) => void = () => {}
     const onAbort = () => {
@@ -370,6 +408,10 @@ export class FakeQbitExplorer {
     if ((match = path.match(/^\/tx\/([0-9a-f]{64})$/))) {
       const tx = this.txs.get(match[1]!)
       return tx ? json(this.esploraTx(tx)) : notFound()
+    }
+    if ((match = path.match(/^\/tx\/([0-9a-f]{64})\/hex$/))) {
+      const hex = this.txs.has(match[1]!) ? this.rawHex.get(match[1]!) : undefined
+      return hex ? text(hex) : notFound()
     }
     if ((match = path.match(/^\/tx\/([0-9a-f]{64})\/status$/))) {
       const tx = this.txs.get(match[1]!)
@@ -482,9 +524,15 @@ export class FakeQbitExplorer {
         })
       }
       if (spender) {
-        return new Response('sendrawtransaction RPC error: txn-mempool-conflict', { status: 400 })
+        if (!this.acceptReplacements || spender.height !== undefined) {
+          return new Response('sendrawtransaction RPC error: txn-mempool-conflict', {
+            status: 400,
+          })
+        }
+        this.removeTx(spender.txid)
       }
     }
+    this.rawHex.set(txid, rawHex)
     this.addTx({
       txid,
       inputs,

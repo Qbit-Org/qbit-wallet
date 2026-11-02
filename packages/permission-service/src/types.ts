@@ -1,7 +1,8 @@
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
 
-// LRU cache entry interface in the v6 format used by the default export.
+// One entry of lru-cache 6's dump, the form 1.0.6 and earlier stored site
+// permissions in: key, value and expiry time (0 for none).
 export interface LRUEntry<K, V> {
   k: K
   v: V
@@ -25,9 +26,20 @@ export interface ConnectedSite {
 }
 
 /**
- * Permission storage structure
+ * Stored site permissions, most recently used site first. The version changes
+ * with the shape, so a release that does not know a record's version rejects
+ * it instead of reading it as some other set of grants.
  */
 export interface PermissionStore {
+  version: 1
+  sites: ConnectedSite[]
+}
+
+/**
+ * What 1.0.6 and earlier stored: lru-cache 6's dump, most recently used site
+ * first. Read once and replaced by a {@link PermissionStore} on the next write.
+ */
+export interface LRUCacheDumpStore {
   dumpCache: LRUEntry<string, ConnectedSite>[]
 }
 

@@ -22,7 +22,7 @@ overrides:
   cosmiconfig@9>js-yaml: 4.3.2
   fast-uri: 3.1.7
   flatted: 3.4.2
-  follow-redirects: 1.16.1
+  follow-redirects: 1.16.2
   handlebars: 4.7.10
   http-cache-semantics: 4.3.0
   immutable: 5.1.8
@@ -164,14 +164,14 @@ importers:
         specifier: ^0.5.3
         version: 0.5.3(react-refresh@0.11.0)(webpack@5.109.2)
       '@qbit-oss/api':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit-oss/pqc':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit/base-utils':
         specifier: workspace:*
         version: link:../../packages/base-utils
@@ -771,11 +771,11 @@ importers:
         specifier: ^1.3.0
         version: 1.8.0
       '@qbit-oss/pqc':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit/wallet-core':
         specifier: workspace:*
         version: link:../wallet-core
@@ -871,9 +871,6 @@ importers:
       '@qbit/wallet-types':
         specifier: workspace:*
         version: link:../wallet-types
-      lru-cache:
-        specifier: ^6.0.0
-        version: 6.0.0
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -1036,14 +1033,14 @@ importers:
   packages/wallet-background:
     dependencies:
       '@qbit-oss/api':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit-oss/pqc':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit/approval-service':
         specifier: workspace:*
         version: link:../approval-service
@@ -1139,8 +1136,8 @@ importers:
   packages/wallet-connect:
     dependencies:
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
     devDependencies:
       '@types/node':
         specifier: ^20.8.0
@@ -1210,8 +1207,8 @@ importers:
         specifier: ^1.7.1
         version: 1.7.2
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit/wallet-shared':
         specifier: workspace:*
         version: link:../wallet-shared
@@ -1271,8 +1268,8 @@ importers:
   packages/wallet-shared:
     dependencies:
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit/wallet-types':
         specifier: workspace:*
         version: link:../wallet-types
@@ -1308,8 +1305,8 @@ importers:
   packages/wallet-state:
     dependencies:
       '@qbit-oss/protocol':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@qbit/base-utils':
         specifier: workspace:*
         version: link:../base-utils
@@ -6658,19 +6655,19 @@ packages:
       yargs: 18.1.0
     dev: true
 
-  /@qbit-oss/api@0.1.0:
-    resolution: {integrity: sha512-65G3jsen1uPrTO9W0+oWXcKia2IcbTmw+C0LZTcc1gb3KOx848/BYoZJTna/+9n78k/UJgdCAx/XqhjLwnbQNg==}
+  /@qbit-oss/api@0.1.1:
+    resolution: {integrity: sha512-8m9I2pqU7ndUiipbXvcUWYhFsHl7Fod2I7RBCyGj4ZpH7atnm1DOd91gz1PebEQNN1NWb+oC7lzeLhA75bSh9g==}
     dependencies:
       '@noble/hashes': 1.8.0
     dev: false
 
-  /@qbit-oss/pqc@0.1.0:
-    resolution: {integrity: sha512-NZAWoRggBtQHdCyXFfA4odcgnxedrwV57nZMHkhutS/UnPpzNBGwVPUMQcmIfxlF9IPU5Q0FRtJ5VnoQ59vqCA==}
+  /@qbit-oss/pqc@0.1.1:
+    resolution: {integrity: sha512-+p7hTxDvoRyUTlLifTfkRDuRt6+TO/X7vHMqN7w2XYSTpQGRkZopmQaCdYq2N2WZMtNF9sTAGmBCLgfvkCOfTA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     dev: false
 
-  /@qbit-oss/protocol@0.1.0:
-    resolution: {integrity: sha512-7GGEVWwmMgL5XL8FQlFJeXwUkW2y2ciLq6bv5VYz6Bp6cea64HNItg77XpKkupDfz/Hg5ghKaupez3Zp+08uJQ==}
+  /@qbit-oss/protocol@0.1.1:
+    resolution: {integrity: sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww==}
     dependencies:
       '@noble/hashes': 1.8.0
     dev: false
@@ -8661,11 +8658,6 @@ packages:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
 
-  /ansi-regex@6.1.0:
-    resolution: {integrity: sha512-7HSX4QQb4CspciLpVFwyRe79O3xsIZDDLER21kERQ71oaPodF8jL725AgJMFAYbooIqolJoRLuM81SpeUkpkvA==}
-    engines: {node: '>=12'}
-    dev: false
-
   /ansi-regex@6.2.2:
     resolution: {integrity: sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==}
     engines: {node: '>=12'}
@@ -9034,7 +9026,7 @@ packages:
   /axios@1.20.0(debug@4.4.3)(supports-color@7.2.0):
     resolution: {integrity: sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==}
     dependencies:
-      follow-redirects: 1.16.1(debug@4.4.3)
+      follow-redirects: 1.16.2(debug@4.4.3)
       form-data: 4.0.6
       https-proxy-agent: 5.0.1(supports-color@7.2.0)
       proxy-from-env: 2.1.0
@@ -12285,8 +12277,8 @@ packages:
   /flatted@3.4.2:
     resolution: {integrity: sha512-PjDse7RzhcPkIJwy5t7KPWQSZ9cAbzQXcafsetQoD7sOJRQlGikNbx7yZp2OotDnJyrDcbyRq3Ttb18iYOqkxA==}
 
-  /follow-redirects@1.16.1(debug@4.4.3):
-    resolution: {integrity: sha512-FNvFGzoMLWmE6Yj9spb/zjd7yiNCHiAW9/Tg9CXrQ8wuu32HtlJOwWO11OJafl5FfY3DxTdQ0vj42zU1kvv5jg==}
+  /follow-redirects@1.16.2(debug@4.4.3):
+    resolution: {integrity: sha512-/kVP2U8z596Ia0gwFrwyIeo74ta5aVmSeU1FfAUMAmcEP5EP7zydmag3SLiN64NaRKef3lxsq7i/g7ltJQDGow==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -15871,7 +15863,7 @@ packages:
       escape-string-regexp: 1.0.5
       figures: 3.2.0
       flat: 5.0.2
-      follow-redirects: 1.16.1(debug@4.4.3)
+      follow-redirects: 1.16.2(debug@4.4.3)
       form-data: 4.0.6
       fs-constants: 1.0.0
       function-bind: 1.1.2
@@ -19616,7 +19608,7 @@ packages:
     resolution: {integrity: sha512-iq6eVVI64nQQTRYq2KtEg2d2uU7LElhTJwsH4YzIHZshxlgZms/wIc4VoDQTlG/IvVIrBKG06CrZnp0qv7hkcQ==}
     engines: {node: '>=12'}
     dependencies:
-      ansi-regex: 6.1.0
+      ansi-regex: 6.2.2
     dev: false
 
   /strip-ansi@7.2.0:

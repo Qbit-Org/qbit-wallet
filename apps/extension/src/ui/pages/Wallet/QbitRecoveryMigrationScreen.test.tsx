@@ -585,6 +585,35 @@ describe('QbitRecoveryMigrationScreen', () => {
     await waitFor(() => expect(screen.queryByTestId('qbit-recovery-deferred-sources')).toBeNull());
   });
 
+  it('names a source whose history the wallet could not read in full', async () => {
+    const pendingState = {
+      ...migratingState,
+      migration: {
+        ...migratingState.migration,
+        plans: [{ ...migratingState.migration.plans[0], status: 'confirmed', txid: 'aa'.repeat(32) }]
+      }
+    };
+    wallet.getQbitRecoveryState.mockResolvedValue(pendingState);
+    wallet.advanceQbitRecoveryMigration.mockReset().mockResolvedValue(pendingState);
+    wallet.prepareQbitRecoveryMigration.mockReset().mockResolvedValue({
+      state: pendingState,
+      toSignDatas: [],
+      deferredSources: [
+        { address: 'qbrt1zminerpayout', reason: 'history_too_large', maxTransactions: 10_000 },
+        { address: 'qbrt1zbusypayout', reason: 'history_incomplete' }
+      ]
+    });
+
+    render(<QbitRecoveryMigrationScreen />);
+
+    const notice = await screen.findByTestId('qbit-recovery-deferred-sources');
+    expect(notice.textContent).toContain('qbrt1zbusypayout');
+    expect(notice.textContent).toContain('qbit_recovery_deferred_history_incomplete');
+    // Each source keeps its own reason.
+    expect(notice.textContent).toContain(`qbit_recovery_deferred_history_too_large:${(10_000).toLocaleString()}`);
+    expect(notice.textContent?.match(/qbit_recovery_deferred_history_/g)).toHaveLength(2);
+  });
+
   it('reviews a source swept in several batches as one account mapping', async () => {
     const batchedState = {
       ...migratingState,

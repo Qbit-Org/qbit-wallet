@@ -231,6 +231,18 @@ describe('classifyQbitBroadcastError', () => {
     expect(classification.definitiveRejection).toBe(false)
   })
 
+  it('classifies a reply past the size limit as an unusable answer, not an unexpected error', () => {
+    const tooLarge = new QbitApiError(
+      'response_too_large',
+      'HTTP 200 reply from https://explorer.test/.../tx/abc/outspends exceeded 67108864 bytes; its body was discarded',
+      { status: 200 }
+    )
+
+    const classification = classifyQbitBroadcastError(tooLarge)
+    expect(classification).toMatchObject({ reason: 'invalid_response', definitiveRejection: false })
+    expect(classification.detail).not.toContain('explorer.test')
+  })
+
   it('classifies a non-echoing 2xx answer as inconclusive with a fixed, body-free detail', () => {
     expect(classifyQbitBroadcastError(new QbitBroadcastResponseMismatchError())).toEqual({
       reason: 'invalid_response',

@@ -3,6 +3,13 @@ import { createSlice, Slice } from '@reduxjs/toolkit'
 import { updateVersion } from '../actions/global'
 import { NavigationSource } from '../types'
 
+/** The quote read, and the option, from which a fee bar chose its rate. */
+export interface FeeRateSource {
+  /** The `read` of the quote, as useFeeQuoteRead names it. */
+  quoteRead: string
+  optionIndex: number
+}
+
 export interface UIState {
   uiTxCreateScreen: {
     toInfo: {
@@ -24,6 +31,11 @@ export interface UIState {
     enableLowFeeRate: boolean
     feeOptionIndex: number
     showCustomInput: boolean
+    /**
+     * Where `feeRate` came from: null for a Custom rate and for a rate no
+     * fee bar chose, such as the default.
+     */
+    feeRateSource: FeeRateSource | null
   }
   navigationSource: NavigationSource
   isBalanceHidden: boolean
@@ -51,6 +63,7 @@ export const initialState: UIState = {
     enableLowFeeRate: false,
     feeOptionIndex: 1, // Default to AVG
     showCustomInput: false,
+    feeRateSource: null,
   },
   navigationSource: NavigationSource.NORMAL,
   isBalanceHidden: false,
@@ -101,11 +114,14 @@ const slice: Slice<UIState> = createSlice({
           enableLowFeeRate?: boolean
           feeOptionIndex?: number
           showCustomInput?: boolean
+          feeRateSource?: FeeRateSource | null
         }
       }
     ) {
       if (action.payload.feeRate !== undefined) {
         state.feeRateBar.feeRate = action.payload.feeRate
+        // A rate written without its source has none.
+        state.feeRateBar.feeRateSource = action.payload.feeRateSource ?? null
       }
       if (action.payload.feeRateInputVal !== undefined) {
         state.feeRateBar.feeRateInputVal = action.payload.feeRateInputVal
@@ -186,6 +202,9 @@ const slice: Slice<UIState> = createSlice({
       }
       if (!state.feeRateBar) {
         state.feeRateBar = initialState.feeRateBar
+      } else if (state.feeRateBar.feeRateSource === undefined) {
+        // Stored before rates recorded their source: no fee bar chose it from a quote read now.
+        state.feeRateBar.feeRateSource = null
       }
       if (state.isBalanceHidden === undefined) {
         state.isBalanceHidden = false

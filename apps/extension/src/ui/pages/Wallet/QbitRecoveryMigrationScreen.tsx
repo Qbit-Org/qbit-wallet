@@ -378,7 +378,11 @@ export default function QbitRecoveryMigrationScreen() {
             <Column gap="sm" fullX>
               <Text text={source.address} wrap selectText />
               <Text
-                text={t('qbit_recovery_deferred_history_too_large', source.maxTransactions.toLocaleString())}
+                text={
+                  source.reason === 'history_too_large'
+                    ? t('qbit_recovery_deferred_history_too_large', source.maxTransactions.toLocaleString())
+                    : t('qbit_recovery_deferred_history_incomplete')
+                }
                 color="textDim"
                 wrap
               />

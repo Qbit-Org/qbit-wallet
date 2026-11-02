@@ -52,8 +52,8 @@
   "dependencies": {
     "@metamask/browser-passworder": "6.0.0",
     "@metamask/obs-store": "^7.0.0",
-    "@qbit-oss/pqc": "0.1.0",
-    "@qbit-oss/protocol": "0.1.0",
+    "@qbit-oss/pqc": "0.1.1",
+    "@qbit-oss/protocol": "0.1.1",
     "@qbit/wallet-core": "workspace:*",
     "@qbit/wallet-shared": "workspace:*",
     "@qbit/wallet-storage": "workspace:*",

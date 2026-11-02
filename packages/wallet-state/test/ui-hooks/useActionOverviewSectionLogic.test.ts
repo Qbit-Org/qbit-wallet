@@ -131,6 +131,29 @@ describe('useActionOverviewSectionLogic spend summary (#271)', () => {
     expect(spend?.feeWarnings).toEqual(['fee_warning_above_relay_floor:100,100,1'])
   })
 
+  it('names a fee only its share of the amount flagged a high fee, not a high rate', () => {
+    const shareOnly = {
+      fee: 114_330,
+      feeRate: 15,
+      amount: 10_000,
+      recommendedFeeRate: 9,
+      reasons: ['large_share_of_amount' as const],
+    }
+    const { spend } = renderOverview({
+      ...SUMMARY,
+      feeAssessment: { ...shareOnly, highFeeAtNormalRate: true },
+    })
+    expect(spend?.feeWarningTitle).toBe('high_fee_risk_title')
+    expect(spend?.feeWarnings).toEqual(['fee_warning_amount_share:1143,0.00010000,QBT'])
+
+    // Flagged by its share at twice the recommended rate, it is still a high rate.
+    const byRate = renderOverview({
+      ...SUMMARY,
+      feeAssessment: { ...shareOnly, feeRate: 18 },
+    })
+    expect(byRate.spend?.feeWarningTitle).toBe('high_fee_rate_risk_title')
+  })
+
   it('leaves the net spend unknown when an input does not say what it spends', () => {
     const { netSpend: _netSpend, feeAssessment: _feeAssessment, ...incomplete } = SUMMARY
     const { spend } = renderOverview(incomplete)

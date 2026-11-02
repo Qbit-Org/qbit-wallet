@@ -129,4 +129,26 @@ describe('MultiSignRisksPopover (#367)', () => {
     expect(screen.queryByTestId('multisign-risk-confirm-button')).toBeNull();
     expect(screen.queryByTestId('multisign-risk-confirmation-input')).toBeNull();
   });
+
+  it('names a fee only its share of the amount flagged a high fee, and explains each kind once', () => {
+    const batch = summary([[HIGH_FEE], [HIGH_FEE], [HIGH_FEE]]);
+    const shareOnly = {
+      fee: 114_330,
+      feeRate: 15,
+      amount: 10_000,
+      recommendedFeeRate: 9,
+      reasons: ['large_share_of_amount' as const]
+    };
+    const spendSummary = (feeAssessment: object) =>
+      ({ feeAssessment }) as unknown as NonNullable<LocalPsbtSummary['items'][number]['spendSummary']>;
+    batch.items[0]!.spendSummary = spendSummary({ ...shareOnly, highFeeAtNormalRate: true });
+    batch.items[2]!.spendSummary = spendSummary({ ...shareOnly, highFeeAtNormalRate: true });
+    render(<MultiSignRisksPopover summary={batch} onConfirm={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('multisign-risk-transaction-0').textContent).toContain('high_fee_risk_title');
+    expect(screen.getByTestId('multisign-risk-transaction-1').textContent).toContain('high_fee_rate_risk_title');
+    expect(screen.getByTestId('multisign-risk-transaction-2').textContent).toContain('high_fee_risk_title');
+    expect(screen.getAllByText('high_fee_risk_description')).toHaveLength(1);
+    expect(screen.getAllByText('high_fee_rate_risk_description')).toHaveLength(1);
+  });
 });

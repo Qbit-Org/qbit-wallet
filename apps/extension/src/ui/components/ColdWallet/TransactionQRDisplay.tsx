@@ -8,8 +8,12 @@ import { colors } from '@/ui/theme/colors';
 import { useI18n, useWallet } from '@qbit/wallet-state';
 import { ChainType } from '@qbit/wallet-types';
 
+import { signerDecodedPsbt } from './signerRequest';
+
 interface TransactionQRDisplayProps {
   psbtHex: string;
+  /** A website supplied the PSBT's bytes; its review then judges the fee as the approval did. */
+  suppliedByWebsite?: boolean;
   onSuccess: () => void;
   onCancel: () => void;
   header?: React.ReactNode;
@@ -26,7 +30,13 @@ interface SignRequest {
   expectedSignerPubkey?: string;
 }
 
-export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, header }: TransactionQRDisplayProps) {
+export default function TransactionQRDisplay({
+  psbtHex,
+  suppliedByWebsite = false,
+  onSuccess,
+  onCancel,
+  header
+}: TransactionQRDisplayProps) {
   const { t } = useI18n();
   const wallet = useWallet();
   const [qrData, setQrData] = useState<string>('');
@@ -42,8 +52,12 @@ export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, hea
       const addresses = [currentAccount.address];
       const expectedSignerPubkey = currentAccount.pubkey;
 
-      // The approval's spend summary stays in the wallet; the signer's request keeps its fields.
-      const { spendSummary: _spendSummary, ...decodedPsbt } = await wallet.decodePsbt(psbtHex, '');
+      // The signer's request carries only the decoded fields it reads, never what only the approval shows.
+      const decodedPsbt = signerDecodedPsbt(
+        await wallet.decodePsbt(psbtHex, '', {
+          suppliedByWebsite
+        })
+      );
       const networkType = await wallet.getNetworkType();
       const chainType = await wallet.getChainType();
 
@@ -85,7 +99,7 @@ export default function TransactionQRDisplay({ psbtHex, onSuccess, onCancel, hea
     } catch (error) {
       console.error('Failed to generate sign request:', error);
     }
-  }, [psbtHex, requestId, wallet]);
+  }, [psbtHex, requestId, suppliedByWebsite, wallet]);
 
   useEffect(() => {
     generateSignRequest();

@@ -265,12 +265,20 @@ describe('content-script link interception', () => {
 
   it.each([
     ['a new tab target', { target: '_blank' }, {}],
-    ['a named target', { target: 'other' }, {}],
+    ['a new tab target in capitals', { target: ' _BLANK ' }, {}],
     ['a Ctrl+click', {}, { ctrlKey: true }],
     ['a Cmd+click', {}, { metaKey: true }],
-    ['a Shift+click', {}, { shiftKey: true }],
+    ['a Shift+click', {}, { shiftKey: true }]
+  ])('leaves %s to the background as a new tab, which the redirect rule may warn in', (_label, attributes, init) => {
+    expect(click(link({ href: BLOCKED_URL, ...attributes }), init)).toBe(false);
+    expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: BLOCKED_URL, newTab: true }]);
+  });
+
+  it.each([
+    ['a named target', { target: 'other' }, {}],
     ['an Alt+click', {}, { altKey: true }],
-    ['a non-primary button', {}, { button: 1 }]
+    ['a non-primary button', {}, { button: 1 }],
+    ['a Ctrl+Alt+click', {}, { ctrlKey: true, altKey: true }]
   ])('leaves %s to the background, which sends this tab to the warning page', (_label, attributes, init) => {
     expect(click(link({ href: BLOCKED_URL, ...attributes }), init)).toBe(false);
     expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: BLOCKED_URL }]);
@@ -292,7 +300,7 @@ describe('content-script link interception', () => {
     document.head.append(base);
 
     expect(click(link({ href: BLOCKED_URL }))).toBe(false);
-    expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: BLOCKED_URL }]);
+    expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: BLOCKED_URL, newTab: true }]);
   });
 
   it('leaves another element with a denylisted href to the background', () => {
@@ -318,6 +326,16 @@ describe('content-script link interception', () => {
     vi.stubGlobal('top', {});
     try {
       expect(click(link({ href: BLOCKED_URL }))).toBe(false);
+      expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: BLOCKED_URL }]);
+    } finally {
+      vi.stubGlobal('top', window);
+    }
+  });
+
+  it('does not flag a new tab link in a frame, which only MV2, without the redirect rule, checks', () => {
+    vi.stubGlobal('top', {});
+    try {
+      expect(click(link({ href: BLOCKED_URL, target: '_blank' }), { ctrlKey: true })).toBe(false);
       expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: BLOCKED_URL }]);
     } finally {
       vi.stubGlobal('top', window);

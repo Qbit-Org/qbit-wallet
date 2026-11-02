@@ -31,6 +31,10 @@ const qbitProviderMethods = [
   'removeListener',
 ] as const
 
+// EIP-1193 Unauthorized: the provider's error for an origin without a grant
+// on the wallet's active chain.
+const UNAUTHORIZED = 4100
+
 type QbitProviderMethod = (typeof qbitProviderMethods)[number]
 type QbitProviderCandidate = Partial<Record<QbitProviderMethod, unknown>>
 
@@ -85,9 +89,19 @@ export class QbitWallet extends BaseWallet {
       return undefined
     }
 
-    await this.checkNetwork()
-
+    // Connect first: switchChain needs this origin's grant, which
+    // requestAccounts asks the user for on the wallet's active chain.
     const addresses = await provider.requestAccounts()
+    if (this.chainType) {
+      const connectedChain = await provider.getChain()
+      if (connectedChain !== this.chainType) {
+        // A separate switch the user approves; it moves the grant to the new
+        // chain, whose account is then read like a connected one.
+        await this.switchChainAfterConnect(provider, this.chainType, connectedChain)
+        return this.getAccount()
+      }
+    }
+
     const publicKey = await provider.getPublicKey()
     const address = addresses[0]
 
@@ -247,6 +261,27 @@ export class QbitWallet extends BaseWallet {
       throw new Error(this.t('walletNotConnected', 'Wallet not connected'))
     }
     await provider.disconnect()
+  }
+
+  /**
+   * Switch an origin connected on `connectedChain` to `chain`. A 4100 means
+   * the origin has no grant on the wallet's active chain. When the active
+   * chain changed after it connected, connect on that chain, then switch
+   * once more. On the same chain, the user revoked the grant, which stands.
+   */
+  private async switchChainAfterConnect(
+    provider: NonNullable<typeof window.qbit>,
+    chain: ChainType,
+    connectedChain: ChainType
+  ): Promise<void> {
+    try {
+      await provider.switchChain(chain)
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code !== UNAUTHORIZED) throw error
+      if ((await provider.getChain()) === connectedChain) throw error
+      await provider.requestAccounts()
+      await provider.switchChain(chain)
+    }
   }
 
   private async prepareSigningChain(provider: NonNullable<typeof window.qbit>): Promise<ChainType> {

@@ -185,6 +185,43 @@ describe('BalanceCard', () => {
     expect(logic.handleExpandToggle).not.toHaveBeenCalled();
   });
 
+  it('shows `--` on the brand fill, with no error and no breakdown, before the first read while the balance is hidden', () => {
+    renderCard({
+      isCurrentChainBalance: false,
+      balanceLoading: true,
+      isBalanceHidden: true,
+      balanceValue: '--',
+      availableAmount: '--',
+      unavailableAmount: '--',
+      isDetailExpanded: true
+    });
+
+    expect(screen.getByTestId('balance-amount').textContent).toBe('--');
+    expect(screen.queryByTestId('balance-loading')).toBeNull();
+    expect(screen.getByTestId('wallet-balance-card').dataset.background).toBe(colors.accent);
+    expect(screen.queryByTestId('balance-error')).toBeNull();
+    expect(screen.queryByTestId('balance-split-amount')).toBeNull();
+    expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
+    expect(document.querySelector('[data-icon="down"], [data-icon="up"]')).toBeNull();
+  });
+
+  it('shows the split as `--` with no explorer note and no error while a broadcast holds the send guard', () => {
+    renderCard({
+      balanceValue: '0.91000000',
+      availableAmount: '--',
+      unavailableAmount: '--',
+      isDetailExpanded: true
+    });
+
+    const card = screen.getByTestId('wallet-balance-card');
+    expect(screen.getByTestId('balance-amount').textContent).toBe('0.91000000');
+    expect(card.textContent).toContain('available--');
+    expect(card.textContent).toContain('unavailable--');
+    expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
+    expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
+    expect(screen.queryByTestId('balance-error')).toBeNull();
+  });
+
   it('shows no error without a failed refresh', () => {
     renderCard({});
 

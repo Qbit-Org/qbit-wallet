@@ -68,7 +68,20 @@ export interface DecodedPsbtOpReturnOutput extends DecodedPsbtOutputBase {
   opReturn: DecodedOpReturn
 }
 
-export type DecodedPsbtOutput = DecodedPsbtAddressOutput | DecodedPsbtOpReturnOutput
+/**
+ * An output whose script has no address the wallet can show: `p2a`, the
+ * pay-to-anchor script, which anyone can spend, or `unknown_script`, any other.
+ */
+export interface DecodedPsbtScriptOutput extends DecodedPsbtOutputBase {
+  type: 'p2a' | 'unknown_script'
+  address: ''
+  opReturn?: never
+}
+
+export type DecodedPsbtOutput =
+  | DecodedPsbtAddressOutput
+  | DecodedPsbtOpReturnOutput
+  | DecodedPsbtScriptOutput
 
 /** Why the wallet flagged a fee as abnormal; see `assessQbitFee`. */
 export type QbitFeeWarningReason =
@@ -78,7 +91,9 @@ export type QbitFeeWarningReason =
   | 'above_relay_floor'
   /**
    * The fee is at least `QBIT_FEE_WARNING_AMOUNT_PERCENT` of the amount sent, at a rate at least
-   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation.
+   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation. For a website's PSBT it is
+   * also flagged, whatever its rate, when the fee is at least that multiple of what the smallest
+   * send costs at the recommendation (`checkFeeShareWithoutSize`).
    */
   | 'large_share_of_amount'
 
@@ -88,14 +103,22 @@ export interface QbitFeeAssessment {
   /** Fee rate in bits/vB. */
   feeRate: number
   /**
-   * The amount the fee is compared with: what the transaction pays to others. 0 when there is
-   * nothing to compare with: it pays only the wallet, or other parties fund some of its inputs.
+   * The amount the fee is compared with: what the transaction pays to others. When other parties
+   * fund some of its inputs, a website's PSBT compares the fee with what leaves the wallet (its
+   * inputs less the outputs paying it), and the wallet's own screens with nothing. 0 when there is
+   * nothing to compare with: nothing but the fee leaves the wallet.
    */
   amount: number
   /** The fastest live recommended rate. Absent when the explorer's rates are unavailable, so no comparison was made. */
   recommendedFeeRate?: number
   /** Empty when the fee is normal. */
   reasons: QbitFeeWarningReason[]
+  /**
+   * Set when only the share check that needs no size flagged the fee (`checkFeeShareWithoutSize`):
+   * the fee is a large share of the amount, but its rate meets no rate condition, so the fee and
+   * not its rate is what is high.
+   */
+  highFeeAtNormalRate?: true
 }
 
 /** What an output of a reviewed PSBT pays, from the wallet's point of view. */
@@ -106,8 +129,34 @@ export type PsbtOutputRole =
   | 'recipient'
   /** An OP_RETURN data output. */
   | 'data'
-  /** Neither the wallet's nor the named recipient, including a script with no address. */
+  /**
+   * A pay-to-anchor output, when the PSBT's anchors carry no more than
+   * `QBIT_P2A_MAX_VALUE` together: anyone can spend it, to add fee to the
+   * transaction.
+   */
+  | 'anchor'
+  /**
+   * Neither the wallet's nor the named recipient, including a script with no
+   * address and pay-to-anchor outputs that carry more than `QBIT_P2A_MAX_VALUE`.
+   */
   | 'unrecognised'
+
+/**
+ * Which of the wallet's accounts an output pays, from the scripts and addresses
+ * the wallet derives for them, never from records the PSBT carries about it.
+ */
+export type PsbtOutputOwner =
+  /**
+   * Change to the account signing the PSBT: the wallet funds every input, and
+   * the request does not name the output's address as its recipient.
+   */
+  | 'change'
+  /** The account signing the PSBT, as a payment it may be receiving rather than change. */
+  | 'this_account'
+  /** Another of the wallet's accounts. */
+  | 'other_account'
+  /** None of the wallet's accounts, including an OP_RETURN data output. */
+  | 'none'
 
 /**
  * What a PSBT does to the wallet, computed by the background from the exact
@@ -144,6 +193,12 @@ export interface PsbtSpendSummary {
 export interface DecodePsbtOptions {
   /** Addresses the request itself names as recipients; their outputs are not unrecognised. */
   statedRecipients?: string[]
+  /**
+   * A website supplied the PSBT's bytes (signPsbt, signPsbts; see `isWebsiteSuppliedPsbt`), so its
+   * size rests on records the website wrote and its fee is also judged without that size. Omitted,
+   * the PSBT is judged as one the wallet built, as a website's sendQbit is.
+   */
+  suppliedByWebsite?: boolean
 }
 
 export interface DecodedPsbt {
@@ -160,6 +215,15 @@ export interface DecodedPsbt {
   shouldWarnFeeRate: boolean
   isCompleted: boolean
   spendSummary: PsbtSpendSummary
+  /** One owner for each output, in output order, for the account `spendSummary` is relative to. */
+  outputOwners?: PsbtOutputOwner[]
+  /** The transaction's version. */
+  version?: number
+  /**
+   * The transaction's nLockTime: 0 for none, a block height below 500,000,000,
+   * and a Unix time from it. Not enforced when every input's sequence is final.
+   */
+  locktime?: number
 }
 
 export interface PsbtLocalInfo {

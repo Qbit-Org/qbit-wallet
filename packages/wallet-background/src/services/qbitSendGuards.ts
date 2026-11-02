@@ -6,6 +6,11 @@ import type {
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
+import {
+  qbitExplorerSpendCheckFor,
+  type QbitExplorerSpendCheck,
+} from '../utils/qbit-explorer-spend-check'
+
 export interface QbitOutpoint {
   txid: string
   vout: number
@@ -116,6 +121,13 @@ const QBIT_RECENT_SPEND_HISTORY = 3
  * the oldest go first.
  */
 export const QBIT_PROVIDER_SIGNING_LIMIT = 256
+
+/**
+ * At most this many transactions whose broadcast ended without a verdict
+ * are remembered (see `QbitSendGuardService.hasUnknownBroadcastOutcome`);
+ * beyond it the oldest go first.
+ */
+export const QBIT_UNKNOWN_BROADCAST_LIMIT = 256
 
 /**
  * An input a broadcast from this wallet spent, or may have spent (the
@@ -406,6 +418,14 @@ export class QbitSendGuardService {
    */
   private decidedClaimKeys = new Set<string>()
   /**
+   * Keys of the held claims `restoreBroadcastClaim` registered from the
+   * page's copy, dropped with them. What such a claim says it `replaces`
+   * is the page's word, and the records that could confirm it (what spends
+   * its inputs) went with the restart, so its broadcast must check its
+   * inputs on the explorer (see `broadcastIfAllowed`).
+   */
+  private restoredClaimKeys = new Set<string>()
+  /**
    * Inputs spent by broadcasts this instance accepted or could not decide,
    * keyed by `recentSpendKey` in the order they were recorded (see
    * `QbitRecentSpend`). Memory only, like the claims: a background restart
@@ -439,6 +459,14 @@ export class QbitSendGuardService {
    * claims, and bounded by `QBIT_PROVIDER_SIGNING_LIMIT`.
    */
   private providerSignings = new Set<string>()
+  /**
+   * Transactions whose dispatched broadcast ended without a verdict, or
+   * whose claim was restored for a retry of an unknown outcome, keyed like
+   * the claims, oldest first, each with its place in the recording order
+   * of recent spends (see `hasUnknownBroadcastOutcome`). Memory only, like
+   * the claims, and bounded by `QBIT_UNKNOWN_BROADCAST_LIMIT`.
+   */
+  private unknownBroadcasts = new Map<string, number>()
   private recentSpendSequence = 0
   private nextExternalSigningLockId = 0
   private nextProviderSendRequestId = 0
@@ -449,11 +477,13 @@ export class QbitSendGuardService {
     this.externalSigningLocks = []
     this.ownership.clear()
     this.decidedClaimKeys.clear()
+    this.restoredClaimKeys.clear()
     this.recentSpends.clear()
     this.claimSequences.clear()
     this.providerSendRequests.clear()
     this.providerClaimRequests.clear()
     this.providerSignings.clear()
+    this.unknownBroadcasts.clear()
   }
 
   /**
@@ -535,6 +565,11 @@ export class QbitSendGuardService {
    * so a probe that started before the same transaction was recorded again
    * cannot free the newer record.
    *
+   * The same answer settles an unknown outcome recorded for the spender
+   * before the probe was handed out (see `hasUnknownBroadcastOutcome`): a
+   * pending or confirmed spender is in the network's hands, and a gone one
+   * whose inputs were freed is given up on.
+   *
    * A spender found pending or confirmed is in the network's hands, so a
    * claim still held for exactly that transaction is decided too (see
    * `settleClaimFoundNow`), and a fee bump may then replace it. A gone
@@ -566,6 +601,12 @@ export class QbitSendGuardService {
           this.fallBackRecentSpendNow(key, spend)
         }
       }
+      const stillSpending = [...this.recentSpends.values()].some(
+        spend => spend.chain === chain && spend.spender === probe.txid
+      )
+      if (state !== 'gone' || (!claimHeld && !stillSpending)) {
+        this.forgetUnknownBroadcastNow(chain, probe.txid, probe.sequence)
+      }
     })
   }
 
@@ -582,6 +623,7 @@ export class QbitSendGuardService {
           spend.liveAt = Math.max(spend.liveAt, now)
         }
       }
+      this.forgetUnknownBroadcastNow(chain, txid)
     })
   }
 
@@ -608,6 +650,7 @@ export class QbitSendGuardService {
         ? this.broadcastClaims.find(item => sameBroadcastClaim(item, boundClaim))
         : undefined
       this.recordSpendNow(chain, txid, outpoints, boundClaim?.address)
+      this.forgetUnknownBroadcastNow(chain, txid)
       if (heldClaim) {
         this.replaceBroadcastClaims(
           this.broadcastClaims.filter(item => !sameBroadcastClaim(item, heldClaim))
@@ -634,6 +677,7 @@ export class QbitSendGuardService {
       const normalized = normalizeBroadcastClaim(claim)
       if (!normalized) throw new Error('invalid Qbit send broadcast claim')
       if (found && !claimBoundTo(normalized, found.chain, found.txid)) return false
+      if (found) this.forgetUnknownBroadcastNow(found.chain, found.txid)
       const held = this.broadcastClaims.find(item => sameBroadcastClaim(item, normalized))
       if (!held) {
         // A wallet-owned claim this instance never saw is what a background
@@ -675,6 +719,9 @@ export class QbitSendGuardService {
    * broadcast passed the guard's conflict check, so it may take an input
    * over (a fee bump); an undispatched one proves nothing and must not hide
    * the spender that is on record.
+   *
+   * A dispatched broadcast's outcome is remembered for
+   * `hasUnknownBroadcastOutcome` as well.
    */
   recordInconclusiveBroadcast(
     chain: ChainType,
@@ -691,6 +738,7 @@ export class QbitSendGuardService {
     return this.enqueue(async () => {
       if (dispatched) {
         this.recordSpendNow(chain, txid, outpoints, boundClaim?.address)
+        this.rememberUnknownBroadcastNow(chain, txid)
         return
       }
       if (
@@ -721,24 +769,37 @@ export class QbitSendGuardService {
   }
 
   /**
-   * The node definitively rejected `txid` and repeated lookups found it
-   * absent: forget the inputs an earlier, inconclusive attempt recorded for
-   * it, handing each back to the transaction it replaced, if any. A claim
-   * that still holds them is left to its own release.
+   * Whether a dispatched broadcast of `txid` on `chain` ended without a
+   * verdict (see `recordInconclusiveBroadcast`, and
+   * `recordInconclusiveProviderPush` for a push it recorded), the claim
+   * still held for it last had an inconclusive one, or its claim was
+   * restored for a retry of an unknown outcome (see `restoreBroadcastClaim`).
+   * That broadcast may have handed the bytes to another node behind the
+   * same endpoint than the one a later call reaches, so a later call's node
+   * rejection proves nothing about it: a Retry from the recovery screen is
+   * such a call. Once the guard settles
+   * the transaction (the network is seen holding it, or a probe finds it
+   * gone and frees its inputs), that outcome no longer counts.
    */
-  forgetAbsentBroadcast(chain: ChainType, txid: string): Promise<void> {
+  hasUnknownBroadcastOutcome(chain: ChainType, txid: string): Promise<boolean> {
+    return this.enqueue(async () => this.hasUnknownBroadcastOutcomeNow(chain, txid))
+  }
+
+  /**
+   * A broadcast call for `txid` proved it absent (a node rejection, then
+   * lookups that all missed it): forget the inputs an earlier attempt
+   * recorded for it (see `forgetAbsentBroadcastNow`), unless a call for it
+   * has ended without a verdict (`hasUnknownBroadcastOutcome`), one that
+   * ended while this call was still looking included. That outcome stands,
+   * and the inputs it recorded stay reserved. The check and the forgetting
+   * are one step on the queue, so nothing recorded in between is forgotten.
+   * Resolves to whether the absence stands.
+   */
+  forgetProvenAbsentBroadcast(chain: ChainType, txid: string): Promise<boolean> {
     return this.enqueue(async () => {
-      for (const [key, spend] of this.recentSpends) {
-        if (spend.chain !== chain) continue
-        if (spend.spender === txid) {
-          this.fallBackRecentSpendNow(key, spend)
-        } else if (spend.previous) {
-          // Nor may it come back later from behind a newer spender.
-          const previous = withoutSpender(spend.previous, txid)
-          if (previous) spend.previous = previous
-          else delete spend.previous
-        }
-      }
+      if (this.hasUnknownBroadcastOutcomeNow(chain, txid)) return false
+      this.forgetAbsentBroadcastNow(chain, txid)
+      return true
     })
   }
 
@@ -772,7 +833,8 @@ export class QbitSendGuardService {
    * that transaction for a dapp (`recordProviderSigning`). A push needs no
    * approval, and a dapp can push any bytes over the account's public
    * outputs, so reserving the inputs of any other push would let it keep
-   * the user's funds frozen. Resolves to whether the inputs were recorded.
+   * the user's funds frozen. Resolves to whether the inputs were recorded;
+   * a recorded push is remembered for `hasUnknownBroadcastOutcome` too.
    */
   recordInconclusiveProviderPush(
     chain: ChainType,
@@ -786,6 +848,7 @@ export class QbitSendGuardService {
     return this.enqueue(async () => {
       if (!this.providerSignings.has(claimKey({ chain, txid }))) return false
       this.recordSpendNow(chain, txid, outpoints, undefined)
+      this.rememberUnknownBroadcastNow(chain, txid)
       return true
     })
   }
@@ -1139,17 +1202,31 @@ export class QbitSendGuardService {
    * a claim over inputs a recent broadcast of another transaction spent is
    * `refused`.
    *
+   * With `retryOfUnknownOutcome` (the page's own verdict for these bytes
+   * is unknown), the restored claim's transaction counts as one whose
+   * broadcast ended without a verdict (see `hasUnknownBroadcastOutcome`):
+   * the bytes may have gone out before the restart, and this instance
+   * cannot tell. Without it (a first broadcast, or a retry of bytes proven
+   * not sent) it does not.
+   *
    * A fee bump's claim names the transaction it `replaces`, and is restored
    * under the checks its minting applied: it is `refused` while a later
    * payment spends that transaction, and its broadcast checks again (see
    * `broadcastIfAllowed`). A claim that names nothing either way was minted
    * before claims carried the field and may be a bump that would evict
-   * such a payment, so it is `refused`.
+   * such a payment, so it is `refused`. What a claim names is still only
+   * the page's word, and after a restart this instance has no record of
+   * what spends its inputs to hold it against: a claim saying it replaces
+   * nothing may replace a payment all the same. Every restored claim is
+   * therefore marked unconfirmed, and its broadcast checks on the explorer
+   * that nothing but its own transaction, or the one it names, spends its
+   * inputs (see `broadcastIfAllowed`).
    */
   restoreBroadcastClaim(
     claim: QbitSendBroadcastClaim,
     address: string,
-    owner?: QbitSendClaimOwner
+    owner?: QbitSendClaimOwner,
+    retryOfUnknownOutcome = false
   ): Promise<'restored' | 'refused' | 'address_mismatch'> {
     return this.enqueue(async () => {
       const normalized = normalizeBroadcastClaim(claim)
@@ -1175,6 +1252,10 @@ export class QbitSendGuardService {
         return 'refused'
       }
       this.replaceBroadcastClaims([...this.broadcastClaims, normalized])
+      this.restoredClaimKeys.add(key)
+      if (retryOfUnknownOutcome) {
+        this.rememberUnknownBroadcastNow(normalized.chain as ChainType, normalized.txid)
+      }
       const record = this.adoptClaim(normalized, owner)
       if (record) record.attempts += 1
       return 'restored'
@@ -1187,19 +1268,22 @@ export class QbitSendGuardService {
    * transaction; `claim`, when given, must be the held claim for exactly
    * this transaction, and is consumed once `broadcast` resolves.
    *
-   * A fee bump's claim hands `broadcast` the txid it replaces, and how many
-   * outputs that transaction has, after the guard's own records showed no
-   * later payment spending it.
-   * Those records cannot show a payment made elsewhere (another wallet on
-   * the same seed, or a recipient spending their output), so `broadcast`
-   * must check the explorer for one before it dispatches, and reject to
-   * keep the bump from going out.
+   * `broadcast` is handed what it must check on the explorer before it
+   * dispatches, and must reject to keep the transaction from going out when
+   * the check fails. A fee bump's claim hands it the txid it `replaces`, and
+   * how many outputs that transaction has, after the guard's own records
+   * showed no later payment spending it: those records cannot show a
+   * payment made elsewhere (another wallet on the same seed, or a recipient
+   * spending their output). A claim restored from the page's copy (see
+   * `restoreBroadcastClaim`) hands it `restored` as well, whatever it
+   * replaces: nothing but `txid`, or the transaction the claim replaces, may
+   * spend any of `outpoints`. Any other broadcast is handed nothing to check.
    */
   broadcastIfAllowed<T>(
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
-    broadcast: (replaces?: string, replacedOutputCount?: number) => Promise<T>,
+    broadcast: (spendCheck: QbitExplorerSpendCheck) => Promise<T>,
     claim?: QbitSendBroadcastClaim
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
@@ -1250,13 +1334,21 @@ export class QbitSendGuardService {
       if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid)
       this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replacedTxid)
 
-      const result =
-        replacedTxid === undefined
-          ? await broadcast(replacedTxid)
-          : await broadcast(replacedTxid, exactClaim?.replacedOutputCount)
+      const restoredFromPage =
+        exactClaim !== undefined && this.restoredClaimKeys.has(claimKey(exactClaim))
+      const result = await broadcast(
+        qbitExplorerSpendCheckFor({
+          txid,
+          outpoints,
+          replaces: replacedTxid,
+          replacedOutputCount: exactClaim?.replacedOutputCount,
+          restoredFromPage,
+        })
+      )
       // The claim is consumed, but its inputs stay reserved as recently
       // spent: the explorer may keep listing them for a while yet.
       this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)
+      this.forgetUnknownBroadcastNow(chain, txid)
       if (exactClaim) {
         this.replaceBroadcastClaims(
           this.broadcastClaims.filter(item => !sameBroadcastClaim(item, exactClaim))
@@ -1273,6 +1365,7 @@ export class QbitSendGuardService {
       this.recentSpends.clear()
       this.providerSendRequests.clear()
       this.providerSignings.clear()
+      this.unknownBroadcasts.clear()
     })
   }
 
@@ -1302,6 +1395,9 @@ export class QbitSendGuardService {
     }
     for (const key of this.providerClaimRequests.keys()) {
       if (!live.has(key)) this.providerClaimRequests.delete(key)
+    }
+    for (const key of this.restoredClaimKeys) {
+      if (!live.has(key)) this.restoredClaimKeys.delete(key)
     }
   }
 
@@ -1410,6 +1506,57 @@ export class QbitSendGuardService {
     for (const [key, spend] of this.recentSpends) {
       if (now - spend.liveAt >= QBIT_RECENT_SPEND_TTL_MS) this.recentSpends.delete(key)
     }
+  }
+
+  /**
+   * Forget the inputs recorded as spent by `txid`, which is proven absent,
+   * handing each back to the transaction it replaced, if any. A claim that
+   * still holds them is left to its own release. Only in the same step as
+   * the check that no call for `txid` ended without a verdict (see
+   * `forgetProvenAbsentBroadcast`).
+   */
+  private forgetAbsentBroadcastNow(chain: ChainType, txid: string): void {
+    for (const [key, spend] of this.recentSpends) {
+      if (spend.chain !== chain) continue
+      if (spend.spender === txid) {
+        this.fallBackRecentSpendNow(key, spend)
+      } else if (spend.previous) {
+        // Nor may it come back later from behind a newer spender.
+        const previous = withoutSpender(spend.previous, txid)
+        if (previous) spend.previous = previous
+        else delete spend.previous
+      }
+    }
+  }
+
+  /** Remember `txid` for `hasUnknownBroadcastOutcome`, as the newest. */
+  private rememberUnknownBroadcastNow(chain: ChainType, txid: string): void {
+    const key = claimKey({ chain, txid })
+    this.unknownBroadcasts.delete(key)
+    this.unknownBroadcasts.set(key, this.recentSpendSequence)
+    for (const oldest of this.unknownBroadcasts.keys()) {
+      if (this.unknownBroadcasts.size <= QBIT_UNKNOWN_BROADCAST_LIMIT) return
+      this.unknownBroadcasts.delete(oldest)
+    }
+  }
+
+  /**
+   * The guard settled `txid`: the network was seen holding it, or a probe
+   * found it gone and its inputs were freed. An unknown outcome remembered
+   * for it no longer stands against a later call's rejection; with
+   * `recordedBy`, only one remembered no later than that point in the
+   * recording order, which the answer can speak for.
+   */
+  private forgetUnknownBroadcastNow(chain: ChainType, txid: string, recordedBy?: number): void {
+    const key = claimKey({ chain, txid })
+    const recordedAt = this.unknownBroadcasts.get(key)
+    if (recordedAt === undefined) return
+    if (recordedBy === undefined || recordedAt <= recordedBy) this.unknownBroadcasts.delete(key)
+  }
+
+  private hasUnknownBroadcastOutcomeNow(chain: ChainType, txid: string): boolean {
+    const key = claimKey({ chain, txid })
+    return this.unknownBroadcasts.has(key) || this.ownership.get(key)?.inconclusive === true
   }
 
   /**
