@@ -1,8 +1,9 @@
 # Dependency security and license review
 
 Review date: 2026-11-02 (advisory refresh of the 2026-09-02 review; evidence
-regenerated the same day after `follow-redirects` moved to 1.16.2, and again
-on 2026-11-03 after `extensionizer` was removed)
+regenerated the same day after `follow-redirects` moved to 1.16.2, again on
+2026-11-03 after `extensionizer` was removed, and again on 2026-11-05 after #37
+removed `bitcore-lib`, `@qbit/tx-helpers` and the cold-wallet QR packages)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -20,18 +21,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `df95c38b9034c128426a85916c2f8937f2191b27` |
+| Audited commit | `0533346b9e994cd8daea396d9dbafd5bd5ec424d` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `fae1b9c2e1e7b5d99644b1cfacba7e3c77c23270db152223370dd2fecd7ff80e` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `1138b9859b8d3aebc0660cee8c180c37f3ebd185bc2ffbacb9521e3c714cb891` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `cbe0cda40fe80aa112e5b6383d60751f13f8e868ea271153d32eadc1f05dd9eb` |
+| `pnpm-lock.yaml` SHA-256 | `6b2149cd37941cfd6dedf42525a9ec4e2e7476851605c823f3980a771b805483` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `f06f4500c39c9fbd7c2fb84192b24a7a515903bb5e7969cb2193e4e580c09934` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `ae4e2d55366dc6fd38642e1eeed25112477ef67a53073d2b7b175ca08f6f9735` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 436 direct declarations, all 208 resolved packages classified as crypto-,
+all 412 direct declarations, all 204 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -78,13 +79,20 @@ lockfile unchanged, records published on October 30 raised the live result
 at `0168a04` on `release/1.0.7` to 58 occurrences, including the high
 `follow-redirects` record `GHSA-mrwp-f3q8-3g9p`, and the dependency-policy
 job failed again. Moving `follow-redirects` to 1.16.2 on 2026-11-02 reduced
-the current result to 57 occurrences: 0 critical, 0 high, 43 moderate, and
-14 low. Replacing `extensionizer` with `chrome.runtime.getURL` in `86edab1`,
-written the same day, removed one shipped-runtime package that had no
-advisory. The evidence was regenerated on 2026-11-03 at `df95c38`, which
-merges that change after the rebase onto the updated `release/1.0.8`, and the
-current result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and
-14 low.
+the result to 57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low.
+Replacing `extensionizer` with `chrome.runtime.getURL` in `86edab1`, written
+the same day, removed one shipped-runtime package that had no advisory. The
+evidence was regenerated on 2026-11-03 at `df95c38`, which merges that change
+after the rebase onto the updated `release/1.0.8`, and the result stayed at
+57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low. On 2026-11-04
+`GHSA-g3hv-75wg-m249` was narrowed to `minimatch` `>=7.0.0 <11.0.1`, so it no
+longer covers `minimatch@3.1.5` or `minimatch@5.1.9`, and with its lockfile
+unchanged `release/1.0.8` at `4415c3a` fell to 55 occurrences: 0 critical,
+0 high, 41 moderate, and 14 low. Removing `bitcore-lib`, `@qbit/tx-helpers`,
+`@zxing/browser`, `@zxing/library` and `@unisat/animated-qr` for #37 took out
+the `bn.js@4.11.8` copy only `bitcore-lib` used, and reduced the current result
+to 54 occurrences: 0 critical, 0 high, 40 moderate, and 14 low. No advisory
+record was added or removed.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -107,7 +115,9 @@ current result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and
 | Audited result `f1017d9` (2026-10-30, Qbit SDK 0.1.1) | 0 | 0 | 36 | 14 | 50 |
 | Advisory-feed drift at unchanged-lock `release/1.0.7` `0168a04` | 0 | 1 | 43 | 14 | 58 |
 | Audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
-| Current audited result `df95c38` (2026-11-03, `extensionizer` removed) | 0 | 0 | 43 | 14 | 57 |
+| Audited result `df95c38` (2026-11-03, `extensionizer` removed) | 0 | 0 | 43 | 14 | 57 |
+| Advisory-feed drift at unchanged-lock `release/1.0.8` `4415c3a` (2026-11-04) | 0 | 0 | 41 | 14 | 55 |
+| Current audited result `0533346` (2026-11-05, #37 package removals) | 0 | 0 | 40 | 14 | 54 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 44 advisory records representing 39
@@ -181,24 +191,25 @@ change is that check. Only `nx` 22.7.9, which `lerna` runs, and the `axios`
 1.20.0 it depends on load the package, all in Node tooling, and the packaged
 extension is byte-identical. Two new moderate records remain visible:
 `glob` `GHSA-3g3m-2fjr-6pw4`, patched only in 14.0.2, and `minimatch`
-`GHSA-g3hv-75wg-m249`, patched only in 11.0.1. Every installed copy is on an
-earlier major line (`glob` 10.5.0, 11.1.0 and 13.0.6; `minimatch` 3.1.5, 5.1.9,
-9.0.9 and 10.2.6), several of them held by root overrides, so clearing them
-needs major-version moves rather than an override bump.
+`GHSA-g3hv-75wg-m249`, patched only in 11.0.1. Every copy installed at that
+refresh was on an earlier major line (`glob` 10.5.0, 11.1.0 and 13.0.6;
+`minimatch` 3.1.5, 5.1.9, 9.0.9 and 10.2.6), several of them held by root
+overrides, so clearing them needs major-version moves rather than an override
+bump.
 
 ## Package inventory
 
-The 20 workspaces contain 2,386 registry lock entries and 436 direct dependency
+The 19 workspaces contain 2,363 registry lock entries and 412 direct dependency
 declarations. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 167 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 151 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
-| Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
-| Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
+| Test-only tooling | 34 | Unit, browser, fixture, and conformance test dependencies |
+| Development/quality tooling | 125 | Lint, formatting, repository tooling, and non-release developer commands |
+| Workspace contract | 23 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
 workspace-link declaration does not establish runtime reachability on its own.
@@ -211,8 +222,8 @@ package may also serialize attacker-controlled data.
 
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
-| Crypto | 63 |
-| Serialization | 96 |
+| Crypto | 60 |
+| Serialization | 95 |
 | Networking | 44 |
 | Archive/compression | 8 |
 
@@ -229,13 +240,18 @@ The final audit has the following direct advisory records:
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths |
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
-Across all advisory dependency paths, the inventory records 119 reachable
-path occurrences, 1,637 extension-build occurrences, 2,149 test-only
-occurrences, and 1,408 development-tooling occurrences. The `glob` and
-`minimatch` records published on 2026-10-30 account for the whole increase
+Across all advisory dependency paths, the inventory records 70 reachable
+path occurrences, 1,621 extension-build occurrences, 1,861 test-only
+occurrences, and 974 development-tooling occurrences. The #37 removals took
+these down from 118, 1,621, 1,871 and 1,024: the `bn.js`, `elliptic` and `uuid`
+paths that ran through the removed packages, and the tooling paths of the
+deleted `@qbit/tx-helpers` workspace. The narrowed `minimatch` record had
+already taken them down from 119, 1,637, 2,149 and 1,408 by dropping every path
+to `minimatch@3.1.5` and `minimatch@5.1.9`. Before that, the `glob` and
+`minimatch` records published on 2026-10-30 accounted for the whole increase
 over the previous inventory (118, 1,613, 1,862 and 885); the one new reachable
-occurrence is the hoisted root copy of `minimatch@3.1.5`, whose delivery the
-generator could not determine and so classifies conservatively as reachable.
+occurrence was the hoisted root copy of `minimatch@3.1.5`, whose delivery the
+generator could not determine and so classified conservatively as reachable.
 Moving `patch-package`
 from `@qbit/keyring-service` dependencies to devDependencies (#289) took its
 closure out of the production closure and removed 10 reachable path
@@ -252,8 +268,7 @@ or reachability classification.
 
 Moderate and low findings remain visible and fail neither the current policy
 nor this release baseline. They include reachable records in Sentry,
-transitive packages such as `bn.js`, `react-router`, `uuid`, and the
-conservatively classified root `minimatch@3.1.5` path, the exact
+transitive packages such as `bn.js`, `react-router` and `uuid`, the exact
 direct and transitive `yaml` parser closure, and the reviewed low-severity
 `elliptic` record. They remain modernization work;
 their lower severity is not evidence of unreachability.
@@ -328,9 +343,9 @@ the regenerated evidence, and the language-audit integration into their own
 commits. The 2026-10-23 refresh committed the dependency change as
 `64309e97`; the regenerated evidence and this review follow in a separate
 commit. The same applies to the `patch-package` move in `c702dffc`, the
-2026-11-02 `follow-redirects` update in `ea3fee07`, and the `extensionizer`
+2026-11-02 `follow-redirects` update in `ea3fee07`, the `extensionizer`
 removal in `86edab14`, which the audited merge `df95c38b` integrates with the
-rest of the Manifest V2 removal.
+rest of the Manifest V2 removal, and the #37 package removals in `0533346b`.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -392,6 +407,7 @@ rest of the Manifest V2 removal.
 | `c702dffc` | Move `patch-package` to `@qbit/keyring-service` devDependencies and mark the wallet packages private (#289) | Classified `patch-package` as development tooling; the live audit stayed at zero critical/high findings |
 | `ea3fee07` | Pin the patched `follow-redirects@1.16.2` and review its license identity | Restored zero critical/high findings on the 2026-11-02 live audit with no exception in force |
 | `86edab14` | Replace `extensionizer` with `chrome.runtime.getURL` in the content script and drop the dependency | Removed one shipped-runtime declaration and its license identity; the live audit stayed at zero critical/high findings |
+| `0533346b` | Remove `bitcore-lib` and its patch, `@qbit/tx-helpers`, `@zxing/browser`, `@zxing/library` and `@unisat/animated-qr` with the code that used them (#37) | Lockfile entries only removed; zero critical/high findings on the 2026-11-05 live audit with no exception in force |
 
 ## Lint and dependency policy jobs
 
@@ -437,9 +453,9 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,386 integrity-pinned registry entries, 485
+The audited policy checked 2,363 integrity-pinned registry entries, 461
 dependency specifiers, 33 Action references, one tracked package-manager
-configuration file, 269 executable package/workflow commands, and 2,271 exact
+configuration file, 261 executable package/workflow commands, and 2,248 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -453,10 +469,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,271 distinct identities
+version, and normalized license expression for all 2,248 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,386 peer variants must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,363 peer variants must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -569,6 +585,15 @@ dependency removal changes only `content-script.js`, which no longer bundles
 deterministic-packaging drill (`build:repro:extension --
 --allow-toolchain-mismatch`) built two identical ZIPs, and the 11 Playwright
 phishing scenarios passed locally; the canonical runs remain branch CI gates.
+
+The #37 package removals (`0533346b`) ran on the same host, now on Node
+24.22.2, so they are a non-canonical local drill as well. The frozen install,
+root lint, workspace builds, typecheck, workspace unit tests, the security
+policy suite and the extension build passed, and the license baseline dropped
+the 23 identities whose packages left the lockfile without adding any. The
+built extension no longer contains `bitcore-lib` or `@qbit/tx-helpers` code, so
+its ZIP differs from the base by design. Playwright, regtest integration and
+qbit Core conformance remain branch CI gates.
 
 ## Limitations and ongoing ownership
 
