@@ -852,37 +852,40 @@ describe('WalletController keyring recovery', () => {
     expect(keyrings[1]!.accounts[0]!.pubkey).toBe(validCompressedPubkey)
   })
 
-  it('lists a keyring of an unregistered type as an Unsupported Wallet nothing can select', async () => {
-    const wallet = new WalletController()
-    vi.mocked(preferenceService.getCurrentKeyringIndex).mockReturnValue(0)
-    vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue([
-      {
-        type: 'Other Key Type',
-        accounts: [],
-        keyring: {},
-        addressType: AddressType.P2WPKH,
+  it.each(['Other Key Type', 'HD Key Tree', 'Simple Key Pair'])(
+    'lists a %s keyring as an Unsupported Wallet nothing can select',
+    async keyringType => {
+      const wallet = new WalletController()
+      vi.mocked(preferenceService.getCurrentKeyringIndex).mockReturnValue(0)
+      vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue([
+        {
+          type: keyringType,
+          accounts: [],
+          keyring: {},
+          addressType: AddressType.P2WPKH,
+          index: 0,
+        },
+        createDisplayedKeyring({ index: 1, pubkey: validCompressedPubkey }),
+      ] as any)
+
+      const keyrings = await wallet.getKeyrings()
+
+      expect(keyrings).toHaveLength(2)
+      expect(keyrings[0]).toMatchObject({
         index: 0,
-      },
-      createDisplayedKeyring({ index: 1, pubkey: validCompressedPubkey }),
-    ] as any)
+        type: keyringType,
+        alianName: 'Unsupported Wallet #1',
+        isCorrupted: true,
+        corruptedReason: 'No account',
+        accounts: [],
+      })
+      await expect(wallet.changeKeyring(keyrings[0]!)).rejects.toThrow('Keyring is corrupted')
 
-    const keyrings = await wallet.getKeyrings()
-
-    expect(keyrings).toHaveLength(2)
-    expect(keyrings[0]).toMatchObject({
-      index: 0,
-      type: 'Other Key Type',
-      alianName: 'Unsupported Wallet #1',
-      isCorrupted: true,
-      corruptedReason: 'No account',
-      accounts: [],
-    })
-    await expect(wallet.changeKeyring(keyrings[0]!)).rejects.toThrow('Keyring is corrupted')
-
-    const currentKeyring = await wallet.getCurrentKeyring()
-    expect(currentKeyring?.index).toBe(1)
-    expect(preferenceService.setCurrentKeyringIndex).toHaveBeenCalledWith(1)
-  })
+      const currentKeyring = await wallet.getCurrentKeyring()
+      expect(currentKeyring?.index).toBe(1)
+      expect(preferenceService.setCurrentKeyringIndex).toHaveBeenCalledWith(1)
+    }
+  )
 
   it('falls back to the first valid keyring when the current keyring is invalid', async () => {
     const wallet = new WalletController()

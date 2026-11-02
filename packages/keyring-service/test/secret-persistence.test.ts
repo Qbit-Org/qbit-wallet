@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { BrowserPassworderEncryptor } from '../src/encryptor/browser-encryptor'
 import { KeyringService } from '../src/keyring-service'
@@ -23,6 +24,11 @@ class RecordingStorage {
   }
 }
 
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
+
 describe('vault secret persistence boundary', () => {
   it('never sends a plaintext password or mnemonic to storage or logs', async () => {
     const storage = new RecordingStorage()
@@ -41,13 +47,7 @@ describe('vault secret persistence boundary', () => {
     })
 
     await service.boot(password)
-    await service.createKeyringWithMnemonics(
-      mnemonic,
-      "m/84'/0'/0'/0",
-      '',
-      AddressType.P2WPKH,
-      1
-    )
+    await service.createKeyringWithMnemonics(mnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1)
     await service.setLocked()
     await service.submitPassword(password)
 

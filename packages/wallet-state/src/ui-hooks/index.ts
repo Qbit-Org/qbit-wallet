@@ -12,7 +12,6 @@ export { useQbitConsolidationScreenLogic } from './useQbitConsolidationScreenLog
 export { useCreateWalletLogicImportWordsStep } from './useCreateWalletLogicImportWordsStep'
 
 export { useExportMnemonicsScreenLogic } from './useExportMnemonicsScreenLogic'
-export { useExportPrivateKeyScreenLogic } from './useExportPrivateKeyScreenLogic'
 
 export { useEditContactScreenLogic } from './useEditContactScreenLogic'
 

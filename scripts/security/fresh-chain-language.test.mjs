@@ -92,17 +92,11 @@ const reviewedResiduals = [
     matches: path =>
       [
         'test/setup.ts',
-        'apps/extension/src/shared/animatedQr.ts',
-        'packages/keyring-service/src/keyrings/hd-keyring.ts',
         'packages/keyring-service/src/keyrings/qbit-hd-keyring.ts',
-        'packages/keyring-service/src/keyrings/simple-keyring.ts',
         'packages/keyring-service/tsup.config.ts',
         'packages/wallet-background/tsup.config.ts',
         'packages/wallet-core/src/transaction-core.ts',
         'packages/wallet-core/src/network/index.ts',
-        'packages/wallet-core/src/message/bip322-simple.ts',
-        'packages/wallet-core/src/message/deterministic-ecdsa.ts',
-        'packages/wallet-core/src/message/ecdsa.ts',
         'packages/wallet-core/tsup.config.ts',
       ].includes(path),
     reason: 'external library API or byte-exact signing constant',

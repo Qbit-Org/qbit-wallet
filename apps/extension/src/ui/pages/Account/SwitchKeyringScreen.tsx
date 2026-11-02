@@ -26,7 +26,6 @@ interface MyItemProps {
 }
 
 const ITEM_HEIGHT = 64;
-const PRIVATE_KEY_EXPORTABLE_KEYRING_TYPES = [KeyringType.HdKeyring, KeyringType.SimpleKeyring];
 
 export function MyItem({ keyring, autoNav }: MyItemProps) {
   const navigate = useNavigate();
@@ -40,8 +39,6 @@ export function MyItem({ keyring, autoNav }: MyItemProps) {
   const dispatch = useAppDispatch();
 
   const tools = useTools();
-
-  const canExportPrivateKey = PRIVATE_KEY_EXPORTABLE_KEYRING_TYPES.includes(keyring.type as KeyringType);
 
   const displayAddress = useMemo(() => {
     if (!keyring?.accounts[0]) {
@@ -181,7 +178,7 @@ export function MyItem({ keyring, autoNav }: MyItemProps) {
                 <Text text={t('edit_name')} size="sm" />
               </Row>
 
-              {(keyring.type === KeyringType.HdKeyring || keyring.type === KeyringType.QbitHdKeyring) && (
+              {keyring.type === KeyringType.QbitHdKeyring && (
                 <Row
                   onClick={() => {
                     navigate('ExportMnemonicsScreen', { keyring });
@@ -189,16 +186,6 @@ export function MyItem({ keyring, autoNav }: MyItemProps) {
                 >
                   <Key size="1em" />
                   <Text text={t('show_secret_recovery_phrase')} size="sm" />
-                </Row>
-              )}
-              {canExportPrivateKey && (
-                <Row
-                  onClick={() => {
-                    navigate('ExportPrivateKeyScreen', { account: keyring.accounts[0] });
-                  }}
-                >
-                  <Key size="1em" />
-                  <Text text={t('export_private_key')} size="sm" />
                 </Row>
               )}
               <Row

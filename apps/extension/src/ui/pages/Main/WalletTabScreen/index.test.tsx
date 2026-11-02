@@ -439,7 +439,7 @@ describe('WalletTabScreen lock wallet button', () => {
     vi.mocked(useCurrentKeyring).mockReturnValue({
       key: 'keyring-1',
       index: 1,
-      type: KeyringType.HdKeyring,
+      type: KeyringType.ReadonlyKeyring,
       alianName: 'Main wallet',
       accounts: [{ address: 'qbrt1qplain', pubkey: 'pubkey-1' }]
     } as any);
@@ -519,7 +519,7 @@ describe('WalletTabScreen version notice', () => {
     vi.mocked(useCurrentKeyring).mockReturnValue({
       key: 'keyring-1',
       index: 1,
-      type: KeyringType.HdKeyring,
+      type: KeyringType.ReadonlyKeyring,
       alianName: 'Main wallet',
       accounts: [{ address: 'qbrt1qplain', pubkey: 'pubkey-1' }]
     } as any);

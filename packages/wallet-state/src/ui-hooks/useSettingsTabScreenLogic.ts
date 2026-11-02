@@ -1,4 +1,3 @@
-import { KeyringType } from '@qbit/keyring-service/types'
 import {
   ADDRESS_TYPES,
   AccountSignMethod,
@@ -93,7 +92,6 @@ export function useSettingsTabScreenLogic() {
       ADDRESS_TYPES.find(v => v.value === currentKeyring.addressType) || ADDRESS_TYPES[0]!
     const hdPath = currentKeyring.hdPath || item.hdPath
     if (
-      currentKeyring.type === KeyringType.SimpleKeyring ||
       currentKeyringCapabilities.signMethod === AccountSignMethod.External ||
       !currentKeyringCapabilities.canChangeAddressType
     ) {

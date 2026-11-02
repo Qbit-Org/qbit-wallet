@@ -15,7 +15,6 @@ export type RouteParamList = {
   }
   CreatePasswordScreen: {
     isNewAccount?: boolean
-    fromColdWallet?: boolean
   }
 
   MainScreen: undefined
@@ -42,17 +41,11 @@ export type RouteParamList = {
   }
   CreateWatchWalletScreen: undefined
   CreateReadonlyWalletScreen: undefined
-  CreateColdWalletScreen: {
-    fromUnlock?: boolean
-  }
 
   EditWalletNameScreen: {
     keyring: WalletKeyring
   }
   ExportMnemonicsScreen: { keyring: WalletKeyring }
-  ExportPrivateKeyScreen: {
-    account: Account
-  }
   SwitchAccountScreen: undefined
   ReceiveScreen: undefined
   HistoryScreen: undefined

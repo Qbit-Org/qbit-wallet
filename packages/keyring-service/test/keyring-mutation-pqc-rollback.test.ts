@@ -3,13 +3,12 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService } from '../src/keyring-service'
-import { HdKeyring } from '../src/keyrings/hd-keyring'
+import { ReadonlyKeyring } from '../src/keyrings/readonly-keyring'
 import type { Encryptor } from '../src/types'
 
 const sampleMnemonic =
   'finish oppose decorate face calm tragic certain desk hour urge dinosaur mango'
-const hdMnemonic =
-  'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+const readonlyPubkey = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 const secondQbitMnemonic =
   'legal winner thank year wave sausage worth useful legal winner thank yellow'
 const QBIT_TESTNET_PATH = "m/87'/1'/0'/0"
@@ -191,32 +190,19 @@ interface MutatorCase {
   keepsMutation?: boolean
 }
 
-async function addHdKeyring(service: KeyringService): Promise<void> {
-  await service.createKeyringWithMnemonics(hdMnemonic, "m/84'/0'/0'/0", '', AddressType.P2WPKH, 1)
+async function addReadonlyKeyring(service: KeyringService): Promise<void> {
+  await service.importPublicKeyOnly(readonlyPubkey, AddressType.P2WPKH)
 }
 
 const mutators: MutatorCase[] = [
   {
     name: 'addKeyring',
-    start: service =>
-      service.addKeyring(
-        new HdKeyring({ mnemonic: hdMnemonic, activeIndexes: [0], hdPath: "m/84'/0'/0'/0" }) as any,
-        AddressType.P2WPKH
-      ),
+    start: service => service.addKeyring(new ReadonlyKeyring([readonlyPubkey]), AddressType.P2WPKH),
     applied: state => vaultKeyrings(state).length > 1,
   },
   {
     name: 'changeAddressType',
-    setup: addHdKeyring,
-    start: service => service.changeAddressType(1, AddressType.P2TR),
-    applied: state => vaultKeyrings(state)[1].addressType === AddressType.P2TR,
-  },
-  {
-    name: 'changeAddressType when the HD path cannot be restored',
-    setup: async service => {
-      await addHdKeyring(service)
-      failNextHdPathRestore(service.keyrings[1])
-    },
+    setup: addReadonlyKeyring,
     start: service => service.changeAddressType(1, AddressType.P2TR),
     applied: state => vaultKeyrings(state)[1].addressType === AddressType.P2TR,
   },
@@ -270,7 +256,7 @@ const mutators: MutatorCase[] = [
   },
   {
     name: 'removeKeyring',
-    setup: addHdKeyring,
+    setup: addReadonlyKeyring,
     start: service => service.removeKeyring(1),
     applied: state => vaultKeyrings(state)[1].type === 'Empty',
   },
@@ -408,7 +394,7 @@ describe('keyring mutator rollback vs PQC counter persistence', () => {
 
   it('does not restore a removed keyring into the keyrings a lock replaced', async () => {
     const { service } = await createService()
-    await addHdKeyring(service)
+    await addReadonlyKeyring(service)
 
     const park = parkNextPersist(service)
     const pendingRemoval = service.removeKeyring(1)
@@ -425,7 +411,7 @@ describe('keyring mutator rollback vs PQC counter persistence', () => {
     expect(service.addressTypes).toEqual([])
     await service.submitPassword('password')
     expect(service.keyrings).toHaveLength(2)
-    expect(service.keyrings[1]!.type).toBe('HD Key Tree')
+    expect(service.keyrings[1]!.type).toBe('Readonly')
   })
 
   it('rejects a keyring index that holds no keyring without touching the live list', async () => {
@@ -446,56 +432,4 @@ describe('keyring mutator rollback vs PQC counter persistence', () => {
     ).resolves.toMatchObject({ newCounter: 1 })
   })
 
-  it('does not lock a session unlocked during the fail-closed address-type rollback', async () => {
-    const { service, storage, encryptor } = await createService()
-    await addHdKeyring(service)
-    failNextHdPathRestore(service.keyrings[1])
-
-    // The change's own write fails, the HD-path restore fails, and the
-    // rollback write that follows is held.
-    encryptor.failNextVaultEncryption()
-    const rollbackWrite = storage.blockNextKeyringStateWrite()
-    const pendingChange = service.changeAddressType(1, AddressType.P2TR)
-    const changeRejection = expect(pendingChange).rejects.toThrow('forced vault encryption failure')
-    await rollbackWrite.started
-
-    // The user locks and unlocks again while the rollback write is pending.
-    await service.setLocked()
-    const pendingUnlock = service.submitPassword('password')
-    rollbackWrite.release()
-    await changeRejection
-    await expect(pendingUnlock).resolves.toMatchObject({ isUnlocked: true })
-    await flushMicrotasks()
-
-    // The fail-closed lockdown belonged to the discarded session; the new one
-    // stays unlocked on the rolled-back vault.
-    expect(service.password).toBe('password')
-    expect(service.memStore.getState().isUnlocked).toBe(true)
-    expect(service.keyrings).toHaveLength(2)
-    expect(service.addressTypes[1]).toBe(AddressType.P2WPKH)
-    expect(vaultKeyrings(storage.values.get('keyringState'))[1].addressType).toBe(
-      AddressType.P2WPKH
-    )
-  })
-
-  it('does not change the address type when the wallet locks while the rollback copy is built', async () => {
-    const { service, storage } = await createService()
-    await addHdKeyring(service)
-    const durableBefore = structuredClone(storage.values.get('keyringState'))
-    const restoreKeyring = service._restoreKeyring
-    vi.spyOn(service, '_restoreKeyring').mockImplementationOnce(async serialized => {
-      await service.setLocked()
-      return restoreKeyring(serialized)
-    })
-
-    await expect(service.changeAddressType(1, AddressType.P2TR)).rejects.toThrow(
-      'you_need_to_unlock_wallet_first'
-    )
-
-    expect(service.keyrings).toEqual([])
-    expect(service.addressTypes).toEqual([])
-    expect(storage.values.get('keyringState')).toEqual(durableBefore)
-    await service.submitPassword('password')
-    expect(service.addressTypes[1]).toBe(AddressType.P2WPKH)
-  })
 })

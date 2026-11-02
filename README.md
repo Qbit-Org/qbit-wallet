@@ -21,7 +21,6 @@ packages/
 ├── permission-service     # Connected-site permissions
 ├── phishing-detect        # Bundled site-safety policy
 ├── preference-service     # Wallet preferences
-├── tx-helpers             # Transaction construction helpers
 ├── wallet-api             # Qbit API client
 ├── wallet-background      # Extension background runtime
 ├── wallet-connect         # Provider connection utilities

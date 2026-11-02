@@ -64,7 +64,6 @@ describe('AddKeyringScreen hardware-wallet gating', () => {
     expect(screen.queryByText('hardware_wallet_not_supported')).toBeNull();
     expect(screen.queryByText('create_cold_wallet')).toBeNull();
     expect(screen.queryByText('cold_wallet')).toBeNull();
-    expect(navigate).not.toHaveBeenCalledWith('CreateColdWalletScreen', expect.anything());
   });
 
   it('renders no hardware- or cold-wallet section in developer mode', () => {

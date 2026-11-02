@@ -39,12 +39,16 @@ test('wallet signing does not route through transitive elliptic or Bitcore ECDSA
   }
   assert.deepEqual(violations, [])
 
-  const simpleKeyring = readFileSync(
-    join(repoRoot, 'packages/keyring-service/src/keyrings/simple-keyring.ts'),
-    'utf8'
+  // No keyring signs with a secp256k1 private key: Qbit keyrings sign P2MR
+  // with SLH-DSA, and the readonly, watch and cold keyrings hold no key.
+  const keyringSigners = productionFiles.filter(
+    file =>
+      file.startsWith('packages/keyring-service/src/') &&
+      /\b(?:eccPair|ECPair)\.from(?:PrivateKey|WIF)\b|\becc\.sign(?:Schnorr)?\s*\(|\.sign(?:Input|AllInputs|Schnorr)\s*\(|\bsignMessageOfDeterministicECDSA\b/.test(
+        readFileSync(join(repoRoot, file), 'utf8')
+      )
   )
-  assert.match(simpleKeyring, /eccManager\.eccPair\.fromPrivateKey/)
-  assert.match(simpleKeyring, /signMessageOfDeterministicECDSA/)
+  assert.deepEqual(keyringSigners, [])
 })
 
 test('production log calls do not directly interpolate custody secrets', () => {

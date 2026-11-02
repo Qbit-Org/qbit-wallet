@@ -51,14 +51,10 @@
   "dependencies": {
     "@qbit-oss/protocol": "0.1.1",
     "@bitcoinerlab/secp256k1": "^1.0.5",
-    "@noble/hashes": "^1.1.5",
-    "@noble/secp256k1": "^1.7.1",
-    "@qbit/wallet-shared": "workspace:*",
     "@qbit/wallet-types": "workspace:*",
     "bitcoinjs-lib": "^6.1.5",
     "ecpair": "^2.1.0",
-    "tiny-secp256k1": "^2.2.3",
-    "varuint-bitcoin": "^1.1.2"
+    "tiny-secp256k1": "^2.2.3"
   },
   "devDependencies": {
     "@types/node": "^20.8.0",

@@ -7,7 +7,7 @@ export {
 } from './keyring-service'
 
 // Keyring implementations
-export { SimpleKeyring, HdKeyring, ColdWalletKeyring } from './keyrings'
+export { ColdWalletKeyring } from './keyrings'
 export { PQC_WARNING_SIGNATURE_THRESHOLD } from './keyrings'
 
 // encryptor

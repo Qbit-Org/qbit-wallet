@@ -63,7 +63,6 @@ import {
   QBIT_EXPLORER_MAX_BODY_BYTES,
 } from '../src/utils/qbit-explorer-fetch'
 
-const sendQbitMock = vi.hoisted(() => vi.fn())
 // Every explorer client the wallet builds carries its transport budgets (#353)
 // and the response size limit its fetch buffers to.
 const EXPLORER_BUDGETS = {
@@ -71,7 +70,6 @@ const EXPLORER_BUDGETS = {
   maxResponseBytes: QBIT_EXPLORER_MAX_BODY_BYTES,
   fetchFn: expect.any(Function),
 }
-const sendAllQbitMock = vi.hoisted(() => vi.fn())
 const broadcastTxMock = vi.hoisted(() => vi.fn())
 const getFeeTiersMock = vi.hoisted(() => vi.fn())
 const getTxMock = vi.hoisted(() => vi.fn())
@@ -117,15 +115,6 @@ const mempoolQbitClientMock = vi.hoisted(() =>
     getTxStatus: getTxStatusMock,
   }))
 )
-
-vi.mock('@qbit/tx-helpers', async importOriginal => {
-  const actual = await importOriginal<typeof import('@qbit/tx-helpers')>()
-  return {
-    ...actual,
-    sendQbit: sendQbitMock,
-    sendAllQbit: sendAllQbitMock,
-  }
-})
 
 vi.mock('@qbit-oss/api', async importOriginal => {
   const actual = await importOriginal<typeof import('@qbit-oss/api')>()
@@ -700,7 +689,6 @@ describe('WalletController qbit P2MR send path', () => {
       ],
     })
 
-    expect(sendQbitMock).not.toHaveBeenCalled()
     expect(result.toSignInputs).toEqual([{ index: 0, publicKey: account.pubkey }])
     expect(result.qbitP2mrSigningKeys).toEqual([
       {
@@ -3669,15 +3657,14 @@ describe('WalletController qbit P2MR send path', () => {
     expect(keyringService.signP2mrMessageWithCounter).not.toHaveBeenCalled()
   })
 
-  it.each([SignMessageType.ECDSA, SignMessageType.BIP322_SIMPLE])(
-    'refuses to sign a %s message',
-    async type => {
-      const wallet = new WalletController()
-      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
-        ...p2mrAccount(),
-        type: KeyringType.HdKeyring,
-        p2mr: undefined,
-      } as any)
+  it.each(['ecdsa', 'bip322-simple'])('refuses to sign a %s message', async messageType => {
+    const type = messageType as SignMessageType
+    const wallet = new WalletController()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
+      ...p2mrAccount(),
+      type: KeyringType.ReadonlyKeyring,
+      p2mr: undefined,
+    } as any)
 
       await expect(wallet.signMessage({ text: 'hello', type })).rejects.toThrow('not_supported')
       expect(keyringService.signP2mrMessageWithCounter).not.toHaveBeenCalled()
@@ -3688,7 +3675,7 @@ describe('WalletController qbit P2MR send path', () => {
     const wallet = new WalletController()
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
       ...p2mrAccount(),
-      type: KeyringType.HdKeyring,
+      type: KeyringType.ReadonlyKeyring,
       p2mr: undefined,
     } as any)
 
@@ -3704,8 +3691,10 @@ describe('WalletController qbit P2MR send path', () => {
     expect(
       canCreateQbitSendRequest({ type: SharedKeyringType.WatchAddressKeyring, p2mr: {} })
     ).toBe(false)
-    expect(canCreateQbitSendRequest({ type: SharedKeyringType.HdKeyring })).toBe(false)
-    expect(canCreateQbitSendRequest({ type: SharedKeyringType.HdKeyring, p2mr: {} })).toBe(true)
+    expect(canCreateQbitSendRequest({ type: SharedKeyringType.ReadonlyKeyring })).toBe(false)
+    expect(canCreateQbitSendRequest({ type: SharedKeyringType.ReadonlyKeyring, p2mr: {} })).toBe(
+      true
+    )
     expect(canCreateQbitSendRequest(null)).toBe(false)
   })
 
@@ -4533,7 +4522,6 @@ describe('WalletController qbit P2MR send path', () => {
       ],
     })
 
-    expect(sendAllQbitMock).not.toHaveBeenCalled()
     expect(result.toSignInputs).toEqual([
       { index: 0, publicKey: account.pubkey },
       { index: 1, publicKey: account.pubkey },

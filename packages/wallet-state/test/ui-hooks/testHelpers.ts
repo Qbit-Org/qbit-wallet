@@ -18,7 +18,8 @@ import { NavigationContext, type NavigationContextType } from '../../src/context
 import { ToolsContext, type ToolsContextType } from '../../src/context/ToolsContext'
 import { WalletProvider } from '../../src/context/WalletContext'
 
-export function createTestStore() {
+/** `accountType` keys the history: a Qbit account's by its public key, any other by its address. */
+export function createTestStore(accountType: KeyringType = KeyringType.QbitHdKeyring) {
   const store = configureStore({
     reducer: {
       accounts,
@@ -31,7 +32,7 @@ export function createTestStore() {
   })
 
   const currentAccount = {
-    type: KeyringType.HdKeyring,
+    type: accountType,
     address: 'qb1ztestaccount',
     brandName: 'Qbit',
     alianName: 'Account 1',
@@ -48,7 +49,7 @@ export function createTestStore() {
     keyringsActions.setCurrent({
       key: 'keyring-1',
       index: 0,
-      type: KeyringType.HdKeyring,
+      type: accountType,
       addressType: AddressType.P2TR,
       accounts: [currentAccount],
       alianName: 'HD Wallet #1',
@@ -124,13 +125,15 @@ export function createHookTestHarness({
   routeState = {},
   navigation = createNavigationMock(routeState),
   tools = createToolsMock(),
+  accountType,
 }: {
   wallet?: ReturnType<typeof createWalletMock>
   routeState?: any
   navigation?: NavigationContextType
   tools?: ToolsContextType
+  accountType?: KeyringType
 } = {}) {
-  const store = createTestStore()
+  const store = createTestStore(accountType)
   const approval = {
     getApproval: vi.fn().mockResolvedValue(undefined),
     resolveApproval: vi.fn().mockResolvedValue(undefined),

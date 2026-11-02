@@ -125,9 +125,6 @@
   "theme_system": {
     "message": "システム"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. 署名後、このウォレットで署名済みQRコードをスキャンしてください。"
-  },
   "agreement_text": {
     "message": "確認する"
   },
@@ -473,9 +470,6 @@
   "cold_wallet_signed_successfully": {
     "message": "コールドウォレットが正常にトランザクションに署名しました。取引詳細を確認してブロードキャストをクリックしてください。"
   },
-  "cold_wallet_transaction_signing": {
-    "message": "コールドウォレット取引署名"
-  },
   "collect_your_personal_information": {
     "message": "個人情報を収集する"
   },
@@ -493,9 +487,6 @@
   },
   "coming_soon": {
     "message": "近日公開"
-  },
-  "completed": {
-    "message": "完了"
   },
   "confirm": {
     "message": "確認"
@@ -746,9 +737,6 @@
   "expand_view": {
     "message": "拡大表示"
   },
-  "export_private_key": {
-    "message": "秘密鍵をエクスポート"
-  },
   "failed_to_delete_contact": {
     "message": "連絡先の削除に失敗しました"
   },
@@ -881,12 +869,6 @@
   "gas_limit_explanation_4": {
     "message": "• 推奨値は通常十分です"
   },
-  "generating": {
-    "message": "生成中..."
-  },
-  "generating_qr_code": {
-    "message": "QRコードを生成中..."
-  },
   "genesis_transaction": {
     "message": "ジェネシストランザクション"
   },
@@ -910,9 +892,6 @@
   },
   "hello": {
     "message": "こんにちは"
-  },
-  "hex_private_key": {
-    "message": "Hex秘密鍵:"
   },
   "high": {
     "message": "高"
@@ -974,9 +953,6 @@
   "i_am_aware_of_the_risks": {
     "message": "リスクを承知しています"
   },
-  "i_have_signed_scan_result": {
-    "message": "署名完了、結果をスキャン"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "シークレットリカバリーフレーズを保存しました"
   },
@@ -986,20 +962,11 @@
   "id": {
     "message": "ID"
   },
-  "if_you_ever_change_browsers_or_move_computers_you_": {
-    "message": "ブラウザを変更したり、コンピューターを移動したりする場合、このアカウントにアクセスするにはこの秘密鍵が必要です。安全で秘密の場所に保存してください"
-  },
   "if_you_insist_on_continuing_proceed_at_your_own_risk": {
     "message": "続行を主張する場合、自己責任で進めてください："
   },
-  "if_you_lose_your_private_key_your_assets_will_be_g": {
-    "message": "秘密鍵を紛失すると、資産は失われます！"
-  },
   "if_you_lose_your_secret_recovery_phrase_your_asset": {
     "message": "シークレットリカバリーフレーズを紛失すると、資産は失われます！"
-  },
-  "if_you_share_the_private_key_to_others_your_assets": {
-    "message": "秘密鍵を他人に共有すると、資産が盗まれます！"
   },
   "if_you_share_the_secret_recovery_phrase_to_others_": {
     "message": "シークレットリカバリーフレーズを他人に共有すると、資産が盗まれます！"
@@ -1021,9 +988,6 @@
   },
   "inputs": {
     "message": "インプット"
-  },
-  "instructions": {
-    "message": "手順："
   },
   "insufficient_balance": {
     "message": "残高不足です。"
@@ -1247,60 +1211,6 @@
   "remove_liquidity": {
     "message": "Remove Liquidity"
   },
-  "msg_already_signed": {
-    "message": "このメッセージは既に署名されています"
-  },
-  "msg_content": {
-    "message": "メッセージ内容"
-  },
-  "msg_detail": {
-    "message": "メッセージ詳細"
-  },
-  "msg_generate_qr": {
-    "message": "QRコード生成"
-  },
-  "msg_generate_sign": {
-    "message": "署名生成"
-  },
-  "msg_generating_qr": {
-    "message": "QRコード生成中..."
-  },
-  "msg_message": {
-    "message": "メッセージ"
-  },
-  "msg_origin": {
-    "message": "送信元: "
-  },
-  "msg_pending": {
-    "message": "署名待ち"
-  },
-  "msg_scan_qr_code": {
-    "message": "コールドウォレットでQRコードをスキャンしてください"
-  },
-  "msg_scan_result": {
-    "message": "スキャン結果"
-  },
-  "msg_scan_sign": {
-    "message": "署名スキャン"
-  },
-  "msg_sign": {
-    "message": "メッセージ署名"
-  },
-  "msg_sign_type": {
-    "message": "署名タイプ"
-  },
-  "msg_signed": {
-    "message": "署名済み"
-  },
-  "msg_start_sign": {
-    "message": "署名開始"
-  },
-  "msg_status": {
-    "message": "ステータス"
-  },
-  "msg_waiting_sign": {
-    "message": "署名待機中"
-  },
   "multiple_assets_risk_description": {
     "message": "このトランザクションには複数の資産が含まれています。続行する前に、この操作の影響を理解していることを確認してください。"
   },
@@ -1490,9 +1400,6 @@
   "open_as_side_bar": {
     "message": "サイドバーを開く"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. コールドウォレットアプリまたはデバイスを開いてください。"
-  },
   "other_wallet": {
     "message": "他のウォレット"
   },
@@ -1610,14 +1517,8 @@
   "preview": {
     "message": "プレビュー"
   },
-  "previous": {
-    "message": "前へ"
-  },
   "privacy_policy": {
     "message": "プライバシーポリシー"
-  },
-  "private_key_is_only_stored_in_your_browser_it_is_y": {
-    "message": "秘密鍵を安全に保管するのはあなたの責任です！"
   },
   "processing_signature": {
     "message": "署名を処理中..."
@@ -1748,9 +1649,6 @@
   "retry_in_10s": {
     "message": "10秒後に再試行"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. コールドウォレットで取引詳細を確認し、承認してください。"
-  },
   "satsvb": {
     "message": "bits/vB"
   },
@@ -1774,12 +1672,6 @@
   },
   "scan_the_qr_code": {
     "message": "QRコードをスキャン"
-  },
-  "scan_this_qr_code": {
-    "message": "2. このQRコードをスキャンしてください。"
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "コールドウォレットでこのQRコードをスキャンして、取引を確認・署名してください。"
   },
   "scan_to_connect": {
     "message": "スキャンして接続"
@@ -1867,9 +1759,6 @@
   },
   "settings": {
     "message": "設定"
-  },
-  "show_private_key": {
-    "message": "秘密鍵を表示"
   },
   "show_secret_recovery_phrase": {
     "message": "シークレットリカバリーフレーズを表示"
@@ -2413,9 +2302,6 @@
   },
   "welcome_screen_title": {
     "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
-  },
-  "wif_private_key": {
-    "message": "WIF秘密鍵:"
   },
   "world": {
     "message": "世界"

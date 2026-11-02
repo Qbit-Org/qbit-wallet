@@ -125,9 +125,6 @@
   "theme_system": {
     "message": "Sistema"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. Después de firmar, escanee el código QR firmado de vuelta con esta billetera."
-  },
   "agreement_text": {
     "message": "CONFIRMAR"
   },
@@ -473,9 +470,6 @@
   "cold_wallet_signed_successfully": {
     "message": "La billetera fría ha firmado exitosamente la transacción. Por favor confirme los detalles de la transacción y haga clic en difundir."
   },
-  "cold_wallet_transaction_signing": {
-    "message": "Firma de Transacción de Billetera Fría"
-  },
   "collect_your_personal_information": {
     "message": "Recopilar tu información personal"
   },
@@ -493,9 +487,6 @@
   },
   "coming_soon": {
     "message": "Próximamente"
-  },
-  "completed": {
-    "message": "Completado"
   },
   "confirm": {
     "message": "Confirmar"
@@ -746,9 +737,6 @@
   "expand_view": {
     "message": "Expandir Vista"
   },
-  "export_private_key": {
-    "message": "Exportar Clave Privada"
-  },
   "failed_to_delete_contact": {
     "message": "Error al eliminar el contacto"
   },
@@ -881,12 +869,6 @@
   "gas_limit_explanation_4": {
     "message": "• El valor recomendado suele ser suficiente"
   },
-  "generating": {
-    "message": "Generando..."
-  },
-  "generating_qr_code": {
-    "message": "Generando código QR..."
-  },
   "genesis_transaction": {
     "message": "transacción génesis"
   },
@@ -910,9 +892,6 @@
   },
   "hello": {
     "message": "HOLA"
-  },
-  "hex_private_key": {
-    "message": "Clave Privada Hex:"
   },
   "high": {
     "message": "Alta"
@@ -974,9 +953,6 @@
   "i_am_aware_of_the_risks": {
     "message": "Soy consciente de los riesgos"
   },
-  "i_have_signed_scan_result": {
-    "message": "He Firmado, Escanear Resultado"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "He guardado Mi Frase Secreta de Recuperación"
   },
@@ -986,20 +962,11 @@
   "id": {
     "message": "id"
   },
-  "if_you_ever_change_browsers_or_move_computers_you_": {
-    "message": "Si alguna vez cambias de navegador o de ordenador, necesitarás esta Clave Privada para acceder a esta cuenta. Guárdala en un lugar seguro y secreto"
-  },
   "if_you_insist_on_continuing_proceed_at_your_own_risk": {
     "message": "Si insistes en continuar, procede bajo tu propio riesgo:"
   },
-  "if_you_lose_your_private_key_your_assets_will_be_g": {
-    "message": "¡Si pierdes tu Clave Privada, tus activos desaparecerán!"
-  },
   "if_you_lose_your_secret_recovery_phrase_your_asset": {
     "message": "¡Si pierdes tu Frase Secreta de Recuperación, tus activos desaparecerán!"
-  },
-  "if_you_share_the_private_key_to_others_your_assets": {
-    "message": "¡Si compartes la Clave Privada con otros, tus activos serán robados!"
   },
   "if_you_share_the_secret_recovery_phrase_to_others_": {
     "message": "¡Si compartes la Frase Secreta de Recuperación con otros, tus activos serán robados!"
@@ -1021,9 +988,6 @@
   },
   "inputs": {
     "message": "Entradas"
-  },
-  "instructions": {
-    "message": "Instrucciones:"
   },
   "insufficient_balance": {
     "message": "Saldo insuficiente."
@@ -1247,60 +1211,6 @@
   "remove_liquidity": {
     "message": "Remove Liquidity"
   },
-  "msg_already_signed": {
-    "message": "Este mensaje ya está firmado"
-  },
-  "msg_content": {
-    "message": "Contenido del Mensaje"
-  },
-  "msg_detail": {
-    "message": "Detalles del Mensaje"
-  },
-  "msg_generate_qr": {
-    "message": "Generar Código QR"
-  },
-  "msg_generate_sign": {
-    "message": "Generar Firma"
-  },
-  "msg_generating_qr": {
-    "message": "Generando código QR..."
-  },
-  "msg_message": {
-    "message": "Mensaje"
-  },
-  "msg_origin": {
-    "message": "Origen: "
-  },
-  "msg_pending": {
-    "message": "Pendiente"
-  },
-  "msg_scan_qr_code": {
-    "message": "Por favor escanee el código QR con su billetera fría"
-  },
-  "msg_scan_result": {
-    "message": "Resultado del Escaneo"
-  },
-  "msg_scan_sign": {
-    "message": "Escanear Firma"
-  },
-  "msg_sign": {
-    "message": "Firma de Mensaje"
-  },
-  "msg_sign_type": {
-    "message": "Tipo de Firma"
-  },
-  "msg_signed": {
-    "message": "Firmado"
-  },
-  "msg_start_sign": {
-    "message": "Iniciar Firma"
-  },
-  "msg_status": {
-    "message": "Estado"
-  },
-  "msg_waiting_sign": {
-    "message": "Esperando Firma"
-  },
   "multiple_assets_risk_description": {
     "message": "Esta transacción involucra múltiples activos. Asegúrese de entender las implicaciones de esta acción antes de proceder."
   },
@@ -1490,9 +1400,6 @@
   "open_as_side_bar": {
     "message": "Abrir barra lateral"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. Abra su aplicación o dispositivo de billetera fría."
-  },
   "other_wallet": {
     "message": "Otro billetera"
   },
@@ -1610,14 +1517,8 @@
   "preview": {
     "message": "Vista Previa"
   },
-  "previous": {
-    "message": "Anterior"
-  },
   "privacy_policy": {
     "message": "Política de privacidad"
-  },
-  "private_key_is_only_stored_in_your_browser_it_is_y": {
-    "message": "¡Es tu responsabilidad mantener la Clave Privada segura!"
   },
   "processing_signature": {
     "message": "Procesando firma..."
@@ -1748,9 +1649,6 @@
   "retry_in_10s": {
     "message": "Reintentar en 10s"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. Revise y confirme los detalles de la transacción en su billetera fría."
-  },
   "satsvb": {
     "message": "bits/vB"
   },
@@ -1774,12 +1672,6 @@
   },
   "scan_the_qr_code": {
     "message": "Escanear el Código QR"
-  },
-  "scan_this_qr_code": {
-    "message": "2. Escanee este código QR."
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "Escanee este código QR con su billetera fría para revisar y firmar la transacción."
   },
   "scan_to_connect": {
     "message": "Escanear para conectar"
@@ -1867,9 +1759,6 @@
   },
   "settings": {
     "message": "Ajustes"
-  },
-  "show_private_key": {
-    "message": "Mostrar Clave Privada"
   },
   "show_secret_recovery_phrase": {
     "message": "Mostrar Frase Secreta de Recuperación"
@@ -2413,9 +2302,6 @@
   },
   "welcome_screen_title": {
     "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
-  },
-  "wif_private_key": {
-    "message": "Clave Privada WIF:"
   },
   "world": {
     "message": "MUNDO"

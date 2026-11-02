@@ -18,7 +18,6 @@ export default defineConfig({
     '@qbit/keyring-service',
     '@qbit/permission-service',
     '@qbit/wallet-types',
-    '@qbit/tx-helpers',
     '@qbit/wallet-api',
     '@qbit/wallet-core',
     '@qbit/contact-book',

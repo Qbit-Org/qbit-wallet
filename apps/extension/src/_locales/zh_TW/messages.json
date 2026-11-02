@@ -125,9 +125,6 @@
   "theme_system": {
     "message": "系統"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. 簽名後，使用此錢包掃描已簽名的二維碼。"
-  },
   "agreement_text": {
     "message": "確認"
   },
@@ -473,9 +470,6 @@
   "cold_wallet_signed_successfully": {
     "message": "冷錢包已成功對交易進行簽名，請確認交易資訊無誤後點擊廣播按鈕"
   },
-  "cold_wallet_transaction_signing": {
-    "message": "冷錢包交易簽名"
-  },
   "collect_your_personal_information": {
     "message": "收集您的個人資訊"
   },
@@ -493,9 +487,6 @@
   },
   "coming_soon": {
     "message": "即將推出"
-  },
-  "completed": {
-    "message": "已完成"
   },
   "confirm": {
     "message": "確認"
@@ -746,9 +737,6 @@
   "expand_view": {
     "message": "擴展視圖"
   },
-  "export_private_key": {
-    "message": "匯出私鑰"
-  },
   "failed_to_delete_contact": {
     "message": "刪除聯絡人失敗"
   },
@@ -881,12 +869,6 @@
   "gas_limit_explanation_4": {
     "message": "• 建議值通常已足夠"
   },
-  "generating": {
-    "message": "生成中..."
-  },
-  "generating_qr_code": {
-    "message": "正在生成 QR Code..."
-  },
   "genesis_transaction": {
     "message": "創世交易"
   },
@@ -910,9 +892,6 @@
   },
   "hello": {
     "message": "哈囉"
-  },
-  "hex_private_key": {
-    "message": "十六進位私鑰 (Hex)："
   },
   "high": {
     "message": "高"
@@ -974,9 +953,6 @@
   "i_am_aware_of_the_risks": {
     "message": "我已了解相關風險"
   },
-  "i_have_signed_scan_result": {
-    "message": "我已簽名，掃描結果"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "我已儲存我的助記詞"
   },
@@ -986,20 +962,11 @@
   "id": {
     "message": "ID"
   },
-  "if_you_ever_change_browsers_or_move_computers_you_": {
-    "message": "如果您更換瀏覽器或電腦，您將需要此私鑰才能存取此帳戶。請將其保存在安全且秘密的地方"
-  },
   "if_you_insist_on_continuing_proceed_at_your_own_risk": {
     "message": "如果您堅持繼續，請自行承擔風險："
   },
-  "if_you_lose_your_private_key_your_assets_will_be_g": {
-    "message": "如果您遺失私鑰，您的資產將會永遠消失！"
-  },
   "if_you_lose_your_secret_recovery_phrase_your_asset": {
     "message": "如果您遺失助記詞，您的資產將會永遠消失！"
-  },
-  "if_you_share_the_private_key_to_others_your_assets": {
-    "message": "如果您將私鑰分享給他人，您的資產將會被盜！"
   },
   "if_you_share_the_secret_recovery_phrase_to_others_": {
     "message": "如果您將助記詞分享給他人，您的資產將會被盜！"
@@ -1021,9 +988,6 @@
   },
   "inputs": {
     "message": "輸入"
-  },
-  "instructions": {
-    "message": "操作說明："
   },
   "insufficient_balance": {
     "message": "餘額不足。"
@@ -1247,60 +1211,6 @@
   "remove_liquidity": {
     "message": "移除流動性"
   },
-  "msg_already_signed": {
-    "message": "此訊息已簽名"
-  },
-  "msg_content": {
-    "message": "訊息內容"
-  },
-  "msg_detail": {
-    "message": "訊息詳情"
-  },
-  "msg_generate_qr": {
-    "message": "生成QR碼"
-  },
-  "msg_generate_sign": {
-    "message": "生成簽名"
-  },
-  "msg_generating_qr": {
-    "message": "生成QR碼中..."
-  },
-  "msg_message": {
-    "message": "訊息"
-  },
-  "msg_origin": {
-    "message": "來源: "
-  },
-  "msg_pending": {
-    "message": "待簽名"
-  },
-  "msg_scan_qr_code": {
-    "message": "請用冷錢包掃描QR碼"
-  },
-  "msg_scan_result": {
-    "message": "掃描結果"
-  },
-  "msg_scan_sign": {
-    "message": "掃描簽名"
-  },
-  "msg_sign": {
-    "message": "訊息簽署"
-  },
-  "msg_sign_type": {
-    "message": "簽名類型"
-  },
-  "msg_signed": {
-    "message": "已簽名"
-  },
-  "msg_start_sign": {
-    "message": "開始簽名"
-  },
-  "msg_status": {
-    "message": "狀態"
-  },
-  "msg_waiting_sign": {
-    "message": "等待簽名"
-  },
   "multiple_assets_risk_description": {
     "message": "此交易涉及多種資產。請確保您了解此操作的影響，然後再繼續。"
   },
@@ -1490,9 +1400,6 @@
   "open_as_side_bar": {
     "message": "開啟側邊欄"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. 打開您的冷錢包應用程式或設備。"
-  },
   "other_wallet": {
     "message": "其他錢包"
   },
@@ -1610,14 +1517,8 @@
   "preview": {
     "message": "預覽"
   },
-  "previous": {
-    "message": "上一個"
-  },
   "privacy_policy": {
     "message": "隱私政策"
-  },
-  "private_key_is_only_stored_in_your_browser_it_is_y": {
-    "message": "請妥善保管您的私鑰!"
   },
   "processing_signature": {
     "message": "正在處理簽章..."
@@ -1748,9 +1649,6 @@
   "retry_in_10s": {
     "message": "10 秒後重試"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. 在您的冷錢包中查看並確認交易詳情。"
-  },
   "satsvb": {
     "message": "bits/vB"
   },
@@ -1774,12 +1672,6 @@
   },
   "scan_the_qr_code": {
     "message": "掃描 QR Code"
-  },
-  "scan_this_qr_code": {
-    "message": "2. 掃描此二維碼。"
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "使用您的冷錢包掃描此二維碼以查看並簽名交易。"
   },
   "scan_to_connect": {
     "message": "掃描連接"
@@ -1867,9 +1759,6 @@
   },
   "settings": {
     "message": "設定"
-  },
-  "show_private_key": {
-    "message": "顯示私鑰"
   },
   "show_secret_recovery_phrase": {
     "message": "顯示助記詞"
@@ -2413,9 +2302,6 @@
   },
   "welcome_screen_title": {
     "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
-  },
-  "wif_private_key": {
-    "message": "WIF 私鑰："
   },
   "world": {
     "message": "世界"

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 // This earlier package remains installed only to generate migration fixtures.
 // @ts-ignore
@@ -50,13 +51,7 @@ async function createWalletWithEarlierEncryption(storage: MemoryStorage) {
     t: (key: string) => key,
   })
   await service.boot(password)
-  await service.createKeyringWithMnemonics(
-    mnemonic,
-    "m/84'/0'/0'/0",
-    '',
-    AddressType.P2WPKH,
-    1
-  )
+  await service.createKeyringWithMnemonics(mnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1)
   await service.setLocked()
 }
 
@@ -71,6 +66,11 @@ function expectCurrentKdf(encryptedData: string) {
     },
   })
 }
+
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
 
 describe('BrowserPassworderEncryptor vault migration', () => {
   it('decrypts the earlier format and emits only the current KDF metadata', async () => {

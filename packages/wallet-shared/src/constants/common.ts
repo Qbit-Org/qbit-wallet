@@ -1,8 +1,6 @@
 // Keyring types
 export enum KeyringType {
-  HdKeyring = 'HD Key Tree',
   QbitHdKeyring = 'Qbit HD Key Tree',
-  SimpleKeyring = 'Simple Key Pair',
   ColdWalletKeyring = 'Cold Wallet',
   ReadonlyKeyring = 'Readonly',
   WatchAddressKeyring = 'Watch Address',
@@ -84,22 +82,8 @@ export const ADDRESS_TYPES: {
   },
 ]
 
-export const KEYRING_CLASS = {
-  PRIVATE_KEY: 'Simple Key Pair',
-  MNEMONIC: 'HD Key Tree',
-}
-
-export const KEYRING_TYPE_TEXT = {
-  [KeyringType.HdKeyring]: 'Created by Mnemonic',
-  [KeyringType.QbitHdKeyring]: 'Created by Mnemonic',
-  [KeyringType.SimpleKeyring]: 'Imported by Private Key',
-  [KeyringType.ColdWalletKeyring]: 'Cold Wallet',
-  [KeyringType.WatchAddressKeyring]: 'Watch Address',
-}
 export const BRAND_ALIAN_TYPE_TEXT = {
-  [KeyringType.HdKeyring]: 'Account',
   [KeyringType.QbitHdKeyring]: 'Account',
-  [KeyringType.SimpleKeyring]: 'Private Key',
   [KeyringType.ColdWalletKeyring]: 'Account',
   [KeyringType.ReadonlyKeyring]: 'Readonly',
   [KeyringType.WatchAddressKeyring]: 'Watch',
@@ -114,20 +98,10 @@ export const KEYRING_TYPES: {
     alianName: string
   }
 } = {
-  'HD Key Tree': {
-    name: 'HD Key Tree',
-    tag: 'HD',
-    alianName: 'HD Wallet',
-  },
   'Qbit HD Key Tree': {
     name: 'Qbit HD Key Tree',
     tag: 'P2MR',
     alianName: 'Qbit HD Wallet',
-  },
-  'Simple Key Pair': {
-    name: 'Simple Key Pair',
-    tag: 'IMPORT',
-    alianName: 'Single Wallet',
   },
   'Cold Wallet': {
     name: 'Cold Wallet',

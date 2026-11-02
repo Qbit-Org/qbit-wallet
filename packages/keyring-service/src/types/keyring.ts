@@ -52,7 +52,6 @@ export interface Keyring {
   rearmPqcRestoreFloors?(): boolean
 
   changeHdPath?(hdPath: string): void
-  getAccountByHdPath?(hdPath: string, index: number): string
   exportP2mrDescriptors?(network?: string): Promise<any>
   getPqcSignatureCounter?(address: string): Promise<number>
   getPqcSignatureCounterPubkey?(address: string): Promise<string>
@@ -99,12 +98,6 @@ export interface Keyring {
   ): any
   completeQbitRecoveryAddressDiscovery?(network: string): any
   reopenQbitRecoveryMigration?(network: string, planIds: readonly string[]): any
-  deriveContextHash?(
-    publicKey: string,
-    appName: string,
-    canonicalNetworkName: string,
-    context: string,
-  ): Promise<string>
 }
 
 export type KeyringClass = (new (opts?: unknown) => Keyring) & { type: string }

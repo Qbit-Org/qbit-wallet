@@ -125,9 +125,6 @@
   "theme_system": {
     "message": "System"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. After signing, scan the signed QR code back with this wallet."
-  },
   "agreement_text": {
     "message": "CONFIRM"
   },
@@ -473,9 +470,6 @@
   "cold_wallet_signed_successfully": {
     "message": "Cold wallet has successfully signed the transaction. Please confirm the transaction details and click broadcast."
   },
-  "cold_wallet_transaction_signing": {
-    "message": "Cold Wallet Transaction Signing"
-  },
   "collect_your_personal_information": {
     "message": "Collect your personal information"
   },
@@ -493,9 +487,6 @@
   },
   "coming_soon": {
     "message": "Coming soon"
-  },
-  "completed": {
-    "message": "Completed"
   },
   "confirm": {
     "message": "Confirm"
@@ -746,9 +737,6 @@
   "expand_view": {
     "message": "Expand View"
   },
-  "export_private_key": {
-    "message": "Export Private Key"
-  },
   "failed_to_delete_contact": {
     "message": "Failed to delete contact"
   },
@@ -881,12 +869,6 @@
   "gas_limit_explanation_4": {
     "message": "• Recommended value is usually sufficient"
   },
-  "generating": {
-    "message": "Generating..."
-  },
-  "generating_qr_code": {
-    "message": "Generating QR code..."
-  },
   "genesis_transaction": {
     "message": "genesis transaction"
   },
@@ -910,9 +892,6 @@
   },
   "hello": {
     "message": "HELLO"
-  },
-  "hex_private_key": {
-    "message": "Hex Private Key:"
   },
   "high": {
     "message": "High"
@@ -974,9 +953,6 @@
   "i_am_aware_of_the_risks": {
     "message": "I am aware of the risks"
   },
-  "i_have_signed_scan_result": {
-    "message": "I Have Signed, Scan Result"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "I saved My Secret Recovery Phrase"
   },
@@ -986,20 +962,11 @@
   "id": {
     "message": "id"
   },
-  "if_you_ever_change_browsers_or_move_computers_you_": {
-    "message": "If you ever change browsers or move computers, you will need this Private Key to access this account. Save it somewhere safe and secret"
-  },
   "if_you_insist_on_continuing_proceed_at_your_own_risk": {
     "message": "If you insist on continuing, proceed at your own risk:"
   },
-  "if_you_lose_your_private_key_your_assets_will_be_g": {
-    "message": "If you lose your Private Key, your assets will be gone!"
-  },
   "if_you_lose_your_secret_recovery_phrase_your_asset": {
     "message": "If you lose your Secret Recovery Phrase, your assets will be gone!"
-  },
-  "if_you_share_the_private_key_to_others_your_assets": {
-    "message": "If you share the Private Key to others, your assets will be stolen!"
   },
   "if_you_share_the_secret_recovery_phrase_to_others_": {
     "message": "If you share the Secret Recovery Phrase to others, your assets will be stolen!"
@@ -1021,9 +988,6 @@
   },
   "inputs": {
     "message": "Inputs"
-  },
-  "instructions": {
-    "message": "Instructions:"
   },
   "insufficient_balance": {
     "message": "Insufficient balance."
@@ -1247,60 +1211,6 @@
   "remove_liquidity": {
     "message": "Remove Liquidity"
   },
-  "msg_already_signed": {
-    "message": "This message is already signed"
-  },
-  "msg_content": {
-    "message": "Message Content"
-  },
-  "msg_detail": {
-    "message": "Message Details"
-  },
-  "msg_generate_qr": {
-    "message": "Generate QR Code"
-  },
-  "msg_generate_sign": {
-    "message": "Generate Signature"
-  },
-  "msg_generating_qr": {
-    "message": "Generating QR code..."
-  },
-  "msg_message": {
-    "message": "Message"
-  },
-  "msg_origin": {
-    "message": "Origin: "
-  },
-  "msg_pending": {
-    "message": "Pending"
-  },
-  "msg_scan_qr_code": {
-    "message": "Please scan the QR code with your cold wallet"
-  },
-  "msg_scan_result": {
-    "message": "Scan Result"
-  },
-  "msg_scan_sign": {
-    "message": "Scan Signature"
-  },
-  "msg_sign": {
-    "message": "Message Signing"
-  },
-  "msg_sign_type": {
-    "message": "Sign Type"
-  },
-  "msg_signed": {
-    "message": "Signed"
-  },
-  "msg_start_sign": {
-    "message": "Start Signing"
-  },
-  "msg_status": {
-    "message": "Status"
-  },
-  "msg_waiting_sign": {
-    "message": "Waiting for Signature"
-  },
   "multiple_assets_risk_description": {
     "message": "This transaction involves multiple assets. Please ensure you understand the implications of this action before proceeding."
   },
@@ -1490,9 +1400,6 @@
   "open_as_side_bar": {
     "message": "Open Sidebar"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. Open your cold wallet app or device."
-  },
   "other_wallet": {
     "message": "Other Wallet"
   },
@@ -1610,14 +1517,8 @@
   "preview": {
     "message": "Preview"
   },
-  "previous": {
-    "message": "Previous"
-  },
   "privacy_policy": {
     "message": "Privacy Policy"
-  },
-  "private_key_is_only_stored_in_your_browser_it_is_y": {
-    "message": "It's your responsibilities to keep the Private Key safe!"
   },
   "processing_signature": {
     "message": "Processing signature..."
@@ -1748,9 +1649,6 @@
   "retry_in_10s": {
     "message": "Retry in 10s"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. Review and confirm transaction details in your cold wallet."
-  },
   "satsvb": {
     "message": "bits/vB"
   },
@@ -1774,12 +1672,6 @@
   },
   "scan_the_qr_code": {
     "message": "Scan the QR Code"
-  },
-  "scan_this_qr_code": {
-    "message": "2. Scan this QR code."
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "Scan this QR code with your cold wallet to review and sign the transaction."
   },
   "scan_to_connect": {
     "message": "Scan to connect"
@@ -1867,9 +1759,6 @@
   },
   "settings": {
     "message": "Settings"
-  },
-  "show_private_key": {
-    "message": "Show Private Key"
   },
   "show_secret_recovery_phrase": {
     "message": "Show Secret Recovery Phrase"
@@ -2413,9 +2302,6 @@
   },
   "welcome_screen_title": {
     "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
-  },
-  "wif_private_key": {
-    "message": "WIF Private Key:"
   },
   "world": {
     "message": "WORLD"

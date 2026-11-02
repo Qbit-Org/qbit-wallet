@@ -125,9 +125,6 @@
   "theme_system": {
     "message": "Системная"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. После подписи отсканируйте подписанный QR-код обратно с помощью этого кошелька."
-  },
   "agreement_text": {
     "message": "ПОДТВЕРДИТЬ"
   },
@@ -473,9 +470,6 @@
   "cold_wallet_signed_successfully": {
     "message": "Холодный кошелек успешно подписал транзакцию. Пожалуйста, подтвердите детали транзакции и нажмите транслировать."
   },
-  "cold_wallet_transaction_signing": {
-    "message": "Подпись Транзакции Холодным Кошельком"
-  },
   "collect_your_personal_information": {
     "message": "Собирать вашу личную информацию"
   },
@@ -493,9 +487,6 @@
   },
   "coming_soon": {
     "message": "Скоро"
-  },
-  "completed": {
-    "message": "Завершено"
   },
   "confirm": {
     "message": "Подтвердить"
@@ -746,9 +737,6 @@
   "expand_view": {
     "message": "Развернуть вид"
   },
-  "export_private_key": {
-    "message": "Экспорт приватного ключа"
-  },
   "failed_to_delete_contact": {
     "message": "Не удалось удалить контакт"
   },
@@ -881,12 +869,6 @@
   "gas_limit_explanation_4": {
     "message": "• Рекомендуемого значения обычно достаточно"
   },
-  "generating": {
-    "message": "Генерация..."
-  },
-  "generating_qr_code": {
-    "message": "Генерация QR-кода..."
-  },
   "genesis_transaction": {
     "message": "генезис-транзакция"
   },
@@ -910,9 +892,6 @@
   },
   "hello": {
     "message": "ПРИВЕТ"
-  },
-  "hex_private_key": {
-    "message": "Приватный ключ Hex:"
   },
   "high": {
     "message": "Высокий"
@@ -974,9 +953,6 @@
   "i_am_aware_of_the_risks": {
     "message": "Я осознаю риски"
   },
-  "i_have_signed_scan_result": {
-    "message": "Я Подписал, Отсканировать Результат"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "Я сохранил(а) свою секретную фразу восстановления"
   },
@@ -986,20 +962,11 @@
   "id": {
     "message": "id"
   },
-  "if_you_ever_change_browsers_or_move_computers_you_": {
-    "message": "Если вы смените браузер или компьютер, вам понадобится этот приватный ключ для доступа к этому аккаунту. Сохраните его в безопасном и секретном месте"
-  },
   "if_you_insist_on_continuing_proceed_at_your_own_risk": {
     "message": "Если вы настаиваете на продолжении, действуйте на свой страх и риск:"
   },
-  "if_you_lose_your_private_key_your_assets_will_be_g": {
-    "message": "Если вы потеряете свой приватный ключ, ваши активы будут утеряны!"
-  },
   "if_you_lose_your_secret_recovery_phrase_your_asset": {
     "message": "Если вы потеряете свою секретную фразу восстановления, ваши активы будут утеряны!"
-  },
-  "if_you_share_the_private_key_to_others_your_assets": {
-    "message": "Если вы поделитесь приватным ключом с другими, ваши активы будут украдены!"
   },
   "if_you_share_the_secret_recovery_phrase_to_others_": {
     "message": "Если вы поделитесь секретной фразой восстановления с другими, ваши активы будут украдены!"
@@ -1021,9 +988,6 @@
   },
   "inputs": {
     "message": "Входы"
-  },
-  "instructions": {
-    "message": "Инструкции:"
   },
   "insufficient_balance": {
     "message": "Недостаточно средств."
@@ -1247,60 +1211,6 @@
   "remove_liquidity": {
     "message": "Remove Liquidity"
   },
-  "msg_already_signed": {
-    "message": "Это сообщение уже подписано"
-  },
-  "msg_content": {
-    "message": "Содержание Сообщения"
-  },
-  "msg_detail": {
-    "message": "Детали Сообщения"
-  },
-  "msg_generate_qr": {
-    "message": "Сгенерировать QR-код"
-  },
-  "msg_generate_sign": {
-    "message": "Сгенерировать Подпись"
-  },
-  "msg_generating_qr": {
-    "message": "Генерация QR-кода..."
-  },
-  "msg_message": {
-    "message": "Сообщение"
-  },
-  "msg_origin": {
-    "message": "Источник: "
-  },
-  "msg_pending": {
-    "message": "В ожидании"
-  },
-  "msg_scan_qr_code": {
-    "message": "Пожалуйста, отсканируйте QR-код с помощью вашего холодного кошелька"
-  },
-  "msg_scan_result": {
-    "message": "Результат Сканирования"
-  },
-  "msg_scan_sign": {
-    "message": "Сканировать Подпись"
-  },
-  "msg_sign": {
-    "message": "Подпись Сообщения"
-  },
-  "msg_sign_type": {
-    "message": "Тип Подписи"
-  },
-  "msg_signed": {
-    "message": "Подписано"
-  },
-  "msg_start_sign": {
-    "message": "Начать Подпись"
-  },
-  "msg_status": {
-    "message": "Статус"
-  },
-  "msg_waiting_sign": {
-    "message": "Ожидание Подписи"
-  },
   "multiple_assets_risk_description": {
     "message": "Эта транзакция включает несколько активов. Пожалуйста, убедитесь, что вы понимаете последствия этого действия, прежде чем продолжить."
   },
@@ -1490,9 +1400,6 @@
   "open_as_side_bar": {
     "message": "Открыть боковую панель"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. Откройте ваше приложение или устройство холодного кошелька."
-  },
   "other_wallet": {
     "message": "Другой кошелёк"
   },
@@ -1610,14 +1517,8 @@
   "preview": {
     "message": "Предпросмотр"
   },
-  "previous": {
-    "message": "Предыдущий"
-  },
   "privacy_policy": {
     "message": "Политика конфиденциальности"
-  },
-  "private_key_is_only_stored_in_your_browser_it_is_y": {
-    "message": "Вы несёте ответственность за сохранность приватного ключа!"
   },
   "processing_signature": {
     "message": "Обработка подписи..."
@@ -1748,9 +1649,6 @@
   "retry_in_10s": {
     "message": "Повторить через 10 сек"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. Просмотрите и подтвердите детали транзакции в вашем холодном кошельке."
-  },
   "satsvb": {
     "message": "bits/vB"
   },
@@ -1774,12 +1672,6 @@
   },
   "scan_the_qr_code": {
     "message": "Сканировать QR-код"
-  },
-  "scan_this_qr_code": {
-    "message": "2. Отсканируйте этот QR-код."
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "Отсканируйте этот QR-код с помощью вашего холодного кошелька для просмотра и подписи транзакции."
   },
   "scan_to_connect": {
     "message": "Сканировать для подключения"
@@ -1867,9 +1759,6 @@
   },
   "settings": {
     "message": "Настройки"
-  },
-  "show_private_key": {
-    "message": "Показать приватный ключ"
   },
   "show_secret_recovery_phrase": {
     "message": "Показать секретную фразу восстановления"
@@ -2413,9 +2302,6 @@
   },
   "welcome_screen_title": {
     "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
-  },
-  "wif_private_key": {
-    "message": "Приватный ключ WIF:"
   },
   "world": {
     "message": "МИР"

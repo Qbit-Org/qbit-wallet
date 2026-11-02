@@ -5,7 +5,7 @@ import { Button, Card, Column, Content, Header, Icon, Layout, Row, Text } from '
 import { colors } from '@/ui/theme/colors';
 import { copyToClipboard, shortAddress } from '@/ui/utils';
 import { KeyringType } from '@qbit/keyring-service/types';
-import { Account, getAccountDerivationPath } from '@qbit/wallet-shared';
+import { Account } from '@qbit/wallet-shared';
 import {
   accountActions,
   useAppDispatch,
@@ -24,10 +24,8 @@ interface MyItemProps {
   autoNav?: boolean;
 }
 const ITEM_HEIGHT = 64;
-const PRIVATE_KEY_EXPORTABLE_ACCOUNT_TYPES = [KeyringType.HdKeyring, KeyringType.SimpleKeyring];
-const MNEMONIC_BACKED_KEYRING_TYPES = [KeyringType.HdKeyring, KeyringType.QbitHdKeyring];
-const ACCOUNT_CREATABLE_KEYRING_TYPES = [KeyringType.HdKeyring, KeyringType.QbitHdKeyring];
-const DERIVED_PATH_VISIBLE_KEYRING_TYPES = [KeyringType.HdKeyring];
+const MNEMONIC_BACKED_KEYRING_TYPES = [KeyringType.QbitHdKeyring];
+const ACCOUNT_CREATABLE_KEYRING_TYPES = [KeyringType.QbitHdKeyring];
 
 export function MyItem({ account, autoNav }: MyItemProps) {
   const navigate = useNavigate();
@@ -39,12 +37,7 @@ export function MyItem({ account, autoNav }: MyItemProps) {
   const { t } = useI18n();
   const [optionsVisible, setOptionsVisible] = useState(false);
   const tools = useTools();
-  const canExportPrivateKey = PRIVATE_KEY_EXPORTABLE_ACCOUNT_TYPES.includes(account.type as KeyringType);
   const canBackupWallet = MNEMONIC_BACKED_KEYRING_TYPES.includes(keyring.type as KeyringType);
-  let path = '';
-  if (DERIVED_PATH_VISIBLE_KEYRING_TYPES.includes(keyring.type as KeyringType)) {
-    path = ` (${getAccountDerivationPath(keyring.hdPath, account.index ?? 0, keyring.accountIndexDerivation)})`;
-  }
 
   return (
     <Card
@@ -80,7 +73,7 @@ export function MyItem({ account, autoNav }: MyItemProps) {
           style={{ height: 40 }}
         >
           <Text text={shortAddress(account.alianName, 8)} ellipsis />
-          <Text text={`${shortAddress(account.address)}${path}`} preset="sub" />
+          <Text text={shortAddress(account.address)} preset="sub" />
         </Column>
       </Row>
       <Column relative>
@@ -159,16 +152,6 @@ export function MyItem({ account, autoNav }: MyItemProps) {
               >
                 <Key size="1em" />
                 <Text text={t('show_secret_recovery_phrase')} size="sm" />
-              </Row>
-            )}
-            {canExportPrivateKey && (
-              <Row
-                onClick={() => {
-                  navigate('ExportPrivateKeyScreen', { account });
-                }}
-              >
-                <Key size="1em" />
-                <Text text={t('export_private_key')} size="sm" />
               </Row>
             )}
           </Column>
