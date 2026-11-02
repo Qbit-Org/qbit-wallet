@@ -36,6 +36,10 @@ import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
   QBIT_EXPLORER_MAX_BODY_BYTES,
 } from '../src/utils/qbit-explorer-fetch'
+import {
+  QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+  QBIT_FEE_BUMP_RECHECK_WAVE_MS,
+} from '../src/utils/qbit-fee-bump-recheck'
 
 const broadcastTxMock = vi.hoisted(() => vi.fn())
 const getTxMock = vi.hoisted(() => vi.fn())
@@ -2598,6 +2602,79 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
     expect(bump.claim.replaces).toBe(fixture.txid)
     expect(bump.claim.replacedOutputCount).toBe(1)
     expect(getTxHexMock).not.toHaveBeenCalled()
+  })
+
+  it("broadcasts a fee bump without reading its original's bytes again, however slowly they would arrive", async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+
+    // On a slow link the raw bytes of an original with many inputs take
+    // longer than the check may hold the send guard. The assessment read
+    // them before the bump was signed; the broadcast only asks what spends
+    // the original's outputs, a small reply, in each of the check's rounds.
+    getTxHexMock.mockImplementation(() => new Promise(() => undefined))
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const outcome = broadcastBump(wallet, bump)
+      await vi.advanceTimersByTimeAsync(2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS)
+      await expect(outcome).resolves.toEqual({
+        success: true,
+        chain: REGTEST,
+        txid: otherFixture.txid,
+        via: 'broadcast',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(getTxHexMock).not.toHaveBeenCalled()
+    expect(getTxOutspendsMock.mock.calls).toEqual([
+      [fixture.txid, freshRead],
+      [fixture.txid, freshRead],
+    ])
+    expect(broadcastTxMock).toHaveBeenLastCalledWith(otherFixture.rawTxHex, underDeadline)
+    await expectInputSpentNotClaimed()
+  })
+
+  it('gives the explorer check of a fee bump its whole budget at the default pause', async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+    // The pause the wallet runs with, not the 0 the other tests use.
+    wallet.qbitFeeBumpRecheckIntervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS
+    // One wave of reads, for the original alone, in each of two rounds, and
+    // the pause between them: the 15 s 1.0.6 gave its one read.
+    const budgetMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS + 2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS
+    expect(budgetMs).toBe(15_000)
+
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    try {
+      const outcome = broadcastBump(wallet, bump)
+      await vi.advanceTimersByTimeAsync(budgetMs)
+      await expect(outcome).resolves.toEqual({
+        success: true,
+        chain: REGTEST,
+        txid: otherFixture.txid,
+        via: 'broadcast',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    // The first read has the whole budget, and the second what the pause
+    // left of it.
+    expect(getTxOutspendsMock.mock.calls).toEqual([
+      [fixture.txid, { deadlineMs: budgetMs, signal: expect.any(AbortSignal), fresh: true }],
+      [
+        fixture.txid,
+        {
+          deadlineMs: budgetMs - QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+          signal: expect.any(AbortSignal),
+          fresh: true,
+        },
+      ],
+    ])
   })
 
   it('after a restart, never restores a fee bump whose original a later send of this wallet spends', async () => {
