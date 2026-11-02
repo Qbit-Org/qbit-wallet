@@ -24,11 +24,12 @@ earlier, private tracker, not to issues or pull requests in this repository.
   up no longer fails after you have approved it.
 - Retrying a payment whose outcome was unknown can no longer mark it "not
   sent" and free its coins while the first attempt may still be spending them.
-- A broadcast whose reply cannot be read in full is no longer sent again at
-  once or reported as rate limited. As before, the wallet looks it up and
-  sends the same signed transaction again only if the network does not have
-  it. A reply too large to read is reported as possibly sent and is not sent
-  again.
+- A broadcast whose rate-limit reply cannot be read in full is no longer
+  sent again at once and reported as rate limited. It counts as possibly
+  sent: the wallet looks it up and sends the same signed transaction again
+  only if the network does not have it. A rate-limit reply saying the
+  network already has the transaction counts as sent, and a reply too large
+  to read is reported as possibly sent and is not sent again.
 
 ### Balance
 
@@ -90,15 +91,15 @@ earlier, private tracker, not to issues or pull requests in this repository.
   installed.
 - Advanced settings show the state of phishing protection, such as fully on,
   starting, degraded, retrying or failed, and the state of its block rule,
-  with Retry now where it can help.
+  with Retry now unless protection is fully on or not supported.
 - When the wallet lets through a page it had stopped for a phishing check,
   and the page cannot be reloaded without sending its form again, Try again
   now opens the page's address afresh instead of showing the same notice
   again.
 - A link to a blocked site that opens in a new tab shows the warning there
-  without replacing the page you came from, when the wallet has access to
-  that site in Chrome. Otherwise the page you came from shows the warning,
-  as in 1.0.6.
+  without replacing the page you came from, when the wallet's warning rule
+  is in place and Chrome gives the wallet access to every denylisted site.
+  Otherwise the page you came from shows the warning, as in 1.0.6.
 - The warning screen offers Continue only for addresses it can open, and says
   why otherwise.
 
