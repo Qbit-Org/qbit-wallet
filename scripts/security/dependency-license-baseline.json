@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "source": "reviewed package metadata for every sha512-bound pnpm-lock.yaml name@version identity",
-  "lockfileSha256": "6b9a35ec50bc5fc66be8772b7eda90804f389b659ec240a918df9b535e413546",
+  "lockfileSha256": "6991b9325661f13f8d3b09ea3b86287303d18457d130a661675d86709ddb228a",
   "packageCount": 2272,
   "packages": {
     "@acemir/cssom@0.9.31": "MIT",
@@ -1104,7 +1104,7 @@
     "flat-cache@3.2.0": "MIT",
     "flat@5.0.2": "BSD-3-Clause",
     "flatted@3.4.2": "ISC",
-    "follow-redirects@1.16.1": "MIT",
+    "follow-redirects@1.16.2": "MIT",
     "for-each@0.3.5": "MIT",
     "for-in@1.0.2": "MIT",
     "for-own@1.0.0": "MIT",
