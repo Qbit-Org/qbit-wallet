@@ -769,7 +769,7 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       expect(vi.getTimerCount()).toBe(0)
     })
 
-    it('lets a read that sees older statistics join the running walk instead of restarting it', async () => {
+    it('lets a read that sees older statistics walk on its own, never restarting the running walk', async () => {
       const fixture = overLimitAccount()
       explorer = fixture.explorer
       explorer.slowResponses.push({ match: isHistoryPage, chunkBytes: 4_096, intervalMs: 1_000 })
@@ -801,10 +801,112 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       const [firstSnapshot, secondSnapshot] = (answers as { value: [any, any] }).value
       const keys = (snapshot: { utxos: { txid: string; vout: number }[] }) =>
         new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))
-      // One walk, never restarted, answers both with the payment.
+      // The first walk is never restarted. The second screen cannot tell the
+      // older statistics from an eviction, so it walks on its own; that walk
+      // reads the current node and finds the payment too.
       expect(explorer.releasedBodies).toEqual([])
+      expect(explorer.abortedRequests).toEqual([])
       expect(keys(firstSnapshot).has(`${payment.txid}:0`)).toBe(true)
       expect(keys(secondSnapshot)).toEqual(keys(firstSnapshot))
+    })
+
+    /**
+     * A pending send from the account, with change, whose funding
+     * transaction the walk fetches only after its statistics check: that
+     * fetch is slow, so the walk is past the check while the test moves the
+     * history under it.
+     */
+    function pendingSendPastTheCheck() {
+      const fixture = overLimitAccount()
+      const funding = fixture.funding[10]!
+      const send = fixture.explorer.addTx({
+        txid: fakeTxid(4, 7_000_000),
+        inputs: [{ txid: funding.txid, vout: 0 }],
+        outputs: [
+          { address: payer, script: payerScript, value: 10_000 },
+          {
+            address: account.address,
+            script: account.p2mr.scriptPubKey,
+            value: funding.outputs[0]!.value - 11_000,
+          },
+        ],
+      })
+      fixture.explorer.slowResponses.push({
+        match: ({ path }) => path === `/tx/${send.txid}`,
+        chunkBytes: 64,
+        intervalMs: 1_000,
+      })
+      return { ...fixture, funding, send }
+    }
+
+    const outpoints = (snapshot: { utxos: { txid: string; vout: number }[] }) =>
+      new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))
+
+    /** Advance until the walk of the first screen asks for `txid`, past its statistics check. */
+    async function untilFetched(txid: string) {
+      for (let step = 0; step < 600; step += 1) {
+        if (explorer.requests.some(({ path }) => path === `/tx/${txid}`)) return
+        await vi.advanceTimersByTimeAsync(100)
+      }
+      throw new Error(`/tx/${txid} never asked for`)
+    }
+
+    it('does not hand a screen the outputs of a walk that a replacement of its send made stale', async () => {
+      const fixture = pendingSendPastTheCheck()
+      explorer = fixture.explorer
+      const wallet = controller()
+      const first = openSend(wallet, 'popup:1', '1')
+      await untilFetched(fixture.send.txid)
+      const before = explorer.stats(account.address)
+
+      // The send is replaced (RBF) at a higher fee: the counts stay the same,
+      // the sums do not. Another page opens Send.
+      explorer.removeTx(fixture.send.txid)
+      const replacement = explorer.addTx({
+        txid: fakeTxid(5, 7_000_000),
+        inputs: fixture.send.inputs,
+        outputs: [
+          fixture.send.outputs[0]!,
+          { ...fixture.send.outputs[1]!, value: fixture.send.outputs[1]!.value - 500 },
+        ],
+      })
+      const after = explorer.stats(account.address)
+      expect(after.mempool_stats.tx_count).toBe(before.mempool_stats.tx_count)
+      expect(after).not.toEqual(before)
+      const second = openSend(wallet, 'tab:2', '1')
+
+      const answers = await settle(Promise.all([first, second]), 1_000)
+      const [firstSnapshot, secondSnapshot] = (answers as { value: [any, any] }).value
+      // The screen that saw the replacement gets its change, not the
+      // replaced send's, which no longer exists.
+      expect(outpoints(secondSnapshot).has(`${fixture.send.txid}:1`)).toBe(false)
+      expect(outpoints(secondSnapshot).has(`${replacement.txid}:1`)).toBe(true)
+      // The walk the first screen started was not restarted for it.
+      expect(outpoints(firstSnapshot).has(`${fixture.send.txid}:1`)).toBe(true)
+      expect(explorer.releasedBodies).toEqual([])
+    })
+
+    it('does not hand a screen the outputs of a walk that an eviction of its send made stale', async () => {
+      const fixture = pendingSendPastTheCheck()
+      explorer = fixture.explorer
+      const wallet = controller()
+      const first = openSend(wallet, 'popup:1', '1')
+      await untilFetched(fixture.send.txid)
+      const before = explorer.stats(account.address)
+
+      // The send is evicted: the counts drop. Another page opens Send.
+      explorer.removeTx(fixture.send.txid)
+      expect(explorer.stats(account.address).mempool_stats.tx_count).toBe(
+        before.mempool_stats.tx_count - 1
+      )
+      const second = openSend(wallet, 'tab:2', '1')
+
+      const answers = await settle(Promise.all([first, second]), 1_000)
+      const [, secondSnapshot] = (answers as { value: [any, any] }).value
+      // No change of a send that is gone; the output it spent is back.
+      expect(outpoints(secondSnapshot).has(`${fixture.send.txid}:1`)).toBe(false)
+      expect(outpoints(secondSnapshot).has(`${fixture.funding.txid}:0`)).toBe(true)
+      expect(explorer.releasedBodies).toEqual([])
     })
 
     it('replaces a walk once a newer read sees the history move, and answers both screens from it', async () => {

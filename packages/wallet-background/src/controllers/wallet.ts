@@ -269,7 +269,11 @@ import {
   planQbitReceiveIntent,
   type QbitReceiveAllocationAddress,
 } from '../utils/qbit-receive'
-import { QbitLatestAnswers, QbitReplaceableReads } from '../utils/qbit-shared-reads'
+import {
+  QbitLatestAnswers,
+  QbitReplaceableReads,
+  type QbitReadVersionOrder,
+} from '../utils/qbit-shared-reads'
 
 import { paramsUtils } from '@qbit/base-utils'
 import {
@@ -597,6 +601,36 @@ function isLaterQbitHistoryProgress(
   running: QbitHistoryProgress
 ): boolean {
   return candidate[0] > running[0] || (candidate[0] === running[0] && candidate[1] > running[1])
+}
+
+/**
+ * The state of an address's history its statistics show: how far it had got
+ * (`QbitHistoryProgress`), and the statistics as one value
+ * (`qbitStatsSnapshot`), which any change moves, a replacement that leaves
+ * the counts as they were included. Undefined for statistics without counts
+ * to rank.
+ */
+type QbitHistoryState = { readonly progress: QbitHistoryProgress; readonly snapshot: string }
+
+function qbitHistoryState(stats: EsploraAddressStats): QbitHistoryState | undefined {
+  const progress = qbitHistoryProgress(stats)
+  return progress && { progress, snapshot: qbitStatsSnapshot(stats) }
+}
+
+/**
+ * The same state when the statistics read the same; later only when the
+ * history has got further (`isLaterQbitHistoryProgress`), an order in which
+ * of two different states at most one is later, so answers from two nodes
+ * cannot keep replacing each other's read. Any other difference (counts
+ * that are the same with other sums, as after a replacement, or lower, as
+ * after an eviction or from a lagging node) is another state.
+ */
+function orderQbitHistoryStates(
+  candidate: QbitHistoryState,
+  running: QbitHistoryState
+): QbitReadVersionOrder {
+  if (candidate.snapshot === running.snapshot) return 'same'
+  return isLaterQbitHistoryProgress(candidate.progress, running.progress) ? 'later' : 'other'
 }
 
 // Per-address stability retries for restore floor scans. Mempool churn is
@@ -5843,16 +5877,21 @@ export class WalletController extends BaseController {
    *
    * Past the explorer's output limit the read walks the account's whole
    * history. A send screen opened again meanwhile joins the read already
-   * running for the account instead of starting another walk, as long as
-   * the address statistics read the same as when that read started. A
-   * broadcast, payment or confirmation the explorer has seen since then
-   * changes them, so a read asked for after it starts afresh and sees, for
-   * example, a send's change; it replaces the running read, which stops,
-   * and whose callers are handed the new read's answer instead. The walk
-   * itself reads the history again whenever the statistics moved while it
-   * ran, and the reservations apply to each answer after the read, so
-   * outputs a send took while it ran are still left out. Without
-   * statistics the read is not shared.
+   * running for the account instead of starting another walk only while
+   * the address statistics read exactly as they did when that read started
+   * (`orderQbitHistoryStates`). When they show the history has got further
+   * (a broadcast, payment or confirmation the explorer has seen since),
+   * the new read replaces the running one, which stops, and whose callers
+   * are handed the new read's answer instead; it sees, for example, a
+   * send's change. When they differ any other way (a pending send replaced
+   * with the counts unchanged, or evicted so that they drop, or a lagging
+   * node's older answer) the screen reads on its own and never gets the
+   * running read's outputs, which may include change that no longer exists;
+   * the running read carries on for its callers, so such answers cannot
+   * keep restarting it. The walk itself reads the history again whenever
+   * the statistics moved while it ran, and the reservations apply to each
+   * answer after the read, so outputs a send took while it ran are still
+   * left out. Without statistics the read is not shared.
    *
    * A caller that passes `readId` can stop waiting with
    * `abandonQbitUtxoSnapshot(readId)`, as the send screen does when it is
@@ -5944,7 +5983,7 @@ export class WalletController extends BaseController {
     const activity = shareRead
       ? await Promise.resolve()
           .then(() => client.getAddressStats(account.address, signal ? { signal } : undefined))
-          .then(qbitHistoryProgress)
+          .then(qbitHistoryState)
           .catch(() => undefined)
       : undefined
     if (signal?.aborted) throw signal.reason
@@ -5966,12 +6005,13 @@ export class WalletController extends BaseController {
   }
 
   /**
-   * The snapshot reads in flight, per API client and address, each at how
-   * far the address's history had got when it started; only a read that
-   * has got further replaces one.
+   * The shared snapshot reads in flight, per API client and address, each
+   * for the state of the address's history its first caller's statistics
+   * showed (`orderQbitHistoryStates`): a caller at the same state joins, one
+   * whose history has got further replaces it, and any other reads alone.
    */
-  private qbitUtxoSnapshotReads = new QbitReplaceableReads<UnspentOutput[], QbitHistoryProgress>(
-    isLaterQbitHistoryProgress
+  private qbitUtxoSnapshotReads = new QbitReplaceableReads<UnspentOutput[], QbitHistoryState>(
+    orderQbitHistoryStates
   )
 
   /**

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { QbitLatestAnswers, QbitReplaceableReads } from '../src/utils/qbit-shared-reads'
+import {
+  QbitLatestAnswers,
+  QbitReplaceableReads,
+  type QbitReadVersionOrder,
+} from '../src/utils/qbit-shared-reads'
 
 /** A read the test answers by hand, recording the signal it was started with. */
 function manualRead<T>() {
@@ -13,54 +17,139 @@ function manualRead<T>() {
 }
 
 const scope = {}
-const later = (candidate: number, running: number) => candidate > running
+
+/**
+ * A version as the send screen's reads have one: how far the history had got
+ * (`count`), and the rest of the statistics (`sums`), which can differ at the
+ * same count, as after a replacement.
+ */
+type Version = { count: number; sums: string }
+const at = (count: number, sums = 'a'): Version => ({ count, sums })
+const order = (candidate: Version, running: Version): QbitReadVersionOrder => {
+  if (candidate.count === running.count && candidate.sums === running.sums) return 'same'
+  return candidate.count > running.count ? 'later' : 'other'
+}
 
 describe('QbitReplaceableReads', () => {
-  it('lets a caller with the same or an older version join the running read, never restart it', async () => {
-    const reads = new QbitReplaceableReads<string, number>(later)
+  it('lets a caller at the same version join the running read', async () => {
+    const reads = new QbitReplaceableReads<string, Version>(order)
     const { started, read } = manualRead<string>()
-    const first = reads.run(scope, 'account', 5, read)
-    // The same statistics, and a lagging node's older ones.
-    const same = reads.run(scope, 'account', 5, read)
-    const older = reads.run(scope, 'account', 4, read)
+    const first = reads.run(scope, 'account', at(5), read)
+    const same = reads.run(scope, 'account', at(5), read)
     await Promise.resolve()
 
     expect(started).toHaveLength(1)
-    expect(started[0]!.signal.aborted).toBe(false)
     started[0]!.resolve('answer')
-    await expect(Promise.all([first, same, older])).resolves.toEqual(['answer', 'answer', 'answer'])
+    await expect(Promise.all([first, same])).resolves.toEqual(['answer', 'answer'])
   })
 
-  it('replaces the running read with a newer one, and hands its callers the newer answer', async () => {
-    const reads = new QbitReplaceableReads<string, number>(later)
+  it('replaces the running read with a later one, and hands its callers the later answer', async () => {
+    const reads = new QbitReplaceableReads<string, Version>(order)
     const { started, read } = manualRead<string>()
-    const first = reads.run(scope, 'account', 5, read)
+    const first = reads.run(scope, 'account', at(5), read)
     await Promise.resolve()
-    const newer = reads.run(scope, 'account', 6, read)
+    const later = reads.run(scope, 'account', at(6), read)
     await Promise.resolve()
 
     expect(started).toHaveLength(2)
     expect(started[0]!.signal.aborted).toBe(true)
-    // An answer arriving out of order after that joins the newer read.
-    const outOfOrder = reads.run(scope, 'account', 5, read)
+    // An answer arriving out of order after that reads on its own, and
+    // leaves the later read running.
+    const outOfOrder = reads.run(scope, 'account', at(5), read)
     await Promise.resolve()
-    expect(started).toHaveLength(2)
+    expect(started).toHaveLength(3)
+    expect(started[1]!.signal.aborted).toBe(false)
 
     started[0]!.resolve('stale')
+    started[2]!.resolve('its own')
     started[1]!.resolve('fresh')
-    await expect(Promise.all([first, newer, outOfOrder])).resolves.toEqual([
+    await expect(Promise.all([first, later, outOfOrder])).resolves.toEqual([
       'fresh',
       'fresh',
-      'fresh',
+      'its own',
     ])
   })
 
+  it('never hands the running read to a caller that has seen another state, replaced or evicted', async () => {
+    const reads = new QbitReplaceableReads<string, Version>(order)
+    const { started, read } = manualRead<string>()
+    const first = reads.run(scope, 'account', at(5, 'before'), read)
+    // A replacement leaves the count and moves the sums; an eviction lowers the count.
+    const replaced = reads.run(scope, 'account', at(5, 'replaced'), read)
+    const evicted = reads.run(scope, 'account', at(4, 'evicted'), read)
+    await Promise.resolve()
+
+    expect(started).toHaveLength(3)
+    expect(started.some(({ signal }) => signal.aborted)).toBe(false)
+    // The reads complete out of order: the one started first answers last,
+    // and its answer reaches only its own caller.
+    started[2]!.resolve('after the eviction')
+    started[1]!.resolve('after the replacement')
+    started[0]!.resolve('before')
+    await expect(Promise.all([first, replaced, evicted])).resolves.toEqual([
+      'before',
+      'after the replacement',
+      'after the eviction',
+    ])
+  })
+
+  it('cannot be kept restarting by answers that alternate between a current node and a lagging one', async () => {
+    const reads = new QbitReplaceableReads<string, Version>(order)
+    const { started, read } = manualRead<string>()
+    // The lagging node answers first; the current node's answer replaces
+    // that read once, and after that neither node's answers restart it.
+    const callers = [reads.run(scope, 'account', at(5), read)]
+    for (let round = 0; round < 3; round += 1) {
+      callers.push(reads.run(scope, 'account', at(6), read))
+      callers.push(reads.run(scope, 'account', at(5), read))
+    }
+    await Promise.resolve()
+
+    expect(started.filter(({ signal }) => signal.aborted)).toHaveLength(1)
+    expect(started[0]!.signal.aborted).toBe(true)
+    // One shared read for the current node's callers and the first lagging
+    // one it took over, and one of its own for each later lagging caller.
+    expect(started).toHaveLength(5)
+    started.forEach(({ resolve }, index) => resolve(index === 1 ? 'current' : 'lagging'))
+    await expect(Promise.all(callers)).resolves.toEqual([
+      'current',
+      'current',
+      'lagging',
+      'current',
+      'lagging',
+      'current',
+      'lagging',
+    ])
+  })
+
+  it('stops a read of its own once its caller leaves, and keeps the running read', async () => {
+    const reads = new QbitReplaceableReads<string, Version>(order)
+    const { started, read } = manualRead<string>()
+    const running = reads.run(scope, 'account', at(5, 'before'), read)
+    const caller = new AbortController()
+    const alone = reads
+      .run(scope, 'account', at(5, 'replaced'), read, caller.signal)
+      .catch(error => error)
+    await Promise.resolve()
+
+    caller.abort(new Error('left'))
+    await expect(alone).resolves.toEqual(new Error('left'))
+    expect(started[1]!.signal.aborted).toBe(true)
+    expect(started[0]!.signal.aborted).toBe(false)
+    // The running read is still the one a caller at its state joins.
+    const joined = reads.run(scope, 'account', at(5, 'before'), read)
+    await Promise.resolve()
+    expect(started).toHaveLength(2)
+    started[0]!.resolve('answer')
+    await expect(Promise.all([running, joined])).resolves.toEqual(['answer', 'answer'])
+  })
+
   it('stops a read once every caller has left, and starts afresh for the next', async () => {
-    const reads = new QbitReplaceableReads<string, number>(later)
+    const reads = new QbitReplaceableReads<string, Version>(order)
     const { started, read } = manualRead<string>()
     const left = [new AbortController(), new AbortController()]
     const callers = left.map(caller =>
-      reads.run(scope, 'account', 5, read, caller.signal).catch(error => error)
+      reads.run(scope, 'account', at(5), read, caller.signal).catch(error => error)
     )
     await Promise.resolve()
 
@@ -70,7 +159,7 @@ describe('QbitReplaceableReads', () => {
     expect(started[0]!.signal.aborted).toBe(true)
     expect(await Promise.all(callers)).toEqual([new Error('left'), new Error('left')])
 
-    const next = reads.run(scope, 'account', 5, read)
+    const next = reads.run(scope, 'account', at(5), read)
     await Promise.resolve()
     expect(started).toHaveLength(2)
     started[1]!.resolve('again')
@@ -78,11 +167,11 @@ describe('QbitReplaceableReads', () => {
   })
 
   it('keeps a read running for a caller without a signal', async () => {
-    const reads = new QbitReplaceableReads<string, number>(later)
+    const reads = new QbitReplaceableReads<string, Version>(order)
     const { started, read } = manualRead<string>()
-    const waiting = reads.run(scope, 'account', 5, read)
+    const waiting = reads.run(scope, 'account', at(5), read)
     const caller = new AbortController()
-    const leaving = reads.run(scope, 'account', 5, read, caller.signal).catch(error => error)
+    const leaving = reads.run(scope, 'account', at(5), read, caller.signal).catch(error => error)
     await Promise.resolve()
 
     caller.abort(new Error('left'))
