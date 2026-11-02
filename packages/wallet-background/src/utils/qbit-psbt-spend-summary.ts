@@ -1,5 +1,6 @@
 import {
   assessQbitFee,
+  QBIT_P2A_MAX_VALUE,
   qbitRecommendedFeeRate,
   qbitWalletOwns,
   RiskType,
@@ -45,7 +46,10 @@ function addSafe(total: number, value: number, label: string): number {
  * Summarize what a decoded PSBT does to the wallet, and the risks that must
  * gate signing it: an abnormal fee, an output with no address the wallet can
  * show, or an output beside the named recipient in a request that names one.
- * Throws a RangeError when an amount is not a safe integer.
+ * Pay-to-anchor outputs that carry no more than `QBIT_P2A_MAX_VALUE` together
+ * are fee anchors: they raise no unrecognised-output risk, and their value
+ * counts as paid to others. Throws a RangeError when an amount is not a safe
+ * integer.
  */
 export function summarizeQbitPsbtSpend({
   inputs,
@@ -102,10 +106,19 @@ export function summarizeQbitPsbtSpend({
   let unrecognisedOutputCount = 0
   let unrecognisedOutputValue = 0
   let undecodableOutputCount = 0
+  const anchorValue = outputs.reduce(
+    (total, output) => (output.type === 'p2a' ? addSafe(total, output.value, 'output') : total),
+    0
+  )
+  const anchorsWithinBound = anchorValue <= QBIT_P2A_MAX_VALUE
   const outputRoles = outputs.map((output): PsbtOutputRole => {
     if (output.type === 'op_return') {
       externalOutputValue = addSafe(externalOutputValue, output.value, 'output')
       return 'data'
+    }
+    if (output.type === 'p2a' && anchorsWithinBound) {
+      externalOutputValue = addSafe(externalOutputValue, output.value, 'output')
+      return 'anchor'
     }
     if (qbitWalletOwns(wallet, output)) {
       walletOutputValue = addSafe(walletOutputValue, output.value, 'output')
