@@ -1,5 +1,25 @@
 # @qbit/notification-service
 
+## 1.1.8
+
+### Patch Changes
+
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-shared@2.0.0
+  - @qbit/wallet-storage@0.3.0
+  - @qbit/wallet-api@2.1.4
+
 ## 1.1.7
 
 ### Patch Changes

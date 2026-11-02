@@ -1,5 +1,24 @@
 # @qbit/wallet-api
 
+## 2.1.4
+
+### Patch Changes
+
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-shared@2.0.0
+  - @qbit/wallet-storage@0.3.0
+
 ## 2.1.3
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @qbit/permission-service
 
+## 1.1.7
+
+### Patch Changes
+
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-storage@0.3.0
+
 ## 1.1.6
 
 ### Patch Changes

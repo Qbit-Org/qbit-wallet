@@ -1,5 +1,21 @@
 # @qbit/approval-service
 
+## 2.0.1
+
+### Patch Changes
+
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-shared@2.0.0
+
 ## 2.0.0
 
 ### Major Changes
