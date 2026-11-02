@@ -1,15 +1,31 @@
 /**
- * One read per key at a time, which stops once nothing waits for it. Each
- * read is for a `version` (for the send screen's outputs, how far the
- * address's history had got). A caller that asks while a read for its key
- * is running joins it, unless its version is newer (`newer`): then its read
- * replaces the running one, which is aborted, and the callers that were
- * waiting for it wait for the new one instead, whose answer is the newer.
- * A version that is the same, older or not comparable joins, so answers
- * that arrive out of order (a lagging node behind a load balancer) cannot
- * keep restarting a read. Once a read settles the next caller starts a new
- * one, so no answer outlives its read. A failure reaches every caller still
- * waiting and is not kept.
+ * How a caller's version stands to the running read's: the same, later
+ * (its read replaces the running one), or another that is not later.
+ */
+export type QbitReadVersionOrder = 'same' | 'later' | 'other'
+
+/**
+ * One shared read per key at a time, which stops once nothing waits for it.
+ * Each read is for a `version` (for the send screen's outputs, the state of
+ * the address's history its statistics showed). A caller that asks while a
+ * read for its key is running is placed by how its version stands to that
+ * read's (`order`):
+ *
+ * - The same: it joins the running read.
+ * - Later: its read replaces the running one, which is aborted, and the
+ *   callers that were waiting for it wait for the new one instead, whose
+ *   answer is the later.
+ * - Another, not later: it never gets the running read's answer, which is
+ *   for a state it has not seen, and it does not replace that read either.
+ *   It reads on its own, and the running read carries on for its callers.
+ *   A version that cannot be told apart from an older one (an eviction, or
+ *   a lagging node behind a load balancer answering out of order) is one of
+ *   these, so such answers cost a read each but cannot keep restarting the
+ *   shared one.
+ *
+ * Once a read settles the next caller starts a new one, so no answer
+ * outlives its read. A failure reaches every caller still waiting and is not
+ * kept.
  *
  * A caller may pass a signal: when it aborts, that caller stops waiting,
  * and once no caller waits for a read any more the read is aborted through
@@ -22,8 +38,8 @@
 export class QbitReplaceableReads<T, V> {
   private readonly reads = new WeakMap<object, Map<string, SharedRead<T, V>>>()
 
-  /** `newer(candidate, running)`: whether a read for `candidate` should replace one for `running`. */
-  constructor(private readonly newer: (candidate: V, running: V) => boolean) {}
+  /** `order(candidate, running)`: how a caller at `candidate` stands to a read for `running`. */
+  constructor(private readonly order: (candidate: V, running: V) => QbitReadVersionOrder) {}
 
   run(
     scope: object,
@@ -38,22 +54,25 @@ export class QbitReplaceableReads<T, V> {
       scoped = new Map()
       this.reads.set(scope, scoped)
     }
-    let current = scoped.get(key)
-    if (!current || this.newer(version, current.version)) {
-      const replaced = current
-      current = this.start(scoped, key, version, read)
-      if (replaced) {
-        // Its callers move to the new read, which they keep running.
-        replaced.replacedBy = current
-        current.waiters += replaced.waiters
-        replaced.waiters = 0
-        replaced.follow(current.answer)
-        replaced.controller.abort(new Error('replaced by a newer read'))
-      }
+    const running = scoped.get(key)
+    const order = running ? this.order(version, running.version) : 'later'
+    if (order === 'same') return this.wait(scoped, key, running!, signal)
+    const current = this.start(scoped, key, version, read)
+    // Left out of `scoped`, so nobody joins it and the running read stays.
+    if (order === 'other') return this.wait(scoped, key, current, signal)
+    scoped.set(key, current)
+    if (running) {
+      // Its callers move to the new read, which they keep running.
+      running.replacedBy = current
+      current.waiters += running.waiters
+      running.waiters = 0
+      running.follow(current.answer)
+      running.controller.abort(new Error('replaced by a newer read'))
     }
     return this.wait(scoped, key, current, signal)
   }
 
+  /** A read for `version`; others join it only once `run` places it under `key`. */
   private start(
     scoped: Map<string, SharedRead<T, V>>,
     key: string,
@@ -74,7 +93,6 @@ export class QbitReplaceableReads<T, V> {
       if (!entry.replacedBy) follow(own)
     }
     own.then(settled, settled)
-    scoped.set(key, entry)
     return entry
   }
 
@@ -119,7 +137,7 @@ export class QbitReplaceableReads<T, V> {
 
 interface SharedRead<T, V> {
   readonly version: V
-  /** Aborts the read: every caller left, or a newer read replaced it. */
+  /** Aborts the read: every caller left, or a later read replaced it. */
   readonly controller: AbortController
   /** The read's answer, or the answer of the read that replaced it. */
   readonly answer: Promise<T>
