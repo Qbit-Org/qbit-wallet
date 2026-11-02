@@ -24,19 +24,27 @@ earlier, private tracker, not to issues or pull requests in this repository.
   up no longer fails after you have approved it.
 - Retrying a payment whose outcome was unknown can no longer mark it "not
   sent" and free its coins while the first attempt may still be spending them.
+- A broadcast whose reply is cut short is reported as possibly sent instead
+  of being sent again.
 
 ### Balance
 
 - The balance no longer stalls while a payment is being broadcast: it briefly
   shows Available and Unavailable as `--`.
 - Accounts with more than 500 outputs now see their real Available and
-  Unavailable amounts once the wallet has read their outputs. The send screen
-  no longer shows the whole balance as Unavailable while the split is unknown.
+  Unavailable amounts once the wallet has read their outputs.
 - On mempool-qbit, accounts whose pending transactions fill whole history
   pages can be read in full again, for sending, restoring, recovery and
   activity history. Recovery sets aside, and names, a source it still cannot
   read instead of stopping, and the balance shows `--` instead of 0 until it
   has been read.
+
+### History
+
+- History shows only the selected account's transactions, as the balance
+  does. After Receive moves to a new address, History shows that address's
+  transactions. A payment between two of your accounts shows as a send in
+  one and a receive in the other.
 
 ### Websites and approvals
 
@@ -59,6 +67,14 @@ earlier, private tracker, not to issues or pull requests in this repository.
   the payment, even when the estimated fee rate looks normal. This covers the
   1.0.6 limitation for transactions that also spend coins not held at the
   wallet's own addresses.
+- A pay-to-anchor output in a website's PSBT approval is named "P2A anchor
+  (anyone can spend)" instead of showing an empty recipient. A website's
+  request is refused before approval when its pay-to-anchor outputs carry
+  more than 121 sats in total.
+- A website PSBT with no outputs, with two inputs that spend the same
+  output, or with an input that spends the null outpoint is refused before
+  the approval window opens, with an error naming the qbit Core rule it
+  breaks.
 - Connected websites are saved in a format the wallet controls, and a problem
   loading them no longer keeps the rest of the wallet, including phishing
   protection, from starting. Websites you connected in 1.0.6 stay connected.
@@ -68,6 +84,12 @@ earlier, private tracker, not to issues or pull requests in this repository.
 - Phishing protection diagnostics report protection as degraded while a
   site-access change is still being applied or the block rule is not
   installed.
+- Advanced settings show whether phishing protection is fully on, retrying
+  or failed, and the state of its block rule, with Retry now.
+- When the wallet lets through a page it had stopped for a phishing check,
+  and the page cannot be reloaded without sending its form again, Try again
+  now opens the page's address afresh instead of showing the same notice
+  again.
 - A link to a blocked site that opens in a new tab shows the warning there
   without replacing the page you came from.
 - The warning screen offers Continue only for addresses it can open, and says
@@ -78,6 +100,8 @@ earlier, private tracker, not to issues or pull requests in this repository.
 - Restoring a wallet can no longer take a signature-counter floor from an
   explorer that claims impossible or extreme address statistics, which could
   have left the wallet unable to sign until it was restored again.
+- While you enter a recovery phrase, a word that is not in the word list is
+  outlined in red, and a complete phrase that is not valid says so.
 
 ### Settings and contacts
 
@@ -94,10 +118,15 @@ earlier, private tracker, not to issues or pull requests in this repository.
 
 ### Repository and release
 
-- A high-severity advisory published during the release, for a URL-decoding
-  package reached only through build and test tooling, is cleared by removing
-  those paths. The packaged extension is byte-identical to the build before
-  the change.
+- Qbit Wallet now uses Qbit SDK 0.1.1. Keys and addresses are unchanged: the
+  wallet's address test vectors pass unchanged across the update.
+- Two high-severity advisories were published during the release. Both are
+  cleared, and after each change the packaged extension is byte-identical to
+  the build before it.
+  - One, for a URL-decoding package reached only through build and test
+    tooling, is cleared by removing those paths.
+  - The other, for an HTTP redirect package that the packaged extension does
+    not include, is cleared by updating it to its patched release.
 
 ### Known limitations
 
