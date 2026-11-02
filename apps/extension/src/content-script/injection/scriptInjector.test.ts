@@ -59,7 +59,29 @@ vi.mock('@/shared/utils', () => {
   return { Message: { BroadcastChannelMessage, PortMessage } };
 });
 
-import { injectProviderScript } from './scriptInjector';
+import { injectProviderScript, shouldInjectProvider } from './scriptInjector';
+
+describe('provider injection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('injects in the top frame and in a child frame, such as an embedded widget', () => {
+    expect(shouldInjectProvider()).toBe(true);
+
+    vi.stubGlobal('top', {});
+    vi.stubGlobal('parent', {});
+    expect(window.top).not.toBe(window);
+    expect(window.parent).not.toBe(window);
+    expect(shouldInjectProvider()).toBe(true);
+  });
+
+  it('does not inject into a document with an opaque origin, whose check-in the background refuses', () => {
+    vi.stubGlobal('origin', 'null');
+    expect(self.origin).toBe('null');
+    expect(shouldInjectProvider()).toBe(false);
+  });
+});
 
 describe('provider script bridge', () => {
   beforeEach(() => {
@@ -90,7 +112,8 @@ describe('provider script bridge', () => {
         method: 'tabCheckin',
         params: {
           icon: 'http://localhost:3000/icon.svg',
-          name: 'Fixture dapp'
+          name: 'Fixture dapp',
+          topFrame: true
         }
       }
     });
@@ -117,7 +140,8 @@ describe('provider script bridge', () => {
         method: 'tabCheckin',
         params: {
           icon: 'http://localhost:3000/icon.svg',
-          name: 'Fixture dapp'
+          name: 'Fixture dapp',
+          topFrame: true
         }
       }
     });
@@ -145,7 +169,70 @@ describe('provider script bridge', () => {
         params: {
           activeDocument: true,
           icon: 'http://localhost:3000/icon.svg',
-          name: 'Fixture dapp'
+          name: 'Fixture dapp',
+          topFrame: true
+        }
+      }
+    });
+  });
+
+  it.each([
+    ['a child frame', 'top'],
+    ['a fenced frame, which is its own top', 'fence']
+  ])('tells the background that %s is not the top frame', async (_label, global) => {
+    bridge.request.mockResolvedValue(undefined);
+    vi.stubGlobal(global, {});
+    try {
+      await injectProviderScript('channel-frame');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(bridge.request).toHaveBeenCalledWith({
+      source: 'content',
+      data: {
+        method: 'tabCheckin',
+        params: {
+          icon: 'http://localhost:3000/icon.svg',
+          name: 'Fixture dapp',
+          topFrame: false
+        }
+      }
+    });
+  });
+
+  it('checks in as active once a prerendered page is shown, whatever the page fires first', async () => {
+    bridge.request.mockResolvedValue(undefined);
+    const addEventListener = vi.spyOn(document, 'addEventListener');
+    const removeEventListener = vi.spyOn(document, 'removeEventListener');
+    Object.defineProperty(document, 'prerendering', { configurable: true, value: true });
+    try {
+      await injectProviderScript('channel-prerender');
+    } finally {
+      delete (document as { prerendering?: boolean }).prerendering;
+    }
+    const shownListener = addEventListener.mock.calls.find(([type]) => type === 'prerenderingchange')?.[1] as EventListener;
+    // Not a one-off listener, which an event the page fires itself would use up.
+    expect(addEventListener).toHaveBeenCalledWith('prerenderingchange', shownListener);
+    bridge.request.mockClear();
+
+    shownListener({ isTrusted: false } as unknown as Event);
+    expect(bridge.request).not.toHaveBeenCalled();
+    expect(removeEventListener).not.toHaveBeenCalledWith('prerenderingchange', shownListener);
+
+    shownListener({ isTrusted: true } as unknown as Event);
+
+    expect(removeEventListener).toHaveBeenCalledWith('prerenderingchange', shownListener);
+    expect(bridge.request).toHaveBeenCalledOnce();
+    expect(bridge.request).toHaveBeenCalledWith({
+      source: 'content',
+      data: {
+        method: 'tabCheckin',
+        params: {
+          activeDocument: true,
+          icon: 'http://localhost:3000/icon.svg',
+          name: 'Fixture dapp',
+          topFrame: true
         }
       }
     });

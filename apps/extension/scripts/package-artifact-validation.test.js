@@ -57,7 +57,8 @@ function secureManifestFixture() {
       {
         matches: ['<all_urls>'],
         js: ['content-script.js'],
-        run_at: 'document_start'
+        run_at: 'document_start',
+        all_frames: true
       }
     ],
     web_accessible_resources: [
@@ -348,11 +349,18 @@ test('accepts only the reviewed MV3 permission, host, frame, resource, and CSP p
       message: /optional_permissions is forbidden/
     },
     {
-      label: 'child-frame injection',
+      label: 'top-frame-only injection',
       mutate: (manifest) => {
-        manifest.content_scripts[0].all_frames = true;
+        delete manifest.content_scripts[0].all_frames;
       },
-      message: /child frames/
+      message: /every frame/
+    },
+    {
+      label: 'child frames explicitly excluded',
+      mutate: (manifest) => {
+        manifest.content_scripts[0].all_frames = false;
+      },
+      message: /every frame/
     },
     {
       label: 'extension page exposed to websites',
