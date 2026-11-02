@@ -349,9 +349,6 @@ importers:
       eth-rpc-errors:
         specifier: ^4.0.3
         version: 4.0.3
-      extensionizer:
-        specifier: ^1.0.1
-        version: 1.0.1
       file-loader:
         specifier: ^6.2.0
         version: 6.2.0(webpack@5.109.2)
@@ -12060,10 +12057,6 @@ packages:
   /extendable-error@0.1.7:
     resolution: {integrity: sha512-UOiS2in6/Q0FK0R0q6UY9vYpQ21mr/Qn1KOnte7vsACuNJf514WvCCUHSRCPcgjPT2bAhNIJdlE6bVap1GKmeg==}
     dev: true
-
-  /extensionizer@1.0.1:
-    resolution: {integrity: sha512-UES5CSOYqshNsWFrpORcQR47+ph6UvQK25mguD44IyeMemt40CG+LTZrH1PgpGUHX3w7ACtNQnmM0J+qEe8G0Q==}
-    dev: false
 
   /fancy-log@1.3.3:
     resolution: {integrity: sha512-k9oEhlyc0FrVh25qYuSELjr8oxsCoc4/LEZfg2iJJrfEk/tZL9bCoJE47gqAvI2m/AUjluCS4+3I0eTx8n3AEw==}
