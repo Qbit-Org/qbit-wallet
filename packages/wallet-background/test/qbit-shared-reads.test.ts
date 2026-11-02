@@ -107,9 +107,9 @@ describe('QbitReplaceableReads', () => {
 
     expect(started.filter(({ signal }) => signal.aborted)).toHaveLength(1)
     expect(started[0]!.signal.aborted).toBe(true)
-    // One shared read for the current node's callers and the first lagging
-    // one it took over, and one of its own for each later lagging caller.
-    expect(started).toHaveLength(5)
+    // One read for the current node's callers and the first lagging one it
+    // took over, and one beside it that the later lagging callers share.
+    expect(started).toHaveLength(3)
     started.forEach(({ resolve }, index) => resolve(index === 1 ? 'current' : 'lagging'))
     await expect(Promise.all(callers)).resolves.toEqual([
       'current',
@@ -120,6 +120,33 @@ describe('QbitReplaceableReads', () => {
       'current',
       'lagging',
     ])
+  })
+
+  it('lets callers at the same other state share one read beside the running one', async () => {
+    const reads = new QbitReplaceableReads<string, Version>(order)
+    const { started, read } = manualRead<string>()
+    const running = reads.run(scope, 'account', at(5, 'before'), read)
+    const replaced = [
+      reads.run(scope, 'account', at(5, 'replaced'), read),
+      reads.run(scope, 'account', at(5, 'replaced'), read),
+    ]
+    await Promise.resolve()
+
+    expect(started).toHaveLength(2)
+    started[1]!.resolve('after the replacement')
+    started[0]!.resolve('before')
+    await expect(Promise.all([running, ...replaced])).resolves.toEqual([
+      'before',
+      'after the replacement',
+      'after the replacement',
+    ])
+
+    // Once both have settled, the next caller at either state starts afresh.
+    const next = reads.run(scope, 'account', at(5, 'replaced'), read)
+    await Promise.resolve()
+    expect(started).toHaveLength(3)
+    started[2]!.resolve('again')
+    await expect(next).resolves.toBe('again')
   })
 
   it('stops a read of its own once its caller leaves, and keeps the running read', async () => {
@@ -136,10 +163,14 @@ describe('QbitReplaceableReads', () => {
     await expect(alone).resolves.toEqual(new Error('left'))
     expect(started[1]!.signal.aborted).toBe(true)
     expect(started[0]!.signal.aborted).toBe(false)
-    // The running read is still the one a caller at its state joins.
+    // The running read is still the one a caller at its state joins, and the
+    // stopped one is no longer joined.
     const joined = reads.run(scope, 'account', at(5, 'before'), read)
+    const again = reads.run(scope, 'account', at(5, 'replaced'), read)
     await Promise.resolve()
-    expect(started).toHaveLength(2)
+    expect(started).toHaveLength(3)
+    started[2]!.resolve('afresh')
+    await expect(again).resolves.toBe('afresh')
     started[0]!.resolve('answer')
     await expect(Promise.all([running, joined])).resolves.toEqual(['answer', 'answer'])
   })
