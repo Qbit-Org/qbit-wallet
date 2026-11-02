@@ -4,12 +4,7 @@
   "private": true,
   "scripts": {
     "clean": "mkdir -p dist && rm -rf dist/* && cp -r build/_raw/* dist",
-    "build:chrome:dev": "webpack --progress --env browser=chrome manifest=mv2 config=dev channel=github",
-    "build:chrome": "gulp build --env=pro --browser=chrome --manifest=mv2 --channel=github",
-    "build:firefox": "gulp build --env=pro --browser=firefox --manifest=mv2 --channel=github",
-    "build:brave": "gulp build --env=pro --browser=brave --manifest=mv2 --channel=github",
-    "build:edge": "gulp build --env=pro --browser=edge --manifest=mv2 --channel=github",
-    "build:chrome:mv3:dev": "webpack --progress --env browser=chrome manifest=mv3 config=dev channel=github",
+    "build:chrome:mv3:dev": "webpack --progress --env browser=chrome config=dev channel=github",
     "build:chrome:mv3": "gulp build --env=pro --browser=chrome --manifest=mv3 --channel=store",
     "build:chrome:mv3:e2e": "gulp build --env=pro --browser=chrome --manifest=mv3 --channel=e2e",
     "package:test": "node ./scripts/package-test.js",
