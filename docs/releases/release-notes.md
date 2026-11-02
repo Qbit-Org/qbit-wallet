@@ -24,8 +24,11 @@ earlier, private tracker, not to issues or pull requests in this repository.
   up no longer fails after you have approved it.
 - Retrying a payment whose outcome was unknown can no longer mark it "not
   sent" and free its coins while the first attempt may still be spending them.
-- A broadcast whose reply is cut short is reported as possibly sent instead
-  of being sent again.
+- A broadcast whose reply cannot be read in full is no longer sent again at
+  once or reported as rate limited. As before, the wallet looks it up and
+  sends the same signed transaction again only if the network does not have
+  it. A reply too large to read is reported as possibly sent and is not sent
+  again.
 
 ### Balance
 
@@ -84,14 +87,17 @@ earlier, private tracker, not to issues or pull requests in this repository.
 - Phishing protection diagnostics report protection as degraded while a
   site-access change is still being applied or the block rule is not
   installed.
-- Advanced settings show whether phishing protection is fully on, retrying
-  or failed, and the state of its block rule, with Retry now.
+- Advanced settings show the state of phishing protection, such as fully on,
+  starting, degraded, retrying or failed, and the state of its block rule,
+  with Retry now where it can help.
 - When the wallet lets through a page it had stopped for a phishing check,
   and the page cannot be reloaded without sending its form again, Try again
   now opens the page's address afresh instead of showing the same notice
   again.
 - A link to a blocked site that opens in a new tab shows the warning there
-  without replacing the page you came from.
+  without replacing the page you came from, when the wallet has access to
+  that site in Chrome. Otherwise the page you came from shows the warning,
+  as in 1.0.6.
 - The warning screen offers Continue only for addresses it can open, and says
   why otherwise.
 
@@ -101,7 +107,8 @@ earlier, private tracker, not to issues or pull requests in this repository.
   explorer that claims impossible or extreme address statistics, which could
   have left the wallet unable to sign until it was restored again.
 - While you enter a recovery phrase, a word that is not in the word list is
-  outlined in red, and a complete phrase that is not valid says so.
+  outlined in red. A complete phrase whose words are all in the list but
+  that is still not valid says so.
 
 ### Settings and contacts
 
@@ -120,13 +127,10 @@ earlier, private tracker, not to issues or pull requests in this repository.
 
 - Qbit Wallet now uses Qbit SDK 0.1.1. Keys and addresses are unchanged: the
   wallet's address test vectors pass unchanged across the update.
-- Two high-severity advisories were published during the release. Both are
-  cleared, and after each change the packaged extension is byte-identical to
-  the build before it.
-  - One, for a URL-decoding package reached only through build and test
-    tooling, is cleared by removing those paths.
-  - The other, for an HTTP redirect package that the packaged extension does
-    not include, is cleared by updating it to its patched release.
+- A high-severity advisory published during the release, for an HTTP
+  redirect package that the packaged extension does not include, is cleared
+  by updating the package to its patched release. The packaged extension is
+  byte-identical to the build before the change.
 
 ### Known limitations
 
