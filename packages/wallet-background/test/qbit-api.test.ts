@@ -8,6 +8,7 @@ import {
   findActiveQbitAddressGroups,
   getQbitAccountHistory,
   getQbitAddressSummaries,
+  getQbitAddressSummary,
   getQbitAddressUtxos,
   getQbitRawTransactionHex,
   getQbitAddressUtxosClassified,
@@ -253,8 +254,7 @@ describe('qbit Esplora wallet adapters', () => {
       })
     ).toEqual({
       address,
-      totalSatoshis: 1750,
-      spendableSatoshis: 1750,
+      mempoolInclusiveSatoshis: 1750,
     })
   })
 
@@ -284,9 +284,78 @@ describe('qbit Esplora wallet adapters', () => {
     await expect(
       getQbitAddressSummaries(client as any, `${emptyAddress},${fundedAddress}`)
     ).resolves.toEqual([
-      { address: emptyAddress, totalSatoshis: 0, spendableSatoshis: 0 },
-      { address: fundedAddress, totalSatoshis: 5000, spendableSatoshis: 5000 },
+      { address: emptyAddress, mempoolInclusiveSatoshis: 0 },
+      { address: fundedAddress, mempoolInclusiveSatoshis: 5000 },
     ])
+  })
+
+  it('refuses statistics that fail validation for one or many addresses', async () => {
+    const emptyStats = {
+      funded_txo_count: 0,
+      funded_txo_sum: 0,
+      spent_txo_count: 0,
+      spent_txo_sum: 0,
+      tx_count: 0,
+    }
+    const client = {
+      getAddressStats: vi.fn(async (item: string) => ({
+        address: item,
+        chain_stats: { ...emptyStats, funded_txo_sum: -1 },
+        mempool_stats: emptyStats,
+      })),
+    }
+
+    await expect(getQbitAddressSummary(client as any, address)).rejects.toThrow(
+      `invalid chain funded_txo_sum for qbit address ${address}`
+    )
+    await expect(getQbitAddressSummaries(client as any, address)).rejects.toThrow(
+      `invalid chain funded_txo_sum for qbit address ${address}`
+    )
+
+    client.getAddressStats.mockResolvedValueOnce({
+      address: `${address}other`,
+      chain_stats: emptyStats,
+      mempool_stats: emptyStats,
+    })
+    await expect(getQbitAddressSummary(client as any, address)).rejects.toThrow(
+      `invalid qbit address stats for ${address}`
+    )
+  })
+
+  it('reads many address summaries a few at a time, in input order', async () => {
+    let inFlight = 0
+    let mostInFlight = 0
+    const addresses = Array.from({ length: 40 }, (_, index) => `${address}${index}`)
+    const client = {
+      getAddressStats: vi.fn(async (item: string) => {
+        inFlight += 1
+        mostInFlight = Math.max(mostInFlight, inFlight)
+        await new Promise(resolve => setTimeout(resolve, 1))
+        inFlight -= 1
+        return {
+          address: item,
+          chain_stats: {
+            funded_txo_count: 1,
+            funded_txo_sum: 7,
+            spent_txo_count: 0,
+            spent_txo_sum: 0,
+            tx_count: 1,
+          },
+          mempool_stats: {
+            funded_txo_count: 0,
+            funded_txo_sum: 0,
+            spent_txo_count: 0,
+            spent_txo_sum: 0,
+            tx_count: 0,
+          },
+        }
+      }),
+    }
+
+    const summaries = await getQbitAddressSummaries(client as any, addresses.join(','))
+
+    expect(summaries.map(item => item.address)).toEqual(addresses)
+    expect(mostInFlight).toBe(8)
   })
 
   it('keeps funded and spent-only qbit restore addresses aligned with pubkeys and sats', async () => {

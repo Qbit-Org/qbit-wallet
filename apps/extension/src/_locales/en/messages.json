@@ -140,9 +140,6 @@
   "all_read": {
     "message": "All Read"
   },
-  "allow_sign_data_requests": {
-    "message": "Allow signData requests"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "Allow this site to switch the chain?"
   },
@@ -719,15 +716,6 @@
   "empty": {
     "message": "Empty"
   },
-  "enable_sign_data_popover_warning": {
-    "message": "Allowing signData requests can make you vulnerable to phishing attacks. Always review the URL and be careful when signing messages that contain code."
-  },
-  "enable_sign_data_popover_warning_2": {
-    "message": "If you've been asked to turn this setting on, you might be getting scammed"
-  },
-  "enable_sign_data_warning": {
-    "message": "If you enable this setting, you might get signature requests that aren't readable. By signing a message you don't understand, you could be agreeing to give away your funds and NFTs.You're at risk for phishing attacks. Protect yourself by turning off signData."
-  },
   "enable_unconfirmed_balance": {
     "message": "Enable Unconfirmed Balance"
   },
@@ -988,9 +976,6 @@
   },
   "i_have_signed_scan_result": {
     "message": "I Have Signed, Scan Result"
-  },
-  "i_only_sign_what_i_understand": {
-    "message": "I only sign what I understand"
   },
   "i_saved_my_secret_recovery_phrase": {
     "message": "I saved My Secret Recovery Phrase"
@@ -1910,33 +1895,6 @@
   "sign_and_pay": {
     "message": "Sign & Pay"
   },
-  "derive_context_hash_request": {
-    "message": "Generate Identifier"
-  },
-  "derive_context_hash_description": {
-    "message": "This site is requesting a unique identifier tied to your wallet for the following context."
-  },
-  "derive_context_hash_app_name": {
-    "message": "Application"
-  },
-  "derive_context_hash_account": {
-    "message": "Account"
-  },
-  "derive_context_hash_network": {
-    "message": "Network"
-  },
-  "derive_context_hash_context": {
-    "message": "Context"
-  },
-  "derive_context_hash_warning": {
-    "message": "Only approve if you trust this site."
-  },
-  "sign_data_request": {
-    "message": "Sign Data request"
-  },
-  "sign_data_requests": {
-    "message": "signData requests"
-  },
   "sign_multiple_transactions": {
     "message": "Sign Multiple Transactions"
   },
@@ -1954,9 +1912,6 @@
   },
   "signature_successful": {
     "message": "Signature Successful"
-  },
-  "signdata_required_tip": {
-    "message": "You need to enable the signData request feature in Settings -> Advanced to continue."
   },
   "signed": {
     "message": "Signed"
@@ -2155,9 +2110,6 @@
   },
   "to": {
     "message": "To"
-  },
-  "to_continue": {
-    "message": "to continue"
   },
   "to_enable_spending_of_unconfirmed_balances_please_": {
     "message": "To enable spending of unconfirmed balances, please visit the advanced options in settings."
@@ -2366,9 +2318,6 @@
   "understand_and_accept_the_risks_associated_with_this_transaction": {
     "message": "I understand and accept the risks associated with this transaction."
   },
-  "understand_sign_data_warning": {
-    "message": "I understand that I can lose all of my funds and NFTs if I enable signData requests."
-  },
   "uniscan_active_addresses_24h": {
     "message": "Active Addresses (24h)"
   },
@@ -2473,9 +2422,6 @@
   },
   "you_are_signing": {
     "message": "You are signing:"
-  },
-  "you_are_signing_data": {
-    "message": "You are signing data:"
   },
   "you_can_unlock_these_assets_by_using_the_utxos_tools": {
     "message": "You can review or unlock spendable UTXOs by using the UTXO Management Tool."

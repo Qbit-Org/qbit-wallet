@@ -496,7 +496,6 @@ export const SESSION_EVENTS = {
 export const COIN_NAME = 'QBT'
 export const COIN_SYMBOL = 'QBT'
 
-export const COIN_DUST = 1000
 export const QBIT_P2MR_DUST = 2855
 /**
  * The most a PSBT's pay-to-anchor (P2A, `51024e73`) outputs may carry

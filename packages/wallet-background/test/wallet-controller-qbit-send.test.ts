@@ -72,7 +72,6 @@ const EXPLORER_BUDGETS = {
   fetchFn: expect.any(Function),
 }
 const sendAllQbitMock = vi.hoisted(() => vi.fn())
-const signMessageOfBIP322SimpleMock = vi.hoisted(() => vi.fn())
 const broadcastTxMock = vi.hoisted(() => vi.fn())
 const getFeeTiersMock = vi.hoisted(() => vi.fn())
 const getTxMock = vi.hoisted(() => vi.fn())
@@ -125,7 +124,6 @@ vi.mock('@qbit/tx-helpers', async importOriginal => {
     ...actual,
     sendQbit: sendQbitMock,
     sendAllQbit: sendAllQbitMock,
-    signMessageOfBIP322Simple: signMessageOfBIP322SimpleMock,
   }
 })
 
@@ -149,7 +147,6 @@ vi.mock('../src/services', () => ({
   keyringService: {
     keyrings: [],
     getAllDisplayedKeyrings: vi.fn(async () => []),
-    signMessage: vi.fn(),
     preflightP2mrMessageSigning: vi.fn(),
     preflightP2mrPsbtSigning: vi.fn(),
     openP2mrPsbtSigningBatch: vi.fn(),
@@ -3562,7 +3559,6 @@ describe('WalletController qbit P2MR send path', () => {
       expectedDatasigHash,
       undefined
     )
-    expect(keyringService.signMessage).not.toHaveBeenCalled()
     expect(result.proof).toMatchObject({
       type: 'p2mr-message',
       version: 1,
@@ -3673,46 +3669,33 @@ describe('WalletController qbit P2MR send path', () => {
     expect(keyringService.signP2mrMessageWithCounter).not.toHaveBeenCalled()
   })
 
-  it('keeps whitespace-only ECDSA signing on the existing generic keyring path', async () => {
+  it.each([SignMessageType.ECDSA, SignMessageType.BIP322_SIMPLE])(
+    'refuses to sign a %s message',
+    async type => {
+      const wallet = new WalletController()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
+        ...p2mrAccount(),
+        type: KeyringType.HdKeyring,
+        p2mr: undefined,
+      } as any)
+
+      await expect(wallet.signMessage({ text: 'hello', type })).rejects.toThrow('not_supported')
+      expect(keyringService.signP2mrMessageWithCounter).not.toHaveBeenCalled()
+    }
+  )
+
+  it('refuses to sign a PSBT without P2MR signing keys, whatever it holds', async () => {
     const wallet = new WalletController()
-    const account = {
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
       ...p2mrAccount(),
       type: KeyringType.HdKeyring,
       p2mr: undefined,
-    }
-    const message = ' \n\t '
-    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
-    vi.mocked(keyringService.signMessage).mockResolvedValue('ecdsa-signature')
+    } as any)
 
-    await expect(
-      wallet.signMessage({ text: message, type: SignMessageType.ECDSA })
-    ).resolves.toEqual({ signature: 'ecdsa-signature' })
-    expect(keyringService.signMessage).toHaveBeenCalledWith(account.pubkey, account.type, message)
-    expect(keyringService.signP2mrMessageWithCounter).not.toHaveBeenCalled()
-  })
-
-  it('keeps whitespace-only BIP-322 signing on the existing transaction helper path', async () => {
-    const wallet = new WalletController()
-    const account = {
-      ...p2mrAccount(),
-      type: KeyringType.HdKeyring,
-      p2mr: undefined,
-    }
-    const message = ' \n\t '
-    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
-    signMessageOfBIP322SimpleMock.mockResolvedValue('bip322-signature')
-
-    await expect(
-      wallet.signMessage({ text: message, type: SignMessageType.BIP322_SIMPLE })
-    ).resolves.toEqual({ signature: 'bip322-signature' })
-    expect(signMessageOfBIP322SimpleMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message,
-        address: account.address,
-      })
+    await expect(wallet.signPsbtV2({ psbtHex: '70736274ff', toSignInputs: [] })).rejects.toThrow(
+      'not_supported'
     )
-    expect(keyringService.signMessage).not.toHaveBeenCalled()
-    expect(keyringService.signP2mrMessageWithCounter).not.toHaveBeenCalled()
+    expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
   })
 
   it('allows qbit P2MR sends without enabling unsupported generic signing paths', () => {

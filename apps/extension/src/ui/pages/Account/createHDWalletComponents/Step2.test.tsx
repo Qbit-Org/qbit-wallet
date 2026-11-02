@@ -196,7 +196,7 @@ describe('Step2 restore flow', () => {
       createTmpKeyringWithMnemonics: vi.fn(async () => ({
         accounts: [{ address: 'qb1qpreview0' }]
       })),
-      getMultiAddressSummaries: vi.fn(async () => [{ totalSatoshis: 0 }]),
+      getMultiAddressSummaries: vi.fn(async () => [{ mempoolInclusiveSatoshis: 0 }]),
       runQbitRestoreFloorScan,
       getQbitRestoreFloorsPending,
       getQbitConcurrentInstanceHint

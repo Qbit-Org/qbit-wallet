@@ -16,7 +16,6 @@ import {
   DecodedPsbt,
   DecodePsbtOptions,
   DeriveAccountResult,
-  DummyTxType,
   FeeSummary,
   LocalPsbtBatchReview,
   LocalPsbtSummary,
@@ -30,12 +29,10 @@ import {
   QbitSendBroadcastClaim,
   RateUsStatus,
   RegtestAccessStatus,
-  SignPsbtOptions,
   SignedData,
   SignedMessage,
   StoredNotification,
   ToSignData,
-  ToSignInput,
   ToSignMessage,
   ThemeMode,
   TxHistoryItem,
@@ -140,7 +137,6 @@ export interface WalletController {
 
   getAddressBalanceV2(address: string): Promise<QbitBalanceSummary>
   getAddressBalance(address: string): Promise<QbitBalance>
-  getAddressCacheBalance(address: string): Promise<QbitBalance>
   getMultiAddressSummaries(addresses: string): Promise<AddressSummary[]>
   findActiveAddressGroups(
     groups: { type: number; address_arr: string[]; pubkey_arr: string[] }[]
@@ -161,7 +157,6 @@ export interface WalletController {
     snapshotId?: string
     scopeKey?: string
   }>
-  getAddressCacheHistory: (address: string) => Promise<TxHistoryItem[]>
   getQbitTxLifecycleStatus(txid: string): Promise<{ state: 'confirmed' | 'pending' | 'gone' }>
   getQbitRawTransactionHex(txid: string): Promise<string>
 
@@ -427,8 +422,6 @@ export interface WalletController {
 
   checkWebsite(website: string): Promise<WebsiteSafetyResult>
 
-  formatOptionsToSignInputs(psbtHex: string, options?: SignPsbtOptions): Promise<ToSignInput[]>
-
   getAddressSummary(address: string): Promise<AddressSummary>
 
   getShowSafeNotice(): Promise<boolean>
@@ -439,9 +432,6 @@ export interface WalletController {
   removeAddressFlag(account: Account, flag: AddressFlagType): Promise<Account>
 
   getVersionDetail(version: string): Promise<VersionDetail>
-
-  getEnableSignData(): Promise<boolean>
-  setEnableSignData(enable: boolean): Promise<void>
 
   // Biometric (WebAuthn PRF) unlock
   getBiometricUnlockStatus(): Promise<BiometricUnlockStatus>
@@ -523,7 +513,6 @@ export interface WalletController {
 
   createKeyringWithAddress(address: string): Promise<void>
 
-  createDummyPsbt(params: { txType: DummyTxType }): Promise<ToSignData>
 }
 
 const WalletContext = React.createContext<{

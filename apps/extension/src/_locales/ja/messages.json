@@ -140,9 +140,6 @@
   "all_read": {
     "message": "すべて既読"
   },
-  "allow_sign_data_requests": {
-    "message": "signDataリクエストを許可する"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "このサイトにチェーンの切り替えを許可しますか？"
   },
@@ -719,15 +716,6 @@
   "empty": {
     "message": "空"
   },
-  "enable_sign_data_popover_warning": {
-    "message": "signDataリクエストを許可すると、フィッシング攻撃に対して脆弱になる可能性があります。常にURLを確認し、コードを含むメッセージに署名する際は注意してください。"
-  },
-  "enable_sign_data_popover_warning_2": {
-    "message": "この設定をオンにするように求められた場合、詐欺に遭っている可能性があります。"
-  },
-  "enable_sign_data_warning": {
-    "message": "この設定を有効にすると、読み取れない署名リクエストを受け取る可能性があります。理解できないメッセージに署名すると、資金やNFTを渡すことに同意してしまう可能性があります。フィッシング攻撃のリスクにさらされます。signDataをオフにして自身を保護してください。"
-  },
   "enable_unconfirmed_balance": {
     "message": "未確認残高を有効にする"
   },
@@ -988,9 +976,6 @@
   },
   "i_have_signed_scan_result": {
     "message": "署名完了、結果をスキャン"
-  },
-  "i_only_sign_what_i_understand": {
-    "message": "理解したものにのみ署名します"
   },
   "i_saved_my_secret_recovery_phrase": {
     "message": "シークレットリカバリーフレーズを保存しました"
@@ -1910,33 +1895,6 @@
   "sign_and_pay": {
     "message": "署名して支払う"
   },
-  "derive_context_hash_request": {
-    "message": "識別子を生成"
-  },
-  "derive_context_hash_description": {
-    "message": "このサイトは、以下のコンテキストに対してウォレットに紐づく一意の識別子を要求しています。"
-  },
-  "derive_context_hash_app_name": {
-    "message": "アプリケーション"
-  },
-  "derive_context_hash_account": {
-    "message": "アカウント"
-  },
-  "derive_context_hash_network": {
-    "message": "ネットワーク"
-  },
-  "derive_context_hash_context": {
-    "message": "コンテキスト"
-  },
-  "derive_context_hash_warning": {
-    "message": "このサイトを信頼できる場合のみ承認してください。"
-  },
-  "sign_data_request": {
-    "message": "データ署名リクエスト"
-  },
-  "sign_data_requests": {
-    "message": "signDataリクエスト"
-  },
   "sign_multiple_transactions": {
     "message": "複数トランザクションに署名"
   },
@@ -1954,9 +1912,6 @@
   },
   "signature_successful": {
     "message": "署名成功"
-  },
-  "signdata_required_tip": {
-    "message": "続行するには、設定 -> 詳細設定でsignDataリクエスト機能を有効にする必要があります。"
   },
   "signed": {
     "message": "署名済み"
@@ -2155,9 +2110,6 @@
   },
   "to": {
     "message": "送信先"
-  },
-  "to_continue": {
-    "message": "続けるには"
   },
   "to_enable_spending_of_unconfirmed_balances_please_": {
     "message": "未確認残高の使用を有効にするには、設定の詳細オプションにアクセスしてください。"
@@ -2366,9 +2318,6 @@
   "understand_and_accept_the_risks_associated_with_this_transaction": {
     "message": "このトランザクションに関連するリスクを理解し、受け入れます。"
   },
-  "understand_sign_data_warning": {
-    "message": "signDataリクエストを有効にすると、すべての資金とNFTを失う可能性があることを理解しています。"
-  },
   "uniscan_active_addresses_24h": {
     "message": "アクティブアドレス (24時間)"
   },
@@ -2473,9 +2422,6 @@
   },
   "you_are_signing": {
     "message": "署名する内容:"
-  },
-  "you_are_signing_data": {
-    "message": "署名するデータ:"
   },
   "you_can_unlock_these_assets_by_using_the_utxos_tools": {
     "message": "You can review or unlock spendable UTXOs by using the UTXO Management Tool."

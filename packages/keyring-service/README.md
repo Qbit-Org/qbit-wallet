@@ -50,7 +50,6 @@ counters to connected sites.
 - `SimpleKeyring`
 - `ColdWalletKeyring`
 - `BrowserPassworderEncryptor`
-- `SimpleEncryptor`
 - Public keyring and account types
 
 The Qbit HD keyring is also available through the

@@ -248,6 +248,16 @@ describe('Provider RPC security gates', () => {
     expect(providerControllerMock.requestAccounts).toHaveBeenCalledTimes(1)
   })
 
+  it("answers with the method's result, whatever the approval window returned", async () => {
+    approvalServiceMock.requestApproval.mockResolvedValue({ uiRequestComponent: 'SignMessage' })
+    const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+
+    await expect(rpcFlow(request('signMessage', { text: 'approved' }))).resolves.toBe('signed')
+
+    expect(approvalServiceMock.requestApproval).toHaveBeenCalledTimes(1)
+    expect(providerControllerMock.signMessage).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects privileged calls from a revoked origin without opening a reconnect approval', async () => {
     permissionState.allowed = false
     const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default

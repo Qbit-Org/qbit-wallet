@@ -99,8 +99,8 @@ describe('loading the settings at start-up', () => {
 
     expect(browserStorage.set).toHaveBeenCalledTimes(2);
     expect(browserStorage.disk).toMatchObject(stored);
-    expect(browserStorage.disk.preference).toMatchObject({ locale: 'en', enableSignData: false, enableRBF: true });
-    expect(service.getEnableSignData()).toBe(false);
+    expect(browserStorage.disk.preference).toMatchObject({ locale: 'en', externalLinkAck: false, enableRBF: true });
+    expect(service.getExternalLinkAck()).toBe(false);
 
     // The next start loads the saved settings and writes nothing.
     browserStorage.set.mockClear();
@@ -149,11 +149,25 @@ describe('loading the settings at start-up', () => {
     expect(browserStorage.disk.preference).toEqual(PREFERENCE_1_0_5);
     expect(service.getLocale()).toBe('fr');
     expect(service.getCurrency()).toBe('EUR');
-    expect(service.getEnableSignData()).toBe(true);
     expect(service.getAutoLockTimeId()).toBe(5);
     expect(service.getEnableRBF()).toBe(false);
     expect(service.getKeyringAlianName('keyring_0')).toBe('Savings');
     expect(service.getCurrentAccount()).toEqual(PREFERENCE_1_0_5.currentAccount);
+
+    // Its debounced save then drops the caches and the setting nothing reads,
+    // adds the lock settings 1.0.5 did not have, and keeps the rest.
+    await vi.advanceTimersByTimeAsync(1000);
+    const {
+      balanceMap: _balanceMap,
+      historyMap: _historyMap,
+      enableSignData: _enableSignData,
+      ...kept
+    } = PREFERENCE_1_0_5;
+    expect(browserStorage.disk.preference).toEqual({
+      ...kept,
+      lockOnComputerLock: true,
+      lockOnWindowsClosed: true,
+    });
   });
 
   it('stops and writes nothing when the stored settings cannot be read', async () => {

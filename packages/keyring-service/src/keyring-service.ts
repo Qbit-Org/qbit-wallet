@@ -3,7 +3,6 @@ import { sha256 } from '@noble/hashes/sha256'
 import * as bip39 from 'bip39'
 import { EventEmitter } from 'events'
 
-import { transactionCore } from '@qbit/wallet-core'
 import { AddressType } from '@qbit/wallet-types'
 import {
   PSBT_GLOBAL_UNSIGNED_TX,
@@ -39,7 +38,6 @@ import {
   KeyringServiceConfig,
   KeyringType,
   MemStoreState,
-  ToSignInput,
 } from './types'
 
 import {
@@ -363,18 +361,18 @@ export class KeyringService extends EventEmitter {
   }
 
   /**
-   * Generate a secure boost value for password verification
-   * Uses a combination of timestamp and random string for better security
+   * Generate the value the password verifier encrypts. It is stored
+   * unencrypted beside the verifier, so it reveals nothing about the wallet.
    */
-  private generateSecureBoostValue(): string {
-    const timestamp = Date.now().toString()
-    const random = Math.random().toString(36).substring(2, 15)
-    return `secure_${timestamp}_${random}`
+  private generateBoostValue(): string {
+    const webCrypto = (
+      globalThis as unknown as { crypto: { getRandomValues(bytes: Uint8Array): Uint8Array } }
+    ).crypto
+    return bytesToHex(webCrypto.getRandomValues(new Uint8Array(32)))
   }
 
   /**
-   * Upgrade boost value from initial 'true' to a more secure value
-   * This enhances security by replacing the simple initial value
+   * Replace the initial 'true' boost value with a generated one.
    */
   private upgradeBoostValueIfNeeded = async (): Promise<boolean> => {
     if (!this.password) {
@@ -385,8 +383,7 @@ export class KeyringService extends EventEmitter {
     // Only upgrade if still using the initial simple value
     if (boostValue === this.initialBoostValue || boostValue === 'true') {
       try {
-        // Generate new secure boost value
-        const newBoostValue = this.generateSecureBoostValue()
+        const newBoostValue = this.generateBoostValue()
 
         // Re-encrypt with the new boost value
         const upgradedEncryptBooted = await this.encryptor.encrypt(this.password, newBoostValue)
@@ -394,7 +391,7 @@ export class KeyringService extends EventEmitter {
         // Persist the upgraded value
         this.store.updateState({ booted: upgradedEncryptBooted, boostValue: newBoostValue })
 
-        this.logger.info('[KeyringService] Boost value upgraded to secure version')
+        this.logger.info('[KeyringService] Boost value upgraded')
         return true
       } catch (error) {
         this.logger.error('[KeyringService] Failed to upgrade boost value:', error)
@@ -550,7 +547,7 @@ export class KeyringService extends EventEmitter {
       throw new Error(this.t('wallet_already_initialized'))
     }
     this.password = password
-    const boostValue = this.generateSecureBoostValue()
+    const boostValue = this.generateBoostValue()
     const encryptBooted = await this.encryptor.encrypt(password, boostValue)
 
     // Update both in-memory and persistent storage
@@ -3382,37 +3379,6 @@ export class KeyringService extends EventEmitter {
       await this._updateMemStoreKeyrings()
       await this.fullUpdate()
     })
-
-  //
-  // SIGNING METHODS
-  //
-
-  /** Sign a transaction with the selected keyring. */
-  signTransaction = (keyring: Keyring, psbt: transactionCore.Psbt, inputs: ToSignInput[]) => {
-    return keyring.signTransaction(psbt, inputs)
-  }
-
-  /**
-   * Sign Message
-   *
-   * Attempts to sign the provided message parameters.
-   */
-  signMessage = async (address: string, keyringType: string, data: string) => {
-    const keyring = await this.getKeyringForAccount(address, keyringType)
-    const sig = await keyring.signMessage(address, data)
-    return sig
-  }
-
-  /**
-   * Decrypt Message
-   *
-   * Attempts to verify the provided message parameters.
-   */
-  verifyMessage = async (address: string, data: string, sig: string) => {
-    const keyring = await this.getKeyringForAccount(address)
-    const result = await keyring.verifyMessage(address, data, sig)
-    return result
-  }
 
   //
   // PRIVATE METHODS

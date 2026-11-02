@@ -4,13 +4,7 @@
 
 import { EventEmitter } from 'eventemitter3'
 import { ChainType } from '@qbit/wallet-types'
-import {
-  Account,
-  AddressSummary,
-  QbitBalance,
-  ThemeMode,
-  TxHistoryItem,
-} from '@qbit/wallet-shared'
+import { Account, AddressSummary, ThemeMode } from '@qbit/wallet-shared'
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
 
 // Base preference store structure
@@ -25,19 +19,12 @@ export interface BasePreferenceStore {
   locale: string
   currency: string
   externalLinkAck: boolean
-  enableSignData: boolean
   showSafeNotice: boolean
 
   // Network configuration
   chainType: ChainType
 
   // Data maps
-  balanceMap: {
-    [address: string]: QbitBalance
-  }
-  historyMap: {
-    [address: string]: TxHistoryItem[]
-  }
   watchAddressPreference: Record<string, number>
   walletSavedList: any[]
   alianNames?: Record<string, string>
