@@ -90,22 +90,20 @@ export class ApprovalsPage extends ExtensionPageObject {
     const sign = this.byTestId('sign-psbt-button')
     await expect(sign).toBeVisible()
     const startedAt = performance.now()
-    const closed = this.page
-      .waitForEvent('close', { timeout: 120_000 })
-      .then(() => 'closed' as const)
-    await sign.click()
+    const closed = this.waitForClose(120_000)
+    await this.clickThatMayClose(sign)
 
     const riskInput = this.byTestId('risk-confirmation-input')
     const risk = riskInput
       .waitFor({ state: 'visible', timeout: 120_000 })
       .then(() => 'risk' as const)
       .catch(() => new Promise<never>(() => undefined))
-    const outcome = await Promise.race([closed, risk])
+    const outcome = await Promise.race([closed.then(() => 'closed' as const), risk])
     if (outcome === 'risk') {
       await riskInput.fill('CONFIRM')
       const riskConfirm = this.byTestId('risk-confirm-button')
       await expect(riskConfirm).toHaveAttribute('aria-disabled', 'false')
-      await riskConfirm.click()
+      await this.clickThatMayClose(riskConfirm)
       await closed
     }
     return { durationMs: performance.now() - startedAt, signatureBudget }
@@ -264,6 +262,38 @@ export class ApprovalsPage extends ExtensionPageObject {
 
   private async clickAndWaitForClose(locator: Locator, timeout = 30_000): Promise<void> {
     await expect(locator).toBeVisible()
-    await Promise.all([this.page.waitForEvent('close', { timeout }), locator.click()])
+    const closed = this.waitForClose(timeout)
+    await this.clickThatMayClose(locator)
+    await closed
+  }
+
+  /**
+   * This popup's close, within `timeout`. Awaiting it still throws on a
+   * timeout; the handler attached here only keeps a timeout from being
+   * reported as unhandled while nothing awaits it, as when a step between
+   * the click and the wait fails.
+   */
+  private waitForClose(timeout: number): Promise<void> {
+    const closed = this.page.waitForEvent('close', { timeout }).then(() => undefined)
+    closed.catch(() => undefined)
+    return closed
+  }
+
+  /**
+   * Click a control that may close this popup. The extension closes the
+   * popup from the background as soon as the page handles the click, which
+   * can be before Playwright's click returns: the click then rejects with
+   * "Target page, context or browser has been closed" although it did what
+   * it was for. Playwright marks the page closed before that rejection, so
+   * a click that rejects once the popup is closed counts as done; any other
+   * failure is thrown at once. What the click did is for the caller's own
+   * assertions on the request's outcome.
+   */
+  private async clickThatMayClose(locator: Locator): Promise<void> {
+    try {
+      await locator.click()
+    } catch (error) {
+      if (!this.page.isClosed()) throw error
+    }
   }
 }
