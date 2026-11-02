@@ -5885,13 +5885,17 @@ export class WalletController extends BaseController {
    * are handed the new read's answer instead; it sees, for example, a
    * send's change. When they differ any other way (a pending send replaced
    * with the counts unchanged, or evicted so that they drop, or a lagging
-   * node's older answer) the screen reads on its own and never gets the
-   * running read's outputs, which may include change that no longer exists;
-   * the running read carries on for its callers, so such answers cannot
-   * keep restarting it. The walk itself reads the history again whenever
-   * the statistics moved while it ran, and the reservations apply to each
-   * answer after the read, so outputs a send took while it ran are still
-   * left out. Without statistics the read is not shared.
+   * node's older answer) the screen never gets the running read's outputs,
+   * which may include change that no longer exists: it reads beside it,
+   * sharing that read only with screens whose statistics read as its own
+   * did. The running read carries on, so such answers cannot keep
+   * restarting it, and its own screens get the outputs of the state they
+   * saw, as a read of their own would have given them; a replacement or
+   * eviction after its walk's statistics check is not in them. The walk
+   * itself reads the history again whenever the statistics moved while it
+   * ran, and the reservations apply to each answer after the read, so
+   * outputs a send took while it ran are still left out. Without
+   * statistics the read is not shared.
    *
    * A caller that passes `readId` can stop waiting with
    * `abandonQbitUtxoSnapshot(readId)`, as the send screen does when it is
@@ -6007,8 +6011,10 @@ export class WalletController extends BaseController {
   /**
    * The shared snapshot reads in flight, per API client and address, each
    * for the state of the address's history its first caller's statistics
-   * showed (`orderQbitHistoryStates`): a caller at the same state joins, one
-   * whose history has got further replaces it, and any other reads alone.
+   * showed (`orderQbitHistoryStates`): a caller at the same state as one of
+   * them joins it, one whose history has got further than the latest
+   * replaces that one, and any other starts a read for its own state beside
+   * the latest, which no later caller replaces.
    */
   private qbitUtxoSnapshotReads = new QbitReplaceableReads<UnspentOutput[], QbitHistoryState>(
     orderQbitHistoryStates
