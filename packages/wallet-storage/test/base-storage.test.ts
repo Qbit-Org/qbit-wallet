@@ -108,6 +108,32 @@ describe('BaseProxyStorageAdapter.createPersistentProxy', () => {
     expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
   })
 
+  it('writes no template once a newer proxy took the key during the read', async () => {
+    let finishRead: (value: unknown) => void = () => {}
+    adapter.get.mockReturnValueOnce(new Promise(resolve => (finishRead = resolve)))
+    adapter.set.mockResolvedValue(undefined)
+
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    const current = await adapter.createPersistentProxy<{ n: number }>(
+      'prefs',
+      { n: 5 },
+      { reset: true }
+    )
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 5 })
+
+    // The older proxy's read started before the newer proxy saved.
+    finishRead(undefined)
+    await expect(replaced).rejects.toThrow('A newer store replaced prefs; not saved')
+    await vi.runAllTimersAsync()
+
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    current.n = 6
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenCalledTimes(2)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
+  })
+
   it('rejects without writing the template when the stored data cannot be read', async () => {
     const readError = new Error('read failed')
     adapter.get.mockRejectedValue(readError)
