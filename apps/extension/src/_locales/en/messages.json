@@ -1823,9 +1823,6 @@
   "seconds": {
     "message": "Seconds"
   },
-  "seconds_ago": {
-    "message": "sec ago"
-  },
   "secret_recovery_phrase": {
     "message": "Secret Recovery Phrase"
   },

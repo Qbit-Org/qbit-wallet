@@ -1823,9 +1823,6 @@
   "seconds": {
     "message": "秒"
   },
-  "seconds_ago": {
-    "message": "秒前"
-  },
   "secret_recovery_phrase": {
     "message": "助記詞"
   },
