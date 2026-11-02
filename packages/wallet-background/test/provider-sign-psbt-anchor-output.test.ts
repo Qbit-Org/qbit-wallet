@@ -75,8 +75,11 @@ const ACCOUNT_SCRIPT = p2mrScriptPubKey(LEAF_HASH)
 const RECIPIENT_SCRIPT = p2mrScriptPubKey(hexToBytes('77'.repeat(32)))
 /** The pay-to-anchor script `OP_1 <0x4e73>`. */
 const P2A_SCRIPT = hexToBytes('51024e73')
-/** qbit Core relays a P2A output of 121 and refuses one of 120 as dust. */
-const P2A_DUST = 121n
+/**
+ * The most a website's anchors may carry together: a marketplace's buys pay a
+ * 330 anchor (#115), above the 121 qbit Core relays one with.
+ */
+const P2A_MAX = 330n
 const INPUT_VALUE = 1_000_000n
 const FEE = 20_000n
 
@@ -186,8 +189,8 @@ describe('pay-to-anchor outputs in a website PSBT', () => {
 
   it.each([
     ['most of the input', [anchor(INPUT_VALUE - FEE - 1n)]],
-    ['one sat more than the relay minimum', [anchor(P2A_DUST + 1n)]],
-    ['more than the relay minimum across two anchors', [anchor(P2A_DUST), anchor(1n)]],
+    ['one sat more than the bound', [anchor(P2A_MAX + 1n)]],
+    ['more than the bound across two anchors', [anchor(P2A_MAX), anchor(1n)]],
   ])('refuses anchor outputs carrying %s before approval', async (_shape, outputs) => {
     await expect(rpcFlow(signPsbtRequest(websitePsbtHex(outputs)))).rejects.toMatchObject({
       code: ErrorCodes.INVALID_PARAMS,
@@ -212,25 +215,34 @@ describe('pay-to-anchor outputs in a website PSBT', () => {
   })
 
   it.each([
-    ['the relay minimum', P2A_DUST],
+    ['the bound', P2A_MAX],
+    ['the relay minimum', 121n],
     ['no value', 0n],
-  ])(
-    'shows an anchor of %s as one anyone can spend, with a risk to confirm',
-    async (_shape, value) => {
-      const review = await approveWebsitePsbt(websitePsbtHex([anchor(value)]))
+  ])('signs an anchor of %s as a fee anchor, with no risk to confirm', async (_shape, value) => {
+    const review = await approveWebsitePsbt(websitePsbtHex([anchor(value)]))
 
-      expect(review.outputInfos[0]).toEqual({
-        type: 'p2a',
-        address: '',
-        value: Number(value),
-        scriptPubKeyHex: '51024e73',
-      })
-      expect(review.spendSummary.outputRoles[0]).toBe('unrecognised')
-      expect(review.risks).toContainEqual(
-        expect.objectContaining({ type: RiskType.UNRECOGNISED_OUTPUT, level: 'danger' })
-      )
-    }
-  )
+    expect(review.outputInfos[0]).toEqual({
+      type: 'p2a',
+      address: '',
+      value: Number(value),
+      scriptPubKeyHex: '51024e73',
+    })
+    expect(review.spendSummary.outputRoles[0]).toBe('anchor')
+    expect(review.spendSummary.unrecognisedOutputCount).toBe(0)
+    expect(review.spendSummary.undecodableOutputCount).toBe(0)
+    expect(review.risks.map(risk => risk.type)).not.toContain(RiskType.UNRECOGNISED_OUTPUT)
+    expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+  })
+
+  it('signs a buy that pays a recipient and a 330 anchor beside the change', async () => {
+    const review = await approveWebsitePsbt(
+      websitePsbtHex([{ value: 10_000n, scriptPubKey: RECIPIENT_SCRIPT }, anchor(P2A_MAX)])
+    )
+
+    expect(review.spendSummary.outputRoles).toEqual(['unrecognised', 'anchor', 'wallet'])
+    expect(review.spendSummary.externalOutputValue).toBe(10_000 + Number(P2A_MAX))
+    expect(review.risks.map(risk => risk.type)).not.toContain(RiskType.UNRECOGNISED_OUTPUT)
+  })
 
   it('leaves outputs with an address as they were, with no unrecognised-output risk', async () => {
     const review = await approveWebsitePsbt(

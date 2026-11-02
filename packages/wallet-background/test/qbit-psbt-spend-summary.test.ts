@@ -155,6 +155,53 @@ describe('qbit PSBT spend summary', () => {
     expect(undecodable.risks.map(risk => risk.type)).toEqual([RiskType.UNRECOGNISED_OUTPUT])
   })
 
+  it('counts pay-to-anchor outputs as fee anchors up to the bound, and as unrecognised over it', () => {
+    const p2a = (value: number): DecodedPsbtOutput => ({
+      type: 'p2a',
+      address: '',
+      value,
+      scriptPubKeyHex: '51024e73',
+    })
+
+    const within = summarizeQbitPsbtSpend(
+      params({
+        outputs: [
+          output(MERCHANT_SCRIPT, 10_000, 'qbrt1zmerchant'),
+          p2a(200),
+          p2a(130),
+          output(OWN_SCRIPT, 985_810, 'qbrt1zown'),
+        ],
+      })
+    )
+    expect(within.spendSummary.outputRoles).toEqual(['recipient', 'anchor', 'anchor', 'wallet'])
+    expect(within.spendSummary.externalOutputValue).toBe(10_330)
+    expect(within.spendSummary.unrecognisedOutputCount).toBe(0)
+    expect(within.spendSummary.undecodableOutputCount).toBe(0)
+    expect(within.risks).toEqual([])
+
+    const over = summarizeQbitPsbtSpend(
+      params({
+        outputs: [
+          output(MERCHANT_SCRIPT, 10_000, 'qbrt1zmerchant'),
+          p2a(200),
+          p2a(131),
+          output(OWN_SCRIPT, 985_809, 'qbrt1zown'),
+        ],
+      })
+    )
+    expect(over.spendSummary.outputRoles).toEqual([
+      'recipient',
+      'unrecognised',
+      'unrecognised',
+      'wallet',
+    ])
+    expect(over.spendSummary.unrecognisedOutputValue).toBe(331)
+    expect(over.spendSummary.undecodableOutputCount).toBe(2)
+    expect(over.risks.map(risk => [risk.type, risk.level])).toEqual([
+      [RiskType.UNRECOGNISED_OUTPUT, 'danger'],
+    ])
+  })
+
   it('does not count a watched address as the wallet', () => {
     const watched = qbitWalletOwnership([
       {

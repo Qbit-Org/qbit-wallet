@@ -76,7 +76,7 @@ import {
   PsbtActionDetailType,
   PsbtActionInfo,
   PsbtActionType,
-  QBIT_P2A_DUST,
+  QBIT_P2A_MAX_VALUE,
   QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
   QBIT_P2MR_DUST,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
@@ -819,18 +819,18 @@ function qbitProviderPsbtAutoFinalized(
 
 /**
  * Refuse a provider PSBT whose pay-to-anchor outputs carry more, together,
- * than the least value qbit Core relays one with (`QBIT_P2A_DUST`). Anyone
- * can spend such an output, so an anchor needs no more than that to exist.
+ * than `QBIT_P2A_MAX_VALUE`. Anyone can spend such an output, so the bound
+ * limits what a website can move out of the wallet through one.
  */
 function assertQbitProviderAnchorValue(outputs: readonly P2mrTransactionOutput[]): void {
   const anchorValue = outputs
     .filter(output => isPayToAnchorScript(output.scriptPubKey))
     .reduce((total, output) => total + output.value, 0n)
-  if (anchorValue > BigInt(QBIT_P2A_DUST)) {
+  if (anchorValue > BigInt(QBIT_P2A_MAX_VALUE)) {
     throw new WalletError(
       ErrorCodes.INVALID_PARAMS,
       `PSBT pays ${anchorValue} sats to pay-to-anchor outputs, which anyone can spend; ` +
-        `at most ${QBIT_P2A_DUST} sats is allowed`
+        `at most ${QBIT_P2A_MAX_VALUE} sats is allowed`
     )
   }
 }

@@ -70,10 +70,11 @@ earlier, private tracker, not to issues or pull requests in this repository.
   the payment, even when the estimated fee rate looks normal. This covers the
   1.0.6 limitation for transactions that also spend coins not held at the
   wallet's own addresses.
-- A pay-to-anchor output in a website's PSBT approval is named "P2A anchor
-  (anyone can spend)" instead of showing an empty recipient. A website's
-  request is refused before approval when its pay-to-anchor outputs carry
-  more than 121 sats in total.
+- A pay-to-anchor output in a website's PSBT approval, which lets anyone add
+  fee to the transaction, is named "Fee anchor" instead of showing an empty
+  recipient, and no longer asks you to type CONFIRM. A website's request is
+  refused before approval when its pay-to-anchor outputs carry more than 330
+  bits in total.
 - A website PSBT with no outputs, with two inputs that spend the same
   output, or with an input that spends the null outpoint is refused before
   the approval window opens, with an error naming the qbit Core rule it

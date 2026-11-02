@@ -129,7 +129,16 @@ export type PsbtOutputRole =
   | 'recipient'
   /** An OP_RETURN data output. */
   | 'data'
-  /** Neither the wallet's nor the named recipient, including a script with no address. */
+  /**
+   * A pay-to-anchor output, when the PSBT's anchors carry no more than
+   * `QBIT_P2A_MAX_VALUE` together: anyone can spend it, to add fee to the
+   * transaction.
+   */
+  | 'anchor'
+  /**
+   * Neither the wallet's nor the named recipient, including a script with no
+   * address and pay-to-anchor outputs that carry more than `QBIT_P2A_MAX_VALUE`.
+   */
   | 'unrecognised'
 
 /**

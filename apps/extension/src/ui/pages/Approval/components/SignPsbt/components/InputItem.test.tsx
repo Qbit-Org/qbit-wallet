@@ -312,17 +312,22 @@ describe('InputItem output with no address', () => {
     vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
   });
 
-  function renderScriptOutput(outputInfo: DecodedPsbtOutput) {
+  function renderScriptOutput(outputInfo: DecodedPsbtOutput, role = 'unrecognised') {
     return render(
-      <InputItem
-        index={0}
-        outputInfo={outputInfo}
-        decodedPsbt={{ spendSummary: { outputRoles: ['unrecognised'] } } as any}
-      />
+      <InputItem index={0} outputInfo={outputInfo} decodedPsbt={{ spendSummary: { outputRoles: [role] } } as any} />
     );
   }
 
-  it('names a pay-to-anchor output as one anyone can spend, in place of a recipient', () => {
+  it('names a pay-to-anchor output within the bound as a fee anchor, with no unrecognised flag', () => {
+    renderScriptOutput({ type: 'p2a', address: '', value: 330, scriptPubKeyHex: '51024e73' }, 'anchor');
+
+    expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('Fee anchor');
+    expect(screen.getByTestId('psbt-output-script-warning-0').textContent).toContain('Anyone can spend');
+    expect(screen.queryByTestId('psbt-output-unrecognised-0')).toBeNull();
+    expect(screen.queryByTestId('address-text')).toBeNull();
+  });
+
+  it('names a pay-to-anchor output over the bound as one anyone can spend, in place of a recipient', () => {
     renderScriptOutput({ type: 'p2a', address: '', value: 99_999, scriptPubKeyHex: '51024e73' });
 
     expect(screen.getByTestId('psbt-output-script-label-0').textContent).toBe('P2A anchor (anyone can spend)');

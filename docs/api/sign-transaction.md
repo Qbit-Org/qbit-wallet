@@ -33,8 +33,9 @@ as `toSignInputs`, is rejected. So is an `autoFinalized` that is not a boolean.
 
 Malformed options and a `signPsbts()` call without one options entry for each of 1-20 PSBTs are
 rejected with `-32602` before approval. Unknown and mismatched chains are rejected with `4901`.
-Malformed PSBTs, PSBTs whose pay-to-anchor (P2A, `51024e73`) outputs together carry more than 121
+Malformed PSBTs, PSBTs whose pay-to-anchor (P2A, `51024e73`) outputs together carry more than 330
 sats, and signing plans that do not belong to the active account, are also rejected before approval.
+The approval shows anchors within that bound as fee anchors, with no unrecognised-output warning.
 
 The witness reveals the active account's P2MR leaf with one control block, so an input the account
 signs must list that leaf in exactly one leaf record, whose control block commits to the input's

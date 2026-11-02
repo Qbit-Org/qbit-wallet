@@ -14,11 +14,20 @@ import {
 } from '@qbit/wallet-shared';
 import { useCurrentAddress, useI18n, useQbitUnit } from '@qbit/wallet-state';
 
-/** How an output with no address is named in place of its recipient. */
+/**
+ * How an output with no address is named in place of its recipient: a fee
+ * anchor is a pay-to-anchor output the background classified as within the
+ * anchor bound, and `p2a` one over it.
+ */
 const SCRIPT_OUTPUT_LABELS: Record<
-  DecodedPsbtScriptOutput['type'],
-  { title: string; warning: string; color: 'dangerText' | 'warning' }
+  DecodedPsbtScriptOutput['type'] | 'fee_anchor',
+  { title: string; warning: string; color: 'dangerText' | 'warning' | 'textDim' }
 > = {
+  fee_anchor: {
+    title: 'Fee anchor',
+    warning: 'Lets anyone add fee to speed up this transaction. Anyone can spend its value.',
+    color: 'textDim'
+  },
   p2a: {
     title: 'P2A anchor (anyone can spend)',
     warning: 'Anyone can spend the value of this output once the transaction confirms.',
@@ -139,17 +148,20 @@ export function InputItem(props: {
     ? (toSignData?.qbitP2mrSigningKeys || []).filter((key) => key.inputIndex === index).length
     : 0;
   const isMyAddress = itemInfo.address === currentAddress;
+  const outputRole = outputInfo ? decodedPsbt.spendSummary?.outputRoles[index] : undefined;
   // Neither the wallet's nor the recipient the request named, as the background classified it.
-  const isUnrecognised = !!outputInfo && decodedPsbt.spendSummary?.outputRoles[index] === 'unrecognised';
+  const isUnrecognised = outputRole === 'unrecognised';
   // Change, a payment to this account or another of the wallet's accounts, as the background labelled it.
   const outputOwner = outputInfo ? decodedPsbt.outputOwners?.[index] : undefined;
   const isChange = outputOwner === 'change';
   const isThisAccount = outputOwner === 'this_account';
   const isOtherAccount = outputOwner === 'other_account';
   const scriptOutputLabel =
-    outputInfo?.type === 'p2a' || outputInfo?.type === 'unknown_script'
-      ? SCRIPT_OUTPUT_LABELS[outputInfo.type]
-      : undefined;
+    outputInfo?.type === 'p2a' && outputRole === 'anchor'
+      ? SCRIPT_OUTPUT_LABELS.fee_anchor
+      : outputInfo?.type === 'p2a' || outputInfo?.type === 'unknown_script'
+        ? SCRIPT_OUTPUT_LABELS[outputInfo.type]
+        : undefined;
   const qbitUnit = useQbitUnit();
   const { t } = useI18n();
 
