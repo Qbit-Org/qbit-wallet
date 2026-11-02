@@ -1,5 +1,0 @@
-export * from './walletapi-service'
-export * from './config/local-wallet-config'
-export * from './config/local-version-notices'
-export { HttpClient } from './client/http-client'
-export type { BaseHttpClient } from './client/http-client'

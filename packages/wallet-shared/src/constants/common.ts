@@ -403,12 +403,12 @@ export const BUS_METHODS = {
 /**
 ┌─────────────────────────────────────────────────────────────┐
 │ UI (ui-messaging.ts)                                        │
-│   ✅ UI_CONTROLLER / UI_OPENAPI / UI_BROADCAST              │
+│   ✅ UI_CONTROLLER / UI_BROADCAST                           │
 └─────────────────────────────────────────────────────────────┘
                             ↕️
 ┌─────────────────────────────────────────────────────────────┐
 │ Background (messaging.ts)                                   │
-│   ✅ receive: UI_CONTROLLER / UI_OPENAPI / UI_BROADCAST        │
+│   ✅ receive: UI_CONTROLLER / UI_BROADCAST                     │
 │   ✅ send: BG_BROADCAST                                     │
 │   ✅ push: BG_TO_CONTENT                                    │
 └─────────────────────────────────────────────────────────────┘
@@ -445,7 +445,6 @@ export const BUS_METHODS = {
 export const MESSAGE_TYPE = {
   // UI ↔ Background Communication
   UI_CONTROLLER: 'ui_controller', // from ui to bg controller
-  UI_OPENAPI: 'ui_openapi', // from ui to bg openapi
   UI_REQUEST_METHOD: 'ui_request_method', // from ui to bg request method
   UI_BROADCAST: 'ui_broadcast', // from ui to bg broadcast
   BG_BROADCAST: 'bg_broadcast', // from bg to ui broadcast

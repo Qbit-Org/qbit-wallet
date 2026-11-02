@@ -113,12 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. 簽名後，使用此錢包掃描已簽名的二維碼。"
   },
-  "all_marked_as_read": {
-    "message": "已全部標為已讀"
-  },
-  "all_read": {
-    "message": "全部已讀"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "允許此網站切換鏈嗎？"
   },
@@ -133,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "金額必須至少為"
-  },
-  "announcement": {
-    "message": "公告"
   },
   "appDescription": {
     "message": "Qbit Wallet 讓使用者能夠傳送、接收原生 Qbit（QBT），並在其原生生態系統中進行交易。"
@@ -662,9 +653,6 @@
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "無效的錢包，請將其移除並新增一個新的錢包"
   },
-  "just_now": {
-    "message": "剛才"
-  },
   "keyring_error_account_count": {
     "message": "帳戶數量必須大於0"
   },
@@ -851,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "找不到匹配的聯絡人"
   },
-  "no_notifications": {
-    "message": "無通知"
-  },
   "not_connected": {
     "message": "未連接"
   },
@@ -865,9 +850,6 @@
   },
   "notice": {
     "message": "注意"
-  },
-  "notifications": {
-    "message": "通知"
   },
   "ok": {
     "message": "確定"
@@ -1387,9 +1369,6 @@
   },
   "view": {
     "message": "查看"
-  },
-  "view_detail": {
-    "message": "查看詳情"
   },
   "view_on_block_explorer": {
     "message": "在區塊瀏覽器上查看"

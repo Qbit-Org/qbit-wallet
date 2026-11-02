@@ -35,7 +35,6 @@
     "@qbit/preference-service": "workspace:*",
     "@qbit-oss/protocol": "0.1.1",
     "@qbit/tx-helpers": "workspace:*",
-    "@qbit/wallet-api": "workspace:*",
     "@qbit/wallet-background": "workspace:*",
     "@qbit/wallet-core": "workspace:*",
     "@qbit/wallet-shared": "workspace:*",

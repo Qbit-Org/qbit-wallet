@@ -1,4 +1,4 @@
-import type { VersionDetail } from '../types'
+import type { VersionDetail } from '@qbit/wallet-shared'
 
 /**
  * Release-owned "what's new" notices, keyed by the extension version that
@@ -17,7 +17,8 @@ import type { VersionDetail } from '../types'
  *     notice: 'Unlock with Touch ID\nFaster balance refresh',
  *   },
  */
-export const LOCAL_VERSION_NOTICES: Readonly<Record<string, Omit<VersionDetail, 'version'>>> = Object.freeze({})
+export const LOCAL_VERSION_NOTICES: Readonly<Record<string, Omit<VersionDetail, 'version'>>> =
+  Object.freeze({})
 
 export function getLocalVersionNotice(version: string): VersionDetail {
   const entry = LOCAL_VERSION_NOTICES[version]

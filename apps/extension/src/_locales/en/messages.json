@@ -113,12 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. After signing, scan the signed QR code back with this wallet."
   },
-  "all_marked_as_read": {
-    "message": "All marked as read"
-  },
-  "all_read": {
-    "message": "All Read"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "Allow this site to switch the chain?"
   },
@@ -133,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "Amount must be at least"
-  },
-  "announcement": {
-    "message": "Announcement"
   },
   "appDescription": {
     "message": "Qbit Wallet enables users to send, receive and transact in native Qbit (QBT) and its native ecosystem."
@@ -662,9 +653,6 @@
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "Invalid wallet, please remove it and add new one"
   },
-  "just_now": {
-    "message": "Just now"
-  },
   "keyring_error_account_count": {
     "message": "account count must be greater than 0"
   },
@@ -851,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "No matching contacts found"
   },
-  "no_notifications": {
-    "message": "No notifications"
-  },
   "not_connected": {
     "message": "Not connected"
   },
@@ -865,9 +850,6 @@
   },
   "notice": {
     "message": "Notice"
-  },
-  "notifications": {
-    "message": "Notifications"
   },
   "ok": {
     "message": "OK"
@@ -1387,9 +1369,6 @@
   },
   "view": {
     "message": "View"
-  },
-  "view_detail": {
-    "message": "View Detail"
   },
   "view_on_block_explorer": {
     "message": "View on Block Explorer"

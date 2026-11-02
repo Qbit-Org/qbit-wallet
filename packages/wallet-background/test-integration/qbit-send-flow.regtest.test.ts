@@ -80,11 +80,8 @@ vi.mock('../src/services', () => ({
     getAddressFlag: () => 0,
     getChainType: () => ChainType.QBIT_REGTEST,
   },
-  walletApiService: {
-  },
   sessionService: {},
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
   qbitSendGuardService: {
     getReservedOutpointKeys: async () => new Set<string>(),

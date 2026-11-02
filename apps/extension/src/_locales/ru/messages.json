@@ -113,12 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. После подписи отсканируйте подписанный QR-код обратно с помощью этого кошелька."
   },
-  "all_marked_as_read": {
-    "message": "Все отмечено как прочитанное"
-  },
-  "all_read": {
-    "message": "Всё прочитано"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "Разрешить этому сайту переключить блокчейн?"
   },
@@ -133,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "Сумма должна быть не менее"
-  },
-  "announcement": {
-    "message": "Объявление"
   },
   "appDescription": {
     "message": "Qbit Wallet позволяет отправлять, получать и совершать транзакции в нативном Qbit (QBT) и его экосистеме."
@@ -662,9 +653,6 @@
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "Недействительный кошелёк, пожалуйста, удалите его и добавьте новый"
   },
-  "just_now": {
-    "message": "Только что"
-  },
   "keyring_error_account_count": {
     "message": "количество аккаунтов должно быть больше 0"
   },
@@ -851,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "Совпадающих контактов не найдено"
   },
-  "no_notifications": {
-    "message": "Нет уведомлений"
-  },
   "not_connected": {
     "message": "Не подключено"
   },
@@ -865,9 +850,6 @@
   },
   "notice": {
     "message": "Уведомление"
-  },
-  "notifications": {
-    "message": "Уведомления"
   },
   "ok": {
     "message": "OK"
@@ -1387,9 +1369,6 @@
   },
   "view": {
     "message": "Посмотреть"
-  },
-  "view_detail": {
-    "message": "Посмотреть детали"
   },
   "view_on_block_explorer": {
     "message": "Посмотреть в обозревателе блоков"

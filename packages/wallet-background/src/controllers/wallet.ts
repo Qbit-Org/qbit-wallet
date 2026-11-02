@@ -149,17 +149,17 @@ import {
   t,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
+import { getLocalVersionNotice } from '../config/local-version-notices'
+import { getLocalWalletConfig } from '../config/local-wallet-config'
 import {
   biometricUnlockService,
   contactBookService,
   keyringService,
-  notificationService,
   permissionService,
   phishingDetectService,
   preferenceService,
   qbitSendGuardService,
   sessionService,
-  walletApiService,
 } from '../services'
 import { getChainInfo } from '../shared/utils'
 import { bgEventBus } from '../utils/eventBus'
@@ -2238,7 +2238,6 @@ export class WalletController extends BaseController {
     await qbitSendGuardService.resetAllData()
     await permissionService.resetAllData()
     await contactBookService.resetAllData()
-    await walletApiService.resetAllData()
 
     this._resetTimeout()
   }
@@ -5778,7 +5777,6 @@ export class WalletController extends BaseController {
       if (chainChanged) {
         preferenceService.setChainType(chainType)
       }
-      await walletApiService.setEndpoint(chain.endpoints[0]!)
 
       const keyring = await this.getCurrentKeyring()
       if (!keyring) throw new Error('no current keyring')
@@ -5812,12 +5810,6 @@ export class WalletController extends BaseController {
         await preferenceService.persist()
       } catch (rollbackError) {
         log.error('[WalletController] Failed to persist restored chain preferences', rollbackError)
-      }
-
-      try {
-        await walletApiService.setEndpoint(CHAINS_MAP[currentChainType]!.endpoints[0]!)
-      } catch (rollbackError) {
-        log.error('[WalletController] Failed to restore the previous API endpoint', rollbackError)
       }
 
       // Path rollback or a completed same-path re-arm can leave restored
@@ -5988,9 +5980,10 @@ export class WalletController extends BaseController {
 
   /**
    * Move off regtest without ever re-entering it. Unlocked wallets go through
-   * the full transition (HD path, endpoint, accounts, events); if that fails
-   * or the wallet is locked, the persisted chain and API endpoint are pinned
-   * to mainnet directly so nothing stays bound to the loopback endpoint.
+   * the full transition (HD path, accounts, events); if that fails or the
+   * wallet is locked, the persisted chain is pinned to mainnet directly. The
+   * API clients follow the chain and the cached loopback ones are dropped, so
+   * nothing stays bound to the loopback endpoint.
    */
   private leaveRegtestFailClosed = async (trigger: 'permission_removed' | 'disable'): Promise<void> => {
     if (preferenceService.getChainType() !== ChainType.QBIT_REGTEST) {
@@ -6014,11 +6007,6 @@ export class WalletController extends BaseController {
       await preferenceService.persist()
     } catch (error) {
       log.error('[WalletController] Failed to persist the mainnet fallback', summarizeError(error))
-    }
-    try {
-      await walletApiService.setEndpoint(CHAINS_MAP[ChainType.QBIT_MAINNET]!.endpoints[0]!)
-    } catch (error) {
-      log.error('[WalletController] Failed to restore the mainnet API endpoint', summarizeError(error))
     }
     this.dropRegtestApiClients()
 
@@ -9541,7 +9529,7 @@ export class WalletController extends BaseController {
   }
 
   getWalletConfig = async () => {
-    return walletApiService.config.getWalletConfig()
+    return getLocalWalletConfig()
   }
 
   getSkippedVersion = async () => {
@@ -9592,8 +9580,8 @@ export class WalletController extends BaseController {
     return preferenceService.setShowSafeNotice(show)
   }
 
-  getVersionDetail = (version: string) => {
-    return walletApiService.config.getVersionDetail(version)
+  getVersionDetail = async (version: string) => {
+    return getLocalVersionNotice(version)
   }
 
   /* Biometric (WebAuthn PRF) unlock. The ceremony and key derivation run in
@@ -9769,10 +9757,6 @@ export class WalletController extends BaseController {
     return true
   }
 
-  getBlockActiveInfo = () => {
-    return walletApiService.utility.getBlockActiveInfo()
-  }
-
   // Rate Us Status
   getRateUsStatus = (): RateUsStatus => {
     return preferenceService.getRateUsStatus()
@@ -9800,34 +9784,6 @@ export class WalletController extends BaseController {
 
   setGuideReaded = async () => {
     preferenceService.setGuideReaded(true)
-  }
-
-  getAnnouncements = async (cursor: number, size: number) => {
-    return walletApiService.utility.getAnnouncements(cursor, size)
-  }
-
-  // get the notifications
-  getNotifications = async () => {
-    return notificationService.getNotifications()
-  }
-
-  // mark the notification as read
-  readNotification = async (id: string) => {
-    return notificationService.markAsRead(id)
-  }
-
-  // mark all notifications as read
-  readAllNotifications = async () => {
-    return notificationService.readAll()
-  }
-
-  // delete the notification
-  deleteNotification = async (id: string) => {
-    return notificationService.deleteNotification(id)
-  }
-
-  getNotificationUnreadCount = (): number => {
-    return notificationService.getUnreadCount()
   }
 
   getAcceptLowFeeMode = async () => {

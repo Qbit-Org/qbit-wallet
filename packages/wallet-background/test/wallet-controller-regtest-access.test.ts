@@ -16,7 +16,6 @@ import {
   keyringService,
   preferenceService,
   sessionService,
-  walletApiService,
 } from '../src/services'
 import regtestAccessService, {
   type RegtestAccessAckStore,
@@ -52,9 +51,6 @@ vi.mock('../src/services', () => ({
     getRegtestAccessAck: vi.fn(),
     setRegtestAccessAck: vi.fn(),
   },
-  walletApiService: {
-    setEndpoint: vi.fn(async () => undefined),
-  },
   sessionService: {
     broadcastEvent: vi.fn(),
     broadcastChainChange: vi.fn(),
@@ -62,7 +58,6 @@ vi.mock('../src/services', () => ({
   contactBookService: {
     listAlias: vi.fn(() => []),
   },
-  notificationService: {},
   permissionService: {
     removeConnectedSite: vi.fn(),
   },
@@ -83,6 +78,25 @@ vi.mock('../src/utils/qbit-api', async importOriginal => {
 const MAINNET_ENDPOINT = 'https://mempool.qbit.org/api'
 const REGTEST_HD_PATH = "m/87'/1'/0'/0"
 const MAINNET_HD_PATH = "m/87'/0'/0'/0"
+
+// The chain API base every explorer read and broadcast uses. It follows the
+// selected chain, which preferenceService.getChainType reports here.
+function apiEndpoint(wallet: WalletController): string {
+  return (wallet as any).getQbitApiEndpoint().endpoint
+}
+
+// The cached explorer clients still bound to the loopback service.
+function regtestClients(wallet: WalletController): string[] {
+  return [...(wallet as any).qbitApiClients.keys()].filter((key: string) =>
+    key.startsWith(`${ChainType.QBIT_REGTEST}:`)
+  )
+}
+
+// What a read made while regtest is active leaves behind.
+function cacheRegtestClient(wallet: WalletController) {
+  ;(wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
+  expect(regtestClients(wallet)).toHaveLength(1)
+}
 
 function textResponse(
   body: string,
@@ -156,11 +170,12 @@ function prepareWallet() {
   return { wallet, changeKeyring }
 }
 
-function expectNoChainMutation() {
+function expectNoChainMutation(wallet: WalletController) {
   expect(keyringService.syncQbitHdPath).not.toHaveBeenCalled()
   expect(keyringService.rearmQbitRestoreFloors).not.toHaveBeenCalled()
   expect(preferenceService.setChainType).not.toHaveBeenCalled()
-  expect(walletApiService.setEndpoint).not.toHaveBeenCalled()
+  // A refused switch leaves no client bound to the loopback service.
+  expect(regtestClients(wallet)).toEqual([])
   expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
   expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
 }
@@ -190,7 +205,7 @@ describe('WalletController local regtest capability', () => {
     await expect(wallet.setNetworkType(2 as any)).rejects.toMatchObject({
       code: ErrorCodes.REGTEST_ACCESS_LOCKED,
     })
-    expectNoChainMutation()
+    expectNoChainMutation(wallet)
     expect(changeKeyring).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
     expect(adapter.containsPermission).toHaveBeenCalled()
@@ -212,7 +227,7 @@ describe('WalletController local regtest capability', () => {
     await expect(wallet.setChainType(ChainType.QBIT_REGTEST)).rejects.toMatchObject({
       code: ErrorCodes.REGTEST_ACCESS_LOCKED,
     })
-    expectNoChainMutation()
+    expectNoChainMutation(wallet)
   })
 
   it('enters regtest once permission, acknowledgement and identity verification all succeed', async () => {
@@ -231,7 +246,7 @@ describe('WalletController local regtest capability', () => {
 
     expect(current()).toBe(ChainType.QBIT_REGTEST)
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith(REGTEST_HD_PATH)
-    expect(walletApiService.setEndpoint).toHaveBeenCalledWith(QBIT_REGTEST_ORIGIN)
+    expect(apiEndpoint(wallet)).toBe(QBIT_REGTEST_ORIGIN)
     expect(changeKeyring).toHaveBeenCalled()
     expect(sessionService.broadcastChainChange).toHaveBeenCalledWith({
       previousChain: ChainType.QBIT_MAINNET,
@@ -327,7 +342,7 @@ describe('WalletController local regtest capability', () => {
       })
 
       await expect(wallet.setChainType(ChainType.QBIT_REGTEST)).rejects.toMatchObject({ code })
-      expectNoChainMutation()
+      expectNoChainMutation(wallet)
       expect(changeKeyring).not.toHaveBeenCalled()
     }
   )
@@ -344,15 +359,17 @@ describe('WalletController local regtest capability', () => {
     })
     const emitted: unknown[] = []
     bgEventBus.addEventListener(BUS_EVENTS.broadcastToUI, params => emitted.push(params))
+    cacheRegtestClient(wallet)
 
     contains.mockResolvedValue(false)
     fireRemoved()
 
     await waitFor(() => expect(current()).toBe(ChainType.QBIT_MAINNET))
-    await waitFor(() => expect(walletApiService.setEndpoint).toHaveBeenCalledWith(MAINNET_ENDPOINT))
+    await waitFor(() => expect(regtestClients(wallet)).toEqual([]))
+    expect(apiEndpoint(wallet)).toBe(MAINNET_ENDPOINT)
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
     expect(changeKeyring).toHaveBeenCalled()
-    expect(walletApiService.setEndpoint).not.toHaveBeenCalledWith(QBIT_REGTEST_ORIGIN)
+    expect(preferenceService.setChainType).not.toHaveBeenCalledWith(ChainType.QBIT_REGTEST)
     await waitFor(() =>
       expect(sessionService.broadcastChainChange).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -391,11 +408,13 @@ describe('WalletController local regtest capability', () => {
       fetch: healthyFetch(),
       ackStore: createAckStore(REGTEST_ACCESS_ACK_VERSION),
     })
+    cacheRegtestClient(wallet)
 
     fireRemoved()
 
     await waitFor(() => expect(current()).toBe(ChainType.QBIT_MAINNET))
-    await waitFor(() => expect(walletApiService.setEndpoint).toHaveBeenCalledWith(MAINNET_ENDPOINT))
+    await waitFor(() => expect(regtestClients(wallet)).toEqual([]))
+    expect(apiEndpoint(wallet)).toBe(MAINNET_ENDPOINT)
     expect(preferenceService.persist).toHaveBeenCalled()
     expect(changeKeyring).not.toHaveBeenCalled()
     await waitFor(() =>
@@ -536,6 +555,7 @@ describe('WalletController local regtest capability', () => {
         fetch: scenario.fetch as any,
         ackStore: createAckStore(scenario.ack),
       })
+      cacheRegtestClient(wallet)
 
       await expect(wallet.prepareStartupChainType()).resolves.toBe(scenario.expected)
       expect(current()).toBe(scenario.expected)
@@ -545,8 +565,11 @@ describe('WalletController local regtest capability', () => {
       } else {
         expect(preferenceService.setChainType).not.toHaveBeenCalled()
       }
-      // Startup never touches the API endpoint itself; the caller binds it afterwards.
-      expect(walletApiService.setEndpoint).not.toHaveBeenCalled()
+      // Falling back to mainnet drops the cached loopback clients; a check that
+      // passes keeps them.
+      expect(regtestClients(wallet)).toHaveLength(
+        scenario.expected === ChainType.QBIT_MAINNET ? 0 : 1
+      )
     }
   })
 
@@ -575,6 +598,7 @@ describe('WalletController local regtest capability', () => {
       order.push(`chain:${chainType}`)
       vi.mocked(preferenceService.getChainType).mockReturnValue(chainType)
     })
+    cacheRegtestClient(wallet)
 
     const status = await wallet.disableRegtestAccess()
 
@@ -590,7 +614,8 @@ describe('WalletController local regtest capability', () => {
     expect(order[0]).toBe(`chain:${ChainType.QBIT_MAINNET}`)
     expect(ackStore.value).toBeUndefined()
     expect(Object.keys(adapter)).not.toContain('removePermission')
-    expect(walletApiService.setEndpoint).toHaveBeenCalledWith(MAINNET_ENDPOINT)
+    expect(regtestClients(wallet)).toEqual([])
+    expect(apiEndpoint(wallet)).toBe(MAINNET_ENDPOINT)
     expect(preferenceService.getChainType()).toBe(ChainType.QBIT_MAINNET)
     await expect(wallet.setChainType(ChainType.QBIT_REGTEST)).rejects.toMatchObject({
       code: ErrorCodes.REGTEST_ACCESS_LOCKED,

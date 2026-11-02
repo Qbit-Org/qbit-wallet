@@ -4,7 +4,6 @@ import {
   Account,
   AddressFlagType,
   AddressSummary,
-  Announcement,
   BiometricUnlockRecord,
   BiometricUnlockStatus,
   QbitBalance,
@@ -33,7 +32,6 @@ import {
   SignPsbtOptions,
   SignedData,
   SignedMessage,
-  StoredNotification,
   ToSignData,
   ToSignInput,
   ToSignMessage,
@@ -89,9 +87,6 @@ export interface QbitP2mrDescriptorExport {
 }
 
 export interface WalletController {
-  openapi: {
-    [key: string]: (...params: any) => Promise<any>
-  }
   // for development use only
   requestMethod: (...params: any) => Promise<any>
 
@@ -459,8 +454,6 @@ export interface WalletController {
   getThemeMode(): Promise<ThemeMode>
   setThemeMode(themeMode: ThemeMode): Promise<void>
 
-  getBlockActiveInfo(): Promise<{ allTransactions: number; allAddrs: number }>
-
   getContactByAddress(address: string): Promise<ContactBookItem | undefined>
   getContactByAddressAndChain(
     address: string,
@@ -493,19 +486,6 @@ export interface WalletController {
   setRatePromptDismissedAt(timestamp: number | null): Promise<void>
   setHasShownSecondPrompt(hasShown: boolean): Promise<void>
   resetRateUsStatus(): Promise<void>
-  getAnnouncements(
-    cursor: number,
-    size: number
-  ): Promise<{
-    hasMore: boolean
-    list: Announcement[]
-  }>
-
-  getNotifications(): Promise<StoredNotification[]>
-  readNotification(id: string): Promise<void>
-  readAllNotifications(): Promise<void>
-  deleteNotification(id: string): Promise<void>
-  getNotificationUnreadCount(): Promise<number>
 
   getAcceptLowFeeMode(): Promise<boolean>
   setAcceptLowFeeMode(accept: boolean): Promise<void>

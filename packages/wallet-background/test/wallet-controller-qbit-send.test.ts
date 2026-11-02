@@ -53,7 +53,6 @@ import {
   keyringService,
   preferenceService,
   qbitSendGuardService,
-  walletApiService,
 } from '../src/services'
 import { QBIT_WALLET_SEND_CLAIM_ORIGIN } from '../src/services/qbitSendGuards'
 import { bgEventBus } from '../src/utils/eventBus'
@@ -199,18 +198,8 @@ vi.mock('../src/services', () => ({
     settleRecentSpendProbe: vi.fn(),
     takeRecentSpendersToProbe: vi.fn(async () => []),
   },
-  // The centralized asset lookup is intentionally absent: Qbit flows must
-  // never call that unsupported surface, and a regression would crash here
-  // instead of silently resolving.
-  walletApiService: {
-    transactionCore: {
-      pushTx: vi.fn(),
-      decodePsbt: vi.fn(),
-    },
-  },
   sessionService: {},
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
 }))
 
@@ -630,7 +619,6 @@ describe('WalletController qbit P2MR send path', () => {
     vi.mocked(qbitSendGuardService.broadcastIfAllowed).mockImplementation(
       async (_chain, _txid, _outpoints, broadcast) => broadcast()
     )
-    vi.mocked(walletApiService.transactionCore.pushTx).mockResolvedValue('service-txid')
     vi.mocked(keyringService.preflightP2mrMessageSigning).mockResolvedValue(SIGNATURE_BUDGET)
     vi.mocked(keyringService.preflightP2mrPsbtSigning).mockResolvedValue(SIGNATURE_BUDGET)
     vi.mocked(keyringService.openP2mrPsbtSigningBatch).mockResolvedValue({
@@ -8064,7 +8052,6 @@ describe('WalletController qbit P2MR send path', () => {
     await expect(wallet.decodePsbt('deadbeef', 'https://example.test')).rejects.toThrow(
       /qbit P2MR PSBT/
     )
-    expect(walletApiService.transactionCore.decodePsbt).not.toHaveBeenCalled()
   })
 
   it('broadcasts qbit transactions through the qbit Esplora client', async () => {
@@ -8107,7 +8094,6 @@ describe('WalletController qbit P2MR send path', () => {
       [{ txid: sourceTxid, vout: 0 }],
       expect.any(Function)
     )
-    expect(walletApiService.transactionCore.pushTx).not.toHaveBeenCalled()
   })
 
   it('marks a qbit transaction gone for a definitive API 404', async () => {

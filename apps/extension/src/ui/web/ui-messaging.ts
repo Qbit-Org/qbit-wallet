@@ -42,7 +42,6 @@ export function createPortMessageChannel() {
 }
 
 export interface WalletProxy {
-  openapi: Record<string, (...args: any[]) => Promise<any>>;
   [key: string]: any;
 }
 
@@ -55,21 +54,6 @@ export function createWalletProxy(portMessageChannel: InstanceType<typeof PortMe
     {
       get(obj, key) {
         switch (key) {
-          case 'openapi':
-            return new Proxy(
-              {},
-              {
-                get(obj, key) {
-                  return function (...params: any) {
-                    return portMessageChannel.request({
-                      type: MESSAGE_TYPE.UI_OPENAPI,
-                      method: key,
-                      params
-                    });
-                  };
-                }
-              }
-            );
           case 'requestMethod':
             return function (params: any) {
               return portMessageChannel.request({

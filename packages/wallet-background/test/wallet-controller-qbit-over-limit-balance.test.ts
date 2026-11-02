@@ -71,13 +71,8 @@ vi.mock('../src/services', async () => {
       resetAllData: vi.fn(async () => undefined),
     },
     qbitSendGuardService: guard,
-    walletApiService: {
-      transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() },
-      resetAllData: vi.fn(async () => undefined),
-    },
     sessionService: { broadcastEvent: vi.fn() },
     contactBookService: { resetAllData: vi.fn(async () => undefined) },
-    notificationService: {},
     permissionService: { resetAllData: vi.fn(async () => undefined) },
   }
 })

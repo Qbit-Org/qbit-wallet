@@ -17,7 +17,6 @@ import { StartupErrorScreen } from './components/StartupErrorScreen';
 import AsyncMainRoute from './pages/MainRoute';
 import { DeviceProvider } from './providers/DeviceProvider';
 import { I18nProvider } from './providers/I18nProvider';
-import { StorageProvider } from './providers/StorageProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { ToolsProvider } from './providers/ToolsProvider';
 import { getAntdConfig, initializeAppConfig } from './utils/appConfig';
@@ -55,23 +54,21 @@ function renderApp() {
     <Provider store={store}>
       <WalletProvider {...antdConfig} wallet={wallet as any}>
         <ThemeProvider>
-          <StorageProvider>
-            <DeviceProvider>
-              <I18nProvider>
-                <ToolsProvider>
-                  <AppDimensions>
-                    <IdleTimerProvider
-                      onAction={() => {
-                        wallet.setLastActiveTime();
-                      }}>
-                      <AccountUpdater />
-                      <AsyncMainRoute />
-                    </IdleTimerProvider>
-                  </AppDimensions>
-                </ToolsProvider>
-              </I18nProvider>
-            </DeviceProvider>
-          </StorageProvider>
+          <DeviceProvider>
+            <I18nProvider>
+              <ToolsProvider>
+                <AppDimensions>
+                  <IdleTimerProvider
+                    onAction={() => {
+                      wallet.setLastActiveTime();
+                    }}>
+                    <AccountUpdater />
+                    <AsyncMainRoute />
+                  </IdleTimerProvider>
+                </AppDimensions>
+              </ToolsProvider>
+            </I18nProvider>
+          </DeviceProvider>
         </ThemeProvider>
       </WalletProvider>
     </Provider>

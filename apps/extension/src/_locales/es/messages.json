@@ -113,12 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. Después de firmar, escanee el código QR firmado de vuelta con esta billetera."
   },
-  "all_marked_as_read": {
-    "message": "Todo marcado como leído"
-  },
-  "all_read": {
-    "message": "Todo leído"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "¿Permitir que este sitio cambie la cadena?"
   },
@@ -133,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "La cantidad debe ser al menos"
-  },
-  "announcement": {
-    "message": "Anuncio"
   },
   "appDescription": {
     "message": "Qbit Wallet permite a los usuarios enviar, recibir y realizar transacciones en Qbit nativo (QBT) y su ecosistema nativo."
@@ -662,9 +653,6 @@
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "Billetera inválida, por favor elimínala y añade una nueva"
   },
-  "just_now": {
-    "message": "Justo ahora"
-  },
   "keyring_error_account_count": {
     "message": "El número de cuentas debe ser mayor que 0"
   },
@@ -851,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "No se encontraron contactos coincidentes"
   },
-  "no_notifications": {
-    "message": "Sin notificaciones"
-  },
   "not_connected": {
     "message": "No conectado"
   },
@@ -865,9 +850,6 @@
   },
   "notice": {
     "message": "Aviso"
-  },
-  "notifications": {
-    "message": "Notificaciones"
   },
   "ok": {
     "message": "Aceptar"
@@ -1387,9 +1369,6 @@
   },
   "view": {
     "message": "Ver"
-  },
-  "view_detail": {
-    "message": "Ver detalle"
   },
   "view_on_block_explorer": {
     "message": "Ver en el Explorador de Bloques"

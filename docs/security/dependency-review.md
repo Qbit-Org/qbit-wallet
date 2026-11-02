@@ -2,9 +2,10 @@
 
 Review date: 2026-11-05 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
-2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, and on 2026-11-05
+2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
-the extension and keyring-service)
+the extension and keyring-service, and on 2026-11-05 after the
+`@qbit/wallet-api` and `@qbit/notification-service` workspaces were removed)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -22,18 +23,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `eae9633686197748c7a2736bb3c3a5f9ab3844e0` |
+| Audited commit | `802dc03ca7e9185e74dcdcf3f18f446ea0820c1b` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `204908fc1dd14f055821c7784fb318f298b1120083adb15c40a3da70f26c65ee` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `c2d6120e66f6c7b4e1d44f03a8ba7e9f9ce8fb23ebea97229abe67e8136a8d96` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `a9c3ab06960f2a8af3e2f5d788274306ee0e4df463aec1e7b1d23d41bc36a764` |
+| `pnpm-lock.yaml` SHA-256 | `3e744a2e56fc9cc898fdf732ba52fa99289a25385cbafc48dae66b58c15a71ba` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `14e966b924c4ed111c54541579681a8345666630206cd42e7324e5d3598b3a8b` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `a63705b03619f01f97ea64afb7cd9f865c5f88281d245287f63f4d5f991adcfe` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 409 direct declarations, all 180 resolved packages classified as crypto-,
+all 389 direct declarations, all 180 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -82,9 +83,15 @@ at `0168a04` on `release/1.0.7` to 58 occurrences, including the high
 job failed again. Moving `follow-redirects` to 1.16.2 on 2026-11-02 reduced
 the result to 57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low.
 The move to pnpm 11.28.9 on 2026-11-03 changed no resolved version, and the
-audit still has the same 44 advisory records. pnpm 11's audit counts one
-occurrence per advisory record, so the current result is 44 occurrences:
-0 critical, 0 high, 34 moderate, and 10 low.
+audit still had the same 44 advisory records. pnpm 11's audit counts one
+occurrence per advisory record, so the result at `eae9633` was 44 occurrences:
+0 critical, 0 high, 34 moderate, and 10 low. That change's evidence was
+regenerated at `68e6a41`, after it merged `release/1.0.8` at #140: #140's
+removal of the unused Sentry declarations took out the `@sentry/browser`
+record, leaving 43 occurrences: 0 critical, 0 high, 33 moderate, and 10 low.
+Removing the `@qbit/wallet-api` and `@qbit/notification-service` workspaces
+left the current result at 43 occurrences: 0 critical, 0 high, 33 moderate,
+and 10 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -107,13 +114,15 @@ occurrence per advisory record, so the current result is 44 occurrences:
 | Audited result `f1017d9` (2026-10-30, Qbit SDK 0.1.1) | 0 | 0 | 36 | 14 | 50 |
 | Advisory-feed drift at unchanged-lock `release/1.0.7` `0168a04` | 0 | 1 | 43 | 14 | 58 |
 | Audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
-| Current audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
+| Audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
+| Audited result `68e6a41` (2026-11-05, `release/1.0.8` at #140 merged) | 0 | 0 | 33 | 10 | 43 |
+| Current audited result `802dc03` (2026-11-05, `wallet-api` and `notification-service` removed) | 0 | 0 | 33 | 10 | 43 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
-counts advisory records; neither counts independent vulnerabilities. The final audit contains 43 advisory records representing 38
-unique advisory/package pairs. Four records affect a directly declared package
-and 38 are transitive. No critical or high advisory remains, and no risk
-exception is in force.
+counts advisory records; neither counts independent vulnerabilities. The final
+audit contains 43 advisory records representing 38 unique advisory/package
+pairs. Four records affect a directly declared package and 39 are transitive.
+No critical or high advisory remains, and no risk exception is in force.
 
 Registry advisory data can change without a repository change, so this
 snapshot is not permanent. The live audit runs in the `Dependency policy` CI
@@ -188,18 +197,18 @@ needs major-version moves rather than an override bump.
 
 ## Package inventory
 
-The 20 workspaces contain 2,137 registry lock entries and 409 direct dependency
-declarations. Lockfile v9 keeps one entry per name@version; its 2,288 peer
-variants are snapshots. Direct declarations are classified by how they enter the product
-or engineering process:
+The 18 workspaces contain 2,136 registry lock entries and 389 direct dependency
+declarations. Lockfile v9 keeps one entry per name@version; its 2,287 peer
+variants are snapshots. Direct declarations are classified by how they enter
+the product or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 149 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 139 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 72 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
-| Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 129 | Lint, formatting, repository tooling, and non-release developer commands |
-| Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
+| Test-only tooling | 33 | Unit, browser, fixture, and conformance test dependencies |
+| Development/quality tooling | 123 | Lint, formatting, repository tooling, and non-release developer commands |
+| Workspace contract | 22 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
 workspace-link declaration does not establish runtime reachability on its own.
@@ -228,14 +237,20 @@ The final audit has the following direct advisory records:
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths; reachable under the production-closure rule because `apps/extension` declares its build tooling as dependencies |
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
-Across all advisory dependency paths, the inventory records 35 reachable
-path occurrences, 1,000 extension-build occurrences, 606 test-only
-occurrences, and 609 development-tooling occurrences. pnpm 11's audit lists
-2,250 paths where pnpm 8 listed 5,313: it no longer prints a root path for an
-overridden package (such as `. > fast-uri@3.1.7`), and it reports a workspace
-package's dependencies from that package's own importer rather than through
-each workspace link. These counts are therefore not comparable with earlier
-inventories.
+Across all advisory dependency paths, the inventory records 32 reachable path
+occurrences, 986 extension-build occurrences, 554 test-only occurrences, and
+530 development-tooling occurrences. At `eae9633` they were 35, 1,000, 606 and
+609. The advisory feed then narrowed the `minimatch` record
+`GHSA-g3hv-75wg-m249` to 9.0.9 and 10.2.6, though 3.1.5 and 5.1.9 stayed in the
+lockfile, which took out 114 paths: they were 35, 994, 565 and 542 at
+`92fe750`, and 32, 986, 567 and 541 at `68e6a41`, after #140. Removing the
+`@qbit/wallet-api` and `@qbit/notification-service` workspaces took out 13
+test-only and 11 development-tooling occurrences. pnpm 11's audit listed 2,250
+paths at `eae9633` where pnpm 8 listed 5,313: it no longer prints a root path
+for an overridden package (such as `. > fast-uri@3.1.7`), and it reports a
+workspace package's dependencies from that package's own importer rather than
+through each workspace link. These counts are therefore not comparable with
+earlier inventories.
 
 Advisory reachability no longer depends on how many paths the audit lists. An
 advisory is reachable when a vulnerable version is in a production closure:
@@ -263,9 +278,8 @@ that exact version, so parallel versions cannot inherit one another's delivery
 or reachability classification.
 
 Moderate and low findings remain visible and fail neither the current policy
-nor this release baseline. They include reachable records in Sentry,
-transitive packages such as `bn.js`, `react-router`, `uuid`, and
-`minimatch@3.1.5` through `typescript-transform-paths`, the exact
+nor this release baseline. They include reachable records in transitive
+packages such as `moment`, `bn.js`, `react-router` and `uuid`, the exact
 direct and transitive `yaml` parser closure, and the reviewed low-severity
 `elliptic` record. They remain modernization work;
 their lower severity is not evidence of unreachability.
@@ -341,7 +355,15 @@ commits. The 2026-10-23 refresh committed the dependency change as
 `64309e97`; the regenerated evidence and this review follow in a separate
 commit. The same applies to the `patch-package` move in `c702dffc`, the
 2026-11-02 `follow-redirects` update in `ea3fee07`, and the 2026-11-03 move
-to pnpm 11.28.9 in `eae96336`.
+to pnpm 11.28.9 in `eae96336`. The 2026-11-02 removal of the
+`@qbit/wallet-api` and `@qbit/notification-service` workspaces was rebased on
+2026-11-05 onto `release/1.0.8` at `0638892`, which includes #140 and the move
+to pnpm 11.28.9. Its change, without the regenerated evidence and this
+review's figures, was committed as `802dc03c`, and the evidence was
+regenerated there. The commit that adds them has the same parent as
+`802dc03c` and otherwise the same files, so `802dc03c` is not in this PR's
+history: its tree is that commit's tree with the two evidence files and this
+review as they are in its parent.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -403,6 +425,7 @@ to pnpm 11.28.9 in `eae96336`.
 | `c702dffc` | Move `patch-package` to `@qbit/keyring-service` devDependencies and mark the wallet packages private (#289) | Classified `patch-package` as development tooling; the live audit stayed at zero critical/high findings |
 | `ea3fee07` | Pin the patched `follow-redirects@1.16.2` and review its license identity | Restored zero critical/high findings on the 2026-11-02 live audit with no exception in force |
 | `eae96336` | Move from pnpm 8.6.0 to pnpm 11.28.9 with a hashed pin, convert the lockfile to v9, and read pnpm 11's settings, lockfile and audit paths in the policy and evidence tooling | Kept every resolved version and integrity; removed four auto-installed peers pnpm 8 never installed; zero critical/high findings with no exception in force |
+| `802dc03c` | Remove the unused `@qbit/wallet-api` and `@qbit/notification-service` workspaces | Dropped 2 workspaces, 20 direct declarations and the `@types/randomstring@1.3.0` license identity; the live audit stayed at zero critical/high findings |
 
 ## Lint and dependency policy jobs
 
@@ -451,27 +474,28 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,137 integrity-pinned registry entries, 409
+The audited policy checked 2,136 integrity-pinned registry entries, 389
 dependency specifiers (the 49 overrides are now audited in
 `pnpm-workspace.yaml`), 32 Action references, two tracked package-manager
-configuration files, 272 executable package/workflow commands, and 2,137 exact
-package/version license records. The browser
-smoke-test installer is an exact direct dependency and installs
-`chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
-`pnpm dlx`. Tracked-file discovery recurses into any initialized submodule
-and fails before review if a checkout is absent, conflicted, or differs from
-its recorded gitlink; since 2026-10-26 the repository has none, and the Qbit
-SDK comes from npm (`scripts/security/sdk-package-pins.json`). `corepack pnpm security:evidence` is now a tracked,
-exact-dependency command that refuses dirty source/config/lockfile inputs and
-binds both generated outputs to the audited commit and audit bytes.
+configuration files, 256 executable package/workflow commands, and 2,136 exact
+package/version license records. The browser smoke-test installer is an exact
+direct dependency and installs `chrome@148.0.7778.97`; it no longer downloads
+mutable `stable` through `pnpm dlx`. Tracked-file discovery recurses into any
+initialized submodule and fails before review if a checkout is absent,
+conflicted, or differs from its recorded gitlink; since 2026-10-26 the
+repository has none, and the Qbit SDK comes from npm
+(`scripts/security/sdk-package-pins.json`). `corepack pnpm security:evidence`
+is now a tracked, exact-dependency command that refuses dirty
+source/config/lockfile inputs and binds both generated outputs to the audited
+commit and audit bytes.
 
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,137 distinct identities
+version, and normalized license expression for all 2,136 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,137 registry entries must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,136 registry entries must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -505,7 +529,9 @@ the bundled-dependency license notice in `vite@6.4.4` is byte-identical to
 The 2026-11-02 refresh onboarded `follow-redirects@1.16.2` through the same
 flow, verified MIT against its installed manifest and its license file, which
 is byte-identical to 1.16.1's, and dropped the superseded
-`follow-redirects@1.16.1`.
+`follow-redirects@1.16.1`. Removing the `@qbit/wallet-api` workspace dropped
+`@types/randomstring@1.3.0`, which only it declared, and onboarded none,
+leaving 2,136.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command

@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { getCurrentTab } from '@/ui/web/tabs';
 import { KeyringType } from '@qbit/keyring-service/types';
 import { BUS_METHODS } from '@qbit/wallet-shared';
 import {
@@ -72,7 +73,6 @@ vi.mock('@/ui/web/tabs', () => ({ getCurrentTab: vi.fn(async () => undefined) })
 vi.mock('../../MainRoute', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('../../Settings/SwitchChainModal', () => ({ SwitchChainModal: () => null }));
 vi.mock('./SidePanelExpand', () => ({ SidePanelExpand: () => null }));
-vi.mock('./components/AnnouncementCard', () => ({ AnnouncementCard: () => null }));
 vi.mock('./components/BalanceCard', () => ({ BalanceCard: () => null }));
 vi.mock('./components/HomeTips', () => ({ HomeTips: () => null }));
 vi.mock('./components/WalletActions', async () => {
@@ -187,7 +187,6 @@ function recoveredKeyring(recovery = seedOnlyRecovery, overrides: Record<string,
 
 describe('WalletTabScreen recovery acceptance', () => {
   let walletMock: {
-    getNotifications: ReturnType<typeof vi.fn>;
     getCurrentConnectedSite: ReturnType<typeof vi.fn>;
     getQbitRecoveryState: ReturnType<typeof vi.fn>;
     acknowledgeQbitRecoveryRisk: ReturnType<typeof vi.fn>;
@@ -198,7 +197,6 @@ describe('WalletTabScreen recovery acceptance', () => {
     vi.clearAllMocks();
     localStorage.setItem('version_detail', JSON.stringify({ version: '1.0.0' }));
     walletMock = {
-      getNotifications: vi.fn(),
       getCurrentConnectedSite: vi.fn(),
       getQbitRecoveryState: vi.fn(async () => seedOnlyRecovery),
       acknowledgeQbitRecoveryRisk: vi.fn(),
@@ -453,7 +451,6 @@ describe('WalletTabScreen lock wallet button', () => {
       newVersion: '1.0.0'
     } as any);
     vi.mocked(useWallet).mockReturnValue({
-      getNotifications: vi.fn(),
       getCurrentConnectedSite: vi.fn(),
       lockWallet
     } as any);
@@ -533,7 +530,6 @@ describe('WalletTabScreen version notice', () => {
       newVersion: '1.0.1'
     } as any);
     vi.mocked(useWallet).mockReturnValue({
-      getNotifications: vi.fn(),
       getCurrentConnectedSite: vi.fn(),
       getVersionDetail
     } as any);
@@ -590,7 +586,7 @@ describe('WalletTabScreen version notice', () => {
 
     render(<WalletTabScreen />);
 
-    await waitFor(() => expect(vi.mocked(useWallet)().getNotifications).toHaveBeenCalled());
+    await waitFor(() => expect(getCurrentTab).toHaveBeenCalled());
     expect(getVersionDetail).not.toHaveBeenCalled();
     expect(screen.queryByTestId('version-notice')).toBeNull();
   });

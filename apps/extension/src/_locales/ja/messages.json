@@ -113,12 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. 署名後、このウォレットで署名済みQRコードをスキャンしてください。"
   },
-  "all_marked_as_read": {
-    "message": "すべて既読にしました"
-  },
-  "all_read": {
-    "message": "すべて既読"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "このサイトにチェーンの切り替えを許可しますか？"
   },
@@ -133,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "金額は少なくとも"
-  },
-  "announcement": {
-    "message": "お知らせ"
   },
   "appDescription": {
     "message": "Qbit Walletは、ネイティブQbit（QBT）とそのネイティブエコシステムでの送金・受取・取引を可能にします。"
@@ -662,9 +653,6 @@
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "無効なウォレットです。削除して新しいものを追加してください"
   },
-  "just_now": {
-    "message": "たった今"
-  },
   "keyring_error_account_count": {
     "message": "アカウント数は0より大きい必要があります"
   },
@@ -851,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "一致する連絡先が見つかりません"
   },
-  "no_notifications": {
-    "message": "通知なし"
-  },
   "not_connected": {
     "message": "未接続"
   },
@@ -864,9 +849,6 @@
     "message": "サポートされていません"
   },
   "notice": {
-    "message": "通知"
-  },
-  "notifications": {
     "message": "通知"
   },
   "ok": {
@@ -1387,9 +1369,6 @@
   },
   "view": {
     "message": "表示"
-  },
-  "view_detail": {
-    "message": "詳細を見る"
   },
   "view_on_block_explorer": {
     "message": "ブロックエクスプローラーで表示"

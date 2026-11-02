@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "68e6a412b83b89dffef5c01f2dcb82bd0f9e400a",
-  "lockfileSha256": "204908fc1dd14f055821c7784fb318f298b1120083adb15c40a3da70f26c65ee",
+  "auditedCommit": "802dc03ca7e9185e74dcdcf3f18f446ea0820c1b",
+  "lockfileSha256": "3e744a2e56fc9cc898fdf732ba52fa99289a25385cbafc48dae66b58c15a71ba",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "c2d6120e66f6c7b4e1d44f03a8ba7e9f9ce8fb23ebea97229abe67e8136a8d96",
+    "sha256": "14e966b924c4ed111c54541579681a8345666630206cd42e7324e5d3598b3a8b",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -13,15 +13,15 @@
     "advisoryReachability": "An advisory is reachable when a vulnerable name@version is in a production closure: reachable from an importer's dependencies or optionalDependencies through lockfile snapshots, following workspace links. productionClosure records one such path per vulnerable version, or null. Each pnpm audit path is joined to its direct declaration through its importer's lockfile resolution, as supporting evidence: exact accepted exception paths use their reviewed reachability; other paths inherit shipped runtime, extension build, test, or development-tooling context."
   },
   "summary": {
-    "workspaces": 20,
-    "registryLockEntries": 2137,
-    "directDeclarations": 409,
+    "workspaces": 18,
+    "registryLockEntries": 2136,
+    "directDeclarations": 389,
     "directDeclarationsByDelivery": {
-      "development-quality-tooling": 129,
+      "development-quality-tooling": 123,
       "extension-build-packaging": 72,
-      "shipped-runtime": 149,
-      "test-only-tooling": 35,
-      "workspace-contract": 24
+      "shipped-runtime": 139,
+      "test-only-tooling": 33,
+      "workspace-contract": 22
     },
     "securityAdjacentResolvedPackages": 180,
     "securityAdjacentByCategory": {
@@ -47,9 +47,9 @@
       "transitive": 39
     },
     "advisoryPathsByReachability": {
-      "development-tooling-path": 541,
+      "development-tooling-path": 530,
       "extension-build-path": 986,
-      "test-only-path": 567,
+      "test-only-path": 554,
       "reachable": 32
     }
   },
@@ -561,36 +561,6 @@
       "securityAdjacency": []
     },
     {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "@types/node",
-      "section": "devDependencies",
-      "requested": "^20.0.0",
-      "resolved": "20.8.0",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "tsup",
-      "section": "devDependencies",
-      "requested": "^7.0.0",
-      "resolved": "7.2.0(postcss@8.5.26)(supports-color@8.1.1)(typescript@5.2.2)",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "typescript",
-      "section": "devDependencies",
-      "requested": "^5.0.0",
-      "resolved": "5.2.2",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
       "workspace": "packages/permission-service",
       "workspacePackage": "@qbit/permission-service",
       "package": "@types/node",
@@ -786,36 +756,6 @@
       "package": "typescript",
       "section": "devDependencies",
       "requested": "^5.2.0",
-      "resolved": "5.2.2",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "@types/node",
-      "section": "devDependencies",
-      "requested": "^20.0.0",
-      "resolved": "20.8.0",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "tsup",
-      "section": "devDependencies",
-      "requested": "^7.0.0",
-      "resolved": "7.2.0(postcss@8.5.26)(supports-color@8.1.1)(typescript@5.2.2)",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "typescript",
-      "section": "devDependencies",
-      "requested": "^5.0.0",
       "resolved": "5.2.2",
       "delivery": "development-quality-tooling",
       "securityAdjacency": []
@@ -2267,16 +2207,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "@qbit/wallet-api",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../../packages/wallet-api",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "@qbit/wallet-background",
       "section": "dependencies",
       "requested": "workspace:*",
@@ -2986,48 +2916,6 @@
       ]
     },
     {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "@qbit/wallet-api",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../wallet-api",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "@qbit/wallet-shared",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../wallet-shared",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "crypto"
-      ]
-    },
-    {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "@qbit/wallet-storage",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../wallet-storage",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "eventemitter3",
-      "section": "dependencies",
-      "requested": "^5.0.1",
-      "resolved": "5.0.1",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
       "workspace": "packages/permission-service",
       "workspacePackage": "@qbit/permission-service",
       "package": "@qbit/wallet-storage",
@@ -3192,58 +3080,6 @@
       "section": "dependencies",
       "requested": "^9.1.2",
       "resolved": "9.3.1",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "@qbit/wallet-shared",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../wallet-shared",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "crypto"
-      ]
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "@qbit/wallet-storage",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../wallet-storage",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "@qbit/wallet-types",
-      "section": "dependencies",
-      "requested": "workspace:*",
-      "resolved": "link:../wallet-types",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "@types/randomstring",
-      "section": "dependencies",
-      "requested": "^1.3.0",
-      "resolved": "1.3.0",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
-      "package": "randomstring",
-      "section": "dependencies",
-      "requested": "^1.3.1",
-      "resolved": "1.3.1",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -3803,16 +3639,6 @@
       "securityAdjacency": []
     },
     {
-      "workspace": "packages/notification-service",
-      "workspacePackage": "@qbit/notification-service",
-      "package": "vitest",
-      "section": "devDependencies",
-      "requested": "3.2.6",
-      "resolved": "3.2.6(@types/debug@4.1.13)(@types/node@20.8.0)(@vitest/ui@3.2.6)(jsdom@27.4.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(less@4.8.1(supports-color@8.1.1))(sass@1.93.2)(stylus@0.64.0(supports-color@8.1.1))(supports-color@8.1.1)(terser@5.44.0)(yaml@2.8.1)",
-      "delivery": "test-only-tooling",
-      "securityAdjacency": []
-    },
-    {
       "workspace": "packages/permission-service",
       "workspacePackage": "@qbit/permission-service",
       "package": "vitest",
@@ -3845,16 +3671,6 @@
     {
       "workspace": "packages/tx-helpers",
       "workspacePackage": "@qbit/tx-helpers",
-      "package": "vitest",
-      "section": "devDependencies",
-      "requested": "3.2.6",
-      "resolved": "3.2.6(@types/debug@4.1.13)(@types/node@20.8.0)(@vitest/ui@3.2.6)(jsdom@27.4.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(less@4.8.1(supports-color@8.1.1))(sass@1.93.2)(stylus@0.64.0(supports-color@8.1.1))(supports-color@8.1.1)(terser@5.44.0)(yaml@2.8.1)",
-      "delivery": "test-only-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-api",
-      "workspacePackage": "@qbit/wallet-api",
       "package": "vitest",
       "section": "devDependencies",
       "requested": "3.2.6",
@@ -4103,16 +3919,6 @@
     {
       "workspace": "packages/wallet-background",
       "workspacePackage": "@qbit/wallet-background",
-      "package": "@qbit/notification-service",
-      "section": "peerDependencies",
-      "requested": "workspace:*",
-      "resolved": null,
-      "delivery": "workspace-contract",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-background",
-      "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit/permission-service",
       "section": "peerDependencies",
       "requested": "workspace:*",
@@ -4144,16 +3950,6 @@
       "workspace": "packages/wallet-background",
       "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit/tx-helpers",
-      "section": "peerDependencies",
-      "requested": "workspace:*",
-      "resolved": null,
-      "delivery": "workspace-contract",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/wallet-background",
-      "workspacePackage": "@qbit/wallet-background",
-      "package": "@qbit/wallet-api",
       "section": "peerDependencies",
       "requested": "workspace:*",
       "resolved": null,
@@ -7732,7 +7528,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 19,
+      "findingPathCount": 17,
       "pathContexts": [
         {
           "workspace": ".",
@@ -7780,15 +7576,6 @@
           "pathCount": 1
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "7.2.0",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "7.2.0",
           "directPackage": "tsup",
@@ -7817,15 +7604,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "7.2.0",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "7.2.0",
           "directPackage": "tsup",
           "directVersion": "7.2.0",
@@ -7927,7 +7705,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 46,
+      "findingPathCount": 42,
       "pathContexts": [
         {
           "workspace": ".",
@@ -7975,15 +7753,6 @@
           "pathCount": 2
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "3.2.6",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 2
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "3.2.6",
           "directPackage": "vitest",
@@ -8012,15 +7781,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "3.2.6",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 2
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "3.2.6",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -8176,7 +7936,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 46,
+      "findingPathCount": 42,
       "pathContexts": [
         {
           "workspace": ".",
@@ -8224,15 +7984,6 @@
           "pathCount": 2
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "3.2.6",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 2
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "3.2.6",
           "directPackage": "vitest",
@@ -8261,15 +8012,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "3.2.6",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 2
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "3.2.6",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -9102,7 +8844,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 119,
+      "findingPathCount": 117,
       "pathContexts": [
         {
           "workspace": ".",
@@ -9222,15 +8964,6 @@
           "pathCount": 1
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "5.0.11",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "5.0.11",
           "directPackage": "tsup",
@@ -9262,15 +8995,6 @@
           "vulnerableVersion": "5.0.11",
           "directPackage": "@typescript-eslint/eslint-plugin",
           "directVersion": "6.7.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/wallet-api",
-          "vulnerableVersion": "5.0.11",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
           "directDelivery": "development-quality-tooling",
           "reachability": "development-tooling-path",
           "pathCount": 1
@@ -9369,7 +9093,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 38,
+      "findingPathCount": 34,
       "pathContexts": [
         {
           "workspace": ".",
@@ -9417,15 +9141,6 @@
           "pathCount": 2
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "0.18.20",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 2
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "0.18.20",
           "directPackage": "tsup",
@@ -9454,15 +9169,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "0.18.20",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 2
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "0.18.20",
           "directPackage": "tsup",
           "directVersion": "7.2.0",
@@ -10044,7 +9750,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 25,
+      "findingPathCount": 23,
       "pathContexts": [
         {
           "workspace": ".",
@@ -10092,15 +9798,6 @@
           "pathCount": 1
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "0.8.2",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 1
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "0.8.2",
           "directPackage": "vitest",
@@ -10129,15 +9826,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "0.8.2",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "0.8.2",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -10443,24 +10131,6 @@
           "pathCount": 6
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "10.5.0",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "10.5.0",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "10.5.0",
           "directPackage": "tsup",
@@ -10525,24 +10195,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "10.5.0",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
-          "workspace": "packages/wallet-api",
-          "vulnerableVersion": "10.5.0",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "10.5.0",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -10611,7 +10263,34 @@
           "directVersion": "3.2.6",
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
-          "pathCount": 2
+          "pathCount": 7
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "10.5.0",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 5
         },
         {
           "workspace": "packages/wallet-shared",
@@ -10972,24 +10651,6 @@
           "pathCount": 6
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "9.0.9",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "9.0.9",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "9.0.9",
           "directPackage": "tsup",
@@ -11054,24 +10715,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "9.0.9",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
-          "workspace": "packages/wallet-api",
-          "vulnerableVersion": "9.0.9",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "9.0.9",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -11149,7 +10792,34 @@
           "directVersion": "3.2.6",
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
-          "pathCount": 2
+          "pathCount": 7
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "9.0.9",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 5
         },
         {
           "workspace": "packages/wallet-shared",
@@ -11784,7 +11454,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 103,
+      "findingPathCount": 102,
       "pathContexts": [
         {
           "workspace": ".",
@@ -11832,15 +11502,6 @@
           "pathCount": 6
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "6.4.4",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "6.4.4",
           "directPackage": "vitest",
@@ -11869,15 +11530,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "6.4.4",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "6.4.4",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -11946,7 +11598,25 @@
           "directVersion": "3.2.6",
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
-          "pathCount": 4
+          "pathCount": 6
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-shared",
+          "vulnerableVersion": "6.4.4",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 6
         },
         {
           "workspace": "packages/wallet-state",
@@ -11997,7 +11667,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 46,
+      "findingPathCount": 42,
       "pathContexts": [
         {
           "workspace": ".",
@@ -12045,15 +11715,6 @@
           "pathCount": 2
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "3.2.6",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 2
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "3.2.6",
           "directPackage": "vitest",
@@ -12082,15 +11743,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "3.2.6",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 2
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "3.2.6",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -12318,7 +11970,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 104,
+      "findingPathCount": 103,
       "pathContexts": [
         {
           "workspace": ".",
@@ -12420,24 +12072,6 @@
           "pathCount": 6
         },
         {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "2.8.1",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/notification-service",
-          "vulnerableVersion": "2.8.1",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
           "workspace": "packages/permission-service",
           "vulnerableVersion": "2.8.1",
           "directPackage": "tsup",
@@ -12502,24 +12136,6 @@
         },
         {
           "workspace": "packages/tx-helpers",
-          "vulnerableVersion": "2.8.1",
-          "directPackage": "vitest",
-          "directVersion": "3.2.6",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 6
-        },
-        {
-          "workspace": "packages/wallet-api",
-          "vulnerableVersion": "2.8.1",
-          "directPackage": "tsup",
-          "directVersion": "7.2.0",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "packages/wallet-api",
           "vulnerableVersion": "2.8.1",
           "directPackage": "vitest",
           "directVersion": "3.2.6",
@@ -12588,7 +12204,34 @@
           "directVersion": "3.2.6",
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
-          "pathCount": 4
+          "pathCount": 6
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "2.8.1",
+          "directPackage": "@vitest/ui",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 3
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "2.8.1",
+          "directPackage": "tsup",
+          "directVersion": "7.2.0",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "2.8.1",
+          "directPackage": "vitest",
+          "directVersion": "3.2.6",
+          "directDelivery": "test-only-tooling",
+          "reachability": "test-only-path",
+          "pathCount": 6
         },
         {
           "workspace": "packages/wallet-shared",
@@ -12597,7 +12240,7 @@
           "directVersion": "3.2.6",
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
-          "pathCount": 1
+          "pathCount": 2
         },
         {
           "workspace": "packages/wallet-state",

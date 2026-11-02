@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { approvalService, bgEventBus, preferenceService, walletApiService } from '@qbit/wallet-background';
+import { approvalService, bgEventBus, preferenceService } from '@qbit/wallet-background';
 import { ErrorCodes, MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
 
 const EXTENSION_ID = 'wallet';
@@ -126,7 +126,6 @@ vi.mock('@qbit/wallet-background', async () => ({
     deleteSession: harness.deleteSession,
     getOrCreateSession: harness.getOrCreateSession
   },
-  walletApiService: { setEndpoint: vi.fn() },
   walletController
 }));
 
@@ -368,9 +367,9 @@ describe('background UI-port controller dispatch', () => {
 
   it('no longer exposes the API service to the UI', async () => {
     await expect(
-      request({ type: MESSAGE_TYPE.UI_OPENAPI, method: 'setEndpoint', params: ['https://evil.example'] })
+      request({ type: 'ui_openapi', method: 'setEndpoint', params: ['https://evil.example'] })
     ).rejects.toThrow(/^Unsupported UI message type/);
-    expect(walletApiService.setEndpoint).not.toHaveBeenCalled();
+    expect(walletController.runForUiPort).not.toHaveBeenCalled();
   });
 
   it('refuses a request of unknown type instead of treating it as a controller call', async () => {

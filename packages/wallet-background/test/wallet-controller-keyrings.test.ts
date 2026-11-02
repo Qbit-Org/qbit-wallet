@@ -10,7 +10,6 @@ import {
   permissionService,
   preferenceService,
   sessionService,
-  walletApiService,
 } from '../src/services'
 import { bgEventBus } from '../src/utils/eventBus'
 
@@ -47,15 +46,6 @@ vi.mock('../src/services', () => ({
     persist: vi.fn(),
     setShowSafeNotice: vi.fn(),
   },
-  walletApiService: {
-    setEndpoint: vi.fn(),
-    utility: {
-      getAppList: vi.fn().mockResolvedValue([]),
-      getAppExtra: vi.fn().mockResolvedValue({}),
-      getBannerList: vi.fn().mockResolvedValue([]),
-      getAppSummary: vi.fn().mockResolvedValue({ apps: [] }),
-    },
-  },
   sessionService: {
     broadcastEvent: vi.fn(),
     broadcastChainChange: vi.fn(),
@@ -63,7 +53,6 @@ vi.mock('../src/services', () => ({
   contactBookService: {
     listAlias: vi.fn(() => []),
   },
-  notificationService: {},
   permissionService: {
     removeConnectedSite: vi.fn(),
     hasPermission: vi.fn(() => false),
@@ -107,6 +96,11 @@ function deferred() {
 }
 
 const flushAsyncWork = () => new Promise(resolve => setTimeout(resolve, 0))
+
+// The chain API base every explorer read and broadcast uses. It follows the
+// selected chain, which preferenceService.getChainType reports here.
+const apiEndpoint = (wallet: WalletController): string =>
+  (wallet as any).getQbitApiEndpoint().endpoint
 
 describe('WalletController keyring recovery', () => {
   beforeEach(() => {
@@ -160,9 +154,7 @@ describe('WalletController keyring recovery', () => {
 
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
     expect(preferenceService.setChainType).toHaveBeenCalledWith(ChainType.QBIT_MAINNET)
-    expect(walletApiService.setEndpoint).toHaveBeenCalledWith(
-      'https://mempool.qbit.org/api'
-    )
+    expect(apiEndpoint(wallet)).toBe('https://mempool.qbit.org/api')
     expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, currentAccount.index, {
       persistPreference: true,
       broadcastAccountChange: false,
@@ -217,7 +209,7 @@ describe('WalletController keyring recovery', () => {
       vi.mocked(keyringService.rearmQbitRestoreFloors).mock.invocationCallOrder[0]
     ).toBeLessThan(vi.mocked(keyringService.syncQbitHdPath).mock.invocationCallOrder[0]!)
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/1'/0'/0")
-    expect(walletApiService.setEndpoint).toHaveBeenCalledWith('http://127.0.0.1:3002')
+    expect(apiEndpoint(wallet)).toBe('http://127.0.0.1:3002')
     expect(floorScan).toHaveBeenCalledTimes(1)
     expect(restoredKeyring.pqcFloorsPending).toBe(false)
   })
@@ -355,12 +347,7 @@ describe('WalletController keyring recovery', () => {
     expect(preferenceService.setCurrentKeyringIndex).toHaveBeenLastCalledWith(3)
     expect(preferenceService.setCurrentAccount).toHaveBeenLastCalledWith(previousAccount)
     expect(preferenceService.persist).toHaveBeenCalledTimes(2)
-    expect(
-      vi.mocked(walletApiService.setEndpoint).mock.calls.map(([endpoint]) => endpoint)
-    ).toEqual([
-      'https://mempool.qbit.org/api',
-      'https://mempool-testnet.qbit.org/api',
-    ])
+    expect(apiEndpoint(wallet)).toBe('https://mempool-testnet.qbit.org/api')
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
     expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
     expect(floorScan).toHaveBeenCalledTimes(1)
@@ -394,7 +381,7 @@ describe('WalletController keyring recovery', () => {
 
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledTimes(1)
     expect(preferenceService.setChainType).toHaveBeenCalledTimes(1)
-    expect(walletApiService.setEndpoint).toHaveBeenCalledTimes(1)
+    expect(apiEndpoint(wallet)).toBe('https://mempool.qbit.org/api')
     expect(changeKeyring).toHaveBeenCalledTimes(1)
 
     releaseFirstRefresh.resolve()
@@ -408,7 +395,7 @@ describe('WalletController keyring recovery', () => {
       ChainType.QBIT_MAINNET,
       ChainType.QBIT_REGTEST,
     ])
-    expect(walletApiService.setEndpoint).toHaveBeenCalledTimes(2)
+    expect(apiEndpoint(wallet)).toBe('http://127.0.0.1:3002')
     expect(changeKeyring).toHaveBeenCalledTimes(2)
   })
 
@@ -483,7 +470,7 @@ describe('WalletController keyring recovery', () => {
 
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledTimes(2)
     expect(preferenceService.setChainType).toHaveBeenCalledTimes(1)
-    expect(walletApiService.setEndpoint).toHaveBeenCalledTimes(2)
+    expect(apiEndpoint(wallet)).toBe('https://mempool.qbit.org/api')
     expect(changeKeyring).toHaveBeenCalledTimes(2)
     expect(sessionService.broadcastChainChange).toHaveBeenCalledTimes(1)
   })
@@ -531,9 +518,6 @@ describe('WalletController keyring recovery', () => {
     await expect(wallet.setChainType(ChainType.QBIT_MAINNET)).resolves.toBeUndefined()
 
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
-    expect(walletApiService.setEndpoint).toHaveBeenCalledWith(
-      'https://mempool.qbit.org/api'
-    )
     expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 0, { persistPreference: true })
     expect(preferenceService.setChainType).not.toHaveBeenCalled()
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
