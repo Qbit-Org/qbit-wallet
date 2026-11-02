@@ -10,7 +10,7 @@ const sampleMnemonic =
   'finish oppose decorate face calm tragic certain desk hour urge dinosaur mango'
 const qbitHdPath = "m/87'/1'/0'/0"
 
-const retiredEntries = [
+const unregisteredEntries = [
   {
     type: 'HD Key Tree',
     data: {
@@ -79,7 +79,7 @@ async function createService(storage: MemoryStorage): Promise<KeyringService> {
 }
 
 /** A vault whose entries, around a Qbit wallet, are of types the build does not ship. */
-async function createVault(extraEntries: unknown[] = retiredEntries): Promise<MemoryStorage> {
+async function createVault(extraEntries: unknown[] = unregisteredEntries): Promise<MemoryStorage> {
   const storage = new MemoryStorage()
   const service = await createService(storage)
   await service.boot('password')
@@ -138,20 +138,20 @@ describe('KeyringService vault entries of an unregistered type', () => {
     await service.addNewAccount(service.keyrings[2]!)
 
     const written = await durableEntries(storage)
-    expect(written.slice(0, 2)).toEqual(retiredEntries)
+    expect(written.slice(0, 2)).toEqual(unregisteredEntries)
     expect(written[2].type).toBe(KeyringType.QbitHdKeyring)
     expect(written[2].data.activeIndexes).toEqual([0, 1])
 
     await service.changePassword('password', 'new password')
-    expect((await durableEntries(storage, 'new password')).slice(0, 2)).toEqual(retiredEntries)
+    expect((await durableEntries(storage, 'new password')).slice(0, 2)).toEqual(unregisteredEntries)
 
     const reopened = await createService(storage)
     await reopened.submitPassword('new password')
-    await expect(reopened.keyrings[0]!.serialize()).resolves.toEqual(retiredEntries[0]!.data)
+    await expect(reopened.keyrings[0]!.serialize()).resolves.toEqual(unregisteredEntries[0]!.data)
     const copy = (await reopened.keyrings[0]!.serialize()) as { mnemonic?: string }
     delete copy.mnemonic
-    await expect(reopened.keyrings[0]!.serialize()).resolves.toEqual(retiredEntries[0]!.data)
-    await expect(reopened.keyrings[1]!.serialize()).resolves.toEqual(retiredEntries[1]!.data)
+    await expect(reopened.keyrings[0]!.serialize()).resolves.toEqual(unregisteredEntries[0]!.data)
+    await expect(reopened.keyrings[1]!.serialize()).resolves.toEqual(unregisteredEntries[1]!.data)
     expect(await reopened.getAccounts()).toHaveLength(2)
   })
 
@@ -176,7 +176,7 @@ describe('KeyringService vault entries of an unregistered type', () => {
     await service.submitPassword('password')
 
     await expect(
-      service.addNewKeyring('HD Key Tree', retiredEntries[0]!.data, AddressType.P2WPKH)
+      service.addNewKeyring('HD Key Tree', unregisteredEntries[0]!.data, AddressType.P2WPKH)
     ).rejects.toThrow('Unknown keyring type: HD Key Tree')
     expect(() => service.createTmpKeyring('Simple Key Pair', [])).toThrow(
       'Unknown keyring type: Simple Key Pair'

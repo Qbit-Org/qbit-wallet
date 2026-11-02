@@ -857,7 +857,7 @@ describe('WalletController keyring recovery', () => {
     vi.mocked(preferenceService.getCurrentKeyringIndex).mockReturnValue(0)
     vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue([
       {
-        type: 'Retired Key Type',
+        type: 'Other Key Type',
         accounts: [],
         keyring: {},
         addressType: AddressType.P2WPKH,
@@ -871,7 +871,7 @@ describe('WalletController keyring recovery', () => {
     expect(keyrings).toHaveLength(2)
     expect(keyrings[0]).toMatchObject({
       index: 0,
-      type: 'Retired Key Type',
+      type: 'Other Key Type',
       alianName: 'Unsupported Wallet #1',
       isCorrupted: true,
       corruptedReason: 'No account',
