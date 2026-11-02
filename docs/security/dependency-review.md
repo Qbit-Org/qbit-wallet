@@ -181,10 +181,11 @@ change is that check. Only `nx` 22.7.9, which `lerna` runs, and the `axios`
 1.20.0 it depends on load the package, all in Node tooling, and the packaged
 extension is byte-identical. Two new moderate records remain visible:
 `glob` `GHSA-3g3m-2fjr-6pw4`, patched only in 14.0.2, and `minimatch`
-`GHSA-g3hv-75wg-m249`, patched only in 11.0.1. Every installed copy is on an
-earlier major line (`glob` 10.5.0, 11.1.0 and 13.0.6; `minimatch` 3.1.5, 5.1.9,
-9.0.9 and 10.2.6), several of them held by root overrides, so clearing them
-needs major-version moves rather than an override bump.
+`GHSA-g3hv-75wg-m249`, patched only in 11.0.1. Every copy installed at that
+refresh was on an earlier major line (`glob` 10.5.0, 11.1.0 and 13.0.6;
+`minimatch` 3.1.5, 5.1.9, 9.0.9 and 10.2.6), several of them held by root
+overrides, so clearing them needs major-version moves rather than an override
+bump.
 
 ## Package inventory
 
@@ -195,7 +196,7 @@ or engineering process:
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
 | Shipped runtime | 167 | Code or assets included in, or invoked by, the extension runtime |
-| Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
+| Extension build/packaging | 79 | Compilers, loaders, bundlers, and packaging inputs |
 | Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
 | Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
 | Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
@@ -222,12 +223,22 @@ The final audit has the following direct advisory records:
 
 | Direct package | Advisory | Severity | Reviewed path |
 | --- | --- | --- | --- |
-| `@sentry/browser` | `GHSA-593m-55hh-j8gv` | Moderate | Reachable shipped telemetry path |
-| `moment` | `GHSA-4p3w-j4w9-5jqw` | Moderate | Reachable shipped dependency; modernization work |
 | `vitest` | `GHSA-82fw-gwwq-j7x9` | Moderate | Test-only runner |
 | `yaml` | `GHSA-48c2-rrv3-qjmp` | Moderate | Exact root policy/evidence parser plus transitive development, build, test, and conservatively reachable workspace-linked paths |
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths |
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
+
+`@sentry/browser` `GHSA-593m-55hh-j8gv` and `moment` `GHSA-4p3w-j4w9-5jqw` are
+no longer direct records. Nothing imported Sentry: the record was classified
+reachable only because `@sentry/browser`, `@sentry/react`, and `@sentry/tracing`
+were declared as extension runtime dependencies. No other package depends on
+them, so removing the declarations removed every Sentry package and the record.
+`moment` is no longer declared either, but `moment@2.30.1` remains a transitive
+dependency of `antd@4.20.4` and of its `rc-picker@2.6.11`, so the record stays
+visible and its paths through `antd` stay classified as reachable. The
+extension's webpack configuration aliases `moment` to `dayjs`
+(`apps/extension/build/webpack.common.config.js`). The record remains
+modernization work.
 
 Across all advisory dependency paths, the inventory records 119 reachable
 path occurrences, 1,637 extension-build occurrences, 2,149 test-only
@@ -239,9 +250,11 @@ generator could not determine and so classifies conservatively as reachable.
 Moving `patch-package`
 from `@qbit/keyring-service` dependencies to devDependencies (#289) took its
 closure out of the production closure and removed 10 reachable path
-occurrences; the advisory counts are unchanged. These are combinatorial
-dependency paths and must not be added together as independent
-vulnerabilities or execution flows. Every
+occurrences; the advisory counts are unchanged. `patch-package` has since been
+removed from every manifest: pnpm's `patchedDependencies` in the root
+`package.json` applies the three files in `patches/`, and nothing invoked
+`patch-package`. Path occurrences are combinatorial dependency paths and must
+not be added together as independent vulnerabilities or execution flows. Every
 path is retained so a future direct dependency or reachability change can
 invalidate a stale disposition.
 
@@ -251,8 +264,8 @@ that exact version, so parallel versions cannot inherit one another's delivery
 or reachability classification.
 
 Moderate and low findings remain visible and fail neither the current policy
-nor this release baseline. They include reachable records in Sentry,
-transitive packages such as `bn.js`, `react-router`, `uuid`, and the
+nor this release baseline. They include reachable records in transitive
+packages such as `moment`, `bn.js`, `react-router`, `uuid`, and the
 conservatively classified root `minimatch@3.1.5` path, the exact
 direct and transitive `yaml` parser closure, and the reviewed low-severity
 `elliptic` record. They remain modernization work;
@@ -291,14 +304,19 @@ and protocol dependencies with the greatest impact:
 | --- | --- | --- |
 | `@qbit-oss/pqc` 0.1.1 (npm) | PQC keys, signatures, counters, and WASM | Exact version, registry integrity, provenance (`Qbit-Org/qbit-pqc` `v0.1.1`, compared with the registry attestation), WASM and qbit Core fixture digests pinned; golden and qbit Core vectors, pin check, and extension import smoke are required here; package tests, MV3 smoke and reproducible rebuild run upstream |
 | `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.1`, compared with the registry attestation) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
-| `@noble/curves` 1.4.2/1.7.0; `@noble/hashes` 1.4.0/1.6.0/1.8.0 | Curve and hash primitives | Retain exact closure and conformance evidence |
+| `@noble/curves@1.4.2`; `@noble/hashes` 1.4.0/1.8.0 | Curve and hash primitives | Retain exact closure and conformance evidence |
 | `bitcoinjs-lib@6.1.6`; `tiny-secp256k1@2.2.3` | PSBT and classical signing | Wallet tests bind displayed and signed transaction bytes |
 | `bitcore-lib@10.0.0`; `hdkey@2.1.0`; `bip39@3.1.0` | HD derivation, extended-key parsing, and mnemonics | Derivation/recovery tests required; no signing through transitive `elliptic` |
 | `@metamask/browser-passworder@6.0.0` | Vault encryption and legacy migration | Exact direct pin; new writes carry 900,000-round PBKDF2 metadata and AES-256-GCM; migration tests fail closed on storage error |
-| `browser-passworder@2.0.3` | Obsolete direct dependency | Source guard forbids import; retained pending explicit removal approval |
-| `scrypt-js@3.0.1`; `crypto-browserify@3.12.1` | Crypto closure/browser compatibility | No new custody or signing use without review |
+| `browser-passworder@2.0.3` | Builds earlier-format vault fixtures in `packages/keyring-service/test/browser-encryptor.test.ts` | Source guard forbids import in production sources; removed from the extension and demoted to a `@qbit/keyring-service` devDependency, pending explicit maintainer approval in the pull request |
+| `crypto-browserify@3.12.1` | Crypto closure/browser compatibility | No new custody or signing use without review |
 | `bs58check` 2.1.2/3.0.1; `varuint-bitcoin@1.1.2`; `bech32@2.0.0` | Bitcoin/address serialization | Covered by wallet and protocol tests |
 | `@qbit-oss/protocol` | Local protocol serialization | Workspace source plus qbit Core conformance binds encoded behavior |
+
+Only the unused `starknet` declaration reached `@noble/curves@1.7.0` and
+`@noble/hashes@1.6.0`, so both left the closure with it. `scrypt-js@3.0.1` was
+an unused direct extension dependency that no other package required, so
+removing the declaration took it out of the lockfile.
 
 `elliptic@6.6.1` remains transitive with a low-severity ECDSA nonce advisory
 and no patched release. Wallet signing uses `@qbit/wallet-core` ECPairs
@@ -308,7 +326,7 @@ signing. Such an import would invalidate this disposition.
 
 | Adjacent area | Notable resolved dependencies | Boundary |
 | --- | --- | --- |
-| Networking | `@qbit-oss/api`, `@sentry/browser` 6.19.7/7.48.0, `ws` 7.5.13/8.21.1, `websocket-driver@0.7.5`, `node-fetch@2.7.0` | Runtime/API and telemetry inputs remain covered by type, unit, integration, and policy gates |
+| Networking | `@qbit-oss/api`, `ws` 7.5.13/8.21.1, `websocket-driver@0.7.5` | Runtime/API inputs remain covered by type, unit, integration, and policy gates |
 | Archive/compression | `browserify-zlib@0.2.0`, `gulp-zip@5.1.0`, `gzip-size@6.0.0`, `minizlib@3.1.0`, `modern-tar@0.7.7`, `tar-stream@2.2.0`, `tar@7.5.22`, `yazl@2.5.1` | Runtime decompression is separated from build/package tooling in the inventory |
 | Serialization | `@qbit-oss/protocol`, `serialize-javascript@7.0.3`, `yaml`, Bitcoin encoders, and JSON-schema tooling | Runtime protocol paths are distinguished from test/build parsing paths |
 
@@ -510,8 +528,10 @@ unknown or ambiguous license:
 | --- | --- | --- |
 | `bigi@1.4.2` | Permissive text in `LICENSE.md` | `2ec211b33474976515790a5d980db86edbb5fdb6f754e9b52fc51a3207aaf1f2` |
 | `buffer-compare@1.1.1` | MIT text in `LICENSE` | `7e13db436c0a802ef58d0096cc07323e53ad64ab9a5f3260c53e003e6dcd77d6` |
-| `react-cache@2.0.0-alpha.1` | MIT text in `LICENSE` | `52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85` |
 | `spawndamnit@3.0.1` | MIT text in `LICENSE` | `aac99045d4e36ab3b1e2914337620963b56cbac53de280c94f29261a22ab5b0f` |
+
+`react-cache@2.0.0-alpha.1`, which needed the same evidence, left the lockfile
+with its unused extension declaration.
 
 The earlier MPL-2.0 provenance introduced through
 `@metamask/browser-passworder` remains recorded in the exact baseline. License
