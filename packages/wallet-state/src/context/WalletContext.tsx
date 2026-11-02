@@ -440,9 +440,6 @@ export interface WalletController {
 
   getVersionDetail(version: string): Promise<VersionDetail>
 
-  getEnableSignData(): Promise<boolean>
-  setEnableSignData(enable: boolean): Promise<void>
-
   // Biometric (WebAuthn PRF) unlock
   getBiometricUnlockStatus(): Promise<BiometricUnlockStatus>
   saveBiometricUnlockRecord(record: BiometricUnlockRecord, password: string): Promise<void>

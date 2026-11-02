@@ -119,9 +119,6 @@
   "all_read": {
     "message": "全部已讀"
   },
-  "allow_sign_data_requests": {
-    "message": "允許簽署資料請求"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "允許此網站切換鏈嗎？"
   },
@@ -494,15 +491,6 @@
   "edit_name": {
     "message": "編輯名稱"
   },
-  "enable_sign_data_popover_warning": {
-    "message": "允許簽署資料請求可能使您容易受到釣魚攻擊。請務必檢查 URL，並在簽署包含程式碼的訊息時保持警惕。"
-  },
-  "enable_sign_data_popover_warning_2": {
-    "message": "如果您被要求開啟此設定，您可能正在遭受詐騙"
-  },
-  "enable_sign_data_warning": {
-    "message": "如果您啟用此設定，您可能會收到無法讀取的簽署請求。簽署您不理解的訊息，可能代表您同意交出您的資金和 NFT。您將面臨釣魚攻擊的風險。請關閉簽署資料 (signData) 功能以保護自己。"
-  },
   "enter": {
     "message": "輸入"
   },
@@ -625,9 +613,6 @@
   },
   "i_have_signed_scan_result": {
     "message": "我已簽名，掃描結果"
-  },
-  "i_only_sign_what_i_understand": {
-    "message": "我只簽署我理解的內容"
   },
   "i_saved_my_secret_recovery_phrase": {
     "message": "我已儲存我的助記詞"
@@ -1145,33 +1130,6 @@
   "sign_all_transactions_at_once": {
     "message": "您可以一次性簽署所有交易，但請注意，Qbit Wallet 不會單獨驗證每筆交易。我們強烈建議只在可信賴和熟悉的網站上使用它，以最大限度地降低潛在損失的風險。"
   },
-  "derive_context_hash_request": {
-    "message": "產生識別碼"
-  },
-  "derive_context_hash_description": {
-    "message": "此網站正在請求一個與您的錢包綁定的唯一識別碼，用於以下上下文。"
-  },
-  "derive_context_hash_app_name": {
-    "message": "應用程式"
-  },
-  "derive_context_hash_account": {
-    "message": "帳戶"
-  },
-  "derive_context_hash_network": {
-    "message": "網路"
-  },
-  "derive_context_hash_context": {
-    "message": "上下文"
-  },
-  "derive_context_hash_warning": {
-    "message": "僅在您信任此網站時才批准。"
-  },
-  "sign_data_request": {
-    "message": "簽署資料請求"
-  },
-  "sign_data_requests": {
-    "message": "簽署資料請求"
-  },
   "sign_multiple_transactions": {
     "message": "簽署多筆交易"
   },
@@ -1183,9 +1141,6 @@
   },
   "signature_request": {
     "message": "簽署請求"
-  },
-  "signdata_required_tip": {
-    "message": "您需要在「設定 -> 進階」中啟用「簽署資料請求」功能才能繼續。"
   },
   "signed": {
     "message": "已簽署"
@@ -1273,9 +1228,6 @@
   },
   "to": {
     "message": "到"
-  },
-  "to_continue": {
-    "message": "以繼續"
   },
   "to_proceed": {
     "message": "繼續"
@@ -1412,9 +1364,6 @@
   "understand_and_accept_the_risks_associated_with_this_transaction": {
     "message": "我了解並接受此交易所涉及的風險。"
   },
-  "understand_sign_data_warning": {
-    "message": "我了解如果啟用簽署資料請求，我可能會損失所有資金和 NFT。"
-  },
   "unknown_error": {
     "message": "未知錯誤"
   },
@@ -1474,9 +1423,6 @@
   },
   "you_are_signing": {
     "message": "您正在簽署："
-  },
-  "you_are_signing_data": {
-    "message": "您正在簽署資料："
   },
   "you_haven_t_added_any_addresses": {
     "message": "您未新增任何地址"

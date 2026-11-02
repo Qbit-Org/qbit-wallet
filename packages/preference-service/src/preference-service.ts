@@ -52,7 +52,6 @@ const defaultTemplate = {
   skippedVersion: '',
   showSafeNotice: true,
   addressFlags: {},
-  enableSignData: false,
   autoLockTimeId: DEFAULT_LOCKTIME_ID,
   lockOnComputerLock: true,
   lockOnWindowsClosed: true,
@@ -288,9 +287,10 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.externalLinkAck = false
     }
 
-    if (typeof this.store.enableSignData !== 'boolean') {
-      this.store.enableSignData = false
-    }
+    // Earlier builds stored whether signData requests were allowed. That
+    // setting is gone, and the store loads every stored key, so drop it here
+    // rather than save it again with each change.
+    Reflect.deleteProperty(this.store, 'enableSignData')
 
     if (typeof this.store.showSafeNotice !== 'boolean') {
       this.store.showSafeNotice = true
@@ -592,14 +592,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   setShowSafeNotice(showSafeNotice: boolean): void {
     this.store.showSafeNotice = showSafeNotice
-  }
-
-  getEnableSignData(): boolean {
-    return this.store.enableSignData
-  }
-
-  setEnableSignData(enableSignData: boolean): Promise<void> {
-    return this.setAndPersist('enableSignData', enableSignData)
   }
 
   /**

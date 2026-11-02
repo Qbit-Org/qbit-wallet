@@ -119,9 +119,6 @@
   "all_read": {
     "message": "Todo leído"
   },
-  "allow_sign_data_requests": {
-    "message": "Permitir solicitudes signData"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "¿Permitir que este sitio cambie la cadena?"
   },
@@ -494,15 +491,6 @@
   "edit_name": {
     "message": "Editar Nombre"
   },
-  "enable_sign_data_popover_warning": {
-    "message": "Permitir solicitudes signData puede hacerte vulnerable a ataques de phishing. Siempre revisa la URL y ten cuidado al firmar mensajes que contengan código."
-  },
-  "enable_sign_data_popover_warning_2": {
-    "message": "Si te han pedido que actives esta configuración, podrías estar siendo víctima de una estafa"
-  },
-  "enable_sign_data_warning": {
-    "message": "Si habilitas esta configuración, podrías recibir solicitudes de firma que no son legibles. Al firmar un mensaje que no entiendes, podrías estar aceptando entregar tus fondos y NFTs. Estás en riesgo de ataques de phishing. Protégete desactivando signData."
-  },
   "enter": {
     "message": "Entrar"
   },
@@ -625,9 +613,6 @@
   },
   "i_have_signed_scan_result": {
     "message": "He Firmado, Escanear Resultado"
-  },
-  "i_only_sign_what_i_understand": {
-    "message": "Solo firmo lo que entiendo"
   },
   "i_saved_my_secret_recovery_phrase": {
     "message": "He guardado Mi Frase Secreta de Recuperación"
@@ -1145,33 +1130,6 @@
   "sign_all_transactions_at_once": {
     "message": "Tienes la opción de firmar todas las transacciones a la vez, pero ten en cuenta que Qbit Wallet no verificará cada transacción individualmente. Te recomendamos usarlo solo en sitios web de confianza y familiares para minimizar el riesgo de pérdidas potenciales."
   },
-  "derive_context_hash_request": {
-    "message": "Generar identificador"
-  },
-  "derive_context_hash_description": {
-    "message": "Este sitio está solicitando un identificador único vinculado a tu billetera para el siguiente contexto."
-  },
-  "derive_context_hash_app_name": {
-    "message": "Aplicación"
-  },
-  "derive_context_hash_account": {
-    "message": "Cuenta"
-  },
-  "derive_context_hash_network": {
-    "message": "Red"
-  },
-  "derive_context_hash_context": {
-    "message": "Contexto"
-  },
-  "derive_context_hash_warning": {
-    "message": "Aprueba solo si confías en este sitio."
-  },
-  "sign_data_request": {
-    "message": "Solicitud de Firma de Datos"
-  },
-  "sign_data_requests": {
-    "message": "Solicitudes signData"
-  },
   "sign_multiple_transactions": {
     "message": "Firmar Múltiples Transacciones"
   },
@@ -1183,9 +1141,6 @@
   },
   "signature_request": {
     "message": "Solicitud de firma"
-  },
-  "signdata_required_tip": {
-    "message": "Necesitas habilitar la función de solicitud signData en Ajustes -> Avanzado para continuar."
   },
   "signed": {
     "message": "Firmado"
@@ -1273,9 +1228,6 @@
   },
   "to": {
     "message": "A"
-  },
-  "to_continue": {
-    "message": "para continuar"
   },
   "to_proceed": {
     "message": "para continuar"
@@ -1412,9 +1364,6 @@
   "understand_and_accept_the_risks_associated_with_this_transaction": {
     "message": "Entiendo y acepto los riesgos asociados con esta transacción."
   },
-  "understand_sign_data_warning": {
-    "message": "Entiendo que puedo perder todos mis fondos y NFTs si habilito las solicitudes signData."
-  },
   "unknown_error": {
     "message": "Error desconocido"
   },
@@ -1474,9 +1423,6 @@
   },
   "you_are_signing": {
     "message": "Estás firmando:"
-  },
-  "you_are_signing_data": {
-    "message": "Estás firmando datos:"
   },
   "you_haven_t_added_any_addresses": {
     "message": "No has añadido ninguna dirección"

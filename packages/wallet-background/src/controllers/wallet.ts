@@ -162,7 +162,6 @@ import {
   walletApiService,
 } from '../services'
 import { getChainInfo } from '../shared/utils'
-import { chainTypeToCanonicalNetwork } from '../shared/utils/deriveContextHash'
 import { bgEventBus } from '../utils/eventBus'
 import { decodeOpReturnScript } from '../utils/decode-op-return'
 import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
@@ -5550,17 +5549,6 @@ export class WalletController extends BaseController {
     })
   }
 
-  deriveContextHash = async (appName: string, context: string): Promise<string> => {
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    const canonicalNetwork = chainTypeToCanonicalNetwork(preferenceService.getChainType())
-    const keyring = await keyringService.getKeyringForAccount(account.pubkey, account.type)
-    if (!keyring.deriveContextHash) {
-      throw new Error('Current keyring does not support deriveContextHash')
-    }
-    return keyring.deriveContextHash(account.pubkey, appName, canonicalNetwork, context)
-  }
-
   addContact = async (data: ContactBookItem) => {
     await contactBookService.addContact(data)
   }
@@ -9608,10 +9596,6 @@ export class WalletController extends BaseController {
     return walletApiService.config.getVersionDetail(version)
   }
 
-  getEnableSignData = async () => {
-    return preferenceService.getEnableSignData()
-  }
-
   /* Biometric (WebAuthn PRF) unlock. The ceremony and key derivation run in
    * the UI page; the background only stores and invalidates the wrapped
    * record. */
@@ -9632,10 +9616,6 @@ export class WalletController extends BaseController {
 
   clearBiometricUnlock = async (): Promise<void> => {
     return biometricUnlockService.clearRecord()
-  }
-
-  setEnableSignData = async (enable: boolean) => {
-    return preferenceService.setEnableSignData(enable)
   }
 
   getAutoLockTimeId = async () => {
