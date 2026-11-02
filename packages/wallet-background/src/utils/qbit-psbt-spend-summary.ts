@@ -47,8 +47,9 @@ function addSafe(total: number, value: number, label: string): number {
  * gate signing it: an abnormal fee, an output with no address the wallet can
  * show, or an output beside the named recipient in a request that names one.
  * Pay-to-anchor outputs that carry no more than `QBIT_P2A_MAX_VALUE` together
- * are fee anchors and raise no risk. Throws a RangeError when an amount is not
- * a safe integer.
+ * are fee anchors: they raise no unrecognised-output risk, and their value
+ * counts as paid to others. Throws a RangeError when an amount is not a safe
+ * integer.
  */
 export function summarizeQbitPsbtSpend({
   inputs,

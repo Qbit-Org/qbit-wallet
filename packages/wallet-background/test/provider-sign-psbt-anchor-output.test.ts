@@ -218,7 +218,7 @@ describe('pay-to-anchor outputs in a website PSBT', () => {
     ['the bound', P2A_MAX],
     ['the relay minimum', 121n],
     ['no value', 0n],
-  ])('signs an anchor of %s as a fee anchor, with no risk to confirm', async (_shape, value) => {
+  ])('signs an anchor of %s with no unrecognised-output risk', async (_shape, value) => {
     const review = await approveWebsitePsbt(websitePsbtHex([anchor(value)]))
 
     expect(review.outputInfos[0]).toEqual({
@@ -234,14 +234,15 @@ describe('pay-to-anchor outputs in a website PSBT', () => {
     expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
   })
 
-  it('signs a buy that pays a recipient and a 330 anchor beside the change', async () => {
+  it('signs a buy that pays a recipient and a 330 anchor with no risk to confirm', async () => {
     const review = await approveWebsitePsbt(
-      websitePsbtHex([{ value: 10_000n, scriptPubKey: RECIPIENT_SCRIPT }, anchor(P2A_MAX)])
+      websitePsbtHex([{ value: 500_000n, scriptPubKey: RECIPIENT_SCRIPT }, anchor(P2A_MAX)])
     )
 
     expect(review.spendSummary.outputRoles).toEqual(['unrecognised', 'anchor', 'wallet'])
-    expect(review.spendSummary.externalOutputValue).toBe(10_000 + Number(P2A_MAX))
-    expect(review.risks.map(risk => risk.type)).not.toContain(RiskType.UNRECOGNISED_OUTPUT)
+    expect(review.spendSummary.externalOutputValue).toBe(500_000 + Number(P2A_MAX))
+    // The fee is judged against the payment and the anchor, as a normal share.
+    expect(review.risks).toEqual([])
   })
 
   it('leaves outputs with an address as they were, with no unrecognised-output risk', async () => {

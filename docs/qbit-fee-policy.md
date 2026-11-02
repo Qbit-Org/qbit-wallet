@@ -140,6 +140,9 @@ An output that pays neither one of the wallet's accounts nor a recipient the
 request names (the wallet's own send, fee bump and migration requests name
 theirs) is marked unrecognised. When the request names a recipient, or the
 output's script has no address, it also adds an `UNRECOGNISED_OUTPUT` risk.
+Pay-to-anchor outputs that carry no more than `QBIT_P2A_MAX_VALUE` (330)
+together are fee anchors instead: they add no risk of that kind, but their
+value counts as paid to others, so the fee is compared with it.
 
 The background computes this summary from the exact PSBT bytes under review
 (`decodePsbt`) for the current account. It refuses to publish a summary when
