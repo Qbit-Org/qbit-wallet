@@ -468,7 +468,8 @@ Residual risk:
 - while the block rule is not installed (`installing`, `retrying` or
   `failed`) and the user withholds the wallet's site access on a denylisted
   site ("On click", or "On specific sites" without that site), nothing stops
-  a page there: the redirect rule is removed, and the content script's hold
+  a page there unless an earlier block rule still names its domain: the
+  redirect rule is removed, and the content script's hold
   does not run, so the page loads and runs its own script. The
   `GET_PHISHING_STATS` health reports this as `protection` `degraded` with
   `block-rule-not-installed`, or `block-rule-outdated` while a block rule

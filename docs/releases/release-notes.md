@@ -74,8 +74,8 @@ earlier, private tracker, not to issues or pull requests in this repository.
 - A pay-to-anchor output in a website's PSBT approval, which lets anyone add
   fee to the transaction, is named "Fee anchor" instead of showing an empty
   recipient, and no longer raises the "Unrecognised output" warning that asked
-  you to type CONFIRM. A website's request is refused before approval when its
-  pay-to-anchor outputs carry more than 330 bits in total.
+  you to type CONFIRM. Each PSBT a website sends is refused before approval
+  when its pay-to-anchor outputs carry more than 330 bits in total.
 - A website PSBT with no outputs, with two inputs that spend the same
   output, or with an input that spends the null outpoint is refused before
   the approval window opens, with an error naming the qbit Core rule it
@@ -124,6 +124,7 @@ earlier, private tracker, not to issues or pull requests in this repository.
 - Changing a contact's address or network is a single save, so a failed save
   no longer loses the contact. A failed reorder says so and shows the saved
   order.
+- Editing a contact keeps its place in a list you have reordered.
 
 ### Repository and release
 
