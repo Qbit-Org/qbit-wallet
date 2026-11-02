@@ -160,6 +160,19 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it("never reads the original's bytes, however long they would take to arrive", async () => {
+    vi.useFakeTimers()
+    // On a slow link the hex of an original with many inputs takes longer
+    // than the check may hold the send guard; the check does not wait for it.
+    const client = {
+      ...explorer([unspent, unspent]),
+      getTxHex: vi.fn(() => new Promise<string>(() => undefined)),
+    }
+    await expect(settled(checkBump(client, ORIGINAL, 2))).resolves.toBeUndefined()
+    expect(client.getTxHex).not.toHaveBeenCalled()
+    expect(client.getTxOutspends).toHaveBeenCalledTimes(2)
+  })
+
   it('refuses a fee bump when a payment spending its original shows only on the second read', async () => {
     vi.useFakeTimers()
     // The explorer had not yet seen a payment made elsewhere moments ago.

@@ -1384,7 +1384,8 @@ describe('WalletController qbit P2MR send path', () => {
       live.txid,
       expect.objectContaining({ deadlineMs: expect.any(Number) })
     )
-    expect(replacement.feeBump!.originalOutputCount).toBe(3)
+    expect(replacement.feeBump!.originalOutputCount).toBe(originalSummary.outputs.length)
+    expect(originalSummary.outputs).toHaveLength(3)
     expect(verifyPqcMock).toHaveBeenCalledTimes(2)
     for (const [pubkey] of verifyPqcMock.mock.calls) {
       expect(bytesToHex(pubkey)).toBe(account.pubkey)

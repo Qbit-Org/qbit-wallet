@@ -36,6 +36,7 @@ import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
   QBIT_EXPLORER_MAX_BODY_BYTES,
 } from '../src/utils/qbit-explorer-fetch'
+import { QBIT_FEE_BUMP_RECHECK_WAVE_MS } from '../src/utils/qbit-fee-bump-recheck'
 
 const broadcastTxMock = vi.hoisted(() => vi.fn())
 const getTxMock = vi.hoisted(() => vi.fn())
@@ -2598,6 +2599,39 @@ describe('WalletController.broadcastQbitTx for a fee bump (#340)', () => {
     expect(bump.claim.replaces).toBe(fixture.txid)
     expect(bump.claim.replacedOutputCount).toBe(1)
     expect(getTxHexMock).not.toHaveBeenCalled()
+  })
+
+  it("broadcasts a fee bump without reading its original's bytes again, however slowly they would arrive", async () => {
+    const wallet = newController()
+    const bump = await sendThenSignBump(wallet)
+
+    // On a slow link the raw bytes of an original with many inputs take
+    // longer than the check may hold the send guard. The assessment read
+    // them before the bump was signed; the broadcast only asks what spends
+    // the original's outputs, a small reply, in each of the check's rounds.
+    getTxHexMock.mockImplementation(() => new Promise(() => undefined))
+    explorerShowsOriginal()
+    broadcastTxMock.mockResolvedValueOnce(otherFixture.txid)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const outcome = broadcastBump(wallet, bump)
+      await vi.advanceTimersByTimeAsync(2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS)
+      await expect(outcome).resolves.toEqual({
+        success: true,
+        chain: REGTEST,
+        txid: otherFixture.txid,
+        via: 'broadcast',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(getTxHexMock).not.toHaveBeenCalled()
+    expect(getTxOutspendsMock.mock.calls).toEqual([
+      [fixture.txid, freshRead],
+      [fixture.txid, freshRead],
+    ])
+    expect(broadcastTxMock).toHaveBeenLastCalledWith(otherFixture.rawTxHex, underDeadline)
+    await expectInputSpentNotClaimed()
   })
 
   it('after a restart, never restores a fee bump whose original a later send of this wallet spends', async () => {

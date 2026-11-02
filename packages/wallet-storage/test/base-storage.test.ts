@@ -47,6 +47,67 @@ describe('BaseProxyStorageAdapter.createPersistentProxy', () => {
     expect(proxy.lang).toBe('en')
   })
 
+  it('saves the template when its first write fails once', async () => {
+    adapter.get.mockResolvedValue(undefined)
+    adapter.set.mockRejectedValueOnce(new Error('write failed')).mockResolvedValue(undefined)
+
+    const result = adapter.createPersistentProxy('prefs', { theme: 'light', lang: 'en' })
+    const assertion = expect(result).resolves.toEqual({ theme: 'light', lang: 'en' })
+    await vi.runAllTimersAsync()
+    await assertion
+
+    expect(adapter.get).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenCalledTimes(2)
+    expect(adapter.set).toHaveBeenNthCalledWith(1, 'prefs', { theme: 'light', lang: 'en' })
+    expect(adapter.set).toHaveBeenNthCalledWith(2, 'prefs', { theme: 'light', lang: 'en' })
+
+    // The proxy owns the key and saves later changes.
+    const proxy = await result
+    proxy.theme = 'dark'
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { theme: 'dark', lang: 'en' })
+  })
+
+  it('rejects after three attempts when the template cannot be saved', async () => {
+    adapter.get.mockResolvedValue(undefined)
+    const writeError = new Error('write failed')
+    adapter.set.mockRejectedValue(writeError)
+
+    const result = adapter.createPersistentProxy('prefs', { theme: 'light' })
+    const assertion = expect(result).rejects.toBe(writeError)
+    await vi.runAllTimersAsync()
+    await assertion
+
+    expect(adapter.get).toHaveBeenCalledTimes(1)
+    expect(adapter.set).toHaveBeenCalledTimes(3)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { theme: 'light' })
+  })
+
+  it('stops retrying the template once a newer proxy owns the key', async () => {
+    adapter.get.mockResolvedValue(undefined)
+    const writeError = new Error('write failed')
+    adapter.set.mockRejectedValueOnce(writeError).mockResolvedValue(undefined)
+
+    const replaced = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
+    const assertion = expect(replaced).rejects.toBe(writeError)
+    // The first attempt has failed, and the retry is waiting.
+    await vi.advanceTimersByTimeAsync(50)
+    expect(adapter.set).toHaveBeenCalledTimes(1)
+    const current = await adapter.createPersistentProxy<{ n: number }>(
+      'prefs',
+      { n: 5 },
+      { reset: true }
+    )
+    await vi.runAllTimersAsync()
+    await assertion
+
+    expect(adapter.set).toHaveBeenCalledTimes(2)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 5 })
+    current.n = 6
+    vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 6 })
+  })
+
   it('rejects without writing the template when the stored data cannot be read', async () => {
     const readError = new Error('read failed')
     adapter.get.mockRejectedValue(readError)
@@ -195,13 +256,17 @@ describe('BaseProxyStorageAdapter.createPersistentProxy', () => {
     const previous = await adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 })
     previous.n = 2
     const writeError = new Error('write failed')
-    adapter.set.mockRejectedValueOnce(writeError)
+    adapter.set.mockRejectedValue(writeError)
 
-    await expect(
-      adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
-    ).rejects.toBe(writeError)
+    const reset = adapter.createPersistentProxy<{ n: number }>('prefs', { n: 0 }, { reset: true })
+    const assertion = expect(reset).rejects.toBe(writeError)
+    await vi.advanceTimersByTimeAsync(300)
+    await assertion
+    expect(adapter.set).toHaveBeenCalledTimes(3)
 
+    adapter.set.mockResolvedValue(undefined)
     vi.advanceTimersByTime(1000)
+    expect(adapter.set).toHaveBeenCalledTimes(4)
     expect(adapter.set).toHaveBeenLastCalledWith('prefs', { n: 2 })
   })
 

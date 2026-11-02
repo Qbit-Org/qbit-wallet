@@ -1890,6 +1890,7 @@ describe('TxCreateScreen state hooks', () => {
       })
       // Unknown, not zero, and the way out is offered.
       expect(result.current.availableAmount).toBe('--')
+      expect(result.current.unavailableAmount).toBe('--')
       expect(result.current.showConsolidate).toBe(true)
       act(() => {
         result.current.onClickConsolidate()
@@ -2068,6 +2069,9 @@ describe('TxCreateScreen state hooks', () => {
       await waitFor(() => {
         expect(result.current.availableAmount).toBe('0.00000000')
       })
+      // Read, not unknown: every output is held, so the whole total is Unavailable.
+      expect(result.current.unavailableAmount).toBe('0.06000000')
+      expect(result.current.showUnavailable).toBe(true)
       expect(result.current.error).toBe('')
       expect(result.current.showConsolidate).toBe(true)
     })
@@ -2094,6 +2098,8 @@ describe('TxCreateScreen state hooks', () => {
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
 
       await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+      expect(result.current.unavailableAmount).toBe('--')
+      expect(result.current.showUnavailable).toBe(true)
       expect(result.current.showImmature).toBe(false)
       expect(result.current.showPending).toBe(false)
       // Max agrees with Available: nothing is selectable from an unknown figure.
