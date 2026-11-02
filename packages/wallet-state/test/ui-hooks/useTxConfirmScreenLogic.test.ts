@@ -33,7 +33,7 @@ function walletWithBroadcast() {
     broadcastQbitTx: vi.fn(),
     releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
     abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
-    getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
+    getAddressSummary: vi.fn().mockResolvedValue({ mempoolInclusiveSatoshis: 1 }),
     getAddressBalanceV2: vi.fn().mockResolvedValue({
       availableBalance: 1,
       unavailableBalance: 0,

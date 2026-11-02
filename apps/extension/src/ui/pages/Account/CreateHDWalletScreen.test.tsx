@@ -214,7 +214,7 @@ describe('CreateHDWalletScreen', () => {
       // Previews stay in flight, matching the CI run where the background is
       // still deriving when Continue is clicked.
       createTmpKeyringWithMnemonics: vi.fn(() => new Promise(() => undefined)),
-      getMultiAddressSummaries: vi.fn(async () => [{ totalSatoshis: 0 }]),
+      getMultiAddressSummaries: vi.fn(async () => [{ mempoolInclusiveSatoshis: 0 }]),
       getQbitConcurrentInstanceHint: vi.fn(async () => false),
       setLastActiveTime,
       lockWallet

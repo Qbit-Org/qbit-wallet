@@ -165,9 +165,9 @@ export function Step2({
     for (let i = 0; i < addresses.length; i++) {
       const address = addresses[i];
       const balance = balances[i];
-      const satoshis = balance.totalSatoshis;
+      const satoshis = balance.mempoolInclusiveSatoshis;
       addressAssets[address] = {
-        totalAmount: satoshisToAmount(balance.totalSatoshis),
+        totalAmount: satoshisToAmount(balance.mempoolInclusiveSatoshis),
         satoshis
       };
       if (satoshis > maxSatoshis) {

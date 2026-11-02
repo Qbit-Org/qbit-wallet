@@ -86,8 +86,7 @@ export const initialState: AccountsState = {
   balanceStatusMap: {},
   historyMap: {},
   addressSummary: {
-    totalSatoshis: 0,
-    spendableSatoshis: 0,
+    mempoolInclusiveSatoshis: 0,
     loading: true,
     address: '',
   },
@@ -269,8 +268,7 @@ const slice: Slice<AccountsState> = createSlice({
       // todo
       if (!state.addressSummary) {
         state.addressSummary = {
-          totalSatoshis: 0,
-          spendableSatoshis: 0,
+          mempoolInclusiveSatoshis: 0,
           loading: true,
           address: '',
         }

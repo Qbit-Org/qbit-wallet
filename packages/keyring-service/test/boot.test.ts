@@ -79,6 +79,23 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('KeyringService.boot', () => {
+  it('stores a random boost value that does not reveal when the wallet was created', async () => {
+    const boostValues = new Set<string>()
+    for (let i = 0; i < 2; i += 1) {
+      const { service, storage } = await createService()
+      await service.boot(password)
+
+      const { boostValue, booted } = storage.keyringStateWrites.at(-1)
+      expect(boostValue).toMatch(/^[0-9a-f]{64}$/)
+      await expect(new JsonEncryptor().decrypt(password, booted)).resolves.toBe(boostValue)
+      await expect(service.verifyPassword(password)).resolves.toBe(true)
+      await expect(service.verifyPassword(otherPassword)).resolves.toBe(false)
+      boostValues.add(boostValue)
+    }
+
+    expect(boostValues.size).toBe(2)
+  })
+
   it('refuses to boot over an existing vault and leaves all state untouched', async () => {
     const { service, storage } = await createWallet()
     await flushMicrotasks()

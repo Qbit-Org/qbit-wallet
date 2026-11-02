@@ -41,6 +41,8 @@ import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
 import { useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
 
+const QBIT_P2MR_DUST_AMOUNT = numUtils.satoshisToAmount(QBIT_P2MR_DUST)
+
 /** What the previewed send takes from the wallet, for the total and the fee check. */
 interface SendSpendPreview {
   /** The recipient the preview was computed for. */
@@ -209,8 +211,7 @@ export function useTxCreateScreenLogic() {
   // skipping the check.
   const feeQuote = useFeeQuoteRead()
 
-  const dustSats = QBIT_P2MR_DUST
-  const dustAmount = useMemo(() => numUtils.satoshisToAmount(dustSats), [dustSats])
+  const dustAmount = QBIT_P2MR_DUST_AMOUNT
   const qbitSpendableUtxos = useMemo(
     () => getQbitP2mrSpendableUtxos(utxos, currentAccount),
     [utxos, currentAccount]
@@ -300,7 +301,7 @@ export function useTxCreateScreenLogic() {
     if (!toSatoshis) {
       return
     }
-    if (toSatoshis < dustSats) {
+    if (toSatoshis < QBIT_P2MR_DUST) {
       setError(`${t('amount_must_be_at_least')} ${dustAmount} ${qbitUnit}`)
       return
     }
@@ -410,7 +411,6 @@ export function useTxCreateScreenLogic() {
     inputAmount,
     feeRate,
     toSatoshis,
-    dustSats,
     dustAmount,
     qbitUnit,
     memo,

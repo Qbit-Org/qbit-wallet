@@ -5,13 +5,11 @@
 import {
   Account,
   AddressFlagType,
-  QbitBalance,
   DEFAULT_LOCKTIME_ID,
   DEFAULT_THEME_MODE,
   ErrorCodes,
   THEME_MODES,
   ThemeMode,
-  TxHistoryItem,
   WalletError,
   normalizeAvailableChainType,
 } from '@qbit/wallet-shared'
@@ -23,9 +21,6 @@ import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents }
 const SUPPORTED_LOCALES = ['en', 'zh_TW', 'fr', 'es', 'ru', 'ja']
 const RESTORE_SAVE_ATTEMPTS = 3
 const RESTORE_SAVE_RETRY_DELAY_MS = 100
-// History is cached per account, and Receive selects a new account for each
-// new address, so only the most recently written entries are kept.
-const HISTORY_CACHE_ENTRY_LIMIT = 16
 
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -35,8 +30,6 @@ const defaultTemplate = {
   editingKeyringIndex: 0,
   editingAccount: undefined,
   externalLinkAck: false,
-  balanceMap: {},
-  historyMap: {},
   locale: 'auto',
   watchAddressPreference: {},
   walletSavedList: [],
@@ -306,27 +299,11 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.lockOnWindowsClosed = true
     }
 
-    if (!this.store.balanceMap) {
-      this.store.balanceMap = {}
-    }
-
-    if (!this.store.historyMap) {
-      this.store.historyMap = {}
-    }
-
-    // Earlier builds kept one Qbit history for every account of a wallet
-    // under `qbit:<chain>:<first account's pubkey>`. History is now kept per
-    // account under `qbit-account:` keys and those entries are never read, so
-    // drop them instead of keeping them unread.
-    const walletWideHistoryKeys = Object.keys(this.store.historyMap).filter(key =>
-      key.startsWith('qbit:')
-    )
-    if (walletWideHistoryKeys.length > 0) {
-      const historyMap = { ...this.store.historyMap }
-      for (const key of walletWideHistoryKeys) {
-        delete historyMap[key]
-      }
-      this.store.historyMap = historyMap
+    // Earlier builds kept a balance and a history cache here that nothing read.
+    // Drop them too, so the history of a removed wallet does not stay in
+    // storage.
+    for (const key of ['balanceMap', 'historyMap']) {
+      Reflect.deleteProperty(this.store, key)
     }
 
     if (!this.store.walletSavedList) {
@@ -387,55 +364,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   getPopupOpen(): boolean {
     return this.popupOpen
-  }
-
-  /**
-   * Address balance management
-   */
-  updateAddressBalance(address: string, data: QbitBalance): void {
-    const balanceMap = this.store.balanceMap || {}
-    this.store.balanceMap = {
-      ...balanceMap,
-      [address]: data,
-    }
-  }
-
-  removeAddressBalance(address: string): void {
-    if (address in this.store.balanceMap) {
-      const map = { ...this.store.balanceMap }
-      delete map[address]
-      this.store.balanceMap = map
-    }
-  }
-
-  getAddressBalance(address: string): QbitBalance | null {
-    const balanceMap = this.store.balanceMap || {}
-    return balanceMap[address] || null
-  }
-
-  /**
-   * Address history management
-   */
-  updateAddressHistory(address: string, data: TxHistoryItem[]): void {
-    const { [address]: _replaced, ...others } = this.store.historyMap || {}
-    const kept = Object.entries(others).slice(-(HISTORY_CACHE_ENTRY_LIMIT - 1))
-    this.store.historyMap = {
-      ...Object.fromEntries(kept),
-      [address]: data,
-    }
-  }
-
-  removeAddressHistory(address: string): void {
-    if (address in this.store.historyMap) {
-      const map = { ...this.store.historyMap }
-      delete map[address]
-      this.store.historyMap = map
-    }
-  }
-
-  getAddressHistory(address: string): TxHistoryItem[] {
-    const historyMap = this.store.historyMap || {}
-    return historyMap[address] || []
   }
 
   /**

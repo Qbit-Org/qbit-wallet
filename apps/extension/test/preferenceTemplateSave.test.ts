@@ -154,10 +154,16 @@ describe('loading the settings at start-up', () => {
     expect(service.getKeyringAlianName('keyring_0')).toBe('Savings');
     expect(service.getCurrentAccount()).toEqual(PREFERENCE_1_0_5.currentAccount);
 
-    // The next save keeps them, without the signData setting the wallet no
-    // longer has, and with both lock settings on, which 1.0.5 did not have.
+    // The next save keeps them, without the caches and the signData setting
+    // the wallet no longer has, and with both lock settings on, which 1.0.5
+    // did not have.
     await vi.advanceTimersByTimeAsync(1000);
-    const { enableSignData: _dropped, ...kept } = PREFERENCE_1_0_5;
+    const {
+      balanceMap: _balanceMap,
+      historyMap: _historyMap,
+      enableSignData: _enableSignData,
+      ...kept
+    } = PREFERENCE_1_0_5;
     expect(browserStorage.set).toHaveBeenCalledTimes(1);
     expect(browserStorage.disk.preference).not.toHaveProperty('enableSignData');
     expect(browserStorage.disk.preference).toEqual({ ...kept, lockOnComputerLock: true, lockOnWindowsClosed: true });

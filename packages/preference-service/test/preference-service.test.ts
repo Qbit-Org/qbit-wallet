@@ -31,8 +31,6 @@ describe('PreferenceService', () => {
       currency: '',
       externalLinkAck: 'x',
       showSafeNotice: undefined,
-      balanceMap: null,
-      historyMap: null,
       walletSavedList: null,
       keyringAlianNames: null,
       accountAlianNames: null,
@@ -68,8 +66,6 @@ describe('PreferenceService', () => {
     expect(service.getCurrentAccount()).toBeNull()
 
     expect(service.getWalletSavedList()).toEqual([])
-    expect(service.getAddressBalance('bc1qnone')).toBeNull()
-    expect(service.getAddressHistory('bc1qnone')).toEqual([])
     expect(service.getRateUsStatus()).toEqual({
       hasRated: false,
       ratePromptDismissedAt: null,
@@ -168,97 +164,22 @@ describe('PreferenceService', () => {
     await expect(service.persist()).rejects.toBe(failure)
   })
 
-  it('updates and removes address balance/history maps', async () => {
-    storage.createPersistentProxy.mockResolvedValue({
-      locale: 'en',
-      currency: 'USD',
-      externalLinkAck: false,
-      showSafeNotice: true,
-      currentAccount: null,
-      currentKeyringIndex: 0,
-      editingKeyringIndex: 0,
-      editingAccount: null,
-      balanceMap: {},
-      historyMap: {},
-      watchAddressPreference: {},
-      walletSavedList: [],
-      alianNames: {},
-      initAlianNames: false,
-      currentVersion: '0',
-      firstOpen: false,
-      chainType: ChainType.QBIT_MAINNET,
-      keyringAlianNames: {},
-      accountAlianNames: {},
-      uiCachedData: {},
-      skippedVersion: '',
-      addressFlags: {},
-      autoLockTimeId: 2,
-      openInSidePanel: false,
-      developerMode: false,
-      rateUsStatus: { hasRated: false, ratePromptDismissedAt: 0, hasShownSecondPrompt: false },
-      acceptLowFeeMode: false,
-    })
-
-    await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
-
-    expect(service.getChainType()).toBe(ChainType.QBIT_MAINNET)
-
-    const balance = {
-      confirm_amount: '1',
-      pending_amount: '0',
-      amount: '1',
-    }
-
-    service.updateAddressBalance('qb1z1', balance)
-    expect(service.getAddressBalance('qb1z1')).toEqual(balance)
-
-    service.removeAddressBalance('qb1z1')
-    expect(service.getAddressBalance('qb1z1')).toBeNull()
-
-    service.updateAddressHistory('qb1z1', [{ txid: 'tx1' } as any])
-    expect(service.getAddressHistory('qb1z1')).toEqual([{ txid: 'tx1' }])
-
-    service.removeAddressHistory('qb1z1')
-    expect(service.getAddressHistory('bc1q1')).toEqual([])
-  })
-
-  it('drops history cached under the earlier wallet-wide Qbit key on init', async () => {
-    const walletWideKey = `qbit:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`
-    const accountKey = `qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`
+  it('drops the balance and history caches and the sign-data setting on init', async () => {
     const rawStore: any = {
       locale: 'en',
-      historyMap: {
-        [walletWideKey]: [{ txid: 'tx-first' }, { txid: 'tx-second' }],
-        [accountKey]: [{ txid: 'tx-first' }],
-        qb1z1: [{ txid: 'tx-address' }],
-      },
+      balanceMap: { qb1z1: { confirm_amount: '1', pending_amount: '0', amount: '1' } },
+      historyMap: { qb1z1: [{ txid: 'tx1' }] },
+      enableSignData: true,
+      showSafeNotice: false,
     }
     storage.createPersistentProxy.mockResolvedValue(rawStore)
 
     await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
 
-    expect(service.getAddressHistory(walletWideKey)).toEqual([])
-    expect(service.getAddressHistory(accountKey)).toEqual([{ txid: 'tx-first' }])
-    expect(service.getAddressHistory('qb1z1')).toEqual([{ txid: 'tx-address' }])
-    expect(Object.keys(rawStore.historyMap).sort()).toEqual([accountKey, 'qb1z1'].sort())
-  })
-
-  it('keeps only the most recently written history entries', async () => {
-    storage.createPersistentProxy.mockResolvedValue({ locale: 'en', historyMap: {} })
-    await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
-    const key = (index: number) => `qbit-account:${ChainType.QBIT_TESTNET4}:${index}`
-
-    for (let index = 0; index < 16; index += 1) {
-      service.updateAddressHistory(key(index), [{ txid: `tx-${index}` } as any])
-    }
-    // Writing an entry again makes it the newest.
-    service.updateAddressHistory(key(0), [{ txid: 'tx-0-again' } as any])
-    service.updateAddressHistory(key(16), [{ txid: 'tx-16' } as any])
-
-    expect(service.getAddressHistory(key(1))).toEqual([])
-    expect(service.getAddressHistory(key(0))).toEqual([{ txid: 'tx-0-again' }])
-    expect(service.getAddressHistory(key(2))).toEqual([{ txid: 'tx-2' }])
-    expect(service.getAddressHistory(key(16))).toEqual([{ txid: 'tx-16' }])
+    expect(rawStore).not.toHaveProperty('balanceMap')
+    expect(rawStore).not.toHaveProperty('historyMap')
+    expect(rawStore).not.toHaveProperty('enableSignData')
+    expect(service.getShowSafeNotice()).toBe(false)
   })
 
   it('supports address flag bit operations', async () => {
@@ -271,8 +192,6 @@ describe('PreferenceService', () => {
       currentKeyringIndex: 0,
       editingKeyringIndex: 0,
       editingAccount: null,
-      balanceMap: {},
-      historyMap: {},
       watchAddressPreference: {},
       walletSavedList: [],
       alianNames: {},
@@ -314,8 +233,6 @@ describe('PreferenceService', () => {
       currentKeyringIndex: 0,
       editingKeyringIndex: 0,
       editingAccount: null,
-      balanceMap: {},
-      historyMap: {},
       watchAddressPreference: {},
       walletSavedList: [],
       alianNames: {},
@@ -394,8 +311,6 @@ describe('PreferenceService', () => {
       currentKeyringIndex: 0,
       editingKeyringIndex: 0,
       editingAccount: null,
-      balanceMap: {},
-      historyMap: {},
       watchAddressPreference: {},
       walletSavedList: [],
       alianNames: {},

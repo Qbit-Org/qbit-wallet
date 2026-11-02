@@ -729,10 +729,6 @@ const flowContext = flow
     // process request
     const [approvalType] = Reflect.getMetadata('APPROVAL', providerController, mapMethod) || []
 
-    const { uiRequestComponent, ...rest } = approvalRes || {}
-    const {
-      session: { origin },
-    } = request
     // The last page check: a page gone by now means the method never runs.
     // Once it runs it completes even if the page goes away, since stopping
     // it halfway could spend a signature without a broadcast, or leave a
@@ -783,26 +779,6 @@ const flowContext = flow
           })
         }
       })
-
-    async function requestApprovalLoop({ uiRequestComponent, ...rest }) {
-      ctx.request.requestedApproval = true
-      const res = await requestPageApproval(ctx, {
-        approvalComponent: uiRequestComponent,
-        params: rest,
-        origin,
-        approvalType,
-      })
-      if (res.uiRequestComponent) {
-        return await requestApprovalLoop(res)
-      } else {
-        return res
-      }
-    }
-
-    if (uiRequestComponent) {
-      ctx.request.requestedApproval = true
-      return await requestApprovalLoop({ uiRequestComponent, ...rest })
-    }
 
     return requestDefer
   })

@@ -12,6 +12,5 @@ export { PQC_WARNING_SIGNATURE_THRESHOLD } from './keyrings'
 
 // encryptor
 export { BrowserPassworderEncryptor } from './encryptor/browser-encryptor'
-export { SimpleEncryptor } from './encryptor/simple-encryptor'
 
 export * from './types'

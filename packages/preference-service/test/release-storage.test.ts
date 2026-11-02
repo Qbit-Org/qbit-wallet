@@ -37,7 +37,7 @@ class StoreDefinition extends PreferenceService {
 const OPTIONAL_KEYS = ['regtestAccessAck', 'guideReaded', 'addressSummary']
 
 // Settings earlier releases saved that this build drops when it loads them.
-const DROPPED_KEYS = ['enableSignData']
+const DROPPED_KEYS = ['balanceMap', 'historyMap', 'enableSignData']
 
 async function loadPreferences(dump: ReleaseStorage) {
   const storage = new DumpStorage(dump.storage)
@@ -114,6 +114,22 @@ describe.each(RELEASES)('preferences stored by %s', release => {
     ]) {
       expect(saved[key], key).toEqual(before[key])
     }
+    for (const key of DROPPED_KEYS) {
+      expect(saved, key).not.toHaveProperty(key)
+    }
+  })
+
+  it('drop the settings this build no longer keeps once saved', async () => {
+    const dump = readReleaseStorage(release)
+    const before = dump.storage['preference'] as Record<string, unknown>
+    for (const key of DROPPED_KEYS) {
+      expect(before, key).toHaveProperty(key)
+    }
+
+    const { service, storage } = await loadPreferences(dump)
+    await service.persist()
+
+    const saved = storage.values['preference'] as Record<string, unknown>
     for (const key of DROPPED_KEYS) {
       expect(saved, key).not.toHaveProperty(key)
     }

@@ -42,9 +42,8 @@ import type {
   QbitRecoveryNetworkVaultState,
   QbitRecoveryVaultState,
 } from '@qbit/keyring-service/qbit-hd-keyring'
-import { DisplayedKeyring, Keyring, KeyringType, ToSignInput } from '@qbit/keyring-service/types'
-import * as txHelpers from '@qbit/tx-helpers'
-import { UnspentOutput, signMessageOfBIP322Simple } from '@qbit/tx-helpers'
+import { DisplayedKeyring, Keyring, KeyringType } from '@qbit/keyring-service/types'
+import { UnspentOutput } from '@qbit/tx-helpers'
 import {
   addressToScriptPk,
   transactionCore,
@@ -55,27 +54,22 @@ import {
   publicKeyToAddress,
   scriptPkToAddress,
   toPsbtNetwork,
-  toXOnly,
 } from '@qbit/wallet-core'
 import {
   Account,
   AccountSignMethod,
-  AddressUserToSignInput,
   BUS_EVENTS,
   BUS_METHODS,
   type BiometricUnlockRecord,
   type BiometricUnlockStatus,
-  QbitBalance,
   CHAINS_MAP,
   ConnectedSite,
   DecodedPsbt,
   DeriveAccountResult,
-  DummyTxType,
   ErrorCodes,
   type FeeSummary,
   LocalPsbtSummary,
   PsbtActionDetailType,
-  PsbtActionInfo,
   PsbtActionType,
   QBIT_P2A_MAX_VALUE,
   QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
@@ -109,12 +103,10 @@ import {
   type QbitRestoreFloorSourceRecord,
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
-  PublicKeyUserToSignInput,
   RateUsStatus,
   RiskType,
   SESSION_EVENTS,
   SignMessageType,
-  SignPsbtOptions,
   SignedData,
   SignedMessage,
   ThemeMode,
@@ -176,7 +168,6 @@ import {
   type PsbtOutputOwner,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
-import { psbtFromString } from '../utils/psbt-utils'
 import {
   QBIT_BROADCAST_ABSENCE_PROBES,
   QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS,
@@ -208,6 +199,7 @@ import {
   getQbitAddressUtxos,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitAddressSummaries,
+  getQbitAddressSummary,
   getQbitRawTransaction,
   getQbitRawTransactionHex,
   getQbitSpendableBalanceV2,
@@ -226,7 +218,6 @@ import {
   qbitBalanceToWalletBalance,
   qbitFeeSummaryFromTiers,
   qbitStatsSnapshot,
-  qbitStatsToAddressSummary,
   qbitUnavailableFeeSummary,
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
@@ -501,12 +492,6 @@ function resolveHdPathForAddressType(
   return addressType === AddressType.P2MR ? getQbitHdPathForChainType(chainType) : hdPath
 }
 
-function assertCanCreateSigningRequest(account: Account | null | undefined) {
-  if (!getAccountCapabilities(account).canCreateSigningRequest) {
-    throw new Error(t('not_supported'))
-  }
-}
-
 function assertCanCreateQbitP2mrSend(account: Account | null | undefined) {
   const signMethod = getAccountCapabilities(account).signMethod
   if (
@@ -532,7 +517,6 @@ const QBIT_P2MR_RBF_SEQUENCE = 0xfffffffd
 const QBIT_RECENT_SPEND_PROBE_WAIT_MS = 2_000
 const QBIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000
 const QBIT_HISTORY_SNAPSHOT_LIMIT = 8
-const QBIT_HISTORY_PERSISTED_CACHE_LIMIT = 20
 // History is read and cached per account: that account's own public key on
 // one network. Earlier builds kept one history for every account of the
 // wallet under `qbit:<chain>:<first account's pubkey>`; this prefix never
@@ -868,13 +852,6 @@ function sameQbitOutpoints(
         outpoint.txid === right[index]?.txid && outpoint.vout === right[index]?.vout
     )
   )
-}
-
-function transactionPsbtOutpoints(psbt: transactionCore.Psbt): QbitOutpoint[] {
-  return psbt.txInputs.map(input => ({
-    txid: Buffer.from(input.hash).reverse().toString('hex'),
-    vout: input.index,
-  }))
 }
 
 function qbitSigningKeysFromSerializable(
@@ -1831,11 +1808,7 @@ export class WalletController extends BaseController {
   }
 
   getAddressBalance = async (address: string) => {
-    const data = qbitBalanceToWalletBalance(
-      await this.getQbitApiClient().getAddressBalance(address)
-    )
-    preferenceService.updateAddressBalance(address, data)
-    return data
+    return qbitBalanceToWalletBalance(await this.getQbitApiClient().getAddressBalance(address))
   }
 
   getAddressBalanceV2 = async (address: string) => {
@@ -1917,16 +1890,6 @@ export class WalletController extends BaseController {
     groups: { type: number; address_arr: string[]; pubkey_arr: string[] }[]
   ) => {
     return findActiveQbitAddressGroups(this.getQbitApiClient(), groups)
-  }
-
-  getAddressCacheBalance = (address: string | undefined): QbitBalance => {
-    const defaultBalance: QbitBalance = {
-      confirm_amount: '0',
-      pending_amount: '0',
-      amount: '0',
-    }
-    if (!address) return defaultBalance
-    return preferenceService.getAddressBalance(address) || defaultBalance
   }
 
   private getQbitHistoryScope = async (requestedAddress: string): Promise<QbitHistoryScope> => {
@@ -2116,10 +2079,6 @@ export class WalletController extends BaseController {
 
       this.qbitHistorySnapshots.set(snapshot.id, snapshot)
       this.pruneQbitHistorySnapshots(snapshot.createdAt)
-      preferenceService.updateAddressHistory(
-        scope.scopeKey,
-        snapshot.list.slice(0, QBIT_HISTORY_PERSISTED_CACHE_LIMIT)
-      )
     }
 
     if (!snapshot) {
@@ -2132,12 +2091,6 @@ export class WalletController extends BaseController {
       snapshotId: snapshot.id,
       scopeKey: snapshot.scopeKey,
     }
-  }
-
-  getAddressCacheHistory = async (address: string | undefined): Promise<TxHistoryItem[]> => {
-    if (!address) return []
-    const scope = await this.getQbitHistoryScope(address)
-    return preferenceService.getAddressHistory(scope.scopeKey)
   }
 
   getQbitRawTransactionHex = async (txid: string): Promise<string> => {
@@ -5046,392 +4999,120 @@ export class WalletController extends BaseController {
     await this.changeKeyring(keyring, currentAccount?.index)
   }
 
-  formatOptionsToSignInputs = async (_psbt: string | transactionCore.Psbt, options?: SignPsbtOptions) => {
-    const account = await this.getCurrentAccount()
-    if (!account) throw null
-    assertCanCreateSigningRequest(account)
-
-    let toSignInputs: ToSignInput[] = []
-    if (options && options.toSignInputs) {
-      // We expect userToSignInputs objects to be similar to ToSignInput interface,
-      // but we allow address to be specified in addition to publicKey for convenience.
-      toSignInputs = options.toSignInputs.map(input => {
-        const index = Number(input.index)
-        if (isNaN(index)) throw new Error('invalid index in toSignInput')
-
-        if (
-          !(input as AddressUserToSignInput).address &&
-          !(input as PublicKeyUserToSignInput).publicKey
-        ) {
-          throw new Error('no address or public key in toSignInput')
-        }
-
-        if (
-          (input as AddressUserToSignInput).address &&
-          (input as AddressUserToSignInput).address != account.address
-        ) {
-          throw new Error('invalid address in toSignInput')
-        }
-
-        if (
-          (input as PublicKeyUserToSignInput).publicKey &&
-          (input as PublicKeyUserToSignInput).publicKey != account.pubkey
-        ) {
-          throw new Error('invalid public key in toSignInput')
-        }
-
-        const sighashTypes = input.sighashTypes?.map(Number)
-        if (sighashTypes?.some(isNaN)) throw new Error('invalid sighash type in toSignInput')
-
-        let tapLeafHashToSign: string | Buffer | undefined
-        if (input.tapLeafHashToSign) {
-          if (typeof input.tapLeafHashToSign !== 'string') {
-            tapLeafHashToSign = Buffer.from(input.tapLeafHashToSign, 'hex')
-          } else if ((input.tapLeafHashToSign as any) instanceof Uint8Array) {
-            tapLeafHashToSign = Buffer.from(input.tapLeafHashToSign)
-          } else {
-            tapLeafHashToSign = input.tapLeafHashToSign
-          }
-
-          tapLeafHashToSign = tapLeafHashToSign!.toString('hex')
-        }
-        return {
-          index,
-          publicKey: account.pubkey,
-          sighashTypes,
-          useTweakedSigner: input.useTweakedSigner,
-          disableTweakSigner: input.disableTweakSigner,
-          tapLeafHashToSign,
-        } as any
-      })
-    } else {
-      const networkType = this.getNetworkType()
-      const psbtNetwork = toPsbtNetwork(networkType)
-
-      const psbt =
-        typeof _psbt === 'string'
-          ? transactionCore.Psbt.fromHex(_psbt as string, { network: psbtNetwork })
-          : (_psbt as transactionCore.Psbt)
-      psbt.data.inputs.forEach((v, index) => {
-        let script: any = null
-        let value = 0
-        if (v.witnessUtxo) {
-          script = v.witnessUtxo.script
-          value = v.witnessUtxo.value
-        } else if (v.nonWitnessUtxo) {
-          const tx = transactionCore.Transaction.fromBuffer(v.nonWitnessUtxo)
-          const output = tx.outs[psbt.txInputs[index]!.index]!
-          script = output.script
-          value = output.value
-        }
-        const isSigned =
-          v.finalScriptSig || v.finalScriptWitness || v.tapKeySig || v.partialSig || v.tapScriptSig
-        if (script && !isSigned) {
-          const address = scriptPkToAddress(script, networkType)
-          if (account.address === address) {
-            toSignInputs.push({
-              index,
-              publicKey: account.pubkey,
-              sighashTypes: v.sighashType ? [v.sighashType] : undefined,
-            })
-          }
-        }
-      })
-
-      if (toSignInputs.length === 0) {
-        psbt.data.inputs.forEach((input, index) => {
-          // if no toSignInputs, sign all inputs
-          toSignInputs.push({
-            index: index,
-            publicKey: account.pubkey,
-          })
-        })
-      }
+  // local sign function
+  signPsbtV2 = async (toSignData: ToSignData): Promise<SignedData> => {
+    // Before the first await: the port the signed bytes are handed back to.
+    const uiPort = this.callingUiPort
+    if (!toSignData.qbitP2mrSigningKeys?.length) {
+      throw new Error(t('not_supported'))
     }
 
-    return toSignInputs
-  }
-
-  formatPsbt = async (psbt: transactionCore.Psbt, toSignInputs: ToSignInput[], autoFinalized?: boolean) => {
-    const account = await this.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    assertCanCreateSigningRequest(account)
-
-    const keyring = await this.getCurrentKeyring()
-    if (!keyring) throw new Error('no current keyring')
-    const networkType = this.getNetworkType()
-    const psbtNetwork = toPsbtNetwork(networkType)
-
-    if (!toSignInputs) {
-      // When the caller omits an input list, derive all signable inputs.
-      toSignInputs = await this.formatOptionsToSignInputs(psbt)
-    }
-
-    let willBeSignedInputCount = 0
-    psbt.data.inputs.forEach((input, index) => {
-      const isSigned =
-        input.finalScriptSig ||
-        input.finalScriptWitness ||
-        input.tapKeySig ||
-        input.partialSig ||
-        input.tapScriptSig
-      if (isSigned) {
-        willBeSignedInputCount++
-        return
-      }
-
-      const isToBeSigned = toSignInputs.some(v => v.index === index)
-      if (!isToBeSigned) {
-        return
-      }
-      willBeSignedInputCount++
-
-      let isP2TR = false
-      const witnessScript = input.witnessUtxo?.script
-      if (witnessScript) {
-        try {
-          transactionCore.payments.p2tr({ output: witnessScript, network: psbtNetwork })
-          isP2TR = true
-        } catch (e) {
-          // skip
-        }
-      }
-
-      if (isP2TR) {
-        // fix p2tr input data
-        let isKeyPathP2TR = false
-
-        try {
-          const originXPubkey = toXOnly(Buffer.from(account.pubkey, 'hex')).toString('hex')
-          const tapInternalKey = toXOnly(Buffer.from(account.pubkey, 'hex'))
-          const { output } = transactionCore.payments.p2tr({
-            internalPubkey: tapInternalKey,
-            network: psbtNetwork,
-          })
-          if (input.witnessUtxo?.script.toString('hex') == output?.toString('hex')) {
-            isKeyPathP2TR = true
-          }
-          if (isKeyPathP2TR) {
-            input.tapInternalKey = tapInternalKey
-          } else {
-            // only keypath p2tr can have tapInternalKey
-            delete input.tapInternalKey
-          }
-
-          if (isKeyPathP2TR) {
-            // keypath p2tr should be signed with origin signer
-          } else {
-            const isToBeSigned: any = toSignInputs.find(v => v.index === index)
-            if (
-              isToBeSigned.useTweakedSigner == undefined &&
-              isToBeSigned.disableTweakSigner == undefined
-            ) {
-              if (input.tapLeafScript && input.tapLeafScript.length > 0) {
-                const script = input.tapLeafScript[0]!.script.toString('hex')
-                if (script.includes(originXPubkey)) {
-                  // if tapLeafScript contains origin pubkey, use origin signer
-                  isToBeSigned.useTweakedSigner = false
-                } else {
-                  // if tapLeafScript not contains origin pubkey, use tweaked signer
-                  isToBeSigned.useTweakedSigner = true
-                }
-              } else {
-                // if no tapLeafScript, use origin signer
-                isToBeSigned.useTweakedSigner = false
-              }
-            }
-          }
-        } catch (e) {
-          // skip
-        }
-      }
-    })
-
-    if (autoFinalized !== false && willBeSignedInputCount === psbt.inputCount) {
-      autoFinalized = true
-    } else {
-      autoFinalized = false
-    }
-
-    return {
-      psbt,
-      toSignInputs,
-      autoFinalized,
-    }
-  }
-
-  _signPsbt = async (psbt: transactionCore.Psbt, toSignInputs: ToSignInput[], autoFinalized: boolean) => {
-    const account = await this.getCurrentAccount()
+    const migrationContext = toSignData.qbitRecoveryMigration
+      ? await this.validateQbitRecoveryMigrationSigning(
+          toSignData.qbitRecoveryMigration,
+          toSignData
+        )
+      : undefined
+    const account = migrationContext?.account || preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
     if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
       throw new Error(t('not_supported'))
     }
 
-    const keyring = await this.getCurrentKeyring()
-    if (!keyring) throw new Error('no current keyring')
-    const _keyring = keyringService.keyrings[keyring.index]!
-
-    toSignInputs.forEach(v => {
-      if (v.tapLeafHashToSign) {
-        v.tapLeafHashToSign = Buffer.from(v.tapLeafHashToSign as string, 'hex')
-      }
-    })
-    psbt = await keyringService.signTransaction(_keyring, psbt, toSignInputs as any)
-
-    if (autoFinalized) {
-      try {
-        toSignInputs.forEach(v => {
-          // psbt.validateSignaturesOfInput(v.index, validator);
-          psbt.finalizeInput(v.index)
+    const psbt = qbitPsbtFromHex(toSignData.psbtHex)
+    const qbitBroadcastIdentity = this.validatedQbitBroadcastIdentity(
+      psbt,
+      toSignData.qbitBroadcastIdentity
+    )
+    const chain = qbitBroadcastIdentity.chain
+    const consolidationOutputCounts =
+      this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
+      toSignData.qbitConsolidation?.fundingOutputCounts
+    if (consolidationOutputCounts) {
+      await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
+    }
+    const sign = async (): Promise<SignedData> => {
+      const signed = await keyringService
+        .signP2mrPsbtWithCounter(
+          account.address,
+          {
+            psbt,
+            keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
+          },
+          toSignData.signatureBudget,
+          toSignData.qbitSignatureBatch && {
+            id: toSignData.qbitSignatureBatch.id,
+            index: toSignData.qbitSignatureBatch.index,
+          }
+        )
+        .catch(error => {
+          // A migration plan's batch closes when its review ends or is
+          // replaced, or on a lock, before any of the plan is signed; the
+          // screen then prepares the remaining plans again.
+          if (migrationContext && error?.code === QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE) {
+            throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED)
+          }
+          throw error
         })
-      } catch (e) {
-        // ignore
+      await this.refreshDisplayedQbitAccountAfterSigning(account.address)
+      const signedPsbt =
+        toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
+      const signedPsbtHex = qbitPsbtToHex(signedPsbt)
+      if (migrationContext) {
+        const finalized = finalizeP2mrPsbt(signedPsbt)
+        const rawTransaction = extractP2mrTransaction(finalized)
+        const txid = transactionCore.Transaction.fromBuffer(Buffer.from(rawTransaction)).getId()
+        await keyringService.updateQbitRecoveryMigrationPlan(
+          migrationContext.anchorAddress,
+          migrationContext.network,
+          migrationContext.plan.id,
+          {
+            status: 'signed',
+            signedPsbtHex,
+            txid,
+          }
+        )
+      }
+      return {
+        psbtHex: signedPsbtHex,
+        qbitBroadcastIdentity,
       }
     }
-    return psbt
-  }
-
-  // abstract wallet function
-  signPsbt = async (psbt: transactionCore.Psbt, opts?: SignPsbtOptions): Promise<transactionCore.Psbt> => {
-    const res = await this.formatPsbt(psbt, opts?.toSignInputs as any, opts?.autoFinalized as any)
-    const signedPsbt = await this._signPsbt(res.psbt, res.toSignInputs, res.autoFinalized)
-    return signedPsbt
-  }
-
-  // local sign function
-  signPsbtV2 = async (toSignData: ToSignData): Promise<SignedData> => {
-    // Before the first await: the port the signed bytes are handed back to.
-    const uiPort = this.callingUiPort
-    if (toSignData.qbitP2mrSigningKeys?.length) {
-      const migrationContext = toSignData.qbitRecoveryMigration
-        ? await this.validateQbitRecoveryMigrationSigning(
-            toSignData.qbitRecoveryMigration,
-            toSignData
-          )
-        : undefined
-      const account = migrationContext?.account || preferenceService.getCurrentAccount()
-      if (!account) throw new Error('no current account')
-      if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
-        throw new Error(t('not_supported'))
-      }
-
-      const psbt = qbitPsbtFromHex(toSignData.psbtHex)
-      const qbitBroadcastIdentity = this.validatedQbitBroadcastIdentity(
+    const signWithClaim = (claim: QbitSendBroadcastClaim) => async (): Promise<SignedData> => ({
+      ...(await sign()),
+      qbitSendBroadcastClaim: {
+        ...claim,
+        outpoints: claim.outpoints.map(outpoint => ({ ...outpoint })),
+      },
+    })
+    // A provider claim belongs to the provider request that approved it,
+    // which releases it when the request fails or is rejected, whatever
+    // becomes of the approval window; once that request has settled the
+    // claim is refused before a signature is spent. Only a claim the
+    // wallet mints for its own send is owned by the UI port that receives
+    // the signed bytes.
+    if (toSignData.qbitSendBroadcastClaim) {
+      const providerClaim = this.validatedQbitSendBroadcastClaim(
         psbt,
-        toSignData.qbitBroadcastIdentity
-      )
-      const chain = qbitBroadcastIdentity.chain
-      const consolidationOutputCounts =
-        this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
-        toSignData.qbitConsolidation?.fundingOutputCounts
-      if (consolidationOutputCounts) {
-        await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
-      }
-      const sign = async (): Promise<SignedData> => {
-        const signed = await keyringService
-          .signP2mrPsbtWithCounter(
-            account.address,
-            {
-              psbt,
-              keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
-            },
-            toSignData.signatureBudget,
-            toSignData.qbitSignatureBatch && {
-              id: toSignData.qbitSignatureBatch.id,
-              index: toSignData.qbitSignatureBatch.index,
-            }
-          )
-          .catch(error => {
-            // A migration plan's batch closes when its review ends or is
-            // replaced, or on a lock, before any of the plan is signed; the
-            // screen then prepares the remaining plans again.
-            if (migrationContext && error?.code === QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE) {
-              throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED)
-            }
-            throw error
-          })
-        await this.refreshDisplayedQbitAccountAfterSigning(account.address)
-        const signedPsbt =
-          toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
-        const signedPsbtHex = qbitPsbtToHex(signedPsbt)
-        if (migrationContext) {
-          const finalized = finalizeP2mrPsbt(signedPsbt)
-          const rawTransaction = extractP2mrTransaction(finalized)
-          const txid = transactionCore.Transaction.fromBuffer(Buffer.from(rawTransaction)).getId()
-          await keyringService.updateQbitRecoveryMigrationPlan(
-            migrationContext.anchorAddress,
-            migrationContext.network,
-            migrationContext.plan.id,
-            {
-              status: 'signed',
-              signedPsbtHex,
-              txid,
-            }
-          )
-        }
-        return {
-          psbtHex: signedPsbtHex,
-          qbitBroadcastIdentity,
-        }
-      }
-      const signWithClaim = (claim: QbitSendBroadcastClaim) => async (): Promise<SignedData> => ({
-        ...(await sign()),
-        qbitSendBroadcastClaim: {
-          ...claim,
-          outpoints: claim.outpoints.map(outpoint => ({ ...outpoint })),
-        },
-      })
-      // A provider claim belongs to the provider request that approved it,
-      // which releases it when the request fails or is rejected, whatever
-      // becomes of the approval window; once that request has settled the
-      // claim is refused before a signature is spent. Only a claim the
-      // wallet mints for its own send is owned by the UI port that receives
-      // the signed bytes.
-      if (toSignData.qbitSendBroadcastClaim) {
-        const providerClaim = this.validatedQbitSendBroadcastClaim(
-          psbt,
-          toSignData.qbitSendBroadcastClaim,
-          toSignData.providerContext,
-          account.address
-        )
-        return qbitSendGuardService.runWithProviderBroadcastClaim(
-          providerClaim,
-          signWithClaim(providerClaim)
-        )
-      }
-      const claim = this.walletQbitSendBroadcastClaim(
-        psbt,
-        qbitBroadcastIdentity,
-        toSignData,
+        toSignData.qbitSendBroadcastClaim,
+        toSignData.providerContext,
         account.address
       )
-      if (claim) {
-        return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
-      }
-      return this.runWithNoQbitInputConflict(
-        chain,
-        qbitPsbtOutpoints(psbt),
-        sign,
-        qbitPsbtTxid(psbt)
+      return qbitSendGuardService.runWithProviderBroadcastClaim(
+        providerClaim,
+        signWithClaim(providerClaim)
       )
     }
-
-    if (toSignData.qbitSendBroadcastClaim) {
-      throw new Error('invalid Qbit send broadcast claim')
-    }
-
-    const psbt = psbtFromString(toSignData.psbtHex)
-    const sign = async () => {
-      await this._signPsbt(psbt, toSignData.toSignInputs, toSignData.autoFinalized!)
-      return {
-        psbtHex: psbt.toHex(),
-      }
-    }
-    return this.runWithNoQbitInputConflict(
-      this.getChainType(),
-      transactionPsbtOutpoints(psbt),
-      sign
+    const claim = this.walletQbitSendBroadcastClaim(
+      psbt,
+      qbitBroadcastIdentity,
+      toSignData,
+      account.address
     )
+    if (claim) {
+      return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
+    }
+    return this.runWithNoQbitInputConflict(chain, qbitPsbtOutpoints(psbt), sign, qbitPsbtTxid(psbt))
   }
 
   signMessage = async (params: ToSignMessage): Promise<SignedMessage> => {
@@ -5439,40 +5120,16 @@ export class WalletController extends BaseController {
       throw new Error('Invalid message length')
     }
 
-    if (params.type === SignMessageType.P2MR) {
-      return {
-        proof: await this.signP2mrMessage(
-          params.text,
-          params.p2mrAccountAddress,
-          params.signatureBudget
-        ),
-      }
+    if (params.type !== SignMessageType.P2MR) {
+      throw new Error(t('not_supported'))
     }
 
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    assertCanCreateSigningRequest(account)
-
-    if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
-      throw new Error('Readonly wallet cannot sign messages')
-    }
-
-    const networkType = this.getNetworkType()
-    if (params.type === SignMessageType.BIP322_SIMPLE) {
-      const signature = await signMessageOfBIP322Simple({
-        message: params.text,
-        address: account.address,
-        networkType,
-        wallet: this as any,
-      })
-      return {
-        signature,
-      }
-    } else {
-      const signature = await keyringService.signMessage(account.pubkey, account.type, params.text)
-      return {
-        signature,
-      }
+    return {
+      proof: await this.signP2mrMessage(
+        params.text,
+        params.p2mrAccountAddress,
+        params.signatureBudget
+      ),
     }
   }
 
@@ -7639,33 +7296,6 @@ export class WalletController extends BaseController {
     }
   }
 
-  getToSignData = async ({
-    psbtHex,
-    options,
-    action,
-  }: {
-    psbtHex: string
-    options?: SignPsbtOptions
-    action?: PsbtActionInfo
-  }): Promise<ToSignData> => {
-    const toSignInputs = await this.formatOptionsToSignInputs(psbtHex, options)
-    const result = await this.formatPsbt(
-      transactionCore.Psbt.fromHex(psbtHex),
-      toSignInputs,
-      options?.autoFinalized
-    )
-    return {
-      psbtHex: result.psbt.toHex(),
-      toSignInputs: result.toSignInputs,
-      autoFinalized: result.autoFinalized,
-      action: action || {
-        name: '',
-        description: '',
-        type: PsbtActionType.DEFAULT,
-      },
-    }
-  }
-
   private getQbitMigrationProtectedAssetCount = async (
     account: Account,
     psbt: QbitPsbt,
@@ -9562,14 +9192,8 @@ export class WalletController extends BaseController {
     return result
   }
 
-  getAddressSummary = async (address: string) => {
-    return qbitStatsToAddressSummary(await this.getQbitApiClient().getAddressStats(address))
-  }
-
-  setPsbtSignNonSegwitEnable(psbt: transactionCore.Psbt, enabled: boolean) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    //@ts-ignore
-    psbt.__CACHE.__UNSAFE_SIGN_NONSEGWIT = enabled
+  getAddressSummary = (address: string) => {
+    return getQbitAddressSummary(this.getQbitApiClient(), address)
   }
 
   getShowSafeNotice = () => {
@@ -9877,33 +9501,6 @@ export class WalletController extends BaseController {
     await this.changeKeyring(keyring)
 
     preferenceService.setShowSafeNotice(true)
-  }
-
-  createDummyPsbt = async ({
-    txType,
-  }: {
-    txType: DummyTxType
-  }): Promise<{
-    psbtHex: string
-    toSignInputs: ToSignInput[]
-  }> => {
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-
-    const { psbt, toSignInputs } = txHelpers.createDummyTx({
-      txType,
-      address: account.address,
-      pubkey: account.pubkey,
-    })
-
-    const toSignData = await this.getToSignData({
-      psbtHex: psbt.toHex(),
-      options: {
-        toSignInputs: toSignInputs as any,
-        autoFinalized: false,
-      },
-    })
-    return toSignData
   }
 
   getQbitUnit() {

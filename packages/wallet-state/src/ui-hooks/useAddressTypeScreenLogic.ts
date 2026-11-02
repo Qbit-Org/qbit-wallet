@@ -61,9 +61,9 @@ export function useAddressTypeScreenLogic() {
       for (let i = 0; i < _res.length; i++) {
         const address = _res[i]
         const balance = balances[i]
-        const satoshis = balance.totalSatoshis
+        const satoshis = balance.mempoolInclusiveSatoshis
         self.addressAssets[address] = {
-          totalAmount: numUtils.satoshisToAmount(balance.totalSatoshis),
+          totalAmount: numUtils.satoshisToAmount(balance.mempoolInclusiveSatoshis),
           satoshis,
         }
       }

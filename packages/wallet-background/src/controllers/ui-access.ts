@@ -75,7 +75,6 @@ export const UI_CONTROLLER_METHODS = [
   'clearBiometricUnlock',
   'confirmQbitRestoredFloorSigning',
   'createBumpFeeQbitPsbt',
-  'createDummyPsbt',
   'createKeyringWithAddress',
   'createKeyringWithColdWallet',
   'createKeyringWithMnemonics',

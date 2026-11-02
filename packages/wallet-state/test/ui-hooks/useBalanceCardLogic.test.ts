@@ -164,7 +164,7 @@ describe('useBalanceCardLogic before a balance read', () => {
   it('keeps it unknown while every read fails, and shows a 0 a read returns as 0', async () => {
     vi.useFakeTimers()
     const wallet = Object.assign(createWalletMock(), {
-      getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 0, spendableSatoshis: 0 }),
+      getAddressSummary: vi.fn().mockResolvedValue({ mempoolInclusiveSatoshis: 0 }),
       getAddressBalanceV2: vi.fn().mockRejectedValue(new Error('explorer unreachable')),
     })
     const { result } = renderUnreadBalanceCard(wallet)
@@ -211,7 +211,7 @@ describe('useBalanceCardLogic before a balance read', () => {
   })
 })
 
-const summary = { address, totalSatoshis: 5_000, spendableSatoshis: 5_000 }
+const summary = { address, mempoolInclusiveSatoshis: 5_000 }
 const balance = {
   availableBalance: 5_000,
   unavailableBalance: 0,
