@@ -143,7 +143,8 @@ export class HeldPage {
       } else if (!this.mayReload) {
         this.showNotice('released');
       } else if (!reloadWithGet()) {
-        // Try again opens the address afresh instead of reaching this again.
+        // Try again loads the page without the form instead of reaching this
+        // again.
         this.showNotice('reloadRefused');
       }
       return;

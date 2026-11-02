@@ -39,13 +39,21 @@ const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
 
 const replacedError = (name: string): Error => new Error(`A newer store replaced ${name}; not saved`)
 
+interface KeyOwner {
+  save: () => void
+  // The owner the key goes back to if this proxy rejects, until it is returned.
+  previous?: KeyOwner | undefined
+  // Pending until the proxy is returned to its caller or rejects.
+  state: 'pending' | 'returned' | 'rejected'
+}
+
 export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
   abstract get(key: string): Promise<any>
   abstract set(key: string, value: any): Promise<void>
 
   // The proxy that owns each storage key. Only the owner saves, so a replaced
   // proxy's pending debounced save cannot write old data over the new store.
-  private persistentProxies = new Map<string, { save: () => void }>()
+  private persistentProxies = new Map<string, KeyOwner>()
   private proxyFlushes = new WeakMap<object, () => Promise<void>>()
 
   /**
@@ -54,8 +62,9 @@ export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
    * throws: reassign the top-level key instead. A failed read rejects rather
    * than replacing the stored data with the template. When nothing is stored,
    * or on reset, the template is saved before the proxy is returned, retrying
-   * a failed write a few times; a write that keeps failing rejects, as does a
-   * proxy that a newer one replaced before its template was saved. The new
+   * a failed write a few times; a write that keeps failing rejects. A proxy
+   * that a newer one replaced before it is returned rejects too, without
+   * writing its template if it has not yet, as it would never save. The new
    * proxy replaces any earlier one for the same key, which stops saving, so
    * changes it has not saved yet are dropped.
    */
@@ -71,11 +80,13 @@ export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
         console.error(`Failed to save preference data for ${name}:`, error)
       })
     }, SAVE_DELAY_MS)
-    const owner = { save: debouncedSave }
-
     // Take the key over before anything is read or written, so a save the
     // previous proxy issues from now on cannot land after this one's write.
-    const previousOwner = this.persistentProxies.get(name)
+    const owner: KeyOwner = {
+      save: debouncedSave,
+      previous: this.persistentProxies.get(name),
+      state: 'pending',
+    }
     this.persistentProxies.set(name, owner)
     try {
       const stored = options.reset ? undefined : await this.loadStored(name)
@@ -88,18 +99,28 @@ export abstract class BaseProxyStorageAdapter implements ProxyStorageAdapter {
       if (!stored) {
         await this.saveTemplate(name, { ...data }, owner)
       }
+      // A newer proxy took the key during the read or the template write.
+      if (this.persistentProxies.get(name) !== owner) throw replacedError(name)
     } catch (error) {
-      // Hand the key back and save whatever the previous proxy skipped.
+      owner.state = 'rejected'
+      // Hand the key back, passing over proxies that rejected, which no
+      // caller holds. A returned proxy saves whatever it skipped meanwhile; a
+      // pending one has not read its data yet, and goes on as if it had kept
+      // the key.
       if (this.persistentProxies.get(name) === owner) {
-        if (previousOwner) {
-          this.persistentProxies.set(name, previousOwner)
-          previousOwner.save()
+        let previous = owner.previous
+        while (previous?.state === 'rejected') previous = previous.previous
+        if (previous) {
+          this.persistentProxies.set(name, previous)
+          if (previous.state === 'returned') previous.save()
         } else {
           this.persistentProxies.delete(name)
         }
       }
       throw error
     }
+    owner.state = 'returned'
+    owner.previous = undefined
 
     // Create proxy to automatically persist changes
     const proxy: object = new Proxy(data, {
