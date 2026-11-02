@@ -39,6 +39,7 @@ const STATE_COLORS: Record<PhishingProtectionState, 'green' | 'warning' | 'error
 
 const REASON_LABELS: Record<PhishingProtectionReason, string> = {
   'block-rule-not-installed': 'phishing_protection_reason_block_rule_not_installed',
+  'block-rule-outdated': 'phishing_protection_reason_block_rule_outdated',
   'block-rule-unknown': 'phishing_protection_reason_block_rule_unknown',
   'redirect-rule-without-host-access': 'phishing_protection_reason_redirect_rule_without_host_access',
   'redirect-rule-unknown': 'phishing_protection_reason_redirect_rule_unknown',
@@ -197,7 +198,11 @@ export function PhishingProtectionCard() {
         {view?.reasons.map((reason, index) => (
           <Text
             key={index}
-            text={t(REASON_LABELS[reason])}
+            text={
+              reason === 'block-rule-outdated'
+                ? t(REASON_LABELS[reason], [String(networkRules?.blockedDomains)])
+                : t(REASON_LABELS[reason])
+            }
             color="warning"
             size="xs"
             wrap

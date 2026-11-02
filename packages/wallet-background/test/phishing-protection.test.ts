@@ -376,6 +376,45 @@ describe('PhishingController protection health', () => {
     })
   })
 
+  it('reports a block rule an earlier install left as outdated, with the domains it still blocks', async () => {
+    const browser = createBrowser()
+    // The block rule of an earlier install, for a shorter list.
+    browser.state.dynamicRules = [
+      {
+        id: 1,
+        priority: 1,
+        action: { type: 'block' },
+        condition: {
+          requestDomains: ['earlier-one.example', 'earlier-two.example', 'earlier-three.example'],
+          resourceTypes: ['main_frame', 'sub_frame'],
+        },
+      } as Rule,
+    ]
+    browser.declarativeNetRequest.updateDynamicRules.mockRejectedValue(new Error('Internal error'))
+    await startController(browser)
+
+    await expect(phishingStats(browser)).resolves.toMatchObject({
+      networkRules: { status: 'retrying', blockedDomains: 3 },
+      protection: { status: 'degraded', reasons: ['block-rule-outdated'] },
+    })
+
+    // The earlier rule does not cover the current list, so the content
+    // script's hold still matters.
+    setSiteAccess(browser, 'on click')
+    await vi.waitFor(() => expect(redirectRules(browser)).toEqual([]))
+    await expect(protection(browser)).resolves.toMatchObject({
+      status: 'degraded',
+      reasons: ['block-rule-outdated', 'site-access-withheld'],
+    })
+
+    // Never full, also once the attempts run out.
+    await vi.advanceTimersByTimeAsync(1_000 + 4_000 + 15_000 + 6 * 60_000)
+    await expect(phishingStats(browser)).resolves.toMatchObject({
+      networkRules: { status: 'failed', blockedDomains: 3 },
+      protection: { status: 'degraded', reasons: ['block-rule-outdated', 'site-access-withheld'] },
+    })
+  })
+
   it('reports a block rule that gave up as degraded', async () => {
     const browser = createBrowser()
     browser.declarativeNetRequest.updateDynamicRules.mockRejectedValue(new Error('Internal error'))

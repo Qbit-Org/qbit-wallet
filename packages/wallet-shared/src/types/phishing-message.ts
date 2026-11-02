@@ -206,20 +206,25 @@ export interface PhishingWarningRedirectHealth {
 /**
  * Why the network layer does not stop every denylisted page it names:
  * - `block-rule-not-installed`: the block rule is not confirmed in place
- *   (`installing`, `retrying` or `failed`);
+ *   (`installing`, `retrying` or `failed`), and no earlier block rule is
+ *   known to block any domain;
+ * - `block-rule-outdated`: as `block-rule-not-installed`, but a block rule an
+ *   earlier install left still blocks `blockedDomains` domains;
  * - `block-rule-unknown`: the block rule could not be read back;
  * - `redirect-rule-without-host-access`: a redirect rule that does not fire
  *   may still outrank the block rule, so denylisted pages load;
  * - `redirect-rule-unknown`: the redirect rule's state could not be read, or
  *   did not arrive in time;
- * - `site-access-withheld`: with the block rule not in place, the browser
- *   reports site access withheld on some denylisted domains, where the
- *   content script's hold does not run either;
- * - `site-access-unknown`: with the block rule not in place, whether site
- *   access is withheld, and so whether the hold runs, could not be read.
+ * - `site-access-withheld`: with the block rule not in place or outdated,
+ *   the browser reports site access withheld on some denylisted domains,
+ *   where the content script's hold does not run either;
+ * - `site-access-unknown`: with the block rule not in place or outdated,
+ *   whether site access is withheld, and so whether the hold runs, could not
+ *   be read.
  */
 export type PhishingProtectionReason =
   | 'block-rule-not-installed'
+  | 'block-rule-outdated'
   | 'block-rule-unknown'
   | 'redirect-rule-without-host-access'
   | 'redirect-rule-unknown'

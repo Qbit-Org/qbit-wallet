@@ -3146,6 +3146,9 @@
   "phishing_protection_reason_block_rule_not_installed": {
     "message": "La regla de bloqueo no está instalada."
   },
+  "phishing_protection_reason_block_rule_outdated": {
+    "message": "La regla de bloqueo no se ha actualizado. La regla anterior todavía bloquea $1 dominios."
+  },
   "phishing_protection_reason_block_rule_unknown": {
     "message": "No se pudo leer la regla de bloqueo."
   },
