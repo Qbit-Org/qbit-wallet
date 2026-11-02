@@ -44,6 +44,7 @@ const harness = vi.hoisted(() => {
 });
 
 type TestSender = {
+  documentLifecycle?: string;
   frameId?: number;
   id?: string;
   origin?: string;
@@ -135,11 +136,11 @@ vi.mock('../webapi/browser', () => ({
 
 import { initMessaging } from './messaging';
 
-function providerPort(url: string): TestPort {
+function providerPort(url: string, sender: TestSender = {}): TestPort {
   const port: TestPort = {
     disconnect: vi.fn(),
     name: PORT_CHANNELS.QBIT_PROVIDER,
-    sender: { tab: { id: 17 }, url },
+    sender: { tab: { id: 17 }, url, ...sender },
     onDisconnect: {
       addListener(listener) {
         port.disconnectListener = listener;
@@ -441,6 +442,67 @@ describe('background provider-port session isolation', () => {
 
     expect(harness.getTabSession(17)).toBe(harness.sessions.get(firstPort));
     expect(harness.sessions.get(firstPort)).not.toBe(harness.sessions.get(secondPort));
+  });
+
+  it('keeps the top frame as the tab site when a child frame connects, is restored, or leaves', async () => {
+    const pagePort = providerPort('https://dapp.example/', { frameId: 0 });
+    const widgetPort = providerPort('https://widget.example/', { frameId: 3 });
+    harness.connectListener!(pagePort);
+    harness.connectListener!(widgetPort);
+
+    // Only a prerendered page's check-in is asked whether it is the top frame.
+    await harness.listeners.get(widgetPort)!({
+      source: 'content',
+      data: { method: 'tabCheckin', params: { name: 'Widget', topFrame: true, activeDocument: true } }
+    });
+
+    const widgetRequest = harness.handleRequest.mock.calls[0][0];
+    expect(widgetRequest.session).toBe(harness.sessions.get(widgetPort));
+    expect(widgetRequest.session).not.toBe(harness.sessions.get(pagePort));
+    expect(harness.getOrCreateSession).toHaveBeenCalledWith(pagePort, 17);
+    expect(harness.getOrCreateSession).not.toHaveBeenCalledWith(widgetPort, 17);
+    expect(harness.getTabSession(17)).toBe(harness.sessions.get(pagePort));
+
+    widgetPort.disconnectListener!();
+
+    expect(harness.deleteSession).toHaveBeenCalledWith(widgetPort);
+    expect(harness.getTabSession(17)).toBe(harness.sessions.get(pagePort));
+  });
+
+  it("makes a prerendered page's top frame the tab site once it is shown, and none of its child frames", async () => {
+    const pagePort = providerPort('https://dapp.example/', { frameId: 0 });
+    const nextPort = providerPort('https://dapp.example/next', { frameId: 4, documentLifecycle: 'prerender' });
+    const widgetPort = providerPort('https://widget.example/', { frameId: 5, documentLifecycle: 'prerender' });
+    harness.connectListener!(pagePort);
+    harness.connectListener!(nextPort);
+    harness.connectListener!(widgetPort);
+
+    // Not while it is prerendered and the user still sees the page before it.
+    await harness.listeners.get(nextPort)!({
+      source: 'content',
+      data: { method: 'tabCheckin', params: { name: 'Next', topFrame: true } }
+    });
+    expect(harness.getTabSession(17)).toBe(harness.sessions.get(pagePort));
+
+    // Once shown, each frame checks in as active, but a child frame is not the top frame.
+    await harness.listeners.get(widgetPort)!({
+      source: 'content',
+      data: { method: 'tabCheckin', params: { name: 'Widget', topFrame: false, activeDocument: true } }
+    });
+    expect(harness.getTabSession(17)).toBe(harness.sessions.get(pagePort));
+
+    // A page cannot label its own request as the content script's check-in.
+    await harness.listeners.get(nextPort)!({
+      source: 'page',
+      data: { method: 'tabCheckin', params: { name: 'Next', topFrame: true, activeDocument: true } }
+    });
+    expect(harness.getTabSession(17)).toBe(harness.sessions.get(pagePort));
+
+    await harness.listeners.get(nextPort)!({
+      source: 'content',
+      data: { method: 'tabCheckin', params: { name: 'Next', topFrame: true, activeDocument: true } }
+    });
+    expect(harness.getTabSession(17)).toBe(harness.sessions.get(nextPort));
   });
 });
 

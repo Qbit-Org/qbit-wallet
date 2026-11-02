@@ -262,6 +262,11 @@ Controls and evidence:
   sender URL, and keys sessions by the exact runtime `Port` (#300);
 - concurrent documents in one tab have distinct sessions; disconnect removes
   only that port's session;
+- the content script runs in every frame, so a child frame, such as an
+  embedded token swap widget, gets its own provider. Its session carries the
+  frame's own origin: it reads and asks under that origin's permission, and
+  its approvals name that origin, not the page around it. Only a top-frame
+  document becomes the tab's current site that the popup shows;
 - public/internal provider methods are separate; only `requestAccounts` can
   initiate a connection; privileged methods recheck permission, account, and
   chain after approval;
@@ -274,10 +279,16 @@ Controls and evidence:
 
 Residual risk:
 
-- the content script intentionally runs on all page origins so a website can
-  discover/request the provider. This broad observation surface is mitigated
-  by per-document origin binding and explicit permission/approval, but any new
-  message route must receive the same checks.
+- the content script intentionally runs on all page origins and in every
+  frame so a website, or a widget embedded in one, can discover/request the
+  provider. This broad observation surface is mitigated by per-document origin
+  binding and explicit permission/approval, but any new message route must
+  receive the same checks.
+- a page can frame a site the user connected, whose frame then uses that
+  site's permission inside the page, and can try to steer the user's clicks
+  into the frame. The approval window is the wallet's own and names the
+  frame's origin; a site that must not be framed has to say so itself
+  (`frame-ancestors` or `X-Frame-Options`).
 
 ## Phishing navigation protection
 
@@ -508,8 +519,9 @@ Residual risk:
   whose sessionStorage cannot be used, for example because the user blocks
   cookies and site data, never loads;
 - while the MV3 block rule is missing, a denylisted page in a frame runs its
-  own script: the content script runs in the top frame only and holds only
-  top-level pages;
+  own script: the content script holds only top-level pages, and in MV3 it
+  only checks a frame's host, so the frame gets no provider but no warning
+  either;
 - after Proceed, the first load of each origin of the host in a tab is
   stopped and reloaded once. The server gets that request twice, so a
   one-time link is spent by the first load, and a form posted to it from
@@ -609,7 +621,7 @@ Reviewed Chrome MV3 boundary:
 | --- | --- |
 | Permissions | `storage`, `unlimitedStorage`, `declarativeNetRequest`, `sidePanel` |
 | Host permissions | two exact HTTPS qbit indexers; `*://*.<entry>/*` for each bundled phishing denylist domain, generated at build and pinned by the package policy, for the warning redirect; optional loopback regtest |
-| Content scripts | top-level all-origin provider bridge, `all_frames` absent |
+| Content scripts | all-origin provider bridge in every frame (`all_frames: true`), each frame bound to its own origin |
 | Web-accessible resources | packaged `pageProvider.js`; `phishing-warning.html` under a per-session dynamic URL only |
 | External connection | absent |
 | CSP | self scripts plus `wasm-unsafe-eval`; `object-src 'none'`; exact connect allowlist |

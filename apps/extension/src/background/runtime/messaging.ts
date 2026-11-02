@@ -104,7 +104,19 @@ export function initMessaging() {
       // prevents same-tab navigations, BFCache documents, or reconnects from
       // sharing mutable origin and approval context.
       const sessionKey = port as object;
-      const session = sessionService.getOrCreateSession(sessionKey, tabId) as any;
+      // Only a top-frame document stands for the tab, whose site the popup
+      // shows as current. A child frame, such as an embedded widget, keeps
+      // its own session under its own origin but never becomes the tab's site.
+      // The browser numbers the top frame 0, except in a page Chrome
+      // prerenders, where every frame connects under another number; there
+      // the top frame says so itself when it checks in on being shown, and
+      // until then no document of the page is the tab's top frame.
+      const sender: { frameId?: number; documentLifecycle?: string } | undefined = port.sender;
+      const isTabTopFrame = (checkIn?: { topFrame?: unknown }) =>
+        sender?.documentLifecycle === 'prerender'
+          ? checkIn?.topFrame === true
+          : sender?.frameId === undefined || sender.frameId === 0;
+      const session = sessionService.getOrCreateSession(sessionKey, isTabTopFrame() ? tabId : undefined) as any;
 
       // The document behind this port, as its requests see it: each keeps the
       // id of the approval it waits on here. When the port disconnects, those
@@ -139,7 +151,8 @@ export function initMessaging() {
         if (
           envelope.source === 'content' &&
           envelope.data.method === 'tabCheckin' &&
-          envelope.data.params?.activeDocument === true
+          envelope.data.params?.activeDocument === true &&
+          isTabTopFrame(envelope.data.params)
         ) {
           sessionService.getOrCreateSession(sessionKey, tabId);
         }
