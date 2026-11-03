@@ -741,9 +741,6 @@ importers:
       '@typescript-eslint/parser':
         specifier: ^6.7.0
         version: 6.7.0(eslint@8.50.0)(typescript@5.2.2)
-      browser-passworder:
-        specifier: ^2.0.3
-        version: 2.0.3
       eslint:
         specifier: ^8.50.0
         version: 8.50.0
@@ -9147,12 +9144,6 @@ packages:
       umd: 3.0.3
     dev: false
 
-  /browser-passworder@2.0.3:
-    resolution: {integrity: sha512-8mTcGjsVqYkRW0qLmdussBjf/5joBUpvZfR8jUojITBJVVZIS5BL41Qt/xehS+n2ChA2YJHHLPhlkXziK+gvsw==}
-    dependencies:
-      browserify-unibabel: 3.0.0
-    dev: true
-
   /browser-process-hrtime@1.0.0:
     resolution: {integrity: sha512-9o5UecI3GhkpM6DrXr69PblIuWxPKk9Y0jHBRhdocZ2y7YECBFCsHm79Pr3OyR2AvjhDkabFJaDJMYRazHgsow==}
     dev: false
@@ -9210,10 +9201,6 @@ packages:
       parse-asn1: 5.1.7
       readable-stream: 2.3.8
       safe-buffer: 5.2.1
-
-  /browserify-unibabel@3.0.0:
-    resolution: {integrity: sha512-j3MX0k2dC1/DEo9jSUyj7zpv5wLd1+klpFwYlM0E5mr7MX6LblQOWb+jkBEKV2iRszmhJuLHAtNuqranlGnpNQ==}
-    dev: true
 
   /browserify-zlib@0.2.0:
     resolution: {integrity: sha512-Z942RysHXmJrhqk88FmKBVq/v5tqmSkDz7p54G/MGyjMnCFFnC79XWNbg+Vta8W6Wb2qtSZTSxIGkJrRpCFEiA==}
