@@ -276,7 +276,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     // A persisted regtest selection is kept here: whether it may be used is an
     // asynchronous background capability (optional loopback permission +
     // acknowledgement + service identity) that the wallet controller checks
-    // at startup before any endpoint is initialized, falling back to mainnet.
+    // at startup before the wallet uses the chain, falling back to mainnet.
     this.store.chainType = normalizeAvailableChainType(this.store.chainType)
 
     if (typeof this.store.regtestAccessAck !== 'string') {

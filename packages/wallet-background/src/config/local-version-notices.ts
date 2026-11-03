@@ -21,7 +21,11 @@ export const LOCAL_VERSION_NOTICES: Readonly<Record<string, Omit<VersionDetail, 
   Object.freeze({})
 
 export function getLocalVersionNotice(version: string): VersionDetail {
-  const entry = LOCAL_VERSION_NOTICES[version]
+  // Only a version this table defines as its own key has a notice. An
+  // inherited name such as constructor or __proto__ has none.
+  const entry = Object.prototype.hasOwnProperty.call(LOCAL_VERSION_NOTICES, version)
+    ? LOCAL_VERSION_NOTICES[version]
+    : undefined
   if (!entry) {
     return { version, title: '', changelogs: [], notice: '' }
   }

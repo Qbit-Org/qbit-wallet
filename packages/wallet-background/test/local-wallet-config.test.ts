@@ -60,4 +60,13 @@ describe('release-local configuration over the UI port', () => {
     }
     expect(fetch).not.toHaveBeenCalled()
   })
+
+  it('serves the empty notice for a name every object inherits', async () => {
+    await expect(callFromUi('getVersionDetail', 'constructor')).resolves.toEqual({
+      version: 'constructor',
+      title: '',
+      changelogs: [],
+      notice: '',
+    })
+  })
 })

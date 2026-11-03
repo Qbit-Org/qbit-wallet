@@ -12,6 +12,18 @@ describe('getLocalVersionNotice', () => {
     })
   })
 
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'returns an empty notice for the inherited name %s',
+    name => {
+      expect(getLocalVersionNotice(name)).toEqual({
+        version: name,
+        title: '',
+        changelogs: [],
+        notice: '',
+      })
+    }
+  )
+
   it('returns bundled entries verbatim with the requested version stamped in', () => {
     for (const [version, entry] of Object.entries(LOCAL_VERSION_NOTICES)) {
       expect(getLocalVersionNotice(version)).toEqual({ version, ...entry })
