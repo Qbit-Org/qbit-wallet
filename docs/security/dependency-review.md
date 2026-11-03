@@ -581,8 +581,12 @@ still requires the applicable notices and source-obligation review.
 
 ## Validation evidence
 
-The gates covering the changed dependency and build paths passed at the audited
-dependency commit with its regenerated evidence. Environment-dependent release
+The gates covering the changed dependency and build paths passed for each
+refresh below. The evidence-bound rows ran at the audited commit with its
+regenerated evidence. For the unused-dependency removal, the lint, typecheck
+and unit-test rows ran on its commits before `release/1.0.8` was rebuilt,
+whose files differ from the rebuilt ones only in package versions,
+changelogs and consumed changesets. Environment-dependent release
 integration not run locally is identified below and remains subject to the
 PR's branch CI:
 

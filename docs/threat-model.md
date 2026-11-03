@@ -153,10 +153,13 @@ Residual risk:
 - Existing weak-format vaults remain exposed to offline guessing until their
   first successful unlock completes the migration. The current passworder
   decrypts that earlier format. The earlier package that wrote it is no
-  longer installed, and the signing-source guard still rejects `from` and
-  `require(` imports of it in the signing and background sources should it
-  return; the migration tests build earlier-format fields with the current
-  library and check them against one that the earlier package wrote.
+  longer installed. Re-adding it would fail the license-baseline gate until
+  its license is reviewed, and the signing-source guard would reject only the
+  quoted bare package name directly after `from` and whitespace, or directly
+  after `require(`, in the signing and background sources; side-effect,
+  dynamic and subpath imports, and other spacing, pass it. The migration
+  tests build earlier-format fields with the current library and check them
+  against one that the earlier package wrote.
 - JavaScript garbage collection prevents a general proof that every immutable
   string copy is erased. The design minimizes lifetime and forbids logging but
   relies on the browser process boundary.
