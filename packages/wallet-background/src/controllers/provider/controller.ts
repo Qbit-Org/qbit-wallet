@@ -770,26 +770,18 @@ class ProviderController extends BaseController {
       }
 
       params.toSignDatas = []
-      const preparedPsbtHexs: string[] = []
-      const preparedPsbtHexCounts = new Map<string, number>()
       for (let i = 0; i < params.psbtHexs.length; i++) {
         const options = params.options[i]!
         assertSigningChain(req.session.origin, options?.chain)
         const psbtHex = formatQbitPsbtHex(params.psbtHexs[i]!)
         const toSignData = await wallet.prepareQbitProviderPsbt(psbtHex, options)
         toSignData.providerContext = req.providerContext
-        preparedPsbtHexs.push(psbtHex)
-        preparedPsbtHexCounts.set(psbtHex, (preparedPsbtHexCounts.get(psbtHex) ?? 0) + 1)
         params.toSignDatas.push(toSignData)
       }
-      // Batch entries may be signed in any order, so every entry of a
-      // duplicated PSBT — including the first prepared — may find its
-      // approved signatures already cached by another entry of the batch.
-      params.toSignDatas.forEach((toSignData, index) => {
-        if (preparedPsbtHexCounts.get(preparedPsbtHexs[index]!)! > 1) {
-          toSignData.qbitApprovedBatchDuplicate = true
-        }
-      })
+      // Every entry's budget was prepared before any of them signs, and the
+      // user signs them one at a time, in any order: each may then find the
+      // signatures the others reserved spent, which only the batch explains.
+      await wallet.openQbitProviderSignatureBatch(params.toSignDatas)
       const externalSigningLock = await wallet.acquireExternalQbitSigningLock(
         params.toSignDatas,
         'sign'
@@ -809,6 +801,9 @@ class ProviderController extends BaseController {
     approvalRes: SignPsbtResult
   }) => {
     const toSignDatas = getToSignDatas(params.toSignDatas, params.psbtHexs.length)
+    // The approval is answered once every entry has signed; signing one
+    // again is then checked like any approval.
+    wallet.releaseQbitSignatureBatches(toSignDatas)
     if (!Array.isArray(approvalRes) || approvalRes.length !== toSignDatas.length) {
       throw new Error('invalid batch signing result')
     }

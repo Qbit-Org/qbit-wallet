@@ -151,6 +151,8 @@ vi.mock('../src/services', () => ({
     signMessage: vi.fn(),
     preflightP2mrMessageSigning: vi.fn(),
     preflightP2mrPsbtSigning: vi.fn(),
+    openP2mrPsbtSigningBatch: vi.fn(),
+    releaseP2mrPsbtSigningBatches: vi.fn(),
     signP2mrMessageWithCounter: vi.fn(),
     signP2mrPsbtWithCounter: vi.fn(),
     getQbitRecoveryState: vi.fn(),
@@ -379,6 +381,14 @@ const SIGNATURE_BUDGET = {
   cached: 0,
   remainingBefore: 30,
   remainingAfter: 29,
+  limit: 30,
+}
+
+const BATCH_SIGNATURE_BUDGET = {
+  required: 3,
+  cached: 0,
+  remainingBefore: 30,
+  remainingAfter: 27,
   limit: 30,
 }
 
@@ -621,6 +631,10 @@ describe('WalletController qbit P2MR send path', () => {
     vi.mocked(walletApiService.transactionCore.pushTx).mockResolvedValue('service-txid')
     vi.mocked(keyringService.preflightP2mrMessageSigning).mockResolvedValue(SIGNATURE_BUDGET)
     vi.mocked(keyringService.preflightP2mrPsbtSigning).mockResolvedValue(SIGNATURE_BUDGET)
+    vi.mocked(keyringService.openP2mrPsbtSigningBatch).mockResolvedValue({
+      id: 'batch-1',
+      budget: BATCH_SIGNATURE_BUDGET,
+    })
     broadcastTxMock.mockResolvedValue('qbit-txid')
     getTxStatusMock.mockResolvedValue({ confirmed: false })
     rawTransactions.clear()
@@ -1021,6 +1035,94 @@ describe('WalletController qbit P2MR send path', () => {
         expect(decodePsbt(parsePsbt(hexToBytes(signed.psbtHex!))).inputs[0]!.finalized).toBe(true)
       }
       expect(signedHighFee.qbitBroadcastIdentity).toEqual(highFee!.qbitBroadcastIdentity)
+    })
+
+    it('opens one signature batch for the reviewed bytes, and signs an entry as its member', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(account as any)
+      mockSigning()
+      const batch = await buildBatch(wallet, account)
+
+      const summary = await wallet.analyzeLocalPsbts(batch)
+
+      // The batch is the one its signer reviews, so every review of the
+      // same bytes reopens it in the local scope.
+      expect(summary.signatureBatch).toEqual({ id: 'batch-1', budget: BATCH_SIGNATURE_BUDGET })
+      expect(keyringService.openP2mrPsbtSigningBatch).toHaveBeenCalledTimes(1)
+      const [address, inputs, options] = vi.mocked(keyringService.openP2mrPsbtSigningBatch).mock
+        .calls[0]!
+      expect(address).toBe(account.address)
+      expect(options).toEqual({ reuseScope: 'qbit-local-batch' })
+      expect(inputs.map(input => bytesToHex(serializePsbt(input.psbt)))).toEqual(
+        batch.map(toSignData => toSignData.psbtHex)
+      )
+
+      const [clean] = batch
+      await wallet.signLocalBatchPsbt(
+        {
+          ...clean!,
+          qbitSignatureBatch: { id: 'batch-1', index: 0, budget: BATCH_SIGNATURE_BUDGET },
+        },
+        { account: summary.account, chain: summary.chain, confirmedRisks: [] }
+      )
+      expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledWith(
+        account.address,
+        expect.objectContaining({ keys: expect.any(Array) }),
+        SIGNATURE_BUDGET,
+        { id: 'batch-1', index: 0 }
+      )
+    })
+
+    it('opens no local batch for one PSBT, a provider request, or an account that signs elsewhere', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const batch = await buildBatch(wallet, account)
+
+      await expect(wallet.analyzeLocalPsbts(batch.slice(0, 1))).resolves.not.toHaveProperty(
+        'signatureBatch'
+      )
+      const providerContext = {
+        origin: 'https://dapp.example',
+        account: account.address,
+        chain: ChainType.QBIT_REGTEST,
+        network: 'regtest',
+      } as const
+      await expect(
+        wallet.analyzeLocalPsbts(batch.map(toSignData => ({ ...toSignData, providerContext })))
+      ).resolves.not.toHaveProperty('signatureBatch')
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
+        ...account,
+        type: KeyringType.ReadonlyKeyring,
+      } as any)
+      await expect(wallet.analyzeLocalPsbts(batch)).resolves.not.toHaveProperty('signatureBatch')
+      expect(keyringService.openP2mrPsbtSigningBatch).not.toHaveBeenCalled()
+    })
+
+    it('marks every entry of a provider batch with the batch it was approved as', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const batch = await buildBatch(wallet, account)
+
+      await wallet.openQbitProviderSignatureBatch(batch)
+
+      expect(batch.map(toSignData => toSignData.qbitSignatureBatch)).toEqual(
+        batch.map((_toSignData, index) => ({
+          id: 'batch-1',
+          index,
+          budget: BATCH_SIGNATURE_BUDGET,
+        }))
+      )
+      expect(keyringService.openP2mrPsbtSigningBatch).toHaveBeenCalledWith(
+        account.address,
+        expect.any(Array),
+        undefined
+      )
+      wallet.releaseQbitSignatureBatches(batch)
+      expect(keyringService.releaseP2mrPsbtSigningBatches).toHaveBeenCalledWith(['batch-1'])
     })
 
     it('refuses a batch PSBT once the account or network differs from the one it was analyzed for', async () => {
@@ -1438,7 +1540,7 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       expect.objectContaining({ keys }),
       SIGNATURE_BUDGET,
-      false
+      undefined
     )
     expect(extractP2mrTransaction(parsePsbt(hexToBytes(signedReplacement.psbtHex!))).length).toBe(
       replacement.feeBump!.replacementVsize
@@ -4029,7 +4131,7 @@ describe('WalletController qbit P2MR send path', () => {
         keys,
       }),
       SIGNATURE_BUDGET,
-      false
+      undefined
     )
     expect(emit).toHaveBeenCalledWith(BUS_EVENTS.broadcastToUI, {
       method: BUS_METHODS.ACCOUNTS_CHANGED,
@@ -5715,7 +5817,7 @@ describe('WalletController qbit P2MR send path', () => {
       sourceAccount.address,
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) }),
       migrationBudget,
-      false
+      undefined
     )
     expect(keyringService.updateQbitRecoveryMigrationPlan).toHaveBeenCalledWith(
       sourceAccount.address,

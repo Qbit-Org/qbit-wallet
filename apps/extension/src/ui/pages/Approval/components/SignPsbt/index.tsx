@@ -111,7 +111,7 @@ function TransactionItem(
                           'qbit_known_onchain_usage_lower_bound',
                           `${toSignData.signatureBudget.restoredFloorRisk.knownOnChainSignatures}+`
                         )}`
-                      : `Signatures: ${toSignData.signatureBudget.required} new, ${toSignData.signatureBudget.cached} cached; ${toSignData.signatureBudget.remainingAfter} remaining`
+                      : `Signatures: ${toSignData.signatureBudget.required} new, ${toSignData.signatureBudget.cached} cached`
                   }
                   size="xs"
                   color="textDim"
@@ -161,6 +161,7 @@ export default function SignPsbt(props: SignPsbtProps) {
     localPsbtSummary,
     batchRiskReview,
     batchRiskIndexes,
+    signatureBatchBudget,
 
     // state
     decodeError,
@@ -485,7 +486,7 @@ export default function SignPsbt(props: SignPsbtProps) {
             />
           )}
 
-          {localPsbtSummary && (
+          {(localPsbtSummary || signatureBatchBudget) && (
             <Card
               style={{
                 marginTop: 8,
@@ -507,6 +508,20 @@ export default function SignPsbt(props: SignPsbtProps) {
                   />
                 )}
               </Row>
+              {signatureBatchBudget && (
+                // The batch's entries sign in any order, so only the whole
+                // batch's before and after figures hold whichever signs first.
+                <Text
+                  text={
+                    toSignDatas.some((toSignData) => toSignData.signatureBudget?.restoredFloorRisk)
+                      ? `Signatures: ${signatureBatchBudget.required} new for all transactions`
+                      : `Signatures: ${signatureBatchBudget.required} new for all transactions; ${signatureBatchBudget.remainingBefore} before, ${signatureBatchBudget.remainingAfter} after`
+                  }
+                  size="xs"
+                  color="textDim"
+                  data-testid="multisign-signature-budget"
+                />
+              )}
               {hasBatchRisk && (
                 <Text
                   text={t('multisign_flagged_transactions', batchRiskIndexes.map((index) => `${index + 1}`).join(', '))}
@@ -628,6 +643,7 @@ export default function SignPsbt(props: SignPsbtProps) {
             decodedPsbt={currentDecodedPsbt}
             networkFee={networkFee}
             toSignData={currentToSignData}
+            signatureBatchBudget={signatureBatchBudget}
           />
 
           {/* PSBT data */}

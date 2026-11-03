@@ -40,10 +40,12 @@ const walletMock = vi.hoisted(() => ({
   createSendQbitPsbt: vi.fn(),
   getCurrentAccount: vi.fn(),
   getChainType: vi.fn(),
+  openQbitProviderSignatureBatch: vi.fn(),
   prepareQbitProviderPsbt: vi.fn(),
   promoteExternalQbitSendBroadcastClaim: vi.fn(),
   pushTx: vi.fn(),
   recordQbitProviderSignings: vi.fn(),
+  releaseQbitSignatureBatches: vi.fn(),
 }))
 
 const preferenceServiceMock = vi.hoisted(() => ({
@@ -238,7 +240,7 @@ describe('ProviderController qbit send', () => {
     }
   )
 
-  it('marks every entry of a duplicated signPsbts PSBT for the cache-shift tolerance', async () => {
+  it('opens one signature batch for every prepared signPsbts entry, closed once it is answered', async () => {
     const provider = (await import('../src/controllers/provider/controller')).default
     const [, approval] = Reflect.getMetadata('APPROVAL', provider, 'signPsbts')
     const pubkey = hexToBytes('77'.repeat(32))
@@ -264,10 +266,18 @@ describe('ProviderController qbit send', () => {
     const duplicatedPsbtHex = psbtHexWithOutputValue(40_000n)
     const uniquePsbtHex = psbtHexWithOutputValue(39_000n)
     const psbtHexs = [duplicatedPsbtHex, uniquePsbtHex, duplicatedPsbtHex]
-    walletMock.prepareQbitProviderPsbt.mockImplementation(async psbtHex => ({
-      psbtHex,
-      toSignInputs: [],
-    }))
+    const prepared: string[] = []
+    walletMock.prepareQbitProviderPsbt.mockImplementation(async psbtHex => {
+      prepared.push(psbtHex)
+      return { psbtHex, toSignInputs: [] }
+    })
+    walletMock.openQbitProviderSignatureBatch.mockImplementation(async (toSignDatas: any[]) => {
+      // Opened once every entry is prepared, before any of them signs.
+      expect(prepared).toHaveLength(psbtHexs.length)
+      toSignDatas.forEach((toSignData, index) => {
+        toSignData.qbitSignatureBatch = { id: 'batch-1', index, budget: {} }
+      })
+    })
     const params = {
       psbtHexs,
       options: psbtHexs.map(() => ({ chain: ChainType.QBIT_REGTEST })),
@@ -275,13 +285,20 @@ describe('ProviderController qbit send', () => {
 
     await approval({ data: { params }, session: { origin: 'https://otc.example' } })
 
-    // Entries may be signed in any order, so the first prepared duplicate
-    // needs the tolerance as much as later ones; unique entries stay strict.
+    // Entries may be signed in any order, so the whole batch, duplicates and
+    // unique entries alike, signs as one.
+    expect(walletMock.openQbitProviderSignatureBatch).toHaveBeenCalledTimes(1)
+    expect(walletMock.openQbitProviderSignatureBatch).toHaveBeenCalledWith(
+      (params as any).toSignDatas
+    )
     expect(
-      (params as any).toSignDatas.map(
-        (toSignData: any) => toSignData.qbitApprovedBatchDuplicate === true
-      )
-    ).toEqual([true, false, true])
+      (params as any).toSignDatas.map((toSignData: any) => toSignData.qbitSignatureBatch?.index)
+    ).toEqual([0, 1, 2])
+
+    await expect(
+      provider.signPsbts({ data: { params } as any, approvalRes: [] as any })
+    ).rejects.toThrow('invalid batch signing result')
+    expect(walletMock.releaseQbitSignatureBatches).toHaveBeenCalledWith((params as any).toSignDatas)
   })
 
   it('keeps the prepared signPsbts entries for the request cleanup when a later entry is refused', async () => {
@@ -329,6 +346,7 @@ describe('ProviderController qbit send', () => {
 
     // rpcFlow's failure cleanup releases the challenges it finds here.
     expect((params as any).toSignDatas).toEqual([prepared])
+    expect(walletMock.openQbitProviderSignatureBatch).not.toHaveBeenCalled()
     expect(walletMock.acquireExternalQbitSigningLock).not.toHaveBeenCalled()
   })
 

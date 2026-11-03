@@ -96,6 +96,7 @@ import {
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
   QbitP2mrSigningKeyInput,
+  QbitSignatureBudgetImpact,
   type QbitBroadcastFailure,
   type QbitConsolidationBatch,
   type QbitConsolidationStatus,
@@ -5119,7 +5120,10 @@ export class WalletController extends BaseController {
             keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
           },
           toSignData.signatureBudget,
-          toSignData.qbitApprovedBatchDuplicate === true
+          toSignData.qbitSignatureBatch && {
+            id: toSignData.qbitSignatureBatch.id,
+            index: toSignData.qbitSignatureBatch.index,
+          }
         )
         await this.refreshDisplayedQbitAccountAfterSigning(account.address)
         const signedPsbt =
@@ -7520,6 +7524,54 @@ export class WalletController extends BaseController {
     return coverage.assetCount
   }
 
+  /**
+   * Open the batch a signPsbts approval covers, and mark each prepared entry
+   * with it: its entries are signed one at a time, in any order, so each may
+   * find signatures the others reserved spent, which only a batch member
+   * may. Only a batch this wallet's keys sign has one.
+   */
+  openQbitProviderSignatureBatch = async (toSignDatas: ToSignData[]): Promise<void> => {
+    const account = preferenceService.getCurrentAccount()
+    if (!account) throw new Error('no current account')
+    const batch = await this.openQbitSignatureBatch(account, toSignDatas)
+    if (!batch) return
+    toSignDatas.forEach((toSignData, index) => {
+      toSignData.qbitSignatureBatch = { id: batch.id, index, budget: { ...batch.budget } }
+    })
+  }
+
+  /** Close the batches of a settled request; see openQbitProviderSignatureBatch. */
+  releaseQbitSignatureBatches = (toSignDatas: readonly ToSignData[]): void => {
+    const batchIds = new Set<string>()
+    for (const toSignData of toSignDatas) {
+      if (toSignData.qbitSignatureBatch) batchIds.add(toSignData.qbitSignatureBatch.id)
+    }
+    if (batchIds.size > 0) keyringService.releaseP2mrPsbtSigningBatches([...batchIds])
+  }
+
+  private openQbitSignatureBatch = async (
+    account: Account,
+    toSignDatas: readonly ToSignData[],
+    options?: { reuseScope?: string }
+  ): Promise<{ id: string; budget: QbitSignatureBudgetImpact } | undefined> => {
+    if (
+      toSignDatas.length < 2 ||
+      !account.p2mr ||
+      getAccountCapabilities(account).signMethod !== AccountSignMethod.Local ||
+      !toSignDatas.every(toSignData => toSignData.qbitP2mrSigningKeys?.length)
+    ) {
+      return undefined
+    }
+    return keyringService.openP2mrPsbtSigningBatch(
+      account.address,
+      toSignDatas.map(toSignData => ({
+        psbt: qbitPsbtFromHex(toSignData.psbtHex),
+        keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
+      })),
+      options
+    )
+  }
+
   prepareQbitProviderPsbt = async (
     psbtHex: string,
     options: QbitProviderSignPsbtOptions
@@ -9169,7 +9221,25 @@ export class WalletController extends BaseController {
     if (this.getChainType() !== context.chain) {
       throw new Error('The network changed while the PSBTs were analyzed')
     }
-    return this.analyzeLocalQbitPsbts(toSignDatas, context)
+    const summary = this.analyzeLocalQbitPsbts(toSignDatas, context)
+    // A local batch is the one its signer reviews here, so each review of
+    // the same bytes reopens the same batch and keeps what its signed
+    // entries spent. A provider request's batch was opened at its approval.
+    if (
+      summary.parseErrorCount === 0 &&
+      !toSignDatas.some(
+        toSignData =>
+          toSignData.providerContext ||
+          toSignData.qbitRecoveryMigration ||
+          toSignData.qbitSignatureBatch
+      )
+    ) {
+      const batch = await this.openQbitSignatureBatch(context.account, toSignDatas, {
+        reuseScope: 'qbit-local-batch',
+      })
+      if (batch) summary.signatureBatch = batch
+    }
+    return summary
   }
 
   /**

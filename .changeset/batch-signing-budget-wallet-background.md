@@ -1,0 +1,5 @@
+---
+'@qbit/wallet-background': patch
+---
+
+A website's `signPsbts` of different PSBTs that each need new P2MR signatures now signs in full, in whatever order the user signs its entries (#152). The approval opens one signature batch for its prepared entries (`WalletController.openQbitProviderSignatureBatch`) and marks each with `qbitSignatureBatch` (`id`, `index` and the whole batch's `budget`); `signPsbtV2` signs an entry as a member of that batch, and the request closes the batch once it is answered (`releaseQbitSignatureBatches`). This replaces the `qbitApprovedBatchDuplicate` mark, so duplicated PSBTs sign through the same batch. `analyzeLocalPsbts` opens the batch of a local batch of two or more P2MR PSBTs this wallet signs, reopening the same batch on each review of the same bytes, and returns it as `signatureBatch`, so its entries also sign in full through `signLocalBatchPsbt` or one at a time. A batch whose total exceeds the remaining signatures is refused before approval.

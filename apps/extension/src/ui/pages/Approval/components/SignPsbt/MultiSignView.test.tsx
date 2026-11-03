@@ -304,3 +304,54 @@ describe('SignPsbt quick multi-sign of a flagged local batch (#367)', () => {
     expect(screen.getByText('(0/3) signed').getAttribute('data-icon')).toBeNull();
   });
 });
+
+describe('SignPsbt signature budget of a batch (#152)', () => {
+  const budget = (required: number, remainingBefore: number) => ({
+    required,
+    cached: 0,
+    remainingBefore,
+    remainingAfter: remainingBefore - required,
+    limit: 1073741824
+  });
+  const batchToSignDatas = toSignDatas.map((toSignData) => ({ ...toSignData, signatureBudget: budget(1, 100) }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAccountCapabilities).mockReturnValue({ signMethod: 'local' } as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+    vi.mocked(useTools).mockReturnValue({ toastError: vi.fn() } as any);
+    vi.mocked(useWallet).mockReturnValue({} as any);
+  });
+
+  afterEach(cleanup);
+
+  it("shows the whole batch's before and after, and only each transaction's own new and cached", () => {
+    renderMultiSign(multiSignLogic({ toSignDatas: batchToSignDatas, signatureBatchBudget: budget(3, 100) }));
+
+    expect(screen.getByTestId('multisign-signature-budget').textContent).toBe(
+      'Signatures: 3 new for all transactions; 100 before, 97 after'
+    );
+    // An entry's own before and after depend on the order the batch signs in.
+    expect(screen.getAllByText('Signatures: 1 new, 0 cached')).toHaveLength(3);
+    expect(screen.queryByText(/remaining/)).toBeNull();
+  });
+
+  it('shows no exact before and after for a restored-floor batch', () => {
+    const restored = batchToSignDatas.map((toSignData, index) => ({
+      ...toSignData,
+      signatureBudget: {
+        ...toSignData.signatureBudget,
+        restoredFloorRisk: {
+          recoveryStatus: 'seed-only-restored',
+          counterConfidence: 'chain-floor-only',
+          knownOnChainSignatures: 5,
+          challengeId: `challenge-${index}`
+        }
+      }
+    }));
+    renderMultiSign(multiSignLogic({ toSignDatas: restored, signatureBatchBudget: budget(3, 100) }));
+
+    expect(screen.getByTestId('multisign-signature-budget').textContent).toBe('Signatures: 3 new for all transactions');
+  });
+});

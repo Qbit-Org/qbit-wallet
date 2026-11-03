@@ -59,6 +59,8 @@ vi.mock('../src/services', async () => {
       memStore: { getState: vi.fn(() => ({ isUnlocked: true })) },
       getQbitRecoveryState: vi.fn(async () => undefined),
       preflightP2mrPsbtSigning: vi.fn(),
+      openP2mrPsbtSigningBatch: vi.fn(),
+      releaseP2mrPsbtSigningBatches: vi.fn(),
       signP2mrPsbtWithCounter: vi.fn(),
     },
     preferenceService: {
@@ -309,6 +311,10 @@ describe('the fee rate a website PSBT approval shows (#59)', () => {
       remainingAfter: 29,
       limit: 30,
     } as any)
+    vi.mocked(keyringService.openP2mrPsbtSigningBatch).mockResolvedValue({
+      id: 'batch-1',
+      budget: { required: 2, cached: 0, remainingBefore: 30, remainingAfter: 28, limit: 30 },
+    })
     vi.mocked(keyringService.signP2mrPsbtWithCounter).mockImplementation(
       async (_address, { psbt, keys }) => {
         const signed = signP2mrPsbt({
