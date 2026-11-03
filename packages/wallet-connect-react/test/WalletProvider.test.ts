@@ -450,9 +450,11 @@ describe('WalletProvider network change handling', () => {
   })
 })
 
-describe('WalletProvider when the connection to the wallet drops', () => {
+describe('WalletProvider when the wallet cannot answer', () => {
   // EIP-1193 Disconnected, as Qbit Wallet rejects a request whose connection closed.
   const disconnected = () => Object.assign(new Error('connection closed'), { code: 4900 })
+  // Resource unavailable, as Qbit Wallet rejects a request it did not run while starting.
+  const stillStarting = () => Object.assign(new Error('still starting'), { code: -32002 })
 
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -470,9 +472,12 @@ describe('WalletProvider when the connection to the wallet drops', () => {
     return setItem
   }
 
-  it('keeps the stored wallet when the connection drops while reconnecting on page load', async () => {
+  it.each([
+    ['the connection drops', disconnected],
+    ['the wallet is still starting', stillStarting],
+  ])('keeps the stored wallet when %s while reconnecting on page load', async (_label, error) => {
     const { wallet } = createWallet()
-    vi.mocked(wallet.getAccount).mockRejectedValueOnce(disconnected())
+    vi.mocked(wallet.getAccount).mockRejectedValueOnce(error())
 
     const setItem = await reconnectOnPageLoad(wallet)
 

@@ -20,13 +20,14 @@ import type {
 
 const DEFAULT_STORAGE_KEY = 'wallet_connected_type'
 
-// EIP-1193 Disconnected: the connection to the wallet closed before it
-// answered. It says nothing about this page's grant, and the user did not
-// cancel anything.
-const PROVIDER_DISCONNECTED = 4900
+// Errors that say nothing about this page's grant, and are no cancel by the
+// user: EIP-1193 Disconnected (4900), when the connection to the wallet
+// closed before it answered, and Resource unavailable (-32002), when the
+// wallet was still starting and did not run the request.
+const WALLET_UNAVAILABLE_CODES: ReadonlySet<unknown> = new Set([4900, -32002])
 
-function isProviderDisconnected(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === PROVIDER_DISCONNECTED
+function isWalletUnavailable(error: unknown): boolean {
+  return WALLET_UNAVAILABLE_CODES.has((error as { code?: unknown } | null)?.code)
 }
 
 /**
@@ -188,9 +189,9 @@ export function WalletProvider({
                 clearConnection()
               }
             } catch (error) {
-              // Keep the stored wallet for the next page load: only the
-              // connection to it dropped.
-              if (isProviderDisconnected(error)) return
+              // Keep the stored wallet for the next page load: the wallet
+              // could not answer this time.
+              if (isWalletUnavailable(error)) return
               clearConnection()
             }
           }

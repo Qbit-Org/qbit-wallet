@@ -12,14 +12,22 @@ type Envelope = { _type_: string; data: any };
 class TestPort {
   posted: Envelope[] = [];
   disconnect = vi.fn();
-  failPosts = false;
+  // The error postMessage throws for a message, if any.
+  postError?: (message: Envelope) => string | undefined = portsCreated.postError;
   private messageListeners: Array<(message: Envelope) => void> = [];
   private disconnectListeners: Array<() => void> = [];
   onMessage = { addListener: (listener: (message: Envelope) => void) => this.messageListeners.push(listener) };
   onDisconnect = { addListener: (listener: () => void) => this.disconnectListeners.push(listener) };
 
   postMessage(message: Envelope) {
-    if (this.failPosts) throw new Error('Attempting to use a disconnected port object');
+    const error = this.postError?.(message);
+    if (error) throw new Error(error);
+    // Chrome serializes each message, and refuses one it cannot.
+    try {
+      JSON.stringify(message);
+    } catch {
+      throw new Error('Could not serialize message.');
+    }
     this.posted.push(message);
   }
 
@@ -44,6 +52,8 @@ class TestPort {
 }
 
 const ports = vi.hoisted(() => [] as unknown[]);
+// What the ports created from now on throw on postMessage.
+const portsCreated = vi.hoisted(() => ({ postError: undefined as ((message: any) => string | undefined) | undefined }));
 
 vi.mock('@/background/webapi/browser', () => ({
   browserRuntimeConnect: () => {
@@ -55,11 +65,15 @@ vi.mock('@/background/webapi/browser', () => ({
 
 function connectProviderPort() {
   ports.length = 0;
+  portsCreated.postError = undefined;
   const pm = new PortMessage().connect(PORT_CHANNELS.QBIT_PROVIDER);
   return { pm, port: (index: number) => ports[index] as TestPort };
 }
 
-const pageRequest = (pm: PortMessage, method: string) => pm.request({ source: 'page', data: { method, params: {} } });
+const pageRequest = (pm: PortMessage, method: string, params: unknown = {}) =>
+  pm.request({ source: 'page', data: { method, params } });
+
+const methodOf = (message: Envelope) => message.data?.data?.data?.method;
 
 const settled = async (promise: Promise<unknown>) =>
   promise.then(
@@ -92,10 +106,14 @@ describe('a provider request whose port drops', () => {
     expect(ports).toHaveLength(2);
   });
 
-  it('rejects the requests left on a port that fails before it reports its disconnect, and sends only the new one on', async () => {
+  it.each([
+    'Attempting to use a disconnected port object',
+    'Attempt to postMessage on disconnected port',
+    'Extension context invalidated.'
+  ])('rejects the requests left on a port that throws "%s", and sends only the new one on', async (portGone) => {
     const { pm, port } = connectProviderPort();
     const sending = pageRequest(pm, 'sendQbit');
-    port(0).failPosts = true;
+    port(0).postError = () => portGone;
 
     const reading = pageRequest(pm, 'getAccounts');
 
@@ -104,6 +122,48 @@ describe('a provider request whose port drops', () => {
     expect(port(1).requestedMethods()).toEqual(['getAccounts']);
     // The replaced port's own disconnect, should it still arrive, leaves the new request alone.
     port(0).drop();
+    port(1).respond('getAccounts', { res: ['qb1account'] });
+    await expect(reading).resolves.toEqual(['qb1account']);
+  });
+});
+
+describe('a provider request its port cannot take', () => {
+  it.each(['Could not serialize message.', 'Message length exceeded maximum allowed length.'])(
+    'is refused as unsent when the port throws "%s", and the port and other requests carry on',
+    async (refusal) => {
+      const { pm, port } = connectProviderPort();
+      const sending = pageRequest(pm, 'sendQbit');
+      port(0).postError = (message) => (methodOf(message) === 'signPsbt' ? refusal : undefined);
+
+      const signing = pageRequest(pm, 'signPsbt');
+
+      await expect(signing).rejects.toMatchObject({
+        code: -32602,
+        message: `The request was not sent to Qbit Wallet and did not run: ${refusal}`
+      });
+      expect(ports).toHaveLength(1);
+      expect(port(0).disconnect).not.toHaveBeenCalled();
+      const reading = pageRequest(pm, 'getAccounts');
+      port(0).respond('sendQbit', { res: 'txid' });
+      port(0).respond('getAccounts', { res: ['qb1account'] });
+      await expect(sending).resolves.toBe('txid');
+      await expect(reading).resolves.toEqual(['qb1account']);
+      expect(port(0).requestedMethods()).toEqual(['sendQbit', 'getAccounts']);
+    }
+  );
+
+  it('is refused as unsent, not as lost, when the port that replaced a dead one cannot take it', async () => {
+    const { pm, port } = connectProviderPort();
+    const sending = pageRequest(pm, 'sendQbit');
+    port(0).postError = () => 'Attempting to use a disconnected port object';
+
+    const signing = pageRequest(pm, 'signPsbt', { amount: BigInt(10) });
+
+    await expect(sending).rejects.toMatchObject({ code: 4900 });
+    await expect(signing).rejects.toMatchObject({ code: -32602 });
+    expect(ports).toHaveLength(2);
+    expect(port(1).disconnect).not.toHaveBeenCalled();
+    const reading = pageRequest(pm, 'getAccounts');
     port(1).respond('getAccounts', { res: ['qb1account'] });
     await expect(reading).resolves.toEqual(['qb1account']);
   });
@@ -133,8 +193,8 @@ function pageThroughContentScript() {
   page.peer = contentScript;
   contentScript.peer = page;
   // What the page provider does with a rejection before the dapp sees it.
-  const request = (method: string) =>
-    page.request({ method, params: {} }).catch((error) => {
+  const request = (method: string, params: unknown = {}) =>
+    page.request({ method, params }).catch((error) => {
       throw serializeError(error);
     });
   return { request, port };
@@ -149,6 +209,15 @@ describe('what a dapp sees', () => {
     port(0).drop();
 
     await expect(sending).rejects.toMatchObject({ code: 4900 });
+  });
+
+  it('gets -32602 for a request the port cannot serialize, such as one holding a BigInt', async () => {
+    const { request, port } = pageThroughContentScript();
+    const sending = request('sendQbit', { satoshis: BigInt(25_000) });
+
+    await expect(sending).rejects.toMatchObject({ code: -32602, message: expect.stringMatching(/did not run/) });
+    expect(port(0).requestedMethods()).toEqual([]);
+    expect(ports).toHaveLength(1);
   });
 
   it('gets 4001 for a request the user rejected', async () => {

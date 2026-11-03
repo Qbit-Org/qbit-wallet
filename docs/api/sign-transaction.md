@@ -281,3 +281,18 @@ interface QbitStillStartingError {
 
 The request did not run, so you can send it again, including a `sendQbit()`, `pushTx()` or
 `pushPsbt()`.
+
+### Wallet could not start
+
+When the background fails to start, for example because it cannot read its stored settings, every
+request rejects at once with this error until the extension restarts:
+
+```typescript
+interface QbitStartFailedError {
+  code: -32603 // JSON-RPC Internal error
+  message: 'Qbit Wallet could not start. Open Qbit Wallet to see why.'
+}
+```
+
+The request did not run. The wallet's own window says what went wrong and can restart the
+extension. Other failures use the generic code `-32603` too; this one carries the message above.

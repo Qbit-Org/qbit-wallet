@@ -79,16 +79,24 @@ abstract class Message extends EventEmitter {
    * user's rejection (4001), and none of them is sent again.
    */
   protected _rejectPending = (keep?: number) => {
-    for (const [ident, request] of this._waitingMap) {
+    for (const ident of [...this._waitingMap.keys()]) {
       if (ident === keep) continue;
-      this._requestIdPool.push(ident);
-      this._waitingMap.delete(ident);
-      request.reject(
+      this._rejectRequest(
+        ident,
         ethErrors.provider.disconnected(
           'The connection to Qbit Wallet closed before the request finished, so it may have run.'
         )
       );
     }
+  };
+
+  /** Rejects the request `ident` with `error`, if it still waits for its answer. */
+  protected _rejectRequest = (ident: number, error: unknown) => {
+    const request = this._waitingMap.get(ident);
+    if (!request) return;
+    this._requestIdPool.push(ident);
+    this._waitingMap.delete(ident);
+    request.reject(error);
   };
 
   _dispose = () => {
