@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "自動鎖定時間"
   },
+  "lock_when_computer_locks": {
+    "message": "電腦鎖定時鎖定"
+  },
+  "lock_when_all_windows_close": {
+    "message": "關閉所有視窗時鎖定"
+  },
   "available": {
     "message": "可用"
   },
@@ -2356,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "解鎖操作正在進行中"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "錢包在解鎖期間已鎖定。請再次解鎖。"
   },
   "unrecognized_password_strength": {
     "message": "未識別的密碼強度"

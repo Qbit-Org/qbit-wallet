@@ -10,7 +10,10 @@ const WALLET_KEEPALIVE_GRACE_PERIOD_MS = 10 * 60 * 1000;
 // frozen monotonic clock nor a shifted wall clock can extend it. Each refresh
 // re-arms the background lock timer for the user's full auto-lock duration —
 // possibly hours — so the deadline is enforced with an explicit lock instead
-// of waiting out the timer the last refresh armed.
+// of waiting out the timer the last refresh armed. A system lock wins: a
+// refresh never unlocks, so it cannot undo the lock when the computer locks
+// or the last window closes, and the first refresh after the computer slept
+// past the auto-lock time locks instead of extending the session.
 export const useWalletKeepalive = (wallet: { setLastActiveTime(): void; lockWallet(): void }) => {
   const beginTimeRef = useRef<number>(performance.now());
   const lastWallClockTimeRef = useRef<number>(Date.now());

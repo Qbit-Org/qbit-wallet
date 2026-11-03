@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Tiempo de Bloqueo Automático"
   },
+  "lock_when_computer_locks": {
+    "message": "Bloquear cuando se bloquee el ordenador"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Bloquear al cerrar todas las ventanas"
+  },
   "available": {
     "message": "Disponible"
   },
@@ -2356,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "El desbloqueo ya está en progreso"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "La billetera se bloqueó mientras se desbloqueaba. Vuelve a desbloquearla."
   },
   "unrecognized_password_strength": {
     "message": "Fuerza de contraseña no reconocida"

@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Délai de Verrouillage Automatique"
   },
+  "lock_when_computer_locks": {
+    "message": "Verrouiller quand l'ordinateur se verrouille"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Verrouiller à la fermeture de toutes les fenêtres"
+  },
   "available": {
     "message": "Disponible"
   },
@@ -2356,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "Le déverrouillage est déjà en cours"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "Le portefeuille s'est verrouillé pendant le déverrouillage. Déverrouillez-le à nouveau."
   },
   "unrecognized_password_strength": {
     "message": "Force de mot de passe non reconnue"

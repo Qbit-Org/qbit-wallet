@@ -1616,43 +1616,78 @@ export class WalletController extends BaseController {
     return queuedOperation
   }
 
-  unlock = (password: string): Promise<void> =>
-    this.enqueueChainStateChange(() => this.performUnlock(password))
+  /**
+   * Unlock with the password, after any chain state change already queued. A
+   * lock that comes in from the call on wins, even while the unlock waits its
+   * turn (behind a restore floor scan, say), when the keyring service's own
+   * pending-lock check no longer sees it: the unlock then ends locked and
+   * rejects with WALLET_LOCKED_DURING_UNLOCK.
+   */
+  unlock = (password: string): Promise<void> => {
+    const locksAtCall = this.lockRequests
+    return this.enqueueChainStateChange(() => this.performUnlock(password, locksAtCall))
+  }
 
-  private performUnlock = async (password: string): Promise<void> => {
+  private performUnlock = async (password: string, locksAtCall: number): Promise<void> => {
+    const assertNotLockedSinceCall = () => {
+      if (this.lockRequests !== locksAtCall) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    }
+    assertNotLockedSinceCall()
     const alianNameInited = preferenceService.getInitAlianNameStatus()
     const alianNames = contactBookService.listAlias()
     let deferredAccountChange: Account | undefined
-    await keyringService.submitPassword(password, {
-      beforeUnlock: async () => {
-        const hdPathChanged = await keyringService.syncQbitHdPath(
-          getQbitHdPathForChainType(this.getChainType())
-        )
+    try {
+      await keyringService.submitPassword(password, {
+        beforeUnlock: async () => {
+          // Thrown here, the keyring service drops what it loaded and stays locked.
+          assertNotLockedSinceCall()
+          const hdPathChanged = await keyringService.syncQbitHdPath(
+            getQbitHdPathForChainType(this.getChainType())
+          )
 
-        const keyring = await this.getCurrentKeyring()
-        const currentAccount = preferenceService.getCurrentAccount()
-        const preferredAccountIndex = currentAccount?.index ?? 0
-        const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
-          ? preferredAccountIndex
-          : 0
-        const selectedAccount = keyring?.accounts[selectedAccountIndex]
-        const qbitAccountChanged =
-          keyring?.type === KeyringType.QbitHdKeyring &&
-          selectedAccount !== undefined &&
-          (selectedAccount.pubkey !== currentAccount?.pubkey ||
-            selectedAccount.address !== currentAccount?.address)
+          const keyring = await this.getCurrentKeyring()
+          const currentAccount = preferenceService.getCurrentAccount()
+          const preferredAccountIndex = currentAccount?.index ?? 0
+          const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
+            ? preferredAccountIndex
+            : 0
+          const selectedAccount = keyring?.accounts[selectedAccountIndex]
+          const qbitAccountChanged =
+            keyring?.type === KeyringType.QbitHdKeyring &&
+            selectedAccount !== undefined &&
+            (selectedAccount.pubkey !== currentAccount?.pubkey ||
+              selectedAccount.address !== currentAccount?.address)
 
-        if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
-          await this.changeKeyring(keyring, selectedAccountIndex, {
-            broadcastAccountChange: false,
-          })
-          deferredAccountChange = selectedAccount
-        }
-      },
-    })
+          if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
+            await this.changeKeyring(keyring, selectedAccountIndex, {
+              broadcastAccountChange: false,
+            })
+            deferredAccountChange = selectedAccount
+          }
+        },
+      })
+      // A lock during the unlock's last step leaves the keyring locked, as the
+      // keyring service publishes no unlock while a lock is pending; so does a
+      // lock the keyring service makes on its own.
+      assertNotLockedSinceCall()
+      if (!this.isUnlocked()) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    } catch (error) {
+      // An account the unlock switched to is saved already, but its sites
+      // learn of it only from an unlocked wallet: the next unlock tells them.
+      if (deferredAccountChange) this.accountChangeUnannounced = true
+      throw error
+    }
     sessionService.broadcastEvent(SESSION_EVENTS.unlock)
-    if (deferredAccountChange) {
-      this.publishAccountChange(deferredAccountChange)
+    const accountChange =
+      deferredAccountChange ??
+      (this.accountChangeUnannounced ? (preferenceService.getCurrentAccount() ?? undefined) : undefined)
+    this.accountChangeUnannounced = false
+    if (accountChange) {
+      this.publishAccountChange(accountChange)
     }
     if (!alianNameInited && alianNames.length === 0) {
       this.initAlianNames()
@@ -1692,7 +1727,19 @@ export class WalletController extends BaseController {
     return keyringService.memStore.getState().isUnlocked
   }
 
+  /** Locks requested through lockWallet; see `unlock`. */
+  private lockRequests = 0
+  /** An unlock that a lock ended switched the account without announcing it. */
+  private accountChangeUnannounced = false
+
   lockWallet = async () => {
+    this.lockRequests += 1
+    // The lock ends the session the auto-lock was counting down, so its timer
+    // cannot lock a later unlock (the automatic biometric prompt, say) or
+    // report an auto-lock for a wallet already locked.
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
     // A locked wallet keeps no account's outputs in memory, not even while
     // the lock waits or if it fails. setLocked marks the wallet locked at
     // once, before it waits, so nothing is kept after this clear: not from
@@ -9451,6 +9498,22 @@ export class WalletController extends BaseController {
     this._resetTimeout()
   }
 
+  getLockOnComputerLock = async () => {
+    return preferenceService.getLockOnComputerLock()
+  }
+
+  setLockOnComputerLock = async (enabled: boolean) => {
+    return preferenceService.setLockOnComputerLock(enabled)
+  }
+
+  getLockOnWindowsClosed = async () => {
+    return preferenceService.getLockOnWindowsClosed()
+  }
+
+  setLockOnWindowsClosed = async (enabled: boolean) => {
+    return preferenceService.setLockOnWindowsClosed(enabled)
+  }
+
   getOpenInSidePanel = async () => {
     return preferenceService.getOpenInSidePanel()
   }
@@ -9484,8 +9547,38 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * When the armed auto-lock timer is due, by the wall clock. A timer does
+   * not count the time the computer sleeps, so on its own it would let the
+   * first screen action after waking extend a session whose time had passed.
+   * A forward jump of the wall clock can bring the lock early; never later.
+   */
+  private autoLockDueAt: number | undefined
+
+  /**
+   * A screen action: start the auto-lock time over, unless the auto-lock is
+   * overdue, which locks instead (see `lockIfAutoLockOverdue`). On the unlock
+   * screen an action re-arms the timer as before, so an unlock it overlaps is
+   * not locked straight away.
+   */
   setLastActiveTime = async () => {
+    if (await this.lockIfAutoLockOverdue()) return
     this._resetTimeout()
+  }
+
+  /**
+   * Auto-lock now if its deadline has passed: on a screen action, and when
+   * the computer's idle state changes, as it does on waking, since the timer
+   * does not count the time the computer sleeps. Only an unlocked wallet that
+   * has a vault has a session to end: during first-time onboarding there is
+   * no vault to unlock again, and locking would strand the user. Resolves
+   * with whether it locked.
+   */
+  lockIfAutoLockOverdue = async (): Promise<boolean> => {
+    if (this.autoLockDueAt === undefined || this.now() < this.autoLockDueAt) return false
+    if (!this.isUnlocked() || !keyringService.hasVault()) return false
+    await this.autoLock()
+    return true
   }
 
   private _resetTimeout = () => {
@@ -9495,13 +9588,56 @@ export class WalletController extends BaseController {
 
     const timeId = preferenceService.getAutoLockTimeId()
     const timeConfig = getLockTimeInfo(timeId)
+    this.autoLockDueAt = this.now() + timeConfig.time
     this.timer = setTimeout(() => {
-      this.lockWallet()
-      bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
-        method: BUS_METHODS.AUTO_LOCKED,
-        params: {},
+      this.autoLock().catch(error => {
+        log.error('[WalletController] Auto-lock failed', summarizeError(error))
       })
     }, timeConfig.time)
+  }
+
+  /** The auto-lock: its timer ran out, or its deadline passed. */
+  private autoLock = (): Promise<void> => {
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
+    // A timer armed on the unlock screen finds nothing to lock, and must not
+    // cut short an unlock under way.
+    if (!this.isUnlocked()) return Promise.resolve()
+    // lockWallet marks the wallet locked before its first await.
+    const locked = this.lockWallet()
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.AUTO_LOCKED,
+      params: {},
+    })
+    return locked
+  }
+
+  /**
+   * Lock because the computer locked or the last browser window closed, when
+   * that event's setting is on. A setting that cannot be read counts as on.
+   * The caller waits for the worker's start-up first: only a keyring that has
+   * started can hold an unlocked wallet, since the keyring keeps its secrets
+   * in memory. Without a vault there is nothing to lock: during first-time
+   * onboarding the wallet could not be unlocked again, and the screens that
+   * create or restore it would fail. Locks whether or not the wallet reads
+   * unlocked, so an unlock still waiting or running ends locked (see
+   * `unlock`). Resolves with whether it locked.
+   */
+  lockOnSystemEvent = async (event: 'computer-locked' | 'windows-closed'): Promise<boolean> => {
+    if (!keyringService.memStore || !keyringService.hasVault()) return false
+    let enabled = true
+    try {
+      enabled =
+        event === 'computer-locked'
+          ? preferenceService.getLockOnComputerLock()
+          : preferenceService.getLockOnWindowsClosed()
+    } catch (error) {
+      log.error('[WalletController] Lock settings unreadable; locking', summarizeError(error))
+    }
+    if (!enabled) return false
+    await this.lockWallet()
+    return true
   }
 
   getBlockActiveInfo = () => {

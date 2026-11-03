@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
+import { ErrorCodes } from '@qbit/wallet-shared'
 
 import { useUnlockCallback } from '../src/hooks/global'
 import { useBiometricUnlock } from '../src/ui-hooks/useBiometricUnlock'
@@ -112,6 +113,30 @@ describe('useUnlockCallback approval handling', () => {
       await expect(result.current('wrong')).rejects.toThrow('invalid password')
     })
 
+    expect(store.getState().global.isUnlocked).toBe(false)
+    expect(wallet.resolveUnlockApproval).not.toHaveBeenCalled()
+    expectApprovalContextUntouched(approval, navigation)
+  })
+})
+
+describe('useUnlockCallback when the wallet locks during the unlock', () => {
+  it('leaves the wallet shown as locked and rejects with the reason', async () => {
+    // Errors reach the page over the port as plain objects.
+    const lockedDuringUnlock = {
+      message: 'The wallet locked while unlocking. Unlock it again.',
+      code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK,
+    }
+    const { wrapper, approval, navigation, store, wallet } = setup(
+      vi.fn().mockRejectedValue(lockedDuringUnlock)
+    )
+    const { result } = renderHook(() => useUnlockCallback(), { wrapper })
+
+    await act(async () => {
+      await expect(result.current('password')).rejects.toBe(lockedDuringUnlock)
+    })
+
+    // No main screen: the store still reads locked, and no unlock request is
+    // answered for a wallet that is locked.
     expect(store.getState().global.isUnlocked).toBe(false)
     expect(wallet.resolveUnlockApproval).not.toHaveBeenCalled()
     expectApprovalContextUntouched(approval, navigation)

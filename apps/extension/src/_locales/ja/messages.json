@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "自動ロック時間"
   },
+  "lock_when_computer_locks": {
+    "message": "コンピューターのロック時にロック"
+  },
+  "lock_when_all_windows_close": {
+    "message": "すべてのウィンドウを閉じたときにロック"
+  },
   "available": {
     "message": "利用可能"
   },
@@ -2356,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "ロック解除は既に進行中です"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "ロック解除中にウォレットがロックされました。もう一度ロックを解除してください。"
   },
   "unrecognized_password_strength": {
     "message": "未認識のパスワード強度"

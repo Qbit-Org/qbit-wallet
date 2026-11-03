@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Automatic Lock Time"
   },
+  "lock_when_computer_locks": {
+    "message": "Lock when the computer locks"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Lock when all windows close"
+  },
   "available": {
     "message": "Available"
   },
@@ -2356,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "Unlock already in progress"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "The wallet locked while unlocking. Unlock it again."
   },
   "unrecognized_password_strength": {
     "message": "Unrecognized password strength"

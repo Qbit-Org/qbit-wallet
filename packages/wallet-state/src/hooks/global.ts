@@ -227,6 +227,20 @@ export function useUnlockCallback() {
   )
 }
 
+/**
+ * After a create or restore that leaves the wallet unlocked, mark it unlocked
+ * only if the background still says so: a lock that came in meanwhile has
+ * already set the store through its LOCKED broadcast, and wins.
+ */
+async function markUnlockedUnlessLocked(
+  wallet: { isUnlocked(): Promise<boolean> },
+  dispatch: ReturnType<typeof useAppDispatch>
+): Promise<void> {
+  if (await wallet.isUnlocked()) {
+    dispatch(globalActions.update({ isUnlocked: true }))
+  }
+}
+
 export function useCreateAccountCallback() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
@@ -247,7 +261,7 @@ export function useCreateAccountCallback() {
         accountCount,
         accountIndexDerivation
       )
-      dispatch(globalActions.update({ isUnlocked: true }))
+      await markUnlockedUnlessLocked(wallet, dispatch)
     },
     [dispatch, wallet]
   )
@@ -271,7 +285,7 @@ export function useRestoreQbitWalletCallback() {
         addressType,
         options ?? {}
       )
-      dispatch(globalActions.update({ isUnlocked: true }))
+      await markUnlockedUnlessLocked(wallet, dispatch)
       return report
     },
     [dispatch, wallet]
