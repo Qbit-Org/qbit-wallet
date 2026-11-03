@@ -63,6 +63,7 @@ const createQueuedStorage = () => {
   const store: Record<string, any> = {}
   const failures: Error[] = []
   let queue: Promise<void> = Promise.resolve()
+  let held: Promise<void> = Promise.resolve()
   return {
     get: vi.fn(async (key: string) => {
       await queue
@@ -72,6 +73,7 @@ const createQueuedStorage = () => {
       const snapshot = structuredClone(value)
       const failure = failures.shift()
       const write = queue.then(async () => {
+        await held
         await new Promise(resolve => setTimeout(resolve, 0))
         if (failure) throw failure
         store[key] = snapshot
@@ -82,6 +84,14 @@ const createQueuedStorage = () => {
     // The next write asked for fails, as chrome.storage.local.set does once
     // the quota is used up.
     failNextWrite: () => failures.push(new Error('quota exceeded')),
+    // No write finishes until the function returned is called.
+    holdWrites: () => {
+      let release!: () => void
+      held = new Promise(resolve => {
+        release = resolve
+      })
+      return release
+    },
     _store: store,
   }
 }
@@ -520,6 +530,29 @@ describe('PermissionService', () => {
         persistent.hasPermission('https://failed-revoke.example', ChainType.QBIT_MAINNET)
       ).toBe(true)
     })
+
+    it('rolls back a change that throws partway through', async () => {
+      const { service, storage } = await startWith({
+        version: 1,
+        sites: [site('https://a.example'), site('https://b.example')],
+      })
+      // No public change can throw partway, so drive the private one.
+      const internal = service as unknown as {
+        sites: Map<string, ConnectedSite>
+        mutateAndSync(mutate: () => void): Promise<void>
+      }
+
+      await expect(
+        internal.mutateAndSync(() => {
+          internal.sites.delete('https://a.example')
+          throw new Error('change failed')
+        })
+      ).rejects.toThrow('change failed')
+
+      expect(service.hasPermission('https://a.example')).toBe(true)
+      expect(service.getStats().total).toBe(2)
+      expect(storage.set).not.toHaveBeenCalled()
+    })
   })
 
   describe('writes that overlap', () => {
@@ -696,6 +729,119 @@ describe('PermissionService', () => {
 
       expect(service.hasPermission(a.origin)).toBe(false)
       expect(everySite(service)).toEqual([{ ...a, isConnected: false }, b])
+      expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+    })
+
+    it.each<[string, (service: PermissionService) => Promise<void>]>([
+      ['removeConnectedSite', service => service.removeConnectedSite(a.origin)],
+      [
+        'updateConnectSite',
+        service => service.updateConnectSite(a.origin, { isConnected: false }, true),
+      ],
+      ['setSite', service => service.setSite({ ...a, isConnected: false })],
+    ])(
+      'refuses a site at once when %s disconnects it behind a pending write',
+      async (_name, disconnect) => {
+        const { service, storage } = await startQueued([a, b])
+        const release = storage.holdWrites()
+        const touch = service.touchConnectedSite(b.origin)
+        await vi.waitFor(() => expect(storage.set).toHaveBeenCalledTimes(1))
+
+        const revoke = disconnect(service)
+
+        expect(service.hasPermission(a.origin)).toBe(false)
+        expect(service.getConnectedSite(a.origin)).toBeUndefined()
+        expect(service.getConnectedSites()).toEqual([b])
+        expect(service.getRecentConnectedSites()).toEqual([b])
+        expect(service.hasPermission(b.origin)).toBe(true)
+        // Still refused while the write ahead of it has not settled.
+        await new Promise(resolve => setTimeout(resolve, 10))
+        expect(service.hasPermission(a.origin)).toBe(false)
+
+        release()
+        await Promise.all([touch, revoke])
+
+        expect(service.hasPermission(a.origin)).toBe(false)
+        expect(everySite(service)).toEqual([{ ...a, isConnected: false }, b])
+        expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+      }
+    )
+
+    it('gives a site its grant back when its disconnect cannot be stored', async () => {
+      const { service, storage } = await startQueued([a, b])
+      storage.failNextWrite()
+
+      const revokeA = service.removeConnectedSite(a.origin)
+      const revokeB = service.removeConnectedSite(b.origin)
+
+      expect(service.hasPermission(a.origin)).toBe(false)
+      expect(service.hasPermission(b.origin)).toBe(false)
+      await expect(revokeA).rejects.toThrow('quota exceeded')
+      // Only the failed disconnect gives its site back.
+      expect(service.hasPermission(a.origin)).toBe(true)
+      expect(service.hasPermission(b.origin)).toBe(false)
+
+      await revokeB
+
+      expect(service.hasPermission(a.origin)).toBe(true)
+      expect(service.hasPermission(b.origin)).toBe(false)
+      expect(everySite(service)).toEqual([{ ...b, isConnected: false }, a])
+      expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+    })
+
+    it.each(['resetAllData', 'clearAllPermissions'] as const)(
+      'refuses every site at once when %s is asked for behind a pending write',
+      async method => {
+        const { service, storage } = await startQueued([a, b])
+        const release = storage.holdWrites()
+        const touch = service.touchConnectedSite(b.origin)
+        await vi.waitFor(() => expect(storage.set).toHaveBeenCalledTimes(1))
+
+        const clear = service[method]()
+        const connectC = connect(service, c)
+
+        expect(service.hasPermission(a.origin)).toBe(false)
+        expect(service.hasPermission(b.origin)).toBe(false)
+        expect(service.getConnectedSites()).toEqual([])
+        expect(service.getRecentConnectedSites()).toEqual([])
+
+        release()
+        await Promise.all([touch, clear, connectC])
+
+        // A connect asked for after the reset lands after it.
+        expect(service.hasPermission(c.origin)).toBe(true)
+        expect(everySite(service)).toEqual([c])
+        expect(await everySiteAfterRestart(storage)).toEqual([c])
+      }
+    )
+
+    it.each(['resetAllData', 'clearAllPermissions'] as const)(
+      'gives every site its grant back when %s cannot be stored',
+      async method => {
+        const { service, storage } = await startQueued([a, b])
+        storage.failNextWrite()
+
+        const clear = service[method]()
+
+        expect(service.hasPermission(a.origin)).toBe(false)
+        await expect(clear).rejects.toThrow('quota exceeded')
+        expect(service.hasPermission(a.origin)).toBe(true)
+        expect(service.hasPermission(b.origin)).toBe(true)
+        expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+      }
+    )
+
+    it('reorders from a list read before a revocation without reconnecting the site', async () => {
+      const { service, storage } = await startQueued([a, b])
+      const list = service.getRecentConnectedSites()
+
+      await Promise.all([
+        service.removeConnectedSite(a.origin),
+        service.setRecentConnectedSites([...list].reverse()),
+      ])
+
+      expect(service.hasPermission(a.origin)).toBe(false)
+      expect(everySite(service)).toEqual([b, { ...a, isConnected: false }])
       expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
     })
   })
@@ -1136,31 +1282,25 @@ describe('PermissionService', () => {
   })
 
   describe('setRecentConnectedSites', () => {
-    it('should set sites order', async () => {
-      await service.addConnectedSite(
-        'https://site1.com',
-        'Site 1',
-        'icon.png',
-        ChainType.QBIT_MAINNET
-      )
+    it('puts the stored sites it names first, each as stored, and ignores the rest', async () => {
+      for (const origin of ['https://site1.com', 'https://site2.com', 'https://site3.com']) {
+        await service.addConnectedSite(origin, 'Site', 'icon.png', ChainType.QBIT_MAINNET)
+      }
+      await service.removeConnectedSite('https://site1.com')
 
-      const newSites = [
-        {
-          origin: 'https://new-site.com',
-          name: 'New Site',
-          icon: 'icon.png',
-          chain: ChainType.QBIT_MAINNET,
-          isSigned: false,
-          isTop: false,
-          isConnected: true,
-        },
-      ]
+      await service.setRecentConnectedSites([
+        site('https://site2.com', { name: 'Renamed' }),
+        site('https://site1.com'),
+        site('https://new-site.com'),
+        site('https://site2.com'),
+      ])
 
-      await service.setRecentConnectedSites(newSites)
-
-      const site = service.getSite('https://new-site.com')
-      expect(site).toBeDefined()
-      expect(site?.name).toBe('New Site')
+      expect(
+        service.getSitesByDefaultChain(ChainType.QBIT_MAINNET).map(item => item.origin)
+      ).toEqual(['https://site2.com', 'https://site1.com', 'https://site3.com'])
+      expect(service.getWithoutUpdate('https://site2.com')?.name).toBe('Site')
+      expect(service.hasPermission('https://site1.com')).toBe(false)
+      expect(service.getSite('https://new-site.com')).toBeUndefined()
     })
   })
 
