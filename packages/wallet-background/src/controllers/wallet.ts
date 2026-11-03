@@ -267,7 +267,7 @@ import {
 import {
   QBIT_RECEIVE_GAP_LIMIT,
   planQbitReceiveIntent,
-  type QbitReceiveAllocationAddress,
+  type QbitReceiveGapPlan,
 } from '../utils/qbit-receive'
 import {
   QbitLatestAnswers,
@@ -412,8 +412,8 @@ type QbitReceiveControllerContext = {
   selectedIndex: number
   /** The stored selection this context was read for. */
   selectedPubkey: string | undefined
-  /** Addresses that a recovery migration plan pays. */
-  sweepDestinations: Set<string>
+  /** Indexes of this wallet that a recovery migration plan pays, derived or not. */
+  sweepIndexes: Set<number>
   activityStatus: QbitReceiveState['activityStatus']
   floorsPending: boolean
   concurrentInstanceHint: boolean
@@ -4061,13 +4061,27 @@ export class WalletController extends BaseController {
       }
     })
     const rawKeyring = keyringService.keyrings[keyring.index]
-    const sweepDestinations = new Set<string>(
-      keyringService.keyrings.flatMap(other => {
-        const plans: QbitRecoveryMigrationPlanVault[] =
-          other.getQbitRecoveryState?.()?.networks?.[network]?.migration?.plans ?? []
-        return plans.map(plan => plan.destinationAddress)
-      })
-    )
+    // Every plan records the address it pays. A migration into this wallet,
+    // recognized by its anchor, also records each plan's index (version-1
+    // plans paid the anchor, index 0). That covers an index this keyring has
+    // not derived, or whose reservation its ledger lacks, as after the
+    // destination wallet is removed and its seed imported again.
+    const anchorPubkey = anchor.pubkey.toLowerCase()
+    const anchorAddress = anchor.p2mr.addresses[network]
+    const sweepIndexes = new Set<number>()
+    for (const other of keyringService.keyrings) {
+      const migration: QbitRecoveryMigrationVault | undefined =
+        other.getQbitRecoveryState?.()?.networks?.[network]?.migration
+      if (!migration) continue
+      const intoThisWallet =
+        migration.destinationPubkey?.toLowerCase() === anchorPubkey &&
+        migration.destinationAddress === anchorAddress
+      for (const plan of migration.plans ?? []) {
+        if (intoThisWallet) sweepIndexes.add(plan.destinationIndex ?? 0)
+        const paid = addresses.find(address => address.address === plan.destinationAddress)
+        if (paid) sweepIndexes.add(paid.index)
+      }
+    }
     // changeKeyring does not wait for the receive queue, so another popup can
     // select another account or wallet while this read waits. Refuse to answer
     // or act for the earlier selection.
@@ -4083,11 +4097,28 @@ export class WalletController extends BaseController {
       addresses,
       selectedIndex: selected.p2mr!.hkdf.index,
       selectedPubkey,
-      sweepDestinations,
+      sweepIndexes,
       activityStatus,
       floorsPending: rawKeyring?.pqcFloorsPending === true,
       concurrentInstanceHint: rawKeyring?.pqcConcurrentInstanceHint === true,
     }
+  }
+
+  /**
+   * The gap plan Receive and New Address share. It never picks an index a
+   * recovery migration pays.
+   */
+  private planQbitReceiveGap = (context: QbitReceiveControllerContext): QbitReceiveGapPlan => {
+    const issuedIndexes = new Set(context.ledger.issuedIndexes)
+    return planQbitReceiveIntent(
+      context.addresses.map(address => ({
+        index: address.index,
+        issued: issuedIndexes.has(address.index),
+        used: address.used,
+        exhausted: address.signatureCounter.state === 'exhausted',
+      })),
+      context.sweepIndexes
+    )
   }
 
   /**
@@ -4105,17 +4136,11 @@ export class WalletController extends BaseController {
     shownIndex = context.selectedIndex
   ): QbitReceiveState => {
     const issuedIndexes = new Set(context.ledger.issuedIndexes)
-    const allocationAddresses: QbitReceiveAllocationAddress[] = context.addresses.map(address => ({
-      index: address.index,
-      issued: issuedIndexes.has(address.index),
-      used: address.used,
-      exhausted: address.signatureCounter.state === 'exhausted',
-    }))
-    const gapPlan = planQbitReceiveIntent(allocationAddresses)
+    const gapPlan = this.planQbitReceiveGap(context)
     const shown = context.addresses.find(address => address.index === shownIndex)
     const shouldHideAddresses = context.floorsPending || context.activityStatus !== 'live'
     const reservedForSweep = (address: QbitReceiveAddressState) =>
-      !address.used && context.sweepDestinations.has(address.address)
+      !address.used && context.sweepIndexes.has(address.index)
     const offerable =
       shown !== undefined &&
       shown.signatureCounter.state !== 'exhausted' &&
@@ -4204,15 +4229,7 @@ export class WalletController extends BaseController {
     if (context.activityStatus !== 'live') {
       throw new Error('Live activity must be checked before creating a receive address')
     }
-    const issuedIndexes = new Set(context.ledger.issuedIndexes)
-    const gapPlan = planQbitReceiveIntent(
-      context.addresses.map(address => ({
-        index: address.index,
-        issued: issuedIndexes.has(address.index),
-        used: address.used,
-        exhausted: address.signatureCounter.state === 'exhausted',
-      }))
-    )
+    const gapPlan = this.planQbitReceiveGap(context)
     if (!gapPlan.nextIntent) {
       throw new Error(
         `Receive address gap limit (${QBIT_RECEIVE_GAP_LIMIT}) reached; wait for activity before creating another address`

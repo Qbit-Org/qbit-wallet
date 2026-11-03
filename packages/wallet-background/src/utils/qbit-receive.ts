@@ -25,10 +25,13 @@ export interface QbitReceiveGapPlan {
  * Pick the lowest never-issued, unused, non-exhausted index that remains
  * discoverable by a standard trailing gap scan. Existing active indexes from
  * another network are reusable as derivation slots, but still count against
- * this network's gap once they are issued here.
+ * this network's gap once they are issued here. A reserved index, one that a
+ * recovery migration pays, is never picked, whether or not it is active or
+ * the ledger recorded it, and counts against the gap as issued.
  */
 export function planQbitReceiveIntent(
   addresses: readonly QbitReceiveAllocationAddress[],
+  reservedIndexes: ReadonlySet<number> = new Set(),
   gapLimit = QBIT_RECEIVE_GAP_LIMIT
 ): QbitReceiveGapPlan {
   if (!Number.isInteger(gapLimit) || gapLimit < 1) {
@@ -41,7 +44,7 @@ export function planQbitReceiveIntent(
   )
   const highestIssuedIndex = addresses.reduce(
     (highest, address) => (address.issued ? Math.max(highest, address.index) : highest),
-    -1
+    Math.max(-1, ...reservedIndexes)
   )
   const trailingUnusedCount = Math.max(0, highestIssuedIndex - highestUsedIndex)
   const remainingIntentCapacity = Math.max(0, gapLimit - trailingUnusedCount)
@@ -52,6 +55,7 @@ export function planQbitReceiveIntent(
       !address.issued &&
       !address.used &&
       !address.exhausted &&
+      !reservedIndexes.has(address.index) &&
       address.index <= lastDiscoverableIndex
   )
   if (existing) {
@@ -66,7 +70,7 @@ export function planQbitReceiveIntent(
 
   const activeIndexes = new Set(sorted.map(address => address.index))
   let nextIndex = 0
-  while (activeIndexes.has(nextIndex)) nextIndex += 1
+  while (activeIndexes.has(nextIndex) || reservedIndexes.has(nextIndex)) nextIndex += 1
   return {
     highestUsedIndex,
     lastDiscoverableIndex,

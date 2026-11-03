@@ -144,8 +144,12 @@ describe('WalletController qbit receive intents', () => {
         const ledger = ledgers[network as Network]
         ledger.currentIndex = index
         if (!ledger.issuedIndexes.includes(index)) ledger.issuedIndexes.push(index)
-        if (!keyring.accounts[index]) keyring.accounts.push(account(index))
-        return keyring.accounts[index]!.p2mr
+        let target = keyring.accounts.find(item => item.p2mr?.hkdf.index === index)
+        if (!target) {
+          target = account(index)
+          keyring.accounts.push(target)
+        }
+        return target.p2mr
       }
     )
   })
@@ -467,6 +471,103 @@ describe('WalletController qbit receive intents', () => {
 
       expect(state.current?.index).toBe(1)
       expect(state.previous.map(item => item.address)).not.toContain('tq-0')
+    })
+  })
+
+  describe("with a recovery migration whose reservations this wallet's ledger lacks", () => {
+    // The destination ledger has not recorded the indexes these plans pay: the
+    // destination wallet was removed and its seed imported again, or a
+    // version-1 plan paid the anchor.
+    const migrationInto = (
+      anchorPubkey: string,
+      anchorAddress: string,
+      plans: { destinationAddress: string; destinationIndex?: number }[]
+    ) => ({
+      getQbitRecoveryState: () => ({
+        networks: {
+          testnet4: {
+            migration: {
+              destinationPubkey: anchorPubkey,
+              destinationAddress: anchorAddress,
+              plans: plans.map(plan => ({ status: 'prepared', ...plan })),
+            },
+          },
+        },
+      }),
+    })
+
+    it('New Address skips the indexes a re-imported wallet has not derived yet', async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto('pub-0', 'tq-0', [
+          { destinationAddress: 'tq-0', destinationIndex: 0 },
+          { destinationAddress: 'tq-1', destinationIndex: 1 },
+        ])
+      )
+
+      const shown = await controller.ensureQbitReceiveIntent()
+
+      expect(shown.current).toBeNull()
+      expect(shown.gap.canCreate).toBe(true)
+
+      const created = await controller.createQbitReceiveIntent()
+
+      expect(vi.mocked(keyringService.setQbitReceiveIntent).mock.calls).toEqual([
+        [expect.any(String), 'testnet4', 2],
+      ])
+      expect(created.current).toMatchObject({ index: 2, used: false })
+      expect(selectedAccount?.p2mr?.hkdf.index).toBe(2)
+      expect(ledgers.testnet4).toEqual({ currentIndex: 2, issuedIndexes: [2], usedIndexes: [] })
+    })
+
+    it('New Address skips the anchor a version-1 plan pays', async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto('pub-0', 'tq-0', [{ destinationAddress: 'tq-0' }])
+      )
+
+      const created = await controller.createQbitReceiveIntent()
+
+      expect(vi.mocked(keyringService.setQbitReceiveIntent).mock.calls).toEqual([
+        [expect.any(String), 'testnet4', 1],
+      ])
+      expect(created.current).toMatchObject({ index: 1, used: false })
+      expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+      expect(ledgers.testnet4).toEqual({ currentIndex: 1, issuedIndexes: [1], usedIndexes: [] })
+    })
+
+    it('reports the gap limit when the reservations fill the restore gap', async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto(
+          'pub-0',
+          'tq-0',
+          Array.from({ length: 20 }, (_, index) => ({
+            destinationAddress: `tq-${index}`,
+            destinationIndex: index,
+          }))
+        )
+      )
+
+      const shown = await controller.ensureQbitReceiveIntent()
+
+      expect(shown.current).toBeNull()
+      expect(shown.gap).toMatchObject({ canCreate: false, remainingIntentCapacity: 0 })
+      await expect(controller.createQbitReceiveIntent()).rejects.toThrow('gap limit (20)')
+      expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+      expect(ledgers.testnet4).toEqual(emptyLedger())
+    })
+
+    it("does not reserve this wallet's indexes for another wallet's migration", async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto('other-0', 'other-tq-0', [
+          { destinationAddress: 'other-tq-0', destinationIndex: 0 },
+          { destinationAddress: 'other-tq-1', destinationIndex: 1 },
+        ])
+      )
+
+      const shown = await controller.ensureQbitReceiveIntent()
+      const created = await controller.createQbitReceiveIntent()
+
+      expect(shown.current?.index).toBe(0)
+      expect(created.current?.index).toBe(1)
     })
   })
 
