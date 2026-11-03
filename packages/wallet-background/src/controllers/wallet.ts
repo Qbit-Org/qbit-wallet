@@ -400,6 +400,8 @@ type QbitReceiveIntentLedger = {
   usedIndexes: number[]
 }
 
+const QBIT_RECEIVE_ACCOUNT_CHANGED = 'Qbit account changed while preparing the receive screen'
+
 type QbitReceiveControllerContext = {
   network: QbitReceiveNetworkName
   keyring: WalletKeyring
@@ -408,6 +410,8 @@ type QbitReceiveControllerContext = {
   addresses: QbitReceiveAddressState[]
   /** Derivation index of the selected account, whose address Receive shows. */
   selectedIndex: number
+  /** The stored selection this context was read for. */
+  selectedPubkey: string | undefined
   activityStatus: QbitReceiveState['activityStatus']
   floorsPending: boolean
   concurrentInstanceHint: boolean
@@ -3980,15 +3984,16 @@ export class WalletController extends BaseController {
     if (!keyring || keyring.type !== KeyringType.QbitHdKeyring) {
       throw new Error(t('not_supported'))
     }
+    // Read the selection after getCurrentKeyring, which can repair it, and
+    // before the activity check, so the check at the end of this read sees a
+    // change made while it waited.
+    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
     const anchor = keyring.accounts[0]
     if (!anchor?.p2mr) {
       throw new Error('P2MR receive metadata is unavailable')
     }
-    // Read the selection with the keyring, before the activity check waits on
-    // the explorer, so both come from the same wallet. Match it the way
-    // getCurrentAccount does: by public key, falling back to the first
-    // account.
-    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
+    // Match the selection the way getCurrentAccount does: by public key,
+    // falling back to the first account.
     const selected = keyring.accounts.find(account => account.pubkey === selectedPubkey) ?? anchor
 
     let ledger = (await keyringService.getQbitReceiveState(
@@ -4054,6 +4059,12 @@ export class WalletController extends BaseController {
       }
     })
     const rawKeyring = keyringService.keyrings[keyring.index]
+    // changeKeyring does not wait for the receive queue, so another popup can
+    // select another account or wallet while this read waits. Refuse to answer
+    // or act for the earlier selection.
+    if (preferenceService.getCurrentAccount()?.pubkey !== selectedPubkey) {
+      throw new Error(QBIT_RECEIVE_ACCOUNT_CHANGED)
+    }
 
     return {
       network,
@@ -4062,6 +4073,7 @@ export class WalletController extends BaseController {
       ledger,
       addresses,
       selectedIndex: selected.p2mr!.hkdf.index,
+      selectedPubkey,
       activityStatus,
       floorsPending: rawKeyring?.pqcFloorsPending === true,
       concurrentInstanceHint: rawKeyring?.pqcConcurrentInstanceHint === true,
@@ -4149,9 +4161,8 @@ export class WalletController extends BaseController {
 
   /**
    * Read the receive context again after a ledger write, with a live activity
-   * check or from the vault cache. changeKeyring does not wait for the receive
-   * queue, so another wallet can be selected meanwhile. Refuse to carry this
-   * operation's index, live status or account switch over to it.
+   * check or from the vault cache. Refuse a read made for another selection:
+   * this operation's index and account switch belong to the earlier one.
    */
   private reloadQbitReceiveContext = async (
     context: QbitReceiveControllerContext,
@@ -4160,8 +4171,8 @@ export class WalletController extends BaseController {
     const reloaded = refreshActivity
       ? await this.loadQbitReceiveContext(true, 'cached')
       : await this.loadQbitReceiveContext(false, context.activityStatus)
-    if (reloaded.anchor.pubkey !== context.anchor.pubkey || reloaded.network !== context.network) {
-      throw new Error('Qbit wallet changed while preparing the receive screen')
+    if (reloaded.selectedPubkey !== context.selectedPubkey) {
+      throw new Error(QBIT_RECEIVE_ACCOUNT_CHANGED)
     }
     return reloaded
   }
@@ -4259,12 +4270,7 @@ export class WalletController extends BaseController {
         context.network,
         current.index
       )
-      // Show the address just recorded, even if the selection changed
-      // meanwhile; the screen reloads for the newly selected account.
-      return this.buildQbitReceiveState(
-        await this.reloadQbitReceiveContext(context, false),
-        current.index
-      )
+      return this.buildQbitReceiveState(await this.reloadQbitReceiveContext(context, false))
     })
 
   createQbitReceiveIntent = (): Promise<QbitReceiveState> =>
