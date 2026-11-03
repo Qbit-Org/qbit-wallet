@@ -129,7 +129,7 @@
         }
       ],
       "module": "ip-address",
-      "target": "10.7.5",
+      "target": "10.7.6",
       "depth": 9
     },
     {
@@ -7679,9 +7679,9 @@
       "high": 0,
       "critical": 0
     },
-    "dependencies": 2406,
+    "dependencies": 2405,
     "devDependencies": 0,
     "optionalDependencies": 0,
-    "totalDependencies": 2406
+    "totalDependencies": 2405
   }
 }
