@@ -1,8 +1,8 @@
 # Browser detection
 
 Qbit Wallet exposes one provider at `window.qbit` in each page it clears, and a separate one in each
-cleared frame of that page, such as an embedded widget. A sandboxed frame, whose origin is opaque,
-gets no provider.
+cleared frame of that page, such as an embedded widget. A frame with an opaque origin, such as one
+sandboxed without `allow-same-origin`, gets no provider.
 
 Do not assign to or predefine this property. Qbit Wallet installs its provider as a non-writable,
 non-configurable property. If a page locks a look-alike object in that location before injection,
@@ -65,16 +65,19 @@ The announcement follows the shape of EIP-6963. Its `detail` and `detail.info` a
 function waitForQbitProvider(timeoutMs = 5500) {
   return new Promise(resolve => {
     const events = ['qbit#initialized', 'qbit:announceProvider']
+    const deadline = Date.now() + timeoutMs
     const finish = provider => {
-      clearTimeout(timer)
+      clearInterval(timer)
       events.forEach(type => window.removeEventListener(type, check))
       resolve(provider)
     }
+    // Runs on each event and every 250 ms, since a wallet that sends no
+    // events still installs window.qbit.
     const check = () => {
       const provider = getQbitProvider()
-      if (provider) finish(provider)
+      if (provider || Date.now() >= deadline) finish(provider)
     }
-    const timer = setTimeout(() => finish(null), timeoutMs)
+    const timer = setInterval(check, 250)
     events.forEach(type => window.addEventListener(type, check))
     // Asks again, in case Qbit Wallet announced before this script listened.
     window.dispatchEvent(new Event('qbit:requestProvider'))

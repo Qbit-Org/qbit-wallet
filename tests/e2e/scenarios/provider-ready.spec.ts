@@ -156,8 +156,8 @@ interface FrameContacts {
 }
 
 /**
- * Records in the background which documents reach it, by origin. A sandboxed
- * frame's origin is opaque and reads "null".
+ * Records in the background which documents reach it, by origin. A frame
+ * sandboxed without allow-same-origin has an opaque origin, which reads "null".
  */
 async function recordFrameContacts(
   extension: ExtensionSession

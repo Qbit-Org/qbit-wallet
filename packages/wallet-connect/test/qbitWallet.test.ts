@@ -185,6 +185,27 @@ describe('QbitWallet', () => {
       expect(listenersLeft()).toEqual([])
     })
 
+    it('still polls, and removes its listeners, when the page made dispatchEvent throw', async () => {
+      vi.useFakeTimers()
+      const { page, dispatch, listenersLeft } = installPage()
+      dispatch.mockImplementation(() => {
+        throw new Error('replaced')
+      })
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      await vi.advanceTimersByTimeAsync(350)
+      page.qbit = createProvider()
+      // The next poll, at 600 ms, finds it.
+      await vi.advanceTimersByTimeAsync(250)
+      await initializing
+
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
     it('only polls, and resolves not installed, on a window that cannot dispatch events', async () => {
       vi.useFakeTimers()
       const standIn = { addEventListener: vi.fn(), removeEventListener: vi.fn() }

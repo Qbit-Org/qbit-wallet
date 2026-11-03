@@ -132,9 +132,14 @@ export class QbitWallet extends BaseWallet {
       }
 
       if (listens) {
-        events.forEach(event => window.addEventListener(event, look))
-        // A wallet that announced before this page listened answers again.
-        window.dispatchEvent(new Event(QBIT_REQUEST_PROVIDER_EVENT))
+        try {
+          events.forEach(event => window.addEventListener(event, look))
+          // A wallet that announced before this page listened answers again.
+          window.dispatchEvent(new Event(QBIT_REQUEST_PROVIDER_EVENT))
+        } catch {
+          // The page replaced one of these. Polling still finds the wallet,
+          // and stop() removes any listener that was added.
+        }
       }
       poll()
     })
