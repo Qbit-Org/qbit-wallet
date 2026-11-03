@@ -224,6 +224,54 @@ describe('ContactBookService', () => {
     })
   })
 
+  describe('addContact', () => {
+    const alpha: ContactBookItemInput = {
+      name: 'alpha',
+      address: 'bc1qalpha',
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+    }
+    const stored = () => contactBook.getContactByAddressAndChain('bc1qalpha', ChainType.QBIT_MAINNET)
+
+    it('adds a contact at a free address', async () => {
+      await contactBook.addContact(alpha)
+
+      expect(stored()).toEqual({ ...alpha, isAlias: false, sortIndex: 0 })
+    })
+
+    it('adds a contact at an alias-only entry, which keeps its alias flag', async () => {
+      await contactBook.addAlias({ name: 'Account 1', address: 'bc1qalpha', chain: alpha.chain })
+
+      await contactBook.addContact(alpha)
+
+      expect(stored()).toEqual({ ...alpha, isAlias: true, sortIndex: 0 })
+    })
+
+    it('refuses to add over a contact, and changes nothing', async () => {
+      await contactBook.addContact({ ...alpha, sortIndex: 3 })
+      const before = contactBook.getRawStore()
+      const set = vi.spyOn(mockStorage, 'set')
+
+      const add = contactBook.addContact({ ...alpha, name: 'other' })
+
+      await expect(add).rejects.toBeInstanceOf(ContactAlreadyExistsError)
+      await expect(add).rejects.toMatchObject({ code: CONTACT_ALREADY_EXISTS })
+      expect(set).not.toHaveBeenCalled()
+      expect(contactBook.getRawStore()).toEqual(before)
+      expect(mockStorage.getStorage().testContactBook).toEqual(before)
+    })
+
+    it('refuses an add queued after another add of the same address and network', async () => {
+      // Two screens loaded before either saved; both writes queue in call order.
+      const first = contactBook.addContact(alpha)
+      const second = contactBook.addContact({ ...alpha, name: 'other' })
+
+      await first
+      await expect(second).rejects.toMatchObject({ code: CONTACT_ALREADY_EXISTS })
+      expect(stored()?.name).toBe('alpha')
+    })
+  })
+
   it('getContactsByMap returns composite-key map', async () => {
     await contactBook.addContact({
       name: 'map',

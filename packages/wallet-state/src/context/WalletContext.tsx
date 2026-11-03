@@ -465,6 +465,7 @@ export interface WalletController {
     address: string,
     chain: ChainType
   ): Promise<ContactBookItem | undefined>
+  addContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
   updateContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
   removeContact(address: string, chain?: ChainType): Promise<void>
   replaceContact(

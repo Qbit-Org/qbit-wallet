@@ -18,8 +18,8 @@ const defaultLogger: Logger = {
 }
 
 /**
- * The code of the error replaceContact rejects with when another contact is
- * stored under the new address and chain. It crosses to the UI as `code`.
+ * The code of the error addContact and replaceContact reject with when another
+ * contact is stored under the address and chain. It crosses to the UI as `code`.
  */
 export const CONTACT_ALREADY_EXISTS = 'CONTACT_ALREADY_EXISTS'
 
@@ -342,10 +342,27 @@ export class ContactBookService {
   }
 
   /**
-   * Add contact (alias for updateContact)
+   * Add a contact, stored as updateContact stores it. Rejects with
+   * ContactAlreadyExistsError, changing nothing, when a contact is already
+   * stored under its address and chain; an alias-only entry there takes it.
    */
   async addContact(data: ContactBookItemInput): Promise<void> {
-    return this.updateContact(data)
+    this.ensureInitialized()
+
+    const compositeKey = getCompositeKey(data.address, data.chain)
+
+    await this.commit(store => {
+      // Checked against the store this write replaces, so an add made on a
+      // stale screen cannot overwrite a contact added since
+      if (store[compositeKey]?.isContact) {
+        throw new ContactAlreadyExistsError()
+      }
+
+      return {
+        ...store,
+        [compositeKey]: toContactEntry(data, store[compositeKey], store[compositeKey]),
+      }
+    })
   }
 
   /**
