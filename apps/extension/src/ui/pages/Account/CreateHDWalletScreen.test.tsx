@@ -136,8 +136,8 @@ vi.mock('@/ui/utils', () => ({
   showLongNumber: (value: unknown) => `${value}`
 }));
 
-// Expose the create flow's selected word type without pulling antd into the
-// module graph; Step1_Create's generation behavior has focused coverage.
+// Expose the create flow's selected word type; Step1_Create's generation
+// behavior has focused coverage.
 vi.mock('./createHDWalletComponents/Step1_Create', async () => {
   const React = await import('react');
   return {

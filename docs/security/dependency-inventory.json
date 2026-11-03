@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "802dc03ca7e9185e74dcdcf3f18f446ea0820c1b",
-  "lockfileSha256": "3e744a2e56fc9cc898fdf732ba52fa99289a25385cbafc48dae66b58c15a71ba",
+  "auditedCommit": "a941b06e311fb10a263b9f6836a777833b090249",
+  "lockfileSha256": "7419a875589eebcb1bf6b200bee633d9f0c51410d0c490da84f500a34c0fe02e",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "14e966b924c4ed111c54541579681a8345666630206cd42e7324e5d3598b3a8b",
+    "sha256": "a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,43 +14,43 @@
   },
   "summary": {
     "workspaces": 18,
-    "registryLockEntries": 2136,
-    "directDeclarations": 389,
+    "registryLockEntries": 2080,
+    "directDeclarations": 386,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 123,
-      "extension-build-packaging": 72,
-      "shipped-runtime": 139,
+      "extension-build-packaging": 70,
+      "shipped-runtime": 138,
       "test-only-tooling": 33,
       "workspace-contract": 22
     },
-    "securityAdjacentResolvedPackages": 180,
+    "securityAdjacentResolvedPackages": 178,
     "securityAdjacentByCategory": {
-      "serialization": 92,
-      "crypto": 58,
+      "serialization": 91,
+      "crypto": 57,
       "networking": 25,
       "archive": 8
     },
     "auditVulnerableOccurrences": {
       "info": 0,
       "low": 10,
-      "moderate": 33,
+      "moderate": 32,
       "high": 0,
       "critical": 0
     },
-    "advisoryRecords": 43,
+    "advisoryRecords": 42,
     "advisoryRecordsBySeverity": {
       "low": 10,
-      "moderate": 33
+      "moderate": 32
     },
     "advisoryRecordsByDirectness": {
       "direct": 4,
-      "transitive": 39
+      "transitive": 38
     },
     "advisoryPathsByReachability": {
       "development-tooling-path": 530,
       "extension-build-path": 986,
       "test-only-path": 554,
-      "reachable": 32
+      "reachable": 30
     }
   },
   "directDependencies": [
@@ -1459,16 +1459,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "antd-dayjs-webpack-plugin",
-      "section": "dependencies",
-      "requested": "1.0.6",
-      "resolved": "1.0.6(dayjs@1.11.18)",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "autoprefixer",
       "section": "devDependencies",
       "requested": "^10.4.7",
@@ -1483,16 +1473,6 @@
       "section": "dependencies",
       "requested": "^8.2.3",
       "resolved": "8.2.5(@babel/core@7.20.2(supports-color@8.1.1))(webpack@5.109.2)",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "babel-plugin-import",
-      "section": "devDependencies",
-      "requested": "^1.13.5",
-      "resolved": "1.13.8(supports-color@8.1.1)",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -2303,16 +2283,6 @@
       "section": "dependencies",
       "requested": "^0.21.2",
       "resolved": "0.21.2",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "antd",
-      "section": "dependencies",
-      "requested": "^4.20.4",
-      "resolved": "4.20.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -5771,19 +5741,6 @@
       "directDeclarations": []
     },
     {
-      "package": "json2mq",
-      "version": "0.2.0",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-SzoRg7ux5DWTII9J2qkrZrqV1gt+rTaoufMxEzXbS26Uid0NwaJd123HcoB80TgubEppxxIGdNxCx50fEoEWQA==",
-      "directDeclarations": []
-    },
-    {
       "package": "json5",
       "version": "1.0.2",
       "categories": [
@@ -6314,19 +6271,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-/6KqX+GVUdqPuPPd2LxDDxzX6CAbjJehAAOKlNpqqUpAqPM6HeL8f+o3a+JsyGjn2lv0WY8UsTgUJjU9Ok55NA==",
-      "directDeclarations": []
-    },
-    {
-      "package": "shallowequal",
-      "version": "1.1.0",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-y0m1JoUZSlPAjXVtPPW70aZWfIL/dSP7AFkRnniLCrK/8MDKog3TySTBmckD+RObVxH0v4Tox67+F14PdED2oQ==",
       "directDeclarations": []
     },
     {
@@ -10874,39 +10818,6 @@
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
           "pathCount": 1
-        }
-      ]
-    },
-    {
-      "advisory": "GHSA-4p3w-j4w9-5jqw",
-      "package": "moment",
-      "title": "moment vulnerable to Path Traversal via crafted non-string locale name",
-      "severity": "moderate",
-      "url": "https://github.com/advisories/GHSA-4p3w-j4w9-5jqw",
-      "vulnerableVersions": [
-        "2.30.1"
-      ],
-      "directness": "transitive",
-      "reachability": [
-        "reachable"
-      ],
-      "productionClosure": [
-        {
-          "vulnerableVersion": "2.30.1",
-          "path": "apps/extension > antd@4.20.4 > moment@2.30.1"
-        }
-      ],
-      "acceptedException": null,
-      "findingPathCount": 2,
-      "pathContexts": [
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "2.30.1",
-          "directPackage": "antd",
-          "directVersion": "4.20.4",
-          "directDelivery": "shipped-runtime",
-          "reachability": "reachable",
-          "pathCount": 2
         }
       ]
     },
