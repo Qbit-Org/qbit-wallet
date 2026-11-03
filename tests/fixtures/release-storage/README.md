@@ -63,8 +63,11 @@ The same steps ran on each build, from a fresh Chromium profile:
 The browser resolves no host but `127.0.0.1`, so no explorer saw these wallets,
 and the build's reads from them failed as they would offline. That is why
 `phishing` and `phishing_list_fallback` are `null` and `notifications` is empty.
-The `keyring_-1#0` account name comes from step 7: the build names the
-temporary wallet it derives the contact's address with.
+The `keyring_-1#0` account name is written in step 1. The create flow's
+address-type screen previews the new wallet's address through a temporary
+wallet (`createTmpKeyringWithMnemonics`), and the build stores a default name
+for every account it shows, that one included. Step 7 derives the contact's
+address the same way and finds the name already there.
 
 Step 10 collapsed the balance card on 1.0.5 only. From 1.0.6 the card has no
 breakdown to show, and ignores the click, until a balance loads, and offline
@@ -73,6 +76,15 @@ none does. The 1.0.6 and 1.0.7 captures therefore hold the default
 `false`. The capture checks the saved value either way, and records a step a
 build could not take in `notes` in `wallet.json`. The three captures here
 predate `notes`, so this paragraph records it for them.
+
+Every captured `ui` state already holds `addressInput`, `amountInput` and the
+other fields the wallet now fills in when it loads an older state
+(`updateVersion` in `packages/wallet-state/src/reducers/ui.ts`). The one field
+missing, `feeRateBar.feeRateSource` in 1.0.5 and 1.0.6, was filled in before
+that change too. So these captures check that the fill keeps what the releases
+saved, but they cannot show the `updateAddressInput` crash it prevents, which
+needs a state without `addressInput`: the states built by hand in
+`packages/wallet-state/test/reducers/ui.test.ts` show it.
 
 | Release | ZIP                          | SHA-256                                                            | Captured   |
 | ------- | ---------------------------- | ------------------------------------------------------------------ | ---------- |
@@ -101,7 +113,11 @@ gh release download "$TAG" --repo Qbit-Org/qbit-wallet --dir "$WORK" \
 unzip -q "$WORK/qbit-chrome-mv3-$TAG.zip" -d "$WORK/extension"
 mkdir "$WORK/profile"
 
-# From the repository root, after `corepack pnpm install`:
+# From the repository root. The second command installs Playwright's
+# Chromium; to use another Chromium instead, skip it and set
+# QBIT_E2E_CHROMIUM_EXECUTABLE to that browser's executable.
+corepack pnpm install
+corepack pnpm test:e2e:install-browser
 QBIT_CAPTURE_RELEASE=$TAG \
 QBIT_CAPTURE_EXTENSION_DIR="$WORK/extension" \
 QBIT_CAPTURE_RELEASE_ZIP="$WORK/qbit-chrome-mv3-$TAG.zip" \

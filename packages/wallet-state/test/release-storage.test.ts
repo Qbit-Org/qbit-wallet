@@ -28,21 +28,42 @@ function leafPaths(value: object, prefix = ''): string[] {
   )
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * Where `saved` does not have the shape of `initial`, path by path: a field
+ * the current state does not have, or a value of another type than the
+ * initial one. A primitive may also be null. A field whose initial value is
+ * null, such as feeRateBar.feeRateSource, may hold anything.
+ */
+function shapeProblems(saved: unknown, initial: unknown, path = 'ui'): string[] {
+  if (initial === null) return []
+  if (isObject(initial)) {
+    if (!isObject(saved)) return [`${path} holds ${JSON.stringify(saved)}, not an object`]
+    return Object.entries(saved).flatMap(([key, value]) =>
+      key in initial
+        ? shapeProblems(value, initial[key], `${path}.${key}`)
+        : [`${path}.${key} is not a field of the current ui state`]
+    )
+  }
+  if (saved === null || typeof saved === typeof initial) return []
+  return [`${path} holds ${JSON.stringify(saved)}, not a ${typeof initial}`]
+}
+
 afterEach(() => {
   localStorage.clear()
 })
 
 describe.each(RELEASES)('the ui state saved by %s', release => {
   // A field this build renamed would still load, kept under its old name,
-  // and the field under its new name would get its initial value.
-  it('holds only fields this build still reads', () => {
+  // and the field under its new name would get its initial value. A field
+  // whose type changed would load as saved, and reach reducers that expect
+  // the new type.
+  it('holds only fields this build still reads, of the types it reads', () => {
     const saved = JSON.parse(readReleaseStorage(release).localStorage[SAVED_UI_KEY]!)
-    const current = leafPaths(initialState)
 
-    for (const path of leafPaths(saved)) {
-      const read = current.some(known => path === known || path.startsWith(`${known}.`))
-      expect(read, `${path} is not a field of the current ui state`).toBe(true)
-    }
+    expect(shapeProblems(saved, initialState)).toEqual([])
   })
 
   it('loads with everything the release saved', () => {
@@ -64,6 +85,9 @@ describe.each(RELEASES)('the ui state saved by %s', release => {
     }
   })
 
+  // No captured ui state lacks addressInput or amountInput, so this cannot
+  // reach the updateAddressInput crash that the fill on load prevents;
+  // test/reducers/ui.test.ts covers that with states built by hand.
   it('takes every ui change after loading', () => {
     const { store } = loadStore(release)
 
