@@ -1,0 +1,7 @@
+{
+  "i18nextLng": "es",
+  "redux_localstorage_simple_ui": "{\"uiTxCreateScreen\":{\"toInfo\":{\"address\":\"tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66\"},\"inputAmount\":\"0.0001\",\"enableRBF\":true,\"memo\":\"\"},\"addressInput\":{\"address\":\"\"},\"amountInput\":{\"amount\":\"\"},\"feeRateBar\":{\"feeRate\":1,\"feeRateInputVal\":\"\",\"enableLowFeeRate\":false,\"feeOptionIndex\":1,\"showCustomInput\":false},\"navigationSource\":1,\"isBalanceHidden\":true,\"balanceDetailExpanded\":true}",
+  "version_detail": "{\"version\":\"1.0.6\"}",
+  "themeMode": "dark",
+  "userSelectedLanguage": "true"
+}
