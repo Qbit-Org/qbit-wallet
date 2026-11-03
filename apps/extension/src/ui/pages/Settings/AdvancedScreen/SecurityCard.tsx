@@ -5,6 +5,20 @@ import { fontSizes } from '@/ui/theme/font';
 import { getLockTimeInfo } from '@qbit/wallet-shared';
 import { useAutoLockTimeId, useBiometricUnlock, useI18n, useSecurityCardLogic } from '@qbit/wallet-state';
 
+// The background locks on these only where the browser has the API: MV2
+// builds request no `idle` permission, so they have no `chrome.idle`.
+function canLockOnComputerLock(): boolean {
+  return typeof chrome !== 'undefined' && typeof chrome.idle?.onStateChanged?.addListener === 'function';
+}
+
+function canLockOnWindowsClosed(): boolean {
+  return (
+    typeof chrome !== 'undefined' &&
+    typeof chrome.windows?.onRemoved?.addListener === 'function' &&
+    typeof chrome.windows.getAll === 'function'
+  );
+}
+
 export function SecurityCard() {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -79,17 +93,17 @@ export function SecurityCard() {
         </Row>
 
         {/* Lock when the computer locks or the last window closes, once read */}
-        {lockOnComputerLock !== undefined && lockOnWindowsClosed !== undefined ? (
-          <>
-            <Row justifyBetween itemsCenter style={{ marginTop: 16 }} data-testid="lock-on-computer-lock-row">
-              <Text text={t('lock_when_computer_locks')} preset="bold" size="sm" />
-              <Switch checked={lockOnComputerLock} disabled={saving} onChange={changeLockOnComputerLock} />
-            </Row>
-            <Row justifyBetween itemsCenter style={{ marginTop: 16 }} data-testid="lock-on-windows-closed-row">
-              <Text text={t('lock_when_all_windows_close')} preset="bold" size="sm" />
-              <Switch checked={lockOnWindowsClosed} disabled={saving} onChange={changeLockOnWindowsClosed} />
-            </Row>
-          </>
+        {lockOnComputerLock !== undefined && canLockOnComputerLock() ? (
+          <Row justifyBetween itemsCenter style={{ marginTop: 16 }} data-testid="lock-on-computer-lock-row">
+            <Text text={t('lock_when_computer_locks')} preset="bold" size="sm" />
+            <Switch checked={lockOnComputerLock} disabled={saving} onChange={changeLockOnComputerLock} />
+          </Row>
+        ) : null}
+        {lockOnWindowsClosed !== undefined && canLockOnWindowsClosed() ? (
+          <Row justifyBetween itemsCenter style={{ marginTop: 16 }} data-testid="lock-on-windows-closed-row">
+            <Text text={t('lock_when_all_windows_close')} preset="bold" size="sm" />
+            <Switch checked={lockOnWindowsClosed} disabled={saving} onChange={changeLockOnWindowsClosed} />
+          </Row>
         ) : null}
       </Column>
     </Card>

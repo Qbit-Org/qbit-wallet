@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const harness = vi.hoisted(() => ({
-  walletController: { lockOnSystemEvent: vi.fn() }
+  walletController: { lockOnSystemEvent: vi.fn(), lockIfAutoLockOverdue: vi.fn() }
 }));
 
 vi.mock('@qbit/wallet-background', () => ({ walletController: harness.walletController }));
@@ -9,7 +9,7 @@ vi.mock('@qbit/wallet-background', () => ({ walletController: harness.walletCont
 import { initSystemLock } from './systemLock';
 
 type IdleState = 'active' | 'idle' | 'locked';
-type BrowserWindow = { id: number; type: 'normal' | 'popup' | 'devtools' };
+type BrowserWindow = { id: number; type: 'normal' | 'popup' | 'app' | 'devtools' };
 
 /** A browser's idle and windows APIs, as far as the listeners use them. */
 function fakeBrowser({ idle = true, windows = true } = {}) {
@@ -53,6 +53,7 @@ describe('initSystemLock', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     harness.walletController.lockOnSystemEvent.mockResolvedValue(true);
+    harness.walletController.lockIfAutoLockOverdue.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -82,6 +83,23 @@ describe('initSystemLock', () => {
     expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('computer-locked');
   });
 
+  it('applies an overdue auto-lock on every change of the idle state, waking included', async () => {
+    const browser = fakeBrowser();
+    initSystemLock(started());
+
+    // Waking from sleep: the user is back, the paused timer has not run out.
+    browser.setIdleState('active');
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockIfAutoLockOverdue).toHaveBeenCalledTimes(1);
+    expect(harness.walletController.lockOnSystemEvent).not.toHaveBeenCalled();
+
+    browser.setIdleState('idle');
+    browser.setIdleState('locked');
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockIfAutoLockOverdue).toHaveBeenCalledTimes(3);
+    expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('computer-locked');
+  });
+
   it('waits for start-up when the event is what started the worker', async () => {
     const browser = fakeBrowser();
     let finishStartup: () => void = () => undefined;
@@ -91,12 +109,15 @@ describe('initSystemLock', () => {
     await vi.runAllTimersAsync();
     expect(harness.walletController.lockOnSystemEvent).not.toHaveBeenCalled();
 
+    expect(harness.walletController.lockIfAutoLockOverdue).not.toHaveBeenCalled();
+
     finishStartup();
     await vi.runAllTimersAsync();
     expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('computer-locked');
+    expect(harness.walletController.lockIfAutoLockOverdue).toHaveBeenCalledTimes(1);
   });
 
-  it('locks when the last normal window closes, however many popups stay open', async () => {
+  it('locks when the last browser window closes, however many popups stay open', async () => {
     const browser = fakeBrowser();
     browser.open = [
       { id: 1, type: 'normal' },
@@ -113,7 +134,7 @@ describe('initSystemLock', () => {
 
     browser.closeWindow(2);
     await vi.runAllTimersAsync();
-    expect(browser.windows.getAll).toHaveBeenLastCalledWith({ windowTypes: ['normal'] }, expect.any(Function));
+    expect(browser.windows.getAll).toHaveBeenLastCalledWith({ windowTypes: ['normal', 'app'] }, expect.any(Function));
     expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledTimes(1);
     expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('windows-closed');
 
@@ -122,6 +143,24 @@ describe('initSystemLock', () => {
     browser.closeWindow(3);
     await vi.runAllTimersAsync();
     expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts an installed web app as an open window', async () => {
+    const browser = fakeBrowser();
+    // A dapp installed as an app is the user's only window, beside an approval.
+    browser.open = [
+      { id: 1, type: 'app' },
+      { id: 2, type: 'popup' }
+    ];
+    initSystemLock(started());
+
+    browser.closeWindow(2);
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockOnSystemEvent).not.toHaveBeenCalled();
+
+    browser.closeWindow(1);
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('windows-closed');
   });
 
   it('locks when the windows cannot be listed', async () => {
@@ -145,6 +184,11 @@ describe('initSystemLock', () => {
     browser.setIdleState('locked');
     await vi.runAllTimersAsync();
     expect(error).toHaveBeenCalledWith('[Background] Lock on computer-locked failed', expect.any(Error));
+
+    harness.walletController.lockIfAutoLockOverdue.mockRejectedValue(new Error('storage gone'));
+    browser.setIdleState('active');
+    await vi.runAllTimersAsync();
+    expect(error).toHaveBeenCalledWith('[Background] Overdue auto-lock failed', expect.any(Error));
     error.mockRestore();
   });
 

@@ -1,24 +1,54 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { BUS_EVENTS, BUS_METHODS } from '@qbit/wallet-shared'
+import { BUS_EVENTS, BUS_METHODS, ErrorCodes } from '@qbit/wallet-shared'
 
 import { WalletController } from '../src/controllers/wallet'
-import { preferenceService } from '../src/services'
+import { contactBookService, preferenceService } from '../src/services'
 import { bgEventBus } from '../src/utils/eventBus'
 
-// The keyring as the lock sees it: whether it reads unlocked, and setLocked.
+// The keyring as the lock and the unlock see it: whether it reads unlocked,
+// whether a vault exists, setLocked, and submitPassword, which publishes the
+// unlock only if no lock came in while it ran, as the keyring service does.
 // The rest of the background is the real one.
 const keyring = vi.hoisted(() => {
-  const state = { isUnlocked: true }
+  const state = { isUnlocked: true, hasVault: true, submitting: false, lockedWhileSubmitting: false }
+  // Held open to let a test lock during the unlock's last step.
+  let lastStep: Promise<void> = Promise.resolve()
   const service = {
     keyrings: [],
-    memStore: { getState: () => ({ ...state }) } as { getState(): { isUnlocked: boolean } } | undefined,
+    memStore: { getState: () => ({ isUnlocked: state.isUnlocked }) } as
+      | { getState(): { isUnlocked: boolean } }
+      | undefined,
+    hasVault: () => state.hasVault,
+    syncQbitHdPath: async () => false,
     setLocked: async () => {
       state.isUnlocked = false
-      return { ...state }
+      if (state.submitting) state.lockedWhileSubmitting = true
+      return { isUnlocked: false }
+    },
+    submitPassword: async (_password: string, options?: { beforeUnlock?: () => Promise<void> }) => {
+      state.submitting = true
+      state.lockedWhileSubmitting = false
+      try {
+        await options?.beforeUnlock?.()
+        await lastStep
+        if (!state.lockedWhileSubmitting) state.isUnlocked = true
+      } catch (error) {
+        state.isUnlocked = false
+        throw error
+      } finally {
+        state.submitting = false
+      }
+      return { isUnlocked: state.isUnlocked }
     },
   }
-  return { state, service }
+  return {
+    state,
+    service,
+    holdLastStep: (step: Promise<void>) => {
+      lastStep = step
+    },
+  }
 })
 
 vi.mock('../src/services', async importOriginal => ({
@@ -69,13 +99,28 @@ beforeEach(async () => {
   vi.useFakeTimers()
   adapter = new DiskAdapter()
   await preferenceService.init({ storage: adapter as any, logger })
-  keyring.state.isUnlocked = true
-  keyring.service.memStore = { getState: () => ({ ...keyring.state }) }
+  Object.assign(keyring.state, { isUnlocked: true, hasVault: true, submitting: false })
+  keyring.holdLastStep(Promise.resolve())
+  keyring.service.memStore = { getState: () => ({ isUnlocked: keyring.state.isUnlocked }) }
   setLocked = vi.spyOn(keyring.service, 'setLocked')
   broadcasts = []
   bgEventBus.addEventListener(BUS_EVENTS.broadcastToUI, record)
   wallet = new WalletController({ now: () => Date.now() })
+  // What unlocking reads besides the keyring, none of it under test here.
+  vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(undefined as any)
+  vi.spyOn(contactBookService, 'listAlias').mockReturnValue([{} as any])
+  ;(wallet as any).kickPendingQbitRestoreFloorScan = () => undefined
 })
+
+/** Hold the chain-state queue the way a restore floor scan would, until released. */
+function holdChainStateQueue() {
+  let release: () => void = () => undefined
+  const held = new Promise<void>(resolve => (release = resolve))
+  void (wallet as any).enqueueChainStateChange(() => held)
+  return release
+}
+
+const LOCKED_DURING_UNLOCK = { code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK }
 
 afterEach(() => {
   bgEventBus.removeEventListener(BUS_EVENTS.broadcastToUI, record)
@@ -155,6 +200,70 @@ describe('the auto-lock', () => {
     expect(wallet.isUnlocked()).toBe(true)
   })
 
+  it('applies an overdue auto-lock on waking, without a screen action', async () => {
+    await wallet.setLastActiveTime()
+    sleep(DEFAULT_LOCK_MS - 1)
+    await expect(wallet.lockIfAutoLockOverdue()).resolves.toBe(false)
+    expect(wallet.isUnlocked()).toBe(true)
+
+    // The computer slept past the deadline; the paused timer has not run.
+    sleep(10 * MINUTES)
+    await expect(wallet.lockIfAutoLockOverdue()).resolves.toBe(true)
+    expect(wallet.isUnlocked()).toBe(false)
+    expect(broadcasts.sort()).toEqual([BUS_METHODS.AUTO_LOCKED, BUS_METHODS.LOCKED].sort())
+
+    // Nothing is left to lock.
+    await expect(wallet.lockIfAutoLockOverdue()).resolves.toBe(false)
+    await vi.advanceTimersByTimeAsync(DEFAULT_LOCK_MS)
+    expect(setLocked).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not apply an overdue auto-lock to a locked wallet', async () => {
+    await wallet.setLastActiveTime()
+    keyring.state.isUnlocked = false
+    sleep(10 * MINUTES)
+    await expect(wallet.lockIfAutoLockOverdue()).resolves.toBe(false)
+    expect(setLocked).not.toHaveBeenCalled()
+  })
+
+  it('ends the auto-lock time on any lock, so its timer cannot lock a later unlock', async () => {
+    await wallet.setLastActiveTime()
+    await vi.advanceTimersByTimeAsync(1 * MINUTES)
+    await wallet.lockWallet()
+    broadcasts = []
+    setLocked.mockClear()
+
+    // An unlock is under way (the automatic biometric prompt, say) when the
+    // old session's time would have run out.
+    keyring.holdLastStep(new Promise(() => undefined))
+    void wallet.unlock('password').catch(() => undefined)
+    await vi.advanceTimersByTimeAsync(DEFAULT_LOCK_MS)
+    expect(setLocked).not.toHaveBeenCalled()
+    expect(broadcasts).not.toContain(BUS_METHODS.AUTO_LOCKED)
+    await expect(wallet.lockIfAutoLockOverdue()).resolves.toBe(false)
+  })
+
+  it('does not report an auto-lock when a timer armed on the unlock screen runs out', async () => {
+    await wallet.lockWallet()
+    broadcasts = []
+    setLocked.mockClear()
+    await wallet.setLastActiveTime()
+    await vi.advanceTimersByTimeAsync(DEFAULT_LOCK_MS)
+    expect(setLocked).not.toHaveBeenCalled()
+    expect(broadcasts).toEqual([])
+  })
+
+  it('does not lock during first-time onboarding, before a vault exists', async () => {
+    keyring.state.hasVault = false
+    await wallet.setLastActiveTime()
+    sleep(10 * MINUTES)
+    await expect(wallet.lockIfAutoLockOverdue()).resolves.toBe(false)
+    // A screen action starts the time over instead.
+    await wallet.setLastActiveTime()
+    expect(wallet.isUnlocked()).toBe(true)
+    expect(setLocked).not.toHaveBeenCalled()
+  })
+
   it('uses the new auto-lock time for the deadline once it is changed', async () => {
     await wallet.setAutoLockTimeId(SHORTEST_LOCK_ID)
     sleep(SHORTEST_LOCK_MS)
@@ -205,6 +314,23 @@ describe('the system lock', () => {
     await expect(wallet.lockOnSystemEvent('computer-locked')).resolves.toBe(true)
     expect(wallet.isUnlocked()).toBe(false)
   })
+
+  it.each(['computer-locked', 'windows-closed'] as const)(
+    'does not lock on %s during first-time onboarding, before a vault exists',
+    async event => {
+      // The password is set and the onboarding screens still create or
+      // restore the wallet: locking now would leave nothing to unlock again.
+      keyring.state.hasVault = false
+      await expect(wallet.lockOnSystemEvent(event)).resolves.toBe(false)
+      expect(wallet.isUnlocked()).toBe(true)
+      expect(setLocked).not.toHaveBeenCalled()
+
+      // Once the wallet exists, the system lock applies.
+      keyring.state.hasVault = true
+      await expect(wallet.lockOnSystemEvent(event)).resolves.toBe(true)
+      expect(wallet.isUnlocked()).toBe(false)
+    }
+  )
 
   it('locks even while the wallet reads locked, so an unlock under way ends locked', async () => {
     // submitPassword publishes the unlock only at its end; the keyring skips
@@ -282,5 +408,68 @@ describe('the onboarding and recovery keepalive', () => {
     expect(wallet.isUnlocked()).toBe(false)
     expect(broadcasts).toContain(BUS_METHODS.AUTO_LOCKED)
     stop()
+  })
+})
+
+describe('an unlock and a lock that comes in meanwhile', () => {
+  beforeEach(() => {
+    keyring.state.isUnlocked = false
+  })
+
+  it('unlocks when no lock comes in', async () => {
+    await expect(wallet.unlock('password')).resolves.toBeUndefined()
+    expect(wallet.isUnlocked()).toBe(true)
+    expect(broadcasts).not.toContain(BUS_METHODS.LOCKED)
+  })
+
+  it('ends locked when the computer locks while the unlock waits its turn', async () => {
+    const release = holdChainStateQueue()
+    const unlocking = wallet.unlock('password')
+    const outcome = unlocking.then(
+      () => 'unlocked',
+      error => error
+    )
+    await wallet.lockOnSystemEvent('computer-locked')
+    // By the time the unlock runs, the lock has finished: the keyring
+    // service's own pending-lock check no longer sees it.
+    release()
+
+    await expect(outcome).resolves.toMatchObject(LOCKED_DURING_UNLOCK)
+    expect(wallet.isUnlocked()).toBe(false)
+  })
+
+  it('ends locked when the last window closes during the unlock\'s last step', async () => {
+    let finishLastStep: () => void = () => undefined
+    keyring.holdLastStep(new Promise<void>(resolve => (finishLastStep = resolve)))
+    const outcome = wallet.unlock('password').then(
+      () => 'unlocked',
+      error => error
+    )
+    await vi.waitFor(() => expect(keyring.state.submitting).toBe(true))
+    await wallet.lockOnSystemEvent('windows-closed')
+    finishLastStep()
+
+    await expect(outcome).resolves.toMatchObject(LOCKED_DURING_UNLOCK)
+    expect(wallet.isUnlocked()).toBe(false)
+  })
+
+  it('ends locked when the keyring service locks on its own during the unlock', async () => {
+    let finishLastStep: () => void = () => undefined
+    keyring.holdLastStep(new Promise<void>(resolve => (finishLastStep = resolve)))
+    const outcome = wallet.unlock('password').then(
+      () => 'unlocked',
+      error => error
+    )
+    await vi.waitFor(() => expect(keyring.state.submitting).toBe(true))
+    await keyring.service.setLocked()
+    finishLastStep()
+
+    await expect(outcome).resolves.toMatchObject(LOCKED_DURING_UNLOCK)
+  })
+
+  it('lets an unlock called after the lock go through', async () => {
+    await wallet.lockOnSystemEvent('computer-locked')
+    await expect(wallet.unlock('password')).resolves.toBeUndefined()
+    expect(wallet.isUnlocked()).toBe(true)
   })
 })

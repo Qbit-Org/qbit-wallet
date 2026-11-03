@@ -236,4 +236,5 @@ Describe it as follows:
   `permissions_increase`.
 
 The "Lock when all windows close" setting uses `chrome.windows`, which needs
-no permission.
+no permission. Builds without `chrome.idle` or `chrome.windows` (MV2) hide
+the matching switch.

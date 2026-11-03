@@ -1608,15 +1608,32 @@ export class WalletController extends BaseController {
     return queuedOperation
   }
 
-  unlock = (password: string): Promise<void> =>
-    this.enqueueChainStateChange(() => this.performUnlock(password))
+  /**
+   * Unlock with the password, after any chain state change already queued. A
+   * lock that comes in from the call on wins, even while the unlock waits its
+   * turn (behind a restore floor scan, say), when the keyring service's own
+   * pending-lock check no longer sees it: the unlock then ends locked and
+   * rejects with WALLET_LOCKED_DURING_UNLOCK.
+   */
+  unlock = (password: string): Promise<void> => {
+    const locksAtCall = this.lockRequests
+    return this.enqueueChainStateChange(() => this.performUnlock(password, locksAtCall))
+  }
 
-  private performUnlock = async (password: string): Promise<void> => {
+  private performUnlock = async (password: string, locksAtCall: number): Promise<void> => {
+    const assertNotLockedSinceCall = () => {
+      if (this.lockRequests !== locksAtCall) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    }
+    assertNotLockedSinceCall()
     const alianNameInited = preferenceService.getInitAlianNameStatus()
     const alianNames = contactBookService.listAlias()
     let deferredAccountChange: Account | undefined
     await keyringService.submitPassword(password, {
       beforeUnlock: async () => {
+        // Thrown here, the keyring service drops what it loaded and stays locked.
+        assertNotLockedSinceCall()
         const hdPathChanged = await keyringService.syncQbitHdPath(
           getQbitHdPathForChainType(this.getChainType())
         )
@@ -1642,6 +1659,13 @@ export class WalletController extends BaseController {
         }
       },
     })
+    // A lock during the unlock's last step leaves the keyring locked, as the
+    // keyring service publishes no unlock while a lock is pending; so does a
+    // lock the keyring service makes on its own.
+    assertNotLockedSinceCall()
+    if (!this.isUnlocked()) {
+      throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+    }
     sessionService.broadcastEvent(SESSION_EVENTS.unlock)
     if (deferredAccountChange) {
       this.publishAccountChange(deferredAccountChange)
@@ -1684,7 +1708,17 @@ export class WalletController extends BaseController {
     return keyringService.memStore.getState().isUnlocked
   }
 
+  /** Locks requested through lockWallet; see `unlock`. */
+  private lockRequests = 0
+
   lockWallet = async () => {
+    this.lockRequests += 1
+    // The lock ends the session the auto-lock was counting down, so its timer
+    // cannot lock a later unlock (the automatic biometric prompt, say) or
+    // report an auto-lock for a wallet already locked.
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
     // A locked wallet keeps no account's outputs in memory, not even while
     // the lock waits or if it fails. setLocked marks the wallet locked at
     // once, before it waits, so nothing is kept after this clear: not from
@@ -9383,16 +9417,28 @@ export class WalletController extends BaseController {
 
   /**
    * A screen action: start the auto-lock time over, unless the auto-lock is
-   * overdue, which locks instead. Only an unlocked wallet has a session to
-   * end; on the unlock screen an action re-arms the timer as before, so an
-   * unlock it overlaps is not locked straight away.
+   * overdue, which locks instead (see `lockIfAutoLockOverdue`). On the unlock
+   * screen an action re-arms the timer as before, so an unlock it overlaps is
+   * not locked straight away.
    */
   setLastActiveTime = async () => {
-    if (this.autoLockDueAt !== undefined && this.now() >= this.autoLockDueAt && this.isUnlocked()) {
-      await this.autoLock()
-      return
-    }
+    if (await this.lockIfAutoLockOverdue()) return
     this._resetTimeout()
+  }
+
+  /**
+   * Auto-lock now if its deadline has passed: on a screen action, and when
+   * the computer's idle state changes, as it does on waking, since the timer
+   * does not count the time the computer sleeps. Only an unlocked wallet that
+   * has a vault has a session to end: during first-time onboarding there is
+   * no vault to unlock again, and locking would strand the user. Resolves
+   * with whether it locked.
+   */
+  lockIfAutoLockOverdue = async (): Promise<boolean> => {
+    if (this.autoLockDueAt === undefined || this.now() < this.autoLockDueAt) return false
+    if (!this.isUnlocked() || !keyringService.hasVault()) return false
+    await this.autoLock()
+    return true
   }
 
   private _resetTimeout = () => {
@@ -9410,11 +9456,14 @@ export class WalletController extends BaseController {
     }, timeConfig.time)
   }
 
-  /** The auto-lock: its timer ran out, or a screen action came after its deadline. */
+  /** The auto-lock: its timer ran out, or its deadline passed. */
   private autoLock = (): Promise<void> => {
     clearTimeout(this.timer)
     this.timer = null
     this.autoLockDueAt = undefined
+    // A timer armed on the unlock screen finds nothing to lock, and must not
+    // cut short an unlock under way.
+    if (!this.isUnlocked()) return Promise.resolve()
     // lockWallet marks the wallet locked before its first await.
     const locked = this.lockWallet()
     bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
@@ -9425,16 +9474,18 @@ export class WalletController extends BaseController {
   }
 
   /**
-   * Lock because the computer locked or the last normal browser window
-   * closed, when that event's setting is on. A setting that cannot be read
-   * counts as on. The caller waits for the worker's start-up first: only a
-   * keyring that has started can hold an unlocked wallet, since the keyring
-   * keeps its secrets in memory. Locks whether or not the wallet reads
-   * unlocked, so an unlock still running when the event comes ends locked.
-   * Resolves with whether it locked.
+   * Lock because the computer locked or the last browser window closed, when
+   * that event's setting is on. A setting that cannot be read counts as on.
+   * The caller waits for the worker's start-up first: only a keyring that has
+   * started can hold an unlocked wallet, since the keyring keeps its secrets
+   * in memory. Without a vault there is nothing to lock: during first-time
+   * onboarding the wallet could not be unlocked again, and the screens that
+   * create or restore it would fail. Locks whether or not the wallet reads
+   * unlocked, so an unlock still waiting or running ends locked (see
+   * `unlock`). Resolves with whether it locked.
    */
   lockOnSystemEvent = async (event: 'computer-locked' | 'windows-closed'): Promise<boolean> => {
-    if (!keyringService.memStore) return false
+    if (!keyringService.memStore || !keyringService.hasVault()) return false
     let enabled = true
     try {
       enabled =

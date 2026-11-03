@@ -75,6 +75,7 @@ vi.mock('../src/services', async () => {
     keyringService: {
       keyrings: [],
       memStore: { getState: () => ({ isUnlocked: true }) },
+      hasVault: () => true,
       setLocked: vi.fn(),
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),

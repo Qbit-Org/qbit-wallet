@@ -2357,6 +2357,9 @@
   "unlock_already_in_progress": {
     "message": "Le déverrouillage est déjà en cours"
   },
+  "wallet_locked_during_unlock": {
+    "message": "Le portefeuille s'est verrouillé pendant le déverrouillage. Déverrouillez-le à nouveau."
+  },
   "unrecognized_password_strength": {
     "message": "Force de mot de passe non reconnue"
   },

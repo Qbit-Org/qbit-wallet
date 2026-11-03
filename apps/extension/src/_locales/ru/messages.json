@@ -2357,6 +2357,9 @@
   "unlock_already_in_progress": {
     "message": "Разблокировка уже выполняется"
   },
+  "wallet_locked_during_unlock": {
+    "message": "Кошелёк заблокировался во время разблокировки. Разблокируйте его ещё раз."
+  },
   "unrecognized_password_strength": {
     "message": "Нераспознанная надежность пароля"
   },

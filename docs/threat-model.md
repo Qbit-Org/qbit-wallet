@@ -129,16 +129,22 @@ Controls and evidence:
   replacing the reviewed `tiny-secp256k1` wallet-signing route;
 - the auto-lock (30 seconds to 4 hours, 3 minutes by default) runs on a timer
   and on a wall-clock deadline: a timer does not count the time the computer
-  sleeps, so a screen action after the deadline locks instead of extending
-  the session;
+  sleeps, so a screen action after the deadline, or any change of the
+  computer's idle state such as waking, locks instead of extending the
+  session. Any lock ends the auto-lock time, so an old timer cannot lock a
+  later unlock;
 - with "Lock when the computer locks" on, the wallet locks when `chrome.idle`
   reports `locked`; with "Lock when all windows close" on, it locks when no
-  `normal` browser window remains, and its own approval popups do not count.
-  Both are on by default, also for wallets set up before they existed, and
-  both listeners are added as the service worker starts, so either event
-  starts a stopped worker. The lock wins over an unlock still running and
-  over the onboarding and recovery keepalive, whose refreshes cannot undo it;
-  and
+  `normal` browser window or installed web app (`app`) window remains, and
+  its own approval popups do not count. Both are on by default, also for
+  wallets set up before they existed, and both listeners are added as the
+  service worker starts, so either event starts a stopped worker. A browser
+  without the API (MV2 builds have no `idle`) shows no switch for it;
+- a lock wins over an unlock that is still waiting its turn or running: the
+  wallet notes the locks made since the unlock was called, and the unlock
+  ends locked with "The wallet locked while unlocking" instead of opening
+  the wallet. Neither can the onboarding and recovery keepalive undo a lock:
+  a refresh never unlocks; and
 - a lock forgets the keyring's secrets but not a broadcast already handed to
   the network, which still settles.
 
@@ -155,12 +161,19 @@ Residual risk:
 - The computer-lock signal is whatever the operating system reports to Chrome;
   a desktop that does not report its screen lock (some Linux desktops) gets
   only the auto-lock. Chrome on macOS and Windows also reports a running
-  screen saver as locked, so the wallet locks then too. With both settings off, or with a long auto-lock and the
-  computer left unlocked, the wallet stays unlocked until the auto-lock time.
+  screen saver as locked, so the wallet locks then too. With both settings
+  off, or with a long auto-lock and the computer left unlocked, the wallet
+  stays unlocked until the auto-lock time.
   Closing the last window matters where Chrome keeps running without one, as
   on macOS; where Chrome quits instead, the unlocked state ends with it.
   Windows the wallet cannot see, such as incognito windows while it is not
   allowed in incognito, do not keep it unlocked.
+- During first-time onboarding, after the password is set and before the
+  wallet's vault exists, neither event nor an overdue deadline locks: there
+  would be nothing to unlock again, and creating or restoring the wallet
+  would fail. The mnemonic shown then stays on screen while the user is
+  away, bounded by the onboarding keepalive's ten minutes and the auto-lock
+  timer.
 
 ## PQC counter custody and restoration
 

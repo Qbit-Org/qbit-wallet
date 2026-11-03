@@ -19,7 +19,6 @@ interface WalletKeyringProbe {
   index: number
 }
 
-const AUTO_LOCKED_METHOD = 'walletAutoLocked'
 const LOCKED_METHOD = 'walletLocked'
 const ONBOARDING_GRACE_PERIOD_MS = 10 * 60 * 1000
 
@@ -128,14 +127,17 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   }, ONBOARDING_GRACE_PERIOD_MS)
   await extension.requestWalletController<void>(setup.page, 'setAutoLockTimeId', [0])
 
-  // The lock fires 30 seconds after the last activity refresh; the budget
-  // leaves room for a trailing activity burst from the clicks above.
+  // Past its grace period the keepalive stops refreshing and locks on its
+  // next tick, unless the 30-second auto-lock comes first. A lock clears the
+  // auto-lock timer, so after the keepalive's lock no auto-lock follows: wait
+  // for the lock itself. The budget leaves room for a trailing activity burst
+  // from the clicks above.
   await expect
     .poll(() => extension.walletBroadcastMethods(setup.page), {
       timeout: 120_000,
       intervals: [250, 500, 1_000],
     })
-    .toContain(AUTO_LOCKED_METHOD)
+    .toContain(LOCKED_METHOD)
   await setup.page.evaluate(() => {
     delete (performance as unknown as { now?: () => number }).now
   })

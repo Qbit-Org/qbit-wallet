@@ -28,6 +28,8 @@ vi.mock('../src/services', () => ({
     syncQbitHdPath: vi.fn(),
     rearmQbitRestoreFloors: vi.fn(),
     verifyPassword: vi.fn(),
+    // Unlocked, as the keyring service reads once submitPassword succeeds.
+    memStore: { getState: () => ({ isUnlocked: true }) },
     keyrings: [],
   },
   preferenceService: {

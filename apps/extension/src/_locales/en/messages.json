@@ -2357,6 +2357,9 @@
   "unlock_already_in_progress": {
     "message": "Unlock already in progress"
   },
+  "wallet_locked_during_unlock": {
+    "message": "The wallet locked while unlocking. Unlock it again."
+  },
   "unrecognized_password_strength": {
     "message": "Unrecognized password strength"
   },

@@ -2357,6 +2357,9 @@
   "unlock_already_in_progress": {
     "message": "解鎖操作正在進行中"
   },
+  "wallet_locked_during_unlock": {
+    "message": "錢包在解鎖期間已鎖定。請再次解鎖。"
+  },
   "unrecognized_password_strength": {
     "message": "未識別的密碼強度"
   },

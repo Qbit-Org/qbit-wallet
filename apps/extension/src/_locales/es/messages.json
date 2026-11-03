@@ -2357,6 +2357,9 @@
   "unlock_already_in_progress": {
     "message": "El desbloqueo ya está en progreso"
   },
+  "wallet_locked_during_unlock": {
+    "message": "La billetera se bloqueó mientras se desbloqueaba. Vuelve a desbloquearla."
+  },
   "unrecognized_password_strength": {
     "message": "Fuerza de contraseña no reconocida"
   },
