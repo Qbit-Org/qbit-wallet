@@ -156,6 +156,12 @@ export class PermissionService {
   private logger: Logger = defaultLogger
   private autoSync: boolean = false
   private internalRequestOrigin: string = 'https://qbit.org'
+  // Settles once every write asked for so far has settled.
+  private writes: Promise<void> = Promise.resolve()
+  // How many disconnects of each origin, and how many resets, have been asked
+  // for and have not settled. A grant check refuses their sites meanwhile.
+  private disconnecting = new Map<string, number>()
+  private resetting = 0
 
   constructor() {}
 
@@ -231,22 +237,78 @@ export class PermissionService {
   }
 
   /**
+   * Run `write` once every write asked for before it has settled, and settle
+   * as it does. Every change to the stored record goes through here. Each
+   * write stores every site, and storage keeps a later write even when an
+   * earlier one fails: were two in flight at once, the later would store the
+   * earlier's change, and undoing the earlier would undo the later's in
+   * memory. One at a time, a write starts from the sites the last one left,
+   * so undoing it restores only its own change, and no later write stores it.
+   */
+  private queueWrite(write: () => Promise<void>): Promise<void> {
+    const result = this.writes.then(write)
+    this.writes = result.catch(() => undefined)
+    return result
+  }
+
+  /**
+   * Run `revoke`, which takes away the grant of `origin`, or of every site
+   * when `origin` is undefined, and refuse that grant until it settles. The
+   * change lands only once the writes asked for before it have settled, but a
+   * revocation holds from when it is asked for. When it fails, the site keeps
+   * the grant it had.
+   */
+  private async whileRevoking(
+    origin: string | undefined,
+    revoke: () => Promise<void>
+  ): Promise<void> {
+    if (origin === undefined) {
+      this.resetting++
+    } else {
+      this.disconnecting.set(origin, (this.disconnecting.get(origin) ?? 0) + 1)
+    }
+    try {
+      await revoke()
+    } finally {
+      if (origin === undefined) {
+        this.resetting--
+      } else {
+        const left = (this.disconnecting.get(origin) ?? 1) - 1
+        if (left > 0) this.disconnecting.set(origin, left)
+        else this.disconnecting.delete(origin)
+      }
+    }
+  }
+
+  /**
+   * Whether a disconnect or reset that has been asked for and has not settled
+   * takes away `origin`'s grant.
+   */
+  private isRevoking(origin: string): boolean {
+    return this.resetting > 0 || this.disconnecting.has(origin)
+  }
+
+  /**
    * Remove every site and store the empty record, whether or not init loaded
    * the stored one, so no grant is left on disk for the next start. Rejects,
    * changing nothing, when the record cannot be written.
    */
   private async clearSites(): Promise<void> {
-    if (!this.storage) {
-      throw new Error('PermissionService: Storage adapter is required')
-    }
-    const previousSites = this.sites
-    this.sites = new Map()
-    try {
-      await this.storage.set(this.storageKey, this.toStore())
-    } catch (error) {
-      this.sites = previousSites
-      throw error
-    }
+    await this.whileRevoking(undefined, () =>
+      this.queueWrite(async () => {
+        if (!this.storage) {
+          throw new Error('PermissionService: Storage adapter is required')
+        }
+        const previousSites = this.sites
+        this.sites = new Map()
+        try {
+          await this.storage.set(this.storageKey, this.toStore())
+        } catch (error) {
+          this.sites = previousSites
+          throw error
+        }
+      })
+    )
   }
 
   /**
@@ -280,6 +342,23 @@ export class PermissionService {
   }
 
   /**
+   * The site for `origin` when it is connected, which becomes the most
+   * recently used, whatever revocation is pending for it.
+   */
+  private connected(origin: string): ConnectedSite | undefined {
+    const site = this.use(origin)
+    return site?.isConnected ? site : undefined
+  }
+
+  /**
+   * The connected sites, most recently used first, with those a pending
+   * revocation will disconnect.
+   */
+  private storedConnectedSites(): ConnectedSite[] {
+    return this.recentFirst().filter((item: ConnectedSite) => item.isConnected)
+  }
+
+  /**
    * Replace every site with `sites`, most recently used first.
    */
   private load(sites: ConnectedSite[]): void {
@@ -308,22 +387,28 @@ export class PermissionService {
   /**
    * Apply a permission mutation atomically with its persisted representation.
    * A failed write must not leave an in-memory grant or revocation that differs
-   * from what will be restored after a service-worker restart.
+   * from what will be restored after a service-worker restart. `mutate` runs,
+   * and its change shows in memory, once every earlier change has been stored
+   * or undone, so it reads the sites it changes then, not when the change was
+   * asked for; a revocation is refused at once (see whileRevoking). It returns
+   * false when it changes nothing, and nothing is written.
    */
-  private async mutateAndSync(mutate: () => void): Promise<void> {
-    const previousSites = new Map(this.loadedSites())
-    mutate()
-    try {
-      // Never keep a site the next start would drop.
-      const [problem] = splitSites(this.recentFirst().map(site => ({ site }))).dropped
-      if (problem) {
-        throw new Error(`PermissionService: ${problem}`)
+  private async mutateAndSync(mutate: () => boolean | void): Promise<void> {
+    await this.queueWrite(async () => {
+      const previousSites = new Map(this.loadedSites())
+      try {
+        if (mutate() === false) return
+        // Never keep a site the next start would drop.
+        const [problem] = splitSites(this.recentFirst().map(site => ({ site }))).dropped
+        if (problem) {
+          throw new Error(`PermissionService: ${problem}`)
+        }
+        await this.sync()
+      } catch (error) {
+        this.sites = previousSites
+        throw error
       }
-      await this.sync()
-    } catch (error) {
-      this.sites = previousSites
-      throw error
-    }
+    })
   }
 
   /**
@@ -344,7 +429,8 @@ export class PermissionService {
    * Set site information
    */
   async setSite(site: ConnectedSite): Promise<void> {
-    await this.mutateAndSync(() => this.put(site))
+    const change = (): Promise<void> => this.mutateAndSync(() => this.put(site))
+    await (site.isConnected === false ? this.whileRevoking(site.origin, change) : change())
   }
 
   /**
@@ -374,8 +460,7 @@ export class PermissionService {
    * Touch connected site (update LRU order)
    */
   async touchConnectedSite(origin: string): Promise<void> {
-    if (!this.loadedSites().has(origin)) return
-    await this.mutateAndSync(() => this.use(origin))
+    await this.mutateAndSync(() => this.use(origin) !== undefined)
   }
 
   /**
@@ -386,41 +471,53 @@ export class PermissionService {
     value: Partial<ConnectedSite>,
     partialUpdate?: boolean
   ): Promise<void> {
-    if (!this.loadedSites().has(origin)) return
-
     // The site stays under `origin`, which is what it is stored and read by.
-    await this.mutateAndSync(() => {
-      if (partialUpdate) {
+    const change = (): Promise<void> =>
+      this.mutateAndSync(() => {
         const existingValue = this.sites!.get(origin)
-        this.put({ ...existingValue, ...value, origin } as ConnectedSite)
-      } else {
-        this.put({ ...value, origin } as ConnectedSite)
-      }
-    })
+        if (!existingValue) return false
+        if (partialUpdate) {
+          this.put({ ...existingValue, ...value, origin } as ConnectedSite)
+        } else {
+          this.put({ ...value, origin } as ConnectedSite)
+        }
+      })
+    await (value.isConnected === false ? this.whileRevoking(origin, change) : change())
   }
 
   /**
    * Check if origin has permission
    */
   hasPermission(origin: string, chain?: ChainType): boolean {
+    if (this.isRevoking(origin)) return false
     const site = this.sites?.get(origin)
     return Boolean(site?.isConnected && (chain === undefined || site.chain === chain))
   }
 
   /**
-   * Set recent connected sites order
+   * Set recent connected sites order: the stored sites `sites` names, most
+   * recently used first, then every other stored site in its current order.
+   * Each site keeps its stored state, so a list read before a change cannot
+   * undo it, and an origin that is no longer stored is ignored.
    */
   async setRecentConnectedSites(sites: ConnectedSite[]): Promise<void> {
-    this.loadedSites()
-    const disconnectedSites = this.recentFirst().filter((item: ConnectedSite) => !item.isConnected)
-    await this.mutateAndSync(() => this.load(sites.concat(disconnectedSites)))
+    await this.mutateAndSync(() => {
+      const stored = this.loadedSites()
+      const named = new Map<string, ConnectedSite>()
+      for (const { origin } of sites) {
+        const site = stored.get(origin)
+        if (site && !named.has(origin)) named.set(origin, site)
+      }
+      const others = this.recentFirst().filter((item: ConnectedSite) => !named.has(item.origin))
+      this.load([...named.values(), ...others])
+    })
   }
 
   /**
    * Get recent connected sites (ordered with pinned sites first)
    */
   getRecentConnectedSites(): ConnectedSite[] {
-    const sites = this.recentFirst().filter((item: ConnectedSite) => item.isConnected)
+    const sites = this.getConnectedSites()
     const pinnedSites = sites
       .filter((item: ConnectedSite) => item?.isTop)
       .sort((a: ConnectedSite, b: ConnectedSite) => (a.order || 0) - (b.order || 0))
@@ -432,35 +529,33 @@ export class PermissionService {
    * Get all connected sites
    */
   getConnectedSites(): ConnectedSite[] {
-    return this.recentFirst().filter((item: ConnectedSite) => item.isConnected)
+    return this.storedConnectedSites().filter(item => !this.isRevoking(item.origin))
   }
 
   /**
    * Get connected site by key
    */
   getConnectedSite(key: string): ConnectedSite | undefined {
-    const site = this.use(key)
-    if (site && site.isConnected) {
-      return site
-    }
-    return undefined
+    if (this.isRevoking(key)) return undefined
+    return this.connected(key)
   }
 
   /**
    * Pin a connected site to top
    */
   async topConnectedSite(origin: string, order?: number): Promise<void> {
-    this.loadedSites()
-    const site = this.getConnectedSite(origin)
-    if (!site) return
+    await this.mutateAndSync(() => {
+      const site = this.connected(origin)
+      if (!site) return false
 
-    const maxOrder = Math.max(...this.getRecentConnectedSites().map(item => item.order || 0), 0)
-    const finalOrder = order ?? maxOrder + 1
+      const maxOrder = Math.max(...this.storedConnectedSites().map(item => item.order || 0), 0)
+      const finalOrder = order ?? maxOrder + 1
 
-    await this.updateConnectSite(origin, {
-      ...site,
-      order: finalOrder,
-      isTop: true,
+      this.put({
+        ...site,
+        order: finalOrder,
+        isTop: true,
+      })
     })
   }
 
@@ -468,13 +563,14 @@ export class PermissionService {
    * Unpin a connected site
    */
   async unpinConnectedSite(origin: string): Promise<void> {
-    this.loadedSites()
-    const site = this.getConnectedSite(origin)
-    if (!site) return
+    await this.mutateAndSync(() => {
+      const site = this.connected(origin)
+      if (!site) return false
 
-    await this.updateConnectSite(origin, {
-      ...site,
-      isTop: false,
+      this.put({
+        ...site,
+        isTop: false,
+      })
     })
   }
 
@@ -482,16 +578,17 @@ export class PermissionService {
    * Remove connected site
    */
   async removeConnectedSite(origin: string): Promise<void> {
-    this.loadedSites()
-    const site = this.getConnectedSite(origin)
-    if (!site) {
-      return
-    }
+    await this.whileRevoking(origin, () =>
+      this.mutateAndSync(() => {
+        const site = this.connected(origin)
+        if (!site) return false
 
-    await this.setSite({
-      ...site,
-      isConnected: false,
-    })
+        this.put({
+          ...site,
+          isConnected: false,
+        })
+      })
+    )
   }
 
   /**
