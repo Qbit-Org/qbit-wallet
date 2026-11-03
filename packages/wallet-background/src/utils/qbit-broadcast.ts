@@ -29,7 +29,8 @@ export const QBIT_BROADCAST_RESEND_DELAYS_MS: readonly number[] = [1_000, 3_000]
 /**
  * No re-send starts once this long has passed since the first dispatch. It
  * bounds when re-sends start, not how long the call runs: that is
- * `QBIT_BROADCAST_DEADLINE_MS`.
+ * `QBIT_BROADCAST_DEADLINE_MS`. A large transaction's window is longer: see
+ * `qbitBroadcastResendWindowMs`.
  */
 export const QBIT_BROADCAST_RESEND_WINDOW_MS = 30_000
 
@@ -62,14 +63,30 @@ export function qbitBroadcastMinPassMs(rawtx: string): number {
   return qbitExplorerReplyTimeoutMs(rawtx)
 }
 
+/** The time the upload of `rawtx` adds to a pass: see `qbitBroadcastMinPassMs`. */
+function qbitBroadcastUploadMs(rawtx: string): number {
+  return qbitBroadcastMinPassMs(rawtx) - QBIT_BROADCAST_MIN_PASS_MS
+}
+
 /**
  * `QBIT_BROADCAST_DEADLINE_MS` for the signed bytes `rawtx`: longer by the
- * time their upload adds to a pass (see `qbitBroadcastMinPassMs`), so a
- * large transaction leaves its fee bump check and its lookups as much of the
- * deadline as a small one does.
+ * time their upload adds to a pass, so a large transaction leaves its fee
+ * bump check and its lookups as much of the deadline as a small one does.
  */
 export function qbitBroadcastDeadlineMs(rawtx: string): number {
-  return QBIT_BROADCAST_DEADLINE_MS + qbitBroadcastMinPassMs(rawtx) - QBIT_BROADCAST_MIN_PASS_MS
+  return QBIT_BROADCAST_DEADLINE_MS + qbitBroadcastUploadMs(rawtx)
+}
+
+/**
+ * `QBIT_BROADCAST_RESEND_WINDOW_MS` for the signed bytes `rawtx`: longer by
+ * the time their upload adds to a pass, so the first attempt of a large
+ * transaction, which the gateway took and never answered, can still be
+ * re-sent once it times out. A re-send that starts as the window closes
+ * still has its pass, with less left for its lookup: about 26 s for the
+ * largest standard transaction.
+ */
+export function qbitBroadcastResendWindowMs(rawtx: string): number {
+  return QBIT_BROADCAST_RESEND_WINDOW_MS + qbitBroadcastUploadMs(rawtx)
 }
 
 /**

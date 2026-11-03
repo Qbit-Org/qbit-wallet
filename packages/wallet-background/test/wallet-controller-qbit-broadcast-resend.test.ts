@@ -30,7 +30,9 @@ import {
   QBIT_BROADCAST_RESEND_WINDOW_MS,
   qbitBroadcastDeadlineMs,
   qbitBroadcastMinPassMs,
+  qbitBroadcastResendWindowMs,
 } from '../src/utils/qbit-broadcast'
+import { QBIT_FEE_BUMP_RECHECK_WAVE_MS } from '../src/utils/qbit-fee-bump-recheck'
 import { FakeQbitExplorer, fakeTxid } from './qbit-fake-explorer'
 
 // The send guard is the real service, and the explorer and its node a fake
@@ -545,10 +547,11 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
     vi.useFakeTimers({ toFake: ['Date'] })
     const wallet = controller()
     postOutcomes = [{ status: 502, body: HTML_BODY }]
-    // The first attempt took the whole window.
+    // The first attempt took the whole window, a little longer than
+    // `QBIT_BROADCAST_RESEND_WINDOW_MS` for the fixture's upload.
     onLookup = () => {
       onLookup = undefined
-      vi.setSystemTime(Date.now() + QBIT_BROADCAST_RESEND_WINDOW_MS)
+      vi.setSystemTime(Date.now() + qbitBroadcastResendWindowMs(fixture.rawTxHex))
     }
 
     const { result } = await send(wallet)
@@ -567,7 +570,7 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
     // the pause before the re-send.
     onLookup = () => {
       onLookup = undefined
-      vi.setSystemTime(Date.now() + QBIT_BROADCAST_RESEND_WINDOW_MS - 1_000)
+      vi.setSystemTime(Date.now() + qbitBroadcastResendWindowMs(fixture.rawTxHex) - 1_000)
     }
 
     const { result } = await send(wallet)
@@ -590,7 +593,9 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
       .spyOn(qbitSendGuardService, 'broadcastIfAllowed')
       .mockImplementation((...args: Parameters<typeof queue>) => {
         queued += 1
-        if (queued === 2) vi.setSystemTime(Date.now() + QBIT_BROADCAST_RESEND_WINDOW_MS)
+        if (queued === 2) {
+          vi.setSystemTime(Date.now() + qbitBroadcastResendWindowMs(fixture.rawTxHex))
+        }
         return queue(...args)
       })
 
@@ -700,10 +705,42 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
       ).rejects.toThrow('recent broadcast already spent')
     })
 
-    it('ends an upload that stalls within its budget as unknown, with its inputs still claimed', async () => {
+    it('sends again after a timeout at the end of its upload budget that the lagging explorer cannot confirm', async () => {
       const wallet = controller()
+      wallet.qbitBroadcastResendDelaysMs = [...QBIT_BROADCAST_RESEND_DELAYS_MS]
       const passMs = qbitBroadcastMinPassMs(largeFixture.rawTxHex)
-      postOutcomes = [{ uploadMs: Number.POSITIVE_INFINITY }]
+      // The gateway takes the bytes and never answers, so the first attempt
+      // times out at the end of its budget, past the fixed window.
+      postOutcomes = ['accept-then-hang']
+      // The explorer has not caught up with the node yet.
+      lagNextLookups()
+      expect(passMs).toBeGreaterThan(QBIT_BROADCAST_RESEND_WINDOW_MS)
+      expect(passMs).toBeLessThan(qbitBroadcastResendWindowMs(largeFixture.rawTxHex))
+
+      const { value, elapsedMs } = await onFakeClock(() => send(wallet, largeFixture))
+
+      expect(value.result).toMatchObject({
+        success: true,
+        txid: largeFixture.txid,
+        via: 'broadcast',
+      })
+      expect(posts).toEqual([largeFixture.rawTxHex, largeFixture.rawTxHex])
+      expect(elapsedMs).toBeGreaterThanOrEqual(passMs)
+      // One transaction, whichever attempt the node took it from.
+      expect(explorer.spenderOf(LARGE_SOURCE_TXID, 0)?.txid).toBe(largeFixture.txid)
+      await expect(
+        qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, [largeInput])
+      ).rejects.toThrow('recent broadcast already spent')
+    })
+
+    it('ends uploads that stall within their budgets as unknown after one re-send, with time left for the lookup', async () => {
+      const wallet = controller()
+      wallet.qbitBroadcastResendDelaysMs = [...QBIT_BROADCAST_RESEND_DELAYS_MS]
+      const passMs = qbitBroadcastMinPassMs(largeFixture.rawTxHex)
+      postOutcomes = [
+        { uploadMs: Number.POSITIVE_INFINITY },
+        { uploadMs: Number.POSITIVE_INFINITY },
+      ]
 
       const { value, elapsedMs } = await onFakeClock(() => send(wallet, largeFixture))
 
@@ -713,14 +750,16 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
         txid: largeFixture.txid,
         outcome: 'unknown',
         reason: 'timeout',
-        // The deadline left the lookup its time: it missed the bytes.
+        // The deadline left the lookup after the second stall its time: it
+        // missed the bytes, rather than running out.
         lookup: 'gone',
       })
-      // Cut off once its budget was spent, which ends the re-send window too.
-      expect(elapsedMs).toBeGreaterThanOrEqual(passMs)
-      expect(elapsedMs).toBeLessThan(passMs + QBIT_BROADCAST_MIN_PASS_MS)
-      expect(passMs).toBeGreaterThan(QBIT_BROADCAST_RESEND_WINDOW_MS)
-      expect(posts).toHaveLength(1)
+      // Each attempt was cut off once its budget was spent. The second ended
+      // past the window, so there was no third.
+      expect(posts).toEqual([largeFixture.rawTxHex, largeFixture.rawTxHex])
+      expect(elapsedMs).toBeGreaterThanOrEqual(2 * passMs)
+      expect(elapsedMs).toBeLessThan(qbitBroadcastDeadlineMs(largeFixture.rawTxHex))
+      expect(statusLookups()).toBe(2)
       expect(explorer.txs.has(largeFixture.txid)).toBe(false)
       await expect(
         qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, [largeInput])
@@ -766,6 +805,12 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
         via: 'broadcast',
       })
       expect(posts).toEqual([largeFixture.rawTxHex])
+      // The restored claim's explorer check read what spends its inputs, twice.
+      expect(
+        explorer.requests.filter(({ path }) =>
+          path.startsWith(`/tx/${LARGE_SOURCE_TXID}/outspends`)
+        )
+      ).toHaveLength(2)
     })
 
     it("sends nothing when a pass is due with less left than its upload needs, though more than a small reply's budget", async () => {
@@ -783,6 +828,35 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
       expect(result).toMatchObject({
         success: false,
         chain: ChainType.QBIT_REGTEST,
+        txid: largeFixture.txid,
+        outcome: 'not_sent',
+        reason: 'timeout',
+      })
+    })
+
+    it('refuses its explorer check before any read when the check would leave less than its upload needs', async () => {
+      const wallet = controller()
+      // Enough for the check and a small transaction's submission, not for
+      // this one's: the check pauses 5 s between its rounds.
+      const leftMs = qbitBroadcastMinPassMs(largeFixture.rawTxHex) + 3_000
+      expect(leftMs).toBeGreaterThan(
+        QBIT_BROADCAST_MIN_PASS_MS + 2 * QBIT_FEE_BUMP_RECHECK_WAVE_MS + 10_000
+      )
+
+      const { value: result } = await retryAfterRestart(
+        wallet,
+        qbitBroadcastDeadlineMs(largeFixture.rawTxHex) - leftMs
+      )
+
+      // The restored claim's check read nothing, so it held the guard's
+      // queue for no longer than the refusal took.
+      const outspendsReads = explorer.requests.filter(({ path }) =>
+        path.startsWith(`/tx/${LARGE_SOURCE_TXID}/outspends`)
+      )
+      expect(outspendsReads).toHaveLength(0)
+      expect(posts).toHaveLength(0)
+      expect(result).toMatchObject({
+        success: false,
         txid: largeFixture.txid,
         outcome: 'not_sent',
         reason: 'timeout',

@@ -46,9 +46,9 @@ export const QBIT_FEE_BUMP_RECHECK_MIN_READ_MS = 2_000
 
 /**
  * What the check leaves of a broadcast's deadline besides the submission's
- * reply budget (`QBIT_BROADCAST_MIN_PASS_MS`): a check that settles as its
- * budget ends hands back to the broadcast a moment later, which must still
- * find that budget left for the submission.
+ * reply budget (`QbitExplorerSpendCheckOptions.submissionMs`): a check that
+ * settles as its budget ends hands back to the broadcast a moment later,
+ * which must still find that budget left for the submission.
  */
 export const QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS = 250
 
@@ -60,7 +60,8 @@ export const QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS = 250
  * pause fit at `QBIT_FEE_BUMP_RECHECK_MIN_READ_MS` a wave in 61 s. This
  * leaves those a few seconds more, and leaves a broadcast's 120 s deadline,
  * past the submission's 15 s, about 40 s for the lookups that follow a
- * refusal or a lost answer. The check holds the send guard's queue, and no
+ * refusal or a lost answer; a large transaction's deadline is longer by as
+ * much as its submission (see `qbitBroadcastDeadlineMs`). The check holds the send guard's queue, and no
  * other send moves while it does: more than about a minute of that is
  * refused instead.
  */
@@ -80,12 +81,19 @@ export interface QbitExplorerSpendCheckOptions {
   /** The pause between the two rounds; the budget is sized with it. */
   intervalMs?: number
   /**
-   * The broadcast the check is part of. The check leaves it
-   * `QBIT_BROADCAST_MIN_PASS_MS` of its deadline and
-   * `QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS` more, so a check that
-   * passes leaves the submission its whole reply budget.
+   * The broadcast the check is part of. The check leaves it `submissionMs`
+   * of its deadline and `QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS` more,
+   * so a check that passes leaves the submission its whole reply budget.
    */
   operation?: QbitExplorerOperation
+  /**
+   * The reply budget of the broadcast's submission, its upload included
+   * (`qbitBroadcastMinPassMs` of its bytes): `QBIT_BROADCAST_MIN_PASS_MS`,
+   * a small transaction's, unless given. A check that could not leave a
+   * large transaction this much refuses before any read, rather than hold
+   * the send guard's queue for a pass that would then be refused.
+   */
+  submissionMs?: number
 }
 
 /**
@@ -142,7 +150,7 @@ export class QbitExplorerSpendCheckFailedError extends Error {
  * The budget is the pause, `intervalMs`, and `QBIT_FEE_BUMP_RECHECK_WAVE_MS`
  * a round for each wave, up to `QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS`, and no
  * more of `operation`'s deadline than leaves the submission its reply
- * budget. A budget without
+ * budget, `submissionMs`. A budget without
  * `QBIT_FEE_BUMP_RECHECK_MIN_READ_MS` a wave for both rounds and the pause
  * refuses before any read, and a first round that leaves the second less
  * refuses without the pause; both throw `QbitExplorerSpendCheckTimeoutError`,
@@ -156,7 +164,11 @@ export async function assertNoExplorerSpendConflict(
 ): Promise<void> {
   if (!qbitExplorerSpendCheckIsNeeded(spendCheck)) return
   const { replaces, restored } = spendCheck
-  const { intervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS, operation } = options
+  const {
+    intervalMs = QBIT_FEE_BUMP_RECHECK_INTERVAL_MS,
+    operation,
+    submissionMs = QBIT_BROADCAST_MIN_PASS_MS,
+  } = options
   const giveUp = new AbortController()
   const parent = operation?.signal
   const onParentAbort = (): void => giveUp.abort(parent?.reason)
@@ -191,9 +203,7 @@ export async function assertNoExplorerSpendConflict(
       intervalMs + 2 * waves * QBIT_FEE_BUMP_RECHECK_WAVE_MS,
       QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS,
       operation
-        ? operation.remainingMs() -
-            QBIT_BROADCAST_MIN_PASS_MS -
-            QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS
+        ? operation.remainingMs() - submissionMs - QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS
         : Number.POSITIVE_INFINITY
     )
     if (!(budgetMs >= intervalMs + 2 * waves * QBIT_FEE_BUMP_RECHECK_MIN_READ_MS)) {

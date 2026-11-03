@@ -179,7 +179,6 @@ import {
   QBIT_BROADCAST_ABSENCE_PROBES,
   QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS,
   QBIT_BROADCAST_RESEND_DELAYS_MS,
-  QBIT_BROADCAST_RESEND_WINDOW_MS,
   QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS,
   QBIT_LIFECYCLE_TX_READ_DEADLINE_MS,
   QbitBroadcastResponseMismatchError,
@@ -189,6 +188,7 @@ import {
   qbitBroadcastDeadlineMs,
   qbitBroadcastMinPassMs,
   qbitBroadcastProbeDelay,
+  qbitBroadcastResendWindowMs,
   type QbitBroadcastErrorClassification,
 } from '../utils/qbit-broadcast'
 import {
@@ -7690,16 +7690,19 @@ export class WalletController extends BaseController {
    * as the send guard hands it to its callback (see
    * `QbitSendGuardService.broadcastIfAllowed`), with this controller's pause
    * between its two rounds. It runs under `operation`, the broadcast's
-   * deadline, when given; see `assertNoExplorerSpendConflict`.
+   * deadline, when given, and leaves `submissionMs` of it for the pass's
+   * submission; see `assertNoExplorerSpendConflict`.
    */
   private checkQbitBroadcastOnExplorer(
     client: QbitWalletApiClient,
     spendCheck: QbitExplorerSpendCheck,
-    operation?: QbitExplorerOperation
+    operation?: QbitExplorerOperation,
+    submissionMs?: number
   ): Promise<void> {
     return assertNoExplorerSpendConflict(client, spendCheck, {
       intervalMs: this.qbitFeeBumpRecheckIntervalMs,
       ...(operation ? { operation } : {}),
+      ...(submissionMs === undefined ? {} : { submissionMs }),
     })
   }
 
@@ -7928,6 +7931,9 @@ export class WalletController extends BaseController {
       started: false,
     })
     const minPassMs = qbitBroadcastMinPassMs(rawtx)
+    // Re-sends start within a window as much longer, so a first attempt
+    // that timed out at the end of its upload's budget can still be re-sent.
+    const resendWindowMs = qbitBroadcastResendWindowMs(rawtx)
 
     // A local signer can only return the transaction the wallet built, but an
     // external or cold-wallet signer hands back whatever was pasted or
@@ -7989,7 +7995,7 @@ export class WalletController extends BaseController {
       if (
         resends > 0 &&
         firstDispatchAt !== undefined &&
-        Date.now() - firstDispatchAt >= QBIT_BROADCAST_RESEND_WINDOW_MS
+        Date.now() - firstDispatchAt >= resendWindowMs
       ) {
         throw new Error('Qbit broadcast re-send window has passed')
       }
@@ -8016,7 +8022,7 @@ export class WalletController extends BaseController {
       // inputs went with the restart: what spends them is read as well.
       if (qbitExplorerSpendCheckIsNeeded(spendCheck)) {
         try {
-          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation)
+          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation, minPassMs)
         } catch (error) {
           dependentSpendRefused = true
           // Refused for lack of time, as a pass with too little left is.
@@ -8120,7 +8126,7 @@ export class WalletController extends BaseController {
             !isQbitBroadcastResendable(error) ||
             delay === undefined ||
             firstDispatchAt === undefined ||
-            Date.now() + delay - firstDispatchAt >= QBIT_BROADCAST_RESEND_WINDOW_MS
+            Date.now() + delay - firstDispatchAt >= resendWindowMs
           ) {
             return resolved
           }
