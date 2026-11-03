@@ -570,6 +570,28 @@ describe('ReceiveScreen custody flow', () => {
     expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [true, 'qbit_receive_no_safe_new_address'],
+    [false, 'qbit_receive_no_safe']
+  ])('refuses to copy a current address gone after the refresh (canCreate %s)', async (canCreate, message) => {
+    const initialState = receiveState();
+    // A recovery sweep now pays the address, so it is neither current nor listed.
+    ensureQbitReceiveIntent.mockResolvedValueOnce(initialState).mockResolvedValueOnce(
+      receiveState({
+        current: null,
+        gap: { ...initialState.gap, canCreate }
+      })
+    );
+    render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+
+    fireEvent.click(screen.getByLabelText('copy_address'));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(message));
+    expect(copyToClipboard).not.toHaveBeenCalled();
+    expect(screen.getByTestId('no-safe-receive-address').textContent).toContain(message);
+  });
+
   it('blocks a current address that became exhausted and offers New Address instead', async () => {
     const initialState = receiveState();
     const exhaustedCurrent = addressState(0, 'exhausted', 'local', false);

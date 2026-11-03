@@ -293,7 +293,8 @@ export default function ReceiveScreen() {
       }
       const refreshed = [fresh.current, ...fresh.previous].find((item) => item?.address === selected.address);
       if (!refreshed) {
-        tools.toastError(t('qbit_receive_no_safe'));
+        // Match the notice the refreshed screen shows in its place.
+        tools.toastError(t(fresh.gap.canCreate ? 'qbit_receive_no_safe_new_address' : 'qbit_receive_no_safe'));
         return;
       }
       if (refreshed.signatureCounter.state === 'exhausted') {
