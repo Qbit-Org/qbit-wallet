@@ -421,6 +421,55 @@ describe('WalletController qbit receive intents', () => {
     })
   })
 
+  describe('with a recovery migration paying this wallet', () => {
+    const migrationPaying = (address: string, status: string) => ({
+      getQbitRecoveryState: () => ({
+        networks: {
+          testnet4: { migration: { plans: [{ status, destinationAddress: address }] } },
+        },
+      }),
+    })
+
+    beforeEach(() => {
+      keyring.accounts.push(account(1))
+      ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0, 1], usedIndexes: [] }
+      selectedAccount = keyring.accounts[1]
+    })
+
+    it.each(['prepared', 'signed', 'broadcast', 'confirmed'])(
+      'does not offer or list an unused address a %s plan pays',
+      async status => {
+        ;(keyringService.keyrings as any[]).push(migrationPaying('tq-1', status))
+
+        const state = await controller.ensureQbitReceiveIntent()
+
+        expect(state.current).toBeNull()
+        expect(state.previous.map(item => item.address)).not.toContain('tq-1')
+        expect(state.gap.canCreate).toBe(true)
+        expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+        expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+      }
+    )
+
+    it('shows the address as used once the sweep has reached it', async () => {
+      ;(keyringService.keyrings as any[]).push(migrationPaying('tq-1', 'broadcast'))
+      activeAddresses = ['tq-1']
+
+      const state = await controller.ensureQbitReceiveIntent()
+
+      expect(state.current).toMatchObject({ index: 1, used: true })
+    })
+
+    it('keeps offering an address the migration does not pay', async () => {
+      ;(keyringService.keyrings as any[]).push(migrationPaying('tq-0', 'prepared'))
+
+      const state = await controller.ensureQbitReceiveIntent()
+
+      expect(state.current?.index).toBe(1)
+      expect(state.previous.map(item => item.address)).not.toContain('tq-0')
+    })
+  })
+
   it('does not offer a never-issued selected address past the restore gap', async () => {
     keyring = walletKeyring(Array.from({ length: 21 }, (_, index) => account(index)))
     ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }

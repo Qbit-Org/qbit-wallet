@@ -412,6 +412,8 @@ type QbitReceiveControllerContext = {
   selectedIndex: number
   /** The stored selection this context was read for. */
   selectedPubkey: string | undefined
+  /** Addresses that a recovery migration plan pays. */
+  sweepDestinations: Set<string>
   activityStatus: QbitReceiveState['activityStatus']
   floorsPending: boolean
   concurrentInstanceHint: boolean
@@ -4059,6 +4061,13 @@ export class WalletController extends BaseController {
       }
     })
     const rawKeyring = keyringService.keyrings[keyring.index]
+    const sweepDestinations = new Set<string>(
+      keyringService.keyrings.flatMap(other => {
+        const plans: QbitRecoveryMigrationPlanVault[] =
+          other.getQbitRecoveryState?.()?.networks?.[network]?.migration?.plans ?? []
+        return plans.map(plan => plan.destinationAddress)
+      })
+    )
     // changeKeyring does not wait for the receive queue, so another popup can
     // select another account or wallet while this read waits. Refuse to answer
     // or act for the earlier selection.
@@ -4074,6 +4083,7 @@ export class WalletController extends BaseController {
       addresses,
       selectedIndex: selected.p2mr!.hkdf.index,
       selectedPubkey,
+      sweepDestinations,
       activityStatus,
       floorsPending: rawKeyring?.pqcFloorsPending === true,
       concurrentInstanceHint: rawKeyring?.pqcConcurrentInstanceHint === true,
@@ -4084,8 +4094,11 @@ export class WalletController extends BaseController {
    * Receive state with the address at `shownIndex` as current: the selected
    * account's unless a caller passes another index. A used address stays
    * current and is marked used. An exhausted address cannot authorize
-   * spending what it receives, and a never-issued one past the restore gap
-   * would not be found by a standard restore, so neither is current.
+   * spending what it receives, a never-issued one past the restore gap would
+   * not be found by a standard restore, so neither is current. A recovery
+   * migration records the addresses it pays as issued; until the sweep's
+   * activity shows, such an address is reserved for it and is not listed at
+   * all.
    */
   private buildQbitReceiveState = (
     context: QbitReceiveControllerContext,
@@ -4101,9 +4114,12 @@ export class WalletController extends BaseController {
     const gapPlan = planQbitReceiveIntent(allocationAddresses)
     const shown = context.addresses.find(address => address.index === shownIndex)
     const shouldHideAddresses = context.floorsPending || context.activityStatus !== 'live'
+    const reservedForSweep = (address: QbitReceiveAddressState) =>
+      !address.used && context.sweepDestinations.has(address.address)
     const offerable =
       shown !== undefined &&
       shown.signatureCounter.state !== 'exhausted' &&
+      !reservedForSweep(shown) &&
       (shown.used || issuedIndexes.has(shown.index) || shown.index <= gapPlan.lastDiscoverableIndex)
     const current = !shouldHideAddresses && offerable ? shown : null
     const previous = shouldHideAddresses
@@ -4111,7 +4127,9 @@ export class WalletController extends BaseController {
       : context.addresses
           .filter(
             address =>
-              (issuedIndexes.has(address.index) || address.used) && address.index !== current?.index
+              (issuedIndexes.has(address.index) || address.used) &&
+              address.index !== current?.index &&
+              !reservedForSweep(address)
           )
           .sort((left, right) => right.index - left.index)
 
