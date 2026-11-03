@@ -6,7 +6,7 @@ PSBTs, and broadcast Qbit transactions.
 
 ## Start here
 
-1. [Detect the provider](./browser-detection.md).
+1. [Detect the provider](./browser-detection.md), or wait until it is ready.
 2. [Request account access](./connect-extension.md) from a user action.
 3. [Read the active account](./access-accounts.md).
 4. [Bind requests to the active chain](./manage-networks.md).
@@ -25,8 +25,12 @@ PSBTs, and broadcast Qbit transactions.
 | Broadcast and send | `pushPsbt(psbtHex)`, `pushTx(rawHex)`, `sendQbit(toAddress, satoshis, options)` |
 | Events             | `on(event, handler)`, `removeListener(event, handler)`                          |
 
-The only public events are `accountsChanged`, `networkChanged`, `chainChanged`, and `disconnect`.
-No additional public methods or events are part of the V1 contract.
+The only provider events are `accountsChanged`, `networkChanged`, `chainChanged`, and `disconnect`.
+Once `window.qbit` is installed, Qbit Wallet also dispatches `qbit#initialized` and
+`qbit:announceProvider` on `window`, and announces again on `qbit:requestProvider`, so that a page
+can [wait until the provider is ready](./browser-detection.md#wait-for-the-wallet). They are for
+detection, not authentication: any script can dispatch them, and access comes only from
+`requestAccounts()`. No other public methods or events are part of the V1 contract.
 
 ## Chains and networks
 
@@ -59,7 +63,7 @@ request can reject with them:
 
 | Topic                                       | Description                                            |
 | ------------------------------------------- | ------------------------------------------------------ |
-| [Browser detection](./browser-detection.md) | Find and minimally validate `window.qbit`              |
+| [Browser detection](./browser-detection.md) | Find, wait for, and minimally validate `window.qbit`   |
 | [Connect extension](./connect-extension.md) | Grant and revoke chain-scoped origin access            |
 | [Access accounts](./access-accounts.md)     | Read the active address, public key, and balance       |
 | [Manage networks](./manage-networks.md)     | Read or switch Qbit chains and handle change events    |
