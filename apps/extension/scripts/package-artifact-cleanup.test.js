@@ -115,7 +115,11 @@ test('invalid package build targets fail instead of accepting a stale artifact',
   const invalidTargets = [
     ['--env=prod', /not supported env/],
     ['--browser=safari', /not supported browser/],
+    ['--browser=firefox', /not supported browser/],
+    ['--browser=edge', /not supported browser/],
+    ['--browser=brave', /not supported browser/],
     ['--manifest=mv4', /not supported manifest/],
+    ['--manifest=mv2', /not supported manifest/],
     ['--channel=nightly', /not supported channel/]
   ];
 
