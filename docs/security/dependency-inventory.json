@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "cd636ad4263c2b45f7887b4be4ed4e78bc892dd0",
-  "lockfileSha256": "a212eacc46f634dd341b88540d5622b31973524e6d235ea20f69da5272323248",
+  "auditedCommit": "7563f8797bc284618b1188b487ada6e4bfacf9f5",
+  "lockfileSha256": "88001968d7e6d4ca874df14cc392bbcb3721f5497550fc12725a164aeb50d594",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "b31986520342e3e9ace645792db0e9ce1875bb6cb05e9bfb0a78e0a0fcd71b48",
+    "sha256": "a1dcb249f5805d8e0a3d1519764e4c0385e4679018517aa3db707b9fd9898bf2",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,19 +14,19 @@
   },
   "summary": {
     "workspaces": 20,
-    "registryLockEntries": 2259,
-    "directDeclarations": 411,
+    "registryLockEntries": 2257,
+    "directDeclarations": 410,
     "directDeclarationsByDelivery": {
-      "development-quality-tooling": 130,
+      "development-quality-tooling": 129,
       "extension-build-packaging": 72,
       "shipped-runtime": 150,
       "test-only-tooling": 35,
       "workspace-contract": 24
     },
-    "securityAdjacentResolvedPackages": 181,
+    "securityAdjacentResolvedPackages": 180,
     "securityAdjacentByCategory": {
       "serialization": 92,
-      "crypto": 59,
+      "crypto": 58,
       "networking": 25,
       "archive": 8
     },
@@ -529,18 +529,6 @@
       "resolved": "6.7.0(eslint@8.50.0)(typescript@5.2.2)",
       "delivery": "development-quality-tooling",
       "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/keyring-service",
-      "workspacePackage": "@qbit/keyring-service",
-      "package": "browser-passworder",
-      "section": "devDependencies",
-      "requested": "^2.0.3",
-      "resolved": "2.0.3",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": [
-        "crypto"
-      ]
     },
     {
       "workspace": "packages/keyring-service",
@@ -5081,27 +5069,6 @@
           "delivery": "shipped-runtime",
           "requested": "^10.0.0",
           "resolved": "10.0.0(patch_hash=u3dvb4yhlnk5fun7e4tf7v32ye)"
-        }
-      ]
-    },
-    {
-      "package": "browser-passworder",
-      "version": "2.0.3",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-8mTcGjsVqYkRW0qLmdussBjf/5joBUpvZfR8jUojITBJVVZIS5BL41Qt/xehS+n2ChA2YJHHLPhlkXziK+gvsw==",
-      "directDeclarations": [
-        {
-          "workspace": "packages/keyring-service",
-          "section": "devDependencies",
-          "delivery": "development-quality-tooling",
-          "requested": "^2.0.3",
-          "resolved": "2.0.3"
         }
       ]
     },

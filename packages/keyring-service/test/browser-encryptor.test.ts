@@ -114,10 +114,11 @@ describe('BrowserPassworderEncryptor vault migration', () => {
       await expect(
         browserPassworder.decrypt(password, withPbkdf2Rounds(field, 10_000))
       ).resolves.toEqual({ secret: 'fixture' })
-      await expect(
-        browserPassworder.decrypt(password, withPbkdf2Rounds(field, 900_000))
-      ).rejects.toThrow()
     }
+    // The round count matters: the genuine field does not open at 900,000.
+    await expect(
+      browserPassworder.decrypt(password, withPbkdf2Rounds(BROWSER_PASSWORDER_2_0_3_FIELD, 900_000))
+    ).rejects.toThrow()
   })
 
   it('migrates a field that browser-passworder 2.0.3 wrote', async () => {
