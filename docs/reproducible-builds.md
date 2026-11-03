@@ -7,8 +7,13 @@ build is safe merely because it is reproducible.
 ## Pinned inputs
 
 - Node.js is exactly the version in `.nvmrc`.
-- pnpm is exactly the `packageManager` version in `package.json`, and Corepack
-  checks the pnpm it downloads against that pin's sha512 hash.
+- pnpm is the `packageManager` pin in `package.json`: version 11.28.9 and its
+  sha512 hash. Every pnpm command runs through Corepack, which checks the pnpm
+  it downloads against that hash. CI runs `corepack pnpm` and also
+  `corepack enable`, and fails unless Corepack's `pnpm` shim comes first on
+  `PATH`, so package scripts that call `pnpm` run the same checked pnpm.
+  `build:repro:extension` also fails unless `corepack pnpm --version` is the
+  pinned version.
 - JavaScript dependencies must come from `pnpm-lock.yaml` through
   `pnpm install --frozen-lockfile`.
 - The PQC WebAssembly files come from the `@qbit-oss/pqc` npm package and are

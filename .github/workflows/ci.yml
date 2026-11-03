@@ -30,8 +30,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up pnpm
-        # No `version` input: the action installs the pnpm that package.json's
-        # `packageManager` pins, so CI and local Corepack run the same pnpm.
+        # Only for setup-node's pnpm store cache. The action installs the
+        # packageManager version from the registry without checking its sha512
+        # hash, so no pnpm command below runs it.
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           run_install: false
@@ -42,11 +43,19 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. Its shim must come first on
+        # PATH, so package scripts that call `pnpm` run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Run deterministic repository lint
-        run: pnpm lint
+        run: corepack pnpm lint
 
   dependency-policy:
     name: Dependency policy
@@ -60,6 +69,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up pnpm
+        # Only for setup-node's pnpm store cache. The action installs the
+        # packageManager version from the registry without checking its sha512
+        # hash, so no pnpm command below runs it.
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           run_install: false
@@ -70,14 +82,22 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. Its shim must come first on
+        # PATH, so package scripts that call `pnpm` run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Test dependency policy fail-closed behavior
-        run: pnpm test:security-tooling
+        run: corepack pnpm test:security-tooling
 
       - name: Enforce dependency and license policy
-        run: pnpm security:dependencies
+        run: corepack pnpm security:dependencies
 
   verify:
     name: Typecheck, test, and build
@@ -91,6 +111,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up pnpm
+        # Only for setup-node's pnpm store cache. The action installs the
+        # packageManager version from the registry without checking its sha512
+        # hash, so no pnpm command below runs it.
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           run_install: false
@@ -101,31 +124,39 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. Its shim must come first on
+        # PATH, so package scripts that call `pnpm` run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Report release readiness without changing GitHub settings
         env:
           GH_TOKEN: ${{ github.token }}
-        run: pnpm run release:readiness -- --report-only
+        run: corepack pnpm run release:readiness -- --report-only
 
       - name: Prepare workspace declarations
-        run: pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
+        run: corepack pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
 
       - name: Build wallet background package
-        run: pnpm --filter @qbit/wallet-background run build
+        run: corepack pnpm --filter @qbit/wallet-background run build
 
       - name: Run adversarial security suite
-        run: pnpm run test:security-adversarial
+        run: corepack pnpm run test:security-adversarial
 
       - name: Typecheck packages
-        run: pnpm -r --if-present run typecheck
+        run: corepack pnpm -r --if-present run typecheck
 
       - name: Run unit tests
         run: |
-          pnpm -r --if-present test
-          pnpm run test:pqc-golden
-          pnpm run test:protocol-vectors
+          corepack pnpm -r --if-present test
+          corepack pnpm run test:pqc-golden
+          corepack pnpm run test:protocol-vectors
 
       - name: Resolve extension artifact version
         id: extension-version
@@ -134,10 +165,10 @@ jobs:
           echo "artifact_version=${artifact_version}" >> "$GITHUB_OUTPUT"
 
       - name: Build Chrome MV3 extension
-        run: pnpm --filter qbit-extension run package:test -- --artifact-version "${{ steps.extension-version.outputs.artifact_version }}"
+        run: corepack pnpm --filter qbit-extension run package:test -- --artifact-version "${{ steps.extension-version.outputs.artifact_version }}"
 
       - name: Verify two clean extension builds are byte-identical
-        run: pnpm run build:repro:extension -- --skip-prepare
+        run: corepack pnpm run build:repro:extension -- --skip-prepare
 
       - name: Upload Chrome MV3 extension artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

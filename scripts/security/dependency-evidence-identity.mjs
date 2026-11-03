@@ -70,18 +70,24 @@ export function exceptionCoversPath(exception, path) {
 }
 
 // pnpm 11 writes an audit path as `<importer>>name>name...`, with the
-// importer id's slashes replaced by `__` and no versions, so the direct
-// dependency's version is the one its importer resolved in the lockfile. A
-// path that does not start with a lockfile importer fails closed.
-export function auditPathDirectDependency(path, importers) {
-  const segments = path.split('>')
+// importer id's slashes replaced by `__` and no versions. A path that does not
+// start with a lockfile importer fails closed.
+export function parseAuditPath(path, importers) {
+  const [prefix, ...packages] = path.split('>')
   const workspace = Object.keys(importers || {}).find(
-    importer => importer.replaceAll('/', '__') === segments[0]
+    importer => importer.replaceAll('/', '__') === prefix
   )
   if (workspace === undefined) {
     throw new Error(`audit path ${path} does not start with a pnpm-lock.yaml importer`)
   }
-  const directPackage = segments[1] || null
+  return { workspace, packages }
+}
+
+// The direct dependency's version is the one its importer resolved in the
+// lockfile, since the audit path names no versions.
+export function auditPathDirectDependency(path, importers) {
+  const { workspace, packages } = parseAuditPath(path, importers)
+  const directPackage = packages[0] || null
   const resolution = directPackage
     ? ['dependencies', 'devDependencies', 'optionalDependencies']
         .map(section => importers[workspace]?.[section]?.[directPackage]?.version)

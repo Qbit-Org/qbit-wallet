@@ -58,10 +58,13 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # Corepack runs the pnpm that package.json's `packageManager` pins and
-      # checks the download against the pin's sha512 hash.
+      # Corepack installs the pnpm that package.json's `packageManager` pins and
+      # checks it against the pin's sha512 hash. Its shim must come first on
+      # PATH, so every `pnpm` below and in package scripts runs the checked pnpm.
       - name: Enable the pinned pnpm
-        run: corepack enable
+        run: |
+          corepack enable
+          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

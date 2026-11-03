@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
 import YAML from 'yaml'
 
+import { parseAuditPath } from './dependency-evidence-identity.mjs'
 import { auditWorkflowPermissions, WORKFLOW_FILE } from './workflow-permissions.mjs'
 
 const LICENSE_BASELINE_FILE = 'scripts/security/dependency-license-baseline.json'
@@ -214,11 +215,6 @@ function validRepoRelativePath(value) {
     !value.includes('\\') &&
     value.split('/').every(part => part.length > 0 && part !== '.' && part !== '..')
   )
-}
-
-function packageNameFromAuditPathSegment(segment) {
-  const separator = segment.lastIndexOf('@')
-  return separator > 0 ? segment.slice(0, separator) : null
 }
 
 export function auditLockfile(lockfileText) {
@@ -1017,14 +1013,47 @@ function resolutionOverrideReferences(words) {
   })
 }
 
+// pnpm 11 accepts any of its settings on the command line. These change the
+// auth file it reads, the linker, a pnpmfile that can rewrite resolutions, or
+// which dependency lifecycle scripts run, all of which pnpm-workspace.yaml
+// reviews; `--config.<key>` sets any setting at all.
+const PNPM_CONFIGURATION_OPTIONS = new Set([
+  '--allow-build',
+  '--dangerously-allow-all-builds',
+  '--global-pnpmfile',
+  '--node-linker',
+  '--npmrc-auth-file',
+  '--pnpmfile',
+])
+
+// A runner (`pnpm dlx`, `pnpx`, `pnx`) may approve the build of the exact
+// package it fetches, which the version audit pins; anywhere else
+// `--allow-build` approves a workspace dependency's script that allowBuilds
+// denies.
+function pnpmConfigurationOptionReferences(words, { runner = false } = {}) {
+  const delimiter = words.indexOf('--')
+  const managerArguments = delimiter >= 0 ? words.slice(0, delimiter) : words
+  return managerArguments.filter(argument => {
+    const separator = argument.indexOf('=')
+    const name = separator < 0 ? argument : argument.slice(0, separator)
+    if (runner && name === '--allow-build') return false
+    return PNPM_CONFIGURATION_OPTIONS.has(name) || name.startsWith('--config.')
+  })
+}
+
 // npm reads `<prefix>/etc/npmrc` as its global configuration, so a prefix
 // supplied through the environment (`npm_config_prefix`, or the `PREFIX`
 // variable npm derives its global prefix from) redirects resolution to
 // unreviewed configuration exactly like the rejected `--prefix` option.
+// pnpm 11 reads every setting from `pnpm_config_*` (or `PNPM_CONFIG_*`) and
+// ignores `npm_config_*`, so any such variable overrides a reviewed setting:
+// the registry, the auth file, the linker, or which builds run. None is
+// reviewed, so every one is rejected.
 function environmentResolutionOverrideReferences(commandPrefix) {
   const references = []
   const patterns = [
     /(?:^|[^A-Za-z0-9_])(npm_config_(?:(?:[A-Za-z0-9_.@~:-]+_)*registry|@[A-Za-z0-9_.~-]+:registry|userconfig|globalconfig|config_dir|prefix))\s*(?==|:)/gi,
+    /(?:^|[^A-Za-z0-9_])(pnpm_config_[A-Za-z0-9_]+)['"]?\s*(?==|:)/gi,
     /(?:^|[^A-Za-z0-9_])(PREFIX)\s*(?==|:)/g,
   ]
   for (const pattern of patterns) {
@@ -1305,6 +1334,9 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
     }
     if (manager === 'bunx' || manager === 'pnpx' || manager === 'pnx') {
       references.push(...resolutionOverrideReferences(runnerWords))
+      if (manager !== 'bunx') {
+        references.push(...pnpmConfigurationOptionReferences(runnerWords, { runner: true }))
+      }
       references.push(
         ...directRunnerArgumentReferences(runnerWords, manager === 'bunx' ? 'bun' : 'pnpm')
       )
@@ -1339,6 +1371,11 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
     }
     if (manager === 'pnpm') {
       const commandIndex = commandWords.findIndex(word => word === 'dlx' || word === 'create')
+      references.push(
+        ...pnpmConfigurationOptionReferences(words, {
+          runner: commandWords[commandIndex] === 'dlx',
+        })
+      )
       if (commandWords[commandIndex] === 'dlx') {
         references.push(...resolutionOverrideReferences(words))
         references.push(
@@ -2895,29 +2932,6 @@ function auditTrackedSourceAbsenceGuard(exception, context, errors) {
   }
 
   if (
-    Array.isArray(references) &&
-    Array.isArray(exception?.paths) &&
-    hasExactObjectKeys(declaration, ['file', 'section', 'name', 'specifier'])
-  ) {
-    const activationReferences = [declaration.name]
-    for (const path of exception.paths) {
-      const packages = path.split(' > ').map(packageNameFromAuditPathSegment)
-      const declarationIndex = packages.indexOf(declaration.name)
-      const invokedPackage = packages[declarationIndex + 1]
-      if (declarationIndex < 0 || !invokedPackage) {
-        fail(`reachabilityGuard allowed dependency is stale or incomplete for path: ${path}`)
-        continue
-      }
-      activationReferences.push(invokedPackage)
-    }
-    if (!arraysEqual(references, sortedUnique(activationReferences))) {
-      fail(
-        'reachabilityGuard references must exactly cover the allowed dependency and its direct path activations'
-      )
-    }
-  }
-
-  if (
     !hasExactObjectKeys(context, ['files']) ||
     !Array.isArray(context?.files) ||
     context.files.length === 0
@@ -2941,6 +2955,48 @@ function auditTrackedSourceAbsenceGuard(exception, context, errors) {
       continue
     }
     sourceFiles.set(record.file, record.source)
+  }
+
+  // Exception paths are compared verbatim with pnpm audit's, so they are read
+  // in pnpm 11's `<importer>>name>name` form with the evidence generator's
+  // parser, against the importers of the tracked lockfile.
+  if (
+    Array.isArray(references) &&
+    Array.isArray(exception?.paths) &&
+    hasExactObjectKeys(declaration, ['file', 'section', 'name', 'specifier'])
+  ) {
+    let importers
+    try {
+      importers = YAML.parse(sourceFiles.get('pnpm-lock.yaml') ?? '')?.importers
+    } catch {
+      importers = undefined
+    }
+    if (!importers || typeof importers !== 'object' || Array.isArray(importers)) {
+      fail('reachabilityGuard tracked-source context has no pnpm-lock.yaml importers')
+    } else {
+      const activationReferences = [declaration.name]
+      for (const path of exception.paths) {
+        let packages
+        try {
+          packages = parseAuditPath(path, importers).packages
+        } catch (error) {
+          fail(`reachabilityGuard ${error.message}`)
+          continue
+        }
+        const declarationIndex = packages.indexOf(declaration.name)
+        const invokedPackage = packages[declarationIndex + 1]
+        if (declarationIndex < 0 || !invokedPackage) {
+          fail(`reachabilityGuard allowed dependency is stale or incomplete for path: ${path}`)
+          continue
+        }
+        activationReferences.push(invokedPackage)
+      }
+      if (!arraysEqual(references, sortedUnique(activationReferences))) {
+        fail(
+          'reachabilityGuard references must exactly cover the allowed dependency and its direct path activations'
+        )
+      }
+    }
   }
 
   if (!hasExactObjectKeys(declaration, ['file', 'section', 'name', 'specifier'])) return false
