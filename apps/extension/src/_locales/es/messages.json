@@ -326,6 +326,9 @@
   "qbit_receive_no_safe": {
     "message": "No hay una dirección de recepción segura. Se excluyen las direcciones agotadas y el intervalo de restauración puede estar lleno. Usa una dirección ya emitida, sin usar y no agotada, o restablece la red y reintenta."
   },
+  "qbit_receive_no_safe_new_address": {
+    "message": "La dirección de esta cuenta no se puede usar para recibir fondos. Pulsa Nueva dirección para obtener una dirección nueva y cambiar a su cuenta."
+  },
   "qbit_receive_previous": {
     "message": "Direcciones anteriores"
   },
@@ -751,6 +754,9 @@
   },
   "failed_to_save_contact": {
     "message": "Error al guardar el contacto"
+  },
+  "another_contact_has_this_address": {
+    "message": "Otro contacto ya tiene esta dirección en esta red"
   },
   "failed_to_save_contact_order": {
     "message": "Error al guardar el orden de los contactos"

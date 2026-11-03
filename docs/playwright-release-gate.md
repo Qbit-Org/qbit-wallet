@@ -22,10 +22,11 @@ corepack pnpm test:e2e:build
 The extension bundle must exist at `apps/extension/dist/chrome`. Playwright
 launches a persistent, isolated browser profile with `--load-extension` and
 `--disable-extensions-except`, then discovers the extension from its MV3
-service worker. Every spec except `phishing.spec.ts` resets the Docker
-volumes, starts qbitd and electrs-qbit, funds through qbit Core, and mines
-confirmations explicitly. The phishing scenarios need no regtest node and
-serve their pages from a loopback fixture server. The reset removes only the
+service worker. Every spec except `phishing.spec.ts` and
+`provider-ready.spec.ts` resets the Docker volumes, starts qbitd and
+electrs-qbit, funds through qbit Core, and mines confirmations explicitly. The
+phishing and provider-ready scenarios need no regtest node and serve their
+pages from loopback fixture servers. The reset removes only the
 volumes of the selected compose project, so set `COMPOSE_PROJECT_NAME` to run
 the gate in an isolated project when the default `qbit-wallet-regtest`
 project's data must be preserved.
@@ -42,6 +43,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/dapp.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp-events.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/approval-hierarchy.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/phishing.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/provider-ready.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/recovery.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
@@ -67,11 +69,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 24 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 26 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The ten tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 12 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -96,10 +98,12 @@ separately with two-decimal millisecond precision.
 | Phishing rule status  | `scenarios/phishing.spec.ts:489`          | The wallet pages report the installed block rule                                                           | Not recorded |       — |
 | Phishing invalid name | `scenarios/phishing.spec.ts:506`          | No Proceed for a denylisted name outside DNS syntax, and the warning says why                              | Not recorded |       — |
 | Phishing rule missing | `scenarios/phishing.spec.ts:521`          | Warn before a denylisted page runs script while the block rule is missing                                  | Not recorded |       — |
+| Provider ready        | `scenarios/provider-ready.spec.ts:240`    | A page that listens before the wallet loads hears it is ready, and a late listener can ask                 | Not recorded |       — |
+| Provider ready frames | `scenarios/provider-ready.spec.ts:261`    | A frame of another origin gets its own event and announcement; a sandboxed frame gets neither              | Not recorded |       — |
 | Wipe/restore          | `scenarios/recovery.spec.ts:86`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |
 | Lock                  | `scenarios/lock.spec.ts:25`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
-| Auto-lock             | `scenarios/lock.spec.ts:89`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
-| Window close          | `scenarios/lock.spec.ts:165`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
+| Auto-lock             | `scenarios/lock.spec.ts:93`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
+| Window close          | `scenarios/lock.spec.ts:169`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
 | Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
 | Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
 
@@ -123,9 +127,9 @@ the ephemeral Chromium profile. A failed row contains:
 - `failing-identifiers.json` with the extension, account, and transaction IDs;
 - `pqc-sign-durations.json` for the row.
 
-The phishing rows use their own fixtures and run without regtest, so the
-regtest, network-audit and PQC attachments above do not apply to them; a
-failed phishing row attaches the extension service-worker log.
+The phishing and provider-ready rows use their own fixtures and run without
+regtest, so the regtest, network-audit and PQC attachments above do not apply
+to them; a failed row of either attaches the extension service-worker log.
 
 The approval-hierarchy row also attaches `connect-approval-<theme>.png`,
 `message-approval-<theme>.png`, and `psbt-approval-<theme>.png` at 360x600 for

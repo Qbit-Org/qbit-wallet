@@ -326,6 +326,9 @@
   "qbit_receive_no_safe": {
     "message": "目前沒有安全的收款地址。額度用盡的地址會被排除，復原間距也可能已滿。請使用已發出、未使用且額度未盡的地址，或恢復網路後重試。"
   },
+  "qbit_receive_no_safe_new_address": {
+    "message": "此帳戶的地址無法用來收款。請按「新增地址」取得新地址，並切換到該地址的帳戶。"
+  },
   "qbit_receive_previous": {
     "message": "先前地址"
   },
@@ -751,6 +754,9 @@
   },
   "failed_to_save_contact": {
     "message": "保存聯絡人失敗"
+  },
+  "another_contact_has_this_address": {
+    "message": "此網路上已有其他聯絡人使用此地址"
   },
   "failed_to_save_contact_order": {
     "message": "保存聯絡人順序失敗"

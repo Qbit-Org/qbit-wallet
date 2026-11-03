@@ -326,6 +326,9 @@
   "qbit_receive_no_safe": {
     "message": "No safe receive address is available. Exhausted addresses are excluded and the restoration gap may be full. Use an already-issued unused, non-exhausted address if one is listed, or restore network access and retry."
   },
+  "qbit_receive_no_safe_new_address": {
+    "message": "This account's address can't be used to receive funds. Press New Address to get a new address and switch to its account."
+  },
   "qbit_receive_previous": {
     "message": "Previous addresses"
   },
@@ -751,6 +754,9 @@
   },
   "failed_to_save_contact": {
     "message": "Failed to save contact"
+  },
+  "another_contact_has_this_address": {
+    "message": "Another contact already has this address on this network"
   },
   "failed_to_save_contact_order": {
     "message": "Failed to save the contact order"

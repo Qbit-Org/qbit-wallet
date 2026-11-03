@@ -60,6 +60,7 @@ export const UI_CONTROLLER_METHODS = [
   'acknowledgeQbitRecoveryRisk',
   'acknowledgeRegtestAccess',
   'addAddressFlag',
+  'addContact',
   'advanceQbitRecoveryMigration',
   'analyzeLocalPsbts',
   'beginQbitRecoveryMigrationToExistingDestination',

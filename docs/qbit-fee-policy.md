@@ -117,6 +117,13 @@ and a sub-dust remainder folded into its fee lifts a one-input send to at
 most about 1.75× that rate. A transfer that pays only the wallet has no
 amount to compare with.
 
+A website-supplied PSBT gets one more share check, because the wallet cannot
+always size it (`checkFeeShareWithoutSize`). `large_share_of_amount` also
+applies to it at any rate when the fee is at least 25% of what the
+transaction pays to others and at least twice what the smallest send costs
+at the recommended rate. The approval then shows a high fee at a normal
+rate (`highFeeAtNormalRate`).
+
 Only a live quote counts as a recommendation. With the relay-floor fallback,
 or no quote at all, the wallet applies the bounds that need none and says the
 fee was not compared with recommended rates instead of staying silent.
