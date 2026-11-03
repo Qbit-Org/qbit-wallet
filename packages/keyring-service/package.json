@@ -1,6 +1,6 @@
 {
   "name": "@qbit/keyring-service",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "private": true,
   "description": "Keyring service for Qbit HD, simple, readonly, watch-address, and cold wallets",
   "main": "lib/index.js",

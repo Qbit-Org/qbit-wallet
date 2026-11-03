@@ -1,5 +1,37 @@
 # @qbit/phishing-detect
 
+## 0.4.0
+
+### Minor Changes
+
+- 4091176: Retry a failed phishing block rule install and report its health (#48). Before, when `updateDynamicRules` failed at service-worker start, the error was only logged: the denylist had no network layer until the next start, and an upgraded profile kept the inert redirect rules of 1.0.4. `PhishingController` now retries the install after 1, 4 and 15 seconds, then every minute while the service worker runs, up to ten attempts. After each failure it removes every dynamic rule but a block rule on its own, so those redirect rules cannot linger, and keeps a block rule an earlier install left. A successful install counts only once the browser reads the rule back with every domain, and a worker start that finds that rule already in place, alone, leaves it as it is. `GET_PHISHING_STATS` also answers `networkRules`, the rule's health: `installing`, `installed`, `retrying`, `failed`, `unknown` or `unsupported`, with the attempts, the last error, the next retry, the number of domains the browser holds and the denylist entries left out. An `installed` state is checked against the browser's rules at each read, so it is never a stale one, and a rule found missing reads as `retrying` and is installed again. An install that a newer one supersedes answers with the newer one's outcome. `GET_PHISHING_STATS` is now answered only for the wallet's own pages, like the other messages that lift or reload protection. `FORCE_UPDATE_PHISHING_LIST` now also installs the rule again through `forceUpdate()`, which rejects, and so the message answers `{ error }`, when the rule is not installed after its first attempt.
+
+  In `@qbit/phishing-detect`, `parseDnrDomain()` and `partitionDnrDomains()` are new. They return the form a DNR rule's `requestDomains` takes, or why an entry cannot go in one (`not-a-string`, `empty`, `non-ascii` or `not-a-public-hostname`), so the extension leaves out and logs a bad entry rather than letting it fail the whole rule.
+
+  `@qbit/wallet-shared` exports the health type as `PhishingNetworkRuleHealth`.
+
+  The extension's content script now stops a top-frame page whose host the bundled denylist covers before the page's own script runs, until the background answers. A page sent to the warning page stays stopped, and one whose check does not complete shows a notice with a retry. A page the user proceeded to is recorded in its sessionStorage and reloaded once. A page whose sessionStorage cannot be used, such as a sandboxed one or one whose site data is blocked, stays held, and a page held again on a reload is not reloaded once more without the user asking.
+
+- 4091176: Show the wallet's phishing warning, with Proceed, for a top-level navigation to a denylisted host however the tab got there, including a redirect or link wrapper (#9). Before, only a link the content script saw first led to the warning; a same-site 302, `t.co`, a mail safe-link, a typed URL or a bookmark ended on the browser's generic blocked page (`ERR_BLOCKED_BY_CLIENT`). `PhishingController` now keeps a session DNR `redirect` rule, above the block rule and below Proceed's allow rules, that sends such a navigation to the web-accessible `phishing-warning.html` with the blocked URL in its fragment; that page validates the URL and replaces itself with the warning screen. A redirect fires only with host access, so the rule is in place only while `chrome.permissions.contains` reports access to every denylisted domain: it is removed when the user withholds site access, added back when access returns, checked again at each service-worker start and forced list update, and a failed update is retried after 1, 4 and 15 seconds, then every minute while the service worker runs, up to ten attempts per change, or for as long as a removal fails. The block rule stays for frames and as the fallback. Proceed's allow rules now take priority 3. `hasOnlyKeys` and `sameMembers` are shared from `phishing-block-rule.ts`.
+
+  The extension's MV3 manifest requests `*://*.<entry>/*` for each bundled denylist domain, generated at build and pinned by the package policy, and lists `phishing-warning.html` as web-accessible under a per-session dynamic URL only. The content script's `<all_urls>` match already brings the all-sites install warning, so these add no new one. The warning screen offers no Proceed when it names no site.
+
+  In `@qbit/phishing-detect`, `dnrHostPermissions()` is new. It returns the host permission patterns (`*://*.<domain>/*`, or the exact address for an IP) that cover DNR domains and their subdomains, which the manifest declares and the background checks.
+
+### Patch Changes
+
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+- Updated dependencies [4091176]
+  - @qbit/wallet-shared@2.0.0
+
 ## 0.3.0
 
 ### Minor Changes
