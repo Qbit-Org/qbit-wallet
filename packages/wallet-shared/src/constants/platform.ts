@@ -1,7 +1,6 @@
 interface PlatformEnvType {
   VERSION: string
   CHANNEL: string
-  MANIFEST_VERSION: string
   PLATFORM: 'extension' | 'ios' | 'android' | 'unknown'
   REVIEW_URL: string
   READY_TO_RENDER?: boolean
@@ -14,7 +13,6 @@ interface PlatformEnvType {
 export const PlatformEnv: PlatformEnvType = {
   VERSION: '1.0.0',
   CHANNEL: 'unknown',
-  MANIFEST_VERSION: 'mv3',
   PLATFORM: 'unknown',
   REVIEW_URL: '',
   READY_TO_RENDER: false,

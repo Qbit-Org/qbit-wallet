@@ -79,8 +79,16 @@ The extension's `Qbit Regtest` chain entry points at `http://127.0.0.1:3002` by 
    corepack pnpm regtest:up
    ```
 
-2. Build or load the extension dev bundle.
-3. In the extension network settings, switch to `Qbit Regtest`. This is the current F7/local-dev path; future F7 settings work can add editable URLs, but the default already targets this harness.
+2. Build the extension and load `apps/extension/dist/chrome` as an unpacked extension in Chrome:
+
+   ```sh
+   corepack pnpm --filter qbit-extension build:chrome:mv3
+   corepack pnpm --filter qbit-extension build:chrome:mv3:dev
+   ```
+
+   The first command writes the merged `manifest.json` and the static files. The development build (`build:chrome:mv3:dev`, channel `github`) only rebuilds the webpack bundles in that folder and watches for changes, so it keeps that manifest, which lists `http://127.0.0.1:3002/*` only under `optional_host_permissions`.
+
+3. In the extension network settings, select the locked **Local Regtest** row (`Qbit Regtest` once access is granted). The wallet walks through the explanation and the acknowledgement checkbox, then Chrome's own permission prompt for the origin; accept both, and once the harness checks below pass the wallet switches to regtest. This is the current F7/local-dev path; future F7 settings work can add editable URLs, but the default already targets this harness.
 4. Use `corepack pnpm regtest:fund <receive-address> <amount>` to fund addresses shown by the extension.
 
 ### Store flavor: optional loopback permission

@@ -30,8 +30,8 @@ var knownOptions = {
 };
 
 var supported_envs = ['dev', 'pro'];
-var supported_browsers = ['chrome', 'firefox', 'edge', 'brave'];
-var supported_mvs = ['mv2', 'mv3'];
+var supported_browsers = ['chrome'];
+var supported_mvs = ['mv3'];
 var supported_channels = ['store', 'github', 'e2e'];
 var brandName = 'qbit';
 var version = packageConfig.version;
@@ -91,10 +91,7 @@ function task_prepare() {
 }
 
 function task_merge_manifest() {
-  let baseFile = '_base_v3';
-  if (options.manifest == 'mv2') {
-    baseFile = '_base_v2';
-  }
+  const baseFile = '_base_v3';
   return gulp
     .src([
       `dist/${options.browser}/manifest/${baseFile}.json`,
@@ -124,7 +121,6 @@ function task_webpack(cb) {
       version: validVersion,
       config: options.env,
       browser: options.browser,
-      manifest: options.manifest,
       channel: options.channel
     }),
     createWebpackGulpCallback(cb)

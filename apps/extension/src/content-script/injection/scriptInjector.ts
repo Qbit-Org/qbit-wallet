@@ -2,7 +2,6 @@
  * Script injection module
  * Handles injection of provider script into page context
  */
-import extension from 'extensionizer';
 import { nanoid } from 'nanoid';
 
 import { Message } from '@/shared/utils';
@@ -167,7 +166,7 @@ export async function injectProviderScript(channelName: string): Promise<void> {
     const scriptTag = document.createElement('script');
     scriptTag.setAttribute('async', 'false');
     scriptTag.setAttribute('channel', channelName);
-    scriptTag.src = extension.runtime.getURL('pageProvider.js');
+    scriptTag.src = chrome.runtime.getURL('pageProvider.js');
     container.insertBefore(scriptTag, container.firstChild);
     container.removeChild(scriptTag);
   } catch (error) {
