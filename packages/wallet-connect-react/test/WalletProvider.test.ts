@@ -449,3 +449,71 @@ describe('WalletProvider network change handling', () => {
     expect(wallet.signPsbts).toHaveBeenCalledWith([{ psbt: 'psbt-a' }, { psbt: 'psbt-b' }])
   })
 })
+
+describe('WalletProvider when the connection to the wallet drops', () => {
+  // EIP-1193 Disconnected, as Qbit Wallet rejects a request whose connection closed.
+  const disconnected = () => Object.assign(new Error('connection closed'), { code: 4900 })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function reconnectOnPageLoad(wallet: BaseWallet) {
+    const setItem = vi.fn()
+    vi.stubGlobal('window', {})
+    vi.stubGlobal('localStorage', { getItem: () => WalletType.Qbit, setItem })
+    resetHooks()
+    renderProvider({ wallets: [wallet], validateAddress: () => true, children: null })
+    hookState.effects[0]!()
+    // WalletProvider's useState order: wallet, account, isInitialized.
+    await vi.waitFor(() => expect(hookState.states[2]).toBe(true))
+    return setItem
+  }
+
+  it('keeps the stored wallet when the connection drops while reconnecting on page load', async () => {
+    const { wallet } = createWallet()
+    vi.mocked(wallet.getAccount).mockRejectedValueOnce(disconnected())
+
+    const setItem = await reconnectOnPageLoad(wallet)
+
+    expect(setItem).not.toHaveBeenCalled()
+    expect(connectedWalletState()).toBeUndefined()
+    expect(wallet.disconnect).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the site has no grant', Object.assign(new Error('unauthorized'), { code: 4100 })],
+    ['the user rejected a request', Object.assign(new Error('rejected'), { code: 4001 })],
+    ['the wallet fails otherwise', new Error('wallet failed')],
+  ])('still forgets the stored wallet when %s', async (_label, error) => {
+    const { wallet } = createWallet()
+    vi.mocked(wallet.getAccount).mockRejectedValueOnce(error)
+
+    const setItem = await reconnectOnPageLoad(wallet)
+
+    expect(setItem).toHaveBeenCalledWith('wallet_connected_type', '')
+  })
+
+  it('reports a connection that drops while connecting as an error, not as a cancel', async () => {
+    const { wallet } = createWallet()
+    const error = disconnected()
+    vi.mocked(wallet.requestAccount).mockRejectedValueOnce(error)
+    const onConnectError = vi.fn()
+    let modal: WalletModalProps | undefined
+    resetHooks()
+    renderProvider({
+      wallets: [wallet],
+      onConnectError,
+      children: null,
+      renderModal: props => {
+        modal = props
+        return null
+      },
+    })
+
+    await modal?.onSelectWallet(wallet)
+
+    expect(onConnectError).toHaveBeenCalledWith(error)
+    expect(connectedWalletState()).toBeUndefined()
+  })
+})

@@ -86,6 +86,10 @@ class PortMessage extends Message {
     try {
       this.port.postMessage({ _type_: `${this._EVENT_PRE}${type}`, data });
     } catch (e) {
+      // The port is unusable, and reconnecting drops it before it reports
+      // its disconnect. The requests already sent on it are lost with it;
+      // this one never left, so it can go out on the new port.
+      this._rejectPending(type === MESSAGE_TYPE.REQUEST ? data?.ident : undefined);
       if (!this.reconnect()) {
         this._dispose();
         return;

@@ -72,13 +72,27 @@ abstract class Message extends EventEmitter {
     }
   };
 
-  _dispose = () => {
+  /**
+   * Rejects every request still waiting for its answer, except `keep`, once
+   * the connection that carried them is gone. The other side may have run
+   * them already, so the rejection is EIP-1193's Disconnected (4900), not the
+   * user's rejection (4001), and none of them is sent again.
+   */
+  protected _rejectPending = (keep?: number) => {
     for (const [ident, request] of this._waitingMap) {
+      if (ident === keep) continue;
       this._requestIdPool.push(ident);
-      request.reject(ethErrors.provider.userRejectedRequest());
+      this._waitingMap.delete(ident);
+      request.reject(
+        ethErrors.provider.disconnected(
+          'The connection to Qbit Wallet closed before the request finished, so it may have run.'
+        )
+      );
     }
+  };
 
-    this._waitingMap.clear();
+  _dispose = () => {
+    this._rejectPending();
   };
 }
 

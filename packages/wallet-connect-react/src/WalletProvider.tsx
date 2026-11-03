@@ -20,6 +20,15 @@ import type {
 
 const DEFAULT_STORAGE_KEY = 'wallet_connected_type'
 
+// EIP-1193 Disconnected: the connection to the wallet closed before it
+// answered. It says nothing about this page's grant, and the user did not
+// cancel anything.
+const PROVIDER_DISCONNECTED = 4900
+
+function isProviderDisconnected(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === PROVIDER_DISCONNECTED
+}
+
 /**
  * Create wallet context with empty defaults
  */
@@ -178,7 +187,10 @@ export function WalletProvider({
               } else {
                 clearConnection()
               }
-            } catch {
+            } catch (error) {
+              // Keep the stored wallet for the next page load: only the
+              // connection to it dropped.
+              if (isProviderDisconnected(error)) return
               clearConnection()
             }
           }

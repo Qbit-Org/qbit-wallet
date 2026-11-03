@@ -230,6 +230,21 @@ describe('QbitWallet', () => {
     })
   })
 
+  it.each(['requestAccount', 'getAccount'] as const)(
+    'passes on a dropped connection (4900) from %s, not a cancel or no account',
+    async method => {
+      const dropped = { code: 4900, message: 'The connection to Qbit Wallet closed' }
+      ;(globalThis as any).window.qbit = createProvider({
+        requestAccounts: vi.fn().mockRejectedValue(dropped),
+        getAccounts: vi.fn().mockRejectedValue(dropped),
+      })
+      const wallet = new QbitWallet()
+      wallet.installed = true
+
+      await expect(wallet[method]()).rejects.toBe(dropped)
+    }
+  )
+
   it('binds single and batch PSBT options to the selected chain', async () => {
     const provider = createProvider()
     ;(globalThis as any).window.qbit = provider
