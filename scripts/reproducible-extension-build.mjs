@@ -17,8 +17,11 @@ const artifactVersionArg = process.argv
 const artifactVersion = artifactVersionArg?.slice('--artifact-version='.length) || defaultArtifactVersion
 const expectedNode = readFileSync(join(repoRoot, '.nvmrc'), 'utf8').trim()
 const actualNode = process.version.replace(/^v/, '')
+// packageManager is `pnpm@<version>+sha512.<hex>`: Corepack checks the hash
+// when it downloads pnpm, and `pnpm --version` prints only the version.
 const expectedPnpm = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
   .packageManager.split('@')[1]
+  .split('+')[0]
 const actualPnpm = execFileSync('corepack', ['pnpm', '--version'], {
   cwd: repoRoot,
   encoding: 'utf8',

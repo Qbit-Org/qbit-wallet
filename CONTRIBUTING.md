@@ -20,7 +20,7 @@ Found a security problem? Do not open an issue. Follow
 Requirements:
 
 - Node.js, at the version in [`.nvmrc`](.nvmrc)
-- pnpm 8.6.0 (`corepack enable` picks it up)
+- pnpm 11.28.9, the `packageManager` pin in `package.json` (`corepack enable` picks it up)
 - Docker, if you want to run the regtest harness or end-to-end tests
 
 Clone the repository and install:

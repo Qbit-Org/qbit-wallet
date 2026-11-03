@@ -7,7 +7,8 @@ build is safe merely because it is reproducible.
 ## Pinned inputs
 
 - Node.js is exactly the version in `.nvmrc`.
-- pnpm is exactly the `packageManager` version in `package.json`.
+- pnpm is exactly the `packageManager` version in `package.json`, and Corepack
+  checks the pnpm it downloads against that pin's sha512 hash.
 - JavaScript dependencies must come from `pnpm-lock.yaml` through
   `pnpm install --frozen-lockfile`.
 - The PQC WebAssembly files come from the `@qbit-oss/pqc` npm package and are

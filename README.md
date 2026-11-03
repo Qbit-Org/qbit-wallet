@@ -43,7 +43,7 @@ of [Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js), and
 ## Requirements
 
 - Node.js 22.22.3 (see `.nvmrc`)
-- pnpm 8.6.0
+- pnpm 11.28.9, the `packageManager` pin in `package.json` (`corepack enable` picks it up)
 
 ## Setup
 

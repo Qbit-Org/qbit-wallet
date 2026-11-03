@@ -94,14 +94,41 @@ const UNKNOWN_LICENSE_EVIDENCE = new Map([
 ])
 
 // Tracked package-manager configuration is read by every install and audit
-// before the policy job runs, so only reviewed .npmrc keys are permitted and
-// any other manager configuration file (which can redirect registries or
-// rewrite resolutions) is rejected outright. Corepack loads `.corepack.env`
-// beside each package.json it inspects before it downloads a manager, so a
-// tracked copy can redirect that download or disable its integrity checks.
+// before the policy job runs, so only the root pnpm-workspace.yaml with
+// reviewed settings is permitted, and any other manager configuration file
+// (which can redirect registries or rewrite resolutions) is rejected outright.
+// pnpm 11 reads only auth and registry settings from .npmrc, which the
+// repository never commits, so a tracked .npmrc may hold comments only.
+// Corepack loads `.corepack.env` beside each package.json it inspects before
+// it downloads a manager, so a tracked copy can redirect that download or
+// disable its integrity checks.
 export const PACKAGE_MANAGER_CONFIG_FILE =
-  /(?:^|\/)(?:\.npmrc|\.yarnrc|\.yarnrc\.ya?ml|bunfig\.toml|\.pnpmfile\.cjs|pnpmfile\.js|\.corepack\.env)$/
-const REVIEWED_NPMRC_KEYS = new Set(['node-linker'])
+  /(?:^|\/)(?:\.npmrc|\.yarnrc|\.yarnrc\.ya?ml|bunfig\.toml|\.pnpmfile\.[cm]?js|pnpmfile\.js|\.corepack\.env|pnpm-workspace\.ya?ml)$/
+const WORKSPACE_CONFIG_FILE = 'pnpm-workspace.yaml'
+// pnpm 11 ignores kebab-case keys in pnpm-workspace.yaml, so an unlisted key is
+// either an unreviewed setting or one that silently does nothing.
+const REVIEWED_WORKSPACE_KEYS = new Set([
+  'packages',
+  'nodeLinker',
+  'linkWorkspacePackages',
+  'overrides',
+  'patchedDependencies',
+  'allowBuilds',
+])
+// The extension's webpack ProvidePlugin resolves `buffer` from each module's
+// nearest node_modules, so the shipped bundle depends on the hoisted layout.
+// pnpm 8 linked a dependency on a workspace package by default; pnpm 11 must
+// be told to, or a non-workspace range on a workspace name resolves from the
+// registry.
+const REQUIRED_WORKSPACE_SETTINGS = new Map([
+  ['nodeLinker', 'hoisted'],
+  ['linkWorkspacePackages', true],
+])
+// Dependency lifecycle scripts run only for packages listed `true` in
+// allowBuilds. None of the installed scripts is needed: secp256k1 ships
+// prebuilt binaries, esbuild's JavaScript API finds its platform package
+// without the postinstall copy, and the rest print banners or do nothing here.
+const REVIEWED_BUILD_DEPENDENCIES = new Set()
 // A workflow may reference a local action with `uses: ./path`, whose tracked
 // action.yml can itself invoke mutable external actions or run commands, so
 // every tracked action definition is audited regardless of its directory.
@@ -119,8 +146,10 @@ const COMPOSITE_ACTION_RUNTIME = 'composite'
 // declares packageManager, so a nested workspace or submodule manifest could
 // redirect installs to a mutable manager such as pnpm@latest. The root
 // manifest must pin the reviewed manager; nested manifests may omit the field
-// but must not declare anything else.
-const REQUIRED_PACKAGE_MANAGER = 'pnpm@8.6.0'
+// but must not declare anything else. The sha512 suffix makes Corepack verify
+// the pnpm tarball it downloads.
+export const REQUIRED_PACKAGE_MANAGER =
+  'pnpm@11.28.9+sha512.35421cea2720eca3f5ad722b67e8ef18f4d3cd4745ed2fcfeb0dc288d4e9437fad3870d91ee6e83f268f0f6f7e0f62723317b19617bb45ee4333172ef51159f8'
 
 const DEPENDENCY_SECTIONS = [
   'dependencies',
@@ -203,8 +232,8 @@ export function auditLockfile(lockfileText) {
       packageCount: 0,
     }
   }
-  if (lockfile?.lockfileVersion !== '6.1') {
-    errors.push('pnpm-lock.yaml must use reviewed lockfileVersion 6.1')
+  if (lockfile?.lockfileVersion !== '9.0') {
+    errors.push('pnpm-lock.yaml must use reviewed lockfileVersion 9.0')
   }
   if (lockfile?.settings?.excludeLinksFromLockfile !== false) {
     errors.push('pnpm-lock.yaml must retain workspace link provenance')
@@ -222,7 +251,10 @@ export function auditLockfile(lockfileText) {
   let packageCount = 0
   for (const [packageKey, snapshot] of Object.entries(lockfile.packages)) {
     packageCount += 1
-    if (!packageKey.startsWith('/')) {
+    // Lockfile v9 keys a registry package by name@version. Any other reference,
+    // such as a URL, a git commit, or a file or link path, is not a registry
+    // resolution.
+    if (!exactPackageVersion(packageKey)) {
       errors.push(`${packageKey} is a forbidden non-registry package resolution`)
     }
     if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(snapshot?.resolution?.integrity || '')) {
@@ -244,8 +276,13 @@ export function auditDependencySpecifiers(manifests) {
   for (const { file, manifest } of manifests) {
     const sections = DEPENDENCY_SECTIONS.map(section => [section, manifest[section] || {}])
     sections.push(['resolutions', manifest.resolutions || {}])
-    if (file === 'package.json') {
-      sections.push(['pnpm.overrides', manifest.pnpm?.overrides || {}])
+    // pnpm 11 ignores the pnpm field of package.json, so settings left there
+    // would look reviewed while doing nothing. Overrides are audited in
+    // pnpm-workspace.yaml, where pnpm reads them.
+    if (Object.hasOwn(manifest, 'pnpm')) {
+      errors.push(
+        `${file}: pnpm settings belong in ${WORKSPACE_CONFIG_FILE}; pnpm 11 ignores the pnpm field`
+      )
     }
 
     for (const [section, dependencies] of sections) {
@@ -263,12 +300,84 @@ export function auditDependencySpecifiers(manifests) {
   return { errors, specifierCount }
 }
 
+function workspaceSettingMapping(settings, key, errors) {
+  const value = settings[key]
+  if (value === undefined) return {}
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${WORKSPACE_CONFIG_FILE}: ${key} must be a mapping`)
+    return {}
+  }
+  return value
+}
+
+export function auditWorkspaceSettings(source) {
+  let settings
+  try {
+    settings = YAML.parse(source)
+  } catch (error) {
+    return [
+      `${WORKSPACE_CONFIG_FILE} cannot be parsed unambiguously: ${error.message.split('\n')[0]}`,
+    ]
+  }
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return [`${WORKSPACE_CONFIG_FILE} must be a mapping`]
+  }
+
+  const errors = []
+  for (const key of Object.keys(settings)) {
+    if (!REVIEWED_WORKSPACE_KEYS.has(key)) {
+      errors.push(`${WORKSPACE_CONFIG_FILE}: unreviewed pnpm setting: ${key}`)
+    }
+  }
+  for (const [key, required] of REQUIRED_WORKSPACE_SETTINGS) {
+    if (settings[key] !== required) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: ${key} must be ${JSON.stringify(required)}, found ${JSON.stringify(settings[key])}`
+      )
+    }
+  }
+  for (const [name, specifier] of Object.entries(
+    workspaceSettingMapping(settings, 'overrides', errors)
+  )) {
+    if (typeof specifier !== 'string') {
+      errors.push(`${WORKSPACE_CONFIG_FILE}: overrides.${name} must be a string`)
+    } else if (!isRegistryVersionSpecifier(specifier)) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: overrides.${name} uses forbidden unpinned specifier ${specifier}`
+      )
+    }
+  }
+  for (const [name, patchFile] of Object.entries(
+    workspaceSettingMapping(settings, 'patchedDependencies', errors)
+  )) {
+    if (!validRepoRelativePath(patchFile) || !patchFile.startsWith('patches/')) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: patchedDependencies.${name} must name a file under patches/`
+      )
+    }
+  }
+  for (const [name, allowed] of Object.entries(
+    workspaceSettingMapping(settings, 'allowBuilds', errors)
+  )) {
+    if (typeof allowed !== 'boolean') {
+      errors.push(`${WORKSPACE_CONFIG_FILE}: allowBuilds.${name} must be true or false`)
+    } else if (allowed && !REVIEWED_BUILD_DEPENDENCIES.has(name)) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: allowBuilds.${name} runs an unreviewed dependency lifecycle script`
+      )
+    }
+  }
+  return errors
+}
+
 export function auditPackageManagerConfigs(configFiles) {
   const errors = []
   let configCount = 0
+  let workspaceConfigured = false
   for (const { file, source } of configFiles) {
     configCount += 1
-    if (!/(?:^|\/)\.npmrc$/.test(file)) {
+    const npmrc = /(?:^|\/)\.npmrc$/.test(file)
+    if (!npmrc && file !== WORKSPACE_CONFIG_FILE) {
       errors.push(`${file}: unreviewed package-manager configuration file`)
       continue
     }
@@ -276,15 +385,21 @@ export function auditPackageManagerConfigs(configFiles) {
       errors.push(`${file}: package-manager configuration must be text`)
       continue
     }
+    if (!npmrc) {
+      workspaceConfigured = true
+      errors.push(...auditWorkspaceSettings(source))
+      continue
+    }
     for (const rawLine of source.split(/\r?\n/)) {
       const line = rawLine.trim()
       if (line.length === 0 || line.startsWith('#') || line.startsWith(';')) continue
       const separator = line.indexOf('=')
       const key = (separator < 0 ? line : line.slice(0, separator)).trim()
-      if (!REVIEWED_NPMRC_KEYS.has(key)) {
-        errors.push(`${file}: unreviewed package-manager configuration key: ${key}`)
-      }
+      errors.push(`${file}: unreviewed package-manager configuration key: ${key}`)
     }
+  }
+  if (!workspaceConfigured) {
+    errors.push(`${WORKSPACE_CONFIG_FILE}: the reviewed workspace configuration is missing`)
   }
   return { configCount, errors }
 }
@@ -303,6 +418,18 @@ export function auditWorkspacePackageManagers(manifests) {
   let rootDeclared = false
   for (const { file, manifest } of manifests) {
     manifestCount += 1
+    // pnpm 11 and pnpm/action-setup prefer devEngines.packageManager to
+    // packageManager, and pnpm downloads the Node.js a runtime field names, so
+    // either field would bypass the reviewed pin.
+    for (const [section, field] of [
+      ['devEngines', 'packageManager'],
+      ['devEngines', 'runtime'],
+      ['engines', 'runtime'],
+    ]) {
+      if (manifest[section] && Object.hasOwn(manifest[section], field)) {
+        errors.push(`${file}: ${section}.${field} is not permitted; packageManager pins pnpm`)
+      }
+    }
     if (!Object.hasOwn(manifest, 'packageManager')) continue
     if (file === 'package.json') rootDeclared = true
     const declared = manifest.packageManager
@@ -2451,7 +2578,7 @@ export function auditLicenseBaseline(report, baseline, verifyUnknownLicense = ()
 }
 
 function lockPackageIdentity(lockKey) {
-  const withoutPeers = lockKey.slice(1).split('(')[0]
+  const withoutPeers = lockKey.split('(')[0]
   const separator = withoutPeers.lastIndexOf('@')
   if (separator <= 0) return null
   return `${withoutPeers.slice(0, separator)}@${withoutPeers.slice(separator + 1)}`

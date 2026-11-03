@@ -58,10 +58,10 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Enable pnpm 8.6.0
-        run: |
-          corepack enable
-          corepack prepare pnpm@8.6.0 --activate
+      # Corepack runs the pnpm that package.json's `packageManager` pins and
+      # checks the download against the pin's sha512 hash.
+      - name: Enable the pinned pnpm
+        run: corepack enable
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

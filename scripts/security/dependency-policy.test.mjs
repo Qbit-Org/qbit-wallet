@@ -21,23 +21,25 @@ import {
   auditSubmoduleStatus,
   auditVulnerabilityReport,
   auditWorkspacePackageManagers,
+  auditWorkspaceSettings,
   buildLockfileLicenseBaseline,
   isAuditedActionFile,
   nestedShellBodies,
   PACKAGE_MANAGER_CONFIG_FILE,
+  REQUIRED_PACKAGE_MANAGER,
   shellCommandSegments,
   trackedFiles,
   workflowRunCommands,
 } from './dependency-policy.mjs'
 
 test('lockfile audit requires sha512 integrity for every registry resolution', () => {
-  const valid = `lockfileVersion: '6.1'
+  const valid = `lockfileVersion: '9.0'
 settings:
   excludeLinksFromLockfile: false
 packages:
-  /trusted@1.0.0:
+  trusted@1.0.0:
     resolution: {integrity: sha512-YWJjZA==}
-  /also-trusted@2.0.0:
+  '@scope/also-trusted@2.0.0':
     resolution: {integrity: sha512-ZGVmZw==}
 `
   assert.deepEqual(auditLockfile(valid), { errors: [], packageCount: 2 })
@@ -48,26 +50,43 @@ packages:
   )
   assert.match(auditLockfile(invalid).errors.join('\n'), /also-trusted.*sha512/)
 
-  const nonRegistry = `${valid}  github.com/attacker/tool/abcdef:
-    resolution: {commit: abcdef}
+  const nonRegistry = `${valid}  tool@https://codeload.github.com/attacker/tool/tar.gz/abcdef:
+    resolution: {tarball: https://codeload.github.com/attacker/tool/tar.gz/abcdef}
+  'gitdep@git+https://github.com/attacker/gitdep.git#abcdef':
+    resolution: {type: git, repo: 'https://github.com/attacker/gitdep.git', commit: abcdef}
+  local@file:../outside:
+    resolution: {directory: ../outside, type: directory}
 `
   const nonRegistryAudit = auditLockfile(nonRegistry)
-  assert.equal(nonRegistryAudit.packageCount, 3)
-  assert.match(nonRegistryAudit.errors.join('\n'), /forbidden non-registry package resolution/)
+  assert.equal(nonRegistryAudit.packageCount, 5)
+  const nonRegistryErrors = nonRegistryAudit.errors.join('\n')
+  for (const key of ['tool@https:', 'gitdep@git\\+https:', 'local@file:']) {
+    assert.match(
+      nonRegistryErrors,
+      new RegExp(`^${key}.* is a forbidden non-registry package resolution$`, 'm')
+    )
+  }
 
   const duplicatePackages = `${valid}packages:
-  /shadowed@3.0.0:
+  shadowed@3.0.0:
     resolution: {integrity: sha512-c2hhZG93ZWQ=}
 `
   assert.match(auditLockfile(duplicatePackages).errors.join('\n'), /cannot be parsed unambiguously/)
+
+  for (const version of ["'6.1'", "'9.1'", "'10.0'"]) {
+    assert.match(
+      auditLockfile(valid.replace("'9.0'", version)).errors.join('\n'),
+      /must use reviewed lockfileVersion 9\.0/
+    )
+  }
 })
 
 test('lockfile audit rejects tarball overrides despite registry integrity', () => {
-  const redirected = `lockfileVersion: '6.1'
+  const redirected = `lockfileVersion: '9.0'
 settings:
   excludeLinksFromLockfile: false
 packages:
-  /trusted@1.0.0:
+  trusted@1.0.0:
     resolution:
       integrity: sha512-YWJjZA==
       tarball: https://attacker.example/trusted-1.0.0.tgz
@@ -93,35 +112,62 @@ test('dependency specifier audit rejects git, URL, file, and tag dependencies', 
           tag: 'latest',
           disguisedUrl: '1.2.3 || https://attacker.example/package.tgz',
         },
-        pnpm: {
-          overrides: {
-            safe: '2.0.0',
-            unsafe: 'github:attacker/repo',
-          },
+        resolutions: {
+          unsafe: 'github:attacker/repo',
         },
       },
     },
   ]
   const audit = auditDependencySpecifiers(manifests)
-  assert.equal(audit.specifierCount, 10)
+  assert.equal(audit.specifierCount, 9)
   assert.equal(audit.errors.length, 6)
   assert.match(audit.errors.join('\n'), /git\+ssh/)
   assert.match(audit.errors.join('\n'), /https:/)
   assert.match(audit.errors.join('\n'), /file:/)
   assert.match(audit.errors.join('\n'), /latest/)
-  assert.match(audit.errors.join('\n'), /github:/)
+  assert.match(audit.errors.join('\n'), /resolutions\.unsafe .*github:/)
   assert.match(audit.errors.join('\n'), /1\.2\.3 \|\| https:/)
 })
 
-test('package-manager configuration audit permits only reviewed .npmrc keys', () => {
+test('dependency specifier audit rejects settings left in the ignored pnpm field', () => {
+  const audit = auditDependencySpecifiers([
+    { file: 'package.json', manifest: { pnpm: { overrides: { safe: '2.0.0' } } } },
+    { file: 'packages/wallet-core/package.json', manifest: { pnpm: {} } },
+    { file: 'apps/extension/package.json', manifest: { dependencies: { safe: '2.0.0' } } },
+  ])
+  assert.deepEqual(audit.errors, [
+    'package.json: pnpm settings belong in pnpm-workspace.yaml; pnpm 11 ignores the pnpm field',
+    'packages/wallet-core/package.json: pnpm settings belong in pnpm-workspace.yaml; pnpm 11 ignores the pnpm field',
+  ])
+})
+
+const REVIEWED_WORKSPACE = `packages:
+  - 'packages/*'
+
+nodeLinker: hoisted
+linkWorkspacePackages: true
+
+overrides:
+  'safe': '2.0.0'
+  'parent@1>child': '^3.1.0'
+
+patchedDependencies:
+  'patched@1.0.0': 'patches/patched@1.0.0.patch'
+
+allowBuilds:
+  'esbuild': false
+`
+
+test('package-manager configuration audit permits only comments in .npmrc', () => {
   const accepted = auditPackageManagerConfigs([
     {
       file: '.npmrc',
-      source: '# hoist everything\nnode-linker=hoisted\n\n; trailing comment\n',
+      source: '# settings live in pnpm-workspace.yaml\n\n; trailing comment\n',
     },
-    { file: 'external/sdk/.npmrc', source: 'node-linker = hoisted\r\n' },
+    { file: 'external/sdk/.npmrc', source: '' },
+    { file: 'pnpm-workspace.yaml', source: REVIEWED_WORKSPACE },
   ])
-  assert.deepEqual(accepted, { configCount: 2, errors: [] })
+  assert.deepEqual(accepted, { configCount: 3, errors: [] })
 
   const rejected = auditPackageManagerConfigs([
     {
@@ -131,15 +177,16 @@ test('package-manager configuration audit permits only reviewed .npmrc keys', ()
         'registry=https://attacker.example/',
         '@scope:registry=https://attacker.example/',
         'userconfig=./attacker.npmrc',
-        'ignore-scripts=false',
         'strict-ssl',
       ].join('\n'),
     },
-    { file: 'apps/extension/.npmrc', source: 'node-linker=hoisted\nregistry=https://attacker.example/' },
+    { file: 'apps/extension/.npmrc', source: 'registry=https://attacker.example/' },
     { file: '.yarnrc.yml', source: 'npmRegistryServer: https://attacker.example/' },
     { file: '.yarnrc', source: 'registry "https://attacker.example/"' },
     { file: 'bunfig.toml', source: '[install]\nregistry = "https://attacker.example/"' },
     { file: '.pnpmfile.cjs', source: 'module.exports = { hooks: {} }' },
+    { file: '.pnpmfile.mjs', source: 'export const hooks = {}' },
+    { file: 'apps/extension/pnpm-workspace.yaml', source: 'nodeLinker: isolated' },
     {
       file: '.corepack.env',
       source: 'COREPACK_NPM_REGISTRY=https://attacker.example/\nCOREPACK_INTEGRITY_KEYS=0\n',
@@ -147,80 +194,170 @@ test('package-manager configuration audit permits only reviewed .npmrc keys', ()
     { file: 'apps/extension/.corepack.env', source: 'COREPACK_INTEGRITY_KEYS=0' },
     { file: 'external/sdk/.npmrc', source: 42 },
   ])
-  assert.equal(rejected.configCount, 9)
-  assert.equal(rejected.errors.length, 13)
-  assert.match(rejected.errors.join('\n'), /^\.npmrc: unreviewed package-manager configuration key: registry$/m)
-  assert.match(rejected.errors.join('\n'), /configuration key: @scope:registry$/m)
-  assert.match(rejected.errors.join('\n'), /configuration key: userconfig$/m)
-  assert.match(rejected.errors.join('\n'), /configuration key: ignore-scripts$/m)
-  assert.match(rejected.errors.join('\n'), /configuration key: strict-ssl$/m)
-  assert.match(rejected.errors.join('\n'), /^apps\/extension\/\.npmrc: .*key: registry$/m)
-  assert.match(rejected.errors.join('\n'), /^\.yarnrc\.yml: unreviewed package-manager configuration file$/m)
-  assert.match(rejected.errors.join('\n'), /^\.yarnrc: unreviewed/m)
-  assert.match(rejected.errors.join('\n'), /^bunfig\.toml: unreviewed/m)
-  assert.match(rejected.errors.join('\n'), /^\.pnpmfile\.cjs: unreviewed/m)
-  assert.match(
-    rejected.errors.join('\n'),
-    /^\.corepack\.env: unreviewed package-manager configuration file$/m
+  assert.equal(rejected.configCount, 11)
+  const errors = rejected.errors.join('\n')
+  for (const key of ['node-linker', 'registry', '@scope:registry', 'userconfig', 'strict-ssl']) {
+    assert.match(
+      errors,
+      new RegExp(`^\\.npmrc: unreviewed package-manager configuration key: ${key}$`, 'm')
+    )
+  }
+  assert.match(errors, /^apps\/extension\/\.npmrc: .*key: registry$/m)
+  for (const file of [
+    '\\.yarnrc\\.yml',
+    '\\.yarnrc',
+    'bunfig\\.toml',
+    '\\.pnpmfile\\.cjs',
+    '\\.pnpmfile\\.mjs',
+    'apps/extension/pnpm-workspace\\.yaml',
+    '\\.corepack\\.env',
+    'apps/extension/\\.corepack\\.env',
+  ]) {
+    assert.match(
+      errors,
+      new RegExp(`^${file}: unreviewed package-manager configuration file$`, 'm')
+    )
+  }
+  assert.match(errors, /configuration must be text/)
+  assert.match(errors, /^pnpm-workspace\.yaml: the reviewed workspace configuration is missing$/m)
+  assert.equal(rejected.errors.length, 16)
+})
+
+test('workspace settings audit reads the settings pnpm 11 applies', () => {
+  assert.deepEqual(auditWorkspaceSettings(REVIEWED_WORKSPACE), [])
+
+  const rejected = auditWorkspaceSettings(`packages:
+  - 'packages/*'
+node-linker: hoisted
+nodeLinker: isolated
+registries:
+  default: https://attacker.example/
+dangerouslyAllowAllBuilds: true
+overrides:
+  safe: '2.0.0'
+  unsafe: 'github:attacker/repo'
+  remote: 'https://attacker.example/package.tgz'
+patchedDependencies:
+  outside@1.0.0: '../outside.patch'
+  elsewhere@1.0.0: 'scripts/elsewhere.patch'
+allowBuilds:
+  esbuild: true
+  core-js: 'yes'
+`)
+  assert.deepEqual(rejected, [
+    'pnpm-workspace.yaml: unreviewed pnpm setting: node-linker',
+    'pnpm-workspace.yaml: unreviewed pnpm setting: registries',
+    'pnpm-workspace.yaml: unreviewed pnpm setting: dangerouslyAllowAllBuilds',
+    'pnpm-workspace.yaml: nodeLinker must be "hoisted", found "isolated"',
+    'pnpm-workspace.yaml: linkWorkspacePackages must be true, found undefined',
+    'pnpm-workspace.yaml: overrides.unsafe uses forbidden unpinned specifier github:attacker/repo',
+    'pnpm-workspace.yaml: overrides.remote uses forbidden unpinned specifier https://attacker.example/package.tgz',
+    'pnpm-workspace.yaml: patchedDependencies.outside@1.0.0 must name a file under patches/',
+    'pnpm-workspace.yaml: patchedDependencies.elsewhere@1.0.0 must name a file under patches/',
+    'pnpm-workspace.yaml: allowBuilds.esbuild runs an unreviewed dependency lifecycle script',
+    'pnpm-workspace.yaml: allowBuilds.core-js must be true or false',
+  ])
+
+  assert.deepEqual(
+    auditWorkspaceSettings('nodeLinker: hoisted\nlinkWorkspacePackages: true\noverrides: [a]\n'),
+    ['pnpm-workspace.yaml: overrides must be a mapping']
   )
-  assert.match(rejected.errors.join('\n'), /^apps\/extension\/\.corepack\.env: unreviewed/m)
-  assert.match(rejected.errors.join('\n'), /configuration must be text/)
-  assert.doesNotMatch(rejected.errors.join('\n'), /node-linker/)
+  assert.match(
+    auditWorkspaceSettings('nodeLinker: hoisted\nnodeLinker: isolated\n').join('\n'),
+    /cannot be parsed unambiguously/
+  )
+  assert.deepEqual(auditWorkspaceSettings('- packages/*\n'), [
+    'pnpm-workspace.yaml must be a mapping',
+  ])
 })
 
 test('workspace package-manager audit requires the exact pin in every declaring manifest', () => {
+  const pin = REQUIRED_PACKAGE_MANAGER
+  const [pinnedVersion] = pin.split('+')
+  assert.match(pin, /^pnpm@11\.\d+\.\d+\+sha512\.[0-9a-f]{128}$/)
+  const quoted = value => JSON.stringify(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
   const accepted = auditWorkspacePackageManagers([
-    { file: 'package.json', manifest: { packageManager: 'pnpm@8.6.0' } },
+    { file: 'package.json', manifest: { packageManager: pin } },
     { file: 'packages/wallet-core/package.json', manifest: { name: '@qbit/wallet-core' } },
-    { file: 'external/qbit-js/package.json', manifest: { packageManager: 'pnpm@8.6.0' } },
+    { file: 'external/qbit-js/package.json', manifest: { packageManager: pin } },
   ])
   assert.deepEqual(accepted, { errors: [], manifestCount: 3 })
 
   const rejected = auditWorkspacePackageManagers([
-    { file: 'package.json', manifest: { packageManager: 'pnpm@8.6.0' } },
+    { file: 'package.json', manifest: { packageManager: pin } },
     { file: 'external/qbit-js/package.json', manifest: { packageManager: 'pnpm@latest' } },
-    { file: 'external/qbit-pqc/package.json', manifest: { packageManager: 'pnpm@9.1.0' } },
+    { file: 'external/qbit-pqc/package.json', manifest: { packageManager: 'pnpm@8.6.0' } },
     { file: 'packages/wallet-core/package.json', manifest: { packageManager: 'yarn@4.1.0' } },
-    { file: 'apps/extension/package.json', manifest: { packageManager: 'pnpm@8.6.0+sha512.abc' } },
+    { file: 'apps/extension/package.json', manifest: { packageManager: pinnedVersion } },
+    {
+      file: 'packages/wallet-state/package.json',
+      manifest: { packageManager: `${pinnedVersion}+sha512.abc` },
+    },
     { file: 'packages/wallet-api/package.json', manifest: { packageManager: null } },
   ])
-  assert.equal(rejected.manifestCount, 6)
-  assert.equal(rejected.errors.length, 5)
-  assert.match(
-    rejected.errors.join('\n'),
-    /^external\/qbit-js\/package\.json: packageManager must be exactly pnpm@8\.6\.0, found "pnpm@latest"$/m
+  assert.equal(rejected.manifestCount, 7)
+  assert.equal(rejected.errors.length, 6)
+  const errors = rejected.errors.join('\n')
+  assert.ok(
+    rejected.errors.includes(
+      `external/qbit-js/package.json: packageManager must be exactly ${pin}, found "pnpm@latest"`
+    )
   )
+  assert.match(errors, /^external\/qbit-pqc\/package\.json: .*found "pnpm@8\.6\.0"$/m)
+  assert.match(errors, /^packages\/wallet-core\/package\.json: .*found "yarn@4\.1\.0"$/m)
+  // The version alone is not enough: without the hash Corepack does not verify
+  // the pnpm it downloads.
   assert.match(
-    rejected.errors.join('\n'),
-    /^external\/qbit-pqc\/package\.json: .*found "pnpm@9\.1\.0"$/m
+    errors,
+    new RegExp(`^apps/extension/package\\.json: .*found ${quoted(pinnedVersion)}$`, 'm')
   )
-  assert.match(
-    rejected.errors.join('\n'),
-    /^packages\/wallet-core\/package\.json: .*found "yarn@4\.1\.0"$/m
-  )
-  assert.match(
-    rejected.errors.join('\n'),
-    /^apps\/extension\/package\.json: .*found "pnpm@8\.6\.0\+sha512\.abc"$/m
-  )
-  assert.match(rejected.errors.join('\n'), /^packages\/wallet-api\/package\.json: .*found null$/m)
-  assert.doesNotMatch(rejected.errors.join('\n'), /^package\.json:/m)
+  assert.match(errors, /^packages\/wallet-state\/package\.json: .*\+sha512\.abc"$/m)
+  assert.match(errors, /^packages\/wallet-api\/package\.json: .*found null$/m)
+  assert.doesNotMatch(errors, /^package\.json:/m)
 
   const rootMutable = auditWorkspacePackageManagers([
     { file: 'package.json', manifest: { packageManager: 'pnpm@latest' } },
   ])
   assert.deepEqual(rootMutable.errors, [
-    'package.json: packageManager must be exactly pnpm@8.6.0, found "pnpm@latest"',
+    `package.json: packageManager must be exactly ${pin}, found "pnpm@latest"`,
   ])
 
   // The root pin is required even when a nested manifest declares it correctly.
   for (const manifests of [
     [{ file: 'package.json', manifest: {} }],
-    [{ file: 'packages/wallet-core/package.json', manifest: { packageManager: 'pnpm@8.6.0' } }],
+    [{ file: 'packages/wallet-core/package.json', manifest: { packageManager: pin } }],
   ]) {
     assert.deepEqual(auditWorkspacePackageManagers(manifests).errors, [
-      'package.json: packageManager must remain pinned to pnpm@8.6.0',
+      `package.json: packageManager must remain pinned to ${pin}`,
     ])
   }
+})
+
+test('workspace package-manager audit rejects fields that override the pin', () => {
+  const audit = auditWorkspacePackageManagers([
+    {
+      file: 'package.json',
+      manifest: {
+        packageManager: REQUIRED_PACKAGE_MANAGER,
+        devEngines: { packageManager: { name: 'pnpm', version: '11.0.0' } },
+      },
+    },
+    {
+      file: 'apps/extension/package.json',
+      manifest: { devEngines: { runtime: { name: 'node' } } },
+    },
+    {
+      file: 'packages/wallet-core/package.json',
+      manifest: { engines: { node: '>=22', runtime: { name: 'node', version: '22.0.0' } } },
+    },
+    { file: 'packages/wallet-api/package.json', manifest: { engines: { node: '>=22' } } },
+  ])
+  assert.deepEqual(audit.errors, [
+    'package.json: devEngines.packageManager is not permitted; packageManager pins pnpm',
+    'apps/extension/package.json: devEngines.runtime is not permitted; packageManager pins pnpm',
+    'packages/wallet-core/package.json: engines.runtime is not permitted; packageManager pins pnpm',
+  ])
 })
 
 test('package-manager configuration discovery covers tracked Corepack environment files', () => {
@@ -228,6 +365,10 @@ test('package-manager configuration discovery covers tracked Corepack environmen
     '.corepack.env',
     'apps/extension/.corepack.env',
     'external/qbit-js/packages/api/.corepack.env',
+    'pnpm-workspace.yaml',
+    'apps/extension/pnpm-workspace.yaml',
+    '.pnpmfile.mjs',
+    '.pnpmfile.cjs',
   ]) {
     assert.ok(PACKAGE_MANAGER_CONFIG_FILE.test(file), `${file} must be audited`)
   }
@@ -2694,9 +2835,9 @@ test('license baseline fails on added, removed, or changed package license recor
 
 test('lockfile license baseline covers every exact package identity and binds the lockfile', () => {
   const lockfile = `packages:
-  /also-trusted@2.0.0:
+  also-trusted@2.0.0:
     resolution: {integrity: sha512-ZGVmZw==}
-  /trusted@1.0.0:
+  trusted@1.0.0:
     resolution: {integrity: sha512-YWJjZA==}
 `
   const baseline = {
@@ -2721,7 +2862,7 @@ test('lockfile license baseline covers every exact package identity and binds th
     /license review is not bound to this lockfile/
   )
 
-  const addedLockfile = `${lockfile}  /new-package@3.0.0:
+  const addedLockfile = `${lockfile}  new-package@3.0.0:
     resolution: {integrity: sha512-bmV3Cg==}
 `
   const addedBaseline = {
@@ -2755,7 +2896,7 @@ test('lockfile license baseline covers every exact package identity and binds th
 
 test('lockfile license baseline verifies reviewed Unknown license evidence', () => {
   const lockfile = `packages:
-  /bigi@1.4.2:
+  bigi@1.4.2:
     resolution: {integrity: sha512-YmlnaQ==}
 `
   const baseline = {
@@ -2783,9 +2924,9 @@ test('lockfile license baseline onboarding records new identities as pending rev
   const source =
     'reviewed package metadata for every sha512-bound pnpm-lock.yaml name@version identity'
   const lockfile = `packages:
-  /added@3.0.0:
+  added@3.0.0:
     resolution: {integrity: sha512-YWRkZWQ=}
-  /trusted@1.0.0:
+  trusted@1.0.0:
     resolution: {integrity: sha512-YWJjZA==}
 `
   const current = {
@@ -3194,7 +3335,7 @@ function withInventory(inventoryText, mutate) {
 }
 
 function evidenceFixture(overrides = {}, auditOutputOverrides = {}) {
-  const lockfileText = "lockfileVersion: '6.1'\npackages: {}\n"
+  const lockfileText = "lockfileVersion: '9.0'\npackages: {}\n"
   const auditText = '{"advisories":{},"metadata":{}}\n'
   const digest = text => createHash('sha256').update(text).digest('hex')
   const inventory = {
