@@ -187,7 +187,7 @@ describe('ReceiveScreen custody flow', () => {
     expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the New Address result when account selection follows the durable intent', async () => {
+  it('reloads for the account New Address selects and clears the amount', async () => {
     const initial = receiveState();
     const next = receiveState({
       current: addressState(4, 'normal', 'local', false),
@@ -201,6 +201,7 @@ describe('ReceiveScreen custody flow', () => {
     };
     let resolveCreate!: (state: QbitReceiveState) => void;
     vi.mocked(useCurrentAccount).mockImplementation(() => account as any);
+    ensureQbitReceiveIntent.mockResolvedValueOnce(initial).mockResolvedValueOnce(next);
     createQbitReceiveIntent.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveCreate = resolve;
@@ -223,8 +224,180 @@ describe('ReceiveScreen custody flow', () => {
       expect(screen.getByTestId('qrcode-value').getAttribute('data-value')).toBe(`qbit:${next.current!.address}`)
     );
     expect((screen.getByLabelText('qbit_receive_amount_optional') as HTMLInputElement).value).toBe('');
-    expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(1);
+    expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(2);
     expect(createQbitReceiveIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the receive state after a refused New Address and keeps the error', async () => {
+    ensureQbitReceiveIntent
+      .mockResolvedValueOnce(receiveState())
+      .mockResolvedValueOnce(receiveState({ current: addressState(0, 'normal', 'local', true) }));
+    createQbitReceiveIntent.mockRejectedValueOnce(new Error('The new receive address already has activity'));
+    render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+    expect(screen.queryByTestId('current-address-used-warning')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('new-address'));
+
+    expect(await screen.findByTestId('current-address-used-warning')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('already has activity');
+    expect(toastError).toHaveBeenCalledWith('The new receive address already has activity');
+    expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the amount when New Address leaves the selected address on screen', async () => {
+    createQbitReceiveIntent.mockResolvedValueOnce(receiveState());
+    render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+    fireEvent.change(screen.getByLabelText('qbit_receive_amount_optional'), {
+      target: { value: '1.25' }
+    });
+
+    fireEvent.click(screen.getByTestId('new-address'));
+
+    await waitFor(() => expect(createQbitReceiveIntent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect((screen.getByTestId('new-address') as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByLabelText('qbit_receive_amount_optional') as HTMLInputElement).value).toBe('1.25');
+  });
+
+  it("hides the previous account's address while loading the newly selected account's", async () => {
+    let account = {
+      key: 'keyring_0#0',
+      pubkey: 'pubkey-0',
+      p2mr: true,
+      alianName: 'Primary'
+    };
+    let resolveSelected!: (state: QbitReceiveState) => void;
+    vi.mocked(useCurrentAccount).mockImplementation(() => account as any);
+    ensureQbitReceiveIntent.mockResolvedValueOnce(receiveState()).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSelected = resolve;
+      })
+    );
+    const view = render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+
+    account = { ...account, key: 'keyring_0#2', pubkey: 'pubkey-2' };
+    view.rerender(<ReceiveScreen />);
+
+    expect(screen.queryByTestId('receive-qr')).toBeNull();
+    expect(screen.getByTestId('receive-loading')).toBeTruthy();
+
+    const selectedState = receiveState({ current: addressState(2, 'critical', 'restored-floor', false) });
+    await act(async () => {
+      resolveSelected(selectedState);
+    });
+    await screen.findByTestId('receive-qr');
+    expect(screen.getByTestId('qrcode-value').getAttribute('data-value')).toBe(
+      `qbit:${selectedState.current!.address}`
+    );
+    expect(createQbitReceiveIntent).not.toHaveBeenCalled();
+  });
+
+  it('re-enables copy when the account changes while a copy is checking', async () => {
+    let account = {
+      key: 'keyring_0#0',
+      pubkey: 'pubkey-0',
+      p2mr: true,
+      alianName: 'Primary'
+    };
+    let resolveCopyCheck!: (state: QbitReceiveState) => void;
+    vi.mocked(useCurrentAccount).mockImplementation(() => account as any);
+    const selectedState = receiveState({ current: addressState(2, 'normal', 'local', false) });
+    ensureQbitReceiveIntent
+      .mockResolvedValueOnce(receiveState())
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCopyCheck = resolve;
+        })
+      )
+      .mockResolvedValueOnce(selectedState);
+    const view = render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+
+    fireEvent.click(screen.getByLabelText('copy_address'));
+    expect((screen.getByLabelText('copy_address') as HTMLButtonElement).disabled).toBe(true);
+    account = { ...account, key: 'keyring_0#2', pubkey: 'pubkey-2' };
+    view.rerender(<ReceiveScreen />);
+    await waitFor(() =>
+      expect(screen.getByTestId('qrcode-value').getAttribute('data-value')).toBe(
+        `qbit:${selectedState.current!.address}`
+      )
+    );
+
+    expect((screen.getByLabelText('copy_address') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      resolveCopyCheck(receiveState());
+    });
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it('keeps a used selected address on screen with the reuse warning', async () => {
+    ensureQbitReceiveIntent.mockResolvedValue(receiveState({ current: addressState(0, 'normal', 'local', true) }));
+    render(<ReceiveScreen />);
+
+    expect(await screen.findByTestId('current-address-used-warning')).toBeTruthy();
+    expect(screen.getByText('qbit_receive_reuse_warning')).toBeTruthy();
+    expect(screen.getByTestId('receive-qr')).toBeTruthy();
+    expect((screen.getByTestId('new-address') as HTMLButtonElement).disabled).toBe(false);
+    expect(createQbitReceiveIntent).not.toHaveBeenCalled();
+  });
+
+  it('offers New Address when the selected address cannot be offered', async () => {
+    const initial = receiveState();
+    ensureQbitReceiveIntent.mockResolvedValue(
+      receiveState({
+        current: null,
+        previous: [addressState(0, 'exhausted', 'local', true), ...initial.previous]
+      })
+    );
+    render(<ReceiveScreen />);
+
+    expect(await screen.findByTestId('no-safe-receive-address')).toBeTruthy();
+    expect(screen.queryByTestId('receive-qr')).toBeNull();
+    fireEvent.click(screen.getByTestId('new-address'));
+
+    await waitFor(() => expect(createQbitReceiveIntent).toHaveBeenCalledTimes(1));
+  });
+
+  it('points to New Address, not a full gap, when New Address is offered', async () => {
+    const initial = receiveState();
+    ensureQbitReceiveIntent.mockResolvedValue(
+      receiveState({
+        current: null,
+        previous: [addressState(0, 'exhausted', 'local', true), ...initial.previous]
+      })
+    );
+    render(<ReceiveScreen />);
+
+    const notice = await screen.findByTestId('no-safe-receive-address');
+    expect(notice.textContent).toContain('qbit_receive_no_safe_new_address');
+    expect(screen.queryByText('qbit_receive_no_safe')).toBeNull();
+    expect(screen.queryByTestId('gap-limit-warning')).toBeNull();
+    expect(screen.getByTestId('new-address')).toBeTruthy();
+  });
+
+  it('keeps the gap-full notice when New Address is not offered', async () => {
+    ensureQbitReceiveIntent.mockResolvedValue(
+      receiveState({
+        current: null,
+        previous: [addressState(19, 'exhausted', 'restored-floor', true)],
+        gap: {
+          limit: 20,
+          highestUsedIndex: -1,
+          trailingUnusedCount: 20,
+          remainingIntentCapacity: 0,
+          canCreate: false
+        }
+      })
+    );
+    render(<ReceiveScreen />);
+
+    expect(await screen.findByTestId('no-safe-receive-address')).toBeTruthy();
+    expect(screen.getByText('qbit_receive_no_safe')).toBeTruthy();
+    expect(screen.queryByText('qbit_receive_no_safe_new_address')).toBeNull();
+    expect(screen.getByTestId('gap-limit-warning')).toBeTruthy();
+    expect(screen.queryByTestId('new-address')).toBeNull();
   });
 
   it('hides stale receive state while switching networks', async () => {
@@ -325,19 +498,18 @@ describe('ReceiveScreen custody flow', () => {
   it('warns before copying when activity appeared on the current address', async () => {
     const initialState = receiveState();
     const observedCurrent = { ...initialState.current!, used: true };
-    ensureQbitReceiveIntent.mockResolvedValueOnce(initialState).mockResolvedValueOnce(
-      receiveState({
-        current: addressState(4, 'normal', 'local', false),
-        previous: [observedCurrent, ...initialState.previous]
-      })
-    );
+    ensureQbitReceiveIntent
+      .mockResolvedValueOnce(initialState)
+      .mockResolvedValueOnce(receiveState({ current: observedCurrent }));
     render(<ReceiveScreen />);
     await screen.findByTestId('receive-qr');
+    expect(screen.queryByTestId('current-address-used-warning')).toBeNull();
 
     fireEvent.click(screen.getByLabelText('copy_address'));
 
     await waitFor(() => expect(toastWarning).toHaveBeenCalledWith('qbit_receive_reuse_warning'));
     expect(copyToClipboard).toHaveBeenCalledWith(initialState.current!.address);
+    expect(screen.getByTestId('current-address-used-warning')).toBeTruthy();
   });
 
   it('keeps low-budget badges visible on restored floors while hiding their normal claim', async () => {
@@ -398,13 +570,34 @@ describe('ReceiveScreen custody flow', () => {
     expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
-  it('blocks a current address that became exhausted and renders its safe replacement', async () => {
+  it.each([
+    [true, 'qbit_receive_no_safe_new_address'],
+    [false, 'qbit_receive_no_safe']
+  ])('refuses to copy a current address gone after the refresh (canCreate %s)', async (canCreate, message) => {
     const initialState = receiveState();
-    const exhaustedCurrent = addressState(0, 'exhausted', 'local', false);
-    const replacement = addressState(4, 'normal', 'local', false);
+    // A recovery sweep now pays the address, so it is neither current nor listed.
     ensureQbitReceiveIntent.mockResolvedValueOnce(initialState).mockResolvedValueOnce(
       receiveState({
-        current: replacement,
+        current: null,
+        gap: { ...initialState.gap, canCreate }
+      })
+    );
+    render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+
+    fireEvent.click(screen.getByLabelText('copy_address'));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(message));
+    expect(copyToClipboard).not.toHaveBeenCalled();
+    expect(screen.getByTestId('no-safe-receive-address').textContent).toContain(message);
+  });
+
+  it('blocks a current address that became exhausted and offers New Address instead', async () => {
+    const initialState = receiveState();
+    const exhaustedCurrent = addressState(0, 'exhausted', 'local', false);
+    ensureQbitReceiveIntent.mockResolvedValueOnce(initialState).mockResolvedValueOnce(
+      receiveState({
+        current: null,
         previous: [exhaustedCurrent, ...initialState.previous]
       })
     );
@@ -415,7 +608,9 @@ describe('ReceiveScreen custody flow', () => {
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_receive_exhausted_copy_blocked'));
     expect(copyToClipboard).not.toHaveBeenCalled();
-    expect(screen.getByTestId('qrcode-value').getAttribute('data-value')).toBe(`qbit:${replacement.address}`);
+    expect(screen.queryByTestId('receive-qr')).toBeNull();
+    expect(screen.getByTestId('no-safe-receive-address')).toBeTruthy();
+    expect(screen.getByTestId('new-address')).toBeTruthy();
   });
 
   it('offers no receive address until restored counter reconstruction completes', async () => {
@@ -486,6 +681,7 @@ describe('ReceiveScreen custody flow', () => {
     expect(await screen.findByTestId('no-safe-receive-address')).toBeTruthy();
     expect(screen.getByTestId('gap-limit-warning')).toBeTruthy();
     expect(screen.queryByTestId('receive-qr')).toBeNull();
+    expect(screen.queryByTestId('new-address')).toBeNull();
     expect((screen.getByRole('button', { name: 'copy_address 19' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

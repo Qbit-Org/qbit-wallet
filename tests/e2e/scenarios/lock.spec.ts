@@ -29,8 +29,8 @@ test('G3 lock: rejects a wrong password and survives unlock plus browser restart
   const extensionId = extension.extensionId
   const fundingTxid = await regtest.fund(setup.address, '0.001')
   await waitForWalletTransactions(extension, setup.page, [fundingTxid])
-  // Rotation is driven by the receive ledger marking the address used, which
-  // lags the UTXO index; wait for it before asserting the address rotated.
+  // Receive marks the address used from the receive ledger, which lags the
+  // UTXO index; wait for it before checking how Receive shows the address.
   await waitForAddressUsed(extension, setup.page, setup.address)
   const expectedBalance = await extension.requestWalletController<AddressBalanceProbe>(
     setup.page,
@@ -40,7 +40,11 @@ test('G3 lock: rejects a wrong password and survives unlock plus browser restart
 
   await setup.home.openReceive()
   const fundedReceive = new ReceivePage(setup.page)
-  const safeReceiveAddress = await fundedReceive.currentAddress()
+  // The used address stays on screen until New Address selects a fresh one,
+  // and that selection has to survive the lock and the browser restart below.
+  expect(await fundedReceive.currentAddress()).toBe(setup.address)
+  await fundedReceive.expectCurrentAddressUsed()
+  const { current: safeReceiveAddress } = await fundedReceive.rotateAddress()
   expect(safeReceiveAddress).not.toBe(setup.address)
   expect(await fundedReceive.previousAddresses()).toContain(setup.address)
   await setup.page.goto(`chrome-extension://${extensionId}/index.html#/main`, {

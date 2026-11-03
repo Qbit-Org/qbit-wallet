@@ -86,7 +86,7 @@ precision.
 | Phishing race       | `scenarios/phishing.spec.ts:232`                           | Warn on a link clicked while the service worker runs; the warning page stays (#320)             | Pass   |   5.8 s |
 | Wipe/restore        | `scenarios/recovery.spec.ts:86`                            | Passphrase separation; exact addresses, balances, floors, and warnings after restore            | Pass   | 126.0 s |
 | Lock                | `scenarios/lock.spec.ts:24`                                | Wrong password, unlock, persisted state, and browser restart                                    | Pass   |  33.4 s |
-| Auto-lock           | `scenarios/lock.spec.ts:88`                                | Onboarding keepalive stays bounded across an MV3 service-worker restart                         | Pass   |  56.1 s |
+| Auto-lock           | `scenarios/lock.spec.ts:92`                                | Onboarding keepalive stays bounded across an MV3 service-worker restart                         | Pass   |  56.1 s |
 | Biometric B1        | `scenarios/biometric-unlock.spec.ts:38`                    | Onboarding enrollment, TouchID unlock, and password-change re-wrap                              | Pass   |  16.8 s |
 | Biometric B2        | `scenarios/biometric-unlock.spec.ts:109`                   | Settings enrollment with step-up, persistence across restart, and disable                       | Pass   |  19.8 s |
 
