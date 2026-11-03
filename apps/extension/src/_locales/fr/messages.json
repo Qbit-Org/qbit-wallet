@@ -320,6 +320,9 @@
   "qbit_receive_no_safe": {
     "message": "Aucune adresse de réception sûre n’est disponible. Les adresses épuisées sont exclues et l’intervalle de restauration peut être plein. Utilisez une adresse déjà émise, inutilisée et non épuisée, ou rétablissez le réseau puis réessayez."
   },
+  "qbit_receive_no_safe_new_address": {
+    "message": "L’adresse de ce compte ne peut pas servir à recevoir des fonds. Appuyez sur Nouvelle adresse pour obtenir une nouvelle adresse et passer à son compte."
+  },
   "qbit_receive_previous": {
     "message": "Adresses précédentes"
   },

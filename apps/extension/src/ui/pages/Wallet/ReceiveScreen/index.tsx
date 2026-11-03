@@ -422,10 +422,13 @@ export default function ReceiveScreen() {
             </section>
           ) : visibleState ? (
             <div className="receive-empty" data-testid="no-safe-receive-address">
-              <span>{t('qbit_receive_no_safe')}</span>
               {/* The selected account's address cannot be offered, for example
-                  because it has no signing budget left. New Address issues
-                  one and selects its account. */}
+                  because it has no signing budget left. While the gap has
+                  room, New Address issues one and selects its account, so
+                  the notice points there rather than at a full gap. */}
+              <span>
+                {t(visibleState.gap.canCreate ? 'qbit_receive_no_safe_new_address' : 'qbit_receive_no_safe')}
+              </span>
               {visibleState.gap.canCreate ? (
                 <button
                   className="receive-action primary"

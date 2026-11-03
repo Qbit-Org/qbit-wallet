@@ -360,6 +360,46 @@ describe('ReceiveScreen custody flow', () => {
     await waitFor(() => expect(createQbitReceiveIntent).toHaveBeenCalledTimes(1));
   });
 
+  it('points to New Address, not a full gap, when New Address is offered', async () => {
+    const initial = receiveState();
+    ensureQbitReceiveIntent.mockResolvedValue(
+      receiveState({
+        current: null,
+        previous: [addressState(0, 'exhausted', 'local', true), ...initial.previous]
+      })
+    );
+    render(<ReceiveScreen />);
+
+    const notice = await screen.findByTestId('no-safe-receive-address');
+    expect(notice.textContent).toContain('qbit_receive_no_safe_new_address');
+    expect(screen.queryByText('qbit_receive_no_safe')).toBeNull();
+    expect(screen.queryByTestId('gap-limit-warning')).toBeNull();
+    expect(screen.getByTestId('new-address')).toBeTruthy();
+  });
+
+  it('keeps the gap-full notice when New Address is not offered', async () => {
+    ensureQbitReceiveIntent.mockResolvedValue(
+      receiveState({
+        current: null,
+        previous: [addressState(19, 'exhausted', 'restored-floor', true)],
+        gap: {
+          limit: 20,
+          highestUsedIndex: -1,
+          trailingUnusedCount: 20,
+          remainingIntentCapacity: 0,
+          canCreate: false
+        }
+      })
+    );
+    render(<ReceiveScreen />);
+
+    expect(await screen.findByTestId('no-safe-receive-address')).toBeTruthy();
+    expect(screen.getByText('qbit_receive_no_safe')).toBeTruthy();
+    expect(screen.queryByText('qbit_receive_no_safe_new_address')).toBeNull();
+    expect(screen.getByTestId('gap-limit-warning')).toBeTruthy();
+    expect(screen.queryByTestId('new-address')).toBeNull();
+  });
+
   it('hides stale receive state while switching networks', async () => {
     let resolveTestnet!: (state: QbitReceiveState) => void;
     ensureQbitReceiveIntent.mockResolvedValueOnce(receiveState()).mockReturnValueOnce(
