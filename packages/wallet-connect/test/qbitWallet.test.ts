@@ -185,6 +185,20 @@ describe('QbitWallet', () => {
       expect(listenersLeft()).toEqual([])
     })
 
+    it('only polls, and resolves not installed, on a window that cannot dispatch events', async () => {
+      vi.useFakeTimers()
+      const standIn = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+      ;(globalThis as any).window = standIn
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      await vi.runAllTimersAsync()
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(standIn.addEventListener).not.toHaveBeenCalled()
+    })
+
     it.each([
       ['a look-alike window.qbit', { requestAccounts: vi.fn() }],
       ['no window.qbit', undefined],

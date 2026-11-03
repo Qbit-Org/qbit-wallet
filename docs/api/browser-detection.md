@@ -60,7 +60,9 @@ The announcement follows the shape of EIP-6963. Its `detail` and `detail.info` a
 | `provider`  | The provider installed at `window.qbit`  |
 
 ```javascript
-function waitForQbitProvider(timeoutMs = 3000) {
+// As long as @qbit/wallet-connect waits: while the wallet's service worker
+// starts, the provider can take several seconds to arrive.
+function waitForQbitProvider(timeoutMs = 5500) {
   return new Promise(resolve => {
     const events = ['qbit#initialized', 'qbit:announceProvider']
     const finish = provider => {

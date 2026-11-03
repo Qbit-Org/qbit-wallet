@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 
 import { test as base, expect, type Frame, type Page } from '@playwright/test'
 
+import { PhishingMessageType } from '../../../packages/wallet-shared/src/types/phishing-message'
 import { ExtensionSession } from '../support/extension-session'
 import { assertRepositoryRoot } from '../support/paths'
 
@@ -147,6 +148,42 @@ const test = base.extend<{
   },
 })
 
+interface FrameContacts {
+  /** The origin of each document whose content script asked for its phishing verdict. */
+  checks: string[]
+  /** The origin of each document that connected a port, as the check-in does. */
+  ports: string[]
+}
+
+/**
+ * Records in the background which documents reach it, by origin. A sandboxed
+ * frame's origin is opaque and reads "null".
+ */
+async function recordFrameContacts(
+  extension: ExtensionSession
+): Promise<() => Promise<FrameContacts>> {
+  const worker = await extension.serviceWorker()
+  await worker.evaluate(checkType => {
+    const contacts: FrameContacts = { checks: [], ports: [] }
+    ;(globalThis as { qbitE2eFrameContacts?: FrameContacts }).qbitE2eFrameContacts = contacts
+    chrome.runtime.onMessage.addListener((message: { type?: unknown } | undefined, sender) => {
+      if (message?.type === checkType) contacts.checks.push(String(sender.origin))
+      return false
+    })
+    chrome.runtime.onConnect.addListener(port => {
+      contacts.ports.push(String(port.sender?.origin))
+    })
+  }, PhishingMessageType.CHECK_PHISHING)
+  return () =>
+    worker.evaluate(
+      () =>
+        (globalThis as { qbitE2eFrameContacts?: FrameContacts }).qbitE2eFrameContacts ?? {
+          checks: [],
+          ports: [],
+        }
+    )
+}
+
 function recordedEvents(target: Page | Frame): Promise<RecordedEvent[]> {
   return target.evaluate(() => (window as WindowWithEvents).qbitReadyEvents ?? [])
 }
@@ -225,6 +262,7 @@ test.describe('provider ready event', () => {
     extension,
     servers: [site, widget],
   }) => {
+    const contacts = await recordFrameContacts(extension)
     const page = await extension.context.newPage()
     await page.goto(`${site.origin}/early?frame=${encodeURIComponent(`${widget.origin}/frame`)}`)
     const widgetFrame = await loadedFrame(page, '#widget')
@@ -239,8 +277,16 @@ test.describe('provider ready event', () => {
       { uuid: widgetUuid, sameProvider: true },
     ])
 
-    // The wallet refuses a document with an opaque origin, so its frame has
-    // neither a provider nor an announcement to answer with.
+    // The sandboxed frame's content script runs too, and asks for its verdict.
+    await expect.poll(() => contacts().then(({ checks }) => checks)).toContain('null')
+    // It then decides at once not to inject, as its origin is opaque, but
+    // nothing signals that decision. A frame that went on would first connect
+    // a port to check in, so give such a regression a moment to show.
+    await page.waitForTimeout(2_000)
+    const { ports } = await contacts()
+    expect(ports).toEqual(expect.arrayContaining([site.origin, widget.origin]))
+    expect(ports).not.toContain('null')
+    // So its frame has neither a provider nor an announcement to answer with.
     expect(await recordedEvents(sandboxed)).toEqual([])
     expect(await requestAnnouncement(sandboxed)).toEqual([])
     expect(await sandboxed.evaluate(() => 'qbit' in window)).toBe(false)

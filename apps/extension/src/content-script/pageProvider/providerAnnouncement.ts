@@ -8,7 +8,7 @@ export const ANNOUNCE_PROVIDER_EVENT = 'qbit:announceProvider';
 export const REQUEST_PROVIDER_EVENT = 'qbit:requestProvider';
 
 export const PROVIDER_NAME = 'Qbit Wallet';
-// Reverse DNS of qbit.org, the wallet's site.
+// The wallet's reverse-DNS identifier, under qbit.org.
 export const PROVIDER_RDNS = 'org.qbit.wallet';
 // The extension's own 128px icon, build/_raw/images/logo/logo@128x.png.
 export const PROVIDER_ICON =

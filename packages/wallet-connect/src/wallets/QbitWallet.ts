@@ -92,7 +92,11 @@ export class QbitWallet extends BaseWallet {
   private waitForProvider(): Promise<boolean> {
     return new Promise((resolve, reject) => {
       const events = [QBIT_PROVIDER_INITIALIZED_EVENT, QBIT_ANNOUNCE_PROVIDER_EVENT]
-      const listens = typeof window.addEventListener === 'function'
+      // A stand-in for window may lack events; it is then only polled.
+      const listens =
+        typeof window.addEventListener === 'function' &&
+        typeof window.removeEventListener === 'function' &&
+        typeof window.dispatchEvent === 'function'
       let polls = 0
       let timer: ReturnType<typeof setTimeout> | undefined
       let settled = false
