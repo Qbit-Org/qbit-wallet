@@ -98,7 +98,7 @@ describe('TransactionOverviewSection signature budget row', () => {
     expect(screen.getByText('Signature budget: 100 before, 98 after')).toBeTruthy();
   });
 
-  it("shows the whole batch's budget instead of this transaction's own before and after", () => {
+  it('shows the budget of the whole batch instead of the transaction alone', () => {
     render(
       <TransactionOverviewSection
         decodedPsbt={decodedPsbt}
@@ -114,7 +114,8 @@ describe('TransactionOverviewSection signature budget row', () => {
       />
     );
 
-    expect(screen.getByText('Signatures: 2 new • 1 cached')).toBeTruthy();
+    // Its own new and cached counts depend on the order the batch signs in.
+    expect(screen.queryByText(/new • /)).toBeNull();
     expect(screen.getByTestId('psbt-batch-signature-budget').textContent).toBe(
       'Batch signature budget: 5 new; 100 before, 95 after all transactions'
     );

@@ -488,6 +488,19 @@ async function cleanupFailedQbitRestoredFloorChallenges(ctx: any): Promise<void>
     await wallet.releaseQbitRestoredFloorSigningChallenges(challengeIds)
   }
 }
+
+/**
+ * Close the signature batch a signPsbts approval opened for a request that
+ * failed: rejected, its window closed, its page gone, or refused before the
+ * approval showed. Left open, failed requests would fill the batches the
+ * keyring keeps and evict a live request's batch.
+ */
+function cleanupFailedQbitSignatureBatches(ctx: any): void {
+  const toSignDatas = ctx.request?.data?.params?.toSignDatas
+  if (Array.isArray(toSignDatas)) {
+    wallet.releaseQbitSignatureBatches(toSignDatas)
+  }
+}
 const windowHeight = 600
 const flow = new PromiseFlow()
 const flowContext = flow
@@ -762,6 +775,14 @@ export default request => {
         } catch (cleanupError) {
           console.error(
             'Failed to release Qbit restored-floor signing challenges after request failure',
+            cleanupError
+          )
+        }
+        try {
+          cleanupFailedQbitSignatureBatches(ctx)
+        } catch (cleanupError) {
+          console.error(
+            'Failed to release Qbit signature batches after request failure',
             cleanupError
           )
         }

@@ -7706,11 +7706,15 @@ export class WalletController extends BaseController {
     })
   }
 
-  /** Close the batches of a settled request; see openQbitProviderSignatureBatch. */
+  /**
+   * Close the batches of a settled request, answered or failed; see
+   * openQbitProviderSignatureBatch.
+   */
   releaseQbitSignatureBatches = (toSignDatas: readonly ToSignData[]): void => {
     const batchIds = new Set<string>()
     for (const toSignData of toSignDatas) {
-      if (toSignData.qbitSignatureBatch) batchIds.add(toSignData.qbitSignatureBatch.id)
+      const batchId = toSignData?.qbitSignatureBatch?.id
+      if (typeof batchId === 'string') batchIds.add(batchId)
     }
     if (batchIds.size > 0) keyringService.releaseP2mrPsbtSigningBatches([...batchIds])
   }
@@ -7724,7 +7728,9 @@ export class WalletController extends BaseController {
       toSignDatas.length < 2 ||
       !account.p2mr ||
       getAccountCapabilities(account).signMethod !== AccountSignMethod.Local ||
-      !toSignDatas.every(toSignData => toSignData.qbitP2mrSigningKeys?.length)
+      !toSignDatas.every(
+        toSignData => toSignData.qbitP2mrSigningKeys?.length && toSignData.signatureBudget
+      )
     ) {
       return undefined
     }
@@ -7733,6 +7739,7 @@ export class WalletController extends BaseController {
       toSignDatas.map(toSignData => ({
         psbt: qbitPsbtFromHex(toSignData.psbtHex),
         keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
+        approvedBudget: toSignData.signatureBudget!,
       })),
       options
     )
@@ -9397,8 +9404,10 @@ export class WalletController extends BaseController {
     }
     const summary = this.analyzeLocalQbitPsbts(toSignDatas, context)
     // A local batch is the one its signer reviews here, so each review of
-    // the same bytes reopens the same batch and keeps what its signed
-    // entries spent. A provider request's batch was opened at its approval.
+    // the same approval (the same bytes with the same budgets, as before a
+    // quick-sign) reopens the same batch and keeps what its signed entries
+    // spent. Budgets prepared again after an entry spent open a batch of
+    // their own. A provider request's batch was opened at its approval.
     if (
       summary.parseErrorCount === 0 &&
       !toSignDatas.some(

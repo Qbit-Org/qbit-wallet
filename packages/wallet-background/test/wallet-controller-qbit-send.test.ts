@@ -1049,7 +1049,7 @@ describe('WalletController qbit P2MR send path', () => {
       const summary = await wallet.analyzeLocalPsbts(batch)
 
       // The batch is the one its signer reviews, so every review of the
-      // same bytes reopens it in the local scope.
+      // same approval reopens it in the local scope.
       expect(summary.signatureBatch).toEqual({ id: 'batch-1', budget: BATCH_SIGNATURE_BUDGET })
       expect(keyringService.openP2mrPsbtSigningBatch).toHaveBeenCalledTimes(1)
       const [address, inputs, options] = vi.mocked(keyringService.openP2mrPsbtSigningBatch).mock
@@ -1059,6 +1059,11 @@ describe('WalletController qbit P2MR send path', () => {
       expect(inputs.map(input => bytesToHex(serializePsbt(input.psbt)))).toEqual(
         batch.map(toSignData => toSignData.psbtHex)
       )
+      // Each entry signs in the batch only with the budget it was approved with.
+      expect(inputs.map(input => input.approvedBudget)).toEqual(
+        batch.map(toSignData => toSignData.signatureBudget)
+      )
+      expect(inputs.every(input => input.approvedBudget)).toBe(true)
 
       const [clean] = batch
       await wallet.signLocalBatchPsbt(
@@ -1076,7 +1081,7 @@ describe('WalletController qbit P2MR send path', () => {
       )
     })
 
-    it('opens no local batch for one PSBT, a provider request, or an account that signs elsewhere', async () => {
+    it('opens no local batch for one PSBT, a provider request, an entry without a budget, or an account that signs elsewhere', async () => {
       const wallet = new WalletController()
       const account = p2mrAccount()
       vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
@@ -1093,6 +1098,14 @@ describe('WalletController qbit P2MR send path', () => {
       } as const
       await expect(
         wallet.analyzeLocalPsbts(batch.map(toSignData => ({ ...toSignData, providerContext })))
+      ).resolves.not.toHaveProperty('signatureBatch')
+      // An entry without an approved budget has no drift for a batch to explain.
+      await expect(
+        wallet.analyzeLocalPsbts(
+          batch.map((toSignData, index) =>
+            index === 1 ? { ...toSignData, signatureBudget: undefined } : toSignData
+          )
+        )
       ).resolves.not.toHaveProperty('signatureBatch')
       vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({
         ...account,

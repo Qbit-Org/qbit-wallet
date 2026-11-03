@@ -128,8 +128,9 @@ interface TransactionOverviewSectionProps {
   toSignData?: ToSignData;
   /**
    * The whole budget of the batch this transaction is signed in. Its entries
-   * sign in any order, so this transaction's own before and after figures
-   * would hold only if it signed first; the batch's are shown instead.
+   * sign in any order, so this transaction's own figures would hold only if
+   * it signed first, and a duplicate's signatures would count again; the
+   * batch's are shown instead.
    */
   signatureBatchBudget?: QbitSignatureBudgetImpact;
 }
@@ -278,11 +279,13 @@ export default function TransactionOverviewSection({
 
         {signatureBudget && (
           <Column gap="sm" fullX data-testid="psbt-signature-budget">
-            <Text
-              text={`Signatures: ${signatureBudget.required} new • ${signatureBudget.cached} cached`}
-              size="xs"
-              color="textDim"
-            />
+            {!signatureBatchBudget && (
+              <Text
+                text={`Signatures: ${signatureBudget.required} new • ${signatureBudget.cached} cached`}
+                size="xs"
+                color="textDim"
+              />
+            )}
             {signatureBudget.restoredFloorRisk ? (
               <Row itemsCenter gap="sm">
                 <Text

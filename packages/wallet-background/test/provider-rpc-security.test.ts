@@ -36,6 +36,7 @@ const walletMock = vi.hoisted(() => ({
   releaseExternalQbitSigningLock: vi.fn(),
   openQbitProviderSendRequest: vi.fn(),
   releaseQbitRestoredFloorSigningChallenges: vi.fn(),
+  releaseQbitSignatureBatches: vi.fn(),
   settleQbitProviderSendRequest: vi.fn(),
 }))
 
@@ -111,6 +112,61 @@ function externalSigningLock(purpose: 'send' | 'sign' = 'send') {
   }
 }
 
+/**
+ * The signature batches the keyring keeps open, as many as it holds (64, its
+ * QBIT_PQC_SIGNATURE_BATCH_CAPACITY): opening one more evicts the oldest.
+ */
+function signatureBatchStore(capacity = 64) {
+  const open = new Set<string>()
+  let opened = 0
+  return {
+    open(): string {
+      for (const oldest of open) {
+        if (open.size < capacity) break
+        open.delete(oldest)
+      }
+      opened += 1
+      const id = `batch-${opened}`
+      open.add(id)
+      return id
+    },
+    release(toSignDatas: readonly { qbitSignatureBatch?: { id: string } }[]): void {
+      for (const toSignData of toSignDatas) {
+        if (toSignData.qbitSignatureBatch) open.delete(toSignData.qbitSignatureBatch.id)
+      }
+    },
+    isOpen: (id: string) => open.has(id),
+  }
+}
+
+/** A signPsbts approval that opens one batch for its entries, as the controller's does. */
+function openSignatureBatchOnApproval(batches: ReturnType<typeof signatureBatchStore>) {
+  Reflect.defineMetadata(
+    'APPROVAL',
+    [
+      'SignPsbt',
+      async req => {
+        const id = batches.open()
+        req.data.params.toSignDatas = req.data.params.psbtHexs.map(
+          (psbtHex: string, index: number) => ({ psbtHex, qbitSignatureBatch: { id, index } })
+        )
+      },
+    ],
+    providerControllerMock,
+    'signPsbts'
+  )
+  walletMock.releaseQbitSignatureBatches.mockImplementation(batches.release)
+}
+
+function signPsbtsRequest() {
+  return request('signPsbts', {
+    psbtHexs: ['70736274', '70736274'],
+    options: [{ chain: ChainType.QBIT_REGTEST }, { chain: ChainType.QBIT_REGTEST }],
+  })
+}
+
+const APPROVAL_PENDING = 'Another approval request is already pending'
+
 describe('Provider RPC security gates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -118,6 +174,7 @@ describe('Provider RPC security gates', () => {
     accountState.address = 'qbrt1zaccount'
     walletMock.getChainType.mockReturnValue(ChainType.QBIT_REGTEST)
     walletMock.releaseExternalQbitSigningLock.mockResolvedValue(true)
+    walletMock.releaseQbitSignatureBatches.mockReset()
     walletMock.openQbitProviderSendRequest.mockResolvedValue(SEND_REQUEST)
     walletMock.settleQbitProviderSendRequest.mockResolvedValue(undefined)
     keyringServiceMock.memStore.getState.mockReturnValue({ isUnlocked: true })
@@ -480,6 +537,65 @@ describe('Provider RPC security gates', () => {
     )
 
     expect(walletMock.releaseQbitRestoredFloorSigningChallenges).not.toHaveBeenCalled()
+  })
+
+  it('closes the signature batch of a signPsbts request whose approval is rejected', async () => {
+    const batches = signatureBatchStore()
+    openSignatureBatchOnApproval(batches)
+    approvalServiceMock.requestApproval.mockRejectedValueOnce(new Error('approval cancelled'))
+    const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+
+    await expect(rpcFlow(signPsbtsRequest())).rejects.toThrow('approval cancelled')
+
+    expect(walletMock.releaseQbitSignatureBatches).toHaveBeenCalledWith([
+      { psbtHex: '70736274', qbitSignatureBatch: { id: 'batch-1', index: 0 } },
+      { psbtHex: '70736274', qbitSignatureBatch: { id: 'batch-1', index: 1 } },
+    ])
+    expect(batches.isOpen('batch-1')).toBe(false)
+  })
+
+  it('closes the signature batch of a signPsbts request refused while another approval is pending', async () => {
+    const batches = signatureBatchStore()
+    openSignatureBatchOnApproval(batches)
+    // The approval service refuses it after its condition opened the batch.
+    approvalServiceMock.requestApproval.mockRejectedValueOnce(
+      new WalletError(ErrorCodes.UNKNOWN, APPROVAL_PENDING)
+    )
+    const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+
+    await expect(rpcFlow(signPsbtsRequest())).rejects.toThrow(APPROVAL_PENDING)
+
+    expect(batches.isOpen('batch-1')).toBe(false)
+    expect(providerControllerMock.signPsbts).not.toHaveBeenCalled()
+  })
+
+  it('keeps the batch of a pending signPsbts request open through 65 requests refused meanwhile', async () => {
+    const batches = signatureBatchStore()
+    openSignatureBatchOnApproval(batches)
+    const approval = deferred<unknown>()
+    approvalServiceMock.requestApproval.mockReturnValueOnce(approval.promise)
+    const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+    const live = rpcFlow(signPsbtsRequest())
+    await waitForApproval()
+
+    // Each opens a batch before the approval service refuses it. Left open,
+    // the 64th would evict the pending request's.
+    approvalServiceMock.requestApproval.mockRejectedValue(
+      new WalletError(ErrorCodes.UNKNOWN, APPROVAL_PENDING)
+    )
+    for (let attempt = 0; attempt < 65; attempt += 1) {
+      await expect(rpcFlow(signPsbtsRequest())).rejects.toThrow(APPROVAL_PENDING)
+    }
+    expect(batches.isOpen('batch-1')).toBe(true)
+    expect(batches.isOpen('batch-66')).toBe(false)
+
+    approval.resolve([{ psbtHex: 'signed-a' }, { psbtHex: 'signed-b' }])
+    await expect(live).resolves.toEqual(['signed-psbt'])
+    expect(providerControllerMock.signPsbts).toHaveBeenCalledTimes(1)
+    expect(providerControllerMock.signPsbts.mock.calls[0]![0].data.params.toSignDatas).toEqual([
+      { psbtHex: '70736274', qbitSignatureBatch: { id: 'batch-1', index: 0 } },
+      { psbtHex: '70736274', qbitSignatureBatch: { id: 'batch-1', index: 1 } },
+    ])
   })
 
   it('releases the exact external signing lease when approval is rejected', async () => {

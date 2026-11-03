@@ -197,6 +197,11 @@ export interface QbitP2mrPsbtCounteredSigningInput {
   keys: readonly P2mrSigningKey[]
 }
 
+/** A PSBT of an approved batch, with the budget its approval disclosed. */
+export interface QbitP2mrPsbtSigningBatchInput extends QbitP2mrPsbtCounteredSigningInput {
+  approvedBudget: QbitSignatureBudgetImpact
+}
+
 export interface QbitP2mrPsbtCounterResult {
   inputIndex: number
   pubkey: string
@@ -237,6 +242,9 @@ interface QbitRestoredFloorSigningChallenge {
  */
 interface QbitPqcSignatureBatchEntry {
   cacheKeys: string[]
+  // The budget this entry was approved with, before any entry signed; the
+  // batch's drift is counted from it, so it signs with no other.
+  approvedBudget: QbitSignatureBudgetImpact
   signed: boolean
   // The counter advance this entry's signing made, measured under the
   // counter lock, so a signing that failed partway counts what it spent.
@@ -252,15 +260,16 @@ interface QbitPqcSignatureBatch {
   // its entries need, counted once.
   budget: QbitSignatureBudgetImpact
   entries: QbitPqcSignatureBatchEntry[]
-  // Present only for a batch reopened from the same bytes (a local batch
-  // reviewed again before each signing run); see openP2mrPsbtSigningBatch.
+  // Present only for a batch its approval reopens (a local batch reviewed
+  // again before each signing run); see openP2mrPsbtSigningBatch.
   reuseScope?: string
 }
 
 const QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS = 5 * 60 * 1000
 const QBIT_RESTORED_FLOOR_CHALLENGE_CAPACITY = 128
-// Open batches are dropped when their request settles; past this many, the
-// oldest goes, and its unsigned entries are then checked like any approval.
+// A website request's batch is dropped when the request settles, a local
+// batch only by a lock; past this many, the oldest goes, and its unsigned
+// entries are then checked like any approval.
 const QBIT_PQC_SIGNATURE_BATCH_CAPACITY = 64
 const UNLOCK_VAULT_READ_ATTEMPTS = 3
 
@@ -2656,23 +2665,31 @@ export class KeyringService extends EventEmitter {
   /**
    * Open a batch of P2MR PSBTs that one approval covers and the user signs
    * one at a time, in any order. Each entry is approved with its own budget,
-   * prepared before any entry signs; signing it then also accepts exactly
-   * the signatures the batch's other entries reserved since (see
-   * assertExpectedPqcSignatureBudget), and nothing more. Returns the
-   * batch's id and its whole impact: every distinct signature its entries
-   * need, each counted once. A `reuseScope` reopens the batch already open
-   * for the same entries in that scope instead, so a batch reviewed again
-   * keeps what its entries reserved.
+   * prepared before any entry signs, and signs only with that budget; it
+   * then also accepts exactly the signatures the batch's other entries
+   * reserved since (see assertExpectedPqcSignatureBudget), and nothing more.
+   * Returns the batch's id and its whole impact: every distinct signature
+   * its entries need, each counted once. A `reuseScope` reopens the batch
+   * already open in that scope for the same approval instead, the same
+   * bytes with the same approved budgets, so a batch reviewed again keeps
+   * what its entries reserved. A review after any entry spent prepares
+   * other budgets, and gets a batch of its own.
    */
   openP2mrPsbtSigningBatch = async (
     address: string,
-    inputs: readonly QbitP2mrPsbtCounteredSigningInput[],
+    inputs: readonly QbitP2mrPsbtSigningBatchInput[],
     options?: { reuseScope?: string }
   ): Promise<{ id: string; budget: QbitSignatureBudgetImpact }> => {
-    const snapshots = inputs.map(({ psbt, keys }) => ({
-      psbt: clonePsbt(psbt),
-      keys: snapshotP2mrSigningKeys(keys),
-    }))
+    const snapshots = inputs.map(({ psbt, keys, approvedBudget }) => {
+      if (!approvedBudget) {
+        throw new Error('P2MR signature batch entry has no approved budget')
+      }
+      return {
+        psbt: clonePsbt(psbt),
+        keys: snapshotP2mrSigningKeys(keys),
+        approvedBudget: snapshotSignatureBudget(approvedBudget),
+      }
+    })
     if (snapshots.length === 0) {
       throw new Error('P2MR signature batch has no entries')
     }
@@ -2702,13 +2719,18 @@ export class KeyringService extends EventEmitter {
             batch.keyring === keyring &&
             batch.pubkey === pubkey &&
             batch.entries.length === entryCacheKeys.length &&
-            batch.entries.every((entry, index) =>
-              sameCacheKeys(entry.cacheKeys, entryCacheKeys[index]!)
+            batch.entries.every(
+              (entry, index) =>
+                sameCacheKeys(entry.cacheKeys, entryCacheKeys[index]!) &&
+                sameSignatureBudget(entry.approvedBudget, snapshots[index]!.approvedBudget)
             )
           if (sameEntries) return { id, budget: { ...batch.budget } }
         }
       }
       const budget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, batchCacheKeys)
+      // A lock while the budget was read cleared the batches already, and
+      // must not find this one stored after it.
+      this.assertLiveKeyrings([keyring])
       for (const oldestId of this.qbitPqcSignatureBatches.keys()) {
         if (this.qbitPqcSignatureBatches.size < QBIT_PQC_SIGNATURE_BATCH_CAPACITY) break
         this.qbitPqcSignatureBatches.delete(oldestId)
@@ -2718,8 +2740,9 @@ export class KeyringService extends EventEmitter {
         keyring,
         pubkey,
         budget,
-        entries: entryCacheKeys.map(cacheKeys => ({
+        entries: entryCacheKeys.map((cacheKeys, index) => ({
           cacheKeys,
+          approvedBudget: snapshots[index]!.approvedBudget,
           signed: false,
           reserved: 0,
           produced: new Set<string>(),
@@ -2739,14 +2762,16 @@ export class KeyringService extends EventEmitter {
 
   /**
    * The open batch entry `ref` names, once it is checked to be this PSBT, for
-   * this key, and not yet signed. Undefined when the batch is no longer open:
-   * the entry is then checked like any approval.
+   * this key, with the budget it was approved with, and not yet signed.
+   * Undefined when the batch is no longer open: the entry is then checked
+   * like any approval.
    */
   private qbitPqcSignatureBatchEntryLocked(
     ref: QbitPqcSignatureBatchRef | undefined,
     keyring: Keyring,
     pubkey: string,
-    cacheKeys: readonly string[]
+    cacheKeys: readonly string[],
+    expectedBudget: QbitSignatureBudgetImpact | undefined
   ): { batch: QbitPqcSignatureBatch; entry: QbitPqcSignatureBatchEntry } | undefined {
     if (ref === undefined) return undefined
     const batch = this.qbitPqcSignatureBatches.get(ref.id)
@@ -2758,6 +2783,12 @@ export class KeyringService extends EventEmitter {
     const entry = Number.isInteger(ref.index) ? batch.entries[ref.index] : undefined
     if (!entry || !sameCacheKeys(entry.cacheKeys, cacheKeys)) {
       throw new Error('P2MR signature batch entry does not match this PSBT')
+    }
+    // The batch's drift counts from the budget the entry was approved with.
+    // Another, even one that matches now, is refused rather than checked on
+    // its own: it would pair a later approval with this batch's spend.
+    if (!expectedBudget || !sameSignatureBudget(entry.approvedBudget, expectedBudget)) {
+      throw new Error('P2MR signature batch entry was approved with another budget')
     }
     if (entry.signed) {
       throw new Error('P2MR signature batch entry was already signed')
@@ -3028,7 +3059,8 @@ export class KeyringService extends EventEmitter {
         signatureBatch,
         keyring,
         pubkey,
-        cacheKeys
+        cacheKeys,
+        expectedBudget
       )
       this.assertExpectedPqcSignatureBudget(
         expectedBudget,
@@ -4070,6 +4102,30 @@ function p2mrPsbtSigningCacheKeys(psbt: Psbt, keys: readonly P2mrSigningKey[]): 
 
 function sameCacheKeys(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((cacheKey, index) => cacheKey === right[index])
+}
+
+/** The figures of a budget, without the challenge a restored floor adds. */
+function snapshotSignatureBudget(budget: QbitSignatureBudgetImpact): QbitSignatureBudgetImpact {
+  return {
+    required: budget.required,
+    cached: budget.cached,
+    remainingBefore: budget.remainingBefore,
+    remainingAfter: budget.remainingAfter,
+    limit: budget.limit,
+  }
+}
+
+function sameSignatureBudget(
+  left: QbitSignatureBudgetImpact,
+  right: QbitSignatureBudgetImpact
+): boolean {
+  return (
+    left.required === right.required &&
+    left.cached === right.cached &&
+    left.remainingBefore === right.remainingBefore &&
+    left.remainingAfter === right.remainingAfter &&
+    left.limit === right.limit
+  )
 }
 
 /**

@@ -326,15 +326,23 @@ describe('SignPsbt signature budget of a batch (#152)', () => {
 
   afterEach(cleanup);
 
-  it("shows the whole batch's before and after, and only each transaction's own new and cached", () => {
+  it('shows the signatures of the whole batch, and none of each transaction alone', () => {
     renderMultiSign(multiSignLogic({ toSignDatas: batchToSignDatas, signatureBatchBudget: budget(3, 100) }));
 
     expect(screen.getByTestId('multisign-signature-budget').textContent).toBe(
       'Signatures: 3 new for all transactions; 100 before, 97 after'
     );
-    // An entry's own before and after depend on the order the batch signs in.
-    expect(screen.getAllByText('Signatures: 1 new, 0 cached')).toHaveLength(3);
+    // An entry's own figures depend on the order the batch signs in, and
+    // count a duplicate's signatures again.
+    expect(screen.queryByText(/Signatures: 1 new/)).toBeNull();
     expect(screen.queryByText(/remaining/)).toBeNull();
+  });
+
+  it('shows the new and cached signatures of each transaction outside a batch', () => {
+    renderMultiSign(multiSignLogic({ toSignDatas: batchToSignDatas }));
+
+    expect(screen.queryByTestId('multisign-signature-budget')).toBeNull();
+    expect(screen.getAllByText('Signatures: 1 new, 0 cached')).toHaveLength(3);
   });
 
   it('shows no exact before and after for a restored-floor batch', () => {
@@ -353,5 +361,7 @@ describe('SignPsbt signature budget of a batch (#152)', () => {
     renderMultiSign(multiSignLogic({ toSignDatas: restored, signatureBatchBudget: budget(3, 100) }));
 
     expect(screen.getByTestId('multisign-signature-budget').textContent).toBe('Signatures: 3 new for all transactions');
+    // Each still shows its seed-only status, which no signing order changes.
+    expect(screen.getAllByText(/^qbit_recovery_status_seed_only; /)).toHaveLength(3);
   });
 });

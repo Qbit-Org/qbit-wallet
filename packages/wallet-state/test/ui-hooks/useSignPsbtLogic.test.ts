@@ -2240,6 +2240,43 @@ describe('useSignPsbtLogic signature batches (#152)', () => {
     expect(result.current.signedCount).toBe(2)
   })
 
+  it('quick-signs the rest of a local batch in its batch after one entry signed on its own', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(batchSummary())
+    const signed = async (toSignData: ToSignData) => ({ psbtHex: `signed-${toSignData.psbtHex}` })
+    wallet.signPsbtV2.mockImplementation(signed)
+    wallet.signLocalBatchPsbt.mockImplementation(signed)
+    const { approval, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await waitFor(() => expect(result.current.signatureBatchBudget).toEqual(BATCH_BUDGET))
+
+    act(() => {
+      result.current.multiSignList[0]!.onClick()
+    })
+    await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    // Quick-sign reviews the same approval again, its budgets unchanged, so
+    // the wallet hands back the batch entry 0 signed in.
+    expect(wallet.analyzeLocalPsbts).toHaveBeenLastCalledWith(BATCH)
+    expect(wallet.signPsbtV2.mock.calls.map(([toSignData]) => toSignData)).toEqual([asMember(0)])
+    expect(wallet.signLocalBatchPsbt.mock.calls.map(([toSignData]) => toSignData)).toEqual([
+      asMember(1),
+      asMember(2),
+    ])
+    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
+      { psbtHex: 'signed-first-psbt' },
+      { psbtHex: 'signed-second-psbt' },
+      { psbtHex: 'signed-third-psbt' },
+    ])
+  })
+
   it('signs a provider entry with the batch its approval opened', async () => {
     const wallet = createSignPsbtWallet()
     const providerBatch = BATCH.map((_toSignData, index) => asMember(index, 'provider-batch'))

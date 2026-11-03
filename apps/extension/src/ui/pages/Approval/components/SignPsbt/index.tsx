@@ -61,6 +61,7 @@ function TransactionItem(
     buttonPreset,
     psbtInfo,
     toSignData,
+    inSignatureBatch,
     onClick
   }: {
     index: number;
@@ -68,6 +69,8 @@ function TransactionItem(
     buttonPreset: string;
     psbtInfo?: PsbtLocalInfo;
     toSignData?: ToSignData;
+    /** Whether the transaction signs in a batch, whose budget the summary shows. */
+    inSignatureBatch?: boolean;
     onClick: () => void;
   },
   ref: any
@@ -103,7 +106,10 @@ function TransactionItem(
                 )}
               </Row>
               {psbtInfo.hasSighashNone && <Text text="SIGHASH_NONE" size="xs" color="dangerText" />}
-              {toSignData?.signatureBudget && (
+              {/* In a batch, a transaction's own new and cached counts depend on
+                  the order its entries sign in, and count a duplicate's
+                  signatures again: only the batch's own line holds. */}
+              {toSignData?.signatureBudget && (toSignData.signatureBudget.restoredFloorRisk || !inSignatureBatch) && (
                 <Text
                   text={
                     toSignData.signatureBudget.restoredFloorRisk
@@ -545,6 +551,7 @@ export default function SignPsbt(props: SignPsbtProps) {
                 buttonPreset={item.buttonPreset}
                 psbtInfo={item.psbtInfo}
                 toSignData={toSignDatas[index]}
+                inSignatureBatch={signatureBatchBudget !== undefined}
                 onClick={item.onClick}
                 index={index}
               />
