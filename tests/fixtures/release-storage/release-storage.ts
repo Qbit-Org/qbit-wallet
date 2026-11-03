@@ -60,6 +60,8 @@ export interface ReleaseWallet {
     autoLockTimeId: number
     developerMode: boolean
   }
+  /** Steps of the setup that this build could not take, if any. */
+  notes?: string[]
 }
 
 export interface ReleaseStorage {

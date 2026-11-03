@@ -25,6 +25,17 @@ class DumpStorage extends BaseProxyStorageAdapter {
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} }
 
+/** The settings the current store defines, read from the service itself. */
+class StoreDefinition extends PreferenceService {
+  keys(): string[] {
+    return Object.keys({ ...this.template, ...this.platformDefaults })
+  }
+}
+
+// Fields BasePreferenceStore declares that the template leaves out, which
+// the service reads with a fallback of its own.
+const OPTIONAL_KEYS = ['regtestAccessAck', 'guideReaded', 'addressSummary']
+
 async function loadPreferences(dump: ReleaseStorage) {
   const storage = new DumpStorage(dump.storage)
   const service = new PreferenceService()
@@ -33,6 +44,17 @@ async function loadPreferences(dump: ReleaseStorage) {
 }
 
 describe.each(RELEASES)('preferences stored by %s', release => {
+  // Many saved values equal the defaults (currentKeyringIndex is 0), so a
+  // renamed setting would still load with the right value: compare the keys.
+  it('hold only settings this build still defines', () => {
+    const saved = readReleaseStorage(release).storage['preference'] as Record<string, unknown>
+    const defined = new Set([...new StoreDefinition().keys(), ...OPTIONAL_KEYS])
+
+    for (const key of Object.keys(saved)) {
+      expect(defined.has(key), `${key} is not a setting of the current store`).toBe(true)
+    }
+  })
+
   it('load with the settings the release saved', async () => {
     const dump = readReleaseStorage(release)
     const { service } = await loadPreferences(dump)

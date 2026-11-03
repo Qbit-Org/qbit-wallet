@@ -9,6 +9,9 @@ export const OFFLINE_BROWSER_ARGS = [
 ] as const
 
 const SETTLE_MS = 3_000
+// This build's store saves the ui slice to localStorage 1000 ms after an
+// action; wait well past that so no save is pending when the data is seeded.
+const UI_SAVE_QUIET_MS = 3_000
 
 /**
  * Replace the stored data of the running build with what a released build
@@ -16,9 +19,10 @@ const SETTLE_MS = 3_000
  * does once Chrome updates the extension in place.
  *
  * Both are written from one extension page, which also keeps the service
- * worker running. Every other page is closed and the fresh install left to
- * settle first, so that nothing it started can save its own state over the
- * release's before the restart.
+ * worker running. The fresh install is left to settle and every other page is
+ * closed first, and the page then waits out any save that closing them set
+ * off. It leaves for about:blank before the restart, so this build's store
+ * cannot save its own ui state over the release's in between.
  */
 export async function seedReleaseStorage(
   extension: ExtensionSession,
@@ -34,6 +38,7 @@ export async function seedReleaseStorage(
       .filter(open => open !== page)
       .map(open => open.close())
   )
+  await page.waitForTimeout(UI_SAVE_QUIET_MS)
 
   const stored = await page.evaluate(
     async ({ items, storage }) => {
@@ -41,12 +46,13 @@ export async function seedReleaseStorage(
       for (const [key, value] of Object.entries(items)) localStorage.setItem(key, value)
       await chrome.storage.local.clear()
       await chrome.storage.local.set(storage)
-      return chrome.storage.local.get(null)
+      return { local: { ...localStorage }, storage: await chrome.storage.local.get(null) }
     },
     { items: dump.localStorage, storage: dump.storage }
   )
-  expect(stored).toEqual(dump.storage)
+  expect(stored).toEqual({ local: dump.localStorage, storage: dump.storage })
 
+  await page.goto('about:blank')
   await extension.restart()
 }
 

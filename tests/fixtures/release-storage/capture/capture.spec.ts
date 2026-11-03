@@ -162,6 +162,8 @@ test('captures the storage a released build writes', async () => {
     .digest('hex')
 
   const { context, extensionId } = await launch()
+  // Steps this build could not take, for wallet.json.
+  const notes: string[] = []
   const server = new DappServer()
   try {
     // 1. A new wallet, with the seed the release generates.
@@ -304,9 +306,20 @@ test('captures the storage a released build writes', async () => {
     await expect.poll(() => callController<string>(page, 'getThemeMode')).toBe(THEME_MODE)
 
     // 10. Saved UI state: a collapsed balance card, hidden balances and a
-    //     half-written send.
+    //     half-written send. From 1.0.6 the card has no breakdown to show,
+    //     and does not collapse, until a balance loads, which it never does
+    //     offline: the capture then records that it could not collapse it.
     await goTo(page, extensionId, '/main')
     await home.waitUntilReady()
+    await expect(home.balanceCard.getByTestId('balance-loading')).toHaveCount(0, {
+      timeout: 60_000,
+    })
+    const collapsible = (await home.balanceCard.getByTestId('balance-error').count()) === 0
+    if (!collapsible) {
+      notes.push(
+        'Step 10: the balance card was not collapsed. This build collapses it only once a balance loads, and none loads offline.'
+      )
+    }
     await home.balanceCard.click()
     await home.balanceCard.locator('[src*="balance-eyes"], [style*="balance-eyes"]').click()
     await expect(
@@ -350,6 +363,9 @@ test('captures the storage a released build writes', async () => {
     const storageDump = await page.evaluate(() => chrome.storage.local.get(null))
     const userAgent = await page.evaluate(() => navigator.userAgent)
 
+    const savedUi = JSON.parse(localStorageDump['redux_localstorage_simple_ui'] ?? '{}')
+    expect(savedUi.balanceDetailExpanded, 'the balance card is expanded').toBe(!collapsible)
+
     await mkdir(outputDir, { recursive: true })
     const write = (name: string, value: unknown) =>
       writeFile(join(outputDir, name), `${JSON.stringify(value, null, 2)}\n`)
@@ -382,6 +398,7 @@ test('captures the storage a released build writes', async () => {
         isConnected: site.isConnected,
       })),
       settings,
+      ...(notes.length > 0 ? { notes } : {}),
     })
   } finally {
     await server.close()

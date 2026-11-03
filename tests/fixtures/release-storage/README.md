@@ -66,6 +66,14 @@ and the build's reads from them failed as they would offline. That is why
 The `keyring_-1#0` account name comes from step 7: the build names the
 temporary wallet it derives the contact's address with.
 
+Step 10 collapsed the balance card on 1.0.5 only. From 1.0.6 the card has no
+breakdown to show, and ignores the click, until a balance loads, and offline
+none does. The 1.0.6 and 1.0.7 captures therefore hold the default
+`balanceDetailExpanded: true` in their saved `ui` state, and 1.0.5 holds
+`false`. The capture checks the saved value either way, and records a step a
+build could not take in `notes` in `wallet.json`. The three captures here
+predate `notes`, so this paragraph records it for them.
+
 | Release | ZIP                          | SHA-256                                                            | Captured   |
 | ------- | ---------------------------- | ------------------------------------------------------------------ | ---------- |
 | 1.0.5   | `qbit-chrome-mv3-v1.0.5.zip` | `a209c86146c275d12ad9f25b82f9e8efe5941685a7241ed5943668d3c1e90cb4` | 2026-11-03 |
@@ -102,9 +110,10 @@ xvfb-run -a corepack pnpm exec playwright test \
   -c tests/fixtures/release-storage/capture/playwright.config.ts
 ```
 
-The run writes `tests/fixtures/release-storage/<version>/`. It refuses a profile
-directory that already holds a profile. A step can time out on a busy host; run
-it again with a new, empty profile directory.
+The run writes `tests/fixtures/release-storage/<version>/`. Read any `notes` in
+the new `wallet.json`, and say in this README what they mean for the data. It
+refuses a profile directory that already holds a profile. A step can time out
+on a busy host; run it again with a new, empty profile directory.
 
 To add a release, capture it, add its version to `RELEASES` in
 `release-storage.ts`, and add its row to the tables above. A later build may

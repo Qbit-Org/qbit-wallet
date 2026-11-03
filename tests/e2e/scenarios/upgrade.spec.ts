@@ -64,6 +64,13 @@ const test = base.extend<{ extension: ExtensionSession }>({
   },
 })
 
+// Where redux-localstorage-simple keeps the persisted `ui` slice.
+const SAVED_UI_KEY = 'redux_localstorage_simple_ui'
+
+async function savedUi(page: Page) {
+  return JSON.parse((await readLocalStorage(page))[SAVED_UI_KEY]!)
+}
+
 async function unlock(extension: ExtensionSession, dump: ReleaseStorage) {
   const page = await extension.openWallet('/main')
   await new SettingsPage(page).unlock(dump.wallet.password)
@@ -137,18 +144,25 @@ for (const release of RELEASES) {
       page.locator('[data-testid^="connected-site-"]', { hasText: site!.origin })
     ).toHaveCount(1)
 
-    // The saved UI state loads in full: what the release saved is kept, and
-    // what it lacked is filled, so the send screen can take an address.
-    const savedUi = JSON.parse(dump.localStorage['redux_localstorage_simple_ui']!)
-    await expect
-      .poll(async () => JSON.parse((await readLocalStorage(page))['redux_localstorage_simple_ui']!))
-      .toMatchObject({
-        ...savedUi,
-        addressInput: expect.any(Object),
-        amountInput: expect.any(Object),
-      })
+    // Showing balances again is a change only this build saves. Once the
+    // saved UI state holds it, the rest of that state is what this build kept
+    // of the release's, with the fee bar's source, which 1.0.5 and 1.0.6 did
+    // not save, filled in.
+    const releaseUi = JSON.parse(dump.localStorage[SAVED_UI_KEY]!)
+    expect(releaseUi.isBalanceHidden).toBe(true)
     await page.goto(`chrome-extension://${extension.extensionId}/index.html#/main`)
     await home.waitUntilReady()
+    await home.balanceCard
+      .locator('[src*="balance-eyes-closed"], [style*="balance-eyes-closed"]')
+      .click()
+    await expect.poll(async () => (await savedUi(page)).isBalanceHidden).toBe(false)
+    expect(await savedUi(page)).toEqual({
+      ...releaseUi,
+      isBalanceHidden: false,
+      feeRateBar: { ...releaseUi.feeRateBar, feeRateSource: null },
+    })
+
+    // The send screen takes an address with that state loaded.
     await home.openSend()
     await page.getByTestId('recipient-address-input').fill(contact!.address)
     await expect(page.getByTestId('recipient-address-input')).toHaveValue(contact!.address)

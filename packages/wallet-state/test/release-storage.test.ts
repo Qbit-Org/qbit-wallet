@@ -33,6 +33,18 @@ afterEach(() => {
 })
 
 describe.each(RELEASES)('the ui state saved by %s', release => {
+  // A field this build renamed would still load, kept under its old name,
+  // and the field under its new name would get its initial value.
+  it('holds only fields this build still reads', () => {
+    const saved = JSON.parse(readReleaseStorage(release).localStorage[SAVED_UI_KEY]!)
+    const current = leafPaths(initialState)
+
+    for (const path of leafPaths(saved)) {
+      const read = current.some(known => path === known || path.startsWith(`${known}.`))
+      expect(read, `${path} is not a field of the current ui state`).toBe(true)
+    }
+  })
+
   it('loads with everything the release saved', () => {
     const { dump, saved, store } = loadStore(release)
     const { ui } = store.getState()
