@@ -9324,6 +9324,22 @@ export class WalletController extends BaseController {
     this._resetTimeout()
   }
 
+  getLockOnComputerLock = async () => {
+    return preferenceService.getLockOnComputerLock()
+  }
+
+  setLockOnComputerLock = async (enabled: boolean) => {
+    return preferenceService.setLockOnComputerLock(enabled)
+  }
+
+  getLockOnWindowsClosed = async () => {
+    return preferenceService.getLockOnWindowsClosed()
+  }
+
+  setLockOnWindowsClosed = async (enabled: boolean) => {
+    return preferenceService.setLockOnWindowsClosed(enabled)
+  }
+
   getOpenInSidePanel = async () => {
     return preferenceService.getOpenInSidePanel()
   }
@@ -9357,7 +9373,25 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * When the armed auto-lock timer is due, by the wall clock. A timer does
+   * not count the time the computer sleeps, so on its own it would let the
+   * first screen action after waking extend a session whose time had passed.
+   * A forward jump of the wall clock can bring the lock early; never later.
+   */
+  private autoLockDueAt: number | undefined
+
+  /**
+   * A screen action: start the auto-lock time over, unless the auto-lock is
+   * overdue, which locks instead. Only an unlocked wallet has a session to
+   * end; on the unlock screen an action re-arms the timer as before, so an
+   * unlock it overlaps is not locked straight away.
+   */
   setLastActiveTime = async () => {
+    if (this.autoLockDueAt !== undefined && this.now() >= this.autoLockDueAt && this.isUnlocked()) {
+      await this.autoLock()
+      return
+    }
     this._resetTimeout()
   }
 
@@ -9368,13 +9402,51 @@ export class WalletController extends BaseController {
 
     const timeId = preferenceService.getAutoLockTimeId()
     const timeConfig = getLockTimeInfo(timeId)
+    this.autoLockDueAt = this.now() + timeConfig.time
     this.timer = setTimeout(() => {
-      this.lockWallet()
-      bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
-        method: BUS_METHODS.AUTO_LOCKED,
-        params: {},
+      this.autoLock().catch(error => {
+        log.error('[WalletController] Auto-lock failed', summarizeError(error))
       })
     }, timeConfig.time)
+  }
+
+  /** The auto-lock: its timer ran out, or a screen action came after its deadline. */
+  private autoLock = (): Promise<void> => {
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
+    // lockWallet marks the wallet locked before its first await.
+    const locked = this.lockWallet()
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.AUTO_LOCKED,
+      params: {},
+    })
+    return locked
+  }
+
+  /**
+   * Lock because the computer locked or the last normal browser window
+   * closed, when that event's setting is on. A setting that cannot be read
+   * counts as on. The caller waits for the worker's start-up first: only a
+   * keyring that has started can hold an unlocked wallet, since the keyring
+   * keeps its secrets in memory. Locks whether or not the wallet reads
+   * unlocked, so an unlock still running when the event comes ends locked.
+   * Resolves with whether it locked.
+   */
+  lockOnSystemEvent = async (event: 'computer-locked' | 'windows-closed'): Promise<boolean> => {
+    if (!keyringService.memStore) return false
+    let enabled = true
+    try {
+      enabled =
+        event === 'computer-locked'
+          ? preferenceService.getLockOnComputerLock()
+          : preferenceService.getLockOnWindowsClosed()
+    } catch (error) {
+      log.error('[WalletController] Lock settings unreadable; locking', summarizeError(error))
+    }
+    if (!enabled) return false
+    await this.lockWallet()
+    return true
   }
 
   getBlockActiveInfo = () => {

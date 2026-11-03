@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "自動鎖定時間"
   },
+  "lock_when_computer_locks": {
+    "message": "電腦鎖定時鎖定"
+  },
+  "lock_when_all_windows_close": {
+    "message": "關閉所有視窗時鎖定"
+  },
   "available": {
     "message": "可用"
   },

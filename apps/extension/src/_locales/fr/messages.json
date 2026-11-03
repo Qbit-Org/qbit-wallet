@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Délai de Verrouillage Automatique"
   },
+  "lock_when_computer_locks": {
+    "message": "Verrouiller quand l'ordinateur se verrouille"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Verrouiller à la fermeture de toutes les fenêtres"
+  },
   "available": {
     "message": "Disponible"
   },

@@ -3,6 +3,7 @@ import { expect, test } from '../fixtures/test'
 import {
   E2E_PASSWORD,
   E2E_WRONG_PASSWORD,
+  onboardNewRegtestWallet,
   provisionDeterministicRegtestWallet,
   waitForAddressUsed,
   waitForWalletTransactions,
@@ -19,6 +20,7 @@ interface WalletKeyringProbe {
 }
 
 const AUTO_LOCKED_METHOD = 'walletAutoLocked'
+const LOCKED_METHOD = 'walletLocked'
 const ONBOARDING_GRACE_PERIOD_MS = 10 * 60 * 1000
 
 test('G3 lock: rejects a wrong password and survives unlock plus browser restart', async ({
@@ -156,4 +158,44 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   await expect(
     extension.requestWalletController(restartedPage, 'getMnemonics', [E2E_PASSWORD, currentKeyring])
   ).rejects.toThrow()
+})
+
+test('G3 lock: locks when the last normal browser window closes', async ({ extension }) => {
+  const setup = await onboardNewRegtestWallet(extension)
+  expect(await extension.requestWalletController<boolean>(setup.page, 'isUnlocked')).toBe(true)
+  expect(
+    await extension.requestWalletController<boolean>(setup.page, 'getLockOnWindowsClosed')
+  ).toBe(true)
+
+  // A wallet page in a popup window, as approvals open: it is not a normal
+  // window, so it does not keep the wallet unlocked, and it watches for the
+  // lock while every normal window closes.
+  const popupOpened = extension.context.waitForEvent('page')
+  await setup.page.evaluate(async () => {
+    await chrome.windows.create({ type: 'popup', url: chrome.runtime.getURL('index.html#/main') })
+  })
+  const popup = await popupOpened
+  await popup.waitForLoadState('domcontentloaded')
+  await extension.captureWalletBroadcasts(popup)
+
+  for (const page of extension.context.pages()) {
+    if (page !== popup) {
+      await page.close()
+    }
+  }
+
+  await expect
+    .poll(() => extension.walletBroadcastMethods(popup), { timeout: 30_000 })
+    .toContain(LOCKED_METHOD)
+  expect(await extension.requestWalletController<boolean>(popup, 'isUnlocked')).toBe(false)
+  await new SettingsPage(popup).waitForUnlock()
+
+  // A normal window opened again shows the lock screen. (Chrome on macOS
+  // keeps running with no window at all; Chrome on Linux quits with its last
+  // window, which is why the popup stays open here.)
+  const reopened = await extension.openWallet('/main')
+  const settings = new SettingsPage(reopened)
+  await settings.waitForUnlock()
+  await settings.unlock(E2E_PASSWORD)
+  await new WalletHomePage(reopened).waitUntilReady()
 })

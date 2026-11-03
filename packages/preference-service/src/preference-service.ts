@@ -54,6 +54,8 @@ const defaultTemplate = {
   addressFlags: {},
   enableSignData: false,
   autoLockTimeId: DEFAULT_LOCKTIME_ID,
+  lockOnComputerLock: true,
+  lockOnWindowsClosed: true,
   openInSidePanel: false,
   developerMode: false,
   themeMode: DEFAULT_THEME_MODE,
@@ -292,6 +294,16 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
     if (typeof this.store.showSafeNotice !== 'boolean') {
       this.store.showSafeNotice = true
+    }
+
+    // Preferences stored before these settings existed have neither, and they
+    // are on unless the user turned them off.
+    if (typeof this.store.lockOnComputerLock !== 'boolean') {
+      this.store.lockOnComputerLock = true
+    }
+
+    if (typeof this.store.lockOnWindowsClosed !== 'boolean') {
+      this.store.lockOnWindowsClosed = true
     }
 
     if (!this.store.balanceMap) {
@@ -645,6 +657,26 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   setAutoLockTimeId(id: number): Promise<void> {
     return this.setAndPersist('autoLockTimeId', id)
+  }
+
+  /**
+   * Lock when the computer locks, and when the last normal browser window
+   * closes (Extension-specific). Both are on unless the user turned them off.
+   */
+  getLockOnComputerLock(): boolean {
+    return this.store.lockOnComputerLock !== false
+  }
+
+  setLockOnComputerLock(enabled: boolean): Promise<void> {
+    return this.setAndPersist('lockOnComputerLock', enabled)
+  }
+
+  getLockOnWindowsClosed(): boolean {
+    return this.store.lockOnWindowsClosed !== false
+  }
+
+  setLockOnWindowsClosed(enabled: boolean): Promise<void> {
+    return this.setAndPersist('lockOnWindowsClosed', enabled)
   }
 
   /**

@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 
-import { Card, Column, Icon, Row, Text } from '@/ui/components';
+import { Card, Column, Icon, Row, Switch, Text } from '@/ui/components';
 import { fontSizes } from '@/ui/theme/font';
 import { getLockTimeInfo } from '@qbit/wallet-shared';
-import { useAutoLockTimeId, useBiometricUnlock, useI18n } from '@qbit/wallet-state';
+import { useAutoLockTimeId, useBiometricUnlock, useI18n, useSecurityCardLogic } from '@qbit/wallet-state';
 
 export function SecurityCard() {
   const navigate = useNavigate();
@@ -11,6 +11,8 @@ export function SecurityCard() {
   const autoLockTimeId = useAutoLockTimeId();
   const lockTimeConfig = getLockTimeInfo(autoLockTimeId, t);
   const { ready: biometricReady, supported: biometricSupported, enrolled: biometricEnrolled } = useBiometricUnlock();
+  const { lockOnComputerLock, lockOnWindowsClosed, saving, changeLockOnComputerLock, changeLockOnWindowsClosed } =
+    useSecurityCardLogic();
 
   const openBiometricSettings = () => {
     navigate('/settings/biometric');
@@ -75,6 +77,20 @@ export function SecurityCard() {
             <Icon icon="right" size={fontSizes.lg} color="textDim" />
           </Row>
         </Row>
+
+        {/* Lock when the computer locks or the last window closes, once read */}
+        {lockOnComputerLock !== undefined && lockOnWindowsClosed !== undefined ? (
+          <>
+            <Row justifyBetween itemsCenter style={{ marginTop: 16 }} data-testid="lock-on-computer-lock-row">
+              <Text text={t('lock_when_computer_locks')} preset="bold" size="sm" />
+              <Switch checked={lockOnComputerLock} disabled={saving} onChange={changeLockOnComputerLock} />
+            </Row>
+            <Row justifyBetween itemsCenter style={{ marginTop: 16 }} data-testid="lock-on-windows-closed-row">
+              <Text text={t('lock_when_all_windows_close')} preset="bold" size="sm" />
+              <Switch checked={lockOnWindowsClosed} disabled={saving} onChange={changeLockOnWindowsClosed} />
+            </Row>
+          </>
+        ) : null}
       </Column>
     </Card>
   );

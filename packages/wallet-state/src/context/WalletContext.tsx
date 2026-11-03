@@ -451,6 +451,10 @@ export interface WalletController {
 
   setAutoLockTimeId(timeId: number): Promise<void>
   getAutoLockTimeId(): Promise<number>
+  getLockOnComputerLock(): Promise<boolean>
+  setLockOnComputerLock(enabled: boolean): Promise<void>
+  getLockOnWindowsClosed(): Promise<boolean>
+  setLockOnWindowsClosed(enabled: boolean): Promise<void>
 
   getDeveloperMode(): Promise<boolean>
   setDeveloperMode(developerMode: boolean): Promise<void>

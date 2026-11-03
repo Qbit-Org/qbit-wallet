@@ -130,6 +130,10 @@ test('store loopback constants agree with the shared wallet constants', () => {
 test('checked-in Chrome MV3 store manifest matches the reviewed release boundary', () => {
   const manifest = currentChromeMv3Manifest();
 
+  // 1.0.7's permissions, then `idle` for the lock when the computer locks.
+  assert.deepEqual(manifest.permissions, ['storage', 'unlimitedStorage', 'declarativeNetRequest', 'sidePanel', 'idle']);
+  assert.deepEqual(manifest.permissions, EXPECTED_MV3_PERMISSIONS);
+  assert.deepEqual(currentChromeMv3Manifest('e2e').permissions, EXPECTED_MV3_PERMISSIONS);
   assert.deepEqual(manifest.host_permissions, EXPECTED_MV3_HOST_PERMISSIONS);
   assert.deepEqual(manifest.optional_host_permissions, [REGTEST_HOST_PERMISSION]);
   assert.equal(manifest.content_security_policy.extension_pages, EXPECTED_MV3_CSP);
@@ -280,6 +284,11 @@ test('accepts only the reviewed MV3 permission, host, frame, resource, and CSP p
     {
       label: 'extra activeTab permission',
       mutate: (manifest) => manifest.permissions.push('activeTab'),
+      message: /permissions/
+    },
+    {
+      label: 'missing idle permission',
+      mutate: (manifest) => manifest.permissions.splice(manifest.permissions.indexOf('idle'), 1),
       message: /permissions/
     },
     {

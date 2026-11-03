@@ -211,3 +211,29 @@ reviewed values, so inspect the packaged `manifest.json` (not only
 `apps/extension/build/_raw/manifest/_base_v3.json`) before submission. See
 `docs/privacy.md` ("Optional local Regtest connection") for the user-facing
 data-flow description.
+
+## 9. Chrome Web Store: idle permission
+
+From 1.0.8 the store artifact also requests `idle`, and
+`EXPECTED_MV3_PERMISSIONS` in `package-artifact-validation.js` pins it, so a
+build without it, or with any other permission added, fails packaging.
+Describe it as follows:
+
+- **What it is for**: locking the wallet when the computer locks. The
+  background listens for `chrome.idle` state changes and locks the wallet on
+  `locked`, when the user's "Lock when the computer locks" setting is on (the
+  default). It ignores `idle` and `active`.
+- **What is accessed**: only the computer's idle state. It is neither stored
+  nor sent anywhere.
+- **Install warning**: none. `chrome.management.getPermissionWarningsByManifest`
+  reports the same single warning, "Read and change all your data on all
+  websites", for the 1.0.7 manifest and for one with `idle` added.
+- **Update**: a CRX update from the unmodified 1.0.7 store build to a build
+  with `idle`, installed as an Internal extension and updated through
+  Chrome's update service, left the extension enabled with no disable reason
+  and no prompt, and granted `idle` (Chrome for Testing 149, the method
+  recorded on #3). The same build with `bookmarks` added was disabled with
+  `permissions_increase`.
+
+The "Lock when all windows close" setting uses `chrome.windows`, which needs
+no permission.

@@ -105,8 +105,9 @@ Threats:
 - plaintext mnemonic, password, private key, or PQC key leakage through logs,
   errors, browser storage, source maps, or package contents;
 - unlocked state publication before recovery/counter checks complete;
-- partially applied password or vault writes after a crash; and
-- secret buffers surviving avoidably in WASM or JavaScript memory.
+- partially applied password or vault writes after a crash;
+- secret buffers surviving avoidably in WASM or JavaScript memory; and
+- an unlocked wallet left behind when the user steps away from the computer.
 
 Controls and evidence:
 
@@ -125,7 +126,21 @@ Controls and evidence:
 - PQC and derived classical secret byte arrays are zeroed in `finally` blocks;
   the PQC WASM tests also inspect scratch zeroization on failure; and
 - the signing-source guard prevents transitive `elliptic`/Bitcore ECDSA from
-  replacing the reviewed `tiny-secp256k1` wallet-signing route.
+  replacing the reviewed `tiny-secp256k1` wallet-signing route;
+- the auto-lock (30 seconds to 4 hours, 3 minutes by default) runs on a timer
+  and on a wall-clock deadline: a timer does not count the time the computer
+  sleeps, so a screen action after the deadline locks instead of extending
+  the session;
+- with "Lock when the computer locks" on, the wallet locks when `chrome.idle`
+  reports `locked`; with "Lock when all windows close" on, it locks when no
+  `normal` browser window remains, and its own approval popups do not count.
+  Both are on by default, also for wallets set up before they existed, and
+  both listeners are added as the service worker starts, so either event
+  starts a stopped worker. The lock wins over an unlock still running and
+  over the onboarding and recovery keepalive, whose refreshes cannot undo it;
+  and
+- a lock forgets the keyring's secrets but not a broadcast already handed to
+  the network, which still settles.
 
 Residual risk:
 
@@ -137,6 +152,15 @@ Residual risk:
 - JavaScript garbage collection prevents a general proof that every immutable
   string copy is erased. The design minimizes lifetime and forbids logging but
   relies on the browser process boundary.
+- The computer-lock signal is whatever the operating system reports to Chrome;
+  a desktop that does not report its screen lock (some Linux desktops) gets
+  only the auto-lock. Chrome on macOS and Windows also reports a running
+  screen saver as locked, so the wallet locks then too. With both settings off, or with a long auto-lock and the
+  computer left unlocked, the wallet stays unlocked until the auto-lock time.
+  Closing the last window matters where Chrome keeps running without one, as
+  on macOS; where Chrome quits instead, the unlocked state ends with it.
+  Windows the wallet cannot see, such as incognito windows while it is not
+  allowed in incognito, do not keep it unlocked.
 
 ## PQC counter custody and restoration
 
@@ -619,7 +643,7 @@ Reviewed Chrome MV3 boundary:
 
 | Surface | Reviewed value |
 | --- | --- |
-| Permissions | `storage`, `unlimitedStorage`, `declarativeNetRequest`, `sidePanel` |
+| Permissions | `storage`, `unlimitedStorage`, `declarativeNetRequest`, `sidePanel`, `idle` |
 | Host permissions | two exact HTTPS qbit indexers; `*://*.<entry>/*` for each bundled phishing denylist domain, generated at build and pinned by the package policy, for the warning redirect; optional loopback regtest |
 | Content scripts | all-origin provider bridge in every frame (`all_frames: true`), each frame bound to its own origin |
 | Web-accessible resources | packaged `pageProvider.js`; `phishing-warning.html` under a per-session dynamic URL only |
@@ -633,7 +657,9 @@ Reviewed Chrome MV3 boundary:
 session `redirect` rule to the warning page, and the session `allow` rules
 that Proceed adds; the denylist host permissions let only that redirect fire
 (see "Phishing navigation protection");
-`sidePanel` is used for the optional wallet panel; `storage` holds wallet state;
+`sidePanel` is used for the optional wallet panel; `idle` tells the background
+when the computer locks, so the wallet can lock too (see "Vault and key
+handling"); `storage` holds wallet state;
 and `unlimitedStorage` supports local wallet/index state. Permission expansion
 requires CODEOWNERS review and a package-policy expectation change.
 

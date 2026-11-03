@@ -28,7 +28,7 @@
     "service_worker": "background.js"
   },
   "homepage_url": "https://qbit.org",
-  "permissions": ["storage", "unlimitedStorage", "declarativeNetRequest", "sidePanel"],
+  "permissions": ["storage", "unlimitedStorage", "declarativeNetRequest", "sidePanel", "idle"],
   "host_permissions": ["https://mempool.qbit.org/*", "https://mempool-testnet.qbit.org/*"],
   "optional_host_permissions": ["http://127.0.0.1:3002/*"],
   "short_name": "Qbit Wallet",

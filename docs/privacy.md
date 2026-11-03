@@ -98,7 +98,7 @@ The wallet UI also writes the extension pages' `localStorage`, unencrypted and o
 
 None of these keys holds a seed phrase, private key or password.
 
-The wallet password and decrypted key material exist in extension memory while needed for an unlocked wallet. Locking the wallet clears the in-memory password and unlocked keyrings. Removing the extension or clearing its extension data is controlled by the browser; browser backups and device-level storage behavior are outside this repository.
+The wallet password and decrypted key material exist in extension memory while needed for an unlocked wallet. Locking the wallet clears the in-memory password and unlocked keyrings. Besides the auto-lock time, the wallet locks when the computer locks and when the last browser window closes, unless the user turns these off in Advanced settings. For the first, the Chrome `idle` permission lets the background see whether the computer is locked, idle or active; the wallet acts only on `locked`, and neither stores nor sends this state. Removing the extension or clearing its extension data is controlled by the browser; browser backups and device-level storage behavior are outside this repository.
 
 ## Dapps and user-initiated navigation
 

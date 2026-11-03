@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Tiempo de Bloqueo Automático"
   },
+  "lock_when_computer_locks": {
+    "message": "Bloquear cuando se bloquee el ordenador"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Bloquear al cerrar todas las ventanas"
+  },
   "available": {
     "message": "Disponible"
   },
