@@ -33,7 +33,12 @@ test('G3 receive/fund/rotate: tracks funded addresses and preserves safety state
   await waitForAddressUsed(extension, setup.page, rotation.current)
   await setup.page.reload({ waitUntil: 'domcontentloaded' })
   await receive.waitUntilReady()
-  const nextAddress = await receive.currentAddress()
+  // A used address stays on screen, flagged, until New Address moves on.
+  expect(await receive.currentAddress()).toBe(rotation.current)
+  await receive.expectCurrentAddressUsed()
+  const nextRotation = await receive.rotateAddress()
+  expect(nextRotation.previous).toBe(rotation.current)
+  const nextAddress = nextRotation.current
   expect(nextAddress).not.toBe(rotation.current)
   expect(await receive.previousAddresses()).toEqual(
     expect.arrayContaining([rotation.previous, rotation.current])
@@ -52,9 +57,13 @@ test('G3 receive/fund/rotate: tracks funded addresses and preserves safety state
   )
 
   // History covers the selected account only, as the balance card does, and
-  // Receive has moved the wallet on to nextAddress. Each funding shows under
-  // the account it paid and not under the other.
+  // New Address has moved the wallet on to nextAddress. Each funding shows
+  // under the account it paid and not under the other. Receive shows the
+  // selected account's own address and keeps that account selected.
   const history = new HistoryPage(setup.page)
+  const selectedAddress = async () =>
+    (await extension.requestWalletController<{ address: string }>(setup.page, 'getCurrentAccount'))
+      .address
   for (const { address, funding, other } of [
     { address: rotation.previous, funding: firstFundingTxid, other: secondFundingTxid },
     { address: rotation.current, funding: secondFundingTxid, other: firstFundingTxid },
@@ -64,11 +73,13 @@ test('G3 receive/fund/rotate: tracks funded addresses and preserves safety state
     })
     await setup.home.waitUntilReady()
     await setup.home.switchAccount(address)
-    const selected = await extension.requestWalletController<{ address: string }>(
-      setup.page,
-      'getCurrentAccount'
-    )
-    expect(selected.address).toBe(address)
+    expect(await selectedAddress()).toBe(address)
+    await setup.home.openReceive()
+    expect(await receive.currentAddress()).toBe(address)
+    await receive.expectCurrentAddressUsed()
+    expect(await selectedAddress()).toBe(address)
+    await setup.page.goBack()
+    await setup.home.waitUntilReady()
     await setup.home.openHistory()
     await history.waitUntilReady()
     expect(await history.rowStatus(funding)).toBe('Confirmed')

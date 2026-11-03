@@ -406,6 +406,8 @@ type QbitReceiveControllerContext = {
   anchor: Account
   ledger: QbitReceiveIntentLedger
   addresses: QbitReceiveAddressState[]
+  /** Derivation index of the selected account, whose address Receive shows. */
+  selectedIndex: number
   activityStatus: QbitReceiveState['activityStatus']
   floorsPending: boolean
   concurrentInstanceHint: boolean
@@ -4045,6 +4047,10 @@ export class WalletController extends BaseController {
         },
       }
     })
+    // Match the selected account the way getCurrentAccount does: by public
+    // key, falling back to the first account.
+    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
+    const selected = keyring.accounts.find(account => account.pubkey === selectedPubkey) ?? anchor
     const rawKeyring = keyringService.keyrings[keyring.index]
 
     return {
@@ -4053,13 +4059,24 @@ export class WalletController extends BaseController {
       anchor,
       ledger,
       addresses,
+      selectedIndex: selected.p2mr!.hkdf.index,
       activityStatus,
       floorsPending: rawKeyring?.pqcFloorsPending === true,
       concurrentInstanceHint: rawKeyring?.pqcConcurrentInstanceHint === true,
     }
   }
 
-  private buildQbitReceiveState = (context: QbitReceiveControllerContext): QbitReceiveState => {
+  /**
+   * Receive state with the address at `shownIndex` as current: the selected
+   * account's unless a caller passes another index. A used address stays
+   * current and is marked used. An exhausted address cannot authorize
+   * spending what it receives, and a never-issued one past the restore gap
+   * would not be found by a standard restore, so neither is current.
+   */
+  private buildQbitReceiveState = (
+    context: QbitReceiveControllerContext,
+    shownIndex = context.selectedIndex
+  ): QbitReceiveState => {
     const issuedIndexes = new Set(context.ledger.issuedIndexes)
     const allocationAddresses: QbitReceiveAllocationAddress[] = context.addresses.map(address => ({
       index: address.index,
@@ -4068,17 +4085,15 @@ export class WalletController extends BaseController {
       exhausted: address.signatureCounter.state === 'exhausted',
     }))
     const gapPlan = planQbitReceiveIntent(allocationAddresses)
-    const persistedCurrent = context.addresses.find(
-      address => address.index === context.ledger.currentIndex
-    )
+    const shown = context.addresses.find(address => address.index === shownIndex)
     const shouldHideAddresses = context.floorsPending || context.activityStatus !== 'live'
-    const current =
-      !shouldHideAddresses &&
-      persistedCurrent &&
-      !persistedCurrent.used &&
-      persistedCurrent.signatureCounter.state !== 'exhausted'
-        ? persistedCurrent
-        : null
+    const offerable =
+      shown !== undefined &&
+      shown.signatureCounter.state !== 'exhausted' &&
+      (shown.used ||
+        issuedIndexes.has(shown.index) ||
+        shown.index <= gapPlan.highestUsedIndex + QBIT_RECEIVE_GAP_LIMIT)
+    const current = !shouldHideAddresses && offerable ? shown : null
     const previous = shouldHideAddresses
       ? []
       : context.addresses
@@ -4120,6 +4135,16 @@ export class WalletController extends BaseController {
     const selected = preferenceService.getCurrentAccount()
     if (selected?.key === account.key && selected.address === account.address) return
     await this.changeKeyring(context.keyring, accountPosition)
+    // Save the switch now rather than after the store's debounced save, so a
+    // browser quit straight after New Address keeps the new account selected.
+    // This is not changeKeyring's persistPreference: a failed save there
+    // skips the account-change broadcast and fails New Address although the
+    // switch happened. A failed save here stays queued for the debounced save.
+    try {
+      await preferenceService.persist()
+    } catch (error) {
+      log.warn('[WalletController] Failed to save the receive account selection', error)
+    }
   }
 
   private createNextQbitReceiveIntent = async (
@@ -4173,15 +4198,19 @@ export class WalletController extends BaseController {
     const refreshed = gapPlan.nextIntent.activatesIndex
       ? await this.loadQbitReceiveContext(true, 'cached')
       : await this.loadQbitReceiveContext(false, context.activityStatus)
-    const state = this.buildQbitReceiveState(refreshed)
+    const issued = this.buildQbitReceiveState(refreshed, gapPlan.nextIntent.index)
     // The recheck can invalidate the index this intent just issued — another
     // copy of the seed already used it, or the refresh failed and the address
-    // is no longer live-verified. Only switch the wallet onto an index the
-    // state still exposes as the safe current address.
-    if (state.current?.index === gapPlan.nextIntent.index) {
-      await this.adoptQbitReceiveAccount(refreshed, gapPlan.nextIntent.index)
+    // is no longer live-verified. Only switch the wallet onto the new address
+    // while it is still safe to show; otherwise stay on the selected account.
+    if (issued.current?.used) {
+      throw new Error('The new receive address already has activity; press New Address again')
     }
-    return state
+    if (issued.current?.index !== gapPlan.nextIntent.index) {
+      return this.buildQbitReceiveState(refreshed)
+    }
+    await this.adoptQbitReceiveAccount(refreshed, gapPlan.nextIntent.index)
+    return issued
   }
 
   getQbitReceiveState = (): Promise<QbitReceiveState> =>
@@ -4189,15 +4218,33 @@ export class WalletController extends BaseController {
       this.buildQbitReceiveState(await this.loadQbitReceiveContext(true))
     )
 
+  /**
+   * Receive state for the selected account's own address. Never changes the
+   * selected account and never issues another address; only
+   * createQbitReceiveIntent (New Address) does. An unused address becomes the
+   * ledger's current intent before it is shown, which records it as issued
+   * the first time, so the gap plan counts it and a recovery migration
+   * prefers not to pay it.
+   */
   ensureQbitReceiveIntent = (): Promise<QbitReceiveState> =>
     this.enqueueQbitReceiveOperation(async () => {
       const context = await this.loadQbitReceiveContext(true)
       const state = this.buildQbitReceiveState(context)
-      if (state.current) {
-        await this.adoptQbitReceiveAccount(context, state.current.index)
+      const current = state.current
+      if (!current || current.used || context.ledger.currentIndex === current.index) {
         return state
       }
-      return !state.gap.canCreate ? state : this.createNextQbitReceiveIntent(context)
+      await keyringService.setQbitReceiveIntent(
+        context.anchor.pubkey,
+        context.network,
+        current.index
+      )
+      // Show the address just recorded, even if the selection changed
+      // meanwhile; the screen reloads for the newly selected account.
+      return this.buildQbitReceiveState(
+        await this.loadQbitReceiveContext(false, context.activityStatus),
+        current.index
+      )
     })
 
   createQbitReceiveIntent = (): Promise<QbitReceiveState> =>

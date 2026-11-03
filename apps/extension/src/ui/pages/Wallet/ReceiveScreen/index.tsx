@@ -134,10 +134,18 @@ export default function ReceiveScreen() {
   const [label, setLabel] = useState('');
   const isP2mr = Boolean(currentAccount?.p2mr);
   const receiveKeyringScope = currentAccount?.key?.split('#')[0] || currentAccount?.pubkey || '';
-  const receiveContext = `${receiveKeyringScope}:${chain.enum}`;
+  // Receive shows the selected account's own address, so a state loaded for
+  // another account, keyring or network is stale.
+  const receiveContext = `${receiveKeyringScope}:${currentAccount?.pubkey || ''}:${chain.enum}`;
   const receiveContextRef = useRef(receiveContext);
   receiveContextRef.current = receiveContext;
   const visibleState = loadedContext === receiveContext ? receiveState : null;
+
+  // The amount and label belong to the address on screen.
+  useEffect(() => {
+    setAmount('');
+    setLabel('');
+  }, [receiveContext]);
 
   useEffect(() => {
     if (!isP2mr) return;
@@ -185,12 +193,17 @@ export default function ReceiveScreen() {
     setLoading(true);
     setError('');
     try {
+      const shownAddress = visibleState?.current?.address;
       const state = await wallet.createQbitReceiveIntent();
       if (receiveContextRef.current !== receiveContext) return;
       setReceiveState(state);
       setLoadedContext(receiveContext);
-      setAmount('');
-      setLabel('');
+      // The amount and label belong to the address they were entered for.
+      // Clear them now, not only once the account change reaches this screen.
+      if (state.current && state.current.address !== shownAddress) {
+        setAmount('');
+        setLabel('');
+      }
     } catch (reason) {
       if (receiveContextRef.current !== receiveContext) return;
       const message = reason instanceof Error ? reason.message : String(reason);
@@ -350,6 +363,11 @@ export default function ReceiveScreen() {
               </button>
               <StatusBadges address={current} t={t} />
               <BudgetDetails address={current} t={t} />
+              {current.used ? (
+                <div className="receive-notice warning" data-testid="current-address-used-warning">
+                  {t('qbit_receive_reuse_warning')}
+                </div>
+              ) : null}
 
               <div className="receive-fields">
                 <label htmlFor="qbit-receive-amount">{t('qbit_receive_amount_optional')}</label>
@@ -390,7 +408,20 @@ export default function ReceiveScreen() {
             </section>
           ) : visibleState ? (
             <div className="receive-empty" data-testid="no-safe-receive-address">
-              {t('qbit_receive_no_safe')}
+              <span>{t('qbit_receive_no_safe')}</span>
+              {/* The selected account's address cannot be offered, for example
+                  because it has no signing budget left. New Address issues
+                  one and selects its account. */}
+              {visibleState.gap.canCreate ? (
+                <button
+                  className="receive-action primary"
+                  data-testid="new-address"
+                  disabled={loading}
+                  onClick={() => void createNewAddress()}
+                >
+                  {t('qbit_receive_new_address')}
+                </button>
+              ) : null}
             </div>
           ) : null}
 

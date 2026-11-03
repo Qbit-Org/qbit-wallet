@@ -90,7 +90,9 @@ test('G3 send: rejects dust and proves single/multi-input fees plus RBF replacem
   await setup.home.waitUntilReady()
   await setup.home.openReceive()
   const receive = new ReceivePage(setup.page)
-  const multiInputAddress = await receive.currentAddress()
+  // The used first address stays on Receive; New Address selects the next
+  // account, which the multi-input send below spends from.
+  const { current: multiInputAddress } = await receive.rotateAddress()
   expect(multiInputAddress).not.toBe(setup.address)
   regtest.trackAccount(multiInputAddress)
 
