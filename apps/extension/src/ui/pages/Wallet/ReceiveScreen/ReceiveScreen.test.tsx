@@ -294,6 +294,44 @@ describe('ReceiveScreen custody flow', () => {
     expect(createQbitReceiveIntent).not.toHaveBeenCalled();
   });
 
+  it('re-enables copy when the account changes while a copy is checking', async () => {
+    let account = {
+      key: 'keyring_0#0',
+      pubkey: 'pubkey-0',
+      p2mr: true,
+      alianName: 'Primary'
+    };
+    let resolveCopyCheck!: (state: QbitReceiveState) => void;
+    vi.mocked(useCurrentAccount).mockImplementation(() => account as any);
+    const selectedState = receiveState({ current: addressState(2, 'normal', 'local', false) });
+    ensureQbitReceiveIntent
+      .mockResolvedValueOnce(receiveState())
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCopyCheck = resolve;
+        })
+      )
+      .mockResolvedValueOnce(selectedState);
+    const view = render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+
+    fireEvent.click(screen.getByLabelText('copy_address'));
+    expect((screen.getByLabelText('copy_address') as HTMLButtonElement).disabled).toBe(true);
+    account = { ...account, key: 'keyring_0#2', pubkey: 'pubkey-2' };
+    view.rerender(<ReceiveScreen />);
+    await waitFor(() =>
+      expect(screen.getByTestId('qrcode-value').getAttribute('data-value')).toBe(
+        `qbit:${selectedState.current!.address}`
+      )
+    );
+
+    expect((screen.getByLabelText('copy_address') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      resolveCopyCheck(receiveState());
+    });
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
   it('keeps a used selected address on screen with the reuse warning', async () => {
     ensureQbitReceiveIntent.mockResolvedValue(receiveState({ current: addressState(0, 'normal', 'local', true) }));
     render(<ReceiveScreen />);

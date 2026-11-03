@@ -141,10 +141,13 @@ export default function ReceiveScreen() {
   receiveContextRef.current = receiveContext;
   const visibleState = loadedContext === receiveContext ? receiveState : null;
 
-  // The amount and label belong to the address on screen.
+  // The amount and label belong to the address on screen. A copy still
+  // checking the previous address drops its result, so it must not keep the
+  // copy buttons disabled either.
   useEffect(() => {
     setAmount('');
     setLabel('');
+    setCopying(false);
   }, [receiveContext]);
 
   useEffect(() => {
