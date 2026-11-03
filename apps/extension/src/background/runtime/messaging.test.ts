@@ -36,6 +36,8 @@ const harness = vi.hoisted(() => {
       return session;
     }),
     getTabSession: (tabId: number) => sessions.get(tabSessions.get(tabId)),
+    // This worker's start-up, as the restore module reports it.
+    appStateReady: Promise.resolve(),
     handleRequest: vi.fn(),
     listeners: new Map<TestPort, (data: unknown) => unknown>(),
     sessions,
@@ -128,13 +130,21 @@ vi.mock('@qbit/wallet-background', async () => ({
   walletController
 }));
 
+vi.mock('../init', () => ({
+  whenAppStateRestored: () => harness.appStateReady
+}));
+
 vi.mock('../webapi/browser', () => ({
   browserRuntimeOnConnect: (listener: (port: TestPort) => void) => {
     harness.connectListener = listener;
   }
 }));
 
-import { initMessaging } from './messaging';
+import { APP_STATE_WAIT_MS, initMessaging } from './messaging';
+
+beforeEach(() => {
+  harness.appStateReady = Promise.resolve();
+});
 
 function providerPort(url: string, sender: TestSender = {}): TestPort {
   const port: TestPort = {
@@ -691,5 +701,160 @@ describe('background provider-port disconnect and the shared unlock request', ()
     expect(approvalService.getApproval()).toBeUndefined();
     expect(second.error).toMatchObject({ code: ErrorCodes.UserCancel });
     await expect(approvalService.resolveApproval(signId)).resolves.toBe(false);
+  });
+});
+
+describe('background provider-port requests during start-up', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  let finishStartup: (failure?: Error) => void;
+
+  function send(port: TestPort, source: 'page' | 'content', method: string) {
+    const state: { settled: boolean; result?: unknown; error?: any } = { settled: false };
+    Promise.resolve(harness.listeners.get(port)!({ source, data: { method, params: {} } })).then(
+      (result) => Object.assign(state, { settled: true, result }),
+      (error) => Object.assign(state, { settled: true, error })
+    );
+    return state;
+  }
+
+  const methodsHandled = () => harness.handleRequest.mock.calls.map(([req]) => req.data.method);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    harness.connectListener = undefined;
+    harness.listeners.clear();
+    harness.sessions.clear();
+    harness.tabSessions.clear();
+    harness.appStateReady = new Promise<void>((resolve, reject) => {
+      finishStartup = (failure) => (failure ? reject(failure) : resolve());
+    });
+    harness.appStateReady.catch(() => undefined);
+    initMessaging();
+  });
+
+  it("answers a connected site's requests made during start-up from the restored wallet, in order", async () => {
+    // Until start-up restores the keyring and the site grants, a connected
+    // site reads no account.
+    let restored = false;
+    harness.handleRequest.mockImplementation(async (req: any) => {
+      if (req.data.method === 'tabCheckin') return 'ACK_QBIT_PROVIDER_SESSION';
+      if (req.data.method === 'getAccounts') return restored ? ['qb1connected'] : [];
+      return restored ? 'QBIT_MAINNET' : undefined;
+    });
+    const port = providerPort('https://dapp.example/');
+    harness.connectListener!(port);
+
+    const checkIn = send(port, 'content', 'tabCheckin');
+    const accounts = send(port, 'page', 'getAccounts');
+    const chain = send(port, 'page', 'getChain');
+    await flush();
+
+    // The content script's check-in reads no restored state.
+    expect(checkIn).toMatchObject({ settled: true, result: 'ACK_QBIT_PROVIDER_SESSION' });
+    expect(accounts.settled).toBe(false);
+    expect(chain.settled).toBe(false);
+    expect(methodsHandled()).toEqual(['tabCheckin']);
+
+    restored = true;
+    finishStartup();
+    await flush();
+
+    expect(accounts).toMatchObject({ settled: true, result: ['qb1connected'] });
+    expect(chain).toMatchObject({ settled: true, result: 'QBIT_MAINNET' });
+    expect(methodsHandled()).toEqual(['tabCheckin', 'getAccounts', 'getChain']);
+  });
+
+  it('refuses the requests with a clear error, and runs none, when start-up stops', async () => {
+    const port = providerPort('https://dapp.example/');
+    harness.connectListener!(port);
+    const waiting = send(port, 'page', 'getAccounts');
+    await flush();
+
+    finishStartup(new Error('Background start-up failed: stored-settings-unreadable'));
+    await flush();
+    // A request made once start-up has stopped is refused at once.
+    const later = send(port, 'page', 'sendQbit');
+    await flush();
+
+    for (const request of [waiting, later]) {
+      expect(request.settled).toBe(true);
+      expect(request.error).toMatchObject({
+        code: -32603,
+        message: 'Qbit Wallet could not start. Open Qbit Wallet to see why.'
+      });
+      // The internal cause stays in the background.
+      expect(request.error.message).not.toMatch(/stored-settings/);
+    }
+    expect(harness.handleRequest).not.toHaveBeenCalled();
+  });
+
+  describe('with a time limit', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('runs a request whose start-up finishes just before the limit', async () => {
+      harness.handleRequest.mockResolvedValue(['qb1connected']);
+      const port = providerPort('https://dapp.example/');
+      harness.connectListener!(port);
+      const accounts = send(port, 'page', 'getAccounts');
+
+      await vi.advanceTimersByTimeAsync(APP_STATE_WAIT_MS - 1);
+      expect(accounts.settled).toBe(false);
+      finishStartup();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(accounts).toMatchObject({ settled: true, result: ['qb1connected'] });
+      // Its timer is gone: passing the limit changes nothing.
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(APP_STATE_WAIT_MS);
+      expect(harness.handleRequest).toHaveBeenCalledOnce();
+    });
+
+    it('refuses a request still waiting at the limit, without running it, and runs the next one once started', async () => {
+      harness.handleRequest.mockResolvedValue('txid');
+      const port = providerPort('https://dapp.example/');
+      harness.connectListener!(port);
+      const sending = send(port, 'page', 'sendQbit');
+
+      await vi.advanceTimersByTimeAsync(APP_STATE_WAIT_MS);
+
+      expect(sending.settled).toBe(true);
+      expect(sending.error).toMatchObject({
+        code: -32002,
+        message: 'Qbit Wallet is still starting. Try the request again in a moment.'
+      });
+      // Start-up finishing later does not run the refused request.
+      finishStartup();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.handleRequest).not.toHaveBeenCalled();
+
+      const retried = send(port, 'page', 'sendQbit');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(retried).toMatchObject({ settled: true, result: 'txid' });
+      expect(harness.handleRequest).toHaveBeenCalledOnce();
+    });
+
+    it('never runs a request whose page closes while it waits, and drops its timer', async () => {
+      const port = providerPort('https://dapp.example/');
+      harness.connectListener!(port);
+      const sending = send(port, 'page', 'sendQbit');
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      port.disconnectListener!();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sending.settled).toBe(true);
+      expect(sending.error).toBeInstanceOf(Error);
+      expect(sending.error.code).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+      finishStartup();
+      await vi.advanceTimersByTimeAsync(APP_STATE_WAIT_MS);
+      expect(harness.handleRequest).not.toHaveBeenCalled();
+    });
   });
 });

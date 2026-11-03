@@ -82,6 +82,24 @@ class ExtensionStorageAdapter extends BaseProxyStorageAdapter {
 
 let appStateRestored = false;
 
+/** Start-up stopped, for the reason the wallet's pages show. */
+export class AppStateRestoreError extends Error {
+  constructor(readonly reason: 'stored-settings-unreadable' | 'unknown') {
+    super(`Background start-up failed: ${reason}`);
+    this.name = 'AppStateRestoreError';
+  }
+}
+
+// The worker's one start-up, shared by every caller that needs the restored
+// state. Start-up runs once per worker start, so its outcome stands until the
+// worker restarts.
+let settleAppState: (failure?: AppStateRestoreError) => void = () => undefined;
+const appStateReady = new Promise<void>((resolve, reject) => {
+  settleAppState = (failure) => (failure ? reject(failure) : resolve());
+});
+// Nobody may be waiting when start-up fails; the pages report it anyway.
+appStateReady.catch(() => undefined);
+
 async function initPqcRuntime() {
   await initPqcClient({
     createModule: createPqcModule,
@@ -239,12 +257,13 @@ export async function restoreAppState() {
     appStateRestored = true;
 
     walletController.setBackgroundInited(true);
+    settleAppState();
   } catch (err) {
     console.error('[Background] Initialization failed', err);
+    const reason = proxyStorage.isStartupReadError(err) ? 'stored-settings-unreadable' : 'unknown';
     // In memory only: reporting the failure writes nothing to storage.
-    walletController.setBackgroundStartupFailed(
-      proxyStorage.isStartupReadError(err) ? 'stored-settings-unreadable' : 'unknown'
-    );
+    walletController.setBackgroundStartupFailed(reason);
+    settleAppState(new AppStateRestoreError(reason));
   } finally {
     proxyStorage.endStartup();
   }
@@ -252,4 +271,13 @@ export async function restoreAppState() {
 
 export function isAppStateRestored(): boolean {
   return appStateRestored;
+}
+
+/**
+ * Resolves once start-up has restored the background, and rejects with an
+ * AppStateRestoreError once it has stopped instead, at once if it already
+ * has. Every caller gets the same promise.
+ */
+export function whenAppStateRestored(): Promise<void> {
+  return appStateReady;
 }

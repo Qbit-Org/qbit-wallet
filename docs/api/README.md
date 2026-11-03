@@ -44,6 +44,17 @@ require an explicit `chain` option that must match both the active chain and the
 Signing approvals bind the exact trusted origin, account, chain, network, and payload reviewed by
 the user. A request is rejected if any bound value changes before signing completes.
 
+## Errors every method can return
+
+These errors come from the connection to Qbit Wallet and from its start, not from a method, so any
+request can reject with them:
+
+| Code     | Error                                                                  | Did the request run?                                |
+| -------- | ---------------------------------------------------------------------- | --------------------------------------------------- |
+| `4900`   | [Lost connection](./sign-transaction.md#lost-connection)               | It may have: look a transaction up before you retry |
+| `-32002` | [Wallet still starting](./sign-transaction.md#wallet-still-starting)   | No: send it again                                   |
+| `-32603` | [Wallet could not start](./sign-transaction.md#wallet-could-not-start) | No                                                  |
+
 ## Reference
 
 | Topic                                       | Description                                            |
