@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "7563f8797bc284618b1188b487ada6e4bfacf9f5",
+  "auditedCommit": "68ca889f608e7f15ded4b3cd9a93bfb07dd32fa3",
   "lockfileSha256": "88001968d7e6d4ca874df14cc392bbcb3721f5497550fc12725a164aeb50d594",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",

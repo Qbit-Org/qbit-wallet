@@ -21,14 +21,14 @@ exact source, manifests, policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `7563f8797bc284618b1188b487ada6e4bfacf9f5` |
+| Audited commit | `68ca889f608e7f15ded4b3cd9a93bfb07dd32fa3` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
 | `pnpm-lock.yaml` SHA-256 | `88001968d7e6d4ca874df14cc392bbcb3721f5497550fc12725a164aeb50d594` |
 | [Raw audit output](./dependency-audit.json) SHA-256 | `a1dcb249f5805d8e0a3d1519764e4c0385e4679018517aa3db707b9fd9898bf2` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `646db1907f5840ca7b1893985917a4125c0550d4affabd9a72a0941a4906b1dd` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `6ef62d9f01bf373010efaa2fbb64c4f612c373c95d3e7bf8eddae4f962df3160` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
@@ -87,7 +87,8 @@ merges that change after the rebase onto the updated `release/1.0.8`, and the
 result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low.
 Removing 25 unused extension declarations and the unused `patch-package`
 declaration in `@qbit/keyring-service`, written on 2026-11-02, reduced the
-current result to 54 occurrences: 0 critical, 0 high, 40 moderate, and 14 low.
+result to 54 occurrences: 0 critical, 0 high, 40 moderate, and 14 low, and the
+2026-11-03 audits after `release/1.0.8` was rebuilt found the same.
 The `@sentry/browser` record, two occurrences for 6.19.7 and 7.48.0, left with
 Sentry; `minimatch` `GHSA-g3hv-75wg-m249` no longer reaches 5.1.9, which only
 `workbox-webpack-plugin` pulled in; and no record was added. Removing
@@ -116,7 +117,7 @@ Sentry; `minimatch` `GHSA-g3hv-75wg-m249` no longer reaches 5.1.9, which only
 | Audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
 | Audited result `df95c38` (2026-11-03, `extensionizer` removed) | 0 | 0 | 43 | 14 | 57 |
 | Audited result `cd636ad` (2026-11-03, unused dependencies removed) | 0 | 0 | 40 | 14 | 54 |
-| Current audited result `7563f87` (2026-11-03, `browser-passworder` removed) | 0 | 0 | 40 | 14 | 54 |
+| Current audited result `68ca889` (2026-11-03, `browser-passworder` removed) | 0 | 0 | 40 | 14 | 54 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 43 advisory records representing 38
@@ -375,8 +376,9 @@ license-baseline change `f38e65cc`, the policy-evidence cleanup and changeset
 the audited merge `cd636ad4`; its regenerated
 evidence (`4c270b3b`) and this review's updated figures follow in separate
 commits. The 2026-11-03 removal of `browser-passworder`, whose last use was
-building the vault-migration tests' fixtures, is `7563f879`; its regenerated
-evidence and this review's figures follow in one commit.
+building the vault-migration tests' fixtures, was reviewed as #155 and
+squash-merged into this branch as `68ca889f`; its regenerated evidence and
+this review's figures follow in one commit.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -441,7 +443,7 @@ evidence and this review's figures follow in one commit.
 | `f38e65cc` | Remove 25 unused extension declarations, remove `patch-package` from `@qbit/keyring-service`, move its `browser-passworder` to devDependencies, and rebind the license baseline | Removed 128 package identities from the lockfile and the license baseline, and the `@sentry/browser` record; the live audit stayed at zero critical/high findings |
 | `185166d5` | Drop `react-cache`'s unknown-license evidence and the evidence-generator classifications for the removed packages, and add the `@qbit/keyring-service` changeset | With the merge `cd636ad4`, no policy entry remains for a package the lockfile no longer contains |
 | `4c270b3b` | Regenerate the dependency evidence | Bound the audit snapshot and inventory to the lockfile without the unused packages |
-| `7563f879` | Remove `browser-passworder` from the `@qbit/keyring-service` devDependencies, and build the vault-migration tests' earlier-format fixtures with `@metamask/browser-passworder`, checked against a field that `browser-passworder` 2.0.3 wrote | Removed `browser-passworder@2.0.3` and `browserify-unibabel@3.0.0` from the lockfile and the license baseline; the live audit stayed at zero critical/high findings |
+| `68ca889f` (#155) | Remove `browser-passworder` from the `@qbit/keyring-service` devDependencies, and build the vault-migration tests' earlier-format fixtures with `@metamask/browser-passworder`, checked against a field that `browser-passworder` 2.0.3 wrote | Removed `browser-passworder@2.0.3` and `browserify-unibabel@3.0.0` from the lockfile and the license baseline; the live audit stayed at zero critical/high findings |
 
 ## Lint and dependency policy jobs
 
