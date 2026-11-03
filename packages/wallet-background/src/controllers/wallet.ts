@@ -3984,6 +3984,12 @@ export class WalletController extends BaseController {
     if (!anchor?.p2mr) {
       throw new Error('P2MR receive metadata is unavailable')
     }
+    // Read the selection with the keyring, before the activity check waits on
+    // the explorer, so both come from the same wallet. Match it the way
+    // getCurrentAccount does: by public key, falling back to the first
+    // account.
+    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
+    const selected = keyring.accounts.find(account => account.pubkey === selectedPubkey) ?? anchor
 
     let ledger = (await keyringService.getQbitReceiveState(
       anchor.pubkey,
@@ -4047,10 +4053,6 @@ export class WalletController extends BaseController {
         },
       }
     })
-    // Match the selected account the way getCurrentAccount does: by public
-    // key, falling back to the first account.
-    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
-    const selected = keyring.accounts.find(account => account.pubkey === selectedPubkey) ?? anchor
     const rawKeyring = keyringService.keyrings[keyring.index]
 
     return {
@@ -4090,9 +4092,7 @@ export class WalletController extends BaseController {
     const offerable =
       shown !== undefined &&
       shown.signatureCounter.state !== 'exhausted' &&
-      (shown.used ||
-        issuedIndexes.has(shown.index) ||
-        shown.index <= gapPlan.highestUsedIndex + QBIT_RECEIVE_GAP_LIMIT)
+      (shown.used || issuedIndexes.has(shown.index) || shown.index <= gapPlan.lastDiscoverableIndex)
     const current = !shouldHideAddresses && offerable ? shown : null
     const previous = shouldHideAddresses
       ? []
@@ -4147,6 +4147,25 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * Read the receive context again after a ledger write, with a live activity
+   * check or from the vault cache. changeKeyring does not wait for the receive
+   * queue, so another wallet can be selected meanwhile. Refuse to carry this
+   * operation's index, live status or account switch over to it.
+   */
+  private reloadQbitReceiveContext = async (
+    context: QbitReceiveControllerContext,
+    refreshActivity: boolean
+  ): Promise<QbitReceiveControllerContext> => {
+    const reloaded = refreshActivity
+      ? await this.loadQbitReceiveContext(true, 'cached')
+      : await this.loadQbitReceiveContext(false, context.activityStatus)
+    if (reloaded.anchor.pubkey !== context.anchor.pubkey || reloaded.network !== context.network) {
+      throw new Error('Qbit wallet changed while preparing the receive screen')
+    }
+    return reloaded
+  }
+
   private createNextQbitReceiveIntent = async (
     context: QbitReceiveControllerContext
   ): Promise<QbitReceiveState> => {
@@ -4195,9 +4214,10 @@ export class WalletController extends BaseController {
     // so its history lands in usedIndexes before the address is exposed;
     // starting from 'cached' keeps a failed refresh from presenting the new
     // address as live-verified.
-    const refreshed = gapPlan.nextIntent.activatesIndex
-      ? await this.loadQbitReceiveContext(true, 'cached')
-      : await this.loadQbitReceiveContext(false, context.activityStatus)
+    const refreshed = await this.reloadQbitReceiveContext(
+      context,
+      gapPlan.nextIntent.activatesIndex
+    )
     const issued = this.buildQbitReceiveState(refreshed, gapPlan.nextIntent.index)
     // The recheck can invalidate the index this intent just issued — another
     // copy of the seed already used it, or the refresh failed and the address
@@ -4242,7 +4262,7 @@ export class WalletController extends BaseController {
       // Show the address just recorded, even if the selection changed
       // meanwhile; the screen reloads for the newly selected account.
       return this.buildQbitReceiveState(
-        await this.loadQbitReceiveContext(false, context.activityStatus),
+        await this.reloadQbitReceiveContext(context, false),
         current.index
       )
     })

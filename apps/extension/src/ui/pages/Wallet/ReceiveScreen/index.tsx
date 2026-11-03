@@ -209,6 +209,17 @@ export default function ReceiveScreen() {
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message);
       tools.toastError(message);
+      // A refused New Address can still change what is on screen, for example
+      // by finding activity on the selected address. Reload it and keep the
+      // error.
+      try {
+        const state = await wallet.ensureQbitReceiveIntent();
+        if (receiveContextRef.current !== receiveContext) return;
+        setReceiveState(state);
+        setLoadedContext(receiveContext);
+      } catch {
+        // The error and its Retry stay on screen.
+      }
     } finally {
       if (receiveContextRef.current === receiveContext) setLoading(false);
     }

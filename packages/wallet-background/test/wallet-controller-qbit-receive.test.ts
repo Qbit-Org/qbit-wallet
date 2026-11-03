@@ -274,6 +274,45 @@ describe('WalletController qbit receive intents', () => {
     expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
   })
 
+  it('refuses to show a recorded address once another wallet is selected', async () => {
+    const other = walletKeyring([account(0, 'normal', 'local', 'other')])
+    vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
+      async (_anchor, network, index) => {
+        const ledger = ledgers[network as Network]
+        ledger.currentIndex = index
+        ledger.issuedIndexes.push(index)
+        // Another popup selects another wallet while the intent is written.
+        keyring = other
+        return other.accounts[0]!.p2mr
+      }
+    )
+
+    await expect(controller.ensureQbitReceiveIntent()).rejects.toThrow('wallet changed')
+  })
+
+  it('does not switch accounts in a wallet selected during New Address', async () => {
+    await controller.ensureQbitReceiveIntent()
+    const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+    const other = walletKeyring([
+      account(0, 'normal', 'local', 'other'),
+      account(1, 'normal', 'local', 'other'),
+    ])
+    vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
+      async (_anchor, network, index) => {
+        const ledger = ledgers[network as Network]
+        ledger.currentIndex = index
+        ledger.issuedIndexes.push(index)
+        keyring.accounts.push(account(index))
+        keyring = other
+        return account(index).p2mr
+      }
+    )
+
+    await expect(controller.createQbitReceiveIntent()).rejects.toThrow('wallet changed')
+    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
+  })
+
   it('does not offer a never-issued selected address past the restore gap', async () => {
     keyring = walletKeyring(Array.from({ length: 21 }, (_, index) => account(index)))
     ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }

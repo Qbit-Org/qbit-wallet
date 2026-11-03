@@ -14,6 +14,8 @@ export interface QbitReceiveIntentPlan {
 
 export interface QbitReceiveGapPlan {
   highestUsedIndex: number
+  /** Highest index a standard trailing gap scan still reaches. */
+  lastDiscoverableIndex: number
   trailingUnusedCount: number
   remainingIntentCapacity: number
   nextIntent: QbitReceiveIntentPlan | null
@@ -55,6 +57,7 @@ export function planQbitReceiveIntent(
   if (existing) {
     return {
       highestUsedIndex,
+      lastDiscoverableIndex,
       trailingUnusedCount,
       remainingIntentCapacity,
       nextIntent: { index: existing.index, activatesIndex: false },
@@ -66,6 +69,7 @@ export function planQbitReceiveIntent(
   while (activeIndexes.has(nextIndex)) nextIndex += 1
   return {
     highestUsedIndex,
+    lastDiscoverableIndex,
     trailingUnusedCount,
     remainingIntentCapacity,
     nextIntent:

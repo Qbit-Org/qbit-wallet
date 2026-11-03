@@ -228,6 +228,23 @@ describe('ReceiveScreen custody flow', () => {
     expect(createQbitReceiveIntent).toHaveBeenCalledTimes(1);
   });
 
+  it('reloads the receive state after a refused New Address and keeps the error', async () => {
+    ensureQbitReceiveIntent
+      .mockResolvedValueOnce(receiveState())
+      .mockResolvedValueOnce(receiveState({ current: addressState(0, 'normal', 'local', true) }));
+    createQbitReceiveIntent.mockRejectedValueOnce(new Error('The new receive address already has activity'));
+    render(<ReceiveScreen />);
+    await screen.findByTestId('receive-qr');
+    expect(screen.queryByTestId('current-address-used-warning')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('new-address'));
+
+    expect(await screen.findByTestId('current-address-used-warning')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('already has activity');
+    expect(toastError).toHaveBeenCalledWith('The new receive address already has activity');
+    expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps the amount when New Address leaves the selected address on screen', async () => {
     createQbitReceiveIntent.mockResolvedValueOnce(receiveState());
     render(<ReceiveScreen />);
