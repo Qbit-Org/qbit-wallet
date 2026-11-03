@@ -42,7 +42,7 @@ function shapeProblems(saved: unknown, initial: unknown, path = 'ui'): string[] 
   if (isObject(initial)) {
     if (!isObject(saved)) return [`${path} holds ${JSON.stringify(saved)}, not an object`]
     return Object.entries(saved).flatMap(([key, value]) =>
-      key in initial
+      Object.prototype.hasOwnProperty.call(initial, key)
         ? shapeProblems(value, initial[key], `${path}.${key}`)
         : [`${path}.${key} is not a field of the current ui state`]
     )
@@ -53,6 +53,16 @@ function shapeProblems(saved: unknown, initial: unknown, path = 'ui'): string[] 
 
 afterEach(() => {
   localStorage.clear()
+})
+
+it('reports a saved field named like an Object.prototype member', () => {
+  // JSON.parse keeps `__proto__` as an own field, as it would be stored.
+  const saved = JSON.parse('{"constructor": null, "__proto__": {"polluted": true}}')
+
+  expect(shapeProblems(saved, initialState)).toEqual([
+    'ui.constructor is not a field of the current ui state',
+    'ui.__proto__ is not a field of the current ui state',
+  ])
 })
 
 describe.each(RELEASES)('the ui state saved by %s', release => {
