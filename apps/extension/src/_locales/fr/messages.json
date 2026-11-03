@@ -746,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "Échec de la sauvegarde du contact"
   },
+  "another_contact_has_this_address": {
+    "message": "Un autre contact a déjà cette adresse sur ce réseau"
+  },
   "failed_to_save_contact_order": {
     "message": "Échec de la sauvegarde de l'ordre des contacts"
   },

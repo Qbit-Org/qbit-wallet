@@ -746,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "Не удалось сохранить контакт"
   },
+  "another_contact_has_this_address": {
+    "message": "Этот адрес в этой сети уже есть у другого контакта"
+  },
   "failed_to_save_contact_order": {
     "message": "Не удалось сохранить порядок контактов"
   },

@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { useI18n, useNavigation, useWallet } from 'src/context'
 import { isValidAddress } from 'src/utils/qbit-utils'
 
+// The code @qbit/contact-book's replaceContact rejects with when another
+// contact has the new address and network
+const CONTACT_ALREADY_EXISTS = 'CONTACT_ALREADY_EXISTS'
+
 export function useEditContactScreenLogic() {
   const nav = useNavigation()
 
@@ -78,12 +82,12 @@ export function useEditContactScreenLogic() {
     setLoading(true)
 
     try {
+      // No isAlias, so the contact book keeps the stored alias flag
       const contact = {
         name: name.trim(),
         address: contactAddress.trim(),
         chain: chainType,
         isContact: true,
-        isAlias: false,
       }
 
       if (
@@ -91,7 +95,13 @@ export function useEditContactScreenLogic() {
         originalChain &&
         (originalAddress !== contact.address || originalChain !== contact.chain)
       ) {
-        // One write, so a failure keeps the contact under its old address
+        const other = await wallet.getContactByAddressAndChain(contact.address, contact.chain)
+        if (other?.isContact) {
+          setError(t('another_contact_has_this_address'))
+          return
+        }
+        // One write, so a failure keeps the contact under its old address. The
+        // contact book refuses it too if another contact took the address since.
         await wallet.replaceContact(originalAddress, originalChain, contact)
       } else {
         await wallet.updateContact(contact)
@@ -99,7 +109,11 @@ export function useEditContactScreenLogic() {
 
       nav.goBack()
     } catch (err) {
-      setError(t('failed_to_save_contact'))
+      if ((err as { code?: unknown } | null)?.code === CONTACT_ALREADY_EXISTS) {
+        setError(t('another_contact_has_this_address'))
+      } else {
+        setError(t('failed_to_save_contact'))
+      }
     } finally {
       setLoading(false)
     }
