@@ -61,9 +61,9 @@ export const QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS = 250
  * leaves those a few seconds more, and leaves a broadcast's 120 s deadline,
  * past the submission's 15 s, about 40 s for the lookups that follow a
  * refusal or a lost answer; a large transaction's deadline is longer by as
- * much as its submission (see `qbitBroadcastDeadlineMs`). The check holds the send guard's queue, and no
- * other send moves while it does: more than about a minute of that is
- * refused instead.
+ * much as its upload adds to the submission (see `qbitBroadcastDeadlineMs`).
+ * The check holds the send guard's queue, and no other send moves while it
+ * does: more than about a minute of that is refused instead.
  */
 export const QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS = 65_000
 
