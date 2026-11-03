@@ -24,8 +24,12 @@ import { keyringService, preferenceService, qbitSendGuardService } from '../src/
 import { QBIT_WALLET_SEND_CLAIM_ORIGIN } from '../src/services/qbitSendGuards'
 import {
   QBIT_BROADCAST_ABSENCE_PROBES,
+  QBIT_BROADCAST_DEADLINE_MS,
+  QBIT_BROADCAST_MIN_PASS_MS,
   QBIT_BROADCAST_RESEND_DELAYS_MS,
   QBIT_BROADCAST_RESEND_WINDOW_MS,
+  qbitBroadcastDeadlineMs,
+  qbitBroadcastMinPassMs,
 } from '../src/utils/qbit-broadcast'
 import { FakeQbitExplorer, fakeTxid } from './qbit-fake-explorer'
 
@@ -70,23 +74,24 @@ const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
 const script = p2mrScriptPubKey(leafHash)
 const address = p2mrAddressFromPubkey(pubkey, 'regtest')
 
-/** A payment of the funding output back to the account, as the keyring signs it. */
-function payment() {
+/**
+ * A payment of the funding output back to the account, as the keyring signs
+ * it; with `inputs`, of that many 50,000-sat outputs of `sourceTxid`.
+ */
+function payment(inputs = 1, sourceTxid = SOURCE_TXID) {
   const psbt = createP2mrPsbt({
-    inputs: [
-      {
-        prevout: { txid: hexToBytes(SOURCE_TXID).reverse(), vout: 0 },
-        witnessUtxo: { value: 50_000n, scriptPubKey: script },
-        leafScript,
-        controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
-        merkleRoot: leafHash,
-      },
-    ],
-    outputs: [{ value: 40_000n, scriptPubKey: script }],
+    inputs: Array.from({ length: inputs }, (_, vout) => ({
+      prevout: { txid: hexToBytes(sourceTxid).reverse(), vout },
+      witnessUtxo: { value: 50_000n, scriptPubKey: script },
+      leafScript,
+      controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+      merkleRoot: leafHash,
+    })),
+    outputs: [{ value: BigInt(inputs * 50_000 - 10_000 * inputs), scriptPubKey: script }],
   })
   const signing = signP2mrPsbt({
     psbt,
-    keys: [{ inputIndex: 0, pubkey, leafHash }],
+    keys: Array.from({ length: inputs }, (_, inputIndex) => ({ inputIndex, pubkey, leafHash })),
     sign: () => new Uint8Array(PQC_SIGNATURE_BYTES).fill(9),
   })
   const finalized = finalizeP2mrPsbt(signing.psbt)
@@ -102,16 +107,26 @@ function payment() {
 
 const fixture = payment()
 
+// The largest standard payment: 106 inputs, about 800 kB of hex (see
+// `QBIT_MAX_STANDARD_TX_WEIGHT`), which takes more than 15 s to upload
+// below about 430 kbit/s.
+const LARGE_SOURCE_TXID = fakeTxid(3)
+const LARGE_INPUTS = 106
+const largeFixture = payment(LARGE_INPUTS, LARGE_SOURCE_TXID)
+
 /**
  * What the node, or a gateway in front of it, does with the next POST:
  * take the bytes and answer as the node does (`accept`), take them and
  * never answer, so the client's own attempt timer fires (`accept-then-hang`),
  * or answer `status` and `body`, after taking the bytes when `accepted`.
+ * With `uploadMs` the bytes take that long to go out, as over a slow uplink,
+ * and the node then takes them; `Infinity` is an upload that stalls.
  */
 type PostOutcome =
   | 'accept'
   | 'accept-then-hang'
   | { status: number; body: string; accepted?: boolean }
+  | { uploadMs: number }
 
 describe('WalletController broadcasts through the real API client (#356)', () => {
   let explorer: FakeQbitExplorer
@@ -151,6 +166,24 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
           signal.addEventListener('abort', () => reject(signal.reason), { once: true })
         })
       }
+      if ('uploadMs' in outcome) {
+        // `fetch` resolves only once the body has gone out, or rejects on abort.
+        const signal = init.signal!
+        await new Promise<void>((resolve, reject) => {
+          const timer = Number.isFinite(outcome.uploadMs)
+            ? setTimeout(resolve, outcome.uploadMs)
+            : undefined
+          signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer)
+              reject(signal.reason)
+            },
+            { once: true }
+          )
+        })
+        return explorer.fetch(input, init)
+      }
       if (outcome.accepted) await explorer.fetch(input, init)
       return new Response(outcome.body, { status: outcome.status })
     }
@@ -168,7 +201,7 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
   }
 
   /** Sign the fixture as the wallet's own send, which mints its claim. */
-  async function signWalletSend(wallet: WalletController) {
+  async function signWalletSend(wallet: WalletController, signedPayment = fixture) {
     const account = {
       type: KeyringType.QbitHdKeyring,
       address,
@@ -180,26 +213,31 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValueOnce(account as any)
     vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(account as any)
     vi.mocked(keyringService.signP2mrPsbtWithCounter).mockResolvedValueOnce({
-      psbt: fixture.signing.psbt,
-      signed: fixture.signing.signed,
+      psbt: signedPayment.signing.psbt,
+      signed: signedPayment.signing.signed,
       counterResults: [],
     } as any)
     const signed = await wallet.signPsbtV2({
-      psbtHex: fixture.unsignedPsbtHex,
+      psbtHex: signedPayment.unsignedPsbtHex,
       toSignInputs: [],
-      qbitP2mrSigningKeys: [
-        { inputIndex: 0, publicKey: pubkeyHex, leafHash: bytesToHex(leafHash) },
-      ],
-      qbitBroadcastIdentity: { chain: ChainType.QBIT_REGTEST, txid: fixture.txid },
+      qbitP2mrSigningKeys: signedPayment.signing.signed.map(({ inputIndex }) => ({
+        inputIndex,
+        publicKey: pubkeyHex,
+        leafHash: bytesToHex(leafHash),
+      })),
+      qbitBroadcastIdentity: { chain: ChainType.QBIT_REGTEST, txid: signedPayment.txid },
     })
     const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
-    expect(claim).toMatchObject({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN, txid: fixture.txid })
+    expect(claim).toMatchObject({
+      origin: QBIT_WALLET_SEND_CLAIM_ORIGIN,
+      txid: signedPayment.txid,
+    })
     return { psbtHex: signed.psbtHex!, claim }
   }
 
   /** Sign and broadcast the fixture as the confirm screen does. */
-  async function send(wallet: WalletController) {
-    const { psbtHex, claim } = await signWalletSend(wallet)
+  async function send(wallet: WalletController, signedPayment = fixture) {
+    const { psbtHex, claim } = await signWalletSend(wallet, signedPayment)
     const result = await wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid)
     return { psbtHex, claim, result }
   }
@@ -245,6 +283,16 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
       inputs: [{ txid: fakeTxid(1, 5_000_000), vout: 0 }],
       outputs: [{ address, script: bytesToHex(script), value: 50_000 }],
       height: 100,
+    })
+    explorer.addTx({
+      txid: LARGE_SOURCE_TXID,
+      inputs: [{ txid: fakeTxid(3, 5_000_000), vout: 0 }],
+      outputs: Array.from({ length: LARGE_INPUTS }, () => ({
+        address,
+        script: bytesToHex(script),
+        value: 50_000,
+      })),
+      height: 101,
     })
     postOutcomes = []
     posts = []
@@ -600,6 +648,146 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
 
     expect(result).toMatchObject({ success: false, outcome: 'unknown', lookup: 'gone' })
     expect(posts).toHaveLength(1)
+  })
+
+  describe('a large transaction over a slow uplink (#130)', () => {
+    /**
+     * Run `call` on a fake clock, the deadline's included, that moves on
+     * while it waits; resolves to its result and the time it took.
+     */
+    async function onFakeClock<T>(call: () => Promise<T>) {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      try {
+        const startedAt = Date.now()
+        let settled = false
+        const result = call()
+        result.then(
+          () => (settled = true),
+          () => (settled = true)
+        )
+        while (!settled) await vi.advanceTimersByTimeAsync(1_000)
+        return { value: await result, elapsedMs: Date.now() - startedAt }
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+
+    const largeInput = { txid: LARGE_SOURCE_TXID, vout: 0 }
+
+    it('gives a re-send the time its upload takes, as the first attempt has', async () => {
+      const wallet = controller()
+      const passMs = qbitBroadcastMinPassMs(largeFixture.rawTxHex)
+      expect(largeFixture.rawTxHex.length).toBeGreaterThan(790_000)
+      expect(passMs).toBeGreaterThan(60_000)
+      // The gateway drops the first attempt before the node sees it. The
+      // re-send then takes 40 s to go out, longer than a small reply's budget.
+      postOutcomes = [{ status: 502, body: HTML_BODY }, { uploadMs: 40_000 }]
+
+      const { value, elapsedMs } = await onFakeClock(() => send(wallet, largeFixture))
+
+      expect(value.result).toEqual({
+        success: true,
+        chain: ChainType.QBIT_REGTEST,
+        txid: largeFixture.txid,
+        via: 'broadcast',
+      })
+      expect(posts).toEqual([largeFixture.rawTxHex, largeFixture.rawTxHex])
+      expect(elapsedMs).toBeGreaterThanOrEqual(40_000)
+      expect(elapsedMs).toBeLessThan(passMs)
+      expect(explorer.spenderOf(LARGE_SOURCE_TXID, 0)?.txid).toBe(largeFixture.txid)
+      await expect(
+        qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, [largeInput])
+      ).rejects.toThrow('recent broadcast already spent')
+    })
+
+    it('ends an upload that stalls within its budget as unknown, with its inputs still claimed', async () => {
+      const wallet = controller()
+      const passMs = qbitBroadcastMinPassMs(largeFixture.rawTxHex)
+      postOutcomes = [{ uploadMs: Number.POSITIVE_INFINITY }]
+
+      const { value, elapsedMs } = await onFakeClock(() => send(wallet, largeFixture))
+
+      expect(value.result).toMatchObject({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: largeFixture.txid,
+        outcome: 'unknown',
+        reason: 'timeout',
+        // The deadline left the lookup its time: it missed the bytes.
+        lookup: 'gone',
+      })
+      // Cut off once its budget was spent, which ends the re-send window too.
+      expect(elapsedMs).toBeGreaterThanOrEqual(passMs)
+      expect(elapsedMs).toBeLessThan(passMs + QBIT_BROADCAST_MIN_PASS_MS)
+      expect(passMs).toBeGreaterThan(QBIT_BROADCAST_RESEND_WINDOW_MS)
+      expect(posts).toHaveLength(1)
+      expect(explorer.txs.has(largeFixture.txid)).toBe(false)
+      await expect(
+        qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, [largeInput])
+      ).rejects.toThrow('claimed by an approved send')
+    })
+
+    /**
+     * Retry the large fixture's send after the background restarted: the
+     * guard forgot the claim the page still holds. While the lookup its
+     * refusal calls for runs, another send takes the guard's queue for
+     * `holdMs`, and restoring the claim waits for it, and so does the pass
+     * after that: the call's deadline started with the refusal.
+     */
+    async function retryAfterRestart(wallet: WalletController, holdMs: number) {
+      const { psbtHex, claim } = await signWalletSend(wallet, largeFixture)
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({ address } as any)
+      qbitSendGuardService.init()
+      onLookup = () => {
+        onLookup = undefined
+        void qbitSendGuardService.runWithNoOverlap(
+          ChainType.QBIT_REGTEST,
+          [{ txid: fakeTxid(9), vout: 0 }],
+          () => new Promise<void>(resolve => setTimeout(resolve, holdMs))
+        )
+      }
+      return onFakeClock(() => wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid))
+    }
+
+    it('sends it after a long wait behind another send: its deadline has room for its upload as well', async () => {
+      const wallet = controller()
+      // Past what a small transaction's deadline would leave its pass.
+      const holdMs = 80_000
+      expect(QBIT_BROADCAST_DEADLINE_MS - holdMs).toBeLessThan(
+        qbitBroadcastMinPassMs(largeFixture.rawTxHex)
+      )
+
+      const { value: result } = await retryAfterRestart(wallet, holdMs)
+
+      expect(result).toEqual({
+        success: true,
+        chain: ChainType.QBIT_REGTEST,
+        txid: largeFixture.txid,
+        via: 'broadcast',
+      })
+      expect(posts).toEqual([largeFixture.rawTxHex])
+    })
+
+    it("sends nothing when a pass is due with less left than its upload needs, though more than a small reply's budget", async () => {
+      const wallet = controller()
+      const leftMs = qbitBroadcastMinPassMs(largeFixture.rawTxHex) - 10_000
+      expect(leftMs).toBeGreaterThan(3 * QBIT_BROADCAST_MIN_PASS_MS)
+
+      const { value: result } = await retryAfterRestart(
+        wallet,
+        qbitBroadcastDeadlineMs(largeFixture.rawTxHex) - leftMs
+      )
+
+      // Sent, it could have been cut off by the deadline before its upload ended.
+      expect(posts).toHaveLength(0)
+      expect(result).toMatchObject({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: largeFixture.txid,
+        outcome: 'not_sent',
+        reason: 'timeout',
+      })
+    })
   })
 
   it("follows the same rule for a dapp's push (#268)", async () => {

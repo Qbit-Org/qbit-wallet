@@ -4,7 +4,7 @@ import {
   sanitizeQbitBroadcastDetail,
   type QbitBroadcastFailureReason,
 } from '@qbit/wallet-shared'
-import { QBIT_EXPLORER_REPLY_TIMEOUT_MS } from './qbit-explorer-fetch'
+import { QBIT_EXPLORER_REPLY_TIMEOUT_MS, qbitExplorerReplyTimeoutMs } from './qbit-explorer-fetch'
 
 /**
  * A definitive node rejection is only reported as `not_sent` after this many
@@ -38,7 +38,8 @@ export const QBIT_BROADCAST_RESEND_WINDOW_MS = 30_000
  * makes: the fee bump check, each pass's submission and each lookup. It
  * starts once the call has the send guard's queue. The send screen waits
  * for the verdict, and a lookup it cuts short leaves it `unknown`, so the
- * window above plus a lookup's minute or so of slow replies fit inside.
+ * window above plus a lookup's minute or so of slow replies fit inside. A
+ * large transaction's call has longer: see `qbitBroadcastDeadlineMs`.
  */
 export const QBIT_BROADCAST_DEADLINE_MS = 120_000
 
@@ -46,9 +47,30 @@ export const QBIT_BROADCAST_DEADLINE_MS = 120_000
  * The least of the broadcast deadline a pass needs left to be sent: a
  * submission's whole reply budget, so the deadline never cuts off a
  * submission in flight, which would leave its outcome unknown. With less
- * left, the pass sends nothing.
+ * left, the pass sends nothing. This is a small transaction's; a large one
+ * needs the time its upload takes as well: see `qbitBroadcastMinPassMs`.
  */
 export const QBIT_BROADCAST_MIN_PASS_MS = QBIT_EXPLORER_REPLY_TIMEOUT_MS
+
+/**
+ * `QBIT_BROADCAST_MIN_PASS_MS` for the signed bytes `rawtx`: the whole reply
+ * budget of their submission, upload included (see
+ * `qbitExplorerReplyTimeoutMs`), about 64 s for the largest standard
+ * transaction. Every pass of a call, a re-send's included, needs this left.
+ */
+export function qbitBroadcastMinPassMs(rawtx: string): number {
+  return qbitExplorerReplyTimeoutMs(rawtx)
+}
+
+/**
+ * `QBIT_BROADCAST_DEADLINE_MS` for the signed bytes `rawtx`: longer by the
+ * time their upload adds to a pass (see `qbitBroadcastMinPassMs`), so a
+ * large transaction leaves its fee bump check and its lookups as much of the
+ * deadline as a small one does.
+ */
+export function qbitBroadcastDeadlineMs(rawtx: string): number {
+  return QBIT_BROADCAST_DEADLINE_MS + qbitBroadcastMinPassMs(rawtx) - QBIT_BROADCAST_MIN_PASS_MS
+}
 
 /**
  * The deadline of a recovery screen's Check status, which is one lookup:
