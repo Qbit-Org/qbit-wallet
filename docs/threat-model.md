@@ -131,9 +131,16 @@ Residual risk:
 
 - Existing weak-format vaults remain exposed to offline guessing until their
   first successful unlock completes the migration. The current passworder
-  decrypts that earlier format. The earlier package remains installed but
-  unused pending explicit approval to remove the dependency; a source guard
-  forbids reintroducing its production import.
+  decrypts that earlier format. The earlier package is no longer a runtime
+  dependency of any workspace, a change pending explicit maintainer approval:
+  only a `@qbit/keyring-service` test that builds an earlier-format vault
+  fixture uses it, as a devDependency. It remains installed, and the hoisted
+  install places it in the root `node_modules`, where any workspace's sources
+  can resolve it. The signing-source guard rejects only the quoted bare
+  package name directly after `from` and whitespace, or directly after
+  `require(`. Side-effect, dynamic and subpath imports pass it, as do these
+  forms with other spacing, and it checks only the signing and background
+  sources listed in `docs/security/dependency-review.md`.
 - JavaScript garbage collection prevents a general proof that every immutable
   string copy is erased. The design minimizes lifetime and forbids logging but
   relies on the browser process boundary.
