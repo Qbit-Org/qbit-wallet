@@ -746,6 +746,9 @@
   "failed_to_save_contact": {
     "message": "保存聯絡人失敗"
   },
+  "another_contact_has_this_address": {
+    "message": "此網路上已有其他聯絡人使用此地址"
+  },
   "failed_to_save_contact_order": {
     "message": "保存聯絡人順序失敗"
   },

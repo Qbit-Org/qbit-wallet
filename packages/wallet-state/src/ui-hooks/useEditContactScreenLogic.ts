@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { useI18n, useNavigation, useWallet } from 'src/context'
 import { isValidAddress } from 'src/utils/qbit-utils'
 
+// The code @qbit/contact-book's addContact and replaceContact reject with when
+// another contact has the address and network
+const CONTACT_ALREADY_EXISTS = 'CONTACT_ALREADY_EXISTS'
+
 export function useEditContactScreenLogic() {
   const nav = useNavigation()
 
@@ -78,19 +82,30 @@ export function useEditContactScreenLogic() {
     setLoading(true)
 
     try {
+      // No isAlias, so the contact book keeps the stored alias flag
       const contact = {
         name: name.trim(),
         address: contactAddress.trim(),
         chain: chainType,
         isContact: true,
-        isAlias: false,
       }
 
-      if (
-        originalAddress &&
-        originalChain &&
-        (originalAddress !== contact.address || originalChain !== contact.chain)
-      ) {
+      // False in add mode, where no contact was loaded
+      const keepsKey = originalAddress === contact.address && originalChain === contact.chain
+
+      if (!keepsKey) {
+        const other = await wallet.getContactByAddressAndChain(contact.address, contact.chain)
+        if (other?.isContact) {
+          setError(t('another_contact_has_this_address'))
+          return
+        }
+      }
+
+      // The contact book refuses an add or a move too if another contact took
+      // the address since the check above.
+      if (!originalAddress || !originalChain) {
+        await wallet.addContact(contact)
+      } else if (!keepsKey) {
         // One write, so a failure keeps the contact under its old address
         await wallet.replaceContact(originalAddress, originalChain, contact)
       } else {
@@ -99,7 +114,11 @@ export function useEditContactScreenLogic() {
 
       nav.goBack()
     } catch (err) {
-      setError(t('failed_to_save_contact'))
+      if ((err as { code?: unknown } | null)?.code === CONTACT_ALREADY_EXISTS) {
+        setError(t('another_contact_has_this_address'))
+      } else {
+        setError(t('failed_to_save_contact'))
+      }
     } finally {
       setLoading(false)
     }
@@ -126,7 +145,11 @@ export function useEditContactScreenLogic() {
     const value = (typeof e === 'string' ? e : e.target.value).trim()
     setContactAddress(value)
 
-    if (error.includes('Invalid address') || !value) {
+    if (
+      error.includes('Invalid address') ||
+      error === t('another_contact_has_this_address') ||
+      !value
+    ) {
       setError('')
     }
 
