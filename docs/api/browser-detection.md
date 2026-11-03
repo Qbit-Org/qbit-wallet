@@ -64,23 +64,29 @@ The announcement follows the shape of EIP-6963. Its `detail` and `detail.info` a
 // starts, the provider can take several seconds to arrive.
 function waitForQbitProvider(timeoutMs = 5500) {
   return new Promise(resolve => {
-    const events = ['qbit#initialized', 'qbit:announceProvider']
-    const deadline = Date.now() + timeoutMs
+    const listening = new AbortController()
     const finish = provider => {
-      clearInterval(timer)
-      events.forEach(type => window.removeEventListener(type, check))
+      clearInterval(poll)
+      clearTimeout(deadline)
+      listening.abort()
       resolve(provider)
     }
-    // Runs on each event and every 250 ms, since a wallet that sends no
-    // events still installs window.qbit.
     const check = () => {
       const provider = getQbitProvider()
-      if (provider || Date.now() >= deadline) finish(provider)
+      if (provider) finish(provider)
     }
-    const timer = setInterval(check, 250)
-    events.forEach(type => window.addEventListener(type, check))
-    // Asks again, in case Qbit Wallet announced before this script listened.
-    window.dispatchEvent(new Event('qbit:requestProvider'))
+    // Polls too, since a wallet that sends no events still installs window.qbit.
+    const poll = setInterval(check, 250)
+    const deadline = setTimeout(() => finish(getQbitProvider()), timeoutMs)
+    try {
+      for (const type of ['qbit#initialized', 'qbit:announceProvider']) {
+        window.addEventListener(type, check, { signal: listening.signal })
+      }
+      // Asks again, in case Qbit Wallet announced before this script listened.
+      window.dispatchEvent(new Event('qbit:requestProvider'))
+    } catch {
+      // Another script replaced one of these; polling still finds the wallet.
+    }
     check()
   })
 }

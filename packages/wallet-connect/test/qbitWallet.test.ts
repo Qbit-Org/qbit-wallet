@@ -1,5 +1,7 @@
+import { getEventListeners } from 'node:events'
+
 import type { P2mrMessageProof } from '@qbit-oss/protocol'
-import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 import { ChainType } from '../src/types'
 import { QbitWallet } from '../src/wallets/QbitWallet'
@@ -79,22 +81,31 @@ describe('QbitWallet', () => {
   describe('waiting for the wallet to be ready', () => {
     const READY_EVENTS = ['qbit#initialized', 'qbit:announceProvider']
 
-    // A page window that tracks the listeners init adds for the wallet's events.
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    })
+
+    // A page window, with spies on its event methods. They act on an inner
+    // target, so that replacing one, as a page can, leaves the browser's own
+    // removal of a listener whose signal aborts as it is.
     function installPage() {
-      const page = new EventTarget() as EventTarget & { qbit?: unknown }
+      const target = new EventTarget()
+      const page = {
+        addEventListener: target.addEventListener.bind(target),
+        removeEventListener: target.removeEventListener.bind(target),
+        dispatchEvent: target.dispatchEvent.bind(target),
+      } as EventTarget & { qbit?: unknown }
       ;(globalThis as any).window = page
       const add = vi.spyOn(page, 'addEventListener')
       const remove = vi.spyOn(page, 'removeEventListener')
       const dispatch = vi.spyOn(page, 'dispatchEvent')
+      // The listeners still attached for the wallet's events, by event.
       const listenersLeft = () =>
-        add.mock.calls
-          .filter(([type]) => READY_EVENTS.includes(type))
-          .filter(
-            ([type, listener]) => !remove.mock.calls.some(([t, l]) => t === type && l === listener)
-          )
-          .map(([type]) => type)
-      return { page, add, dispatch, listenersLeft }
+        READY_EVENTS.flatMap(type => getEventListeners(target, type).map(() => type))
+      return { page, target, add, remove, dispatch, listenersLeft }
     }
+    type PageSetup = ReturnType<typeof installPage>
 
     function announce(page: EventTarget, provider: unknown) {
       const info = { uuid: 'uuid', name: 'Qbit Wallet', icon: 'data:,', rdns: 'org.qbit.wallet' }
@@ -185,25 +196,73 @@ describe('QbitWallet', () => {
       expect(listenersLeft()).toEqual([])
     })
 
-    it('still polls, and removes its listeners, when the page made dispatchEvent throw', async () => {
+    // The page's own replacement for a window method, or for AbortController.
+    const replaced = () => {
+      throw new Error('replaced')
+    }
+
+    it.each([
+      ['dispatchEvent throws', ({ dispatch }: PageSetup) => dispatch.mockImplementation(replaced)],
+      [
+        'addEventListener throws on the first event',
+        ({ add }: PageSetup) => add.mockImplementationOnce(replaced),
+      ],
+      [
+        'addEventListener throws once one listener is in place',
+        ({ target, add }: PageSetup) =>
+          add
+            .mockImplementationOnce((...args) => target.addEventListener(...args))
+            .mockImplementationOnce(replaced),
+      ],
+      [
+        'removeEventListener throws',
+        ({ remove }: PageSetup) => remove.mockImplementation(replaced),
+      ],
+      [
+        'AbortController throws',
+        () =>
+          vi.stubGlobal(
+            'AbortController',
+            class {
+              constructor() {
+                replaced()
+              }
+            }
+          ),
+      ],
+    ])('settles, still polls, and leaves no listener when %s', async (_case, breakPage) => {
       vi.useFakeTimers()
-      const { page, dispatch, listenersLeft } = installPage()
-      dispatch.mockImplementation(() => {
-        throw new Error('replaced')
-      })
+      const setup = installPage()
+      breakPage(setup)
       const wallet = new QbitWallet()
 
       const initializing = wallet.init()
+      const state = track(initializing)
       await vi.advanceTimersByTimeAsync(350)
-      page.qbit = createProvider()
+      expect(state.settled).toBe(false)
+      setup.page.qbit = createProvider()
       // The next poll, at 600 ms, finds it.
       await vi.advanceTimersByTimeAsync(250)
       await initializing
 
-      expect(dispatch).toHaveBeenCalledOnce()
       expect(wallet.installed).toBe(true)
       expect(vi.getTimerCount()).toBe(0)
-      expect(listenersLeft()).toEqual([])
+      expect(setup.listenersLeft()).toEqual([])
+    })
+
+    it('gives up, once, even when the page made removeEventListener and abort throw', async () => {
+      vi.useFakeTimers()
+      const { remove } = installPage()
+      remove.mockImplementation(replaced)
+      vi.spyOn(AbortController.prototype, 'abort').mockImplementation(replaced)
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      await vi.advanceTimersByTimeAsync(5500)
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
     })
 
     it('only polls, and resolves not installed, on a window that cannot dispatch events', async () => {

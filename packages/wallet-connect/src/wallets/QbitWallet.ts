@@ -91,20 +91,29 @@ export class QbitWallet extends BaseWallet {
    */
   private waitForProvider(): Promise<boolean> {
     return new Promise((resolve, reject) => {
-      const events = [QBIT_PROVIDER_INITIALIZED_EVENT, QBIT_ANNOUNCE_PROVIDER_EVENT]
-      // A stand-in for window may lack events; it is then only polled.
-      const listens =
-        typeof window.addEventListener === 'function' &&
-        typeof window.removeEventListener === 'function' &&
-        typeof window.dispatchEvent === 'function'
+      // The page can replace window's event methods, or AbortController, with
+      // ones that throw. Each call is tried on its own, so the wait still
+      // settles exactly once, and polling covers whatever failed.
+      const attempt = (call: () => void): void => {
+        try {
+          call()
+        } catch {
+          // Polling still finds the wallet.
+        }
+      }
+      // Aborting removes the listeners without removeEventListener, which the
+      // page can replace too.
+      let listening: AbortController | undefined
       let polls = 0
       let timer: ReturnType<typeof setTimeout> | undefined
       let settled = false
 
-      const stop = (): void => {
+      const finish = (settle: () => void): void => {
+        if (settled) return
         settled = true
         clearTimeout(timer)
-        if (listens) events.forEach(event => window.removeEventListener(event, look))
+        attempt(() => listening?.abort())
+        settle()
       }
       // Settles once window.qbit passes the check, or when reading it throws,
       // which rejects init as before. Returns whether the wait has settled.
@@ -112,34 +121,39 @@ export class QbitWallet extends BaseWallet {
         if (settled) return true
         try {
           if (!this.getProvider()) return false
-          stop()
-          resolve(true)
         } catch (error) {
-          stop()
-          reject(error)
+          finish(() => reject(error))
+          return true
         }
+        finish(() => resolve(true))
         return true
       }
       const poll = (): void => {
         if (look()) return
         if (polls === PROVIDER_POLLS) {
-          stop()
-          resolve(false)
+          finish(() => resolve(false))
           return
         }
         timer = setTimeout(poll, 100 + polls * 100)
         polls += 1
       }
 
-      if (listens) {
-        try {
-          events.forEach(event => window.addEventListener(event, look))
-          // A wallet that announced before this page listened answers again.
-          window.dispatchEvent(new Event(QBIT_REQUEST_PROVIDER_EVENT))
-        } catch {
-          // The page replaced one of these. Polling still finds the wallet,
-          // and stop() removes any listener that was added.
+      // A stand-in for window may lack events; it is then only polled.
+      if (
+        typeof window.addEventListener === 'function' &&
+        typeof window.dispatchEvent === 'function'
+      ) {
+        attempt(() => {
+          listening = new AbortController()
+        })
+      }
+      if (listening) {
+        const { signal } = listening
+        for (const event of [QBIT_PROVIDER_INITIALIZED_EVENT, QBIT_ANNOUNCE_PROVIDER_EVENT]) {
+          attempt(() => window.addEventListener(event, look, { signal }))
         }
+        // A wallet that announced before this page listened answers again.
+        attempt(() => window.dispatchEvent(new Event(QBIT_REQUEST_PROVIDER_EVENT)))
       }
       poll()
     })
