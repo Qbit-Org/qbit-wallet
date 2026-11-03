@@ -156,6 +156,8 @@ export class PermissionService {
   private logger: Logger = defaultLogger
   private autoSync: boolean = false
   private internalRequestOrigin: string = 'https://qbit.org'
+  // Settles once every write asked for so far has settled.
+  private writes: Promise<void> = Promise.resolve()
 
   constructor() {}
 
@@ -231,22 +233,39 @@ export class PermissionService {
   }
 
   /**
+   * Run `write` once every write asked for before it has settled, and settle
+   * as it does. Every change to the stored record goes through here. Each
+   * write stores every site, and storage keeps a later write even when an
+   * earlier one fails: were two in flight at once, the later would store the
+   * earlier's change, and undoing the earlier would undo the later's in
+   * memory. One at a time, a write starts from the sites the last one left,
+   * so undoing it restores only its own change, and no later write stores it.
+   */
+  private queueWrite(write: () => Promise<void>): Promise<void> {
+    const result = this.writes.then(write)
+    this.writes = result.catch(() => undefined)
+    return result
+  }
+
+  /**
    * Remove every site and store the empty record, whether or not init loaded
    * the stored one, so no grant is left on disk for the next start. Rejects,
    * changing nothing, when the record cannot be written.
    */
   private async clearSites(): Promise<void> {
-    if (!this.storage) {
-      throw new Error('PermissionService: Storage adapter is required')
-    }
-    const previousSites = this.sites
-    this.sites = new Map()
-    try {
-      await this.storage.set(this.storageKey, this.toStore())
-    } catch (error) {
-      this.sites = previousSites
-      throw error
-    }
+    await this.queueWrite(async () => {
+      if (!this.storage) {
+        throw new Error('PermissionService: Storage adapter is required')
+      }
+      const previousSites = this.sites
+      this.sites = new Map()
+      try {
+        await this.storage.set(this.storageKey, this.toStore())
+      } catch (error) {
+        this.sites = previousSites
+        throw error
+      }
+    })
   }
 
   /**
@@ -308,22 +327,27 @@ export class PermissionService {
   /**
    * Apply a permission mutation atomically with its persisted representation.
    * A failed write must not leave an in-memory grant or revocation that differs
-   * from what will be restored after a service-worker restart.
+   * from what will be restored after a service-worker restart. `mutate` runs,
+   * and its change shows in memory, once every earlier change has been stored
+   * or undone, so it reads the sites it changes then, not when the change was
+   * asked for. It returns false when it changes nothing, and nothing is written.
    */
-  private async mutateAndSync(mutate: () => void): Promise<void> {
-    const previousSites = new Map(this.loadedSites())
-    mutate()
-    try {
-      // Never keep a site the next start would drop.
-      const [problem] = splitSites(this.recentFirst().map(site => ({ site }))).dropped
-      if (problem) {
-        throw new Error(`PermissionService: ${problem}`)
+  private async mutateAndSync(mutate: () => boolean | void): Promise<void> {
+    await this.queueWrite(async () => {
+      const previousSites = new Map(this.loadedSites())
+      if (mutate() === false) return
+      try {
+        // Never keep a site the next start would drop.
+        const [problem] = splitSites(this.recentFirst().map(site => ({ site }))).dropped
+        if (problem) {
+          throw new Error(`PermissionService: ${problem}`)
+        }
+        await this.sync()
+      } catch (error) {
+        this.sites = previousSites
+        throw error
       }
-      await this.sync()
-    } catch (error) {
-      this.sites = previousSites
-      throw error
-    }
+    })
   }
 
   /**
@@ -374,8 +398,7 @@ export class PermissionService {
    * Touch connected site (update LRU order)
    */
   async touchConnectedSite(origin: string): Promise<void> {
-    if (!this.loadedSites().has(origin)) return
-    await this.mutateAndSync(() => this.use(origin))
+    await this.mutateAndSync(() => this.use(origin) !== undefined)
   }
 
   /**
@@ -386,12 +409,11 @@ export class PermissionService {
     value: Partial<ConnectedSite>,
     partialUpdate?: boolean
   ): Promise<void> {
-    if (!this.loadedSites().has(origin)) return
-
     // The site stays under `origin`, which is what it is stored and read by.
     await this.mutateAndSync(() => {
+      const existingValue = this.sites!.get(origin)
+      if (!existingValue) return false
       if (partialUpdate) {
-        const existingValue = this.sites!.get(origin)
         this.put({ ...existingValue, ...value, origin } as ConnectedSite)
       } else {
         this.put({ ...value, origin } as ConnectedSite)
@@ -411,9 +433,12 @@ export class PermissionService {
    * Set recent connected sites order
    */
   async setRecentConnectedSites(sites: ConnectedSite[]): Promise<void> {
-    this.loadedSites()
-    const disconnectedSites = this.recentFirst().filter((item: ConnectedSite) => !item.isConnected)
-    await this.mutateAndSync(() => this.load(sites.concat(disconnectedSites)))
+    await this.mutateAndSync(() => {
+      const disconnectedSites = this.recentFirst().filter(
+        (item: ConnectedSite) => !item.isConnected
+      )
+      this.load(sites.concat(disconnectedSites))
+    })
   }
 
   /**
@@ -450,17 +475,18 @@ export class PermissionService {
    * Pin a connected site to top
    */
   async topConnectedSite(origin: string, order?: number): Promise<void> {
-    this.loadedSites()
-    const site = this.getConnectedSite(origin)
-    if (!site) return
+    await this.mutateAndSync(() => {
+      const site = this.getConnectedSite(origin)
+      if (!site) return false
 
-    const maxOrder = Math.max(...this.getRecentConnectedSites().map(item => item.order || 0), 0)
-    const finalOrder = order ?? maxOrder + 1
+      const maxOrder = Math.max(...this.getRecentConnectedSites().map(item => item.order || 0), 0)
+      const finalOrder = order ?? maxOrder + 1
 
-    await this.updateConnectSite(origin, {
-      ...site,
-      order: finalOrder,
-      isTop: true,
+      this.put({
+        ...site,
+        order: finalOrder,
+        isTop: true,
+      })
     })
   }
 
@@ -468,13 +494,14 @@ export class PermissionService {
    * Unpin a connected site
    */
   async unpinConnectedSite(origin: string): Promise<void> {
-    this.loadedSites()
-    const site = this.getConnectedSite(origin)
-    if (!site) return
+    await this.mutateAndSync(() => {
+      const site = this.getConnectedSite(origin)
+      if (!site) return false
 
-    await this.updateConnectSite(origin, {
-      ...site,
-      isTop: false,
+      this.put({
+        ...site,
+        isTop: false,
+      })
     })
   }
 
@@ -482,15 +509,14 @@ export class PermissionService {
    * Remove connected site
    */
   async removeConnectedSite(origin: string): Promise<void> {
-    this.loadedSites()
-    const site = this.getConnectedSite(origin)
-    if (!site) {
-      return
-    }
+    await this.mutateAndSync(() => {
+      const site = this.getConnectedSite(origin)
+      if (!site) return false
 
-    await this.setSite({
-      ...site,
-      isConnected: false,
+      this.put({
+        ...site,
+        isConnected: false,
+      })
     })
   }
 

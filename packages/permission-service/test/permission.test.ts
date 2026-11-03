@@ -55,6 +55,48 @@ const startWith = async (record: unknown) => {
   return { service, storage, logger }
 }
 
+// Storage that writes the way the extension's does
+// (apps/extension/src/background/utils/storage.ts): one write at a time in the
+// order they were asked for, each value copied when it is asked for, and a
+// later write kept even when an earlier one fails. Each write takes a moment.
+const createQueuedStorage = () => {
+  const store: Record<string, any> = {}
+  const failures: Error[] = []
+  let queue: Promise<void> = Promise.resolve()
+  return {
+    get: vi.fn(async (key: string) => {
+      await queue
+      return structuredClone(store[key])
+    }),
+    set: vi.fn((key: string, value: unknown): Promise<void> => {
+      const snapshot = structuredClone(value)
+      const failure = failures.shift()
+      const write = queue.then(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        if (failure) throw failure
+        store[key] = snapshot
+      })
+      queue = write.catch(() => undefined)
+      return write
+    }),
+    // The next write asked for fails, as chrome.storage.local.set does once
+    // the quota is used up.
+    failNextWrite: () => failures.push(new Error('quota exceeded')),
+    _store: store,
+  }
+}
+
+// A service started the way the extension starts it, on queued storage that
+// holds `sites`.
+const startQueued = async (sites: ConnectedSite[]) => {
+  const storage = createQueuedStorage()
+  storage._store['permission'] = { version: 1, sites }
+  const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
+  const service = new PermissionService()
+  await service.init({ storage: storage as any, logger, autoSync: true })
+  return { service, storage }
+}
+
 const mockLogger = {
   log: vi.fn(),
   warn: vi.fn(),
@@ -477,6 +519,184 @@ describe('PermissionService', () => {
       expect(
         persistent.hasPermission('https://failed-revoke.example', ChainType.QBIT_MAINNET)
       ).toBe(true)
+    })
+  })
+
+  describe('writes that overlap', () => {
+    const a = site('https://a.example')
+    const b = site('https://b.example')
+    const c = site('https://c.example')
+
+    // Every site, most recently used first: these tests keep them on mainnet.
+    const everySite = (service: PermissionService) =>
+      service.getSitesByDefaultChain(ChainType.QBIT_MAINNET)
+
+    // Every site a restart would load from what is stored.
+    const everySiteAfterRestart = async (storage: { _store: Record<string, any> }) =>
+      everySite((await startWith(structuredClone(storage._store['permission']))).service)
+
+    const connect = (service: PermissionService, { origin, name, icon, chain }: ConnectedSite) =>
+      service.addConnectedSite(origin, name, icon, chain)
+
+    it('does not undo a revocation made while a failed write was pending', async () => {
+      const { service, storage } = await startQueued([a, b])
+      storage.failNextWrite()
+
+      const [touch, revoke] = await Promise.allSettled([
+        service.touchConnectedSite(b.origin),
+        service.removeConnectedSite(a.origin),
+      ])
+
+      expect(touch.status).toBe('rejected')
+      expect(revoke.status).toBe('fulfilled')
+      expect(service.hasPermission(a.origin)).toBe(false)
+      expect(everySite(service)).toEqual([{ ...a, isConnected: false }, b])
+      expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+    })
+
+    it.each(['resetAllData', 'clearAllPermissions'] as const)(
+      'does not bring back the sites %s removes when a write pending before it fails',
+      async method => {
+        const { service, storage } = await startQueued([a, b])
+        storage.failNextWrite()
+
+        const [touch, clear] = await Promise.allSettled([
+          service.touchConnectedSite(b.origin),
+          service[method](),
+        ])
+
+        expect(touch.status).toBe('rejected')
+        expect(clear.status).toBe('fulfilled')
+        expect(service.hasPermission(a.origin)).toBe(false)
+        expect(service.hasPermission(b.origin)).toBe(false)
+        expect(everySite(service)).toEqual([])
+        expect(await everySiteAfterRestart(storage)).toEqual([])
+      }
+    )
+
+    it.each(['resetAllData', 'clearAllPermissions'] as const)(
+      'does not undo a change made while a failed %s was pending',
+      async method => {
+        const { service, storage } = await startQueued([a])
+        storage.failNextWrite()
+
+        const [clear, connectB] = await Promise.allSettled([service[method](), connect(service, b)])
+
+        expect(clear.status).toBe('rejected')
+        expect(connectB.status).toBe('fulfilled')
+        expect(everySite(service)).toEqual([b, a])
+        expect(await everySiteAfterRestart(storage)).toEqual([b, a])
+      }
+    )
+
+    it('does not grant a connect reported as failed after a restart', async () => {
+      const { service, storage } = await startQueued([])
+      storage.failNextWrite()
+
+      const [connectA, connectB] = await Promise.allSettled([
+        connect(service, a),
+        connect(service, b),
+      ])
+
+      expect(connectA.status).toBe('rejected')
+      expect(connectB.status).toBe('fulfilled')
+      expect(service.hasPermission(a.origin)).toBe(false)
+      expect(service.hasPermission(b.origin)).toBe(true)
+      expect(everySite(service)).toEqual([b])
+      expect(await everySiteAfterRestart(storage)).toEqual([b])
+    })
+
+    it('does not apply a revocation reported as failed after a restart', async () => {
+      const { service, storage } = await startQueued([a, b])
+      storage.failNextWrite()
+
+      const [revokeA, connectC] = await Promise.allSettled([
+        service.removeConnectedSite(a.origin),
+        connect(service, c),
+      ])
+
+      expect(revokeA.status).toBe('rejected')
+      expect(connectC.status).toBe('fulfilled')
+      expect(service.hasPermission(a.origin)).toBe(true)
+      expect(service.hasPermission(c.origin)).toBe(true)
+      expect(everySite(service)).toEqual([c, a, b])
+      expect(await everySiteAfterRestart(storage)).toEqual([c, a, b])
+    })
+
+    it("does not reconnect a site revoked while another site's signing write failed", async () => {
+      const { service, storage } = await startQueued([a, b])
+      storage.failNextWrite()
+
+      const [sign, revoke] = await Promise.allSettled([
+        service.updateConnectSite(a.origin, { isSigned: true }, true),
+        service.removeConnectedSite(b.origin),
+      ])
+
+      expect(sign.status).toBe('rejected')
+      expect(revoke.status).toBe('fulfilled')
+      expect(service.hasPermission(b.origin)).toBe(false)
+      expect(service.getWithoutUpdate(a.origin)?.isSigned).toBe(false)
+      expect(everySite(service)).toEqual([{ ...b, isConnected: false }, a])
+      expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+    })
+
+    it('starts a change asked for during a revocation from the revoked site', async () => {
+      const { service, storage } = await startQueued([a, b])
+
+      await Promise.all([
+        service.removeConnectedSite(a.origin),
+        service.topConnectedSite(a.origin),
+        service.unpinConnectedSite(a.origin),
+        service.setRecentConnectedSites([b]),
+        service.updateConnectSite(b.origin, { isSigned: true }, true),
+      ])
+
+      expect(service.hasPermission(a.origin)).toBe(false)
+      expect(everySite(service)).toEqual([
+        { ...b, isSigned: true },
+        { ...a, isConnected: false },
+      ])
+      expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
+    })
+
+    it('finds no site to change in a change asked for during a reset', async () => {
+      const { service, storage } = await startQueued([a])
+
+      await Promise.all([
+        service.resetAllData(),
+        service.updateConnectSite(a.origin, { isSigned: true }, true),
+        service.touchConnectedSite(a.origin),
+        service.topConnectedSite(a.origin),
+        service.unpinConnectedSite(a.origin),
+        service.removeConnectedSite(a.origin),
+      ])
+
+      expect(everySite(service)).toEqual([])
+      expect(await everySiteAfterRestart(storage)).toEqual([])
+      expect(storage.set).toHaveBeenCalledTimes(1)
+    })
+
+    it('stores the last change when the storage finishes an earlier write after a later one', async () => {
+      // Storage that runs writes at once, the earlier ones taking longer.
+      const storage = createMockStorage()
+      let delay = 30
+      storage.set.mockImplementation(async (key: string, value: unknown) => {
+        const snapshot = structuredClone(value)
+        await new Promise(resolve => setTimeout(resolve, (delay -= 10)))
+        storage._store[key] = snapshot
+      })
+      const service = new PermissionService()
+      await service.init({ storage: storage as any, logger: mockLogger, autoSync: true })
+
+      await Promise.all([
+        connect(service, a),
+        connect(service, b),
+        service.removeConnectedSite(a.origin),
+      ])
+
+      expect(service.hasPermission(a.origin)).toBe(false)
+      expect(everySite(service)).toEqual([{ ...a, isConnected: false }, b])
+      expect(await everySiteAfterRestart(storage)).toEqual(everySite(service))
     })
   })
 
