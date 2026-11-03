@@ -76,6 +76,163 @@ describe('QbitWallet', () => {
     expect(aliasProvider.requestAccounts).not.toHaveBeenCalled()
   })
 
+  describe('waiting for the wallet to be ready', () => {
+    const READY_EVENTS = ['qbit#initialized', 'qbit:announceProvider']
+
+    // A page window that tracks the listeners init adds for the wallet's events.
+    function installPage() {
+      const page = new EventTarget() as EventTarget & { qbit?: unknown }
+      ;(globalThis as any).window = page
+      const add = vi.spyOn(page, 'addEventListener')
+      const remove = vi.spyOn(page, 'removeEventListener')
+      const dispatch = vi.spyOn(page, 'dispatchEvent')
+      const listenersLeft = () =>
+        add.mock.calls
+          .filter(([type]) => READY_EVENTS.includes(type))
+          .filter(
+            ([type, listener]) => !remove.mock.calls.some(([t, l]) => t === type && l === listener)
+          )
+          .map(([type]) => type)
+      return { page, add, dispatch, listenersLeft }
+    }
+
+    function announce(page: EventTarget, provider: unknown) {
+      const info = { uuid: 'uuid', name: 'Qbit Wallet', icon: 'data:,', rdns: 'org.qbit.wallet' }
+      page.dispatchEvent(new CustomEvent('qbit:announceProvider', { detail: { info, provider } }))
+    }
+
+    function track(promise: Promise<void>) {
+      const state = { settled: false }
+      void promise.finally(() => {
+        state.settled = true
+      })
+      return state
+    }
+
+    it('resolves from qbit#initialized without waiting for the next poll', async () => {
+      vi.useFakeTimers()
+      const { page, add, dispatch, listenersLeft } = installPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      // It listens before it asks for an announcement.
+      expect(add.mock.calls.map(([type]) => type)).toEqual(READY_EVENTS)
+      expect(dispatch.mock.calls.map(([event]) => event.type)).toEqual(['qbit:requestProvider'])
+      expect(add.mock.invocationCallOrder[1]).toBeLessThan(dispatch.mock.invocationCallOrder[0]!)
+      page.qbit = createProvider()
+      page.dispatchEvent(new Event('qbit#initialized'))
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
+    it('resolves from an announcement that comes after polling started', async () => {
+      vi.useFakeTimers()
+      const { page, listenersLeft } = installPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(350)
+      expect(state.settled).toBe(false)
+      page.qbit = createProvider()
+      announce(page, page.qbit)
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
+    it.each([
+      ['a wallet that sends no events', () => installPage().page],
+      ['a window without events', () => (globalThis as any).window as { qbit?: unknown }],
+    ])('falls back to polling alone for %s', async (_case, createPage) => {
+      vi.useFakeTimers()
+      const page = createPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(350)
+      page.qbit = createProvider()
+      // The next poll, at 600 ms, finds it.
+      await vi.advanceTimersByTimeAsync(249)
+      expect(state.settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('gives up after the same 5.5 seconds and removes its listeners', async () => {
+      vi.useFakeTimers()
+      const { listenersLeft } = installPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(5499)
+      expect(state.settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
+    it.each([
+      ['a look-alike window.qbit', { requestAccounts: vi.fn() }],
+      ['no window.qbit', undefined],
+    ])('is not marked installed by faked events with %s', async (_case, qbit) => {
+      vi.useFakeTimers()
+      const { page, listenersLeft } = installPage()
+      page.qbit = qbit
+      const announced = createProvider()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      page.dispatchEvent(new Event('qbit#initialized'))
+      announce(page, announced)
+      // Faked events neither settle the wait nor shorten it.
+      await vi.advanceTimersByTimeAsync(5499)
+      expect(state.settled).toBe(false)
+      await vi.runAllTimersAsync()
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(listenersLeft()).toEqual([])
+      Object.values(announced).forEach(method => expect(method).not.toHaveBeenCalled())
+    })
+
+    it('rejects, as before, when reading window.qbit throws', async () => {
+      vi.useFakeTimers()
+      const { page, listenersLeft } = installPage()
+      let reads = 0
+      Object.defineProperty(page, 'qbit', {
+        configurable: true,
+        get() {
+          reads += 1
+          if (reads > 1) throw new Error('window.qbit is blocked')
+          return undefined
+        },
+      })
+      const wallet = new QbitWallet()
+
+      const rejected = expect(wallet.init()).rejects.toThrow('window.qbit is blocked')
+      await vi.advanceTimersByTimeAsync(100)
+      await rejected
+
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+  })
+
   describe('connecting a dapp set up for another chain', () => {
     const ADDRESSES: Record<string, string> = {
       [ChainType.QBIT_MAINNET]: 'qb1zaccount',

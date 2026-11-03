@@ -1,4 +1,9 @@
 import type { P2mrMessageProof } from '@qbit-oss/protocol'
+import {
+  QBIT_ANNOUNCE_PROVIDER_EVENT,
+  QBIT_PROVIDER_INITIALIZED_EVENT,
+  QBIT_REQUEST_PROVIDER_EVENT,
+} from '../providers'
 import type {
   Account,
   QbitBalance,
@@ -7,7 +12,6 @@ import type {
   WalletListenerParams,
 } from '../types'
 import { ALL_CHAIN_TYPES, ChainType, WalletType } from '../types'
-import { sleep } from '../utils'
 import { BaseWallet } from './BaseWallet'
 
 const qbitProviderMethods = [
@@ -30,6 +34,10 @@ const qbitProviderMethods = [
   'on',
   'removeListener',
 ] as const
+
+// Polls after the first look at window.qbit, 100 ms longer each time, for
+// about 5.5 seconds in all.
+const PROVIDER_POLLS = 10
 
 // EIP-1193 Unauthorized: the provider's error for an origin without a grant
 // on the wallet's active chain.
@@ -72,14 +80,60 @@ export class QbitWallet extends BaseWallet {
   }
 
   async init(): Promise<void> {
-    this.installed = !!this.getProvider()
+    this.installed = await this.waitForProvider()
+  }
 
-    // Retry check for slow extension loading
-    for (let i = 0; i < 10 && !this.installed; i += 1) {
-      await sleep(100 + i * 100)
-      this.installed = !!this.getProvider()
-      if (this.installed) break
-    }
+  /**
+   * Waits for window.qbit, which the wallet installs only after its checks of
+   * the page. Its events end the wait early, and polling covers a wallet that
+   * sends none. A page can fake the events, so each one only prompts another
+   * look at window.qbit, and the provider in an announcement is never used.
+   */
+  private waitForProvider(): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const events = [QBIT_PROVIDER_INITIALIZED_EVENT, QBIT_ANNOUNCE_PROVIDER_EVENT]
+      const listens = typeof window.addEventListener === 'function'
+      let polls = 0
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let settled = false
+
+      const stop = (): void => {
+        settled = true
+        clearTimeout(timer)
+        if (listens) events.forEach(event => window.removeEventListener(event, look))
+      }
+      // Settles once window.qbit passes the check, or when reading it throws,
+      // which rejects init as before. Returns whether the wait has settled.
+      const look = (): boolean => {
+        if (settled) return true
+        try {
+          if (!this.getProvider()) return false
+          stop()
+          resolve(true)
+        } catch (error) {
+          stop()
+          reject(error)
+        }
+        return true
+      }
+      const poll = (): void => {
+        if (look()) return
+        if (polls === PROVIDER_POLLS) {
+          stop()
+          resolve(false)
+          return
+        }
+        timer = setTimeout(poll, 100 + polls * 100)
+        polls += 1
+      }
+
+      if (listens) {
+        events.forEach(event => window.addEventListener(event, look))
+        // A wallet that announced before this page listened answers again.
+        window.dispatchEvent(new Event(QBIT_REQUEST_PROVIDER_EVENT))
+      }
+      poll()
+    })
   }
 
   async requestAccount(): Promise<Account | undefined> {
