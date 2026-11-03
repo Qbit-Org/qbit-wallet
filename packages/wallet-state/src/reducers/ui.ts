@@ -70,6 +70,26 @@ export const initialState: UIState = {
   balanceDetailExpanded: true,
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * Give `target` every field of `defaults` it lacks, at every depth. A field
+ * that should hold an object but holds something else counts as missing.
+ * Fields that `defaults` does not have are kept.
+ */
+function fillMissing(target: Record<string, unknown>, defaults: object): void {
+  for (const [key, value] of Object.entries(defaults)) {
+    const stored = target[key]
+    if (isPlainObject(value)) {
+      if (isPlainObject(stored)) fillMissing(stored, value)
+      else target[key] = value
+    } else if (stored === undefined) {
+      target[key] = value
+    }
+  }
+}
+
 const slice: Slice<UIState> = createSlice({
   name: 'ui',
   initialState,
@@ -192,26 +212,12 @@ const slice: Slice<UIState> = createSlice({
   },
   extraReducers: builder => {
     builder.addCase(updateVersion, state => {
-      if (!state.uiTxCreateScreen) {
-        state.uiTxCreateScreen = initialState.uiTxCreateScreen
-      } else if (state.uiTxCreateScreen.enableRBF === undefined) {
-        state.uiTxCreateScreen.enableRBF = true
-      }
-      if (state.uiTxCreateScreen.memo === undefined) {
-        state.uiTxCreateScreen.memo = ''
-      }
-      if (!state.feeRateBar) {
-        state.feeRateBar = initialState.feeRateBar
-      } else if (state.feeRateBar.feeRateSource === undefined) {
-        // Stored before rates recorded their source: no fee bar chose it from a quote read now.
-        state.feeRateBar.feeRateSource = null
-      }
-      if (state.isBalanceHidden === undefined) {
-        state.isBalanceHidden = false
-      }
-      if (state.balanceDetailExpanded === undefined) {
-        state.balanceDetailExpanded = true
-      }
+      // The state saved by any earlier build: anything it lacks takes its
+      // initial value, so no reducer meets a missing object. A fee rate
+      // stored before rates recorded their source has none.
+      if (!isPlainObject(state)) return initialState
+      fillMissing(state, initialState)
+      return state
     })
   },
 })

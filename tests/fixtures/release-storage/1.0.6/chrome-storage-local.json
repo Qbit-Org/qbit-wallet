@@ -1,0 +1,117 @@
+{
+  "biometricUnlock": null,
+  "cached_pubkeys": null,
+  "contactBook": {
+    "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66_QBIT_TESTNET4": {
+      "address": "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66",
+      "chain": "QBIT_TESTNET4",
+      "isAlias": false,
+      "isContact": true,
+      "name": "Fixture contact",
+      "sortIndex": 0
+    }
+  },
+  "i18nextLng": "es",
+  "keyringState": {
+    "boostValue": "secure_1793728863310_pgb68sz31eo",
+    "booted": "{\"data\":\"XSpbJ0BXitsgqnnKBYbZ2AEgFxdQOHNdBLwvzIcOZ8NxAx5YBUZhpQr8Fg2MO1kDNlM=\",\"iv\":\"6pYYWyDXFARNtEEdvo0OIg==\",\"keyMetadata\":{\"algorithm\":\"PBKDF2\",\"params\":{\"iterations\":900000}},\"salt\":\"kIszORZPZfgWzdeJOXTH1CXkMuhUce0PfTYeg6nL6Xo=\"}",
+    "vault": "{\"data\":\"TrqVHiPhgykTQG/UAFE2ARKdRvRP/Si684rye9D/pwShE8wAUqOHHBHb9n8tAwLaaVcHHtSyo95rBRV/dRkiU85e+TLMOURetcda4Y7geZkhs/9xNDgzyjBSCIEm+5RlN64j/Z2UmrJav25fDI0mRBM9lvvhx4XiuvCKf3aLXhJkWhF6ElUN/guHteG4N3gRCOMjx6VmrUVQrIy56YlT8+p1jfW8Yh7YfAYycLrhjFTrg7Ey4Z4ET17I9ObQ1VwNoAZXCzA+D1+MMLC8tAO9tPaX0IW7Cmpr1R3vrncBAKbO/fsMuM2TzBfOgPBHrxH4poAM1lMfAxThfRsjNL7E/7rZ1+i8cKUfQX0Dk7/PpWZZYi8mT/iYH4WDpFq4wXc/WnREdf+d9mVqgCIf1c+kPzTdX/yOtmhgfav5tsBFtV+C8RXMPzplsiq0f02jmm39wk8SyscavzTNgCirwtksAiNcPV+0JJLyJo9/l8y08gfB2+okWIOQQF/WODPcJTAsguTyh3EjRjfcTHV9/Qiw9e1gjJG2VX6eWwIeRgjGwIaeUGc2rTtslLyvNl82ZPpVBH+YgJRGW27HuWC/yPVI6KMzQ5RmTALnfkjGax+4c7b1mIY4Pv5kBOz7m4zBy1o6QSpL+lHzuK1lYtaAlV9ShTwT/t5bSVCHcujQRw1439r/b0bXHrCJW1NwiH/f4SAOZvcmZ8vYC8G5CwAeXAYpFjKfeaWtOy9abZplg9R7fl/IcaZyOBaiWKA8MpkWmpCmdNNe/SDOppCE9mGUCGOhz2daVRQcEafmfgC5i5NUNzLi8+bgc0e4m6RzCY7RYkXBEpBB577O92BaZWUecQvoP3UBs1KgdCiN+l0KD9WZpFabwzf9prfL4vgIsrKXhc4le8+MFALLHaDFrvHfEcHXeLyo5XoiaQ94gV3dT2cfGugCBZbl5o1LN+3brDfcp1Z2Fm4lrfIxgVtxUEQC8JpJw6tefDZmmPTx84oIeiyjx0ofuZemXGw5SC4Ev7s093kprFfLx5KhSabUG3ioUlsYAm8yneLisuEsB5NlgQrZsF4KA9jIVFYDi1iaa0BSPy0hkO3m32xcCECuy2YWsg+KzoPNNlA9sRSKPnLFCF/VquJ9AZoncWw2OvOC4plbaVPQiA3HG5mPHx99j0/ho5PZui57Med9p2Z1r7eWb/5+IFy6ZO7KBjC/EBGvyCPr+ro8VVgoY8C9bGx25KpvncwpYr5fFEDlQvtMSC9rN2a1Y/HNrO3KKRru+VAoAjEVCB7XA5V3osTyIh0AgU7vJr88DbVwUp+HnHjPcJcZnA8gOVwk0Ka/vBzAp5jT4TwRpmg7Dvj3gWU1XybLxsiNLM5tNjxAzn88nA0yL9voB3Ea9zOILbWUAjIbUsHibSqhvVkI+5w+EC9qsmqnxEDrbLSc+cErc9AUvSypED0WB2z4m6CIX4kGNjkt8FyzWlz95rviE1ysN2liw+WDwSMVFKndZ/Csc9y5qpmbrrqV/N3xbmuhBiPoZ3G2/fDeRMM6KY+yp9NZi6fhSbCX0ezD0oWpwbmRkIytSX013cteCEsmQB6pPr6CH1eGdLK70YC+4xV+tPVI3zTsJ7+vmHAYpCDFrn84g585bsfvlkw9i91jh/68rsQRQQuFti/0IxGASn7ji9nbn/eFUmHacWOVsjpG93x1MZ4FOLIPOi9kgwrpJbe3Bs48gDjRrX2LO/zw4zetoHlT5DPTKdDdJA==\",\"iv\":\"tVhHcxLFeq57bavf2jgs1g==\",\"keyMetadata\":{\"algorithm\":\"PBKDF2\",\"params\":{\"iterations\":900000}},\"salt\":\"SrFQKAOKjR0I30Lx89nwfcTkkShj9ip28/VtvZGMecI=\"}"
+  },
+  "notifications": {},
+  "openapi": null,
+  "permission": {
+    "dumpCache": [
+      {
+        "e": 0,
+        "k": "http://127.0.0.1:41267",
+        "v": {
+          "chain": "QBIT_TESTNET4",
+          "icon": "",
+          "isConnected": true,
+          "isSigned": false,
+          "isTop": false,
+          "name": "Qbit G3 Provider Fixture",
+          "origin": "http://127.0.0.1:41267"
+        }
+      }
+    ]
+  },
+  "phishing": null,
+  "phishing_list_fallback": null,
+  "preference": {
+    "acceptLowFeeMode": false,
+    "accountAlianNames": {
+      "keyring_-1#0": "Account 1",
+      "keyring_0#0": "Account 1",
+      "keyring_0#1": "Savings",
+      "keyring_1#0": "Readonly 1"
+    },
+    "addressFlags": {},
+    "alianNames": {},
+    "autoLockTimeId": 6,
+    "balanceMap": {},
+    "chainType": "QBIT_TESTNET4",
+    "currency": "USD",
+    "currentAccount": {
+      "address": "tq1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7sj3e6d8",
+      "alianName": "Savings",
+      "flag": 0,
+      "index": 1,
+      "key": "keyring_0#1",
+      "p2mr": {
+        "addresses": {
+          "mainnet": "qb1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7sycw6vx",
+          "regtest": "qbrt1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7s3w6yyv",
+          "signet": "tq1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7sj3e6d8",
+          "testnet4": "tq1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7sj3e6d8"
+        },
+        "hkdf": {
+          "account": 0,
+          "change": 0,
+          "index": 1
+        },
+        "leafScript": "20d0b10659d86b997165a68ddfb4dc03018243b3b681b27df9c495e4cd3b6f9000b3",
+        "path": "m/87'/1'/0'/0/1",
+        "pubkey": "d0b10659d86b997165a68ddfb4dc03018243b3b681b27df9c495e4cd3b6f9000",
+        "scriptPubKey": "5220ef5b4e6d472fa39e946859317166186390dbebe6722c32a5c56c9e5e7f16c07d",
+        "signatureCounter": {
+          "count": 0,
+          "knownOnChainSignatures": 0,
+          "limit": 1073741824,
+          "provenance": "local",
+          "remaining": 1073741824,
+          "state": "normal"
+        }
+      },
+      "pubkey": "d0b10659d86b997165a68ddfb4dc03018243b3b681b27df9c495e4cd3b6f9000",
+      "type": "Qbit HD Key Tree"
+    },
+    "currentKeyringIndex": 0,
+    "currentVersion": "0",
+    "developerMode": true,
+    "editingKeyringIndex": 0,
+    "enableRBF": true,
+    "enableSignData": false,
+    "externalLinkAck": false,
+    "firstOpen": false,
+    "historyMap": {},
+    "initAlianNames": false,
+    "keyringAlianNames": {
+      "keyring_0": "Qbit HD Wallet #1",
+      "keyring_1": "Readonly #2"
+    },
+    "locale": "es",
+    "openInSidePanel": false,
+    "rateUsStatus": {
+      "hasRated": false,
+      "hasShownSecondPrompt": false,
+      "ratePromptDismissedAt": 0
+    },
+    "showSafeNotice": true,
+    "skippedVersion": "",
+    "themeMode": "dark",
+    "uiCachedData": {},
+    "walletSavedList": [],
+    "watchAddressPreference": {}
+  }
+}
