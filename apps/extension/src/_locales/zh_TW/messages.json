@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "自動鎖定時間"
   },
+  "lock_when_computer_locks": {
+    "message": "電腦鎖定時鎖定"
+  },
+  "lock_when_all_windows_close": {
+    "message": "關閉所有視窗時鎖定"
+  },
   "available": {
     "message": "可用"
   },
@@ -319,6 +325,9 @@
   },
   "qbit_receive_no_safe": {
     "message": "目前沒有安全的收款地址。額度用盡的地址會被排除，復原間距也可能已滿。請使用已發出、未使用且額度未盡的地址，或恢復網路後重試。"
+  },
+  "qbit_receive_no_safe_new_address": {
+    "message": "此帳戶的地址無法用來收款。請按「新增地址」取得新地址，並切換到該地址的帳戶。"
   },
   "qbit_receive_previous": {
     "message": "先前地址"
@@ -745,6 +754,9 @@
   },
   "failed_to_save_contact": {
     "message": "保存聯絡人失敗"
+  },
+  "another_contact_has_this_address": {
+    "message": "此網路上已有其他聯絡人使用此地址"
   },
   "failed_to_save_contact_order": {
     "message": "保存聯絡人順序失敗"
@@ -2350,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "解鎖操作正在進行中"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "錢包在解鎖期間已鎖定。請再次解鎖。"
   },
   "unrecognized_password_strength": {
     "message": "未識別的密碼強度"

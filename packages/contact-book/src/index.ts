@@ -3,7 +3,11 @@
  */
 
 // Main ContactBook class
-export { ContactBookService } from './contact-book'
+export {
+  ContactBookService,
+  ContactAlreadyExistsError,
+  CONTACT_ALREADY_EXISTS,
+} from './contact-book'
 
 // Types and interfaces
 export type * from './types'

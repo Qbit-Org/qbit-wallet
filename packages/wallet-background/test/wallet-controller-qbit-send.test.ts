@@ -57,6 +57,7 @@ import {
 } from '../src/services'
 import { QBIT_WALLET_SEND_CLAIM_ORIGIN } from '../src/services/qbitSendGuards'
 import { bgEventBus } from '../src/utils/eventBus'
+import { QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS } from '../src/utils/qbit-fee-bump-recheck'
 import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
   QBIT_EXPLORER_MAX_BODY_BYTES,
@@ -2220,6 +2221,49 @@ describe('WalletController qbit P2MR send path', () => {
         ChainType.QBIT_REGTEST,
         live.txid
       )
+    })
+
+    it("gives the assessment its whole deadline after a wait on the send guard's queue (#130)", async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const live = await pendingOriginal(wallet, account)
+      vi.useFakeTimers()
+      try {
+        // A broadcast holds the guard's queue until a second before the
+        // deadline would end, had it started with the assessment.
+        const queueWaitMs = QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS - 1_000
+        vi.mocked(qbitSendGuardService.hasDependentSpend).mockImplementation(
+          () => new Promise(resolve => setTimeout(() => resolve(false), queueWaitMs))
+        )
+        // What spends the original takes 5 s to read, which a read handed
+        // less of the deadline does not get: it times out.
+        const readMs = 5_000
+        const spenders = getTxOutspendsMock.getMockImplementation()!
+        getTxOutspendsMock.mockImplementation(
+          async (txid: string, options?: { deadlineMs?: number }) => {
+            const deadlineMs = options?.deadlineMs ?? Number.POSITIVE_INFINITY
+            await new Promise(resolve => setTimeout(resolve, Math.min(readMs, deadlineMs)))
+            if (deadlineMs < readMs) throw new QbitApiError('timeout', 'deadline passed')
+            return spenders(txid)
+          }
+        )
+
+        const eligibility = wallet.getQbitFeeBumpEligibility(live.txid)
+        await vi.advanceTimersByTimeAsync(queueWaitMs + readMs)
+
+        await expect(eligibility).resolves.toMatchObject({ eligible: true })
+        // Every read, the original's too, had the whole deadline from the
+        // moment the assessment was through the queue.
+        for (const read of [getTxMock, getTxOutspendsMock]) {
+          expect(read).toHaveBeenCalledWith(
+            live.txid,
+            expect.objectContaining({ deadlineMs: QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS })
+          )
+        }
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('re-checks for later spends when it builds the replacement, not only when it offered one', async () => {

@@ -575,7 +575,7 @@ export class KeyringService extends EventEmitter {
     // await this.persistAllKeyrings();
     const keyring = await this.addNewKeyring('Simple Key Pair', [privateKey], addressType)
     // await this.persistAllKeyrings();
-    this.setUnlocked()
+    this.setUnlockedUnlessLocked()
     this.fullUpdate()
     return keyring
   }
@@ -584,14 +584,14 @@ export class KeyringService extends EventEmitter {
     // await this.persistAllKeyrings()
     const keyring = await this.addNewKeyring('Readonly', [pubkey], addressType)
     // await this.persistAllKeyrings()
-    this.setUnlocked()
+    this.setUnlockedUnlessLocked()
     this.fullUpdate()
     return keyring
   }
 
   importWatchAddress = async (address: string, addressType: AddressType) => {
     const keyring = await this.addNewKeyring('Watch Address', [address], addressType)
-    this.setUnlocked()
+    this.setUnlockedUnlessLocked()
     this.fullUpdate()
     return keyring
   }
@@ -684,7 +684,7 @@ export class KeyringService extends EventEmitter {
       throw new Error(this.t('first_account_not_found'))
     }
     // this.persistAllKeyrings();
-    this.setUnlocked()
+    this.setUnlockedUnlessLocked()
     this.fullUpdate()
     return keyring
   }
@@ -720,7 +720,7 @@ export class KeyringService extends EventEmitter {
     }
 
     const addedKeyring = await this.addKeyring(keyring, AddressType.P2MR)
-    this.setUnlocked()
+    this.setUnlockedUnlessLocked()
     this.fullUpdate()
     return addedKeyring
   }
@@ -3716,6 +3716,17 @@ export class KeyringService extends EventEmitter {
       )
     )
     return this.memStore.updateState({ keyrings })
+  }
+
+  /**
+   * Publish the unlocked state after a keyring was created or imported. A
+   * lock that completed while the keyring was added cleared the password and
+   * the live keyrings, and wins: publishing then would show a wallet with no
+   * secrets loaded as unlocked. A lock still pending is left to setUnlocked.
+   */
+  private setUnlockedUnlessLocked = () => {
+    if (this.password === null) return
+    this.setUnlocked()
   }
 
   /**

@@ -16,11 +16,14 @@ const REQUIRED_ARCHIVE_ENTRIES = Object.freeze([
   'phishing-warning.js',
   'wasm/pqc.wasm'
 ]);
+// `idle` reports whether the computer is locked, so the wallet can lock with
+// it; it carries no install warning.
 const EXPECTED_MV3_PERMISSIONS = Object.freeze([
   'storage',
   'unlimitedStorage',
   'declarativeNetRequest',
-  'sidePanel'
+  'sidePanel',
+  'idle'
 ]);
 // Exact loopback origin of the developer-run regtest indexer. The store flavor
 // declares it as an *optional* host permission (requested only from the

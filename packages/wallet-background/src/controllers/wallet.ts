@@ -179,17 +179,17 @@ import { psbtFromString } from '../utils/psbt-utils'
 import {
   QBIT_BROADCAST_ABSENCE_PROBES,
   QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS,
-  QBIT_BROADCAST_DEADLINE_MS,
-  QBIT_BROADCAST_MIN_PASS_MS,
   QBIT_BROADCAST_RESEND_DELAYS_MS,
-  QBIT_BROADCAST_RESEND_WINDOW_MS,
   QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS,
   QBIT_LIFECYCLE_TX_READ_DEADLINE_MS,
   QbitBroadcastResponseMismatchError,
   classifyQbitBroadcastError,
   isQbitBroadcastResendable,
   isQbitTxSizeBroadcastRejection,
+  qbitBroadcastDeadlineMs,
+  qbitBroadcastMinPassMs,
   qbitBroadcastProbeDelay,
+  qbitBroadcastResendWindowMs,
   type QbitBroadcastErrorClassification,
 } from '../utils/qbit-broadcast'
 import {
@@ -268,7 +268,7 @@ import {
 import {
   QBIT_RECEIVE_GAP_LIMIT,
   planQbitReceiveIntent,
-  type QbitReceiveAllocationAddress,
+  type QbitReceiveGapPlan,
 } from '../utils/qbit-receive'
 import {
   QbitLatestAnswers,
@@ -401,12 +401,20 @@ type QbitReceiveIntentLedger = {
   usedIndexes: number[]
 }
 
+const QBIT_RECEIVE_ACCOUNT_CHANGED = 'Qbit account changed while preparing the receive screen'
+
 type QbitReceiveControllerContext = {
   network: QbitReceiveNetworkName
   keyring: WalletKeyring
   anchor: Account
   ledger: QbitReceiveIntentLedger
   addresses: QbitReceiveAddressState[]
+  /** Derivation index of the selected account, whose address Receive shows. */
+  selectedIndex: number
+  /** The stored selection this context was read for. */
+  selectedPubkey: string | undefined
+  /** Indexes of this wallet that a recovery migration plan pays, derived or not. */
+  sweepIndexes: Set<number>
   activityStatus: QbitReceiveState['activityStatus']
   floorsPending: boolean
   concurrentInstanceHint: boolean
@@ -1609,43 +1617,78 @@ export class WalletController extends BaseController {
     return queuedOperation
   }
 
-  unlock = (password: string): Promise<void> =>
-    this.enqueueChainStateChange(() => this.performUnlock(password))
+  /**
+   * Unlock with the password, after any chain state change already queued. A
+   * lock that comes in from the call on wins, even while the unlock waits its
+   * turn (behind a restore floor scan, say), when the keyring service's own
+   * pending-lock check no longer sees it: the unlock then ends locked and
+   * rejects with WALLET_LOCKED_DURING_UNLOCK.
+   */
+  unlock = (password: string): Promise<void> => {
+    const locksAtCall = this.lockRequests
+    return this.enqueueChainStateChange(() => this.performUnlock(password, locksAtCall))
+  }
 
-  private performUnlock = async (password: string): Promise<void> => {
+  private performUnlock = async (password: string, locksAtCall: number): Promise<void> => {
+    const assertNotLockedSinceCall = () => {
+      if (this.lockRequests !== locksAtCall) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    }
+    assertNotLockedSinceCall()
     const alianNameInited = preferenceService.getInitAlianNameStatus()
     const alianNames = contactBookService.listAlias()
     let deferredAccountChange: Account | undefined
-    await keyringService.submitPassword(password, {
-      beforeUnlock: async () => {
-        const hdPathChanged = await keyringService.syncQbitHdPath(
-          getQbitHdPathForChainType(this.getChainType())
-        )
+    try {
+      await keyringService.submitPassword(password, {
+        beforeUnlock: async () => {
+          // Thrown here, the keyring service drops what it loaded and stays locked.
+          assertNotLockedSinceCall()
+          const hdPathChanged = await keyringService.syncQbitHdPath(
+            getQbitHdPathForChainType(this.getChainType())
+          )
 
-        const keyring = await this.getCurrentKeyring()
-        const currentAccount = preferenceService.getCurrentAccount()
-        const preferredAccountIndex = currentAccount?.index ?? 0
-        const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
-          ? preferredAccountIndex
-          : 0
-        const selectedAccount = keyring?.accounts[selectedAccountIndex]
-        const qbitAccountChanged =
-          keyring?.type === KeyringType.QbitHdKeyring &&
-          selectedAccount !== undefined &&
-          (selectedAccount.pubkey !== currentAccount?.pubkey ||
-            selectedAccount.address !== currentAccount?.address)
+          const keyring = await this.getCurrentKeyring()
+          const currentAccount = preferenceService.getCurrentAccount()
+          const preferredAccountIndex = currentAccount?.index ?? 0
+          const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
+            ? preferredAccountIndex
+            : 0
+          const selectedAccount = keyring?.accounts[selectedAccountIndex]
+          const qbitAccountChanged =
+            keyring?.type === KeyringType.QbitHdKeyring &&
+            selectedAccount !== undefined &&
+            (selectedAccount.pubkey !== currentAccount?.pubkey ||
+              selectedAccount.address !== currentAccount?.address)
 
-        if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
-          await this.changeKeyring(keyring, selectedAccountIndex, {
-            broadcastAccountChange: false,
-          })
-          deferredAccountChange = selectedAccount
-        }
-      },
-    })
+          if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
+            await this.changeKeyring(keyring, selectedAccountIndex, {
+              broadcastAccountChange: false,
+            })
+            deferredAccountChange = selectedAccount
+          }
+        },
+      })
+      // A lock during the unlock's last step leaves the keyring locked, as the
+      // keyring service publishes no unlock while a lock is pending; so does a
+      // lock the keyring service makes on its own.
+      assertNotLockedSinceCall()
+      if (!this.isUnlocked()) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    } catch (error) {
+      // An account the unlock switched to is saved already, but its sites
+      // learn of it only from an unlocked wallet: the next unlock tells them.
+      if (deferredAccountChange) this.accountChangeUnannounced = true
+      throw error
+    }
     sessionService.broadcastEvent(SESSION_EVENTS.unlock)
-    if (deferredAccountChange) {
-      this.publishAccountChange(deferredAccountChange)
+    const accountChange =
+      deferredAccountChange ??
+      (this.accountChangeUnannounced ? (preferenceService.getCurrentAccount() ?? undefined) : undefined)
+    this.accountChangeUnannounced = false
+    if (accountChange) {
+      this.publishAccountChange(accountChange)
     }
     if (!alianNameInited && alianNames.length === 0) {
       this.initAlianNames()
@@ -1685,7 +1728,19 @@ export class WalletController extends BaseController {
     return keyringService.memStore.getState().isUnlocked
   }
 
+  /** Locks requested through lockWallet; see `unlock`. */
+  private lockRequests = 0
+  /** An unlock that a lock ended switched the account without announcing it. */
+  private accountChangeUnannounced = false
+
   lockWallet = async () => {
+    this.lockRequests += 1
+    // The lock ends the session the auto-lock was counting down, so its timer
+    // cannot lock a later unlock (the automatic biometric prompt, say) or
+    // report an auto-lock for a wallet already locked.
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
     // A locked wallet keeps no account's outputs in memory, not even while
     // the lock waits or if it fails. setLocked marks the wallet locked at
     // once, before it waits, so nothing is kept after this clear: not from
@@ -3979,10 +4034,17 @@ export class WalletController extends BaseController {
     if (!keyring || keyring.type !== KeyringType.QbitHdKeyring) {
       throw new Error(t('not_supported'))
     }
+    // Read the selection after getCurrentKeyring, which can repair it, and
+    // before the activity check, so the check at the end of this read sees a
+    // change made while it waited.
+    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
     const anchor = keyring.accounts[0]
     if (!anchor?.p2mr) {
       throw new Error('P2MR receive metadata is unavailable')
     }
+    // Match the selection the way getCurrentAccount does: by public key,
+    // falling back to the first account.
+    const selected = keyring.accounts.find(account => account.pubkey === selectedPubkey) ?? anchor
 
     let ledger = (await keyringService.getQbitReceiveState(
       anchor.pubkey,
@@ -4047,6 +4109,33 @@ export class WalletController extends BaseController {
       }
     })
     const rawKeyring = keyringService.keyrings[keyring.index]
+    // Every plan records the address it pays. A migration into this wallet,
+    // recognized by its anchor, also records each plan's index (version-1
+    // plans paid the anchor, index 0). That covers an index this keyring has
+    // not derived, or whose reservation its ledger lacks, as after the
+    // destination wallet is removed and its seed imported again.
+    const anchorPubkey = anchor.pubkey.toLowerCase()
+    const anchorAddress = anchor.p2mr.addresses[network]
+    const sweepIndexes = new Set<number>()
+    for (const other of keyringService.keyrings) {
+      const migration: QbitRecoveryMigrationVault | undefined =
+        other.getQbitRecoveryState?.()?.networks?.[network]?.migration
+      if (!migration) continue
+      const intoThisWallet =
+        migration.destinationPubkey?.toLowerCase() === anchorPubkey &&
+        migration.destinationAddress === anchorAddress
+      for (const plan of migration.plans ?? []) {
+        if (intoThisWallet) sweepIndexes.add(plan.destinationIndex ?? 0)
+        const paid = addresses.find(address => address.address === plan.destinationAddress)
+        if (paid) sweepIndexes.add(paid.index)
+      }
+    }
+    // changeKeyring does not wait for the receive queue, so another popup can
+    // select another account or wallet while this read waits. Refuse to answer
+    // or act for the earlier selection.
+    if (preferenceService.getCurrentAccount()?.pubkey !== selectedPubkey) {
+      throw new Error(QBIT_RECEIVE_ACCOUNT_CHANGED)
+    }
 
     return {
       network,
@@ -4054,38 +4143,66 @@ export class WalletController extends BaseController {
       anchor,
       ledger,
       addresses,
+      selectedIndex: selected.p2mr!.hkdf.index,
+      selectedPubkey,
+      sweepIndexes,
       activityStatus,
       floorsPending: rawKeyring?.pqcFloorsPending === true,
       concurrentInstanceHint: rawKeyring?.pqcConcurrentInstanceHint === true,
     }
   }
 
-  private buildQbitReceiveState = (context: QbitReceiveControllerContext): QbitReceiveState => {
+  /**
+   * The gap plan Receive and New Address share. It never picks an index a
+   * recovery migration pays.
+   */
+  private planQbitReceiveGap = (context: QbitReceiveControllerContext): QbitReceiveGapPlan => {
     const issuedIndexes = new Set(context.ledger.issuedIndexes)
-    const allocationAddresses: QbitReceiveAllocationAddress[] = context.addresses.map(address => ({
-      index: address.index,
-      issued: issuedIndexes.has(address.index),
-      used: address.used,
-      exhausted: address.signatureCounter.state === 'exhausted',
-    }))
-    const gapPlan = planQbitReceiveIntent(allocationAddresses)
-    const persistedCurrent = context.addresses.find(
-      address => address.index === context.ledger.currentIndex
+    return planQbitReceiveIntent(
+      context.addresses.map(address => ({
+        index: address.index,
+        issued: issuedIndexes.has(address.index),
+        used: address.used,
+        exhausted: address.signatureCounter.state === 'exhausted',
+      })),
+      context.sweepIndexes
     )
+  }
+
+  /**
+   * Receive state with the address at `shownIndex` as current: the selected
+   * account's unless a caller passes another index. A used address stays
+   * current and is marked used. An exhausted address cannot authorize
+   * spending what it receives, a never-issued one past the restore gap would
+   * not be found by a standard restore, so neither is current. A recovery
+   * migration records the addresses it pays as issued; until the sweep's
+   * activity shows, such an address is reserved for it and is not listed at
+   * all.
+   */
+  private buildQbitReceiveState = (
+    context: QbitReceiveControllerContext,
+    shownIndex = context.selectedIndex
+  ): QbitReceiveState => {
+    const issuedIndexes = new Set(context.ledger.issuedIndexes)
+    const gapPlan = this.planQbitReceiveGap(context)
+    const shown = context.addresses.find(address => address.index === shownIndex)
     const shouldHideAddresses = context.floorsPending || context.activityStatus !== 'live'
-    const current =
-      !shouldHideAddresses &&
-      persistedCurrent &&
-      !persistedCurrent.used &&
-      persistedCurrent.signatureCounter.state !== 'exhausted'
-        ? persistedCurrent
-        : null
+    const reservedForSweep = (address: QbitReceiveAddressState) =>
+      !address.used && context.sweepIndexes.has(address.index)
+    const offerable =
+      shown !== undefined &&
+      shown.signatureCounter.state !== 'exhausted' &&
+      !reservedForSweep(shown) &&
+      (shown.used || issuedIndexes.has(shown.index) || shown.index <= gapPlan.lastDiscoverableIndex)
+    const current = !shouldHideAddresses && offerable ? shown : null
     const previous = shouldHideAddresses
       ? []
       : context.addresses
           .filter(
             address =>
-              (issuedIndexes.has(address.index) || address.used) && address.index !== current?.index
+              (issuedIndexes.has(address.index) || address.used) &&
+              address.index !== current?.index &&
+              !reservedForSweep(address)
           )
           .sort((left, right) => right.index - left.index)
 
@@ -4121,6 +4238,34 @@ export class WalletController extends BaseController {
     const selected = preferenceService.getCurrentAccount()
     if (selected?.key === account.key && selected.address === account.address) return
     await this.changeKeyring(context.keyring, accountPosition)
+    // Save the switch now rather than after the store's debounced save, so a
+    // browser quit straight after New Address keeps the new account selected.
+    // This is not changeKeyring's persistPreference: a failed save there
+    // skips the account-change broadcast and fails New Address although the
+    // switch happened. A failed save here stays queued for the debounced save.
+    try {
+      await preferenceService.persist()
+    } catch (error) {
+      log.warn('[WalletController] Failed to save the receive account selection', error)
+    }
+  }
+
+  /**
+   * Read the receive context again after a ledger write, with a live activity
+   * check or from the vault cache. Refuse a read made for another selection:
+   * this operation's index and account switch belong to the earlier one.
+   */
+  private reloadQbitReceiveContext = async (
+    context: QbitReceiveControllerContext,
+    refreshActivity: boolean
+  ): Promise<QbitReceiveControllerContext> => {
+    const reloaded = refreshActivity
+      ? await this.loadQbitReceiveContext(true, 'cached')
+      : await this.loadQbitReceiveContext(false, context.activityStatus)
+    if (reloaded.selectedPubkey !== context.selectedPubkey) {
+      throw new Error(QBIT_RECEIVE_ACCOUNT_CHANGED)
+    }
+    return reloaded
   }
 
   private createNextQbitReceiveIntent = async (
@@ -4132,15 +4277,7 @@ export class WalletController extends BaseController {
     if (context.activityStatus !== 'live') {
       throw new Error('Live activity must be checked before creating a receive address')
     }
-    const issuedIndexes = new Set(context.ledger.issuedIndexes)
-    const gapPlan = planQbitReceiveIntent(
-      context.addresses.map(address => ({
-        index: address.index,
-        issued: issuedIndexes.has(address.index),
-        used: address.used,
-        exhausted: address.signatureCounter.state === 'exhausted',
-      }))
-    )
+    const gapPlan = this.planQbitReceiveGap(context)
     if (!gapPlan.nextIntent) {
       throw new Error(
         `Receive address gap limit (${QBIT_RECEIVE_GAP_LIMIT}) reached; wait for activity before creating another address`
@@ -4171,18 +4308,23 @@ export class WalletController extends BaseController {
     // so its history lands in usedIndexes before the address is exposed;
     // starting from 'cached' keeps a failed refresh from presenting the new
     // address as live-verified.
-    const refreshed = gapPlan.nextIntent.activatesIndex
-      ? await this.loadQbitReceiveContext(true, 'cached')
-      : await this.loadQbitReceiveContext(false, context.activityStatus)
-    const state = this.buildQbitReceiveState(refreshed)
+    const refreshed = await this.reloadQbitReceiveContext(
+      context,
+      gapPlan.nextIntent.activatesIndex
+    )
+    const issued = this.buildQbitReceiveState(refreshed, gapPlan.nextIntent.index)
     // The recheck can invalidate the index this intent just issued — another
     // copy of the seed already used it, or the refresh failed and the address
-    // is no longer live-verified. Only switch the wallet onto an index the
-    // state still exposes as the safe current address.
-    if (state.current?.index === gapPlan.nextIntent.index) {
-      await this.adoptQbitReceiveAccount(refreshed, gapPlan.nextIntent.index)
+    // is no longer live-verified. Only switch the wallet onto the new address
+    // while it is still safe to show; otherwise stay on the selected account.
+    if (issued.current?.used) {
+      throw new Error('The new receive address already has activity; press New Address again')
     }
-    return state
+    if (issued.current?.index !== gapPlan.nextIntent.index) {
+      return this.buildQbitReceiveState(refreshed)
+    }
+    await this.adoptQbitReceiveAccount(refreshed, gapPlan.nextIntent.index)
+    return issued
   }
 
   getQbitReceiveState = (): Promise<QbitReceiveState> =>
@@ -4190,15 +4332,28 @@ export class WalletController extends BaseController {
       this.buildQbitReceiveState(await this.loadQbitReceiveContext(true))
     )
 
+  /**
+   * Receive state for the selected account's own address. Never changes the
+   * selected account and never issues another address; only
+   * createQbitReceiveIntent (New Address) does. An unused address becomes the
+   * ledger's current intent before it is shown, which records it as issued
+   * the first time, so the gap plan counts it and a recovery migration
+   * prefers not to pay it.
+   */
   ensureQbitReceiveIntent = (): Promise<QbitReceiveState> =>
     this.enqueueQbitReceiveOperation(async () => {
       const context = await this.loadQbitReceiveContext(true)
       const state = this.buildQbitReceiveState(context)
-      if (state.current) {
-        await this.adoptQbitReceiveAccount(context, state.current.index)
+      const current = state.current
+      if (!current || current.used || context.ledger.currentIndex === current.index) {
         return state
       }
-      return !state.gap.canCreate ? state : this.createNextQbitReceiveIntent(context)
+      await keyringService.setQbitReceiveIntent(
+        context.anchor.pubkey,
+        context.network,
+        current.index
+      )
+      return this.buildQbitReceiveState(await this.reloadQbitReceiveContext(context, false))
     })
 
   createQbitReceiveIntent = (): Promise<QbitReceiveState> =>
@@ -6161,15 +6316,20 @@ export class WalletController extends BaseController {
    *
    * Every explorer read here shares one deadline,
    * `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`, and these are the slow reads of
-   * a bump: they all happen before the user signs. The original's output
-   * count goes with the plan, so its broadcast only asks what spends them.
+   * a bump: they all happen before the user signs. It starts once the
+   * assessment has been through the send guard's queue, which a broadcast
+   * can hold for as long as its own deadline: the wait spends none of it.
+   * The original's output count goes with the plan, so its broadcast only
+   * asks what spends them.
    */
   private assessQbitFeeBump = async (
     txid: string,
     requestedFeeRate?: number,
     chain: ChainType = this.getChainType()
   ): Promise<QbitFeeBumpAssessment> => {
-    const operation = new QbitExplorerOperation(QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS)
+    const operation = new QbitExplorerOperation(QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS, undefined, {
+      started: false,
+    })
     if (!isQbitChainType(chain) || !isHexByteString(txid, 32)) {
       return { eligible: false, reason: 'unverifiable' }
     }
@@ -6204,6 +6364,18 @@ export class WalletController extends BaseController {
     ) {
       return { eligible: false, reason: 'unverifiable' }
     }
+
+    // A replacement conflicts with every transaction that spends one of the
+    // original's outputs, and qbit Core evicts them all once its fee covers
+    // theirs. The wallet sends from its own unconfirmed change, so a later
+    // payment, the wallet's own or anyone's, would vanish with the bump; it
+    // is refused instead. The wallet's own records catch a spend the
+    // explorer has not indexed yet, and are asked first: both questions wait
+    // their turn on the send guard's queue, and the deadline starts once they
+    // are answered. The explorer, below, catches a spend made elsewhere.
+    await this.settleQbitRecentSpends(chain, account.address)
+    const dependentSpend = await qbitSendGuardService.hasDependentSpend(chain, originalTxid)
+    operation.start()
 
     const client = this.getQbitApiClient(chain)
     let transaction: EsploraTx
@@ -6360,14 +6532,8 @@ export class WalletController extends BaseController {
       return { eligible: false, reason: 'unverifiable' }
     }
 
-    // A replacement conflicts with every transaction that spends one of the
-    // original's outputs, and qbit Core evicts them all once its fee covers
-    // theirs. The wallet sends from its own unconfirmed change, so a later
-    // payment, the wallet's own or anyone's, would vanish with the bump; it
-    // is refused instead. The wallet's own records catch a spend the
-    // explorer has not indexed yet; the explorer catches one made elsewhere.
-    await this.settleQbitRecentSpends(chain, account.address)
-    if (await qbitSendGuardService.hasDependentSpend(chain, originalTxid)) {
+    // A later spend the wallet's own records hold (see above).
+    if (dependentSpend) {
       return { eligible: false, reason: 'has_descendants' }
     }
     let spenders: (string | undefined)[]
@@ -7731,16 +7897,19 @@ export class WalletController extends BaseController {
    * as the send guard hands it to its callback (see
    * `QbitSendGuardService.broadcastIfAllowed`), with this controller's pause
    * between its two rounds. It runs under `operation`, the broadcast's
-   * deadline, when given; see `assertNoExplorerSpendConflict`.
+   * deadline, when given, and leaves `submissionMs` of it for the pass's
+   * submission; see `assertNoExplorerSpendConflict`.
    */
   private checkQbitBroadcastOnExplorer(
     client: QbitWalletApiClient,
     spendCheck: QbitExplorerSpendCheck,
-    operation?: QbitExplorerOperation
+    operation?: QbitExplorerOperation,
+    submissionMs?: number
   ): Promise<void> {
     return assertNoExplorerSpendConflict(client, spendCheck, {
       intervalMs: this.qbitFeeBumpRecheckIntervalMs,
       ...(operation ? { operation } : {}),
+      ...(submissionMs === undefined ? {} : { submissionMs }),
     })
   }
 
@@ -7929,15 +8098,6 @@ export class WalletController extends BaseController {
     providerPush = false,
     retryOfUnknownOutcome = false
   ): Promise<QbitBroadcastResult> => {
-    // One deadline for the whole call: every pass, its fee bump check and
-    // submission, and every lookup. It starts once the call has the send
-    // guard's queue, so a send waiting behind another (which its own
-    // deadline bounds) is still tried. Once it passes, a lookup fails, which
-    // leaves the verdict unknown, and a pass with too little of it left
-    // sends nothing.
-    const operation = new QbitExplorerOperation(QBIT_BROADCAST_DEADLINE_MS, undefined, {
-      started: false,
-    })
     const chain = this.getChainType()
     // Every refusal below happens before dispatch, so nothing was sent and
     // the caller may abandon the retained bytes. The recovery screen releases
@@ -7968,6 +8128,19 @@ export class WalletController extends BaseController {
       })
     }
     const { client, rawtx, txid, outpoints } = prepared
+    // One deadline for the whole call: every pass, its fee bump check and
+    // submission, and every lookup, longer for bytes that take longer to
+    // upload. It starts once the call has the send guard's queue, so a send
+    // waiting behind another (which its own deadline bounds) is still tried.
+    // Once it passes, a lookup fails, which leaves the verdict unknown, and a
+    // pass with too little of it left sends nothing.
+    const operation = new QbitExplorerOperation(qbitBroadcastDeadlineMs(rawtx), undefined, {
+      started: false,
+    })
+    const minPassMs = qbitBroadcastMinPassMs(rawtx)
+    // Re-sends start within a window as much longer, so a first attempt
+    // that timed out at the end of its upload's budget can still be re-sent.
+    const resendWindowMs = qbitBroadcastResendWindowMs(rawtx)
 
     // A local signer can only return the transaction the wallet built, but an
     // external or cold-wallet signer hands back whatever was pasted or
@@ -8014,9 +8187,10 @@ export class WalletController extends BaseController {
       }
     }
     // A pass is sent only with at least a submission's reply budget of the
-    // deadline left: one cut off in flight would only add an unknown outcome.
+    // deadline left, its upload included: one cut off in flight would only
+    // add an unknown outcome. A re-send of the same bytes needs as much.
     const assertTimeToSend = (): void => {
-      if (operation.remainingMs() < QBIT_BROADCAST_MIN_PASS_MS) {
+      if (operation.remainingMs() < minPassMs) {
         deadlineRefused = true
         throw new Error('Qbit broadcast deadline left no time to send')
       }
@@ -8028,7 +8202,7 @@ export class WalletController extends BaseController {
       if (
         resends > 0 &&
         firstDispatchAt !== undefined &&
-        Date.now() - firstDispatchAt >= QBIT_BROADCAST_RESEND_WINDOW_MS
+        Date.now() - firstDispatchAt >= resendWindowMs
       ) {
         throw new Error('Qbit broadcast re-send window has passed')
       }
@@ -8055,7 +8229,7 @@ export class WalletController extends BaseController {
       // inputs went with the restart: what spends them is read as well.
       if (qbitExplorerSpendCheckIsNeeded(spendCheck)) {
         try {
-          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation)
+          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation, minPassMs)
         } catch (error) {
           dependentSpendRefused = true
           // Refused for lack of time, as a pass with too little left is.
@@ -8159,7 +8333,7 @@ export class WalletController extends BaseController {
             !isQbitBroadcastResendable(error) ||
             delay === undefined ||
             firstDispatchAt === undefined ||
-            Date.now() + delay - firstDispatchAt >= QBIT_BROADCAST_RESEND_WINDOW_MS
+            Date.now() + delay - firstDispatchAt >= resendWindowMs
           ) {
             return resolved
           }
@@ -9394,6 +9568,22 @@ export class WalletController extends BaseController {
     this._resetTimeout()
   }
 
+  getLockOnComputerLock = async () => {
+    return preferenceService.getLockOnComputerLock()
+  }
+
+  setLockOnComputerLock = async (enabled: boolean) => {
+    return preferenceService.setLockOnComputerLock(enabled)
+  }
+
+  getLockOnWindowsClosed = async () => {
+    return preferenceService.getLockOnWindowsClosed()
+  }
+
+  setLockOnWindowsClosed = async (enabled: boolean) => {
+    return preferenceService.setLockOnWindowsClosed(enabled)
+  }
+
   getOpenInSidePanel = async () => {
     return preferenceService.getOpenInSidePanel()
   }
@@ -9427,8 +9617,38 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * When the armed auto-lock timer is due, by the wall clock. A timer does
+   * not count the time the computer sleeps, so on its own it would let the
+   * first screen action after waking extend a session whose time had passed.
+   * A forward jump of the wall clock can bring the lock early; never later.
+   */
+  private autoLockDueAt: number | undefined
+
+  /**
+   * A screen action: start the auto-lock time over, unless the auto-lock is
+   * overdue, which locks instead (see `lockIfAutoLockOverdue`). On the unlock
+   * screen an action re-arms the timer as before, so an unlock it overlaps is
+   * not locked straight away.
+   */
   setLastActiveTime = async () => {
+    if (await this.lockIfAutoLockOverdue()) return
     this._resetTimeout()
+  }
+
+  /**
+   * Auto-lock now if its deadline has passed: on a screen action, and when
+   * the computer's idle state changes, as it does on waking, since the timer
+   * does not count the time the computer sleeps. Only an unlocked wallet that
+   * has a vault has a session to end: during first-time onboarding there is
+   * no vault to unlock again, and locking would strand the user. Resolves
+   * with whether it locked.
+   */
+  lockIfAutoLockOverdue = async (): Promise<boolean> => {
+    if (this.autoLockDueAt === undefined || this.now() < this.autoLockDueAt) return false
+    if (!this.isUnlocked() || !keyringService.hasVault()) return false
+    await this.autoLock()
+    return true
   }
 
   private _resetTimeout = () => {
@@ -9438,13 +9658,56 @@ export class WalletController extends BaseController {
 
     const timeId = preferenceService.getAutoLockTimeId()
     const timeConfig = getLockTimeInfo(timeId)
+    this.autoLockDueAt = this.now() + timeConfig.time
     this.timer = setTimeout(() => {
-      this.lockWallet()
-      bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
-        method: BUS_METHODS.AUTO_LOCKED,
-        params: {},
+      this.autoLock().catch(error => {
+        log.error('[WalletController] Auto-lock failed', summarizeError(error))
       })
     }, timeConfig.time)
+  }
+
+  /** The auto-lock: its timer ran out, or its deadline passed. */
+  private autoLock = (): Promise<void> => {
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
+    // A timer armed on the unlock screen finds nothing to lock, and must not
+    // cut short an unlock under way.
+    if (!this.isUnlocked()) return Promise.resolve()
+    // lockWallet marks the wallet locked before its first await.
+    const locked = this.lockWallet()
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.AUTO_LOCKED,
+      params: {},
+    })
+    return locked
+  }
+
+  /**
+   * Lock because the computer locked or the last browser window closed, when
+   * that event's setting is on. A setting that cannot be read counts as on.
+   * The caller waits for the worker's start-up first: only a keyring that has
+   * started can hold an unlocked wallet, since the keyring keeps its secrets
+   * in memory. Without a vault there is nothing to lock: during first-time
+   * onboarding the wallet could not be unlocked again, and the screens that
+   * create or restore it would fail. Locks whether or not the wallet reads
+   * unlocked, so an unlock still waiting or running ends locked (see
+   * `unlock`). Resolves with whether it locked.
+   */
+  lockOnSystemEvent = async (event: 'computer-locked' | 'windows-closed'): Promise<boolean> => {
+    if (!keyringService.memStore || !keyringService.hasVault()) return false
+    let enabled = true
+    try {
+      enabled =
+        event === 'computer-locked'
+          ? preferenceService.getLockOnComputerLock()
+          : preferenceService.getLockOnWindowsClosed()
+    } catch (error) {
+      log.error('[WalletController] Lock settings unreadable; locking', summarizeError(error))
+    }
+    if (!enabled) return false
+    await this.lockWallet()
+    return true
   }
 
   getBlockActiveInfo = () => {
