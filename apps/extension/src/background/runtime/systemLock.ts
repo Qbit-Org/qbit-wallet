@@ -8,6 +8,9 @@ type SystemLockEvent = 'computer-locked' | 'windows-closed';
 // apps, which may be the only window a dapp user has open. The wallet's own
 // approval popups are `popup` windows, so they do not count.
 const OPEN_WINDOW_TYPES: chrome.windows.windowTypeEnum[] = ['normal', 'app'];
+// windows.onRemoved reports only `normal` and `popup` windows unless the
+// listener asks for more, so closing the last app window would go unseen.
+const REMOVED_WINDOW_TYPES: chrome.windows.windowTypeEnum[] = ['normal', 'popup', 'app'];
 
 /**
  * Lock the wallet when the computer locks and when no browser window remains;
@@ -41,7 +44,7 @@ export function initSystemLock(restored: Promise<unknown>) {
 
   const windows = api?.windows;
   if (typeof windows?.onRemoved?.addListener === 'function' && typeof windows.getAll === 'function') {
-    windows.onRemoved.addListener(() => {
+    const onRemoved = () => {
       // The callback form works in MV2 and MV3 builds alike. Windows that
       // cannot be listed count as none.
       windows.getAll({ windowTypes: OPEN_WINDOW_TYPES }, (remaining) => {
@@ -51,6 +54,12 @@ export function initSystemLock(restored: Promise<unknown>) {
         }
         if (error || !remaining?.length) lock('windows-closed');
       });
-    });
+    };
+    try {
+      windows.onRemoved.addListener(onRemoved, { windowTypes: REMOVED_WINDOW_TYPES });
+    } catch {
+      // A browser whose windows events take no filter.
+      windows.onRemoved.addListener(onRemoved);
+    }
   }
 }

@@ -11,17 +11,29 @@ import { initSystemLock } from './systemLock';
 type IdleState = 'active' | 'idle' | 'locked';
 type BrowserWindow = { id: number; type: 'normal' | 'popup' | 'app' | 'devtools' };
 
-/** A browser's idle and windows APIs, as far as the listeners use them. */
-function fakeBrowser({ idle = true, windows = true } = {}) {
+type WindowFilter = { windowTypes: BrowserWindow['type'][] };
+
+/**
+ * A browser's idle and windows APIs, as far as the listeners use them. Like
+ * Chrome's, windows.onRemoved reports only `normal` and `popup` windows to a
+ * listener added without a filter; `eventFilters: false` is a browser whose
+ * windows events take none.
+ */
+function fakeBrowser({ idle = true, windows = true, eventFilters = true } = {}) {
   const idleListeners: ((state: IdleState) => void)[] = [];
-  const removedListeners: ((windowId: number) => void)[] = [];
+  const removedListeners: { listener: (windowId: number) => void; windowTypes: BrowserWindow['type'][] }[] = [];
   const browser = {
     open: [] as BrowserWindow[],
     listError: undefined as { message: string } | undefined,
     runtime: { lastError: undefined as { message: string } | undefined },
     idle: { onStateChanged: { addListener: vi.fn((listener) => idleListeners.push(listener)) } },
     windows: {
-      onRemoved: { addListener: vi.fn((listener) => removedListeners.push(listener)) },
+      onRemoved: {
+        addListener: vi.fn((listener: (windowId: number) => void, filter?: WindowFilter) => {
+          if (filter && !eventFilters) throw new Error('This event does not support filters.');
+          removedListeners.push({ listener, windowTypes: filter?.windowTypes ?? ['normal', 'popup'] });
+        })
+      },
       getAll: vi.fn(
         ({ windowTypes }: { windowTypes: BrowserWindow['type'][] }, callback: (found: BrowserWindow[]) => void) => {
           // Answers later, as the browser does.
@@ -35,8 +47,11 @@ function fakeBrowser({ idle = true, windows = true } = {}) {
     },
     setIdleState: (state: IdleState) => idleListeners.forEach((listener) => listener(state)),
     closeWindow: (id: number) => {
+      const closed = browser.open.find((w) => w.id === id);
       browser.open = browser.open.filter((w) => w.id !== id);
-      removedListeners.forEach((listener) => listener(id));
+      for (const { listener, windowTypes } of removedListeners) {
+        if (closed && windowTypes.includes(closed.type)) listener(id);
+      }
     }
   };
   vi.stubGlobal('chrome', {
@@ -157,6 +172,38 @@ describe('initSystemLock', () => {
     browser.closeWindow(2);
     await vi.runAllTimersAsync();
     expect(harness.walletController.lockOnSystemEvent).not.toHaveBeenCalled();
+
+    browser.closeWindow(1);
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('windows-closed');
+  });
+
+  it('locks when an app window that outlived the last normal window closes', async () => {
+    const browser = fakeBrowser();
+    browser.open = [
+      { id: 1, type: 'normal' },
+      { id: 2, type: 'app' }
+    ];
+    initSystemLock(started());
+    // Without the filter the browser would not report the app window closing.
+    expect(browser.windows.onRemoved.addListener).toHaveBeenCalledWith(expect.any(Function), {
+      windowTypes: ['normal', 'popup', 'app']
+    });
+
+    browser.closeWindow(1);
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockOnSystemEvent).not.toHaveBeenCalled();
+
+    browser.closeWindow(2);
+    await vi.runAllTimersAsync();
+    expect(harness.walletController.lockOnSystemEvent).toHaveBeenCalledWith('windows-closed');
+  });
+
+  it('still listens, without a filter, in a browser whose windows events take none', async () => {
+    const browser = fakeBrowser({ eventFilters: false });
+    browser.open = [{ id: 1, type: 'normal' }];
+    initSystemLock(started());
+    expect(browser.windows.onRemoved.addListener).toHaveBeenLastCalledWith(expect.any(Function));
 
     browser.closeWindow(1);
     await vi.runAllTimersAsync();

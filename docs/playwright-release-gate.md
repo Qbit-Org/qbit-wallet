@@ -39,6 +39,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/onboard.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/receive.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/send.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/dapp-events.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/approval-hierarchy.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/phishing.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/recovery.spec.ts
@@ -66,29 +67,41 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 14 tests. The results and times below are from the
-`Playwright G3 scenarios` job in run 40526893310 (PR #327, head `4d7c6741`,
-2026-10-27), where all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. Times are CI timings, not performance budgets.
-Signing samples are recorded separately with two-decimal millisecond
-precision.
+The complete gate is 24 tests (`corepack pnpm exec playwright test --list`).
+The results and times below are from the `Playwright G3 scenarios` job in run
+40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
+then in the gate: all 14 passed on the first attempt with none flaky or
+skipped in 9.0 minutes. The ten tests added since show "Not recorded" until a
+recorded run includes them. The line numbers are those of the current specs.
+Times are CI timings, not performance budgets. Signing samples are recorded
+separately with two-decimal millisecond precision.
 
-| Row                 | Test                                                       | Required coverage                                                                               | Result | CI time |
-| ------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------ | ------: |
-| MV3 harness         | `foundation/mv3-harness.spec.ts:4`                         | Load the unpacked extension and a clean regtest service worker                                  | Pass   |   4.2 s |
-| Onboard             | `scenarios/onboard.spec.ts:5`                              | Create, back up, and open a Qbit P2MR wallet on regtest                                         | Pass   |  14.9 s |
-| Receive/fund/rotate | `scenarios/receive.spec.ts:5`                              | Fund issued addresses, rotate safely, mine, and retain previous addresses                       | Pass   |  26.2 s |
-| Send                | `scenarios/send.spec.ts:23`                                | Dust rejection; single/multi-input fees; exact displayed/on-chain fee equality; RBF replacement | Pass   |  67.7 s |
-| dApp                | `scenarios/dapp.spec.ts:37`                                | Connect; message sign/verify; PSBT sign; broadcast; revoke                                      | Pass   |  30.8 s |
-| Approval hierarchy  | `scenarios/approval-hierarchy.spec.ts:72`                  | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate | Pass   |  30.0 s |
-| Phishing block      | `scenarios/phishing.spec.ts:161`                           | Block a direct navigation to a denylisted host before it reaches the network                    | Pass   |   2.1 s |
-| Phishing proceed    | `scenarios/phishing.spec.ts:178`                           | Warn on a denylisted link; Proceed lifts only that host, which gets no wallet provider          | Pass   |   7.4 s |
-| Phishing race       | `scenarios/phishing.spec.ts:232`                           | Warn on a link clicked while the service worker runs; the warning page stays (#320)             | Pass   |   5.8 s |
-| Wipe/restore        | `scenarios/recovery.spec.ts:86`                            | Passphrase separation; exact addresses, balances, floors, and warnings after restore            | Pass   | 126.0 s |
-| Lock                | `scenarios/lock.spec.ts:24`                                | Wrong password, unlock, persisted state, and browser restart                                    | Pass   |  33.4 s |
-| Auto-lock           | `scenarios/lock.spec.ts:88`                                | Onboarding keepalive stays bounded across an MV3 service-worker restart                         | Pass   |  56.1 s |
-| Biometric B1        | `scenarios/biometric-unlock.spec.ts:38`                    | Onboarding enrollment, TouchID unlock, and password-change re-wrap                              | Pass   |  16.8 s |
-| Biometric B2        | `scenarios/biometric-unlock.spec.ts:109`                   | Settings enrollment with step-up, persistence across restart, and disable                       | Pass   |  19.8 s |
+| Row                   | Test                                      | Required coverage                                                                                          | Result       | CI time |
+| --------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------ | ------: |
+| MV3 harness           | `foundation/mv3-harness.spec.ts:4`        | Load the unpacked extension and a clean regtest service worker                                             | Pass         |   4.2 s |
+| Onboard               | `scenarios/onboard.spec.ts:5`             | Create, back up, and open a Qbit P2MR wallet on regtest                                                    | Pass         |  14.9 s |
+| Receive/fund/rotate   | `scenarios/receive.spec.ts:5`             | Fund issued addresses, rotate safely, mine, and retain previous addresses                                  | Pass         |  26.2 s |
+| Send                  | `scenarios/send.spec.ts:23`               | Dust rejection; single/multi-input fees; exact displayed/on-chain fee equality; RBF replacement            | Pass         |  67.7 s |
+| dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
+| dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
+| Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
+| Phishing block        | `scenarios/phishing.spec.ts:261`          | Block a direct navigation to a denylisted host before it reaches the network                               | Pass         |   2.1 s |
+| Phishing redirect     | `scenarios/phishing.spec.ts:278`          | Warn on a same-site redirect to a denylisted host; Proceed loads the site                                  | Not recorded |       — |
+| Phishing link wrapper | `scenarios/phishing.spec.ts:278`          | Warn on another site's link wrapper to a denylisted host; Proceed loads the site                           | Not recorded |       — |
+| Phishing site access  | `scenarios/phishing.spec.ts:314`          | Fall back to the block rule while site access is withheld; warn again once it is granted                   | Not recorded |       — |
+| Phishing new tab      | `scenarios/phishing.spec.ts:352`          | Warn in the new tab a link opens, and leave the source tab alone                                           | Not recorded |       — |
+| Phishing proceed      | `scenarios/phishing.spec.ts:377`          | Warn on a denylisted link; Proceed lifts only that host, which gets no wallet provider                     | Pass         |   7.4 s |
+| Phishing form         | `scenarios/phishing.spec.ts:430`          | A form from another tab reaches a host the user proceeded to once                                          | Not recorded |       — |
+| Phishing race         | `scenarios/phishing.spec.ts:458`          | Warn on a link clicked while the service worker runs; the warning page stays (#320)                        | Pass         |   5.8 s |
+| Phishing rule status  | `scenarios/phishing.spec.ts:489`          | The wallet pages report the installed block rule                                                           | Not recorded |       — |
+| Phishing invalid name | `scenarios/phishing.spec.ts:506`          | No Proceed for a denylisted name outside DNS syntax, and the warning says why                              | Not recorded |       — |
+| Phishing rule missing | `scenarios/phishing.spec.ts:521`          | Warn before a denylisted page runs script while the block rule is missing                                  | Not recorded |       — |
+| Wipe/restore          | `scenarios/recovery.spec.ts:86`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |
+| Lock                  | `scenarios/lock.spec.ts:25`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
+| Auto-lock             | `scenarios/lock.spec.ts:89`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
+| Window close          | `scenarios/lock.spec.ts:165`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
+| Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
+| Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
 
 The dApp PSBT-signing and wipe/restore rows were previously blocked (a
 `-32603: Not supported` provider rejection and a restore scan that never

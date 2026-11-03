@@ -1630,45 +1630,56 @@ export class WalletController extends BaseController {
     const alianNameInited = preferenceService.getInitAlianNameStatus()
     const alianNames = contactBookService.listAlias()
     let deferredAccountChange: Account | undefined
-    await keyringService.submitPassword(password, {
-      beforeUnlock: async () => {
-        // Thrown here, the keyring service drops what it loaded and stays locked.
-        assertNotLockedSinceCall()
-        const hdPathChanged = await keyringService.syncQbitHdPath(
-          getQbitHdPathForChainType(this.getChainType())
-        )
+    try {
+      await keyringService.submitPassword(password, {
+        beforeUnlock: async () => {
+          // Thrown here, the keyring service drops what it loaded and stays locked.
+          assertNotLockedSinceCall()
+          const hdPathChanged = await keyringService.syncQbitHdPath(
+            getQbitHdPathForChainType(this.getChainType())
+          )
 
-        const keyring = await this.getCurrentKeyring()
-        const currentAccount = preferenceService.getCurrentAccount()
-        const preferredAccountIndex = currentAccount?.index ?? 0
-        const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
-          ? preferredAccountIndex
-          : 0
-        const selectedAccount = keyring?.accounts[selectedAccountIndex]
-        const qbitAccountChanged =
-          keyring?.type === KeyringType.QbitHdKeyring &&
-          selectedAccount !== undefined &&
-          (selectedAccount.pubkey !== currentAccount?.pubkey ||
-            selectedAccount.address !== currentAccount?.address)
+          const keyring = await this.getCurrentKeyring()
+          const currentAccount = preferenceService.getCurrentAccount()
+          const preferredAccountIndex = currentAccount?.index ?? 0
+          const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
+            ? preferredAccountIndex
+            : 0
+          const selectedAccount = keyring?.accounts[selectedAccountIndex]
+          const qbitAccountChanged =
+            keyring?.type === KeyringType.QbitHdKeyring &&
+            selectedAccount !== undefined &&
+            (selectedAccount.pubkey !== currentAccount?.pubkey ||
+              selectedAccount.address !== currentAccount?.address)
 
-        if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
-          await this.changeKeyring(keyring, selectedAccountIndex, {
-            broadcastAccountChange: false,
-          })
-          deferredAccountChange = selectedAccount
-        }
-      },
-    })
-    // A lock during the unlock's last step leaves the keyring locked, as the
-    // keyring service publishes no unlock while a lock is pending; so does a
-    // lock the keyring service makes on its own.
-    assertNotLockedSinceCall()
-    if (!this.isUnlocked()) {
-      throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+          if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
+            await this.changeKeyring(keyring, selectedAccountIndex, {
+              broadcastAccountChange: false,
+            })
+            deferredAccountChange = selectedAccount
+          }
+        },
+      })
+      // A lock during the unlock's last step leaves the keyring locked, as the
+      // keyring service publishes no unlock while a lock is pending; so does a
+      // lock the keyring service makes on its own.
+      assertNotLockedSinceCall()
+      if (!this.isUnlocked()) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    } catch (error) {
+      // An account the unlock switched to is saved already, but its sites
+      // learn of it only from an unlocked wallet: the next unlock tells them.
+      if (deferredAccountChange) this.accountChangeUnannounced = true
+      throw error
     }
     sessionService.broadcastEvent(SESSION_EVENTS.unlock)
-    if (deferredAccountChange) {
-      this.publishAccountChange(deferredAccountChange)
+    const accountChange =
+      deferredAccountChange ??
+      (this.accountChangeUnannounced ? (preferenceService.getCurrentAccount() ?? undefined) : undefined)
+    this.accountChangeUnannounced = false
+    if (accountChange) {
+      this.publishAccountChange(accountChange)
     }
     if (!alianNameInited && alianNames.length === 0) {
       this.initAlianNames()
@@ -1710,6 +1721,8 @@ export class WalletController extends BaseController {
 
   /** Locks requested through lockWallet; see `unlock`. */
   private lockRequests = 0
+  /** An unlock that a lock ended switched the account without announcing it. */
+  private accountChangeUnannounced = false
 
   lockWallet = async () => {
     this.lockRequests += 1

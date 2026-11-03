@@ -222,7 +222,9 @@ Describe it as follows:
 - **What it is for**: locking the wallet when the computer locks. The
   background listens for `chrome.idle` state changes and locks the wallet on
   `locked`, when the user's "Lock when the computer locks" setting is on (the
-  default). It ignores `idle` and `active`.
+  default); only `locked` triggers that setting. Any state change, waking
+  included, also applies an auto-lock whose time has already passed, since
+  the auto-lock timer does not count the time the computer sleeps.
 - **What is accessed**: only the computer's idle state. It is neither stored
   nor sent anywhere.
 - **Install warning**: none. `chrome.management.getPermissionWarningsByManifest`
