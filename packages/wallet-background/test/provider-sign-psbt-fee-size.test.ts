@@ -40,7 +40,11 @@ import { qbitFeeSummaryFromTiers } from '../src/utils/qbit-api'
 // keyring signer, signature verification and the fee quote are stubbed. The
 // approval's fee rate is compared with the transaction the signed PSBT
 // finalizes to (#59).
-const approvalServiceMock = vi.hoisted(() => ({ requestApproval: vi.fn(), unLock: vi.fn() }))
+const approvalServiceMock = vi.hoisted(() => ({
+  assertNoPendingApproval: vi.fn(async () => undefined),
+  requestApproval: vi.fn(),
+  unLock: vi.fn(),
+}))
 
 vi.mock('@qbit-oss/pqc', async importOriginal => ({
   ...(await importOriginal<typeof import('@qbit-oss/pqc')>()),
@@ -59,6 +63,10 @@ vi.mock('../src/services', async () => {
       memStore: { getState: vi.fn(() => ({ isUnlocked: true })) },
       getQbitRecoveryState: vi.fn(async () => undefined),
       preflightP2mrPsbtSigning: vi.fn(),
+      openP2mrPsbtSigningBatch: vi.fn(),
+      hasOpenP2mrPsbtSigningBatches: vi.fn(() => true),
+      releaseP2mrPsbtSigningBatches: vi.fn(),
+      on: vi.fn(),
       signP2mrPsbtWithCounter: vi.fn(),
     },
     preferenceService: {
@@ -309,6 +317,10 @@ describe('the fee rate a website PSBT approval shows (#59)', () => {
       remainingAfter: 29,
       limit: 30,
     } as any)
+    vi.mocked(keyringService.openP2mrPsbtSigningBatch).mockResolvedValue({
+      id: 'batch-1',
+      budget: { required: 2, cached: 0, remainingBefore: 30, remainingAfter: 28, limit: 30 },
+    })
     vi.mocked(keyringService.signP2mrPsbtWithCounter).mockImplementation(
       async (_address, { psbt, keys }) => {
         const signed = signP2mrPsbt({

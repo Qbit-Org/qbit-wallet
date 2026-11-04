@@ -482,6 +482,26 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const batchRiskIndexes = (currentLocalPsbtSummary?.items ?? []).flatMap((item, index) =>
     item.risks.length > 0 ? [index] : []
   )
+  // The whole batch's signature budget. Its entries sign in any order, so
+  // an entry's own before and after figures would hold only if it signed
+  // first.
+  const signatureBatchBudget =
+    toSignDatas[0]?.qbitSignatureBatch?.budget ?? currentLocalPsbtSummary?.signatureBatch?.budget
+
+  /**
+   * The entry at `index` as its batch signs it. A provider request's entries
+   * carry the batch opened at its approval; a local batch's is the one the
+   * wallet opened for the bytes it reviewed in `summary`.
+   */
+  const withSignatureBatch = (
+    index: number,
+    summary: LocalPsbtSummary | null | undefined
+  ): ToSignData => {
+    const toSignData = toSignDatas[index]!
+    const batch = summary?.signatureBatch
+    if (!batch || toSignData.qbitSignatureBatch) return toSignData
+    return { ...toSignData, qbitSignatureBatch: { id: batch.id, index, budget: batch.budget } }
+  }
 
   const multiSignList = useMemo(() => {
     return toSignDatas.map((data, index) => {
@@ -642,8 +662,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       if (signedStates[i] === SignState.SUCCESS) continue
 
       try {
-        const toSignData = toSignDatas[i]
-        const signedData = await wallet.signLocalBatchPsbt(toSignData, {
+        const signedData = await wallet.signLocalBatchPsbt(withSignatureBatch(i, summary), {
           account: summary.account,
           chain: summary.chain,
           confirmedRisks: risksConfirmed ? summary.items[i].risks.map(risk => risk.type) : [],
@@ -748,7 +767,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     const signingWebsiteGuardVersion = websiteGuardVersionRef.current
 
     try {
-      const toSignData = toSignDatas[signingTxIndex]
+      const toSignData = withSignatureBatch(signingTxIndex, currentLocalPsbtSummary)
       const signedData = await wallet.signPsbtV2(toSignData)
       onSignedData(signedData, signingTxIndex, signingWebsiteGuardVersion)
       // Even when the website guard rejects the handoff above, the successful
@@ -995,6 +1014,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     // A batch review for another account is closed rather than confirmed.
     batchRiskReview: batchRiskReview?.account === currentAddress ? batchRiskReview : null,
     batchRiskIndexes,
+    signatureBatchBudget,
 
     // data
     toSignDatas,
