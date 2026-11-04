@@ -2150,6 +2150,24 @@ function shellWordDetails(segment) {
       word.plain = false
       index += 1
       word.text += segment[index] ?? ''
+    } else if (character === '(' || character === ')') {
+      // The shell reads an unquoted `(` or `)` as an operator that breaks the
+      // word, so a subshell `(pnpm …)` runs pnpm as its own command word. The
+      // paren is kept as a word of its own so the following word is a clean
+      // manager name, not `(pnpm`. A paren that begins a word leaves no empty
+      // word in front of it.
+      if (word.text === '' && word.start === index) word = null
+      else flush()
+      words.push({
+        text: character,
+        plain: false,
+        glob: false,
+        redirection: false,
+        start: index,
+        end: index + 1,
+        raw: character,
+      })
+      continue
     } else {
       if (!PLAIN_UNQUOTED.test(character) && !(character === '#' && index > word.start)) {
         word.plain = false
@@ -2167,9 +2185,10 @@ function shellWordDetails(segment) {
 // The names the design rule covers, longest first so `pnpm` is tried before
 // its prefix `pn`.
 const MANAGER_NAMES = ['pnpm', 'pnpx', 'pnx', 'pn', 'npm', 'npx', 'corepack']
-// Words the shell reads as keywords or leaves literal although they are not
-// made of plain characters: a group or negation, and an empty brace pair.
-const SHELL_KEYWORD_WORDS = new Set(['!', '{', '}', '{}'])
+// Words the shell reads as keywords or operators although they are not made of
+// plain characters: a group or negation, an empty brace pair, and the subshell
+// parentheses `shellWordDetails` emits as words of their own.
+const SHELL_KEYWORD_WORDS = new Set(['!', '{', '}', '{}', '(', ')'])
 const PNPM_FAMILY = new Set(['pnpm', 'pnpx', 'pnx', 'pn'])
 
 // The name a word runs as a package manager, or null. A shell word is one
@@ -2304,7 +2323,56 @@ function pnpmReadCount(values) {
 // be computed, as the repository's own commands pass paths and versions that
 // way. Substitution and inline shell bodies are lines of their own, and so is
 // each line of a heredoc body, which `bash <<EOF` runs.
-function managerLineRejections(command, depth = 0) {
+// Commands that run another command after their own options and operands, so a
+// manager after one, past its lock file, nice level or timeout, is still in
+// command position. It extends the transparent prefixes with wrappers
+// (`flock`, `ionice`, …) whose operands the delegation walk must not skip, so
+// they are listed here rather than in TRANSPARENT_COMMAND_PREFIXES.
+const COMMAND_WRAPPERS = new Set([
+  'builtin',
+  'chrt',
+  'command',
+  'corepack',
+  'doas',
+  'eatmydata',
+  'env',
+  'exec',
+  'flock',
+  'ionice',
+  'nice',
+  'nohup',
+  'setpriv',
+  'setsid',
+  'stdbuf',
+  'sudo',
+  'timeout',
+  'xargs',
+  'xvfb-run',
+])
+
+// The index of the manager word a command segment runs, or -1. A manager runs
+// only in command position: as the first word, or after assignments, shell
+// keywords (`if`, `(`, …) and command wrappers (`flock`, `nice`, `corepack`, …)
+// and their arguments. A real command that is not a wrapper (`echo`, `make`)
+// ends the search, so a manager name after it is one of its arguments.
+function managerCommandIndex(words) {
+  let wrapped = false
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]
+    if (managerWordName(word) !== null) return index
+    if (wrapped) continue
+    if (SHELL_ASSIGNMENT.test(word.raw)) continue
+    if (SHELL_COMMAND_KEYWORDS.has(word.text) || word.raw === ')' || word.raw === '}') continue
+    if (COMMAND_WRAPPERS.has(word.text)) {
+      wrapped = true
+      continue
+    }
+    return -1
+  }
+  return -1
+}
+
+function managerLineRejections(command, { references = new Set(), depth = 0 } = {}) {
   const rejections = new Set()
   if (depth > 8) {
     rejections.add(`nested shell command is deeper than the audit follows: ${command.trim()}`)
@@ -2313,7 +2381,11 @@ function managerLineRejections(command, depth = 0) {
   const shellCommand = command
   for (const segment of shellCommandSegments(shellCommand)) {
     const words = shellWordDetails(segment)
-    const managerIndex = words.findIndex(word => managerWordName(word) !== null)
+    // The manager must be in command position — the first word, or reached
+    // through assignments, shell keywords and transparent prefixes such as
+    // `flock` or `corepack` — so a manager name that is only an argument
+    // (`echo https://host/npx …`) does not make the line a manager line.
+    const managerIndex = managerCommandIndex(words)
     if (managerIndex >= 0) {
       for (const word of words) {
         if (word.redirection) {
@@ -2357,6 +2429,17 @@ function managerLineRejections(command, depth = 0) {
           name === 'pnpx' || name === 'pnx'
             ? index + pnpmReadCount(['dlx', ...values])
             : index + 1 + pnpmReadCount(values)
+      } else {
+        // npm, npx and Corepack are read here too, from the manager's basename
+        // onward, because the textual reader's manager regex also misses a
+        // path-qualified `./v%/npx` or `./x@/npm`, so its settings, option and
+        // pinning checks would miss one. The reconstructed command drops only
+        // the directory prefix the shell would have run the binary from.
+        const managerWord = words[index]
+        const clean = segment.slice(managerWord.start + managerWord.raw.lastIndexOf('/') + 1)
+        for (const reference of executablePackageReferences(clean, { rejections })) {
+          references.add(reference)
+        }
       }
       words.slice(0, readEnd).forEach((word, position) => {
         if (word.plain || word.redirection || word.glob || SHELL_KEYWORD_WORDS.has(word.raw)) return
@@ -2369,11 +2452,15 @@ function managerLineRejections(command, depth = 0) {
       })
     }
     for (const body of inlineShellBodies(shellWords(segment))) {
-      for (const rejection of managerLineRejections(body, depth + 1)) rejections.add(rejection)
+      for (const rejection of managerLineRejections(body, { references, depth: depth + 1 })) {
+        rejections.add(rejection)
+      }
     }
   }
   for (const body of nestedShellBodies(shellCommand)) {
-    for (const rejection of managerLineRejections(body, depth + 1)) rejections.add(rejection)
+    for (const rejection of managerLineRejections(body, { references, depth: depth + 1 })) {
+      rejections.add(rejection)
+    }
   }
   return rejections
 }
@@ -3996,12 +4083,16 @@ export function auditExecutableDependencyCommands(
           references.add(reference)
         }
       }
-      // The decoded texts are read for references above (where a manager or
-      // package spelled through ANSI-C is pinned and its options audited); the
-      // line reader runs on the originals, whose ANSI-C words it rejects
-      // outright, so it needs no decoded copy of its own.
-      for (const shellCommand of [...shellCommands, ...inputTexts]) {
-        for (const rejection of managerLineRejections(shellCommand)) rejections.add(rejection)
+      // The line reader and the pass-through check run on the original texts
+      // and on their ANSI-C decoding, so a manager, option or settings command
+      // spelled through `$'…'` is read as the shell runs it. `IFS=$'\n'` stays
+      // accepted: decoded it names no manager. A reference the reconstructed
+      // manager line exposes is pinned with the rest.
+      const lineTexts = [...shellCommands, ...inputTexts]
+      for (const shellCommand of [...lineTexts, ...lineTexts.map(decodeAnsiCQuoting)]) {
+        for (const rejection of managerLineRejections(shellCommand, { references })) {
+          rejections.add(rejection)
+        }
         for (const rejection of passThroughScriptRejections(shellCommand, scriptCommands)) {
           rejections.add(rejection)
         }

