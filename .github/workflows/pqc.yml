@@ -64,7 +64,7 @@ jobs:
       - name: Enable the pinned pnpm
         run: |
           corepack enable
-          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

@@ -43,11 +43,15 @@ of [Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js), and
 ## Requirements
 
 - Node.js 22.22.3 (see `.nvmrc`)
-- pnpm 11.28.9, the `packageManager` pin in `package.json` (`corepack enable` picks it up)
+- pnpm 11.28.9, the `packageManager` pin in `package.json`, run through Corepack.
+  After `corepack enable`, `pnpm` is Corepack's shim, which checks the pnpm it
+  downloads against the pin's sha512 hash. A pnpm installed another way, such
+  as `npm install -g pnpm` or `pnpm/action-setup`, is not checked.
 
 ## Setup
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 ```
 

@@ -29,27 +29,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        # Only for setup-node's pnpm store cache. The action installs the
-        # packageManager version from the registry without checking its sha512
-        # hash, so no pnpm command below runs it.
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
       - name: Run pnpm through Corepack
         # Corepack installs the pnpm that package.json's packageManager pins and
-        # checks it against the pin's sha512 hash. Its shim must come first on
-        # PATH, so package scripts that call `pnpm` run the checked pnpm too.
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
         run: |
           corepack enable
-          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
@@ -68,27 +74,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        # Only for setup-node's pnpm store cache. The action installs the
-        # packageManager version from the registry without checking its sha512
-        # hash, so no pnpm command below runs it.
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
       - name: Run pnpm through Corepack
         # Corepack installs the pnpm that package.json's packageManager pins and
-        # checks it against the pin's sha512 hash. Its shim must come first on
-        # PATH, so package scripts that call `pnpm` run the checked pnpm too.
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
         run: |
           corepack enable
-          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
@@ -110,27 +122,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        # Only for setup-node's pnpm store cache. The action installs the
-        # packageManager version from the registry without checking its sha512
-        # hash, so no pnpm command below runs it.
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
       - name: Run pnpm through Corepack
         # Corepack installs the pnpm that package.json's packageManager pins and
-        # checks it against the pin's sha512 hash. Its shim must come first on
-        # PATH, so package scripts that call `pnpm` run the checked pnpm too.
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
         run: |
           corepack enable
-          test "$(command -v pnpm)" = "$(dirname "$(command -v node)")/pnpm"
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
@@ -165,7 +183,9 @@ jobs:
           echo "artifact_version=${artifact_version}" >> "$GITHUB_OUTPUT"
 
       - name: Build Chrome MV3 extension
-        run: corepack pnpm --filter qbit-extension run package:test -- --artifact-version "${{ steps.extension-version.outputs.artifact_version }}"
+        env:
+          ARTIFACT_VERSION: ${{ steps.extension-version.outputs.artifact_version }}
+        run: corepack pnpm --filter qbit-extension run package:test -- --artifact-version "$ARTIFACT_VERSION"
 
       - name: Verify two clean extension builds are byte-identical
         run: corepack pnpm run build:repro:extension -- --skip-prepare

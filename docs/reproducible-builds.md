@@ -9,13 +9,36 @@ build is safe merely because it is reproducible.
 - Node.js is exactly the version in `.nvmrc`.
 - pnpm is the `packageManager` pin in `package.json`: version 11.28.9 and its
   sha512 hash. Every pnpm command runs through Corepack, which checks the pnpm
-  it downloads against that hash. CI runs `corepack pnpm` and also
-  `corepack enable`, and fails unless Corepack's `pnpm` shim comes first on
-  `PATH`, so package scripts that call `pnpm` run the same checked pnpm.
-  `build:repro:extension` also fails unless `corepack pnpm --version` is the
-  pinned version.
+  it downloads against that hash. In CI, no step runs pnpm before the step
+  that runs `corepack enable` and fails unless the `pnpm` first on `PATH` is
+  Corepack's shim beside `node`, so package scripts that call `pnpm` run the
+  same checked pnpm. No workflow uses `pnpm/action-setup` or setup-node's
+  `cache: pnpm`, both of which run a pnpm whose hash nothing checks. Jobs that
+  cache the pnpm store read its path from `corepack pnpm store path` after that
+  step and key the cache on the runner OS and `pnpm-lock.yaml`; the release job
+  restores no cache. `build:repro:extension` also fails unless
+  `corepack pnpm --version` is the pinned version.
+- The dependency policy (`pnpm security:dependencies`) reads the commands in
+  every manifest script, workflow, action input and the scripts they run, and
+  rejects: `pnpm/action-setup` and `cache: pnpm`; a Corepack command that
+  rewrites the pin or installs a global default (`corepack use`, `up`,
+  `install -g`, `prepare --activate`, `hydrate`, `disable`); a `pnpm@<spec>`
+  other than the pin; pnpm or Corepack fetched as a package; any pnpm option
+  outside its allowlist, `--config.<key>` anywhere, and the commands that
+  change settings; `pnpm_config_*` and `COREPACK_*` variables, and setting
+  `HOME`, `XDG_CONFIG_HOME`, `PNPM_HOME`, `npm_config_userconfig` or
+  `npm_config_globalconfig`; and a pnpm, npm, npx or Corepack command line it
+  cannot read in full, such as one with a redirection, a glob, `xargs`, ANSI-C
+  quoting or an expansion in the manager's path or in a word the manager reads.
+  It reads what it can see in the repository: a pnpm installed some other way,
+  such as one already on a developer's `PATH`, or an environment a script
+  computes at run time, is outside it.
 - JavaScript dependencies must come from `pnpm-lock.yaml` through
-  `pnpm install --frozen-lockfile`.
+  `pnpm install --frozen-lockfile`. The dependency policy requires
+  `verifyDepsBeforeRun: false` in `pnpm-workspace.yaml`, so the `pnpm run` and
+  `pnpm exec` commands the repository runs do not install first (pnpm 11
+  installs by default when `node_modules` is out of date; pnpm 8 never did),
+  and it rejects the option and variable spellings that would override it.
 - The PQC WebAssembly files come from the `@qbit-oss/pqc` npm package and are
   bound by the digests in `scripts/security/sdk-package-pins.json`
   (`pnpm sdk:packages:check`). Qbit-Org/qbit-pqc rebuilds them reproducibly
