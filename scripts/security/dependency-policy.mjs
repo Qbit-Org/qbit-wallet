@@ -2150,6 +2150,19 @@ function shellWordDetails(segment) {
       word.plain = false
       index += 1
       word.text += segment[index] ?? ''
+    } else if (character === '(' && /[@?*+!]$/.test(word.text)) {
+      // An extglob `@( … )`, `?( … )`, `*( … )`, `+( … )` or `!( … )` is a glob
+      // pattern, one word, not a subshell, so its parentheses do not break the
+      // word; the whole balanced group is kept and the word is a glob.
+      let depth = 0
+      let end = index
+      for (; end < segment.length; end += 1) {
+        if (segment[end] === '(') depth += 1
+        else if (segment[end] === ')' && (depth -= 1) === 0) break
+      }
+      word.text += segment.slice(index, Math.min(end + 1, segment.length))
+      word.glob = true
+      index = end
     } else if (character === '(' || character === ')') {
       // The shell reads an unquoted `(` or `)` as an operator that breaks the
       // word, so a subshell `(pnpm …)` runs pnpm as its own command word. The
@@ -2284,7 +2297,9 @@ function passThroughScriptRejections(command, scriptCommands) {
       }
     }
     if (scriptName === undefined) continue
-    if (!passThrough.some(word => word !== '--')) continue
+    // A `--` delimiter and the `)` or `}` that closes a subshell or group
+    // around the command are not words passed to the script.
+    if (!passThrough.some(word => word !== '--' && !SHELL_KEYWORD_WORDS.has(word))) continue
     if (scriptCommands(scriptName).some(scriptTerminalRunsManager)) {
       rejections.add(
         `words passed to the \`${scriptName}\` script reach a package manager it runs; pass none`
@@ -2323,53 +2338,35 @@ function pnpmReadCount(values) {
 // be computed, as the repository's own commands pass paths and versions that
 // way. Substitution and inline shell bodies are lines of their own, and so is
 // each line of a heredoc body, which `bash <<EOF` runs.
-// Commands that run another command after their own options and operands, so a
-// manager after one, past its lock file, nice level or timeout, is still in
-// command position. It extends the transparent prefixes with wrappers
-// (`flock`, `ionice`, …) whose operands the delegation walk must not skip, so
-// they are listed here rather than in TRANSPARENT_COMMAND_PREFIXES.
-const COMMAND_WRAPPERS = new Set([
-  'builtin',
-  'chrt',
-  'command',
-  'corepack',
-  'doas',
-  'eatmydata',
-  'env',
-  'exec',
-  'flock',
-  'ionice',
-  'nice',
-  'nohup',
-  'setpriv',
-  'setsid',
-  'stdbuf',
-  'sudo',
-  'timeout',
-  'xargs',
-  'xvfb-run',
-])
+// Commands that read their arguments as data rather than running one of them,
+// so a manager name among their arguments is not a command. Everything else —
+// every wrapper (`flock`, `nice`, `env`, `time`, `sudo`, `find … -exec`, a
+// local `./with-lock.sh`), known or not — is assumed to run the manager, so
+// the audit fails closed on a wrapper it does not know rather than open.
+const DATA_ONLY_COMMANDS = new Set(['echo', 'printf', ':', 'test', '['])
 
-// The index of the manager word a command segment runs, or -1. A manager runs
-// only in command position: as the first word, or after assignments, shell
-// keywords (`if`, `(`, …) and command wrappers (`flock`, `nice`, `corepack`, …)
-// and their arguments. A real command that is not a wrapper (`echo`, `make`)
-// ends the search, so a manager name after it is one of its arguments.
+// The index of the manager word a command segment runs, or -1. A segment that
+// names a manager runs it, unless the program the segment runs is a data-only
+// command and the manager is one of its arguments. The program is the first
+// word that is not an assignment, a shell keyword or operator, or a
+// redirection; a word followed by `)` is a case-pattern label, not the program
+// (`echo) pnpm …` runs pnpm, not echo).
 function managerCommandIndex(words) {
-  let wrapped = false
-  for (let index = 0; index < words.length; index += 1) {
+  const managerIndex = words.findIndex(word => managerWordName(word) !== null)
+  if (managerIndex < 0) return -1
+  for (let index = 0; index < managerIndex; index += 1) {
     const word = words[index]
-    if (managerWordName(word) !== null) return index
-    if (wrapped) continue
     if (SHELL_ASSIGNMENT.test(word.raw)) continue
     if (SHELL_COMMAND_KEYWORDS.has(word.text) || word.raw === ')' || word.raw === '}') continue
-    if (COMMAND_WRAPPERS.has(word.text)) {
-      wrapped = true
+    if (word.redirection) continue
+    if (words[index + 1]?.raw === ')') {
+      while (index < managerIndex && words[index].raw !== ')') index += 1
       continue
     }
-    return -1
+    const base = word.text.slice(word.text.lastIndexOf('/') + 1)
+    return DATA_ONLY_COMMANDS.has(base) ? -1 : managerIndex
   }
-  return -1
+  return managerIndex
 }
 
 function managerLineRejections(command, { references = new Set(), depth = 0 } = {}) {
@@ -2435,8 +2432,11 @@ function managerLineRejections(command, { references = new Set(), depth = 0 } = 
         // path-qualified `./v%/npx` or `./x@/npm`, so its settings, option and
         // pinning checks would miss one. The reconstructed command drops only
         // the directory prefix the shell would have run the binary from.
-        const managerWord = words[index]
-        const clean = segment.slice(managerWord.start + managerWord.raw.lastIndexOf('/') + 1)
+        // Built from the parsed words, not sliced from the raw segment, so a
+        // quoted path (`"./x@/npm"`) leaves no stray quote to merge the
+        // following words into one.
+        const base = words[index].text.slice(words[index].text.lastIndexOf('/') + 1)
+        const clean = [base, ...after(index)].join(' ')
         for (const reference of executablePackageReferences(clean, { rejections })) {
           references.add(reference)
         }

