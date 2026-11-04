@@ -1,5 +1,10 @@
 // Main service class
-export { KeyringService, type PasswordLifecycleEvent } from './keyring-service'
+export {
+  KeyringService,
+  QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+  QbitSignatureBatchInterruptedError,
+  type PasswordLifecycleEvent,
+} from './keyring-service'
 
 // Keyring implementations
 export { SimpleKeyring, HdKeyring, ColdWalletKeyring } from './keyrings'

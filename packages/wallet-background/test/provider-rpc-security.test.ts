@@ -524,6 +524,31 @@ describe('Provider RPC security gates', () => {
     ])
   })
 
+  it('releases no challenge or batch a refused request names in its own parameters (#156)', async () => {
+    // A recovery migration's review holds this challenge, and its batch
+    // closes when the challenge is released; a page must reach neither.
+    const pageEntry = {
+      signatureBudget: { restoredFloorRisk: { challengeId: 'migration-challenge' } },
+      qbitSignatureBatch: { id: 'migration-batch', index: 0 },
+    }
+    const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+
+    await expect(
+      rpcFlow(
+        request('signPsbts', {
+          psbtHexs: ['70736274', '70736274'],
+          options: [{ chain: ChainType.QBIT_REGTEST }, { chain: ChainType.QBIT_REGTEST }],
+          toSignDatas: [pageEntry],
+          toSignMessages: [pageEntry],
+        })
+      )
+    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS })
+
+    expect(approvalServiceMock.requestApproval).not.toHaveBeenCalled()
+    expect(walletMock.releaseQbitRestoredFloorSigningChallenges).not.toHaveBeenCalled()
+    expect(walletMock.releaseQbitSignatureBatches).not.toHaveBeenCalled()
+  })
+
   it('releases restored-floor signing challenges when a message approval is rejected', async () => {
     Reflect.defineMetadata(
       'APPROVAL',
