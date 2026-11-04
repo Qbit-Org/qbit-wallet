@@ -79,9 +79,12 @@ at `0168a04` on `release/1.0.7` to 58 occurrences, including the high
 `follow-redirects` record `GHSA-mrwp-f3q8-3g9p`, and the dependency-policy
 job failed again. Moving `follow-redirects` to 1.16.2 on 2026-11-02 reduced
 the current result to 57 occurrences: 0 critical, 0 high, 43 moderate, and
-14 low. Replacing `extensionizer` with `chrome.runtime.getURL` the same day
-removed one shipped-runtime package that had no advisory, and the current
-result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low.
+14 low. Replacing `extensionizer` with `chrome.runtime.getURL` in `86edab1`,
+written the same day, removed one shipped-runtime package that had no
+advisory. The evidence was regenerated on 2026-11-03 at `df95c38`, which
+merges that change after the rebase onto the updated `release/1.0.8`, and the
+current result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and
+14 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
