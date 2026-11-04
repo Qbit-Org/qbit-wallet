@@ -10,12 +10,12 @@ import { allowLinksWithinProceededPage, setupNavigationListeners } from './phish
 
 // Initialize phishing detection immediately
 (async function initialize() {
-  // MV3's network rules keep frames off denylisted hosts, so there the
-  // content script guards navigation from the top frame only. A child frame,
-  // such as an embedded widget, only checks its own host, so that a
-  // denylisted frame gets no provider. MV2 has no such rules and guards
-  // every frame.
-  const guardsNavigation = isTopFrame() || process.env.manifest !== 'mv3';
+  // The network rules keep frames off denylisted hosts, so the content script
+  // guards navigation from the top frame only, and a frame, even a sandboxed
+  // ad, cannot send the whole tab to the warning page. A child frame, such as
+  // an embedded widget, only checks its own host, so that a denylisted frame
+  // gets no provider.
+  const guardsNavigation = isTopFrame();
 
   // Stop a denylisted page before any of its script runs, in case the
   // network layer did not block it.

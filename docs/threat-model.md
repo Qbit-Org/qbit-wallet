@@ -340,7 +340,7 @@ Threats:
 
 Controls and evidence:
 
-- in MV3, the background installs one dynamic `declarativeNetRequest` `block`
+- the background installs one dynamic `declarativeNetRequest` `block`
   rule whose `requestDomains` are the bundled denylist (each entry and its
   subdomains) for `main_frame` and `sub_frame` requests. A `block` rule needs
   only the `declarativeNetRequest` permission. One update replaces every
@@ -354,8 +354,9 @@ Controls and evidence:
   that stops starts over at its next start.
   `GET_PHISHING_STATS`, which only the wallet's own pages may send, reports
   the rule's health as `networkRules` (`installing`, `installed`, `retrying`,
-  `failed`, `unknown` or `unsupported`, with the reason and the number of
-  domains the browser holds), read back from the browser rather than assumed.
+  `failed`, `unknown` or, without the `declarativeNetRequest` API,
+  `unsupported`, with the reason and the number of domains the browser
+  holds), read back from the browser rather than assumed.
   A rule found missing at such a read reads as `retrying` and is installed
   again, and `FORCE_UPDATE_PHISHING_LIST` installs it again too. With DNR it
   also reports `protection`, the state of the network layer as a whole:
@@ -542,9 +543,6 @@ Residual risk:
   tab for a page the content script does not run on, such as a browser page
   or a PDF, before the warning page has loaded, the tab can be sent to the
   warning page once more;
-- MV2 builds have no DNR layer. There the content script's hold is the only
-  navigation control. It covers top-level pages only, so a denylisted page in
-  a frame can run its own script;
 - the record of a release lives in the page's own sessionStorage, so a page
   that has run script in a tab, because the user proceeded to it there or
   before its host was denylisted, can write it, also again after its check
@@ -555,9 +553,9 @@ Residual risk:
   skips the hold until the check removes it. A page the user proceeded to
   whose sessionStorage cannot be used, for example because the user blocks
   cookies and site data, never loads;
-- while the MV3 block rule is missing, a denylisted page in a frame runs its
-  own script: the content script holds only top-level pages, and in MV3 it
-  only checks a frame's host, so the frame gets no provider but no warning
+- while the block rule is missing, a denylisted page in a frame runs its
+  own script: the content script holds only top-level pages, and it only
+  checks a frame's host, so the frame gets no provider but no warning
   either;
 - after Proceed, the first load of each origin of the host in a tab is
   stopped and reloaded once. The server gets that request twice, so a

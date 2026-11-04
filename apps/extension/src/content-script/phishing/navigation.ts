@@ -123,11 +123,10 @@ function findLink(e: MouseEvent): Link | undefined {
 }
 
 /**
- * Whether the browser would follow the link in this tab's top frame. MV3
- * watches links there only, but MV2 in every frame, where a link is left to
- * the background. A download attribute does not matter: the
- * browser ignores it on a link to another site, and a denylisted host is
- * never this page's own site unless the user proceeded to it.
+ * Whether the browser would follow the link in this tab's top frame, the only
+ * frame whose links the content script watches. A download attribute does not
+ * matter: the browser ignores it on a link to another site, and a denylisted
+ * host is never this page's own site unless the user proceeded to it.
  */
 function opensInThisTab(e: MouseEvent, link: Element): boolean {
   if (!isTopFrame()) return false;

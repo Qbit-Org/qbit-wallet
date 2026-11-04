@@ -12,10 +12,6 @@ const bridge = vi.hoisted(() => ({
   request: vi.fn()
 }));
 
-vi.mock('extensionizer', () => ({
-  default: { runtime: { getURL: bridge.getURL } }
-}));
-
 vi.mock('nanoid', () => ({ nanoid: bridge.nanoid }));
 
 vi.mock('@/shared/utils', () => {
@@ -86,12 +82,14 @@ describe('provider injection', () => {
 describe('provider script bridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('chrome', { runtime: { getURL: bridge.getURL } });
     document.head.innerHTML = '<title>Fixture dapp</title><link rel="icon" href="/icon.svg">';
   });
 
   afterEach(() => {
     document.dispatchEvent(new Event('beforeunload'));
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('checks in from content before inserting the page provider', async () => {
@@ -124,6 +122,7 @@ describe('provider script bridge', () => {
 
     expect(insert).toHaveBeenCalledTimes(1);
     expect(bridge.getURL).toHaveBeenCalledWith('pageProvider.js');
+    expect((insert.mock.calls[0][0] as HTMLScriptElement).src).toBe('chrome-extension://qbit/pageProvider.js');
   });
 
   it('overwrites page-provided source labels', async () => {

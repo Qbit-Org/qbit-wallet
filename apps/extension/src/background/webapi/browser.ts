@@ -1,5 +1,3 @@
-import { PlatformEnv } from '@qbit/wallet-shared';
-
 function getBrowser() {
   if (typeof globalThis.browser === 'undefined') {
     return chrome;
@@ -11,128 +9,43 @@ function getBrowser() {
 const browser = getBrowser();
 
 export async function browserWindowsGetCurrent(params?: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.windows.getCurrent(params, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.windows.getCurrent(params);
-  }
+  return await browser.windows.getCurrent(params);
 }
 
 export async function browserWindowsCreate(params?: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.windows.create(params, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.windows.create(params);
-  }
+  return await browser.windows.create(params);
 }
 
 export async function browserWindowsUpdate(windowId: number, updateInfo: any) {
-  if (PlatformEnv.MANIFEST_VERSION == 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.windows.update(windowId, updateInfo, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.windows.update(windowId, updateInfo);
-  }
+  return await browser.windows.update(windowId, updateInfo);
 }
 
 export async function browserWindowsRemove(windowId: number) {
-  if (PlatformEnv.MANIFEST_VERSION == 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.windows.remove(windowId, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.windows.remove(windowId);
-  }
+  return await browser.windows.remove(windowId);
 }
 
 export async function browserStorageLocalGet(val: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.storage.local.get(val, (res) => {
-        resolve(res);
-      });
-    });
-  } else {
-    return await browser.storage.local.get(val);
-  }
+  return await browser.storage.local.get(val);
 }
 
 export async function browserStorageLocalSet(val: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.storage.local.set(val, (res) => {
-        const lastError = browser.runtime.lastError;
-        if (lastError) {
-          reject(new Error(lastError.message || 'Failed to write to browser storage'));
-          return;
-        }
-        resolve(res);
-      });
-    });
-  } else {
-    return await browser.storage.local.set(val);
-  }
+  return await browser.storage.local.set(val);
 }
 
 export async function browserTabsGetCurrent() {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.tabs.getCurrent((val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.tabs.getCurrent();
-  }
+  return await browser.tabs.getCurrent();
 }
 
 export async function browserTabsQuery(params: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.tabs.query(params, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.tabs.query(params);
-  }
+  return await browser.tabs.query(params);
 }
 
 export async function browserTabsCreate(params: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.tabs.create(params, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.tabs.create(params);
-  }
+  return await browser.tabs.create(params);
 }
 
 export async function browserTabsUpdate(tabId: number, params: any) {
-  if (PlatformEnv.MANIFEST_VERSION === 'mv2') {
-    return new Promise((resolve, reject) => {
-      browser.tabs.update(tabId, params, (val) => {
-        resolve(val);
-      });
-    });
-  } else {
-    return await browser.tabs.update(tabId, params);
-  }
+  return await browser.tabs.update(tabId, params);
 }
 
 export function browserWindowsOnFocusChanged(listener) {

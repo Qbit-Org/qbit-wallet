@@ -44,8 +44,8 @@ function callbackToPromise<T>(invoke: (callback: (value: T) => void) => void): P
 /**
  * True when the running manifest lists the loopback origin as an optional
  * permission (store flavor). The E2E flavor promotes it to a required
- * permission, and MV2 builds carry it under their broad host access; neither
- * needs the in-app acknowledgement flow.
+ * permission, and a manifest that requires `<all_urls>` grants it too;
+ * neither needs the in-app acknowledgement flow.
  */
 export function isRegtestPermissionOptional(): boolean {
   const manifest = chrome.runtime.getManifest() as chrome.runtime.Manifest & {

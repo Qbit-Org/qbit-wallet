@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "ea3fee079df27c1f509860eaa8237e5ffac409db",
-  "lockfileSha256": "6991b9325661f13f8d3b09ea3b86287303d18457d130a661675d86709ddb228a",
+  "auditedCommit": "df95c38b9034c128426a85916c2f8937f2191b27",
+  "lockfileSha256": "fae1b9c2e1e7b5d99644b1cfacba7e3c77c23270db152223370dd2fecd7ff80e",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "0db56142eaad896ede23103181c815efd40077db5d2d3bc36740e58ef28329b4",
+    "sha256": "1138b9859b8d3aebc0660cee8c180c37f3ebd185bc2ffbacb9521e3c714cb891",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,12 +14,12 @@
   },
   "summary": {
     "workspaces": 20,
-    "registryLockEntries": 2387,
-    "directDeclarations": 437,
+    "registryLockEntries": 2386,
+    "directDeclarations": 436,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 131,
       "extension-build-packaging": 79,
-      "shipped-runtime": 168,
+      "shipped-runtime": 167,
       "test-only-tooling": 35,
       "workspace-contract": 24
     },
@@ -2643,16 +2643,6 @@
       "securityAdjacency": [
         "networking"
       ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "extensionizer",
-      "section": "dependencies",
-      "requested": "^1.0.1",
-      "resolved": "1.0.1",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
     },
     {
       "workspace": "apps/extension",

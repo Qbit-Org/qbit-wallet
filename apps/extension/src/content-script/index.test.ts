@@ -89,11 +89,9 @@ describe('content-script entry', () => {
   describe('frames', () => {
     afterEach(() => {
       vi.unstubAllGlobals();
-      vi.unstubAllEnvs();
     });
 
-    it('in MV3, guards navigation from the top frame', async () => {
-      vi.stubEnv('manifest', 'mv3');
+    it('guards navigation from the top frame', async () => {
       await runContentScript('clear');
 
       expect(modules.initializePhishingDetection).toHaveBeenCalledWith(true);
@@ -103,8 +101,7 @@ describe('content-script entry', () => {
     it.each([
       ['a child frame, such as an embedded widget', 'top'],
       ['a fenced frame, which is its own top', 'fence']
-    ])('in MV3, only checks the host of %s and gives it the provider when clear', async (_label, global) => {
-      vi.stubEnv('manifest', 'mv3');
+    ])('only checks the host of %s and gives it the provider when clear', async (_label, global) => {
       vi.stubGlobal(global, {});
       modules.initializePhishingDetection.mockResolvedValue('clear');
       vi.resetModules();
@@ -114,16 +111,6 @@ describe('content-script entry', () => {
       expect(modules.initializePhishingDetection).toHaveBeenCalledWith(false);
       expect(modules.setupNavigationListeners).not.toHaveBeenCalled();
       expect(modules.setupPhishingListeners).not.toHaveBeenCalled();
-    });
-
-    it('in MV2, which has no network rules, guards navigation from a child frame too', async () => {
-      vi.stubEnv('manifest', 'mv2');
-      vi.stubGlobal('top', {});
-      await runContentScript('clear');
-
-      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(true);
-      expect(modules.setupNavigationListeners).toHaveBeenCalledOnce();
-      expect(modules.initializeScriptInjection).toHaveBeenCalledOnce();
     });
   });
 });
