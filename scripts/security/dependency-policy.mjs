@@ -162,6 +162,16 @@ const PINNED_PNPM_SPEC = REQUIRED_PACKAGE_MANAGER.slice('pnpm@'.length)
 // on PATH or in node_modules/.bin that no hash check covers.
 const PACKAGE_MANAGER_PACKAGES = new Set(['@pnpm/exe', 'corepack', 'pnpm'])
 
+// Whether a package name is a package manager that must come from Corepack:
+// pnpm, its standalone build, Corepack, or any `@pnpm/*` package. pnpm ships
+// its platform binary as `@pnpm/<platform>` (for example `@pnpm/linux-x64`),
+// and its CLI as `@pnpm/exe`, so allowing the `@pnpm` scope in the lockfile or
+// as a fetched package would put an unaudited pnpm on PATH or in
+// node_modules/.bin.
+function isPackageManagerPackage(name) {
+  return name !== null && (PACKAGE_MANAGER_PACKAGES.has(name) || name.startsWith('@pnpm/'))
+}
+
 // The package a reference names, or null when it names none.
 function referencedPackageName(reference) {
   const match = /^((?:@[^\s/@]+\/)?[^\s/@]+)(?:@|$)/.exec(reference)
@@ -269,7 +279,7 @@ export function auditLockfile(lockfileText) {
     if (!exactPackageVersion(packageKey)) {
       errors.push(`${packageKey} is a forbidden non-registry package resolution`)
     }
-    if (PACKAGE_MANAGER_PACKAGES.has(packageKey.slice(0, packageKey.lastIndexOf('@')))) {
+    if (isPackageManagerPackage(packageKey.slice(0, packageKey.lastIndexOf('@')))) {
       errors.push(
         `${packageKey} is a package manager; pnpm must come from Corepack's packageManager pin`
       )
@@ -1578,16 +1588,25 @@ const REJECTED_VARIABLES = [
     problem: 'COREPACK_ variable changes how Corepack picks or checks pnpm',
   },
   {
-    name: 'npm_config_(?:userconfig|globalconfig)(?![A-Za-z0-9_])',
+    name: 'npm_config_(?:userconfig|globalconfig|workspace_dir)(?![A-Za-z0-9_])',
     problem: 'variable moves the configuration files pnpm, npm or Corepack reads',
   },
   {
-    name: '(?:HOME|XDG_CONFIG_HOME|PNPM_HOME)(?![A-Za-z0-9_])',
+    // HOME and the XDG base directories pick the npmrc and `pnpm/config.yaml`
+    // pnpm reads and the Corepack install cache it reuses without a hash check
+    // (XDG_CACHE_HOME), and XDG_DATA_HOME moves pnpm's store. These are real
+    // environment variable names, which the shell matches case-sensitively, so
+    // a lowercase `home=$(pwd)` is a different, harmless variable.
+    name: '(?:HOME|PNPM_HOME|XDG_(?:CONFIG|CACHE|DATA|STATE)_HOME)(?![A-Za-z0-9_])',
     problem: 'variable moves the configuration files pnpm, npm or Corepack reads',
     setOnly: true,
+    caseSensitive: true,
   },
 ].map(variable => ({
   ...variable,
+  // Only a `setOnly` variable is case-sensitive, and it has no `anywhere`
+  // search, so the non-setOnly names here are all matched case-insensitively,
+  // as pnpm and npm lowercase them.
   anywhere: variable.setOnly ? null : new RegExp(`(?<![A-Za-z0-9_])(${variable.name})`, 'gi'),
 }))
 // Shell commands that set a variable they are handed by name.
@@ -1664,12 +1683,18 @@ function rejectedVariables(command, variable, { workflowFile = false } = {}) {
   const names = new Set()
   // A YAML mapping key ends at its `:`.
   const add = name => names.add(name.replace(/:$/, ''))
-  const word = new RegExp(`^(${variable.name})${variable.setOnly ? '\\+?=' : ''}`, 'i')
-  const exact = new RegExp(`^(?:${variable.name})$`, 'i')
+  const flags = variable.caseSensitive ? '' : 'i'
+  const word = new RegExp(`^(${variable.name})${variable.setOnly ? '\\+?=' : ''}`, flags)
+  const exact = new RegExp(`^(?:${variable.name})$`, flags)
   if (variable.setOnly) {
+    // Every way a value reaches the variable without naming a command:
+    // `NAME=`, `${NAME:=…}`, a GitHub Actions multiline write `NAME<<EOF`, and
+    // a `for NAME in …` loop that assigns it each pass.
     const assignments = [
-      new RegExp(`(?<![A-Za-z0-9_$.{-])(${variable.name})\\s*\\+?=(?!=)`, 'gi'),
-      new RegExp(`\\$\\{(${variable.name}):?=`, 'gi'),
+      new RegExp(`(?<![A-Za-z0-9_$.{-])(${variable.name})\\s*\\+?=(?!=)`, `g${flags}`),
+      new RegExp(`\\$\\{(${variable.name}):?=`, `g${flags}`),
+      new RegExp(`(?<![A-Za-z0-9_$.{-])(${variable.name})<<`, `g${flags}`),
+      new RegExp(`\\bfor\\s+(${variable.name})\\s+in\\b`, `g${flags}`),
     ]
     for (const pattern of assignments) {
       for (const match of command.matchAll(pattern)) add(match[1])
@@ -1680,7 +1705,20 @@ function rejectedVariables(command, variable, { workflowFile = false } = {}) {
   for (const text of workflowFile ? workflowRunCommands(command) : [command]) {
     for (const segment of shellCommandSegments(text)) {
       const words = shellWords(segment)
-      const setter = SHELL_VARIABLE_SETTERS.has(words[commandWordIndex(words)])
+      const commandWord = words[commandWordIndex(words)]
+      const setter = SHELL_VARIABLE_SETTERS.has(commandWord)
+      // `declare -n ref=NAME` (also `local -n`, `typeset -n`) makes `ref` an
+      // alias, so a later `ref=…` sets NAME. The nameref target is read here.
+      if (
+        variable.setOnly &&
+        /^(?:declare|local|typeset)$/.test(commandWord) &&
+        words.includes('-n')
+      ) {
+        for (const shellWord of words) {
+          const nameref = /^[A-Za-z_][A-Za-z0-9_]*=(.+)$/.exec(shellWord)
+          if (nameref && exact.test(nameref[1])) add(nameref[1])
+        }
+      }
       for (const shellWord of words) {
         const match = word.exec(shellWord)
         if (match) add(match[1])
@@ -1907,12 +1945,18 @@ function braceCommandWordReferences(words, manager) {
 
 // A shell comment runs from an unquoted `#` that starts a word to the end of
 // its line, at any substitution depth; a `#` inside `${...}` is part of the
-// expansion. Blanking a comment hides its text from every later reading, so it
-// is done only while this scan tracks quoting exactly as the shell does: up to
-// the first heredoc operator, whose body is data the shell never tokenizes.
+// expansion. A `#` begins a word only after an ASCII space, tab or newline, or
+// after an operator that starts a new command (`;`, `&`, `|`, a subshell `(`).
+// bash and dash treat no other character as a word break, so a `#` after the
+// `)` that closes `$(`, `$((`, `<(` or `>(`, or after a vertical tab or NBSP,
+// is part of the surrounding word, not a comment. This scan skips every such
+// substitution whole, so the character it reads before a `#` is never that
+// closing `)`. Blanking a comment hides its text from every later reading, so
+// it is done only while this scan tracks quoting exactly as the shell does: up
+// to the first heredoc operator, whose body is data the shell never tokenizes.
 // Comments after one are read as text, which can only reject more. Blanked
 // text keeps its length, so every index still lines up with the original.
-const SHELL_COMMENT_START = /[\s;&|()<>]/
+const SHELL_COMMENT_START = /[ \t\n;&|(]/
 
 function withoutShellComments(command) {
   const characters = command.split('')
@@ -2120,17 +2164,115 @@ function shellWordDetails(segment) {
   return words
 }
 
-// A word that names a package manager the design rule covers, with the same
-// boundaries as the textual audit's: a path, an expansion, or any other
-// character that cannot extend a name may stand before or after it.
-const MANAGER_WORD = /(?<![A-Za-z0-9_@.-])(pnpm|pnpx|pnx|pn|npm|npx|corepack)(?![A-Za-z0-9_.-])/
+// The names the design rule covers, longest first so `pnpm` is tried before
+// its prefix `pn`.
+const MANAGER_NAMES = ['pnpm', 'pnpx', 'pnx', 'pn', 'npm', 'npx', 'corepack']
 // Words the shell reads as keywords or leaves literal although they are not
 // made of plain characters: a group or negation, and an empty brace pair.
 const SHELL_KEYWORD_WORDS = new Set(['!', '{', '}', '{}'])
 const PNPM_FAMILY = new Set(['pnpm', 'pnpx', 'pnx', 'pn'])
 
+// The name a word runs as a package manager, or null. A shell word is one
+// program invocation, so the manager name must be the word's basename (the
+// text after its last `/`) and must run to the end of the word, be followed by
+// `@<spec>`, or be followed by an expansion marker that concatenates onto it: a
+// literal character after the name (`pnpm version: x`, read from a quoted
+// sentence) means the word is data, not an invocation. The basename rule finds
+// a manager behind any path prefix (`node_modules/@pnpm/linux-x64/pnpm`,
+// `./bin@/pnpm`), which the textual reader's character class misses, and the
+// expansion rule still catches `pnpm` + a dynamic suffix (`pnpm`echo …``).
+function managerName(text) {
+  const basename = text.slice(text.lastIndexOf('/') + 1)
+  for (const name of MANAGER_NAMES) {
+    if (!basename.startsWith(name)) continue
+    const after = basename[name.length]
+    if (after === undefined || after === '@' || after === EXPANSION) return name
+  }
+  return null
+}
+
 function managerWordName(word) {
-  return MANAGER_WORD.exec(word.text)?.[1] ?? null
+  return managerName(word.text)
+}
+
+// Whether the command that a package script's trailing argument words bind to
+// runs a package manager. pnpm and npm append `run <script> -- <words>` (and
+// pnpm appends a bare `pnpm <script> <words>`) to the end of the script's
+// command string, so the words reach the last command of the last segment the
+// shell runs, after the leading assignments, keywords and transparent prefixes
+// such as `corepack`.
+function scriptTerminalRunsManager(body) {
+  const segments = shellCommandSegments(withoutHeredocBodies(body))
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const words = shellWords(segments[index])
+    if (words.length === 0) continue
+    const commandWord = words[commandWordIndex(words)]
+    return commandWord !== undefined && managerName(commandWord) !== null
+  }
+  return false
+}
+
+// The scripts whose body runs a package manager at the position trailing words
+// would reach, for every manager invocation in `command` that runs a script
+// and passes it words. pnpm hands a script every word after it (after a `--`
+// for a built-in `run`), and npm hands it the words after `--`; both append
+// them to the script's command string, so a script ending in `pnpm install`
+// would run that install with attacker-supplied options. The words cannot be
+// audited as the inner command's, because the shell concatenates them onto a
+// command the audit resolves separately, so passing any is rejected.
+function passThroughScriptRejections(command, scriptCommands) {
+  const rejections = new Set()
+  for (const segment of shellCommandSegments(withoutHeredocBodies(command))) {
+    const words = shellWordDetails(segment)
+    const managerIndex = words.findIndex(word => managerWordName(word) !== null)
+    if (managerIndex < 0) continue
+    let index = managerIndex
+    if (managerWordName(words[index]) === 'corepack') {
+      const next = words[index + 1]
+      if (
+        next !== undefined &&
+        (PNPM_FAMILY.has(managerWordName(next)) || managerWordName(next) === 'npm')
+      ) {
+        index += 1
+      }
+    }
+    const name = managerWordName(words[index])
+    const values = words.slice(index + 1).map(word => (word.plain ? word.text : word.raw))
+    let scriptName
+    let passThrough = []
+    if (PNPM_FAMILY.has(name) && name !== 'pnpx' && name !== 'pnx') {
+      const invocation = pnpmInvocation(values)
+      if (pnpmRejection(invocation) !== null) continue
+      const { command: pnpmCommand, commandIndex, operandIndex } = invocation
+      if (pnpmCommand === 'run' || pnpmCommand === 'run-script') {
+        if (operandIndex === undefined) continue
+        scriptName = values[operandIndex]
+        passThrough = values.slice(operandIndex + 1)
+      } else if (
+        pnpmCommand !== undefined &&
+        !PNPM_BUILTIN_COMMANDS.has(pnpmCommand) &&
+        !PNPM_SETTINGS_COMMANDS.has(pnpmCommand)
+      ) {
+        scriptName = pnpmCommand
+        passThrough = values.slice(commandIndex + 1)
+      }
+    } else if (name === 'npm') {
+      const runIndex = values.findIndex(value => value === 'run' || value === 'run-script')
+      const delimiter = values.indexOf('--')
+      if (runIndex >= 0 && delimiter > runIndex) {
+        scriptName = values.slice(runIndex + 1, delimiter).find(value => !value.startsWith('-'))
+        passThrough = values.slice(delimiter + 1)
+      }
+    }
+    if (scriptName === undefined) continue
+    if (!passThrough.some(word => word !== '--')) continue
+    if (scriptCommands(scriptName).some(scriptTerminalRunsManager)) {
+      rejections.add(
+        `words passed to the \`${scriptName}\` script reach a package manager it runs; pass none`
+      )
+    }
+  }
+  return rejections
 }
 
 // How many of `values` pnpm reads itself. It hands the rest to the script,
@@ -2187,6 +2329,11 @@ function managerLineRejections(command, depth = 0) {
             `package manager command line holds a GitHub expression, which is substituted into the text before the shell reads it: ${word.raw}`
           )
         }
+        if (word.raw.includes("$'")) {
+          rejections.add(
+            `ANSI-C quoting is rejected because it hides the text the shell runs: ${word.raw}`
+          )
+        }
       }
       let index = managerIndex
       let readEnd = words.length
@@ -2199,6 +2346,13 @@ function managerLineRejections(command, depth = 0) {
       const name = managerWordName(words[index])
       if (PNPM_FAMILY.has(name)) {
         const values = after(index)
+        const invocationWords = name === 'pnpx' || name === 'pnx' ? ['dlx', ...values] : values
+        // The line reader is authoritative for pnpm options and settings
+        // commands, because the textual reader's manager regex never matches a
+        // path-qualified pnpm (`node_modules/@pnpm/.../pnpm`), so its option
+        // and settings checks would miss one.
+        const rejection = pnpmRejection(pnpmInvocation(invocationWords))
+        if (rejection !== null) rejections.add(rejection)
         readEnd =
           name === 'pnpx' || name === 'pnx'
             ? index + pnpmReadCount(['dlx', ...values])
@@ -2224,10 +2378,46 @@ function managerLineRejections(command, depth = 0) {
   return rejections
 }
 
-// ANSI-C quoting (`$'...'`) spells any character as an escape, so the word it
-// makes is not the text the audit reads; it is rejected anywhere.
-function ansiCQuotingReferences(command) {
-  return [...command.matchAll(/\$'(?:[^'\\]|\\[^])*'?/g)].map(match => match[0])
+// ANSI-C quoting (`$'...'`) spells any character as an escape. It is rejected
+// where it hides a package manager or its arguments (a manager segment, by
+// `managerLineRejections`), and the decoded text is scanned for a guarded
+// variable (`decodeAnsiCQuoting`), but a plain value such as `IFS=$'\n'` on a
+// line with no manager runs nothing the audit must read.
+const ANSI_C_QUOTING = /\$'(?:[^'\\]|\\[^])*'?/g
+const ANSI_C_ESCAPE = /\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|.)/g
+const ANSI_C_LETTERS = new Map([
+  ['a', '\x07'],
+  ['b', '\b'],
+  ['e', '\x1b'],
+  ['E', '\x1b'],
+  ['f', '\f'],
+  ['n', '\n'],
+  ['r', '\r'],
+  ['t', '\t'],
+  ['v', '\v'],
+  ['\\', '\\'],
+  ["'", "'"],
+  ['"', '"'],
+  ['?', '?'],
+])
+
+function decodeAnsiCEscape(escape) {
+  const lead = escape[0]
+  if (lead === 'x') return String.fromCharCode(parseInt(escape.slice(1), 16))
+  if (lead === 'u' || lead === 'U') return String.fromCodePoint(parseInt(escape.slice(1), 16))
+  if (lead >= '0' && lead <= '7') return String.fromCharCode(parseInt(escape, 8) & 0xff)
+  return ANSI_C_LETTERS.get(lead) ?? lead
+}
+
+// The command with every `$'...'` replaced by the literal bytes it stands for,
+// so a guarded variable or a manager spelled through ANSI-C escapes is read as
+// the shell runs it (`$'pnpm\x5fconfig_registry=…'` becomes
+// `pnpm_config_registry=…`). A malformed `$'` without a close is left as is.
+function decodeAnsiCQuoting(command) {
+  return command.replace(ANSI_C_QUOTING, match => {
+    if (!match.endsWith("'") || match.length < 3) return match
+    return match.slice(2, -1).replace(ANSI_C_ESCAPE, (_, escape) => decodeAnsiCEscape(escape))
+  })
 }
 
 // The executable packages a command fetches, each of which must be pinned
@@ -3303,8 +3493,27 @@ function isAssignment(node) {
   )
 }
 
+// The identifier names used as property values anywhere inside an object
+// literal, so a const that stores one object inside another records which
+// identifiers that container holds.
+function objectMemberIdentifiers(node, names = []) {
+  for (const property of node.properties ?? []) {
+    if (ts.isPropertyAssignment(property)) {
+      const value = property.initializer
+      if (ts.isIdentifier(value)) names.push(value.text)
+      else if (ts.isObjectLiteralExpression(value)) objectMemberIdentifiers(value, names)
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      names.push(property.name.text)
+    } else if (ts.isSpreadAssignment(property) && ts.isIdentifier(property.expression)) {
+      names.push(property.expression.text)
+    }
+  }
+  return names
+}
+
 function constantObjects(tree) {
   const declared = new Map()
+  const members = new Map()
   const changed = new Set()
   const visit = node => {
     if (
@@ -3314,12 +3523,12 @@ function constantObjects(tree) {
       (node.parent.flags & ts.NodeFlags.Const) !== 0
     ) {
       const name = node.name.text
-      declared.set(
-        name,
+      const literal =
         declared.has(name) || !node.initializer || !ts.isObjectLiteralExpression(node.initializer)
           ? null
           : node.initializer
-      )
+      declared.set(name, literal)
+      if (literal !== null) members.set(name, objectMemberIdentifiers(literal))
     }
     if (isAssignment(node)) {
       const root = rootIdentifier(node.left)
@@ -3331,11 +3540,22 @@ function constantObjects(tree) {
     }
     if (ts.isIdentifier(node) && node.parent !== undefined) {
       const { parent } = node
+      // An object a const holds as a property value is read like the literal it
+      // is, so an identifier is unreadable only where it escapes somewhere a
+      // write could reach it that the audit does not follow: a new binding, an
+      // assignment, a return, an arrow body, an array, a new-expression, a
+      // conditional or binary operand, or a call that is not a child-process
+      // sink. Where it enters another object literal, that container carries
+      // it, and the container's own mutations propagate to it below.
       const escapes =
         (ts.isVariableDeclaration(parent) && parent.initializer === node) ||
         (isAssignment(parent) && parent.right === node) ||
         ts.isReturnStatement(parent) ||
+        (ts.isArrowFunction(parent) && parent.body === node) ||
         ts.isArrayLiteralExpression(parent) ||
+        ts.isNewExpression(parent) ||
+        ts.isConditionalExpression(parent) ||
+        ts.isBinaryExpression(parent) ||
         (ts.isCallExpression(parent) &&
           parent.arguments.includes(node) &&
           !CHILD_PROCESS_CALLEES.has(calleeName(parent.expression)))
@@ -3344,6 +3564,20 @@ function constantObjects(tree) {
     ts.forEachChild(node, visit)
   }
   visit(tree)
+  // A changed container cannot be trusted to still hold the literals it was
+  // declared with, so every object it holds is changed too, to a fixpoint.
+  for (let growing = true; growing; ) {
+    growing = false
+    for (const [container, held] of members) {
+      if (!changed.has(container)) continue
+      for (const name of held) {
+        if (!changed.has(name)) {
+          changed.add(name)
+          growing = true
+        }
+      }
+    }
+  }
   return name => (changed.has(name) ? null : (declared.get(name) ?? null))
 }
 
@@ -3720,7 +3954,10 @@ export function collectDelegatedScripts(entries, { trackedFiles: tracked, readTr
   return { errors: [...errors], scripts }
 }
 
-export function auditExecutableDependencyCommands(commandFiles) {
+export function auditExecutableDependencyCommands(
+  commandFiles,
+  { scriptCommands = () => [] } = {}
+) {
   const errors = []
   let commandCount = 0
   for (const { file, commands, javascript = false } of commandFiles) {
@@ -3739,27 +3976,35 @@ export function auditExecutableDependencyCommands(commandFiles) {
         ? workflowRunCommands(command).map(withoutShellComments)
         : [text]
       const inputs = workflowFile ? workflowActionInputs(command) : []
+      const inputTexts = inputs.map(input => input.value)
+      const rejections = new Set()
+      const references = new Set()
       // A YAML block scalar drops the indentation its `run` body is written
       // with, so a line continuation only joins in the parsed body: `np\` +
       // newline + indent + `x` is two words in the raw source and `npx` in the
       // shell that runs it. Both spellings are audited, and a reference either
-      // one exposes is reported once.
-      const rejections = new Set()
-      const references = new Set(
-        executablePackageReferences(text, { fullEnvironment: workflowFile, rejections })
-      )
-      for (const shellCommand of workflowFile
-        ? [...shellCommands, ...inputs.map(input => input.value)]
-        : []) {
-        for (const reference of executablePackageReferences(shellCommand, {
-          fullEnvironment: true,
+      // one exposes is reported once. ANSI-C quoting (`$'…'`) can spell a
+      // manager, an option or a package through escapes the audit would read
+      // literally, so every text is read again with that quoting decoded; a
+      // decoded copy only ever reveals more.
+      const referenceTexts = workflowFile ? [text, ...shellCommands, ...inputTexts] : [text]
+      for (const referenceText of [...referenceTexts, ...referenceTexts.map(decodeAnsiCQuoting)]) {
+        for (const reference of executablePackageReferences(referenceText, {
+          fullEnvironment: workflowFile,
           rejections,
         })) {
           references.add(reference)
         }
       }
-      for (const shellCommand of [...shellCommands, ...inputs.map(input => input.value)]) {
+      // The decoded texts are read for references above (where a manager or
+      // package spelled through ANSI-C is pinned and its options audited); the
+      // line reader runs on the originals, whose ANSI-C words it rejects
+      // outright, so it needs no decoded copy of its own.
+      for (const shellCommand of [...shellCommands, ...inputTexts]) {
         for (const rejection of managerLineRejections(shellCommand)) rejections.add(rejection)
+        for (const rejection of passThroughScriptRejections(shellCommand, scriptCommands)) {
+          rejections.add(rejection)
+        }
       }
       for (const input of inputs) {
         if (!managerLineRejections(input.value).size && !runsPackageManager(input.value)) continue
@@ -3770,7 +4015,7 @@ export function auditExecutableDependencyCommands(commandFiles) {
         }
       }
       for (const reference of references) {
-        if (PACKAGE_MANAGER_PACKAGES.has(referencedPackageName(reference))) {
+        if (isPackageManagerPackage(referencedPackageName(reference))) {
           errors.push(
             `${file}: package manager must come from Corepack's packageManager pin: ${reference}`
           )
@@ -3779,15 +4024,18 @@ export function auditExecutableDependencyCommands(commandFiles) {
         }
       }
       for (const rejection of rejections) errors.push(`${file}: ${rejection}`)
-      for (const quoted of new Set(ansiCQuotingReferences(command))) {
-        errors.push(
-          `${file}: ANSI-C quoting is rejected because it hides the text the shell runs: ${quoted}`
-        )
-      }
+      // A guarded variable is searched for in the command and in its ANSI-C
+      // decoding, so `export $'pnpm\x5fconfig_registry=…'`, which sets one with
+      // no manager on the line, is caught by the decoded spelling.
+      const variableTexts = new Set([command, decodeAnsiCQuoting(command)])
       for (const variable of REJECTED_VARIABLES) {
-        for (const name of rejectedVariables(command, variable, { workflowFile })) {
-          errors.push(`${file}: ${variable.problem}: ${name}`)
+        const names = new Set()
+        for (const variableText of variableTexts) {
+          for (const name of rejectedVariables(variableText, variable, { workflowFile })) {
+            names.add(name)
+          }
         }
+        for (const name of names) errors.push(`${file}: ${variable.problem}: ${name}`)
       }
       for (const shellCommand of shellCommands) {
         for (const executable of shellExpansionExecutableReferences(shellCommand)) {
@@ -4701,12 +4949,25 @@ export function repositoryCommands(repoRoot, files = trackedFiles(repoRoot)) {
     ...actionFiles.map(({ file, source }) => ({ file, commands: [source] })),
     ...delegated.scripts,
   ]
-  return { manifests, actionFiles, delegated, commandFiles }
+  // Every manifest's scripts by name, so a `run <script>` that passes words can
+  // be resolved to the body those words reach (`passThroughScriptRejections`).
+  const scriptBodies = new Map()
+  for (const { manifest } of manifests) {
+    for (const [name, body] of Object.entries(manifest.scripts || {})) {
+      if (typeof body !== 'string') continue
+      scriptBodies.set(name, (scriptBodies.get(name) ?? []).concat(body))
+    }
+  }
+  const scriptCommands = name => scriptBodies.get(name) ?? []
+  return { manifests, actionFiles, delegated, commandFiles, scriptCommands }
 }
 
 export function runDependencyPolicy(repoRoot) {
   const files = trackedFiles(repoRoot)
-  const { manifests, actionFiles, delegated, commandFiles } = repositoryCommands(repoRoot, files)
+  const { manifests, actionFiles, delegated, commandFiles, scriptCommands } = repositoryCommands(
+    repoRoot,
+    files
+  )
   const configFiles = files
     .filter(file => PACKAGE_MANAGER_CONFIG_FILE.test(file))
     .map(file => ({ file, source: readFileSync(join(repoRoot, file), 'utf8') }))
@@ -4720,7 +4981,7 @@ export function runDependencyPolicy(repoRoot) {
     actionFiles.filter(({ file }) => WORKFLOW_FILE.test(file))
   )
   const configAudit = auditPackageManagerConfigs(configFiles)
-  const commandAudit = auditExecutableDependencyCommands(commandFiles)
+  const commandAudit = auditExecutableDependencyCommands(commandFiles, { scriptCommands })
   const licenseBaseline = JSON.parse(readFileSync(join(repoRoot, LICENSE_BASELINE_FILE), 'utf8'))
   const licenseAudit = auditLockfileLicenseBaseline(
     lockfileText,

