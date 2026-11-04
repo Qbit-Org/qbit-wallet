@@ -254,6 +254,30 @@
   "qbit_restore_stats_floor_notice": {
     "message": "Los contadores de firmas de las cuentas con índice de derivación $1 se reconstruyeron a partir de los totales de dirección del explorador, porque su historial es demasiado largo para leerlo completo. Esos totales cuentan los mismos gastos en la cadena."
   },
+  "qbit_restore_summed_floor_regtest": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. El explorador de Testnet4 no se puede desactivar aquí. Vuelva a intentarlo más tarde; si sigue indicando este recuento, use los descriptores de recuperación de qbit Core de la pantalla Frase Secreta de Recuperación para acceder a los fondos."
+  },
+  "qbit_restore_summed_floor_regtest_own_share_larger": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. La mayor parte del recuento proviene de su servicio Regtest local. Revise ese servicio y vuelva a intentarlo; si sigue indicando este recuento, use los descriptores de recuperación de qbit Core de la pantalla Frase Secreta de Recuperación para acceder a los fondos."
+  },
+  "qbit_restore_summed_floor_share_regtest_history": {
+    "message": "El historial de transacciones del servicio Regtest local muestra $1 firmas."
+  },
+  "qbit_restore_summed_floor_share_regtest_stats": {
+    "message": "Las estadísticas de dirección del servicio Regtest local indican $1 firmas."
+  },
+  "qbit_restore_summed_floor_share_testnet4_history": {
+    "message": "El historial de transacciones del explorador de Testnet4 muestra $1 firmas."
+  },
+  "qbit_restore_summed_floor_share_testnet4_stats": {
+    "message": "Las estadísticas de dirección del explorador de Testnet4 indican $1 firmas."
+  },
+  "qbit_restore_summed_floor_testnet4": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. Detenga el servicio Regtest local, o desactive Regtest local en Configuración Avanzada, y vuelva a intentarlo."
+  },
+  "qbit_restore_summed_floor_testnet4_own_share_larger": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. La mayor parte del recuento proviene del explorador de Testnet4, que no se puede desactivar aquí. Vuelva a intentarlo más tarde; si sigue indicando este recuento, use los descriptores de recuperación de qbit Core de la pantalla Frase Secreta de Recuperación para acceder a los fondos. Otra opción: detenga el servicio Regtest local, o desactive Regtest local en Configuración Avanzada; un nuevo intento restaurará solo el recuento de Testnet4, que ya está cerca del umbral y nunca podrá reducirse."
+  },
   "qbit_signatures_remaining": {
     "message": "$1 restante(s)"
   },

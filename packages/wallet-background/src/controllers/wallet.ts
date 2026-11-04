@@ -34,7 +34,11 @@ import {
   type P2mrTransactionOutput,
   type Psbt as QbitPsbt,
 } from '@qbit-oss/protocol'
-import { ColdWalletKeyring, QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE } from '@qbit/keyring-service'
+import {
+  ColdWalletKeyring,
+  PQC_WARNING_SIGNATURE_THRESHOLD,
+  QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+} from '@qbit/keyring-service'
 import type {
   QbitRecoveryMigrationPlanVault,
   QbitRecoveryMigrationVault,
@@ -104,6 +108,7 @@ import {
   type QbitBroadcastLookup,
   type QbitBroadcastResult,
   type QbitBroadcastStatusCheck,
+  type QbitRestoreFloorSource,
   type QbitRestoreFloorSourceRecord,
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
@@ -653,6 +658,72 @@ const QBIT_FLOOR_SCAN_STABILITY_RETRIES = {
   stabilityRetries: 4,
   retryBaseDelayMs: 1_000,
   tipAdvanceSettleMs: 10_000,
+}
+
+// Each network's share of a floor summed across Testnet4 and regtest, worded
+// by the read its count came from.
+const QBIT_SUMMED_FLOOR_SHARE_KEYS: Record<
+  'testnet4' | 'regtest',
+  Record<QbitRestoreFloorSource, string>
+> = {
+  testnet4: {
+    'address-stats': 'qbit_restore_summed_floor_share_testnet4_stats',
+    history: 'qbit_restore_summed_floor_share_testnet4_history',
+  },
+  regtest: {
+    'address-stats': 'qbit_restore_summed_floor_share_regtest_stats',
+    history: 'qbit_restore_summed_floor_share_regtest_history',
+  },
+}
+
+// The refusal of that summed floor, by the restored network. The guidance
+// points at the optional network unless the restored network's own share is
+// strictly the larger one.
+const QBIT_SUMMED_FLOOR_REFUSAL_KEYS = {
+  testnet4: {
+    optional: 'qbit_restore_summed_floor_testnet4',
+    own: 'qbit_restore_summed_floor_testnet4_own_share_larger',
+  },
+  regtest: {
+    optional: 'qbit_restore_summed_floor_regtest',
+    own: 'qbit_restore_summed_floor_regtest_own_share_larger',
+  },
+} as const
+
+/**
+ * The refusal of a floor summed across Testnet4 and regtest, worded for the
+ * user: both networks' counts with the read each came from, and what to do.
+ * Undefined unless both networks answered, which every refused sum has: the
+ * restored network's share alone stays below the threshold.
+ */
+function qbitSummedFloorRefusal(
+  accountIndex: number | undefined,
+  shares: readonly {
+    name: 'mainnet' | 'testnet4' | 'regtest'
+    required: boolean
+    observation: QbitPqcSignatureActivity | undefined
+  }[]
+): string | undefined {
+  const testnet4 = shares.find(share => share.name === 'testnet4')
+  const regtest = shares.find(share => share.name === 'regtest')
+  if (!testnet4?.observation || !regtest?.observation) return undefined
+  const share = (name: 'testnet4' | 'regtest', observation: QbitPqcSignatureActivity) =>
+    t(
+      QBIT_SUMMED_FLOOR_SHARE_KEYS[name][
+        observation.floorSource === 'address-stats' ? 'address-stats' : 'history'
+      ],
+      [observation.observedSignatures.toLocaleString()]
+    )
+  const [restored, own, optional] = testnet4.required
+    ? (['testnet4', testnet4.observation, regtest.observation] as const)
+    : (['regtest', regtest.observation, testnet4.observation] as const)
+  const keys = QBIT_SUMMED_FLOOR_REFUSAL_KEYS[restored]
+  return t(own.observedSignatures > optional.observedSignatures ? keys.own : keys.optional, [
+    `${accountIndex}`,
+    share('testnet4', testnet4.observation),
+    share('regtest', regtest.observation),
+    PQC_WARNING_SIGNATURE_THRESHOLD.toLocaleString(),
+  ])
 }
 
 type QbitRecoveryMigrationPreparation = {
@@ -2413,24 +2484,25 @@ export class WalletController extends BaseController {
       addresses?: Record<string, string>
       scriptPubKey?: string
     }): Promise<QbitPqcSignatureActivity> => {
-      const activity = (
-        await Promise.all(
-          observers.map(async observer => {
-            if (observer.unavailable) return undefined
-            try {
-              return await observer.observe(account)
-            } catch (error) {
-              if (observer.required) throw error
-              observer.unavailable = true
-              log.warn(
-                `optional ${observer.name} qbit restore history is unavailable; continuing with the active network`,
-                error
-              )
-              return undefined
-            }
-          })
-        )
-      ).filter((observation): observation is QbitPqcSignatureActivity => observation !== undefined)
+      const observations = await Promise.all(
+        observers.map(async observer => {
+          if (observer.unavailable) return undefined
+          try {
+            return await observer.observe(account)
+          } catch (error) {
+            if (observer.required) throw error
+            observer.unavailable = true
+            log.warn(
+              `optional ${observer.name} qbit restore history is unavailable; continuing with the active network`,
+              error
+            )
+            return undefined
+          }
+        })
+      )
+      const activity = observations.filter(
+        (observation): observation is QbitPqcSignatureActivity => observation !== undefined
+      )
       const observedSignatures = activity.reduce(
         (total, observation) => total + observation.observedSignatures,
         0
@@ -2444,10 +2516,38 @@ export class WalletController extends BaseController {
       // The sum is the floor the keyring applies, so statistics floors that
       // each stay below the warning threshold must not reach it together.
       if (floorSource === 'address-stats') {
-        assertQbitStatsFloorBelowWarningThreshold(
-          observedSignatures,
-          `qbit account ${account.index} floors summed across networks`
-        )
+        try {
+          assertQbitStatsFloorBelowWarningThreshold(
+            observedSignatures,
+            `qbit account ${account.index} floors summed across networks`
+          )
+        } catch (error) {
+          // The required network's own floor stays below the threshold: a
+          // statistics floor is refused per address, and a history floor
+          // counts the inputs of at most the read's 6,400 transactions, in
+          // pages that each fit the 64 MiB response cap. So an optional
+          // network's share took the sum there. That share stays in the sum
+          // while its network answers, since leaving it out would
+          // under-advance the shared counter; the refusal shows both shares
+          // so the user can tell which one to act on.
+          const shares = observers.map(({ name, required }, index) => ({
+            name,
+            required,
+            observation: observations[index],
+          }))
+          const refusal = qbitSummedFloorRefusal(account.index, shares)
+          if (refusal === undefined) throw error
+          const counts = shares
+            .map(({ name, observation }) => {
+              return `${name} ${observation?.observedSignatures} (${observation?.floorSource})`
+            })
+            .join(' and ')
+          log.warn(
+            `qbit restore floor for account ${account.index} summed across ${counts} reaches the warning threshold; signing stays locked`,
+            error
+          )
+          throw new Error(refusal)
+        }
       }
       return {
         // Testnet4 and regtest share a derivation path and therefore a PQC

@@ -278,7 +278,17 @@ export function Step2({
         floorScan: summary
       });
     } catch (e) {
-      tools.toastError((e as any).message);
+      const floorError = String((e as any)?.message ?? e);
+      // The failure card shows why the latest attempt failed, which can
+      // differ from the restore's; the toast alone closes after a few seconds.
+      setReport({
+        network: report.network,
+        accountsRestored: report.accountsRestored,
+        discovery: report.discovery,
+        floorsCompleted: false,
+        floorError
+      });
+      tools.toastError(floorError);
     } finally {
       // A failed or partial retry may still have latched the persisted
       // two-live-wallet hint; refresh it regardless of outcome.

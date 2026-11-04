@@ -229,7 +229,14 @@ Residual risk:
   refuses statistics that list more outputs than their transactions can
   carry, and floors at or above the 2^28-signature warning threshold;
   self-consistent statistics below it are still accepted, so an inflated
-  floor can still use up to a quarter of the budget.
+  floor can still use up to a quarter of the budget. The threshold also
+  bounds the floor summed across testnet4 and regtest, which share a
+  counter, when either was read from statistics. That refusal shows both
+  networks' counts; the user can stop the local Regtest service or turn off
+  Local Regtest to restore without regtest, on a floor that then leaves out
+  what regtest reported. If Testnet4's own count is the larger share, that
+  floor can be up to just under the threshold, and it stands, as the
+  quarter-budget residual above allows.
 
 ## WASM and extension supply chain
 
