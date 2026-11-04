@@ -54,10 +54,15 @@ function whilePageConnected<T>(page: ProviderPage | undefined, promise: Promise<
 
 /**
  * Asks the user to approve `data` for the request in `ctx`, keeping the
- * approval's id with the request's page while it is pending. An approval
- * the page outlived is never acted on.
+ * approval's id with the request's page, and in `pending` when given, while
+ * it is pending. An approval the page outlived is never acted on.
  */
-async function requestPageApproval(ctx: any, data: ProviderApprovalData, winProps?: any) {
+async function requestPageApproval(
+  ctx: any,
+  data: ProviderApprovalData,
+  winProps?: any,
+  pending?: Set<string>
+) {
   const page: ProviderPage | undefined = ctx.request.page
   assertPageConnected(page)
   let approvalId: string | undefined
@@ -65,12 +70,40 @@ async function requestPageApproval(ctx: any, data: ProviderApprovalData, winProp
     const approvalRes = await approvalService.requestApproval(data, winProps, id => {
       approvalId = id
       page?.approvalIds.add(id)
+      pending?.add(id)
     })
     assertPageConnected(page)
     return approvalRes
   } finally {
-    if (approvalId !== undefined) page?.approvalIds.delete(approvalId)
+    if (approvalId !== undefined) {
+      page?.approvalIds.delete(approvalId)
+      pending?.delete(approvalId)
+    }
   }
+}
+
+const QBIT_SIGNATURE_BATCH_LOCKED =
+  'The wallet locked before this batch was signed; send the request again'
+
+/**
+ * The pending approvals of requests that hold signature batches. A lock
+ * closes every batch, and the keyring then refuses each of their entries,
+ * so the lock ends these approvals instead of leaving one the user can only
+ * fail to sign. The keyring's lock event is listened to from the first.
+ */
+const signatureBatchApprovals = new Set<string>()
+let signatureBatchApprovalsEndOnLock = false
+
+function endSignatureBatchApprovalsOnLock(): void {
+  if (signatureBatchApprovalsEndOnLock) return
+  signatureBatchApprovalsEndOnLock = true
+  keyringService.on('lock', () => {
+    for (const approvalId of [...signatureBatchApprovals]) {
+      approvalService.rejectApproval(approvalId, QBIT_SIGNATURE_BATCH_LOCKED).catch(error => {
+        console.error('Failed to end a signature batch approval after a lock', error)
+      })
+    }
+  })
 }
 
 /** The wallet's one unlock request, and how many requests wait on it. */
@@ -490,15 +523,24 @@ async function cleanupFailedQbitRestoredFloorChallenges(ctx: any): Promise<void>
 }
 
 /**
- * Close the signature batch a signPsbts approval opened for a request that
+ * The signature batches this request's approval step opened, as it recorded
+ * them on the request; never ids the page's parameters carry.
+ */
+function qbitSignatureBatchIdsOf(ctx: any): string[] {
+  const batchIds = ctx.request?.qbitSignatureBatchIds
+  return Array.isArray(batchIds) ? batchIds : []
+}
+
+/**
+ * Close the signature batches a signPsbts approval opened for a request that
  * failed: rejected, its window closed, its page gone, or refused before the
- * approval showed. Left open, failed requests would fill the batches the
- * keyring keeps and evict a live request's batch.
+ * approval showed. Left open, failed requests would hold places among the
+ * batches the keyring keeps.
  */
 function cleanupFailedQbitSignatureBatches(ctx: any): void {
-  const toSignDatas = ctx.request?.data?.params?.toSignDatas
-  if (Array.isArray(toSignDatas)) {
-    wallet.releaseQbitSignatureBatches(toSignDatas)
+  const batchIds = qbitSignatureBatchIdsOf(ctx)
+  if (batchIds.length > 0) {
+    wallet.releaseQbitSignatureBatches(batchIds)
   }
 }
 const windowHeight = 600
@@ -617,6 +659,16 @@ const flowContext = flow
     await assertRequestContext(ctx.requestContext, ctx.requirePermission, ctx.request.page)
 
     if (approvalType && skipApproval != true) {
+      const signatureBatchIds = qbitSignatureBatchIdsOf(ctx)
+      if (signatureBatchIds.length > 0) {
+        // A lock since the batches opened closed them. Nothing awaits from
+        // here until the approval is pending, so a lock after this check
+        // finds it and ends it.
+        if (!keyringService.hasOpenP2mrPsbtSigningBatches(signatureBatchIds)) {
+          throw new WalletError(ErrorCodes.UserCancel, QBIT_SIGNATURE_BATCH_LOCKED)
+        }
+        endSignatureBatchApprovalsOnLock()
+      }
       ctx.approvalPayloadSnapshot = approvalPayloadSnapshot({
         method,
         params,
@@ -635,7 +687,8 @@ const flowContext = flow
           },
           origin,
         },
-        { height: windowHeight }
+        { height: windowHeight },
+        signatureBatchIds.length > 0 ? signatureBatchApprovals : undefined
       )
       await assertRequestContext(ctx.requestContext, ctx.requirePermission, ctx.request.page)
       if (

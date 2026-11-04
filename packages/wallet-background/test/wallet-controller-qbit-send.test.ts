@@ -1121,7 +1121,7 @@ describe('WalletController qbit P2MR send path', () => {
       vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
       const batch = await buildBatch(wallet, account)
 
-      await wallet.openQbitProviderSignatureBatch(batch)
+      await expect(wallet.openQbitProviderSignatureBatch(batch)).resolves.toBe('batch-1')
 
       expect(batch.map(toSignData => toSignData.qbitSignatureBatch)).toEqual(
         batch.map((_toSignData, index) => ({
@@ -1135,7 +1135,7 @@ describe('WalletController qbit P2MR send path', () => {
         expect.any(Array),
         undefined
       )
-      wallet.releaseQbitSignatureBatches(batch)
+      wallet.releaseQbitSignatureBatches(['batch-1'])
       expect(keyringService.releaseP2mrPsbtSigningBatches).toHaveBeenCalledWith(['batch-1'])
     })
 

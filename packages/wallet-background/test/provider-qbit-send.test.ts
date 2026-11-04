@@ -52,6 +52,12 @@ const preferenceServiceMock = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
 }))
 
+const approvalServiceMock = vi.hoisted(() => ({
+  assertNoPendingApproval: vi.fn(),
+}))
+
+vi.mock('../src/services/approval', () => ({ default: approvalServiceMock }))
+
 vi.mock('../src/controllers/wallet', () => ({
   default: walletMock,
 }))
@@ -108,6 +114,7 @@ describe('ProviderController qbit send', () => {
       via: 'broadcast',
     }))
     walletMock.acquireExternalQbitSigningLock.mockResolvedValue(undefined)
+    approvalServiceMock.assertNoPendingApproval.mockResolvedValue(undefined)
     walletMock.completeExternalQbitSigningLock.mockResolvedValue(undefined)
     walletMock.promoteExternalQbitSendBroadcastClaim.mockResolvedValue(undefined)
     preferenceServiceMock.getCurrentAccount.mockReturnValue({ address: 'qbrt1zfunding' })
@@ -277,13 +284,15 @@ describe('ProviderController qbit send', () => {
       toSignDatas.forEach((toSignData, index) => {
         toSignData.qbitSignatureBatch = { id: 'batch-1', index, budget: {} }
       })
+      return 'batch-1'
     })
     const params = {
       psbtHexs,
       options: psbtHexs.map(() => ({ chain: ChainType.QBIT_REGTEST })),
     }
+    const request: any = { data: { params }, session: { origin: 'https://otc.example' } }
 
-    await approval({ data: { params }, session: { origin: 'https://otc.example' } })
+    await approval(request)
 
     // Entries may be signed in any order, so the whole batch, duplicates and
     // unique entries alike, signs as one.
@@ -295,10 +304,46 @@ describe('ProviderController qbit send', () => {
       (params as any).toSignDatas.map((toSignData: any) => toSignData.qbitSignatureBatch?.index)
     ).toEqual([0, 1, 2])
 
+    // The request holds the batch it opened, the only one it closes.
+    expect(request.qbitSignatureBatchIds).toEqual(['batch-1'])
+
     await expect(
-      provider.signPsbts({ data: { params } as any, approvalRes: [] as any })
+      provider.signPsbts({
+        data: { params } as any,
+        approvalRes: [] as any,
+        qbitSignatureBatchIds: request.qbitSignatureBatchIds,
+      })
     ).rejects.toThrow('invalid batch signing result')
-    expect(walletMock.releaseQbitSignatureBatches).toHaveBeenCalledWith((params as any).toSignDatas)
+    expect(walletMock.releaseQbitSignatureBatches).toHaveBeenCalledWith(['batch-1'])
+  })
+
+  it('refuses every signPsbts of a burst before preparing it while another approval is pending', async () => {
+    const provider = (await import('../src/controllers/provider/controller')).default
+    const [, approval] = Reflect.getMetadata('APPROVAL', provider, 'signPsbts')
+    const pending = new WalletError(
+      ErrorCodes.UNKNOWN,
+      'Another approval request is already pending'
+    )
+    approvalServiceMock.assertNoPendingApproval.mockRejectedValue(pending)
+    const requests: any[] = Array.from({ length: 65 }, () => ({
+      data: {
+        params: {
+          psbtHexs: ['70736274', '70736274'],
+          options: [{ chain: ChainType.QBIT_REGTEST }, { chain: ChainType.QBIT_REGTEST }],
+        },
+      },
+      session: { origin: 'https://otc.example' },
+    }))
+
+    // Fired at once, while the user signs another request's batch.
+    const results = await Promise.allSettled(requests.map(request => approval(request)))
+
+    expect(results.every(result => result.status === 'rejected' && result.reason === pending)).toBe(
+      true
+    )
+    expect(walletMock.prepareQbitProviderPsbt).not.toHaveBeenCalled()
+    expect(walletMock.openQbitProviderSignatureBatch).not.toHaveBeenCalled()
+    expect(requests.some(request => request.qbitSignatureBatchIds !== undefined)).toBe(false)
   })
 
   it('keeps the prepared signPsbts entries for the request cleanup when a later entry is refused', async () => {

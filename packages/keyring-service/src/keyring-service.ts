@@ -261,16 +261,20 @@ interface QbitPqcSignatureBatch {
   budget: QbitSignatureBudgetImpact
   entries: QbitPqcSignatureBatchEntry[]
   // Present only for a batch its approval reopens (a local batch reviewed
-  // again before each signing run); see openP2mrPsbtSigningBatch.
+  // again before each signing run); see openP2mrPsbtSigningBatch. Only such
+  // a batch is evicted: a review can open its batch again, while a request's
+  // batch is its approval's.
   reuseScope?: string
 }
 
 const QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS = 5 * 60 * 1000
 const QBIT_RESTORED_FLOOR_CHALLENGE_CAPACITY = 128
 // A website request's batch is dropped when the request settles, a local
-// batch only by a lock; past this many, the oldest goes, and its unsigned
-// entries are then checked like any approval.
+// batch only by a lock. Past this many, the oldest local batch goes; while
+// only requests' batches are open, a new batch is refused.
 const QBIT_PQC_SIGNATURE_BATCH_CAPACITY = 64
+const QBIT_SIGNATURE_BATCH_INTERRUPTED =
+  'This batch approval was interrupted, by a lock or by too many open requests; reject it and send it again'
 const UNLOCK_VAULT_READ_ATTEMPTS = 3
 
 export class QbitRestoredFloorConfirmationError extends Error {
@@ -2673,7 +2677,9 @@ export class KeyringService extends EventEmitter {
    * already open in that scope for the same approval instead, the same
    * bytes with the same approved budgets, so a batch reviewed again keeps
    * what its entries reserved. A review after any entry spent prepares
-   * other budgets, and gets a batch of its own.
+   * other budgets, and gets a batch of its own. A batch opened anew must find
+   * every entry's approved budget still holding, and room among the open
+   * batches: a request's batch is never evicted for another.
    */
   openP2mrPsbtSigningBatch = async (
     address: string,
@@ -2727,13 +2733,31 @@ export class KeyringService extends EventEmitter {
           if (sameEntries) return { id, budget: { ...batch.budget } }
         }
       }
+      // A signature made since the entries were prepared fails the batch
+      // here, before its approval shows, rather than every entry later.
+      for (const [index, cacheKeys] of entryCacheKeys.entries()) {
+        const entryBudget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, cacheKeys)
+        if (!sameSignatureBudget(entryBudget, snapshots[index]!.approvedBudget)) {
+          throw new Error('P2MR signature budget changed after approval')
+        }
+      }
       const budget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, batchCacheKeys)
-      // A lock while the budget was read cleared the batches already, and
+      // A lock while the budgets were read cleared the batches already, and
       // must not find this one stored after it.
       this.assertLiveKeyrings([keyring])
-      for (const oldestId of this.qbitPqcSignatureBatches.keys()) {
-        if (this.qbitPqcSignatureBatches.size < QBIT_PQC_SIGNATURE_BATCH_CAPACITY) break
-        this.qbitPqcSignatureBatches.delete(oldestId)
+      // Make room by evicting the oldest local batch, which its review opens
+      // again. A request's batch stays until its request settles, so a burst
+      // of requests cannot close the one being signed: a new one is refused.
+      while (this.qbitPqcSignatureBatches.size >= QBIT_PQC_SIGNATURE_BATCH_CAPACITY) {
+        const evictable = [...this.qbitPqcSignatureBatches].find(
+          ([, open]) => open.reuseScope !== undefined
+        )
+        if (!evictable) {
+          throw new Error(
+            'Too many signing requests are waiting; finish or reject one before sending another'
+          )
+        }
+        this.qbitPqcSignatureBatches.delete(evictable[0])
       }
       const id = randomHexId()
       this.qbitPqcSignatureBatches.set(id, {
@@ -2753,7 +2777,11 @@ export class KeyringService extends EventEmitter {
     })
   }
 
-  /** Drop batches whose request settled; their entries no longer sign as a batch. */
+  /** Whether every batch `batchIds` names is still open, as an approval about to show needs. */
+  hasOpenP2mrPsbtSigningBatches = (batchIds: readonly string[]): boolean =>
+    batchIds.every(batchId => this.qbitPqcSignatureBatches.has(batchId))
+
+  /** Drop batches whose request settled; an entry that names one is then refused. */
   releaseP2mrPsbtSigningBatches = (batchIds: readonly string[]): void => {
     for (const batchId of batchIds) {
       this.qbitPqcSignatureBatches.delete(batchId)
@@ -2762,9 +2790,10 @@ export class KeyringService extends EventEmitter {
 
   /**
    * The open batch entry `ref` names, once it is checked to be this PSBT, for
-   * this key, with the budget it was approved with, and not yet signed.
-   * Undefined when the batch is no longer open: the entry is then checked
-   * like any approval.
+   * this key, not yet signed, and with the budget it was approved with.
+   * Undefined without a `ref`. A batch no longer open, closed by a lock or
+   * evicted, is refused: its entries were approved together, and checked on
+   * its own the first of them would sign while the rest are refused.
    */
   private qbitPqcSignatureBatchEntryLocked(
     ref: QbitPqcSignatureBatchRef | undefined,
@@ -2778,20 +2807,22 @@ export class KeyringService extends EventEmitter {
     if (batch && batch.pubkey !== pubkey) {
       throw new Error('P2MR signature batch belongs to another account')
     }
-    // A keyring loaded since the batch opened did not approve it.
-    if (!batch || batch.keyring !== keyring) return undefined
+    // A keyring loaded since the batch opened, after a lock, did not approve it.
+    if (!batch || batch.keyring !== keyring) {
+      throw new Error(QBIT_SIGNATURE_BATCH_INTERRUPTED)
+    }
     const entry = Number.isInteger(ref.index) ? batch.entries[ref.index] : undefined
     if (!entry || !sameCacheKeys(entry.cacheKeys, cacheKeys)) {
       throw new Error('P2MR signature batch entry does not match this PSBT')
+    }
+    if (entry.signed) {
+      throw new Error('P2MR signature batch entry was already signed')
     }
     // The batch's drift counts from the budget the entry was approved with.
     // Another, even one that matches now, is refused rather than checked on
     // its own: it would pair a later approval with this batch's spend.
     if (!expectedBudget || !sameSignatureBudget(entry.approvedBudget, expectedBudget)) {
       throw new Error('P2MR signature batch entry was approved with another budget')
-    }
-    if (entry.signed) {
-      throw new Error('P2MR signature batch entry was already signed')
     }
     return { batch, entry }
   }

@@ -2300,6 +2300,30 @@ describe('useSignPsbtLogic signature batches (#152)', () => {
     expect(wallet.signPsbtV2).toHaveBeenCalledWith(providerBatch[1])
   })
 
+  it('shows why an entry of a batch a lock interrupted is refused, and signs nothing else', async () => {
+    const wallet = createSignPsbtWallet()
+    const providerBatch = BATCH.map((_toSignData, index) => asMember(index, 'provider-batch'))
+    const interrupted =
+      'This batch approval was interrupted, by a lock or by too many open requests; reject it and send it again'
+    wallet.signPsbtV2.mockRejectedValue(new Error(interrupted))
+    const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(providerBatch)), {
+      wrapper,
+    })
+
+    act(() => {
+      result.current.multiSignList[0]!.onClick()
+    })
+    await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+
+    expect(tools.toastError).toHaveBeenCalledWith(interrupted)
+    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(result.current.signedCount).toBe(0)
+  })
+
   it('signs a single PSBT outside any batch', async () => {
     const wallet = createSignPsbtWallet()
     wallet.signPsbtV2.mockResolvedValue({ psbtHex: 'signed-first-psbt' })

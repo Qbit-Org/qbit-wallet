@@ -23,6 +23,7 @@ import {
   RequestMethodVerifyMessageParams,
 } from '@qbit/wallet-shared'
 import { permissionService, sessionService } from '../../services'
+import approvalService from '../../services/approval'
 // Module-path import keeps the capability independently mockable in tests.
 import regtestAccessService from '../../services/regtestAccess'
 import { qbitP2mrSigningLeafRecord } from '../../utils/qbit-p2mr-signing-leaf'
@@ -768,6 +769,9 @@ class ProviderController extends BaseController {
       ) {
         throw new Error('signPsbts requires one option for each of 1-20 PSBTs')
       }
+      // Its approval would be refused while another is pending; refused now,
+      // it prepares nothing and opens no signature batch to close again.
+      await approvalService.assertNoPendingApproval()
 
       params.toSignDatas = []
       for (let i = 0; i < params.psbtHexs.length; i++) {
@@ -781,7 +785,10 @@ class ProviderController extends BaseController {
       // Every entry's budget was prepared before any of them signs, and the
       // user signs them one at a time, in any order: each may then find the
       // signatures the others reserved spent, which only the batch explains.
-      await wallet.openQbitProviderSignatureBatch(params.toSignDatas)
+      // The request records the batch it opened, the only one it may close;
+      // a page's own parameters cannot name it.
+      const signatureBatchId = await wallet.openQbitProviderSignatureBatch(params.toSignDatas)
+      req.qbitSignatureBatchIds = signatureBatchId ? [signatureBatchId] : []
       const externalSigningLock = await wallet.acquireExternalQbitSigningLock(
         params.toSignDatas,
         'sign'
@@ -796,14 +803,16 @@ class ProviderController extends BaseController {
   signPsbts = async ({
     data: { params },
     approvalRes,
+    qbitSignatureBatchIds,
   }: {
     data: { params: RequestMethodSignPsbtsParams }
     approvalRes: SignPsbtResult
+    qbitSignatureBatchIds?: readonly string[]
   }) => {
     const toSignDatas = getToSignDatas(params.toSignDatas, params.psbtHexs.length)
     // The approval is answered once every entry has signed; signing one
-    // again is then checked like any approval.
-    wallet.releaseQbitSignatureBatches(toSignDatas)
+    // again in the batch is then refused.
+    wallet.releaseQbitSignatureBatches(qbitSignatureBatchIds ?? [])
     if (!Array.isArray(approvalRes) || approvalRes.length !== toSignDatas.length) {
       throw new Error('invalid batch signing result')
     }

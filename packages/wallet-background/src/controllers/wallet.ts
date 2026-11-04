@@ -7694,29 +7694,29 @@ export class WalletController extends BaseController {
    * Open the batch a signPsbts approval covers, and mark each prepared entry
    * with it: its entries are signed one at a time, in any order, so each may
    * find signatures the others reserved spent, which only a batch member
-   * may. Only a batch this wallet's keys sign has one.
+   * may. Only a batch this wallet's keys sign has one. Resolves with the
+   * batch's id, which the request then holds until it settles.
    */
-  openQbitProviderSignatureBatch = async (toSignDatas: ToSignData[]): Promise<void> => {
+  openQbitProviderSignatureBatch = async (
+    toSignDatas: ToSignData[]
+  ): Promise<string | undefined> => {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
     const batch = await this.openQbitSignatureBatch(account, toSignDatas)
-    if (!batch) return
+    if (!batch) return undefined
     toSignDatas.forEach((toSignData, index) => {
       toSignData.qbitSignatureBatch = { id: batch.id, index, budget: { ...batch.budget } }
     })
+    return batch.id
   }
 
   /**
-   * Close the batches of a settled request, answered or failed; see
-   * openQbitProviderSignatureBatch.
+   * Close the batches a request opened, once it settles, answered or failed;
+   * see openQbitProviderSignatureBatch. Only the ids the request recorded
+   * when it opened them: the page's own parameters name none.
    */
-  releaseQbitSignatureBatches = (toSignDatas: readonly ToSignData[]): void => {
-    const batchIds = new Set<string>()
-    for (const toSignData of toSignDatas) {
-      const batchId = toSignData?.qbitSignatureBatch?.id
-      if (typeof batchId === 'string') batchIds.add(batchId)
-    }
-    if (batchIds.size > 0) keyringService.releaseP2mrPsbtSigningBatches([...batchIds])
+  releaseQbitSignatureBatches = (batchIds: readonly string[]): void => {
+    if (batchIds.length > 0) keyringService.releaseP2mrPsbtSigningBatches(batchIds)
   }
 
   private openQbitSignatureBatch = async (
