@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Délai de Verrouillage Automatique"
   },
+  "lock_when_computer_locks": {
+    "message": "Verrouiller quand l'ordinateur se verrouille"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Verrouiller à la fermeture de toutes les fenêtres"
+  },
   "available": {
     "message": "Disponible"
   },
@@ -247,6 +253,30 @@
   },
   "qbit_restore_stats_floor_notice": {
     "message": "Les compteurs de signatures des comptes à l'index de dérivation $1 ont été reconstruits à partir des totaux d'adresse de l'explorateur, car leur historique est trop long pour être lu en entier. Ces totaux comptent les mêmes dépenses sur la chaîne."
+  },
+  "qbit_restore_summed_floor_regtest": {
+    "message": "Le compteur de signatures du compte à l'index de dérivation $1 n'a pas été restauré. $2 $3 Testnet4 et Regtest partagent ce compteur, et ensemble ces décomptes atteignent le seuil d'avertissement de $4 signatures. Le portefeuille refuse un compteur aussi élevé, donc la signature reste verrouillée ; la réception fonctionne toujours. L'explorateur Testnet4 ne peut pas être désactivé ici. Réessayez plus tard ; s'il continue d'indiquer ce décompte, utilisez les descripteurs de récupération qbit Core de l'écran Phrase Secrète de Récupération pour accéder aux fonds."
+  },
+  "qbit_restore_summed_floor_regtest_own_share_larger": {
+    "message": "Le compteur de signatures du compte à l'index de dérivation $1 n'a pas été restauré. $2 $3 Testnet4 et Regtest partagent ce compteur, et ensemble ces décomptes atteignent le seuil d'avertissement de $4 signatures. Le portefeuille refuse un compteur aussi élevé, donc la signature reste verrouillée ; la réception fonctionne toujours. L'essentiel du décompte vient de votre service Regtest local. Vérifiez ce service, puis réessayez ; s'il continue d'indiquer ce décompte, utilisez les descripteurs de récupération qbit Core de l'écran Phrase Secrète de Récupération pour accéder aux fonds."
+  },
+  "qbit_restore_summed_floor_share_regtest_history": {
+    "message": "L'historique des transactions du service Regtest local indique $1 signatures."
+  },
+  "qbit_restore_summed_floor_share_regtest_stats": {
+    "message": "Les statistiques d'adresse du service Regtest local indiquent $1 signatures."
+  },
+  "qbit_restore_summed_floor_share_testnet4_history": {
+    "message": "L'historique des transactions de l'explorateur Testnet4 indique $1 signatures."
+  },
+  "qbit_restore_summed_floor_share_testnet4_stats": {
+    "message": "Les statistiques d'adresse de l'explorateur Testnet4 indiquent $1 signatures."
+  },
+  "qbit_restore_summed_floor_testnet4": {
+    "message": "Le compteur de signatures du compte à l'index de dérivation $1 n'a pas été restauré. $2 $3 Testnet4 et Regtest partagent ce compteur, et ensemble ces décomptes atteignent le seuil d'avertissement de $4 signatures. Le portefeuille refuse un compteur aussi élevé, donc la signature reste verrouillée ; la réception fonctionne toujours. Arrêtez le service Regtest local, ou désactivez Regtest local dans les Paramètres Avancés, puis réessayez."
+  },
+  "qbit_restore_summed_floor_testnet4_own_share_larger": {
+    "message": "Le compteur de signatures du compte à l'index de dérivation $1 n'a pas été restauré. $2 $3 Testnet4 et Regtest partagent ce compteur, et ensemble ces décomptes atteignent le seuil d'avertissement de $4 signatures. Le portefeuille refuse un compteur aussi élevé, donc la signature reste verrouillée ; la réception fonctionne toujours. L'essentiel du décompte vient de l'explorateur Testnet4, qui ne peut pas être désactivé ici. Réessayez plus tard ; s'il continue d'indiquer ce décompte, utilisez les descripteurs de récupération qbit Core de l'écran Phrase Secrète de Récupération pour accéder aux fonds. Sinon, arrêtez le service Regtest local, ou désactivez Regtest local dans les Paramètres Avancés : une nouvelle tentative restaure alors le seul décompte de Testnet4, déjà proche du seuil et qui ne pourra jamais être abaissé."
   },
   "qbit_signatures_remaining": {
     "message": "$1 restante(s)"
@@ -319,6 +349,9 @@
   },
   "qbit_receive_no_safe": {
     "message": "Aucune adresse de réception sûre n’est disponible. Les adresses épuisées sont exclues et l’intervalle de restauration peut être plein. Utilisez une adresse déjà émise, inutilisée et non épuisée, ou rétablissez le réseau puis réessayez."
+  },
+  "qbit_receive_no_safe_new_address": {
+    "message": "L’adresse de ce compte ne peut pas servir à recevoir des fonds. Appuyez sur Nouvelle adresse pour obtenir une nouvelle adresse et passer à son compte."
   },
   "qbit_receive_previous": {
     "message": "Adresses précédentes"
@@ -745,6 +778,9 @@
   },
   "failed_to_save_contact": {
     "message": "Échec de la sauvegarde du contact"
+  },
+  "another_contact_has_this_address": {
+    "message": "Un autre contact a déjà cette adresse sur ce réseau"
   },
   "failed_to_save_contact_order": {
     "message": "Échec de la sauvegarde de l'ordre des contacts"
@@ -2351,6 +2387,9 @@
   "unlock_already_in_progress": {
     "message": "Le déverrouillage est déjà en cours"
   },
+  "wallet_locked_during_unlock": {
+    "message": "Le portefeuille s'est verrouillé pendant le déverrouillage. Déverrouillez-le à nouveau."
+  },
   "unrecognized_password_strength": {
     "message": "Force de mot de passe non reconnue"
   },
@@ -2767,6 +2806,9 @@
   },
   "qbit_recovery_error_body": {
     "message": "La migration n’a pas pu continuer en toute sécurité. Les deux portefeuilles et le dossier de récupération chiffré restent disponibles ; vérifiez le réseau et réessayez."
+  },
+  "qbit_recovery_review_interrupted": {
+    "message": "L’examen a été interrompu avant que tous les mouvements soient signés. Examinez les mouvements restants et signez à nouveau."
   },
   "qbit_recovery_error_code_label": {
     "message": "Code d'erreur :"

@@ -10,7 +10,6 @@ import {
   type PhishingProtectionReason,
   type PhishingStatsResponse,
   type PhishingWarningRedirectHealth,
-  PlatformEnv,
 } from '@qbit/wallet-shared'
 import { phishingDetectService as phishingService } from 'src/services'
 
@@ -293,12 +292,13 @@ class PhishingController {
 
     this.sessionBypassesRestored = this.restoreSessionBypasses()
 
-    // Setup declarative rules for MV3
+    // Setup declarative rules, where the browser has DNR
     this.setupDeclarativeRules()
   }
 
+  /** Whether the browser has DNR; without it the content script is the only layer. */
   private hasDeclarativeNetRequest(): boolean {
-    return PlatformEnv.MANIFEST_VERSION === 'mv3' && !!chrome.declarativeNetRequest
+    return !!chrome.declarativeNetRequest
   }
 
   /** Re-applies the in-memory bypass for every Proceed rule left in this browser session. */
@@ -328,8 +328,8 @@ class PhishingController {
 
   /**
    * Lets the host through the block rule for the rest of this browser session.
-   * Without DNR (MV2), the content-script warning is the only layer and the
-   * in-memory bypass is enough.
+   * In a browser without DNR, the content-script warning is the only layer and
+   * the in-memory bypass is enough.
    */
   private allowForSession(hostname: string): Promise<void> {
     if (!this.hasDeclarativeNetRequest()) return Promise.resolve()
@@ -679,12 +679,12 @@ class PhishingController {
 
   /**
    * Replace the dynamic rules with one block rule for the bundled denylist
-   * Only applicable for MV3 extensions. Rejects when the rule is not in place
-   * after the first attempt; retries continue in the background.
+   * Only applicable where the browser has DNR. Rejects when the rule is not in
+   * place after the first attempt; retries continue in the background.
    */
   public async updateDeclarativeRules(): Promise<void> {
     if (!this.hasDeclarativeNetRequest()) {
-      log.warn('[Phishing] Declarative rules are only available in MV3')
+      log.warn('[Phishing] Declarative rules need the declarativeNetRequest API')
       return
     }
 

@@ -3,13 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { QbitApiError } from '@qbit-oss/api'
 import { QBIT_BROADCAST_DETAIL_MAX_LENGTH, sanitizeQbitBroadcastDetail } from '@qbit/wallet-shared'
 import {
+  QBIT_BROADCAST_DEADLINE_MS,
+  QBIT_BROADCAST_MIN_PASS_MS,
+  QBIT_BROADCAST_RESEND_WINDOW_MS,
   QbitBroadcastResponseMismatchError,
   classifyQbitBroadcastError,
   isQbitBroadcastResendable,
   isQbitTxSizeBroadcastRejection,
+  qbitBroadcastDeadlineMs,
+  qbitBroadcastMinPassMs,
   qbitBroadcastRejection,
   qbitBroadcastRejectionDetail,
+  qbitBroadcastResendWindowMs,
 } from '../src/utils/qbit-broadcast'
+import { qbitExplorerReplyTimeoutMs } from '../src/utils/qbit-explorer-fetch'
 
 const ENDPOINT = 'http://127.0.0.1:3002/tx'
 
@@ -478,5 +485,46 @@ describe('isQbitTxSizeBroadcastRejection', () => {
     ['a plain error', new Error('tx-size')],
   ])('does not treat %s as tx-size', (_label, error) => {
     expect(isQbitTxSizeBroadcastRejection(error)).toBe(false)
+  })
+})
+
+describe('a broadcast pass and deadline sized by the bytes (#130)', () => {
+  // A one-input payment, and the largest standard transaction, as hex.
+  const PAYMENT_HEX = 'ab'.repeat(3_900)
+  const LARGEST_HEX = 'ab'.repeat(400_000)
+
+  it("needs a submission's whole reply budget, its upload included, left for each pass", () => {
+    expect(qbitBroadcastMinPassMs('')).toBe(QBIT_BROADCAST_MIN_PASS_MS)
+    expect(qbitBroadcastMinPassMs(PAYMENT_HEX)).toBe(qbitExplorerReplyTimeoutMs(PAYMENT_HEX))
+    expect(qbitBroadcastMinPassMs(PAYMENT_HEX)).toBeLessThan(QBIT_BROADCAST_MIN_PASS_MS + 1_000)
+    expect(qbitBroadcastMinPassMs(LARGEST_HEX)).toBe(qbitExplorerReplyTimeoutMs(LARGEST_HEX))
+    expect(qbitBroadcastMinPassMs(LARGEST_HEX)).toBe(63_829)
+  })
+
+  it('lengthens the deadline by that upload, so the check and the lookups keep their time', () => {
+    expect(qbitBroadcastDeadlineMs('')).toBe(QBIT_BROADCAST_DEADLINE_MS)
+    for (const rawtx of [PAYMENT_HEX, LARGEST_HEX]) {
+      expect(qbitBroadcastDeadlineMs(rawtx) - qbitBroadcastMinPassMs(rawtx)).toBe(
+        QBIT_BROADCAST_DEADLINE_MS - QBIT_BROADCAST_MIN_PASS_MS
+      )
+    }
+    expect(qbitBroadcastDeadlineMs(LARGEST_HEX)).toBe(168_829)
+  })
+
+  it('lengthens the re-send window by that upload, so a first attempt that timed out can be re-sent', () => {
+    expect(qbitBroadcastResendWindowMs('')).toBe(QBIT_BROADCAST_RESEND_WINDOW_MS)
+    for (const rawtx of [PAYMENT_HEX, LARGEST_HEX]) {
+      expect(qbitBroadcastResendWindowMs(rawtx) - qbitBroadcastMinPassMs(rawtx)).toBe(
+        QBIT_BROADCAST_RESEND_WINDOW_MS - QBIT_BROADCAST_MIN_PASS_MS
+      )
+    }
+    expect(qbitBroadcastResendWindowMs(LARGEST_HEX)).toBe(78_829)
+    // A re-send that starts as the window closes still has its pass, and
+    // about 26 s of the deadline after it.
+    expect(
+      qbitBroadcastDeadlineMs(LARGEST_HEX) -
+        qbitBroadcastResendWindowMs(LARGEST_HEX) -
+        qbitBroadcastMinPassMs(LARGEST_HEX)
+    ).toBe(26_171)
   })
 })

@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Tiempo de Bloqueo Automático"
   },
+  "lock_when_computer_locks": {
+    "message": "Bloquear cuando se bloquee el ordenador"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Bloquear al cerrar todas las ventanas"
+  },
   "available": {
     "message": "Disponible"
   },
@@ -247,6 +253,30 @@
   },
   "qbit_restore_stats_floor_notice": {
     "message": "Los contadores de firmas de las cuentas con índice de derivación $1 se reconstruyeron a partir de los totales de dirección del explorador, porque su historial es demasiado largo para leerlo completo. Esos totales cuentan los mismos gastos en la cadena."
+  },
+  "qbit_restore_summed_floor_regtest": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. El explorador de Testnet4 no se puede desactivar aquí. Vuelva a intentarlo más tarde; si sigue indicando este recuento, use los descriptores de recuperación de qbit Core de la pantalla Frase Secreta de Recuperación para acceder a los fondos."
+  },
+  "qbit_restore_summed_floor_regtest_own_share_larger": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. La mayor parte del recuento proviene de su servicio Regtest local. Revise ese servicio y vuelva a intentarlo; si sigue indicando este recuento, use los descriptores de recuperación de qbit Core de la pantalla Frase Secreta de Recuperación para acceder a los fondos."
+  },
+  "qbit_restore_summed_floor_share_regtest_history": {
+    "message": "El historial de transacciones del servicio Regtest local muestra $1 firmas."
+  },
+  "qbit_restore_summed_floor_share_regtest_stats": {
+    "message": "Las estadísticas de dirección del servicio Regtest local indican $1 firmas."
+  },
+  "qbit_restore_summed_floor_share_testnet4_history": {
+    "message": "El historial de transacciones del explorador de Testnet4 muestra $1 firmas."
+  },
+  "qbit_restore_summed_floor_share_testnet4_stats": {
+    "message": "Las estadísticas de dirección del explorador de Testnet4 indican $1 firmas."
+  },
+  "qbit_restore_summed_floor_testnet4": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. Detenga el servicio Regtest local, o desactive Regtest local en Configuración Avanzada, y vuelva a intentarlo."
+  },
+  "qbit_restore_summed_floor_testnet4_own_share_larger": {
+    "message": "El contador de firmas de la cuenta con índice de derivación $1 no se restauró. $2 $3 Testnet4 y Regtest comparten este contador, y juntos estos recuentos alcanzan el umbral de advertencia de $4 firmas. La billetera rechaza un contador tan alto, por lo que la firma permanece bloqueada; la recepción sigue funcionando. La mayor parte del recuento proviene del explorador de Testnet4, que no se puede desactivar aquí. Vuelva a intentarlo más tarde; si sigue indicando este recuento, use los descriptores de recuperación de qbit Core de la pantalla Frase Secreta de Recuperación para acceder a los fondos. Otra opción: detenga el servicio Regtest local, o desactive Regtest local en Configuración Avanzada; un nuevo intento restaurará solo el recuento de Testnet4, que ya está cerca del umbral y nunca podrá reducirse."
   },
   "qbit_signatures_remaining": {
     "message": "$1 restante(s)"
@@ -319,6 +349,9 @@
   },
   "qbit_receive_no_safe": {
     "message": "No hay una dirección de recepción segura. Se excluyen las direcciones agotadas y el intervalo de restauración puede estar lleno. Usa una dirección ya emitida, sin usar y no agotada, o restablece la red y reintenta."
+  },
+  "qbit_receive_no_safe_new_address": {
+    "message": "La dirección de esta cuenta no se puede usar para recibir fondos. Pulsa Nueva dirección para obtener una dirección nueva y cambiar a su cuenta."
   },
   "qbit_receive_previous": {
     "message": "Direcciones anteriores"
@@ -745,6 +778,9 @@
   },
   "failed_to_save_contact": {
     "message": "Error al guardar el contacto"
+  },
+  "another_contact_has_this_address": {
+    "message": "Otro contacto ya tiene esta dirección en esta red"
   },
   "failed_to_save_contact_order": {
     "message": "Error al guardar el orden de los contactos"
@@ -2351,6 +2387,9 @@
   "unlock_already_in_progress": {
     "message": "El desbloqueo ya está en progreso"
   },
+  "wallet_locked_during_unlock": {
+    "message": "La billetera se bloqueó mientras se desbloqueaba. Vuelve a desbloquearla."
+  },
   "unrecognized_password_strength": {
     "message": "Fuerza de contraseña no reconocida"
   },
@@ -2767,6 +2806,9 @@
   },
   "qbit_recovery_error_body": {
     "message": "La migración no pudo continuar de forma segura. Ambas carteras y el registro de recuperación cifrado siguen disponibles; comprueba la red e inténtalo de nuevo."
+  },
+  "qbit_recovery_review_interrupted": {
+    "message": "La revisión se interrumpió antes de firmar todos los movimientos. Revisa los movimientos restantes y vuelve a firmar."
   },
   "qbit_recovery_error_code_label": {
     "message": "Código de error:"

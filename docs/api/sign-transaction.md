@@ -150,6 +150,8 @@ once the endpoint answers with that identifier. They report a failed broadcast t
   [unknown broadcast outcome](#unknown-broadcast-outcome) error, and `data.txid` names the
   transaction the pushed bytes encode. Do not build another transaction over its inputs before you
   have looked `data.txid` up on the chain.
+- A [lost connection](#lost-connection) error (code `4900`) means the outcome is unknown: look the
+  transaction up before you push it again.
 - Any other error means the transaction was not broadcast: it was refused before the bytes left the
   wallet, or the node definitively rejected it and repeated lookups, a few seconds apart, found it
   absent. The message carries the node's reason when there is one, without the endpoint's address
@@ -235,6 +237,62 @@ Do not retry `sendQbit()` blindly after this error: a new request builds a new t
 pay the recipient twice. Look up `data.txid` on the chain first, and treat the payment as made if
 the transaction is found.
 
-`sendQbit()` rejects with any other error only when the transaction was not broadcast. Such a
-failure happens before the bytes leave the wallet, or the node definitively rejects the transaction
-and repeated lookups find it absent. Its inputs are released.
+`sendQbit()` rejects with any other error, except a [lost connection](#lost-connection), only when
+the transaction was not broadcast. Such a failure happens before the bytes leave the wallet, or the
+node definitively rejects the transaction and repeated lookups find it absent. Its inputs are
+released.
+
+### Lost connection
+
+The connection between the page and Qbit Wallet can close while a request is in progress, for
+example when the extension's background stops or restarts, or the extension is updated. Every
+request still waiting for its answer then rejects with this error:
+
+```typescript
+interface QbitDisconnectedError {
+  code: 4900 // EIP-1193 Disconnected
+  message: string
+}
+```
+
+The request may have run before the connection closed, so a `sendQbit()`, `pushTx()` or
+`pushPsbt()` may have broadcast its transaction. Qbit Wallet never sends the request again. Before
+you retry one of these methods after this error, look its transaction up on the chain:
+
+- For `pushTx()` and `pushPsbt()`, look up the identifier of the transaction you pushed.
+- `sendQbit()` returns no identifier with this error, so check the account's recent transactions
+  for the payment. If it is there, treat the payment as made: a new `sendQbit()` builds a new
+  transaction and can pay the recipient twice.
+
+A request the user declines still rejects with code `4001`.
+
+### Wallet still starting
+
+Qbit Wallet answers a page's requests only once its background has started, for example after the
+browser stopped the background while it was idle. A request made meanwhile waits for the start. If
+the background has still not started after 30 seconds, the request rejects with this error:
+
+```typescript
+interface QbitStillStartingError {
+  code: -32002 // EIP-1474 Resource unavailable
+  message: string
+}
+```
+
+The request did not run, so you can send it again, including a `sendQbit()`, `pushTx()` or
+`pushPsbt()`.
+
+### Wallet could not start
+
+When the background fails to start, for example because it cannot read its stored settings, every
+request rejects at once with this error until the extension restarts:
+
+```typescript
+interface QbitStartFailedError {
+  code: -32603 // JSON-RPC Internal error
+  message: 'Qbit Wallet could not start. Open Qbit Wallet to see why.'
+}
+```
+
+The request did not run. The wallet's own window says what went wrong and can restart the
+extension. Other failures use the generic code `-32603` too; this one carries the message above.

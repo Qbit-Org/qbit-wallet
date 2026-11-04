@@ -227,4 +227,53 @@ describe('restoreAppState', () => {
     // Only the write a normal start makes before the permission service.
     expect(browserStorage.set.mock.calls).toEqual([[{ openapi: null }]]);
   });
+
+  it('holds a caller that asks during start-up until the background is restored', async () => {
+    let releaseKeyring!: () => void;
+    background.keyringService.init.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseKeyring = resolve))
+    );
+    vi.resetModules();
+    const restore = await import('./restore');
+    const ready = vi.fn();
+    void restore.whenAppStateRestored().then(ready);
+
+    const starting = restore.restoreAppState();
+    await vi.waitFor(() => expect(releaseKeyring).toBeTypeOf('function'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ready).not.toHaveBeenCalled();
+
+    releaseKeyring();
+    await starting;
+
+    await vi.waitFor(() => expect(ready).toHaveBeenCalledOnce());
+    expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
+    // A caller that asks later gets the same answer at once.
+    await expect(restore.whenAppStateRestored()).resolves.toBeUndefined();
+  });
+
+  it.each([
+    [
+      'the stored settings cannot be read',
+      () => browserStorage.get.mockRejectedValue(unreadable()),
+      'stored-settings-unreadable'
+    ],
+    [
+      'a service fails to start',
+      () => background.notificationService.init.mockRejectedValueOnce(new Error('notification store is malformed')),
+      'unknown'
+    ]
+  ])('rejects every caller, before and after, with the reason when %s', async (_label, arrange, reason) => {
+    arrange();
+    vi.resetModules();
+    const restore = await import('./restore');
+    const asked = restore.whenAppStateRestored();
+
+    await restore.restoreAppState();
+
+    await expect(asked).rejects.toBeInstanceOf(restore.AppStateRestoreError);
+    await expect(asked).rejects.toMatchObject({ reason });
+    await expect(restore.whenAppStateRestored()).rejects.toMatchObject({ reason });
+    expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith(reason);
+  });
 });

@@ -1,5 +1,7 @@
+import { getEventListeners } from 'node:events'
+
 import type { P2mrMessageProof } from '@qbit-oss/protocol'
-import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 import { ChainType } from '../src/types'
 import { QbitWallet } from '../src/wallets/QbitWallet'
@@ -74,6 +76,255 @@ describe('QbitWallet', () => {
 
     expect(wallet.installed).toBe(false)
     expect(aliasProvider.requestAccounts).not.toHaveBeenCalled()
+  })
+
+  describe('waiting for the wallet to be ready', () => {
+    const READY_EVENTS = ['qbit#initialized', 'qbit:announceProvider']
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    })
+
+    // A page window, with spies on its event methods. They act on an inner
+    // target, so that replacing one, as a page can, leaves the browser's own
+    // removal of a listener whose signal aborts as it is.
+    function installPage() {
+      const target = new EventTarget()
+      const page = {
+        addEventListener: target.addEventListener.bind(target),
+        removeEventListener: target.removeEventListener.bind(target),
+        dispatchEvent: target.dispatchEvent.bind(target),
+      } as EventTarget & { qbit?: unknown }
+      ;(globalThis as any).window = page
+      const add = vi.spyOn(page, 'addEventListener')
+      const remove = vi.spyOn(page, 'removeEventListener')
+      const dispatch = vi.spyOn(page, 'dispatchEvent')
+      // The listeners still attached for the wallet's events, by event.
+      const listenersLeft = () =>
+        READY_EVENTS.flatMap(type => getEventListeners(target, type).map(() => type))
+      return { page, target, add, remove, dispatch, listenersLeft }
+    }
+    type PageSetup = ReturnType<typeof installPage>
+
+    function announce(page: EventTarget, provider: unknown) {
+      const info = { uuid: 'uuid', name: 'Qbit Wallet', icon: 'data:,', rdns: 'org.qbit.wallet' }
+      page.dispatchEvent(new CustomEvent('qbit:announceProvider', { detail: { info, provider } }))
+    }
+
+    function track(promise: Promise<void>) {
+      const state = { settled: false }
+      void promise.finally(() => {
+        state.settled = true
+      })
+      return state
+    }
+
+    it('resolves from qbit#initialized without waiting for the next poll', async () => {
+      vi.useFakeTimers()
+      const { page, add, dispatch, listenersLeft } = installPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      // It listens before it asks for an announcement.
+      expect(add.mock.calls.map(([type]) => type)).toEqual(READY_EVENTS)
+      expect(dispatch.mock.calls.map(([event]) => event.type)).toEqual(['qbit:requestProvider'])
+      expect(add.mock.invocationCallOrder[1]).toBeLessThan(dispatch.mock.invocationCallOrder[0]!)
+      page.qbit = createProvider()
+      page.dispatchEvent(new Event('qbit#initialized'))
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
+    it('resolves from an announcement that comes after polling started', async () => {
+      vi.useFakeTimers()
+      const { page, listenersLeft } = installPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(350)
+      expect(state.settled).toBe(false)
+      page.qbit = createProvider()
+      announce(page, page.qbit)
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
+    it.each([
+      ['a wallet that sends no events', () => installPage().page],
+      ['a window without events', () => (globalThis as any).window as { qbit?: unknown }],
+    ])('falls back to polling alone for %s', async (_case, createPage) => {
+      vi.useFakeTimers()
+      const page = createPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(350)
+      page.qbit = createProvider()
+      // The next poll, at 600 ms, finds it.
+      await vi.advanceTimersByTimeAsync(249)
+      expect(state.settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('gives up after the same 5.5 seconds and removes its listeners', async () => {
+      vi.useFakeTimers()
+      const { listenersLeft } = installPage()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(5499)
+      expect(state.settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
+
+    // The page's own replacement for a window method, or for AbortController.
+    const replaced = () => {
+      throw new Error('replaced')
+    }
+
+    it.each([
+      ['dispatchEvent throws', ({ dispatch }: PageSetup) => dispatch.mockImplementation(replaced)],
+      [
+        'addEventListener throws on the first event',
+        ({ add }: PageSetup) => add.mockImplementationOnce(replaced),
+      ],
+      [
+        'addEventListener throws once one listener is in place',
+        ({ target, add }: PageSetup) =>
+          add
+            .mockImplementationOnce((...args) => target.addEventListener(...args))
+            .mockImplementationOnce(replaced),
+      ],
+      [
+        'removeEventListener throws',
+        ({ remove }: PageSetup) => remove.mockImplementation(replaced),
+      ],
+      [
+        'AbortController throws',
+        () =>
+          vi.stubGlobal(
+            'AbortController',
+            class {
+              constructor() {
+                replaced()
+              }
+            }
+          ),
+      ],
+    ])('settles, still polls, and leaves no listener when %s', async (_case, breakPage) => {
+      vi.useFakeTimers()
+      const setup = installPage()
+      breakPage(setup)
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      await vi.advanceTimersByTimeAsync(350)
+      expect(state.settled).toBe(false)
+      setup.page.qbit = createProvider()
+      // The next poll, at 600 ms, finds it.
+      await vi.advanceTimersByTimeAsync(250)
+      await initializing
+
+      expect(wallet.installed).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(setup.listenersLeft()).toEqual([])
+    })
+
+    it('gives up, once, even when the page made removeEventListener and abort throw', async () => {
+      vi.useFakeTimers()
+      const { remove } = installPage()
+      remove.mockImplementation(replaced)
+      vi.spyOn(AbortController.prototype, 'abort').mockImplementation(replaced)
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      await vi.advanceTimersByTimeAsync(5500)
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('only polls, and resolves not installed, on a window that cannot dispatch events', async () => {
+      vi.useFakeTimers()
+      const standIn = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+      ;(globalThis as any).window = standIn
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      await vi.runAllTimersAsync()
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(standIn.addEventListener).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['a look-alike window.qbit', { requestAccounts: vi.fn() }],
+      ['no window.qbit', undefined],
+    ])('is not marked installed by faked events with %s', async (_case, qbit) => {
+      vi.useFakeTimers()
+      const { page, listenersLeft } = installPage()
+      page.qbit = qbit
+      const announced = createProvider()
+      const wallet = new QbitWallet()
+
+      const initializing = wallet.init()
+      const state = track(initializing)
+      page.dispatchEvent(new Event('qbit#initialized'))
+      announce(page, announced)
+      // Faked events neither settle the wait nor shorten it.
+      await vi.advanceTimersByTimeAsync(5499)
+      expect(state.settled).toBe(false)
+      await vi.runAllTimersAsync()
+      await initializing
+
+      expect(wallet.installed).toBe(false)
+      expect(listenersLeft()).toEqual([])
+      Object.values(announced).forEach(method => expect(method).not.toHaveBeenCalled())
+    })
+
+    it('rejects, as before, when reading window.qbit throws', async () => {
+      vi.useFakeTimers()
+      const { page, listenersLeft } = installPage()
+      let reads = 0
+      Object.defineProperty(page, 'qbit', {
+        configurable: true,
+        get() {
+          reads += 1
+          if (reads > 1) throw new Error('window.qbit is blocked')
+          return undefined
+        },
+      })
+      const wallet = new QbitWallet()
+
+      const rejected = expect(wallet.init()).rejects.toThrow('window.qbit is blocked')
+      await vi.advanceTimersByTimeAsync(100)
+      await rejected
+
+      expect(vi.getTimerCount()).toBe(0)
+      expect(listenersLeft()).toEqual([])
+    })
   })
 
   describe('connecting a dapp set up for another chain', () => {
@@ -229,6 +480,21 @@ describe('QbitWallet', () => {
       pubKey: 'pubkey',
     })
   })
+
+  it.each(['requestAccount', 'getAccount'] as const)(
+    'passes on a dropped connection (4900) from %s, not a cancel or no account',
+    async method => {
+      const dropped = { code: 4900, message: 'The connection to Qbit Wallet closed' }
+      ;(globalThis as any).window.qbit = createProvider({
+        requestAccounts: vi.fn().mockRejectedValue(dropped),
+        getAccounts: vi.fn().mockRejectedValue(dropped),
+      })
+      const wallet = new QbitWallet()
+      wallet.installed = true
+
+      await expect(wallet[method]()).rejects.toBe(dropped)
+    }
+  )
 
   it('binds single and batch PSBT options to the selected chain', async () => {
     const provider = createProvider()

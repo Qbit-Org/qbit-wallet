@@ -1,5 +1,7 @@
 import type { ChainType } from '@qbit/wallet-types'
 
+import type { QbitSignatureBatchEntry } from './qbit-provider'
+
 export enum RiskType {
   SIGHASH_NONE,
   SCAMMER_ADDRESS,
@@ -262,6 +264,11 @@ export interface LocalPsbtSummary {
   account: string
   /** The network the batch was analyzed on. */
   chain: ChainType
+  /**
+   * The batch its entries sign as, in any order, and its whole signature
+   * budget; absent when the batch is not signed by this wallet's keys.
+   */
+  signatureBatch?: Pick<QbitSignatureBatchEntry, 'id' | 'budget'>
 }
 
 /**

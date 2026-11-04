@@ -203,6 +203,38 @@ describe('ApprovalService', () => {
     })
   })
 
+  describe('assertNoPendingApproval', () => {
+    it('passes while no approval is pending', async () => {
+      await expect(service.assertNoPendingApproval()).resolves.toBeUndefined()
+      expect(service.platformFocusWindow).not.toHaveBeenCalled()
+    })
+
+    it('refuses as requestApproval would while one is pending, and focuses its window', async () => {
+      service.requestApproval(makeApprovalData({ approvalType: 'first' })).catch(() => {})
+      await flushAsync()
+
+      await expect(service.assertNoPendingApproval()).rejects.toMatchObject({
+        code: ErrorCodes.UNKNOWN,
+        message: 'Another approval request is already pending',
+      })
+      expect(service.platformFocusWindow).toHaveBeenCalledWith(42)
+      expect(service.getApproval()?.data).toMatchObject({ approvalType: 'first' })
+    })
+
+    it('reserves nothing: of requests fired at once, requestApproval still installs only one', async () => {
+      await expect(service.assertNoPendingApproval()).resolves.toBeUndefined()
+      const results = await Promise.allSettled(
+        Array.from({ length: 65 }, (_, index) => {
+          const request = service.requestApproval(makeApprovalData({ approvalType: `${index}` }))
+          return index === 0 ? Promise.race([request, flushAsync()]) : request
+        })
+      )
+
+      expect(results.filter(result => result.status === 'rejected')).toHaveLength(64)
+      expect(service.getApproval()?.data).toMatchObject({ approvalType: '0' })
+    })
+  })
+
   // ── resolveApproval ───────────────────────────────────────────────────────
 
   describe('resolveApproval', () => {

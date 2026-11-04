@@ -3,6 +3,7 @@ import type { ChainType } from '@qbit/wallet-types'
 import type {
   QbitProviderApprovalContext,
   QbitProviderChain,
+  QbitSignatureBatchEntry,
   QbitSignatureBudgetImpact,
 } from './qbit-provider'
 import type { QbitFeeBumpDetails } from './qbit-fee-bump'
@@ -110,10 +111,9 @@ export interface ToSignData {
   qbitSendBroadcastClaim?: QbitSendBroadcastClaim
   qbitExternalSigningLock?: QbitExternalSigningLock
   signatureBudget?: QbitSignatureBudgetImpact
-  // Marks an entry that duplicates an earlier PSBT in the same approved
-  // signPsbts batch: the earlier entry may sign and cache this entry's
-  // approved signatures first, which signing must tolerate.
-  qbitApprovedBatchDuplicate?: boolean
+  // Set on every entry of a batch approved together, whose entries sign in
+  // any order: an entry may find signatures the others reserved spent.
+  qbitSignatureBatch?: QbitSignatureBatchEntry
   feeBump?: QbitFeeBumpDetails
   qbitRecoveryMigration?: QbitRecoveryMigrationSigningData
   // Network and expected txid fixed when the wallet built this P2MR

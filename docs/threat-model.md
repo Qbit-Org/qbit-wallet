@@ -105,8 +105,9 @@ Threats:
 - plaintext mnemonic, password, private key, or PQC key leakage through logs,
   errors, browser storage, source maps, or package contents;
 - unlocked state publication before recovery/counter checks complete;
-- partially applied password or vault writes after a crash; and
-- secret buffers surviving avoidably in WASM or JavaScript memory.
+- partially applied password or vault writes after a crash;
+- secret buffers surviving avoidably in WASM or JavaScript memory; and
+- an unlocked wallet left behind when the user steps away from the computer.
 
 Controls and evidence:
 
@@ -125,7 +126,27 @@ Controls and evidence:
 - PQC and derived classical secret byte arrays are zeroed in `finally` blocks;
   the PQC WASM tests also inspect scratch zeroization on failure; and
 - the signing-source guard prevents transitive `elliptic`/Bitcore ECDSA from
-  replacing the reviewed `tiny-secp256k1` wallet-signing route.
+  replacing the reviewed `tiny-secp256k1` wallet-signing route;
+- the auto-lock (30 seconds to 4 hours, 3 minutes by default) runs on a timer
+  and on a wall-clock deadline: a timer does not count the time the computer
+  sleeps, so a screen action after the deadline, or any change of the
+  computer's idle state such as waking, locks instead of extending the
+  session. Any lock ends the auto-lock time, so an old timer cannot lock a
+  later unlock;
+- with "Lock when the computer locks" on, the wallet locks when `chrome.idle`
+  reports `locked`; with "Lock when all windows close" on, it locks when no
+  `normal` browser window or installed web app (`app`) window remains, and
+  its own approval popups do not count. Both are on by default, also for
+  wallets set up before they existed, and both listeners are added as the
+  service worker starts, so either event starts a stopped worker. A browser
+  without the API (MV2 builds have no `idle`) shows no switch for it;
+- a lock wins over an unlock that is still waiting its turn or running: the
+  wallet notes the locks made since the unlock was called, and the unlock
+  ends locked with "The wallet locked while unlocking" instead of opening
+  the wallet. Neither can the onboarding and recovery keepalive undo a lock:
+  a refresh never unlocks; and
+- a lock forgets the keyring's secrets but not a broadcast already handed to
+  the network, which still settles.
 
 Residual risk:
 
@@ -137,6 +158,22 @@ Residual risk:
 - JavaScript garbage collection prevents a general proof that every immutable
   string copy is erased. The design minimizes lifetime and forbids logging but
   relies on the browser process boundary.
+- The computer-lock signal is whatever the operating system reports to Chrome;
+  a desktop that does not report its screen lock (some Linux desktops) gets
+  only the auto-lock. Chrome on macOS and Windows also reports a running
+  screen saver as locked, so the wallet locks then too. With both settings
+  off, or with a long auto-lock and the computer left unlocked, the wallet
+  stays unlocked until the auto-lock time.
+  Closing the last window matters where Chrome keeps running without one, as
+  on macOS; where Chrome quits instead, the unlocked state ends with it.
+  Windows the wallet cannot see, such as incognito windows while it is not
+  allowed in incognito, do not keep it unlocked.
+- During first-time onboarding, after the password is set and before the
+  wallet's vault exists, neither event nor an overdue deadline locks: there
+  would be nothing to unlock again, and creating or restoring the wallet
+  would fail. The mnemonic shown then stays on screen while the user is
+  away, bounded by the onboarding keepalive's ten minutes and the auto-lock
+  timer.
 
 ## PQC counter custody and restoration
 
@@ -192,7 +229,14 @@ Residual risk:
   refuses statistics that list more outputs than their transactions can
   carry, and floors at or above the 2^28-signature warning threshold;
   self-consistent statistics below it are still accepted, so an inflated
-  floor can still use up to a quarter of the budget.
+  floor can still use up to a quarter of the budget. The threshold also
+  bounds the floor summed across testnet4 and regtest, which share a
+  counter, when either was read from statistics. That refusal shows both
+  networks' counts; the user can stop the local Regtest service or turn off
+  Local Regtest to restore without regtest, on a floor that then leaves out
+  what regtest reported. If Testnet4's own count is the larger share, that
+  floor can be up to just under the threshold, and it stands, as the
+  quarter-budget residual above allows.
 
 ## WASM and extension supply chain
 
@@ -303,7 +347,7 @@ Threats:
 
 Controls and evidence:
 
-- in MV3, the background installs one dynamic `declarativeNetRequest` `block`
+- the background installs one dynamic `declarativeNetRequest` `block`
   rule whose `requestDomains` are the bundled denylist (each entry and its
   subdomains) for `main_frame` and `sub_frame` requests. A `block` rule needs
   only the `declarativeNetRequest` permission. One update replaces every
@@ -317,8 +361,9 @@ Controls and evidence:
   that stops starts over at its next start.
   `GET_PHISHING_STATS`, which only the wallet's own pages may send, reports
   the rule's health as `networkRules` (`installing`, `installed`, `retrying`,
-  `failed`, `unknown` or `unsupported`, with the reason and the number of
-  domains the browser holds), read back from the browser rather than assumed.
+  `failed`, `unknown` or, without the `declarativeNetRequest` API,
+  `unsupported`, with the reason and the number of domains the browser
+  holds), read back from the browser rather than assumed.
   A rule found missing at such a read reads as `retrying` and is installed
   again, and `FORCE_UPDATE_PHISHING_LIST` installs it again too. With DNR it
   also reports `protection`, the state of the network layer as a whole:
@@ -505,9 +550,6 @@ Residual risk:
   tab for a page the content script does not run on, such as a browser page
   or a PDF, before the warning page has loaded, the tab can be sent to the
   warning page once more;
-- MV2 builds have no DNR layer. There the content script's hold is the only
-  navigation control. It covers top-level pages only, so a denylisted page in
-  a frame can run its own script;
 - the record of a release lives in the page's own sessionStorage, so a page
   that has run script in a tab, because the user proceeded to it there or
   before its host was denylisted, can write it, also again after its check
@@ -518,9 +560,9 @@ Residual risk:
   skips the hold until the check removes it. A page the user proceeded to
   whose sessionStorage cannot be used, for example because the user blocks
   cookies and site data, never loads;
-- while the MV3 block rule is missing, a denylisted page in a frame runs its
-  own script: the content script holds only top-level pages, and in MV3 it
-  only checks a frame's host, so the frame gets no provider but no warning
+- while the block rule is missing, a denylisted page in a frame runs its
+  own script: the content script holds only top-level pages, and it only
+  checks a frame's host, so the frame gets no provider but no warning
   either;
 - after Proceed, the first load of each origin of the host in a tab is
   stopped and reloaded once. The server gets that request twice, so a
@@ -619,7 +661,7 @@ Reviewed Chrome MV3 boundary:
 
 | Surface | Reviewed value |
 | --- | --- |
-| Permissions | `storage`, `unlimitedStorage`, `declarativeNetRequest`, `sidePanel` |
+| Permissions | `storage`, `unlimitedStorage`, `declarativeNetRequest`, `sidePanel`, `idle` |
 | Host permissions | two exact HTTPS qbit indexers; `*://*.<entry>/*` for each bundled phishing denylist domain, generated at build and pinned by the package policy, for the warning redirect; optional loopback regtest |
 | Content scripts | all-origin provider bridge in every frame (`all_frames: true`), each frame bound to its own origin |
 | Web-accessible resources | packaged `pageProvider.js`; `phishing-warning.html` under a per-session dynamic URL only |
@@ -633,7 +675,9 @@ Reviewed Chrome MV3 boundary:
 session `redirect` rule to the warning page, and the session `allow` rules
 that Proceed adds; the denylist host permissions let only that redirect fire
 (see "Phishing navigation protection");
-`sidePanel` is used for the optional wallet panel; `storage` holds wallet state;
+`sidePanel` is used for the optional wallet panel; `idle` tells the background
+when the computer locks, so the wallet can lock too (see "Vault and key
+handling"); `storage` holds wallet state;
 and `unlimitedStorage` supports local wallet/index state. Permission expansion
 requires CODEOWNERS review and a package-policy expectation change.
 

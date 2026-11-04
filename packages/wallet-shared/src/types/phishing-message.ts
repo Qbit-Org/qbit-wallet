@@ -75,7 +75,7 @@ export enum PhishingMessageType {
 
   /**
    * Force an immediate update of the phishing lists from remote source
-   * In MV3 it also installs the DNR block rule again.
+   * With DNR it also installs the block rule again.
    *
    * Expected parameters: none
    *
@@ -109,7 +109,7 @@ export enum PhishingMessageType {
    *   in place, as last read back from the browser
    * - protection?: PhishingProtectionHealth - Whether the network layer as a
    *   whole stops denylisted pages, with the warning redirect rule's state;
-   *   only with DNR (MV3)
+   *   only with DNR
    */
   GET_PHISHING_STATS = 'GET_PHISHING_STATS',
 }
@@ -124,7 +124,7 @@ export enum PhishingMessageType {
  * - `failed`: the attempts ran out, or no denylist entry can go in the rule,
  *   and no attempt is scheduled;
  * - `unknown`: the installed rules could not be read back;
- * - `unsupported`: there is no DNR, as in MV2, and the content script is the
+ * - `unsupported`: the browser has no DNR, and the content script is the
  *   only layer.
  */
 export type PhishingNetworkRuleStatus =
@@ -253,7 +253,7 @@ export interface PhishingStatsResponse {
   /** The phishing configuration and its list sizes. */
   stats: unknown
   networkRules: PhishingNetworkRuleHealth
-  /** Only with DNR (MV3); without it the content script is the only layer. */
+  /** Only with DNR; without it the content script is the only layer. */
   protection?: PhishingProtectionHealth
 }
 

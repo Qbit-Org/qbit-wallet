@@ -65,6 +65,8 @@ describe('PreferenceService', () => {
     expect(service.getExternalLinkAck()).toBe(false)
     expect(service.getEnableSignData()).toBe(false)
     expect(service.getShowSafeNotice()).toBe(true)
+    expect(rawStore.lockOnComputerLock).toBe(true)
+    expect(rawStore.lockOnWindowsClosed).toBe(true)
     expect(service.getCurrentAccount()).toBeNull()
 
     expect(service.getWalletSavedList()).toEqual([])
@@ -492,12 +494,64 @@ describe('PreferenceService persistence', () => {
     await service.setEnableSignData(true)
     await service.setAutoLockTimeId(1)
     await service.setEnableRBF(false)
+    await service.setLockOnComputerLock(false)
+    await service.setLockOnWindowsClosed(false)
 
     vi.advanceTimersByTime(500)
     const reloaded = await load()
     expect(reloaded.getEnableSignData()).toBe(true)
     expect(reloaded.getAutoLockTimeId()).toBe(1)
     expect(reloaded.getEnableRBF()).toBe(false)
+    expect(reloaded.getLockOnComputerLock()).toBe(false)
+    expect(reloaded.getLockOnWindowsClosed()).toBe(false)
+  })
+
+  it('turns both lock settings on for a new wallet', async () => {
+    const service = await load()
+    expect(service.getLockOnComputerLock()).toBe(true)
+    expect(service.getLockOnWindowsClosed()).toBe(true)
+  })
+
+  it('loads preferences stored before the lock settings existed with both on', async () => {
+    // What 1.0.7 stored: no lock settings at all, and a user's own choices.
+    adapter.disk.set(
+      'preference',
+      JSON.stringify({ autoLockTimeId: 7, enableSignData: true, locale: 'fr', currentVersion: '0' })
+    )
+    const service = await load()
+    expect(service.getLockOnComputerLock()).toBe(true)
+    expect(service.getLockOnWindowsClosed()).toBe(true)
+    expect(service.getAutoLockTimeId()).toBe(7)
+    expect(service.getEnableSignData()).toBe(true)
+
+    // Turning one off is kept, and the other stays on.
+    await service.setLockOnWindowsClosed(false)
+    await vi.advanceTimersByTimeAsync(1000)
+    const reloaded = await load()
+    expect(reloaded.getLockOnComputerLock()).toBe(true)
+    expect(reloaded.getLockOnWindowsClosed()).toBe(false)
+  })
+
+  it('reads a malformed stored lock setting as on', async () => {
+    adapter.disk.set(
+      'preference',
+      JSON.stringify({ lockOnComputerLock: null, lockOnWindowsClosed: 'false' })
+    )
+    const service = await load()
+    expect(service.getLockOnComputerLock()).toBe(true)
+    expect(service.getLockOnWindowsClosed()).toBe(true)
+  })
+
+  it('rejects a lock setting whose write fails and keeps it on', async () => {
+    const service = await load()
+    const writeError = new Error('QUOTA_BYTES quota exceeded')
+    adapter.writeErrors.push(writeError)
+
+    await expect(service.setLockOnComputerLock(false)).rejects.toBe(writeError)
+    expect(service.getLockOnComputerLock()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await load()).getLockOnComputerLock()).toBe(true)
   })
 
   it('rejects a security setting whose write fails and restores the previous value', async () => {
