@@ -2521,17 +2521,20 @@ test('executable dependency command audit covers path-qualified runner binaries'
   // `n\px` and `np""x` spell `npx`, which the line reader reads from the
   // parsed word, so the unpinned package each would fetch is flagged too; `n\px`
   // is also reported as a manager name that is not a plain literal. `@scope/npx`
-  // names npx, so even as an echo argument it fails closed as a manager line.
-  assert.equal(audit.errors.length, 12)
+  // and the `https://…/npx` URL both have the basename `npx`, so each fails
+  // closed as a manager line even as an echo argument.
+  assert.equal(audit.errors.length, 13)
   for (const manager of ['npm', 'npx', 'pnx', 'pnpm', 'yarn', 'bun']) {
     assert.match(audit.errors.join('\n'), new RegExp(`mutable-${manager}`))
   }
   assert.match(audit.errors.join('\n'), /n\\px/)
   assert.match(audit.errors.join('\n'), /np""x/)
-  assert.doesNotMatch(audit.errors.join('\n'), /mutable-url|mutable-wrapper/)
+  assert.match(audit.errors.join('\n'), /mutable-url/)
   assert.match(audit.errors.join('\n'), /mutable-package-name/)
   assert.match(audit.errors.join('\n'), /mutable-escaped/)
   assert.match(audit.errors.join('\n'), /mutable-quoted/)
+  // `tools/npx-wrapper` has the basename `npx-wrapper`, which is not a manager.
+  assert.doesNotMatch(audit.errors.join('\n'), /mutable-wrapper/)
 })
 
 test('executable dependency command audit prefers pre-delimiter positional packages', () => {
@@ -4112,10 +4115,24 @@ test('executable dependency command audit reads a path-qualified package manager
       'corepack command that changes which pnpm runs is rejected: corepack use',
     ],
     ['"./v%/npx" evil@latest', 'executable package is not pinned to an exact version: evil@latest'],
+    // A `://` in the path does not exempt the word: bash runs the binary its
+    // basename names, so a URL-shaped path fails closed as a manager line.
+    [
+      './a://b/pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
+    ['x://y/npx evil@latest', 'executable package is not pinned to an exact version: evil@latest'],
+    [
+      'x://y/corepack use pnpm',
+      'corepack command that changes which pnpm runs is rejected: corepack use',
+    ],
+    [
+      'file:///opt/pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
   ])
   // A manager name is the whole basename of a word, not a fragment of a longer
-  // one, so a quoted sentence or a different program is not a manager line; and
-  // a manager name that is only an argument is not a manager line either.
+  // one, so a quoted sentence or a different program is not a manager line.
   assert.deepEqual(
     auditExecutableDependencyCommands([
       {
@@ -4124,18 +4141,14 @@ test('executable dependency command audit reads a path-qualified package manager
           'echo "pnpm version: $(corepack pnpm --version)"',
           'node_modules/.bin/pnpm-lint run',
           'echo pnpmfile.cjs',
-          'echo https://example.test/npx mutable-url',
-          'echo https://scope.example/@scope/npx tool',
-          'printf %s https://host/pnpm',
+          'echo tools/npx-wrapper is not npx',
         ],
       },
     ]),
-    { commandCount: 6, errors: [] }
+    { commandCount: 4, errors: [] }
   )
-  // Any non-URL manager name on a line makes it a manager line, whatever the
-  // command, because a program by that name can be shadowed; only a URL
-  // (`https://…/pnpm`) is not a manager. So `make tools/pnpm config set` fails
-  // closed, while the URL form is accepted above.
+  // Every manager name on a line makes it a manager line, whatever the command
+  // and however the path reads, because a program by that name can be shadowed.
   assertRejectedWith([
     [
       'make tools/pnpm config set registry https://attacker.example/',
@@ -4144,6 +4157,10 @@ test('executable dependency command audit reads a path-qualified package manager
     [
       'echo ./printf/pnpm config set registry https://attacker.example/',
       'pnpm command that changes settings is rejected: pnpm config',
+    ],
+    [
+      'echo https://host/npx mutable-url',
+      'executable package is not pinned to an exact version: mutable-url',
     ],
   ])
 })
@@ -4304,24 +4321,21 @@ test('executable dependency command audit fails closed on manager lines behind a
     { commandCount: 2, errors: [] }
   )
 
-  // A manager name that is only an argument to a data-only command is not a
-  // manager line. A path-qualified name is used so the textual reader, which
-  // matches a bare manager anywhere, does not flag it on its own.
+  // A line that names no manager word stays accepted, whatever command it
+  // runs; only a manager word makes a line a manager line.
   assert.deepEqual(
     auditExecutableDependencyCommands([
       {
         file: 'package.json',
         commands: [
-          'echo https://example.test/npx mutable-url',
-          'printf "%s\\n" https://host/pnpm',
-          ': https://host/npx is a url',
-          'test -x https://host/pnpm',
-          // A redirection before the data-only command is not the command word.
-          '2>/dev/null echo https://example.test/npx mutable-url',
+          'echo building && printf "%s\\n" done',
+          ': skip the step',
+          'test -x /usr/bin/node && echo ok',
+          '2>/dev/null echo ready',
         ],
       },
     ]),
-    { commandCount: 5, errors: [] }
+    { commandCount: 4, errors: [] }
   )
 })
 

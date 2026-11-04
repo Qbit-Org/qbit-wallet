@@ -2215,10 +2215,10 @@ const PNPM_FAMILY = new Set(['pnpm', 'pnpx', 'pnx', 'pn'])
 // a manager behind any path prefix (`node_modules/@pnpm/linux-x64/pnpm`,
 // `./bin@/pnpm`), which the textual reader's character class misses, and the
 // expansion rule still catches `pnpm` + a dynamic suffix (`pnpm`echo …``). A
-// word that holds `://` is a URL, not a program path (`echo https://host/npx`),
-// so it names no manager.
+// word whose basename is a manager names one however the path reads, so a URL
+// (`https://host/npx`) fails closed as a manager line rather than being
+// exempted — the basename of `./a://b/pnpm` is still `pnpm` that bash runs.
 function managerName(text) {
-  if (text.includes('://')) return null
   const basename = text.slice(text.lastIndexOf('/') + 1)
   for (const name of MANAGER_NAMES) {
     if (!basename.startsWith(name)) continue
