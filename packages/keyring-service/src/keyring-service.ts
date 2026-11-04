@@ -29,6 +29,7 @@ import {
   WatchAddressKeyring,
 } from './keyrings'
 import { EmptyKeyring } from './keyrings/empty-keyring'
+import { UnsupportedKeyring } from './keyrings/unsupported-keyring'
 import {
   ADDRESS_TYPES,
   DisplayedKeyring,
@@ -3510,7 +3511,17 @@ export class KeyringService extends EventEmitter {
 
     const Keyring = this.getKeyringClassForType(type)
     if (!Keyring) {
-      throw new Error(`Unknown keyring type: ${type}`)
+      if (typeof type !== 'string' || !type) {
+        throw new Error(`Unknown keyring type: ${type}`)
+      }
+      // A vault can hold a type this build no longer ships. Failing here would
+      // keep every other wallet in the vault locked for good, and dropping the
+      // entry would lose what may be the only copy of its keys.
+      this.logger?.warn?.(`[KeyringService] Keeping a vault entry of unsupported type: ${type}`)
+      return {
+        keyring: new UnsupportedKeyring(type, data),
+        addressType: addressType,
+      }
     }
     const keyring = new Keyring()
     await keyring.deserialize(data)
