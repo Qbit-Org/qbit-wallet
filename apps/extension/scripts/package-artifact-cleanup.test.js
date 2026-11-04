@@ -14,7 +14,7 @@ const corepackCommand = process.platform === 'win32' ? 'corepack.cmd' : 'corepac
 const gulpfileSource = fs.readFileSync(path.join(extensionDir, 'gulpfile.js'), 'utf8');
 const packageTestSource = fs.readFileSync(path.join(__dirname, 'package-test.js'), 'utf8');
 
-test('builds the exact package name for ZIP and XPI artifacts', () => {
+test('builds the exact package name for ZIP artifacts', () => {
   assert.equal(
     getPackageArtifactName({
       brandName: 'qbit',
@@ -23,15 +23,6 @@ test('builds the exact package name for ZIP and XPI artifacts', () => {
       artifactVersion: '0.1.0'
     }),
     'qbit-chrome-mv3-v0.1.0.zip'
-  );
-  assert.equal(
-    getPackageArtifactName({
-      brandName: 'qbit',
-      browser: 'firefox',
-      manifest: 'mv2',
-      artifactVersion: '0.1.0-beta.1'
-    }),
-    'qbit-firefox-mv2-v0.1.0-beta.1.xpi'
   );
 });
 
@@ -124,7 +115,11 @@ test('invalid package build targets fail instead of accepting a stale artifact',
   const invalidTargets = [
     ['--env=prod', /not supported env/],
     ['--browser=safari', /not supported browser/],
+    ['--browser=firefox', /not supported browser/],
+    ['--browser=edge', /not supported browser/],
+    ['--browser=brave', /not supported browser/],
     ['--manifest=mv4', /not supported manifest/],
+    ['--manifest=mv2', /not supported manifest/],
     ['--channel=nightly', /not supported channel/]
   ];
 

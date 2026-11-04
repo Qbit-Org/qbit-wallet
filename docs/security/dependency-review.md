@@ -1,7 +1,8 @@
 # Dependency security and license review
 
 Review date: 2026-11-02 (advisory refresh of the 2026-09-02 review; evidence
-regenerated the same day after `follow-redirects` moved to 1.16.2)
+regenerated the same day after `follow-redirects` moved to 1.16.2, and again
+on 2026-11-03 after `extensionizer` was removed)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -19,18 +20,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `ea3fee079df27c1f509860eaa8237e5ffac409db` |
+| Audited commit | `df95c38b9034c128426a85916c2f8937f2191b27` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `6991b9325661f13f8d3b09ea3b86287303d18457d130a661675d86709ddb228a` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `0db56142eaad896ede23103181c815efd40077db5d2d3bc36740e58ef28329b4` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `0ca4f6fce9117a5dfbbbc2d10a0e6aac6c9beb869a4a408d39b331d24a880365` |
+| `pnpm-lock.yaml` SHA-256 | `fae1b9c2e1e7b5d99644b1cfacba7e3c77c23270db152223370dd2fecd7ff80e` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `1138b9859b8d3aebc0660cee8c180c37f3ebd185bc2ffbacb9521e3c714cb891` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `cbe0cda40fe80aa112e5b6383d60751f13f8e868ea271153d32eadc1f05dd9eb` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 437 direct declarations, all 208 resolved packages classified as crypto-,
+all 436 direct declarations, all 208 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -78,6 +79,11 @@ at `0168a04` on `release/1.0.7` to 58 occurrences, including the high
 `follow-redirects` record `GHSA-mrwp-f3q8-3g9p`, and the dependency-policy
 job failed again. Moving `follow-redirects` to 1.16.2 on 2026-11-02 reduced
 the current result to 57 occurrences: 0 critical, 0 high, 43 moderate, and
+14 low. Replacing `extensionizer` with `chrome.runtime.getURL` in `86edab1`,
+written the same day, removed one shipped-runtime package that had no
+advisory. The evidence was regenerated on 2026-11-03 at `df95c38`, which
+merges that change after the rebase onto the updated `release/1.0.8`, and the
+current result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and
 14 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
@@ -100,7 +106,8 @@ the current result to 57 occurrences: 0 critical, 0 high, 43 moderate, and
 | Audited result `77a019d` (2026-10-30, `release/1.0.6` merged into `release/1.0.7`) | 0 | 0 | 36 | 14 | 50 |
 | Audited result `f1017d9` (2026-10-30, Qbit SDK 0.1.1) | 0 | 0 | 36 | 14 | 50 |
 | Advisory-feed drift at unchanged-lock `release/1.0.7` `0168a04` | 0 | 1 | 43 | 14 | 58 |
-| Current audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
+| Audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
+| Current audited result `df95c38` (2026-11-03, `extensionizer` removed) | 0 | 0 | 43 | 14 | 57 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 44 advisory records representing 39
@@ -181,13 +188,13 @@ needs major-version moves rather than an override bump.
 
 ## Package inventory
 
-The 20 workspaces contain 2,387 registry lock entries and 437 direct dependency
+The 20 workspaces contain 2,386 registry lock entries and 436 direct dependency
 declarations. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 168 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 167 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
 | Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
 | Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
@@ -320,8 +327,10 @@ The 2026-10-16 advisory refresh (PR #251) separated the dependency changes,
 the regenerated evidence, and the language-audit integration into their own
 commits. The 2026-10-23 refresh committed the dependency change as
 `64309e97`; the regenerated evidence and this review follow in a separate
-commit. The same applies to the `patch-package` move in `c702dffc` and the
-2026-11-02 `follow-redirects` update in `ea3fee07`.
+commit. The same applies to the `patch-package` move in `c702dffc`, the
+2026-11-02 `follow-redirects` update in `ea3fee07`, and the `extensionizer`
+removal in `86edab14`, which the audited merge `df95c38b` integrates with the
+rest of the Manifest V2 removal.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -382,6 +391,7 @@ commit. The same applies to the `patch-package` move in `c702dffc` and the
 | `64309e97` | Pin patched `follow-redirects` and `vite` releases, review two new license identities, and delete the withdrawn `braces` exception | Restored zero critical/high findings on the 2026-10-23 live audit with no exception in force |
 | `c702dffc` | Move `patch-package` to `@qbit/keyring-service` devDependencies and mark the wallet packages private (#289) | Classified `patch-package` as development tooling; the live audit stayed at zero critical/high findings |
 | `ea3fee07` | Pin the patched `follow-redirects@1.16.2` and review its license identity | Restored zero critical/high findings on the 2026-11-02 live audit with no exception in force |
+| `86edab14` | Replace `extensionizer` with `chrome.runtime.getURL` in the content script and drop the dependency | Removed one shipped-runtime declaration and its license identity; the live audit stayed at zero critical/high findings |
 
 ## Lint and dependency policy jobs
 
@@ -427,9 +437,9 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,387 integrity-pinned registry entries, 486
+The audited policy checked 2,386 integrity-pinned registry entries, 485
 dependency specifiers, 33 Action references, one tracked package-manager
-configuration file, 273 executable package/workflow commands, and 2,272 exact
+configuration file, 269 executable package/workflow commands, and 2,271 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -443,10 +453,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,272 distinct identities
+version, and normalized license expression for all 2,271 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,387 peer variants must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,386 peer variants must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -480,7 +490,8 @@ the bundled-dependency license notice in `vite@6.4.4` is byte-identical to
 The 2026-11-02 refresh onboarded `follow-redirects@1.16.2` through the same
 flow, verified MIT against its installed manifest and its license file, which
 is byte-identical to 1.16.1's, and dropped the superseded
-`follow-redirects@1.16.1`.
+`follow-redirects@1.16.1`. Removing `extensionizer` the same day dropped
+`extensionizer@1.0.1` (ISC) and onboarded no identity.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
@@ -543,6 +554,21 @@ installed from scratch and built the same way on that host, and the extension
 ZIP from `package:test -- --artifact-version 1.0.7` is byte-identical (SHA-256
 `4c788eb2fc4c9a918e4fe549e57d3d3518f5c44b5e74fa3e6156f306e018ee20`). The
 hoisted layout changed only for `follow-redirects` itself.
+
+The `extensionizer` removal regenerated the evidence at `df95c38` on the same
+host and toolchain, so it is a non-canonical local drill as well. From a clean
+`node_modules`, the frozen install passed and no longer resolves
+`extensionizer`; root lint passed with zero errors; the declaration and
+background builds, typecheck, workspace unit tests (243 Vitest suites, 3,812
+tests, plus 88 extension packaging tests) and the 12 PQC golden and
+package-vector and 3 protocol-vector tests passed; the 131 policy-tooling tests,
+the adversarial suite and the live dependency policy passed with 0
+critical/high records and no exception in force. Within the extension ZIP the
+dependency removal changes only `content-script.js`, which no longer bundles
+`extensionizer`, and `manifest.json` is byte-identical to the base build's. The
+deterministic-packaging drill (`build:repro:extension --
+--allow-toolchain-mismatch`) built two identical ZIPs, and the 11 Playwright
+phishing scenarios passed locally; the canonical runs remain branch CI gates.
 
 ## Limitations and ongoing ownership
 

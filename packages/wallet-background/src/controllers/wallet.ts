@@ -34,7 +34,11 @@ import {
   type P2mrTransactionOutput,
   type Psbt as QbitPsbt,
 } from '@qbit-oss/protocol'
-import { ColdWalletKeyring, PQC_WARNING_SIGNATURE_THRESHOLD } from '@qbit/keyring-service'
+import {
+  ColdWalletKeyring,
+  PQC_WARNING_SIGNATURE_THRESHOLD,
+  QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+} from '@qbit/keyring-service'
 import type {
   QbitRecoveryMigrationPlanVault,
   QbitRecoveryMigrationVault,
@@ -3420,13 +3424,15 @@ export class WalletController extends BaseController {
         .slice(0, QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE)
       return {
         state: await this.getQbitRecoveryState(sourceKeyringIndex),
-        toSignDatas: await Promise.all(
-          prepared.map(plan =>
-            this.qbitRecoveryMigrationToSignData(
-              sourceKeyring,
-              state,
-              plan,
-              destinationKeyringIndex
+        toSignDatas: await this.openQbitRecoveryMigrationSignatureBatches(
+          await Promise.all(
+            prepared.map(plan =>
+              this.qbitRecoveryMigrationToSignData(
+                sourceKeyring,
+                state,
+                plan,
+                destinationKeyringIndex
+              )
             )
           )
         ),
@@ -3755,18 +3761,68 @@ export class WalletController extends BaseController {
       ?.networks?.[network] as QbitRecoveryNetworkVaultState
     return {
       state: nextState,
-      toSignDatas: await Promise.all(
-        newPlans.slice(0, QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE).map(plan =>
-          this.qbitRecoveryMigrationToSignData(
-            sourceKeyring,
-            persistedState,
-            plan,
-            destinationKeyringIndex
-          )
+      toSignDatas: await this.openQbitRecoveryMigrationSignatureBatches(
+        await Promise.all(
+          newPlans
+            .slice(0, QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE)
+            .map(plan =>
+              this.qbitRecoveryMigrationToSignData(
+                sourceKeyring,
+                persistedState,
+                plan,
+                destinationKeyringIndex
+              )
+            )
         )
       ),
       deferredSources,
     }
+  }
+
+  /**
+   * Open one signature batch for each source key's plans among those a
+   * review shows, and mark each plan with it. The review's sign button signs
+   * them one after another, each with the budget it was prepared with
+   * before any signed, so each plan after the first from a key finds the
+   * signatures of the plans before it spent, which only their batch
+   * accepts. A key with one plan needs none. A plan signed elsewhere in
+   * between is still refused. The review prepares its plans again each time
+   * it is shown, which reopens the same batch while nothing signed; see
+   * keyringService.openQbitRecoveryMigrationSigningBatch for when it closes.
+   */
+  private openQbitRecoveryMigrationSignatureBatches = async (
+    toSignDatas: ToSignData[]
+  ): Promise<ToSignData[]> => {
+    const plansBySource = new Map<string, ToSignData[]>()
+    for (const toSignData of toSignDatas) {
+      const sourceAddress = toSignData.qbitRecoveryMigration!.sourceAddress
+      plansBySource.set(sourceAddress, [...(plansBySource.get(sourceAddress) ?? []), toSignData])
+    }
+    const createdBatchIds: string[] = []
+    try {
+      for (const [sourceAddress, plans] of plansBySource) {
+        if (plans.length < 2) continue
+        const batch = await keyringService.openQbitRecoveryMigrationSigningBatch(
+          sourceAddress,
+          plans.map(plan => ({
+            psbt: qbitPsbtFromHex(plan.psbtHex),
+            keys: qbitSigningKeysFromSerializable(plan.qbitP2mrSigningKeys!),
+            approvedBudget: plan.signatureBudget!,
+          }))
+        )
+        if (batch.created) createdBatchIds.push(batch.id)
+        plans.forEach((plan, index) => {
+          plan.qbitSignatureBatch = { id: batch.id, index, budget: { ...batch.budget } }
+        })
+      }
+    } catch (error) {
+      // The review this preparation would have shown is not shown, so no
+      // batch it opened stays open. One it reopened is still another
+      // review's, which may be signing from it.
+      keyringService.releaseP2mrPsbtSigningBatches(createdBatchIds)
+      throw error
+    }
+    return toSignDatas
   }
 
   private validateQbitRecoveryMigrationSigning = async (
@@ -5364,18 +5420,28 @@ export class WalletController extends BaseController {
         await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
       }
       const sign = async (): Promise<SignedData> => {
-        const signed = await keyringService.signP2mrPsbtWithCounter(
-          account.address,
-          {
-            psbt,
-            keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
-          },
-          toSignData.signatureBudget,
-          toSignData.qbitSignatureBatch && {
-            id: toSignData.qbitSignatureBatch.id,
-            index: toSignData.qbitSignatureBatch.index,
-          }
-        )
+        const signed = await keyringService
+          .signP2mrPsbtWithCounter(
+            account.address,
+            {
+              psbt,
+              keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
+            },
+            toSignData.signatureBudget,
+            toSignData.qbitSignatureBatch && {
+              id: toSignData.qbitSignatureBatch.id,
+              index: toSignData.qbitSignatureBatch.index,
+            }
+          )
+          .catch(error => {
+            // A migration plan's batch closes when its review ends or is
+            // replaced, or on a lock, before any of the plan is signed; the
+            // screen then prepares the remaining plans again.
+            if (migrationContext && error?.code === QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE) {
+              throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED)
+            }
+            throw error
+          })
         await this.refreshDisplayedQbitAccountAfterSigning(account.address)
         const signedPsbt =
           toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
