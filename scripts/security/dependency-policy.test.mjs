@@ -2520,14 +2520,16 @@ test('executable dependency command audit covers path-qualified runner binaries'
   assert.equal(audit.commandCount, 17)
   // `n\px` and `np""x` spell `npx`, which the line reader reads from the
   // parsed word, so the unpinned package each would fetch is flagged too; `n\px`
-  // is also reported as a manager name that is not a plain literal.
-  assert.equal(audit.errors.length, 11)
+  // is also reported as a manager name that is not a plain literal. `@scope/npx`
+  // names npx, so even as an echo argument it fails closed as a manager line.
+  assert.equal(audit.errors.length, 12)
   for (const manager of ['npm', 'npx', 'pnx', 'pnpm', 'yarn', 'bun']) {
     assert.match(audit.errors.join('\n'), new RegExp(`mutable-${manager}`))
   }
   assert.match(audit.errors.join('\n'), /n\\px/)
   assert.match(audit.errors.join('\n'), /np""x/)
-  assert.doesNotMatch(audit.errors.join('\n'), /mutable-url|mutable-package-name|mutable-wrapper/)
+  assert.doesNotMatch(audit.errors.join('\n'), /mutable-url|mutable-wrapper/)
+  assert.match(audit.errors.join('\n'), /mutable-package-name/)
   assert.match(audit.errors.join('\n'), /mutable-escaped/)
   assert.match(audit.errors.join('\n'), /mutable-quoted/)
 })
@@ -4123,18 +4125,24 @@ test('executable dependency command audit reads a path-qualified package manager
           'node_modules/.bin/pnpm-lint run',
           'echo pnpmfile.cjs',
           'echo https://example.test/npx mutable-url',
-          'echo @scope/npx mutable-package-name',
+          'echo https://scope.example/@scope/npx tool',
           'printf %s https://host/pnpm',
         ],
       },
     ]),
     { commandCount: 6, errors: [] }
   )
-  // A non-data-only command that is not echo/printf (`make`, a local script)
-  // fails closed: a manager name among its arguments is read as a manager line.
+  // Any non-URL manager name on a line makes it a manager line, whatever the
+  // command, because a program by that name can be shadowed; only a URL
+  // (`https://…/pnpm`) is not a manager. So `make tools/pnpm config set` fails
+  // closed, while the URL form is accepted above.
   assertRejectedWith([
     [
-      'make https://host/pnpm config set registry https://attacker.example/',
+      'make tools/pnpm config set registry https://attacker.example/',
+      'pnpm command that changes settings is rejected: pnpm config',
+    ],
+    [
+      'echo ./printf/pnpm config set registry https://attacker.example/',
       'pnpm command that changes settings is rejected: pnpm config',
     ],
   ])
@@ -4228,6 +4236,44 @@ test('executable dependency command audit fails closed on manager lines behind a
     ],
     // A data-only command before the real one does not exempt the manager.
     ['time -p /usr/bin/env pnpm config delete node-linker', settings('config')],
+    // No program name is exempt, because a program by that name can be a path,
+    // a shell function, or a shadowing alias that runs its arguments.
+    ['./echo pnpm config set registry https://attacker.example/', settings('config')],
+    ['tools/echo pnpm config set registry https://attacker.example/', settings('config')],
+    ['"$X"/echo pnpm config set registry https://attacker.example/', settings('config')],
+    ['./test pnpm config set registry https://attacker.example/', settings('config')],
+    [
+      'echo() { "$@"; }; echo pnpm config set registry https://attacker.example/',
+      settings('config'),
+    ],
+    ['function echo { pnpm config set registry https://attacker.example/; }', settings('config')],
+    ['test() { pnpm config set registry https://attacker.example/; }; test', settings('config')],
+    [
+      'alias echo=command; echo pnpm config set registry https://attacker.example/',
+      settings('config'),
+    ],
+    [
+      "alias printf=''; printf pnpm config set registry https://attacker.example/",
+      settings('config'),
+    ],
+    // A bare `!(…)` is a negated subshell by default, not an extglob, so the
+    // manager inside runs.
+    ['!(pnpm >/dev/null config set registry https://attacker.example/)', redirection('>/dev/null')],
+    ['if !(pnpm config set registry https://attacker.example/); then :; fi', settings('config')],
+    // `]]` followed by `;` still closes the conditional, so a later `&&` or `|`
+    // keeps splitting and the manager after it is read.
+    [
+      'if [[ -f x ]]; then echo building && pnpm config set registry https://attacker.example/; fi',
+      settings('config'),
+    ],
+    [
+      '[[ -n "$CI" ]]; echo ready && pnpm config set registry https://attacker.example/',
+      settings('config'),
+    ],
+    [
+      '[[ -n "$CI" ]]; echo ready | pnpm config set registry https://attacker.example/',
+      settings('config'),
+    ],
   ]
   for (const [command, expected] of rejected) {
     const { errors } = auditExecutableDependencyCommands([
@@ -4240,6 +4286,23 @@ test('executable dependency command audit fails closed on manager lines behind a
   }
   assert.ok(npmSettings('config'))
   assert.ok(corepackCmd('up'))
+
+  // `]]` closes the conditional even when a `;`, `&`, `|` or `)` follows it
+  // directly, so a later `&&` keeps splitting and a reviewed install after it
+  // is its own segment, not one that inherits an earlier `echo`'s redirection.
+  // The repository writes this shape in release.yml and qbit-conformance.yml.
+  assert.deepEqual(
+    auditExecutableDependencyCommands([
+      {
+        file: 'package.json',
+        commands: [
+          '[[ -f x ]]; echo >/dev/null done && corepack pnpm install --frozen-lockfile',
+          'if [[ -n "$CI" ]]; then echo building && corepack pnpm install --frozen-lockfile; fi',
+        ],
+      },
+    ]),
+    { commandCount: 2, errors: [] }
+  )
 
   // A manager name that is only an argument to a data-only command is not a
   // manager line. A path-qualified name is used so the textual reader, which

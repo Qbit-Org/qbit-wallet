@@ -2150,10 +2150,12 @@ function shellWordDetails(segment) {
       word.plain = false
       index += 1
       word.text += segment[index] ?? ''
-    } else if (character === '(' && /[@?*+!]$/.test(word.text)) {
-      // An extglob `@( … )`, `?( … )`, `*( … )`, `+( … )` or `!( … )` is a glob
-      // pattern, one word, not a subshell, so its parentheses do not break the
-      // word; the whole balanced group is kept and the word is a glob.
+    } else if (character === '(' && /[@?*+!]$/.test(word.text) && word.text !== '!') {
+      // An extglob `@( … )`, `?( … )`, `*( … )` or `+( … )` is a glob pattern,
+      // one word, not a subshell, so its parentheses do not break the word; the
+      // whole balanced group is kept and the word is a glob. A bare `!(…)` is
+      // not treated as one: with extglob off, the default, bash runs it as a
+      // negated subshell, so the `(` must break the word.
       let depth = 0
       let end = index
       for (; end < segment.length; end += 1) {
@@ -2212,8 +2214,11 @@ const PNPM_FAMILY = new Set(['pnpm', 'pnpx', 'pnx', 'pn'])
 // sentence) means the word is data, not an invocation. The basename rule finds
 // a manager behind any path prefix (`node_modules/@pnpm/linux-x64/pnpm`,
 // `./bin@/pnpm`), which the textual reader's character class misses, and the
-// expansion rule still catches `pnpm` + a dynamic suffix (`pnpm`echo …``).
+// expansion rule still catches `pnpm` + a dynamic suffix (`pnpm`echo …``). A
+// word that holds `://` is a URL, not a program path (`echo https://host/npx`),
+// so it names no manager.
 function managerName(text) {
+  if (text.includes('://')) return null
   const basename = text.slice(text.lastIndexOf('/') + 1)
   for (const name of MANAGER_NAMES) {
     if (!basename.startsWith(name)) continue
@@ -2338,37 +2343,6 @@ function pnpmReadCount(values) {
 // be computed, as the repository's own commands pass paths and versions that
 // way. Substitution and inline shell bodies are lines of their own, and so is
 // each line of a heredoc body, which `bash <<EOF` runs.
-// Commands that read their arguments as data rather than running one of them,
-// so a manager name among their arguments is not a command. Everything else —
-// every wrapper (`flock`, `nice`, `env`, `time`, `sudo`, `find … -exec`, a
-// local `./with-lock.sh`), known or not — is assumed to run the manager, so
-// the audit fails closed on a wrapper it does not know rather than open.
-const DATA_ONLY_COMMANDS = new Set(['echo', 'printf', ':', 'test', '['])
-
-// The index of the manager word a command segment runs, or -1. A segment that
-// names a manager runs it, unless the program the segment runs is a data-only
-// command and the manager is one of its arguments. The program is the first
-// word that is not an assignment, a shell keyword or operator, or a
-// redirection; a word followed by `)` is a case-pattern label, not the program
-// (`echo) pnpm …` runs pnpm, not echo).
-function managerCommandIndex(words) {
-  const managerIndex = words.findIndex(word => managerWordName(word) !== null)
-  if (managerIndex < 0) return -1
-  for (let index = 0; index < managerIndex; index += 1) {
-    const word = words[index]
-    if (SHELL_ASSIGNMENT.test(word.raw)) continue
-    if (SHELL_COMMAND_KEYWORDS.has(word.text) || word.raw === ')' || word.raw === '}') continue
-    if (word.redirection) continue
-    if (words[index + 1]?.raw === ')') {
-      while (index < managerIndex && words[index].raw !== ')') index += 1
-      continue
-    }
-    const base = word.text.slice(word.text.lastIndexOf('/') + 1)
-    return DATA_ONLY_COMMANDS.has(base) ? -1 : managerIndex
-  }
-  return managerIndex
-}
-
 function managerLineRejections(command, { references = new Set(), depth = 0 } = {}) {
   const rejections = new Set()
   if (depth > 8) {
@@ -2378,11 +2352,11 @@ function managerLineRejections(command, { references = new Set(), depth = 0 } = 
   const shellCommand = command
   for (const segment of shellCommandSegments(shellCommand)) {
     const words = shellWordDetails(segment)
-    // The manager must be in command position — the first word, or reached
-    // through assignments, shell keywords and transparent prefixes such as
-    // `flock` or `corepack` — so a manager name that is only an argument
-    // (`echo https://host/npx …`) does not make the line a manager line.
-    const managerIndex = managerCommandIndex(words)
+    // A segment that names a manager word anywhere is a manager line: there is
+    // no list of programs assumed to treat it as data, since a program by that
+    // name can be shadowed (`echo() { "$@"; }; echo pnpm …`). A URL names no
+    // manager (`managerName`), so `echo https://host/npx …` is not one.
+    const managerIndex = words.findIndex(word => managerWordName(word) !== null)
     if (managerIndex >= 0) {
       for (const word of words) {
         if (word.redirection) {
@@ -2848,7 +2822,10 @@ export function shellCommandSegments(command) {
   let escaped = false
   let conditional = false
   const boundaryBefore = index => index === 0 || /\s/.test(command[index - 1])
-  const boundaryAfter = index => index >= command.length || /\s/.test(command[index])
+  // `[[` and `]]` are words, so a shell operator (`;`, `&`, `|`, `)`) ends them
+  // as a blank does: `]]; then` and `[[ … ]]|| …` both close the conditional.
+  const boundaryAfter = index =>
+    index >= command.length || /\s/.test(command[index]) || ';&|)'.includes(command[index])
   for (let index = 0; index < command.length; index += 1) {
     const character = command[index]
     // A line continuation joins the next line into this command, so the
