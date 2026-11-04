@@ -40,11 +40,15 @@ test('wallet signing does not route through transitive elliptic or Bitcore ECDSA
   assert.deepEqual(violations, [])
 
   // No keyring signs with a secp256k1 private key: Qbit keyrings sign P2MR
-  // with SLH-DSA, and the readonly, watch and cold keyrings hold no key.
+  // with SLH-DSA, and the readonly, watch and cold keyrings hold no key. The
+  // pattern covers the locked secp256k1 signers: ECPair key construction,
+  // sign, signSchnorr and signRecoverable (bare or as a method), ecdsaSign,
+  // and the Psbt sign methods, with their Async and Sync forms. The P2MR sign
+  // from @qbit-oss/pqc is imported as signPqc so that it does not match.
   const keyringSigners = productionFiles.filter(
     file =>
       file.startsWith('packages/keyring-service/src/') &&
-      /\b(?:eccPair|ECPair)\.from(?:PrivateKey|WIF)\b|\becc\.sign(?:Schnorr)?\s*\(|\.sign(?:Input|AllInputs|Schnorr)\s*\(|\bsignMessageOfDeterministicECDSA\b/.test(
+      /\.(?:from(?:PrivateKey|WIF)|makeRandom)\b|(?<![\w$])sign(?:(?:All)?Inputs?(?:HD)?|TaprootInput|Schnorr|Recoverable)?(?:Async|Sync)?\s*\(|\becdsaSign\s*\(|\bsignMessageOf(?:Deterministic)?ECDSA\b/.test(
         readFileSync(join(repoRoot, file), 'utf8')
       )
   )

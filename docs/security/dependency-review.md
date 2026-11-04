@@ -315,11 +315,17 @@ and protocol dependencies with the greatest impact:
 | `bs58check` 2.1.2/3.0.1; `varuint-bitcoin@1.1.2`; `bech32@2.0.0` | Bitcoin/address serialization | Covered by wallet and protocol tests |
 | `@qbit-oss/protocol` | Local protocol serialization | Workspace source plus qbit Core conformance binds encoded behavior |
 
-`elliptic@6.6.1` remains transitive, through `hdkey`'s `secp256k1`, with a
-low-severity ECDSA nonce advisory and no patched release. No keyring signs
-with a secp256k1 key: P2MR signs with SLH-DSA, and HDKey is restricted to
-derivation. The security suite guards against introducing Elliptic/Bitcore
-ECDSA signing. Such an import would invalidate this disposition.
+`elliptic@6.6.1` remains transitive, with a low-severity ECDSA nonce advisory
+and no patched release. The inventory shows it shipping through two routes:
+`hdkey`'s `secp256k1` in `@qbit/keyring-service`, and the extension's
+`crypto-browserify` polyfill through `browserify-sign` and `create-ecdh`. Its
+other paths are the `browserify` build path, `@qbit/wallet-core`'s development
+dependency on `crypto-browserify`, and the hoisted root copy, whose delivery
+the generator cannot determine and so classifies as reachable. No keyring
+signs with a secp256k1 key: P2MR signs with SLH-DSA, HDKey is restricted to
+derivation, and no wallet signing path uses the polyfill. The security suite
+guards against introducing Elliptic/Bitcore ECDSA signing or a secp256k1
+signing call in a keyring. Either would invalidate this disposition.
 
 | Adjacent area | Notable resolved dependencies | Boundary |
 | --- | --- | --- |
