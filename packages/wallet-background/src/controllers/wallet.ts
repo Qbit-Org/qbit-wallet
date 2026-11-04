@@ -34,7 +34,7 @@ import {
   type P2mrTransactionOutput,
   type Psbt as QbitPsbt,
 } from '@qbit-oss/protocol'
-import { ColdWalletKeyring } from '@qbit/keyring-service'
+import { ColdWalletKeyring, PQC_WARNING_SIGNATURE_THRESHOLD } from '@qbit/keyring-service'
 import type {
   QbitRecoveryMigrationPlanVault,
   QbitRecoveryMigrationVault,
@@ -104,6 +104,7 @@ import {
   type QbitBroadcastLookup,
   type QbitBroadcastResult,
   type QbitBroadcastStatusCheck,
+  type QbitRestoreFloorSource,
   type QbitRestoreFloorSourceRecord,
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
@@ -653,6 +654,23 @@ const QBIT_FLOOR_SCAN_STABILITY_RETRIES = {
   stabilityRetries: 4,
   retryBaseDelayMs: 1_000,
   tipAdvanceSettleMs: 10_000,
+}
+
+// The refusal of a floor summed across networks that share a counter, keyed
+// by the optional network whose share took the sum to the warning threshold
+// and by the read its count came from. Mainnet shares its path with no other
+// network, so it is never that network.
+const QBIT_SUMMED_FLOOR_REFUSAL_KEYS: Partial<
+  Record<'mainnet' | 'testnet4' | 'regtest', Record<QbitRestoreFloorSource, string>>
+> = {
+  testnet4: {
+    'address-stats': 'qbit_restore_summed_floor_testnet4_stats',
+    history: 'qbit_restore_summed_floor_testnet4_history',
+  },
+  regtest: {
+    'address-stats': 'qbit_restore_summed_floor_regtest_stats',
+    history: 'qbit_restore_summed_floor_regtest_history',
+  },
 }
 
 type QbitRecoveryMigrationPreparation = {
@@ -2445,33 +2463,42 @@ export class WalletController extends BaseController {
       // The sum is the floor the keyring applies, so statistics floors that
       // each stay below the warning threshold must not reach it together.
       if (floorSource === 'address-stats') {
-        const subject = `qbit account ${account.index} floors summed across networks`
         try {
-          assertQbitStatsFloorBelowWarningThreshold(observedSignatures, subject)
-        } catch (error) {
-          // An optional network's statistics must not gate the restore, but its
-          // share stays in the applied floor so the shared counter is not
-          // under-advanced.
-          const optionalStats = observers.flatMap((observer, index) => {
-            const observation = observations[index]
-            return !observer.required && observation?.floorSource === 'address-stats'
-              ? [{ observer, observation }]
-              : []
-          })
-          if (optionalStats.length === 0) throw error
           assertQbitStatsFloorBelowWarningThreshold(
-            optionalStats.reduce(
-              (total, { observation }) => total - observation.observedSignatures,
-              observedSignatures
-            ),
-            subject
+            observedSignatures,
+            `qbit account ${account.index} floors summed across networks`
           )
-          for (const { observer } of optionalStats) {
-            observer.unavailable = true
-            log.warn(
-              `optional ${observer.name} qbit restore statistics push the summed floor for account ${account.index} to the warning threshold; keeping the full floor and continuing with the active network`
+        } catch (error) {
+          // The required network's own floor stays below the threshold: a
+          // statistics floor is refused per address, and a history floor is
+          // bounded by the read's transaction cap. So an optional network's
+          // share took the sum there. That share stays in the sum while its
+          // network answers, since leaving it out would under-advance the
+          // shared counter; the refusal names the network so the user can
+          // take it out of the next scan instead.
+          const optional = observers
+            .map((observer, index) => ({ observer, observation: observations[index] }))
+            .find(
+              ({ observer, observation }) =>
+                !observer.required &&
+                observation !== undefined &&
+                observation.observedSignatures > 0
             )
-          }
+          const source =
+            optional?.observation?.floorSource === 'address-stats' ? 'address-stats' : 'history'
+          const key = optional && QBIT_SUMMED_FLOOR_REFUSAL_KEYS[optional.observer.name]?.[source]
+          if (!optional?.observation || !key) throw error
+          log.warn(
+            `optional ${optional.observer.name} qbit restore floor (${source}) takes the floor summed across networks for account ${account.index} to the warning threshold; signing stays locked`,
+            error
+          )
+          throw new Error(
+            t(key, [
+              `${account.index}`,
+              `${optional.observation.observedSignatures}`,
+              `${PQC_WARNING_SIGNATURE_THRESHOLD}`,
+            ])
+          )
         }
       }
       return {

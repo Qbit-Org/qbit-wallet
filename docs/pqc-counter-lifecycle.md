@@ -110,7 +110,20 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   signatures). The threshold also applies to the floor summed across
   testnet4 and regtest, which share a counter, when either was read from
   statistics. Either refusal fails the scan like any other, so the gate
-  stays closed and the scan can be retried.
+  stays closed and the scan can be retried. The active network's own floor
+  stays below the threshold, so a summed refusal means the optional
+  sibling's share took the sum there, whether that share came from
+  statistics or from history. The share stays in the sum while the sibling
+  answers, and the refusal does not mark the sibling unavailable, so later
+  accounts, gap probes and keyrings in the same scan still read it. The
+  refusal names the sibling and the read its count came from, and says what
+  to do. On a Testnet4 restore, the user stops the local Regtest service or
+  turns off Local Regtest; the retry then leaves regtest out, as it does any
+  optional network that does not answer, and completes on the Testnet4 floor
+  alone, without the signatures regtest reported. The Testnet4 explorer
+  cannot be turned off, so a Regtest restore it takes to the threshold stays
+  locked until a retry succeeds; the qbit Core recovery descriptors reach the
+  funds meanwhile.
 - The durable warning, exact-request signing challenge, fresh-seed migration,
   and archived-source resume semantics are specified in
   [Seed-only restored Qbit wallet safety](seed-only-restored-wallet-safety.md).

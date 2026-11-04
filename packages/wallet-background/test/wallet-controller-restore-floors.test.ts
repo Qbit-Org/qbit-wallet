@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { init } from '@qbit-oss/pqc'
 import { QbitHdKeyring, QbitPqcFloorsPendingError } from '@qbit/keyring-service/qbit-hd-keyring'
 import { KeyringType } from '@qbit/keyring-service/types'
+import { bgI18n } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import log from 'loglevel'
 import { WalletController } from '../src/controllers/wallet'
 import { keyringService, preferenceService } from '../src/services'
+import regtestAccessService from '../src/services/regtestAccess'
 import { discoverQbitActiveIndexes } from '../src/utils/qbit-api'
 
 vi.mock('../src/services', () => ({
@@ -480,84 +482,285 @@ describe('WalletController qbit restore with floors', () => {
     )
   })
 
-  it('keeps the full summed floor when only optional network statistics reach the warning threshold', async () => {
-    const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
+  describe('a floor summed across Testnet4 and regtest', () => {
     const threshold = 1 << 28
-    await init()
-    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_TESTNET4)
-    const keyring = new QbitHdKeyring({
-      mnemonic,
-      activeIndexes: [0],
-      hdPath: "m/87'/1'/0'/0",
-      pqcFloorsPending: true,
-    })
-    const [account] = await keyring.getQbitAccounts()
-    ;(keyringService.keyrings as any[]).push(keyring)
-    vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
-      (_address, observe) => keyring.scanPqcSignatureCounterFloors(observe, { lookahead: 0 })
-    )
-    // Each network's statistics floor stays below the threshold on its own,
-    // and only the optional regtest share takes the sum to it.
-    vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async () => ({
-      observedSignatures: threshold / 2,
-      hasActivity: true,
+    const testnetPath = "m/87'/1'/0'/0"
+    const summedSubject = (index: number) =>
+      `qbit account ${index} floors summed across networks claim ${threshold} signatures, at or above the ${threshold}-signature warning threshold`
+    // A refusal as the translation spy below renders it: the key and the
+    // values the background gave it.
+    const refusal = (
+      network: 'regtest' | 'testnet4',
+      source: 'stats' | 'history',
+      index: number,
+      count: number
+    ) => `qbit_restore_summed_floor_${network}_${source}(${index}, ${count}, ${threshold})`
+    type FloorRead = { observedSignatures: number; floorSource: 'address-stats' | 'history' }
+    const stats = (observedSignatures: number): FloorRead => ({
+      observedSignatures,
       floorSource: 'address-stats',
-    }))
-
-    await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
-      totalObservedSignatures: threshold,
     })
-    expect(keyring.pqcFloorsPending).toBe(false)
-    expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold)
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('optional regtest qbit restore statistics push the summed floor')
-    )
-  })
-
-  it('refuses a summed statistics floor when the required network alone reaches the warning threshold', async () => {
-    const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
-    const threshold = 1 << 28
-    await init()
-    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_TESTNET4)
-    const keyring = new QbitHdKeyring({
-      mnemonic,
-      activeIndexes: [0],
-      hdPath: "m/87'/1'/0'/0",
-      pqcFloorsPending: true,
+    const history = (observedSignatures: number): FloorRead => ({
+      observedSignatures,
+      floorSource: 'history',
     })
-    const [account] = await keyring.getQbitAccounts()
-    ;(keyringService.keyrings as any[]).push(keyring)
-    vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
-      (_address, observe) => keyring.scanPqcSignatureCounterFloors(observe, { lookahead: 0 })
-    )
-    const observeEach = (testnet4: number, regtest: number) =>
-      vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async (_client, address) => ({
-        observedSignatures: address === account!.addresses.regtest ? regtest : testnet4,
-        hasActivity: true,
-        floorSource: 'address-stats',
-      }))
 
-    // Removing the optional regtest share still leaves Testnet4 at the threshold.
-    observeEach(threshold, 1)
-    await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-      `qbit account 0 floors summed across networks claim ${threshold} signatures, at or above the ${threshold}-signature warning threshold`
-    )
-    expect(
-      vi.mocked(observeQbitPqcSignatureActivity).mock.calls.map(([, address]) => address)
-    ).toEqual([account!.addresses.testnet4, account!.addresses.regtest])
-    expect(keyring.pqcFloorsPending).toBe(true)
-    expect(await controller.getQbitRestoreFloorsPending()).toBe(true)
-    expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
-    await expect(
-      keyring.assertPqcSignatureCounterAvailable(account!.pubkey)
-    ).rejects.toBeInstanceOf(QbitPqcFloorsPendingError)
-
-    observeEach(threshold / 2, threshold / 2 - 1)
-    await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
-      totalObservedSignatures: threshold - 1,
+    beforeEach(async () => {
+      await init()
+      vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_TESTNET4)
+      vi.spyOn(bgI18n, 't').mockImplementation((key, substitutions) =>
+        substitutions === undefined ? key : `${key}(${[substitutions].flat().join(', ')})`
+      )
+      // The keyring service hands each pending keyring's scan to the keyring
+      // itself; a scan that passes no lookahead probes no gap indexes.
+      vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
+        async (pubkey, observe, options) => {
+          for (const keyring of keyringService.keyrings as QbitHdKeyring[]) {
+            if ((await keyring.getAccounts())[0] === pubkey) {
+              return keyring.scanPqcSignatureCounterFloors(observe, options ?? { lookahead: 0 })
+            }
+          }
+          throw new Error(`no pending keyring holds ${pubkey}`)
+        }
+      )
     })
-    expect(keyring.pqcFloorsPending).toBe(false)
-    expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold - 1)
+
+    afterEach(() => {
+      vi.mocked(bgI18n.t).mockRestore()
+    })
+
+    async function restoredKeyring(activeIndexes: number[], seed = mnemonic) {
+      const keyring = new QbitHdKeyring({
+        mnemonic: seed,
+        activeIndexes,
+        hdPath: testnetPath,
+        pqcFloorsPending: true,
+      })
+      return { keyring, accounts: await keyring.getQbitAccounts() }
+    }
+
+    /** Answers each address with its own read, and every other one with no history. */
+    async function observeByAddress(reads: Record<string, FloorRead>) {
+      const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
+      vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async (_client, address) => {
+        const read = reads[address]
+        return read
+          ? { ...read, hasActivity: read.observedSignatures > 0 }
+          : { observedSignatures: 0, hasActivity: false, floorSource: 'history' }
+      })
+      return vi.mocked(observeQbitPqcSignatureActivity)
+    }
+
+    it('refuses statistics floors whose sum across networks reaches the warning threshold', async () => {
+      const { keyring, accounts } = await restoredKeyring([0])
+      const [account] = accounts
+      vi.mocked(discoverQbitActiveIndexes).mockResolvedValue({
+        activeIndexes: [0],
+        highestActiveIndex: 0,
+        scannedCount: 21,
+        truncated: false,
+      })
+      vi.mocked(keyringService.addDiscoveredQbitKeyring).mockImplementation(async () => {
+        ;(keyringService.keyrings as any[]).push(keyring)
+        return keyring as any
+      })
+      // Each network's statistics floor stays below the threshold on its own.
+      const observeEach = (testnet4: number, regtest: number) =>
+        observeByAddress({
+          [account!.addresses.testnet4!]: stats(testnet4),
+          [account!.addresses.regtest!]: stats(regtest),
+        })
+
+      const observe = await observeEach(threshold / 2, threshold / 2)
+      const report = await controller.restoreQbitKeyringWithFloors(
+        mnemonic,
+        testnetPath,
+        '',
+        AddressType.P2MR
+      )
+
+      // The restore report carries the refusal the restore screen shows.
+      expect(report).toMatchObject({
+        floorsCompleted: false,
+        floorError: refusal('regtest', 'stats', 0, threshold / 2),
+      })
+      expect(observe.mock.calls.map(([, address]) => address)).toEqual([
+        account!.addresses.testnet4,
+        account!.addresses.regtest,
+      ])
+      expect(keyring.pqcFloorsPending).toBe(true)
+      expect(await controller.getQbitRestoreFloorsPending()).toBe(true)
+      expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
+      await expect(
+        keyring.assertPqcSignatureCounterAvailable(account!.pubkey)
+      ).rejects.toBeInstanceOf(QbitPqcFloorsPendingError)
+      expect(log.warn).toHaveBeenCalledWith(
+        'optional regtest qbit restore floor (address-stats) takes the floor summed across networks for account 0 to the warning threshold; signing stays locked',
+        expect.objectContaining({ message: summedSubject(0) })
+      )
+
+      // A retry while the local service still answers is refused the same way.
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('regtest', 'stats', 0, threshold / 2)
+      )
+      expect(keyring.pqcFloorsPending).toBe(true)
+
+      await observeEach(threshold / 2, threshold / 2 - 1)
+      await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
+        totalObservedSignatures: threshold - 1,
+      })
+      expect(keyring.pqcFloorsPending).toBe(false)
+      expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold - 1)
+    })
+
+    it('names regtest history that takes a Testnet4 statistics floor to the warning threshold', async () => {
+      const { keyring, accounts } = await restoredKeyring([0])
+      const [account] = accounts
+      ;(keyringService.keyrings as any[]).push(keyring)
+      await observeByAddress({
+        [account!.addresses.testnet4!]: stats(threshold - 10),
+        [account!.addresses.regtest!]: history(10),
+      })
+
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('regtest', 'history', 0, 10)
+      )
+      expect(keyring.pqcFloorsPending).toBe(true)
+      expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
+    })
+
+    it('names the Testnet4 explorer when it takes a regtest restore to the warning threshold', async () => {
+      vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
+      const { keyring, accounts } = await restoredKeyring([0])
+      const [account] = accounts
+      ;(keyringService.keyrings as any[]).push(keyring)
+
+      const observe = await observeByAddress({
+        [account!.addresses.testnet4!]: stats(threshold / 2),
+        [account!.addresses.regtest!]: stats(threshold / 2),
+      })
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('testnet4', 'stats', 0, threshold / 2)
+      )
+      expect(observe.mock.calls.map(([, address]) => address)).toEqual([
+        account!.addresses.testnet4,
+        account!.addresses.regtest,
+      ])
+
+      await observeByAddress({
+        [account!.addresses.testnet4!]: history(5),
+        [account!.addresses.regtest!]: stats(threshold - 5),
+      })
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('testnet4', 'history', 0, 5)
+      )
+      expect(keyring.pqcFloorsPending).toBe(true)
+      expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
+    })
+
+    it('keeps observing regtest for later keyrings, accounts and lookahead probes after a refusal', async () => {
+      const laterSeed =
+        'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+      const refused = await restoredKeyring([0, 1])
+      const later = await restoredKeyring([0], laterSeed)
+      const [laterAccount0] = later.accounts
+      // The later keyring restores only its index 0; its index 1 is the gap
+      // the lookahead probes.
+      const [, laterGap] = (await restoredKeyring([0, 1], laterSeed)).accounts
+      ;(keyringService.keyrings as any[]).push(refused.keyring, later.keyring)
+      const observe = await observeByAddress({
+        [refused.accounts[0]!.addresses.testnet4!]: stats(threshold / 2),
+        [refused.accounts[0]!.addresses.regtest!]: stats(threshold / 2),
+        [refused.accounts[1]!.addresses.regtest!]: history(50),
+        [laterAccount0!.addresses.regtest!]: history(50),
+        [laterGap!.addresses.regtest!]: history(3),
+      })
+
+      await expect(controller.runQbitRestoreFloorScan({ lookahead: 1 })).rejects.toThrow(
+        refusal('regtest', 'stats', 0, threshold / 2)
+      )
+
+      // The refused keyring stays locked with no account advanced.
+      expect(refused.keyring.pqcFloorsPending).toBe(true)
+      for (const account of refused.accounts) {
+        expect(await refused.keyring.getPqcSignatureCounter(account.pubkey)).toBe(0)
+      }
+      // Regtest still answered for the keyring scanned after the refusal: its
+      // history raised the floor, and its gap activity latched the hint.
+      expect(later.keyring.pqcFloorsPending).toBe(false)
+      expect(await later.keyring.getPqcSignatureCounter(laterAccount0!.pubkey)).toBe(50)
+      expect(later.keyring.pqcConcurrentInstanceHint).toBe(true)
+      const observed = observe.mock.calls.map(([, address]) => address)
+      expect(observed).toEqual(
+        expect.arrayContaining([laterAccount0!.addresses.regtest, laterGap!.addresses.regtest])
+      )
+      expect(observed).not.toContain(refused.accounts[1]!.addresses.regtest)
+      expect(log.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('history is unavailable'),
+        expect.anything()
+      )
+    })
+
+    it('completes on the Testnet4 floor once the local regtest service stops answering', async () => {
+      const { keyring, accounts } = await restoredKeyring([0])
+      const [account] = accounts
+      ;(keyringService.keyrings as any[]).push(keyring)
+      const observe = await observeByAddress({
+        [account!.addresses.testnet4!]: stats(threshold / 2),
+        [account!.addresses.regtest!]: stats(threshold / 2),
+      })
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('regtest', 'stats', 0, threshold / 2)
+      )
+
+      const stopped = new Error('local regtest history is unavailable')
+      const answer = observe.getMockImplementation()!
+      observe.mockImplementation(async (...args) => {
+        if (args[1] === account!.addresses.regtest) throw stopped
+        return answer(...args)
+      })
+      await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
+        totalObservedSignatures: threshold / 2,
+      })
+      expect(keyring.pqcFloorsPending).toBe(false)
+      expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold / 2)
+      expect(log.warn).toHaveBeenCalledWith(
+        'optional regtest qbit restore history is unavailable; continuing with the active network',
+        stopped
+      )
+    })
+
+    it('completes on the Testnet4 floor once Local Regtest is turned off', async () => {
+      const { keyring, accounts } = await restoredKeyring([0])
+      const [account] = accounts
+      ;(keyringService.keyrings as any[]).push(keyring)
+      const observe = await observeByAddress({
+        [account!.addresses.testnet4!]: stats(threshold / 2),
+        [account!.addresses.regtest!]: stats(threshold / 2),
+      })
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('regtest', 'stats', 0, threshold / 2)
+      )
+
+      observe.mockClear()
+      const isSupported = vi.spyOn(regtestAccessService, 'isSupported').mockReturnValue(true)
+      const refresh = vi
+        .spyOn(regtestAccessService, 'refresh')
+        .mockResolvedValue({ state: 'locked' } as any)
+      try {
+        await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
+          totalObservedSignatures: threshold / 2,
+        })
+      } finally {
+        isSupported.mockRestore()
+        refresh.mockRestore()
+      }
+      expect(observe.mock.calls.map(([, address]) => address)).toEqual([
+        account!.addresses.testnet4,
+      ])
+      expect(keyring.pqcFloorsPending).toBe(false)
+      expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold / 2)
+    })
   })
 
   it('does not require local regtest history to complete a Testnet4 floor scan', async () => {

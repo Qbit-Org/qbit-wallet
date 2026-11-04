@@ -653,6 +653,54 @@ describe('Step2 restore flow', () => {
     expect(toastError).toHaveBeenCalled();
   });
 
+  // The background words a summed-floor refusal with its own translation of
+  // these messages, so the restore screen shows what to do as it arrives.
+  const summedFloorRefusal = englishTranslations.qbit_restore_summed_floor_regtest_stats.message
+    .replace('$1', '0')
+    .replace('$2', '134217728')
+    .replace('$3', '268435456');
+
+  it('shows a summed-floor refusal and what to do in the failure card', async () => {
+    restoreQbitWallet.mockResolvedValue(
+      completedReport({
+        floorsCompleted: false,
+        floorScan: undefined,
+        floorError: summedFloorRefusal
+      })
+    );
+    renderStep2(true);
+
+    fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+
+    const card = await screen.findByTestId('restore-report-floors-incomplete');
+    expect(card.textContent).toContain(englishTranslations.qbit_restore_floors_incomplete_warning.message);
+    expect(card.textContent).toContain(summedFloorRefusal);
+    expect(summedFloorRefusal).toContain('Stop the local Regtest service, or turn off Local Regtest');
+    expect(screen.getByTestId('restore-retry-button')).toBeTruthy();
+  });
+
+  it('toasts a summed-floor refusal when a retry is refused again', async () => {
+    restoreQbitWallet.mockResolvedValue(
+      completedReport({
+        floorsCompleted: false,
+        floorScan: undefined,
+        floorError: summedFloorRefusal
+      })
+    );
+    runQbitRestoreFloorScan.mockRejectedValue(new Error(summedFloorRefusal));
+    renderStep2(true);
+
+    fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+    await screen.findByTestId('restore-report-floors-incomplete');
+    fireEvent.click(screen.getByTestId('restore-retry-button'));
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(summedFloorRefusal);
+    });
+    expect(screen.getByTestId('restore-report-floors-incomplete')).toBeTruthy();
+    expect(getQbitRestoreFloorsPending).not.toHaveBeenCalled();
+  });
+
   it('navigates to the wallet only from the acknowledged report', async () => {
     restoreQbitWallet.mockResolvedValue(completedReport());
     renderStep2(true);

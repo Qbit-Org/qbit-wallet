@@ -254,6 +254,18 @@
   "qbit_restore_stats_floor_notice": {
     "message": "Signature counters for the accounts at derivation index $1 were rebuilt from the explorer's address totals, because their history is too long to read in full. The totals count the same on-chain spends."
   },
+  "qbit_restore_summed_floor_regtest_history": {
+    "message": "The local Regtest service's transaction history shows $2 signatures for the account at derivation index $1. Testnet4 and Regtest share that account's signature counter, and with the Testnet4 count this reaches the $3-signature warning threshold. The wallet refuses to restore a counter that high, so signing stays locked. Stop the local Regtest service, or turn off Local Regtest in Advanced Settings, then retry."
+  },
+  "qbit_restore_summed_floor_regtest_stats": {
+    "message": "The local Regtest service's address statistics report $2 signatures for the account at derivation index $1. Testnet4 and Regtest share that account's signature counter, and with the Testnet4 count this reaches the $3-signature warning threshold. The wallet refuses to restore a counter that high, so signing stays locked. Stop the local Regtest service, or turn off Local Regtest in Advanced Settings, then retry."
+  },
+  "qbit_restore_summed_floor_testnet4_history": {
+    "message": "The Testnet4 explorer's transaction history shows $2 signatures for the account at derivation index $1. Testnet4 and Regtest share that account's signature counter, and with the Regtest count this reaches the $3-signature warning threshold. The wallet refuses to restore a counter that high, so signing stays locked; receiving still works. The Testnet4 explorer cannot be turned off here. Retry later; if it keeps reporting this count, use the qbit Core recovery descriptors on the Secret Recovery Phrase screen to reach the funds."
+  },
+  "qbit_restore_summed_floor_testnet4_stats": {
+    "message": "The Testnet4 explorer's address statistics report $2 signatures for the account at derivation index $1. Testnet4 and Regtest share that account's signature counter, and with the Regtest count this reaches the $3-signature warning threshold. The wallet refuses to restore a counter that high, so signing stays locked; receiving still works. The Testnet4 explorer cannot be turned off here. Retry later; if it keeps reporting this count, use the qbit Core recovery descriptors on the Secret Recovery Phrase screen to reach the funds."
+  },
   "qbit_signatures_remaining": {
     "message": "$1 remaining"
   },

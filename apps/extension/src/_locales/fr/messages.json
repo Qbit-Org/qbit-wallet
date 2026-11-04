@@ -254,6 +254,18 @@
   "qbit_restore_stats_floor_notice": {
     "message": "Les compteurs de signatures des comptes à l'index de dérivation $1 ont été reconstruits à partir des totaux d'adresse de l'explorateur, car leur historique est trop long pour être lu en entier. Ces totaux comptent les mêmes dépenses sur la chaîne."
   },
+  "qbit_restore_summed_floor_regtest_history": {
+    "message": "L'historique des transactions du service Regtest local indique $2 signatures pour le compte à l'index de dérivation $1. Testnet4 et Regtest partagent le compteur de signatures de ce compte, et avec le décompte de Testnet4, le seuil d'avertissement de $3 signatures est atteint. Le portefeuille refuse de restaurer un compteur aussi élevé, donc la signature reste verrouillée. Arrêtez le service Regtest local, ou désactivez Regtest local dans les Paramètres Avancés, puis réessayez."
+  },
+  "qbit_restore_summed_floor_regtest_stats": {
+    "message": "Les statistiques d'adresse du service Regtest local indiquent $2 signatures pour le compte à l'index de dérivation $1. Testnet4 et Regtest partagent le compteur de signatures de ce compte, et avec le décompte de Testnet4, le seuil d'avertissement de $3 signatures est atteint. Le portefeuille refuse de restaurer un compteur aussi élevé, donc la signature reste verrouillée. Arrêtez le service Regtest local, ou désactivez Regtest local dans les Paramètres Avancés, puis réessayez."
+  },
+  "qbit_restore_summed_floor_testnet4_history": {
+    "message": "L'historique des transactions de l'explorateur Testnet4 indique $2 signatures pour le compte à l'index de dérivation $1. Testnet4 et Regtest partagent le compteur de signatures de ce compte, et avec le décompte de Regtest, le seuil d'avertissement de $3 signatures est atteint. Le portefeuille refuse de restaurer un compteur aussi élevé, donc la signature reste verrouillée ; la réception fonctionne toujours. L'explorateur Testnet4 ne peut pas être désactivé ici. Réessayez plus tard ; s'il continue d'indiquer ce décompte, utilisez les descripteurs de récupération qbit Core de l'écran Phrase Secrète de Récupération pour accéder aux fonds."
+  },
+  "qbit_restore_summed_floor_testnet4_stats": {
+    "message": "Les statistiques d'adresse de l'explorateur Testnet4 indiquent $2 signatures pour le compte à l'index de dérivation $1. Testnet4 et Regtest partagent le compteur de signatures de ce compte, et avec le décompte de Regtest, le seuil d'avertissement de $3 signatures est atteint. Le portefeuille refuse de restaurer un compteur aussi élevé, donc la signature reste verrouillée ; la réception fonctionne toujours. L'explorateur Testnet4 ne peut pas être désactivé ici. Réessayez plus tard ; s'il continue d'indiquer ce décompte, utilisez les descripteurs de récupération qbit Core de l'écran Phrase Secrète de Récupération pour accéder aux fonds."
+  },
   "qbit_signatures_remaining": {
     "message": "$1 restante(s)"
   },
