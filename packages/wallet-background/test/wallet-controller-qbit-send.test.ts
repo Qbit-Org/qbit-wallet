@@ -153,6 +153,7 @@ vi.mock('../src/services', () => ({
     preflightP2mrMessageSigning: vi.fn(),
     preflightP2mrPsbtSigning: vi.fn(),
     openP2mrPsbtSigningBatch: vi.fn(),
+    openQbitRecoveryMigrationSigningBatch: vi.fn(),
     releaseP2mrPsbtSigningBatches: vi.fn(),
     signP2mrMessageWithCounter: vi.fn(),
     signP2mrPsbtWithCounter: vi.fn(),
@@ -634,6 +635,10 @@ describe('WalletController qbit P2MR send path', () => {
     vi.mocked(keyringService.preflightP2mrPsbtSigning).mockResolvedValue(SIGNATURE_BUDGET)
     vi.mocked(keyringService.openP2mrPsbtSigningBatch).mockResolvedValue({
       id: 'batch-1',
+      budget: BATCH_SIGNATURE_BUDGET,
+    })
+    vi.mocked(keyringService.openQbitRecoveryMigrationSigningBatch).mockResolvedValue({
+      id: 'migration-batch-1',
       budget: BATCH_SIGNATURE_BUDGET,
     })
     broadcastTxMock.mockResolvedValue('qbit-txid')

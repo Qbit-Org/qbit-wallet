@@ -499,8 +499,12 @@ async function cleanupFailedExternalQbitSigningLock(ctx: any): Promise<void> {
   }
 }
 
-function qbitRestoredFloorChallengeIdsForCleanup(ctx: any): string[] {
-  const params = ctx.request?.data?.params
+/**
+ * The restored-floor challenges of the entries to sign the approval step
+ * left in the request's parameters, which it prepared: a page cannot send
+ * entries (assertCanonicalParams refuses them).
+ */
+function qbitRestoredFloorChallengeIdsPrepared(params: any): string[] {
   const toSignEntries = [
     ...(Array.isArray(params?.toSignDatas) ? params.toSignDatas : []),
     ...(Array.isArray(params?.toSignMessages) ? params.toSignMessages : []),
@@ -515,8 +519,16 @@ function qbitRestoredFloorChallengeIdsForCleanup(ctx: any): string[] {
   return [...challengeIds]
 }
 
+/**
+ * Release only the challenges this request's approval step recorded; a
+ * request refused before it, for parameters naming another review's
+ * challenge say, releases none.
+ */
 async function cleanupFailedQbitRestoredFloorChallenges(ctx: any): Promise<void> {
-  const challengeIds = qbitRestoredFloorChallengeIdsForCleanup(ctx)
+  const recorded = ctx.request?.qbitRestoredFloorChallengeIds
+  const challengeIds = Array.isArray(recorded)
+    ? recorded.filter((challengeId): challengeId is string => typeof challengeId === 'string')
+    : []
   if (challengeIds.length > 0) {
     await wallet.releaseQbitRestoredFloorSigningChallenges(challengeIds)
   }
@@ -645,7 +657,13 @@ const flowContext = flow
 
     let skipApproval = false
     if (condition) {
-      skipApproval = await condition(ctx.request)
+      // Recorded however the step ends: it may fail after preparing some
+      // entries, whose challenges the failure then releases.
+      try {
+        skipApproval = await condition(ctx.request)
+      } finally {
+        ctx.request.qbitRestoredFloorChallengeIds = qbitRestoredFloorChallengeIdsPrepared(params)
+      }
     }
     if (mapMethod === 'sendQbit') {
       // Before the approval is shown: signing it registers the claim under
