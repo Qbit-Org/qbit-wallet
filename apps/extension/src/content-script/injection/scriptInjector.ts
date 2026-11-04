@@ -8,6 +8,8 @@ import { nanoid } from 'nanoid';
 import { Message } from '@/shared/utils';
 import { MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
 
+import { isTopFrame } from '../frame';
+
 /**
  * Checks the doctype of the current document if it exists
  * @returns true if the doctype is html or if none exists
@@ -66,20 +68,25 @@ function blockedDomainCheck(): boolean {
 }
 
 /**
- * Checks if the current page is in an iframe
- * @returns true if the page is in an iframe
+ * Checks if the document runs with an opaque origin, as a sandboxed frame, a
+ * CSP-sandboxed page or a file: page does. The background refuses to check
+ * such a document in.
+ * @returns true if the origin is opaque
  */
-function iframeCheck(): boolean {
-  const isInIframe = self != top;
-  return isInIframe;
+function opaqueOriginCheck(): boolean {
+  return self.origin === 'null';
 }
 
 /**
- * Determines if the provider should be injected
+ * Determines if the provider should be injected. A child frame, such as an
+ * embedded swap widget, gets one too: the background binds each frame's
+ * requests to that frame's own origin, not to the page around it.
  * @returns true if the provider should be injected
  */
 export function shouldInjectProvider(): boolean {
-  return doctypeCheck() && suffixCheck() && documentElementCheck() && !blockedDomainCheck() && !iframeCheck();
+  return (
+    doctypeCheck() && suffixCheck() && documentElementCheck() && !blockedDomainCheck() && !opaqueOriginCheck()
+  );
 }
 
 function getPageMetadata(): { icon?: string; name: string } {
@@ -109,12 +116,24 @@ export async function injectProviderScript(channelName: string): Promise<void> {
         method: 'tabCheckin',
         params: {
           ...getPageMetadata(),
+          // The background relies on this only for a page Chrome prerendered,
+          // where even the top frame connects under a frameId other than 0.
+          topFrame: isTopFrame(),
           ...(activeDocument ? { activeDocument: true } : {})
         }
       }
     });
   const handlePageShow = (event: PageTransitionEvent) => {
     if (event.persisted && event.isTrusted) {
+      void checkIn(true).catch(() => undefined);
+    }
+  };
+  // A page Chrome prerendered checks in as active once it is shown, and only
+  // then can it become the tab's current site. The page can fire the event
+  // itself, so only the browser's own event ends the wait.
+  const handlePrerenderingChange = (event: Event) => {
+    if (event.isTrusted) {
+      document.removeEventListener('prerenderingchange', handlePrerenderingChange);
       void checkIn(true).catch(() => undefined);
     }
   };
@@ -126,6 +145,7 @@ export async function injectProviderScript(channelName: string): Promise<void> {
   });
   const dispose = () => {
     window.removeEventListener('pageshow', handlePageShow);
+    document.removeEventListener('prerenderingchange', handlePrerenderingChange);
     bcm.dispose();
     pm.dispose();
   };
@@ -134,6 +154,10 @@ export async function injectProviderScript(channelName: string): Promise<void> {
     bcm.send(MESSAGE_TYPE.BCM_CONTENT_TO_CHANNEL, data);
   });
   document.addEventListener('beforeunload', dispose, { once: true });
+  // Before the first check-in, so that a page shown meanwhile is not missed.
+  if ((document as Document & { prerendering?: boolean }).prerendering) {
+    document.addEventListener('prerenderingchange', handlePrerenderingChange);
+  }
 
   try {
     await checkIn();

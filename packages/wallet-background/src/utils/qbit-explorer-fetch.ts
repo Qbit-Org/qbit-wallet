@@ -10,7 +10,8 @@ import { QbitApiError, type RequestOptions } from '@qbit-oss/api'
  * slow link cannot deliver in 15 s. The clients' fetch is therefore wrapped:
  * history pages and transaction reads must start answering within 15 s and
  * may then take as long as their bytes keep arriving, under a per-attempt
- * ceiling; every other reply keeps the 15 s budget.
+ * ceiling; every other reply keeps the 15 s budget, which a request body
+ * extends by the time it takes to upload (#130).
  */
 
 /** Response headers must arrive within this, as under the client's default. */
@@ -22,9 +23,20 @@ export const QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS = 15_000
 /**
  * Any other reply (statistics, outputs, fees, the tip, a submission's
  * answer) is small, so it keeps the client's default: headers and body
- * together within this.
+ * together within this, besides the time the request's own body takes to go
+ * out (see `qbitExplorerReplyTimeoutMs`).
  */
 export const QBIT_EXPLORER_REPLY_TIMEOUT_MS = 15_000
+
+/**
+ * The slowest upload a request body is given time for: 16 KiB/s, about
+ * 130 kbit/s. `fetch` resolves only once the body has gone out, and reports
+ * no progress while it does, so a stalled upload cannot be told from a slow
+ * one; the reply's budget grows with the body instead. The largest standard
+ * transaction is 400,000 bytes (see `QBIT_MAX_STANDARD_TX_WEIGHT`), about
+ * 800 kB of hex, which in 15 s took about 430 kbit/s; it now has about 64 s.
+ */
+export const QBIT_EXPLORER_MIN_UPLOAD_BYTES_PER_SECOND = 16 * 1024
 
 /**
  * The clients' per-attempt `timeoutMs`, which only a large-body read can
@@ -55,6 +67,31 @@ const LARGE_BODY_ROUTE = /^(?:\/address\/[^/?]+\/txs(?:[/?]|$)|\/tx\/[0-9a-f]{64
 /** Whether `route`, relative to the base URL, is one whose body can be large. */
 export function isQbitExplorerLargeBodyRoute(route: string): boolean {
   return LARGE_BODY_ROUTE.test(route)
+}
+
+/**
+ * The budget of a reply that is not a large body, for a request that sends
+ * `body` (a submission's transaction hex, say): `QBIT_EXPLORER_REPLY_TIMEOUT_MS`
+ * plus the time `body` takes to upload at
+ * `QBIT_EXPLORER_MIN_UPLOAD_BYTES_PER_SECOND`, at most
+ * `QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS`. A request without a body, or with one
+ * whose size is not known up front (a stream, a form), keeps 15 s; a
+ * one-input payment, about 8 kB of hex, gets half a second more.
+ */
+export function qbitExplorerReplyTimeoutMs(body?: BodyInit | null): number {
+  const uploadMs = Math.ceil(
+    (requestBodyBytes(body) * 1_000) / QBIT_EXPLORER_MIN_UPLOAD_BYTES_PER_SECOND
+  )
+  return Math.min(QBIT_EXPLORER_REPLY_TIMEOUT_MS + uploadMs, QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS)
+}
+
+/** The bytes `body` sends, where they are known before it is sent; 0 otherwise. */
+function requestBodyBytes(body: BodyInit | null | undefined): number {
+  if (typeof body === 'string') return new TextEncoder().encode(body).byteLength
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return body.byteLength
+  if (typeof Blob === 'function' && body instanceof Blob) return body.size
+  if (body instanceof URLSearchParams) return new TextEncoder().encode(body.toString()).byteLength
+  return 0
 }
 
 export interface QbitExplorerFetchOptions {
@@ -193,14 +230,17 @@ export class QbitExplorerOperation {
  * a submission, reports as an unknown outcome) as when its own timer fires.
  *
  * The body is buffered before the promise resolves, so the client sees the
- * stall before the headers. A body that fails on its own is handed to the
- * client as it arrived, with the failure at its end, so the client judges it
- * as before. A submission's reply that stalls, a 429 included, rejects as a
- * timeout, which the client reports as an unknown outcome: a 429 whose body
- * was not read may have said that the node has the transaction. A body past
- * `maxBodyBytes` rejects as `response_too_large`, as the client's own limit
- * does: a read is not retried, and a submission's reply is an unknown outcome
- * that is not sent again.
+ * stall before the headers. A submission's budget covers its upload as well
+ * (see `qbitExplorerReplyTimeoutMs`): a large transaction on a slow link is
+ * not cut off while it is still going out, and one whose upload stalls is a
+ * timeout once that budget is spent. A body that fails on its own is handed
+ * to the client as it arrived, with the failure at its end, so the client
+ * judges it as before. A submission's reply that stalls, a 429 included,
+ * rejects as a timeout, which the client reports as an unknown outcome: a
+ * 429 whose body was not read may have said that the node has the
+ * transaction. A body past `maxBodyBytes` rejects as `response_too_large`, as
+ * the client's own limit does: a read is not retried, and a submission's
+ * reply is an unknown outcome that is not sent again.
  */
 export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): typeof fetch {
   const { fetchFn } = options
@@ -222,19 +262,20 @@ export function createQbitExplorerFetch(options: QbitExplorerFetchOptions): type
     const stalled = (reason: string): void =>
       controller.abort(stallError(errorUrl(href, baseUrl, route), reason, status))
 
-    // A large body's headers have their own budget; any other reply has one for both.
+    // A large body's headers have their own budget; any other reply has one
+    // for both, which also covers the upload of the request's own body: the
+    // fetch below resolves only once that has gone out.
     const headersTimer = largeBody
       ? setTimeout(
           () => stalled(`no response headers within ${QBIT_EXPLORER_HEADERS_TIMEOUT_MS}ms`),
           QBIT_EXPLORER_HEADERS_TIMEOUT_MS
         )
       : undefined
-    const replyTimer = largeBody
-      ? undefined
-      : setTimeout(
-          () => stalled(`no complete reply within ${QBIT_EXPLORER_REPLY_TIMEOUT_MS}ms`),
-          QBIT_EXPLORER_REPLY_TIMEOUT_MS
-        )
+    const replyTimeoutMs = largeBody ? undefined : qbitExplorerReplyTimeoutMs(init?.body)
+    const replyTimer =
+      replyTimeoutMs === undefined
+        ? undefined
+        : setTimeout(() => stalled(`no complete reply within ${replyTimeoutMs}ms`), replyTimeoutMs)
     let pending: Promise<Response> | undefined
     let response: Response
     try {

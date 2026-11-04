@@ -57,7 +57,8 @@ function secureManifestFixture() {
       {
         matches: ['<all_urls>'],
         js: ['content-script.js'],
-        run_at: 'document_start'
+        run_at: 'document_start',
+        all_frames: true
       }
     ],
     web_accessible_resources: [
@@ -129,6 +130,10 @@ test('store loopback constants agree with the shared wallet constants', () => {
 test('checked-in Chrome MV3 store manifest matches the reviewed release boundary', () => {
   const manifest = currentChromeMv3Manifest();
 
+  // 1.0.7's permissions, then `idle` for the lock when the computer locks.
+  assert.deepEqual(manifest.permissions, ['storage', 'unlimitedStorage', 'declarativeNetRequest', 'sidePanel', 'idle']);
+  assert.deepEqual(manifest.permissions, EXPECTED_MV3_PERMISSIONS);
+  assert.deepEqual(currentChromeMv3Manifest('e2e').permissions, EXPECTED_MV3_PERMISSIONS);
   assert.deepEqual(manifest.host_permissions, EXPECTED_MV3_HOST_PERMISSIONS);
   assert.deepEqual(manifest.optional_host_permissions, [REGTEST_HOST_PERMISSION]);
   assert.equal(manifest.content_security_policy.extension_pages, EXPECTED_MV3_CSP);
@@ -282,6 +287,11 @@ test('accepts only the reviewed MV3 permission, host, frame, resource, and CSP p
       message: /permissions/
     },
     {
+      label: 'missing idle permission',
+      mutate: (manifest) => manifest.permissions.splice(manifest.permissions.indexOf('idle'), 1),
+      message: /permissions/
+    },
+    {
       label: 'all-host network access',
       mutate: (manifest) => manifest.host_permissions.splice(0, Infinity, '<all_urls>'),
       message: /host_permissions/
@@ -348,11 +358,18 @@ test('accepts only the reviewed MV3 permission, host, frame, resource, and CSP p
       message: /optional_permissions is forbidden/
     },
     {
-      label: 'child-frame injection',
+      label: 'top-frame-only injection',
       mutate: (manifest) => {
-        manifest.content_scripts[0].all_frames = true;
+        delete manifest.content_scripts[0].all_frames;
       },
-      message: /child frames/
+      message: /every frame/
+    },
+    {
+      label: 'child frames explicitly excluded',
+      mutate: (manifest) => {
+        manifest.content_scripts[0].all_frames = false;
+      },
+      message: /every frame/
     },
     {
       label: 'extension page exposed to websites',

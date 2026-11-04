@@ -28,6 +28,9 @@ export enum ErrorCodes {
   // put back in its place: the stored setting may hold either value until a
   // later save succeeds.
   PREFERENCE_NOT_RESTORED = -15,
+  // The wallet locked while an unlock waited or ran (the computer locked,
+  // the last window closed, or another lock), so the unlock ended locked.
+  WALLET_LOCKED_DURING_UNLOCK = -16,
   // A provider sendQbit, pushTx or pushPsbt broadcast ended without a
   // verdict: the transaction named in the error data may be in the mempool,
   // so the dapp must check it before retrying. A sendQbit's inputs stay
@@ -59,6 +62,7 @@ export const ErrorMessages: {
   [ErrorCodes.REGTEST_SERVICE_UNREACHABLE]: 'regtest_service_unavailable',
   [ErrorCodes.REGTEST_SERVICE_UNEXPECTED]: 'regtest_service_unexpected',
   [ErrorCodes.PREFERENCE_NOT_RESTORED]: 'setting_not_saved_may_have_changed',
+  [ErrorCodes.WALLET_LOCKED_DURING_UNLOCK]: 'wallet_locked_during_unlock',
   [ErrorCodes.METHOD_NOT_FOUND]: 'code_method_not_found',
   [ErrorCodes.INVALID_PARAMS]: 'Invalid provider request parameters',
   [ErrorCodes.UserCancel]: 'user_rejected_the_request',

@@ -98,6 +98,30 @@ describe('TransactionOverviewSection signature budget row', () => {
     expect(screen.getByText('Signature budget: 100 before, 98 after')).toBeTruthy();
   });
 
+  it('shows the budget of the whole batch instead of the transaction alone', () => {
+    render(
+      <TransactionOverviewSection
+        decodedPsbt={decodedPsbt}
+        networkFee={0.0000386}
+        toSignData={toSignDataWithBudget()}
+        signatureBatchBudget={{
+          required: 5,
+          cached: 1,
+          remainingBefore: 100,
+          remainingAfter: 95,
+          limit: 1073741824
+        }}
+      />
+    );
+
+    // Its own new and cached counts depend on the order the batch signs in.
+    expect(screen.queryByText(/new • /)).toBeNull();
+    expect(screen.getByTestId('psbt-batch-signature-budget').textContent).toBe(
+      'Batch signature budget: 5 new; 100 before, 95 after all transactions'
+    );
+    expect(screen.queryByText('Signature budget: 100 before, 98 after')).toBeNull();
+  });
+
   it('renders no budget row when the approval has no preflighted budget', () => {
     render(
       <TransactionOverviewSection

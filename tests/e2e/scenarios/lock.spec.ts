@@ -3,6 +3,7 @@ import { expect, test } from '../fixtures/test'
 import {
   E2E_PASSWORD,
   E2E_WRONG_PASSWORD,
+  onboardNewRegtestWallet,
   provisionDeterministicRegtestWallet,
   waitForAddressUsed,
   waitForWalletTransactions,
@@ -18,7 +19,7 @@ interface WalletKeyringProbe {
   index: number
 }
 
-const AUTO_LOCKED_METHOD = 'walletAutoLocked'
+const LOCKED_METHOD = 'walletLocked'
 const ONBOARDING_GRACE_PERIOD_MS = 10 * 60 * 1000
 
 test('G3 lock: rejects a wrong password and survives unlock plus browser restart', async ({
@@ -29,8 +30,8 @@ test('G3 lock: rejects a wrong password and survives unlock plus browser restart
   const extensionId = extension.extensionId
   const fundingTxid = await regtest.fund(setup.address, '0.001')
   await waitForWalletTransactions(extension, setup.page, [fundingTxid])
-  // Rotation is driven by the receive ledger marking the address used, which
-  // lags the UTXO index; wait for it before asserting the address rotated.
+  // Receive marks the address used from the receive ledger, which lags the
+  // UTXO index; wait for it before checking how Receive shows the address.
   await waitForAddressUsed(extension, setup.page, setup.address)
   const expectedBalance = await extension.requestWalletController<AddressBalanceProbe>(
     setup.page,
@@ -40,7 +41,11 @@ test('G3 lock: rejects a wrong password and survives unlock plus browser restart
 
   await setup.home.openReceive()
   const fundedReceive = new ReceivePage(setup.page)
-  const safeReceiveAddress = await fundedReceive.currentAddress()
+  // The used address stays on screen until New Address selects a fresh one,
+  // and that selection has to survive the lock and the browser restart below.
+  expect(await fundedReceive.currentAddress()).toBe(setup.address)
+  await fundedReceive.expectCurrentAddressUsed()
+  const { current: safeReceiveAddress } = await fundedReceive.rotateAddress()
   expect(safeReceiveAddress).not.toBe(setup.address)
   expect(await fundedReceive.previousAddresses()).toContain(setup.address)
   await setup.page.goto(`chrome-extension://${extensionId}/index.html#/main`, {
@@ -126,14 +131,17 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   }, ONBOARDING_GRACE_PERIOD_MS)
   await extension.requestWalletController<void>(setup.page, 'setAutoLockTimeId', [0])
 
-  // The lock fires 30 seconds after the last activity refresh; the budget
-  // leaves room for a trailing activity burst from the clicks above.
+  // Past its grace period the keepalive stops refreshing and locks on its
+  // next tick, unless the 30-second auto-lock comes first. A lock clears the
+  // auto-lock timer, so after the keepalive's lock no auto-lock follows: wait
+  // for the lock itself. The budget leaves room for a trailing activity burst
+  // from the clicks above.
   await expect
     .poll(() => extension.walletBroadcastMethods(setup.page), {
       timeout: 120_000,
       intervals: [250, 500, 1_000],
     })
-    .toContain(AUTO_LOCKED_METHOD)
+    .toContain(LOCKED_METHOD)
   await setup.page.evaluate(() => {
     delete (performance as unknown as { now?: () => number }).now
   })
@@ -156,4 +164,44 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   await expect(
     extension.requestWalletController(restartedPage, 'getMnemonics', [E2E_PASSWORD, currentKeyring])
   ).rejects.toThrow()
+})
+
+test('G3 lock: locks when the last normal browser window closes', async ({ extension }) => {
+  const setup = await onboardNewRegtestWallet(extension)
+  expect(await extension.requestWalletController<boolean>(setup.page, 'isUnlocked')).toBe(true)
+  expect(
+    await extension.requestWalletController<boolean>(setup.page, 'getLockOnWindowsClosed')
+  ).toBe(true)
+
+  // A wallet page in a popup window, as approvals open: it is not a normal
+  // window, so it does not keep the wallet unlocked, and it watches for the
+  // lock while every normal window closes.
+  const popupOpened = extension.context.waitForEvent('page')
+  await setup.page.evaluate(async () => {
+    await chrome.windows.create({ type: 'popup', url: chrome.runtime.getURL('index.html#/main') })
+  })
+  const popup = await popupOpened
+  await popup.waitForLoadState('domcontentloaded')
+  await extension.captureWalletBroadcasts(popup)
+
+  for (const page of extension.context.pages()) {
+    if (page !== popup) {
+      await page.close()
+    }
+  }
+
+  await expect
+    .poll(() => extension.walletBroadcastMethods(popup), { timeout: 30_000 })
+    .toContain(LOCKED_METHOD)
+  expect(await extension.requestWalletController<boolean>(popup, 'isUnlocked')).toBe(false)
+  await new SettingsPage(popup).waitForUnlock()
+
+  // A normal window opened again shows the lock screen. (Chrome on macOS
+  // keeps running with no window at all; Chrome on Linux quits with its last
+  // window, which is why the popup stays open here.)
+  const reopened = await extension.openWallet('/main')
+  const settings = new SettingsPage(reopened)
+  await settings.waitForUnlock()
+  await settings.unlock(E2E_PASSWORD)
+  await new WalletHomePage(reopened).waitUntilReady()
 })

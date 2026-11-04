@@ -1,1 +1,1 @@
-export { restoreAppState } from './restore';
+export { restoreAppState, whenAppStateRestored } from './restore';

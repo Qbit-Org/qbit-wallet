@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "Délai de Verrouillage Automatique"
   },
+  "lock_when_computer_locks": {
+    "message": "Verrouiller quand l'ordinateur se verrouille"
+  },
+  "lock_when_all_windows_close": {
+    "message": "Verrouiller à la fermeture de toutes les fenêtres"
+  },
   "available": {
     "message": "Disponible"
   },
@@ -319,6 +325,9 @@
   },
   "qbit_receive_no_safe": {
     "message": "Aucune adresse de réception sûre n’est disponible. Les adresses épuisées sont exclues et l’intervalle de restauration peut être plein. Utilisez une adresse déjà émise, inutilisée et non épuisée, ou rétablissez le réseau puis réessayez."
+  },
+  "qbit_receive_no_safe_new_address": {
+    "message": "L’adresse de ce compte ne peut pas servir à recevoir des fonds. Appuyez sur Nouvelle adresse pour obtenir une nouvelle adresse et passer à son compte."
   },
   "qbit_receive_previous": {
     "message": "Adresses précédentes"
@@ -745,6 +754,9 @@
   },
   "failed_to_save_contact": {
     "message": "Échec de la sauvegarde du contact"
+  },
+  "another_contact_has_this_address": {
+    "message": "Un autre contact a déjà cette adresse sur ce réseau"
   },
   "failed_to_save_contact_order": {
     "message": "Échec de la sauvegarde de l'ordre des contacts"
@@ -2350,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "Le déverrouillage est déjà en cours"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "Le portefeuille s'est verrouillé pendant le déverrouillage. Déverrouillez-le à nouveau."
   },
   "unrecognized_password_strength": {
     "message": "Force de mot de passe non reconnue"

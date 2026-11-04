@@ -451,6 +451,10 @@ export interface WalletController {
 
   setAutoLockTimeId(timeId: number): Promise<void>
   getAutoLockTimeId(): Promise<number>
+  getLockOnComputerLock(): Promise<boolean>
+  setLockOnComputerLock(enabled: boolean): Promise<void>
+  getLockOnWindowsClosed(): Promise<boolean>
+  setLockOnWindowsClosed(enabled: boolean): Promise<void>
 
   getDeveloperMode(): Promise<boolean>
   setDeveloperMode(developerMode: boolean): Promise<void>
@@ -465,9 +469,14 @@ export interface WalletController {
     address: string,
     chain: ChainType
   ): Promise<ContactBookItem | undefined>
-  updateContact(data: ContactBookItem): Promise<void>
+  addContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
+  updateContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
   removeContact(address: string, chain?: ChainType): Promise<void>
-  replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void>
+  replaceContact(
+    address: string,
+    chain: ChainType,
+    data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }
+  ): Promise<void>
   listContacts(): Promise<ContactBookItem[]>
   saveContactsOrder(contacts: ContactBookItem[]): Promise<void>
 

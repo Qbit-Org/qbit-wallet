@@ -60,6 +60,26 @@ describe('qbit receive gap planner', () => {
     })
   })
 
+  it('never selects a reserved index, derived or not, and counts it against the gap', () => {
+    expect(planQbitReceiveIntent([address(0), address(1)], new Set([0, 2]))).toMatchObject({
+      trailingUnusedCount: 3,
+      remainingIntentCapacity: 17,
+      nextIntent: { index: 1, activatesIndex: false },
+    })
+    expect(planQbitReceiveIntent([address(0)], new Set([0, 1]))).toMatchObject({
+      nextIntent: { index: 2, activatesIndex: true },
+    })
+  })
+
+  it('has no next intent once reservations fill the gap', () => {
+    const reserved = new Set(Array.from({ length: QBIT_RECEIVE_GAP_LIMIT }, (_, index) => index))
+    expect(planQbitReceiveIntent([address(0)], reserved)).toMatchObject({
+      trailingUnusedCount: 20,
+      remainingIntentCapacity: 0,
+      nextIntent: null,
+    })
+  })
+
   it('uses restored gaps below the highest active index without widening the trailing gap', () => {
     expect(
       planQbitReceiveIntent([address(0, { used: true }), address(1), address(2, { used: true })])

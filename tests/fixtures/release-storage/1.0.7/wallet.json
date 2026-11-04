@@ -1,0 +1,72 @@
+{
+  "release": "v1.0.7",
+  "zip": {
+    "name": "qbit-chrome-mv3-v1.0.7.zip",
+    "sha256": "7e36b57ae191a1738f370547c234f82070415d8dadac0a645b4f1b122855e748"
+  },
+  "extensionVersion": "1.0.7",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+  "testOnly": true,
+  "password": "Qbit-Upgrade-Fixture-Only!1",
+  "mnemonic": "final actress jazz mother one eagle educate put physical awake fence loud palace congress marriage high actual antique hint level above estate entire ranch",
+  "readonlyPublicKey": "0377fe910ae0a2a64c568f5fa80ae0ffe59f798d2bea63174c1edcebbbec64b71d",
+  "keyrings": [
+    {
+      "type": "Qbit HD Key Tree",
+      "alianName": "Qbit HD Wallet #1",
+      "addressType": 9,
+      "accounts": [
+        {
+          "address": "tq1zgpwwkyfcwgpayjn2gyr888nxk3uwkxsxw2v9dck3tcstkt23genq96tv5j",
+          "pubkey": "a6431a873bad9b0a51330a2ab575259a5f0279f22844b234ed9686a1411119e3",
+          "alianName": "Account 1"
+        },
+        {
+          "address": "tq1zumlk839mr9qy4ap904l4vz6fmhx8mgd849ssznxl8d57c5llw0cq0sc6ar",
+          "pubkey": "a411e10a1924e9a95a5f71f9e53285ebf86a68ee50a9ebdafc28dd0f80ab4020",
+          "alianName": "Savings"
+        }
+      ]
+    },
+    {
+      "type": "Readonly",
+      "alianName": "Readonly #2",
+      "addressType": 1,
+      "accounts": [
+        {
+          "address": "tb1qw7608rgkeyu37h8q52vyjytw8prjtejw7kswn4",
+          "pubkey": "0377fe910ae0a2a64c568f5fa80ae0ffe59f798d2bea63174c1edcebbbec64b71d",
+          "alianName": "Readonly 1"
+        }
+      ]
+    }
+  ],
+  "currentAccount": {
+    "address": "tq1zumlk839mr9qy4ap904l4vz6fmhx8mgd849ssznxl8d57c5llw0cq0sc6ar",
+    "alianName": "Savings"
+  },
+  "contacts": [
+    {
+      "name": "Fixture contact",
+      "address": "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66",
+      "chain": "QBIT_TESTNET4",
+      "isContact": true,
+      "isAlias": false,
+      "sortIndex": 0
+    }
+  ],
+  "connectedSites": [
+    {
+      "origin": "http://127.0.0.1:38531",
+      "chain": "QBIT_TESTNET4",
+      "isConnected": true
+    }
+  ],
+  "settings": {
+    "chainType": "QBIT_TESTNET4",
+    "locale": "es",
+    "themeMode": "dark",
+    "autoLockTimeId": 6,
+    "developerMode": true
+  }
+}

@@ -49,6 +49,15 @@ export interface QbitProvider {
 }
 
 /**
+ * Events Qbit Wallet dispatches on `window`, after EIP-6963, once
+ * `window.qbit` is installed. A page can dispatch them too, so they only say
+ * when to look at `window.qbit` again; they prove nothing about the wallet.
+ */
+export const QBIT_PROVIDER_INITIALIZED_EVENT = 'qbit#initialized'
+export const QBIT_ANNOUNCE_PROVIDER_EVENT = 'qbit:announceProvider'
+export const QBIT_REQUEST_PROVIDER_EVENT = 'qbit:requestProvider'
+
+/**
  * Global window extensions for wallet providers
  */
 declare global {

@@ -19,6 +19,8 @@ interface Contact {
   sortIndex?: number
 }
 
+type ContactInput = Omit<Contact, 'isAlias'> & { isAlias?: boolean }
+
 const alice: Contact = {
   name: 'Alice',
   address: OLD_ADDRESS,
@@ -27,7 +29,26 @@ const alice: Contact = {
   isAlias: false,
 }
 
+const bob: Contact = {
+  name: 'Bob',
+  address: NEW_ADDRESS,
+  chain: CHAIN,
+  isContact: true,
+  isAlias: false,
+}
+
 const keyOf = (address: string, chain: ChainType) => `${address}_${chain}`
+
+// As the contact book stores it: an unset alias flag keeps the existing entry's
+const toStored = (contact: ContactInput, existing?: Contact): Contact => ({
+  ...contact,
+  isAlias: contact.isAlias ?? existing?.isAlias ?? false,
+})
+
+const contactExists = () =>
+  Object.assign(new Error('Another contact has this address and network'), {
+    code: 'CONTACT_ALREADY_EXISTS',
+  })
 
 // Contact methods that behave like the contact book's: each call is one
 // storage write, and the contacts change only once that write succeeds.
@@ -49,16 +70,31 @@ function createContactsWallet(contacts: Contact[]) {
     getContactByAddressAndChain: vi.fn(async (address: string, chain: ChainType) =>
       book.get(keyOf(address, chain))
     ),
-    updateContact: vi.fn((contact: Contact) =>
-      write(next => next.set(keyOf(contact.address, contact.chain), contact))
+    addContact: vi.fn((contact: ContactInput) =>
+      write(next => {
+        const key = keyOf(contact.address, contact.chain)
+        const existing = next.get(key)
+        if (existing?.isContact) throw contactExists()
+        next.set(key, toStored(contact, existing))
+      })
+    ),
+    updateContact: vi.fn((contact: ContactInput) =>
+      write(next => {
+        const key = keyOf(contact.address, contact.chain)
+        next.set(key, toStored(contact, next.get(key)))
+      })
     ),
     removeContact: vi.fn((address: string, chain: ChainType) =>
       write(next => next.delete(keyOf(address, chain)))
     ),
-    replaceContact: vi.fn((address: string, chain: ChainType, contact: Contact) =>
+    replaceContact: vi.fn((address: string, chain: ChainType, contact: ContactInput) =>
       write(next => {
-        next.delete(keyOf(address, chain))
-        next.set(keyOf(contact.address, contact.chain), contact)
+        const key = keyOf(address, chain)
+        const newKey = keyOf(contact.address, contact.chain)
+        const existing = next.get(newKey)
+        if (newKey !== key && existing?.isContact) throw contactExists()
+        next.delete(key)
+        next.set(newKey, toStored(contact, existing))
       })
     ),
   }
@@ -66,6 +102,10 @@ function createContactsWallet(contacts: Contact[]) {
   return {
     wallet,
     contacts: () => [...book.values()],
+    // Store a contact as another page would, outside this screen.
+    put: (contact: Contact) => {
+      book = new Map(book).set(keyOf(contact.address, contact.chain), contact)
+    },
     writes: () => writes,
     // Make storage refuse every write that would hold this key.
     refuseWritesHolding: (key: string) => {
@@ -87,6 +127,22 @@ async function renderEditScreen(contacts = createContactsWallet([alice])) {
   return { ...harness, ...view, contacts }
 }
 
+// The screen ContactsScreen opens to add a contact: no address, only a network
+function renderAddScreen(contacts = createContactsWallet([])) {
+  const harness = createHookTestHarness({
+    wallet: contacts.wallet as any,
+    routeState: { selectedNetworkFilter: CHAIN },
+  })
+  const view = renderHook(() => useEditContactScreenLogic(), { wrapper: harness.wrapper })
+  return { ...harness, ...view, contacts }
+}
+
+async function addBob(result: { current: ReturnType<typeof useEditContactScreenLogic> }) {
+  act(() => result.current.handleNameChange('Bob'))
+  act(() => result.current.handleAddressChange(NEW_ADDRESS))
+  await act(() => result.current.handleSubmit())
+}
+
 describe('useEditContactScreenLogic', () => {
   it('moves a contact to a new address with one write', async () => {
     const { result, contacts, navigation } = await renderEditScreen()
@@ -94,8 +150,9 @@ describe('useEditContactScreenLogic', () => {
     act(() => result.current.handleAddressChange(NEW_ADDRESS))
     await act(() => result.current.handleSubmit())
 
+    const { isAlias: _unset, ...edit } = alice
     expect(contacts.wallet.replaceContact).toHaveBeenCalledWith(OLD_ADDRESS, CHAIN, {
-      ...alice,
+      ...edit,
       address: NEW_ADDRESS,
     })
     expect(contacts.wallet.removeContact).not.toHaveBeenCalled()
@@ -125,10 +182,57 @@ describe('useEditContactScreenLogic', () => {
     act(() => result.current.handleNameChange('Alice B'))
     await act(() => result.current.handleSubmit())
 
-    expect(contacts.wallet.updateContact).toHaveBeenCalledWith({ ...alice, name: 'Alice B' })
+    const { isAlias: _unset, ...edit } = alice
+    expect(contacts.wallet.updateContact).toHaveBeenCalledWith({ ...edit, name: 'Alice B' })
     expect(contacts.wallet.replaceContact).not.toHaveBeenCalled()
     expect(contacts.contacts()).toEqual([{ ...alice, name: 'Alice B' }])
     expect(navigation.goBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the alias flag of a contact that is also an alias', async () => {
+    const { result, contacts, navigation } = await renderEditScreen(
+      createContactsWallet([{ ...alice, isAlias: true }])
+    )
+
+    act(() => result.current.handleNameChange('Alice B'))
+    await act(() => result.current.handleSubmit())
+
+    expect(contacts.wallet.updateContact.mock.calls[0]?.[0]).not.toHaveProperty('isAlias')
+    expect(contacts.contacts()).toEqual([{ ...alice, name: 'Alice B', isAlias: true }])
+    expect(navigation.goBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to move a contact onto another contact and leaves both as they were', async () => {
+    const { result, contacts, navigation } = await renderEditScreen(
+      createContactsWallet([alice, bob])
+    )
+
+    act(() => result.current.handleAddressChange(NEW_ADDRESS))
+    await act(() => result.current.handleSubmit())
+
+    expect(contacts.wallet.replaceContact).not.toHaveBeenCalled()
+    expect(contacts.writes()).toBe(0)
+    expect(contacts.contacts()).toEqual([alice, bob])
+    expect(result.current.error).toBe('another_contact_has_this_address')
+    expect(result.current.loading).toBe(false)
+    expect(navigation.goBack).not.toHaveBeenCalled()
+  })
+
+  it('shows the same error when the contact book refuses a move onto a contact stored since', async () => {
+    const { result, contacts, navigation } = await renderEditScreen()
+    // Bob is stored elsewhere just after this screen checked the address.
+    contacts.wallet.getContactByAddressAndChain.mockImplementationOnce(async () => {
+      contacts.put(bob)
+      return undefined
+    })
+
+    act(() => result.current.handleAddressChange(NEW_ADDRESS))
+    await act(() => result.current.handleSubmit())
+
+    expect(contacts.wallet.replaceContact).toHaveBeenCalledTimes(1)
+    expect(contacts.contacts()).toEqual([alice, bob])
+    expect(result.current.error).toBe('another_contact_has_this_address')
+    expect(navigation.goBack).not.toHaveBeenCalled()
   })
 
   it('shows an error and keeps the contact when deleting it fails', async () => {
@@ -142,5 +246,68 @@ describe('useEditContactScreenLogic', () => {
     expect(result.current.error).toBe('failed_to_delete_contact')
     expect(result.current.loading).toBe(false)
     expect(navigation.navigate).not.toHaveBeenCalled()
+  })
+
+  it('adds a contact with addContact', async () => {
+    const { result, contacts, navigation } = renderAddScreen()
+
+    await addBob(result)
+
+    const { isAlias: _unset, ...added } = bob
+    expect(contacts.wallet.addContact).toHaveBeenCalledWith(added)
+    expect(contacts.wallet.updateContact).not.toHaveBeenCalled()
+    expect(contacts.contacts()).toEqual([bob])
+    expect(navigation.goBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('adds a contact at an address that has only an alias, which keeps its alias flag', async () => {
+    const account = { ...bob, name: 'Account 1', isContact: false, isAlias: true }
+    const { result, contacts, navigation } = renderAddScreen(createContactsWallet([account]))
+
+    await addBob(result)
+
+    expect(contacts.contacts()).toEqual([{ ...bob, isAlias: true }])
+    expect(navigation.goBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to add a contact over another contact and leaves it as it was', async () => {
+    const { result, contacts, navigation } = renderAddScreen(
+      createContactsWallet([{ ...bob, name: 'Robert' }])
+    )
+
+    await addBob(result)
+
+    expect(contacts.wallet.addContact).not.toHaveBeenCalled()
+    expect(contacts.writes()).toBe(0)
+    expect(contacts.contacts()).toEqual([{ ...bob, name: 'Robert' }])
+    expect(result.current.error).toBe('another_contact_has_this_address')
+    expect(navigation.goBack).not.toHaveBeenCalled()
+  })
+
+  it('shows the same error when the contact book refuses an add over a contact stored since', async () => {
+    const { result, contacts, navigation } = renderAddScreen()
+    // Robert is stored elsewhere just after this screen checked the address.
+    contacts.wallet.getContactByAddressAndChain.mockImplementationOnce(async () => {
+      contacts.put({ ...bob, name: 'Robert' })
+      return undefined
+    })
+
+    await addBob(result)
+
+    expect(contacts.wallet.addContact).toHaveBeenCalledTimes(1)
+    expect(contacts.contacts()).toEqual([{ ...bob, name: 'Robert' }])
+    expect(result.current.error).toBe('another_contact_has_this_address')
+    expect(navigation.goBack).not.toHaveBeenCalled()
+  })
+
+  it('clears the another-contact error when the address changes', async () => {
+    const { result } = await renderEditScreen(createContactsWallet([alice, bob]))
+    act(() => result.current.handleAddressChange(NEW_ADDRESS))
+    await act(() => result.current.handleSubmit())
+    expect(result.current.error).toBe('another_contact_has_this_address')
+
+    act(() => result.current.handleAddressChange(OLD_ADDRESS))
+
+    expect(result.current.error).toBe('')
   })
 })

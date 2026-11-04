@@ -191,6 +191,12 @@
   "automatic_lock_time": {
     "message": "自動ロック時間"
   },
+  "lock_when_computer_locks": {
+    "message": "コンピューターのロック時にロック"
+  },
+  "lock_when_all_windows_close": {
+    "message": "すべてのウィンドウを閉じたときにロック"
+  },
   "available": {
     "message": "利用可能"
   },
@@ -319,6 +325,9 @@
   },
   "qbit_receive_no_safe": {
     "message": "安全な受取アドレスがありません。枯渇したアドレスは除外され、復元ギャップが満杯の可能性があります。発行済みの未使用かつ未枯渇のアドレスを使うか、ネットワークを復旧して再試行してください。"
+  },
+  "qbit_receive_no_safe_new_address": {
+    "message": "このアカウントのアドレスは受け取りに使用できません。「新しいアドレス」を押すと新しいアドレスが発行され、そのアカウントに切り替わります。"
   },
   "qbit_receive_previous": {
     "message": "以前のアドレス"
@@ -745,6 +754,9 @@
   },
   "failed_to_save_contact": {
     "message": "連絡先の保存に失敗しました"
+  },
+  "another_contact_has_this_address": {
+    "message": "このネットワークでこのアドレスを持つ別の連絡先がすでにあります"
   },
   "failed_to_save_contact_order": {
     "message": "連絡先の並び順の保存に失敗しました"
@@ -2350,6 +2362,9 @@
   },
   "unlock_already_in_progress": {
     "message": "ロック解除は既に進行中です"
+  },
+  "wallet_locked_during_unlock": {
+    "message": "ロック解除中にウォレットがロックされました。もう一度ロックを解除してください。"
   },
   "unrecognized_password_strength": {
     "message": "未認識のパスワード強度"

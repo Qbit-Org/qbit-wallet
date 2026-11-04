@@ -2143,3 +2143,201 @@ describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', ()
     expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
   })
 })
+
+describe('useSignPsbtLogic signature batches (#152)', () => {
+  const BATCH_BUDGET = {
+    required: 3,
+    cached: 0,
+    remainingBefore: 30,
+    remainingAfter: 27,
+    limit: 30,
+  }
+  const ENTRY_BUDGET = {
+    required: 1,
+    cached: 0,
+    remainingBefore: 30,
+    remainingAfter: 29,
+    limit: 30,
+  }
+  const BATCH: ToSignData[] = ['first-psbt', 'second-psbt', 'third-psbt'].map(psbtHex => ({
+    psbtHex,
+    toSignInputs: [],
+    signatureBudget: ENTRY_BUDGET,
+  }))
+
+  function batchSummary(): LocalPsbtSummary {
+    return {
+      ...localSummaryFor(BATCH),
+      signatureBatch: { id: 'local-batch', budget: BATCH_BUDGET },
+    }
+  }
+
+  function asMember(index: number, id = 'local-batch'): ToSignData {
+    return { ...BATCH[index]!, qbitSignatureBatch: { id, index, budget: BATCH_BUDGET } }
+  }
+
+  beforeEach(() => {
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('quick-signs every entry of a local batch as a member of the batch it reviewed', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(batchSummary())
+    wallet.signLocalBatchPsbt.mockImplementation(async (toSignData: ToSignData) => ({
+      psbtHex: `signed-${toSignData.psbtHex}`,
+    }))
+    const { approval, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    // The approval shows the whole batch's budget, which no signing order changes.
+    await waitFor(() => expect(result.current.signatureBatchBudget).toEqual(BATCH_BUDGET))
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    expect(wallet.signLocalBatchPsbt.mock.calls.map(([toSignData]) => toSignData)).toEqual([
+      asMember(0),
+      asMember(1),
+      asMember(2),
+    ])
+    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
+      { psbtHex: 'signed-first-psbt' },
+      { psbtHex: 'signed-second-psbt' },
+      { psbtHex: 'signed-third-psbt' },
+    ])
+  })
+
+  it('signs a local batch entry reviewed on its own, out of order, as a member of its batch', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(batchSummary())
+    wallet.signPsbtV2.mockImplementation(async (toSignData: ToSignData) => ({
+      psbtHex: `signed-${toSignData.psbtHex}`,
+    }))
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.signatureBatchBudget).toEqual(BATCH_BUDGET))
+
+    for (const index of [2, 0]) {
+      act(() => {
+        result.current.multiSignList[index]!.onClick()
+      })
+      await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+      await act(async () => {
+        await result.current.onClickSign()
+      })
+    }
+
+    expect(wallet.signPsbtV2.mock.calls.map(([toSignData]) => toSignData)).toEqual([
+      asMember(2),
+      asMember(0),
+    ])
+    expect(result.current.signedCount).toBe(2)
+  })
+
+  it('quick-signs the rest of a local batch in its batch after one entry signed on its own', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.analyzeLocalPsbts.mockResolvedValue(batchSummary())
+    const signed = async (toSignData: ToSignData) => ({ psbtHex: `signed-${toSignData.psbtHex}` })
+    wallet.signPsbtV2.mockImplementation(signed)
+    wallet.signLocalBatchPsbt.mockImplementation(signed)
+    const { approval, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await waitFor(() => expect(result.current.signatureBatchBudget).toEqual(BATCH_BUDGET))
+
+    act(() => {
+      result.current.multiSignList[0]!.onClick()
+    })
+    await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    // Quick-sign reviews the same approval again, its budgets unchanged, so
+    // the wallet hands back the batch entry 0 signed in.
+    expect(wallet.analyzeLocalPsbts).toHaveBeenLastCalledWith(BATCH)
+    expect(wallet.signPsbtV2.mock.calls.map(([toSignData]) => toSignData)).toEqual([asMember(0)])
+    expect(wallet.signLocalBatchPsbt.mock.calls.map(([toSignData]) => toSignData)).toEqual([
+      asMember(1),
+      asMember(2),
+    ])
+    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
+      { psbtHex: 'signed-first-psbt' },
+      { psbtHex: 'signed-second-psbt' },
+      { psbtHex: 'signed-third-psbt' },
+    ])
+  })
+
+  it('signs a provider entry with the batch its approval opened', async () => {
+    const wallet = createSignPsbtWallet()
+    const providerBatch = BATCH.map((_toSignData, index) => asMember(index, 'provider-batch'))
+    wallet.signPsbtV2.mockImplementation(async (toSignData: ToSignData) => ({
+      psbtHex: `signed-${toSignData.psbtHex}`,
+    }))
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(providerBatch)), {
+      wrapper,
+    })
+    expect(result.current.signatureBatchBudget).toEqual(BATCH_BUDGET)
+
+    act(() => {
+      result.current.multiSignList[1]!.onClick()
+    })
+    await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+
+    expect(wallet.signPsbtV2).toHaveBeenCalledWith(providerBatch[1])
+  })
+
+  it('shows why an entry of a batch a lock interrupted is refused, and signs nothing else', async () => {
+    const wallet = createSignPsbtWallet()
+    const providerBatch = BATCH.map((_toSignData, index) => asMember(index, 'provider-batch'))
+    const interrupted =
+      'This batch approval was interrupted, by a lock or by too many open requests; reject it and send it again'
+    wallet.signPsbtV2.mockRejectedValue(new Error(interrupted))
+    const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(providerBatch)), {
+      wrapper,
+    })
+
+    act(() => {
+      result.current.multiSignList[0]!.onClick()
+    })
+    await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+
+    expect(tools.toastError).toHaveBeenCalledWith(interrupted)
+    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(result.current.signedCount).toBe(0)
+  })
+
+  it('signs a single PSBT outside any batch', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.signPsbtV2.mockResolvedValue({ psbtHex: 'signed-first-psbt' })
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH.slice(0, 1))), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.currentDecodedPsbt).toEqual(DECODED_PSBT))
+
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+
+    expect(result.current.signatureBatchBudget).toBeUndefined()
+    expect(wallet.signPsbtV2).toHaveBeenCalledWith(BATCH[0])
+  })
+})

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KeyringType } from '@qbit/keyring-service/types'
-import { BUS_EVENTS, BUS_METHODS, SESSION_EVENTS } from '@qbit/wallet-shared'
+import { BUS_EVENTS, BUS_METHODS, ErrorCodes, SESSION_EVENTS } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
 import log from 'loglevel'
 import { WalletController, canDeriveAddressFromPublicKey } from '../src/controllers/wallet'
@@ -28,6 +28,8 @@ vi.mock('../src/services', () => ({
     syncQbitHdPath: vi.fn(),
     rearmQbitRestoreFloors: vi.fn(),
     verifyPassword: vi.fn(),
+    // Unlocked, as the keyring service reads once submitPassword succeeds.
+    memStore: { getState: () => ({ isUnlocked: true }) },
     keyrings: [],
   },
   preferenceService: {
@@ -692,6 +694,48 @@ describe('WalletController keyring recovery', () => {
     await expect(wallet.unlock('password')).rejects.toBe(failure)
 
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+  })
+
+  it('announces at the next unlock an account change that an unlock made before a lock ended it', async () => {
+    const stale = { index: 0, pubkey: 'stale-pubkey', address: 'stale-address' }
+    const fresh = { index: 0, pubkey: 'fresh-pubkey', address: 'fresh-address' }
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(stale as any)
+    const wallet = new WalletController()
+    const currentKeyring = { type: KeyringType.QbitHdKeyring, accounts: [fresh] }
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
+    // Switching the account saves it at once; it is announced separately.
+    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockImplementation(async () => {
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(fresh as any)
+    })
+    ;(keyringService as any).setLocked = vi.fn()
+    // The computer locks once the account is switched, during the last step.
+    vi.mocked(keyringService.submitPassword).mockImplementationOnce(async (_password, options) => {
+      await options?.beforeUnlock?.()
+      await wallet.lockWallet()
+      return {} as any
+    })
+    const accountsChanged = () =>
+      vi
+        .mocked(sessionService.broadcastEvent)
+        .mock.calls.filter(([event]) => event === SESSION_EVENTS.accountsChanged)
+
+    await expect(wallet.unlock('password')).rejects.toMatchObject({
+      code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK,
+    })
+    expect(changeKeyring).toHaveBeenCalledTimes(1)
+    expect(accountsChanged()).toEqual([])
+
+    // The next unlock finds the account already switched, and announces it.
+    await wallet.unlock('password')
+    expect(changeKeyring).toHaveBeenCalledTimes(1)
+    expect(accountsChanged()).toEqual([
+      [SESSION_EVENTS.accountsChanged, ['fresh-address'], undefined, ChainType.QBIT_MAINNET],
+    ])
+
+    // Once only.
+    await wallet.unlock('password')
+    expect(accountsChanged()).toHaveLength(1)
+    clearTimeout(wallet.timer)
   })
 
   it('converts qbit HD keyring accounts with P2MR metadata', () => {

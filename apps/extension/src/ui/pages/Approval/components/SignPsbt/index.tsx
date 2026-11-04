@@ -61,6 +61,7 @@ function TransactionItem(
     buttonPreset,
     psbtInfo,
     toSignData,
+    inSignatureBatch,
     onClick
   }: {
     index: number;
@@ -68,6 +69,8 @@ function TransactionItem(
     buttonPreset: string;
     psbtInfo?: PsbtLocalInfo;
     toSignData?: ToSignData;
+    /** Whether the transaction signs in a batch, whose budget the summary shows. */
+    inSignatureBatch?: boolean;
     onClick: () => void;
   },
   ref: any
@@ -103,7 +106,10 @@ function TransactionItem(
                 )}
               </Row>
               {psbtInfo.hasSighashNone && <Text text="SIGHASH_NONE" size="xs" color="dangerText" />}
-              {toSignData?.signatureBudget && (
+              {/* In a batch, a transaction's own new and cached counts depend on
+                  the order its entries sign in, and count a duplicate's
+                  signatures again: only the batch's own line holds. */}
+              {toSignData?.signatureBudget && (toSignData.signatureBudget.restoredFloorRisk || !inSignatureBatch) && (
                 <Text
                   text={
                     toSignData.signatureBudget.restoredFloorRisk
@@ -111,7 +117,7 @@ function TransactionItem(
                           'qbit_known_onchain_usage_lower_bound',
                           `${toSignData.signatureBudget.restoredFloorRisk.knownOnChainSignatures}+`
                         )}`
-                      : `Signatures: ${toSignData.signatureBudget.required} new, ${toSignData.signatureBudget.cached} cached; ${toSignData.signatureBudget.remainingAfter} remaining`
+                      : `Signatures: ${toSignData.signatureBudget.required} new, ${toSignData.signatureBudget.cached} cached`
                   }
                   size="xs"
                   color="textDim"
@@ -161,6 +167,7 @@ export default function SignPsbt(props: SignPsbtProps) {
     localPsbtSummary,
     batchRiskReview,
     batchRiskIndexes,
+    signatureBatchBudget,
 
     // state
     decodeError,
@@ -485,7 +492,7 @@ export default function SignPsbt(props: SignPsbtProps) {
             />
           )}
 
-          {localPsbtSummary && (
+          {(localPsbtSummary || signatureBatchBudget) && (
             <Card
               style={{
                 marginTop: 8,
@@ -507,6 +514,20 @@ export default function SignPsbt(props: SignPsbtProps) {
                   />
                 )}
               </Row>
+              {signatureBatchBudget && (
+                // The batch's entries sign in any order, so only the whole
+                // batch's before and after figures hold whichever signs first.
+                <Text
+                  text={
+                    toSignDatas.some((toSignData) => toSignData.signatureBudget?.restoredFloorRisk)
+                      ? `Signatures: ${signatureBatchBudget.required} new for all transactions`
+                      : `Signatures: ${signatureBatchBudget.required} new for all transactions; ${signatureBatchBudget.remainingBefore} before, ${signatureBatchBudget.remainingAfter} after`
+                  }
+                  size="xs"
+                  color="textDim"
+                  data-testid="multisign-signature-budget"
+                />
+              )}
               {hasBatchRisk && (
                 <Text
                   text={t('multisign_flagged_transactions', batchRiskIndexes.map((index) => `${index + 1}`).join(', '))}
@@ -530,6 +551,7 @@ export default function SignPsbt(props: SignPsbtProps) {
                 buttonPreset={item.buttonPreset}
                 psbtInfo={item.psbtInfo}
                 toSignData={toSignDatas[index]}
+                inSignatureBatch={signatureBatchBudget !== undefined}
                 onClick={item.onClick}
                 index={index}
               />
@@ -628,6 +650,7 @@ export default function SignPsbt(props: SignPsbtProps) {
             decodedPsbt={currentDecodedPsbt}
             networkFee={networkFee}
             toSignData={currentToSignData}
+            signatureBatchBudget={signatureBatchBudget}
           />
 
           {/* PSBT data */}
