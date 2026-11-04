@@ -1,9 +1,11 @@
 # Dependency security and license review
 
-Review date: 2026-11-03 (advisory refresh of the 2026-09-02 review; evidence
-regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, and on
-2026-11-03 after `extensionizer`, the unused dependencies and then
-`browser-passworder` were removed)
+Review date: 2026-11-04 (advisory refresh of the 2026-09-02 review; evidence
+regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
+2026-11-03 after #138 removed `extensionizer` and, separately on this branch,
+after the unused dependencies and then `browser-passworder` were removed, and
+on 2026-11-04 after this branch was rebased onto `release/1.0.8` at
+`4415c3a`)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -21,18 +23,18 @@ exact source, manifests, policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `68ca889f608e7f15ded4b3cd9a93bfb07dd32fa3` |
+| Audited commit | `7db6a7518b9a333b730cdd5e49d13960442049e8` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `88001968d7e6d4ca874df14cc392bbcb3721f5497550fc12725a164aeb50d594` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `a1dcb249f5805d8e0a3d1519764e4c0385e4679018517aa3db707b9fd9898bf2` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `6ef62d9f01bf373010efaa2fbb64c4f612c373c95d3e7bf8eddae4f962df3160` |
+| `pnpm-lock.yaml` SHA-256 | `32af6a33c9a7b209ed25caa100255ca6ed3ca495f4ab11d0950ede5acca13e02` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `9fc020892eeb4e2658a33879ee8a69b1a10a7189f25bb9a8d285085ab10e48d8` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `9ce83f6010339097e2d4c7ec7689d6a3cb4d7d62ebaa543f33cd632a6b553046` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 410 direct declarations, all 180 resolved packages classified as crypto-,
+all 409 direct declarations, all 180 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -86,13 +88,29 @@ advisory. The evidence was regenerated on 2026-11-03 at `df95c38`, which
 merges that change after the rebase onto the updated `release/1.0.8`, and the
 result stayed at 57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low.
 Removing 25 unused extension declarations and the unused `patch-package`
-declaration in `@qbit/keyring-service`, written on 2026-11-02, reduced the
-result to 54 occurrences: 0 critical, 0 high, 40 moderate, and 14 low, and the
-2026-11-03 audits after `release/1.0.8` was rebuilt found the same.
+declaration in `@qbit/keyring-service`, written on 2026-11-02 on a base that
+still had `extensionizer`, reduced the result to 54 occurrences: 0 critical,
+0 high, 40 moderate, and 14 low, and the 2026-11-03 audits after
+`release/1.0.8` was rebuilt found the same.
 The `@sentry/browser` record, two occurrences for 6.19.7 and 7.48.0, left with
 Sentry; `minimatch` `GHSA-g3hv-75wg-m249` no longer reaches 5.1.9, which only
 `workbox-webpack-plugin` pulled in; and no record was added. Removing
-`browser-passworder` afterward left those occurrences unchanged.
+`browser-passworder` afterward left those occurrences unchanged. The
+2026-11-04 audit at `7db6a75`, after the rebase onto `release/1.0.8` at
+`4415c3a`, found 53 occurrences: 0 critical, 0 high, 39 moderate, and 14 low.
+The one fewer moderate occurrence is advisory-feed drift: on 2026-11-04
+`GHSA-g3hv-75wg-m249` was narrowed to `minimatch` `>=7.0.0 <11.0.1`, so it no
+longer covers `minimatch@3.1.5`, which stays in the lockfile. With its lockfile
+unchanged, `4415c3a` itself fell the same day from 57 to 55 occurrences, 41
+moderate, because the narrowing also stops covering the `minimatch@5.1.9` that
+only `workbox-webpack-plugin` pulls in there; against that audit, this branch
+removes the two `@sentry/browser` occurrences. The rebase also
+brings in #138's removal of `extensionizer` and of the five Manifest V2 build
+scripts: the inventory below has one direct, shipped-runtime declaration and
+one lock entry fewer than before the rebase, the license baseline one identity
+fewer, and the policy one dependency specifier and five executable commands
+fewer. This branch's own effect on each of those counts is the same on both
+bases.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -116,8 +134,10 @@ Sentry; `minimatch` `GHSA-g3hv-75wg-m249` no longer reaches 5.1.9, which only
 | Advisory-feed drift at unchanged-lock `release/1.0.7` `0168a04` | 0 | 1 | 43 | 14 | 58 |
 | Audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
 | Audited result `df95c38` (2026-11-03, `extensionizer` removed) | 0 | 0 | 43 | 14 | 57 |
-| Audited result `cd636ad` (2026-11-03, unused dependencies removed) | 0 | 0 | 40 | 14 | 54 |
-| Current audited result `68ca889` (2026-11-03, `browser-passworder` removed) | 0 | 0 | 40 | 14 | 54 |
+| Audited result `cd636ad` (2026-11-03, unused dependencies removed, on the base before #138) | 0 | 0 | 40 | 14 | 54 |
+| Audited result `68ca889` (2026-11-03, `browser-passworder` removed, on the base before #138) | 0 | 0 | 40 | 14 | 54 |
+| Advisory-feed drift at unchanged-lock `release/1.0.8` `4415c3a` (2026-11-04) | 0 | 0 | 41 | 14 | 55 |
+| Current audited result `7db6a75` (2026-11-04, rebased onto `release/1.0.8` `4415c3a`) | 0 | 0 | 39 | 14 | 53 |
 
 pnpm's metadata counts vulnerable dependency occurrences, not independent
 vulnerabilities. The final audit contains 43 advisory records representing 38
@@ -199,13 +219,13 @@ bump.
 
 ## Package inventory
 
-The 20 workspaces contain 2,257 registry lock entries and 410 direct dependency
+The 20 workspaces contain 2,256 registry lock entries and 409 direct dependency
 declarations. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 150 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 149 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 72 | Compilers, loaders, bundlers, and packaging inputs |
 | Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
 | Development/quality tooling | 129 | Lint, formatting, repository tooling, and non-release developer commands |
@@ -252,9 +272,12 @@ extension's webpack configuration aliases `moment` to `dayjs`
 (`apps/extension/build/webpack.common.config.js`). The record remains
 modernization work.
 
-Across all advisory dependency paths, the inventory records 115 reachable
-path occurrences, 1,441 extension-build occurrences, 2,149 test-only
-occurrences, and 1,407 development-tooling occurrences. Removing the unused
+Across all advisory dependency paths, the inventory records 114 reachable
+path occurrences, 1,426 extension-build occurrences, 1,871 test-only
+occurrences, and 1,023 development-tooling occurrences. Before the rebase they
+were 115, 1,441, 2,149 and 1,407; the narrowed `minimatch` record took out
+all 678 paths of `minimatch@3.1.5`, one reachable, 15 extension-build, 278
+test-only and 384 development-tooling. Removing the unused
 declarations lowered the reachable, extension-build and development-tooling
 counts from 119, 1,637 and 1,408; the test-only count did not change. The three
 reachable `@sentry/browser` paths and the direct `moment` path left; `moment`
@@ -266,8 +289,9 @@ path through `@qbit/keyring-service`'s `patch-package` left as well. At the
 `follow-redirects` refresh, the `glob` and `minimatch` records published on
 2026-10-30 accounted for the whole increase over the inventory before it (118,
 1,613, 1,862 and 885). Its one new reachable occurrence, the hoisted root copy
-of `minimatch@3.1.5`, whose delivery the generator cannot determine, is still
-classified conservatively as reachable.
+of `minimatch@3.1.5`, whose delivery the generator cannot determine, was
+classified conservatively as reachable until the record stopped covering that
+version.
 Moving `patch-package`
 from `@qbit/keyring-service` dependencies to devDependencies (#289) took its
 closure out of the production closure and removed 10 reachable path
@@ -286,8 +310,7 @@ or reachability classification.
 
 Moderate and low findings remain visible and fail neither the current policy
 nor this release baseline. They include reachable records in transitive
-packages such as `moment`, `bn.js`, `react-router`, `uuid`, and the
-conservatively classified root `minimatch@3.1.5` path, the exact
+packages such as `moment`, `bn.js`, `react-router` and `uuid`, the exact
 direct and transitive `yaml` parser closure, and the reviewed low-severity
 `elliptic` record. They remain modernization work;
 their lower severity is not evidence of unreachability.
@@ -378,7 +401,24 @@ evidence (`4c270b3b`) and this review's updated figures follow in separate
 commits. The 2026-11-03 removal of `browser-passworder`, whose last use was
 building the vault-migration tests' fixtures, was reviewed as #155 and
 squash-merged into this branch as `68ca889f`; its regenerated evidence and
-this review's figures follow in one commit.
+this review's figures follow in one commit. On 2026-11-04 the branch was
+rebased, with the same commit structure, onto `release/1.0.8` at `4415c3a`,
+which includes the Manifest V2 removal (#138). The ten commits from
+`f38e65cc` to `52dde7b1` became, in order, `5bc213ac`, `4638e5de`,
+`c31010f3`, the merge `d35a368e`, `e640da31`, `4be00c64`, `6d35442b`,
+`1481916f`, `8716c525` and `7db6a751`. This branch's rows in the table below
+keep the pre-rebase IDs, at which their results were measured; those commits
+are in the history of `52dde7b1`, the head this branch was force-pushed from,
+which this PR's timeline links.
+The
+rebased commits change the manifests, policy scripts, changesets, test and
+threat model exactly as before. Their lockfiles are three-way merges that a
+one-pass relock of the new base's lockfile reproduces byte for byte, and their
+license baselines were regenerated from them. Their evidence files are the
+ones from before the rebase, so every rebased commit except `4638e5de` and
+`c31010f3`, which leave the lockfile alone, fails the evidence binding on its
+own. The evidence was regenerated at `7db6a751` and is committed,
+with this review's figures, in the commit after it.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -489,9 +529,9 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,257 integrity-pinned registry entries, 459
+The audited policy checked 2,256 integrity-pinned registry entries, 458
 dependency specifiers, 33 Action references, one tracked package-manager
-configuration file, 274 executable package/workflow commands, and 2,142 exact
+configuration file, 269 executable package/workflow commands, and 2,141 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -505,10 +545,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,142 distinct identities
+version, and normalized license expression for all 2,141 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,257 peer variants must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,256 peer variants must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -545,12 +585,12 @@ The 2026-11-02 refresh onboarded `follow-redirects@1.16.2` through the same
 flow, verified MIT against its installed manifest and its license file, which
 is byte-identical to 1.16.1's, and dropped the superseded
 `follow-redirects@1.16.1`. Removing `extensionizer` the same day dropped
-`extensionizer@1.0.1` (ISC) and onboarded no identity, and the
-unused-dependency removal dropped the 128 identities that only the removed
-declarations reached, among them `react-cache@2.0.0-alpha.1`, and onboarded
-none. Removing `browser-passworder` on 2026-11-03 dropped
-`browser-passworder@2.0.3` and `browserify-unibabel@3.0.0` and onboarded none,
-leaving 2,142.
+`extensionizer@1.0.1` (ISC) and onboarded no identity. The unused-dependency
+removal, made on a base that still had `extensionizer`, dropped the 128
+identities that only the removed declarations reached, among them
+`react-cache@2.0.0-alpha.1`, and onboarded none. Removing `browser-passworder` on 2026-11-03 dropped
+`browser-passworder@2.0.3` and `browserify-unibabel@3.0.0` and onboarded none.
+After all three removals, 2,141 remain.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
@@ -586,25 +626,30 @@ refresh below. The evidence-bound rows ran at the audited commit with its
 regenerated evidence. For the unused-dependency removal, the lint, typecheck
 and unit-test rows ran on its commits before `release/1.0.8` was rebuilt,
 whose files differ from the rebuilt ones only in package versions,
-changelogs and consumed changesets. Environment-dependent release
+changelogs and consumed changesets. For the 2026-11-04 rebase, every row run
+locally ran on the rebased tree before it was committed, with evidence that the generator
+produced the same way and that differs from the committed evidence only in its
+audited commit; the evidence-bound rows ran again on the audited commit's
+tree with the regenerated evidence that the commit after it adds.
+Environment-dependent release
 integration not run locally is identified below and remains subject to the
 PR's branch CI:
 
-| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 `follow-redirects` refresh result | 2026-11-02 unused-dependency removal result | 2026-11-03 `browser-passworder` removal result |
-| --- | --- | --- | --- | --- | --- | --- |
-| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed against the regenerated lockfile, including in a fresh clone | Passed against the regenerated lockfile in a fresh worktree |
-| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible, the same set as at base | Passed with zero errors; 852 warnings, one fewer than before because the old test's `@ts-ignore` left |
-| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed; all 206 workspace `lib` files are byte-identical to base | Passed; all 206 workspace `lib` files rebuilt |
-| Typecheck | Passed | Passed | Passed | Passed | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base | Passed |
-| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 12 PQC golden and package-vector tests; 3 protocol-vector tests | Passed; `@qbit/keyring-service` runs 338 tests, including 5 vault-migration tests; 12 PQC golden and package-vector tests; 3 protocol-vector tests |
-| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 131 policy-tooling tests and the adversarial suite passed | 131 policy-tooling tests and the adversarial suite passed |
-| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force |
-| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally; `sentry`, `starknet` and `mobx` appear nowhere in `apps/extension/dist/chrome`, and the `moment` matches are unchanged wordlist and locale text | Passed locally; the MV3 and MV2 ZIPs are byte-identical to the unused-dependency removal's |
-| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Not rerun as `build:repro:extension`; in a non-canonical local drill on Node 24.22.1, 72 of 73 ZIP entries are byte-identical to base and `ui.js` differs only in four relocated module IDs; canonical run in branch CI | Not rerun as `build:repro:extension`; canonical run in branch CI |
-| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests passed locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests passed locally; remaining PQC gates run in branch CI |
-| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 `follow-redirects` refresh result | 2026-11-02 unused-dependency removal result | 2026-11-03 `browser-passworder` removal result | 2026-11-04 rebase onto `release/1.0.8` result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed against the regenerated lockfile, including in a fresh clone | Passed against the regenerated lockfile in a fresh worktree | Passed against the rebased lockfile from an empty `node_modules`; one-pass relocks of the base lockfile reproduce it, and the first commit's, byte for byte |
+| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible, the same set as at base | Passed with zero errors; 852 warnings, one fewer than before because the old test's `@ts-ignore` left | Passed with zero errors; 829 repo-level warnings against base `4415c3a`'s 830, and per file and rule the unique warning set is base's less the old test's `@ts-ignore` |
+| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed; all 206 workspace `lib` files are byte-identical to base | Passed; all 206 workspace `lib` files rebuilt | Passed; all 206 workspace `lib` files are byte-identical to base `4415c3a` |
+| Typecheck | Passed | Passed | Passed | Passed | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base | Passed | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base |
+| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 12 PQC golden and package-vector tests; 3 protocol-vector tests | Passed; `@qbit/keyring-service` runs 338 tests, including 5 vault-migration tests; 12 PQC golden and package-vector tests; 3 protocol-vector tests | Passed: 258 Vitest suites, 4,169 tests, plus 89 extension packaging tests; 12 PQC golden and package-vector tests; 3 protocol-vector tests |
+| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 131 policy-tooling tests and the adversarial suite passed | 131 policy-tooling tests and the adversarial suite passed | 131 policy-tooling tests and the adversarial suite passed |
+| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force |
+| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally; `sentry`, `starknet` and `mobx` appear nowhere in `apps/extension/dist/chrome`, and the `moment` matches are unchanged wordlist and locale text | Passed locally; the MV3 and MV2 ZIPs are byte-identical to the unused-dependency removal's | Passed locally; 71 of the 72 MV3 ZIP entries are byte-identical to base `4415c3a`'s, and `ui.js` differs only in four relocated module IDs |
+| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Not rerun as `build:repro:extension`; in a non-canonical local drill on Node 24.22.1, 72 of 73 ZIP entries are byte-identical to base and `ui.js` differs only in four relocated module IDs; canonical run in branch CI | Not rerun as `build:repro:extension`; canonical run in branch CI | Not rerun as `build:repro:extension`; canonical run in branch CI |
+| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests passed locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests passed locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests passed locally; remaining PQC gates run in branch CI |
+| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
 
 Unless a refresh below says otherwise, the local evidence host ran the
 repository pins, Node 22.22.3 with pnpm 8.6.0 through Corepack; gates not rerun
@@ -638,8 +683,7 @@ deterministic-packaging drill (`build:repro:extension --
 phishing scenarios passed locally; the canonical runs remain branch CI gates.
 
 The unused-dependency removal ran on the same host and toolchain, so its
-results are also a non-canonical local drill, and the dependency evidence this
-review is bound to was generated there. The base `d22cc51` and the change were
+results are also a non-canonical local drill. The base `d22cc51` and the change were
 installed from scratch and built the same way, with
 `corepack pnpm test:e2e:prepare` (CI's two-step package build),
 `build:chrome:mv3` and `build:chrome`. The ZIPs are not byte-identical:
@@ -659,6 +703,23 @@ for byte.
 The `browser-passworder` removal ran on the same host and toolchain. Rebuilt
 from scratch the same way, its MV3 and MV2 ZIPs are byte-identical to the
 unused-dependency removal's above, so it changes no shipped byte.
+
+The 2026-11-04 rebase onto `release/1.0.8` at `4415c3a` ran on the same host
+on Node 24.22.2 with pnpm 8.6.0, so it is a non-canonical local drill as well.
+Since #138 the only extension target is Chrome MV3, so the `build:chrome` steps
+and MV2 results of the earlier refreshes describe a target that no longer
+exists. The base `4415c3a` and the
+rebased branch were installed from scratch and built the same way, with
+`corepack pnpm test:e2e:prepare` and
+`package:test -- --artifact-version 1.0.7`. The ZIPs are not byte-identical:
+`5795fbb20b9cf8c8accde98778b0b97efc12c6b5ab7d085d6a933ddc9bc407a2` became
+`6e2b4d650fdd25cfa8d1ec26f04662b48fbf9e66458b981b2b3f0fe477a62466`, 15 bytes
+larger. All 206 workspace `lib` files and 71 of the 72 ZIP entries are
+byte-identical, and `ui.js` differs only as it did before the rebase: rewriting
+the nine ID literals of the four relocated `use-sync-external-store@1.6.0`
+modules and moving their block back reproduces the base `ui.js` byte for byte.
+The dependency evidence this review is bound to was generated in this run, at
+`7db6a751`.
 
 ## Limitations and ongoing ownership
 
