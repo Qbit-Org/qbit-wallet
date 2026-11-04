@@ -480,7 +480,7 @@ describe('WalletController qbit restore with floors', () => {
     )
   })
 
-  it('refuses statistics floors whose sum across networks reaches the warning threshold', async () => {
+  it('keeps the full summed floor when only optional network statistics reach the warning threshold', async () => {
     const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
     const threshold = 1 << 28
     await init()
@@ -496,7 +496,40 @@ describe('WalletController qbit restore with floors', () => {
     vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
       (_address, observe) => keyring.scanPqcSignatureCounterFloors(observe, { lookahead: 0 })
     )
-    // Each network's statistics floor stays below the threshold on its own.
+    // Each network's statistics floor stays below the threshold on its own,
+    // and only the optional regtest share takes the sum to it.
+    vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async () => ({
+      observedSignatures: threshold / 2,
+      hasActivity: true,
+      floorSource: 'address-stats',
+    }))
+
+    await expect(controller.runQbitRestoreFloorScan()).resolves.toMatchObject({
+      totalObservedSignatures: threshold,
+    })
+    expect(keyring.pqcFloorsPending).toBe(false)
+    expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold)
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('optional regtest qbit restore statistics push the summed floor')
+    )
+  })
+
+  it('refuses a summed statistics floor when the required network alone reaches the warning threshold', async () => {
+    const { observeQbitPqcSignatureActivity } = await import('../src/utils/qbit-api')
+    const threshold = 1 << 28
+    await init()
+    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_TESTNET4)
+    const keyring = new QbitHdKeyring({
+      mnemonic,
+      activeIndexes: [0],
+      hdPath: "m/87'/1'/0'/0",
+      pqcFloorsPending: true,
+    })
+    const [account] = await keyring.getQbitAccounts()
+    ;(keyringService.keyrings as any[]).push(keyring)
+    vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockImplementation(
+      (_address, observe) => keyring.scanPqcSignatureCounterFloors(observe, { lookahead: 0 })
+    )
     const observeEach = (testnet4: number, regtest: number) =>
       vi.mocked(observeQbitPqcSignatureActivity).mockImplementation(async (_client, address) => ({
         observedSignatures: address === account!.addresses.regtest ? regtest : testnet4,
@@ -504,7 +537,8 @@ describe('WalletController qbit restore with floors', () => {
         floorSource: 'address-stats',
       }))
 
-    observeEach(threshold / 2, threshold / 2)
+    // Removing the optional regtest share still leaves Testnet4 at the threshold.
+    observeEach(threshold, 1)
     await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
       `qbit account 0 floors summed across networks claim ${threshold} signatures, at or above the ${threshold}-signature warning threshold`
     )

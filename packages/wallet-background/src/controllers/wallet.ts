@@ -2357,24 +2357,25 @@ export class WalletController extends BaseController {
       addresses?: Record<string, string>
       scriptPubKey?: string
     }): Promise<QbitPqcSignatureActivity> => {
-      const activity = (
-        await Promise.all(
-          observers.map(async observer => {
-            if (observer.unavailable) return undefined
-            try {
-              return await observer.observe(account)
-            } catch (error) {
-              if (observer.required) throw error
-              observer.unavailable = true
-              log.warn(
-                `optional ${observer.name} qbit restore history is unavailable; continuing with the active network`,
-                error
-              )
-              return undefined
-            }
-          })
-        )
-      ).filter((observation): observation is QbitPqcSignatureActivity => observation !== undefined)
+      const observations = await Promise.all(
+        observers.map(async observer => {
+          if (observer.unavailable) return undefined
+          try {
+            return await observer.observe(account)
+          } catch (error) {
+            if (observer.required) throw error
+            observer.unavailable = true
+            log.warn(
+              `optional ${observer.name} qbit restore history is unavailable; continuing with the active network`,
+              error
+            )
+            return undefined
+          }
+        })
+      )
+      const activity = observations.filter(
+        (observation): observation is QbitPqcSignatureActivity => observation !== undefined
+      )
       const observedSignatures = activity.reduce(
         (total, observation) => total + observation.observedSignatures,
         0
@@ -2388,10 +2389,34 @@ export class WalletController extends BaseController {
       // The sum is the floor the keyring applies, so statistics floors that
       // each stay below the warning threshold must not reach it together.
       if (floorSource === 'address-stats') {
-        assertQbitStatsFloorBelowWarningThreshold(
-          observedSignatures,
-          `qbit account ${account.index} floors summed across networks`
-        )
+        const subject = `qbit account ${account.index} floors summed across networks`
+        try {
+          assertQbitStatsFloorBelowWarningThreshold(observedSignatures, subject)
+        } catch (error) {
+          // An optional network's statistics must not gate the restore, but its
+          // share stays in the applied floor so the shared counter is not
+          // under-advanced.
+          const optionalStats = observers.flatMap((observer, index) => {
+            const observation = observations[index]
+            return !observer.required && observation?.floorSource === 'address-stats'
+              ? [{ observer, observation }]
+              : []
+          })
+          if (optionalStats.length === 0) throw error
+          assertQbitStatsFloorBelowWarningThreshold(
+            optionalStats.reduce(
+              (total, { observation }) => total - observation.observedSignatures,
+              observedSignatures
+            ),
+            subject
+          )
+          for (const { observer } of optionalStats) {
+            observer.unavailable = true
+            log.warn(
+              `optional ${observer.name} qbit restore statistics push the summed floor for account ${account.index} to the warning threshold; keeping the full floor and continuing with the active network`
+            )
+          }
+        }
       }
       return {
         // Testnet4 and regtest share a derivation path and therefore a PQC
