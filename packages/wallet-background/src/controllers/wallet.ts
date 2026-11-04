@@ -656,21 +656,70 @@ const QBIT_FLOOR_SCAN_STABILITY_RETRIES = {
   tipAdvanceSettleMs: 10_000,
 }
 
-// The refusal of a floor summed across networks that share a counter, keyed
-// by the optional network whose share took the sum to the warning threshold
-// and by the read its count came from. Mainnet shares its path with no other
-// network, so it is never that network.
-const QBIT_SUMMED_FLOOR_REFUSAL_KEYS: Partial<
-  Record<'mainnet' | 'testnet4' | 'regtest', Record<QbitRestoreFloorSource, string>>
+// Each network's share of a floor summed across Testnet4 and regtest, worded
+// by the read its count came from.
+const QBIT_SUMMED_FLOOR_SHARE_KEYS: Record<
+  'testnet4' | 'regtest',
+  Record<QbitRestoreFloorSource, string>
 > = {
   testnet4: {
-    'address-stats': 'qbit_restore_summed_floor_testnet4_stats',
-    history: 'qbit_restore_summed_floor_testnet4_history',
+    'address-stats': 'qbit_restore_summed_floor_share_testnet4_stats',
+    history: 'qbit_restore_summed_floor_share_testnet4_history',
   },
   regtest: {
-    'address-stats': 'qbit_restore_summed_floor_regtest_stats',
-    history: 'qbit_restore_summed_floor_regtest_history',
+    'address-stats': 'qbit_restore_summed_floor_share_regtest_stats',
+    history: 'qbit_restore_summed_floor_share_regtest_history',
   },
+}
+
+// The refusal of that summed floor, by the restored network. The guidance
+// points at the optional network unless the restored network's own share is
+// strictly the larger one.
+const QBIT_SUMMED_FLOOR_REFUSAL_KEYS = {
+  testnet4: {
+    optional: 'qbit_restore_summed_floor_testnet4',
+    own: 'qbit_restore_summed_floor_testnet4_own_share_larger',
+  },
+  regtest: {
+    optional: 'qbit_restore_summed_floor_regtest',
+    own: 'qbit_restore_summed_floor_regtest_own_share_larger',
+  },
+} as const
+
+/**
+ * The refusal of a floor summed across Testnet4 and regtest, worded for the
+ * user: both networks' counts with the read each came from, and what to do.
+ * Undefined unless both networks answered, which every refused sum has: the
+ * restored network's share alone stays below the threshold.
+ */
+function qbitSummedFloorRefusal(
+  accountIndex: number | undefined,
+  shares: readonly {
+    name: 'mainnet' | 'testnet4' | 'regtest'
+    required: boolean
+    observation: QbitPqcSignatureActivity | undefined
+  }[]
+): string | undefined {
+  const testnet4 = shares.find(share => share.name === 'testnet4')
+  const regtest = shares.find(share => share.name === 'regtest')
+  if (!testnet4?.observation || !regtest?.observation) return undefined
+  const share = (name: 'testnet4' | 'regtest', observation: QbitPqcSignatureActivity) =>
+    t(
+      QBIT_SUMMED_FLOOR_SHARE_KEYS[name][
+        observation.floorSource === 'address-stats' ? 'address-stats' : 'history'
+      ],
+      [observation.observedSignatures.toLocaleString()]
+    )
+  const [restored, own, optional] = testnet4.required
+    ? (['testnet4', testnet4.observation, regtest.observation] as const)
+    : (['regtest', regtest.observation, testnet4.observation] as const)
+  const keys = QBIT_SUMMED_FLOOR_REFUSAL_KEYS[restored]
+  return t(own.observedSignatures > optional.observedSignatures ? keys.own : keys.optional, [
+    `${accountIndex}`,
+    share('testnet4', testnet4.observation),
+    share('regtest', regtest.observation),
+    PQC_WARNING_SIGNATURE_THRESHOLD.toLocaleString(),
+  ])
 }
 
 type QbitRecoveryMigrationPreparation = {
@@ -2470,35 +2519,30 @@ export class WalletController extends BaseController {
           )
         } catch (error) {
           // The required network's own floor stays below the threshold: a
-          // statistics floor is refused per address, and a history floor is
-          // bounded by the read's transaction cap. So an optional network's
-          // share took the sum there. That share stays in the sum while its
-          // network answers, since leaving it out would under-advance the
-          // shared counter; the refusal names the network so the user can
-          // take it out of the next scan instead.
-          const optional = observers
-            .map((observer, index) => ({ observer, observation: observations[index] }))
-            .find(
-              ({ observer, observation }) =>
-                !observer.required &&
-                observation !== undefined &&
-                observation.observedSignatures > 0
-            )
-          const source =
-            optional?.observation?.floorSource === 'address-stats' ? 'address-stats' : 'history'
-          const key = optional && QBIT_SUMMED_FLOOR_REFUSAL_KEYS[optional.observer.name]?.[source]
-          if (!optional?.observation || !key) throw error
+          // statistics floor is refused per address, and a history floor
+          // counts the inputs of at most the read's 6,400 transactions, in
+          // pages that each fit the 64 MiB response cap. So an optional
+          // network's share took the sum there. That share stays in the sum
+          // while its network answers, since leaving it out would
+          // under-advance the shared counter; the refusal shows both shares
+          // so the user can tell which one to act on.
+          const shares = observers.map(({ name, required }, index) => ({
+            name,
+            required,
+            observation: observations[index],
+          }))
+          const refusal = qbitSummedFloorRefusal(account.index, shares)
+          if (refusal === undefined) throw error
+          const counts = shares
+            .map(({ name, observation }) => {
+              return `${name} ${observation?.observedSignatures} (${observation?.floorSource})`
+            })
+            .join(' and ')
           log.warn(
-            `optional ${optional.observer.name} qbit restore floor (${source}) takes the floor summed across networks for account ${account.index} to the warning threshold; signing stays locked`,
+            `qbit restore floor for account ${account.index} summed across ${counts} reaches the warning threshold; signing stays locked`,
             error
           )
-          throw new Error(
-            t(key, [
-              `${account.index}`,
-              `${optional.observation.observedSignatures}`,
-              `${PQC_WARNING_SIGNATURE_THRESHOLD}`,
-            ])
-          )
+          throw new Error(refusal)
         }
       }
       return {

@@ -487,14 +487,18 @@ describe('WalletController qbit restore with floors', () => {
     const testnetPath = "m/87'/1'/0'/0"
     const summedSubject = (index: number) =>
       `qbit account ${index} floors summed across networks claim ${threshold} signatures, at or above the ${threshold}-signature warning threshold`
-    // A refusal as the translation spy below renders it: the key and the
-    // values the background gave it.
+    // A refusal as the translation spy below renders it: each key with the
+    // values the background gave it, counts in the locale's digit groups.
+    type Share = ['stats' | 'history', number]
+    const share = (network: 'testnet4' | 'regtest', [source, count]: Share) =>
+      `qbit_restore_summed_floor_share_${network}_${source}(${count.toLocaleString()})`
     const refusal = (
-      network: 'regtest' | 'testnet4',
-      source: 'stats' | 'history',
+      key: 'testnet4' | 'testnet4_own_share_larger' | 'regtest' | 'regtest_own_share_larger',
       index: number,
-      count: number
-    ) => `qbit_restore_summed_floor_${network}_${source}(${index}, ${count}, ${threshold})`
+      testnet4: Share,
+      regtest: Share
+    ) =>
+      `qbit_restore_summed_floor_${key}(${index}, ${share('testnet4', testnet4)}, ${share('regtest', regtest)}, ${threshold.toLocaleString()})`
     type FloorRead = { observedSignatures: number; floorSource: 'address-stats' | 'history' }
     const stats = (observedSignatures: number): FloorRead => ({
       observedSignatures,
@@ -582,7 +586,7 @@ describe('WalletController qbit restore with floors', () => {
       // The restore report carries the refusal the restore screen shows.
       expect(report).toMatchObject({
         floorsCompleted: false,
-        floorError: refusal('regtest', 'stats', 0, threshold / 2),
+        floorError: refusal('testnet4', 0, ['stats', threshold / 2], ['stats', threshold / 2]),
       })
       expect(observe.mock.calls.map(([, address]) => address)).toEqual([
         account!.addresses.testnet4,
@@ -595,13 +599,13 @@ describe('WalletController qbit restore with floors', () => {
         keyring.assertPqcSignatureCounterAvailable(account!.pubkey)
       ).rejects.toBeInstanceOf(QbitPqcFloorsPendingError)
       expect(log.warn).toHaveBeenCalledWith(
-        'optional regtest qbit restore floor (address-stats) takes the floor summed across networks for account 0 to the warning threshold; signing stays locked',
+        `qbit restore floor for account 0 summed across testnet4 ${threshold / 2} (address-stats) and regtest ${threshold / 2} (address-stats) reaches the warning threshold; signing stays locked`,
         expect.objectContaining({ message: summedSubject(0) })
       )
 
       // A retry while the local service still answers is refused the same way.
       await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-        refusal('regtest', 'stats', 0, threshold / 2)
+        refusal('testnet4', 0, ['stats', threshold / 2], ['stats', threshold / 2])
       )
       expect(keyring.pqcFloorsPending).toBe(true)
 
@@ -613,46 +617,60 @@ describe('WalletController qbit restore with floors', () => {
       expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(threshold - 1)
     })
 
-    it('names regtest history that takes a Testnet4 statistics floor to the warning threshold', async () => {
+    it('words a Testnet4 refusal by whose share is the larger, read from statistics or history', async () => {
       const { keyring, accounts } = await restoredKeyring([0])
       const [account] = accounts
       ;(keyringService.keyrings as any[]).push(keyring)
+
+      // Most of the sum is the local service's: stopping it is the way out.
+      await observeByAddress({
+        [account!.addresses.testnet4!]: stats(100),
+        [account!.addresses.regtest!]: stats(threshold - 100),
+      })
+      await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
+        refusal('testnet4', 0, ['stats', 100], ['stats', threshold - 100])
+      )
+
+      // Most of the sum is Testnet4's own, and regtest history adds the
+      // rest: the refusal shows the Testnet4 count too.
       await observeByAddress({
         [account!.addresses.testnet4!]: stats(threshold - 10),
         [account!.addresses.regtest!]: history(10),
       })
-
       await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-        refusal('regtest', 'history', 0, 10)
+        refusal('testnet4_own_share_larger', 0, ['stats', threshold - 10], ['history', 10])
       )
       expect(keyring.pqcFloorsPending).toBe(true)
       expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
     })
 
-    it('names the Testnet4 explorer when it takes a regtest restore to the warning threshold', async () => {
+    it('words a regtest refusal by whose share is the larger, read from statistics or history', async () => {
       vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
       const { keyring, accounts } = await restoredKeyring([0])
       const [account] = accounts
       ;(keyringService.keyrings as any[]).push(keyring)
 
+      // An even split leaves the guidance on the optional Testnet4 explorer.
       const observe = await observeByAddress({
         [account!.addresses.testnet4!]: stats(threshold / 2),
         [account!.addresses.regtest!]: stats(threshold / 2),
       })
       await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-        refusal('testnet4', 'stats', 0, threshold / 2)
+        refusal('regtest', 0, ['stats', threshold / 2], ['stats', threshold / 2])
       )
       expect(observe.mock.calls.map(([, address]) => address)).toEqual([
         account!.addresses.testnet4,
         account!.addresses.regtest,
       ])
 
+      // Most of the sum is the local service's own: the refusal points at it
+      // and shows its count, not only the Testnet4 history's.
       await observeByAddress({
         [account!.addresses.testnet4!]: history(5),
         [account!.addresses.regtest!]: stats(threshold - 5),
       })
       await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-        refusal('testnet4', 'history', 0, 5)
+        refusal('regtest_own_share_larger', 0, ['history', 5], ['stats', threshold - 5])
       )
       expect(keyring.pqcFloorsPending).toBe(true)
       expect(await keyring.getPqcSignatureCounter(account!.pubkey)).toBe(0)
@@ -677,7 +695,7 @@ describe('WalletController qbit restore with floors', () => {
       })
 
       await expect(controller.runQbitRestoreFloorScan({ lookahead: 1 })).rejects.toThrow(
-        refusal('regtest', 'stats', 0, threshold / 2)
+        refusal('testnet4', 0, ['stats', threshold / 2], ['stats', threshold / 2])
       )
 
       // The refused keyring stays locked with no account advanced.
@@ -710,7 +728,7 @@ describe('WalletController qbit restore with floors', () => {
         [account!.addresses.regtest!]: stats(threshold / 2),
       })
       await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-        refusal('regtest', 'stats', 0, threshold / 2)
+        refusal('testnet4', 0, ['stats', threshold / 2], ['stats', threshold / 2])
       )
 
       const stopped = new Error('local regtest history is unavailable')
@@ -739,7 +757,7 @@ describe('WalletController qbit restore with floors', () => {
         [account!.addresses.regtest!]: stats(threshold / 2),
       })
       await expect(controller.runQbitRestoreFloorScan()).rejects.toThrow(
-        refusal('regtest', 'stats', 0, threshold / 2)
+        refusal('testnet4', 0, ['stats', threshold / 2], ['stats', threshold / 2])
       )
 
       observe.mockClear()

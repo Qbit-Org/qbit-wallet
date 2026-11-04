@@ -254,17 +254,29 @@
   "qbit_restore_stats_floor_notice": {
     "message": "衍生索引 $1 的帳戶歷史過長，無法完整讀取，因此其簽名計數器改以區塊瀏覽器的地址統計重建。這些統計計入的是相同的鏈上支出。"
   },
-  "qbit_restore_summed_floor_regtest_history": {
-    "message": "本機 Regtest 服務的交易紀錄顯示，衍生索引 $1 的帳戶有 $2 筆簽名。Testnet4 與 Regtest 共用此帳戶的簽名計數器，加上 Testnet4 的筆數後達到 $3 筆簽名的警告門檻。錢包不會還原這麼高的計數器，因此簽名將保持鎖定。請停止本機 Regtest 服務，或在進階設定中關閉本機 Regtest，然後重試。"
+  "qbit_restore_summed_floor_regtest": {
+    "message": "衍生索引 $1 的帳戶簽名計數器未還原。$2$3Testnet4 與 Regtest 共用此計數器，這些筆數合計達到 $4 筆簽名的警告門檻。錢包不接受這麼高的計數器，因此簽名將保持鎖定；接收不受影響。此處無法關閉 Testnet4 區塊瀏覽器。請稍後重試；若它持續回報此筆數，請使用助記詞畫面中的 qbit Core 復原描述符來取用資金。"
   },
-  "qbit_restore_summed_floor_regtest_stats": {
-    "message": "本機 Regtest 服務的地址統計顯示，衍生索引 $1 的帳戶有 $2 筆簽名。Testnet4 與 Regtest 共用此帳戶的簽名計數器，加上 Testnet4 的筆數後達到 $3 筆簽名的警告門檻。錢包不會還原這麼高的計數器，因此簽名將保持鎖定。請停止本機 Regtest 服務，或在進階設定中關閉本機 Regtest，然後重試。"
+  "qbit_restore_summed_floor_regtest_own_share_larger": {
+    "message": "衍生索引 $1 的帳戶簽名計數器未還原。$2$3Testnet4 與 Regtest 共用此計數器，這些筆數合計達到 $4 筆簽名的警告門檻。錢包不接受這麼高的計數器，因此簽名將保持鎖定；接收不受影響。大部分筆數來自您的本機 Regtest 服務。請檢查該服務後重試；若它持續回報此筆數，請使用助記詞畫面中的 qbit Core 復原描述符來取用資金。"
   },
-  "qbit_restore_summed_floor_testnet4_history": {
-    "message": "Testnet4 區塊瀏覽器的交易紀錄顯示，衍生索引 $1 的帳戶有 $2 筆簽名。Testnet4 與 Regtest 共用此帳戶的簽名計數器，加上 Regtest 的筆數後達到 $3 筆簽名的警告門檻。錢包不會還原這麼高的計數器，因此簽名將保持鎖定；接收不受影響。此處無法關閉 Testnet4 區塊瀏覽器。請稍後重試；若它持續回報此筆數，請使用助記詞畫面中的 qbit Core 復原描述符來取用資金。"
+  "qbit_restore_summed_floor_share_regtest_history": {
+    "message": "本機 Regtest 服務的交易紀錄顯示有 $1 筆簽名。"
   },
-  "qbit_restore_summed_floor_testnet4_stats": {
-    "message": "Testnet4 區塊瀏覽器的地址統計顯示，衍生索引 $1 的帳戶有 $2 筆簽名。Testnet4 與 Regtest 共用此帳戶的簽名計數器，加上 Regtest 的筆數後達到 $3 筆簽名的警告門檻。錢包不會還原這麼高的計數器，因此簽名將保持鎖定；接收不受影響。此處無法關閉 Testnet4 區塊瀏覽器。請稍後重試；若它持續回報此筆數，請使用助記詞畫面中的 qbit Core 復原描述符來取用資金。"
+  "qbit_restore_summed_floor_share_regtest_stats": {
+    "message": "本機 Regtest 服務的地址統計顯示有 $1 筆簽名。"
+  },
+  "qbit_restore_summed_floor_share_testnet4_history": {
+    "message": "Testnet4 區塊瀏覽器的交易紀錄顯示有 $1 筆簽名。"
+  },
+  "qbit_restore_summed_floor_share_testnet4_stats": {
+    "message": "Testnet4 區塊瀏覽器的地址統計顯示有 $1 筆簽名。"
+  },
+  "qbit_restore_summed_floor_testnet4": {
+    "message": "衍生索引 $1 的帳戶簽名計數器未還原。$2$3Testnet4 與 Regtest 共用此計數器，這些筆數合計達到 $4 筆簽名的警告門檻。錢包不接受這麼高的計數器，因此簽名將保持鎖定；接收不受影響。請停止本機 Regtest 服務，或在進階設定中關閉本機 Regtest，然後重試。"
+  },
+  "qbit_restore_summed_floor_testnet4_own_share_larger": {
+    "message": "衍生索引 $1 的帳戶簽名計數器未還原。$2$3Testnet4 與 Regtest 共用此計數器，這些筆數合計達到 $4 筆簽名的警告門檻。錢包不接受這麼高的計數器，因此簽名將保持鎖定；接收不受影響。大部分筆數來自 Testnet4 區塊瀏覽器，此處無法將其關閉。請稍後重試；若它持續回報此筆數，請使用助記詞畫面中的 qbit Core 復原描述符來取用資金。或者，停止本機 Regtest 服務，或在進階設定中關閉本機 Regtest：重試時將只還原 Testnet4 的筆數，而該筆數本身也已接近門檻，且之後無法調低。"
   },
   "qbit_signatures_remaining": {
     "message": "剩餘 $1 個"

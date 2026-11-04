@@ -17,14 +17,16 @@ transaction it replaces drops out of the history. Statistics whose
 transactions could not carry the outputs they list, or a floor at or above
 the 2^28-signature warning threshold, are refused and signing stays locked,
 since no path lowers a floor. That includes the floor summed across testnet4
-and regtest, which share coin-1 keys and so a counter. Its refusal names the
-optional network whose count took the sum to the threshold and the read that
-count came from. On a Testnet4 restore it tells the user to stop the local
-Regtest service or turn off Local Regtest, then retry: the retry leaves
-regtest out and completes on the Testnet4 floor alone. The Testnet4 explorer
-cannot be turned off, so a Regtest restore it refuses stays locked until a
-retry succeeds, with the qbit Core recovery descriptors as the way to the
-funds meanwhile. See
+and regtest, which share coin-1 keys and so a counter. Its refusal shows
+both networks' counts and the read each came from. On a Testnet4 restore it
+tells the user they can stop the local Regtest service or turn off Local
+Regtest, then retry: the retry leaves regtest out and completes on the
+Testnet4 floor alone. When Testnet4's own share is the larger one, that
+floor can be up to just under the threshold and can never be lowered, and
+the refusal says so. The Testnet4 explorer cannot be turned off, so a Regtest
+restore stays locked until a retry succeeds, and the refusal points at the
+local Regtest service when its own share is the larger one. The qbit Core
+recovery descriptors are the way to the funds meanwhile. See
 [PQC Signature Counter Lifecycle](pqc-counter-lifecycle.md#restore-safety).
 
 ## Durable state

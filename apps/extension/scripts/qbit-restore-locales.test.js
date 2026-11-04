@@ -21,13 +21,32 @@ test('Qbit restore counter warnings provide explanation and recommendation parag
   }
 });
 
-const summedFloorKeys = {
-  regtest: ['qbit_restore_summed_floor_regtest_history', 'qbit_restore_summed_floor_regtest_stats'],
-  testnet4: ['qbit_restore_summed_floor_testnet4_history', 'qbit_restore_summed_floor_testnet4_stats']
+const summedFloorShareKeys = [
+  'qbit_restore_summed_floor_share_regtest_history',
+  'qbit_restore_summed_floor_share_regtest_stats',
+  'qbit_restore_summed_floor_share_testnet4_history',
+  'qbit_restore_summed_floor_share_testnet4_stats'
+];
+// By the restored network, and whether its own share is the larger one.
+const summedFloorRefusalKeys = {
+  qbit_restore_summed_floor_testnet4: { turnsOffLocalRegtest: true, namesDescriptors: false },
+  qbit_restore_summed_floor_testnet4_own_share_larger: { turnsOffLocalRegtest: true, namesDescriptors: true },
+  qbit_restore_summed_floor_regtest: { turnsOffLocalRegtest: false, namesDescriptors: true },
+  qbit_restore_summed_floor_regtest_own_share_larger: { turnsOffLocalRegtest: false, namesDescriptors: true }
+};
+// Each locale's instruction to turn off Local Regtest in Advanced Settings,
+// worded around the two settings labels.
+const turnOffLocalRegtest = {
+  en: 'turn off Local Regtest in Advanced Settings',
+  es: 'desactive Regtest local en Configuración Avanzada',
+  fr: 'désactivez Regtest local dans les Paramètres Avancés',
+  ja: '詳細設定でローカル Regtest をオフに',
+  ru: 'отключите «Локальный Regtest» в разделе «Расширенные настройки»',
+  zh_TW: '在進階設定中關閉本機 Regtest'
 };
 const placeholders = (message) => (message.match(/\$\d+/g) || []).sort();
 
-test('Qbit restore summed-floor refusals name the account, the count, the threshold and what to do in every locale', () => {
+test('Qbit restore summed-floor refusals show both counts and say what to do in every locale', () => {
   const locales = fs
     .readdirSync(localesDir)
     .filter((locale) => fs.existsSync(path.join(localesDir, locale, 'messages.json')));
@@ -35,27 +54,36 @@ test('Qbit restore summed-floor refusals name the account, the count, the thresh
 
   for (const locale of locales) {
     const messages = JSON.parse(fs.readFileSync(path.join(localesDir, locale, 'messages.json'), 'utf8'));
-    const label = (key) => messages[key].message.toLocaleLowerCase();
-    for (const [network, keys] of Object.entries(summedFloorKeys)) {
-      for (const key of keys) {
-        const message = messages[key]?.message;
-        assert.ok(message?.trim(), `${locale} must translate ${key}`);
-        assert.deepEqual(placeholders(message), ['$1', '$2', '$3'], `${locale} ${key} placeholders`);
+    const label = (key) => {
+      const message = messages[key]?.message;
+      assert.ok(message?.trim(), `${locale} must translate ${key}`);
+      return message;
+    };
+
+    for (const key of summedFloorShareKeys) {
+      assert.deepEqual(placeholders(label(key)), ['$1'], `${locale} ${key} placeholders`);
+    }
+
+    const instruction = turnOffLocalRegtest[locale];
+    assert.ok(instruction, `${locale} must have a Local Regtest instruction to check`);
+    assert.ok(instruction.includes(label('local_regtest')), `${locale} instruction must name Local Regtest`);
+    assert.ok(instruction.includes(label('advanced_settings')), `${locale} instruction must name Advanced Settings`);
+
+    for (const [key, { turnsOffLocalRegtest, namesDescriptors }] of Object.entries(summedFloorRefusalKeys)) {
+      const message = label(key);
+      assert.deepEqual(placeholders(message), ['$1', '$2', '$3', '$4'], `${locale} ${key} placeholders`);
+      // Turning off Local Regtest on a Regtest restore would leave Regtest.
+      assert.equal(
+        message.includes(instruction),
+        turnsOffLocalRegtest,
+        `${locale} ${key} ${turnsOffLocalRegtest ? 'must' : 'must not'} say to turn off Local Regtest`
+      );
+      if (namesDescriptors) {
+        // The Testnet4 explorer cannot be turned off, so the funds stay
+        // reachable through qbit Core.
         const lowered = message.toLocaleLowerCase();
-        if (network === 'regtest') {
-          // The way out is to take the local service out of the next scan.
-          assert.ok(lowered.includes(label('local_regtest')), `${locale} ${key} must name Local Regtest`);
-        } else {
-          // The Testnet4 explorer cannot be turned off, so the funds stay
-          // reachable through qbit Core.
-          assert.ok(
-            lowered.includes(label('qbit_core_recovery_descriptors')),
-            `${locale} ${key} must name the qbit Core recovery descriptors`
-          );
-          assert.ok(
-            lowered.includes(label('secret_recovery_phrase')),
-            `${locale} ${key} must name the screen that shows them`
-          );
+        for (const name of ['qbit_core_recovery_descriptors', 'secret_recovery_phrase']) {
+          assert.ok(lowered.includes(label(name).toLocaleLowerCase()), `${locale} ${key} must name ${name}`);
         }
       }
     }

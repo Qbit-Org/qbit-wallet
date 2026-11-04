@@ -114,16 +114,25 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   stays below the threshold, so a summed refusal means the optional
   sibling's share took the sum there, whether that share came from
   statistics or from history. The share stays in the sum while the sibling
-  answers, and the refusal does not mark the sibling unavailable, so later
-  accounts, gap probes and keyrings in the same scan still read it. The
-  refusal names the sibling and the read its count came from, and says what
-  to do. On a Testnet4 restore, the user stops the local Regtest service or
-  turns off Local Regtest; the retry then leaves regtest out, as it does any
-  optional network that does not answer, and completes on the Testnet4 floor
-  alone, without the signatures regtest reported. The Testnet4 explorer
-  cannot be turned off, so a Regtest restore it takes to the threshold stays
-  locked until a retry succeeds; the qbit Core recovery descriptors reach the
-  funds meanwhile.
+  answers. The refused keyring's scan stops at the refused account, and the
+  refusal does not mark the sibling unavailable, so keyrings scanned after
+  it in the same scan still read the sibling. The refusal shows both
+  networks' counts, each with the read it came from, and says what to do,
+  by the restored network and by whose share is strictly the larger:
+  - On a Testnet4 restore, the user can stop the local Regtest service or
+    turn off Local Regtest. The retry then leaves regtest out, as it does any
+    optional network that does not answer, and completes on the Testnet4
+    floor alone, without the signatures regtest reported. That holds when
+    Testnet4's own share is the larger one too: the Testnet4 floor, which can
+    then be anything up to just under the threshold, is accepted on its own,
+    like any single-network floor below it, and it can never be lowered. This is the residual the
+    threshold leaves, and the refusal says so when Testnet4's share is the
+    larger one.
+  - On a Regtest restore, the Testnet4 explorer cannot be turned off, so the
+    keyring stays locked until a retry succeeds. When the local Regtest
+    service's own share is the larger one, the refusal points at that
+    service instead. Either way the qbit Core recovery descriptors reach the
+    funds meanwhile.
 - The durable warning, exact-request signing challenge, fresh-seed migration,
   and archived-source resume semantics are specified in
   [Seed-only restored Qbit wallet safety](seed-only-restored-wallet-safety.md).
