@@ -161,10 +161,6 @@ export interface WalletController {
   getCurrency(): Promise<string>
   setCurrency(currency: string): Promise<void>
 
-  getPrivateKey(
-    password: string,
-    account: { address: string; type: string }
-  ): Promise<{ hex: string; wif: string }>
   getMnemonics(
     password: string,
     keyring: WalletKeyring
@@ -189,20 +185,7 @@ export interface WalletController {
     accountCount: number,
     accountIndexDerivation?: boolean
   ): Promise<{ address: string; type: string }[]>
-  createKeyringWithColdWallet(
-    xpub: string,
-    addressType: AddressType,
-    alianName?: string,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<WalletKeyring>
 
-  deriveAccountsFromXpub(
-    xpub: string,
-    addressType: AddressType,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]>
 
   createTmpKeyringWithMnemonics(
     mnemonic: string,
@@ -212,13 +195,6 @@ export interface WalletController {
     accountCount?: number,
     accountIndexDerivation?: boolean
   ): Promise<WalletKeyring>
-
-  createTmpKeyringWithMnemonics2(
-    mnemonic: string,
-    passphrase: string,
-    hdPaths: string[],
-    addressTypes: AddressType[]
-  ): Promise<WalletKeyring[]>
 
   restoreQbitKeyringWithFloors(
     mnemonic: string,
@@ -367,7 +343,6 @@ export interface WalletController {
   /** Stop waiting for that read; a walk nothing waits for any more stops. */
   abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
-  getNetworkType(): Promise<NetworkType>
   setNetworkType(type: NetworkType): Promise<void>
 
   getChainType(): Promise<ChainType>

@@ -20,7 +20,6 @@ packages/
 ├── permission-service     # Connected-site permissions
 ├── phishing-detect        # Bundled site-safety policy
 ├── preference-service     # Wallet preferences
-├── tx-helpers             # Transaction construction helpers
 ├── wallet-background      # Extension background runtime
 ├── wallet-connect         # Provider connection utilities
 ├── wallet-connect-react   # React provider bindings

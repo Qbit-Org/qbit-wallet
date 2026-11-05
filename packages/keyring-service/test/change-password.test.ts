@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService } from '../src/keyring-service'
 import type { Encryptor } from '../src/types'
@@ -8,6 +9,7 @@ const oldPassword = 'old-password'
 const newPassword = 'new-password'
 const sampleMnemonic =
   'finish oppose decorate face calm tragic certain desk hour urge dinosaur mango'
+const readonlyPubkey = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 interface StoreState {
   booted: string
@@ -185,9 +187,9 @@ async function createWallet(
   await service.boot(oldPassword)
   await service.createKeyringWithMnemonics(
     sampleMnemonic,
-    "m/84'/0'/0'/0",
+    "m/87'/1'/0'/0",
     '',
-    AddressType.P2WPKH,
+    AddressType.P2MR,
     1
   )
   return { service, storage, encryptor }
@@ -212,6 +214,11 @@ async function flushMicrotasks(): Promise<void> {
     await Promise.resolve()
   }
 }
+
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
 
 describe('KeyringService.changePassword', () => {
   it('retains the old live and durable state when vault encryption fails', async () => {
@@ -313,17 +320,11 @@ describe('KeyringService.changePassword', () => {
     encryptor.failNextVaultEncryption(oldPassword)
 
     await expect(
-      service.createKeyringWithMnemonics(
-        liveMnemonic,
-        "m/86'/0'/0'/0",
-        '',
-        AddressType.P2TR,
-        1
-      )
+      service.createKeyringWithMnemonics(liveMnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1)
     ).rejects.toThrow('forced vault encryption failure')
 
     expect(service.keyrings).toHaveLength(1)
-    expect(service.addressTypes).toEqual([AddressType.P2WPKH])
+    expect(service.addressTypes).toEqual([AddressType.P2MR])
     expect(service.store.getState().vault).toBe(previousVault)
 
     await service.changePassword(oldPassword, newPassword)
@@ -331,18 +332,12 @@ describe('KeyringService.changePassword', () => {
     const reopened = await reopenWallet(storage)
     await expect(reopened.submitPassword(newPassword)).resolves.toMatchObject({ isUnlocked: true })
     expect(reopened.keyrings).toHaveLength(1)
-    expect(reopened.addressTypes).toEqual([AddressType.P2WPKH])
+    expect(reopened.addressTypes).toEqual([AddressType.P2MR])
 
     // The rolled-back import stays retryable instead of tripping the
     // duplicate-wallet guard on a leftover live keyring.
     await expect(
-      service.createKeyringWithMnemonics(
-        liveMnemonic,
-        "m/86'/0'/0'/0",
-        '',
-        AddressType.P2TR,
-        1
-      )
+      service.createKeyringWithMnemonics(liveMnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1)
     ).resolves.toBeDefined()
     expect(service.keyrings).toHaveLength(2)
     await expect(service.keyrings[1]!.serialize()).resolves.toMatchObject({
@@ -354,7 +349,6 @@ describe('KeyringService.changePassword', () => {
     const { service, storage } = await createWallet()
     const keyring = service.keyrings[0]!
     const previousAccounts = await keyring.getAccounts()
-    const previousVault = service.store.getState().vault
     const announcedAccounts: string[] = []
     service.on('newAccount', account => announcedAccounts.push(account))
     storage.armKeyringStateWriteFailure()
@@ -364,7 +358,9 @@ describe('KeyringService.changePassword', () => {
     )
 
     await expect(service.getAccounts()).resolves.toEqual(previousAccounts)
-    expect(service.store.getState().vault).toBe(previousVault)
+    // The rollback write keeps the counter state set up for the next account,
+    // but not the account.
+    expect(JSON.parse(service.store.getState().vault!).data[0].data.activeIndexes).toEqual([0])
     expect(announcedAccounts).toEqual([])
 
     storage.disarmKeyringStateWriteFailure()
@@ -427,21 +423,17 @@ describe('KeyringService.changePassword', () => {
 
   it('does not commit a failed address type change during a later password change', async () => {
     const { service, storage } = await createWallet()
-    const keyring = service.keyrings[0]!
-    const previousHdPath = (keyring as any).hdPath
-    const previousAddressType = service.addressTypes[0]
-    const previousAccounts = await keyring.getAccounts()
+    await service.importPublicKeyOnly(readonlyPubkey, AddressType.P2WPKH)
+    const keyring = service.keyrings[1]!
     const previousVault = service.store.getState().vault
     storage.armKeyringStateWriteFailure()
 
-    await expect(service.changeAddressType(0, AddressType.P2TR)).rejects.toThrow(
+    await expect(service.changeAddressType(1, AddressType.P2TR)).rejects.toThrow(
       'forced keyring-state persistence failure'
     )
 
-    expect(service.keyrings[0]).toBe(keyring)
-    expect((keyring as any).hdPath).toBe(previousHdPath)
-    expect(service.addressTypes[0]).toBe(previousAddressType)
-    await expect(keyring.getAccounts()).resolves.toEqual(previousAccounts)
+    expect(service.keyrings[1]).toBe(keyring)
+    expect(service.addressTypes[1]).toBe(AddressType.P2WPKH)
     expect(service.store.getState().vault).toBe(previousVault)
 
     storage.disarmKeyringStateWriteFailure()
@@ -449,112 +441,8 @@ describe('KeyringService.changePassword', () => {
 
     const reopened = await reopenWallet(storage)
     await expect(reopened.submitPassword(newPassword)).resolves.toMatchObject({ isUnlocked: true })
-    expect((reopened.keyrings[0] as any).hdPath).toBe(previousHdPath)
-    expect(reopened.addressTypes[0]).toBe(previousAddressType)
-    await expect(reopened.keyrings[0]!.getAccounts()).resolves.toEqual(previousAccounts)
-  })
-
-  it('locks and discards live state when an address type rollback cannot restore the HD path', async () => {
-    const { service, storage } = await createWallet()
-    const keyring = service.keyrings[0]!
-    const previousHdPath = (keyring as any).hdPath
-    const previousAddressType = service.addressTypes[0]
-    const previousAccounts = await keyring.getAccounts()
-    const previousVault = service.store.getState().vault
-    const previousDurableState = structuredClone(storage.values.get('keyringState'))
-    const changeHdPath = keyring.changeHdPath!.bind(keyring)
-    let changeHdPathCallCount = 0
-    keyring.changeHdPath = hdPath => {
-      changeHdPathCallCount += 1
-      if (changeHdPathCallCount === 2) {
-        throw new Error('forced HD-path rollback failure')
-      }
-      changeHdPath(hdPath)
-    }
-    storage.armKeyringStateWriteFailure()
-
-    await expect(service.changeAddressType(0, AddressType.P2TR)).rejects.toThrow(
-      'forced keyring-state persistence failure'
-    )
-    await flushMicrotasks()
-
-    expect(changeHdPathCallCount).toBe(2)
-    expect(service.store.getState().vault).toBe(previousVault)
-    expect(storage.values.get('keyringState')).toEqual(previousDurableState)
-    expect(service.password).toBeNull()
-    expect(service.keyrings).toEqual([])
-    expect(service.addressTypes).toEqual([])
-    expect(service.memStore.getState()).toMatchObject({
-      isUnlocked: false,
-      keyrings: [],
-      addressTypes: [],
-    })
-
-    storage.disarmKeyringStateWriteFailure()
-    await service.changePassword(oldPassword, newPassword)
-
-    const reopened = await reopenWallet(storage)
-    await expect(reopened.submitPassword(oldPassword)).rejects.toThrow('password_error')
-    await expect(reopened.submitPassword(newPassword)).resolves.toMatchObject({ isUnlocked: true })
-    expect((reopened.keyrings[0] as any).hdPath).toBe(previousHdPath)
-    expect(reopened.addressTypes[0]).toBe(previousAddressType)
-    await expect(reopened.keyrings[0]!.getAccounts()).resolves.toEqual(previousAccounts)
-  })
-
-  it('keeps a concurrent unlock from publishing an unlocked state during a failed address-type rollback', async () => {
-    const { service, storage } = await createWallet()
-    await service.setLocked()
-
-    // Park an unlock right before it publishes, holding unlockingMutex with
-    // decrypted keyrings loaded — the window the fail-closed cleanup used to
-    // race without the mutex.
-    let releaseUnlock!: () => void
-    const unlockGate = new Promise<void>(resolve => {
-      releaseUnlock = resolve
-    })
-    const pendingUnlock = service.submitPassword(oldPassword, {
-      beforeUnlock: () => unlockGate,
-    })
-    await flushMicrotasks()
-    expect(service.keyrings).toHaveLength(1)
-
-    // The parked unlock reloaded the live keyrings; patch the instance the
-    // address-type change will actually operate on.
-    const keyring = service.keyrings[0]!
-    const previousHdPath = (keyring as any).hdPath
-    const changeHdPath = keyring.changeHdPath!.bind(keyring)
-    let changeHdPathCallCount = 0
-    keyring.changeHdPath = hdPath => {
-      changeHdPathCallCount += 1
-      if (changeHdPathCallCount === 2) {
-        throw new Error('forced HD-path rollback failure')
-      }
-      changeHdPath(hdPath)
-    }
-    storage.armKeyringStateWriteFailure()
-
-    const pendingChange = expect(service.changeAddressType(0, AddressType.P2TR)).rejects.toThrow(
-      'forced keyring-state persistence failure'
-    )
-    for (let index = 0; index < 10 && service.password !== null; index += 1) {
-      await flushMicrotasks()
-    }
-    expect(service.password).toBeNull()
-    expect(service.keyrings).toEqual([])
-
-    releaseUnlock()
-    await expect(pendingUnlock).resolves.toMatchObject({ isUnlocked: false })
-    await pendingChange
-    await flushMicrotasks()
-
-    expect(service.memStore.getState()).toMatchObject({ isUnlocked: false, keyrings: [] })
-    expect(service.password).toBeNull()
-    expect(service.keyrings).toEqual([])
-
-    storage.disarmKeyringStateWriteFailure()
-    await expect(service.submitPassword(oldPassword)).resolves.toMatchObject({ isUnlocked: true })
-    expect(service.keyrings).toHaveLength(1)
-    expect((service.keyrings[0] as any).hdPath).toBe(previousHdPath)
+    expect(reopened.addressTypes).toEqual([AddressType.P2MR, AddressType.P2WPKH])
+    await expect(reopened.keyrings[1]!.getAccounts()).resolves.toEqual([readonlyPubkey])
   })
 
   it('preserves the durable vault when an unlocked wallet has no live keyrings', async () => {
@@ -570,7 +458,7 @@ describe('KeyringService.changePassword', () => {
     const reopened = await reopenWallet(storage)
     await expect(reopened.submitPassword(newPassword)).resolves.toMatchObject({ isUnlocked: true })
     expect(reopened.keyrings).toHaveLength(1)
-    expect(reopened.addressTypes).toEqual([AddressType.P2WPKH])
+    expect(reopened.addressTypes).toEqual([AddressType.P2MR])
     await expect(reopened.keyrings[0]!.serialize()).resolves.toMatchObject({
       mnemonic: sampleMnemonic,
     })
@@ -604,7 +492,7 @@ describe('KeyringService.changePassword', () => {
     await expect(reopened.submitPassword(oldPassword)).rejects.toThrow('password_error')
     await expect(reopened.submitPassword(newPassword)).resolves.toMatchObject({ isUnlocked: true })
     expect(reopened.keyrings).toHaveLength(1)
-    expect(reopened.addressTypes).toEqual([AddressType.P2WPKH])
+    expect(reopened.addressTypes).toEqual([AddressType.P2MR])
     await expect(reopened.keyrings[0]!.serialize()).resolves.toMatchObject({
       mnemonic: sampleMnemonic,
     })
@@ -740,9 +628,7 @@ describe('KeyringService.changePassword', () => {
     // Model a live mutation whose own persist has not landed yet (for example
     // a PQC counter reservation): the live keyrings are ahead of the last
     // durable vault when the password change runs.
-    const extraKeyring = service.createTmpKeyring('Simple Key Pair', [
-      '88544d58a328a380a4a433e4bb44b2a9f8a1152b1467393cfc8f8e5d81137162',
-    ])
+    const extraKeyring = service.createTmpKeyring('Readonly', [readonlyPubkey])
     service.keyrings.push(extraKeyring)
     service.addressTypes.push(AddressType.P2WPKH)
 

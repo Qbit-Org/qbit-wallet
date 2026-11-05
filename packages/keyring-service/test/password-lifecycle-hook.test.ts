@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService, type PasswordLifecycleEvent } from '../src/keyring-service'
 import type { Encryptor } from '../src/types'
@@ -62,13 +63,18 @@ async function createBootedWallet(logger?: RecordingLogger) {
   await service.boot(password)
   await service.createKeyringWithMnemonics(
     sampleMnemonic,
-    "m/84'/0'/0'/0",
+    "m/87'/1'/0'/0",
     '',
-    AddressType.P2WPKH,
+    AddressType.P2MR,
     1
   )
   return service
 }
+
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
 
 describe('password lifecycle hook', () => {
   it('fires boot while boot() is still pending', async () => {

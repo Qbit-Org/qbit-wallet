@@ -20,11 +20,9 @@ import {
 } from '@qbit-oss/protocol'
 import {
   ColdWalletKeyring,
-  HdKeyring,
   QbitHdKeyring,
   PQC_MAX_SIGNATURES,
   ReadonlyKeyring,
-  SimpleKeyring,
   WatchAddressKeyring,
 } from './keyrings'
 import { EmptyKeyring } from './keyrings/empty-keyring'
@@ -67,8 +65,6 @@ import type {
 import { QBIT_RECOVERY_NETWORKS, qbitReceiveNetworksForHdPath } from './keyrings/qbit-hd-keyring'
 
 const KEYRING_SDK_TYPES = {
-  SimpleKeyring,
-  HdKeyring,
   QbitHdKeyring,
   ColdWalletKeyring,
   ReadonlyKeyring,
@@ -598,22 +594,6 @@ export class KeyringService extends EventEmitter {
     return this.memStore.getState()
   }
 
-  /**
-   * Import Keychain using Private key
-   *
-   * @emits KeyringController#unlock
-   * @param  privateKey - The privateKey to generate address
-   * @returns  A Promise that resolves to the state.
-   */
-  importPrivateKey = async (privateKey: string, addressType: AddressType) => {
-    // await this.persistAllKeyrings();
-    const keyring = await this.addNewKeyring('Simple Key Pair', [privateKey], addressType)
-    // await this.persistAllKeyrings();
-    this.setUnlockedUnlessLocked()
-    this.fullUpdate()
-    return keyring
-  }
-
   importPublicKeyOnly = async (pubkey: string, addressType: AddressType) => {
     // await this.persistAllKeyrings()
     const keyring = await this.addNewKeyring('Readonly', [pubkey], addressType)
@@ -688,6 +668,9 @@ export class KeyringService extends EventEmitter {
     accountIndexDerivation = false,
     options?: { pqcFloorsPending?: boolean }
   ) => {
+    if (addressType !== AddressType.P2MR) {
+      throw new Error(this.t('not_supported'))
+    }
     if (accountCount < 1) {
       throw new Error(this.t('keyring_error_account_count'))
     }
@@ -702,14 +685,14 @@ export class KeyringService extends EventEmitter {
     }
 
     const keyring = await this.addNewKeyring(
-      addressType === AddressType.P2MR ? KeyringType.QbitHdKeyring : KeyringType.HdKeyring,
+      KeyringType.QbitHdKeyring,
       {
         mnemonic: seed,
         activeIndexes,
         hdPath,
         passphrase,
         accountIndexDerivation,
-        pqcFloorsPending: addressType === AddressType.P2MR && options?.pqcFloorsPending === true,
+        pqcFloorsPending: options?.pqcFloorsPending === true,
       },
       addressType
     )
@@ -1050,9 +1033,8 @@ export class KeyringService extends EventEmitter {
       return keyring
     })
 
-  changeAddressType = async (keyringIndex: number, addressType: AddressType) => {
-    let lockRequired = false
-    const result = this.passwordChangeMutex.lock(async () => {
+  changeAddressType = async (keyringIndex: number, addressType: AddressType) =>
+    this.passwordChangeMutex.lock(async () => {
       const keyrings = this.keyrings
       const keyring = keyrings[keyringIndex] as Keyring | undefined
       if (!keyring) {
@@ -1065,103 +1047,13 @@ export class KeyringService extends EventEmitter {
         throw new Error(this.t('not_supported'))
       }
 
-      const previousHdPath =
-        keyring.type === KeyringType.HdKeyring ? ((keyring as any).hdPath as string) : undefined
-      const hdPath =
-        previousHdPath === undefined
-          ? undefined
-          : ADDRESS_TYPES.find(v => v.value === addressType)?.hdPath
-      const changesHdPath =
-        previousHdPath !== undefined && previousHdPath !== hdPath && !!keyring.changeHdPath
       const previousAddressType = this.addressTypes[keyringIndex]!
-      // A failed HD-path restore leaves the live keyring unusable. Rebuild a
-      // copy from its pre-change serialization now, so the rollback can swap
-      // it in without an await that would let a queued vault write commit the
-      // broken keyring. An HdKeyring keeps no PQC counter state, and its
-      // accounts change only under passwordChangeMutex, so the copy stays
-      // current.
-      const rollbackKeyring = !changesHdPath
-        ? null
-        : (
-            await this._restoreKeyring({
-              type: keyring.type,
-              data: structuredClone(await keyring.serialize()),
-              addressType: previousAddressType,
-            })
-          ).keyring
-      // A lock while the copy was built replaced the live keyrings.
-      if (this.keyrings !== keyrings) {
-        throw new Error(this.t('you_need_to_unlock_wallet_first'))
-      }
-
       try {
-        if (changesHdPath) {
-          keyring.changeHdPath!(hdPath || '')
-        }
         this.addressTypes[keyringIndex] = addressType
         this.cachedDisplayedKeyring = null
 
         await this.persistAllKeyrings([keyring])
       } catch (error) {
-        let hdPathRestored = true
-        if (changesHdPath && (keyring as any).hdPath !== previousHdPath) {
-          try {
-            keyring.changeHdPath!(previousHdPath!)
-          } catch (rollbackError) {
-            hdPathRestored = false
-            this.logger?.error?.(
-              '[KeyringService] Failed to restore address-type HD path',
-              rollbackError
-            )
-          }
-        }
-
-        // A lock during the write discarded these keyrings, including a
-        // broken one; the rollback must not touch a session unlocked since.
-        if (!hdPathRestored && this.keyrings === keyrings) {
-          // The live keyring no longer matches any durable state, so the
-          // wallet must fail closed. First swap in the rebuilt copy and
-          // re-persist the live keyrings: the vault then undoes only this
-          // change and keeps every PQC counter persisted since it started.
-          if (rollbackKeyring) {
-            this.keyrings[keyringIndex] = rollbackKeyring
-            this.addressTypes[keyringIndex] = previousAddressType
-            this.cachedDisplayedKeyring = null
-            try {
-              await this.persistAllKeyrings([rollbackKeyring])
-            } catch (rollbackError) {
-              this.logger?.error?.(
-                '[KeyringService] Failed to persist address-type rollback',
-                rollbackError
-              )
-            }
-          }
-
-          // Clearing the live secrets here keeps queued vault operations
-          // fail-safe, but the published lock runs through setLocked() after
-          // this mutex section releases: unlockingMutex is always taken
-          // before passwordChangeMutex (changePassword), so acquiring it here
-          // would deadlock. A lock during the rollback write already cleared
-          // this session.
-          if (this.keyrings === keyrings) {
-            this.keyrings = []
-            this.addressTypes = []
-            this.cachedDisplayedKeyring = null
-            this.password = null
-            lockRequired = true
-
-            try {
-              this.memStore.updateState({ isUnlocked: false })
-            } catch (rollbackError) {
-              this.logger?.error?.(
-                '[KeyringService] Failed to refresh address-type rollback',
-                rollbackError
-              )
-            }
-          }
-          throw error
-        }
-
         if (this.keyrings === keyrings) {
           this.addressTypes[keyringIndex] = previousAddressType
         }
@@ -1173,26 +1065,6 @@ export class KeyringService extends EventEmitter {
       await this.fullUpdate()
       return keyring
     })
-
-    try {
-      return await result
-    } catch (error) {
-      if (lockRequired) {
-        // Serialize the fail-closed lockdown with submitPassword/setLocked on
-        // unlockingMutex so a concurrent unlock cannot publish an unlocked
-        // state around the cleared keyrings.
-        try {
-          await this.setLocked()
-        } catch (lockError) {
-          this.logger?.error?.(
-            '[KeyringService] Failed to lock after address-type rollback failure',
-            lockError
-          )
-        }
-      }
-      throw error
-    }
-  }
 
   syncQbitHdPath = async (hdPath: string): Promise<boolean> =>
     // A password change re-encrypts the live keyrings, so it must not commit
@@ -1522,8 +1394,6 @@ export class KeyringService extends EventEmitter {
   /**
    * Checks for duplicate keypairs, using the the first account in the given
    * array. Rejects if a duplicate is found.
-   *
-   * Only supports 'Simple Key Pair'.
    *
    * @param {string} type - The key pair type to check for.
    * @param {Array<string>} newAccountArray - Array of new accounts.
@@ -4004,18 +3874,6 @@ export class KeyringService extends EventEmitter {
       cachedPubkeys.push({
         pubkey,
         type: AddressType.P2MR,
-      })
-    } else if (_keyring.type === KeyringType.HdKeyring) {
-      const pathPubkey: { [path: string]: string } = {}
-      ADDRESS_TYPES.filter(v => v.displayIndex >= 0 && v.value !== AddressType.P2MR).forEach(v => {
-        let pubkey = pathPubkey[v.hdPath]
-        if (!pubkey && _keyring.getAccountByHdPath) {
-          pubkey = _keyring.getAccountByHdPath(v.hdPath, derivedIndex)
-        }
-        cachedPubkeys.push({
-          pubkey: pubkey || '',
-          type: v.value,
-        })
       })
     } else {
       ADDRESS_TYPES.filter(

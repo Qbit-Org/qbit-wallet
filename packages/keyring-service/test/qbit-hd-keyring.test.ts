@@ -4675,6 +4675,31 @@ describe('qbit-hd-keyring', () => {
     })
   })
 
+  describe('mnemonic wallets are P2MR only', () => {
+    it.each([AddressType.P2WPKH, AddressType.P2TR, AddressType.P2PKH])(
+      'refuses to create a %s mnemonic wallet',
+      async addressType => {
+        const service = new KeyringService()
+        const storage = new MemoryStorage()
+        await service.init({
+          storage,
+          encryptor: new JsonEncryptor(),
+          logger: testLogger(),
+          t: (key: string) => key,
+        })
+        await service.boot('password')
+        const vaultBefore = service.store.getState().vault
+
+        await expect(
+          service.createKeyringWithMnemonics(sampleMnemonic, "m/84'/0'/0'/0", '', addressType, 1)
+        ).rejects.toThrow('not_supported')
+
+        expect(service.keyrings).toEqual([])
+        expect(service.store.getState().vault).toBe(vaultBefore)
+      }
+    )
+  })
+
   describe('restore floor gate (pqcFloorsPending)', () => {
     it('refuses counter reservations while floors are pending and allows them after the scan', async () => {
       const keyring = new QbitHdKeyring({

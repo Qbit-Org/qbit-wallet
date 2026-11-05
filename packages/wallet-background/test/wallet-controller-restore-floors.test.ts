@@ -311,7 +311,7 @@ describe('WalletController qbit restore with floors', () => {
   it('scans only keyrings whose floors are pending', async () => {
     const pending = pendingQbitKeyring('pubkey-pending')
     const settled = pendingQbitKeyring('pubkey-settled', false)
-    const foreign = { type: KeyringType.HdKeyring, getAccounts: vi.fn(async () => ['x']) }
+    const foreign = { type: KeyringType.ReadonlyKeyring, getAccounts: vi.fn(async () => ['x']) }
     ;(keyringService.keyrings as any[]).push(settled, pending, foreign)
     vi.mocked(keyringService.restorePqcSignatureCounterFloors).mockResolvedValue({
       floors: [
@@ -898,7 +898,7 @@ describe('WalletController qbit restore with floors', () => {
   it('reports the persisted concurrent-instance hint across keyrings', async () => {
     expect(await controller.getQbitConcurrentInstanceHint()).toBe(false)
     ;(keyringService.keyrings as any[]).push(
-      { type: KeyringType.HdKeyring, pqcConcurrentInstanceHint: true },
+      { type: KeyringType.ReadonlyKeyring, pqcConcurrentInstanceHint: true },
       { type: KeyringType.QbitHdKeyring, pqcConcurrentInstanceHint: false }
     )
     expect(await controller.getQbitConcurrentInstanceHint()).toBe(false)

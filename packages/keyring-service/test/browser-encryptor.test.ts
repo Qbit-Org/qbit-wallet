@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 import * as browserPassworder from '@metamask/browser-passworder'
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { BrowserPassworderEncryptor } from '../src/encryptor/browser-encryptor'
 import { KeyringService } from '../src/keyring-service'
@@ -74,13 +75,7 @@ async function createWalletWithEarlierEncryption(storage: MemoryStorage) {
     t: (key: string) => key,
   })
   await service.boot(password)
-  await service.createKeyringWithMnemonics(
-    mnemonic,
-    "m/84'/0'/0'/0",
-    '',
-    AddressType.P2WPKH,
-    1
-  )
+  await service.createKeyringWithMnemonics(mnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1)
   await service.setLocked()
 }
 
@@ -104,6 +99,11 @@ function withPbkdf2Rounds(encryptedData: string, iterations: number): string {
     keyMetadata: { algorithm: 'PBKDF2', params: { iterations } },
   })
 }
+
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
 
 describe('BrowserPassworderEncryptor vault migration', () => {
   it('builds earlier-format fixtures with the key derivation browser-passworder 2.0.3 used', async () => {

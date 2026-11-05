@@ -3285,7 +3285,7 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
   const reserved = () =>
     qbitSendGuardService.getReservedOutpointKeys(ChainType.QBIT_REGTEST, fixture.address)
 
-  it.each([KeyringType.ReadonlyKeyring, KeyringType.ColdWalletKeyring])(
+  it.each([KeyringType.ReadonlyKeyring])(
     'reserves a wallet-built send signed by a %s account from its signed bytes until the broadcast is proven',
     async keyringType => {
       const wallet = newController()
@@ -3340,7 +3340,7 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
     }
   )
 
-  it.each([KeyringType.ReadonlyKeyring, KeyringType.ColdWalletKeyring])(
+  it.each([KeyringType.ReadonlyKeyring])(
     'refuses bytes for a send built for another %s account than the one now selected, until it is selected again',
     async keyringType => {
       const wallet = newController()
@@ -3394,6 +3394,10 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
     // the active one is refused exactly as local signing refuses it.
     await expect(
       reserveExternalWalletSend(wallet, fixture.psbtHex, KeyringType.QbitHdKeyring)
+    ).rejects.toThrow('invalid externally signed Qbit send')
+    // A cold-wallet account has no signing step left in the wallet.
+    await expect(
+      reserveExternalWalletSend(wallet, fixture.psbtHex, KeyringType.ColdWalletKeyring)
     ).rejects.toThrow('invalid externally signed Qbit send')
     await expect(
       reserveExternalWalletSend(wallet, fixture.psbtHex, KeyringType.ReadonlyKeyring, {

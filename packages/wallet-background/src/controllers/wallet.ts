@@ -43,17 +43,14 @@ import type {
   QbitRecoveryVaultState,
 } from '@qbit/keyring-service/qbit-hd-keyring'
 import { DisplayedKeyring, Keyring, KeyringType } from '@qbit/keyring-service/types'
-import { UnspentOutput } from '@qbit/tx-helpers'
 import {
   addressToScriptPk,
   transactionCore,
-  eccManager,
   getAddressType,
   isPayToAnchorScript,
   isValidAddress,
   publicKeyToAddress,
   scriptPkToAddress,
-  toPsbtNetwork,
 } from '@qbit/wallet-core'
 import {
   Account,
@@ -139,6 +136,7 @@ import {
   selectQbitP2mrSendCoins,
   sortQbitCoinsByValue,
   t,
+  UnspentOutput,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
 import { getLocalVersionNotice } from '../config/local-version-notices'
@@ -481,6 +479,13 @@ function cloneFeeSummary(summary: FeeSummary): FeeSummary {
   return {
     list: summary.list.map(item => ({ ...item })),
     ...(summary.quote ? { quote: { ...summary.quote } } : {}),
+  }
+}
+
+/** The wallet creates and restores mnemonic wallets as Qbit P2MR wallets only. */
+function assertP2mrMnemonicWallet(addressType: AddressType): void {
+  if (addressType !== AddressType.P2MR) {
+    throw new Error(t('not_supported'))
   }
 }
 
@@ -1333,7 +1338,7 @@ export class WalletController extends BaseController {
 
   /**
    * Reserve the inputs of a send the wallet built but does not sign itself.
-   * An external (readonly) or cold-wallet account signs outside the wallet
+   * An external (readonly) account signs outside the wallet
    * and hands back bytes the UI cannot parse, so signPsbtV2 never runs for
    * it and the claim minted there for a locally signed send did not exist:
    * after an ambiguous broadcast the inputs stayed visible to every other
@@ -1368,10 +1373,7 @@ export class WalletController extends BaseController {
     const uiPort = this.callingUiPort
     const account = preferenceService.getCurrentAccount()
     const signMethod = getAccountCapabilities(account).signMethod
-    if (
-      !account ||
-      (signMethod !== AccountSignMethod.External && signMethod !== AccountSignMethod.ColdWallet)
-    ) {
+    if (!account || signMethod !== AccountSignMethod.External) {
       throw new Error('invalid externally signed Qbit send')
     }
     if (
@@ -2195,29 +2197,6 @@ export class WalletController extends BaseController {
     this._resetTimeout()
   }
 
-  getPrivateKey = async (password: string, { pubkey, type }: { pubkey: string; type: string }) => {
-    const isValidPassword = await this.verifyPassword(password)
-    if (!isValidPassword) {
-      throw new Error(t('password_error'))
-    }
-    if (type !== KeyringType.HdKeyring && type !== KeyringType.SimpleKeyring) {
-      throw new Error(t('not_supported'))
-    }
-    const keyring = await keyringService.getKeyringForAccount(pubkey, type)
-    if (!keyring) return null
-    const privateKey = await keyring.exportAccount(pubkey)
-    const networkType = this.getNetworkType()
-    const network = toPsbtNetwork(networkType)
-    const hex = privateKey
-    const wif = eccManager.eccPair
-      .fromPrivateKey(Buffer.from(privateKey, 'hex'), { network })
-      .toWIF()
-    return {
-      hex,
-      wif,
-    }
-  }
-
   getMnemonics = async (password: string, keyring: WalletKeyring) => {
     const isValidPassword = await this.verifyPassword(password)
     if (!isValidPassword) {
@@ -2275,6 +2254,7 @@ export class WalletController extends BaseController {
     accountIndexDerivation = false,
     options?: { pqcFloorsPending?: boolean }
   ) => {
+    assertP2mrMnemonicWallet(addressType)
     hdPath = resolveHdPathForAddressType(addressType, hdPath, this.getChainType())
     const originKeyring = await keyringService.createKeyringWithMnemonics(
       mnemonic,
@@ -2310,60 +2290,21 @@ export class WalletController extends BaseController {
     accountCount = 1,
     accountIndexDerivation = false
   ) => {
+    assertP2mrMnemonicWallet(addressType)
     hdPath = resolveHdPathForAddressType(addressType, hdPath, this.getChainType())
     const activeIndexes: number[] = []
     for (let i = 0; i < accountCount; i++) {
       activeIndexes.push(i)
     }
-    const originKeyring = keyringService.createTmpKeyring(
-      addressType === AddressType.P2MR ? KeyringType.QbitHdKeyring : KeyringType.HdKeyring,
-      {
-        mnemonic,
-        activeIndexes,
-        hdPath,
-        passphrase,
-        accountIndexDerivation,
-      }
-    )
+    const originKeyring = keyringService.createTmpKeyring(KeyringType.QbitHdKeyring, {
+      mnemonic,
+      activeIndexes,
+      hdPath,
+      passphrase,
+      accountIndexDerivation,
+    })
     const displayedKeyring = await keyringService.displayForKeyring(originKeyring, addressType, -1)
     return this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false)
-  }
-
-  createTmpKeyringWithMnemonics2 = async (
-    mnemonic: string,
-    passphrase: string,
-    hdPaths: string[],
-    addressTypes: AddressType[]
-  ) => {
-    const keyrings: WalletKeyring[] = []
-    const activeIndexes: number[] = [0]
-    let originKeyring
-    let originKeyringType: string | undefined
-    for (let i = 0; i < hdPaths.length; i++) {
-      const addressType = addressTypes[i]!
-      const hdPath = resolveHdPathForAddressType(addressType, hdPaths[i]!, this.getChainType())
-      const keyringType =
-        addressType === AddressType.P2MR ? KeyringType.QbitHdKeyring : KeyringType.HdKeyring
-      if (!originKeyring || originKeyringType !== keyringType) {
-        originKeyring = await keyringService.createTmpKeyring(keyringType, {
-          mnemonic,
-          activeIndexes,
-          hdPath,
-          passphrase,
-        })
-        originKeyringType = keyringType
-      } else {
-        originKeyring.changeHdPath(hdPath)
-      }
-      const displayedKeyring = await keyringService.displayForKeyring(
-        originKeyring,
-        addressType,
-        -1
-      )
-      const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false)
-      keyrings.push(keyring)
-    }
-    return keyrings
   }
 
   private observeQbitAccountActivityForNetwork = (
@@ -4561,30 +4502,6 @@ export class WalletController extends BaseController {
     }
   }
 
-  // No hardware or cold signer can produce qbit's SLH-DSA signatures, so a
-  // cold wallet cannot be created (#53). keyring-service keeps
-  // ColdWalletKeyring registered, so a vault that already holds one decodes.
-  createKeyringWithColdWallet = async (
-    _xpub: string,
-    _addressType: AddressType,
-    _alianName?: string,
-    _hdPath?: string,
-    _accountCount?: number
-  ): Promise<WalletKeyring> => {
-    throw new Error(t('hardware_wallet_not_supported'))
-  }
-
-  // A BIP32 xpub derives secp256k1 keys only, never a qbit P2MR address, so
-  // no account can come from one (#53).
-  deriveAccountsFromXpub = async (
-    _xpub: string,
-    _addressType: AddressType,
-    _hdPath?: string,
-    _accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]> => {
-    throw new Error(t('hardware_wallet_not_supported'))
-  }
-
   // Queued with migration and other chain-state work: a migration start that
   // observed only seed-only-restored state must not interleave with this
   // removal and lose its source or destination mid-creation, so the recovery
@@ -4825,7 +4742,7 @@ export class WalletController extends BaseController {
   }
 
   deriveNewAccountFromMnemonic = async (keyring: WalletKeyring, alianName?: string) => {
-    if (keyring.type !== KeyringType.HdKeyring && keyring.type !== KeyringType.QbitHdKeyring) {
+    if (keyring.type !== KeyringType.QbitHdKeyring) {
       throw new Error(t('not_supported'))
     }
     const derivationKey = this.accountDerivationKey(keyring)
@@ -4982,18 +4899,7 @@ export class WalletController extends BaseController {
       throw new Error(t('not_supported'))
     }
     const currentKeyringIndex = preferenceService.getCurrentKeyringIndex()
-    try {
-      await keyringService.changeAddressType(currentKeyringIndex, addressType)
-    } catch (error) {
-      // A change the keyring service cannot roll back locks the wallet on
-      // its own, without `lockWallet`: it keeps no account's outputs then
-      // either, and the pages and the UI are told it locked.
-      if (!this.isUnlocked()) {
-        this.qbitLatestUtxoReads.clear()
-        this.announceLock()
-      }
-      throw error
-    }
+    await keyringService.changeAddressType(currentKeyringIndex, addressType)
     const keyring = await this.getCurrentKeyring()
     if (!keyring) throw new Error('no current keyring')
     await this.changeKeyring(keyring, currentAccount?.index)
@@ -8488,14 +8394,7 @@ export class WalletController extends BaseController {
       }
       accounts.push(account)
     }
-    const hdPath =
-      type === KeyringType.HdKeyring || type === KeyringType.QbitHdKeyring
-        ? displayedKeyring.keyring.hdPath
-        : ''
-    const accountIndexDerivation: boolean =
-      type === KeyringType.HdKeyring
-        ? (displayedKeyring.keyring.accountIndexDerivation ?? false)
-        : false
+    const hdPath = type === KeyringType.QbitHdKeyring ? displayedKeyring.keyring.hdPath : ''
     const alianName = preferenceService.getKeyringAlianName(
       key,
       initName ? `${KEYRING_TYPES[type]?.alianName ?? 'Unsupported Wallet'} #${index + 1}` : ''
@@ -8508,7 +8407,7 @@ export class WalletController extends BaseController {
       accounts,
       alianName,
       hdPath,
-      accountIndexDerivation,
+      accountIndexDerivation: false,
       ...(type === KeyringType.QbitHdKeyring && displayedKeyring.keyring.qbitRecovery
         ? { qbitRecovery: displayedKeyring.keyring.qbitRecovery }
         : {}),

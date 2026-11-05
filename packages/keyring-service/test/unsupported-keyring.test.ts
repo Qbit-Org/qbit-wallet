@@ -70,11 +70,6 @@ async function createService(storage: MemoryStorage): Promise<KeyringService> {
     logger: testLogger,
     t: (key: string) => key,
   })
-  // HdKeyring and SimpleKeyring are about to leave the build; these tests are
-  // about the vault that outlives them.
-  service.keyringTypes = service.keyringTypes.filter(
-    keyring => keyring.type !== 'HD Key Tree' && keyring.type !== 'Simple Key Pair'
-  )
   return service
 }
 

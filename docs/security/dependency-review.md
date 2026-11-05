@@ -325,19 +325,24 @@ and protocol dependencies with the greatest impact:
 | `@qbit-oss/pqc` 0.1.1 (npm) | PQC keys, signatures, counters, and WASM | Exact version, registry integrity, provenance (`Qbit-Org/qbit-pqc` `v0.1.1`, compared with the registry attestation), WASM and qbit Core fixture digests pinned; golden and qbit Core vectors, pin check, and extension import smoke are required here; package tests, MV3 smoke and reproducible rebuild run upstream |
 | `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.1`, compared with the registry attestation) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
 | `@noble/curves` 1.4.2/1.7.0; `@noble/hashes` 1.4.0/1.6.0/1.8.0 | Curve and hash primitives | Retain exact closure and conformance evidence |
-| `bitcoinjs-lib@6.1.6`; `tiny-secp256k1@2.2.3` | PSBT and classical signing | Wallet tests bind displayed and signed transaction bytes |
-| `bitcore-lib@10.0.0`; `hdkey@2.1.0`; `bip39@3.1.0` | HD derivation, extended-key parsing, and mnemonics | Derivation/recovery tests required; no signing through transitive `elliptic` |
+| `bitcoinjs-lib@6.1.6`; `tiny-secp256k1@2.2.3` | PSBT handling and readonly-wallet address derivation | Wallet tests bind displayed and signed transaction bytes; no secp256k1 signing |
+| `hdkey@2.1.0`; `bip39@3.1.0` | HD derivation and mnemonics | Derivation/recovery tests required; no signing through transitive `elliptic` |
 | `@metamask/browser-passworder@6.0.0` | Vault encryption and legacy migration | Exact direct pin; new writes carry 900,000-round PBKDF2 metadata and AES-256-GCM; migration tests fail closed on storage error |
 | `browser-passworder@2.0.3` | Obsolete direct dependency | Source guard forbids import; retained pending explicit removal approval |
 | `scrypt-js@3.0.1`; `crypto-browserify@3.12.1` | Crypto closure/browser compatibility | No new custody or signing use without review |
 | `bs58check` 2.1.2/3.0.1; `varuint-bitcoin@1.1.2`; `bech32@2.0.0` | Bitcoin/address serialization | Covered by wallet and protocol tests |
 | `@qbit-oss/protocol` | Local protocol serialization | Workspace source plus qbit Core conformance binds encoded behavior |
 
-`elliptic@6.6.1` remains transitive with a low-severity ECDSA nonce advisory
-and no patched release. Wallet signing uses `@qbit/wallet-core` ECPairs
-backed by `tiny-secp256k1`; Bitcore and HDKey are restricted to derivation and
-parsing. The security suite guards against introducing Elliptic/Bitcore ECDSA
-signing. Such an import would invalidate this disposition.
+`elliptic@6.6.1` remains transitive, with a low-severity ECDSA nonce advisory
+and no patched release. The inventory shows it shipping through two routes:
+`hdkey`'s `secp256k1` in `@qbit/keyring-service`, and the extension's
+`crypto-browserify` polyfill through `browserify-sign` and `create-ecdh`. Its
+other paths are the `browserify` build path and `@qbit/wallet-core`'s
+development dependency on `crypto-browserify`. No keyring signs with a
+secp256k1 key: P2MR signs with SLH-DSA, HDKey is restricted to derivation, and
+no wallet signing path uses the polyfill. The security suite guards against
+introducing Elliptic/Bitcore ECDSA signing or a secp256k1 signing call in a
+keyring. Either would invalidate this disposition.
 
 | Adjacent area | Notable resolved dependencies | Boundary |
 | --- | --- | --- |

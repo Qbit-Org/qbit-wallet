@@ -5,7 +5,6 @@ import {
   p2mrAddressFromPubkey,
   type QbitNetworkName,
 } from '@qbit-oss/protocol'
-import { QBIT_P2MR_DUST } from '@qbit/wallet-shared'
 import { AddressType, NetworkType } from '@qbit/wallet-types'
 import { transactionCore } from '../transaction-core'
 import { toPsbtNetwork } from '../network'
@@ -113,7 +112,6 @@ export function decodeAddress(address: string) {
       return {
         networkType: networkTypeForQbitNetwork(decoded.network),
         addressType: AddressType.P2MR,
-        dust: getAddressTypeDust(AddressType.P2MR),
       }
     } catch (e) {}
   }
@@ -151,7 +149,6 @@ export function decodeAddress(address: string) {
       return {
         networkType,
         addressType,
-        dust: getAddressTypeDust(addressType),
       }
     } catch (e) {}
   }
@@ -180,26 +177,12 @@ export function decodeAddress(address: string) {
     return {
       networkType,
       addressType,
-      dust: getAddressTypeDust(addressType),
     }
   } catch (e) {}
 
   return {
     networkType: NetworkType.MAINNET,
     addressType: AddressType.UNKNOWN,
-    dust: 546,
-  }
-}
-
-function getAddressTypeDust(addressType: AddressType) {
-  if (addressType === AddressType.P2MR) {
-    return QBIT_P2MR_DUST
-  } else if (addressType === AddressType.P2WPKH || addressType === AddressType.BIP44_P2WPKH) {
-    return 294
-  } else if (addressType === AddressType.P2TR || addressType === AddressType.BIP44_P2TR) {
-    return 330
-  } else {
-    return 546
   }
 }
 
@@ -274,21 +257,14 @@ export function addressToScriptPk(address: string, networkType: NetworkType): Bu
   }
 }
 
+/**
+ * Whether `address` is a P2MR address on the network. qbit consensus refuses
+ * an output of any other type (`tx-output-not-p2mr`).
+ */
 export function isValidAddress(address: string, networkType: NetworkType): boolean {
-  if (!address) return false
-  if (isP2mrPrefix(address)) {
-    try {
-      decodeP2mrAddress(address, qbitNetworkForNetworkType(networkType))
-      return true
-    } catch (error) {
-      return false
-    }
-  }
-
-  const network = toPsbtNetwork(networkType)
-
+  if (!address || !isP2mrPrefix(address)) return false
   try {
-    transactionCore.address.toOutputScript(address, network)
+    decodeP2mrAddress(address, qbitNetworkForNetworkType(networkType))
     return true
   } catch (error) {
     return false

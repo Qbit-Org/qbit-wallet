@@ -103,24 +103,14 @@ describe('address', () => {
   })
 
   describe('isValidAddress', () => {
-    it('should validate P2WPKH addresses correctly', () => {
-      expect(isValidAddress(p2wpkh_data.mainnet_address, NetworkType.MAINNET)).toBe(true)
-      expect(isValidAddress(p2wpkh_data.testnet_address, NetworkType.TESTNET)).toBe(true)
-    })
-
-    it('should validate P2SH addresses correctly', () => {
-      expect(isValidAddress(p2sh_data.mainnet_address, NetworkType.MAINNET)).toBe(true)
-      expect(isValidAddress(p2sh_data.testnet_address, NetworkType.TESTNET)).toBe(true)
-    })
-
-    it('should validate P2TR addresses correctly', () => {
-      expect(isValidAddress(p2tr_data.mainnet_address, NetworkType.MAINNET)).toBe(true)
-      expect(isValidAddress(p2tr_data.testnet_address, NetworkType.TESTNET)).toBe(true)
-    })
-
-    it('should validate P2PKH addresses correctly', () => {
-      expect(isValidAddress(p2pkh_data.mainnet_address, NetworkType.MAINNET)).toBe(true)
-      expect(isValidAddress(p2pkh_data.testnet_address, NetworkType.TESTNET)).toBe(true)
+    it.each([
+      ['P2WPKH', p2wpkh_data],
+      ['P2SH', p2sh_data],
+      ['P2TR', p2tr_data],
+      ['P2PKH', p2pkh_data],
+    ])('refuses a %s address, which qbit consensus does not accept', (_type, data) => {
+      expect(isValidAddress(data.mainnet_address, NetworkType.MAINNET)).toBe(false)
+      expect(isValidAddress(data.testnet_address, NetworkType.TESTNET)).toBe(false)
     })
 
     it('should validate P2MR addresses against the selected qbit network', () => {
@@ -228,11 +218,10 @@ describe('address', () => {
     const networks = [NetworkType.MAINNET, NetworkType.TESTNET]
     const networkNames = ['MAINNET', 'TESTNET']
 
-    it('reports the qbit Core P2MR dust threshold', () => {
-      expect(decodeAddress(p2mr_data.regtest_address)).toMatchObject({
+    it('decodes a P2MR address without a dust value', () => {
+      expect(decodeAddress(p2mr_data.regtest_address)).toEqual({
         addressType: AddressType.P2MR,
         networkType: NetworkType.REGTEST,
-        dust: 2855,
       })
     })
 

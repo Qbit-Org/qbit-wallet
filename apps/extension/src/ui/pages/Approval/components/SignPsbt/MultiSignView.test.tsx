@@ -66,7 +66,6 @@ vi.mock('@/ui/components/AutoFitVirtualList', async () => {
       )
   };
 });
-vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', () => ({ default: () => null }));
 vi.mock('@/ui/components/PhishingDetection', () => ({ PhishingDetection: () => null }));
 vi.mock('@/ui/components/QbitRestoredFloorWarning', () => ({ QbitRestoredFloorWarning: () => null }));
 vi.mock('@/ui/components/SignPsbtWithRisksPopover', () => ({
@@ -166,7 +165,6 @@ function multiSignLogic(overrides: Record<string, unknown> = {}) {
     toSignDatas,
     currentToSignData: undefined,
     currentDecodedPsbt: undefined,
-    isColdWalletSigning: false,
     showMultiSignView: true,
     disclaimerVisible: false,
     localPsbtSummary: summary,
@@ -198,8 +196,6 @@ function multiSignLogic(overrides: Record<string, unknown> = {}) {
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     onRiskPopoverConfirm: vi.fn(),
     onRiskPopoverClose: vi.fn(),
     onDisclaimerModalClose: vi.fn(),

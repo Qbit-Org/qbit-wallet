@@ -97,18 +97,6 @@ vi.mock('@/ui/components', async () => {
 });
 
 vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
-vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', async () => {
-  const React = await import('react');
-  return {
-    default: () => React.createElement('div', { 'data-testid': 'cold-wallet-signing' })
-  };
-});
-vi.mock('@/ui/components/ColdWallet', async () => {
-  const React = await import('react');
-  return {
-    ColdWalletSignMessage: () => React.createElement('div', { 'data-testid': 'cold-wallet-message-signing' })
-  };
-});
 vi.mock('@/ui/components/ContractPopover', () => ({ ContractPopover: () => null }));
 vi.mock('@/ui/components/LoadingPage', async () => {
   const React = await import('react');
@@ -196,7 +184,6 @@ function createSignMessageLogicResult(
     loading: false,
     t: (key: string) => key,
     session,
-    isColdWalletSigning: false,
     showMultiSignView: false,
     disclaimerVisible: false,
     toSignMessages: [toSignMessage],
@@ -214,8 +201,6 @@ function createSignMessageLogicResult(
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     readonlySignature: '',
     setReadonlySignature: vi.fn(),
     onDisclaimerModalClose: vi.fn(),
@@ -239,7 +224,6 @@ function createSignPsbtLogicResult(overrides: Record<string, unknown> = {}): Ret
     currentDecodedPsbt: {},
     readonlySignedPsbtHex: '',
     setReadonlySignedPsbtHex: vi.fn(),
-    isColdWalletSigning: false,
     showMultiSignView: false,
     disclaimerVisible: false,
     localPsbtSummary: null,
@@ -264,8 +248,6 @@ function createSignPsbtLogicResult(overrides: Record<string, unknown> = {}): Ret
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     onRiskPopoverConfirm: vi.fn(),
     onRiskPopoverClose: vi.fn(),
     onDisclaimerModalClose: vi.fn(),
@@ -536,26 +518,6 @@ describe('approval error recovery screens', () => {
     expect(onClickBack).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps an active cold-wallet message flow mounted while the website check restarts', () => {
-    let logicResult = createSignMessageLogicResult({ isColdWalletSigning: true });
-    vi.mocked(useSignMessageLogic).mockImplementation(() => logicResult);
-
-    const { rerender } = render(
-      <SignMessage params={{ data: { toSignMessages: [toSignMessage as any] }, session }} />
-    );
-    const coldWalletSigning = screen.getByTestId('cold-wallet-message-signing');
-
-    logicResult = createSignMessageLogicResult({
-      loading: true,
-      websiteCheckStatus: 'checking',
-      isColdWalletSigning: true
-    });
-    rerender(<SignMessage params={{ data: { toSignMessages: [toSignMessage as any] }, session }} />);
-
-    expect(screen.getByTestId('cold-wallet-message-signing')).toBe(coldWalletSigning);
-    expect(screen.queryByTestId('message-check-loading-reject-button')).toBeNull();
-  });
-
   it('hands the rendered approval id to the signing logic', () => {
     vi.mocked(useSignPsbtLogic).mockReturnValue(createSignPsbtLogicResult());
     render(<SignPsbt approvalId="psbt-approval-id" params={{ data: { toSignDatas: [toSignData] }, session }} />);
@@ -628,31 +590,6 @@ describe('approval error recovery screens', () => {
     );
     expect((screen.getByTestId('sign-psbt-button') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('psbt-unverified-website-confirmation-input') as HTMLInputElement).checked).toBe(false);
-  });
-
-  it('keeps an active cold-wallet signing flow mounted when the website check restarts', () => {
-    const anotherSession = { ...session, origin: 'https://another.test' };
-    let logicResult = createSignPsbtLogicResult({ websiteCheckStatus: 'unverified' });
-    vi.mocked(useSignPsbtLogic).mockImplementation(() => logicResult);
-
-    const { rerender } = render(<SignPsbt params={{ data: { toSignDatas: [toSignData] }, session }} />);
-
-    fireEvent.click(screen.getByTestId('psbt-unverified-website-confirmation-input'));
-    logicResult = createSignPsbtLogicResult({ websiteCheckStatus: 'unverified', isColdWalletSigning: true });
-    rerender(<SignPsbt params={{ data: { toSignDatas: [toSignData] }, session }} />);
-    const coldWalletSigning = screen.getByTestId('cold-wallet-signing');
-
-    logicResult = createSignPsbtLogicResult({
-      showLoading: true,
-      websiteCheckStatus: 'checking',
-      isColdWalletSigning: true,
-      session: anotherSession
-    });
-    rerender(<SignPsbt params={{ data: { toSignDatas: [toSignData] }, session: anotherSession }} />);
-
-    expect(screen.getByTestId('cold-wallet-signing')).toBe(coldWalletSigning);
-    expect(screen.queryByTestId('psbt-loading-reject-button')).toBeNull();
-    expect(screen.queryByTestId('psbt-unverified-website-confirmation')).toBeNull();
   });
 
   it('does not enter risk-confirmed signing after the website acknowledgement is invalidated', () => {

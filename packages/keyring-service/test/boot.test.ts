@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService } from '../src/keyring-service'
 import type { Encryptor } from '../src/types'
@@ -64,9 +65,9 @@ async function createWallet() {
   await service.boot(password)
   await service.createKeyringWithMnemonics(
     sampleMnemonic,
-    "m/84'/0'/0'/0",
+    "m/87'/1'/0'/0",
     '',
-    AddressType.P2WPKH,
+    AddressType.P2MR,
     1
   )
   return { service, storage }
@@ -77,6 +78,11 @@ async function flushMicrotasks(): Promise<void> {
     await Promise.resolve()
   }
 }
+
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
 
 describe('KeyringService.boot', () => {
   it('stores a random boost value that does not reveal when the wallet was created', async () => {
@@ -135,9 +141,9 @@ describe('KeyringService.boot', () => {
     await expect(service.verifyPassword(password)).resolves.toBe(false)
     await service.createKeyringWithMnemonics(
       sampleMnemonic,
-      "m/84'/0'/0'/0",
+      "m/87'/1'/0'/0",
       '',
-      AddressType.P2WPKH,
+      AddressType.P2MR,
       1
     )
     expect(service.hasVault()).toBe(true)
@@ -150,9 +156,9 @@ describe('KeyringService.boot', () => {
     await expect(service.boot(otherPassword)).resolves.toBeUndefined()
     await service.createKeyringWithMnemonics(
       sampleMnemonic,
-      "m/84'/0'/0'/0",
+      "m/87'/1'/0'/0",
       '',
-      AddressType.P2WPKH,
+      AddressType.P2MR,
       1
     )
     await expect(service.verifyPassword(otherPassword)).resolves.toBe(true)

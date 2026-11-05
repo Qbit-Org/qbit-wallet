@@ -9,7 +9,7 @@ import { SignPsbtWithRisksPopover } from '@/ui/components/SignPsbtWithRisksPopov
 import { ProviderMethodArgs, ProviderMethods } from '@qbit/wallet-background/types';
 import { ADDRESS_TYPES, SignMessageType, ToAddressInfo } from '@qbit/wallet-shared';
 import { useCurrentKeyring, useKeyrings, useTools, useWallet } from '@qbit/wallet-state';
-import { ChainType } from '@qbit/wallet-types';
+import { AddressType, ChainType } from '@qbit/wallet-types';
 import { Connect, SignMessage, SignPsbt, SwitchNetwork } from '../Approval/components';
 import { useNavigate } from '../MainRoute';
 import { testDecodedTx } from './testDecodedTx';
@@ -108,7 +108,7 @@ function TestWalletAccounts() {
             text="Create multiple wallets"
             onClick={async () => {
               const count = 100;
-              const addressTypeInfo = ADDRESS_TYPES[0];
+              const addressTypeInfo = ADDRESS_TYPES.find((v) => v.value === AddressType.P2MR)!;
               for (let i = 0; i < count; i++) {
                 const mnemonics = await wallet.generatePreMnemonic();
                 await wallet.createKeyringWithMnemonics(

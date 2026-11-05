@@ -110,9 +110,6 @@
   "theme_system": {
     "message": "Système"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. Après signature, scannez le code QR signé avec ce portefeuille."
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "Autoriser ce site à changer de chaîne ?"
   },
@@ -341,14 +338,8 @@
   "code_unknown_error": {
     "message": "Erreur inconnue."
   },
-  "cold_wallet_transaction_signing": {
-    "message": "Signature de Transaction de Portefeuille Froid"
-  },
   "collect_your_personal_information": {
     "message": "Collecter vos informations personnelles"
-  },
-  "completed": {
-    "message": "Terminé"
   },
   "confirm": {
     "message": "Confirmer"
@@ -497,9 +488,6 @@
   "enter_your_password": {
     "message": "Entrez votre mot de passe"
   },
-  "export_private_key": {
-    "message": "Exporter la Clé Privée"
-  },
   "failed_to_delete_contact": {
     "message": "Échec de la suppression du contact"
   },
@@ -566,17 +554,8 @@
   "from": {
     "message": "De"
   },
-  "generating": {
-    "message": "Génération..."
-  },
-  "generating_qr_code": {
-    "message": "Génération du code QR..."
-  },
   "go_back": {
     "message": "Retourner"
-  },
-  "hex_private_key": {
-    "message": "Clé Privée Hex :"
   },
   "high_fee_rate_risk_description": {
     "message": "Cette transaction a un taux de frais élevé. Veuillez vous assurer de comprendre les implications de cette action avant de continuer."
@@ -602,29 +581,17 @@
   "i_already_have_a_wallet": {
     "message": "J'ai déjà un portefeuille"
   },
-  "i_have_signed_scan_result": {
-    "message": "J'ai Signé, Scanner le Résultat"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "J'ai sauvegardé Ma Phrase Secrète de Récupération"
   },
   "i_understand_continue": {
     "message": "Je comprends, continuer"
   },
-  "if_you_ever_change_browsers_or_move_computers_you_": {
-    "message": "Si jamais vous changez de navigateur ou d'ordinateur, vous aurez besoin de cette Clé Privée pour accéder à ce compte. Sauvegardez-la dans un endroit sûr et secret"
-  },
   "if_you_insist_on_continuing_proceed_at_your_own_risk": {
     "message": "Si vous insistez pour continuer, procédez à vos propres risques :"
   },
-  "if_you_lose_your_private_key_your_assets_will_be_g": {
-    "message": "Si vous perdez votre Clé Privée, vos actifs disparaîtront !"
-  },
   "if_you_lose_your_secret_recovery_phrase_your_asset": {
     "message": "Si vous perdez votre Phrase Secrète de Récupération, vos actifs disparaîtront !"
-  },
-  "if_you_share_the_private_key_to_others_your_assets": {
-    "message": "Si vous partagez la Clé Privée avec d'autres, vos actifs seront volés !"
   },
   "if_you_share_the_secret_recovery_phrase_to_others_": {
     "message": "Si vous partagez la Phrase Secrète de Récupération avec d'autres, vos actifs seront volés !"
@@ -634,9 +601,6 @@
   },
   "inputs": {
     "message": "Entrées"
-  },
-  "instructions": {
-    "message": "Instructions :"
   },
   "insufficient_balance": {
     "message": "Solde insuffisant."
@@ -709,60 +673,6 @@
   },
   "more": {
     "message": "Plus"
-  },
-  "msg_already_signed": {
-    "message": "Ce message est déjà signé"
-  },
-  "msg_content": {
-    "message": "Contenu du Message"
-  },
-  "msg_detail": {
-    "message": "Détails du Message"
-  },
-  "msg_generate_qr": {
-    "message": "Générer Code QR"
-  },
-  "msg_generate_sign": {
-    "message": "Générer Signature"
-  },
-  "msg_generating_qr": {
-    "message": "Génération du code QR..."
-  },
-  "msg_message": {
-    "message": "Message"
-  },
-  "msg_origin": {
-    "message": "Origine: "
-  },
-  "msg_pending": {
-    "message": "En attente"
-  },
-  "msg_scan_qr_code": {
-    "message": "Veuillez scanner le code QR avec votre portefeuille froid"
-  },
-  "msg_scan_result": {
-    "message": "Résultat du Scan"
-  },
-  "msg_scan_sign": {
-    "message": "Scanner Signature"
-  },
-  "msg_sign": {
-    "message": "Signature de Message"
-  },
-  "msg_sign_type": {
-    "message": "Type de Signature"
-  },
-  "msg_signed": {
-    "message": "Signé"
-  },
-  "msg_start_sign": {
-    "message": "Commencer la signature"
-  },
-  "msg_status": {
-    "message": "État"
-  },
-  "msg_waiting_sign": {
-    "message": "En attente de signature"
   },
   "multisign_disclaimer": {
     "message": "Avertissement MultiSign"
@@ -869,9 +779,6 @@
   "open_as_side_bar": {
     "message": "Ouvrir la barre latérale"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. Ouvrez votre application ou appareil de portefeuille froid."
-  },
   "outputs": {
     "message": "Sorties"
   },
@@ -934,12 +841,6 @@
   },
   "please_pay_attention_to_whether_you_have_backed_up": {
     "message": "Veuillez faire attention à savoir si vous avez sauvegardé la mnémonique/clé privée pour éviter la perte d'actifs"
-  },
-  "previous": {
-    "message": "Précédent"
-  },
-  "private_key_is_only_stored_in_your_browser_it_is_y": {
-    "message": "Il est de votre responsabilité de garder la Clé Privée en sécurité !"
   },
   "provenance": {
     "message": "Provenance"
@@ -1031,9 +932,6 @@
   "restore_wallet": {
     "message": "Restaurer le Portefeuille"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. Examinez et confirmez les détails de la transaction dans votre portefeuille froid."
-  },
   "save": {
     "message": "Enregistrer"
   },
@@ -1045,12 +943,6 @@
   },
   "scammer_address_risk_title": {
     "message": "⚠️ Adresse suspecte détectée"
-  },
-  "scan_this_qr_code": {
-    "message": "2. Scannez ce code QR."
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "Scannez ce code QR avec votre portefeuille froid pour examiner et signer la transaction."
   },
   "search_address_or_name": {
     "message": "Rechercher adresse ou nom"
@@ -1087,9 +979,6 @@
   },
   "settings": {
     "message": "Paramètres"
-  },
-  "show_private_key": {
-    "message": "Afficher la Clé Privée"
   },
   "show_secret_recovery_phrase": {
     "message": "Afficher la Phrase Secrète de Récupération"
@@ -1396,9 +1285,6 @@
   },
   "welcome_screen_title": {
     "message": "An open-source browser extension wallet for sending, receiving, and signing transactions."
-  },
-  "wif_private_key": {
-    "message": "Clé Privée WIF :"
   },
   "you_are_signing": {
     "message": "Vous signez :"

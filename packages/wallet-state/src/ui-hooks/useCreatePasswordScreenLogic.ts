@@ -22,7 +22,7 @@ export interface CreatePasswordScreenOptions {
 
 export function useCreatePasswordScreenLogic(options: CreatePasswordScreenOptions = {}) {
   const nav = useNavigation()
-  const { isNewAccount, fromColdWallet } = nav.getRouteState<'CreatePasswordScreen'>()
+  const { isNewAccount } = nav.getRouteState<'CreatePasswordScreen'>()
   const [newPassword, setNewPassword] = useState('')
   const { t } = useI18n()
 
@@ -42,9 +42,7 @@ export function useCreatePasswordScreenLogic(options: CreatePasswordScreenOption
   const tools = useTools()
 
   const navigateAfterBoot = () => {
-    if (fromColdWallet) {
-      nav.navigate('CreateColdWalletScreen', { fromUnlock: true })
-    } else if (isNewAccount) {
+    if (isNewAccount) {
       nav.navigate('CreateHDWalletScreen', { isImport: false, fromUnlock: true })
     } else {
       nav.navigate('CreateHDWalletScreen', { isImport: true, fromUnlock: true })

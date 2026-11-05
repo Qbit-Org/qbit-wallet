@@ -126,7 +126,8 @@ Controls and evidence:
 - PQC and derived classical secret byte arrays are zeroed in `finally` blocks;
   the PQC WASM tests also inspect scratch zeroization on failure; and
 - the signing-source guard prevents transitive `elliptic`/Bitcore ECDSA from
-  replacing the reviewed `tiny-secp256k1` wallet-signing route;
+  becoming a wallet signer, and checks that no keyring signs with a secp256k1
+  key;
 - the auto-lock (30 seconds to 4 hours, 3 minutes by default) runs on a timer
   and on a wall-clock deadline: a timer does not count the time the computer
   sleeps, so a screen action after the deadline, or any change of the

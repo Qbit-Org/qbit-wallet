@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { BUS_EVENTS, BUS_METHODS } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService } from '../src/keyring-service'
@@ -166,7 +167,7 @@ async function createUnlockedWallet(
   })
   await service.boot('password')
   for (const mnemonic of mnemonics) {
-    await service.createKeyringWithMnemonics(mnemonic, "m/84'/0'/0'/0", '', AddressType.P2WPKH, 1)
+    await service.createKeyringWithMnemonics(mnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1)
   }
   return { service, storage, encryptor }
 }
@@ -244,6 +245,11 @@ async function createLockedService(
   eventBus.emit.mockClear()
   return service
 }
+
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
 
 describe('KeyringService.submitPassword', () => {
   it('waits for pre-unlock work before publishing the unlocked state', async () => {
@@ -342,9 +348,9 @@ describe('KeyringService.submitPassword', () => {
     const service = await createLockedService(eventBus, async unlockedService => {
       await unlockedService.createKeyringWithMnemonics(
         sampleMnemonic,
-        "m/84'/0'/0'/0",
+        "m/87'/1'/0'/0",
         '',
-        AddressType.P2WPKH,
+        AddressType.P2MR,
         1
       )
     })
@@ -561,9 +567,9 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     const singleKeyringVault = service.store.getState().vault
     await service.createKeyringWithMnemonics(
       secondMnemonic,
-      "m/84'/0'/0'/0",
+      "m/87'/1'/0'/0",
       '',
-      AddressType.P2WPKH,
+      AddressType.P2MR,
       1
     )
     await service.setLocked()
@@ -585,9 +591,9 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     const singleKeyringVault = service.store.getState().vault
     await service.createKeyringWithMnemonics(
       secondMnemonic,
-      "m/84'/0'/0'/0",
+      "m/87'/1'/0'/0",
       '',
-      AddressType.P2WPKH,
+      AddressType.P2MR,
       1
     )
     const twoKeyringVault = service.store.getState().vault

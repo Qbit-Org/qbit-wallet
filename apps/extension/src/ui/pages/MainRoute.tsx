@@ -44,7 +44,6 @@ import EditAccountNameScreen from './Settings/EditAccountNameScreen';
 import EditContactScreen from './Settings/EditContactScreen';
 import EditWalletNameScreen from './Settings/EditWalletNameScreen';
 import ExportMnemonicsScreen from './Settings/ExportMnemonicsScreen';
-import ExportPrivateKeyScreen from './Settings/ExportPrivateKeyScreen';
 import AppearanceScreen from './Settings/AppearanceScreen';
 import BiometricUnlockScreen from './Settings/BiometricUnlockScreen';
 import LanguageScreen from './Settings/LanguageScreen';
@@ -153,10 +152,6 @@ export const routes = {
   ExportMnemonicsScreen: {
     path: '/settings/export-mnemonics',
     element: <ExportMnemonicsScreen />
-  },
-  ExportPrivateKeyScreen: {
-    path: '/settings/export-privatekey',
-    element: <ExportPrivateKeyScreen />
   },
   AdvancedScreen: {
     path: '/settings/advanced',

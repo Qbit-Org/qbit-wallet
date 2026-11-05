@@ -1,25 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { AddressType, ChainType } from '@qbit/wallet-types'
+import { UI_CONTROLLER_METHODS } from '../src/controllers/ui-access'
 import { WalletController } from '../src/controllers/wallet'
-import { preferenceService } from '../src/services'
 
 vi.mock('../src/services', () => ({
-  keyringService: {
-    addKeyring: vi.fn(),
-    displayForKeyring: vi.fn(),
-    keyrings: [] as any[],
-  },
-  preferenceService: {
-    getChainType: vi.fn(() => ChainType.QBIT_MAINNET),
-    setShowSafeNotice: vi.fn(),
-  },
-  sessionService: {
-    broadcastEvent: vi.fn(),
-  },
-  contactBookService: {
-    listAlias: vi.fn(() => []),
-  },
+  keyringService: { keyrings: [] as any[] },
+  preferenceService: {},
+  sessionService: {},
+  contactBookService: {},
   permissionService: {},
 }))
 
@@ -27,34 +15,15 @@ vi.mock('../src/services/approval', () => ({
   default: {},
 }))
 
-const sampleXpub =
-  'xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKrhko4egpiMZbpiaQL2jkwSB1icqYh2cfDfVxdx4df189oLKnC5fSwqPfgyP3hooxujYzAu3fDVmz'
-
+// No hardware or cold signer supports qbit's SLH-DSA signatures (D5), so the
+// wallet offers no way to add one; KeyringService.addKeyring refuses a
+// ColdWalletKeyring as well.
 describe('WalletController hardware-wallet gating', () => {
-  let controller: WalletController
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    controller = new WalletController()
-  })
-
-  it.each([ChainType.QBIT_MAINNET, ChainType.QBIT_TESTNET4, ChainType.QBIT_REGTEST])(
-    'refuses cold-wallet creation on %s',
-    async chainType => {
-      vi.mocked(preferenceService.getChainType).mockReturnValue(chainType)
-      await expect(
-        controller.createKeyringWithColdWallet(sampleXpub, AddressType.P2WPKH)
-      ).rejects.toThrow('hardware_wallet_not_supported')
-    }
-  )
-
-  it.each([ChainType.QBIT_MAINNET, ChainType.QBIT_TESTNET4, ChainType.QBIT_REGTEST])(
-    'refuses xpub account derivation on %s',
-    async chainType => {
-      vi.mocked(preferenceService.getChainType).mockReturnValue(chainType)
-      await expect(
-        controller.deriveAccountsFromXpub(sampleXpub, AddressType.P2WPKH)
-      ).rejects.toThrow('hardware_wallet_not_supported')
+  it.each(['createKeyringWithColdWallet', 'deriveAccountsFromXpub'])(
+    'has no %s method, and the UI port allows none',
+    method => {
+      expect(method in new WalletController()).toBe(false)
+      expect(UI_CONTROLLER_METHODS as readonly string[]).not.toContain(method)
     }
   )
 })

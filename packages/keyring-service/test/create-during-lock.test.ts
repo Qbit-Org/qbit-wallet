@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { BUS_EVENTS, BUS_METHODS } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService } from '../src/keyring-service'
@@ -7,7 +8,7 @@ import type { Encryptor } from '../src/types'
 
 const sampleMnemonic =
   'finish oppose decorate face calm tragic certain desk hour urge dinosaur mango'
-const samplePrivateKey = '88544d58a328a380a4a433e4bb44b2a9f8a1152b1467393cfc8f8e5d81137162'
+const readonlyPubkey = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 function deferred() {
   let resolve!: () => void
@@ -79,16 +80,20 @@ const unlockedBroadcasts = (eventBus: { emit: ReturnType<typeof vi.fn> }) =>
       event === BUS_EVENTS.broadcastToUI && payload?.method === BUS_METHODS.UNLOCKED
   )
 
+beforeAll(async () => {
+  await init()
+})
+
 describe('KeyringService create and import while the wallet locks', () => {
   const creates = [
     [
       'createKeyringWithMnemonics',
       (service: KeyringService) =>
-        service.createKeyringWithMnemonics(sampleMnemonic, "m/84'/0'/0'/0", '', AddressType.P2WPKH, 1),
+        service.createKeyringWithMnemonics(sampleMnemonic, "m/87'/1'/0'/0", '', AddressType.P2MR, 1),
     ],
     [
-      'importPrivateKey',
-      (service: KeyringService) => service.importPrivateKey(samplePrivateKey, AddressType.P2WPKH),
+      'importPublicKeyOnly',
+      (service: KeyringService) => service.importPublicKeyOnly(readonlyPubkey, AddressType.P2WPKH),
     ],
   ] as const
 

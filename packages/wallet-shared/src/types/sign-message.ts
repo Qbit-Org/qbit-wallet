@@ -4,8 +4,6 @@ import type { QbitProviderApprovalContext, QbitSignatureBudgetImpact } from './q
 export type { P2mrMessageProof } from '@qbit-oss/protocol'
 
 export enum SignMessageType {
-  ECDSA = 'ecdsa',
-  BIP322_SIMPLE = 'bip322-simple',
   P2MR = 'p2mr',
 }
 
