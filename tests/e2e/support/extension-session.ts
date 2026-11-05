@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import {
@@ -24,6 +24,11 @@ interface ExtensionSessionOptions {
 interface ExtensionManifest {
   manifest_version?: number
   background?: { service_worker?: string }
+}
+
+interface LocaleMessage {
+  message: string
+  placeholders?: Record<string, unknown>
 }
 
 const EXTENSION_WORKER_URL = /^chrome-extension:\/\/([a-p]{32})\//
@@ -259,6 +264,28 @@ export class ExtensionSession {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ExtensionManifest
     if (manifest.manifest_version !== 3 || !manifest.background?.service_worker) {
       throw new Error(`extension build at ${manifestPath} is not an MV3 service-worker build`)
+    }
+    // Chrome refuses the whole extension over a $name$ a message does not define, and
+    // shows a dialog instead of a window, so the launch would hang until the test times out.
+    const localesDir = resolve(extensionDist, '_locales')
+    for (const locale of existsSync(localesDir) ? await readdir(localesDir) : []) {
+      const messagesPath = resolve(localesDir, locale, 'messages.json')
+      if (!existsSync(messagesPath)) continue
+      const messages = JSON.parse(await readFile(messagesPath, 'utf8')) as Record<
+        string,
+        LocaleMessage
+      >
+      for (const [key, { message, placeholders = {} }] of Object.entries(messages)) {
+        const defined = Object.keys(placeholders).map(name => name.toLowerCase())
+        const token = [...message.matchAll(/\$([A-Za-z0-9_@]+)\$/g)].find(
+          ([, name]) => !defined.includes(name!.toLowerCase())
+        )
+        if (token) {
+          throw new Error(
+            `Chrome will not load the extension: ${messagesPath} ${key} uses ${token[0]}, which it does not define as a placeholder`
+          )
+        }
+      }
     }
   }
 
