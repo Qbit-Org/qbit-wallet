@@ -1,5 +1,25 @@
 # @qbit/preference-service
 
+## 1.0.0
+
+### Major Changes
+
+- de81656: Remove the signData and deriveContextHash approval screens, the developer-mode setting that allowed signData requests, and the background methods behind them. No provider method opened either screen. Breaking change: `WalletController` no longer has `getEnableSignData`, `setEnableSignData` or `deriveContextHash`, and `UI_CONTROLLER_METHODS` no longer lists the first two, so `getUiControllerMethod` refuses them. `PreferenceService` no longer has `getEnableSignData` or `setEnableSignData`, and `BasePreferenceStore` no longer has `enableSignData`. A stored `enableSignData` value is dropped when the preferences load and is not saved again. In `@qbit/wallet-state`, the `WalletController` interface no longer declares `getEnableSignData` or `setEnableSignData`.
+
+### Patch Changes
+
+- de81656: Add two lock settings: `lockOnComputerLock` and `lockOnWindowsClosed`. Both are on by default, also for preferences stored before they existed, and a missing or malformed stored value reads as on. `getLockOnComputerLock`/`setLockOnComputerLock` and `getLockOnWindowsClosed`/`setLockOnWindowsClosed` read and save them; the setters resolve once the value is on disk and reject a failed save, as the other security settings do.
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+  - @qbit/wallet-shared@3.0.0
+  - @qbit/wallet-storage@0.3.2
+
 ## 0.3.6
 
 ### Patch Changes
