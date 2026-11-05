@@ -1,5 +1,28 @@
 # @qbit/keyring-service
 
+## 1.4.1
+
+### Patch Changes
+
+- eb9f779: Refuse a restore floor read from address statistics that an explorer could have inflated. A restored address whose history is too long to enumerate takes its signature-counter floor from the explorer's address statistics, and inflated but self-consistent statistics could set that floor as high as the whole 2^30 budget. No path lowers a floor, so the account could not sign until the wallet was restored again. The statistics read now fails, as its other consistency checks do, when a scope lists more funded or spent outputs than its transactions can carry. A transaction fits in the 2,000,000-byte block, so it carries at most 46,511 outputs paying a P2MR address and 536 inputs spending one. The read also fails when the floor reaches the 2^28-signature warning threshold, and so does the restore floor scan when testnet4 and regtest floors, which share a counter, reach it together and either came from statistics. Either refusal fails the floor scan, so `pqcFloorsPending` stays set, signing stays locked and the scan can be retried against an honest explorer. A floor below the threshold, from statistics within those bounds, is accepted as before. `@qbit/keyring-service` now exports `PQC_WARNING_SIGNATURE_THRESHOLD`, so the wallet reads the threshold from one place. No vault field changes.
+- eb9f779: Use `@qbit-oss/pqc` and `@qbit-oss/protocol` 0.1.1. Keys, addresses, signatures and PSBT bytes are unchanged: new derivation vectors, generated with 0.1.0 from public BIP39 test phrases with and without a passphrase on every network, pass unchanged. Signing now refuses a PSBT that qbit Core would refuse (no inputs or outputs, two inputs spending one output, an input spending the null outpoint, or a PSBT key with data after a type that must stand alone) before any signer call, so no signature counter is spent on it. A derived key's new `publicKey` and `secretKey` names are the same arrays as `pk32` and `sk64`, which the keyring zeroes after each use.
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+  - @qbit/wallet-shared@2.0.1
+  - @qbit/wallet-core@1.1.6
+  - @qbit/wallet-storage@0.3.1
+
 ## 1.4.0
 
 ### Minor Changes

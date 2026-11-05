@@ -1,5 +1,0 @@
----
-'@qbit/wallet-background': patch
----
-
-A send screen opened after a pending send was replaced or evicted no longer gets its outputs from a read that started before. `getQbitUtxoSnapshot` shares a running read only with a screen whose address statistics read exactly as they did when that read started. A screen whose statistics show the history has got further still replaces the running read, and that read's screens get the new answer. A screen whose statistics differ any other way reads the outputs apart from it, sharing that read only with screens whose statistics read the same as its own: a pending send replaced with the counts unchanged, or evicted so that they drop, or an older answer from a lagging node. Until now such a screen joined the running read and could build a send on change that no longer existed, which the node refused after the signature was made. The running read carries on for its own screens, so a lagging node's answers still cannot keep restarting it; those screens get the outputs of the state they saw, as a read of their own would have given them.
