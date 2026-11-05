@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-connect",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Web3 wallet connection library for Qbit wallets",
   "main": "lib/index.js",

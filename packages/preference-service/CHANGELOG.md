@@ -1,5 +1,26 @@
 # @qbit/preference-service
 
+## 0.3.6
+
+### Patch Changes
+
+- eb9f779: Show only the selected account's transactions in History (#77). `getAddressHistory` read every account of the wallet as one history, so each account listed the others' transactions and a payment between two accounts showed as a transfer to itself in both. It now reads only the selected account's own address, the address its balance reads: the first page, later pages, the snapshot a refresh reuses and the revision probe all cover that one address. A payment between two accounts is a send in the paying account and a receive in the other, with the other account's address as the counterparty. With one address the refresh always uses the revision probe, so history no longer calls `probeQbitAccountHistoryAncestry`. The history key (`scopeKey`, and `useHistoryScopeKey` in `@qbit/wallet-state`) is now `qbit-account:<chain>:<account pubkey>`, one per account, so a snapshot of one account is refused for another and a read that finishes after an account switch is stored under the account it read. `getAddressHistory` and `getAddressCacheHistory` refuse an address that is not the selected account's before reading the explorer, and a refresh whose account changes during its revision probe ends there, whether or not the probe succeeded, instead of scanning the account again. History cached by earlier builds under the wallet-wide `qbit:<chain>:<first account's pubkey>` key is never read, and `@qbit/preference-service` drops those entries when it loads. In `@qbit/wallet-state`, `useFetchHistoryCallback` records a failed read as a history error only while its account is still selected, so a read the background refuses after a switch does not show an error when that account is selected again. Because the cache now holds one entry per account, `updateAddressHistory` keeps only the 16 most recently written entries. Receive selects each new receive address as it moves on, so History then shows that address's transactions, as the balance card does.
+- eb9f779: Keep the stored sign-data, auto-lock and replace-by-fee settings in line with memory when a change of one of them fails to save. Before, the previous value put back after a failed save was saved once more and a failure of that save was only logged, so when another save of the preferences had written the rejected value in the meantime, that value stayed on disk: a failed attempt to turn sign-data requests on could still turn them on at the next start. `setEnableSignData`, `setAutoLockTimeId` and `setEnableRBF` now try to save the previous value up to three times, 100 and 200 ms apart. They stop at once when `resetAllData` is replacing the store, which then decides what is stored, and stop early when a newer change of the same setting is waiting. When the previous value was not saved, including when a newer change cut the retry short after a failed save, they reject with a `WalletError` whose code is the new `ErrorCodes.PREFERENCE_NOT_RESTORED` (message key `setting_not_saved_may_have_changed`) instead of the error of the first save. The sign-data setting and the auto-lock time page (`useLockTimePageLogic`) then say that the change was not saved and that the stored setting may have changed. The send screen's replace-by-fee switch still only logs a failed save of that setting. The stored preference format does not change.
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+  - @qbit/wallet-shared@2.0.1
+  - @qbit/wallet-storage@0.3.1
+
 ## 0.3.5
 
 ### Patch Changes

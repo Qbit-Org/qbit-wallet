@@ -1,5 +1,23 @@
 # @qbit/approval-service
 
+## 2.0.2
+
+### Patch Changes
+
+- eb9f779: End a website approval with the page that asked for it. `ApprovalService.requestApproval` takes an optional third argument, `onPending(id)`, which receives the new approval's id before its window opens, so the caller can later reject that approval and no other. A provider request now carries the page it came from (`page: { signal, approvalIds }`): the request keeps the id of the approval it waits on in `approvalIds`, and the extension rejects those approvals and aborts `signal` when the page's provider port disconnects. A request whose page is gone before its provider method runs is never executed: it stops before its approval is shown, and the request checks the page after every approval and again right before the provider method starts, so an approval that settles after the page went away is never acted on. A provider method that is already running when the page goes away completes, since stopping it halfway could spend a signature without a broadcast or leave a broadcast's outcome unknown. Requests waiting for the wallet to unlock share one unlock request: a page that goes away stops only its own request, the unlock request stays open while another request still waits on it, and it is cancelled once no request waits, so its window no longer blocks other sites. A request without a page behaves as before.
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+- Updated dependencies [eb9f779]
+  - @qbit/wallet-shared@2.0.1
+
 ## 2.0.1
 
 ### Patch Changes

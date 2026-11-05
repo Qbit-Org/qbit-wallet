@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-api",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "private": true,
   "description": "API client and local service interfaces for Qbit Wallet",
   "main": "lib/index.js",
