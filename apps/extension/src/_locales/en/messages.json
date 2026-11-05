@@ -113,15 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. After signing, scan the signed QR code back with this wallet."
   },
-  "all_marked_as_read": {
-    "message": "All marked as read"
-  },
-  "all_read": {
-    "message": "All Read"
-  },
-  "allow_sign_data_requests": {
-    "message": "Allow signData requests"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "Allow this site to switch the chain?"
   },
@@ -136,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "Amount must be at least"
-  },
-  "announcement": {
-    "message": "Announcement"
   },
   "appDescription": {
     "message": "Qbit Wallet enables users to send, receive and transact in native Qbit (QBT) and its native ecosystem."
@@ -494,15 +482,6 @@
   "edit_name": {
     "message": "Edit Name"
   },
-  "enable_sign_data_popover_warning": {
-    "message": "Allowing signData requests can make you vulnerable to phishing attacks. Always review the URL and be careful when signing messages that contain code."
-  },
-  "enable_sign_data_popover_warning_2": {
-    "message": "If you've been asked to turn this setting on, you might be getting scammed"
-  },
-  "enable_sign_data_warning": {
-    "message": "If you enable this setting, you might get signature requests that aren't readable. By signing a message you don't understand, you could be agreeing to give away your funds and NFTs.You're at risk for phishing attacks. Protect yourself by turning off signData."
-  },
   "enter": {
     "message": "Enter"
   },
@@ -626,9 +605,6 @@
   "i_have_signed_scan_result": {
     "message": "I Have Signed, Scan Result"
   },
-  "i_only_sign_what_i_understand": {
-    "message": "I only sign what I understand"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "I saved My Secret Recovery Phrase"
   },
@@ -676,9 +652,6 @@
   },
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "Invalid wallet, please remove it and add new one"
-  },
-  "just_now": {
-    "message": "Just now"
   },
   "keyring_error_account_count": {
     "message": "account count must be greater than 0"
@@ -866,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "No matching contacts found"
   },
-  "no_notifications": {
-    "message": "No notifications"
-  },
   "not_connected": {
     "message": "Not connected"
   },
@@ -880,9 +850,6 @@
   },
   "notice": {
     "message": "Notice"
-  },
-  "notifications": {
-    "message": "Notifications"
   },
   "ok": {
     "message": "OK"
@@ -1145,33 +1112,6 @@
   "sign_all_transactions_at_once": {
     "message": "You have the option to sign all transactions at once, but please note that Qbit Wallet will not verify each transaction individually. We strongly recommend using it only on trusted and familiar websites to minimize the risk of potential losses."
   },
-  "derive_context_hash_request": {
-    "message": "Generate Identifier"
-  },
-  "derive_context_hash_description": {
-    "message": "This site is requesting a unique identifier tied to your wallet for the following context."
-  },
-  "derive_context_hash_app_name": {
-    "message": "Application"
-  },
-  "derive_context_hash_account": {
-    "message": "Account"
-  },
-  "derive_context_hash_network": {
-    "message": "Network"
-  },
-  "derive_context_hash_context": {
-    "message": "Context"
-  },
-  "derive_context_hash_warning": {
-    "message": "Only approve if you trust this site."
-  },
-  "sign_data_request": {
-    "message": "Sign Data request"
-  },
-  "sign_data_requests": {
-    "message": "signData requests"
-  },
   "sign_multiple_transactions": {
     "message": "Sign Multiple Transactions"
   },
@@ -1183,9 +1123,6 @@
   },
   "signature_request": {
     "message": "Signature request"
-  },
-  "signdata_required_tip": {
-    "message": "You need to enable the signData request feature in Settings -> Advanced to continue."
   },
   "signed": {
     "message": "Signed"
@@ -1273,9 +1210,6 @@
   },
   "to": {
     "message": "To"
-  },
-  "to_continue": {
-    "message": "to continue"
   },
   "to_proceed": {
     "message": "to proceed"
@@ -1412,9 +1346,6 @@
   "understand_and_accept_the_risks_associated_with_this_transaction": {
     "message": "I understand and accept the risks associated with this transaction."
   },
-  "understand_sign_data_warning": {
-    "message": "I understand that I can lose all of my funds and NFTs if I enable signData requests."
-  },
   "unknown_error": {
     "message": "Unknown error"
   },
@@ -1438,9 +1369,6 @@
   },
   "view": {
     "message": "View"
-  },
-  "view_detail": {
-    "message": "View Detail"
   },
   "view_on_block_explorer": {
     "message": "View on Block Explorer"
@@ -1474,9 +1402,6 @@
   },
   "you_are_signing": {
     "message": "You are signing:"
-  },
-  "you_are_signing_data": {
-    "message": "You are signing data:"
   },
   "you_haven_t_added_any_addresses": {
     "message": "You haven't added any addresses"

@@ -36,6 +36,9 @@ class StoreDefinition extends PreferenceService {
 // the service reads with a fallback of its own.
 const OPTIONAL_KEYS = ['regtestAccessAck', 'guideReaded', 'addressSummary']
 
+// Settings earlier releases saved that this build drops when it loads them.
+const DROPPED_KEYS = ['enableSignData']
+
 async function loadPreferences(dump: ReleaseStorage) {
   const storage = new DumpStorage(dump.storage)
   const service = new PreferenceService()
@@ -46,9 +49,9 @@ async function loadPreferences(dump: ReleaseStorage) {
 describe.each(RELEASES)('preferences stored by %s', release => {
   // Many saved values equal the defaults (currentKeyringIndex is 0), so a
   // renamed setting would still load with the right value: compare the keys.
-  it('hold only settings this build still defines', () => {
+  it('hold only settings this build still defines or drops', () => {
     const saved = readReleaseStorage(release).storage['preference'] as Record<string, unknown>
-    const defined = new Set([...new StoreDefinition().keys(), ...OPTIONAL_KEYS])
+    const defined = new Set([...new StoreDefinition().keys(), ...OPTIONAL_KEYS, ...DROPPED_KEYS])
 
     for (const key of Object.keys(saved)) {
       expect(defined.has(key), `${key} is not a setting of the current store`).toBe(true)
@@ -110,6 +113,9 @@ describe.each(RELEASES)('preferences stored by %s', release => {
       'accountAlianNames',
     ]) {
       expect(saved[key], key).toEqual(before[key])
+    }
+    for (const key of DROPPED_KEYS) {
+      expect(saved, key).not.toHaveProperty(key)
     }
   })
 })

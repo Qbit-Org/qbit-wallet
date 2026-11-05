@@ -47,7 +47,6 @@ const background = vi.hoisted(() => {
     biometricUnlockService: { init: vi.fn(reads('biometricUnlock')) },
     contactBookService: { init: vi.fn(reads('contactBook')) },
     keyringService: { init: vi.fn(reads('keyringState')) },
-    notificationService: { init: vi.fn(reads('notifications')) },
     permissionService: { init: vi.fn(reads('permission')) },
     phishingDetectService: { init: vi.fn() },
     preferenceService: {
@@ -59,12 +58,6 @@ const background = vi.hoisted(() => {
       setChainType: vi.fn()
     },
     qbitSendGuardService: { init: vi.fn() },
-    // Clears its key on every start, as the real one does.
-    walletApiService: {
-      init: vi.fn(async ({ storage }: ServiceConfig) => {
-        await storage.set('openapi', null);
-      })
-    },
     walletController: {
       initRegtestAccess: vi.fn(),
       prepareStartupChainType: vi.fn(),
@@ -79,11 +72,10 @@ vi.mock('@qbit-oss/pqc', () => ({ init: vi.fn() }));
 vi.mock('@qbit-oss/pqc/wasm/pqc.mjs', () => ({ default: vi.fn() }));
 vi.mock('@qbit/phishing-detect', () => ({ ExtensionAdapter: class {} }));
 vi.mock('../regtest/regtestAccessAdapter', () => ({
-  createLockedRegtestAccessAdapter: vi.fn(),
-  createRegtestAccessAdapter: vi.fn()
+  createLockedRegtestAccessAdapter: vi.fn(() => 'locked regtest adapter'),
+  createRegtestAccessAdapter: vi.fn(() => 'regtest adapter')
 }));
 vi.mock('../utils/encryptor', () => ({ encryptor: {} }));
-vi.mock('../utils/http-client/httpClient', () => ({ HttpClient: class {} }));
 
 // A fresh module graph is what a restarted service worker gets.
 const startWorker = async () => {
@@ -142,8 +134,8 @@ describe('restoreAppState', () => {
     expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledTimes(1);
     expect(isAppStateRestored()).toBe(true);
     expect(background.contactBookService.init).toHaveBeenCalledTimes(1);
-    // Only the write a normal start makes, and it leaves the value as it was.
-    expect(browserStorage.set.mock.calls).toEqual([[{ openapi: null }]]);
+    // A normal start writes nothing.
+    expect(browserStorage.set).not.toHaveBeenCalled();
     expect(browserStorage.disk).toEqual(STORE_1_0_6);
   });
 
@@ -170,13 +162,13 @@ describe('restoreAppState', () => {
     ['finished', () => undefined],
     [
       'failed',
-      () => background.notificationService.init.mockRejectedValueOnce(new Error('notification store is malformed'))
+      () => background.contactBookService.init.mockRejectedValueOnce(new Error('contact book store is malformed'))
     ]
   ])('leaves a read that fails once start-up has %s with its own error', async (_outcome, arrange) => {
     arrange();
     await startWorker();
 
-    // The vault, permissions and notifications are read again later, through
+    // The vault, permissions and contacts are read again later, through
     // the adapter start-up handed to the services.
     const [[{ storage: adapter }]] = background.keyringService.init.mock.calls;
     const { default: storage } = await import('../utils/storage');
@@ -187,12 +179,14 @@ describe('restoreAppState', () => {
   });
 
   it('reports another failure as failed, not as still starting, without blaming the stored settings', async () => {
-    background.notificationService.init.mockRejectedValueOnce(new Error('notification store is malformed'));
+    background.contactBookService.init.mockRejectedValueOnce(new Error('contact book store is malformed'));
 
-    await startWorker();
+    const { isAppStateRestored } = await startWorker();
 
     expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith('unknown');
     expect(background.walletController.setBackgroundInited).not.toHaveBeenCalled();
+    expect(isAppStateRestored()).toBe(false);
+    expect(background.phishingDetectService.init).not.toHaveBeenCalled();
   });
 
   it('starts the rest of the background, phishing protection included, when the permission service fails to start', async () => {
@@ -201,7 +195,6 @@ describe('restoreAppState', () => {
     const { isAppStateRestored } = await startWorker();
 
     expect(background.contactBookService.init).toHaveBeenCalledTimes(1);
-    expect(background.notificationService.init).toHaveBeenCalledTimes(1);
     expect(background.phishingDetectService.init).toHaveBeenCalledTimes(1);
     expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
     expect(background.walletController.setBackgroundStartupFailed).not.toHaveBeenCalled();
@@ -224,8 +217,52 @@ describe('restoreAppState', () => {
     expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith('stored-settings-unreadable');
     expect(background.walletController.setBackgroundInited).not.toHaveBeenCalled();
     expect(isAppStateRestored()).toBe(false);
-    // Only the write a normal start makes before the permission service.
-    expect(browserStorage.set.mock.calls).toEqual([[{ openapi: null }]]);
+    expect(browserStorage.set).not.toHaveBeenCalled();
+  });
+
+  it('moves a persisted regtest selection to mainnet, and still starts, when the regtest check fails', async () => {
+    background.walletController.prepareStartupChainType.mockRejectedValueOnce(new Error('regtest service unreachable'));
+    background.preferenceService.getChainType.mockReturnValueOnce(ChainType.QBIT_REGTEST);
+
+    const { isAppStateRestored } = await startWorker();
+
+    expect(background.walletController.initRegtestAccess.mock.calls).toEqual([[{ adapter: 'regtest adapter' }]]);
+    expect(background.preferenceService.setChainType).toHaveBeenCalledExactlyOnceWith(ChainType.QBIT_MAINNET);
+    expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
+    expect(isAppStateRestored()).toBe(true);
+    expect(browserStorage.set).not.toHaveBeenCalled();
+  });
+
+  it.each([ChainType.QBIT_MAINNET, ChainType.QBIT_TESTNET4])(
+    'leaves a persisted %s selection as it was when the regtest check fails',
+    async (chainType) => {
+      background.walletController.prepareStartupChainType.mockRejectedValueOnce(new Error('regtest service unreachable'));
+      background.preferenceService.getChainType.mockReturnValueOnce(chainType);
+
+      await startWorker();
+
+      expect(background.preferenceService.setChainType).not.toHaveBeenCalled();
+      expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
+    }
+  );
+
+  it('locks regtest access and moves a persisted regtest selection to mainnet when the check cannot be set up', async () => {
+    background.walletController.initRegtestAccess.mockImplementationOnce(() => {
+      throw new Error('permissions API unavailable');
+    });
+    background.preferenceService.getChainType.mockReturnValueOnce(ChainType.QBIT_REGTEST);
+
+    await startWorker();
+
+    // Without an adapter the capability has nothing to check, so a locked one
+    // replaces it rather than leaving regtest open for the session.
+    expect(background.walletController.initRegtestAccess.mock.calls).toEqual([
+      [{ adapter: 'regtest adapter' }],
+      [{ adapter: 'locked regtest adapter' }]
+    ]);
+    expect(background.walletController.prepareStartupChainType).not.toHaveBeenCalled();
+    expect(background.preferenceService.setChainType).toHaveBeenCalledExactlyOnceWith(ChainType.QBIT_MAINNET);
+    expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
   });
 
   it('holds a caller that asks during start-up until the background is restored', async () => {
@@ -260,7 +297,7 @@ describe('restoreAppState', () => {
     ],
     [
       'a service fails to start',
-      () => background.notificationService.init.mockRejectedValueOnce(new Error('notification store is malformed')),
+      () => background.contactBookService.init.mockRejectedValueOnce(new Error('contact book store is malformed')),
       'unknown'
     ]
   ])('rejects every caller, before and after, with the reason when %s', async (_label, arrange, reason) => {

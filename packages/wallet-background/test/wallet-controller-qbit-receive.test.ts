@@ -22,10 +22,8 @@ vi.mock('../src/services', () => ({
     setCurrentKeyringIndex: vi.fn(),
     persist: vi.fn(async () => undefined),
   },
-  walletApiService: {},
   sessionService: { broadcastEvent: vi.fn() },
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
 }))
 

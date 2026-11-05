@@ -34,8 +34,6 @@ import {
 | `preferenceService` | Persisted wallet preferences |
 | `phishingController` / `phishingDetectService` | Local website-safety classification |
 | `approvalService` | Approval request lifecycle |
-| `notificationService` | Extension notifications |
-| `walletApiService` | Qbit API clients |
 | `qbitPreparedSendReservationService` | Prepared-send reservation and broadcast coordination |
 
 ## Adapter system

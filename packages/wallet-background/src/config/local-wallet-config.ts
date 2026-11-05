@@ -8,9 +8,7 @@ import type { WalletConfig } from '@qbit/wallet-shared'
  */
 const LOCAL_WALLET_CONFIG: Readonly<WalletConfig> = Object.freeze({
   version: '',
-  moonPayEnabled: false,
   statusMessage: '',
-  endpoint: '',
   chainTip: '',
   disableUtxoTools: true,
 })

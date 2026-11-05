@@ -15,21 +15,18 @@ import {
   biometricUnlockService,
   contactBookService,
   keyringService,
-  notificationService,
   permissionService,
   phishingDetectService,
   preferenceService,
   qbitSendGuardService,
-  walletApiService,
   walletController
 } from '@qbit/wallet-background';
-import { bgI18n, CHAINS_MAP, normalizeChainType, t } from '@qbit/wallet-shared';
+import { bgI18n, normalizeChainType, t } from '@qbit/wallet-shared';
 import { BaseProxyStorageAdapter } from '@qbit/wallet-storage';
 import { ChainType } from '@qbit/wallet-types';
 
 import { createLockedRegtestAccessAdapter, createRegtestAccessAdapter } from '../regtest/regtestAccessAdapter';
 import { encryptor } from '../utils/encryptor';
-import { HttpClient } from '../utils/http-client/httpClient';
 import storage from '../utils/storage';
 
 export const AppInitEvent = new EventEmitter();
@@ -176,14 +173,13 @@ export async function restoreAppState() {
 
     // Local regtest is gated by a background capability (optional loopback
     // host permission + acknowledgement + verified service). Resolve it before
-    // any API client is bound to an endpoint: a persisted regtest selection
-    // that no longer passes falls back to mainnet here, fail-closed.
-    let chainType: ChainType;
+    // the wallet uses the chain: a persisted regtest selection that no longer
+    // passes falls back to mainnet here, fail-closed.
     let regtestGateWired = false;
     try {
       walletController.initRegtestAccess({ adapter: createRegtestAccessAdapter() });
       regtestGateWired = true;
-      chainType = normalizeChainType(await walletController.prepareStartupChainType());
+      await walletController.prepareStartupChainType();
     } catch (regtestGateError) {
       logger.error('[Background] Regtest capability check failed at startup', {
         name: (regtestGateError as { name?: unknown })?.name
@@ -199,21 +195,10 @@ export async function restoreAppState() {
       // nothing about a persisted public network, so testnet/mainnet
       // selections are left exactly as the user left them.
       const persisted = normalizeChainType(preferenceService.getChainType());
-      chainType = persisted === ChainType.QBIT_REGTEST ? ChainType.QBIT_MAINNET : persisted;
-      if (chainType !== persisted) {
-        preferenceService.setChainType(chainType);
+      if (persisted === ChainType.QBIT_REGTEST) {
+        preferenceService.setChainType(ChainType.QBIT_MAINNET);
       }
     }
-    const endpoint = CHAINS_MAP[chainType].endpoints[0];
-    const httpClient = new HttpClient();
-    await startService('wallet API', () =>
-      walletApiService.init({
-        storage: proxyStorage,
-        logger: logger,
-        endpoint,
-        httpClient: httpClient
-      })
-    );
 
     // Without it no website has a grant, and a change to one is refused, until
     // the permissions load again. That fails closed, so the rest of the
@@ -233,14 +218,6 @@ export async function restoreAppState() {
       contactBookService.init({
         storage: proxyStorage,
         logger: logger
-      })
-    );
-
-    await startService('notification', () =>
-      notificationService.init({
-        storage: proxyStorage,
-        logger: logger,
-        api: walletApiService
       })
     );
 

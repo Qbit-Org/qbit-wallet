@@ -49,7 +49,7 @@ The following features do not make a remote request:
 - Website-safety and phishing-list checks.
 - Wallet feature configuration and release flags.
 - Discovery catalog, banners, and application summaries.
-- Announcements, notification content, notification read state, and version-detail notices. Extension updates are left to the browser's extension-store mechanism; the explicit update link is opened only when selected by the user.
+- Version-detail notices. Extension updates are left to the browser's extension-store mechanism; the explicit update link is opened only when selected by the user.
 - Locale-file and WASM loading, which use resources bundled inside the extension.
 - Dapp icons shown in approval and connected-site UI; the wallet displays its bundled icon instead of loading a URL supplied by a website.
 
@@ -85,16 +85,17 @@ The Chrome MV3 manifest requests host access to each denylisted domain and its s
 
 ## Local storage
 
-The extension uses browser extension-local storage, not browser sync storage, for wallet state and preferences. The keyring vault, including software-wallet secret material, is encrypted with the wallet password before persistence. Other local records include connected-site permissions and origins, account preferences, contacts, cached public chain data, locally stored notification state, and the navigation-warning bypass list.
+The extension uses browser extension-local storage, not browser sync storage, for wallet state and preferences. The keyring vault, including software-wallet secret material, is encrypted with the wallet password before persistence. Other local records include connected-site permissions and origins, account preferences, contacts, cached public chain data, and the navigation-warning bypass list. Two records that earlier versions wrote stay in place until the storage cleanup in [#30](https://github.com/Qbit-Org/qbit-wallet/issues/30), which should remove both: `openapi` and `notifications`, the notification store those versions kept. Versions 1.0.2 to 1.0.7 set `openapi` to `null` at every start, which also cleared whatever 1.0.0 or 1.0.1 had kept there. Since 1.0.8 the extension no longer writes it, so an installation that updates from 1.0.1 or earlier straight to 1.0.8 or later keeps that earlier `openapi` record. Both records stay on the device: no wallet code uses either one, and neither is sent anywhere.
 
 The wallet UI also writes the extension pages' `localStorage`, unencrypted and on the device only:
 
 - `redux_localstorage_simple_ui`: the persisted `ui` slice of the wallet state (`packages/wallet-state/src/index.ts`), which holds the send-screen draft (recipient address, amount, memo and RBF choice), the address and amount inputs, the fee-rate selection, the hidden-balance and balance-detail toggles, and the navigation source;
 - `themeMode`: the light or dark theme;
 - `i18nextLng` and `userSelectedLanguage`: the interface language and whether the user chose it;
-- `version_detail`: the last extension version whose bundled version notice was seen or dismissed;
-- `ecosystem_warning_acknowledged`: whether the ecosystem warning was acknowledged; and
-- `@announcement_dismissed_ids`: the bundled announcements the user dismissed.
+- `version_detail`: the last extension version whose bundled version notice was seen or dismissed; and
+- `ecosystem_warning_acknowledged`: whether the ecosystem warning was acknowledged.
+
+Earlier versions could also leave `@announcement_dismissed_ids`, the announcements the user dismissed. No wallet code uses it any more, and it stays until the same cleanup.
 
 None of these keys holds a seed phrase, private key or password.
 
@@ -110,7 +111,7 @@ The wallet contains explicit links to Qbit websites, configured explorers, the s
 
 `apps/extension/scripts/privacy-source-guard.js` scans shipped app and package source and fails on disallowed remote website/config and phishing routes, notification/version/announcement routes, identifying header names, generated device-ID vocabulary, and dapp-controlled session-icon loading. Seeded tests prove every rule detects a violation.
 
-`apps/extension/scripts/runtime-network-audit.test.js` drives one HTTP stack, the qbit-js chain client (`MempoolQbitClient` for Mainnet and Testnet4, `EsploraClient` for Regtest), through five calls on each network: address stats (balance), UTXOs, transaction status, fee estimates, and broadcast. It asserts exactly 15 requests, requires every request to remain beneath the exact configured chain API base, and checks the generated explorer address, block, and transaction URLs. It does not cover history or signing-support requests, and it does not exercise the extension's own HTTP client (`apps/extension/src/background/utils/http-client/httpClient.ts`) or the `@qbit/wallet-api` client (`packages/wallet-api/src/client/http-client.ts`). The `/v5/default/check-website` and `/v5/default/config` routes are rejected only by the static source guard above.
+`apps/extension/scripts/runtime-network-audit.test.js` drives one HTTP stack, the qbit-js chain client (`MempoolQbitClient` for Mainnet and Testnet4, `EsploraClient` for Regtest), through five calls on each network: address stats (balance), UTXOs, transaction status, fee estimates, and broadcast. It asserts exactly 15 requests, requires every request to remain beneath the exact configured chain API base, and checks the generated explorer address, block, and transaction URLs. It does not cover history or signing-support requests. The `/v5/default/check-website` and `/v5/default/config` routes are rejected only by the static source guard above.
 
 The audit is deterministic and does not contact live services. It verifies routing behavior in the wallet clients; it does not make claims about browser-store update traffic, a destination's server-side retention, user-selected websites, or requests made independently by a connected dapp.
 

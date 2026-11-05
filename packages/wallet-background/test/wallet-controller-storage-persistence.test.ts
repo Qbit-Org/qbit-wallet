@@ -53,17 +53,15 @@ describe('WalletController storage persistence', () => {
   })
 
   it('has security settings on disk when the setter resolves, before the debounced save', async () => {
-    await walletController.setEnableSignData(true)
     await walletController.setAutoLockTimeId(1)
     await walletController.setEnableRBF(false)
 
     const reloaded = await reloadPreferences()
-    expect(reloaded.getEnableSignData()).toBe(true)
     expect(reloaded.getAutoLockTimeId()).toBe(1)
     expect(reloaded.getEnableRBF()).toBe(false)
 
-    await walletController.setEnableSignData(false)
-    expect((await reloadPreferences()).getEnableSignData()).toBe(false)
+    await walletController.setEnableRBF(true)
+    expect((await reloadPreferences()).getEnableRBF()).toBe(true)
   })
 
   it('rejects a security setting whose write fails and keeps the previous value', async () => {

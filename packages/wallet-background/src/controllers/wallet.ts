@@ -1,5 +1,3 @@
-import bitcore from 'bitcore-lib'
-
 import { QbitApiError, type EsploraAddressStats, type EsploraTx } from '@qbit-oss/api'
 import { getWebsiteSafetyWarning } from '@qbit/phishing-detect'
 import {
@@ -35,7 +33,6 @@ import {
   type Psbt as QbitPsbt,
 } from '@qbit-oss/protocol'
 import {
-  ColdWalletKeyring,
   PQC_WARNING_SIGNATURE_THRESHOLD,
   QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
 } from '@qbit/keyring-service'
@@ -152,20 +149,19 @@ import {
   t,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
+import { getLocalVersionNotice } from '../config/local-version-notices'
+import { getLocalWalletConfig } from '../config/local-wallet-config'
 import {
   biometricUnlockService,
   contactBookService,
   keyringService,
-  notificationService,
   permissionService,
   phishingDetectService,
   preferenceService,
   qbitSendGuardService,
   sessionService,
-  walletApiService,
 } from '../services'
 import { getChainInfo } from '../shared/utils'
-import { chainTypeToCanonicalNetwork } from '../shared/utils/deriveContextHash'
 import { bgEventBus } from '../utils/eventBus'
 import { decodeOpReturnScript } from '../utils/decode-op-return'
 import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
@@ -1119,10 +1115,6 @@ export class WalletController extends BaseController {
     return `${chainType}:${apiSurface}:${endpoint}`
   }
 
-  private isQbitChain() {
-    return isQbitChainType(this.getChainType())
-  }
-
   /**
    * Drop the outputs a send must not select: the ones a claim or an
    * external signing lock holds, and the ones a recent broadcast spent,
@@ -1777,7 +1769,6 @@ export class WalletController extends BaseController {
   private kickPendingQbitRestoreFloorScan = (): void => {
     void this.enqueueChainStateChange(async () => {
       try {
-        if (!this.isQbitChain()) return
         if (!(await this.getQbitRestoreFloorsPending())) return
         const summary = await this.performQbitRestoreFloorScan()
         if (summary.possibleConcurrentInstance) {
@@ -1940,9 +1931,6 @@ export class WalletController extends BaseController {
 
   private getQbitHistoryScope = async (requestedAddress: string): Promise<QbitHistoryScope> => {
     const chainType = this.getChainType()
-    if (!isQbitChainType(chainType)) {
-      throw new Error(t('not_supported'))
-    }
     const network = chainTypeToQbitNetworkName(chainType)
     const keyring = await this.getCurrentKeyring()
     if (
@@ -2021,148 +2009,139 @@ export class WalletController extends BaseController {
     snapshotId?: string
     refreshSnapshotId?: string
   }) => {
-    if (this.isQbitChain()) {
+    if (
+      !Number.isSafeInteger(params.start) ||
+      params.start < 0 ||
+      !Number.isSafeInteger(params.limit) ||
+      params.limit < 0
+    ) {
+      throw new Error('Invalid Qbit history page')
+    }
+    // Later pages must read from one pinned immutable snapshot; paging
+    // without one would full-scan the account per chunk and return rows
+    // that need not match the session's page-one data.
+    if (params.start !== 0 && !params.snapshotId) {
+      throw new Error('Qbit history pages beyond the first require a pinned snapshot')
+    }
+    const scope = await this.getQbitHistoryScope(params.address)
+    this.pruneQbitHistorySnapshots()
+
+    let snapshot: QbitHistorySnapshot | undefined
+    if (params.snapshotId) {
+      const cached = this.qbitHistorySnapshots.get(params.snapshotId)
       if (
-        !Number.isSafeInteger(params.start) ||
-        params.start < 0 ||
-        !Number.isSafeInteger(params.limit) ||
-        params.limit < 0
+        !cached ||
+        cached.scopeKey !== scope.scopeKey ||
+        cached.chainType !== scope.chainType ||
+        cached.addressFingerprint !== scope.addressFingerprint
       ) {
-        throw new Error('Invalid Qbit history page')
+        throw new Error('Qbit history snapshot is stale or belongs to another account')
       }
-      // Later pages must read from one pinned immutable snapshot; paging
-      // without one would full-scan the account per chunk and return rows
-      // that need not match the session's page-one data.
-      if (params.start !== 0 && !params.snapshotId) {
-        throw new Error('Qbit history pages beyond the first require a pinned snapshot')
-      }
-      const scope = await this.getQbitHistoryScope(params.address)
-      this.pruneQbitHistorySnapshots()
-
-      let snapshot: QbitHistorySnapshot | undefined
-      if (params.snapshotId) {
-        const cached = this.qbitHistorySnapshots.get(params.snapshotId)
+      snapshot = cached
+    } else {
+      let reusable: QbitHistorySnapshot | undefined
+      if (params.start === 0 && params.refreshSnapshotId) {
+        const cached = this.qbitHistorySnapshots.get(params.refreshSnapshotId)
         if (
-          !cached ||
-          cached.scopeKey !== scope.scopeKey ||
-          cached.chainType !== scope.chainType ||
-          cached.addressFingerprint !== scope.addressFingerprint
+          cached &&
+          cached.scopeKey === scope.scopeKey &&
+          cached.chainType === scope.chainType &&
+          cached.addressFingerprint === scope.addressFingerprint &&
+          Date.now() - cached.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
         ) {
-          throw new Error('Qbit history snapshot is stale or belongs to another account')
+          reusable = cached
         }
-        snapshot = cached
-      } else {
-        let reusable: QbitHistorySnapshot | undefined
-        if (params.start === 0 && params.refreshSnapshotId) {
-          const cached = this.qbitHistorySnapshots.get(params.refreshSnapshotId)
-          if (
-            cached &&
-            cached.scopeKey === scope.scopeKey &&
-            cached.chainType === scope.chainType &&
-            cached.addressFingerprint === scope.addressFingerprint &&
-            Date.now() - cached.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
-          ) {
-            reusable = cached
-          }
-        }
+      }
 
-        if (reusable) {
-          // An invalid or unstable lightweight probe fails closed to the
-          // existing complete, stability-checked account scan below.
-          const revision = await probeQbitAccountHistoryRevision(
-            this.getQbitApiClient(scope.chainType),
-            [scope.address]
-          ).catch(() => undefined)
-          // A switch during the probe ends the read now, whether or not the
-          // probe succeeded, not after a full scan of an account that is no
-          // longer selected.
-          await this.assertQbitHistoryScopeStillActive(scope)
-          if (revision) {
-            // A reorg can drop the refreshed tip below a cached confirmed
-            // height. Reusing the cached list would clamp the reverted
-            // transaction to one confirmation, so fall through to a full scan.
-            const tipCoversCachedHeights = reusable.list.every(
-              item => item.height <= 0 || item.height <= revision.tipHeight
-            )
-            if (
-              revision.activityFingerprint === reusable.revision.activityFingerprint &&
-              tipCoversCachedHeights &&
-              Date.now() - reusable.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
-            ) {
-              const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
-              snapshot = {
-                ...scope,
-                id,
-                createdAt: Date.now(),
-                fullScanAt: reusable.fullScanAt,
-                revision,
-                list: reusable.list.map(item => {
-                  const confirmations =
-                    item.height > 0 ? Math.max(1, revision.tipHeight - item.height + 1) : 0
-                  return confirmations === item.confirmations ? item : { ...item, confirmations }
-                }),
-              }
+      if (reusable) {
+        // An invalid or unstable lightweight probe fails closed to the
+        // existing complete, stability-checked account scan below.
+        const revision = await probeQbitAccountHistoryRevision(
+          this.getQbitApiClient(scope.chainType),
+          [scope.address]
+        ).catch(() => undefined)
+        // A switch during the probe ends the read now, whether or not the
+        // probe succeeded, not after a full scan of an account that is no
+        // longer selected.
+        await this.assertQbitHistoryScopeStillActive(scope)
+        if (revision) {
+          // A reorg can drop the refreshed tip below a cached confirmed
+          // height. Reusing the cached list would clamp the reverted
+          // transaction to one confirmation, so fall through to a full scan.
+          const tipCoversCachedHeights = reusable.list.every(
+            item => item.height <= 0 || item.height <= revision.tipHeight
+          )
+          if (
+            revision.activityFingerprint === reusable.revision.activityFingerprint &&
+            tipCoversCachedHeights &&
+            Date.now() - reusable.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
+          ) {
+            const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
+            snapshot = {
+              ...scope,
+              id,
+              createdAt: Date.now(),
+              fullScanAt: reusable.fullScanAt,
+              revision,
+              list: reusable.list.map(item => {
+                const confirmations =
+                  item.height > 0 ? Math.max(1, revision.tipHeight - item.height + 1) : 0
+                return confirmations === item.confirmations ? item : { ...item, confirmations }
+              }),
             }
           }
         }
-
-        if (!snapshot) {
-          const data = await getQbitAccountHistory(
-            this.getQbitApiClient(scope.chainType),
-            [scope.address],
-            { start: 0, limit: Number.MAX_SAFE_INTEGER },
-            // Bounded scans at 0/1/3/7/15s cross electrs' 10s response-cache window.
-            { stabilityRetries: 4, retryBaseDelayMs: 1_000 }
-          )
-          await this.assertQbitHistoryScopeStillActive(scope)
-          const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
-          const createdAt = Date.now()
-          snapshot = {
-            ...scope,
-            id,
-            createdAt,
-            fullScanAt: createdAt,
-            revision: data.revision,
-            list: data.detail,
-          }
-        }
-
-        this.qbitHistorySnapshots.set(snapshot.id, snapshot)
-        this.pruneQbitHistorySnapshots(snapshot.createdAt)
-        preferenceService.updateAddressHistory(
-          scope.scopeKey,
-          snapshot.list.slice(0, QBIT_HISTORY_PERSISTED_CACHE_LIMIT)
-        )
       }
 
       if (!snapshot) {
-        throw new Error('Qbit history snapshot was not created')
+        const data = await getQbitAccountHistory(
+          this.getQbitApiClient(scope.chainType),
+          [scope.address],
+          { start: 0, limit: Number.MAX_SAFE_INTEGER },
+          // Bounded scans at 0/1/3/7/15s cross electrs' 10s response-cache window.
+          { stabilityRetries: 4, retryBaseDelayMs: 1_000 }
+        )
+        await this.assertQbitHistoryScopeStillActive(scope)
+        const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
+        const createdAt = Date.now()
+        snapshot = {
+          ...scope,
+          id,
+          createdAt,
+          fullScanAt: createdAt,
+          revision: data.revision,
+          list: data.detail,
+        }
       }
-      return {
-        start: params.start,
-        total: snapshot.list.length,
-        detail: snapshot.list.slice(params.start, params.start + params.limit),
-        snapshotId: snapshot.id,
-        scopeKey: snapshot.scopeKey,
-      }
+
+      this.qbitHistorySnapshots.set(snapshot.id, snapshot)
+      this.pruneQbitHistorySnapshots(snapshot.createdAt)
+      preferenceService.updateAddressHistory(
+        scope.scopeKey,
+        snapshot.list.slice(0, QBIT_HISTORY_PERSISTED_CACHE_LIMIT)
+      )
     }
-    throw new Error(t('not_supported'))
+
+    if (!snapshot) {
+      throw new Error('Qbit history snapshot was not created')
+    }
+    return {
+      start: params.start,
+      total: snapshot.list.length,
+      detail: snapshot.list.slice(params.start, params.start + params.limit),
+      snapshotId: snapshot.id,
+      scopeKey: snapshot.scopeKey,
+    }
   }
 
   getAddressCacheHistory = async (address: string | undefined): Promise<TxHistoryItem[]> => {
     if (!address) return []
-    if (this.isQbitChain()) {
-      const scope = await this.getQbitHistoryScope(address)
-      return preferenceService.getAddressHistory(scope.scopeKey)
-    }
-    return preferenceService.getAddressHistory(address)
+    const scope = await this.getQbitHistoryScope(address)
+    return preferenceService.getAddressHistory(scope.scopeKey)
   }
 
   getQbitRawTransactionHex = async (txid: string): Promise<string> => {
     const chainType = this.getChainType()
-    if (!isQbitChainType(chainType)) {
-      throw new Error(t('not_supported'))
-    }
     const hex = await getQbitRawTransactionHex(this.getQbitApiClient(chainType), txid)
     if (this.getChainType() !== chainType) {
       throw new Error('Qbit network changed while loading raw transaction data')
@@ -2178,9 +2157,6 @@ export class WalletController extends BaseController {
   getQbitTxLifecycleStatus = async (
     txid: string
   ): Promise<{ state: 'confirmed' | 'pending' | 'gone' }> => {
-    if (!this.isQbitChain()) {
-      throw new Error(t('not_supported'))
-    }
     return this.qbitTxLifecycleStatusOn(this.getChainType(), txid)
   }
 
@@ -2262,7 +2238,6 @@ export class WalletController extends BaseController {
     await qbitSendGuardService.resetAllData()
     await permissionService.resetAllData()
     await contactBookService.resetAllData()
-    await walletApiService.resetAllData()
 
     this._resetTimeout()
   }
@@ -2605,9 +2580,6 @@ export class WalletController extends BaseController {
   }
 
   private performQbitRestoreFloorScan = async (options?: { lookahead?: number }) => {
-    if (!this.isQbitChain()) {
-      throw new Error(t('not_supported'))
-    }
     const chainType = this.getChainType()
     const qbitNetwork = chainTypeToQbitNetworkName(chainType)
     const networks = (await this.resolveQbitRestoreFloorScanChainTypes(chainType)).map(
@@ -2816,7 +2788,6 @@ export class WalletController extends BaseController {
     hdPath: string
     passphrase: string
   }): Promise<QbitRecoveryState> => {
-    if (!this.isQbitChain()) throw new Error(t('not_supported'))
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -2864,7 +2835,6 @@ export class WalletController extends BaseController {
     sourceKeyringIndex: number
     sourceAnchorPubkey?: string
   }): Promise<QbitRecoveryState> => {
-    if (!this.isQbitChain()) throw new Error(t('not_supported'))
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -4177,9 +4147,6 @@ export class WalletController extends BaseController {
     refreshActivity: boolean,
     previousActivityStatus: QbitReceiveState['activityStatus'] = 'cached'
   ): Promise<QbitReceiveControllerContext> => {
-    if (!this.isQbitChain()) {
-      throw new Error(t('not_supported'))
-    }
     const chainType = this.getChainType()
     const network = chainTypeToQbitNetworkName(chainType)
     const keyring = await this.getCurrentKeyring()
@@ -4539,7 +4506,7 @@ export class WalletController extends BaseController {
     addressType: AddressType,
     options?: { gapLimit?: number; maxIndexes?: number } | null
   ) => {
-    if (!this.isQbitChain() || addressType !== AddressType.P2MR) {
+    if (addressType !== AddressType.P2MR) {
       throw new Error(t('not_supported'))
     }
     const chainType = this.getChainType()
@@ -4641,87 +4608,28 @@ export class WalletController extends BaseController {
     }
   }
 
+  // No hardware or cold signer can produce qbit's SLH-DSA signatures, so a
+  // cold wallet cannot be created (#53). keyring-service keeps
+  // ColdWalletKeyring registered, so a vault that already holds one decodes.
   createKeyringWithColdWallet = async (
-    xpub: string,
-    addressType: AddressType,
-    alianName?: string,
-    hdPath?: string,
-    accountCount = 1
-  ) => {
-    if (this.isQbitChain()) {
-      // No hardware/cold signer supports qbit's SLH-DSA signatures (D5/#23;
-      // vendor support tracked in #44). Every configured chain is a qbit
-      // chain, so cold-wallet creation is disabled in V1.
-      throw new Error(t('hardware_wallet_not_supported'))
-    }
-    const accounts = await this.deriveAccountsFromXpub(xpub, addressType, hdPath, accountCount)
-    const addresses = accounts.map(acc => acc.address)
-    const publicKeys = accounts.map(acc => acc.pubkey)
-
-    const coldWalletKeyring = new ColdWalletKeyring({
-      xpub,
-      addresses,
-      connectionType: 'QR',
-      hdPath: hdPath!,
-      publicKeys,
-    })
-
-    const originKeyring = await keyringService.addKeyring(coldWalletKeyring, addressType)
-    const displayedKeyring = await keyringService.displayForKeyring(
-      originKeyring,
-      addressType,
-      keyringService.keyrings.length - 1
-    )
-
-    const keyring = this.displayedKeyringToWalletKeyring(
-      displayedKeyring,
-      keyringService.keyrings.length - 1
-    )
-
-    if (alianName) {
-      this.setKeyringAlianName(keyring, alianName)
-    }
-
-    await this.changeKeyring(keyring)
-
-    preferenceService.setShowSafeNotice(true)
-    return keyring
+    _xpub: string,
+    _addressType: AddressType,
+    _alianName?: string,
+    _hdPath?: string,
+    _accountCount?: number
+  ): Promise<WalletKeyring> => {
+    throw new Error(t('hardware_wallet_not_supported'))
   }
 
-  /**
-   * Derive accounts from extended public key (receive chain level only)
-   * For paths like m/84'/0'/0'/0, derives m/84'/0'/0'/0/i addresses
-   */
+  // A BIP32 xpub derives secp256k1 keys only, never a qbit P2MR address, so
+  // no account can come from one (#53).
   deriveAccountsFromXpub = async (
-    xpub: string,
-    addressType: AddressType,
-    hdPath?: string,
-    accountCount = 1
+    _xpub: string,
+    _addressType: AddressType,
+    _hdPath?: string,
+    _accountCount?: number
   ): Promise<{ pubkey: string; address: string }[]> => {
-    if (this.isQbitChain()) {
-      // BIP32 xpubs can only derive secp256k1 addresses, which are not valid
-      // qbit P2MR addresses (D5/#23).
-      throw new Error(t('hardware_wallet_not_supported'))
-    }
-    // Validate xpub format
-    const validPrefixes = ['xpub', 'tpub', 'ypub', 'zpub']
-    if (!validPrefixes.some(prefix => xpub?.startsWith(prefix))) {
-      throw new Error('Invalid xpub format')
-    }
-
-    const hdPublicKey = new bitcore.HDPublicKey(xpub)
-    const networkType = this.getNetworkType()
-    const accounts: { pubkey: string; address: string }[] = []
-
-    // Derive addresses: m/84'/0'/0'/0/i
-    for (let i = 0; i < accountCount; i++) {
-      const addressKey = hdPublicKey.deriveChild(i)
-      const publicKeyHex = addressKey.publicKey.toString('hex')
-      const address = publicKeyToAddress(publicKeyHex, addressType, networkType)
-      accounts.push({ pubkey: publicKeyHex, address })
-    }
-
-    return accounts
+    throw new Error(t('hardware_wallet_not_supported'))
   }
 
   // Queued with migration and other chain-state work: a migration start that
@@ -5519,7 +5427,6 @@ export class WalletController extends BaseController {
         psbtHex: psbt.toHex(),
       }
     }
-    if (!this.isQbitChain()) return sign()
     return this.runWithNoQbitInputConflict(
       this.getChainType(),
       transactionPsbtOutpoints(psbt),
@@ -5639,17 +5546,6 @@ export class WalletController extends BaseController {
       leafScript,
       controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
     })
-  }
-
-  deriveContextHash = async (appName: string, context: string): Promise<string> => {
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    const canonicalNetwork = chainTypeToCanonicalNetwork(preferenceService.getChainType())
-    const keyring = await keyringService.getKeyringForAccount(account.pubkey, account.type)
-    if (!keyring.deriveContextHash) {
-      throw new Error('Current keyring does not support deriveContextHash')
-    }
-    return keyring.deriveContextHash(account.pubkey, appName, canonicalNetwork, context)
   }
 
   addContact = async (data: ContactBookItem) => {
@@ -5881,7 +5777,6 @@ export class WalletController extends BaseController {
       if (chainChanged) {
         preferenceService.setChainType(chainType)
       }
-      await walletApiService.setEndpoint(chain.endpoints[0]!)
 
       const keyring = await this.getCurrentKeyring()
       if (!keyring) throw new Error('no current keyring')
@@ -5915,12 +5810,6 @@ export class WalletController extends BaseController {
         await preferenceService.persist()
       } catch (rollbackError) {
         log.error('[WalletController] Failed to persist restored chain preferences', rollbackError)
-      }
-
-      try {
-        await walletApiService.setEndpoint(CHAINS_MAP[currentChainType]!.endpoints[0]!)
-      } catch (rollbackError) {
-        log.error('[WalletController] Failed to restore the previous API endpoint', rollbackError)
       }
 
       // Path rollback or a completed same-path re-arm can leave restored
@@ -6091,9 +5980,10 @@ export class WalletController extends BaseController {
 
   /**
    * Move off regtest without ever re-entering it. Unlocked wallets go through
-   * the full transition (HD path, endpoint, accounts, events); if that fails
-   * or the wallet is locked, the persisted chain and API endpoint are pinned
-   * to mainnet directly so nothing stays bound to the loopback endpoint.
+   * the full transition (HD path, accounts, events); if that fails or the
+   * wallet is locked, the persisted chain is pinned to mainnet directly. The
+   * API clients follow the chain and the cached loopback ones are dropped, so
+   * nothing stays bound to the loopback endpoint.
    */
   private leaveRegtestFailClosed = async (trigger: 'permission_removed' | 'disable'): Promise<void> => {
     if (preferenceService.getChainType() !== ChainType.QBIT_REGTEST) {
@@ -6117,11 +6007,6 @@ export class WalletController extends BaseController {
       await preferenceService.persist()
     } catch (error) {
       log.error('[WalletController] Failed to persist the mainnet fallback', summarizeError(error))
-    }
-    try {
-      await walletApiService.setEndpoint(CHAINS_MAP[ChainType.QBIT_MAINNET]!.endpoints[0]!)
-    } catch (error) {
-      log.error('[WalletController] Failed to restore the mainnet API endpoint', summarizeError(error))
     }
     this.dropRegtestApiClients()
 
@@ -7381,7 +7266,7 @@ export class WalletController extends BaseController {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
     const chain = this.getChainType()
-    if (!isQbitChainType(chain) || !account.p2mr) throw new Error(t('not_supported'))
+    if (!account.p2mr) throw new Error(t('not_supported'))
     const counts = await getQbitAddressOutputCounts(this.getQbitApiClient(chain), account.address)
     return {
       chain,
@@ -7420,7 +7305,6 @@ export class WalletController extends BaseController {
     // The batch's inputs exist on this network only; the builder refuses
     // them if the wallet has moved to another one since.
     const chain = this.getChainType()
-    if (!isQbitChainType(chain)) throw new Error(t('not_supported'))
     // Unless given, the normal rate, or the relay floor without a quote.
     const feeRate =
       data.feeRate ?? (await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ?? 1
@@ -9645,7 +9529,7 @@ export class WalletController extends BaseController {
   }
 
   getWalletConfig = async () => {
-    return walletApiService.config.getWalletConfig()
+    return getLocalWalletConfig()
   }
 
   getSkippedVersion = async () => {
@@ -9696,12 +9580,8 @@ export class WalletController extends BaseController {
     return preferenceService.setShowSafeNotice(show)
   }
 
-  getVersionDetail = (version: string) => {
-    return walletApiService.config.getVersionDetail(version)
-  }
-
-  getEnableSignData = async () => {
-    return preferenceService.getEnableSignData()
+  getVersionDetail = async (version: string) => {
+    return getLocalVersionNotice(version)
   }
 
   /* Biometric (WebAuthn PRF) unlock. The ceremony and key derivation run in
@@ -9724,10 +9604,6 @@ export class WalletController extends BaseController {
 
   clearBiometricUnlock = async (): Promise<void> => {
     return biometricUnlockService.clearRecord()
-  }
-
-  setEnableSignData = async (enable: boolean) => {
-    return preferenceService.setEnableSignData(enable)
   }
 
   getAutoLockTimeId = async () => {
@@ -9881,10 +9757,6 @@ export class WalletController extends BaseController {
     return true
   }
 
-  getBlockActiveInfo = () => {
-    return walletApiService.utility.getBlockActiveInfo()
-  }
-
   // Rate Us Status
   getRateUsStatus = (): RateUsStatus => {
     return preferenceService.getRateUsStatus()
@@ -9912,34 +9784,6 @@ export class WalletController extends BaseController {
 
   setGuideReaded = async () => {
     preferenceService.setGuideReaded(true)
-  }
-
-  getAnnouncements = async (cursor: number, size: number) => {
-    return walletApiService.utility.getAnnouncements(cursor, size)
-  }
-
-  // get the notifications
-  getNotifications = async () => {
-    return notificationService.getNotifications()
-  }
-
-  // mark the notification as read
-  readNotification = async (id: string) => {
-    return notificationService.markAsRead(id)
-  }
-
-  // mark all notifications as read
-  readAllNotifications = async () => {
-    return notificationService.readAll()
-  }
-
-  // delete the notification
-  deleteNotification = async (id: string) => {
-    return notificationService.deleteNotification(id)
-  }
-
-  getNotificationUnreadCount = (): number => {
-    return notificationService.getUnreadCount()
   }
 
   getAcceptLowFeeMode = async () => {

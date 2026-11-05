@@ -49,11 +49,9 @@ vi.mock('../src/services', async () => {
       getAutoLockTimeId: () => 0,
       persist: vi.fn(async () => undefined),
     },
-    walletApiService: { setEndpoint: vi.fn(async () => undefined) },
     sessionService,
     permissionService: permissionServiceFake,
     contactBookService: { listAlias: () => [] },
-    notificationService: {},
   }
 })
 

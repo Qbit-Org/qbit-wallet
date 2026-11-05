@@ -21,9 +21,7 @@ export const initialState: SettingsState = {
   chainType: ChainType.QBIT_MAINNET,
   walletConfig: {
     version: '',
-    moonPayEnabled: true,
     statusMessage: '',
-    endpoint: '',
     chainTip: '',
     disableUtxoTools: true,
   },

@@ -48,7 +48,9 @@ export enum ErrorCodes {
   INVALID_PARAMS = -32602,
   UserCancel = 4001,
   UNAUTHORIZED = 4100,
-  // The current Qbit network has no canonical deriveContextHash identifier.
+  // The provider refuses a request on a chain it does not serve: the active
+  // chain is not a Qbit chain, a switch names an unsupported chain or network,
+  // or a PSBT's signing chain is not the active one.
   // EIP-1193 reserves 4901 for "Chain Disconnected", the closest standard analog.
   UNSUPPORTED_NETWORK = 4901,
 }

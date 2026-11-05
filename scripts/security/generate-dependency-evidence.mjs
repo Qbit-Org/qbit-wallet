@@ -30,7 +30,7 @@ const DIRECT_SECTIONS = [
 const TEST_PACKAGE =
   /(?:^|[/@-])(?:jest|vitest|playwright|testing-library|test-utils|jsdom|happy-dom|sinon|chai|mock)(?:$|[/@-])/i
 const EXTENSION_BUILD_PACKAGE =
-  /^(?:@babel\/|@pmmmwh\/react-refresh-webpack-plugin$|@svgr\/webpack$|@types\/|antd-dayjs-webpack-plugin$|babel-(?:loader|plugin|preset)|browserify$|browserslist$|case-sensitive-paths-webpack-plugin$|cross-env$|css-(?:loader|minimizer-webpack-plugin)$|dotenv(?:-expand)?$|eslint-webpack-plugin$|file-loader$|fs-extra$|html-webpack-plugin$|mini-css-extract-plugin$|postcss(?:$|-)|prompts$|react-dev-utils$|react-refresh$|resolve$|resolve-url-loader$|source-map-loader$|style-(?:loader|resources-loader)$|tailwindcss$|terser-webpack-plugin$|ts-(?:import-plugin|loader)$|tsconfig-paths-webpack-plugin$|typescript(?:$|-)|webpack(?:$|-))/
+  /^(?:@babel\/|@pmmmwh\/react-refresh-webpack-plugin$|@svgr\/webpack$|@types\/|babel-(?:loader|plugin|preset)|browserify$|browserslist$|case-sensitive-paths-webpack-plugin$|cross-env$|css-(?:loader|minimizer-webpack-plugin)$|dotenv(?:-expand)?$|eslint-webpack-plugin$|file-loader$|fs-extra$|html-webpack-plugin$|mini-css-extract-plugin$|postcss(?:$|-)|prompts$|react-dev-utils$|react-refresh$|resolve$|resolve-url-loader$|source-map-loader$|style-(?:loader|resources-loader)$|tailwindcss$|terser-webpack-plugin$|ts-(?:import-plugin|loader)$|tsconfig-paths-webpack-plugin$|typescript(?:$|-)|webpack(?:$|-))/
 const DEVELOPMENT_QUALITY_PACKAGE =
   /^(?:@trivago\/prettier-plugin-sort-imports$|@typescript-eslint\/|eslint(?:$|-)|prettier$)/
 const SECURITY_ADJACENCY = {

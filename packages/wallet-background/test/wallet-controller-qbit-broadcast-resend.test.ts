@@ -55,10 +55,8 @@ vi.mock('../src/services', async () => {
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
     },
     qbitSendGuardService: guard,
-    walletApiService: { transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() } },
     sessionService: {},
     contactBookService: {},
-    notificationService: {},
     permissionService: {},
   }
 })

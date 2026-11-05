@@ -37,10 +37,8 @@ vi.mock('../src/services', () => ({
     takeRecentSpendersToProbe: vi.fn(async () => []),
     settleRecentSpendProbe: vi.fn(),
   },
-  walletApiService: { transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() } },
   sessionService: {},
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
 }))
 

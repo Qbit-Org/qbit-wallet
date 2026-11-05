@@ -17,12 +17,10 @@ packages/
 ├── base-utils             # Shared utility functions
 ├── contact-book           # Saved Qbit addresses
 ├── keyring-service        # Key management and signing
-├── notification-service   # Local notification state
 ├── permission-service     # Connected-site permissions
 ├── phishing-detect        # Bundled site-safety policy
 ├── preference-service     # Wallet preferences
 ├── tx-helpers             # Transaction construction helpers
-├── wallet-api             # Qbit API client
 ├── wallet-background      # Extension background runtime
 ├── wallet-connect         # Provider connection utilities
 ├── wallet-connect-react   # React provider bindings

@@ -87,10 +87,8 @@ vi.mock('../src/services', async () => {
       getLockOnComputerLock: vi.fn(() => true),
     },
     qbitSendGuardService: guard,
-    walletApiService: { transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() } },
     sessionService: { broadcastEvent: vi.fn() },
     contactBookService: {},
-    notificationService: {},
     permissionService: {},
   }
 })

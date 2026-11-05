@@ -113,15 +113,6 @@
   "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
     "message": "4. После подписи отсканируйте подписанный QR-код обратно с помощью этого кошелька."
   },
-  "all_marked_as_read": {
-    "message": "Все отмечено как прочитанное"
-  },
-  "all_read": {
-    "message": "Всё прочитано"
-  },
-  "allow_sign_data_requests": {
-    "message": "Разрешить запросы signData"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "Разрешить этому сайту переключить блокчейн?"
   },
@@ -136,9 +127,6 @@
   },
   "amount_must_be_at_least": {
     "message": "Сумма должна быть не менее"
-  },
-  "announcement": {
-    "message": "Объявление"
   },
   "appDescription": {
     "message": "Qbit Wallet позволяет отправлять, получать и совершать транзакции в нативном Qbit (QBT) и его экосистеме."
@@ -494,15 +482,6 @@
   "edit_name": {
     "message": "Изменить имя"
   },
-  "enable_sign_data_popover_warning": {
-    "message": "Разрешение запросов signData может сделать вас уязвимым для фишинговых атак. Всегда проверяйте URL и будьте осторожны при подписании сообщений, содержащих код."
-  },
-  "enable_sign_data_popover_warning_2": {
-    "message": "Если вас попросили включить эту настройку, возможно, вас пытаются обмануть"
-  },
-  "enable_sign_data_warning": {
-    "message": "Если вы включите эту настройку, вы можете получать запросы подписи, которые не читаемы. Подписывая сообщение, которое вы не понимаете, вы можете согласиться на передачу ваших средств и NFT. Вы подвергаетесь риску фишинговых атак. Защитите себя, отключив signData."
-  },
   "enter": {
     "message": "Ввести"
   },
@@ -626,9 +605,6 @@
   "i_have_signed_scan_result": {
     "message": "Я Подписал, Отсканировать Результат"
   },
-  "i_only_sign_what_i_understand": {
-    "message": "Я подписываю только то, что понимаю"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "Я сохранил(а) свою секретную фразу восстановления"
   },
@@ -676,9 +652,6 @@
   },
   "invalid_wallet_please_remove_it_and_add_new_one": {
     "message": "Недействительный кошелёк, пожалуйста, удалите его и добавьте новый"
-  },
-  "just_now": {
-    "message": "Только что"
   },
   "keyring_error_account_count": {
     "message": "количество аккаунтов должно быть больше 0"
@@ -866,9 +839,6 @@
   "no_matching_contacts_found": {
     "message": "Совпадающих контактов не найдено"
   },
-  "no_notifications": {
-    "message": "Нет уведомлений"
-  },
   "not_connected": {
     "message": "Не подключено"
   },
@@ -880,9 +850,6 @@
   },
   "notice": {
     "message": "Уведомление"
-  },
-  "notifications": {
-    "message": "Уведомления"
   },
   "ok": {
     "message": "OK"
@@ -1145,33 +1112,6 @@
   "sign_all_transactions_at_once": {
     "message": "У вас есть возможность подписать все транзакции одновременно, но пожалуйста, обратите внимание, что Qbit Wallet не будет проверять каждую транзакцию индивидуально. Мы рекомендуем использовать его только на доверенных и знакомых сайтах для минимизации риска потенциальных потерь."
   },
-  "derive_context_hash_request": {
-    "message": "Сгенерировать идентификатор"
-  },
-  "derive_context_hash_description": {
-    "message": "Этот сайт запрашивает уникальный идентификатор, привязанный к вашему кошельку, для следующего контекста."
-  },
-  "derive_context_hash_app_name": {
-    "message": "Приложение"
-  },
-  "derive_context_hash_account": {
-    "message": "Аккаунт"
-  },
-  "derive_context_hash_network": {
-    "message": "Сеть"
-  },
-  "derive_context_hash_context": {
-    "message": "Контекст"
-  },
-  "derive_context_hash_warning": {
-    "message": "Одобряйте только если вы доверяете этому сайту."
-  },
-  "sign_data_request": {
-    "message": "Запрос подписи данных"
-  },
-  "sign_data_requests": {
-    "message": "Запросы signData"
-  },
   "sign_multiple_transactions": {
     "message": "Подписать несколько транзакций"
   },
@@ -1183,9 +1123,6 @@
   },
   "signature_request": {
     "message": "Запрос подписи"
-  },
-  "signdata_required_tip": {
-    "message": "Вам необходимо включить функцию запроса подписи данных (signData) в Настройки -> Расширенные, чтобы продолжить."
   },
   "signed": {
     "message": "Подписано"
@@ -1273,9 +1210,6 @@
   },
   "to": {
     "message": "Кому"
-  },
-  "to_continue": {
-    "message": "чтобы продолжить"
   },
   "to_proceed": {
     "message": "чтобы продолжить"
@@ -1412,9 +1346,6 @@
   "understand_and_accept_the_risks_associated_with_this_transaction": {
     "message": "Я понимаю и принимаю риски, связанные с этой транзакцией."
   },
-  "understand_sign_data_warning": {
-    "message": "Я понимаю, что могу потерять все свои средства и NFT, если включу запросы signData."
-  },
   "unknown_error": {
     "message": "Неизвестная ошибка"
   },
@@ -1438,9 +1369,6 @@
   },
   "view": {
     "message": "Посмотреть"
-  },
-  "view_detail": {
-    "message": "Посмотреть детали"
   },
   "view_on_block_explorer": {
     "message": "Посмотреть в обозревателе блоков"
@@ -1474,9 +1402,6 @@
   },
   "you_are_signing": {
     "message": "Вы подписываете:"
-  },
-  "you_are_signing_data": {
-    "message": "Вы подписываете данные:"
   },
   "you_haven_t_added_any_addresses": {
     "message": "Вы не добавили ни одного адреса"

@@ -25,7 +25,6 @@ export interface BasePreferenceStore {
   locale: string
   currency: string
   externalLinkAck: boolean
-  enableSignData: boolean
   showSafeNotice: boolean
 
   // Network configuration

@@ -113,41 +113,6 @@ const config = (env) => {
         preProcessorOptions = {
           sourceMap: true,
           lessOptions: {
-            modifyVars: {
-              'primary-color': 'rgb(234,202,68)',
-              'primary-color-active': '#383535',
-              'input-icon-hover-color': '#FFFFFF',
-              'component-background': '#070606',
-              'select-dropdown-bg': '#2A2626',
-              'select-item-selected-bg': '#332F2F',
-              'select-item-active-bg': '#332F2F',
-              'input-border-color': 'rgba(255,255,255,0.2)',
-              borderColor: 'rgba(255,255,255,0.2)',
-              'input-hover-border-color': 'rgba(255,255,255,0.4)',
-              hoverBorderColor: 'rgba(255,255,255,0.4)',
-              'border-color-base': 'rgba(255,255,255,0.2)',
-              'border-width-base': '0',
-              'animation-duration-slow': '0.08s',
-              'animation-duration-base': '0.08s',
-              // "checkbox-border-width": "1px",
-              'layout-header-background': '#2A2626',
-              'layout-header-padding': '0 1.875rem',
-              'layout-header-height': '5.625rem',
-              'layout-footer-padding': 'unset',
-              'border-radius-base': '0.3rem',
-              'checkbox-border-radius': '0.125rem',
-              // 'checkbox-color': '#2A2626',
-              // 'checkbox-check-color': '#D7721F',
-              'heading-color': '#ffffff',
-              'font-size-base': '1.125rem',
-              'line-height-base': '1.375rem',
-              'text-color': '#ffffff',
-              'text-color-secondary': '#AAAAAA',
-              'height-lg': '3.875rem',
-              'checkbox-size': '1.5rem',
-              'btn-text-hover-bg': '#383535',
-              'input-disabled-color': 'rgba(255,255,255,0.6)'
-            },
             javascriptEnabled: true
           }
         };
@@ -483,7 +448,6 @@ const config = (env) => {
       new ESLintWebpackPlugin({
         extensions: ['ts', 'tsx', 'js', 'jsx']
       }),
-      // new AntdDayjsWebpackPlugin(),
       new HtmlWebpackPlugin({
         inject: true,
         template: paths.indexHtml,
@@ -516,8 +480,7 @@ const config = (env) => {
       }),
       new webpack.ProvidePlugin({
         Buffer: ['buffer', 'Buffer'],
-        process: 'process',
-        dayjs: 'dayjs'
+        process: 'process'
       }),
       // new AssetReplacePlugin({
       //   '#PAGEPROVIDER#': 'pageProvider',
@@ -558,7 +521,6 @@ const config = (env) => {
       alias: {
         ...singletonPackages,
         '@bufbuild/protobuf/dist/cjs/wire$': require.resolve('@bufbuild/protobuf/wire'),
-        moment: require.resolve('dayjs'),
         stream: require.resolve('stream-browserify')
       },
       plugins: [new TSConfigPathsPlugin()],

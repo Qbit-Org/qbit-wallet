@@ -1,6 +1,5 @@
 import {
   ArrowUp,
-  Bell,
   BookUser,
   Check,
   ChevronDown,
@@ -114,7 +113,6 @@ type LucideIconName =
   | 'circle-check'
   | 'circle-info'
   | 'circle-question'
-  | 'notification'
   | 'language'
   | 'connectedSites'
   | 'addressBook'
@@ -177,7 +175,6 @@ const lucideRegistry: Partial<Record<IconTypes, LucideIcon>> = {
   'circle-check': CircleCheck,
   'circle-info': Info,
   'circle-question': CircleQuestionMark,
-  notification: Bell,
 
   // settings
   language: Globe,

@@ -2,9 +2,11 @@
 
 Review date: 2026-11-05 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
-2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, and on 2026-11-05
+2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
-the extension and keyring-service)
+the extension and keyring-service, and twice more on 2026-11-05, after the
+`@qbit/wallet-api` and `@qbit/notification-service` workspaces and then `antd`
+were removed)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -22,18 +24,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `eae9633686197748c7a2736bb3c3a5f9ab3844e0` |
+| Audited commit | `a941b06e311fb10a263b9f6836a777833b090249` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `204908fc1dd14f055821c7784fb318f298b1120083adb15c40a3da70f26c65ee` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `c2d6120e66f6c7b4e1d44f03a8ba7e9f9ce8fb23ebea97229abe67e8136a8d96` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `a9c3ab06960f2a8af3e2f5d788274306ee0e4df463aec1e7b1d23d41bc36a764` |
+| `pnpm-lock.yaml` SHA-256 | `7419a875589eebcb1bf6b200bee633d9f0c51410d0c490da84f500a34c0fe02e` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `09129f12020b794970410b6c69aa4b2733e69c8063b39a3f255d029aba45d080` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 409 direct declarations, all 180 resolved packages classified as crypto-,
+all 386 direct declarations, all 178 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -82,9 +84,19 @@ at `0168a04` on `release/1.0.7` to 58 occurrences, including the high
 job failed again. Moving `follow-redirects` to 1.16.2 on 2026-11-02 reduced
 the result to 57 occurrences: 0 critical, 0 high, 43 moderate, and 14 low.
 The move to pnpm 11.28.9 on 2026-11-03 changed no resolved version, and the
-audit still has the same 44 advisory records. pnpm 11's audit counts one
-occurrence per advisory record, so the current result is 44 occurrences:
-0 critical, 0 high, 34 moderate, and 10 low.
+audit still had the same 44 advisory records. pnpm 11's audit counts one
+occurrence per advisory record, so the result at `eae9633` was 44 occurrences:
+0 critical, 0 high, 34 moderate, and 10 low. That change's evidence was
+regenerated at `68e6a41`, after it merged `release/1.0.8` at #140: #140's
+removal of the unused Sentry declarations took out the `@sentry/browser`
+record, leaving 43 occurrences: 0 critical, 0 high, 33 moderate, and 10 low.
+Removing the `@qbit/wallet-api` and `@qbit/notification-service` workspaces
+left the result at 43 occurrences: 0 critical, 0 high, 33 moderate,
+and 10 low. Removing `antd`, which no screen rendered any more and through which
+`moment@2.30.1` had stayed in the lockfile after #140 removed its declaration,
+then cleared the moderate `moment`
+record `GHSA-4p3w-j4w9-5jqw` and reduced the current result to 42 occurrences:
+0 critical, 0 high, 32 moderate, and 10 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -107,13 +119,16 @@ occurrence per advisory record, so the current result is 44 occurrences:
 | Audited result `f1017d9` (2026-10-30, Qbit SDK 0.1.1) | 0 | 0 | 36 | 14 | 50 |
 | Advisory-feed drift at unchanged-lock `release/1.0.7` `0168a04` | 0 | 1 | 43 | 14 | 58 |
 | Audited result `ea3fee0` (2026-11-02, `follow-redirects` 1.16.2) | 0 | 0 | 43 | 14 | 57 |
-| Current audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
+| Audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
+| Audited result `68e6a41` (2026-11-05, `release/1.0.8` at #140 merged) | 0 | 0 | 33 | 10 | 43 |
+| Audited result `802dc03` (2026-11-05, `wallet-api` and `notification-service` removed) | 0 | 0 | 33 | 10 | 43 |
+| Current audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
-counts advisory records; neither counts independent vulnerabilities. The final audit contains 43 advisory records representing 38
-unique advisory/package pairs. Four records affect a directly declared package
-and 38 are transitive. No critical or high advisory remains, and no risk
-exception is in force.
+counts advisory records; neither counts independent vulnerabilities. The final
+audit contains 42 advisory records representing 37 unique advisory/package
+pairs. Four records affect a directly declared package and 38 are transitive.
+No critical or high advisory remains, and no risk exception is in force.
 
 Registry advisory data can change without a repository change, so this
 snapshot is not permanent. The live audit runs in the `Dependency policy` CI
@@ -188,18 +203,18 @@ needs major-version moves rather than an override bump.
 
 ## Package inventory
 
-The 20 workspaces contain 2,137 registry lock entries and 409 direct dependency
-declarations. Lockfile v9 keeps one entry per name@version; its 2,288 peer
-variants are snapshots. Direct declarations are classified by how they enter the product
-or engineering process:
+The 18 workspaces contain 2,080 registry lock entries and 386 direct dependency
+declarations. Lockfile v9 keeps one entry per name@version; its 2,231 peer
+variants are snapshots. Direct declarations are classified by how they enter
+the product or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 149 | Code or assets included in, or invoked by, the extension runtime |
-| Extension build/packaging | 72 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
-| Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 129 | Lint, formatting, repository tooling, and non-release developer commands |
-| Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
+| Shipped runtime | 138 | Code or assets included in, or invoked by, the extension runtime |
+| Extension build/packaging | 70 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
+| Test-only tooling | 33 | Unit, browser, fixture, and conformance test dependencies |
+| Development/quality tooling | 123 | Lint, formatting, repository tooling, and non-release developer commands |
+| Workspace contract | 22 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
 workspace-link declaration does not establish runtime reachability on its own.
@@ -212,8 +227,8 @@ package may also serialize attacker-controlled data.
 
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
-| Crypto | 58 |
-| Serialization | 92 |
+| Crypto | 57 |
+| Serialization | 91 |
 | Networking | 25 |
 | Archive/compression | 8 |
 
@@ -228,10 +243,17 @@ The final audit has the following direct advisory records:
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths; reachable under the production-closure rule because `apps/extension` declares its build tooling as dependencies |
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
-Across all advisory dependency paths, the inventory records 35 reachable
-path occurrences, 1,000 extension-build occurrences, 606 test-only
-occurrences, and 609 development-tooling occurrences. pnpm 11's audit lists
-2,250 paths where pnpm 8 listed 5,313: it no longer prints a root path for an
+Across all advisory dependency paths, the inventory records 30 reachable path
+occurrences, 986 extension-build occurrences, 554 test-only occurrences, and
+530 development-tooling occurrences. At `eae9633` they were 35, 1,000, 606 and
+609. The advisory feed then narrowed the `minimatch` record
+`GHSA-g3hv-75wg-m249` to 9.0.9 and 10.2.6, though 3.1.5 and 5.1.9 stayed in the
+lockfile, which took out 114 paths: they were 35, 994, 565 and 542 at
+`92fe750`, and 32, 986, 567 and 541 at `68e6a41`, after #140. Removing the
+`@qbit/wallet-api` and `@qbit/notification-service` workspaces took out 13
+test-only and 11 development-tooling occurrences, and removing `antd` took out
+the `moment` record's two reachable paths. pnpm 11's audit listed 2,250 paths
+at `eae9633` where pnpm 8 listed 5,313: it no longer prints a root path for an
 overridden package (such as `. > fast-uri@3.1.7`), and it reports a workspace
 package's dependencies from that package's own importer rather than through
 each workspace link. These counts are therefore not comparable with earlier
@@ -263,9 +285,8 @@ that exact version, so parallel versions cannot inherit one another's delivery
 or reachability classification.
 
 Moderate and low findings remain visible and fail neither the current policy
-nor this release baseline. They include reachable records in Sentry,
-transitive packages such as `bn.js`, `react-router`, `uuid`, and
-`minimatch@3.1.5` through `typescript-transform-paths`, the exact
+nor this release baseline. They include reachable records in transitive
+packages such as `bn.js`, `react-router` and `uuid`, the exact
 direct and transitive `yaml` parser closure, and the reviewed low-severity
 `elliptic` record. They remain modernization work;
 their lower severity is not evidence of unreachability.
@@ -326,22 +347,32 @@ signing. Such an import would invalidate this disposition.
 
 ## Dependency remediation tranches
 
-The original remediation tranches were committed separately and followed by
-the complete release-validation matrix. The 2026-08-11 advisory-feed response
-was also separated by concern. Following the 2026-08-18 rebase, commit
-`0f12d7b8` repaired the merged lock graph and reconciled the dependency evidence
-with the language audit, then reran the dependency, build, typecheck, unit-test,
+The original remediation tranches were committed separately and followed by the
+complete release-validation matrix. The 2026-08-11 advisory-feed response was
+also separated by concern. Following the 2026-08-18 rebase, commit `0f12d7b8`
+repaired the merged lock graph and reconciled the dependency evidence with the
+language audit, then reran the dependency, build, typecheck, unit-test,
 package, and deterministic-build gates that cover the changed closure. The
 2026-09-02 pass addressed the Codex and Tenki review findings on the rebased
 branch together with the September advisory drift, again separated by concern,
 and reran the dependency, lint, build, and security-tooling gates listed below.
-The 2026-10-16 advisory refresh (PR #251) separated the dependency changes,
-the regenerated evidence, and the language-audit integration into their own
-commits. The 2026-10-23 refresh committed the dependency change as
-`64309e97`; the regenerated evidence and this review follow in a separate
-commit. The same applies to the `patch-package` move in `c702dffc`, the
-2026-11-02 `follow-redirects` update in `ea3fee07`, and the 2026-11-03 move
-to pnpm 11.28.9 in `eae96336`.
+The 2026-10-16 advisory refresh (PR #251) separated the dependency changes, the
+regenerated evidence, and the language-audit integration into their own
+commits. The 2026-10-23 refresh committed the dependency change as `64309e97`;
+the regenerated evidence and this review follow in a separate commit. The same
+applies to the `patch-package` move in `c702dffc`, the 2026-11-02
+`follow-redirects` update in `ea3fee07`, and the 2026-11-03 move to pnpm
+11.28.9 in `eae96336`. The 2026-11-02 removal of the `@qbit/wallet-api` and
+`@qbit/notification-service` workspaces was rebased on 2026-11-05 onto
+`release/1.0.8` at `0638892`, which includes #140 and the move to pnpm 11.28.9.
+Its change, without the regenerated evidence and this review's figures, was
+committed as `802dc03c`, and the evidence was regenerated there. The commit
+that adds them has the same parent as `802dc03c` and otherwise the same files,
+so `802dc03c` is not in this PR's history: its tree is that commit's tree with
+the two evidence files and this review as they are in its parent. The
+2026-11-03 removal of `antd`, `antd-dayjs-webpack-plugin` and
+`babel-plugin-import` was rebased and committed the same way, as `a941b06e`,
+which is not in this PR's history either.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -403,6 +434,8 @@ to pnpm 11.28.9 in `eae96336`.
 | `c702dffc` | Move `patch-package` to `@qbit/keyring-service` devDependencies and mark the wallet packages private (#289) | Classified `patch-package` as development tooling; the live audit stayed at zero critical/high findings |
 | `ea3fee07` | Pin the patched `follow-redirects@1.16.2` and review its license identity | Restored zero critical/high findings on the 2026-11-02 live audit with no exception in force |
 | `eae96336` | Move from pnpm 8.6.0 to pnpm 11.28.9 with a hashed pin, convert the lockfile to v9, and read pnpm 11's settings, lockfile and audit paths in the policy and evidence tooling | Kept every resolved version and integrity; removed four auto-installed peers pnpm 8 never installed; zero critical/high findings with no exception in force |
+| `802dc03c` | Remove the unused `@qbit/wallet-api` and `@qbit/notification-service` workspaces | Dropped 2 workspaces, 20 direct declarations and the `@types/randomstring@1.3.0` license identity; the live audit stayed at zero critical/high findings |
+| `a941b06e` | Remove `antd`, which no screen rendered any more, and its `antd-dayjs-webpack-plugin` and `babel-plugin-import` build plugins | Cleared the moderate `moment` record `GHSA-4p3w-j4w9-5jqw`, which only `antd` still reached, and dropped 56 lock entries and their license identities, `moment@2.30.1` among them; the live audit stayed at zero critical/high findings |
 
 ## Lint and dependency policy jobs
 
@@ -451,52 +484,53 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,137 integrity-pinned registry entries, 409
+The audited policy checked 2,080 integrity-pinned registry entries, 386
 dependency specifiers (the 49 overrides are now audited in
 `pnpm-workspace.yaml`), 32 Action references, two tracked package-manager
-configuration files, 272 executable package/workflow commands, and 2,137 exact
-package/version license records. The browser
-smoke-test installer is an exact direct dependency and installs
-`chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
-`pnpm dlx`. Tracked-file discovery recurses into any initialized submodule
-and fails before review if a checkout is absent, conflicted, or differs from
-its recorded gitlink; since 2026-10-26 the repository has none, and the Qbit
-SDK comes from npm (`scripts/security/sdk-package-pins.json`). `corepack pnpm security:evidence` is now a tracked,
-exact-dependency command that refuses dirty source/config/lockfile inputs and
-binds both generated outputs to the audited commit and audit bytes.
+configuration files, 256 executable package/workflow commands, and 2,080 exact
+package/version license records. The browser smoke-test installer is an exact
+direct dependency and installs `chrome@148.0.7778.97`; it no longer downloads
+mutable `stable` through `pnpm dlx`. Tracked-file discovery recurses into any
+initialized submodule and fails before review if a checkout is absent,
+conflicted, or differs from its recorded gitlink; since 2026-10-26 the
+repository has none, and the Qbit SDK comes from npm
+(`scripts/security/sdk-package-pins.json`). `corepack pnpm security:evidence`
+is now a tracked, exact-dependency command that refuses dirty
+source/config/lockfile inputs and binds both generated outputs to the audited
+commit and audit bytes.
 
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,137 distinct identities
+version, and normalized license expression for all 2,080 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,137 registry entries must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,080 registry entries must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
 
 The CI gate derives its identity set directly from the committed lockfile. It
-does not invoke `pnpm licenses list`: pnpm 8.6.0's command failed on clean Linux
-installs when a package store-index file was absent, first for
-`@vue/compiler-sfc` and later for `@testing-library/dom`, even though the frozen
-install itself succeeded. It also emitted only one version per package name.
-Direct lockfile validation removes both the store-layout dependency and that
-version-collapsing blind spot. Newly added non-platform records were reviewed
-from exact installed manifests; 90 non-host platform binary records inherit the
-MIT license verified on the matching esbuild, Nx, Parcel watcher, or Rollup
-package family, and two non-hoisted versions retain their same-package reviewed
-license. The baseline preserves 16 version-specific license-expression
-differences that the former one-version-per-name output could not represent.
-The 2026-09-02 refresh onboarded `lucide-react@1.34.0`, `tar@7.5.22`,
-`pacote@21.5.1`, and `fast-uri@3.1.6` through the pending-review flow, reviewed
-each against its installed manifest and license file, and removed the five
-Font Awesome records plus the 18 identities superseded by the advisory patches.
-The 2026-10-16 refresh onboarded 28 identities through the same flow, each
-checked against the registry license for its exact version and against the
-license recorded for its previous version, and dropped the identities removed
-with `webpack-dev-server` and the superseded versions. Removing
-`typed-css-modules-loader` then dropped 29 more identities, including
+does not invoke `pnpm licenses list`: pnpm 8.6.0's command failed on clean
+Linux installs when a package store-index file was absent, first for
+`@vue/compiler-sfc` and later for `@testing-library/dom`, even though the
+frozen install itself succeeded. It also emitted only one version per package
+name. Direct lockfile validation removes both the store-layout dependency and
+that version-collapsing blind spot. Newly added non-platform records were
+reviewed from exact installed manifests; 90 non-host platform binary records
+inherit the MIT license verified on the matching esbuild, Nx, Parcel watcher,
+or Rollup package family, and two non-hoisted versions retain their
+same-package reviewed license. The baseline preserves 16 version-specific
+license-expression differences that the former one-version-per-name output
+could not represent. The 2026-09-02 refresh onboarded `lucide-react@1.34.0`,
+`tar@7.5.22`, `pacote@21.5.1`, and `fast-uri@3.1.6` through the pending-review
+flow, reviewed each against its installed manifest and license file, and
+removed the five Font Awesome records plus the 18 identities superseded by the
+advisory patches. The 2026-10-16 refresh onboarded 28 identities through the
+same flow, each checked against the registry license for its exact version and
+against the license recorded for its previous version, and dropped the
+identities removed with `webpack-dev-server` and the superseded versions.
+Removing `typed-css-modules-loader` then dropped 29 more identities, including
 `postcss@6.0.1` and `postcss@7.0.39`. The 2026-10-23 refresh onboarded
 `follow-redirects@1.16.1` and `vite@6.4.4` through the pending-review flow,
 verified MIT against each installed manifest and license file, confirmed that
@@ -505,7 +539,13 @@ the bundled-dependency license notice in `vite@6.4.4` is byte-identical to
 The 2026-11-02 refresh onboarded `follow-redirects@1.16.2` through the same
 flow, verified MIT against its installed manifest and its license file, which
 is byte-identical to 1.16.1's, and dropped the superseded
-`follow-redirects@1.16.1`.
+`follow-redirects@1.16.1`. Removing the `@qbit/wallet-api` workspace dropped
+`@types/randomstring@1.3.0`, which only it declared, and onboarded none,
+leaving 2,136. Removing `antd`, `antd-dayjs-webpack-plugin` and
+`babel-plugin-import` dropped the 56 identities, all MIT, that only they
+brought in, among them `antd@4.20.4`, `moment@2.30.1`, `dayjs@1.11.18`,
+`date-fns@2.30.0` and 34 `rc-*` component identities, and onboarded none,
+leaving 2,080.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
@@ -535,24 +575,33 @@ still requires the applicable notices and source-obligation review.
 ## Validation evidence
 
 The gates covering the changed dependency and build paths passed at the audited
-dependency commit. Environment-dependent release integration not run locally is
-identified below and remains subject to the PR's branch CI:
+dependency commit, except for the 2026-11-05 removals. For those, the frozen
+install and the live dependency policy ran on the tree after each removal, and
+every other gate run locally ran only on this branch's rebased final tree; all ran
+before the commits were created, with evidence that the generator produced the
+same way, and none was rerun at the audited commits. The final tree has
+`a941b06e`'s lockfile and manifests and the follow-up fix that makes
+`getVersionDetail` ignore inherited names. The evidence they ran with matches
+the committed evidence in every record; at most the audited commit, the order
+of pnpm's raw audit lists and the hashes that depend on them differ.
+Environment-dependent release integration not run locally is identified below
+and remains subject to the PR's branch CI:
 
-| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 refresh result | 2026-11-03 pnpm 11.28.9 result |
-| --- | --- | --- | --- | --- | --- |
-| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed from a clean `node_modules` against the v9 lockfile |
-| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible |
-| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed |
-| Typecheck | Passed | Passed | Passed | Passed | Passed; the extension's 20 and `@qbit/wallet-background`'s one known `tsc` errors are unchanged from the base |
-| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 88 extension script tests; 12 PQC golden and 3 protocol-vector tests |
-| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 138 policy-tooling tests passed; the adversarial suite was not run separately |
-| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force |
-| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally |
-| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Passed on the pinned Node 22.22.3 and pnpm 11.28.9; module ids differ from the base, module code does not (see below) |
-| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI |
-| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 refresh result | 2026-11-03 pnpm 11.28.9 result | 2026-11-05 workspace and `antd` removal result |
+| --- | --- | --- | --- | --- | --- | --- |
+| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed from a clean `node_modules` against the v9 lockfile | Passed from an empty `node_modules` against both regenerated lockfiles; each is a one-pass pnpm 11.28.9 relock, the first of the base lockfile and the second of the first, and relocking the base lockfile gives the second byte for byte too |
+| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 730 repo-level warnings against base `0638892`'s 817, and per file and rule no file gains a warning except `settingLocales.test.ts`, whose one moved there from the deleted `EnableSignData.test.tsx` |
+| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed | Passed |
+| Typecheck | Passed | Passed | Passed | Passed | Passed; the extension's 20 and `@qbit/wallet-background`'s one known `tsc` errors are unchanged from the base | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base `0638892`, and `@qbit/wallet-background`'s one known error is unchanged |
+| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,143 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests |
+| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 138 policy-tooling tests passed; the adversarial suite was not run separately | 163 policy-tooling tests and the adversarial suite passed |
+| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force |
+| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally | Passed locally; `antd`'s code (`anticon`, `getPrefixCls`, `rc-notification`) no longer appears in `apps/extension/dist/chrome`, neither base nor branch bundles `moment` or `dayjs`, and the `moment` matches are unchanged wordlist and message text |
+| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Passed on the pinned Node 22.22.3 and pnpm 11.28.9; module ids differ from the base, module code does not (see below) | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`) on Node 24.22.2 and pnpm 11.28.9; canonical run in branch CI |
+| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the extension import smoke passed locally; remaining PQC gates run in branch CI |
+| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
 
 The local evidence host ran the repository pins, Node 22.22.3 with pnpm 8.6.0
 through Corepack; gates not rerun locally remain enforced by the PR's branch
@@ -583,6 +632,23 @@ appears in 1,425 module identifiers, and `react-redux`'s
 changes version. The PQC WebAssembly asset keeps its bytes under a new
 id-derived name. Built with `moduleIds` and `chunkIds` set to `natural`, the
 base and branch webpack outputs are byte-identical.
+
+The 2026-11-05 removals ran locally on Node 24.22.2 with pnpm 11.28.9, outside
+the pinned Node 22.22.3, so their results are a non-canonical local drill and
+branch CI runs the pinned toolchain. The base `0638892` and this branch's
+rebased final tree were installed from empty `node_modules` and built the same
+way, with the workspace builds and `package:test -- --artifact-version 1.0.7`.
+The comparison covers every change on this branch, not only the two dependency
+removals, and the branch removes code from the extension, so the ZIPs differ:
+`5a02ef86d15cdf044ee13af942b383bcee55f38941a4838b5b7c1e2062f6a6dc` became
+`d585f7e60762260cf855f18e8b540277afc89d861129667f7c4791962667db7f`, 127,016
+bytes smaller. Uncompressed, `background.js` is 272,360 bytes and `ui.js`
+187,754 bytes smaller, their license notices are shorter, the six locale files
+lose the deleted keys, and `images/icons/artifacts/announcement_art.png` is
+gone; the other 61 entries are byte-identical. Two clean rebuilds
+through `build:repro:extension -- --allow-toolchain-mismatch` produced the same
+ZIP. The dependency evidence this review is bound to was generated at
+`a941b06e`.
 
 ## Limitations and ongoing ownership
 

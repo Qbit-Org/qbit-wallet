@@ -12,7 +12,6 @@ import {
   useI18n,
   useNavigation,
   useSettingsTabScreenLogic,
-  useUnreadNotificationsCount,
   useVersionInfo
 } from '@qbit/wallet-state';
 
@@ -21,7 +20,6 @@ export default function SettingsTabScreen() {
   const nav = useNavigation();
   const { t } = useI18n();
   const { websiteUrl } = useChain();
-  const unreadNotificationCount = useUnreadNotificationsCount();
   const {
     settings_connectedSites,
     settings_switchNetwork,
@@ -90,31 +88,6 @@ export default function SettingsTabScreen() {
         }
         RightComponent={
           <Row itemsCenter>
-            <BaseView style={{ position: 'relative' }}>
-              <Icon
-                icon="notification"
-                size={20}
-                color="textDim"
-                onClick={() => {
-                  nav.navigate('NotificationListScreen');
-                }}
-              />
-              {unreadNotificationCount ? (
-                <BaseView
-                  style={{
-                    position: 'absolute',
-                    top: 2,
-                    right: 2,
-                    width: 7,
-                    height: 7,
-                    backgroundColor: '#F55454',
-                    borderRadius: '50%',
-                    borderWidth: 1,
-                    borderColor: colors.surface
-                  }}
-                ></BaseView>
-              ) : null}
-            </BaseView>
             <BaseView style={{ position: 'relative', marginRight: 5 }}>
               <Icon
                 icon="language"

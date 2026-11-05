@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { numUtils } from '@qbit/base-utils'
 import {
-  COIN_DUST,
   QBIT_MAX_FEE_RATE,
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_DUST,
@@ -11,7 +10,6 @@ import {
   qbitWalletOwnership,
   qbitWalletOwns,
 } from '@qbit/wallet-shared'
-import { ChainType } from '@qbit/wallet-types'
 import {
   useAccountBalance,
   useAccountsState,
@@ -211,17 +209,13 @@ export function useTxCreateScreenLogic() {
   // skipping the check.
   const feeQuote = useFeeQuoteRead()
 
-  const isQbitChain =
-    chain?.enum === ChainType.QBIT_MAINNET ||
-    chain?.enum === ChainType.QBIT_TESTNET4 ||
-    chain?.enum === ChainType.QBIT_REGTEST
-  const dustSats = isQbitChain ? QBIT_P2MR_DUST : COIN_DUST
+  const dustSats = QBIT_P2MR_DUST
   const dustAmount = useMemo(() => numUtils.satoshisToAmount(dustSats), [dustSats])
   const qbitSpendableUtxos = useMemo(
     () => getQbitP2mrSpendableUtxos(utxos, currentAccount),
     [utxos, currentAccount]
   )
-  const isQbitP2mrSend = isQbitChain && Boolean(currentAccount.p2mr)
+  const isQbitP2mrSend = Boolean(currentAccount.p2mr)
   // This screen's own read of the account's outputs landed on this network.
   const ownUtxosLoaded = utxoRead?.key === utxoReadKey && !utxoRead.failed && utxosLoaded
   const utxosFetchFailed = utxoRead?.key === utxoReadKey && utxoRead.failed
@@ -338,7 +332,7 @@ export function useTxCreateScreenLogic() {
     if (!Number.isFinite(feeRate) || feeRate <= 0) {
       return
     }
-    if (isQbitChain && feeRate < QBIT_MIN_RELAY_FEE_RATE) {
+    if (feeRate < QBIT_MIN_RELAY_FEE_RATE) {
       return
     }
 
@@ -422,7 +416,6 @@ export function useTxCreateScreenLogic() {
     memo,
     availableSatoshis,
     balanceAvailableUnknown,
-    isQbitChain,
     isQbitP2mrSend,
     hasQbitUtxoPreflight,
     qbitSpendableSatoshis,

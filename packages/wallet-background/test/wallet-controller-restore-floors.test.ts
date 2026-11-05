@@ -28,16 +28,12 @@ vi.mock('../src/services', () => ({
     getChainType: vi.fn(() => ChainType.QBIT_MAINNET),
     setShowSafeNotice: vi.fn(),
   },
-  walletApiService: {
-    setEndpoint: vi.fn(),
-  },
   sessionService: {
     broadcastEvent: vi.fn(),
   },
   contactBookService: {
     listAlias: vi.fn(() => []),
   },
-  notificationService: {},
   permissionService: {},
 }))
 
@@ -305,16 +301,11 @@ describe('WalletController qbit restore with floors', () => {
     expect(keyringService.addDiscoveredQbitKeyring).not.toHaveBeenCalled()
   })
 
-  it('refuses restore orchestration off qbit chains and for non-P2MR types', async () => {
-    vi.mocked(preferenceService.getChainType).mockReturnValue('NOT_A_CHAIN' as ChainType)
-    await expect(
-      controller.restoreQbitKeyringWithFloors(mnemonic, "m/44'/0'/0'/0", '', AddressType.P2MR)
-    ).rejects.toThrow()
-
-    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_MAINNET)
+  it('refuses restore orchestration for non-P2MR types', async () => {
     await expect(
       controller.restoreQbitKeyringWithFloors(mnemonic, "m/44'/0'/0'/0", '', AddressType.P2WPKH)
     ).rejects.toThrow()
+    expect(keyringService.createTmpKeyring).not.toHaveBeenCalled()
   })
 
   it('scans only keyrings whose floors are pending', async () => {
