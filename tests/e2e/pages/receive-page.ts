@@ -30,8 +30,8 @@ export class ReceivePage extends ExtensionPageObject {
     await expect(this.byTestId('receive-qr')).toBeVisible()
   }
 
-  async currentAddress(): Promise<string> {
-    await this.waitUntilReady()
+  async currentAddress(timeout?: number): Promise<string> {
+    await this.waitUntilReady(timeout)
     const address = await this.requiredAttribute(this.currentAddressButton, 'data-qbit-address')
     if (!/^qb(?:rt)?1[0-9a-z]+$/i.test(address)) {
       throw new Error(`receive page exposed an invalid Qbit address: ${address}`)
@@ -45,11 +45,20 @@ export class ReceivePage extends ExtensionPageObject {
     await expect(this.byTestId('receive-qr-invalid')).toHaveCount(0)
   }
 
-  async rotateAddress(): Promise<{ previous: string; current: string }> {
+  /**
+   * Press New Address and wait for the address it selects. `timeout` covers
+   * the wait for the new address, which on a mnemonic-restored wallet
+   * includes an on-chain floor scan.
+   */
+  async rotateAddress(timeout?: number): Promise<{ previous: string; current: string }> {
     const previous = await this.currentAddress()
     await this.clickTestId('new-address')
-    await expect(this.currentAddressButton).not.toHaveAttribute('data-qbit-address', previous)
-    const current = await this.currentAddress()
+    await expect(this.currentAddressButton).not.toHaveAttribute(
+      'data-qbit-address',
+      previous,
+      timeout === undefined ? undefined : { timeout }
+    )
+    const current = await this.currentAddress(timeout)
     return { previous, current }
   }
 
@@ -73,6 +82,7 @@ export class ReceivePage extends ExtensionPageObject {
 
   async expectCurrentAddressUsed(): Promise<void> {
     await expect(this.page.locator('.receive-hero .receive-badge.used')).toBeVisible()
+    await expect(this.byTestId('current-address-used-warning')).toBeVisible()
   }
 
   async expectPreviousAddressUsed(address: string): Promise<void> {

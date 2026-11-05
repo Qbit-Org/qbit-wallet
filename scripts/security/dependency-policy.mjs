@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
 import YAML from 'yaml'
 
+import { parseAuditPath } from './dependency-evidence-identity.mjs'
 import { auditWorkflowPermissions, WORKFLOW_FILE } from './workflow-permissions.mjs'
 
 const LICENSE_BASELINE_FILE = 'scripts/security/dependency-license-baseline.json'
@@ -78,13 +79,6 @@ const UNKNOWN_LICENSE_EVIDENCE = new Map([
     },
   ],
   [
-    'react-cache@2.0.0-alpha.1',
-    {
-      disposition: 'MIT license text verified in LICENSE',
-      sha256: '52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85',
-    },
-  ],
-  [
     'spawndamnit@3.0.1',
     {
       disposition: 'MIT license text verified in LICENSE',
@@ -94,14 +88,45 @@ const UNKNOWN_LICENSE_EVIDENCE = new Map([
 ])
 
 // Tracked package-manager configuration is read by every install and audit
-// before the policy job runs, so only reviewed .npmrc keys are permitted and
-// any other manager configuration file (which can redirect registries or
-// rewrite resolutions) is rejected outright. Corepack loads `.corepack.env`
-// beside each package.json it inspects before it downloads a manager, so a
-// tracked copy can redirect that download or disable its integrity checks.
+// before the policy job runs, so only the root pnpm-workspace.yaml with
+// reviewed settings is permitted, and any other manager configuration file
+// (which can redirect registries or rewrite resolutions) is rejected outright.
+// pnpm 11 reads only auth and registry settings from .npmrc, which the
+// repository never commits, so a tracked .npmrc may hold comments only.
+// Corepack loads `.corepack.env` beside each package.json it inspects before
+// it downloads a manager, so a tracked copy can redirect that download or
+// disable its integrity checks.
 export const PACKAGE_MANAGER_CONFIG_FILE =
-  /(?:^|\/)(?:\.npmrc|\.yarnrc|\.yarnrc\.ya?ml|bunfig\.toml|\.pnpmfile\.cjs|pnpmfile\.js|\.corepack\.env)$/
-const REVIEWED_NPMRC_KEYS = new Set(['node-linker'])
+  /(?:^|\/)(?:\.npmrc|\.yarnrc|\.yarnrc\.ya?ml|bunfig\.toml|\.pnpmfile\.[cm]?js|pnpmfile\.js|\.corepack\.env|pnpm-workspace\.ya?ml)$/
+const WORKSPACE_CONFIG_FILE = 'pnpm-workspace.yaml'
+// pnpm 11 ignores kebab-case keys in pnpm-workspace.yaml, so an unlisted key is
+// either an unreviewed setting or one that silently does nothing.
+const REVIEWED_WORKSPACE_KEYS = new Set([
+  'packages',
+  'nodeLinker',
+  'linkWorkspacePackages',
+  'verifyDepsBeforeRun',
+  'overrides',
+  'patchedDependencies',
+  'allowBuilds',
+])
+// The extension's webpack ProvidePlugin resolves `buffer` from each module's
+// nearest node_modules, so the shipped bundle depends on the hoisted layout.
+// pnpm 8 linked a dependency on a workspace package by default; pnpm 11 must
+// be told to, or a non-workspace range on a workspace name resolves from the
+// registry. pnpm 11 also installs before `pnpm run` and `pnpm exec` when
+// node_modules is out of date (verifyDepsBeforeRun defaults to `install`),
+// which pnpm 8 never did; `false` keeps every install an explicit command.
+const REQUIRED_WORKSPACE_SETTINGS = new Map([
+  ['nodeLinker', 'hoisted'],
+  ['linkWorkspacePackages', true],
+  ['verifyDepsBeforeRun', false],
+])
+// Dependency lifecycle scripts run only for packages listed `true` in
+// allowBuilds. None of the installed scripts is needed: secp256k1 ships
+// prebuilt binaries, esbuild's JavaScript API finds its platform package
+// without the postinstall copy, and the rest print banners or do nothing here.
+const REVIEWED_BUILD_DEPENDENCIES = new Set()
 // A workflow may reference a local action with `uses: ./path`, whose tracked
 // action.yml can itself invoke mutable external actions or run commands, so
 // every tracked action definition is audited regardless of its directory.
@@ -119,8 +144,32 @@ const COMPOSITE_ACTION_RUNTIME = 'composite'
 // declares packageManager, so a nested workspace or submodule manifest could
 // redirect installs to a mutable manager such as pnpm@latest. The root
 // manifest must pin the reviewed manager; nested manifests may omit the field
-// but must not declare anything else.
-const REQUIRED_PACKAGE_MANAGER = 'pnpm@8.6.0'
+// but must not declare anything else. The sha512 suffix makes Corepack verify
+// the pnpm tarball it downloads.
+export const REQUIRED_PACKAGE_MANAGER =
+  'pnpm@11.28.9+sha512.35421cea2720eca3f5ad722b67e8ef18f4d3cd4745ed2fcfeb0dc288d4e9437fad3870d91ee6e83f268f0f6f7e0f62723317b19617bb45ee4333172ef51159f8'
+const PINNED_PNPM_SPEC = REQUIRED_PACKAGE_MANAGER.slice('pnpm@'.length)
+// pnpm reaches a command only through Corepack, which checks it against the
+// pin. pnpm itself, its standalone build, and Corepack are therefore never
+// fetched or installed as packages, at any version: either would put a binary
+// on PATH or in node_modules/.bin that no hash check covers.
+const PACKAGE_MANAGER_PACKAGES = new Set(['@pnpm/exe', 'corepack', 'pnpm'])
+
+// Whether a package name is a package manager that must come from Corepack:
+// pnpm, its standalone build, Corepack, or any `@pnpm/*` package. pnpm ships
+// its platform binary as `@pnpm/<platform>` (for example `@pnpm/linux-x64`),
+// and its CLI as `@pnpm/exe`, so allowing the `@pnpm` scope in the lockfile or
+// as a fetched package would put an unaudited pnpm on PATH or in
+// node_modules/.bin.
+function isPackageManagerPackage(name) {
+  return name !== null && (PACKAGE_MANAGER_PACKAGES.has(name) || name.startsWith('@pnpm/'))
+}
+
+// The package a reference names, or null when it names none.
+function referencedPackageName(reference) {
+  const match = /^((?:@[^\s/@]+\/)?[^\s/@]+)(?:@|$)/.exec(reference)
+  return match === null ? null : match[1]
+}
 
 const DEPENDENCY_SECTIONS = [
   'dependencies',
@@ -187,11 +236,6 @@ function validRepoRelativePath(value) {
   )
 }
 
-function packageNameFromAuditPathSegment(segment) {
-  const separator = segment.lastIndexOf('@')
-  return separator > 0 ? segment.slice(0, separator) : null
-}
-
 export function auditLockfile(lockfileText) {
   const errors = []
   let lockfile
@@ -203,8 +247,8 @@ export function auditLockfile(lockfileText) {
       packageCount: 0,
     }
   }
-  if (lockfile?.lockfileVersion !== '6.1') {
-    errors.push('pnpm-lock.yaml must use reviewed lockfileVersion 6.1')
+  if (lockfile?.lockfileVersion !== '9.0') {
+    errors.push('pnpm-lock.yaml must use reviewed lockfileVersion 9.0')
   }
   if (lockfile?.settings?.excludeLinksFromLockfile !== false) {
     errors.push('pnpm-lock.yaml must retain workspace link provenance')
@@ -222,8 +266,16 @@ export function auditLockfile(lockfileText) {
   let packageCount = 0
   for (const [packageKey, snapshot] of Object.entries(lockfile.packages)) {
     packageCount += 1
-    if (!packageKey.startsWith('/')) {
+    // Lockfile v9 keys a registry package by name@version. Any other reference,
+    // such as a URL, a git commit, or a file or link path, is not a registry
+    // resolution.
+    if (!exactPackageVersion(packageKey)) {
       errors.push(`${packageKey} is a forbidden non-registry package resolution`)
+    }
+    if (isPackageManagerPackage(packageKey.slice(0, packageKey.lastIndexOf('@')))) {
+      errors.push(
+        `${packageKey} is a package manager; pnpm must come from Corepack's packageManager pin`
+      )
     }
     if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(snapshot?.resolution?.integrity || '')) {
       errors.push(`${packageKey} is not bound to a sha512 registry integrity value`)
@@ -244,8 +296,13 @@ export function auditDependencySpecifiers(manifests) {
   for (const { file, manifest } of manifests) {
     const sections = DEPENDENCY_SECTIONS.map(section => [section, manifest[section] || {}])
     sections.push(['resolutions', manifest.resolutions || {}])
-    if (file === 'package.json') {
-      sections.push(['pnpm.overrides', manifest.pnpm?.overrides || {}])
+    // pnpm 11 ignores the pnpm field of package.json, so settings left there
+    // would look reviewed while doing nothing. Overrides are audited in
+    // pnpm-workspace.yaml, where pnpm reads them.
+    if (Object.hasOwn(manifest, 'pnpm')) {
+      errors.push(
+        `${file}: pnpm settings belong in ${WORKSPACE_CONFIG_FILE}; pnpm 11 ignores the pnpm field`
+      )
     }
 
     for (const [section, dependencies] of sections) {
@@ -263,12 +320,84 @@ export function auditDependencySpecifiers(manifests) {
   return { errors, specifierCount }
 }
 
+function workspaceSettingMapping(settings, key, errors) {
+  const value = settings[key]
+  if (value === undefined) return {}
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${WORKSPACE_CONFIG_FILE}: ${key} must be a mapping`)
+    return {}
+  }
+  return value
+}
+
+export function auditWorkspaceSettings(source) {
+  let settings
+  try {
+    settings = YAML.parse(source)
+  } catch (error) {
+    return [
+      `${WORKSPACE_CONFIG_FILE} cannot be parsed unambiguously: ${error.message.split('\n')[0]}`,
+    ]
+  }
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return [`${WORKSPACE_CONFIG_FILE} must be a mapping`]
+  }
+
+  const errors = []
+  for (const key of Object.keys(settings)) {
+    if (!REVIEWED_WORKSPACE_KEYS.has(key)) {
+      errors.push(`${WORKSPACE_CONFIG_FILE}: unreviewed pnpm setting: ${key}`)
+    }
+  }
+  for (const [key, required] of REQUIRED_WORKSPACE_SETTINGS) {
+    if (settings[key] !== required) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: ${key} must be ${JSON.stringify(required)}, found ${JSON.stringify(settings[key])}`
+      )
+    }
+  }
+  for (const [name, specifier] of Object.entries(
+    workspaceSettingMapping(settings, 'overrides', errors)
+  )) {
+    if (typeof specifier !== 'string') {
+      errors.push(`${WORKSPACE_CONFIG_FILE}: overrides.${name} must be a string`)
+    } else if (!isRegistryVersionSpecifier(specifier)) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: overrides.${name} uses forbidden unpinned specifier ${specifier}`
+      )
+    }
+  }
+  for (const [name, patchFile] of Object.entries(
+    workspaceSettingMapping(settings, 'patchedDependencies', errors)
+  )) {
+    if (!validRepoRelativePath(patchFile) || !patchFile.startsWith('patches/')) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: patchedDependencies.${name} must name a file under patches/`
+      )
+    }
+  }
+  for (const [name, allowed] of Object.entries(
+    workspaceSettingMapping(settings, 'allowBuilds', errors)
+  )) {
+    if (typeof allowed !== 'boolean') {
+      errors.push(`${WORKSPACE_CONFIG_FILE}: allowBuilds.${name} must be true or false`)
+    } else if (allowed && !REVIEWED_BUILD_DEPENDENCIES.has(name)) {
+      errors.push(
+        `${WORKSPACE_CONFIG_FILE}: allowBuilds.${name} runs an unreviewed dependency lifecycle script`
+      )
+    }
+  }
+  return errors
+}
+
 export function auditPackageManagerConfigs(configFiles) {
   const errors = []
   let configCount = 0
+  let workspaceConfigured = false
   for (const { file, source } of configFiles) {
     configCount += 1
-    if (!/(?:^|\/)\.npmrc$/.test(file)) {
+    const npmrc = /(?:^|\/)\.npmrc$/.test(file)
+    if (!npmrc && file !== WORKSPACE_CONFIG_FILE) {
       errors.push(`${file}: unreviewed package-manager configuration file`)
       continue
     }
@@ -276,15 +405,21 @@ export function auditPackageManagerConfigs(configFiles) {
       errors.push(`${file}: package-manager configuration must be text`)
       continue
     }
+    if (!npmrc) {
+      workspaceConfigured = true
+      errors.push(...auditWorkspaceSettings(source))
+      continue
+    }
     for (const rawLine of source.split(/\r?\n/)) {
       const line = rawLine.trim()
       if (line.length === 0 || line.startsWith('#') || line.startsWith(';')) continue
       const separator = line.indexOf('=')
       const key = (separator < 0 ? line : line.slice(0, separator)).trim()
-      if (!REVIEWED_NPMRC_KEYS.has(key)) {
-        errors.push(`${file}: unreviewed package-manager configuration key: ${key}`)
-      }
+      errors.push(`${file}: unreviewed package-manager configuration key: ${key}`)
     }
+  }
+  if (!workspaceConfigured) {
+    errors.push(`${WORKSPACE_CONFIG_FILE}: the reviewed workspace configuration is missing`)
   }
   return { configCount, errors }
 }
@@ -303,6 +438,18 @@ export function auditWorkspacePackageManagers(manifests) {
   let rootDeclared = false
   for (const { file, manifest } of manifests) {
     manifestCount += 1
+    // pnpm 11 prefers devEngines.packageManager to packageManager, and pnpm
+    // downloads the Node.js a runtime field names, so either field would
+    // bypass the reviewed pin.
+    for (const [section, field] of [
+      ['devEngines', 'packageManager'],
+      ['devEngines', 'runtime'],
+      ['engines', 'runtime'],
+    ]) {
+      if (manifest[section] && Object.hasOwn(manifest[section], field)) {
+        errors.push(`${file}: ${section}.${field} is not permitted; packageManager pins pnpm`)
+      }
+    }
     if (!Object.hasOwn(manifest, 'packageManager')) continue
     if (file === 'package.json') rootDeclared = true
     const declared = manifest.packageManager
@@ -336,6 +483,14 @@ function auditActionRuntime(file, definition) {
     `${file}: local action runtime ${JSON.stringify(runs.using)} is rejected because its executable implementation is not audited; only ${COMPOSITE_ACTION_RUNTIME} actions are accepted`,
   ]
 }
+
+// pnpm/action-setup installs the packageManager version from the registry
+// without checking its sha512 hash, and setup-node's `cache: pnpm` runs the
+// pnpm first on PATH (`pnpm store path`) before the Corepack step can put its
+// shim there. Either one runs a pnpm Corepack never checked, so both are
+// rejected; a job caches the store with actions/cache after the Corepack step
+// instead. Owner and repository names are case-insensitive in `uses`.
+const PNPM_SETUP_ACTION = /^pnpm\/action-setup(?:[/@]|$)/i
 
 export function auditActionReferences(actionFiles) {
   const errors = []
@@ -373,6 +528,20 @@ export function auditActionReferences(actionFiles) {
           ) {
             errors.push(`${file}: action is not pinned to a full commit: ${nestedValue}`)
           }
+          if (typeof nestedValue === 'string' && PNPM_SETUP_ACTION.test(nestedValue)) {
+            errors.push(
+              `${file}: pnpm/action-setup installs pnpm without checking the packageManager hash; run pnpm through Corepack: ${nestedValue}`
+            )
+          }
+        }
+        if (
+          key === 'cache' &&
+          typeof nestedValue === 'string' &&
+          nestedValue.trim().toLowerCase() === 'pnpm'
+        ) {
+          errors.push(
+            `${file}: setup-node's cache: pnpm runs pnpm before Corepack; cache the store with actions/cache after the Corepack step`
+          )
         }
         inspect(nestedValue)
       }
@@ -508,17 +677,15 @@ function shellWords(command) {
   return shellWordSpans(command).map(span => span.word)
 }
 
-function packageOptionReferences(args, { shortPackage = false } = {}) {
+function packageOptionReferences(args) {
   const references = []
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-    if (argument === '--package' || (shortPackage && argument === '-p')) {
+    if (argument === '--package') {
       references.push(args[index + 1] || argument)
       index += 1
     } else if (argument.startsWith('--package=')) {
       references.push(argument.slice('--package='.length) || argument)
-    } else if (shortPackage && argument.startsWith('-p=')) {
-      references.push(argument.slice('-p='.length) || argument)
     }
   }
   return references
@@ -691,7 +858,8 @@ const PACKAGE_UPDATE_COMMANDS = new Map([
   ['bun', new Set(['update'])],
 ])
 // Command words after which later words are script or child arguments rather
-// than an install command; scanning stops there.
+// than an install command; scanning stops there. pnpm's command line is read by
+// `pnpmInvocation` instead.
 const COMMAND_STOP_WORDS = new Map([
   [
     'npm',
@@ -713,7 +881,6 @@ const COMMAND_STOP_WORDS = new Map([
       'x',
     ]),
   ],
-  ['pnpm', new Set(['create', 'dlx', 'exec', 'run', 'start', 'test'])],
   ['yarn', new Set(['create', 'dlx', 'exec', 'run', 'start', 'test'])],
   ['bun', new Set(['create', 'run', 'start', 'test', 'x'])],
 ])
@@ -768,15 +935,14 @@ const INSTALL_VALUE_OPTIONS = new Map([
   ],
   ['bun', new Set(['--backend', '--concurrent-scripts', '-F', '--filter', '--network-concurrency'])],
 ])
+// pnpm's runners are read by `pnpmInvocation` against the pnpm allowlist.
 const DIRECT_RUNNER_BOOLEAN_OPTIONS = new Map([
   ['npx', new Set(['-y', '--yes', '-n', '--no'])],
-  ['pnpm', new Set(['-c', '--shell-mode', '-s', '--silent'])],
   ['yarn', new Set(['-q', '--quiet'])],
   ['bun', new Set(['--bun', '--no-install', '--silent', '--verbose'])],
 ])
 const DIRECT_RUNNER_VALUE_OPTIONS = new Map([
   ['npx', new Set(['-c', '--call'])],
-  ['pnpm', new Set(['--allow-build'])],
   ['yarn', new Set()],
   ['bun', new Set()],
 ])
@@ -890,14 +1056,493 @@ function resolutionOverrideReferences(words) {
   })
 }
 
+// The pnpm options this repository's own commands use, and no others. pnpm 11
+// reads every one of its settings from the command line, as `--<setting>` or
+// as `--config.<key>` for any key, so a list of the dangerous ones could never
+// be complete: any other option is rejected wherever pnpm itself reads it. A
+// flag is accepted only as written here, since nopt takes a `true` or `false`
+// after a flag as its value (`--frozen-lockfile false` turns the frozen
+// lockfile off), and `--flag=value` is not the reviewed flag either.
+const PNPM_FLAGS = new Set([
+  '--frozen-lockfile',
+  '--if-present',
+  '--ignore-scripts',
+  '--json',
+  '--lockfile-only',
+  '--no-bail',
+  '-r',
+  '--silent',
+  '--version',
+])
+// The options that take a value, and the values accepted. pnpm 11.28.9's first
+// pass reads the value of a space-separated `--workspace-concurrency` as the
+// script name and then parses the words after the real script name as its own
+// options, so that option is accepted only as `--workspace-concurrency=<n>`.
+// `--filter <selector>` is read the same way in both spellings.
+const PNPM_VALUE_OPTIONS = new Map([
+  ['--filter', { separate: true, value: /./ }],
+  ['--workspace-concurrency', { separate: false, value: /^\d+$/ }],
+])
+
+// pnpm 11.28.9's built-in command names and aliases (pnpm/lib/cmd). A command
+// word that names none of them runs the package script of that name, or else
+// the binary, and pnpm hands every word after it over unparsed. `test`,
+// `start`, `t` and `tst` are scripts in pnpm 11, not built-ins.
+const PNPM_BUILTIN_COMMANDS = new Set([
+  'access',
+  'add',
+  'adduser',
+  'approve-builds',
+  'audit',
+  'bin',
+  'bugs',
+  'c',
+  'cache',
+  'cat-file',
+  'cat-index',
+  'change',
+  'ci',
+  'clean',
+  'clean-install',
+  'completion',
+  'completion-server',
+  'config',
+  'create',
+  'dedupe',
+  'deploy',
+  'deprecate',
+  'dislink',
+  'dist-tag',
+  'dist-tags',
+  'dlx',
+  'docs',
+  'doctor',
+  'edit',
+  'env',
+  'exec',
+  'fetch',
+  'find',
+  'find-hash',
+  'get',
+  'help',
+  'home',
+  'i',
+  'ic',
+  'ignored-builds',
+  'import',
+  'info',
+  'init',
+  'install',
+  'install-clean',
+  'install-test',
+  'issues',
+  'it',
+  'la',
+  'lane',
+  'licenses',
+  'link',
+  'list',
+  'll',
+  'ln',
+  'login',
+  'logout',
+  'ls',
+  'm',
+  'multi',
+  'outdated',
+  'owner',
+  'owners',
+  'pack',
+  'pack-app',
+  'patch',
+  'patch-commit',
+  'patch-remove',
+  'peers',
+  'ping',
+  'pkg',
+  'prefix',
+  'profile',
+  'prune',
+  'publish',
+  'purge',
+  'rb',
+  'rebuild',
+  'recursive',
+  'remove',
+  'repo',
+  'restart',
+  'rm',
+  'root',
+  'rt',
+  'run',
+  'run-script',
+  'runtime',
+  's',
+  'sbom',
+  'se',
+  'search',
+  'self-update',
+  'set',
+  'set-script',
+  'setup',
+  'show',
+  'ss',
+  'stage',
+  'star',
+  'stars',
+  'store',
+  'team',
+  'token',
+  'un',
+  'undeprecate',
+  'uni',
+  'uninstall',
+  'unlink',
+  'unpublish',
+  'unstar',
+  'up',
+  'update',
+  'upgrade',
+  'v',
+  'version',
+  'view',
+  'whoami',
+  'why',
+  'with',
+  'xmas',
+])
+// `pnpm recursive <command>` (or `multi`, `m`) runs the next command word.
+const PNPM_RECURSIVE_COMMANDS = new Set(['m', 'multi', 'recursive'])
+// Commands that change pnpm's settings, the reviewed manifests, or which pnpm
+// or Node.js runs, rejected outright. `config` (alias `c`) and its `get` and
+// `set` shorthands read and write settings, and `login` (alias `adduser`) and
+// `logout` write registry auth; `approve-builds`, `patch-commit` and
+// `patch-remove` rewrite allowBuilds and patchedDependencies; `link` adds an
+// override and installs without the frozen lockfile; `pkg` and `set-script`
+// edit package.json; `self-update`, `setup` and `with` change which pnpm runs;
+// `env` and `runtime` change which Node.js runs.
+const PNPM_SETTINGS_COMMANDS = new Set([
+  'adduser',
+  'approve-builds',
+  'c',
+  'config',
+  'env',
+  'get',
+  'link',
+  'ln',
+  'login',
+  'logout',
+  'patch-commit',
+  'patch-remove',
+  'pkg',
+  'rt',
+  'runtime',
+  'self-update',
+  'set',
+  'set-script',
+  'setup',
+  'ss',
+  'with',
+])
+
+// A word the shell rewrites before pnpm reads it can become any option or any
+// command, so the audit cannot tell what pnpm would run.
+function shellRewritesWord(word) {
+  return /[$`]/.test(word) || braceExpands(word)
+}
+
+// Reads the pnpm option at `index`: the index of the last word it consumes, or
+// what to reject.
+function pnpmOption(words, index) {
+  const word = words[index]
+  const separator = word.indexOf('=')
+  const name = separator < 0 ? word : word.slice(0, separator)
+  const valueOption = PNPM_VALUE_OPTIONS.get(name)
+  if (valueOption !== undefined) {
+    if (separator < 0 && !valueOption.separate) return { option: word }
+    const value = separator < 0 ? words[index + 1] : word.slice(separator + 1)
+    if (!isNonEmptyString(value) || value.startsWith('-')) return { option: word }
+    if (shellRewritesWord(value)) return { expansion: value }
+    if (!valueOption.value.test(value)) return { option: word }
+    return { lastIndex: separator < 0 ? index + 1 : index }
+  }
+  if (!PNPM_FLAGS.has(word)) return { option: word }
+  const next = words[index + 1]
+  if (next === 'true' || next === 'false') return { option: `${word} ${next}` }
+  return { lastIndex: index }
+}
+
+// Reads a pnpm command line the way pnpm 11.28.9 does (@pnpm/parse-cli-args
+// over pnpm's own copy of nopt) and returns the command it runs, or the first
+// word the audit rejects. pnpm parses its own options before the command word,
+// and a built-in's options anywhere among its arguments up to `--`. It stops
+// parsing at the script name of `pnpm <script>` and `pnpm run`, at the package
+// `dlx` fetches, and at the `exec` or `create` word itself, and hands every
+// later word to what it runs. Nothing after a rejected word has a known
+// meaning, so the reading ends there.
+function pnpmInvocation(words) {
+  // pnpm pulls every `--config.<key>` word out of the whole command line for
+  // `add` and for an install that `--` turns into one, past `--` and past the
+  // package names, so one is rejected wherever it appears.
+  const config = words.find(word => word.startsWith('--config.'))
+  if (config !== undefined) return { option: config }
+  // `pnpm pm <command>` runs the built-in even where a script has its name.
+  let index = words[0] === 'pm' ? 1 : 0
+  for (; index < words.length; index += 1) {
+    const word = words[index]
+    // pnpm still reads the next word as the command after a leading `--`.
+    if (word === '--') continue
+    if (shellRewritesWord(word)) return { expansion: word }
+    if (word.startsWith('-')) {
+      const option = pnpmOption(words, index)
+      if (option.lastIndex === undefined) return option
+      index = option.lastIndex
+      continue
+    }
+    if (!PNPM_RECURSIVE_COMMANDS.has(word)) break
+  }
+  const command = words[index]
+  if (command === undefined) return {}
+  if (PNPM_SETTINGS_COMMANDS.has(command)) return { settings: command }
+  const invocation = { command, commandIndex: index }
+  if (command === 'exec') {
+    // The word after `exec` names the binary it runs, which may be pnpm itself.
+    const binary = words.slice(index + 1).find(word => word !== '--')
+    return binary !== undefined && shellRewritesWord(binary) ? { expansion: binary } : invocation
+  }
+  if (!PNPM_BUILTIN_COMMANDS.has(command) || command === 'create') return invocation
+  const operandRuns = command === 'dlx' || command === 'run' || command === 'run-script'
+  for (let position = index + 1; position < words.length; position += 1) {
+    const word = words[position]
+    if (word === '--') {
+      if (operandRuns) return { ...invocation, operandIndex: position + 1, delimited: true }
+      // A built-in reads the words after `--` too: `install -- <word>` runs
+      // `add <word>`, and a recursive install parses them as options.
+      return position + 1 < words.length ? { afterDelimiter: command } : invocation
+    }
+    if (shellRewritesWord(word)) return { expansion: word }
+    if (word.startsWith('-')) {
+      const option = pnpmOption(words, position)
+      if (option.lastIndex === undefined) return option
+      position = option.lastIndex
+      continue
+    }
+    if (operandRuns) return { ...invocation, operandIndex: position }
+  }
+  return invocation
+}
+
+// The rejection a pnpm reading ended with, if any.
+function pnpmRejection(invocation) {
+  if (invocation.option !== undefined) {
+    return `pnpm option is not on the reviewed allowlist: ${invocation.option}`
+  }
+  if (invocation.expansion !== undefined) {
+    return `pnpm argument uses shell expansion: ${invocation.expansion}`
+  }
+  if (invocation.settings !== undefined) {
+    return `pnpm command that changes settings is rejected: pnpm ${invocation.settings}`
+  }
+  if (invocation.afterDelimiter !== undefined) {
+    return `pnpm built-in command takes no words after --: ${invocation.afterDelimiter}`
+  }
+  return null
+}
+
+// The executable packages a pnpm command line fetches, or a rejection. `dlx`
+// (and `pnpx`, `pnx`, which run it) fetches its first operand, and `create` its
+// first word, mapped to the starter package; an install or update fetches its
+// operands. Resolution options after the fetched package are pnpm's to pass
+// on, but they stay rejected as before unless a `--` precedes the package.
+function pnpmCommandReferences(words, rejections) {
+  const invocation = pnpmInvocation(words)
+  const rejection = pnpmRejection(invocation)
+  if (rejection !== null) {
+    rejections.add(rejection)
+    return []
+  }
+  const { command, commandIndex, operandIndex, delimited } = invocation
+  const operands = words.slice(commandIndex + 1)
+  if (command === 'dlx') {
+    const reference = words[operandIndex]
+    if (reference === undefined) return []
+    const after = delimited ? [] : resolutionOverrideReferences(words.slice(operandIndex + 1))
+    return [reference, ...after]
+  }
+  if (command === 'create') {
+    // pnpm 11 stops parsing at `create`, so even `--` or an option-shaped word
+    // is the starter: `pnpm create -- starter@1.2.3` fetches `create---`.
+    if (operands.length === 0) return []
+    return [
+      initializerPackageReference(operands[0], 'pnpm'),
+      ...resolutionOverrideReferences(operands.slice(1)),
+    ]
+  }
+  if (PACKAGE_INSTALL_COMMANDS.get('pnpm').has(command)) {
+    return installCommandReferences(operands, 'pnpm', command)
+  }
+  if (PACKAGE_UPDATE_COMMANDS.get('pnpm').has(command)) {
+    return updateArgumentReferences(operands, 'pnpm', command)
+  }
+  return []
+}
+
+// Corepack subcommands whose operands name package managers, so in
+// `corepack prepare pnpm@<spec> --activate` the pnpm word is what Corepack
+// installs, and the words after it are Corepack's, not a pnpm command line.
+const COREPACK_MANAGER_OPERAND_COMMANDS = new Set([
+  'disable',
+  'enable',
+  'hydrate',
+  'install',
+  'pack',
+  'prepare',
+  'up',
+  'use',
+])
+
+function isCorepackOperand(command, index) {
+  const start =
+    Math.max(...['\n', ';', '&', '|'].map(separator => command.lastIndexOf(separator, index - 1))) +
+    1
+  const prefix = command.slice(start, index)
+  // A substitution still open before the word runs it as a command of its own.
+  if (scanShellBody(prefix, 0, false).spans.some(span => span.end >= prefix.length)) return false
+  const words = shellWords(prefix)
+  const corepack = words.findIndex(word => word.slice(word.lastIndexOf('/') + 1) === 'corepack')
+  if (corepack < 0) return false
+  const subcommand = words.slice(corepack + 1).find(word => !word.startsWith('-'))
+  return COREPACK_MANAGER_OPERAND_COMMANDS.has(subcommand)
+}
+
+// Corepack may enable its shims and act on the project's own pin, and nothing
+// else. `use` and `up` rewrite the packageManager pin; `install -g`,
+// `prepare --activate` and `hydrate` install a release as the global default,
+// hydrate from any tarball; `install` or `prepare` naming a release fetches
+// one the pin does not name; and `disable` removes the shims, so another pnpm
+// on PATH runs. Corepack 0.34's other commands, `enable`, `pack` and
+// `cache clean`, change none of that.
+const COREPACK_REJECTED_COMMANDS = new Set(['disable', 'hydrate', 'up', 'use'])
+const COREPACK_PROJECT_COMMANDS = new Set(['install', 'prepare'])
+const COREPACK_GLOBAL_OPTION = /^(?:-g|--global|--activate)(?:=|$)/
+
+// The Corepack command its arguments run that the audit rejects, or null.
+function corepackCommandRejection(words) {
+  const command = words.find(word => !word.startsWith('-'))
+  if (COREPACK_REJECTED_COMMANDS.has(command)) return command
+  if (!COREPACK_PROJECT_COMMANDS.has(command)) return null
+  const operands = words.slice(words.indexOf(command) + 1)
+  const global = words.some(word => COREPACK_GLOBAL_OPTION.test(word))
+  return global || operands.some(word => !word.startsWith('-')) ? command : null
+}
+
+// npm commands that write configuration pnpm 11 reads (the registry and auth
+// keys of an npmrc) or the reviewed manifests: `config` (alias `c`) with its
+// `get` and `set` shorthands, `login` (`adduser`, `add-user`), `logout` and
+// `pkg`. npm runs any unique prefix of a command name and reads camelCase as
+// kebab-case (`npm conf`, `npm addUser`), so a prefix of one of these is
+// rejected too, apart from the commands npm 10 resolves it to outright: `add`
+// installs, and `s` and `se` search.
+const NPM_SETTINGS_COMMANDS = [
+  'add-user',
+  'adduser',
+  'c',
+  'config',
+  'get',
+  'login',
+  'logout',
+  'pkg',
+  'set',
+]
+const NPM_COMMANDS_PREFIXING_SETTINGS = new Set(['add', 's', 'se'])
+
+function npmChangesSettings(word) {
+  const name = word.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
+  if (name === '' || NPM_COMMANDS_PREFIXING_SETTINGS.has(name)) return false
+  return NPM_SETTINGS_COMMANDS.some(command => command.startsWith(name))
+}
+
+// The words npm may take for its command: the first operand, and the word
+// after an option written without `=`, which is that option's value or, after
+// a flag, the command itself. npm's option types are not mirrored here, so both
+// readings are kept.
+function npmCommandCandidates(words) {
+  const candidates = []
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]
+    if (!word.startsWith('-')) {
+      candidates.push(word)
+      break
+    }
+    const next = words[index + 1]
+    if (!word.includes('=') && next !== undefined && !next.startsWith('-')) {
+      candidates.push(next)
+      index += 1
+    }
+  }
+  return candidates
+}
+
+// The text a pnpm or Corepack word's arguments come from: the rest of its
+// command segment, cut at the `)` that closes a subshell or command
+// substitution around it. A `)` or backtick right after the word ends the
+// substitution or code span it closes, so `$(command -v pnpm)` and a comment
+// quoting `pnpm` carry no arguments; a substitution opening inside the
+// arguments stays whole.
+function commandArgumentText(command, startIndex) {
+  const segment = shellCommandSegment(command, startIndex)
+  if (segment.startsWith(')') || segment.startsWith('`')) return ''
+  let depth = 0
+  let quote = null
+  let escaped = false
+  for (let index = 0; index < segment.length; index += 1) {
+    const character = segment[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quote === "'") {
+      if (character === "'") quote = null
+      continue
+    }
+    if (character === '\\') {
+      escaped = true
+      continue
+    }
+    const span = shellSubstitutionSpan(segment, index, quote)
+    if (span !== null) {
+      index = span.end - 1
+      continue
+    }
+    if (quote) {
+      if (character === quote) quote = null
+      continue
+    }
+    if (character === '"' || character === "'") {
+      quote = character
+    } else if (character === '(') {
+      depth += 1
+    } else if (character === ')') {
+      if (depth === 0) return segment.slice(0, index)
+      depth -= 1
+    }
+  }
+  return segment
+}
+
 // npm reads `<prefix>/etc/npmrc` as its global configuration, so a prefix
 // supplied through the environment (`npm_config_prefix`, or the `PREFIX`
 // variable npm derives its global prefix from) redirects resolution to
 // unreviewed configuration exactly like the rejected `--prefix` option.
+// pnpm 11 still falls back to `npm_config_userconfig` for its auth file and to
+// `npm_config_workspace_dir` to find the workspace root, which picks the
+// pnpm-workspace.yaml its settings come from. pnpm_config_*, COREPACK_* and the
+// variables that move configuration files are rejected wherever they appear
+// (REJECTED_VARIABLES).
 function environmentResolutionOverrideReferences(commandPrefix) {
   const references = []
   const patterns = [
-    /(?:^|[^A-Za-z0-9_])(npm_config_(?:(?:[A-Za-z0-9_.@~:-]+_)*registry|@[A-Za-z0-9_.~-]+:registry|userconfig|globalconfig|config_dir|prefix))\s*(?==|:)/gi,
+    /(?:^|[^A-Za-z0-9_])(npm_config_(?:(?:[A-Za-z0-9_.@~:-]+_)*registry|@[A-Za-z0-9_.~-]+:registry|userconfig|globalconfig|config_dir|prefix|workspace_dir))\s*(?==|:)/gi,
     /(?:^|[^A-Za-z0-9_])(PREFIX)\s*(?==|:)/g,
   ]
   for (const pattern of patterns) {
@@ -906,13 +1551,190 @@ function environmentResolutionOverrideReferences(commandPrefix) {
   return references
 }
 
+// Variables the audit rejects, in any case. pnpm 11 reads a setting from any
+// pnpm_config_<name> or PNPM_CONFIG_<NAME> variable, and its auth and
+// scoped-registry lookups read names that are not snake case
+// (`pnpm_config_//host/:_authToken`). Corepack's own variables can make it
+// ignore the packageManager pin (COREPACK_ENABLE_PROJECT_SPEC), fetch from
+// another registry or cache, drop its signature keys, or load more variables
+// from a file (COREPACK_ENV_FILE); a COREPACK_ name is an identifier, so a path
+// such as `corepack_check.sh` is not one. npm_config_userconfig and
+// npm_config_globalconfig name the npmrc files pnpm still reads for auth. The
+// repository sets none of these, and each is rejected wherever it is named.
+// HOME and XDG_CONFIG_HOME pick the npmrc and `pnpm/config.yaml` pnpm reads,
+// which can set a registry, an auth tokenHelper or dangerouslyAllowAllBuilds,
+// and PNPM_HOME picks where pnpm's global binaries live. Scripts read those, so
+// they are rejected only where something sets them.
+//
+// The whole text is searched, not only what precedes a pnpm word, because an
+// exported variable or a workflow `env` entry reaches every later command,
+// including a pnpm another script or step runs. Shell quoting can split a name
+// (`pnpm_con"fig"_x`), so shell words are read too, and so are the parsed keys
+// of workflow YAML, where an escape can spell one.
+const REJECTED_VARIABLES = [
+  {
+    name: 'pnpm_config_[^\\s\'"=]*',
+    problem: 'pnpm_config_ variable overrides a reviewed pnpm setting',
+  },
+  {
+    name: 'COREPACK_[A-Za-z0-9_]*(?![A-Za-z0-9_./@-])',
+    problem: 'COREPACK_ variable changes how Corepack picks or checks pnpm',
+  },
+  {
+    name: 'npm_config_(?:userconfig|globalconfig|workspace_dir)(?![A-Za-z0-9_])',
+    problem: 'variable moves the configuration files pnpm, npm or Corepack reads',
+  },
+  {
+    // HOME and the XDG base directories pick the npmrc and `pnpm/config.yaml`
+    // pnpm reads and the Corepack install cache it reuses without a hash check
+    // (XDG_CACHE_HOME), and XDG_DATA_HOME moves pnpm's store. These are real
+    // environment variable names, which the shell matches case-sensitively, so
+    // a lowercase `home=$(pwd)` is a different, harmless variable.
+    name: '(?:HOME|PNPM_HOME|XDG_(?:CONFIG|CACHE|DATA|STATE)_HOME)(?![A-Za-z0-9_])',
+    problem: 'variable moves the configuration files pnpm, npm or Corepack reads',
+    setOnly: true,
+    caseSensitive: true,
+  },
+].map(variable => ({
+  ...variable,
+  // Only a `setOnly` variable is case-sensitive, and it has no `anywhere`
+  // search, so the non-setOnly names here are all matched case-insensitively,
+  // as pnpm and npm lowercase them.
+  anywhere: variable.setOnly ? null : new RegExp(`(?<![A-Za-z0-9_])(${variable.name})`, 'gi'),
+}))
+// Shell commands that set a variable they are handed by name.
+const SHELL_VARIABLE_SETTERS = new Set([
+  'declare',
+  'export',
+  'getopts',
+  'local',
+  'mapfile',
+  'printf',
+  'read',
+  'readarray',
+  'readonly',
+  'typeset',
+])
+
+// The keys of every `env` mapping in a workflow or action.
+function yamlEnvironmentKeys(source) {
+  let document
+  try {
+    document = YAML.parse(source)
+  } catch {
+    // The action audit already fails closed on YAML it cannot parse.
+    return []
+  }
+  const keys = []
+  const visited = new WeakSet()
+  const inspect = (value, environment) => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return
+    visited.add(value)
+    if (Array.isArray(value)) {
+      for (const entry of value) inspect(entry, false)
+      return
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (environment) keys.push(key)
+      inspect(nestedValue, key === 'env')
+    }
+  }
+  inspect(document, false)
+  return keys
+}
+
+function yamlMappingKeys(source) {
+  let document
+  try {
+    document = YAML.parse(source)
+  } catch {
+    return []
+  }
+  const keys = []
+  const visited = new WeakSet()
+  const inspect = value => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return
+    visited.add(value)
+    if (Array.isArray(value)) {
+      for (const entry of value) inspect(entry)
+      return
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      keys.push(key)
+      inspect(nestedValue)
+    }
+  }
+  inspect(document)
+  return keys
+}
+
+// The rejected variables a command or workflow names, or for a `setOnly`
+// variable, sets: a `NAME=` assignment anywhere in the text, `${NAME:=...}`,
+// a shell word that assigns it or that a setter such as `export` or `read`
+// takes, or a workflow `env` key.
+function rejectedVariables(command, variable, { workflowFile = false } = {}) {
+  const names = new Set()
+  // A YAML mapping key ends at its `:`.
+  const add = name => names.add(name.replace(/:$/, ''))
+  const flags = variable.caseSensitive ? '' : 'i'
+  const word = new RegExp(`^(${variable.name})${variable.setOnly ? '\\+?=' : ''}`, flags)
+  const exact = new RegExp(`^(?:${variable.name})$`, flags)
+  if (variable.setOnly) {
+    // Every way a value reaches the variable without naming a command:
+    // `NAME=`, `${NAME:=…}`, a GitHub Actions multiline write `NAME<<EOF`, and
+    // a `for NAME in …` loop that assigns it each pass.
+    const assignments = [
+      new RegExp(`(?<![A-Za-z0-9_$.{-])(${variable.name})\\s*\\+?=(?!=)`, `g${flags}`),
+      new RegExp(`\\$\\{(${variable.name}):?=`, `g${flags}`),
+      new RegExp(`(?<![A-Za-z0-9_$.{-])(${variable.name})<<`, `g${flags}`),
+      new RegExp(`\\bfor\\s+(${variable.name})\\s+in\\b`, `g${flags}`),
+    ]
+    for (const pattern of assignments) {
+      for (const match of command.matchAll(pattern)) add(match[1])
+    }
+  } else {
+    for (const match of command.matchAll(variable.anywhere)) add(match[1])
+  }
+  for (const text of workflowFile ? workflowRunCommands(command) : [command]) {
+    for (const segment of shellCommandSegments(text)) {
+      const words = shellWords(segment)
+      const commandWord = words[commandWordIndex(words)]
+      const setter = SHELL_VARIABLE_SETTERS.has(commandWord)
+      // `declare -n ref=NAME` (also `local -n`, `typeset -n`) makes `ref` an
+      // alias, so a later `ref=…` sets NAME. The nameref target is read here.
+      if (
+        variable.setOnly &&
+        /^(?:declare|local|typeset)$/.test(commandWord) &&
+        words.includes('-n')
+      ) {
+        for (const shellWord of words) {
+          const nameref = /^[A-Za-z_][A-Za-z0-9_]*=(.+)$/.exec(shellWord)
+          if (nameref && exact.test(nameref[1])) add(nameref[1])
+        }
+      }
+      for (const shellWord of words) {
+        const match = word.exec(shellWord)
+        if (match) add(match[1])
+        else if (variable.setOnly && setter && exact.test(shellWord)) add(shellWord)
+      }
+    }
+  }
+  if (workflowFile) {
+    const keys = variable.setOnly ? yamlEnvironmentKeys(command) : yamlMappingKeys(command)
+    for (const key of keys) {
+      if (variable.setOnly ? exact.test(key) : word.test(key)) names.add(key)
+    }
+  }
+  return [...names]
+}
+
 // Corepack runs `<manager>@<spec>`, so a quoted or escaped spec hides the
 // runner and the package it fetches from the textual audit exactly like a
 // quoted bare manager name does.
 function obfuscatedManagerReferences(command) {
   const references = []
   const normalizedManager =
-    /^(?:(?:\/|\.\.?\/)?(?:[A-Za-z0-9_.-]+\/)+)?(?:npm|npx|pnpm|pnpx|pnx|yarnpkg|yarn|bunx|bun)(?:@\S*)?$/
+    /^(?:(?:\/|\.\.?\/)?(?:[A-Za-z0-9_.-]+\/)+)?(?:npm|npx|pnpm|pnpx|pnx|pn|yarnpkg|yarn|bunx|bun)(?:@\S*)?$/
   for (const segment of shellCommandSegments(command)) {
     for (const { word, start, end } of shellWordSpans(segment)) {
       const rawWord = segment.slice(start, end)
@@ -970,24 +1792,6 @@ function npmInitializerArgumentReferences(words) {
   }
   const postDelimiter = delimiter >= 0 ? words[delimiter + 1] : undefined
   return postDelimiter ? [initializerPackageReference(postDelimiter, 'npm')] : []
-}
-
-function pnpmInitializerArgumentReferences(words) {
-  const delimiter = words.indexOf('--')
-  const pnpmArguments = delimiter >= 0 ? words.slice(0, delimiter) : words
-  for (let index = 0; index < pnpmArguments.length; index += 1) {
-    const argument = pnpmArguments[index]
-    if (argument === '--use-node-version') {
-      if (!pnpmArguments[index + 1]) return [argument]
-      index += 1
-      continue
-    }
-    if (argument.startsWith('--use-node-version=')) continue
-    if (argument.startsWith('-')) return [argument]
-    return [initializerPackageReference(argument, 'pnpm')]
-  }
-  const postDelimiter = delimiter >= 0 ? words[delimiter + 1] : undefined
-  return postDelimiter ? [initializerPackageReference(postDelimiter, 'pnpm')] : []
 }
 
 function installArgumentReferences(args, manager) {
@@ -1069,9 +1873,10 @@ function packageInstallReferences(words, manager) {
   return null
 }
 
-// npm, pnpm, Yarn, and Bun end option parsing at `--` and still treat the next
-// word as the command, so `npm -- exec tool@latest` runs `exec`. Drop such a
+// npm, Yarn, and Bun end option parsing at `--` and still treat the next word
+// as the command, so `npm -- exec tool@latest` runs `exec`. Drop such a
 // delimiter when no command word precedes it so the command is still audited.
+// pnpm does the same, and `pnpmInvocation` reads it that way.
 function withoutLeadingDelimiter(words, manager) {
   const delimiter = words.indexOf('--')
   if (delimiter < 0) return words
@@ -1107,10 +1912,11 @@ function braceExpands(word) {
 
 // A brace group one word after the manager synthesizes its command word the
 // same way it synthesizes a program name: `npm {x,}` runs `npm x` and
-// `pnpm dl{x,}` runs `pnpm dlx`, both of which fetch the next word. Guessing
+// `yarn dl{x,}` runs `yarn dlx`, both of which fetch the next word. Guessing
 // which alternative the shell picks would mean expanding the group here, so
 // every runner word that carries one and precedes the recognized command is
-// reported instead, as `<manager> <word>` cannot be an exact version.
+// reported instead, as `<manager> <word>` cannot be an exact version. pnpm
+// rejects a group anywhere it reads its own arguments (`pnpmInvocation`).
 function braceCommandWordReferences(words, manager) {
   const installCommands = PACKAGE_INSTALL_COMMANDS.get(manager)
   const updateCommands = PACKAGE_UPDATE_COMMANDS.get(manager)
@@ -1130,7 +1936,552 @@ function braceCommandWordReferences(words, manager) {
   return references
 }
 
-function executablePackageReferences(command, { fullEnvironment = false, depth = 0 } = {}) {
+// A shell comment runs from an unquoted `#` that starts a word to the end of
+// its line, at any substitution depth; a `#` inside `${...}` is part of the
+// expansion. A `#` begins a word only after an ASCII space, tab or newline, or
+// after an operator that starts a new command (`;`, `&`, `|`, a subshell `(`).
+// bash and dash treat no other character as a word break, so a `#` after the
+// `)` that closes `$(`, `$((`, `<(` or `>(`, or after a vertical tab or NBSP,
+// is part of the surrounding word, not a comment. This scan skips every such
+// substitution whole, so the character it reads before a `#` is never that
+// closing `)`. Blanking a comment hides its text from every later reading, so
+// it is done only while this scan tracks quoting exactly as the shell does: up
+// to the first heredoc operator, whose body is data the shell never tokenizes.
+// Comments after one are read as text, which can only reject more. Blanked
+// text keeps its length, so every index still lines up with the original.
+const SHELL_COMMENT_START = /[ \t\n;&|(]/
+
+function withoutShellComments(command) {
+  const characters = command.split('')
+  let trusted = true
+  const scan = (start, end) => {
+    let quote = null
+    let escaped = false
+    let braces = 0
+    for (let index = start; index < end && trusted; index += 1) {
+      const character = command[index]
+      if (!escaped && quote !== "'") {
+        const continuation = lineContinuationLength(command, index)
+        if (continuation > 0) {
+          index += continuation - 1
+          continue
+        }
+      }
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (quote === "'") {
+        if (character === "'") quote = null
+        continue
+      }
+      if (character === '\\') {
+        escaped = true
+        continue
+      }
+      if (quote === null && command.startsWith("$'", index)) {
+        index = shellExpansionEnd(command, index, null) - 1
+        continue
+      }
+      const span = shellSubstitutionSpan(command, index, quote)
+      if (span !== null) {
+        if (span.kind === 'command' || span.kind === 'process') scan(span.bodyStart, span.bodyEnd)
+        index = span.end - 1
+        continue
+      }
+      if (quote) {
+        if (character === quote) quote = null
+        continue
+      }
+      if (character === '"' || character === "'") {
+        quote = character
+      } else if (command.startsWith('<<', index) && !command.startsWith('<<<', index)) {
+        trusted = false
+      } else if (command.startsWith('${', index)) {
+        braces += 1
+        index += 1
+      } else if (character === '}' && braces > 0) {
+        braces -= 1
+      } else if (
+        character === '#' &&
+        braces === 0 &&
+        (index === start || SHELL_COMMENT_START.test(command[index - 1]))
+      ) {
+        let stop = command.indexOf('\n', index)
+        if (stop < 0 || stop > end) stop = end
+        for (let position = index; position < stop; position += 1) characters[position] = ' '
+        index = stop - 1
+      }
+    }
+  }
+  scan(0, command.length)
+  return characters.join('')
+}
+
+// The YAML source with its comments blanked, exactly as the YAML lexer finds
+// them, and the shell comments in each block scalar blanked as above, as they
+// are in the parsed `run` body. An action input is read unblanked from the
+// parsed document, since an action need not run it through a shell. The lexer
+// emits a few control tokens that are not in the source.
+const YAML_CONTROL_TOKENS = new Set(['\x02', '\x18', '\x1f'])
+
+function withoutYamlComments(source) {
+  let text = ''
+  let blockScalar = false
+  let blockLine = false
+  try {
+    for (const token of new YAML.Lexer().lex(source)) {
+      if (YAML_CONTROL_TOKENS.has(token)) continue
+      const type = YAML.CST.tokenType(token)
+      if (type === 'comment') {
+        text += ' '.repeat(token.length)
+        continue
+      }
+      if (blockLine && type !== 'newline') {
+        text += withoutShellComments(token)
+        blockScalar = false
+        blockLine = false
+        continue
+      }
+      if (type === 'block-scalar-header') blockScalar = true
+      else if (blockScalar && type === 'newline') blockLine = true
+      text += token
+    }
+  } catch {
+    return source
+  }
+  return text.length === source.length ? text : source
+}
+
+// A shell word as the audit reads it: its raw text, the text it stands for with
+// quotes removed and every expansion replaced by EXPANSION, and what the shell
+// may still do to it. A word is `plain` when the shell hands it on exactly as
+// written: unquoted letters, digits and `_@%+=:,./^-`, a `#` inside a word,
+// single-quoted text, and double-quoted text without `$`, a backtick or a
+// backslash. Substitutions stay whole inside the word that carries them.
+const EXPANSION = '\u0000'
+const PLAIN_UNQUOTED = /[A-Za-z0-9_@%+=:,./^-]/
+
+function shellExpansionEnd(text, index, quote) {
+  const span = shellSubstitutionSpan(text, index, quote)
+  if (span !== null) return span.end
+  if (text[index] !== '$') return index + 1
+  const next = text[index + 1]
+  if (next === '{') {
+    let depth = 0
+    for (let position = index + 1; position < text.length; position += 1) {
+      if (text[position] === '{') depth += 1
+      else if (text[position] === '}' && --depth === 0) return position + 1
+    }
+    return text.length
+  }
+  if (next === "'" && quote === null) {
+    for (let position = index + 2; position < text.length; position += 1) {
+      if (text[position] === '\\') position += 1
+      else if (text[position] === "'") return position + 1
+    }
+    return text.length
+  }
+  const name = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-])/.exec(text.slice(index + 1))
+  return index + 1 + (name === null ? 0 : name[0].length)
+}
+
+function shellWordDetails(segment) {
+  const words = []
+  let word = null
+  const flush = () => {
+    if (word !== null) words.push({ ...word, raw: segment.slice(word.start, word.end) })
+    word = null
+  }
+  const expansion = (index, quote) => {
+    word.text += EXPANSION
+    word.plain = false
+    return shellExpansionEnd(segment, index, quote) - 1
+  }
+  for (let index = 0; index < segment.length; index += 1) {
+    const continuation = lineContinuationLength(segment, index)
+    if (continuation > 0) {
+      index += continuation - 1
+      continue
+    }
+    const character = segment[index]
+    if (/\s/.test(character)) {
+      flush()
+      continue
+    }
+    if (word === null) {
+      word = { start: index, text: '', plain: true, glob: false, redirection: false }
+    }
+    if (character === "'") {
+      const close = segment.indexOf("'", index + 1)
+      if (close < 0) word.plain = false
+      const stop = close < 0 ? segment.length : close
+      word.text += segment.slice(index + 1, stop)
+      index = stop
+    } else if (character === '"') {
+      let position = index + 1
+      for (; position < segment.length && segment[position] !== '"'; position += 1) {
+        if (segment[position] === '\\') {
+          word.plain = false
+          position += 1
+          word.text += segment[position] ?? ''
+        } else if (segment[position] === '$' || segment[position] === '`') {
+          position = expansion(position, '"')
+        } else {
+          word.text += segment[position]
+        }
+      }
+      if (position >= segment.length) word.plain = false
+      index = position
+    } else if (
+      character === '$' ||
+      character === '`' ||
+      shellSubstitutionSpan(segment, index, null) !== null
+    ) {
+      index = expansion(index, null)
+    } else if (character === '\\') {
+      word.plain = false
+      index += 1
+      word.text += segment[index] ?? ''
+    } else if (character === '(' && /[@?*+!]$/.test(word.text) && word.text !== '!') {
+      // An extglob `@( … )`, `?( … )`, `*( … )` or `+( … )` is a glob pattern,
+      // one word, not a subshell, so its parentheses do not break the word; the
+      // whole balanced group is kept and the word is a glob. A bare `!(…)` is
+      // not treated as one: with extglob off, the default, bash runs it as a
+      // negated subshell, so the `(` must break the word.
+      let depth = 0
+      let end = index
+      for (; end < segment.length; end += 1) {
+        if (segment[end] === '(') depth += 1
+        else if (segment[end] === ')' && (depth -= 1) === 0) break
+      }
+      word.text += segment.slice(index, Math.min(end + 1, segment.length))
+      word.glob = true
+      index = end
+    } else if (character === '(' || character === ')') {
+      // The shell reads an unquoted `(` or `)` as an operator that breaks the
+      // word, so a subshell `(pnpm …)` runs pnpm as its own command word. The
+      // paren is kept as a word of its own so the following word is a clean
+      // manager name, not `(pnpm`. A paren that begins a word leaves no empty
+      // word in front of it.
+      if (word.text === '' && word.start === index) word = null
+      else flush()
+      words.push({
+        text: character,
+        plain: false,
+        glob: false,
+        redirection: false,
+        start: index,
+        end: index + 1,
+        raw: character,
+      })
+      continue
+    } else {
+      if (!PLAIN_UNQUOTED.test(character) && !(character === '#' && index > word.start)) {
+        word.plain = false
+      }
+      if ('*?['.includes(character)) word.glob = true
+      if ('<>'.includes(character)) word.redirection = true
+      word.text += character
+    }
+    word.end = Math.min(index + 1, segment.length)
+  }
+  flush()
+  return words
+}
+
+// The names the design rule covers, longest first so `pnpm` is tried before
+// its prefix `pn`.
+const MANAGER_NAMES = ['pnpm', 'pnpx', 'pnx', 'pn', 'npm', 'npx', 'corepack']
+// Words the shell reads as keywords or operators although they are not made of
+// plain characters: a group or negation, an empty brace pair, and the subshell
+// parentheses `shellWordDetails` emits as words of their own.
+const SHELL_KEYWORD_WORDS = new Set(['!', '{', '}', '{}', '(', ')'])
+const PNPM_FAMILY = new Set(['pnpm', 'pnpx', 'pnx', 'pn'])
+
+// The name a word runs as a package manager, or null. A shell word is one
+// program invocation, so the manager name must be the word's basename (the
+// text after its last `/`) and must run to the end of the word, be followed by
+// `@<spec>`, or be followed by an expansion marker that concatenates onto it: a
+// literal character after the name (`pnpm version: x`, read from a quoted
+// sentence) means the word is data, not an invocation. The basename rule finds
+// a manager behind any path prefix (`node_modules/@pnpm/linux-x64/pnpm`,
+// `./bin@/pnpm`), which the textual reader's character class misses, and the
+// expansion rule still catches `pnpm` + a dynamic suffix (`pnpm`echo …``). A
+// word whose basename is a manager names one however the path reads, so a URL
+// (`https://host/npx`) fails closed as a manager line rather than being
+// exempted — the basename of `./a://b/pnpm` is still `pnpm` that bash runs.
+function managerName(text) {
+  const basename = text.slice(text.lastIndexOf('/') + 1)
+  for (const name of MANAGER_NAMES) {
+    if (!basename.startsWith(name)) continue
+    const after = basename[name.length]
+    if (after === undefined || after === '@' || after === EXPANSION) return name
+  }
+  return null
+}
+
+function managerWordName(word) {
+  return managerName(word.text)
+}
+
+// Whether the command that a package script's trailing argument words bind to
+// runs a package manager. pnpm and npm append `run <script> -- <words>` (and
+// pnpm appends a bare `pnpm <script> <words>`) to the end of the script's
+// command string, so the words reach the last command of the last segment the
+// shell runs, after the leading assignments, keywords and transparent prefixes
+// such as `corepack`.
+function scriptTerminalRunsManager(body) {
+  const segments = shellCommandSegments(withoutHeredocBodies(body))
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const words = shellWords(segments[index])
+    if (words.length === 0) continue
+    const commandWord = words[commandWordIndex(words)]
+    return commandWord !== undefined && managerName(commandWord) !== null
+  }
+  return false
+}
+
+// The scripts whose body runs a package manager at the position trailing words
+// would reach, for every manager invocation in `command` that runs a script
+// and passes it words. pnpm hands a script every word after it (after a `--`
+// for a built-in `run`), and npm hands it the words after `--`; both append
+// them to the script's command string, so a script ending in `pnpm install`
+// would run that install with attacker-supplied options. The words cannot be
+// audited as the inner command's, because the shell concatenates them onto a
+// command the audit resolves separately, so passing any is rejected.
+function passThroughScriptRejections(command, scriptCommands) {
+  const rejections = new Set()
+  for (const segment of shellCommandSegments(withoutHeredocBodies(command))) {
+    const words = shellWordDetails(segment)
+    const managerIndex = words.findIndex(word => managerWordName(word) !== null)
+    if (managerIndex < 0) continue
+    let index = managerIndex
+    if (managerWordName(words[index]) === 'corepack') {
+      const next = words[index + 1]
+      if (
+        next !== undefined &&
+        (PNPM_FAMILY.has(managerWordName(next)) || managerWordName(next) === 'npm')
+      ) {
+        index += 1
+      }
+    }
+    const name = managerWordName(words[index])
+    const values = words.slice(index + 1).map(word => (word.plain ? word.text : word.raw))
+    let scriptName
+    let passThrough = []
+    if (PNPM_FAMILY.has(name) && name !== 'pnpx' && name !== 'pnx') {
+      const invocation = pnpmInvocation(values)
+      if (pnpmRejection(invocation) !== null) continue
+      const { command: pnpmCommand, commandIndex, operandIndex } = invocation
+      if (pnpmCommand === 'run' || pnpmCommand === 'run-script') {
+        if (operandIndex === undefined) continue
+        scriptName = values[operandIndex]
+        passThrough = values.slice(operandIndex + 1)
+      } else if (
+        pnpmCommand !== undefined &&
+        !PNPM_BUILTIN_COMMANDS.has(pnpmCommand) &&
+        !PNPM_SETTINGS_COMMANDS.has(pnpmCommand)
+      ) {
+        scriptName = pnpmCommand
+        passThrough = values.slice(commandIndex + 1)
+      }
+    } else if (name === 'npm') {
+      const runIndex = values.findIndex(value => value === 'run' || value === 'run-script')
+      const delimiter = values.indexOf('--')
+      if (runIndex >= 0 && delimiter > runIndex) {
+        scriptName = values.slice(runIndex + 1, delimiter).find(value => !value.startsWith('-'))
+        passThrough = values.slice(delimiter + 1)
+      }
+    }
+    if (scriptName === undefined) continue
+    // A `--` delimiter and the `)` or `}` that closes a subshell or group
+    // around the command are not words passed to the script.
+    if (!passThrough.some(word => word !== '--' && !SHELL_KEYWORD_WORDS.has(word))) continue
+    if (scriptCommands(scriptName).some(scriptTerminalRunsManager)) {
+      rejections.add(
+        `words passed to the \`${scriptName}\` script reach a package manager it runs; pass none`
+      )
+    }
+  }
+  return rejections
+}
+
+// How many of `values` pnpm reads itself. It hands the rest to the script,
+// binary or package it runs without parsing them (pnpm 11.28.9's parse-cli-args
+// over nopt, checked against the real parser for every form the repository
+// uses).
+function pnpmReadCount(values) {
+  const invocation = pnpmInvocation(values)
+  const { command, commandIndex, operandIndex } = invocation
+  if (pnpmRejection(invocation) !== null || command === undefined) return values.length
+  if (command === 'exec') {
+    const binary = values.findIndex((value, position) => position > commandIndex && value !== '--')
+    return binary < 0 ? values.length : binary + 1
+  }
+  if (command === 'create') return Math.min(values.length, commandIndex + 2)
+  if (!PNPM_BUILTIN_COMMANDS.has(command)) return commandIndex + 1
+  if (command === 'dlx' || command === 'run' || command === 'run-script') {
+    return operandIndex === undefined ? values.length : operandIndex + 1
+  }
+  return values.length
+}
+
+// The rejections for one shell command text under the design rule: every line
+// that runs pnpm, pnpx, pnx, pn, npm, npx or Corepack is made of words the
+// audit reads as they will run. Nothing in such a line is a redirection, a
+// glob, xargs or a GitHub expression, and the manager's own path and name,
+// every word in front of it, and every word the manager reads are plain
+// literals. Only words pnpm hands to a script, binary or package unparsed may
+// be computed, as the repository's own commands pass paths and versions that
+// way. Substitution and inline shell bodies are lines of their own, and so is
+// each line of a heredoc body, which `bash <<EOF` runs.
+function managerLineRejections(command, { references = new Set(), depth = 0 } = {}) {
+  const rejections = new Set()
+  if (depth > 8) {
+    rejections.add(`nested shell command is deeper than the audit follows: ${command.trim()}`)
+    return rejections
+  }
+  const shellCommand = command
+  for (const segment of shellCommandSegments(shellCommand)) {
+    const words = shellWordDetails(segment)
+    // A segment that names a manager word anywhere is a manager line: there is
+    // no list of programs assumed to treat it as data, since a program by that
+    // name can be shadowed (`echo() { "$@"; }; echo pnpm …`). A URL names no
+    // manager (`managerName`), so `echo https://host/npx …` is not one.
+    const managerIndex = words.findIndex(word => managerWordName(word) !== null)
+    if (managerIndex >= 0) {
+      for (const word of words) {
+        if (word.redirection) {
+          rejections.add(`package manager command line uses a shell redirection: ${word.raw}`)
+        } else if (word.glob) {
+          rejections.add(`package manager command line uses a shell glob: ${word.raw}`)
+        }
+        if (word.plain && word.text.slice(word.text.lastIndexOf('/') + 1) === 'xargs') {
+          rejections.add(`package manager command line takes arguments through xargs: ${word.raw}`)
+        }
+        if (word.raw.includes('${{')) {
+          rejections.add(
+            `package manager command line holds a GitHub expression, which is substituted into the text before the shell reads it: ${word.raw}`
+          )
+        }
+        if (word.raw.includes("$'")) {
+          rejections.add(
+            `ANSI-C quoting is rejected because it hides the text the shell runs: ${word.raw}`
+          )
+        }
+      }
+      let index = managerIndex
+      let readEnd = words.length
+      const after = position =>
+        words.slice(position + 1).map(word => (word.plain ? word.text : word.raw))
+      if (managerWordName(words[index]) === 'corepack') {
+        const next = words[index + 1]
+        if (next !== undefined && PNPM_FAMILY.has(managerWordName(next))) index += 1
+      }
+      const name = managerWordName(words[index])
+      if (PNPM_FAMILY.has(name)) {
+        const values = after(index)
+        const invocationWords = name === 'pnpx' || name === 'pnx' ? ['dlx', ...values] : values
+        // The line reader is authoritative for pnpm options and settings
+        // commands, because the textual reader's manager regex never matches a
+        // path-qualified pnpm (`node_modules/@pnpm/.../pnpm`), so its option
+        // and settings checks would miss one.
+        const rejection = pnpmRejection(pnpmInvocation(invocationWords))
+        if (rejection !== null) rejections.add(rejection)
+        readEnd =
+          name === 'pnpx' || name === 'pnx'
+            ? index + pnpmReadCount(['dlx', ...values])
+            : index + 1 + pnpmReadCount(values)
+      } else {
+        // npm, npx and Corepack are read here too, from the manager's basename
+        // onward, because the textual reader's manager regex also misses a
+        // path-qualified `./v%/npx` or `./x@/npm`, so its settings, option and
+        // pinning checks would miss one. The reconstructed command drops only
+        // the directory prefix the shell would have run the binary from.
+        // Built from the parsed words, not sliced from the raw segment, so a
+        // quoted path (`"./x@/npm"`) leaves no stray quote to merge the
+        // following words into one.
+        const base = words[index].text.slice(words[index].text.lastIndexOf('/') + 1)
+        const clean = [base, ...after(index)].join(' ')
+        for (const reference of executablePackageReferences(clean, { rejections })) {
+          references.add(reference)
+        }
+      }
+      words.slice(0, readEnd).forEach((word, position) => {
+        if (word.plain || word.redirection || word.glob || SHELL_KEYWORD_WORDS.has(word.raw)) return
+        if (position < managerIndex && SHELL_ASSIGNMENT.test(word.raw)) return
+        rejections.add(
+          managerWordName(word) === null
+            ? `package manager command line word is not a plain literal: ${word.raw}`
+            : `package manager path or name is not a plain literal: ${word.raw}`
+        )
+      })
+    }
+    for (const body of inlineShellBodies(shellWords(segment))) {
+      for (const rejection of managerLineRejections(body, { references, depth: depth + 1 })) {
+        rejections.add(rejection)
+      }
+    }
+  }
+  for (const body of nestedShellBodies(shellCommand)) {
+    for (const rejection of managerLineRejections(body, { references, depth: depth + 1 })) {
+      rejections.add(rejection)
+    }
+  }
+  return rejections
+}
+
+// ANSI-C quoting (`$'...'`) spells any character as an escape. It is rejected
+// where it hides a package manager or its arguments (a manager segment, by
+// `managerLineRejections`), and the decoded text is scanned for a guarded
+// variable (`decodeAnsiCQuoting`), but a plain value such as `IFS=$'\n'` on a
+// line with no manager runs nothing the audit must read.
+const ANSI_C_QUOTING = /\$'(?:[^'\\]|\\[^])*'?/g
+const ANSI_C_ESCAPE = /\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|.)/g
+const ANSI_C_LETTERS = new Map([
+  ['a', '\x07'],
+  ['b', '\b'],
+  ['e', '\x1b'],
+  ['E', '\x1b'],
+  ['f', '\f'],
+  ['n', '\n'],
+  ['r', '\r'],
+  ['t', '\t'],
+  ['v', '\v'],
+  ['\\', '\\'],
+  ["'", "'"],
+  ['"', '"'],
+  ['?', '?'],
+])
+
+function decodeAnsiCEscape(escape) {
+  const lead = escape[0]
+  if (lead === 'x') return String.fromCharCode(parseInt(escape.slice(1), 16))
+  if (lead === 'u' || lead === 'U') return String.fromCodePoint(parseInt(escape.slice(1), 16))
+  if (lead >= '0' && lead <= '7') return String.fromCharCode(parseInt(escape, 8) & 0xff)
+  return ANSI_C_LETTERS.get(lead) ?? lead
+}
+
+// The command with every `$'...'` replaced by the literal bytes it stands for,
+// so a guarded variable or a manager spelled through ANSI-C escapes is read as
+// the shell runs it (`$'pnpm\x5fconfig_registry=…'` becomes
+// `pnpm_config_registry=…`). A malformed `$'` without a close is left as is.
+function decodeAnsiCQuoting(command) {
+  return command.replace(ANSI_C_QUOTING, match => {
+    if (!match.endsWith("'") || match.length < 3) return match
+    return match.slice(2, -1).replace(ANSI_C_ESCAPE, (_, escape) => decodeAnsiCEscape(escape))
+  })
+}
+
+// The executable packages a command fetches, each of which must be pinned
+// exactly. A pnpm command line the audit rejects outright, for an unreviewed
+// option, a shell-rewritten argument, or a settings command, is added to
+// `rejections` instead.
+function executablePackageReferences(
+  command,
+  { fullEnvironment = false, depth = 0, rejections = new Set() } = {}
+) {
   // A call body is always shorter than its command, so recursion terminates;
   // the cap only bounds pathological input and fails closed.
   if (depth > 8) return [command]
@@ -1144,29 +2495,48 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
     const span = spans[call.index]
     auditedBodies.push([segmentStart + span.start, segmentStart + span.end])
     references.push(
-      ...executablePackageReferences(call.body, { fullEnvironment, depth: depth + 1 })
+      ...executablePackageReferences(call.body, { fullEnvironment, depth: depth + 1, rejections })
     )
   }
+  // `pn` is pnpm 11's own short name for `pnpm`, as `pnx` is for `pnpx`.
   const managerPattern =
-    /(?<![A-Za-z0-9_@./-])(?:(?:\/|\.\.?\/)?(?:[A-Za-z0-9_.-]+\/)+)?(npm|npx|pnpm|pnpx|pnx|yarnpkg|yarn|bunx|bun)(?![A-Za-z0-9_.-])/g
+    /(?<![A-Za-z0-9_@./-])(?:(?:\/|\.\.?\/)?(?:[A-Za-z0-9_.-]+\/)+)?(npm|npx|pnpm|pnpx|pnx|pn|yarnpkg|yarn|bunx|bun)(?![A-Za-z0-9_.-])/g
   for (const match of command.matchAll(managerPattern)) {
     if (auditedBodies.some(([start, end]) => match.index >= start && match.index < end)) {
       continue
     }
     const matchedManager = match[1]
-    const manager = matchedManager === 'yarnpkg' ? 'yarn' : matchedManager
+    const manager =
+      matchedManager === 'yarnpkg' ? 'yarn' : matchedManager === 'pn' ? 'pnpm' : matchedManager
     references.push(
       ...environmentResolutionOverrideReferences(
         fullEnvironment ? command : command.slice(0, match.index)
       )
     )
     let segmentStart = match.index + match[0].length
+    const pnpmFamily = manager === 'pnpm' || manager === 'pnpx' || manager === 'pnx'
     // Corepack downloads `<manager>@<spec>` before running it, so the manager
-    // itself is an executable package that must be pinned exactly.
+    // itself is an executable package that must be pinned exactly. For pnpm it
+    // runs that release in place of the pinned one, so the only pnpm spec
+    // accepted is the packageManager pin itself, hash and all.
     const managerSpec = /^@[^\s;&|'"\\]*/.exec(command.slice(segmentStart))
     if (managerSpec) {
-      references.push(`${matchedManager}${managerSpec[0]}`)
+      const reference = `${matchedManager}${managerSpec[0]}`
+      if (!pnpmFamily) {
+        references.push(reference)
+      } else if (managerSpec[0].slice(1) !== PINNED_PNPM_SPEC) {
+        rejections.add(`pnpm release is not the reviewed packageManager pin: ${reference}`)
+      }
       segmentStart += managerSpec[0].length
+    }
+    if (pnpmFamily) {
+      if (isCorepackOperand(command, match.index)) continue
+      // pnpx and pnx run `pnpm dlx` with their own arguments.
+      const pnpmWords = shellWords(commandArgumentText(command, segmentStart))
+      references.push(
+        ...pnpmCommandReferences(manager === 'pnpm' ? pnpmWords : ['dlx', ...pnpmWords], rejections)
+      )
+      continue
     }
     const runnerSpans = shellWordSpans(shellCommandSegment(command, segmentStart))
     const runnerWords = runnerSpans.map(span => span.word)
@@ -1176,11 +2546,9 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
       auditCallBody(runnerSpans, segmentStart, callBodyReference(runnerWords, 0))
       continue
     }
-    if (manager === 'bunx' || manager === 'pnpx' || manager === 'pnx') {
+    if (manager === 'bunx') {
       references.push(...resolutionOverrideReferences(runnerWords))
-      references.push(
-        ...directRunnerArgumentReferences(runnerWords, manager === 'bunx' ? 'bun' : 'pnpm')
-      )
+      references.push(...directRunnerArgumentReferences(runnerWords, 'bun'))
       continue
     }
     const words = withoutLeadingDelimiter(runnerWords, manager)
@@ -1188,6 +2556,11 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
     const commandWords = delimiter >= 0 ? words.slice(0, delimiter) : words
     references.push(...braceCommandWordReferences(commandWords, manager))
     if (manager === 'npm') {
+      const settings = npmCommandCandidates(commandWords).find(npmChangesSettings)
+      if (settings !== undefined) {
+        rejections.add(`npm command that changes settings is rejected: npm ${settings}`)
+        continue
+      }
       const commandIndex = commandWords.findIndex(
         word => word === 'exec' || word === 'x' || NPM_INITIALIZER_COMMANDS.has(word)
       )
@@ -1208,25 +2581,6 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
         references.push(...npmInitializerArgumentReferences(words.slice(commandIndex + 1)))
       }
       references.push(...installReferences(words, 'npm'))
-      continue
-    }
-    if (manager === 'pnpm') {
-      const commandIndex = commandWords.findIndex(word => word === 'dlx' || word === 'create')
-      if (commandWords[commandIndex] === 'dlx') {
-        references.push(...resolutionOverrideReferences(words))
-        references.push(
-          ...directRunnerArgumentReferences(words.slice(commandIndex + 1), 'pnpm', {
-            leadingPackageReferences: packageOptionReferences(
-              commandWords.slice(0, commandIndex),
-              { shortPackage: true }
-            ),
-          })
-        )
-      } else if (commandWords[commandIndex] === 'create') {
-        references.push(...resolutionOverrideReferences(words))
-        references.push(...pnpmInitializerArgumentReferences(words.slice(commandIndex + 1)))
-      }
-      references.push(...installReferences(words, 'pnpm'))
       continue
     }
     if (manager === 'yarn') {
@@ -1257,6 +2611,17 @@ function executablePackageReferences(command, { fullEnvironment = false, depth =
         )
       }
       references.push(...installReferences(words, 'bun'))
+    }
+  }
+  const corepackPattern =
+    /(?<![A-Za-z0-9_@./-])(?:(?:\/|\.\.?\/)?(?:[A-Za-z0-9_.-]+\/)+)?corepack(?![A-Za-z0-9_.-])/g
+  for (const match of command.matchAll(corepackPattern)) {
+    const words = shellWords(commandArgumentText(command, match.index + match[0].length))
+    const rejected = corepackCommandRejection(words)
+    if (rejected !== null) {
+      rejections.add(
+        `corepack command that changes which pnpm runs is rejected: corepack ${rejected}`
+      )
     }
   }
   return [...new Set(references)]
@@ -1450,7 +2815,10 @@ export function shellCommandSegments(command) {
   let escaped = false
   let conditional = false
   const boundaryBefore = index => index === 0 || /\s/.test(command[index - 1])
-  const boundaryAfter = index => index >= command.length || /\s/.test(command[index])
+  // `[[` and `]]` are words, so a shell operator (`;`, `&`, `|`, `)`) ends them
+  // as a blank does: `]]; then` and `[[ … ]]|| …` both close the conditional.
+  const boundaryAfter = index =>
+    index >= command.length || /\s/.test(command[index]) || ';&|)'.includes(command[index])
   for (let index = 0; index < command.length; index += 1) {
     const character = command[index]
     // A line continuation joins the next line into this command, so the
@@ -1611,6 +2979,46 @@ export function workflowRunCommands(source) {
   inspect(workflow)
   return commands
 }
+
+// The values a workflow or action hands an action or a job's shell as
+// commands, other than `run` bodies: every `with` input of a step that `uses`
+// an action, since changesets/action runs its `version` and `publish` inputs
+// and any action may run an input, and every `shell` template. Each is read as
+// YAML has folded and unescaped it.
+export function workflowActionInputs(source) {
+  let workflow
+  try {
+    workflow = YAML.parse(source)
+  } catch {
+    return []
+  }
+  const inputs = []
+  const visited = new WeakSet()
+  const inspect = value => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return
+    visited.add(value)
+    if (Array.isArray(value)) {
+      for (const entry of value) inspect(entry)
+      return
+    }
+    if (typeof value.uses === 'string' && value.with && typeof value.with === 'object') {
+      for (const [key, input] of Object.entries(value.with)) {
+        if (typeof input === 'string') inputs.push({ key, value: input })
+      }
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (key === 'shell' && typeof nestedValue === 'string')
+        inputs.push({ key, value: nestedValue })
+      inspect(nestedValue)
+    }
+  }
+  inspect(workflow)
+  return inputs
+}
+
+// An action input is a plain word list only if a shell and a split on
+// whitespace read it alike: one line of unquoted plain words.
+const PLAIN_INPUT = /^[A-Za-z0-9_@%+=:,./ -]*$/
 
 // Tracked scripts a manifest script or a workflow/action `run` body hands off
 // to, and whatever those scripts hand off to in turn. A command that names a
@@ -2118,10 +3526,123 @@ function computedCommandWord(node, tree) {
   return `computed:${text.replace(/[^A-Za-z0-9_]/g, '_')}`
 }
 
-function propertyNameText(name) {
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) {
-    return name.text
+// The `const` object literals a script declares once, by name. One is read
+// like the literal it holds only while nothing can change it: no property of
+// it, however deep, is written, `Object.assign`, `Object.defineProperty` and
+// `Reflect.set` never take it, and it never escapes into another binding, a
+// return value, an array or a call other than a child-process call, where a
+// write could follow. Any other value is one the audit cannot read.
+const OBJECT_WRITERS = new Set(['Object.assign', 'Object.defineProperty', 'Reflect.set'])
+
+function rootIdentifier(expression) {
+  let node = expression
+  while (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    node = node.expression
   }
+  return ts.isIdentifier(node) ? node.text : null
+}
+
+function isAssignment(node) {
+  return (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  )
+}
+
+// The identifier names used as property values anywhere inside an object
+// literal, so a const that stores one object inside another records which
+// identifiers that container holds.
+function objectMemberIdentifiers(node, names = []) {
+  for (const property of node.properties ?? []) {
+    if (ts.isPropertyAssignment(property)) {
+      const value = property.initializer
+      if (ts.isIdentifier(value)) names.push(value.text)
+      else if (ts.isObjectLiteralExpression(value)) objectMemberIdentifiers(value, names)
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      names.push(property.name.text)
+    } else if (ts.isSpreadAssignment(property) && ts.isIdentifier(property.expression)) {
+      names.push(property.expression.text)
+    }
+  }
+  return names
+}
+
+function constantObjects(tree) {
+  const declared = new Map()
+  const members = new Map()
+  const changed = new Set()
+  const visit = node => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & ts.NodeFlags.Const) !== 0
+    ) {
+      const name = node.name.text
+      const literal =
+        declared.has(name) || !node.initializer || !ts.isObjectLiteralExpression(node.initializer)
+          ? null
+          : node.initializer
+      declared.set(name, literal)
+      if (literal !== null) members.set(name, objectMemberIdentifiers(literal))
+    }
+    if (isAssignment(node)) {
+      const root = rootIdentifier(node.left)
+      if (root !== null) changed.add(root)
+    }
+    if (ts.isCallExpression(node) && OBJECT_WRITERS.has(node.expression.getText(tree))) {
+      const root = node.arguments[0] === undefined ? null : rootIdentifier(node.arguments[0])
+      if (root !== null) changed.add(root)
+    }
+    if (ts.isIdentifier(node) && node.parent !== undefined) {
+      const { parent } = node
+      // An object a const holds as a property value is read like the literal it
+      // is, so an identifier is unreadable only where it escapes somewhere a
+      // write could reach it that the audit does not follow: a new binding, an
+      // assignment, a return, an arrow body, an array, a new-expression, a
+      // conditional or binary operand, or a call that is not a child-process
+      // sink. Where it enters another object literal, that container carries
+      // it, and the container's own mutations propagate to it below.
+      const escapes =
+        (ts.isVariableDeclaration(parent) && parent.initializer === node) ||
+        (isAssignment(parent) && parent.right === node) ||
+        ts.isReturnStatement(parent) ||
+        (ts.isArrowFunction(parent) && parent.body === node) ||
+        ts.isArrayLiteralExpression(parent) ||
+        ts.isNewExpression(parent) ||
+        ts.isConditionalExpression(parent) ||
+        ts.isBinaryExpression(parent) ||
+        (ts.isCallExpression(parent) &&
+          parent.arguments.includes(node) &&
+          !CHILD_PROCESS_CALLEES.has(calleeName(parent.expression)))
+      if (escapes) changed.add(node.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  // A changed container cannot be trusted to still hold the literals it was
+  // declared with, so every object it holds is changed too, to a fixpoint.
+  for (let growing = true; growing; ) {
+    growing = false
+    for (const [container, held] of members) {
+      if (!changed.has(container)) continue
+      for (const name of held) {
+        if (!changed.has(name)) {
+          changed.add(name)
+          growing = true
+        }
+      }
+    }
+  }
+  return name => (changed.has(name) ? null : (declared.get(name) ?? null))
+}
+
+// The object literal an options or environment expression stands for: the
+// literal itself, or a constant holding one; null when the audit cannot read it.
+function objectLiteralOf(node, constant) {
+  if (ts.isObjectLiteralExpression(node)) return node
+  if (ts.isIdentifier(node)) return constant(node.text)
   return null
 }
 
@@ -2132,45 +3653,204 @@ function propertyNameText(name) {
 // rendered as the `NAME=value` prefix words the shell audits already read:
 // `{ env: { npm_config_registry: url } }` becomes `npm_config_registry=${url}`
 // in front of the command, which the resolution-override audit reports
-// exactly like the shell spelling.
-function optionsEnvironmentTexts(node, tree) {
+// exactly like the shell spelling. An options object or environment held in a
+// constant is read the same way. `unreadable` is the first part the audit
+// cannot read: an environment built by a call or held in a variable it cannot
+// follow, a computed key, or a spread of anything but `process.env`.
+function optionsEnvironment(node, tree, constant) {
   const texts = []
-  for (const property of node.properties) {
-    if (!ts.isPropertyAssignment(property) || propertyNameText(property.name) !== 'env') continue
-    if (!ts.isObjectLiteralExpression(property.initializer)) continue
-    for (const entry of property.initializer.properties) {
-      if (!ts.isPropertyAssignment(entry)) continue
-      const name = propertyNameText(entry.name)
-      if (name === null) continue
-      const [value = ''] = argumentTexts(entry.initializer, tree)
-      texts.push(`${name}=${value}`)
+  const options = objectLiteralOf(node, constant)
+  if (options === null) return { texts, unreadable: computedValueText(node, tree) }
+  let unreadable = null
+  const environment = (value, seen) => {
+    if (value.getText(tree) === 'process.env') return
+    const literal = objectLiteralOf(value, constant)
+    if (literal === null || seen.has(literal)) {
+      unreadable ??= computedValueText(value, tree)
+      return
+    }
+    seen.add(literal)
+    for (const entry of literal.properties) {
+      if (ts.isSpreadAssignment(entry)) {
+        environment(entry.expression, seen)
+        continue
+      }
+      const name = entry.name === undefined ? null : propertyNameText(entry.name)
+      if (name === null) {
+        unreadable ??= computedValueText(entry.name ?? entry, tree)
+        continue
+      }
+      if (ts.isShorthandPropertyAssignment(entry)) {
+        texts.push(`${name}=\${${name}}`)
+      } else if (ts.isPropertyAssignment(entry)) {
+        const [value = ''] = argumentTexts(entry.initializer, tree)
+        texts.push(`${name}=${value}`)
+      } else {
+        unreadable ??= computedValueText(entry, tree)
+      }
     }
   }
-  return texts
+  for (const property of options.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      unreadable ??= computedValueText(property.expression, tree)
+      continue
+    }
+    if (property.name === undefined || propertyNameText(property.name) !== 'env') continue
+    if (ts.isShorthandPropertyAssignment(property)) environment(property.name, new Set())
+    else if (ts.isPropertyAssignment(property)) environment(property.initializer, new Set())
+    else unreadable ??= computedValueText(property, tree)
+  }
+  return { texts, unreadable }
 }
+
+function propertyNameText(name) {
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNoSubstitutionTemplateLiteral(name)
+  ) {
+    return name.text
+  }
+  if (
+    ts.isComputedPropertyName(name) &&
+    isTextLiteral(name.expression) &&
+    !ts.isTemplateExpression(name.expression)
+  ) {
+    return name.expression.text
+  }
+  return null
+}
+
+// Child-process calls whose first argument is a whole shell command; the rest
+// take a program and then its argument array.
+const COMMAND_STRING_CALLEES = new Set(['exec', 'execSync', 'execaCommand', 'execaCommandSync'])
 
 // The command text one child-process call hands over, joined into a single
 // shell-like command the existing audits read unchanged, or null when the
 // call carries no literal text at all: literal text is what a textual audit
-// can see, and `spawnSync(command, args)` shows it nothing.
-function childProcessCommandText(call, tree) {
+// can see, and `spawnSync(command, args)` shows it nothing. Only the argument
+// array is read as words; every later argument is options or a callback.
+function childProcessCommandText(call, tree, constant) {
   const [command, ...rest] = call.arguments
+  const argumentCount = COMMAND_STRING_CALLEES.has(calleeName(call.expression)) ? 0 : 1
   const environment = []
   const arguments_ = []
-  for (const argument of rest) {
-    if (ts.isObjectLiteralExpression(argument)) {
-      environment.push(...optionsEnvironmentTexts(argument, tree))
-    } else {
+  let unreadable = null
+  rest.forEach((argument, position) => {
+    if (ts.isFunctionLike(argument)) return
+    const options =
+      position >= argumentCount ||
+      ts.isObjectLiteralExpression(argument) ||
+      (ts.isIdentifier(argument) && constant(argument.text) !== null)
+    if (!options) {
       arguments_.push(argument)
+      return
     }
-  }
+    const read = optionsEnvironment(argument, tree, constant)
+    environment.push(...read.texts)
+    unreadable ??= read.unreadable
+  })
   if (command === undefined || ![command, ...arguments_].some(containsTextLiteral)) return null
   const words = containsTextLiteral(command)
     ? argumentTexts(command, tree)
     : [computedCommandWord(command, tree)]
-  return [...environment, ...words, ...arguments_.flatMap(argument => argumentTexts(argument, tree))].join(
+  const text = [...words, ...arguments_.flatMap(argument => argumentTexts(argument, tree))].join(
     ' '
   )
+  return { text: [...environment, text].join(' '), unreadable }
+}
+
+// Whether a rendered command runs a package manager or hands work to a script,
+// either of which reads the environment it is given.
+function commandReadsEnvironment(command) {
+  return shellCommandSegments(command).some(segment => {
+    const words = shellWordDetails(segment)
+    return (
+      words.some(word => managerWordName(word) !== null) ||
+      segmentDelegation(shellWords(segment)) !== null
+    )
+  })
+}
+
+// Delegated scripts that name every variable the audit rejects because they
+// are the audit: the policy and its tests. Their child-process commands and
+// environment writes are still audited.
+const AUDIT_VOCABULARY_SCRIPTS = new Set([
+  'scripts/security/dependency-policy.mjs',
+  'scripts/security/dependency-policy.test.mjs',
+])
+
+// What a JavaScript script does to the environment that the audit can see
+// without running it: a rejected variable named in any string, template or
+// property name, a rejected variable written to an object, and a write to
+// `process.env` through a computed key or `Object.assign`.
+function javascriptEnvironmentErrors(file, tree) {
+  const errors = new Set()
+  const mention = !AUDIT_VOCABULARY_SCRIPTS.has(file)
+  const named = text => {
+    for (const variable of REJECTED_VARIABLES) {
+      if (!variable.anywhere) continue
+      for (const match of text.matchAll(variable.anywhere))
+        errors.add(`${variable.problem}: ${match[1]}`)
+    }
+  }
+  // A key of `process.env` is matched in any case, as Windows reads it; a key
+  // of another object, which may become an environment, as written.
+  const written = (name, environment) => {
+    for (const variable of REJECTED_VARIABLES) {
+      if (new RegExp(`^(?:${variable.name})$`, environment ? 'i' : '').test(name)) {
+        errors.add(`${variable.problem}: ${name}`)
+      }
+    }
+  }
+  const visit = node => {
+    if (
+      mention &&
+      (ts.isStringLiteral(node) ||
+        ts.isNoSubstitutionTemplateLiteral(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node) ||
+        ts.isIdentifier(node))
+    ) {
+      named(node.text)
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      const target = node.left
+      const environment =
+        (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
+        target.expression.getText(tree) === 'process.env'
+      if (ts.isPropertyAccessExpression(target)) written(target.name.text, environment)
+      if (ts.isElementAccessExpression(target)) {
+        const key = target.argumentExpression
+        if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key))
+          written(key.text, environment)
+        else if (environment) {
+          errors.add(
+            `delegated JavaScript writes process.env through a key the audit cannot read: ${computedValueText(target, tree)}`
+          )
+        }
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ['Object.assign', 'Object.defineProperty', 'Reflect.set'].includes(
+        node.expression.getText(tree)
+      ) &&
+      node.arguments[0]?.getText(tree) === 'process.env'
+    ) {
+      errors.add(
+        `delegated JavaScript writes process.env through a key the audit cannot read: ${computedValueText(node, tree)}`
+      )
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return [...errors]
 }
 
 // The literal command text a JavaScript script hands to child processes, one
@@ -2187,11 +3867,20 @@ function javascriptChildProcessCommands(file, source) {
     const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')
     return { error: `delegated JavaScript script cannot be parsed: line ${line + 1}: ${message}` }
   }
+  const constant = constantObjects(tree)
   const commands = []
+  const errors = javascriptEnvironmentErrors(file, tree)
   const visit = node => {
     if (ts.isCallExpression(node) && CHILD_PROCESS_CALLEES.has(calleeName(node.expression))) {
-      const command = childProcessCommandText(node, tree)
-      if (command !== null) commands.push(command)
+      const command = childProcessCommandText(node, tree, constant)
+      if (command !== null) {
+        commands.push(command.text)
+        if (command.unreadable !== null && commandReadsEnvironment(command.text)) {
+          errors.push(
+            `delegated JavaScript hands a package manager or script an environment the audit cannot read: ${command.unreadable}`
+          )
+        }
+      }
     } else if (ts.isTaggedTemplateExpression(node)) {
       // zx and execa run `$\`...\`` and `$({ options })\`...\`` alike.
       const tag = ts.isCallExpression(node.tag) ? node.tag.expression : node.tag
@@ -2200,7 +3889,7 @@ function javascriptChildProcessCommands(file, source) {
     ts.forEachChild(node, visit)
   }
   visit(tree)
-  return { commands, javascript: true }
+  return { commands, errors, javascript: true }
 }
 
 // The command text a reached script contributes to the audit: a shell script
@@ -2301,8 +3990,16 @@ export function collectDelegatedScripts(entries, { trackedFiles: tracked, readTr
                 errors.add(`${target}: ${reached.error}`)
                 continue
               }
-              scripts.push({ file: target, commands: reached.commands })
-              walk(target, reached.commands, { source: targetSource, javascript: reached.javascript })
+              for (const error of reached.errors ?? []) errors.add(`${target}: ${error}`)
+              scripts.push({
+                file: target,
+                commands: reached.commands,
+                javascript: reached.javascript,
+              })
+              walk(target, reached.commands, {
+                source: targetSource,
+                javascript: reached.javascript,
+              })
             }
           }
         }
@@ -2314,35 +4011,92 @@ export function collectDelegatedScripts(entries, { trackedFiles: tracked, readTr
   return { errors: [...errors], scripts }
 }
 
-export function auditExecutableDependencyCommands(commandFiles) {
+export function auditExecutableDependencyCommands(
+  commandFiles,
+  { scriptCommands = () => [] } = {}
+) {
   const errors = []
   let commandCount = 0
-  for (const { file, commands } of commandFiles) {
+  for (const { file, commands, javascript = false } of commandFiles) {
     const workflowFile = /\.ya?ml$/.test(file)
     for (const command of commands) {
       commandCount += 1
-      const shellCommands = workflowFile ? workflowRunCommands(command) : [command]
+      // Comments are not commands: YAML comments in a workflow, and shell
+      // comments wherever a shell reads the text. JavaScript hands its words
+      // to the child without a shell, so a `#` there is an argument.
+      const text = workflowFile
+        ? withoutYamlComments(command)
+        : javascript
+          ? command
+          : withoutShellComments(command)
+      const shellCommands = workflowFile
+        ? workflowRunCommands(command).map(withoutShellComments)
+        : [text]
+      const inputs = workflowFile ? workflowActionInputs(command) : []
+      const inputTexts = inputs.map(input => input.value)
+      const rejections = new Set()
+      const references = new Set()
       // A YAML block scalar drops the indentation its `run` body is written
       // with, so a line continuation only joins in the parsed body: `np\` +
       // newline + indent + `x` is two words in the raw source and `npx` in the
       // shell that runs it. Both spellings are audited, and a reference either
-      // one exposes is reported once.
-      const references = new Set(
-        executablePackageReferences(command, { fullEnvironment: workflowFile })
-      )
-      if (workflowFile) {
-        for (const shellCommand of shellCommands) {
-          for (const reference of executablePackageReferences(shellCommand, {
-            fullEnvironment: true,
-          })) {
-            references.add(reference)
-          }
+      // one exposes is reported once. ANSI-C quoting (`$'…'`) can spell a
+      // manager, an option or a package through escapes the audit would read
+      // literally, so every text is read again with that quoting decoded; a
+      // decoded copy only ever reveals more.
+      const referenceTexts = workflowFile ? [text, ...shellCommands, ...inputTexts] : [text]
+      for (const referenceText of [...referenceTexts, ...referenceTexts.map(decodeAnsiCQuoting)]) {
+        for (const reference of executablePackageReferences(referenceText, {
+          fullEnvironment: workflowFile,
+          rejections,
+        })) {
+          references.add(reference)
+        }
+      }
+      // The line reader and the pass-through check run on the original texts
+      // and on their ANSI-C decoding, so a manager, option or settings command
+      // spelled through `$'…'` is read as the shell runs it. `IFS=$'\n'` stays
+      // accepted: decoded it names no manager. A reference the reconstructed
+      // manager line exposes is pinned with the rest.
+      const lineTexts = [...shellCommands, ...inputTexts]
+      for (const shellCommand of [...lineTexts, ...lineTexts.map(decodeAnsiCQuoting)]) {
+        for (const rejection of managerLineRejections(shellCommand, { references })) {
+          rejections.add(rejection)
+        }
+        for (const rejection of passThroughScriptRejections(shellCommand, scriptCommands)) {
+          rejections.add(rejection)
+        }
+      }
+      for (const input of inputs) {
+        if (!managerLineRejections(input.value).size && !runsPackageManager(input.value)) continue
+        if (!PLAIN_INPUT.test(input.value)) {
+          rejections.add(
+            `action input runs a package manager command that is not one line of plain words: ${input.key}`
+          )
         }
       }
       for (const reference of references) {
-        if (!exactPackageVersion(reference)) {
+        if (isPackageManagerPackage(referencedPackageName(reference))) {
+          errors.push(
+            `${file}: package manager must come from Corepack's packageManager pin: ${reference}`
+          )
+        } else if (!exactPackageVersion(reference)) {
           errors.push(`${file}: executable package is not pinned to an exact version: ${reference}`)
         }
+      }
+      for (const rejection of rejections) errors.push(`${file}: ${rejection}`)
+      // A guarded variable is searched for in the command and in its ANSI-C
+      // decoding, so `export $'pnpm\x5fconfig_registry=…'`, which sets one with
+      // no manager on the line, is caught by the decoded spelling.
+      const variableTexts = new Set([command, decodeAnsiCQuoting(command)])
+      for (const variable of REJECTED_VARIABLES) {
+        const names = new Set()
+        for (const variableText of variableTexts) {
+          for (const name of rejectedVariables(variableText, variable, { workflowFile })) {
+            names.add(name)
+          }
+        }
+        for (const name of names) errors.push(`${file}: ${variable.problem}: ${name}`)
       }
       for (const shellCommand of shellCommands) {
         for (const executable of shellExpansionExecutableReferences(shellCommand)) {
@@ -2360,6 +4114,13 @@ export function auditExecutableDependencyCommands(commandFiles) {
     }
   }
   return { commandCount, errors }
+}
+
+// Whether a text names a package manager the design rule covers as a word.
+function runsPackageManager(command) {
+  return shellCommandSegments(command).some(segment =>
+    shellWordDetails(segment).some(word => managerWordName(word) !== null)
+  )
 }
 
 function buildLicenseSnapshot(report) {
@@ -2451,7 +4212,7 @@ export function auditLicenseBaseline(report, baseline, verifyUnknownLicense = ()
 }
 
 function lockPackageIdentity(lockKey) {
-  const withoutPeers = lockKey.slice(1).split('(')[0]
+  const withoutPeers = lockKey.split('(')[0]
   const separator = withoutPeers.lastIndexOf('@')
   if (separator <= 0) return null
   return `${withoutPeers.slice(0, separator)}@${withoutPeers.slice(separator + 1)}`
@@ -2768,29 +4529,6 @@ function auditTrackedSourceAbsenceGuard(exception, context, errors) {
   }
 
   if (
-    Array.isArray(references) &&
-    Array.isArray(exception?.paths) &&
-    hasExactObjectKeys(declaration, ['file', 'section', 'name', 'specifier'])
-  ) {
-    const activationReferences = [declaration.name]
-    for (const path of exception.paths) {
-      const packages = path.split(' > ').map(packageNameFromAuditPathSegment)
-      const declarationIndex = packages.indexOf(declaration.name)
-      const invokedPackage = packages[declarationIndex + 1]
-      if (declarationIndex < 0 || !invokedPackage) {
-        fail(`reachabilityGuard allowed dependency is stale or incomplete for path: ${path}`)
-        continue
-      }
-      activationReferences.push(invokedPackage)
-    }
-    if (!arraysEqual(references, sortedUnique(activationReferences))) {
-      fail(
-        'reachabilityGuard references must exactly cover the allowed dependency and its direct path activations'
-      )
-    }
-  }
-
-  if (
     !hasExactObjectKeys(context, ['files']) ||
     !Array.isArray(context?.files) ||
     context.files.length === 0
@@ -2814,6 +4552,48 @@ function auditTrackedSourceAbsenceGuard(exception, context, errors) {
       continue
     }
     sourceFiles.set(record.file, record.source)
+  }
+
+  // Exception paths are compared verbatim with pnpm audit's, so they are read
+  // in pnpm 11's `<importer>>name>name` form with the evidence generator's
+  // parser, against the importers of the tracked lockfile.
+  if (
+    Array.isArray(references) &&
+    Array.isArray(exception?.paths) &&
+    hasExactObjectKeys(declaration, ['file', 'section', 'name', 'specifier'])
+  ) {
+    let importers
+    try {
+      importers = YAML.parse(sourceFiles.get('pnpm-lock.yaml') ?? '')?.importers
+    } catch {
+      importers = undefined
+    }
+    if (!importers || typeof importers !== 'object' || Array.isArray(importers)) {
+      fail('reachabilityGuard tracked-source context has no pnpm-lock.yaml importers')
+    } else {
+      const activationReferences = [declaration.name]
+      for (const path of exception.paths) {
+        let packages
+        try {
+          packages = parseAuditPath(path, importers).packages
+        } catch (error) {
+          fail(`reachabilityGuard ${error.message}`)
+          continue
+        }
+        const declarationIndex = packages.indexOf(declaration.name)
+        const invokedPackage = packages[declarationIndex + 1]
+        if (declarationIndex < 0 || !invokedPackage) {
+          fail(`reachabilityGuard allowed dependency is stale or incomplete for path: ${path}`)
+          continue
+        }
+        activationReferences.push(invokedPackage)
+      }
+      if (!arraysEqual(references, sortedUnique(activationReferences))) {
+        fail(
+          'reachabilityGuard references must exactly cover the allowed dependency and its direct path activations'
+        )
+      }
+    }
   }
 
   if (!hasExactObjectKeys(declaration, ['file', 'section', 'name', 'specifier'])) return false
@@ -3202,17 +4982,15 @@ function writeLicenseBaseline(repoRoot) {
   }
 }
 
-export function runDependencyPolicy(repoRoot) {
-  const files = trackedFiles(repoRoot)
+// The commands the repository runs, as the command audit reads them: every
+// manifest's scripts, every workflow and action definition whole, and every
+// tracked script those hand off to.
+export function repositoryCommands(repoRoot, files = trackedFiles(repoRoot)) {
+  const read = file => readFileSync(join(repoRoot, file), 'utf8')
   const manifests = files
     .filter(file => basename(file) === 'package.json')
-    .map(file => ({ file, manifest: JSON.parse(readFileSync(join(repoRoot, file), 'utf8')) }))
-  const actionFiles = files
-    .filter(isAuditedActionFile)
-    .map(file => ({ file, source: readFileSync(join(repoRoot, file), 'utf8') }))
-  const configFiles = files
-    .filter(file => PACKAGE_MANAGER_CONFIG_FILE.test(file))
-    .map(file => ({ file, source: readFileSync(join(repoRoot, file), 'utf8') }))
+    .map(file => ({ file, manifest: JSON.parse(read(file)) }))
+  const actionFiles = files.filter(isAuditedActionFile).map(file => ({ file, source: read(file) }))
   const manifestCommands = manifests.map(({ file, manifest }) => ({
     file,
     commands: Object.values(manifest.scripts || {}).filter(command => typeof command === 'string'),
@@ -3225,16 +5003,35 @@ export function runDependencyPolicy(repoRoot) {
       ...manifestCommands,
       ...actionFiles.map(({ file, source }) => ({ file, commands: workflowRunCommands(source) })),
     ],
-    {
-      trackedFiles: files,
-      readTrackedFile: file => readFileSync(join(repoRoot, file), 'utf8'),
-    }
+    { trackedFiles: files, readTrackedFile: read }
   )
   const commandFiles = [
     ...manifestCommands,
     ...actionFiles.map(({ file, source }) => ({ file, commands: [source] })),
     ...delegated.scripts,
   ]
+  // Every manifest's scripts by name, so a `run <script>` that passes words can
+  // be resolved to the body those words reach (`passThroughScriptRejections`).
+  const scriptBodies = new Map()
+  for (const { manifest } of manifests) {
+    for (const [name, body] of Object.entries(manifest.scripts || {})) {
+      if (typeof body !== 'string') continue
+      scriptBodies.set(name, (scriptBodies.get(name) ?? []).concat(body))
+    }
+  }
+  const scriptCommands = name => scriptBodies.get(name) ?? []
+  return { manifests, actionFiles, delegated, commandFiles, scriptCommands }
+}
+
+export function runDependencyPolicy(repoRoot) {
+  const files = trackedFiles(repoRoot)
+  const { manifests, actionFiles, delegated, commandFiles, scriptCommands } = repositoryCommands(
+    repoRoot,
+    files
+  )
+  const configFiles = files
+    .filter(file => PACKAGE_MANAGER_CONFIG_FILE.test(file))
+    .map(file => ({ file, source: readFileSync(join(repoRoot, file), 'utf8') }))
 
   const lockfileText = readFileSync(join(repoRoot, 'pnpm-lock.yaml'), 'utf8')
   const lockAudit = auditLockfile(lockfileText)
@@ -3245,7 +5042,7 @@ export function runDependencyPolicy(repoRoot) {
     actionFiles.filter(({ file }) => WORKFLOW_FILE.test(file))
   )
   const configAudit = auditPackageManagerConfigs(configFiles)
-  const commandAudit = auditExecutableDependencyCommands(commandFiles)
+  const commandAudit = auditExecutableDependencyCommands(commandFiles, { scriptCommands })
   const licenseBaseline = JSON.parse(readFileSync(join(repoRoot, LICENSE_BASELINE_FILE), 'utf8'))
   const licenseAudit = auditLockfileLicenseBaseline(
     lockfileText,

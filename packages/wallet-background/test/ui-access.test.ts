@@ -14,10 +14,8 @@ import { WalletController } from '../src/controllers/wallet'
 vi.mock('../src/services', () => ({
   keyringService: { keyrings: [] },
   preferenceService: {},
-  walletApiService: {},
   sessionService: {},
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
 }))
 

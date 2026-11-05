@@ -12,11 +12,5 @@ export {
   type NavigationContextType,
   type RouteTypes,
 } from './NavigationContext'
-export {
-  createStorageProvider,
-  StorageContext,
-  useStorage,
-  type StorageContextType,
-} from './StorageContext'
 export { ToolsContext, useTools, type ToolsContextType } from './ToolsContext'
 export { useWallet, WalletProvider } from './WalletContext'

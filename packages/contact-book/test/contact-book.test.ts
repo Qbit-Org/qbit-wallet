@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ContactBookService } from '../src/contact-book'
-import type { ContactBookItem, Logger } from '../src/types'
+import {
+  CONTACT_ALREADY_EXISTS,
+  ContactAlreadyExistsError,
+  ContactBookService,
+} from '../src/contact-book'
+import type { ContactBookItem, ContactBookItemInput, Logger } from '../src/types'
 import { ChainType } from '@qbit/wallet-types'
 
 class MockStorageAdapter {
@@ -195,6 +199,76 @@ describe('ContactBookService', () => {
       await contactBook.addContact(contact('two'))
 
       expect(contactBook.listContacts().map(item => item.name)).toEqual(['two', 'one'])
+    })
+
+    it('keeps the alias flag of a contact that is also an alias when the caller leaves it unset', async () => {
+      const { isAlias: _unset, ...edit } = contact('one')
+      await contactBook.addAlias({ name: 'Account 1', address: 'bc1qone', chain: ChainType.QBIT_MAINNET })
+      await contactBook.addContact(edit)
+
+      await contactBook.updateContact({ ...edit, name: 'renamed' })
+
+      expect(contactBook.getContactByAddressAndChain('bc1qone', ChainType.QBIT_MAINNET)).toMatchObject({
+        name: 'renamed',
+        isContact: true,
+        isAlias: true,
+      })
+    })
+
+    it('uses an alias flag the caller sets', async () => {
+      await contactBook.addContact({ ...contact('one'), isAlias: true })
+      await contactBook.updateContact(contact('one'))
+
+      const stored = contactBook.getContactByAddressAndChain('bc1qone', ChainType.QBIT_MAINNET)
+      expect(stored?.isAlias).toBe(false)
+    })
+  })
+
+  describe('addContact', () => {
+    const alpha: ContactBookItemInput = {
+      name: 'alpha',
+      address: 'bc1qalpha',
+      chain: ChainType.QBIT_MAINNET,
+      isContact: true,
+    }
+    const stored = () => contactBook.getContactByAddressAndChain('bc1qalpha', ChainType.QBIT_MAINNET)
+
+    it('adds a contact at a free address', async () => {
+      await contactBook.addContact(alpha)
+
+      expect(stored()).toEqual({ ...alpha, isAlias: false, sortIndex: 0 })
+    })
+
+    it('adds a contact at an alias-only entry, which keeps its alias flag', async () => {
+      await contactBook.addAlias({ name: 'Account 1', address: 'bc1qalpha', chain: alpha.chain })
+
+      await contactBook.addContact(alpha)
+
+      expect(stored()).toEqual({ ...alpha, isAlias: true, sortIndex: 0 })
+    })
+
+    it('refuses to add over a contact, and changes nothing', async () => {
+      await contactBook.addContact({ ...alpha, sortIndex: 3 })
+      const before = contactBook.getRawStore()
+      const set = vi.spyOn(mockStorage, 'set')
+
+      const add = contactBook.addContact({ ...alpha, name: 'other' })
+
+      await expect(add).rejects.toBeInstanceOf(ContactAlreadyExistsError)
+      await expect(add).rejects.toMatchObject({ code: CONTACT_ALREADY_EXISTS })
+      expect(set).not.toHaveBeenCalled()
+      expect(contactBook.getRawStore()).toEqual(before)
+      expect(mockStorage.getStorage().testContactBook).toEqual(before)
+    })
+
+    it('refuses an add queued after another add of the same address and network', async () => {
+      // Two screens loaded before either saved; both writes queue in call order.
+      const first = contactBook.addContact(alpha)
+      const second = contactBook.addContact({ ...alpha, name: 'other' })
+
+      await first
+      await expect(second).rejects.toMatchObject({ code: CONTACT_ALREADY_EXISTS })
+      expect(stored()?.name).toBe('alpha')
     })
   })
 
@@ -410,15 +484,100 @@ describe('ContactBookService', () => {
       expect(service.listContacts().map(item => item.address)).not.toContain('bc1qboth')
     })
 
-    it('overwrites an entry already stored under the new address, as updateContact does', async () => {
-      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, {
+    it('refuses to move a contact onto another contact, and changes nothing', async () => {
+      const set = vi.spyOn(mockStorage, 'set')
+
+      const move = service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, {
         ...moved,
         address: 'bc1qbob',
       })
 
-      expect(service.getContactByAddressAndChain('bc1qbob', ChainType.QBIT_MAINNET)).toEqual({
+      await expect(move).rejects.toBeInstanceOf(ContactAlreadyExistsError)
+      await expect(move).rejects.toMatchObject({ code: CONTACT_ALREADY_EXISTS })
+      expect(set).not.toHaveBeenCalled()
+      expect(service.getRawStore()).toEqual(savedBook())
+      expect(mockStorage.getStorage().savedBook).toEqual(savedBook())
+    })
+
+    it('refuses a move onto a contact stored after the edit began', async () => {
+      const carol = { ...moved, name: 'carol', address: 'bc1qcarol' }
+
+      // The edit screen loaded before carol was added; both writes queue in call order.
+      const add = service.addContact(carol)
+      const move = service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, {
         ...moved,
-        address: 'bc1qbob',
+        address: 'bc1qcarol',
+      })
+
+      await add
+      await expect(move).rejects.toMatchObject({ code: CONTACT_ALREADY_EXISTS })
+      expect(service.getContactByAddressAndChain('bc1qcarol', ChainType.QBIT_MAINNET)).toEqual({
+        ...carol,
+        sortIndex: 0,
+      })
+      expect(service.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_MAINNET)).toEqual(
+        savedBook().bc1qalice_QBIT_MAINNET
+      )
+    })
+
+    it('edits a contact under its own address and network', async () => {
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, {
+        ...moved,
+        name: 'alice b',
+        address: 'bc1qalice',
+      })
+
+      expect(service.getRawStore()).toEqual({
+        ...savedBook(),
+        bc1qalice_QBIT_MAINNET: { ...savedBook().bc1qalice_QBIT_MAINNET, name: 'alice b' },
+      })
+    })
+
+    it('keeps the alias flag of a contact that is also an alias, edited in place', async () => {
+      const edit: ContactBookItemInput = {
+        name: 'both renamed',
+        address: 'bc1qboth',
+        chain: ChainType.QBIT_TESTNET4,
+        isContact: true,
+      }
+
+      await service.replaceContact('bc1qboth', ChainType.QBIT_TESTNET4, edit)
+
+      expect(service.getContactByAddressAndChain('bc1qboth', ChainType.QBIT_TESTNET4)).toEqual({
+        ...savedBook().bc1qboth_QBIT_TESTNET4,
+        name: 'both renamed',
+      })
+    })
+
+    it('stores no alias flag for a contact moved to a free address, and leaves the old alias', async () => {
+      const edit: ContactBookItemInput = {
+        name: 'both',
+        address: 'bc1qbothnew',
+        chain: ChainType.QBIT_TESTNET4,
+        isContact: true,
+      }
+
+      await service.replaceContact('bc1qboth', ChainType.QBIT_TESTNET4, edit)
+
+      expect(service.getContactByAddressAndChain('bc1qbothnew', ChainType.QBIT_TESTNET4)).toEqual({
+        ...edit,
+        isAlias: false,
+        sortIndex: 2,
+      })
+      expect(service.getContactByAddressAndChain('bc1qboth', ChainType.QBIT_TESTNET4)).toEqual({
+        ...savedBook().bc1qboth_QBIT_TESTNET4,
+        isContact: false,
+      })
+    })
+
+    it('moves a contact onto an alias-only entry, which keeps its alias flag', async () => {
+      const { isAlias: _unset, ...edit } = { ...moved, address: 'bc1qwallet' }
+
+      await service.replaceContact('bc1qalice', ChainType.QBIT_MAINNET, edit)
+
+      expect(service.getContactByAddressAndChain('bc1qwallet', ChainType.QBIT_MAINNET)).toEqual({
+        ...edit,
+        isAlias: true,
         sortIndex: 1,
       })
       expect(service.getContactByAddressAndChain('bc1qalice', ChainType.QBIT_MAINNET)).toBeUndefined()

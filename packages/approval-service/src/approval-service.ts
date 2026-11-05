@@ -10,6 +10,8 @@ function createApprovalId(): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
+const APPROVAL_PENDING = 'Another approval request is already pending'
+
 // something need user approval in window
 // should only open one window, unfocus will close the current notification
 export class ApprovalService extends EventEmitter {
@@ -94,15 +96,11 @@ export class ApprovalService extends EventEmitter {
     winProps?: any,
     onPending?: (id: string) => void
   ): Promise<any> => {
+    // Checked and installed without an await between, so two requests can
+    // never both pass.
     if (this.approval) {
-      if (this.approvalWindowId) {
-        try {
-          await this.platformFocusWindow(this.approvalWindowId)
-        } catch (e) {
-          // keep original behavior even if focusing existing window fails
-        }
-      }
-      throw new WalletError(ErrorCodes.UNKNOWN, 'Another approval request is already pending')
+      await this.focusPendingApproval()
+      throw new WalletError(ErrorCodes.UNKNOWN, APPROVAL_PENDING)
     }
 
     const id = createApprovalId()
@@ -119,6 +117,28 @@ export class ApprovalService extends EventEmitter {
 
       this.openNotification(winProps, id)
     })
+  }
+
+  /**
+   * Refuses, as requestApproval would, while another approval is pending:
+   * focuses that approval's window and throws. A request calls it before it
+   * prepares what its approval would show, so a refusal leaves nothing to
+   * undo. It reserves nothing: an approval installed after it passes still
+   * makes requestApproval refuse.
+   */
+  assertNoPendingApproval = async (): Promise<void> => {
+    if (!this.approval) return
+    await this.focusPendingApproval()
+    throw new WalletError(ErrorCodes.UNKNOWN, APPROVAL_PENDING)
+  }
+
+  private focusPendingApproval = async (): Promise<void> => {
+    if (!this.approvalWindowId) return
+    try {
+      await this.platformFocusWindow(this.approvalWindowId)
+    } catch (e) {
+      // keep original behavior even if focusing existing window fails
+    }
   }
 
   clear = async (stay = false) => {

@@ -1,7 +1,7 @@
-import { CheckboxChangeEvent } from 'antd/lib/checkbox';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button, Card, Checkbox, Column, Grid, Radio, RadioGroup, Row, Text } from '@/ui/components';
+import type { CheckboxChangeEvent } from '@/ui/components/Checkbox';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
 import { ContextData, TabType, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { fontSizes } from '@/ui/theme/font';

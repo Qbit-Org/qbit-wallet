@@ -90,7 +90,6 @@ export type RouteParamList = {
   AppearanceScreen: undefined
   ChangePasswordScreen: undefined
   ModuleAssets: undefined
-  NotificationListScreen: undefined
 
   ScanScreen: {
     from?: string

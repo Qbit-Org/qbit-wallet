@@ -84,11 +84,6 @@ export const ADDRESS_TYPES: {
   },
 ]
 
-export const KEYRING_CLASS = {
-  PRIVATE_KEY: 'Simple Key Pair',
-  MNEMONIC: 'HD Key Tree',
-}
-
 export const KEYRING_TYPE_TEXT = {
   [KeyringType.HdKeyring]: 'Created by Mnemonic',
   [KeyringType.QbitHdKeyring]: 'Created by Mnemonic',
@@ -169,13 +164,6 @@ if (IS_CHROME) {
 }
 
 export const IS_AFTER_CHROME91 = IS_CHROME ? chromeVersion && chromeVersion >= 91 : false
-
-export const GAS_LEVEL_TEXT = {
-  slow: 'Standard',
-  normal: 'Fast',
-  fast: 'Instant',
-  custom: 'Custom',
-}
 
 export const IS_WINDOWS =
   // @ts-ignore
@@ -299,8 +287,15 @@ const DEV_CHAINS_MAP: { [key: string]: TypeChain } = {}
 
 export const CHAINS_MAP = PROD_CHAINS_MAP
 
+// Only a string that CHAINS_MAP defines as its own key is a chain. A name every
+// object inherits, such as `constructor` or `__proto__`, is not, and nor is a
+// value that merely converts to a chain name, such as an array or a String
+// object. Every value this returns is one of the ChainType strings.
 export const normalizeChainType = (chainType?: ChainType | string): ChainType => {
-  if (chainType && CHAINS_MAP[chainType]) {
+  if (
+    typeof chainType === 'string' &&
+    Object.prototype.hasOwnProperty.call(CHAINS_MAP, chainType)
+  ) {
     return chainType as ChainType
   }
   return ChainType.QBIT_MAINNET
@@ -375,19 +370,8 @@ export const DEV_CHAIN_GROUPS: TypeChainGroup[] = [
 
 export const CHAIN_GROUPS = PROD_CHAIN_GROUPS
 
-export const MINIMUM_GAS_LIMIT = 21000
-
 export enum WATCH_ADDRESS_CONNECT_TYPE {
   WalletConnect = 'WalletConnect',
-}
-
-export const WALLETCONNECT_STATUS_MAP = {
-  PENDING: 1,
-  CONNECTED: 2,
-  WAITING: 3,
-  SIBMITTED: 4,
-  REJECTED: 5,
-  FAILD: 6,
 }
 
 export const INTERNAL_REQUEST_ORIGIN = 'https://qbit.org'
@@ -419,12 +403,12 @@ export const BUS_METHODS = {
 /**
 ┌─────────────────────────────────────────────────────────────┐
 │ UI (ui-messaging.ts)                                        │
-│   ✅ UI_CONTROLLER / UI_OPENAPI / UI_BROADCAST              │
+│   ✅ UI_CONTROLLER / UI_BROADCAST                           │
 └─────────────────────────────────────────────────────────────┘
                             ↕️
 ┌─────────────────────────────────────────────────────────────┐
 │ Background (messaging.ts)                                   │
-│   ✅ receive: UI_CONTROLLER / UI_OPENAPI / UI_BROADCAST        │
+│   ✅ receive: UI_CONTROLLER / UI_BROADCAST                     │
 │   ✅ send: BG_BROADCAST                                     │
 │   ✅ push: BG_TO_CONTENT                                    │
 └─────────────────────────────────────────────────────────────┘
@@ -461,7 +445,6 @@ export const BUS_METHODS = {
 export const MESSAGE_TYPE = {
   // UI ↔ Background Communication
   UI_CONTROLLER: 'ui_controller', // from ui to bg controller
-  UI_OPENAPI: 'ui_openapi', // from ui to bg openapi
   UI_REQUEST_METHOD: 'ui_request_method', // from ui to bg request method
   UI_BROADCAST: 'ui_broadcast', // from ui to bg broadcast
   BG_BROADCAST: 'bg_broadcast', // from bg to ui broadcast
@@ -496,7 +479,6 @@ export const SESSION_EVENTS = {
 export const COIN_NAME = 'QBT'
 export const COIN_SYMBOL = 'QBT'
 
-export const COIN_DUST = 1000
 export const QBIT_P2MR_DUST = 2855
 /**
  * The most a PSBT's pay-to-anchor (P2A, `51024e73`) outputs may carry

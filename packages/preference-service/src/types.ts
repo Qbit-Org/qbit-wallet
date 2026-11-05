@@ -25,7 +25,6 @@ export interface BasePreferenceStore {
   locale: string
   currency: string
   externalLinkAck: boolean
-  enableSignData: boolean
   showSafeNotice: boolean
 
   // Network configuration
@@ -61,6 +60,10 @@ export interface BasePreferenceStore {
 
   // Extension-specific fields (optional)
   autoLockTimeId?: number
+  /** Lock the wallet when the computer locks (`chrome.idle` reports `locked`). */
+  lockOnComputerLock?: boolean
+  /** Lock the wallet when the last normal browser window closes. */
+  lockOnWindowsClosed?: boolean
   openInSidePanel?: boolean
   developerMode?: boolean
   themeMode?: ThemeMode
@@ -94,6 +97,8 @@ export interface RateUsStatus {
 // Extension-specific additions
 export interface ExtensionPreferenceStore extends BasePreferenceStore {
   autoLockTimeId: number
+  lockOnComputerLock: boolean
+  lockOnWindowsClosed: boolean
   openInSidePanel: boolean
   developerMode: boolean
   themeMode: ThemeMode

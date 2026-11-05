@@ -30,7 +30,6 @@ describe('PreferenceService', () => {
       locale: 'unknown-locale',
       currency: '',
       externalLinkAck: 'x',
-      enableSignData: undefined,
       showSafeNotice: undefined,
       balanceMap: null,
       historyMap: null,
@@ -63,8 +62,9 @@ describe('PreferenceService', () => {
     expect(service.getLocale()).toBe('en')
     expect(service.getCurrency()).toBe('USD')
     expect(service.getExternalLinkAck()).toBe(false)
-    expect(service.getEnableSignData()).toBe(false)
     expect(service.getShowSafeNotice()).toBe(true)
+    expect(rawStore.lockOnComputerLock).toBe(true)
+    expect(rawStore.lockOnWindowsClosed).toBe(true)
     expect(service.getCurrentAccount()).toBeNull()
 
     expect(service.getWalletSavedList()).toEqual([])
@@ -173,7 +173,6 @@ describe('PreferenceService', () => {
       locale: 'en',
       currency: 'USD',
       externalLinkAck: false,
-      enableSignData: false,
       showSafeNotice: true,
       currentAccount: null,
       currentKeyringIndex: 0,
@@ -267,7 +266,6 @@ describe('PreferenceService', () => {
       locale: 'en',
       currency: 'USD',
       externalLinkAck: false,
-      enableSignData: false,
       showSafeNotice: true,
       currentAccount: null,
       currentKeyringIndex: 0,
@@ -311,7 +309,6 @@ describe('PreferenceService', () => {
       locale: 'en',
       currency: 'USD',
       externalLinkAck: false,
-      enableSignData: false,
       showSafeNotice: true,
       currentAccount: null,
       currentKeyringIndex: 0,
@@ -392,7 +389,6 @@ describe('PreferenceService', () => {
       locale: 'en',
       currency: 'USD',
       externalLinkAck: false,
-      enableSignData: false,
       showSafeNotice: true,
       currentAccount: null,
       currentKeyringIndex: 0,
@@ -432,7 +428,7 @@ describe('PreferenceService', () => {
     expect(storage.createPersistentProxy).toHaveBeenCalledTimes(2)
     expect(storage.createPersistentProxy).toHaveBeenLastCalledWith(
       'preference',
-      expect.objectContaining({ enableSignData: false, currentAccount: undefined }),
+      expect.objectContaining({ enableRBF: true, currentAccount: undefined }),
       { reset: true }
     )
   })
@@ -486,18 +482,67 @@ describe('PreferenceService persistence', () => {
 
   it('keeps security settings changed less than a second before a reload', async () => {
     const service = await load()
-    expect(service.getEnableSignData()).toBe(false)
     expect(service.getEnableRBF()).toBe(true)
 
-    await service.setEnableSignData(true)
     await service.setAutoLockTimeId(1)
     await service.setEnableRBF(false)
+    await service.setLockOnComputerLock(false)
+    await service.setLockOnWindowsClosed(false)
 
     vi.advanceTimersByTime(500)
     const reloaded = await load()
-    expect(reloaded.getEnableSignData()).toBe(true)
     expect(reloaded.getAutoLockTimeId()).toBe(1)
     expect(reloaded.getEnableRBF()).toBe(false)
+    expect(reloaded.getLockOnComputerLock()).toBe(false)
+    expect(reloaded.getLockOnWindowsClosed()).toBe(false)
+  })
+
+  it('turns both lock settings on for a new wallet', async () => {
+    const service = await load()
+    expect(service.getLockOnComputerLock()).toBe(true)
+    expect(service.getLockOnWindowsClosed()).toBe(true)
+  })
+
+  it('loads preferences stored before the lock settings existed with both on', async () => {
+    // What 1.0.7 stored: no lock settings at all, and a user's own choices.
+    adapter.disk.set(
+      'preference',
+      JSON.stringify({ autoLockTimeId: 7, enableSignData: true, locale: 'fr', currentVersion: '0' })
+    )
+    const service = await load()
+    expect(service.getLockOnComputerLock()).toBe(true)
+    expect(service.getLockOnWindowsClosed()).toBe(true)
+    expect(service.getAutoLockTimeId()).toBe(7)
+    expect(service.getLocale()).toBe('fr')
+
+    // Turning one off is kept, and the other stays on.
+    await service.setLockOnWindowsClosed(false)
+    await vi.advanceTimersByTimeAsync(1000)
+    const reloaded = await load()
+    expect(reloaded.getLockOnComputerLock()).toBe(true)
+    expect(reloaded.getLockOnWindowsClosed()).toBe(false)
+  })
+
+  it('reads a malformed stored lock setting as on', async () => {
+    adapter.disk.set(
+      'preference',
+      JSON.stringify({ lockOnComputerLock: null, lockOnWindowsClosed: 'false' })
+    )
+    const service = await load()
+    expect(service.getLockOnComputerLock()).toBe(true)
+    expect(service.getLockOnWindowsClosed()).toBe(true)
+  })
+
+  it('rejects a lock setting whose write fails and keeps it on', async () => {
+    const service = await load()
+    const writeError = new Error('QUOTA_BYTES quota exceeded')
+    adapter.writeErrors.push(writeError)
+
+    await expect(service.setLockOnComputerLock(false)).rejects.toBe(writeError)
+    expect(service.getLockOnComputerLock()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await load()).getLockOnComputerLock()).toBe(true)
   })
 
   it('rejects a security setting whose write fails and restores the previous value', async () => {
@@ -505,11 +550,11 @@ describe('PreferenceService persistence', () => {
     const writeError = new Error('QUOTA_BYTES quota exceeded')
     adapter.writeErrors.push(writeError)
 
-    await expect(service.setEnableSignData(true)).rejects.toBe(writeError)
-    expect(service.getEnableSignData()).toBe(false)
+    await expect(service.setEnableRBF(false)).rejects.toBe(writeError)
+    expect(service.getEnableRBF()).toBe(true)
 
     await vi.advanceTimersByTimeAsync(1000)
-    expect((await load()).getEnableSignData()).toBe(false)
+    expect((await load()).getEnableRBF()).toBe(true)
   })
 
   it('saves the restored value at once when another write saved the failed one', async () => {
@@ -522,7 +567,7 @@ describe('PreferenceService persistence', () => {
       openGate = resolve
     })
 
-    const setting = service.setEnableSignData(true)
+    const setting = service.setEnableRBF(false)
     const settingResult = expect(setting).rejects.toBe(writeError)
     await vi.waitFor(() => expect(adapter.writes).toBeGreaterThan(0))
     const otherWrite = service.persist()
@@ -532,8 +577,8 @@ describe('PreferenceService persistence', () => {
     adapter.writeGate = undefined
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(service.getEnableSignData()).toBe(false)
-    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(false)
+    expect(service.getEnableRBF()).toBe(true)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableRBF).toBe(true)
   })
 
   // The setting's write fails while another save of the whole store gets the
@@ -563,16 +608,14 @@ describe('PreferenceService persistence', () => {
     const writeError = new Error('write failed')
     adapter.writeErrors.push(writeError, undefined, new Error('restore failed'))
 
-    const { setting } = await failWhileAnotherWriteSaves(service, () =>
-      service.setEnableSignData(true)
-    )
+    const { setting } = await failWhileAnotherWriteSaves(service, () => service.setEnableRBF(false))
     // Well before the store's own debounced save, which would also fix the disk.
     await vi.advanceTimersByTimeAsync(500)
 
     await expect(setting).rejects.toBe(writeError)
-    expect(service.getEnableSignData()).toBe(false)
-    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(false)
-    expect((await load()).getEnableSignData()).toBe(false)
+    expect(service.getEnableRBF()).toBe(true)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableRBF).toBe(true)
+    expect((await load()).getEnableRBF()).toBe(true)
   })
 
   it('reports a distinct failure when the restored value cannot be saved', async () => {
@@ -582,9 +625,7 @@ describe('PreferenceService persistence', () => {
     const restoreError = new Error('restore failed')
     adapter.writeErrors.push(writeError, undefined, ...Array(20).fill(restoreError))
 
-    const { setting } = await failWhileAnotherWriteSaves(service, () =>
-      service.setEnableSignData(true)
-    )
+    const { setting } = await failWhileAnotherWriteSaves(service, () => service.setEnableRBF(false))
     let settled = false
     setting.catch(() => undefined).finally(() => (settled = true))
     await vi.advanceTimersByTimeAsync(500)
@@ -594,8 +635,8 @@ describe('PreferenceService persistence', () => {
     const failure = await setting.catch(error => error)
     expect(failure).not.toBe(writeError)
     expect(failure).toMatchObject({ code: ErrorCodes.PREFERENCE_NOT_RESTORED, cause: restoreError })
-    expect(service.getEnableSignData()).toBe(false)
-    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(true)
+    expect(service.getEnableRBF()).toBe(true)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableRBF).toBe(false)
   })
 
   it('stops retrying the restored value once a newer change of the setting is made, and says it was not saved', async () => {
@@ -605,23 +646,21 @@ describe('PreferenceService persistence', () => {
     adapter.writeErrors.push(writeError, undefined, new Error('restore failed'))
 
     const writesAtStart = adapter.writes
-    const { setting } = await failWhileAnotherWriteSaves(service, () =>
-      service.setEnableSignData(true)
-    )
+    const { setting } = await failWhileAnotherWriteSaves(service, () => service.setEnableRBF(false))
     // The setting's write, the other write and the first save of the restored value.
     await vi.waitFor(() => expect(adapter.writes).toBe(writesAtStart + 3))
     const writesBefore = adapter.writes
-    const newer = service.setEnableSignData(true)
+    const newer = service.setEnableRBF(false)
     await vi.advanceTimersByTimeAsync(500)
 
     // A save of the restored value failed, so until the newer change was saved
     // the disk could hold the rejected value.
     await expect(setting).rejects.toMatchObject({ code: ErrorCodes.PREFERENCE_NOT_RESTORED })
     await newer
-    expect(adapter.written.slice(writesBefore).map(value => value.enableSignData)).toEqual([true])
-    expect(service.getEnableSignData()).toBe(true)
-    expect(JSON.parse(adapter.disk.get('preference')!).enableSignData).toBe(true)
-    expect((await load()).getEnableSignData()).toBe(true)
+    expect(adapter.written.slice(writesBefore).map(value => value.enableRBF)).toEqual([false])
+    expect(service.getEnableRBF()).toBe(false)
+    expect(JSON.parse(adapter.disk.get('preference')!).enableRBF).toBe(false)
+    expect((await load()).getEnableRBF()).toBe(false)
   })
 
   it('does not restore a value that a later change replaced while the failed write was pending', async () => {
@@ -643,7 +682,7 @@ describe('PreferenceService persistence', () => {
     await vi.advanceTimersByTimeAsync(1000)
     const writesBefore = adapter.writes
 
-    await service.setEnableSignData(true)
+    await service.setEnableRBF(false)
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(adapter.writes - writesBefore).toBe(1)
@@ -654,14 +693,14 @@ describe('PreferenceService persistence', () => {
     const writeError = new Error('write failed')
     adapter.writeErrors.push(writeError)
 
-    const failed = service.setEnableSignData(true)
-    const retried = service.setEnableSignData(true)
+    const failed = service.setEnableRBF(false)
+    const retried = service.setEnableRBF(false)
 
     await expect(failed).rejects.toBe(writeError)
     await retried
-    expect(service.getEnableSignData()).toBe(true)
+    expect(service.getEnableRBF()).toBe(false)
     await vi.advanceTimersByTimeAsync(1000)
-    expect((await load()).getEnableSignData()).toBe(true)
+    expect((await load()).getEnableRBF()).toBe(false)
   })
 
   it('does not let a security setting save the old store while resetAllData runs', async () => {
@@ -674,7 +713,7 @@ describe('PreferenceService persistence', () => {
       openGate = resolve
     })
     const reset = service.resetAllData()
-    const setting = service.setEnableSignData(true)
+    const setting = service.setEnableRBF(false)
     const settingResult = expect(setting).rejects.toThrow('A newer store replaced preference')
     openGate()
     await reset
@@ -684,7 +723,7 @@ describe('PreferenceService persistence', () => {
     await vi.advanceTimersByTimeAsync(1000)
     const reloaded = await load()
     expect(reloaded.getCurrentAccount()).toBeNull()
-    expect(reloaded.getEnableSignData()).toBe(false)
+    expect(reloaded.getEnableRBF()).toBe(true)
   })
 
   it('treats a setting that fails while resetAllData is saving as replaced, without retrying', async () => {
@@ -696,7 +735,7 @@ describe('PreferenceService persistence', () => {
       openGate = resolve
     })
     const reset = service.resetAllData()
-    const setting = service.setEnableSignData(true)
+    const setting = service.setEnableRBF(false)
     let settled = false
     setting.catch(() => undefined).finally(() => (settled = true))
     await vi.advanceTimersByTimeAsync(0)
@@ -708,9 +747,9 @@ describe('PreferenceService persistence', () => {
     await reset
     adapter.writeGate = undefined
 
-    expect(service.getEnableSignData()).toBe(false)
+    expect(service.getEnableRBF()).toBe(true)
     await vi.advanceTimersByTimeAsync(1000)
-    expect((await load()).getEnableSignData()).toBe(false)
+    expect((await load()).getEnableRBF()).toBe(true)
   })
 
   it('saves default names and UI cache entries created on read', async () => {
@@ -734,14 +773,14 @@ describe('PreferenceService persistence', () => {
     const service = await load()
     await vi.advanceTimersByTimeAsync(1000)
     service.setCurrentAccount({ pubkey: 'pubkey-x', address: 'qb1zx' } as any)
-    await service.setEnableSignData(true)
+    await service.setEnableRBF(false)
 
     await service.resetAllData()
     await vi.advanceTimersByTimeAsync(1000)
 
     const reloaded = await load()
     expect(reloaded.getCurrentAccount()).toBeNull()
-    expect(reloaded.getEnableSignData()).toBe(false)
+    expect(reloaded.getEnableRBF()).toBe(true)
   })
 
   it('fails to start instead of replacing stored preferences when they cannot be read', async () => {
@@ -762,5 +801,48 @@ describe('PreferenceService persistence', () => {
     const reloaded = await load()
     expect(reloaded.getCurrentAccount()).toMatchObject({ pubkey: 'pubkey-x' })
     expect(reloaded.getChainType()).toBe(ChainType.QBIT_TESTNET4)
+  })
+
+  it('drops the signData setting an earlier build stored and never saves it again', async () => {
+    adapter.disk.set(
+      'preference',
+      JSON.stringify({ locale: 'fr', currency: 'EUR', enableSignData: true, enableRBF: false })
+    )
+
+    const service = await load()
+    expect(service.getLocale()).toBe('fr')
+    expect(service.getEnableRBF()).toBe(false)
+    // The debounced save of the repaired store, then a setting's own write.
+    await vi.advanceTimersByTimeAsync(1000)
+    await service.setAutoLockTimeId(1)
+
+    expect(adapter.written).toHaveLength(2)
+    expect(adapter.written.filter(value => 'enableSignData' in value)).toEqual([])
+    expect(JSON.parse(adapter.disk.get('preference')!)).toMatchObject({
+      locale: 'fr',
+      currency: 'EUR',
+      enableRBF: false,
+      autoLockTimeId: 1,
+    })
+  })
+})
+
+describe('PreferenceService stored chain', () => {
+  // Stored preferences are JSON that anything with storage access can rewrite.
+  // A chain value that only converts to a chain name, or that names a property
+  // every object inherits, loads as Mainnet and is saved back as Mainnet.
+  it.each<[string, unknown]>([
+    ["['QBIT_REGTEST']", ['QBIT_REGTEST']],
+    ["['QBIT_MAINNET']", ['QBIT_MAINNET']],
+    ["'constructor'", 'constructor'],
+  ])('loads the stored chain %s as Qbit Mainnet', async (_label, chainType) => {
+    const adapter = new DiskAdapter()
+    adapter.disk.set('preference', JSON.stringify({ locale: 'en', chainType }))
+    const service = new PreferenceService()
+    await service.init({ storage: adapter, logger: { debug: vi.fn(), error: vi.fn() } })
+
+    expect(service.getChainType()).toBe(ChainType.QBIT_MAINNET)
+    await service.persist()
+    expect(JSON.parse(adapter.disk.get('preference')!).chainType).toBe(ChainType.QBIT_MAINNET)
   })
 })

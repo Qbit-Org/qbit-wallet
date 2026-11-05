@@ -1,0 +1,72 @@
+{
+  "release": "v1.0.5",
+  "zip": {
+    "name": "qbit-chrome-mv3-v1.0.5.zip",
+    "sha256": "a209c86146c275d12ad9f25b82f9e8efe5941685a7241ed5943668d3c1e90cb4"
+  },
+  "extensionVersion": "1.0.5",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+  "testOnly": true,
+  "password": "Qbit-Upgrade-Fixture-Only!1",
+  "mnemonic": "federal wait thunder unhappy error dress obtain spike deposit ancient zone bacon proof truck sort ketchup matrix stable language cause price pen actor silent",
+  "readonlyPublicKey": "026950f7f094c0b8cf19c6ffd9713e9bfa8e30c5497dc02185fef947e86aefd1c2",
+  "keyrings": [
+    {
+      "type": "Qbit HD Key Tree",
+      "alianName": "Qbit HD Wallet #1",
+      "addressType": 9,
+      "accounts": [
+        {
+          "address": "tq1zsnfn284w7ur3g2ssngz7a5clc47d0saz6vjuuml7z8sr6nz0apls8p8mgk",
+          "pubkey": "b252642a442ca719cb89fda364b64834667037094c1650ff2059abb4e3994f27",
+          "alianName": "Account 1"
+        },
+        {
+          "address": "tq1zxznedk86ad4yh9jg8edt9lgtcux4kccd7kkgs20sedl44z64mthqwnn4vr",
+          "pubkey": "0d9ef44ca1590d2e2b989e025cd36898a6016e8a0f10e9b568d82a990cba08d8",
+          "alianName": "Savings"
+        }
+      ]
+    },
+    {
+      "type": "Readonly",
+      "alianName": "Readonly #2",
+      "addressType": 1,
+      "accounts": [
+        {
+          "address": "tb1q8hzwhazcsuphk3ug48ye345tlr6r02nvyeckhm",
+          "pubkey": "026950f7f094c0b8cf19c6ffd9713e9bfa8e30c5497dc02185fef947e86aefd1c2",
+          "alianName": "Readonly 1"
+        }
+      ]
+    }
+  ],
+  "currentAccount": {
+    "address": "tq1zxznedk86ad4yh9jg8edt9lgtcux4kccd7kkgs20sedl44z64mthqwnn4vr",
+    "alianName": "Savings"
+  },
+  "contacts": [
+    {
+      "name": "Fixture contact",
+      "address": "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66",
+      "chain": "QBIT_TESTNET4",
+      "isContact": true,
+      "isAlias": false,
+      "sortIndex": 0
+    }
+  ],
+  "connectedSites": [
+    {
+      "origin": "http://127.0.0.1:46383",
+      "chain": "QBIT_TESTNET4",
+      "isConnected": true
+    }
+  ],
+  "settings": {
+    "chainType": "QBIT_TESTNET4",
+    "locale": "es",
+    "themeMode": "dark",
+    "autoLockTimeId": 6,
+    "developerMode": true
+  }
+}

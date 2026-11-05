@@ -1,10 +1,9 @@
 export { useAddressTypeScreenLogic } from './useAddressTypeScreenLogic'
 export { useAmountInputLogic } from './useAmountInputLogic'
-export { useAnnouncementCardLogic } from './useAnnouncementCardLogic'
 export { useEditWalletNameScreenLogic } from './useEditWalletNameScreenLogic'
 export { useFeeRateBarLogic } from './useFeeRateBarLogic'
 export { useLockTimePageLogic } from './useLockTimePageLogic'
-export { useNotificationsLogic, useUnreadNotificationsCount } from './useNotificationsLogic'
+export { useSecurityCardLogic } from './useSecurityCardLogic'
 export { useTxCreateScreenLogic, type TxCreateSpendSummary } from './useTxCreateScreenLogic'
 export { useQbitConsolidationScreenLogic } from './useQbitConsolidationScreenLogic'
 

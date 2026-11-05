@@ -1,6 +1,7 @@
 import { ChainType } from '@qbit/wallet-types'
 import {
   ContactBookItem,
+  ContactBookItemInput,
   ContactBookStore,
   ContactBookConfig,
   StorageAdapter,
@@ -14,6 +15,21 @@ const defaultLogger: Logger = {
   info: () => {},
   warn: () => {},
   error: () => {},
+}
+
+/**
+ * The code of the error addContact and replaceContact reject with when another
+ * contact is stored under the address and chain. It crosses to the UI as `code`.
+ */
+export const CONTACT_ALREADY_EXISTS = 'CONTACT_ALREADY_EXISTS'
+
+export class ContactAlreadyExistsError extends Error {
+  readonly code = CONTACT_ALREADY_EXISTS
+
+  constructor() {
+    super('Another contact has this address and network')
+    this.name = 'ContactAlreadyExistsError'
+  }
 }
 
 /**
@@ -44,16 +60,22 @@ const withoutContact = (store: ContactBookStore, key: string): ContactBookStore 
 
 /**
  * The entry stored for a contact that is added or updated. An edit of the
- * contact `stored` keeps its place in the list unless `data` sets a sortIndex.
+ * contact `stored` keeps its place in the list unless `data` sets a sortIndex,
+ * and the entry keeps the alias flag of `existing`, the entry already under
+ * data's address and chain, unless `data` sets one.
  */
-const toContactEntry = (data: ContactBookItem, stored?: ContactBookItem): ContactBookItem => {
+const toContactEntry = (
+  data: ContactBookItemInput,
+  stored: ContactBookItem | undefined,
+  existing: ContactBookItem | undefined
+): ContactBookItem => {
   const sortIndex = data.sortIndex ?? (stored?.isContact ? stored.sortIndex : 0)
   return {
     name: data.name,
     address: data.address,
     chain: data.chain,
     isContact: true,
-    isAlias: data.isAlias || false,
+    isAlias: data.isAlias ?? existing?.isAlias ?? false,
     ...(sortIndex === undefined ? {} : { sortIndex }),
   }
 }
@@ -258,7 +280,7 @@ export class ContactBookService {
   /**
    * Update or add contact
    */
-  async updateContact(data: ContactBookItem): Promise<void> {
+  async updateContact(data: ContactBookItemInput): Promise<void> {
     this.ensureInitialized()
 
     // Use composite key to store contact
@@ -267,7 +289,7 @@ export class ContactBookService {
     // Store contact using composite key
     await this.commit(store => ({
       ...store,
-      [compositeKey]: toContactEntry(data, store[compositeKey]),
+      [compositeKey]: toContactEntry(data, store[compositeKey], store[compositeKey]),
     }))
   }
 
@@ -278,16 +300,31 @@ export class ContactBookService {
    * in the old contact's place in the list: its sortIndex and, for contacts
    * that tie on it, its position in the store. A failed write leaves the old
    * contact in place.
+   *
+   * Rejects with ContactAlreadyExistsError, changing nothing, when another
+   * contact is stored under the new address and chain. Keys match the address
+   * exactly, as getCompositeKey builds them. An alias-only entry there takes
+   * the contact.
    */
-  async replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void> {
+  async replaceContact(
+    address: string,
+    chain: ChainType,
+    data: ContactBookItemInput
+  ): Promise<void> {
     this.ensureInitialized()
 
     const key = getCompositeKey(address, chain)
     const compositeKey = getCompositeKey(data.address, data.chain)
 
     await this.commit(store => {
+      // Checked against the store this write replaces, so an edit made on a
+      // stale screen cannot overwrite a contact added since
+      if (compositeKey !== key && store[compositeKey]?.isContact) {
+        throw new ContactAlreadyExistsError()
+      }
+
       const remaining = withoutContact(store, key) ?? store
-      const entry = toContactEntry(data, store[key])
+      const entry = toContactEntry(data, store[key], store[compositeKey])
       const next: ContactBookStore = {}
       let placed = false
       for (const [entryKey, value] of Object.entries(store)) {
@@ -305,10 +342,27 @@ export class ContactBookService {
   }
 
   /**
-   * Add contact (alias for updateContact)
+   * Add a contact, stored as updateContact stores it. Rejects with
+   * ContactAlreadyExistsError, changing nothing, when a contact is already
+   * stored under its address and chain; an alias-only entry there takes it.
    */
-  async addContact(data: ContactBookItem): Promise<void> {
-    return this.updateContact(data)
+  async addContact(data: ContactBookItemInput): Promise<void> {
+    this.ensureInitialized()
+
+    const compositeKey = getCompositeKey(data.address, data.chain)
+
+    await this.commit(store => {
+      // Checked against the store this write replaces, so an add made on a
+      // stale screen cannot overwrite a contact added since
+      if (store[compositeKey]?.isContact) {
+        throw new ContactAlreadyExistsError()
+      }
+
+      return {
+        ...store,
+        [compositeKey]: toContactEntry(data, store[compositeKey], store[compositeKey]),
+      }
+    })
   }
 
   /**

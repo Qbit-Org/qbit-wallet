@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import * as browserPassworder from '@metamask/browser-passworder'
 import { AddressType } from '@qbit/wallet-types'
-// This earlier package remains installed only to generate migration fixtures.
-// @ts-ignore
-import * as previousPassworder from 'browser-passworder'
 import { BrowserPassworderEncryptor } from '../src/encryptor/browser-encryptor'
 import { KeyringService } from '../src/keyring-service'
 import type { Encryptor } from '../src/types'
@@ -11,6 +9,17 @@ import type { Encryptor } from '../src/types'
 const password = 'migration-test-password'
 const mnemonic =
   'finish oppose decorate face calm tragic certain desk hour urge dinosaur mango'
+
+// { secret: 'fixture' } encrypted once under `password` by browser-passworder
+// 2.0.3 itself, the earlier vault encryptor: 10,000-round PBKDF2 and no
+// keyMetadata field. It came from `npm pack browser-passworder@2.0.3
+// browserify-unibabel@3.0.0`, whose tarballs matched the lockfile integrity
+// this package last installed (sha512-8mTcGjsV… and sha512-j3MX0k2d…).
+const BROWSER_PASSWORDER_2_0_3_FIELD = JSON.stringify({
+  data: 's5W68oOBptffuFwfad8hgv4KWpSXO1wBUI6xWQVK1ZJor9JK',
+  iv: 'Uq1UPtNzB4kErv53thtbkw==',
+  salt: 'KOdg93cc4Upum7aIaskDJ0AmqmJoR3Uat+olG1j0Xjc=',
+})
 
 class MemoryStorage {
   readonly values = new Map<string, any>()
@@ -36,9 +45,24 @@ const logger = {
   error() {},
 }
 
+// Writes the earlier format without the earlier package: the current library
+// at 10,000 rounds, with the keyMetadata field it adds removed. The first test
+// below checks that this uses the key derivation browser-passworder 2.0.3 did.
 const previousEncryptor: Encryptor = {
-  encrypt: (secret, data) => previousPassworder.encrypt(secret, data),
-  decrypt: (secret, encryptedData) => previousPassworder.decrypt(secret, encryptedData),
+  encrypt: async (secret, data) => {
+    const payload = JSON.parse(
+      await browserPassworder.encrypt(secret, data, undefined, undefined, {
+        algorithm: 'PBKDF2',
+        params: { iterations: 10_000 },
+      })
+    )
+    if (payload.keyMetadata?.params?.iterations !== 10_000) {
+      throw new Error('the library no longer records the requested key derivation')
+    }
+    delete payload.keyMetadata
+    return JSON.stringify(payload)
+  },
+  decrypt: (secret, encryptedData) => browserPassworder.decrypt(secret, encryptedData),
 }
 
 async function createWalletWithEarlierEncryption(storage: MemoryStorage) {
@@ -72,10 +96,47 @@ function expectCurrentKdf(encryptedData: string) {
   })
 }
 
+// The same field with explicit key-derivation metadata, which the library
+// then uses instead of its earlier-format default.
+function withPbkdf2Rounds(encryptedData: string, iterations: number): string {
+  return JSON.stringify({
+    ...JSON.parse(encryptedData),
+    keyMetadata: { algorithm: 'PBKDF2', params: { iterations } },
+  })
+}
+
 describe('BrowserPassworderEncryptor vault migration', () => {
+  it('builds earlier-format fixtures with the key derivation browser-passworder 2.0.3 used', async () => {
+    const rebuilt = await previousEncryptor.encrypt(password, { secret: 'fixture' })
+
+    for (const field of [BROWSER_PASSWORDER_2_0_3_FIELD, rebuilt]) {
+      expect(Object.keys(JSON.parse(field)).sort()).toEqual(['data', 'iv', 'salt'])
+      await expect(
+        browserPassworder.decrypt(password, withPbkdf2Rounds(field, 10_000))
+      ).resolves.toEqual({ secret: 'fixture' })
+    }
+    // The round count matters: the genuine field does not open at 900,000.
+    await expect(
+      browserPassworder.decrypt(password, withPbkdf2Rounds(BROWSER_PASSWORDER_2_0_3_FIELD, 900_000))
+    ).rejects.toThrow()
+  })
+
+  it('migrates a field that browser-passworder 2.0.3 wrote', async () => {
+    const encryptor = new BrowserPassworderEncryptor()
+
+    expect(encryptor.isVaultUpdated(BROWSER_PASSWORDER_2_0_3_FIELD)).toBe(false)
+    await expect(encryptor.decrypt(password, BROWSER_PASSWORDER_2_0_3_FIELD)).resolves.toEqual({
+      secret: 'fixture',
+    })
+
+    const migrated = await encryptor.updateVault(BROWSER_PASSWORDER_2_0_3_FIELD, password)
+    expectCurrentKdf(migrated)
+    await expect(encryptor.decrypt(password, migrated)).resolves.toEqual({ secret: 'fixture' })
+  })
+
   it('decrypts the earlier format and emits only the current KDF metadata', async () => {
     const encryptor = new BrowserPassworderEncryptor()
-    const earlierVault = await previousPassworder.encrypt(password, { secret: 'fixture' })
+    const earlierVault = await previousEncryptor.encrypt(password, { secret: 'fixture' })
 
     expect(encryptor.isVaultUpdated(earlierVault)).toBe(false)
     await expect(encryptor.decrypt(password, earlierVault)).resolves.toEqual({

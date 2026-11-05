@@ -33,7 +33,6 @@ import { useNavigate } from '../../MainRoute';
 import { SwitchChainModal } from '../../Settings/SwitchChainModal';
 import { LockWalletButton } from './LockWalletButton';
 import { SidePanelExpand } from './SidePanelExpand';
-import { AnnouncementCard } from './components/AnnouncementCard';
 import { BalanceCard } from './components/BalanceCard';
 import { HomeTips } from './components/HomeTips';
 import { WalletActions } from './components/WalletActions';
@@ -75,8 +74,6 @@ export default function WalletTabScreen() {
 
   useEffect(() => {
     const run = async () => {
-      wallet.getNotifications();
-
       const activeTab = await getCurrentTab();
       if (!activeTab) return;
       const site = await wallet.getCurrentConnectedSite(activeTab.id);
@@ -263,8 +260,6 @@ export default function WalletTabScreen() {
 
           <BalanceCard />
           <WalletActions chain={chain} hideReceive={recoveryState?.status === 'migrated'} />
-
-          <AnnouncementCard />
         </Column>
         {!versionInfo.skipped && (
           <UpgradePopover

@@ -763,6 +763,144 @@ describe('QbitRecoveryMigrationScreen', () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  describe('plans of one source signed as one batch (#156)', () => {
+    const planOf = (index: number) => ({
+      ...toSignData,
+      signatureBudget: {
+        ...toSignData.signatureBudget,
+        restoredFloorRisk: { ...toSignData.signatureBudget.restoredFloorRisk, challengeId: `challenge-${index}` }
+      },
+      qbitSignatureBatch: { id: 'migration-batch', index, budget: { ...toSignData.signatureBudget } },
+      qbitRecoveryMigration: { ...toSignData.qbitRecoveryMigration, planId: `plan-${index}` }
+    });
+    const reviewOf = (count: number) => {
+      const plans = Array.from({ length: count }, (_value, index) => planOf(index));
+      const state = {
+        ...migratingState,
+        migration: {
+          ...migratingState.migration,
+          plans: plans.map((plan) => ({ ...migratingState.migration.plans[0], id: plan.qbitRecoveryMigration.planId }))
+        }
+      };
+      wallet.getQbitRecoveryState.mockResolvedValue(state);
+      wallet.advanceQbitRecoveryMigration.mockReset().mockResolvedValue(state);
+      wallet.prepareQbitRecoveryMigration.mockReset().mockResolvedValue({ state, toSignDatas: plans });
+      return plans;
+    };
+    const pressSign = async () => {
+      fireEvent.click(await screen.findByTestId('qbit-recovery-review-confirmation'));
+      fireEvent.click(screen.getByTestId('qbit-recovery-sign-button'));
+    };
+
+    it.each([2, 3])('signs all %i plans in one press, each after its own confirmation', async (count) => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      const plans = reviewOf(count);
+      const calls: string[] = [];
+      wallet.confirmQbitRestoredFloorSigning.mockImplementation(async (challengeId: string) => {
+        calls.push(`confirm ${challengeId}`);
+      });
+      wallet.signPsbtV2.mockImplementation(async (plan: any) => {
+        calls.push(`sign ${plan.qbitRecoveryMigration.planId}`);
+        return { psbtHex: 'signed' };
+      });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+      expect(calls).toEqual(plans.flatMap((_plan, index) => [`confirm challenge-${index}`, `sign plan-${index}`]));
+      expect(wallet.signPsbtV2.mock.calls.map(([plan]) => plan)).toEqual(plans);
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('prepares the plans left again, with the migration message, when the review was interrupted', async () => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      reviewOf(3);
+      // The batch closed after plan 0 signed, by a lock say; the error
+      // crosses the port as a plain object with its code.
+      wallet.signPsbtV2.mockResolvedValueOnce({ psbtHex: 'signed' }).mockRejectedValueOnce({
+        code: ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED,
+        message: 'qbit_recovery_review_interrupted'
+      });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_recovery_review_interrupted'));
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+      expect(wallet.signPsbtV2).toHaveBeenCalledTimes(2);
+      expect(await screen.findByTestId('qbit-recovery-sign-button')).toBeTruthy();
+    });
+
+    it('shows the migration message when a plan cannot be confirmed because its challenge is gone', async () => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      reviewOf(3);
+      // A lock after plan 0 signed cleared the challenges of the plans left;
+      // their confirmation fails before signing is reached.
+      wallet.confirmQbitRestoredFloorSigning.mockResolvedValueOnce(undefined).mockRejectedValueOnce({
+        code: 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED',
+        message: 'qbit_recovery_signing_confirmation_expired'
+      });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_recovery_review_interrupted'));
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+      expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the migration message when a confirmed plan cannot sign because its challenge is gone', async () => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      reviewOf(3);
+      // Plan 1 was confirmed, and its challenge expired before it signed;
+      // the keyring refuses it at signing instead.
+      wallet.signPsbtV2.mockResolvedValueOnce({ psbtHex: 'signed' }).mockRejectedValueOnce({
+        code: 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED',
+        message: 'qbit_recovery_migration_signing_only'
+      });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_recovery_review_interrupted'));
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+      expect(wallet.confirmQbitRestoredFloorSigning).toHaveBeenCalledTimes(2);
+      expect(wallet.signPsbtV2).toHaveBeenCalledTimes(2);
+      expect(toastError).not.toHaveBeenCalledWith('qbit_recovery_error_body');
+    });
+
+    it('keeps the generic message for any other signing failure', async () => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      reviewOf(2);
+      wallet.signPsbtV2.mockRejectedValueOnce({ message: 'P2MR signature budget changed after approval' });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_recovery_error_body'));
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+    });
+
+    it('keeps the generic message for a confirmation that fails for another reason', async () => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      reviewOf(2);
+      wallet.confirmQbitRestoredFloorSigning.mockRejectedValueOnce({ code: 4900, message: 'disconnected' });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_recovery_error_body'));
+      expect(wallet.signPsbtV2).not.toHaveBeenCalled();
+    });
+  });
+
   it('releases retained review challenges when leaving review without signing', async () => {
     wallet.getQbitRecoveryState.mockResolvedValue(migratingState);
     wallet.advanceQbitRecoveryMigration.mockReset().mockResolvedValue(migratingState);

@@ -41,9 +41,9 @@ function requestWarningPage(hostname: string): void {
 
 /**
  * Check if the current site is a phishing site, and if so ask the background
- * to show the warning page in this tab
+ * to show the warning page in this tab, unless `showWarning` is false
  */
-export async function checkPhishing(): Promise<PhishingVerdict> {
+export async function checkPhishing(showWarning = true): Promise<PhishingVerdict> {
   if (!isExtensionContextValid()) {
     return 'unknown';
   }
@@ -71,9 +71,11 @@ export async function checkPhishing(): Promise<PhishingVerdict> {
     });
 
     if (response?.isPhishing === true) {
-      // The next load of this page is held again.
-      forgetRelease();
-      requestWarningPage(hostname);
+      if (showWarning) {
+        // The next load of this page is held again.
+        forgetRelease();
+        requestWarningPage(hostname);
+      }
       return 'phishing';
     }
     if (response?.isPhishing === false && response.isDenylisted === true) {
@@ -89,12 +91,13 @@ export async function checkPhishing(): Promise<PhishingVerdict> {
 }
 
 /**
- * Initialize phishing detection on page load
+ * Initialize phishing detection on page load. With `showWarning` false it
+ * only reports the verdict.
  */
-export async function initializePhishingDetection(): Promise<PhishingVerdict> {
-  const verdict = await checkPhishing();
+export async function initializePhishingDetection(showWarning = true): Promise<PhishingVerdict> {
+  const verdict = await checkPhishing(showWarning);
   // Retry once: a message sent while the service worker starts can be lost.
-  return verdict === 'unknown' && isExtensionContextValid() ? checkPhishing() : verdict;
+  return verdict === 'unknown' && isExtensionContextValid() ? checkPhishing(showWarning) : verdict;
 }
 
 /**

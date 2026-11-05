@@ -4,7 +4,6 @@ import {
   Account,
   AddressFlagType,
   AddressSummary,
-  Announcement,
   BiometricUnlockRecord,
   BiometricUnlockStatus,
   QbitBalance,
@@ -33,7 +32,6 @@ import {
   SignPsbtOptions,
   SignedData,
   SignedMessage,
-  StoredNotification,
   ToSignData,
   ToSignInput,
   ToSignMessage,
@@ -89,9 +87,6 @@ export interface QbitP2mrDescriptorExport {
 }
 
 export interface WalletController {
-  openapi: {
-    [key: string]: (...params: any) => Promise<any>
-  }
   // for development use only
   requestMethod: (...params: any) => Promise<any>
 
@@ -440,9 +435,6 @@ export interface WalletController {
 
   getVersionDetail(version: string): Promise<VersionDetail>
 
-  getEnableSignData(): Promise<boolean>
-  setEnableSignData(enable: boolean): Promise<void>
-
   // Biometric (WebAuthn PRF) unlock
   getBiometricUnlockStatus(): Promise<BiometricUnlockStatus>
   saveBiometricUnlockRecord(record: BiometricUnlockRecord, password: string): Promise<void>
@@ -451,6 +443,10 @@ export interface WalletController {
 
   setAutoLockTimeId(timeId: number): Promise<void>
   getAutoLockTimeId(): Promise<number>
+  getLockOnComputerLock(): Promise<boolean>
+  setLockOnComputerLock(enabled: boolean): Promise<void>
+  getLockOnWindowsClosed(): Promise<boolean>
+  setLockOnWindowsClosed(enabled: boolean): Promise<void>
 
   getDeveloperMode(): Promise<boolean>
   setDeveloperMode(developerMode: boolean): Promise<void>
@@ -458,16 +454,19 @@ export interface WalletController {
   getThemeMode(): Promise<ThemeMode>
   setThemeMode(themeMode: ThemeMode): Promise<void>
 
-  getBlockActiveInfo(): Promise<{ allTransactions: number; allAddrs: number }>
-
   getContactByAddress(address: string): Promise<ContactBookItem | undefined>
   getContactByAddressAndChain(
     address: string,
     chain: ChainType
   ): Promise<ContactBookItem | undefined>
-  updateContact(data: ContactBookItem): Promise<void>
+  addContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
+  updateContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
   removeContact(address: string, chain?: ChainType): Promise<void>
-  replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void>
+  replaceContact(
+    address: string,
+    chain: ChainType,
+    data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }
+  ): Promise<void>
   listContacts(): Promise<ContactBookItem[]>
   saveContactsOrder(contacts: ContactBookItem[]): Promise<void>
 
@@ -487,19 +486,6 @@ export interface WalletController {
   setRatePromptDismissedAt(timestamp: number | null): Promise<void>
   setHasShownSecondPrompt(hasShown: boolean): Promise<void>
   resetRateUsStatus(): Promise<void>
-  getAnnouncements(
-    cursor: number,
-    size: number
-  ): Promise<{
-    hasMore: boolean
-    list: Announcement[]
-  }>
-
-  getNotifications(): Promise<StoredNotification[]>
-  readNotification(id: string): Promise<void>
-  readAllNotifications(): Promise<void>
-  deleteNotification(id: string): Promise<void>
-  getNotificationUnreadCount(): Promise<number>
 
   getAcceptLowFeeMode(): Promise<boolean>
   setAcceptLowFeeMode(accept: boolean): Promise<void>

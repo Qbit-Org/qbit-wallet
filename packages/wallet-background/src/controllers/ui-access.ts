@@ -19,8 +19,9 @@ export interface ExtensionMessageSender {
  * so neither proves the sender is wallet UI. The sender's document must be
  * served from the extension's own origin. The browser fills in `url` and
  * `origin` from the frame that sent the message; the sender cannot choose them.
- * It also has to be a top-level document: MV2 builds expose index.html to the
- * web, so a site could frame a wallet page and click-jack it.
+ * It also has to be a top-level document, so that a site cannot frame a
+ * wallet page and click-jack it: the manifest makes `phishing-warning.html`
+ * web-accessible to every site, under a per-session dynamic URL.
  */
 export function isExtensionPageSender(sender: ExtensionMessageSender | undefined): boolean {
   const runtime = typeof chrome === 'undefined' ? undefined : chrome.runtime
@@ -60,6 +61,7 @@ export const UI_CONTROLLER_METHODS = [
   'acknowledgeQbitRecoveryRisk',
   'acknowledgeRegtestAccess',
   'addAddressFlag',
+  'addContact',
   'advanceQbitRecoveryMigration',
   'analyzeLocalPsbts',
   'beginQbitRecoveryMigrationToExistingDestination',
@@ -87,7 +89,6 @@ export const UI_CONTROLLER_METHODS = [
   'createTmpKeyringWithMnemonics',
   'createTmpKeyringWithPublicKey',
   'decodePsbt',
-  'deleteNotification',
   'deriveAccountsFromXpub',
   'deriveNewAccountFromMnemonic',
   'disableRegtestAccess',
@@ -101,7 +102,6 @@ export const UI_CONTROLLER_METHODS = [
   'getAddressHistory',
   'getAddressSummary',
   'getAllAddresses',
-  'getAnnouncements',
   'getApproval',
   'getAutoLockTimeId',
   'getBackgroundStartupStatus',
@@ -115,18 +115,17 @@ export const UI_CONTROLLER_METHODS = [
   'getCurrentKeyring',
   'getDeveloperMode',
   'getEnableRBF',
-  'getEnableSignData',
   'getFeeSummary',
   'getIsFirstOpen',
   'getKeyrings',
   'getLocale',
+  'getLockOnComputerLock',
+  'getLockOnWindowsClosed',
   'getLowFeeSummary',
   'getMnemonics',
   'getMultiAddressSummaries',
   'getNetworkType',
   'getNextAlianName',
-  'getNotificationUnreadCount',
-  'getNotifications',
   'getPrivateKey',
   'getQbitConcurrentInstanceHint',
   'getQbitConsolidationStatus',
@@ -152,8 +151,6 @@ export const UI_CONTROLLER_METHODS = [
   'listContacts',
   'lockWallet',
   'prepareQbitRecoveryMigration',
-  'readAllNotifications',
-  'readNotification',
   'rejectApproval',
   'releaseQbitRestoredFloorSigningChallenges',
   'releaseQbitSendBroadcastClaim',
@@ -174,10 +171,11 @@ export const UI_CONTROLLER_METHODS = [
   'setChainType',
   'setDeveloperMode',
   'setEnableRBF',
-  'setEnableSignData',
   'setKeyringAlianName',
   'setLastActiveTime',
   'setLocale',
+  'setLockOnComputerLock',
+  'setLockOnWindowsClosed',
   'setOpenInSidePanel',
   'setSkippedVersion',
   'setThemeMode',

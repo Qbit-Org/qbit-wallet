@@ -5,6 +5,7 @@
 import { BUNDLED_PHISHING_DENYLIST, normalizeHostname } from '@qbit/phishing-detect';
 import { PHISHING_PAGE_PROBE, PhishingMessageType } from '@qbit/wallet-shared';
 
+import { isTopFrame } from '../frame';
 import { isExtensionContextValid } from './detector';
 
 type NavigationCheckResponse = { isPhishing?: unknown; redirected?: unknown } | undefined;
@@ -122,14 +123,13 @@ function findLink(e: MouseEvent): Link | undefined {
 }
 
 /**
- * Whether the browser would follow the link in this tab's top frame. MV3
- * injects the content script there only, but MV2 into every frame, where a
- * link is left to the background. A download attribute does not matter: the
- * browser ignores it on a link to another site, and a denylisted host is
- * never this page's own site unless the user proceeded to it.
+ * Whether the browser would follow the link in this tab's top frame, the only
+ * frame whose links the content script watches. A download attribute does not
+ * matter: the browser ignores it on a link to another site, and a denylisted
+ * host is never this page's own site unless the user proceeded to it.
  */
 function opensInThisTab(e: MouseEvent, link: Element): boolean {
-  if (window !== window.top) return false;
+  if (!isTopFrame()) return false;
   if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return false;
 
   const target = link.getAttribute('target') ?? document.querySelector('base[target]')?.getAttribute('target') ?? '';
@@ -143,7 +143,7 @@ function opensInThisTab(e: MouseEvent, link: Element): boolean {
  * nor a target that may name a frame of this page.
  */
 function opensNewTab(e: MouseEvent, link: Element): boolean {
-  if (window !== window.top || e.button !== 0 || e.altKey) return false;
+  if (!isTopFrame() || e.button !== 0 || e.altKey) return false;
   if (e.ctrlKey || e.metaKey || e.shiftKey) return true;
 
   const target = link.getAttribute('target') ?? document.querySelector('base[target]')?.getAttribute('target') ?? '';

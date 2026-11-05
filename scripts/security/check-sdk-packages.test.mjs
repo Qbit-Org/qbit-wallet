@@ -58,29 +58,44 @@ function editedAttestations(predicateType, edit) {
   return body
 }
 
-function lockfile(pin, { integrity = pin.integrity, extraVersion, specifier = pin.version } = {}) {
-  const packages = [
-    `  /${pin.package}@${pin.version}:`,
+function lockfile(
+  pin,
+  {
+    integrity = pin.integrity,
+    extraVersion,
+    specifier = pin.version,
+    importerDependencies = [],
+    packages = [],
+    snapshots = [],
+  } = {}
+) {
+  const resolved = [
+    `  '${pin.package}@${pin.version}':`,
     `    resolution: {integrity: ${integrity}}`,
-    '    dev: false',
   ]
+  const snapshotted = [`  '${pin.package}@${pin.version}': {}`]
   if (extraVersion) {
-    packages.push(
-      `  /${pin.package}@${extraVersion}:`,
-      `    resolution: {integrity: ${pin.integrity}}`,
-      '    dev: false'
+    resolved.push(
+      `  '${pin.package}@${extraVersion}':`,
+      `    resolution: {integrity: ${pin.integrity}}`
     )
+    snapshotted.push(`  '${pin.package}@${extraVersion}': {}`)
   }
   return [
-    "lockfileVersion: '6.1'",
+    "lockfileVersion: '9.0'",
     'importers:',
     '  packages/keyring-service:',
     '    dependencies:',
     `      '${pin.package}':`,
     `        specifier: ${specifier}`,
     `        version: ${pin.version}`,
+    ...importerDependencies,
     'packages:',
+    ...resolved,
     ...packages,
+    'snapshots:',
+    ...snapshotted,
+    ...snapshots,
     '',
   ].join('\n')
 }
@@ -194,28 +209,37 @@ test('pinned files must match both the package SHA256SUMS and the committed dige
 
 test('the lockfile must not resolve an @qbit-oss package without a pin', () => {
   const only = { schemaVersion: 1, packages: [pqcPin] }
-  const unpinned = lockfile(pqcPin).replace(
-    'packages:\n',
-    "      '@qbit-oss/other':\n        specifier: 1.0.0\n        version: 1.0.0\npackages:\n  /@qbit-oss/other@1.0.0:\n    resolution: {integrity: sha512-x}\n    dev: false\n"
-  )
+  const unpinned = lockfile(pqcPin, {
+    importerDependencies: [
+      "      '@qbit-oss/other':",
+      '        specifier: 1.0.0',
+      '        version: 1.0.0',
+    ],
+    packages: ["  '@qbit-oss/other@1.0.0':", '    resolution: {integrity: sha512-x}'],
+    snapshots: ["  '@qbit-oss/other@1.0.0': {}"],
+  })
   const errors = auditSdkLockfile(unpinned, only).errors.join('\n')
-  assert.match(errors, /resolves \/@qbit-oss\/other@1\.0\.0, but .* does not pin @qbit-oss\/other/)
+  assert.match(errors, /resolves @qbit-oss\/other@1\.0\.0, but .* does not pin @qbit-oss\/other/)
   assert.match(errors, /importer packages\/keyring-service dependencies takes @qbit-oss\/other/)
   // A transitive copy, which no importer names, is caught by its package key.
-  const transitive = lockfile(pqcPin).concat(
-    '  /@qbit-oss/other@2.0.0:\n    resolution: {integrity: sha512-x}\n    dev: false\n'
-  )
+  const transitive = lockfile(pqcPin, {
+    packages: ["  '@qbit-oss/other@2.0.0':", '    resolution: {integrity: sha512-x}'],
+  })
   assert.match(
     auditSdkLockfile(transitive, only).errors.join('\n'),
-    /resolves \/@qbit-oss\/other@2\.0\.0/
+    /resolves @qbit-oss\/other@2\.0\.0/
   )
-  // So is one taken from a tarball URL, by its name.
-  const tarball = lockfile(pqcPin).concat(
-    "  registry.example/other.tgz:\n    resolution: {tarball: 'https://registry.example/other.tgz'}\n    name: '@qbit-oss/other'\n    version: 3.0.0\n    dev: false\n"
-  )
+  // So is one taken from a tarball URL, by the name its key starts with.
+  const tarball = lockfile(pqcPin, {
+    packages: [
+      "  '@qbit-oss/other@https://registry.example/other.tgz':",
+      "    resolution: {tarball: 'https://registry.example/other.tgz'}",
+      '    version: 3.0.0',
+    ],
+  })
   assert.match(
     auditSdkLockfile(tarball, only).errors.join('\n'),
-    /resolves registry\.example\/other\.tgz, but .* does not pin @qbit-oss\/other/
+    /resolves @qbit-oss\/other@https:\/\/registry\.example\/other\.tgz, but .* does not pin @qbit-oss\/other/
   )
   // The repository's own lockfile pins every @qbit-oss package it resolves.
   const repoLockfile = readFileSync(join(repoRoot, 'pnpm-lock.yaml'), 'utf8')
@@ -225,44 +249,75 @@ test('the lockfile must not resolve an @qbit-oss package without a pin', () => {
 test('a second copy of a pinned package fails, from a tarball, git or an npm alias', () => {
   const only = { schemaVersion: 1, packages: [pqcPin] }
   const errors = text => auditSdkLockfile(text, only).errors.join('\n')
-  // From git or a tarball the key is not the registry one; the entry names it.
-  const fromGit = lockfile(pqcPin).concat(
-    `  github.com/someone/pqc/${'a'.repeat(40)}:\n    resolution: {tarball: https://codeload.github.com/someone/pqc/tar.gz/${'a'.repeat(40)}}\n    name: '@qbit-oss/pqc'\n    version: ${pqcPin.version}\n    dev: false\n`
-  )
+  // From git or a tarball the key is not the registry one; it starts with the name.
+  const commit = 'a'.repeat(40)
+  const fromGit = lockfile(pqcPin, {
+    packages: [
+      `  '@qbit-oss/pqc@https://codeload.github.com/someone/pqc/tar.gz/${commit}':`,
+      `    resolution: {tarball: https://codeload.github.com/someone/pqc/tar.gz/${commit}}`,
+      `    version: ${pqcPin.version}`,
+    ],
+  })
   assert.match(errors(fromGit), /must resolve @qbit-oss\/pqc only as .*github\.com\/someone\/pqc/)
-  const fromTarball = lockfile(pqcPin).concat(
-    `  registry.example/pqc.tgz:\n    resolution: {tarball: 'https://registry.example/pqc.tgz'}\n    name: '@qbit-oss/pqc'\n    version: ${pqcPin.version}\n    dev: false\n`
-  )
+  const fromTarball = lockfile(pqcPin, {
+    packages: [
+      "  '@qbit-oss/pqc@https://registry.example/pqc.tgz':",
+      "    resolution: {tarball: 'https://registry.example/pqc.tgz'}",
+      `    version: ${pqcPin.version}`,
+    ],
+  })
   assert.match(
     errors(fromTarball),
     /must resolve @qbit-oss\/pqc only as .*registry\.example\/pqc\.tgz/
   )
   // A package can take it under an npm alias, which no importer names.
-  const aliased = lockfile(pqcPin).concat(
-    '  /other-pqc@1.0.0:\n    resolution: {integrity: sha512-x}\n    dev: false\n',
-    "  /some-dependency@2.0.0:\n    resolution: {integrity: sha512-y}\n    dependencies:\n      '@qbit-oss/pqc': /other-pqc@1.0.0\n    dev: false\n"
-  )
+  const aliased = lockfile(pqcPin, {
+    packages: [
+      '  other-pqc@1.0.0:',
+      '    resolution: {integrity: sha512-x}',
+      '  some-dependency@2.0.0:',
+      '    resolution: {integrity: sha512-y}',
+    ],
+    snapshots: [
+      '  other-pqc@1.0.0: {}',
+      '  some-dependency@2.0.0:',
+      '    dependencies:',
+      "      '@qbit-oss/pqc': other-pqc@1.0.0",
+    ],
+  })
   assert.match(
     errors(aliased),
-    /\/some-dependency@2\.0\.0 dependencies must take @qbit-oss\/pqc at exactly .*, found "\/other-pqc@1\.0\.0"/
+    /some-dependency@2\.0\.0 dependencies must take @qbit-oss\/pqc at exactly .*, found "other-pqc@1\.0\.0"/
   )
   // So does an unpinned scope package taken by another package.
-  const unpinned = lockfile(pqcPin).concat(
-    "  /some-dependency@2.0.0:\n    resolution: {integrity: sha512-y}\n    optionalDependencies:\n      '@qbit-oss/other': 1.0.0\n    dev: false\n"
-  )
+  const unpinned = lockfile(pqcPin, {
+    packages: ['  some-dependency@2.0.0:', '    resolution: {integrity: sha512-y}'],
+    snapshots: [
+      '  some-dependency@2.0.0:',
+      '    optionalDependencies:',
+      "      '@qbit-oss/other': 1.0.0",
+    ],
+  })
   assert.match(
     errors(unpinned),
-    /\/some-dependency@2\.0\.0 optionalDependencies takes @qbit-oss\/other, but .* does not pin it/
+    /some-dependency@2\.0\.0 optionalDependencies takes @qbit-oss\/other, but .* does not pin it/
   )
   // A lockfile layout the check does not read fails rather than passing.
-  assert.match(
-    errors(lockfile(pqcPin).replace("lockfileVersion: '6.1'", "lockfileVersion: '9.0'")),
-    /lockfileVersion "9\.0" is not the 6\.x layout/
-  )
+  for (const version of ['6.1', '10.0']) {
+    assert.match(
+      errors(lockfile(pqcPin).replace("lockfileVersion: '9.0'", `lockfileVersion: '${version}'`)),
+      new RegExp(`lockfileVersion "${version.replace('.', '\\.')}" is not the 9\\.x layout`)
+    )
+  }
   // A package that takes the pinned version from the registry passes.
-  const pinnedDependency = lockfile(pqcPin).concat(
-    `  /some-dependency@2.0.0:\n    resolution: {integrity: sha512-y}\n    dependencies:\n      '@qbit-oss/pqc': ${pqcPin.version}\n    dev: false\n`
-  )
+  const pinnedDependency = lockfile(pqcPin, {
+    packages: ['  some-dependency@2.0.0:', '    resolution: {integrity: sha512-y}'],
+    snapshots: [
+      '  some-dependency@2.0.0:',
+      '    dependencies:',
+      `      '@qbit-oss/pqc': ${pqcPin.version}`,
+    ],
+  })
   assert.deepEqual(auditSdkLockfile(pinnedDependency, only).errors, [])
 })
 

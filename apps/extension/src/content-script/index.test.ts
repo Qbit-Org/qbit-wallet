@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modules = vi.hoisted(() => ({
   allowLinksWithinProceededPage: vi.fn(),
@@ -84,5 +84,33 @@ describe('content-script entry', () => {
     expect(settle).toHaveBeenCalledWith('clear');
     // The page reloads to run, so it gets the provider then.
     expect(modules.initializeScriptInjection).not.toHaveBeenCalled();
+  });
+
+  describe('frames', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('guards navigation from the top frame', async () => {
+      await runContentScript('clear');
+
+      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(true);
+      expect(modules.setupNavigationListeners).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ['a child frame, such as an embedded widget', 'top'],
+      ['a fenced frame, which is its own top', 'fence']
+    ])('only checks the host of %s and gives it the provider when clear', async (_label, global) => {
+      vi.stubGlobal(global, {});
+      modules.initializePhishingDetection.mockResolvedValue('clear');
+      vi.resetModules();
+      await import('./index');
+      await vi.waitFor(() => expect(modules.initializeScriptInjection).toHaveBeenCalledOnce());
+
+      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(false);
+      expect(modules.setupNavigationListeners).not.toHaveBeenCalled();
+      expect(modules.setupPhishingListeners).not.toHaveBeenCalled();
+    });
   });
 });

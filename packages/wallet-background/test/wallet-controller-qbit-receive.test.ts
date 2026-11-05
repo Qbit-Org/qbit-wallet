@@ -4,7 +4,7 @@ import { KeyringType } from '@qbit/keyring-service/types'
 import type { Account, WalletKeyring } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import { WalletController } from '../src/controllers/wallet'
-import { keyringService, preferenceService } from '../src/services'
+import { keyringService, preferenceService, sessionService } from '../src/services'
 
 vi.mock('../src/services', () => ({
   keyringService: {
@@ -20,11 +20,10 @@ vi.mock('../src/services', () => ({
     getCurrentAccount: vi.fn(),
     setCurrentAccount: vi.fn(),
     setCurrentKeyringIndex: vi.fn(),
+    persist: vi.fn(async () => undefined),
   },
-  walletApiService: {},
   sessionService: { broadcastEvent: vi.fn() },
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
 }))
 
@@ -143,8 +142,12 @@ describe('WalletController qbit receive intents', () => {
         const ledger = ledgers[network as Network]
         ledger.currentIndex = index
         if (!ledger.issuedIndexes.includes(index)) ledger.issuedIndexes.push(index)
-        if (!keyring.accounts[index]) keyring.accounts.push(account(index))
-        return keyring.accounts[index]!.p2mr
+        let target = keyring.accounts.find(item => item.p2mr?.hkdf.index === index)
+        if (!target) {
+          target = account(index)
+          keyring.accounts.push(target)
+        }
+        return target.p2mr
       }
     )
   })
@@ -208,28 +211,382 @@ describe('WalletController qbit receive intents', () => {
     expect(state.previous.map(item => item.index)).toEqual([0])
     expect(ledgers.testnet4.issuedIndexes).toEqual([0, 1])
     expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+    // The switch is saved at once: nothing re-selects the new account later.
+    expect(preferenceService.persist).toHaveBeenCalledTimes(1)
   })
 
-  it('rotates once when live activity is observed and keeps the used address previous', async () => {
+  it('keeps the New Address switch when saving the selection fails', async () => {
+    await controller.ensureQbitReceiveIntent()
+    vi.mocked(preferenceService.persist).mockRejectedValueOnce(new Error('quota'))
+
+    const state = await controller.createQbitReceiveIntent()
+
+    expect(state.current?.index).toBe(1)
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+  })
+
+  it('keeps showing the selected address, marked used, once live activity is observed', async () => {
     keyring.accounts.push(account(1))
     ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
     activeAddresses = ['tq-0']
+    const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+
+    const first = await controller.ensureQbitReceiveIntent()
+    const second = await controller.ensureQbitReceiveIntent()
+
+    for (const state of [first, second]) {
+      expect(state.current).toMatchObject({ index: 0, used: true })
+      expect(state.gap.canCreate).toBe(true)
+    }
+    expect(keyringService.recordQbitReceiveActivity).toHaveBeenCalledTimes(1)
+    expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
+  })
+
+  it('keeps the selected account when the latest intent belongs to another account', async () => {
+    keyring.accounts.push(account(1))
+    ledgers.testnet4 = { currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] }
+    selectedAccount = keyring.accounts[0]
+    const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+
+    const state = await controller.ensureQbitReceiveIntent()
+
+    expect(state.current?.index).toBe(0)
+    expect(state.previous.map(item => item.index)).toEqual([1])
+    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
+    // The ledger's current intent follows the unused address on screen.
+    expect(ledgers.testnet4).toEqual({ currentIndex: 0, issuedIndexes: [0, 1], usedIndexes: [] })
+  })
+
+  it('records a selected unused address as issued the first time it is shown', async () => {
+    keyring.accounts.push(account(1))
+    ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+    selectedAccount = keyring.accounts[1]
 
     const first = await controller.ensureQbitReceiveIntent()
     const second = await controller.ensureQbitReceiveIntent()
 
     expect(first.current?.index).toBe(1)
-    expect(first.previous[0]).toMatchObject({ index: 0, used: true })
     expect(second.current?.index).toBe(1)
-    expect(keyringService.recordQbitReceiveActivity).toHaveBeenCalledTimes(1)
     expect(keyringService.setQbitReceiveIntent).toHaveBeenCalledTimes(1)
+    expect(ledgers.testnet4).toEqual({ currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] })
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+  })
+
+  describe('when another popup changes the selection during an operation', () => {
+    const noActivity = (type: number) => [
+      { type, address_arr: [], pubkey_arr: [], satoshis_arr: [] },
+    ]
+
+    it('records nothing for an account left during the activity check', async () => {
+      keyring.accounts.push(account(1))
+      vi.mocked(controller.findActiveAddressGroups).mockImplementationOnce(async groups => {
+        selectedAccount = keyring.accounts[1]
+        return noActivity(groups[0]!.type)
+      })
+
+      await expect(controller.ensureQbitReceiveIntent()).rejects.toThrow('account changed')
+      expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+    })
+
+    it("does not mistake getCurrentKeyring's repair of the selection for a change", async () => {
+      selectedAccount = account(3, 'normal', 'local', 'stale')
+      vi.mocked(controller.getCurrentKeyring).mockImplementationOnce(async () => {
+        selectedAccount = keyring.accounts[0]
+        return keyring
+      })
+
+      const state = await controller.ensureQbitReceiveIntent()
+
+      expect(state.current?.index).toBe(0)
+    })
+
+    it.each(['ensureQbitReceiveIntent', 'getQbitReceiveState'] as const)(
+      '%s does not answer for an account left during the activity check',
+      async method => {
+        keyring.accounts.push(account(1))
+        ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+        vi.mocked(controller.findActiveAddressGroups).mockImplementationOnce(async groups => {
+          selectedAccount = keyring.accounts[1]
+          return noActivity(groups[0]!.type)
+        })
+
+        await expect(controller[method]()).rejects.toThrow('account changed')
+        expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+      }
+    )
+
+    it('refuses to show a recorded address once another wallet is selected', async () => {
+      const other = walletKeyring([account(0, 'normal', 'local', 'other')])
+      vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
+        async (_anchor, network, index) => {
+          const ledger = ledgers[network as Network]
+          ledger.currentIndex = index
+          ledger.issuedIndexes.push(index)
+          keyring = other
+          selectedAccount = other.accounts[0]
+          return other.accounts[0]!.p2mr
+        }
+      )
+
+      await expect(controller.ensureQbitReceiveIntent()).rejects.toThrow('account changed')
+    })
+
+    it('New Address issues nothing for a wallet left during its activity check', async () => {
+      ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+      const other = walletKeyring([account(0, 'normal', 'local', 'other')])
+      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      vi.mocked(controller.findActiveAddressGroups).mockImplementationOnce(async groups => {
+        keyring = other
+        selectedAccount = other.accounts[0]
+        return noActivity(groups[0]!.type)
+      })
+
+      await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
+      expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectedAccount?.pubkey).toBe('other-0')
+    })
+
+    it('New Address keeps a wallet selected while its intent is written', async () => {
+      ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+      const other = walletKeyring([account(0, 'normal', 'local', 'other')])
+      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
+        async (_anchor, network, index) => {
+          const ledger = ledgers[network as Network]
+          ledger.currentIndex = index
+          ledger.issuedIndexes.push(index)
+          keyring.accounts.push(account(index))
+          keyring = other
+          selectedAccount = other.accounts[0]
+          return account(index).p2mr
+        }
+      )
+
+      await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
+      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectedAccount?.pubkey).toBe('other-0')
+    })
+
+    it('New Address does not switch to a wallet selected and left during its recheck', async () => {
+      ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+      const original = keyring
+      const originalAccount = selectedAccount
+      const other = walletKeyring([
+        account(0, 'normal', 'local', 'other'),
+        account(1, 'normal', 'local', 'other'),
+      ])
+      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
+        async (_anchor, network, index) => {
+          const ledger = ledgers[network as Network]
+          ledger.currentIndex = index
+          ledger.issuedIndexes.push(index)
+          keyring.accounts.push(account(index))
+          keyring = other
+          selectedAccount = other.accounts[0]
+          return account(index).p2mr
+        }
+      )
+      vi.mocked(controller.findActiveAddressGroups)
+        .mockImplementationOnce(async groups => noActivity(groups[0]!.type))
+        .mockImplementationOnce(async groups => {
+          keyring = original
+          selectedAccount = originalAccount
+          return noActivity(groups[0]!.type)
+        })
+
+      await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
+      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectedAccount?.pubkey).toBe('pub-0')
+    })
+
+    it('New Address keeps an account selected during its recheck', async () => {
+      keyring.accounts.push(account(1))
+      ledgers.testnet4 = { currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] }
+      selectedAccount = keyring.accounts[1]
+      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      vi.mocked(controller.findActiveAddressGroups)
+        .mockImplementationOnce(async groups => noActivity(groups[0]!.type))
+        .mockImplementationOnce(async groups => {
+          selectedAccount = keyring.accounts[0]
+          return noActivity(groups[0]!.type)
+        })
+
+      await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
+      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
+    })
+  })
+
+  describe('with a recovery migration paying this wallet', () => {
+    const migrationPaying = (address: string, status: string) => ({
+      getQbitRecoveryState: () => ({
+        networks: {
+          testnet4: { migration: { plans: [{ status, destinationAddress: address }] } },
+        },
+      }),
+    })
+
+    beforeEach(() => {
+      keyring.accounts.push(account(1))
+      ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0, 1], usedIndexes: [] }
+      selectedAccount = keyring.accounts[1]
+    })
+
+    it.each(['prepared', 'signed', 'broadcast', 'confirmed'])(
+      'does not offer or list an unused address a %s plan pays',
+      async status => {
+        ;(keyringService.keyrings as any[]).push(migrationPaying('tq-1', status))
+
+        const state = await controller.ensureQbitReceiveIntent()
+
+        expect(state.current).toBeNull()
+        expect(state.previous.map(item => item.address)).not.toContain('tq-1')
+        expect(state.gap.canCreate).toBe(true)
+        expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+        expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+      }
+    )
+
+    it('shows the address as used once the sweep has reached it', async () => {
+      ;(keyringService.keyrings as any[]).push(migrationPaying('tq-1', 'broadcast'))
+      activeAddresses = ['tq-1']
+
+      const state = await controller.ensureQbitReceiveIntent()
+
+      expect(state.current).toMatchObject({ index: 1, used: true })
+    })
+
+    it('keeps offering an address the migration does not pay', async () => {
+      ;(keyringService.keyrings as any[]).push(migrationPaying('tq-0', 'prepared'))
+
+      const state = await controller.ensureQbitReceiveIntent()
+
+      expect(state.current?.index).toBe(1)
+      expect(state.previous.map(item => item.address)).not.toContain('tq-0')
+    })
+  })
+
+  describe("with a recovery migration whose reservations this wallet's ledger lacks", () => {
+    // The destination ledger has not recorded the indexes these plans pay: the
+    // destination wallet was removed and its seed imported again, or a
+    // version-1 plan paid the anchor.
+    const migrationInto = (
+      anchorPubkey: string,
+      anchorAddress: string,
+      plans: { destinationAddress: string; destinationIndex?: number }[]
+    ) => ({
+      getQbitRecoveryState: () => ({
+        networks: {
+          testnet4: {
+            migration: {
+              destinationPubkey: anchorPubkey,
+              destinationAddress: anchorAddress,
+              plans: plans.map(plan => ({ status: 'prepared', ...plan })),
+            },
+          },
+        },
+      }),
+    })
+
+    it('New Address skips the indexes a re-imported wallet has not derived yet', async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto('pub-0', 'tq-0', [
+          { destinationAddress: 'tq-0', destinationIndex: 0 },
+          { destinationAddress: 'tq-1', destinationIndex: 1 },
+        ])
+      )
+
+      const shown = await controller.ensureQbitReceiveIntent()
+
+      expect(shown.current).toBeNull()
+      expect(shown.gap.canCreate).toBe(true)
+
+      const created = await controller.createQbitReceiveIntent()
+
+      expect(vi.mocked(keyringService.setQbitReceiveIntent).mock.calls).toEqual([
+        [expect.any(String), 'testnet4', 2],
+      ])
+      expect(created.current).toMatchObject({ index: 2, used: false })
+      expect(selectedAccount?.p2mr?.hkdf.index).toBe(2)
+      expect(ledgers.testnet4).toEqual({ currentIndex: 2, issuedIndexes: [2], usedIndexes: [] })
+    })
+
+    it('New Address skips the anchor a version-1 plan pays', async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto('pub-0', 'tq-0', [{ destinationAddress: 'tq-0' }])
+      )
+
+      const created = await controller.createQbitReceiveIntent()
+
+      expect(vi.mocked(keyringService.setQbitReceiveIntent).mock.calls).toEqual([
+        [expect.any(String), 'testnet4', 1],
+      ])
+      expect(created.current).toMatchObject({ index: 1, used: false })
+      expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
+      expect(ledgers.testnet4).toEqual({ currentIndex: 1, issuedIndexes: [1], usedIndexes: [] })
+    })
+
+    it('reports the gap limit when the reservations fill the restore gap', async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto(
+          'pub-0',
+          'tq-0',
+          Array.from({ length: 20 }, (_, index) => ({
+            destinationAddress: `tq-${index}`,
+            destinationIndex: index,
+          }))
+        )
+      )
+
+      const shown = await controller.ensureQbitReceiveIntent()
+
+      expect(shown.current).toBeNull()
+      expect(shown.gap).toMatchObject({ canCreate: false, remainingIntentCapacity: 0 })
+      await expect(controller.createQbitReceiveIntent()).rejects.toThrow('gap limit (20)')
+      expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+      expect(ledgers.testnet4).toEqual(emptyLedger())
+    })
+
+    it("does not reserve this wallet's indexes for another wallet's migration", async () => {
+      ;(keyringService.keyrings as any[]).push(
+        migrationInto('other-0', 'other-tq-0', [
+          { destinationAddress: 'other-tq-0', destinationIndex: 0 },
+          { destinationAddress: 'other-tq-1', destinationIndex: 1 },
+        ])
+      )
+
+      const shown = await controller.ensureQbitReceiveIntent()
+      const created = await controller.createQbitReceiveIntent()
+
+      expect(shown.current?.index).toBe(0)
+      expect(created.current?.index).toBe(1)
+    })
+  })
+
+  it('does not offer a never-issued selected address past the restore gap', async () => {
+    keyring = walletKeyring(Array.from({ length: 21 }, (_, index) => account(index)))
+    ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+    selectedAccount = keyring.accounts[20]
+
+    const state = await controller.ensureQbitReceiveIntent()
+
+    expect(state.current).toBeNull()
+    expect(state.gap.canCreate).toBe(true)
+    expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(20)
   })
 
   it('records pre-existing activity on a newly activated index before exposing it', async () => {
     ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
     activeAddresses = ['tq-0', 'tq-1']
 
-    const state = await controller.ensureQbitReceiveIntent()
+    await expect(controller.createQbitReceiveIntent()).rejects.toThrow('already has activity')
 
     expect(keyringService.setQbitReceiveIntent).toHaveBeenCalledWith(
       expect.anything(),
@@ -238,14 +595,16 @@ describe('WalletController qbit receive intents', () => {
     )
     // The address activated for the new intent already carried history (for
     // example from another copy of the restored seed using the next index),
-    // so it lands in usedIndexes instead of being offered as safe.
-    expect(state.current).toBeNull()
-    expect(state.activityStatus).toBe('live')
-    expect(state.previous).toContainEqual(expect.objectContaining({ index: 1, used: true }))
+    // so it lands in usedIndexes instead of being offered as safe, and the
+    // wallet stays on the selected account.
     expect(ledgers.testnet4.usedIndexes).toEqual([0, 1])
-    // The wallet must not switch onto the used index the state refuses to
-    // expose as current.
     expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
+
+    const next = await controller.createQbitReceiveIntent()
+
+    expect(next.current).toMatchObject({ index: 2, used: false })
+    expect(next.previous).toContainEqual(expect.objectContaining({ index: 1, used: true }))
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(2)
   })
 
   it('does not present a newly activated index as live-verified when the recheck fails', async () => {
@@ -257,7 +616,7 @@ describe('WalletController qbit receive intents', () => {
       ])
       .mockRejectedValueOnce(new Error('offline'))
 
-    const state = await controller.ensureQbitReceiveIntent()
+    const state = await controller.createQbitReceiveIntent()
 
     expect(keyringService.setQbitReceiveIntent).toHaveBeenCalledWith(
       expect.anything(),
@@ -270,19 +629,28 @@ describe('WalletController qbit receive intents', () => {
     expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
   })
 
-  it('never selects an exhausted address', async () => {
+  it('never offers an exhausted selected address, and New Address moves off it', async () => {
     keyring = walletKeyring([account(0, 'exhausted'), account(1, 'normal')])
     ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
+    selectedAccount = keyring.accounts[0]
 
     const state = await controller.ensureQbitReceiveIntent()
 
-    expect(state.current).toMatchObject({ index: 1 })
+    expect(state.current).toBeNull()
+    expect(state.gap.canCreate).toBe(true)
     expect(state.previous).toContainEqual(
       expect.objectContaining({
         index: 0,
         signatureCounter: expect.objectContaining({ state: 'exhausted', remaining: 0 }),
       })
     )
+    expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
+
+    const created = await controller.createQbitReceiveIntent()
+
+    expect(created.current).toMatchObject({ index: 1 })
+    expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
   })
 
   it('offers no receive address while restored counter floors are pending', async () => {
@@ -303,6 +671,7 @@ describe('WalletController qbit receive intents', () => {
       issuedIndexes: Array.from({ length: 20 }, (_, index) => index),
       usedIndexes: [],
     }
+    selectedAccount = keyring.accounts[19]
 
     const stable = await controller.ensureQbitReceiveIntent()
     expect(stable.current?.index).toBe(19)
@@ -312,7 +681,7 @@ describe('WalletController qbit receive intents', () => {
     expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
   })
 
-  it('rediscovers restored activity and adopts an unused in-range address', async () => {
+  it('rediscovers restored activity and shows the selected unused address', async () => {
     keyring = walletKeyring([account(0), account(1), account(2, 'warning', 'restored-floor')])
     activeAddresses = ['tq-2']
 
@@ -342,18 +711,6 @@ describe('WalletController qbit receive intents', () => {
       [expect.any(String), 'testnet4', 0],
       [expect.any(String), 'mainnet', 0],
     ])
-  })
-
-  it('re-adopts a durable intent after a crash left account selection stale', async () => {
-    keyring.accounts.push(account(1))
-    ledgers.testnet4 = { currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] }
-    selectedAccount = keyring.accounts[0]
-
-    const state = await controller.ensureQbitReceiveIntent()
-
-    expect(state.current?.index).toBe(1)
-    expect(selectedAccount?.p2mr?.hkdf.index).toBe(1)
-    expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
   })
 
   it('re-arms and rescans restored floors when an intent activates a new index', async () => {

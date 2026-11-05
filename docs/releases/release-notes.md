@@ -1,7 +1,153 @@
 # Qbit Wallet release notes
 
-Issue numbers in parentheses, such as (#339), refer to the project's
-earlier, private tracker, not to issues or pull requests in this repository.
+In 1.0.6 and earlier, issue numbers in parentheses, such as (#339), refer to
+the project's earlier, private tracker, not to issues or pull requests in this
+repository. From 1.0.8, issue numbers such as #30 refer to issues in this
+repository.
+
+## 1.0.8
+
+### Sending and fees
+
+- Large transactions, such as a consolidation or a sweep, are no longer cut
+  off while they upload over a slow connection, which left their outcome
+  unknown and their coins set aside. Each send now gets time to upload in
+  proportion to its size, and an ordinary payment keeps the time limit it had.
+- Speed up no longer runs out of time while it waits for another send to
+  finish broadcasting. Its time limit now starts once that send is done.
+- The send screen no longer fails with an error when the screen state that an
+  earlier version saved lacks fields that an update added. Missing fields are
+  filled in when the wallet loads, and saved values are kept.
+
+### Receiving
+
+- Opening Receive shows the selected account's own address and no longer
+  switches to another account, which could leave you on an empty account and
+  told connected websites that your account had changed.
+- An address that has already received funds stays on screen with its Used
+  badge and a warning about reusing it. Press New Address for a fresh address,
+  which selects the account that owns it. An address that has run out of
+  signatures, or that a recovery migration will pay, is never shown or copied:
+  Receive says no safe address is available and offers New Address.
+
+### Locking and unlocking
+
+- The wallet now locks when your computer locks, and when the last browser
+  window closes. Both are on by default, including for existing wallets, and
+  can be turned off in Advanced settings, under Security ("Lock when the
+  computer locks" and "Lock when all windows close"). The update adds only
+  the idle permission, which Chrome grants without a prompt or a new install
+  warning.
+- The auto-lock time now counts time the computer was asleep. Your first
+  action after the auto-lock time has passed locks the wallet instead of
+  keeping it unlocked.
+- A lock that comes while an unlock is still under way wins: the wallet stays
+  locked and says "The wallet locked while unlocking. Unlock it again."
+- A wallet whose stored data includes a wallet type this version does not
+  include now unlocks. That wallet is listed as "Unsupported Wallet" and can
+  do nothing, and its data is kept unchanged; the other wallets work as usual.
+
+### Websites and approvals
+
+- Websites that embed another site in a frame, such as a swap widget, can now
+  use Qbit Wallet inside that frame. The framed site connects, and asks for
+  approvals, under its own address, which the approval window names, not the
+  address of the page around it. A sandboxed frame gets no wallet connection,
+  and the wallet window keeps showing the site in the address bar. Phishing
+  protection checks each frame's own site.
+- Websites can now tell as soon as Qbit Wallet is ready, from a
+  `qbit#initialized` event and an EIP-6963-style announcement, instead of
+  checking again and again. These events only help a site find the wallet;
+  access still needs your approval.
+- While the wallet starts, a website's requests wait until it is ready, so a
+  connected website no longer sees your wallet as having no accounts. A
+  request lost because the connection to the wallet dropped now fails with
+  code 4900, so the website can check whether a transaction went out before
+  it tries again, instead of reporting that you rejected the request. Pages
+  opened before the update keep the old behaviour until they are reloaded.
+- A failed save of a website's permission no longer undoes another change,
+  such as disconnecting a site or resetting all sites. A connection reported
+  as failed is no longer granted after a restart, and disconnecting a site
+  takes effect at once, even while another save is still pending.
+- A batch of different PSBTs approved together, from a website's `signPsbts`
+  request, now signs every entry, in any order.
+  Before, every entry after the first that needed new signatures was refused
+  with "P2MR signature budget changed after approval". The approval shows the
+  signatures the whole batch needs and how many remain before and after it,
+  and a batch that needs more signatures than remain is refused before you
+  approve it. If the wallet locks before the batch is signed, the request ends
+  and the website has to send it again.
+- A website's `signPsbts` request that arrives while another approval is open
+  is refused, and the open approval is brought to the front.
+
+### Restoring a wallet and recovery
+
+- A recovery migration now signs every transfer you reviewed in one press.
+  Before, a source that needed several transfers signed only the first one
+  each time, and showed an error for the rest. If the review is interrupted,
+  for example by a lock or because it expired, the wallet says so and asks
+  you to review the remaining transfers and sign again.
+- When a restore is refused because the signature counts that Testnet4 and
+  the local Regtest service report reach the warning threshold together, the
+  wallet now shows both counts, where each came from, and what to do. On a
+  Testnet4 restore it says to stop the local Regtest service, or turn off
+  Local Regtest in Advanced settings, and try again. On a Regtest restore it
+  points to the network with the larger share and to the qbit Core recovery
+  descriptors. The restore screen shows the latest refusal after each retry.
+
+### Settings and contacts
+
+- Editing a contact no longer clears its alias flag.
+- The wallet refuses to save a contact edit that would replace another
+  contact with the same address and network, and says "Another contact
+  already has this address on this network".
+
+### Repository and release
+
+- Only the Chrome (Manifest V3) extension is built, which is the only one
+  that has ever shipped. The unused Manifest V2, Firefox, Brave and Edge
+  build targets and the code only they reached are removed. The Chrome
+  extension works as before.
+- Developers and CI now install with pnpm 11.28.9, pinned by its hash,
+  instead of pnpm 8.6.0, which had known advisories. The dependency policy
+  now checks every command in the repository's workflows and scripts that
+  runs a package manager, and refuses any it cannot fully read. The shipped
+  extension code is unchanged.
+- Unused dependencies are removed: 25 from the extension and two from the
+  keyring service, so the lockfile loses 130 packages and gains none. Unused
+  source files, 344 unused translation strings in each language and dead
+  constants are removed too. The shipped extension code is unchanged apart
+  from the smaller translation files and one unused piece of screen state.
+- Every change is now tested against the data that the published 1.0.5, 1.0.6
+  and 1.0.7 releases stored, including a browser test that upgrades each of
+  them to this version and unlocks it with its accounts, settings, contacts
+  and connected websites.
+
+### Known limitations
+
+- Some batches of PSBTs are still refused rather than signed, and none can
+  sign more than the signatures you approved:
+  - an entry whose signing failed cannot be tried again within its batch;
+    send the request again;
+  - a batch with repeated PSBTs that needs more than 16 signatures from one
+    key, or an entry approved as using signatures the wallet already holds,
+    can be refused, depending on the order in which the entries sign;
+  - a website's batch approval left open after a wallet reset or a failed
+    unlock can no longer sign; reject it and send the request again;
+  - a recovery migration's next transfer is refused if anything outside the
+    migration signs between its transfers, and preparing a review fails
+    while too many signing requests are waiting; review and sign again.
+- A restore whose Testnet4 and Regtest signature counts reach the warning
+  threshold together is still refused, as in 1.0.7, now with an explanation.
+  When most of the count is Testnet4's own, the Testnet4 count that a retry
+  restores is close to the threshold and can never be lowered.
+- Upgrade safety (#30) is only partly done: this release tests each upgrade
+  from the data that 1.0.5 to 1.0.7 stored, and fills in screen state that an
+  update adds. Versioned storage formats and migrations are still to come.
+- Website request handling (#34) is only partly done: this release adds the
+  ready event, holds requests while the wallet starts, and reports lost
+  requests as 4900. Approval time limits, double submits, request size limits
+  and the other items in that issue are still open.
 
 ## 1.0.7
 

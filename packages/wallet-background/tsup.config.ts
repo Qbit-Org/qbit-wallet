@@ -19,7 +19,6 @@ export default defineConfig({
     '@qbit/permission-service',
     '@qbit/wallet-types',
     '@qbit/tx-helpers',
-    '@qbit/wallet-api',
     '@qbit/wallet-core',
     '@qbit/contact-book',
     '@qbit/phishing-detect',

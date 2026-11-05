@@ -75,12 +75,12 @@ describe('preference restore and saves already in flight', () => {
         await otherWrite.promise;
         await write(items);
       });
-    const setting = service.setEnableSignData(true);
+    const setting = service.setEnableRBF(false);
     const settingResult = expect(setting).rejects.toBe(writeError);
     await vi.waitFor(() => expect(browserStorage.set).toHaveBeenCalledTimes(3));
 
     // Another preference changes, and its debounced save takes the store with
-    // sign-data on while the setting's save is still in flight.
+    // replace-by-fee off while the setting's save is still in flight.
     service.setShowSafeNotice(false);
     await vi.advanceTimersByTimeAsync(1000);
     // The setting's save fails and the restored value's save is requested
@@ -93,13 +93,13 @@ describe('preference restore and saves already in flight', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     // The debounced save landed first, then the restored value.
-    expect(browserStorage.set.mock.calls.slice(2).map(([items]) => (items as any).preference.enableSignData)).toEqual([
-      true,
-      true,
-      false
+    expect(browserStorage.set.mock.calls.slice(2).map(([items]) => (items as any).preference.enableRBF)).toEqual([
+      false,
+      false,
+      true
     ]);
-    expect(service.getEnableSignData()).toBe(false);
-    expect((browserStorage.disk.preference as any).enableSignData).toBe(false);
-    expect((await load(adapter)).getEnableSignData()).toBe(false);
+    expect(service.getEnableRBF()).toBe(true);
+    expect((browserStorage.disk.preference as any).enableRBF).toBe(true);
+    expect((await load(adapter)).getEnableRBF()).toBe(true);
   });
 });

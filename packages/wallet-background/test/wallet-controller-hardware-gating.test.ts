@@ -14,16 +14,12 @@ vi.mock('../src/services', () => ({
     getChainType: vi.fn(() => ChainType.QBIT_MAINNET),
     setShowSafeNotice: vi.fn(),
   },
-  walletApiService: {
-    setEndpoint: vi.fn(),
-  },
   sessionService: {
     broadcastEvent: vi.fn(),
   },
   contactBookService: {
     listAlias: vi.fn(() => []),
   },
-  notificationService: {},
   permissionService: {},
 }))
 
