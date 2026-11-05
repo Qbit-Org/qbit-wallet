@@ -19,6 +19,8 @@ interface ExtensionContextObserver {
 interface ExtensionSessionOptions {
   /** Extra Chromium switches, such as host-resolver rules for a loopback fixture. */
   browserArgs?: readonly string[]
+  /** The unpacked extension to load, when not this checkout's build. */
+  extensionDir?: string
 }
 
 interface ExtensionManifest {
@@ -46,6 +48,10 @@ export class ExtensionSession {
     private readonly options: ExtensionSessionOptions = {}
   ) {}
 
+  private get extensionDir(): string {
+    return this.options.extensionDir ?? extensionDist
+  }
+
   get context(): BrowserContext {
     if (!this.contextValue) throw new Error('extension browser context has not started')
     return this.contextValue
@@ -62,15 +68,20 @@ export class ExtensionSession {
     await mkdir(this.userDataDir, { recursive: true })
 
     const executablePath = process.env['QBIT_E2E_CHROMIUM_EXECUTABLE']
+    // QBIT_E2E_HEADLESS=1 runs Chromium's new headless mode, which loads
+    // extensions too, so local runs do not open windows over the desktop.
+    // The gate itself stays headful.
+    const headless = process.env['QBIT_E2E_HEADLESS'] === '1'
     const context = await chromium.launchPersistentContext(this.userDataDir, {
       ...(executablePath ? { executablePath } : {}),
-      headless: false,
+      ...(headless ? { channel: 'chromium' } : {}),
+      headless,
       locale: 'en-US',
       timezoneId: 'America/New_York',
       viewport: { width: 420, height: 860 },
       args: [
-        `--disable-extensions-except=${extensionDist}`,
-        `--load-extension=${extensionDist}`,
+        `--disable-extensions-except=${this.extensionDir}`,
+        `--load-extension=${this.extensionDir}`,
         '--no-default-browser-check',
         '--no-first-run',
         ...(this.options.browserArgs ?? []),
@@ -255,7 +266,7 @@ export class ExtensionSession {
   }
 
   private async assertMv3Build(): Promise<void> {
-    const manifestPath = resolve(extensionDist, 'manifest.json')
+    const manifestPath = resolve(this.extensionDir, 'manifest.json')
     if (!existsSync(manifestPath)) {
       throw new Error(
         `MV3 extension build is missing at ${manifestPath}; run pnpm test:e2e:build first`
@@ -267,7 +278,7 @@ export class ExtensionSession {
     }
     // Chrome refuses the whole extension over a $name$ a message does not define, and
     // shows a dialog instead of a window, so the launch would hang until the test times out.
-    const localesDir = resolve(extensionDist, '_locales')
+    const localesDir = resolve(this.extensionDir, '_locales')
     for (const locale of existsSync(localesDir) ? await readdir(localesDir) : []) {
       const messagesPath = resolve(localesDir, locale, 'messages.json')
       if (!existsSync(messagesPath)) continue
