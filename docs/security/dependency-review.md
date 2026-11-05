@@ -1,8 +1,10 @@
 # Dependency security and license review
 
-Review date: 2026-11-03 (advisory refresh of the 2026-09-02 review; evidence
-regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, and on
-2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9)
+Review date: 2026-11-05 (advisory refresh of the 2026-09-02 review; evidence
+regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
+2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, and on 2026-11-05
+after merging `release/1.0.8` at #140, which removed unused dependencies from
+the extension and keyring-service)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -25,13 +27,13 @@ policy, and lockfile that were executed.
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `614fa671c10a462fe667e279049191609a14e12b2b398d4761a88cd8729392ae` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `873c465ca2e057eb85b9233788d2ddc020413237fcc14d42e5aeccc18f37ad5f` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `78f759a48298bbfbeb3f640ad94b093fd1dedde393cc9c69f1fbdd493be3e949` |
+| `pnpm-lock.yaml` SHA-256 | `204908fc1dd14f055821c7784fb318f298b1120083adb15c40a3da70f26c65ee` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `c2d6120e66f6c7b4e1d44f03a8ba7e9f9ce8fb23ebea97229abe67e8136a8d96` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `a9c3ab06960f2a8af3e2f5d788274306ee0e4df463aec1e7b1d23d41bc36a764` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 437 direct declarations, all 208 resolved packages classified as crypto-,
+all 409 direct declarations, all 180 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -108,8 +110,8 @@ occurrence per advisory record, so the current result is 44 occurrences:
 | Current audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
-counts advisory records; neither counts independent vulnerabilities. The final audit contains 44 advisory records representing 39
-unique advisory/package pairs. Six records affect a directly declared package
+counts advisory records; neither counts independent vulnerabilities. The final audit contains 43 advisory records representing 38
+unique advisory/package pairs. Four records affect a directly declared package
 and 38 are transitive. No critical or high advisory remains, and no risk
 exception is in force.
 
@@ -186,17 +188,17 @@ needs major-version moves rather than an override bump.
 
 ## Package inventory
 
-The 20 workspaces contain 2,268 registry lock entries and 437 direct dependency
-declarations. Lockfile v9 keeps one entry per name@version; its 2,419 peer
+The 20 workspaces contain 2,137 registry lock entries and 409 direct dependency
+declarations. Lockfile v9 keeps one entry per name@version; its 2,288 peer
 variants are snapshots. Direct declarations are classified by how they enter the product
 or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 168 | Code or assets included in, or invoked by, the extension runtime |
-| Extension build/packaging | 79 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
+| Shipped runtime | 149 | Code or assets included in, or invoked by, the extension runtime |
+| Extension build/packaging | 72 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
 | Test-only tooling | 35 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 131 | Lint, formatting, repository tooling, and non-release developer commands |
+| Development/quality tooling | 129 | Lint, formatting, repository tooling, and non-release developer commands |
 | Workspace contract | 24 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
@@ -210,9 +212,9 @@ package may also serialize attacker-controlled data.
 
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
-| Crypto | 63 |
-| Serialization | 96 |
-| Networking | 44 |
+| Crypto | 58 |
+| Serialization | 92 |
+| Networking | 25 |
 | Archive/compression | 8 |
 
 ## Advisory directness and reachability
@@ -221,8 +223,6 @@ The final audit has the following direct advisory records:
 
 | Direct package | Advisory | Severity | Reviewed path |
 | --- | --- | --- | --- |
-| `@sentry/browser` | `GHSA-593m-55hh-j8gv` | Moderate | Reachable shipped telemetry path |
-| `moment` | `GHSA-4p3w-j4w9-5jqw` | Moderate | Reachable shipped dependency; modernization work |
 | `vitest` | `GHSA-82fw-gwwq-j7x9` | Moderate | Test-only runner |
 | `yaml` | `GHSA-48c2-rrv3-qjmp` | Moderate | Exact root policy/evidence parser (`yaml@2.8.1`) on development, build, and test paths; the separate transitive `yaml@1.10.2` record is reachable through `postcss-loader` |
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths; reachable under the production-closure rule because `apps/extension` declares its build tooling as dependencies |
@@ -320,7 +320,7 @@ signing. Such an import would invalidate this disposition.
 
 | Adjacent area | Notable resolved dependencies | Boundary |
 | --- | --- | --- |
-| Networking | `@qbit-oss/api`, `@sentry/browser` 6.19.7/7.48.0, `ws` 7.5.13/8.21.1, `websocket-driver@0.7.5`, `node-fetch@2.7.0` | Runtime/API and telemetry inputs remain covered by type, unit, integration, and policy gates |
+| Networking | `@qbit-oss/api`, `ws` 7.5.13/8.21.1, `websocket-driver@0.7.5`, `node-fetch@2.7.0` | Runtime/API inputs remain covered by type, unit, integration, and policy gates |
 | Archive/compression | `browserify-zlib@0.2.0`, `gulp-zip@5.1.0`, `gzip-size@6.0.0`, `minizlib@3.1.0`, `modern-tar@0.7.7`, `tar-stream@2.2.0`, `tar@7.5.22`, `yazl@2.5.1` | Runtime decompression is separated from build/package tooling in the inventory |
 | Serialization | `@qbit-oss/protocol`, `serialize-javascript@7.0.3`, `yaml`, Bitcoin encoders, and JSON-schema tooling | Runtime protocol paths are distinguished from test/build parsing paths |
 
@@ -451,10 +451,10 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,268 integrity-pinned registry entries, 437
+The audited policy checked 2,137 integrity-pinned registry entries, 409
 dependency specifiers (the 49 overrides are now audited in
-`pnpm-workspace.yaml`), 33 Action references, two tracked package-manager
-configuration files, 274 executable package/workflow commands, and 2,268 exact
+`pnpm-workspace.yaml`), 32 Action references, two tracked package-manager
+configuration files, 272 executable package/workflow commands, and 2,137 exact
 package/version license records. The browser
 smoke-test installer is an exact direct dependency and installs
 `chrome@148.0.7778.97`; it no longer downloads mutable `stable` through
@@ -468,10 +468,10 @@ binds both generated outputs to the audited commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,268 distinct identities
+version, and normalized license expression for all 2,137 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,268 registry entries must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,137 registry entries must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.

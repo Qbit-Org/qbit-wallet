@@ -1,36 +1,5 @@
 {
   "advisories": {
-    "1099838": {
-      "findings": [
-        {
-          "version": "6.19.7",
-          "paths": [
-            "apps__extension>@sentry/browser"
-          ],
-          "dev": false,
-          "optional": false,
-          "bundled": false
-        },
-        {
-          "version": "7.48.0",
-          "paths": [
-            "apps__extension>@sentry/react>@sentry/browser"
-          ],
-          "dev": false,
-          "optional": false,
-          "bundled": false
-        }
-      ],
-      "id": 1099838,
-      "title": "Sentry SDK Prototype Pollution gadget in JavaScript SDKs",
-      "module_name": "@sentry/browser",
-      "vulnerable_versions": "<7.119.1",
-      "patched_versions": ">=7.119.1",
-      "severity": "moderate",
-      "cwe": "CWE-913",
-      "github_advisory_id": "GHSA-593m-55hh-j8gv",
-      "url": "https://github.com/advisories/GHSA-593m-55hh-j8gv"
-    },
     "1102341": {
       "findings": [
         {
@@ -564,7 +533,6 @@
             ".>vitest>vite>yaml",
             ".>vitest>vite-node>vite>yaml",
             ".>yaml",
-            "apps__extension>patch-package>yaml",
             "packages__approval-service>tsup>postcss-load-config>yaml",
             "packages__approval-service>vitest>@vitest/mocker>vite>yaml",
             "packages__approval-service>vitest>vite>yaml",
@@ -586,7 +554,6 @@
             "packages__contact-book>vitest>@vitest/ui>vitest>@vitest/mocker>vite>yaml",
             "packages__contact-book>vitest>@vitest/ui>vitest>vite>yaml",
             "packages__contact-book>vitest>@vitest/ui>vitest>vite-node>vite>yaml",
-            "packages__keyring-service>patch-package>yaml",
             "packages__keyring-service>tsup>postcss-load-config>yaml",
             "packages__keyring-service>vitest>@vitest/mocker>vite>yaml",
             "packages__keyring-service>vitest>vite>yaml",
@@ -659,6 +626,8 @@
             "packages__wallet-connect-react>vitest>@vitest/ui>vitest>vite-node>vite>yaml",
             "packages__wallet-core>@vitest/coverage-v8>vitest>@vitest/mocker>vite>yaml",
             "packages__wallet-core>@vitest/coverage-v8>vitest>vite>yaml",
+            "packages__wallet-core>@vitest/coverage-v8>vitest>vite-node>vite>yaml",
+            "packages__wallet-core>@vitest/coverage-v8>vitest>@vitest/ui>vitest>@vitest/mocker>vite>yaml",
             "packages__wallet-shared>@vitest/coverage-v8>vitest>@vitest/mocker>vite>yaml",
             "packages__wallet-state>tsup>postcss-load-config>yaml",
             "packages__wallet-storage>tsup>postcss-load-config>yaml",
@@ -723,7 +692,6 @@
           "paths": [
             "apps__extension>css-minimizer-webpack-plugin>serialize-javascript",
             "apps__extension>terser-webpack-plugin>serialize-javascript",
-            "apps__extension>workbox-webpack-plugin>workbox-build>@rollup/plugin-terser>serialize-javascript",
             "apps__extension>copy-webpack-plugin>serialize-javascript"
           ],
           "dev": false,
@@ -1590,8 +1558,7 @@
           "version": "2.30.1",
           "paths": [
             "apps__extension>antd>moment",
-            "apps__extension>antd>rc-picker>moment",
-            "apps__extension>moment"
+            "apps__extension>antd>rc-picker>moment"
           ],
           "dev": false,
           "optional": false,
@@ -1940,7 +1907,6 @@
           "paths": [
             "apps__extension>css-minimizer-webpack-plugin>serialize-javascript",
             "apps__extension>terser-webpack-plugin>serialize-javascript",
-            "apps__extension>workbox-webpack-plugin>workbox-build>@rollup/plugin-terser>serialize-javascript",
             "apps__extension>copy-webpack-plugin>serialize-javascript"
           ],
           "dev": false,
@@ -2617,8 +2583,7 @@
             "apps__extension>jest-watch-typeahead>jest>@jest/core>jest-config>deepmerge",
             "apps__extension>jest-watch-typeahead>jest>jest-cli>@jest/core>jest-config>deepmerge",
             "apps__extension>jest-watch-typeahead>jest>jest-cli>jest-config>deepmerge",
-            "apps__extension>react-dev-utils>fork-ts-checker-webpack-plugin>deepmerge",
-            "apps__extension>workbox-webpack-plugin>workbox-build>@rollup/plugin-node-resolve>deepmerge"
+            "apps__extension>react-dev-utils>fork-ts-checker-webpack-plugin>deepmerge"
           ],
           "dev": false,
           "optional": false,
@@ -2776,11 +2741,9 @@
             ".>lerna>init-package-json>@npmcli/package-json>glob",
             ".>lerna>libnpmpublish>@npmcli/package-json>glob",
             ".>lerna>pacote>@npmcli/package-json>glob",
-            ".>lerna>pacote>@npmcli/run-script>@npmcli/package-json>glob",
-            "apps__extension>workbox-webpack-plugin>workbox-build>glob",
-            "apps__extension>postinstall>glob"
+            ".>lerna>pacote>@npmcli/run-script>@npmcli/package-json>glob"
           ],
-          "dev": false,
+          "dev": true,
           "optional": false,
           "bundled": false
         },
@@ -3000,13 +2963,11 @@
             ".>lerna>pacote>sigstore>@sigstore/sign>make-fetch-happen>cacache>glob>minimatch",
             ".>lerna>pacote>sigstore>@sigstore/tuf>tuf-js>@tufjs/models>minimatch",
             ".>lerna>pacote>sigstore>@sigstore/tuf>tuf-js>make-fetch-happen>cacache>glob>minimatch",
-            "apps__extension>workbox-webpack-plugin>workbox-build>glob>minimatch",
-            "apps__extension>postinstall>glob>minimatch",
             "packages__wallet-core>@vitest/coverage-v8>test-exclude>minimatch",
             "packages__wallet-shared>@vitest/coverage-v8>test-exclude>minimatch",
             "packages__wallet-types>@vitest/coverage-v8>test-exclude>minimatch"
           ],
-          "dev": false,
+          "dev": true,
           "optional": false,
           "bundled": false
         },
@@ -3138,13 +3099,13 @@
     "vulnerabilities": {
       "info": 0,
       "low": 10,
-      "moderate": 34,
+      "moderate": 33,
       "high": 0,
       "critical": 0
     },
-    "dependencies": 1426,
-    "devDependencies": 787,
-    "optionalDependencies": 109,
-    "totalDependencies": 2267
+    "dependencies": 1249,
+    "devDependencies": 860,
+    "optionalDependencies": 111,
+    "totalDependencies": 2137
   }
 }

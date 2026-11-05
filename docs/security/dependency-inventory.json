@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "92fe7506dff725a87503eb0d90d38e1d4707cf3d",
-  "lockfileSha256": "78e34f1b3bcbbf360e7cbb09780decf25c13a34b5a667c13b91fee662f47288e",
+  "auditedCommit": "68e6a412b83b89dffef5c01f2dcb82bd0f9e400a",
+  "lockfileSha256": "204908fc1dd14f055821c7784fb318f298b1120083adb15c40a3da70f26c65ee",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "e409ea5ecc4787236da04b21ecdf7cac7a052d77867d68e401c4d917e0d37457",
+    "sha256": "c2d6120e66f6c7b4e1d44f03a8ba7e9f9ce8fb23ebea97229abe67e8136a8d96",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,43 +14,43 @@
   },
   "summary": {
     "workspaces": 20,
-    "registryLockEntries": 2267,
-    "directDeclarations": 436,
+    "registryLockEntries": 2137,
+    "directDeclarations": 409,
     "directDeclarationsByDelivery": {
-      "development-quality-tooling": 131,
-      "extension-build-packaging": 79,
-      "shipped-runtime": 167,
+      "development-quality-tooling": 129,
+      "extension-build-packaging": 72,
+      "shipped-runtime": 149,
       "test-only-tooling": 35,
       "workspace-contract": 24
     },
-    "securityAdjacentResolvedPackages": 208,
+    "securityAdjacentResolvedPackages": 180,
     "securityAdjacentByCategory": {
-      "serialization": 96,
-      "crypto": 63,
-      "networking": 44,
+      "serialization": 92,
+      "crypto": 58,
+      "networking": 25,
       "archive": 8
     },
     "auditVulnerableOccurrences": {
       "info": 0,
       "low": 10,
-      "moderate": 34,
+      "moderate": 33,
       "high": 0,
       "critical": 0
     },
-    "advisoryRecords": 44,
+    "advisoryRecords": 43,
     "advisoryRecordsBySeverity": {
       "low": 10,
-      "moderate": 34
+      "moderate": 33
     },
     "advisoryRecordsByDirectness": {
-      "direct": 6,
-      "transitive": 38
+      "direct": 4,
+      "transitive": 39
     },
     "advisoryPathsByReachability": {
-      "development-tooling-path": 542,
-      "extension-build-path": 994,
-      "test-only-path": 565,
-      "reachable": 35
+      "development-tooling-path": 541,
+      "extension-build-path": 986,
+      "test-only-path": 567,
+      "reachable": 32
     }
   },
   "directDependencies": [
@@ -249,16 +249,6 @@
       "securityAdjacency": [
         "serialization"
       ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@notionhq/client",
-      "section": "devDependencies",
-      "requested": "^1.0.4",
-      "resolved": "1.0.4(encoding@0.1.13)",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
     },
     {
       "workspace": "apps/extension",
@@ -547,16 +537,6 @@
       "section": "devDependencies",
       "requested": "^8.50.0",
       "resolved": "8.50.0(supports-color@8.1.1)",
-      "delivery": "development-quality-tooling",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "packages/keyring-service",
-      "workspacePackage": "@qbit/keyring-service",
-      "package": "patch-package",
-      "section": "devDependencies",
-      "requested": "8.0.1",
-      "resolved": "8.0.1",
       "delivery": "development-quality-tooling",
       "securityAdjacency": []
     },
@@ -1489,16 +1469,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "@types/react-cache",
-      "section": "dependencies",
-      "requested": "^2.0.1",
-      "resolved": "2.0.1",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "@types/react-dom",
       "section": "dependencies",
       "requested": "^18.0.4",
@@ -1603,16 +1573,6 @@
       "section": "dependencies",
       "requested": "^10.0.1",
       "resolved": "10.0.1(supports-color@8.1.1)",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "bfj",
-      "section": "dependencies",
-      "requested": "^7.0.2",
-      "resolved": "7.0.2",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -1843,16 +1803,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "patch-package",
-      "section": "devDependencies",
-      "requested": "8.0.1",
-      "resolved": "8.0.1",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "postcss-flexbugs-fixes",
       "section": "dependencies",
       "requested": "^5.0.2",
@@ -1903,16 +1853,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "postinstall",
-      "section": "devDependencies",
-      "requested": "^0.11.0",
-      "resolved": "0.11.0",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "prompts",
       "section": "dependencies",
       "requested": "^2.4.2",
@@ -1937,16 +1877,6 @@
       "section": "dependencies",
       "requested": "^0.11.0",
       "resolved": "0.11.0",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "redux-devtools",
-      "section": "dependencies",
-      "requested": "^3.7.0",
-      "resolved": "3.7.0(react-redux@8.0.5(@types/react-dom@18.2.17)(@types/react@18.2.17)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(redux@4.2.1))(react@18.2.0)(redux@4.2.1)",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -2143,30 +2073,10 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "webpack-stream",
-      "section": "devDependencies",
-      "requested": "^7.0.0",
-      "resolved": "7.0.0(webpack@5.109.2)",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "webpack",
       "section": "dependencies",
       "requested": "^5.109.2",
       "resolved": "5.109.2(clean-css@5.3.3)(cssnano@7.1.9(postcss@8.5.26))(csso@5.0.5)(esbuild@0.25.12)(html-minifier-terser@6.1.0)(postcss@8.5.26)(uglify-js@3.19.3)(webpack-cli@4.9.2)",
-      "delivery": "extension-build-packaging",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "workbox-webpack-plugin",
-      "section": "dependencies",
-      "requested": "7.4.1",
-      "resolved": "7.4.1(@types/babel__core@7.20.5)(supports-color@8.1.1)(webpack@5.109.2)",
       "delivery": "extension-build-packaging",
       "securityAdjacency": []
     },
@@ -2439,42 +2349,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "@sentry/browser",
-      "section": "dependencies",
-      "requested": "^6.19.7",
-      "resolved": "6.19.7",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "networking"
-      ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@sentry/react",
-      "section": "dependencies",
-      "requested": "^7.48.0",
-      "resolved": "7.48.0(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "networking"
-      ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@sentry/tracing",
-      "section": "dependencies",
-      "requested": "^6.19.7",
-      "resolved": "6.19.7",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "networking"
-      ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "@unisat/animated-qr",
       "section": "dependencies",
       "requested": "1.0.1",
@@ -2551,18 +2425,6 @@
       "section": "dependencies",
       "requested": "^3.1.0",
       "resolved": "3.1.0",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "crypto"
-      ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "browser-passworder",
-      "section": "dependencies",
-      "requested": "^2.0.3",
-      "resolved": "2.0.3",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "crypto"
@@ -2719,46 +2581,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "lz-string",
-      "section": "dependencies",
-      "requested": "^1.5.0",
-      "resolved": "1.5.0",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "mobx-utils",
-      "section": "dependencies",
-      "requested": "^6.1.0",
-      "resolved": "6.1.0(mobx@6.13.6)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "mobx",
-      "section": "dependencies",
-      "requested": "^6.13.6",
-      "resolved": "6.13.6",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "moment",
-      "section": "dependencies",
-      "requested": "^2.29.4",
-      "resolved": "2.30.1",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "nanoid",
       "section": "dependencies",
       "requested": "^5.1.16",
@@ -2809,16 +2631,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "react-activation",
-      "section": "dependencies",
-      "requested": "^0.10.2",
-      "resolved": "0.10.2(prop-types@15.8.1)(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "react-app-polyfill",
       "section": "dependencies",
       "requested": "^3.0.0",
@@ -2829,30 +2641,10 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "react-cache",
-      "section": "dependencies",
-      "requested": "^2.0.0-alpha.1",
-      "resolved": "2.0.0-alpha.1(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "react-dom",
       "section": "dependencies",
       "requested": "^18.1.0",
       "resolved": "18.2.0(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "react-hooks-global-state",
-      "section": "dependencies",
-      "requested": "^2.0.0-rc.0",
-      "resolved": "2.1.0(immer@9.0.21)(react@18.2.0)",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -2873,26 +2665,6 @@
       "section": "dependencies",
       "requested": "^5.7.2",
       "resolved": "5.7.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "react-infinite-scroll-component",
-      "section": "dependencies",
-      "requested": "^6.1.0",
-      "resolved": "6.1.0(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "react-modal",
-      "section": "dependencies",
-      "requested": "^3.15.1",
-      "resolved": "3.15.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -2959,38 +2731,6 @@
     {
       "workspace": "apps/extension",
       "workspacePackage": "qbit-extension",
-      "package": "scrypt-js",
-      "section": "dependencies",
-      "requested": "^3.0.1",
-      "resolved": "3.0.1",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "crypto"
-      ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "semver",
-      "section": "dependencies",
-      "requested": "^7.5.1",
-      "resolved": "7.5.4",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "starknet",
-      "section": "dependencies",
-      "requested": "^6.23.1",
-      "resolved": "6.23.1(encoding@0.1.13)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
       "package": "ts-toolbelt",
       "section": "dependencies",
       "requested": "^9.6.0",
@@ -3022,16 +2762,6 @@
         "crypto",
         "serialization"
       ]
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "web-vitals",
-      "section": "dependencies",
-      "requested": "^2.1.4",
-      "resolved": "2.1.4",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
     },
     {
       "workspace": "packages/approval-service",
@@ -3216,18 +2946,6 @@
       "section": "dependencies",
       "requested": "^10.0.0",
       "resolved": "10.0.0(patch_hash=b74a113492c20fd4a2454ba6e1c4a024b6bd564e5b0ba0f96fd3d35248786596)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "crypto"
-      ]
-    },
-    {
-      "workspace": "packages/keyring-service",
-      "workspacePackage": "@qbit/keyring-service",
-      "package": "browser-passworder",
-      "section": "dependencies",
-      "requested": "^2.0.3",
-      "resolved": "2.0.3",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "crypto"
@@ -4713,19 +4431,6 @@
       ]
     },
     {
-      "package": "@noble/curves",
-      "version": "1.7.0",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-UTMhXK9SeDhFJVrHeUJ5uZlI6ajXg10O6Ddocf9S6GjbSBVZsJo88HzKwXznNfGpMTRDyJkqMjNDPYgf0qFWnw==",
-      "directDeclarations": []
-    },
-    {
       "package": "@noble/hashes",
       "version": "1.4.0",
       "categories": [
@@ -4736,19 +4441,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-V1JJ1WTRUqHHrOSh597hURcMqVKVGL/ea3kv0gSnEdsEZ0/+VyPghM1lMNGc00z7CIQorSvbKpuJkxvuHbvdbg==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@noble/hashes",
-      "version": "1.6.0",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-YUULf0Uk4/mAA89w+k3+yUYh6NrEvxZa5T6SY3wlMvE2chHkxFUUIDI8/XW1QSC357iA5pSnqt7XEhvFOqmDyQ==",
       "directDeclarations": []
     },
     {
@@ -4965,212 +4657,6 @@
       "directDeclarations": []
     },
     {
-      "package": "@sentry-internal/tracing",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-MFAPDTrvCtfSm0/Zbmx7HA0Q5uCfRadOUpN8Y8rP1ndz+329h2kA3mZRCuC+3/aXL11zs2CHUhcAkGjwH2vogg==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/browser",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-oDbklp4O3MtAM4mtuwyZLrgO1qDVYIujzNJQzXmi9YzymJCuzMLSRDvhY83NNDCRxf0pds4DShgYeZdbSyKraA==",
-      "directDeclarations": [
-        {
-          "workspace": "apps/extension",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^6.19.7",
-          "resolved": "6.19.7"
-        }
-      ]
-    },
-    {
-      "package": "@sentry/browser",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-tdx/2nhuiykncmXFlV4Dpp+Hxgt/v31LiyXE79IcM560wc+QmWKtzoW9azBWQ0xt5KOO3ERMib9qPE4/ql1/EQ==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/core",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-tOfZ/umqB2AcHPGbIrsFLcvApdTm9ggpi/kQZFkej7kMphjT+SGBiQfYtjyg9jcRW+ilAR4JXC9BGKsdEQ+8Vw==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/core",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-8FYuJTMpyuxRZvlen3gQ3rpOtVInSDmSyXqWEhCLuG/w34AtWoTiW7G516rsAAh6Hy1TP91GooMWbonP3XQNTQ==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/hub",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-y3OtbYFAqKHCWezF0EGGr5lcyI2KbaXW2Ik7Xp8Mu9TxbSTuwTe4rTntwg8ngPjUQU3SUHzgjqVB8qjiGqFXCA==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/minimal",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-wcYmSJOdvk6VAPx8IcmZgN08XTXRwRtB1aOLZm+MVHjIZIhHoBGZJYTVQS/BWjldsamj2cX3YGbGXNunaCfYJQ==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/react",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-E2HF0njufOI/BWktXfIiPNIh0dh7la9uQmDlYiFAK8MnlW4OOjw4rRJV2qkxKQCYdO9WB+T460DVw102Z/MyUA==",
-      "directDeclarations": [
-        {
-          "workspace": "apps/extension",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^7.48.0",
-          "resolved": "7.48.0(react@18.2.0)"
-        }
-      ]
-    },
-    {
-      "package": "@sentry/replay",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-8fRHMGJ0NJeIZi6UucxUTvfDPaBa7+jU1kCTLjCcuH3X/UVz5PtGLMtFSO5U8HP+mUDlPs97MP1uoDvMa4S2Ng==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/tracing",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-ol4TupNnv9Zd+bZei7B6Ygnr9N3Gp1PUrNI761QSlHtPC25xXC5ssSD3GMhBgyQrcvpuRcCFHVNNM97tN5cZiA==",
-      "directDeclarations": [
-        {
-          "workspace": "apps/extension",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^6.19.7",
-          "resolved": "6.19.7"
-        }
-      ]
-    },
-    {
-      "package": "@sentry/types",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-jH84pDYE+hHIbVnab3Hr+ZXr1v8QABfhx39KknxqKWr2l0oEItzepV0URvbEhB446lk/S/59230dlUUIBGsXbg==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/types",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-kkAszZwQ5/v4n7Yyw/DPNRWx7h724mVNRGZIJa9ggUMvTgMe7UKCZZ5wfQmYiKVlGbwd9pxXAcP8Oq15EbByFQ==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/utils",
-      "version": "6.19.7",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-z95ECmE3i9pbWoXQrD/7PgkBAzJYR+iXtPuTkpBjDKs86O3mT+PXOT3BAn79w2wkn7/i3vOGD2xVr1uiMl26dA==",
-      "directDeclarations": []
-    },
-    {
-      "package": "@sentry/utils",
-      "version": "7.48.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-d977sghkFVMfld0LrEyyY2gYrfayLPdDEpUDT+hg5y79r7zZDCFyHtdB86699E5K89MwDZahW7Erk+a1nk4x5w==",
-      "directDeclarations": []
-    },
-    {
       "package": "@sigstore/bundle",
       "version": "4.0.0",
       "categories": [
@@ -5289,19 +4775,6 @@
       "directDeclarations": []
     },
     {
-      "package": "@types/node-fetch",
-      "version": "2.6.13",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==",
-      "directDeclarations": []
-    },
-    {
       "package": "@types/parse-json",
       "version": "4.0.2",
       "categories": [
@@ -5386,7 +4859,7 @@
         "serialization"
       ],
       "closures": [
-        "production-closure"
+        "development-only"
       ],
       "peerVariants": 1,
       "integrity": "sha512-BNoCY6SXXPQ7gF2opIP4GBE+Xw7U+pHMYKuzjgCN3GwiaIR09UUeKfheyIry77QtrCBlC0KK0q5/TER/tYh3PQ==",
@@ -5586,34 +5059,6 @@
           "delivery": "shipped-runtime",
           "requested": "^10.0.0",
           "resolved": "10.0.0(patch_hash=b74a113492c20fd4a2454ba6e1c4a024b6bd564e5b0ba0f96fd3d35248786596)"
-        }
-      ]
-    },
-    {
-      "package": "browser-passworder",
-      "version": "2.0.3",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-8mTcGjsVqYkRW0qLmdussBjf/5joBUpvZfR8jUojITBJVVZIS5BL41Qt/xehS+n2ChA2YJHHLPhlkXziK+gvsw==",
-      "directDeclarations": [
-        {
-          "workspace": "apps/extension",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^2.0.3",
-          "resolved": "2.0.3"
-        },
-        {
-          "workspace": "packages/keyring-service",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^2.0.3",
-          "resolved": "2.0.3"
         }
       ]
     },
@@ -5916,26 +5361,13 @@
       ]
     },
     {
-      "package": "crypto-random-string",
-      "version": "2.0.0",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-v1plID3y9r/lPhviJ1wrXpLeyUIGAZ2SHNYTEapm7/8A9nLPoyvVp3RK/EPFqn5kEznyWgYZNsRtYYIWbuG8KA==",
-      "directDeclarations": []
-    },
-    {
       "package": "data-view-buffer",
       "version": "1.0.2",
       "categories": [
         "serialization"
       ],
       "closures": [
-        "production-closure"
+        "development-only"
       ],
       "peerVariants": 1,
       "integrity": "sha512-EmKO5V3OLXh1rtK2wgXRansaK1/mtVdTUEiEI0W8RkvgT05kfxaH29PliLnpLP73yYO6142Q72QNa8Wx/A5CqQ==",
@@ -6051,19 +5483,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==",
-      "directDeclarations": []
-    },
-    {
-      "package": "fetch-cookie",
-      "version": "3.0.1",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-ZGXe8Y5Z/1FWqQ9q/CrJhkUD73DyBU9VF0hBQmEO/wPHe4A9PKTjplFDLeFX8aOsYypZUcX5Ji/eByn3VCVO3Q==",
       "directDeclarations": []
     },
     {
@@ -6374,19 +5793,6 @@
       "directDeclarations": []
     },
     {
-      "package": "isomorphic-fetch",
-      "version": "3.0.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-qvUtwJ3j6qwsF3jLxkZ72qCgjMysPzDfeV240JHiGZsANBYd+EEuu35v7dfrJ9Up0Ak07D7GGSkGhCHTqg/5wA==",
-      "directDeclarations": []
-    },
-    {
       "package": "jest-serializer",
       "version": "27.5.1",
       "categories": [
@@ -6543,19 +5949,6 @@
       "directDeclarations": []
     },
     {
-      "package": "json-stable-stringify",
-      "version": "1.3.0",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-qtYiSSFlwot9XHtF9bD9c7rwKjr+RecWT//ZnPvSmEjpV5mmPOCN4j8UjY5hbjNkOwZ/jQv3J6R1/pL7RwgMsg==",
-      "directDeclarations": []
-    },
-    {
       "package": "json-stringify-nice",
       "version": "1.1.4",
       "categories": [
@@ -6660,19 +6053,6 @@
       "directDeclarations": []
     },
     {
-      "package": "jsonify",
-      "version": "0.0.1",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "development-only"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-2/Ki0GcmuqSrgFyelQq9M05y7PS0mEwuIzrf3f1fPqkVDVRvZrPZtVSMHxdgo8Aq0sxAOb/cr2aqqA3LeWHVPg==",
-      "directDeclarations": []
-    },
-    {
       "package": "jsonparse",
       "version": "1.3.1",
       "categories": [
@@ -6683,19 +6063,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-POQXvpdL69+CluYsillJ7SUhKvytYjW9vG/GKpnf+xP8UWgYEM/RaMzHHofbALDiKbbP1W8UEYmgGl39WkPZsg==",
-      "directDeclarations": []
-    },
-    {
-      "package": "jsonpointer",
-      "version": "5.0.1",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-p/nXbhSEcu3pZRdkW1OfJhpsVtW1gd4Wa1fnQc9YLiTfAjn0312eMKimbdIQzuZl9aa9xUGaRlP9T/CJE/ditQ==",
       "directDeclarations": []
     },
     {
@@ -6735,19 +6102,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-gUD/epcRms75Cw8RT1pUdHugZYM5ce64ucs2GEISABwkRsOQr0q2wm/MV2TKThycIe5e0ytRweW2RZxclogCdQ==",
-      "directDeclarations": []
-    },
-    {
-      "package": "lossless-json",
-      "version": "4.3.0",
-      "categories": [
-        "serialization"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-ToxOC+SsduRmdSuoLZLYAr5zy1Qu7l5XhmPWM3zefCZ5IcrzW/h108qbJUKfOlDlhvhjUK84+8PSVX0kxnit0g==",
       "directDeclarations": []
     },
     {
@@ -6855,19 +6209,6 @@
       "directDeclarations": []
     },
     {
-      "package": "node-fetch",
-      "version": "2.7.0",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==",
-      "directDeclarations": []
-    },
-    {
       "package": "npm-registry-fetch",
       "version": "19.1.0",
       "categories": [
@@ -6900,7 +6241,7 @@
         "serialization"
       ],
       "closures": [
-        "production-closure"
+        "development-only"
       ],
       "peerVariants": 1,
       "integrity": "sha512-UEZIS3/by4OC8vL3P2dTXRETpebLI2NiI5vIrjaD/5UtrkFX/tNbwjTSRAGC/+7CAo2pIcBaRgWmcBBHcsaCIw==",
@@ -7128,27 +6469,6 @@
       "directDeclarations": []
     },
     {
-      "package": "scrypt-js",
-      "version": "3.0.1",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-cdwTTnqPu0Hyvf5in5asVdZocVDTNRmR7XEcJuIzMjJeSHybHl7vpB66AzwTaIg6CLSbtjcxc8fqcySfnTkccA==",
-      "directDeclarations": [
-        {
-          "workspace": "apps/extension",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^3.0.1",
-          "resolved": "3.0.1"
-        }
-      ]
-    },
-    {
       "package": "secp256k1",
       "version": "4.0.4",
       "categories": [
@@ -7172,19 +6492,6 @@
       ],
       "peerVariants": 1,
       "integrity": "sha512-h+cZ/XXarqDgCjo+YSyQU/ulDEESGGf8AMK9pPNmhNSl/FzPl6L8pMp1leca5z6NuG6tvV/auC8/43tmovowww==",
-      "directDeclarations": []
-    },
-    {
-      "package": "set-cookie-parser",
-      "version": "2.7.1",
-      "categories": [
-        "networking"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-IOc8uWeOZgnb3ptbCURJWNjWUPcO3ZnTTdzsurqERrP6nPyv+paC55vJM0LpOlT2ne+Ix+9+CRG1MNLlyZ4GjQ==",
       "directDeclarations": []
     },
     {
@@ -7836,7 +7143,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 9,
+      "findingPathCount": 8,
       "pathContexts": [
         {
           "workspace": "apps/extension",
@@ -7870,15 +7177,6 @@
           "vulnerableVersion": "4.3.1",
           "directPackage": "react-dev-utils",
           "directVersion": "12.0.1",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "4.3.1",
-          "directPackage": "workbox-webpack-plugin",
-          "directVersion": "7.4.1",
           "directDelivery": "extension-build-packaging",
           "reachability": "extension-build-path",
           "pathCount": 1
@@ -8383,7 +7681,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 4,
+      "findingPathCount": 3,
       "pathContexts": [
         {
           "workspace": "apps/extension",
@@ -8408,15 +7706,6 @@
           "vulnerableVersion": "7.0.3",
           "directPackage": "terser-webpack-plugin",
           "directVersion": "5.2.5",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "7.0.3",
-          "directPackage": "workbox-webpack-plugin",
-          "directVersion": "7.4.1",
           "directDelivery": "extension-build-packaging",
           "reachability": "extension-build-path",
           "pathCount": 1
@@ -8614,53 +7903,6 @@
           "directVersion": "7.2.0",
           "directDelivery": "development-quality-tooling",
           "reachability": "development-tooling-path",
-          "pathCount": 1
-        }
-      ]
-    },
-    {
-      "advisory": "GHSA-593m-55hh-j8gv",
-      "package": "@sentry/browser",
-      "title": "Sentry SDK Prototype Pollution gadget in JavaScript SDKs",
-      "severity": "moderate",
-      "url": "https://github.com/advisories/GHSA-593m-55hh-j8gv",
-      "vulnerableVersions": [
-        "6.19.7",
-        "7.48.0"
-      ],
-      "directness": "direct",
-      "reachability": [
-        "reachable"
-      ],
-      "productionClosure": [
-        {
-          "vulnerableVersion": "6.19.7",
-          "path": "apps/extension > @sentry/browser@6.19.7"
-        },
-        {
-          "vulnerableVersion": "7.48.0",
-          "path": "apps/extension > @sentry/react@7.48.0 > @sentry/browser@7.48.0"
-        }
-      ],
-      "acceptedException": null,
-      "findingPathCount": 2,
-      "pathContexts": [
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "6.19.7",
-          "directPackage": "@sentry/browser",
-          "directVersion": "6.19.7",
-          "directDelivery": "shipped-runtime",
-          "reachability": "reachable",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "7.48.0",
-          "directPackage": "@sentry/react",
-          "directVersion": "7.48.0",
-          "directDelivery": "shipped-runtime",
-          "reachability": "reachable",
           "pathCount": 1
         }
       ]
@@ -11046,7 +10288,6 @@
       "reachability": [
         "development-tooling-path",
         "extension-build-path",
-        "reachable",
         "test-only-path"
       ],
       "productionClosure": [
@@ -11056,7 +10297,7 @@
         },
         {
           "vulnerableVersion": "11.1.0",
-          "path": "apps/extension > workbox-webpack-plugin@7.4.1 > workbox-build@7.4.1 > glob@11.1.0"
+          "path": null
         },
         {
           "vulnerableVersion": "13.0.6",
@@ -11064,7 +10305,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 146,
+      "findingPathCount": 144,
       "pathContexts": [
         {
           "workspace": ".",
@@ -11125,24 +10366,6 @@
           "vulnerableVersion": "10.5.0",
           "directPackage": "stylus",
           "directVersion": "0.64.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "11.1.0",
-          "directPackage": "postinstall",
-          "directVersion": "0.11.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "11.1.0",
-          "directPackage": "workbox-webpack-plugin",
-          "directVersion": "7.4.1",
           "directDelivery": "extension-build-packaging",
           "reachability": "extension-build-path",
           "pathCount": 1
@@ -11607,13 +10830,12 @@
       "reachability": [
         "development-tooling-path",
         "extension-build-path",
-        "reachable",
         "test-only-path"
       ],
       "productionClosure": [
         {
           "vulnerableVersion": "10.2.6",
-          "path": "apps/extension > workbox-webpack-plugin@7.4.1 > workbox-build@7.4.1 > glob@11.1.0 > minimatch@10.2.6"
+          "path": null
         },
         {
           "vulnerableVersion": "9.0.9",
@@ -11621,7 +10843,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 162,
+      "findingPathCount": 160,
       "pathContexts": [
         {
           "workspace": ".",
@@ -11658,24 +10880,6 @@
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
           "pathCount": 3
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "10.2.6",
-          "directPackage": "postinstall",
-          "directVersion": "0.11.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "10.2.6",
-          "directPackage": "workbox-webpack-plugin",
-          "directVersion": "7.4.1",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
         },
         {
           "workspace": "apps/extension",
@@ -12012,18 +11216,18 @@
       "vulnerableVersions": [
         "2.30.1"
       ],
-      "directness": "direct",
+      "directness": "transitive",
       "reachability": [
         "reachable"
       ],
       "productionClosure": [
         {
           "vulnerableVersion": "2.30.1",
-          "path": "apps/extension > moment@2.30.1"
+          "path": "apps/extension > antd@4.20.4 > moment@2.30.1"
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 3,
+      "findingPathCount": 2,
       "pathContexts": [
         {
           "workspace": "apps/extension",
@@ -12033,15 +11237,6 @@
           "directDelivery": "shipped-runtime",
           "reachability": "reachable",
           "pathCount": 2
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "2.30.1",
-          "directPackage": "moment",
-          "directVersion": "2.30.1",
-          "directDelivery": "shipped-runtime",
-          "reachability": "reachable",
-          "pathCount": 1
         }
       ]
     },
@@ -12463,7 +11658,7 @@
         }
       ],
       "acceptedException": null,
-      "findingPathCount": 4,
+      "findingPathCount": 3,
       "pathContexts": [
         {
           "workspace": "apps/extension",
@@ -12488,15 +11683,6 @@
           "vulnerableVersion": "7.0.3",
           "directPackage": "terser-webpack-plugin",
           "directVersion": "5.2.5",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "7.0.3",
-          "directPackage": "workbox-webpack-plugin",
-          "directVersion": "7.4.1",
           "directDelivery": "extension-build-packaging",
           "reachability": "extension-build-path",
           "pathCount": 1
@@ -13123,7 +12309,6 @@
       "directness": "direct",
       "reachability": [
         "development-tooling-path",
-        "extension-build-path",
         "test-only-path"
       ],
       "productionClosure": [
@@ -13163,15 +12348,6 @@
           "pathCount": 1
         },
         {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "2.8.1",
-          "directPackage": "patch-package",
-          "directVersion": "8.0.1",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
           "workspace": "packages/approval-service",
           "vulnerableVersion": "2.8.1",
           "directPackage": "tsup",
@@ -13224,15 +12400,6 @@
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
           "pathCount": 6
-        },
-        {
-          "workspace": "packages/keyring-service",
-          "vulnerableVersion": "2.8.1",
-          "directPackage": "patch-package",
-          "directVersion": "8.0.1",
-          "directDelivery": "development-quality-tooling",
-          "reachability": "development-tooling-path",
-          "pathCount": 1
         },
         {
           "workspace": "packages/keyring-service",
@@ -13421,7 +12588,7 @@
           "directVersion": "3.2.6",
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
-          "pathCount": 2
+          "pathCount": 4
         },
         {
           "workspace": "packages/wallet-shared",
