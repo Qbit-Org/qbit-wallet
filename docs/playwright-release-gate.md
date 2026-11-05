@@ -7,7 +7,8 @@ result in CI.
 
 ## Prerequisites
 
-- Node.js 22 and the repository-pinned pnpm 8.6.0 through Corepack.
+- Node.js 22 and the repository-pinned pnpm 11.28.9 (`packageManager` in
+  `package.json`) through Corepack.
 - Docker with `docker compose`.
 - The repository-local Playwright Chromium installation.
 

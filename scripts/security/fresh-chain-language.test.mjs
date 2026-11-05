@@ -82,6 +82,7 @@ const reviewedResiduals = [
     matches: path =>
       [
         'package.json',
+        'pnpm-workspace.yaml',
         'apps/extension/package.json',
         'packages/keyring-service/package.json',
         'packages/wallet-core/package.json',

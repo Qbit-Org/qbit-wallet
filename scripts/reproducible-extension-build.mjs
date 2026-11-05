@@ -17,8 +17,11 @@ const artifactVersionArg = process.argv
 const artifactVersion = artifactVersionArg?.slice('--artifact-version='.length) || defaultArtifactVersion
 const expectedNode = readFileSync(join(repoRoot, '.nvmrc'), 'utf8').trim()
 const actualNode = process.version.replace(/^v/, '')
+// packageManager is `pnpm@<version>+sha512.<hex>`: Corepack checks the hash
+// when it downloads pnpm, and `pnpm --version` prints only the version.
 const expectedPnpm = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
   .packageManager.split('@')[1]
+  .split('+')[0]
 const actualPnpm = execFileSync('corepack', ['pnpm', '--version'], {
   cwd: repoRoot,
   encoding: 'utf8',
@@ -50,13 +53,10 @@ const buildEnvironment = {
   TZ: 'UTC',
 }
 
-function runPnpm(commandArgs) {
-  execFileSync('corepack', ['pnpm', ...commandArgs], {
-    cwd: repoRoot,
-    env: buildEnvironment,
-    stdio: 'inherit',
-  })
-}
+// Each pnpm command is written out where it runs, and its options and
+// environment are constant object literals, so the dependency policy can read
+// all of them; it rejects an argument list or environment it cannot see.
+const pnpmOptions = { cwd: repoRoot, env: buildEnvironment, stdio: 'inherit' }
 
 function cleanGeneratedBuildState() {
   for (const generatedPath of [
@@ -79,22 +79,27 @@ function snapshotBuild(buildNumber) {
 }
 
 if (!args.has('--skip-prepare')) {
-  runPnpm(['test:e2e:prepare'])
+  execFileSync('corepack', ['pnpm', 'test:e2e:prepare'], pnpmOptions)
 }
 
 rmSync(evidenceRoot, { force: true, recursive: true })
 const builds = []
 for (const buildNumber of [1, 2]) {
   cleanGeneratedBuildState()
-  runPnpm([
-    '--filter',
-    'qbit-extension',
-    'run',
-    'package:test',
-    '--',
-    '--artifact-version',
-    artifactVersion,
-  ])
+  execFileSync(
+    'corepack',
+    [
+      'pnpm',
+      '--filter',
+      'qbit-extension',
+      'run',
+      'package:test',
+      '--',
+      '--artifact-version',
+      artifactVersion,
+    ],
+    pnpmOptions
+  )
   builds.push(snapshotBuild(buildNumber))
 }
 

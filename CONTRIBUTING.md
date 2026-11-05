@@ -20,7 +20,11 @@ Found a security problem? Do not open an issue. Follow
 Requirements:
 
 - Node.js, at the version in [`.nvmrc`](.nvmrc)
-- pnpm 8.6.0 (`corepack enable` picks it up)
+- pnpm 11.28.9, the `packageManager` pin in `package.json`, run through
+  Corepack. After `corepack enable`, `pnpm` is Corepack's shim, which checks
+  the pnpm it downloads against the pin's sha512 hash. A pnpm installed
+  another way, such as `npm install -g pnpm` or `pnpm/action-setup`, is not
+  checked.
 - Docker, if you want to run the regtest harness or end-to-end tests
 
 Clone the repository and install:
@@ -28,6 +32,7 @@ Clone the repository and install:
 ```sh
 git clone https://github.com/Qbit-Org/qbit-wallet.git
 cd qbit-wallet
+corepack enable
 pnpm install --frozen-lockfile
 ```
 

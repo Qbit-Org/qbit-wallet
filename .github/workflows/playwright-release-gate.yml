@@ -37,17 +37,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 8.6.0
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install repository dependencies
         run: corepack pnpm install --frozen-lockfile

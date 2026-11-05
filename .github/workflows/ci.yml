@@ -29,23 +29,39 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 8.6.0
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Run deterministic repository lint
-        run: pnpm lint
+        run: corepack pnpm lint
 
   dependency-policy:
     name: Dependency policy
@@ -58,26 +74,42 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 8.6.0
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Test dependency policy fail-closed behavior
-        run: pnpm test:security-tooling
+        run: corepack pnpm test:security-tooling
 
       - name: Enforce dependency and license policy
-        run: pnpm security:dependencies
+        run: corepack pnpm security:dependencies
 
   verify:
     name: Typecheck, test, and build
@@ -90,43 +122,59 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 8.6.0
-          run_install: false
-
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: Run pnpm through Corepack
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Report release readiness without changing GitHub settings
         env:
           GH_TOKEN: ${{ github.token }}
-        run: pnpm run release:readiness -- --report-only
+        run: corepack pnpm run release:readiness -- --report-only
 
       - name: Prepare workspace declarations
-        run: pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
+        run: corepack pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
 
       - name: Build wallet background package
-        run: pnpm --filter @qbit/wallet-background run build
+        run: corepack pnpm --filter @qbit/wallet-background run build
 
       - name: Run adversarial security suite
-        run: pnpm run test:security-adversarial
+        run: corepack pnpm run test:security-adversarial
 
       - name: Typecheck packages
-        run: pnpm -r --if-present run typecheck
+        run: corepack pnpm -r --if-present run typecheck
 
       - name: Run unit tests
         run: |
-          pnpm -r --if-present test
-          pnpm run test:pqc-golden
-          pnpm run test:protocol-vectors
+          corepack pnpm -r --if-present test
+          corepack pnpm run test:pqc-golden
+          corepack pnpm run test:protocol-vectors
 
       - name: Resolve extension artifact version
         id: extension-version
@@ -135,10 +183,12 @@ jobs:
           echo "artifact_version=${artifact_version}" >> "$GITHUB_OUTPUT"
 
       - name: Build Chrome MV3 extension
-        run: pnpm --filter qbit-extension run package:test -- --artifact-version "${{ steps.extension-version.outputs.artifact_version }}"
+        env:
+          ARTIFACT_VERSION: ${{ steps.extension-version.outputs.artifact_version }}
+        run: corepack pnpm --filter qbit-extension run package:test -- --artifact-version "$ARTIFACT_VERSION"
 
       - name: Verify two clean extension builds are byte-identical
-        run: pnpm run build:repro:extension -- --skip-prepare
+        run: corepack pnpm run build:repro:extension -- --skip-prepare
 
       - name: Upload Chrome MV3 extension artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

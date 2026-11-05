@@ -97,11 +97,13 @@ no tracked changes.
 | committed/packaged `pqc.wasm` | `6a5142a702f96ec311099a90fb022415bb1504157ac3ba2ff84e973782ad41b0` |
 | committed SLH-DSA golden fixture | `fca83f5ccfb500ece20dada0dc691cf7ffbd5dbfc54c3d5c46e67db33e916170` |
 
-The repeatable clean-machine commands are:
+The repeatable clean-machine commands read the pins from the checked-out
+commit, so they hold for the reviewed commit (pnpm 8.6.0) and for later ones
+(pnpm 11.28.9 since issue #8):
 
 ```sh
 test "$(node --version)" = "v$(cat .nvmrc)"
-test "$(corepack pnpm --version)" = "8.6.0"
+test "$(corepack pnpm --version)" = "$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 corepack pnpm install --frozen-lockfile
 corepack pnpm build:repro:extension
 corepack pnpm pqc:wasm:repro
