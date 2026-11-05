@@ -23,11 +23,14 @@ corepack pnpm test:e2e:build
 The extension bundle must exist at `apps/extension/dist/chrome`. Playwright
 launches a persistent, isolated browser profile with `--load-extension` and
 `--disable-extensions-except`, then discovers the extension from its MV3
-service worker. Every spec except `phishing.spec.ts` and
-`provider-ready.spec.ts` resets the Docker volumes, starts qbitd and
+service worker. Every spec except `phishing.spec.ts`, `provider-ready.spec.ts`
+and `upgrade.spec.ts` resets the Docker volumes, starts qbitd and
 electrs-qbit, funds through qbit Core, and mines confirmations explicitly. The
 phishing and provider-ready scenarios need no regtest node and serve their
-pages from loopback fixture servers. The reset removes only the
+pages from loopback fixture servers. The upgrade scenario needs no regtest
+node either: it seeds the profile with the data that the 1.0.5, 1.0.6 and
+1.0.7 releases stored (`tests/fixtures/release-storage`), and the browser
+reaches nothing but loopback. The reset removes only the
 volumes of the selected compose project, so set `COMPOSE_PROJECT_NAME` to run
 the gate in an isolated project when the default `qbit-wallet-regtest`
 project's data must be preserved.
@@ -48,6 +51,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/provider-ready.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/recovery.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
 ```
 
 Run the complete local gate after building:
@@ -70,11 +74,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 26 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 29 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 12 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 15 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -107,6 +111,9 @@ separately with two-decimal millisecond precision.
 | Window close          | `scenarios/lock.spec.ts:169`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
 | Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
 | Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
+| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:107`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:107`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:107`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 
 The dApp PSBT-signing and wipe/restore rows were previously blocked (a
 `-32603: Not supported` provider rejection and a restore scan that never
@@ -128,9 +135,10 @@ the ephemeral Chromium profile. A failed row contains:
 - `failing-identifiers.json` with the extension, account, and transaction IDs;
 - `pqc-sign-durations.json` for the row.
 
-The phishing and provider-ready rows use their own fixtures and run without
-regtest, so the regtest, network-audit and PQC attachments above do not apply
-to them; a failed row of either attaches the extension service-worker log.
+The phishing, provider-ready and upgrade rows use their own fixtures and run
+without regtest, so the regtest, network-audit and PQC attachments above do
+not apply to them; a failed row of any of them attaches the extension
+service-worker log.
 
 The approval-hierarchy row also attaches `connect-approval-<theme>.png`,
 `message-approval-<theme>.png`, and `psbt-approval-<theme>.png` at 360x600 for
