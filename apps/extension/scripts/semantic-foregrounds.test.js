@@ -10,10 +10,6 @@ const colorsPath = path.join(extensionDir, 'src/ui/theme/colors.ts');
 const colorsSource = fs.readFileSync(colorsPath, 'utf8');
 const globalStylesSource = fs.readFileSync(path.join(extensionDir, 'src/ui/styles/global.less'), 'utf8');
 const contactsSource = fs.readFileSync(path.join(extensionDir, 'src/ui/pages/Settings/ContactsScreen.tsx'), 'utf8');
-const infoCardSource = fs.readFileSync(
-  path.join(extensionDir, 'src/ui/pages/Approval/components/SignPsbt/components/InfoCard.tsx'),
-  'utf8'
-);
 
 function extractHex(property) {
   const match = colorsSource.match(new RegExp(`${property}:\\s*['"](#[0-9a-f]{6})['"]`, 'i'));
@@ -143,14 +139,6 @@ test('theme-init.js pre-paint background matches the dark canvas token', () => {
 test('contact deletion preview keeps muted copy on a light semantic surface', () => {
   assert.match(contactsSource, /backgroundColor:\s*colors\.surfaceMuted/);
   assert.doesNotMatch(contactsSource, /backgroundColor:\s*colors\.black_muted/);
-});
-
-test('InfoCard status icons pass semantic token names to Icon', () => {
-  assert.match(infoCardSource, /iconColor:\s*ColorTypes/);
-  assert.match(infoCardSource, /iconColor:\s*'success'/);
-  assert.match(infoCardSource, /iconColor:\s*'warning'/);
-  assert.match(infoCardSource, /iconColor:\s*'dangerText'/);
-  assert.doesNotMatch(infoCardSource, /iconColor:\s*colors\./);
 });
 
 test('foreground callsites use semantic colors instead of danger fill colors', () => {

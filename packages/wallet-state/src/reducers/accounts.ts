@@ -12,12 +12,6 @@ export interface Molels {
   states: boolean
 }
 
-export interface MolelsPopover {
-  state: boolean
-  title: string
-  data: any
-}
-
 export interface BalanceRefreshStatus {
   requestId: number
   error: boolean
@@ -69,7 +63,6 @@ export interface AccountsState {
   }
   addressSummary: AddressSummary
   model: Molels
-  molelsPopover: MolelsPopover
 }
 
 const initialAccount = {
@@ -100,7 +93,6 @@ export const initialState: AccountsState = {
   },
 
   model: { states: false },
-  molelsPopover: { state: false, title: '', data: null },
 }
 
 const slice: Slice<AccountsState> = createSlice({
@@ -186,9 +178,6 @@ const slice: Slice<AccountsState> = createSlice({
     },
     setAddressSummary(state, action: { payload: any }) {
       state.addressSummary = action.payload
-    },
-    setModelPopover(state, action: { payload: MolelsPopover }) {
-      state.molelsPopover = action.payload
     },
     setHistory(
       state,
