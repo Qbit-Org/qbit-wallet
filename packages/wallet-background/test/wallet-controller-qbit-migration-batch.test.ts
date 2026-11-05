@@ -510,6 +510,41 @@ describe('recovery migration signs every reviewed plan in one press (#156)', () 
     expect(await planStatuses(pubkey)).toEqual(['signed', 'signed', 'signed'])
   })
 
+  it('refuses a confirmed plan whose challenge expired before it signed, as at confirmation', async () => {
+    const { sourceAccounts } = await migratingWallet([1, 2])
+    const wallet = new WalletController()
+    const prepared = await wallet.prepareQbitRecoveryMigration(0)
+    // The plan of the source with one plan, and the first of the other's batch.
+    const plans = prepared.toSignDatas.slice(0, 2)
+    expect(plans.map(plan => plan.qbitSignatureBatch === undefined)).toEqual([true, false])
+    const counters = await Promise.all(sourceAccounts.map(account => counterOf(account.pubkey)))
+    for (const plan of plans) {
+      await wallet.confirmQbitRestoredFloorSigning(challengeOf(plan))
+    }
+
+    // Each challenge expires between its plan's confirmation and its signing.
+    // The batch is still open, so the keyring refuses the plan with the code
+    // its confirmation would have failed with.
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + 6 * 60 * 1000)
+    expect(keyringService.hasOpenP2mrPsbtSigningBatches([plans[1]!.qbitSignatureBatch!.id])).toBe(
+      true
+    )
+    for (const plan of plans) {
+      await expect(wallet.signPsbtV2(plan)).rejects.toMatchObject({
+        code: 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED',
+      })
+    }
+    expect(await Promise.all(sourceAccounts.map(account => counterOf(account.pubkey)))).toEqual(
+      counters
+    )
+    expect(await planStatuses(sourceAccounts[0]!.pubkey)).toEqual([
+      'prepared',
+      'prepared',
+      'prepared',
+    ])
+  })
+
   it('keeps the batch of a review through a burst of website requests', async () => {
     const { sourceAccounts } = await migratingWallet([2])
     const wallet = new WalletController()

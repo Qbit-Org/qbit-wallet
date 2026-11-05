@@ -11,6 +11,7 @@ import { Step1_Create } from '@/ui/pages/Account/createHDWalletComponents/Step1_
 import { ContextData, TabType, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { useWalletKeepalive } from '@/ui/utils/hooks';
 import { numUtils } from '@qbit/base-utils';
+import { QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE } from '@qbit/keyring-service/types';
 import {
   ErrorCodes,
   PlatformEnv,
@@ -75,8 +76,9 @@ function isMigrationReviewInterruptedError(error: unknown): boolean {
 
 // The keyring's QbitRestoredFloorConfirmationError. Confirming a plan fails
 // with it only when the plan's challenge is gone: a lock cleared it, it
-// expired, or its review was released. The review was interrupted too.
-const RESTORED_FLOOR_CONFIRMATION_CODE = 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED';
+// expired, or its review was released. Signing a confirmed plan fails with
+// it when that approval no longer holds, as when the challenge went in
+// between. The review was interrupted too.
 const REVIEW_INTERRUPTED = { code: ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED };
 
 function isMigrationDestinationUnavailableError(error: unknown): boolean {
@@ -358,13 +360,13 @@ export default function QbitRecoveryMigrationScreen() {
         }
         try {
           await wallet.confirmQbitRestoredFloorSigning(risk.challengeId);
+          await wallet.signPsbtV2(toSignData);
         } catch (error) {
-          if ((error as { code?: unknown } | null)?.code === RESTORED_FLOOR_CONFIRMATION_CODE) {
+          if ((error as { code?: unknown } | null)?.code === QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE) {
             throw REVIEW_INTERRUPTED;
           }
           throw error;
         }
-        await wallet.signPsbtV2(toSignData);
       }
       await resumeMigration();
     } catch (error) {

@@ -39,6 +39,7 @@ import {
   KeyringServiceConfig,
   KeyringType,
   MemStoreState,
+  QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE,
   ToSignInput,
 } from './types'
 
@@ -286,7 +287,7 @@ const QBIT_SIGNATURE_BATCH_INTERRUPTED =
 const UNLOCK_VAULT_READ_ATTEMPTS = 3
 
 export class QbitRestoredFloorConfirmationError extends Error {
-  readonly code = 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED'
+  readonly code = QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE
 
   constructor(message = 'Restored-floor signing requires explicit confirmation') {
     super(message)
@@ -294,12 +295,12 @@ export class QbitRestoredFloorConfirmationError extends Error {
   }
 }
 
+export const QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE = 'QBIT_SIGNATURE_BATCH_INTERRUPTED'
+
 /**
  * An entry named a batch that is no longer open: a lock, its request, its
  * review or an eviction closed it. Nothing of the entry was signed.
  */
-export const QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE = 'QBIT_SIGNATURE_BATCH_INTERRUPTED'
-
 export class QbitSignatureBatchInterruptedError extends Error {
   readonly code = QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE
 

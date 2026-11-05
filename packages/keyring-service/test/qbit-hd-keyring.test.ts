@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { init, sign as rawPqcSign, verify as verifyPqc } from '@qbit-oss/pqc'
 import {
@@ -334,6 +334,12 @@ function testLogger() {
 describe('qbit-hd-keyring', () => {
   beforeAll(async () => {
     await init()
+  })
+
+  // Some tests move Date.now past a challenge's lifetime; no later test
+  // may run on their clock.
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('derives deterministic P2MR accounts from a mnemonic', async () => {
