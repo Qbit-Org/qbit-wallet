@@ -4,9 +4,10 @@ Review date: 2026-11-05 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
 2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
-the extension and keyring-service, and twice more on 2026-11-05, after the
-`@qbit/wallet-api` and `@qbit/notification-service` workspaces and then `antd`
-were removed)
+the extension and keyring-service, and three times more on 2026-11-05, after
+the `@qbit/wallet-api` and `@qbit/notification-service` workspaces, then
+`antd`, and then, for #37, `bitcore-lib`, `@qbit/tx-helpers` and the
+cold-wallet QR packages were removed)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -24,18 +25,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `a941b06e311fb10a263b9f6836a777833b090249` |
+| Audited commit | `78df536a41a77e567f24419cad741d8496eecc3c` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `7419a875589eebcb1bf6b200bee633d9f0c51410d0c490da84f500a34c0fe02e` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `09129f12020b794970410b6c69aa4b2733e69c8063b39a3f255d029aba45d080` |
+| `pnpm-lock.yaml` SHA-256 | `918deb521d327398d0906b8801072fd83defa4989f3fe296c50f68d60d0a8a3a` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `06fb04249093935ccebfe0aec7499292433e6c4a5df020319bd8aed7d3f067b2` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `f22dcc64389b5936bc8ad2f4ee6cadffd02d4f120a80cf2bfd297acacf69e13a` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 386 direct declarations, all 178 resolved packages classified as crypto-,
+all 362 direct declarations, all 174 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -95,8 +96,13 @@ left the result at 43 occurrences: 0 critical, 0 high, 33 moderate,
 and 10 low. Removing `antd`, which no screen rendered any more and through which
 `moment@2.30.1` had stayed in the lockfile after #140 removed its declaration,
 then cleared the moderate `moment`
-record `GHSA-4p3w-j4w9-5jqw` and reduced the current result to 42 occurrences:
-0 critical, 0 high, 32 moderate, and 10 low.
+record `GHSA-4p3w-j4w9-5jqw` and reduced the result to 42 occurrences:
+0 critical, 0 high, 32 moderate, and 10 low. Removing `bitcore-lib`,
+`@qbit/tx-helpers`, `@zxing/browser`, `@zxing/library` and
+`@unisat/animated-qr` for #37 took out the `bn.js@4.11.8` copy only
+`bitcore-lib` used, which leaves 4.12.2 in that `bn.js` record, and left the
+current result at 42 occurrences: 0 critical, 0 high, 32 moderate, and 10 low.
+No advisory record was added or removed.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -122,7 +128,8 @@ record `GHSA-4p3w-j4w9-5jqw` and reduced the current result to 42 occurrences:
 | Audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
 | Audited result `68e6a41` (2026-11-05, `release/1.0.8` at #140 merged) | 0 | 0 | 33 | 10 | 43 |
 | Audited result `802dc03` (2026-11-05, `wallet-api` and `notification-service` removed) | 0 | 0 | 33 | 10 | 43 |
-| Current audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
+| Audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
+| Current audited result `78df536` (2026-11-05, #37 package removals) | 0 | 0 | 32 | 10 | 42 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records; neither counts independent vulnerabilities. The final
@@ -203,18 +210,18 @@ needs major-version moves rather than an override bump.
 
 ## Package inventory
 
-The 18 workspaces contain 2,080 registry lock entries and 386 direct dependency
-declarations. Lockfile v9 keeps one entry per name@version; its 2,231 peer
+The 17 workspaces contain 2,057 registry lock entries and 362 direct dependency
+declarations. Lockfile v9 keeps one entry per name@version; its 2,208 peer
 variants are snapshots. Direct declarations are classified by how they enter
 the product or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 138 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 122 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 70 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
-| Test-only tooling | 33 | Unit, browser, fixture, and conformance test dependencies |
-| Development/quality tooling | 123 | Lint, formatting, repository tooling, and non-release developer commands |
-| Workspace contract | 22 | Root/workspace linkage declarations that inherit use from consumers |
+| Test-only tooling | 32 | Unit, browser, fixture, and conformance test dependencies |
+| Development/quality tooling | 117 | Lint, formatting, repository tooling, and non-release developer commands |
+| Workspace contract | 21 | Root/workspace linkage declarations that inherit use from consumers |
 
 The `workspace contract` classification is kept separate because a root or
 workspace-link declaration does not establish runtime reachability on its own.
@@ -227,8 +234,8 @@ package may also serialize attacker-controlled data.
 
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
-| Crypto | 57 |
-| Serialization | 91 |
+| Crypto | 54 |
+| Serialization | 90 |
 | Networking | 25 |
 | Archive/compression | 8 |
 
@@ -243,16 +250,21 @@ The final audit has the following direct advisory records:
 | `@babel/core` | `GHSA-4x5r-pxfx-6jf8` | Low | Build, test, and quality-tooling paths; reachable under the production-closure rule because `apps/extension` declares its build tooling as dependencies |
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
-Across all advisory dependency paths, the inventory records 30 reachable path
-occurrences, 986 extension-build occurrences, 554 test-only occurrences, and
-530 development-tooling occurrences. At `eae9633` they were 35, 1,000, 606 and
+Across all advisory dependency paths, the inventory records 24 reachable path
+occurrences, 986 extension-build occurrences, 547 test-only occurrences, and
+522 development-tooling occurrences. At `eae9633` they were 35, 1,000, 606 and
 609. The advisory feed then narrowed the `minimatch` record
 `GHSA-g3hv-75wg-m249` to 9.0.9 and 10.2.6, though 3.1.5 and 5.1.9 stayed in the
 lockfile, which took out 114 paths: they were 35, 994, 565 and 542 at
 `92fe750`, and 32, 986, 567 and 541 at `68e6a41`, after #140. Removing the
 `@qbit/wallet-api` and `@qbit/notification-service` workspaces took out 13
 test-only and 11 development-tooling occurrences, and removing `antd` took out
-the `moment` record's two reachable paths. pnpm 11's audit listed 2,250 paths
+the `moment` record's two reachable paths, leaving 30, 986, 554 and 530. The
+#37 removals took out the six reachable `bn.js` and `elliptic` paths through
+`bitcore-lib` in `@qbit/keyring-service` and `@qbit/wallet-background`, and
+with the `@qbit/tx-helpers` workspace 8 development-tooling and, net,
+7 test-only occurrences; pnpm now reports some of that workspace's shared
+`vitest` paths under other workspaces. pnpm 11's audit listed 2,250 paths
 at `eae9633` where pnpm 8 listed 5,313: it no longer prints a root path for an
 overridden package (such as `. > fast-uri@3.1.7`), and it reports a workspace
 package's dependencies from that package's own importer rather than through
@@ -377,7 +389,12 @@ so `802dc03c` is not in this PR's history: its tree is that commit's tree with
 the two evidence files and this review as they are in its parent. The
 2026-11-03 removal of `antd`, `antd-dayjs-webpack-plugin` and
 `babel-plugin-import` was rebased and committed the same way, as `a941b06e`,
-which is not in this PR's history either.
+which is not in this PR's history either. The #37 removal of `bitcore-lib`,
+`@qbit/tx-helpers` and the cold-wallet QR packages was rebased on 2026-11-05
+onto `release/1.0.8` at `06ca27a`, which includes #144, and committed without
+the regenerated evidence and this review's figures as `78df536a`. The evidence
+was regenerated there and is committed on top of it in #136, so `78df536a` is
+in that PR's history.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -441,6 +458,7 @@ which is not in this PR's history either.
 | `eae96336` | Move from pnpm 8.6.0 to pnpm 11.28.9 with a hashed pin, convert the lockfile to v9, and read pnpm 11's settings, lockfile and audit paths in the policy and evidence tooling | Kept every resolved version and integrity; removed four auto-installed peers pnpm 8 never installed; zero critical/high findings with no exception in force |
 | `802dc03c` | Remove the unused `@qbit/wallet-api` and `@qbit/notification-service` workspaces | Dropped 2 workspaces, 20 direct declarations and the `@types/randomstring@1.3.0` license identity; the live audit stayed at zero critical/high findings |
 | `a941b06e` | Remove `antd`, which no screen rendered any more, and its `antd-dayjs-webpack-plugin` and `babel-plugin-import` build plugins | Cleared the moderate `moment` record `GHSA-4p3w-j4w9-5jqw`, which only `antd` still reached, and dropped 56 lock entries and their license identities, `moment@2.30.1` among them; the live audit stayed at zero critical/high findings |
+| `78df536a` | Remove `bitcore-lib` and its patch, `@qbit/tx-helpers`, `@zxing/browser`, `@zxing/library` and `@unisat/animated-qr` with the code that used them (#37) | Dropped 1 workspace, 24 direct declarations and 23 lock entries and their license identities, `bitcore-lib@10.0.0` and `bn.js@4.11.8` among them; the live audit stayed at zero critical/high findings |
 
 ## Lint and dependency policy jobs
 
@@ -489,10 +507,10 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,080 integrity-pinned registry entries, 386
+The audited policy checked 2,057 integrity-pinned registry entries, 362
 dependency specifiers (the 49 overrides are now audited in
 `pnpm-workspace.yaml`), 32 Action references, two tracked package-manager
-configuration files, 256 executable package/workflow commands, and 2,080 exact
+configuration files, 248 executable package/workflow commands, and 2,057 exact
 package/version license records. The browser smoke-test installer is an exact
 direct dependency and installs `chrome@148.0.7778.97`; it no longer downloads
 mutable `stable` through `pnpm dlx`. Tracked-file discovery recurses into any
@@ -507,10 +525,10 @@ commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,080 distinct identities
+version, and normalized license expression for all 2,057 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,080 registry entries must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,057 registry entries must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -550,7 +568,10 @@ leaving 2,136. Removing `antd`, `antd-dayjs-webpack-plugin` and
 `babel-plugin-import` dropped the 56 identities, all MIT, that only they
 brought in, among them `antd@4.20.4`, `moment@2.30.1`, `dayjs@1.11.18`,
 `date-fns@2.30.0` and 34 `rc-*` component identities, and onboarded none,
-leaving 2,080.
+leaving 2,080. Removing `bitcore-lib`, `@qbit/tx-helpers` and the cold-wallet
+QR packages for #37 dropped the 23 identities that only they brought in, among
+them `bitcore-lib@10.0.0`, `bn.js@4.11.8`, `qrcode@1.5.4` and
+`@zxing/library@0.21.2`, and onboarded none, leaving 2,057.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
@@ -580,12 +601,12 @@ still requires the applicable notices and source-obligation review.
 ## Validation evidence
 
 The gates covering the changed dependency and build paths passed at the audited
-dependency commit, except for the 2026-11-05 removals. For those, the frozen
-install and the live dependency policy ran on the tree after each removal, and
-every other gate run locally ran only on this branch's rebased final tree; all ran
-before the commits were created, with evidence that the generator produced the
-same way, and none was rerun at the audited commits. The final tree has
-`a941b06e`'s lockfile and manifests and the follow-up fix that makes
+dependency commit, except for the 2026-11-05 workspace and `antd` removals. For
+those, the frozen install and the live dependency policy ran on the tree after
+each removal, and every other gate run locally ran only on that branch's rebased
+final tree; all ran before the commits were created, with evidence that the
+generator produced the same way, and none was rerun at the audited commits. That
+final tree had `a941b06e`'s lockfile and manifests and the follow-up fix that makes
 `getVersionDetail` ignore inherited names. The evidence they ran with matches
 the committed evidence in every record; at most the audited commit, the order
 of pnpm's raw audit lists and the hashes that depend on them differ.
@@ -652,8 +673,39 @@ bytes smaller. Uncompressed, `background.js` is 272,360 bytes and `ui.js`
 lose the deleted keys, and `images/icons/artifacts/announcement_art.png` is
 gone; the other 61 entries are byte-identical. Two clean rebuilds
 through `build:repro:extension -- --allow-toolchain-mismatch` produced the same
-ZIP. The dependency evidence this review is bound to was generated at
-`a941b06e`.
+ZIP. That removal's dependency evidence was generated at `a941b06e`.
+
+The #37 removals ran locally on the pinned Node 22.22.3 and pnpm 11.28.9. The
+lockfile is a one-pass pnpm 11.28.9 relock of base `06ca27a`'s that only
+removes lines: the 23 entries and their snapshots, the `@qbit/tx-helpers`
+importer, the removed declarations and the `bitcore-lib` patch. The workspace
+builds, typecheck, root lint and unit tests ran on the tree committed as
+`78df536a`, and the policy suites and packaging on `78df536a` with the
+regenerated evidence. The frozen install, the workspace declaration and
+background builds, typecheck, the workspace unit tests (242 Vitest suites,
+4,035 tests, plus 88 extension script tests), the 12 PQC golden and 3
+protocol-vector tests, the extension PQC import smoke, the live dependency
+policy (0 critical/high records and no exception in force) and the extension
+build passed. Root lint passed with zero errors and 656 repo-level warnings
+against base `06ca27a`'s 730; per file and rule, only `SignPsbt/index.tsx` and
+`wallet-controller-qbit-over-limit-balance.test.ts` gain a warning, for imports
+the removals left unused. Of the 163 policy-tooling tests, 162 passed: `probes
+with git isolated from every inherited credential source` fails on this macOS
+host, as it does at base `06ca27a`, because macOS adds
+`__CF_USER_TEXT_ENCODING` to the probe's environment, and the rest of the
+adversarial suite passed. The base and this tree were built the same way, with
+the workspace builds and `package:test -- --artifact-version 1.0.7`, and the
+branch removes code from the extension, so the ZIPs differ:
+`2a8f9e37114b74044712969fa382d86421cc64accefbf2c6f6043c1a7e80e00d` became
+`10c779db5c9a2dd22326ea9a6668f3bbf5d3afab12529802894191cc8d2a4b0e`, 143,937
+bytes smaller. Uncompressed, `ui.js` is 464,125 bytes and `background.js`
+42,565 bytes smaller and the six locale files lose the deleted keys; the other
+63 entries are byte-identical, and the built extension contains no
+`bitcore-lib`, `@zxing` or `@qbit/tx-helpers` code. Two clean rebuilds through
+`build:repro:extension` on the pinned toolchain produced the same ZIP.
+Playwright, regtest integration and qbit Core conformance remain branch CI
+gates. The dependency evidence this review is bound to was generated at
+`78df536a`.
 
 ## Limitations and ongoing ownership
 
