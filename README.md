@@ -17,12 +17,9 @@ packages/
 ├── base-utils             # Shared utility functions
 ├── contact-book           # Saved Qbit addresses
 ├── keyring-service        # Key management and signing
-├── notification-service   # Local notification state
 ├── permission-service     # Connected-site permissions
 ├── phishing-detect        # Bundled site-safety policy
 ├── preference-service     # Wallet preferences
-├── tx-helpers             # Transaction construction helpers
-├── wallet-api             # Qbit API client
 ├── wallet-background      # Extension background runtime
 ├── wallet-connect         # Provider connection utilities
 ├── wallet-connect-react   # React provider bindings
@@ -43,11 +40,15 @@ of [Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js), and
 ## Requirements
 
 - Node.js 22.22.3 (see `.nvmrc`)
-- pnpm 8.6.0
+- pnpm 11.28.9, the `packageManager` pin in `package.json`, run through Corepack.
+  After `corepack enable`, `pnpm` is Corepack's shim, which checks the pnpm it
+  downloads against the pin's sha512 hash. A pnpm installed another way, such
+  as `npm install -g pnpm` or `pnpm/action-setup`, is not checked.
 
 ## Setup
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 ```
 

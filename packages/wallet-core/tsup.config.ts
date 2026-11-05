@@ -11,8 +11,6 @@ export default defineConfig({
   external: [
     'bitcoinjs-lib',
     'ecpair',
-    '@noble/hashes',
-    '@noble/secp256k1',
     '@qbit/wallet-types',
     'tiny-secp256k1',
     '@bitcoinerlab/secp256k1',

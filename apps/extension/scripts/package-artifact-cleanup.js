@@ -13,9 +13,8 @@ function getPackageArtifactName({ brandName, browser, manifest, artifactVersion,
     assertSafeArtifactComponent(name, value)
   );
 
-  const extension = browser === 'firefox' ? 'xpi' : 'zip';
   const channelSuffix = channel === 'store' ? '' : `-${channel}`;
-  return `${brandName}-${browser}-${manifest}${channelSuffix}-v${artifactVersion}.${extension}`;
+  return `${brandName}-${browser}-${manifest}${channelSuffix}-v${artifactVersion}.zip`;
 }
 
 function removePackageArtifact(artifactPath) {

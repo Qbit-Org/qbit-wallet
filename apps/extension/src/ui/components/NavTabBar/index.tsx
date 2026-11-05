@@ -1,7 +1,6 @@
 import { colors } from '@/ui/theme/colors';
-import { TabOption, useNavigation, useUnreadNotificationsCount } from '@qbit/wallet-state';
+import { TabOption, useNavigation } from '@qbit/wallet-state';
 
-import { BaseView } from '../BaseView';
 import { Column } from '../Column';
 import { Grid } from '../Grid';
 import { Icon, IconTypes } from '../Icon';
@@ -38,7 +37,6 @@ function TabButton({
   'data-testid'?: string;
 }) {
   const nav = useNavigation();
-  const unreadNotificationCount = useUnreadNotificationsCount();
 
   return (
     <Column
@@ -56,23 +54,6 @@ function TabButton({
       data-testid={dataTestId}
     >
       <Icon size={iconSize} icon={icon} color={isActive ? 'accentDark' : 'muted'} />
-      <BaseView style={{ position: 'relative' }}>
-        {tabName === 'settings' && unreadNotificationCount > 0 && (
-          <BaseView
-            style={{
-              position: 'absolute',
-              top: -28,
-              right: -10,
-              width: 7,
-              height: 7,
-              backgroundColor: '#F55454',
-              borderRadius: '50%',
-              borderWidth: 1,
-              borderColor: colors.surface
-            }}
-          ></BaseView>
-        )}
-      </BaseView>
     </Column>
   );
 }

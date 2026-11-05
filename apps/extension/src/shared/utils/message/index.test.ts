@@ -43,6 +43,18 @@ describe('message request/response error serialization', () => {
     });
   });
 
+  it('keeps the code of a migration plan whose review was interrupted (#156)', async () => {
+    const { ui, background } = linkedPair();
+    background.listen(() => {
+      throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED);
+    });
+
+    await expect(ui.request({ method: 'signPsbtV2' })).rejects.toMatchObject({
+      code: ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED
+    });
+    expect(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED).toBe(-17);
+  });
+
   it('serializes untyped errors without inventing a code', async () => {
     const { ui, background } = linkedPair();
     background.listen(() => {

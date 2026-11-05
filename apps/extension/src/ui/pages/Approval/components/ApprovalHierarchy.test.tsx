@@ -101,8 +101,6 @@ vi.mock('@/ui/components/AutoFitVirtualList', async () => {
       )
   };
 });
-vi.mock('@/ui/components/ColdWallet', () => ({ ColdWalletSignMessage: () => null }));
-vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', () => ({ default: () => null }));
 vi.mock('@/ui/components/PhishingDetection', () => ({ PhishingDetection: () => null }));
 vi.mock('@/ui/components/SignPsbtWithRisksPopover', () => ({ SignPsbtWithRisksPopover: () => null }));
 vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
@@ -215,7 +213,6 @@ function createSignMessageLogicResult(overrides: Record<string, unknown> = {}): 
     loading: false,
     t: (key: string) => key,
     session,
-    isColdWalletSigning: false,
     showMultiSignView: false,
     disclaimerVisible: false,
     toSignMessages: [toSignMessage],
@@ -233,8 +230,6 @@ function createSignMessageLogicResult(overrides: Record<string, unknown> = {}): 
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     readonlySignature: '',
     setReadonlySignature: vi.fn(),
     onDisclaimerModalClose: vi.fn(),
@@ -256,7 +251,6 @@ function createSignPsbtLogicResult(overrides: Record<string, unknown> = {}): Ret
     currentDecodedPsbt: {},
     readonlySignedPsbtHex: '',
     setReadonlySignedPsbtHex: vi.fn(),
-    isColdWalletSigning: false,
     showMultiSignView: false,
     disclaimerVisible: false,
     localPsbtSummary: null,
@@ -281,8 +275,6 @@ function createSignPsbtLogicResult(overrides: Record<string, unknown> = {}): Ret
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     onRiskPopoverConfirm: vi.fn(),
     onRiskPopoverClose: vi.fn(),
     onDisclaimerModalClose: vi.fn(),

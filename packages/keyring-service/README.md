@@ -4,8 +4,9 @@ Key management and signing for Qbit Wallet.
 
 ## Responsibilities
 
-- Create and restore HD wallets.
-- Manage simple, readonly, watch-address, and cold-wallet accounts.
+- Create and restore Qbit P2MR HD wallets.
+- Manage readonly and watch-address accounts, and load the cold-wallet
+  accounts existing vaults hold.
 - Derive Qbit addresses for mainnet, testnet4, and regtest.
 - Sign messages and Qbit transactions.
 - Encrypt persisted keyring state through a caller-provided encryptor.
@@ -45,12 +46,9 @@ counters to connected sites.
 ## Exports
 
 - `KeyringService`
-- `HdKeyring`
 - `QbitHdKeyring`
-- `SimpleKeyring`
 - `ColdWalletKeyring`
 - `BrowserPassworderEncryptor`
-- `SimpleEncryptor`
 - Public keyring and account types
 
 The Qbit HD keyring is also available through the

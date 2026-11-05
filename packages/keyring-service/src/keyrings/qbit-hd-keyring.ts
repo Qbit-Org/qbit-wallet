@@ -504,9 +504,7 @@ export class QbitHdKeyring {
     this.mnemonic = mnemonic
     this._index2account = {}
 
-    const seed = bip39.mnemonicToSeedSync
-      ? bip39.mnemonicToSeedSync(mnemonic, this.passphrase)
-      : bip39.mnemonicToSeed(mnemonic, this.passphrase)
+    const seed = bip39.mnemonicToSeedSync(mnemonic, this.passphrase)
     this.hdWallet = hdkey.fromMasterSeed(seed)
     this.root = this.hdWallet.derive(this.hdPath)
   }

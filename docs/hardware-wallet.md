@@ -7,8 +7,8 @@ have a hardware signer that can produce them.
 ## Wallet behavior
 
 - The add-wallet flow explains the software-keyring requirement.
-- Cold-wallet creation and extended-public-key account derivation return the
-  typed `hardware_wallet_not_supported` error.
+- The wallet offers no cold-wallet creation or extended-public-key account
+  derivation. A vault that already holds a `ColdWalletKeyring` still loads.
 - `KeyringService.addKeyring` rejects new `ColdWalletKeyring` instances as a
   second enforcement layer.
 - `canCreateQbitSendRequest` requires a P2MR account with a supported signing

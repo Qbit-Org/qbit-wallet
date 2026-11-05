@@ -13,7 +13,9 @@ import {
   QBIT_EXPLORER_BODY_IDLE_TIMEOUT_MS,
   QBIT_EXPLORER_HEADERS_TIMEOUT_MS,
   QBIT_EXPLORER_MAX_BODY_BYTES,
+  QBIT_EXPLORER_MIN_UPLOAD_BYTES_PER_SECOND,
   QBIT_EXPLORER_REPLY_TIMEOUT_MS,
+  qbitExplorerReplyTimeoutMs,
 } from '../src/utils/qbit-explorer-fetch'
 import { FakeQbitExplorer, fakeTxid } from './qbit-fake-explorer'
 
@@ -447,6 +449,145 @@ describe('explorer submissions keep their outcome classification (#353)', () => 
     expect(result.elapsedMs).toBeLessThan(QBIT_EXPLORER_REPLY_TIMEOUT_MS + 1_000)
     expect(explorer.releasedBodies).toEqual(['/tx'])
   })
+})
+
+/**
+ * A fetch over a link that uploads a request's body at `bytesPerSecond`. As
+ * `fetch` does, it resolves only once the body has gone out, and reports no
+ * progress before; it then answers with `reply`. With `stallAfterBytes` the
+ * upload stops after that many bytes and never ends, until the request's
+ * signal aborts, as on a dead connection.
+ */
+function uploadingFetch(options: {
+  bytesPerSecond: number
+  stallAfterBytes?: number
+  reply: () => Response
+}) {
+  const uploads = { started: 0, completed: 0, aborted: 0 }
+  const fetchFn = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    uploads.started += 1
+    const bytes = new TextEncoder().encode(String(init?.body ?? '')).byteLength
+    const signal = init?.signal ?? undefined
+    return new Promise<Response>((resolve, reject) => {
+      if (signal?.aborted) return reject(signal.reason)
+      const stalls = options.stallAfterBytes !== undefined && options.stallAfterBytes < bytes
+      const timer = stalls
+        ? undefined
+        : setTimeout(
+            () => {
+              signal?.removeEventListener('abort', onAbort)
+              uploads.completed += 1
+              resolve(options.reply())
+            },
+            Math.ceil((bytes * 1_000) / options.bytesPerSecond)
+          )
+      const onAbort = () => {
+        clearTimeout(timer)
+        uploads.aborted += 1
+        reject(signal!.reason)
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+  return { fetchFn, uploads }
+}
+
+describe('explorer submissions over a slow uplink (#130)', () => {
+  // About 800 kB of hex, the largest standard transaction's.
+  const LARGE_TX_HEX = 'ab'.repeat(400_000)
+  const LARGE_TX_REPLY_MS = qbitExplorerReplyTimeoutMs(LARGE_TX_HEX)
+  // About 160 kbit/s: 800 kB takes about 39 s, inside its budget but not 15 s.
+  const SLOW_UPLINK_BYTES_PER_SECOND = 20 * 1024
+  const echo = () => new Response(fakeTxid(7), { status: 200 })
+  const clientOver = (surface: 'esplora' | 'mempool-qbit', fetchFn: typeof fetch) =>
+    surface === 'esplora'
+      ? new QbitWalletEsploraClient({ baseUrl: BASE, fetchFn })
+      : new QbitWalletMempoolClient({ baseUrl: BASE, fetchFn })
+
+  it('gives a reply the time its request body takes to upload, within the attempt ceiling', () => {
+    expect(qbitExplorerReplyTimeoutMs()).toBe(QBIT_EXPLORER_REPLY_TIMEOUT_MS)
+    expect(qbitExplorerReplyTimeoutMs('')).toBe(QBIT_EXPLORER_REPLY_TIMEOUT_MS)
+    expect(qbitExplorerReplyTimeoutMs('00')).toBe(QBIT_EXPLORER_REPLY_TIMEOUT_MS + 1)
+    // 800,000 bytes at 16 KiB/s: about 49 s of upload.
+    expect(LARGE_TX_REPLY_MS).toBe(
+      QBIT_EXPLORER_REPLY_TIMEOUT_MS +
+        Math.ceil((800_000 * 1_000) / QBIT_EXPLORER_MIN_UPLOAD_BYTES_PER_SECOND)
+    )
+    expect(LARGE_TX_REPLY_MS).toBe(63_829)
+    // Bytes, not characters, and whatever holds them.
+    const second = QBIT_EXPLORER_MIN_UPLOAD_BYTES_PER_SECOND
+    expect(qbitExplorerReplyTimeoutMs('é'.repeat(second / 2))).toBe(16_000)
+    expect(qbitExplorerReplyTimeoutMs(new Uint8Array(second))).toBe(16_000)
+    expect(qbitExplorerReplyTimeoutMs(new Uint8Array(second).buffer)).toBe(16_000)
+    expect(qbitExplorerReplyTimeoutMs(new Blob([new Uint8Array(second)]))).toBe(16_000)
+    expect(qbitExplorerReplyTimeoutMs('ab'.repeat(10 * MB))).toBe(QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS)
+    // A body whose size is not known before it is sent keeps 15 s.
+    expect(qbitExplorerReplyTimeoutMs(new ReadableStream())).toBe(QBIT_EXPLORER_REPLY_TIMEOUT_MS)
+  })
+
+  for (const surface of ['esplora', 'mempool-qbit'] as const) {
+    it(`sends an 800 kB transaction whose upload takes longer than 15 s to ${surface}`, async () => {
+      const link = uploadingFetch({ bytesPerSecond: SLOW_UPLINK_BYTES_PER_SECOND, reply: echo })
+
+      const result = await settle(clientOver(surface, link.fetchFn).broadcastTx(LARGE_TX_HEX))
+
+      expect(result).toMatchObject({ value: fakeTxid(7) })
+      expect(result.elapsedMs).toBeGreaterThan(2 * QBIT_EXPLORER_REPLY_TIMEOUT_MS)
+      expect(result.elapsedMs).toBeLessThan(LARGE_TX_REPLY_MS)
+      expect(link.uploads).toEqual({ started: 1, completed: 1, aborted: 0 })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  }
+
+  it('still cuts off a small submission whose upload stalls at 15 s, as an unknown outcome sent once', async () => {
+    const link = uploadingFetch({
+      bytesPerSecond: SLOW_UPLINK_BYTES_PER_SECOND,
+      stallAfterBytes: 0,
+      reply: echo,
+    })
+
+    const result = await settle(clientOver('esplora', link.fetchFn).broadcastTx('00'))
+
+    const error = (result as { error: unknown }).error
+    expect(QbitApiError.is(error) && error.kind).toBe('unknown_outcome')
+    expect(classifyQbitBroadcastError(error)).toMatchObject({
+      reason: 'timeout',
+      definitiveRejection: false,
+    })
+    expect(isQbitBroadcastResendable(error)).toBe(true)
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(QBIT_EXPLORER_REPLY_TIMEOUT_MS)
+    expect(result.elapsedMs).toBeLessThan(QBIT_EXPLORER_REPLY_TIMEOUT_MS + 1_000)
+    expect(link.uploads).toEqual({ started: 1, completed: 0, aborted: 1 })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  for (const surface of ['esplora', 'mempool-qbit'] as const) {
+    it(`ends a large upload to ${surface} that stalls within its budget, as an unknown outcome sent once`, async () => {
+      const link = uploadingFetch({
+        bytesPerSecond: SLOW_UPLINK_BYTES_PER_SECOND,
+        stallAfterBytes: 300_000,
+        reply: echo,
+      })
+
+      const result = await settle(clientOver(surface, link.fetchFn).broadcastTx(LARGE_TX_HEX))
+
+      const error = (result as { error: unknown }).error
+      expect(QbitApiError.is(error) && error.kind).toBe('unknown_outcome')
+      expect(classifyQbitBroadcastError(error)).toMatchObject({
+        reason: 'timeout',
+        definitiveRejection: false,
+      })
+      expect((error as QbitApiError).cause).toMatchObject({
+        kind: 'timeout',
+        message: expect.stringContaining(`no complete reply within ${LARGE_TX_REPLY_MS}ms`),
+      })
+      expect(result.elapsedMs).toBeGreaterThanOrEqual(LARGE_TX_REPLY_MS)
+      expect(result.elapsedMs).toBeLessThan(LARGE_TX_REPLY_MS + 1_000)
+      // Never sent again, on either route.
+      expect(link.uploads).toEqual({ started: 1, completed: 0, aborted: 1 })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  }
 })
 
 describe('one deadline for the explorer reads of an operation (#56)', () => {

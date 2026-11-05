@@ -1703,8 +1703,7 @@ describe('TxCreateScreen state hooks', () => {
         via: 'broadcast',
       }),
       getAddressSummary: vi.fn().mockResolvedValue({
-        totalSatoshis: 90_000,
-        spendableSatoshis: 90_000,
+        mempoolInclusiveSatoshis: 90_000,
       }),
       getAddressBalanceV2: vi.fn().mockResolvedValue({
         availableBalance: 80_000,

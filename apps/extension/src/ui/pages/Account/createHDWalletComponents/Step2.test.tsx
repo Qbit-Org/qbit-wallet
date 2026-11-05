@@ -196,7 +196,7 @@ describe('Step2 restore flow', () => {
       createTmpKeyringWithMnemonics: vi.fn(async () => ({
         accounts: [{ address: 'qb1qpreview0' }]
       })),
-      getMultiAddressSummaries: vi.fn(async () => [{ totalSatoshis: 0 }]),
+      getMultiAddressSummaries: vi.fn(async () => [{ mempoolInclusiveSatoshis: 0 }]),
       runQbitRestoreFloorScan,
       getQbitRestoreFloorsPending,
       getQbitConcurrentInstanceHint
@@ -651,6 +651,66 @@ describe('Step2 restore flow', () => {
     });
     expect(screen.getByTestId('restore-report-floors-incomplete')).toBeTruthy();
     expect(toastError).toHaveBeenCalled();
+  });
+
+  // The background words a summed-floor refusal with its own translation of
+  // these messages, so the restore screen shows what to do as it arrives.
+  const message = (key: string, substitutions: string[]) =>
+    englishTranslations[key]!.message.replace(/\$(\d)/g, (_, digit: string) => substitutions[Number(digit) - 1]!);
+  const summedFloorRefusal = message('qbit_restore_summed_floor_testnet4', [
+    '0',
+    message('qbit_restore_summed_floor_share_testnet4_stats', ['134,217,728']),
+    message('qbit_restore_summed_floor_share_regtest_stats', ['134,217,728']),
+    '268,435,456'
+  ]);
+
+  it('shows a summed-floor refusal and what to do in the failure card', async () => {
+    restoreQbitWallet.mockResolvedValue(
+      completedReport({
+        floorsCompleted: false,
+        floorScan: undefined,
+        floorError: summedFloorRefusal
+      })
+    );
+    renderStep2(true);
+
+    fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+
+    const card = await screen.findByTestId('restore-report-floors-incomplete');
+    expect(card.textContent).toContain(englishTranslations.qbit_restore_floors_incomplete_warning.message);
+    expect(card.textContent).toContain(summedFloorRefusal);
+    expect(summedFloorRefusal).toContain(
+      "The Testnet4 explorer's address statistics report 134,217,728 signatures. The local Regtest service's address statistics report 134,217,728 signatures."
+    );
+    expect(summedFloorRefusal).toContain('Stop the local Regtest service, or turn off Local Regtest');
+    expect(screen.getByTestId('restore-retry-button')).toBeTruthy();
+  });
+
+  it('shows the refusal of a failed retry in the failure card as well as the toast', async () => {
+    restoreQbitWallet.mockResolvedValue(
+      completedReport({
+        floorsCompleted: false,
+        floorScan: undefined,
+        floorError: 'esplora unreachable'
+      })
+    );
+    // Over the port a rejection arrives as a plain object carrying the message.
+    runQbitRestoreFloorScan.mockRejectedValue({ message: summedFloorRefusal });
+    renderStep2(true);
+
+    fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+    const card = await screen.findByTestId('restore-report-floors-incomplete');
+    expect(card.textContent).toContain('esplora unreachable');
+    fireEvent.click(screen.getByTestId('restore-retry-button'));
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(summedFloorRefusal);
+    });
+    const updated = screen.getByTestId('restore-report-floors-incomplete');
+    expect(updated.textContent).toContain(summedFloorRefusal);
+    expect(updated.textContent).not.toContain('esplora unreachable');
+    expect(getQbitRestoreFloorsPending).not.toHaveBeenCalled();
+    expect(screen.getByTestId('restore-retry-button')).toBeTruthy();
   });
 
   it('navigates to the wallet only from the acknowledged report', async () => {

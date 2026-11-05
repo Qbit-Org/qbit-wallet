@@ -139,18 +139,17 @@ describe('SwitchAccountScreen account dropdown', () => {
   });
 
   it.each([
-    [KeyringType.HdKeyring, true, true],
-    [KeyringType.QbitHdKeyring, true, false],
-    [KeyringType.SimpleKeyring, false, true],
-    [KeyringType.WatchAddressKeyring, false, false]
-  ])('shows supported actions for %s', (keyringType, showsBackup, showsPrivateKeyExport) => {
+    [KeyringType.QbitHdKeyring, true],
+    [KeyringType.ReadonlyKeyring, false],
+    [KeyringType.WatchAddressKeyring, false]
+  ])('shows supported actions for %s', (keyringType, showsBackup) => {
     renderAccountItem(keyringType);
 
     expect(screen.queryByText('show_secret_recovery_phrase') !== null).toBe(showsBackup);
-    expect(screen.queryByText('export_private_key') !== null).toBe(showsPrivateKeyExport);
+    expect(screen.queryByText('export_private_key')).toBeNull();
   });
 
-  it.each([KeyringType.HdKeyring, KeyringType.QbitHdKeyring])(
+  it.each([KeyringType.QbitHdKeyring])(
     'backs up the current %s keyring through the password-gated export screen',
     (keyringType) => {
       const { account, keyring } = renderAccountItem(keyringType);
@@ -204,7 +203,7 @@ describe('SwitchAccountScreen account list', () => {
   }
 
   it('renders one card per account with no filler rows', () => {
-    const { accounts } = renderScreen(KeyringType.HdKeyring);
+    const { accounts } = renderScreen(KeyringType.QbitHdKeyring);
 
     for (const account of accounts) {
       expect(screen.getByTestId(`account-item-${account.address}`)).toBeTruthy();
@@ -212,7 +211,7 @@ describe('SwitchAccountScreen account list', () => {
   });
 
   it('creates an account from the bottom CTA and keeps the header shortcut', () => {
-    const { navigation } = renderScreen(KeyringType.HdKeyring);
+    const { navigation } = renderScreen(KeyringType.QbitHdKeyring);
 
     expect(screen.getByTestId('add-account-button')).toBeTruthy();
     fireEvent.click(screen.getByTestId('new-account-button'));
@@ -221,7 +220,7 @@ describe('SwitchAccountScreen account list', () => {
   });
 
   it('hides account creation for keyrings that cannot derive accounts', () => {
-    renderScreen(KeyringType.SimpleKeyring);
+    renderScreen(KeyringType.ReadonlyKeyring);
 
     expect(screen.queryByTestId('new-account-button')).toBeNull();
     expect(screen.queryByTestId('add-account-button')).toBeNull();

@@ -165,9 +165,9 @@ export function Step2({
     for (let i = 0; i < addresses.length; i++) {
       const address = addresses[i];
       const balance = balances[i];
-      const satoshis = balance.totalSatoshis;
+      const satoshis = balance.mempoolInclusiveSatoshis;
       addressAssets[address] = {
-        totalAmount: satoshisToAmount(balance.totalSatoshis),
+        totalAmount: satoshisToAmount(balance.mempoolInclusiveSatoshis),
         satoshis
       };
       if (satoshis > maxSatoshis) {
@@ -278,7 +278,17 @@ export function Step2({
         floorScan: summary
       });
     } catch (e) {
-      tools.toastError((e as any).message);
+      const floorError = String((e as any)?.message ?? e);
+      // The failure card shows why the latest attempt failed, which can
+      // differ from the restore's; the toast alone closes after a few seconds.
+      setReport({
+        network: report.network,
+        accountsRestored: report.accountsRestored,
+        discovery: report.discovery,
+        floorsCompleted: false,
+        floorError
+      });
+      tools.toastError(floorError);
     } finally {
       // A failed or partial retry may still have latched the persisted
       // two-live-wallet hint; refresh it regardless of outcome.

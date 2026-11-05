@@ -332,7 +332,7 @@ describe('content-script link interception', () => {
     }
   });
 
-  it('does not flag a new tab link in a frame, which only MV2, without the redirect rule, checks', () => {
+  it('leaves a new tab link in a frame to the background without the new tab flag', () => {
     vi.stubGlobal('top', {});
     try {
       expect(click(link({ href: BLOCKED_URL, target: '_blank' }), { ctrlKey: true })).toBe(false);

@@ -11,7 +11,6 @@ function getBrowserPaths(browser) {
     indexHtml: rootResolve('build/_raw/index.html'),
     sidepanelHtml: rootResolve('build/_raw/sidepanel.html'),
     notificationHtml: rootResolve('build/_raw/notification.html'),
-    backgroundHtml: rootResolve('src/background/background.html'),
     phishingWarningHtml: rootResolve('src/phishing-warning/phishing-warning.html'),
     dist: rootResolve('dist/' + browser),
     rootResolve,

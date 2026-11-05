@@ -136,8 +136,8 @@ vi.mock('@/ui/utils', () => ({
   showLongNumber: (value: unknown) => `${value}`
 }));
 
-// Expose the create flow's selected word type without pulling antd into the
-// module graph; Step1_Create's generation behavior has focused coverage.
+// Expose the create flow's selected word type; Step1_Create's generation
+// behavior has focused coverage.
 vi.mock('./createHDWalletComponents/Step1_Create', async () => {
   const React = await import('react');
   return {
@@ -214,7 +214,7 @@ describe('CreateHDWalletScreen', () => {
       // Previews stay in flight, matching the CI run where the background is
       // still deriving when Continue is clicked.
       createTmpKeyringWithMnemonics: vi.fn(() => new Promise(() => undefined)),
-      getMultiAddressSummaries: vi.fn(async () => [{ totalSatoshis: 0 }]),
+      getMultiAddressSummaries: vi.fn(async () => [{ mempoolInclusiveSatoshis: 0 }]),
       getQbitConcurrentInstanceHint: vi.fn(async () => false),
       setLastActiveTime,
       lockWallet

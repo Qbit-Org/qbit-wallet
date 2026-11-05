@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { Content, Header, Layout } from '@/ui/components';
 import LoadingPage from '@/ui/components/LoadingPage';
-import { useDeveloperMode, useI18n } from '@qbit/wallet-state';
+import { useI18n } from '@qbit/wallet-state';
 
-import { EnableSignDataCard } from './EnableSignData';
 import { LanguageCard } from './Language';
 import { PhishingProtectionCard } from './PhishingProtectionCard';
 import { RegtestAccessCard } from './RegtestAccessCard';
@@ -12,7 +11,6 @@ import { SecurityCard } from './SecurityCard';
 
 export default function AdvancedScreen() {
   const { t } = useI18n();
-  const developerMode = useDeveloperMode();
 
   const [init, setInit] = useState(false);
   useEffect(() => {
@@ -41,8 +39,6 @@ export default function AdvancedScreen() {
         <PhishingProtectionCard />
 
         <RegtestAccessCard />
-
-        {developerMode && <EnableSignDataCard />}
       </Content>
     </Layout>
   );

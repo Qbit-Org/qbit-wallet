@@ -44,12 +44,10 @@ import EditAccountNameScreen from './Settings/EditAccountNameScreen';
 import EditContactScreen from './Settings/EditContactScreen';
 import EditWalletNameScreen from './Settings/EditWalletNameScreen';
 import ExportMnemonicsScreen from './Settings/ExportMnemonicsScreen';
-import ExportPrivateKeyScreen from './Settings/ExportPrivateKeyScreen';
 import AppearanceScreen from './Settings/AppearanceScreen';
 import BiometricUnlockScreen from './Settings/BiometricUnlockScreen';
 import LanguageScreen from './Settings/LanguageScreen';
 import NetworkTypeScreen from './Settings/NetworkTypeScreen';
-import NotificationListScreen from './Settings/NotificationListScreen';
 import UpgradeNoticeScreen from './Settings/UpgradeNoticeScreen';
 import TestScreen from './Test/TestScreen';
 import HistoryScreen from './Wallet/HistoryScreen';
@@ -84,10 +82,6 @@ export const routes = {
   AppTabScreen: {
     path: '/app',
     element: <Navigate to="/discover" replace />
-  },
-  NotificationListScreen: {
-    path: '/notifications',
-    element: <NotificationListScreen />
   },
   SettingsTabScreen: {
     path: '/settings',
@@ -158,10 +152,6 @@ export const routes = {
   ExportMnemonicsScreen: {
     path: '/settings/export-mnemonics',
     element: <ExportMnemonicsScreen />
-  },
-  ExportPrivateKeyScreen: {
-    path: '/settings/export-privatekey',
-    element: <ExportPrivateKeyScreen />
   },
   AdvancedScreen: {
     path: '/settings/advanced',

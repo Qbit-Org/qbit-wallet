@@ -148,7 +148,6 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
 
   const [isPsbtSigning, setIsPsbtSigning] = useState(false)
   const [isPsbtRiskPopoverVisible, setIsPsbtRiskPopoverVisible] = useState(false)
-  const [isColdWalletSigning, setIsColdWalletSigning] = useState(false)
   const [readonlySignedPsbtHex, setReadonlySignedPsbtHex] = useState('')
 
   const wallet = useWallet()
@@ -196,8 +195,6 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const [decodeAttempt, setDecodeAttempt] = useState(0)
   const decodeRequestGeneration = useRef(0)
   const decodedPsbtDatas = useRef<Array<DecodedPsbtCacheEntry | undefined>>([])
-
-  const coldWalletSigningWebsiteGuardVersion = useRef<number | undefined>(undefined)
 
   const isMultipleViewMode = toSignDatas.length > 1
 
@@ -482,6 +479,26 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const batchRiskIndexes = (currentLocalPsbtSummary?.items ?? []).flatMap((item, index) =>
     item.risks.length > 0 ? [index] : []
   )
+  // The whole batch's signature budget. Its entries sign in any order, so
+  // an entry's own before and after figures would hold only if it signed
+  // first.
+  const signatureBatchBudget =
+    toSignDatas[0]?.qbitSignatureBatch?.budget ?? currentLocalPsbtSummary?.signatureBatch?.budget
+
+  /**
+   * The entry at `index` as its batch signs it. A provider request's entries
+   * carry the batch opened at its approval; a local batch's is the one the
+   * wallet opened for the bytes it reviewed in `summary`.
+   */
+  const withSignatureBatch = (
+    index: number,
+    summary: LocalPsbtSummary | null | undefined
+  ): ToSignData => {
+    const toSignData = toSignDatas[index]!
+    const batch = summary?.signatureBatch
+    if (!batch || toSignData.qbitSignatureBatch) return toSignData
+    return { ...toSignData, qbitSignatureBatch: { id: batch.id, index, budget: batch.budget } }
+  }
 
   const multiSignList = useMemo(() => {
     return toSignDatas.map((data, index) => {
@@ -642,8 +659,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       if (signedStates[i] === SignState.SUCCESS) continue
 
       try {
-        const toSignData = toSignDatas[i]
-        const signedData = await wallet.signLocalBatchPsbt(toSignData, {
+        const signedData = await wallet.signLocalBatchPsbt(withSignatureBatch(i, summary), {
           account: summary.account,
           chain: summary.chain,
           confirmedRisks: risksConfirmed ? summary.items[i].risks.map(risk => risk.type) : [],
@@ -748,7 +764,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     const signingWebsiteGuardVersion = websiteGuardVersionRef.current
 
     try {
-      const toSignData = toSignDatas[signingTxIndex]
+      const toSignData = withSignatureBatch(signingTxIndex, currentLocalPsbtSummary)
       const signedData = await wallet.signPsbtV2(toSignData)
       onSignedData(signedData, signingTxIndex, signingWebsiteGuardVersion)
       // Even when the website guard rejects the handoff above, the successful
@@ -776,8 +792,8 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   }
 
   /**
-   * A P2MR send the wallet built but does not sign itself (an external or
-   * cold-wallet account) comes back as bytes this hook cannot parse and
+   * A P2MR send the wallet built but does not sign itself (an external
+   * account) comes back as bytes this hook cannot parse and
    * never passes through signPsbtV2, which reserves the inputs of a locally
    * signed send until its broadcast is proven. The wallet reserves them here
    * instead, before the bytes reach the confirm screen: it checks the bytes
@@ -816,10 +832,6 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
 
   const onNextStep = async (): Promise<boolean> => {
     switch (accountCapabilities.signMethod) {
-      case AccountSignMethod.ColdWallet:
-        coldWalletSigningWebsiteGuardVersion.current = websiteGuardVersionRef.current
-        setIsColdWalletSigning(true)
-        return true
       case AccountSignMethod.External: {
         if (!readonlySignedPsbtHex) {
           tools.toastError(t('invalid_psbt'))
@@ -851,7 +863,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
    * A result refused by the handoff below already carries the reservation
    * the wallet registered for it: the claim signPsbtV2 mints when it signs
    * a wallet-built send locally, or the one reserveExternallySignedQbitSend
-   * registers for externally or cold-wallet signed bytes. The bytes are
+   * registers for externally signed bytes. The bytes are
    * discarded and never reach the confirm screen, so nothing could retry or
    * abandon them afterwards, and without this release the claim would keep
    * the inputs reserved until the background restarts. A provider result is
@@ -887,7 +899,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     setSignedStates([...signedStates])
 
     // The local signer echoes the network and expected txid the wallet fixed
-    // when it built the PSBT; an external or cold-wallet signer returns only
+    // when it built the PSBT; an external signer returns only
     // the bytes it produced, which this hook cannot parse. That identity does
     // not depend on the signature, so it is carried from the request onto
     // every result as the transaction the bytes are expected to be. The send
@@ -927,31 +939,6 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     }
   }
 
-  // coldwallet
-  /**
-   * The cold-wallet signer hands back only the signed PSBT hex it scanned,
-   * as a bare string. It is wrapped into signed data here, before the
-   * reservation and the handoff, so both see the shape every other signer
-   * produces and the confirm screen or approval reads its `psbtHex`.
-   */
-  const onColdWalletSigningSuccess = async (signedPsbtHex: string) => {
-    const signingWebsiteGuardVersion = coldWalletSigningWebsiteGuardVersion.current
-    coldWalletSigningWebsiteGuardVersion.current = undefined
-    setIsColdWalletSigning(false)
-    if (signingWebsiteGuardVersion === undefined) {
-      return
-    }
-
-    const signedData = await reserveExternallySignedSend({ psbtHex: signedPsbtHex }, signingTxIndex)
-    if (!signedData) return
-    onSignedData(signedData, signingTxIndex, signingWebsiteGuardVersion)
-  }
-
-  const onColdWalletSigningBack = () => {
-    coldWalletSigningWebsiteGuardVersion.current = undefined
-    setIsColdWalletSigning(false)
-  }
-
   // risk popover
   const onRiskPopoverConfirm = async (): Promise<boolean> => {
     setIsPsbtRiskPopoverVisible(false)
@@ -983,7 +970,6 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     isPsbtSigning,
 
     // page state
-    isColdWalletSigning,
     showMultiSignView,
     showLoading,
     decodeError,
@@ -995,6 +981,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     // A batch review for another account is closed rather than confirmed.
     batchRiskReview: batchRiskReview?.account === currentAddress ? batchRiskReview : null,
     batchRiskIndexes,
+    signatureBatchBudget,
 
     // data
     toSignDatas,
@@ -1026,9 +1013,6 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     onQuickMultiSign,
     onTryMultiSign,
     onTrustSite,
-
-    onColdWalletSigningSuccess,
-    onColdWalletSigningBack,
 
     onRiskPopoverConfirm,
     onRiskPopoverClose,

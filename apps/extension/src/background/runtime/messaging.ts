@@ -10,6 +10,8 @@ import {
   walletController
 } from '@qbit/wallet-background';
 import { BUS_EVENTS, MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
+import { ethErrors } from 'eth-rpc-errors';
+import { whenAppStateRestored } from '../init';
 import { browserRuntimeOnConnect } from '../webapi/browser';
 
 // Distinguishes UI ports for the lifetime of this worker. A wallet-built
@@ -18,6 +20,51 @@ import { browserRuntimeOnConnect } from '../webapi/browser';
 let uiPortSequence = 0;
 
 const UI_PORT_NAMES = ['popup', 'notification', 'tab', 'sidepanel'];
+
+// How long a site's request waits for start-up. A healthy start reads local
+// storage and loads the bundled PQC code in well under a second; its only
+// network step, the regtest check, gives up after two 3-second probes. A
+// start-up still running after 30 seconds has stalled, and the site is better
+// told to try again than left waiting.
+export const APP_STATE_WAIT_MS = 30_000;
+
+/**
+ * Waits until this worker has restored the wallet. Until then no keyring or
+ * site grant is loaded, and a site would read a connected wallet as empty or
+ * as having no account. The request fails without running when start-up has
+ * stopped, is still running after APP_STATE_WAIT_MS, or its page goes away.
+ * A failed start-up's internal cause stays with the wallet's own pages.
+ */
+function waitForAppState(page: { signal: AbortSignal }): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = (settle: () => void) => {
+      clearTimeout(timer);
+      page.signal.removeEventListener('abort', onPageGone);
+      settle();
+    };
+    const onPageGone = () => finish(() => reject(new Error('Qbit provider page closed before the request completed')));
+    const timer = setTimeout(
+      () =>
+        finish(() =>
+          reject(
+            ethErrors.rpc.resourceUnavailable({
+              message: 'Qbit Wallet is still starting. Try the request again in a moment.'
+            })
+          )
+        ),
+      APP_STATE_WAIT_MS
+    );
+    page.signal.addEventListener('abort', onPageGone, { once: true });
+    if (page.signal.aborted) onPageGone();
+    whenAppStateRestored().then(
+      () => finish(resolve),
+      () =>
+        finish(() =>
+          reject(ethErrors.rpc.internal({ message: 'Qbit Wallet could not start. Open Qbit Wallet to see why.' }))
+        )
+    );
+  });
+}
 
 export function initMessaging() {
   // for page provider
@@ -104,7 +151,19 @@ export function initMessaging() {
       // prevents same-tab navigations, BFCache documents, or reconnects from
       // sharing mutable origin and approval context.
       const sessionKey = port as object;
-      const session = sessionService.getOrCreateSession(sessionKey, tabId) as any;
+      // Only a top-frame document stands for the tab, whose site the popup
+      // shows as current. A child frame, such as an embedded widget, keeps
+      // its own session under its own origin but never becomes the tab's site.
+      // The browser numbers the top frame 0, except in a page Chrome
+      // prerenders, where every frame connects under another number; there
+      // the top frame says so itself when it checks in on being shown, and
+      // until then no document of the page is the tab's top frame.
+      const sender: { frameId?: number; documentLifecycle?: string } | undefined = port.sender;
+      const isTabTopFrame = (checkIn?: { topFrame?: unknown }) =>
+        sender?.documentLifecycle === 'prerender'
+          ? checkIn?.topFrame === true
+          : sender?.frameId === undefined || sender.frameId === 0;
+      const session = sessionService.getOrCreateSession(sessionKey, isTabTopFrame() ? tabId : undefined) as any;
 
       // The document behind this port, as its requests see it: each keeps the
       // id of the approval it waits on here. When the port disconnects, those
@@ -133,13 +192,20 @@ export function initMessaging() {
           pm.send(MESSAGE_TYPE.PM_BG_TO_CONTENT, { event, data });
         };
 
+        // The content script's check-in reads no restored state, so it is
+        // answered at once; a page's request waits for start-up.
+        if (envelope.source === 'page') {
+          await waitForAppState(page);
+        }
+
         // Handle the request before changing the tab alias so only a trusted,
         // sender-bound check-in can select this document as current.
         const result = await providerController.handleRequest(req);
         if (
           envelope.source === 'content' &&
           envelope.data.method === 'tabCheckin' &&
-          envelope.data.params?.activeDocument === true
+          envelope.data.params?.activeDocument === true &&
+          isTabTopFrame(envelope.data.params)
         ) {
           sessionService.getOrCreateSession(sessionKey, tabId);
         }

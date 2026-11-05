@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useApproval, useWallet } from '@qbit/wallet-state';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useApproval } from '@qbit/wallet-state';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
-import DeriveContextHash from './DeriveContextHash';
-import SignData from './SignData';
 import SwitchChain from './SwitchChain';
 import SwitchNetwork from './SwitchNetwork';
 
@@ -17,8 +15,6 @@ vi.mock('@/ui/components', async () => {
   const Container = ({ children }: { children?: ReactNode }) => React.createElement('div', null, children);
   const Button = ({ text, onClick, disabled }: { text?: string; onClick?: () => void; disabled?: boolean }) =>
     React.createElement('button', { onClick: disabled ? undefined : onClick, disabled }, text);
-  const Input = ({ onChange }: { onChange?: (event: { target: { value: string } }) => void }) =>
-    React.createElement('input', { 'data-testid': 'agreement-input', onChange });
   const Text = ({ text }: { text?: string }) => React.createElement('span', null, text);
   return {
     Button,
@@ -29,16 +25,13 @@ vi.mock('@/ui/components', async () => {
     Header: Container,
     Icon: Container,
     Image: () => null,
-    Input,
     Layout: Container,
-    Loading: () => null,
     Row: Container,
     Text
   };
 });
 vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
 vi.mock('@/shared/constant', () => ({ IMAGE_SOURCE_MAP: {} }));
-vi.mock('@/ui/utils', () => ({ copyToClipboard: vi.fn() }));
 vi.mock('@qbit/wallet-shared', () => {
   const entry = { icon: 'icon', label: 'label', name: 'name' };
   const anyKey = new Proxy({}, { get: () => entry });
@@ -46,12 +39,8 @@ vi.mock('@qbit/wallet-shared', () => {
 });
 vi.mock('@qbit/wallet-state', () => ({
   useApproval: vi.fn(),
-  useChain: () => ({ label: 'Qbit' }),
   useChainType: () => 'QBIT_MAINNET',
-  useCurrentAccount: () => ({ address: 'qbit-address' }),
-  useI18n: () => ({ t: (key: string) => key }),
-  useTools: () => ({ toastSuccess: vi.fn() }),
-  useWallet: vi.fn()
+  useI18n: () => ({ t: (key: string) => key })
 }));
 
 const APPROVAL_ID = 'rendered-approval-id';
@@ -66,9 +55,6 @@ describe('approval screens settle the approval they render', () => {
 
   beforeEach(() => {
     vi.mocked(useApproval).mockReturnValue(approval);
-    vi.mocked(useWallet).mockReturnValue({
-      getEnableSignData: vi.fn().mockResolvedValue(true)
-    } as unknown as ReturnType<typeof useWallet>);
   });
 
   afterEach(() => {
@@ -89,15 +75,6 @@ describe('approval screens settle the approval they render', () => {
       'switch_network',
       'cancel',
       ['user_rejected_the_request']
-    ],
-    [
-      'DeriveContextHash',
-      () => (
-        <DeriveContextHash approvalId={APPROVAL_ID} params={{ data: { appName: 'app', context: 'ctx' }, session }} />
-      ),
-      'confirm',
-      'reject',
-      []
     ]
   ])('%s resolves and rejects by the rendered id', (_, renderScreen, confirmText, cancelText, reason) => {
     render(renderScreen());
@@ -107,19 +84,5 @@ describe('approval screens settle the approval they render', () => {
 
     fireEvent.click(screen.getByText(cancelText));
     expect(approval.rejectApproval).toHaveBeenCalledWith(APPROVAL_ID, ...reason);
-  });
-
-  it('SignData resolves and rejects by the rendered id', async () => {
-    render(<SignData approvalId={APPROVAL_ID} params={{ data: { data: 'payload' }, session }} />);
-    await waitFor(() => expect(screen.getByTestId('agreement-input')).toBeTruthy());
-
-    fireEvent.change(screen.getByTestId('agreement-input'), {
-      target: { value: 'i_only_sign_what_i_understand' }
-    });
-    fireEvent.click(screen.getByText('sign'));
-    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID);
-
-    fireEvent.click(screen.getByText('reject'));
-    expect(approval.rejectApproval).toHaveBeenCalledWith(APPROVAL_ID);
   });
 });

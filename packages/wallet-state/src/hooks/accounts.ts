@@ -337,8 +337,3 @@ export function useReloadAccounts() {
     })
   }, [dispatch, wallet])
 }
-
-export function useModelPopover() {
-  const modelState = useAccountsState()
-  return modelState.molelsPopover
-}

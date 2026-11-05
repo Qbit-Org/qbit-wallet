@@ -1,0 +1,72 @@
+{
+  "release": "v1.0.6",
+  "zip": {
+    "name": "qbit-chrome-mv3-v1.0.6.zip",
+    "sha256": "eef162762ab6b7ba04899da09dd6b209164d7cb96dfff315e5430d4110d4a30e"
+  },
+  "extensionVersion": "1.0.6",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+  "testOnly": true,
+  "password": "Qbit-Upgrade-Fixture-Only!1",
+  "mnemonic": "climb lobster rain roast obey share school shock record garment pattern reopen day village jacket thought winter already kingdom priority crunch episode bone category",
+  "readonlyPublicKey": "0370b628755f4ff2134cb6730cd3013eea7345819b41527a000adb9d804573431b",
+  "keyrings": [
+    {
+      "type": "Qbit HD Key Tree",
+      "alianName": "Qbit HD Wallet #1",
+      "addressType": 9,
+      "accounts": [
+        {
+          "address": "tq1zy7dyln5grae2fejxcxmu2eryayycjuwwdacsvnlgy9g3uurvyfyqmvhc8m",
+          "pubkey": "975c992feb477379dc8cadbf87cdbc3160b652eefa1d77cea6f9b8a56426ea20",
+          "alianName": "Account 1"
+        },
+        {
+          "address": "tq1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7sj3e6d8",
+          "pubkey": "d0b10659d86b997165a68ddfb4dc03018243b3b681b27df9c495e4cd3b6f9000",
+          "alianName": "Savings"
+        }
+      ]
+    },
+    {
+      "type": "Readonly",
+      "alianName": "Readonly #2",
+      "addressType": 1,
+      "accounts": [
+        {
+          "address": "tb1qzhw60ff0jaqah768ewaeey4ams7nh7hpycrjuf",
+          "pubkey": "0370b628755f4ff2134cb6730cd3013eea7345819b41527a000adb9d804573431b",
+          "alianName": "Readonly 1"
+        }
+      ]
+    }
+  ],
+  "currentAccount": {
+    "address": "tq1zaad5um28973ea9rgtychzescvwgdh6lxwgkr9fw9dj09ulckcp7sj3e6d8",
+    "alianName": "Savings"
+  },
+  "contacts": [
+    {
+      "name": "Fixture contact",
+      "address": "tq1zzlm3x4dfumw7g298at7n7au9k02nup28llq9s5c4gez6qxx89wysy7hx66",
+      "chain": "QBIT_TESTNET4",
+      "isContact": true,
+      "isAlias": false,
+      "sortIndex": 0
+    }
+  ],
+  "connectedSites": [
+    {
+      "origin": "http://127.0.0.1:41267",
+      "chain": "QBIT_TESTNET4",
+      "isConnected": true
+    }
+  ],
+  "settings": {
+    "chainType": "QBIT_TESTNET4",
+    "locale": "es",
+    "themeMode": "dark",
+    "autoLockTimeId": 6,
+    "developerMode": true
+  }
+}

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { init, sign as rawPqcSign, verify as verifyPqc } from '@qbit-oss/pqc'
 import {
@@ -25,7 +25,11 @@ import {
   type Psbt,
 } from '@qbit-oss/protocol'
 import { AddressType } from '@qbit/wallet-types'
-import { KeyringService, QbitRestoredFloorConfirmationError } from '../src/keyring-service'
+import {
+  KeyringService,
+  QbitRestoredFloorConfirmationError,
+  QbitSignatureBatchInterruptedError,
+} from '../src/keyring-service'
 import { ColdWalletKeyring } from '../src/keyrings/cold-wallet-keyring'
 import { QbitHdKeyring, QbitPqcSignatureCounterError } from '../src/keyrings/qbit-hd-keyring'
 import { Encryptor } from '../src/types'
@@ -330,6 +334,12 @@ function testLogger() {
 describe('qbit-hd-keyring', () => {
   beforeAll(async () => {
     await init()
+  })
+
+  // Some tests move Date.now past a challenge's lifetime; no later test
+  // may run on their clock.
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('derives deterministic P2MR accounts from a mnemonic', async () => {
@@ -1267,19 +1277,843 @@ describe('qbit-hd-keyring', () => {
     const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring)
     const input = () => ({ psbt: fixture.psbt, keys: fixture.keys })
     // A signPsbts batch duplicating one PSBT preflights both entries before
-    // any signing, so both approvals disclose the same fresh impact and both
-    // carry the duplicate mark.
+    // any signing, so both approvals disclose the same fresh impact.
     const firstBudget = await service.preflightP2mrPsbtSigning(pubkey!, input())
     const secondBudget = await service.preflightP2mrPsbtSigning(pubkey!, input())
+    const batch = await service.openP2mrPsbtSigningBatch(pubkey!, [
+      { ...input(), approvedBudget: firstBudget },
+      { ...input(), approvedBudget: secondBudget },
+    ])
+    expect(batch.budget).toMatchObject({ required: 1, cached: 0 })
 
-    const signedSecond = await service.signP2mrPsbtWithCounter(pubkey!, input(), secondBudget, true)
+    const signedSecond = await service.signP2mrPsbtWithCounter(pubkey!, input(), secondBudget, {
+      id: batch.id,
+      index: 1,
+    })
     expect(signedSecond.counterResults.map(result => result.cached)).toEqual([false])
 
     // The first-prepared entry signs after its duplicate cached the approved
-    // signature; the disclosed shift completes without another counter.
-    const signedFirst = await service.signP2mrPsbtWithCounter(pubkey!, input(), firstBudget, true)
+    // signature; the batch explains the shift, which completes without
+    // another counter. Outside the batch the shifted budget is refused.
+    await expect(service.signP2mrPsbtWithCounter(pubkey!, input(), firstBudget)).rejects.toThrow(
+      'P2MR signature budget changed after approval'
+    )
+    const signedFirst = await service.signP2mrPsbtWithCounter(pubkey!, input(), firstBudget, {
+      id: batch.id,
+      index: 0,
+    })
     expect(signedFirst.counterResults.map(result => result.cached)).toEqual([true])
     expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+  })
+
+  describe('approved batches of different PSBTs', () => {
+    /**
+     * A batch as a signPsbts approval prepares it: every entry preflighted
+     * before any of them signs, then opened as one batch.
+     */
+    async function prepareBatch(
+      service: KeyringService,
+      pubkey: string,
+      fixtures: { psbt: Psbt; keys: P2mrSigningKey[] }[],
+      options?: { reuseScope?: string }
+    ) {
+      const inputs = fixtures.map(fixture => () => ({ psbt: fixture.psbt, keys: fixture.keys }))
+      const budgets = []
+      for (const input of inputs) {
+        budgets.push(await service.preflightP2mrPsbtSigning(pubkey, input()))
+      }
+      // The entries as the approval opens their batch, each with its budget.
+      const batchInputs = () =>
+        inputs.map((input, index) => ({ ...input(), approvedBudget: budgets[index]! }))
+      const batch = await service.openP2mrPsbtSigningBatch(pubkey, batchInputs(), options)
+      const sign = (index: number) =>
+        service.signP2mrPsbtWithCounter(pubkey, inputs[index]!(), budgets[index], {
+          id: batch.id,
+          index,
+        })
+      return { inputs, budgets, batchInputs, batch, sign }
+    }
+
+    /** How a local batch's review opens it; see WalletController.analyzeLocalPsbts. */
+    const LOCAL_SCOPE = { reuseScope: 'qbit-local-batch' }
+
+    async function differentFixtures(keyring: QbitHdKeyring, inputCounts: number[], seed = 0) {
+      const fixtures = []
+      for (const [index, inputCount] of inputCounts.entries()) {
+        fixtures.push(
+          await buildP2mrSpendFixture(keyring, { inputCount, txidSeed: 40 * (index + 1) + seed })
+        )
+      }
+      return fixtures
+    }
+
+    const INTERRUPTED = 'This batch approval was interrupted'
+    const BATCHES_FULL = 'Too many signing requests are waiting'
+
+    it.each([
+      ['two', [0, 1], [2, 1]],
+      ['two', [1, 0], [2, 1]],
+      ['three', [0, 1, 2], [2, 1, 3]],
+      ['three', [2, 1, 0], [2, 1, 3]],
+      ['three', [1, 2, 0], [2, 1, 3]],
+    ])(
+      'signs every entry of an approved batch of %s different PSBTs, in the order %j',
+      async (_count, order, inputCounts) => {
+        const { service, keyring } = await createUnlockedQbitService()
+        const [pubkey] = await service.getAccounts()
+        const { budgets, batch, sign } = await prepareBatch(
+          service,
+          pubkey!,
+          await differentFixtures(keyring as QbitHdKeyring, inputCounts)
+        )
+        const total = inputCounts.reduce((sum, count) => sum + count, 0)
+        // Every entry needs new signatures, and each approval is its own.
+        expect(budgets.map(budget => budget.required)).toEqual(inputCounts)
+        expect(budgets.every(budget => budget.remainingBefore === PQC_MAX_SIGNATURES)).toBe(true)
+        // The whole batch's budget does not depend on the order it signs in.
+        expect(batch.budget).toEqual({
+          required: total,
+          cached: 0,
+          remainingBefore: PQC_MAX_SIGNATURES,
+          remainingAfter: PQC_MAX_SIGNATURES - total,
+          limit: PQC_MAX_SIGNATURES,
+        })
+
+        for (const index of order) {
+          const signed = await sign(index)
+          expect(signed.counterResults.map(result => result.cached)).toEqual(
+            Array(inputCounts[index]).fill(false)
+          )
+        }
+        expect(await service.getPqcSignatureCounter(pubkey!)).toBe(total)
+        expect(PQC_MAX_SIGNATURES - (await service.getPqcSignatureCounter(pubkey!))).toBe(
+          batch.budget.remainingAfter
+        )
+      }
+    )
+
+    it('refuses the next entry after a signature made outside the batch', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const { sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(keyring as QbitHdKeyring, [1, 1])
+      )
+      await sign(1)
+      await service.signPqcDigestWithCounter(pubkey!, DIGEST_A, async () => dummyPqcSignature(0x32))
+      const signer = vi.spyOn(keyring as QbitHdKeyring, 'signPqcDigest')
+
+      await expect(sign(0)).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(signer).not.toHaveBeenCalled()
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
+
+    it('counts only what entries reserved as members of the batch', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const { inputs, budgets, sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(keyring as QbitHdKeyring, [1, 1])
+      )
+      // The same approval signed without its batch is a signature made
+      // outside it, which the batch cannot explain to its other entry.
+      await service.signP2mrPsbtWithCounter(pubkey!, inputs[0]!(), budgets[0])
+
+      await expect(sign(1)).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+    })
+
+    it('refuses a replay of a signed batch entry, in the batch and after it closed', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const { inputs, budgets, batch, sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(keyring as QbitHdKeyring, [2, 1])
+      )
+      await sign(0)
+      await sign(1)
+
+      await expect(sign(0)).rejects.toThrow('P2MR signature batch entry was already signed')
+      // Replayed with a budget prepared since, it is still a replay.
+      const fresh = await service.preflightP2mrPsbtSigning(pubkey!, inputs[0]!())
+      await expect(
+        service.signP2mrPsbtWithCounter(pubkey!, inputs[0]!(), fresh, { id: batch.id, index: 0 })
+      ).rejects.toThrow('P2MR signature batch entry was already signed')
+      service.releaseP2mrPsbtSigningBatches([batch.id])
+      await expect(sign(0)).rejects.toThrow(INTERRUPTED)
+      await expect(
+        service.signP2mrPsbtWithCounter(pubkey!, inputs[1]!(), budgets[1])
+      ).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(3)
+    })
+
+    it('refuses a batch entry for another account or another PSBT', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey, otherPubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const { inputs, budgets, batch, sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1])
+      )
+      const other = (await qbitKeyring.getQbitAccounts()).find(
+        account => account.pubkey === otherPubkey
+      )!
+      const otherLeafScript = protocolHexToBytes(other.leafScript)
+      const otherLeafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, otherLeafScript)
+      const otherScriptPubKey = protocolHexToBytes(other.scriptPubKey)
+      const otherInput = {
+        psbt: createP2mrPsbt({
+          inputs: [
+            {
+              prevout: { txid: fixtureTxid(90), vout: 0 },
+              witnessUtxo: { value: 100_000n, scriptPubKey: otherScriptPubKey },
+              leafScript: otherLeafScript,
+              controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+              merkleRoot: otherLeafHash,
+            },
+          ],
+          outputs: [{ value: 98_000n, scriptPubKey: otherScriptPubKey }],
+        }),
+        keys: [
+          { inputIndex: 0, pubkey: protocolHexToBytes(other.pubkey), leafHash: otherLeafHash },
+        ],
+      }
+      const otherBudget = await service.preflightP2mrPsbtSigning(otherPubkey!, otherInput)
+      const signer = vi.spyOn(qbitKeyring, 'signPqcDigest')
+
+      await expect(
+        service.signP2mrPsbtWithCounter(otherPubkey!, otherInput, otherBudget, {
+          id: batch.id,
+          index: 0,
+        })
+      ).rejects.toThrow('P2MR signature batch belongs to another account')
+      await expect(
+        service.signP2mrPsbtWithCounter(pubkey!, inputs[0]!(), budgets[0], {
+          id: batch.id,
+          index: 1,
+        })
+      ).rejects.toThrow('P2MR signature batch entry does not match this PSBT')
+      await expect(
+        service.openP2mrPsbtSigningBatch(pubkey!, [
+          { ...inputs[0]!(), approvedBudget: budgets[0]! },
+          { ...otherInput, approvedBudget: otherBudget },
+        ])
+      ).rejects.toThrow('P2MR signing key does not match the selected account')
+      expect(signer).not.toHaveBeenCalled()
+
+      await sign(1)
+      await sign(0)
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+      expect(await service.getPqcSignatureCounter(otherPubkey!)).toBe(0)
+    })
+
+    it('counts what a batch entry spent when its signing fails partway', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const { sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [2, 1])
+      )
+      const realSign = qbitKeyring.signPqcDigest.bind(qbitKeyring)
+      let calls = 0
+      vi.spyOn(qbitKeyring, 'signPqcDigest').mockImplementation(async (...args) => {
+        calls += 1
+        if (calls === 2) throw new Error('forced signer failure')
+        return realSign(...args)
+      })
+
+      // Entry 0 signs one of its two signatures, then reserves the second
+      // and fails: the batch spent both counters.
+      await expect(sign(0)).rejects.toThrow('forced signer failure')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+
+      // The other entry finds exactly what entry 0 spent, and signs.
+      await expect(sign(1)).resolves.toMatchObject({ counterResults: [{ cached: false }] })
+      // Entry 0's own approval no longer matches what it would now spend.
+      await expect(sign(0)).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(3)
+    })
+
+    it('reopens the batch of the same approval reviewed again, and opens no other', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const { batchInputs, batch, sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(keyring as QbitHdKeyring, [1, 1]),
+        LOCAL_SCOPE
+      )
+      const open = (service as any).qbitPqcSignatureBatches as Map<string, unknown>
+      const reopen = () => service.openP2mrPsbtSigningBatch(pubkey!, batchInputs(), LOCAL_SCOPE)
+      await expect(reopen()).resolves.toEqual(batch)
+      expect(open.size).toBe(1)
+
+      // Other bytes, or no scope, open anew.
+      expect((await service.openP2mrPsbtSigningBatch(pubkey!, batchInputs())).id).not.toBe(batch.id)
+      expect(
+        (await service.openP2mrPsbtSigningBatch(pubkey!, [...batchInputs()].reverse(), LOCAL_SCOPE))
+          .id
+      ).not.toBe(batch.id)
+      expect(open.size).toBe(3)
+
+      // Reviewed again after entry 0 signed, with the same bytes and budgets,
+      // as before a quick-sign: the same batch, which still knows what entry
+      // 0 spent.
+      await sign(0)
+      await expect(reopen()).resolves.toEqual(batch)
+      expect(open.size).toBe(3)
+    })
+
+    it('quick-signs the rest of a local batch in full after one entry signed on its own', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const inputCounts = [2, 1, 3]
+      const { inputs, budgets, batchInputs, batch } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(keyring as QbitHdKeyring, inputCounts),
+        LOCAL_SCOPE
+      )
+      // Entry 0 reviewed and signed on its own, in the batch its review opened.
+      await service.signP2mrPsbtWithCounter(pubkey!, inputs[0]!(), budgets[0], {
+        id: batch.id,
+        index: 0,
+      })
+
+      // Quick-sign reviews the same approval again, and signs the rest in
+      // the batch it is given.
+      const quick = await service.openP2mrPsbtSigningBatch(pubkey!, batchInputs(), LOCAL_SCOPE)
+      expect(quick.id).toBe(batch.id)
+      for (const index of [1, 2]) {
+        const signed = await service.signP2mrPsbtWithCounter(
+          pubkey!,
+          inputs[index]!(),
+          budgets[index],
+          { id: quick.id, index }
+        )
+        expect(signed.counterResults.map(result => result.cached)).toEqual(
+          Array(inputCounts[index]).fill(false)
+        )
+      }
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(6)
+    })
+
+    it('gives a review after an entry signed its own batch, which refuses a signature made elsewhere', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const fixtures = await differentFixtures(qbitKeyring, [1, 1])
+      const first = await prepareBatch(service, pubkey!, fixtures, LOCAL_SCOPE)
+      await first.sign(0)
+
+      // The same bytes reviewed again: their budgets are prepared again,
+      // after entry 0 spent, so the review is another approval.
+      const second = await prepareBatch(service, pubkey!, fixtures, LOCAL_SCOPE)
+      expect(second.batch.id).not.toBe(first.batch.id)
+      expect(second.budgets[1]).not.toEqual(first.budgets[1])
+
+      await service.signPqcDigestWithCounter(pubkey!, DIGEST_A, async () => dummyPqcSignature(0x32))
+      const signer = vi.spyOn(qbitKeyring, 'signPqcDigest')
+
+      // Entry 0's spend belongs to the first batch: the second explains no
+      // drift, and the first cannot explain the signature made elsewhere.
+      await expect(second.sign(1)).rejects.toThrow('P2MR signature budget changed after approval')
+      await expect(first.sign(1)).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(signer).not.toHaveBeenCalled()
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
+
+    it('refuses a batch entry signed with a budget other than its approval, even one that holds now', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const { inputs, batch, sign } = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1])
+      )
+      await sign(0)
+      const fresh = await service.preflightP2mrPsbtSigning(pubkey!, inputs[1]!())
+      const signer = vi.spyOn(qbitKeyring, 'signPqcDigest')
+
+      await expect(
+        service.signP2mrPsbtWithCounter(pubkey!, inputs[1]!(), fresh, { id: batch.id, index: 1 })
+      ).rejects.toThrow('P2MR signature batch entry was approved with another budget')
+      expect(signer).not.toHaveBeenCalled()
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+
+      // On its own, the fresh approval is checked like any other, and signs.
+      await expect(
+        service.signP2mrPsbtWithCounter(pubkey!, inputs[1]!(), fresh)
+      ).resolves.toMatchObject({ counterResults: [{ cached: false }] })
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
+
+    it('refuses every entry of a batch a lock closed, before any signed and after one did', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const relock = async () => {
+        await service.setLocked()
+        await service.submitPassword('password')
+      }
+
+      // Checked on its own, the first entry would sign, and only the rest
+      // would be refused.
+      const untouched = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1])
+      )
+      await relock()
+      await expect(untouched.sign(0)).rejects.toThrow(INTERRUPTED)
+      await expect(untouched.sign(1)).rejects.toThrow(INTERRUPTED)
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(0)
+
+      const started = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1], 7)
+      )
+      await started.sign(0)
+      await relock()
+      await expect(started.sign(1)).rejects.toThrow(INTERRUPTED)
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+    })
+
+    it('stores no batch for a lock made while it opens', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const fixtures = await differentFixtures(qbitKeyring, [1, 1])
+      const inputs = []
+      for (const fixture of fixtures) {
+        const input = { psbt: fixture.psbt, keys: fixture.keys }
+        inputs.push({
+          ...input,
+          approvedBudget: await service.preflightP2mrPsbtSigning(pubkey!, input),
+        })
+      }
+      const estimate = qbitKeyring.estimatePqcSignatureCacheMisses.bind(qbitKeyring)
+      // The lock lands while the batch's budget is read, after the batch
+      // checked its keyring was live.
+      vi.spyOn(qbitKeyring, 'estimatePqcSignatureCacheMisses').mockImplementationOnce(
+        async (...args) => {
+          await service.setLocked()
+          return estimate(...args)
+        }
+      )
+
+      await expect(service.openP2mrPsbtSigningBatch(pubkey!, inputs)).rejects.toThrow(
+        'The keyring was locked, removed or replaced'
+      )
+      expect((service as any).qbitPqcSignatureBatches.size).toBe(0)
+    })
+
+    it('refuses a duplicate whose twin spent its counter without a signature, at the approved total', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const [fixture] = await differentFixtures(qbitKeyring, [1])
+      const { batch, sign } = await prepareBatch(service, pubkey!, [fixture!, fixture!])
+      expect(batch.budget).toMatchObject({ required: 1, cached: 0 })
+      vi.spyOn(qbitKeyring, 'signPqcDigest').mockRejectedValueOnce(
+        new Error('forced signer failure')
+      )
+
+      // The twin reserves the batch's one approved signature, then fails
+      // without producing it.
+      await expect(sign(1)).rejects.toThrow('forced signer failure')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+
+      // The twin's counter explains the drift, but signing again would pass
+      // the one signature the batch was approved for.
+      await expect(sign(0)).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+    })
+
+    it('refuses a duplicate whose twin signed more than the signature cache keeps, rather than sign past the batch', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      // The keyring caches 16 signatures per key (PQC_SIGNATURE_CACHE_MAX_PER_KEY).
+      const [fixture] = await differentFixtures(keyring as QbitHdKeyring, [17])
+      // What is cached and counted matters here, not the signatures' bytes.
+      vi.spyOn(keyring as QbitHdKeyring, 'signPqcDigest').mockResolvedValue(dummyPqcSignature(0x5a))
+      const { batch, sign } = await prepareBatch(service, pubkey!, [fixture!, fixture!])
+      expect(batch.budget).toMatchObject({ required: 17, cached: 0 })
+
+      await sign(0)
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(17)
+      // The twin's first signature left the cache when its 17th was cached,
+      // and each signature the duplicate would sign evicts the next one it
+      // needs: it would sign all 17 again, past what the batch was approved
+      // for. It is refused, as before batches.
+      await expect(
+        service.preflightP2mrPsbtSigning(pubkey!, { psbt: fixture!.psbt, keys: fixture!.keys })
+      ).resolves.toMatchObject({ required: 17, cached: 0 })
+      await expect(sign(1)).rejects.toThrow('P2MR signature budget changed after approval')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(17)
+    })
+
+    it('refuses to open a batch whose budgets a signature made since they were prepared changed', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixtures = await differentFixtures(keyring as QbitHdKeyring, [1, 1])
+      const inputs = []
+      for (const fixture of fixtures) {
+        const input = { psbt: fixture.psbt, keys: fixture.keys }
+        inputs.push({
+          ...input,
+          approvedBudget: await service.preflightP2mrPsbtSigning(pubkey!, input),
+        })
+      }
+      await service.signPqcDigestWithCounter(pubkey!, DIGEST_A, async () => dummyPqcSignature(0x32))
+
+      // Refused before its approval shows, rather than at every entry.
+      await expect(service.openP2mrPsbtSigningBatch(pubkey!, inputs)).rejects.toThrow(
+        'P2MR signature budget changed after approval'
+      )
+      expect((service as any).qbitPqcSignatureBatches.size).toBe(0)
+    })
+
+    it('never evicts a request batch: a full store evicts its oldest local batch, or refuses', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const local = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1]),
+        LOCAL_SCOPE
+      )
+      const request = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1], 7)
+      )
+      const another = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1], 14)
+      )
+      const openAnother = () => service.openP2mrPsbtSigningBatch(pubkey!, another.batchInputs())
+      const open = (service as any).qbitPqcSignatureBatches as Map<string, unknown>
+      while (open.size < 64) await openAnother()
+
+      // Full: the local batch goes, which its review can open again.
+      const replacing = await openAnother()
+      expect(open.has(local.batch.id)).toBe(false)
+      // Only requests' batches are left, and none is closed for another.
+      await expect(openAnother()).rejects.toThrow(BATCHES_FULL)
+      expect(open.size).toBe(64)
+      // A settled request frees its place.
+      service.releaseP2mrPsbtSigningBatches([replacing.id])
+      await expect(openAnother()).resolves.toMatchObject({ budget: { required: 2 } })
+
+      await expect(local.sign(0)).rejects.toThrow(INTERRUPTED)
+      await expect(request.sign(0)).resolves.toMatchObject({ counterResults: [{ cached: false }] })
+      await expect(request.sign(1)).resolves.toMatchObject({ counterResults: [{ cached: false }] })
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
+
+    it('keeps the batch of a request being signed through 65 more opened at once', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const qbitKeyring = keyring as QbitHdKeyring
+      const signing = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1])
+      )
+      await signing.sign(0)
+
+      // A site's burst, prepared after entry 0 spent, opens 1 + 65 more
+      // batches before any of them settles.
+      const burst = await prepareBatch(
+        service,
+        pubkey!,
+        await differentFixtures(qbitKeyring, [1, 1], 7)
+      )
+      const opened = await Promise.allSettled(
+        Array.from({ length: 65 }, () =>
+          service.openP2mrPsbtSigningBatch(pubkey!, burst.batchInputs())
+        )
+      )
+      expect(opened.filter(result => result.status === 'fulfilled')).toHaveLength(62)
+      expect(
+        opened.flatMap(result => (result.status === 'rejected' ? [result.reason.message] : []))
+      ).toEqual(Array(3).fill(expect.stringContaining(BATCHES_FULL)))
+
+      await expect(signing.sign(1)).resolves.toMatchObject({ counterResults: [{ cached: false }] })
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
+  })
+
+  describe('recovery migration signature batches (#156)', () => {
+    const BATCHES_FULL = 'Too many signing requests are waiting'
+    const MIGRATION_SCOPE = 'qbit-recovery-migration'
+
+    /**
+     * A restored key migrating `planCount` reviewed plans, prepared as the
+     * wallet prepares a review: each plan preflighted with its own reusable
+     * challenge, then the key's plans opened as one migration batch.
+     */
+    async function migratingReview(planCount: number) {
+      const { service, keyring, pubkey } = await createRestoredQbitService()
+      const destination = await service.createQbitMigrationKeyring({
+        sourceAddress: pubkey,
+        mnemonic: await service.generatePreMnemonic(),
+        hdPath: "m/87'/1'/0'/0",
+        passphrase: '',
+        network: 'regtest',
+      })
+      const fixtures = []
+      for (let index = 0; index < planCount; index += 1) {
+        fixtures.push(await buildP2mrSpendFixture(keyring, { txidSeed: 300 + 10 * index }))
+      }
+      const sourceAddress = (await keyring.getQbitAccounts())[0]!.addresses.regtest
+      await service.replaceQbitRecoveryMigrationPlans(
+        pubkey,
+        'regtest',
+        fixtures.map((fixture, index) => ({
+          id: `${pubkey}:${index}`,
+          sourcePubkey: pubkey,
+          sourceAddress,
+          destinationAddress: destination.destinationAddress,
+          amount: 98_000,
+          fee: 2_000,
+          psbtHex: protocolBytesToHex(serializePsbt(fixture.psbt)),
+          status: 'prepared' as const,
+        }))
+      )
+      vi.spyOn(keyring, 'signPqcDigest').mockImplementation(async () => dummyPqcSignature(5))
+      const prepare = async () => {
+        const budgets = []
+        for (const [index, fixture] of fixtures.entries()) {
+          budgets.push(
+            await service.preflightP2mrPsbtSigning(
+              pubkey,
+              { psbt: fixture.psbt, keys: fixture.keys },
+              { reuseScope: `qbit-recovery-migration:${pubkey}:${index}` }
+            )
+          )
+        }
+        const inputs = fixtures.map((fixture, index) => ({
+          psbt: fixture.psbt,
+          keys: fixture.keys,
+          approvedBudget: budgets[index]!,
+        }))
+        const batch = await service.openQbitRecoveryMigrationSigningBatch(pubkey, inputs)
+        const sign = async (index: number) => {
+          await service.confirmQbitRestoredFloorSigning(
+            budgets[index]!.restoredFloorRisk!.challengeId
+          )
+          return service.signP2mrPsbtWithCounter(
+            pubkey,
+            { psbt: fixtures[index]!.psbt, keys: fixtures[index]!.keys },
+            budgets[index],
+            { id: batch.id, index }
+          )
+        }
+        return { budgets, inputs, batch, sign }
+      }
+      // A transfer of protected assets: the other signing a migrating key does.
+      let elsewhereSeed = 900
+      const signElsewhere = async () => {
+        elsewhereSeed += 10
+        const elsewhere = await buildP2mrSpendFixture(keyring, { txidSeed: elsewhereSeed })
+        const budget = await service.preflightP2mrPsbtSigning(pubkey, elsewhere, {
+          allowMigrationProtectedAssetTransfer: true,
+        })
+        await service.confirmQbitRestoredFloorSigning(budget.restoredFloorRisk!.challengeId)
+        await service.signP2mrPsbtWithCounter(pubkey, elsewhere, budget)
+      }
+      const destinationKeyring = service.keyrings[1] as QbitHdKeyring
+      const [destinationPubkey] = await destinationKeyring.getAccounts()
+      return {
+        service,
+        keyring,
+        pubkey,
+        fixtures,
+        prepare,
+        signElsewhere,
+        destinationKeyring,
+        destinationPubkey: destinationPubkey!,
+      }
+    }
+
+    function isOpen(service: KeyringService, batchId: string) {
+      return service.hasOpenP2mrPsbtSigningBatches([batchId])
+    }
+
+    it('signs every plan of a key in one batch, and closes it once the last plan signs', async () => {
+      const { service, pubkey, prepare } = await migratingReview(3)
+      const counter = await service.getPqcSignatureCounter(pubkey)
+      const review = await prepare()
+      expect(review.batch).toMatchObject({ budget: { required: 3, cached: 0 }, created: true })
+      await expect(prepare()).resolves.toMatchObject({
+        batch: { id: review.batch.id, created: false },
+      })
+
+      for (const index of [0, 1]) {
+        await expect(review.sign(index)).resolves.toMatchObject({
+          counterResults: [{ cached: false }],
+        })
+        // The plan's challenge was consumed; the batch stays for the others.
+        expect(isOpen(service, review.batch.id)).toBe(true)
+      }
+      // Its review never released it, as when its popup closed at once.
+      await review.sign(2)
+      expect(isOpen(service, review.batch.id)).toBe(false)
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(counter + 3)
+    })
+
+    it('closes a batch left after one plan once the challenges of the plans left expire', async () => {
+      const { service, pubkey, prepare, destinationKeyring, destinationPubkey } =
+        await migratingReview(3)
+      const counter = await service.getPqcSignatureCounter(pubkey)
+      const abandoned = await prepare()
+      await abandoned.sign(0)
+      const requestInputs = []
+      for (const txidSeed of [500, 510]) {
+        const fixture = await buildP2mrSpendFixture(destinationKeyring, { txidSeed })
+        requestInputs.push({
+          ...fixture,
+          approvedBudget: await service.preflightP2mrPsbtSigning(destinationPubkey, fixture),
+        })
+      }
+
+      // The review was left without releasing its challenges, and they
+      // expire. The next batch opened, of any key, closes it.
+      const now = Date.now()
+      vi.spyOn(Date, 'now').mockReturnValue(now + 6 * 60 * 1000)
+      await service.openP2mrPsbtSigningBatch(destinationPubkey, requestInputs)
+      expect(isOpen(service, abandoned.batch.id)).toBe(false)
+
+      const resumed = await prepare()
+      expect(isOpen(service, resumed.batch.id)).toBe(true)
+      await expect(abandoned.sign(1)).rejects.toThrow()
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(counter + 1)
+    })
+
+    it('opens only prepared plans of a migration of the key, in a scope nothing else opens', async () => {
+      const { service, keyring, pubkey, prepare } = await migratingReview(2)
+      const review = await prepare()
+      const unplanned = await buildP2mrSpendFixture(keyring, { txidSeed: 700 })
+
+      await expect(
+        service.openQbitRecoveryMigrationSigningBatch(pubkey, [
+          review.inputs[0]!,
+          { ...unplanned, approvedBudget: review.budgets[1]! },
+        ])
+      ).rejects.toThrow('not a prepared recovery migration plan')
+      await expect(
+        service.openP2mrPsbtSigningBatch(pubkey, review.inputs, { reuseScope: MIGRATION_SCOPE })
+      ).rejects.toThrow('scope is reserved')
+      expect(isOpen(service, review.batch.id)).toBe(true)
+    })
+
+    it('reopens the batch for the same review, and replaces one none of whose plans signed', async () => {
+      const { service, pubkey, prepare, signElsewhere } = await migratingReview(3)
+      const counter = await service.getPqcSignatureCounter(pubkey)
+      const first = await prepare()
+      await expect(prepare()).resolves.toMatchObject({ batch: { id: first.batch.id } })
+
+      // A signature elsewhere: the review prepared again has other budgets,
+      // and the batch no plan of which signed is closed.
+      await signElsewhere()
+      const second = await prepare()
+      expect(second.batch.id).not.toBe(first.batch.id)
+      expect(isOpen(service, first.batch.id)).toBe(false)
+      await expect(first.sign(0)).rejects.toBeInstanceOf(QbitSignatureBatchInterruptedError)
+
+      // One being signed stays open beside the review prepared after it.
+      await second.sign(0)
+      await signElsewhere()
+      const third = await prepare()
+      expect(isOpen(service, second.batch.id)).toBe(true)
+      expect(isOpen(service, third.batch.id)).toBe(true)
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(counter + 3)
+    })
+
+    it('reopens no batch under new challenges, so the review that holds them closes it', async () => {
+      const { service, prepare } = await migratingReview(2)
+      const first = await prepare()
+      // The plans' challenges expire unreleased; preparing again issues new
+      // ones with the same budgets.
+      const now = Date.now()
+      vi.spyOn(Date, 'now').mockReturnValue(now + 6 * 60 * 1000)
+      const second = await prepare()
+      expect(second.budgets.map(budget => budget.restoredFloorRisk!.challengeId)).not.toEqual(
+        first.budgets.map(budget => budget.restoredFloorRisk!.challengeId)
+      )
+      expect(second.batch.id).not.toBe(first.batch.id)
+      expect(isOpen(service, first.batch.id)).toBe(false)
+
+      service.releaseQbitRestoredFloorSigningChallenges(
+        second.budgets.map(budget => budget.restoredFloorRisk!.challengeId)
+      )
+      expect(isOpen(service, second.batch.id)).toBe(false)
+    })
+
+    it('closes a migration batch when its review releases a challenge, and no other batch', async () => {
+      const { service, pubkey, prepare } = await migratingReview(2)
+      const review = await prepare()
+      // Batches of the same entries under the same challenges, as a request
+      // and a local review open them.
+      const request = await service.openP2mrPsbtSigningBatch(pubkey, review.inputs)
+      const local = await service.openP2mrPsbtSigningBatch(pubkey, review.inputs, {
+        reuseScope: 'qbit-local-batch',
+      })
+      const counter = await service.getPqcSignatureCounter(pubkey)
+
+      service.releaseQbitRestoredFloorSigningChallenges([
+        review.budgets[1]!.restoredFloorRisk!.challengeId,
+      ])
+
+      expect(isOpen(service, review.batch.id)).toBe(false)
+      expect(service.hasOpenP2mrPsbtSigningBatches([request.id, local.id])).toBe(true)
+      await expect(review.sign(0)).rejects.toMatchObject({
+        code: 'QBIT_SIGNATURE_BATCH_INTERRUPTED',
+      })
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(counter)
+    })
+
+    it('never evicts a migration batch: a full store evicts a local batch, or refuses', async () => {
+      const { service, pubkey, prepare, destinationKeyring, destinationPubkey } =
+        await migratingReview(2)
+      const counter = await service.getPqcSignatureCounter(pubkey)
+      const review = await prepare()
+      const websiteInputs = []
+      for (const txidSeed of [500, 510]) {
+        const fixture = await buildP2mrSpendFixture(destinationKeyring, { txidSeed })
+        websiteInputs.push({
+          ...fixture,
+          approvedBudget: await service.preflightP2mrPsbtSigning(destinationPubkey, fixture),
+        })
+      }
+      const local = await service.openP2mrPsbtSigningBatch(destinationPubkey, websiteInputs, {
+        reuseScope: 'qbit-local-batch',
+      })
+      const open = (service as any).qbitPqcSignatureBatches as Map<string, unknown>
+      const openRequest = () => service.openP2mrPsbtSigningBatch(destinationPubkey, websiteInputs)
+      while (open.size < 64) await openRequest()
+
+      await openRequest()
+      expect(open.has(local.id)).toBe(false)
+      await expect(openRequest()).rejects.toThrow(BATCHES_FULL)
+      expect(isOpen(service, review.batch.id)).toBe(true)
+
+      await review.sign(0)
+      await review.sign(1)
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(counter + 2)
+    })
   })
 
   it('preflights every P2MR plan before signing a valid earlier input', async () => {
@@ -2542,22 +3376,70 @@ describe('qbit-hd-keyring', () => {
       const second = await service.preflightP2mrPsbtSigning(pubkey, input())
       expect(first.restoredFloorRisk!.challengeId).not.toBe(second.restoredFloorRisk!.challengeId)
 
+      const batch = await service.openP2mrPsbtSigningBatch(pubkey, [
+        { ...input(), approvedBudget: first },
+        { ...input(), approvedBudget: second },
+      ])
+
       await service.confirmQbitRestoredFloorSigning(first.restoredFloorRisk!.challengeId)
       await service.confirmQbitRestoredFloorSigning(second.restoredFloorRisk!.challengeId)
 
-      const signedFirst = await service.signP2mrPsbtWithCounter(pubkey, input(), first)
+      const signedFirst = await service.signP2mrPsbtWithCounter(pubkey, input(), first, {
+        id: batch.id,
+        index: 0,
+      })
       expect(signedFirst.counterResults.map(result => result.cached)).toEqual([false])
 
       // The duplicate entry still completes: its own challenge survived the
       // first consume, and its approved signature is served from the cache
-      // without advancing the counter. Only the batch signer may assert the
-      // duplicate status; without it the shifted budget must reject.
+      // without advancing the counter. Only a member of the batch may find
+      // its signature cached by another; without it the shifted budget must
+      // reject.
       await expect(service.signP2mrPsbtWithCounter(pubkey, input(), second)).rejects.toThrow(
         'P2MR signature budget changed after approval'
       )
-      const signedSecond = await service.signP2mrPsbtWithCounter(pubkey, input(), second, true)
+      const signedSecond = await service.signP2mrPsbtWithCounter(pubkey, input(), second, {
+        id: batch.id,
+        index: 1,
+      })
       expect(signedSecond.counterResults.map(result => result.cached)).toEqual([true])
       expect(await service.getPqcSignatureCounter(pubkey)).toBe(6)
+    })
+
+    it('asks each entry of a restored-floor batch of different PSBTs for its own confirmation', async () => {
+      const { service, keyring, pubkey } = await createRestoredQbitService(undefined, 5)
+      const fixtures = [
+        await buildP2mrSpendFixture(keyring, { inputCount: 2, txidSeed: 7 }),
+        await buildP2mrSpendFixture(keyring, { txidSeed: 30 }),
+      ]
+      const inputs = fixtures.map(fixture => () => ({ psbt: fixture.psbt, keys: fixture.keys }))
+      const budgets = []
+      for (const input of inputs) {
+        budgets.push(await service.preflightP2mrPsbtSigning(pubkey, input()))
+      }
+      const batch = await service.openP2mrPsbtSigningBatch(
+        pubkey,
+        inputs.map((input, index) => ({ ...input(), approvedBudget: budgets[index]! }))
+      )
+      expect(batch.budget).toMatchObject({ required: 3, remainingBefore: PQC_MAX_SIGNATURES - 5 })
+      const sign = (index: number) =>
+        service.signP2mrPsbtWithCounter(pubkey, inputs[index]!(), budgets[index], {
+          id: batch.id,
+          index,
+        })
+
+      await expect(sign(1)).rejects.toBeInstanceOf(QbitRestoredFloorConfirmationError)
+      await service.confirmQbitRestoredFloorSigning(budgets[1]!.restoredFloorRisk!.challengeId)
+      await expect(sign(1)).resolves.toMatchObject({ counterResults: [{ cached: false }] })
+
+      // The batch explains the drift, but not the confirmation.
+      await expect(sign(0)).rejects.toBeInstanceOf(QbitRestoredFloorConfirmationError)
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(6)
+      await service.confirmQbitRestoredFloorSigning(budgets[0]!.restoredFloorRisk!.challengeId)
+      await expect(sign(0)).resolves.toMatchObject({
+        counterResults: [{ cached: false }, { cached: false }],
+      })
+      expect(await service.getPqcSignatureCounter(pubkey)).toBe(8)
     })
 
     it('clears confirmed restored-floor challenges when the wallet locks', async () => {
@@ -3791,6 +4673,31 @@ describe('qbit-hd-keyring', () => {
       expect(revived.keyring.type).toBe(coldWallet.type)
       expect(await revived.keyring.getAccounts()).toHaveLength(1)
     })
+  })
+
+  describe('mnemonic wallets are P2MR only', () => {
+    it.each([AddressType.P2WPKH, AddressType.P2TR, AddressType.P2PKH])(
+      'refuses to create a %s mnemonic wallet',
+      async addressType => {
+        const service = new KeyringService()
+        const storage = new MemoryStorage()
+        await service.init({
+          storage,
+          encryptor: new JsonEncryptor(),
+          logger: testLogger(),
+          t: (key: string) => key,
+        })
+        await service.boot('password')
+        const vaultBefore = service.store.getState().vault
+
+        await expect(
+          service.createKeyringWithMnemonics(sampleMnemonic, "m/84'/0'/0'/0", '', addressType, 1)
+        ).rejects.toThrow('not_supported')
+
+        expect(service.keyrings).toEqual([])
+        expect(service.store.getState().vault).toBe(vaultBefore)
+      }
+    )
   })
 
   describe('restore floor gate (pqcFloorsPending)', () => {

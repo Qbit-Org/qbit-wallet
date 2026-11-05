@@ -14,6 +14,12 @@ export interface ContactBookItem {
 }
 
 /**
+ * A contact to add or edit. Left unset, `isAlias` keeps the alias flag of the
+ * entry already stored under the contact's address and chain.
+ */
+export type ContactBookItemInput = Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }
+
+/**
  * UI contact book item interface (simplified for UI components)
  */
 export interface UIContactBookItem {

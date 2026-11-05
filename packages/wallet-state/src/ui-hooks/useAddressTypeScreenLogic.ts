@@ -61,9 +61,9 @@ export function useAddressTypeScreenLogic() {
       for (let i = 0; i < _res.length; i++) {
         const address = _res[i]
         const balance = balances[i]
-        const satoshis = balance.totalSatoshis
+        const satoshis = balance.mempoolInclusiveSatoshis
         self.addressAssets[address] = {
-          totalAmount: numUtils.satoshisToAmount(balance.totalSatoshis),
+          totalAmount: numUtils.satoshisToAmount(balance.mempoolInclusiveSatoshis),
           satoshis,
         }
       }
@@ -85,40 +85,10 @@ export function useAddressTypeScreenLogic() {
       return ADDRESS_TYPES.filter(v => v.value === currentKeyring.addressType)
     }
 
-    if (currentKeyring.type === KeyringType.HdKeyring) {
-      return ADDRESS_TYPES.filter(v => {
-        if (v.displayIndex < 0) {
-          return false
-        }
-        if (v.value === AddressType.P2MR) {
-          return false
-        }
-        // MagicEden only supports P2WPKH and P2TR
-        if (currentKeyring.accountIndexDerivation) {
-          return v.value === AddressType.P2WPKH || v.value === AddressType.P2TR
-        }
-        const address = addresses[v.value]
-        const balance = addressAssets[address]
-        if (v.usesBip44Path) {
-          if (!balance || balance.satoshis == 0) {
-            return false
-          }
-        }
-        return true
-      }).sort((a, b) => a.displayIndex - b.displayIndex)
-    } else {
-      return ADDRESS_TYPES.filter(
-        v => v.displayIndex >= 0 && v.usesBip44Path != true && v.value !== AddressType.P2MR
-      ).sort((a, b) => a.displayIndex - b.displayIndex)
-    }
-  }, [
-    currentKeyring.type,
-    currentKeyring.addressType,
-    currentKeyringCapabilities.canChangeAddressType,
-    currentKeyring.accountIndexDerivation,
-    addressAssets,
-    addresses,
-  ])
+    return ADDRESS_TYPES.filter(
+      v => v.displayIndex >= 0 && v.usesBip44Path != true && v.value !== AddressType.P2MR
+    ).sort((a, b) => a.displayIndex - b.displayIndex)
+  }, [currentKeyring.addressType, currentKeyringCapabilities.canChangeAddressType])
 
   const items: AddressTypeItem[] = useMemo(() => {
     return addressTypes.map(v => {
@@ -133,9 +103,7 @@ export function useAddressTypeScreenLogic() {
         currentKeyring.accountIndexDerivation
       )
       let name = `${v.name} (${derivedPath})`
-      if (currentKeyring.type === KeyringType.SimpleKeyring) {
-        name = `${v.name}`
-      } else if (currentKeyring.type === KeyringType.ColdWalletKeyring) {
+      if (currentKeyring.type === KeyringType.ColdWalletKeyring) {
         name = `❄️ ${v.name} (${derivedPath}) - ${t('Fixed by cold wallet')}`
       }
 
@@ -146,7 +114,7 @@ export function useAddressTypeScreenLogic() {
         value: v.value,
       }
     })
-  }, [addressTypes])
+  }, [addressTypes, addresses, addressAssets])
 
   const onClickItem = async (item: AddressTypeItem) => {
     if (item.value == currentKeyring.addressType) {

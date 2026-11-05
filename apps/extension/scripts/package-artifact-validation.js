@@ -16,11 +16,14 @@ const REQUIRED_ARCHIVE_ENTRIES = Object.freeze([
   'phishing-warning.js',
   'wasm/pqc.wasm'
 ]);
+// `idle` reports whether the computer is locked, so the wallet can lock with
+// it; it carries no install warning.
 const EXPECTED_MV3_PERMISSIONS = Object.freeze([
   'storage',
   'unlimitedStorage',
   'declarativeNetRequest',
-  'sidePanel'
+  'sidePanel',
+  'idle'
 ]);
 // Exact loopback origin of the developer-run regtest indexer. The store flavor
 // declares it as an *optional* host permission (requested only from the
@@ -311,8 +314,10 @@ function assertSecureMv3Manifest(manifest) {
   if (contentScript.run_at !== 'document_start') {
     throw new Error('content script must run at document_start');
   }
-  if (contentScript.all_frames === true) {
-    throw new Error('content script must not run in untrusted child frames');
+  // Embedded widgets, such as token swap widgets, need the provider in their
+  // own frame. The background binds each frame to its own origin.
+  if (contentScript.all_frames !== true) {
+    throw new Error('content script must run in every frame');
   }
 
   const webAccessibleResources = manifest.web_accessible_resources;

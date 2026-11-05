@@ -20,6 +20,16 @@ import type {
 
 const DEFAULT_STORAGE_KEY = 'wallet_connected_type'
 
+// Errors that say nothing about this page's grant, and are no cancel by the
+// user: EIP-1193 Disconnected (4900), when the connection to the wallet
+// closed before it answered, and Resource unavailable (-32002), when the
+// wallet was still starting and did not run the request.
+const WALLET_UNAVAILABLE_CODES: ReadonlySet<unknown> = new Set([4900, -32002])
+
+function isWalletUnavailable(error: unknown): boolean {
+  return WALLET_UNAVAILABLE_CODES.has((error as { code?: unknown } | null)?.code)
+}
+
 /**
  * Create wallet context with empty defaults
  */
@@ -178,7 +188,10 @@ export function WalletProvider({
               } else {
                 clearConnection()
               }
-            } catch {
+            } catch (error) {
+              // Keep the stored wallet for the next page load: the wallet
+              // could not answer this time.
+              if (isWalletUnavailable(error)) return
               clearConnection()
             }
           }

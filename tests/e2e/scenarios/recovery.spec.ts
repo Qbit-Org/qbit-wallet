@@ -173,11 +173,15 @@ test('G3 recovery: wipes, proves passphrase separation, and restores funded floo
 
   await restored.home.openReceive()
   const restoredReceive = new ReceivePage(restored.page)
-  // Every restored index is already used, so opening receive derives a fresh
-  // one, and on a mnemonic-restored keyring that re-arms and re-runs the full
-  // on-chain floor scan before the address renders — the same work the
-  // restore report waits minutes for.
-  expect(await restoredReceive.previousAddresses(3 * 60_000)).toEqual(
+  // Every restored index is already used. Receive keeps the selected one on
+  // screen, flagged used. New Address derives a fresh index, and on a
+  // mnemonic-restored keyring that re-arms and re-runs the full on-chain
+  // floor scan before the address renders — the same work the restore report
+  // waits minutes for.
+  expect(await restoredReceive.currentAddress()).toBe(rotation.previous)
+  await restoredReceive.expectCurrentAddressUsed()
+  await restoredReceive.rotateAddress(3 * 60_000)
+  expect(await restoredReceive.previousAddresses()).toEqual(
     expect.arrayContaining([rotation.previous, rotation.current])
   )
   await restoredReceive.expectCounterProvenance('restored-floor')

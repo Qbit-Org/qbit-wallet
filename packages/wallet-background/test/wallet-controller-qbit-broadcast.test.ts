@@ -74,6 +74,9 @@ vi.mock('../src/services', async () => {
   return {
     keyringService: {
       keyrings: [],
+      memStore: { getState: () => ({ isUnlocked: true }) },
+      hasVault: () => true,
+      setLocked: vi.fn(),
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
     },
@@ -81,12 +84,11 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
+      getLockOnComputerLock: vi.fn(() => true),
     },
     qbitSendGuardService: guard,
-    walletApiService: { transactionCore: { pushTx: vi.fn(), decodePsbt: vi.fn() } },
-    sessionService: {},
+    sessionService: { broadcastEvent: vi.fn() },
     contactBookService: {},
-    notificationService: {},
     permissionService: {},
   }
 })
@@ -640,6 +642,32 @@ describe('WalletController.broadcastQbitTx', () => {
     })
     expect(broadcastTxMock).toHaveBeenCalledWith(fixture.rawTxHex, underDeadline)
     expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+    await expectInputSpentNotClaimed()
+  })
+
+  it('settles a broadcast in flight when the wallet locks underneath it', async () => {
+    // The computer locking, the last window closing and the auto-lock all
+    // lock through lockWallet, which forgets the keyring's secrets and the
+    // kept output reads, and nothing a broadcast holds: its bytes are signed
+    // already, and the send guard keeps its claim.
+    const wallet = newController()
+    const signedData = await signWalletSend(wallet)
+    const claim = signedData.qbitSendBroadcastClaim!
+    let answer: (txid: string) => void = () => undefined
+    broadcastTxMock.mockReturnValueOnce(new Promise<string>(resolve => (answer = resolve)))
+
+    const broadcast = wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    await vi.waitFor(() => expect(broadcastTxMock).toHaveBeenCalledTimes(1))
+    await expect(wallet.lockOnSystemEvent('computer-locked')).resolves.toBe(true)
+    expect(keyringService.setLocked).toHaveBeenCalledTimes(1)
+
+    answer(fixture.txid)
+    await expect(broadcast).resolves.toEqual({
+      success: true,
+      chain: ChainType.QBIT_REGTEST,
+      txid: fixture.txid,
+      via: 'broadcast',
+    })
     await expectInputSpentNotClaimed()
   })
 
@@ -3257,7 +3285,7 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
   const reserved = () =>
     qbitSendGuardService.getReservedOutpointKeys(ChainType.QBIT_REGTEST, fixture.address)
 
-  it.each([KeyringType.ReadonlyKeyring, KeyringType.ColdWalletKeyring])(
+  it.each([KeyringType.ReadonlyKeyring])(
     'reserves a wallet-built send signed by a %s account from its signed bytes until the broadcast is proven',
     async keyringType => {
       const wallet = newController()
@@ -3312,7 +3340,7 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
     }
   )
 
-  it.each([KeyringType.ReadonlyKeyring, KeyringType.ColdWalletKeyring])(
+  it.each([KeyringType.ReadonlyKeyring])(
     'refuses bytes for a send built for another %s account than the one now selected, until it is selected again',
     async keyringType => {
       const wallet = newController()
@@ -3366,6 +3394,10 @@ describe('WalletController.reserveExternallySignedQbitSend', () => {
     // the active one is refused exactly as local signing refuses it.
     await expect(
       reserveExternalWalletSend(wallet, fixture.psbtHex, KeyringType.QbitHdKeyring)
+    ).rejects.toThrow('invalid externally signed Qbit send')
+    // A cold-wallet account has no signing step left in the wallet.
+    await expect(
+      reserveExternalWalletSend(wallet, fixture.psbtHex, KeyringType.ColdWalletKeyring)
     ).rejects.toThrow('invalid externally signed Qbit send')
     await expect(
       reserveExternalWalletSend(wallet, fixture.psbtHex, KeyringType.ReadonlyKeyring, {

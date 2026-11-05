@@ -17,10 +17,9 @@ import { StartupErrorScreen } from './components/StartupErrorScreen';
 import AsyncMainRoute from './pages/MainRoute';
 import { DeviceProvider } from './providers/DeviceProvider';
 import { I18nProvider } from './providers/I18nProvider';
-import { StorageProvider } from './providers/StorageProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { ToolsProvider } from './providers/ToolsProvider';
-import { getAntdConfig, initializeAppConfig } from './utils/appConfig';
+import { initializeAppConfig } from './utils/appConfig';
 import { BackgroundStartupFailure, waitForBackgroundStartup } from './utils/backgroundStartup';
 import { applyExternalMonitorFix } from './utils/platformFixes';
 import { createPortMessageChannel, createWalletProxy, setupEventBusListeners } from './web/ui-messaging';
@@ -44,34 +43,29 @@ const wallet = createWalletProxy(portMessageChannel);
 // Setup event bus listeners
 setupEventBusListeners(portMessageChannel);
 
-// Get Ant Design configuration
-const antdConfig = getAntdConfig();
-
 // Ensure background is initialized before rendering UI
 
 function renderApp() {
   const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
   root.render(
     <Provider store={store}>
-      <WalletProvider {...antdConfig} wallet={wallet as any}>
+      <WalletProvider wallet={wallet as any}>
         <ThemeProvider>
-          <StorageProvider>
-            <DeviceProvider>
-              <I18nProvider>
-                <ToolsProvider>
-                  <AppDimensions>
-                    <IdleTimerProvider
-                      onAction={() => {
-                        wallet.setLastActiveTime();
-                      }}>
-                      <AccountUpdater />
-                      <AsyncMainRoute />
-                    </IdleTimerProvider>
-                  </AppDimensions>
-                </ToolsProvider>
-              </I18nProvider>
-            </DeviceProvider>
-          </StorageProvider>
+          <DeviceProvider>
+            <I18nProvider>
+              <ToolsProvider>
+                <AppDimensions>
+                  <IdleTimerProvider
+                    onAction={() => {
+                      wallet.setLastActiveTime();
+                    }}>
+                    <AccountUpdater />
+                    <AsyncMainRoute />
+                  </IdleTimerProvider>
+                </AppDimensions>
+              </ToolsProvider>
+            </I18nProvider>
+          </DeviceProvider>
         </ThemeProvider>
       </WalletProvider>
     </Provider>

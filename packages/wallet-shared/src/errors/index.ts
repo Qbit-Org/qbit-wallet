@@ -28,6 +28,13 @@ export enum ErrorCodes {
   // put back in its place: the stored setting may hold either value until a
   // later save succeeds.
   PREFERENCE_NOT_RESTORED = -15,
+  // The wallet locked while an unlock waited or ran (the computer locked,
+  // the last window closed, or another lock), so the unlock ended locked.
+  WALLET_LOCKED_DURING_UNLOCK = -16,
+  // A recovery migration plan named the signature batch of a review that
+  // has ended, been replaced, or was closed by a lock. Nothing of the plan
+  // was signed; the screen prepares the remaining plans again.
+  QBIT_RECOVERY_REVIEW_INTERRUPTED = -17,
   // A provider sendQbit, pushTx or pushPsbt broadcast ended without a
   // verdict: the transaction named in the error data may be in the mempool,
   // so the dapp must check it before retrying. A sendQbit's inputs stay
@@ -41,7 +48,9 @@ export enum ErrorCodes {
   INVALID_PARAMS = -32602,
   UserCancel = 4001,
   UNAUTHORIZED = 4100,
-  // The current Qbit network has no canonical deriveContextHash identifier.
+  // The provider refuses a request on a chain it does not serve: the active
+  // chain is not a Qbit chain, a switch names an unsupported chain or network,
+  // or a PSBT's signing chain is not the active one.
   // EIP-1193 reserves 4901 for "Chain Disconnected", the closest standard analog.
   UNSUPPORTED_NETWORK = 4901,
 }
@@ -59,6 +68,8 @@ export const ErrorMessages: {
   [ErrorCodes.REGTEST_SERVICE_UNREACHABLE]: 'regtest_service_unavailable',
   [ErrorCodes.REGTEST_SERVICE_UNEXPECTED]: 'regtest_service_unexpected',
   [ErrorCodes.PREFERENCE_NOT_RESTORED]: 'setting_not_saved_may_have_changed',
+  [ErrorCodes.WALLET_LOCKED_DURING_UNLOCK]: 'wallet_locked_during_unlock',
+  [ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED]: 'qbit_recovery_review_interrupted',
   [ErrorCodes.METHOD_NOT_FOUND]: 'code_method_not_found',
   [ErrorCodes.INVALID_PARAMS]: 'Invalid provider request parameters',
   [ErrorCodes.UserCancel]: 'user_rejected_the_request',

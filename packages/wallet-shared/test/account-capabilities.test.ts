@@ -20,7 +20,7 @@ describe('account message signing capabilities', () => {
   })
 
   it('keeps existing and watch-only account capabilities unchanged', () => {
-    expect(getAccountCapabilities({ type: KeyringType.HdKeyring })).toMatchObject({
+    expect(getAccountCapabilities({ type: KeyringType.ReadonlyKeyring })).toMatchObject({
       canCreateSigningRequest: true,
       canSignP2mrMessage: false,
     })

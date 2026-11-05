@@ -38,9 +38,7 @@ export interface FeeSummary {
 
 export interface WalletConfig {
   version: string
-  moonPayEnabled: boolean
   statusMessage: string
-  endpoint: string
   chainTip: string
   disableUtxoTools: boolean
 }

@@ -15,6 +15,7 @@ import {
   useWallet
 } from '@qbit/wallet-state';
 
+import { ErrorCodes } from '@qbit/wallet-shared';
 import { useNavigate } from '../../MainRoute';
 import UnlockScreen from './index';
 
@@ -231,6 +232,24 @@ describe('UnlockScreen after the wallet unlocks', () => {
 
     expect(unlock).toHaveBeenCalledWith('password');
     expect(navToRootHome).not.toHaveBeenCalled();
+  });
+
+  it('says the wallet locked, not that the password was wrong, when it locked while unlocking', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    // Errors reach the page over the port as plain objects.
+    unlock.mockRejectedValue({ message: 'The wallet locked while unlocking.', code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK });
+    renderScreen();
+
+    fireEvent.change(screen.getByTestId('unlock-password-input'), { target: { value: 'password' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('unlock-button'));
+    });
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('wallet_locked_during_unlock'));
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('unlock-password-input')).toBeTruthy();
   });
 
   it('still opens MainScreen outside an approval window', async () => {

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { init } from '@qbit-oss/pqc'
 import { AddressType } from '@qbit/wallet-types'
 import { KeyringService } from '../src/keyring-service'
 import type { Encryptor } from '../src/types'
@@ -64,9 +65,9 @@ async function createWallet() {
   await service.boot(password)
   await service.createKeyringWithMnemonics(
     sampleMnemonic,
-    "m/84'/0'/0'/0",
+    "m/87'/1'/0'/0",
     '',
-    AddressType.P2WPKH,
+    AddressType.P2MR,
     1
   )
   return { service, storage }
@@ -78,7 +79,29 @@ async function flushMicrotasks(): Promise<void> {
   }
 }
 
+// QbitHdKeyring derives its PQC keys through the SDK's WebAssembly module.
+beforeAll(async () => {
+  await init()
+})
+
 describe('KeyringService.boot', () => {
+  it('stores a random boost value that does not reveal when the wallet was created', async () => {
+    const boostValues = new Set<string>()
+    for (let i = 0; i < 2; i += 1) {
+      const { service, storage } = await createService()
+      await service.boot(password)
+
+      const { boostValue, booted } = storage.keyringStateWrites.at(-1)
+      expect(boostValue).toMatch(/^[0-9a-f]{64}$/)
+      await expect(new JsonEncryptor().decrypt(password, booted)).resolves.toBe(boostValue)
+      await expect(service.verifyPassword(password)).resolves.toBe(true)
+      await expect(service.verifyPassword(otherPassword)).resolves.toBe(false)
+      boostValues.add(boostValue)
+    }
+
+    expect(boostValues.size).toBe(2)
+  })
+
   it('refuses to boot over an existing vault and leaves all state untouched', async () => {
     const { service, storage } = await createWallet()
     await flushMicrotasks()
@@ -118,9 +141,9 @@ describe('KeyringService.boot', () => {
     await expect(service.verifyPassword(password)).resolves.toBe(false)
     await service.createKeyringWithMnemonics(
       sampleMnemonic,
-      "m/84'/0'/0'/0",
+      "m/87'/1'/0'/0",
       '',
-      AddressType.P2WPKH,
+      AddressType.P2MR,
       1
     )
     expect(service.hasVault()).toBe(true)
@@ -133,9 +156,9 @@ describe('KeyringService.boot', () => {
     await expect(service.boot(otherPassword)).resolves.toBeUndefined()
     await service.createKeyringWithMnemonics(
       sampleMnemonic,
-      "m/84'/0'/0'/0",
+      "m/87'/1'/0'/0",
       '',
-      AddressType.P2WPKH,
+      AddressType.P2MR,
       1
     )
     await expect(service.verifyPassword(otherPassword)).resolves.toBe(true)

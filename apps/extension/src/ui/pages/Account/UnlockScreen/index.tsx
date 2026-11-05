@@ -7,6 +7,7 @@ import { Input } from '@/ui/components/Input';
 import { Logo } from '@/ui/components/Logo';
 import { Text } from '@/ui/components/Text';
 import { getUiType } from '@/ui/web';
+import { ErrorCodes } from '@qbit/wallet-shared';
 import {
   BiometricCeremonyCancelledError,
   BiometricRecordStaleError,
@@ -107,7 +108,13 @@ export default function UnlockScreen() {
       await navigateAfterUnlock();
     } catch (e) {
       console.log(e);
-      tools.toastError(t('password_error'));
+      // The wallet locked while unlocking (the computer locked, say); the
+      // password was not the problem.
+      tools.toastError(
+        (e as { code?: unknown } | null)?.code === ErrorCodes.WALLET_LOCKED_DURING_UNLOCK
+          ? t('wallet_locked_during_unlock')
+          : t('password_error')
+      );
     } finally {
       unlockInFlightRef.current = false;
       setLoading(false);

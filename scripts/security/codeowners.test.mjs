@@ -56,6 +56,7 @@ test('CODEOWNERS covers every security release surface', () => {
     '/patches/',
     '/.changeset/',
     '/pnpm-lock.yaml',
+    '/pnpm-workspace.yaml',
     '/scripts/security/',
     '/scripts/conformance/',
     '/docker/regtest/',

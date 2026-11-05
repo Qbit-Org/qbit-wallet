@@ -73,7 +73,7 @@ export type ProviderRequestEnvelope =
       source: 'content'
       data: {
         method: 'tabCheckin'
-        params: { name?: string; icon?: string; activeDocument?: boolean }
+        params: { name?: string; icon?: string; activeDocument?: boolean; topFrame?: boolean }
       }
     }
 

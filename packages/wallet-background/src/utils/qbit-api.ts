@@ -68,11 +68,11 @@ const QBIT_ACCOUNT_HISTORY_RAW_ROW_MULTIPLIER = 2
 const MAX_QBIT_HISTORY_PREVOUT_HYDRATIONS = 1_024
 const QBIT_HISTORY_PREVOUT_HYDRATION_CONCURRENCY = 8
 const QBIT_HISTORY_ADDRESS_REQUEST_CONCURRENCY = 8
+const QBIT_ADDRESS_SUMMARY_CONCURRENCY = 8
 // An address read from its history can carry thousands of outputs.
 const QBIT_PROTECTED_ASSET_LOOKUP_CONCURRENCY = 16
 const QBIT_HISTORY_REVISION_CONFIRMED_WINDOW = 25
 export const MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES = 32
-const MAX_QBIT_FEE_RATE = 10_000
 // qbit Core caps a serialized block at 2,000,000 bytes. A transaction cannot
 // validly exceed its containing block, so reject larger explorer responses
 // before running the hex regex or allocating through Transaction.fromHex.
@@ -522,7 +522,7 @@ export async function discoverQbitActiveIndexes(
     )
     for (const item of stats) {
       activeByIndex[scannedCount] =
-        qbitStatsHaveActivity(item) || qbitStatsToAddressSummary(item).totalSatoshis > 0
+        qbitStatsHaveActivity(item) || qbitStatsToAddressSummary(item).mempoolInclusiveSatoshis > 0
       scannedCount += 1
     }
 
@@ -878,15 +878,13 @@ function qbitAvailableSats(
 }
 
 export function qbitStatsToAddressSummary(stats: EsploraAddressStats): AddressSummary {
-  const confirmed =
-    stats.chain_stats.funded_txo_sum -
-    stats.chain_stats.spent_txo_sum +
-    stats.mempool_stats.funded_txo_sum -
-    stats.mempool_stats.spent_txo_sum
   return {
     address: stats.address,
-    totalSatoshis: confirmed,
-    spendableSatoshis: confirmed,
+    mempoolInclusiveSatoshis:
+      stats.chain_stats.funded_txo_sum -
+      stats.chain_stats.spent_txo_sum +
+      stats.mempool_stats.funded_txo_sum -
+      stats.mempool_stats.spent_txo_sum,
   }
 }
 
@@ -1609,18 +1607,29 @@ export async function observeQbitPqcSpentOutpoints(
     .spentOutpoints
 }
 
+export async function getQbitAddressSummary(
+  client: QbitEsploraClient,
+  address: string
+): Promise<AddressSummary> {
+  const stats = await client.getAddressStats(address)
+  assertValidQbitStats(stats, address)
+  return qbitStatsToAddressSummary(stats)
+}
+
 export async function getQbitAddressSummaries(
   client: QbitEsploraClient,
   addresses: string
 ): Promise<AddressSummary[]> {
-  return Promise.all(
-    addresses.split(',').map(async rawAddress => {
+  return mapQbitWithConcurrency(
+    addresses.split(','),
+    QBIT_ADDRESS_SUMMARY_CONCURRENCY,
+    async rawAddress => {
       const address = rawAddress.trim()
       if (!address) {
-        return { address, totalSatoshis: 0, spendableSatoshis: 0 }
+        return { address, mempoolInclusiveSatoshis: 0 }
       }
-      return qbitStatsToAddressSummary(await client.getAddressStats(address))
-    })
+      return getQbitAddressSummary(client, address)
+    }
   )
 }
 
@@ -1647,7 +1656,7 @@ export async function findActiveQbitAddressGroups<T extends AddressGroup>(
           hasActivity: item ? qbitStatsHaveActivity(item) : false,
           index,
         }))
-        .filter(item => (item.balance?.totalSatoshis ?? 0) > 0 || item.hasActivity)
+        .filter(item => (item.balance?.mempoolInclusiveSatoshis ?? 0) > 0 || item.hasActivity)
 
       return {
         type: group.type,
@@ -1656,7 +1665,7 @@ export async function findActiveQbitAddressGroups<T extends AddressGroup>(
           group.pubkey_arr && group.pubkey_arr.length > 0
             ? activeIndexes.map(item => group.pubkey_arr?.[item.index] ?? '')
             : [],
-        satoshis_arr: activeIndexes.map(item => item.balance?.totalSatoshis ?? 0),
+        satoshis_arr: activeIndexes.map(item => item.balance?.mempoolInclusiveSatoshis ?? 0),
       }
     })
   )

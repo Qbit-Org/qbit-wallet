@@ -11,8 +11,8 @@ export interface AddressAssets {
 
 export interface AddressSummary {
   address: string
-  totalSatoshis: number
-  spendableSatoshis: number
+  /** Confirmed and unconfirmed outputs together, which is not what can be spent now. */
+  mempoolInclusiveSatoshis: number
   loading?: boolean
 }
 

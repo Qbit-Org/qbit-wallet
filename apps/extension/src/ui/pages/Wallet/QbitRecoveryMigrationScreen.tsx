@@ -11,6 +11,7 @@ import { Step1_Create } from '@/ui/pages/Account/createHDWalletComponents/Step1_
 import { ContextData, TabType, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { useWalletKeepalive } from '@/ui/utils/hooks';
 import { numUtils } from '@qbit/base-utils';
+import { QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE } from '@qbit/keyring-service/types';
 import {
   ErrorCodes,
   PlatformEnv,
@@ -62,6 +63,23 @@ function ReviewAddressActions({
     </Row>
   );
 }
+
+// A plan named the signature batch of a review that ended or was replaced,
+// or that a lock closed; nothing of it was signed.
+function isMigrationReviewInterruptedError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as { code?: unknown }).code === ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED
+  );
+}
+
+// The keyring's QbitRestoredFloorConfirmationError. Confirming a plan fails
+// with it only when the plan's challenge is gone: a lock cleared it, it
+// expired, or its review was released. Signing a confirmed plan fails with
+// it when that approval no longer holds, as when the challenge went in
+// between. The review was interrupted too.
+const REVIEW_INTERRUPTED = { code: ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED };
 
 function isMigrationDestinationUnavailableError(error: unknown): boolean {
   return (
@@ -141,9 +159,10 @@ export default function QbitRecoveryMigrationScreen() {
   // 64 of the global 128 capacity). Leaving review without signing would pin
   // them for their full five-minute TTL and could starve every other
   // restored-floor preflight, so whatever a replaced or unmounted review no
-  // longer holds is released. Re-prepares reuse the same challenge ids and
-  // releasing a consumed id is a no-op, so signing and resuming are
-  // unaffected.
+  // longer holds is released. Releasing one also closes the signature batch
+  // of the plans it was prepared with, consumed ids included: the review
+  // that signed from that batch has moved on. Re-prepares reuse the same
+  // challenge ids, so a review shown again keeps its batch.
   const heldChallengeIdsRef = useRef<string[]>([]);
   useEffect(() => {
     const currentIds = toSignDatas
@@ -339,12 +358,22 @@ export default function QbitRecoveryMigrationScreen() {
         if (!risk) {
           throw new Error(t('qbit_recovery_confirmation_unavailable'));
         }
-        await wallet.confirmQbitRestoredFloorSigning(risk.challengeId);
-        await wallet.signPsbtV2(toSignData);
+        try {
+          await wallet.confirmQbitRestoredFloorSigning(risk.challengeId);
+          await wallet.signPsbtV2(toSignData);
+        } catch (error) {
+          if ((error as { code?: unknown } | null)?.code === QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE) {
+            throw REVIEW_INTERRUPTED;
+          }
+          throw error;
+        }
       }
       await resumeMigration();
-    } catch {
-      tools.toastError(t('qbit_recovery_error_body'));
+    } catch (error) {
+      // Either way the plans left are prepared again for another review.
+      tools.toastError(
+        isMigrationReviewInterruptedError(error) ? t('qbit_recovery_review_interrupted') : t('qbit_recovery_error_body')
+      );
       await resumeMigration();
     } finally {
       signingInFlight.current = false;

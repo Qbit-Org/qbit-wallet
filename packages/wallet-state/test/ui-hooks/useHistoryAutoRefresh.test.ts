@@ -15,6 +15,8 @@ import { settingsActions } from '../../src/reducers/settings'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const address = 'qb1ztestaccount'
+// The history of an account that is not a Qbit HD account is kept under its address.
+const ADDRESS_KEYED_ACCOUNT = KeyringType.WatchAddressKeyring
 
 function createHarness() {
   const wallet = {
@@ -25,7 +27,10 @@ function createHarness() {
       detail: [{ txid: 'tx1', confirmations: 0, timestamp: 1_700_000_000 }],
     }),
   }
-  const harness = createHookTestHarness({ wallet: wallet as any })
+  const harness = createHookTestHarness({
+    wallet: wallet as any,
+    accountType: ADDRESS_KEYED_ACCOUNT,
+  })
   return { ...harness, wallet }
 }
 
@@ -50,7 +55,10 @@ describe('useHistoryAutoRefresh', () => {
         }),
       getQbitTxLifecycleStatus: vi.fn().mockResolvedValue({ state: 'gone' }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -86,7 +94,10 @@ describe('useHistoryAutoRefresh', () => {
         }),
       getQbitTxLifecycleStatus: vi.fn().mockResolvedValue({ state: 'confirmed' }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -121,7 +132,10 @@ describe('useHistoryAutoRefresh', () => {
         }),
       getQbitTxLifecycleStatus: vi.fn().mockResolvedValue({ state: 'pending' }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -164,7 +178,10 @@ describe('useHistoryAutoRefresh', () => {
         state: txid === 'tx-gone' ? 'gone' : 'pending',
       })),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -208,7 +225,10 @@ describe('useHistoryAutoRefresh', () => {
         }),
       getQbitTxLifecycleStatus: vi.fn().mockRejectedValue(new Error('offline')),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -242,7 +262,10 @@ describe('useHistoryAutoRefresh', () => {
           detail: [{ txid: 'tx-new', confirmations: 1, timestamp: 100 }],
         }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
 
     let firstFetch!: Promise<void>
@@ -286,7 +309,10 @@ describe('useHistoryAutoRefresh', () => {
         probeCallCount++ < 8 ? staleProbe : Promise.resolve({ state: 'pending' as const })
       ),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     store.dispatch(accountActions.setHistory({ address, list: pending }))
     const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
 
@@ -327,7 +353,10 @@ describe('useHistoryAutoRefresh', () => {
       getAddressHistory: vi.fn().mockResolvedValue({ start: 0, total: 0, detail: [] }),
       getQbitTxLifecycleStatus: vi.fn().mockResolvedValue({ state: 'pending' }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     store.dispatch(accountActions.setHistory({ address, list: pending }))
     const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
 
@@ -379,7 +408,10 @@ describe('useHistoryAutoRefresh', () => {
         return { state: 'pending' as const }
       }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     store.dispatch(
       accountActions.setHistory({
         address,
@@ -435,7 +467,10 @@ describe('useHistoryAutoRefresh', () => {
       getAddressHistory: vi.fn().mockResolvedValue({ start: 0, total: 0, detail: [] }),
       getQbitTxLifecycleStatus: vi.fn().mockResolvedValue({ state: 'pending' }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     store.dispatch(accountActions.setHistory({ address, list: pendingFor('first') }))
     const { result, unmount } = renderHook(() => useFetchHistoryCallback(), { wrapper })
 
@@ -475,7 +510,10 @@ describe('useHistoryAutoRefresh', () => {
       getAddressHistory: vi.fn().mockReturnValue(historyRequest),
       getQbitTxLifecycleStatus: vi.fn().mockResolvedValue({ state: 'gone' }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const currentAccount = store.getState().accounts.current
     store.dispatch(
       accountActions.setHistory({
@@ -546,7 +584,10 @@ describe('useHistoryAutoRefresh', () => {
       key: 'keyring_0#1',
     }
     const wallet = { ...createWalletMock(), getAddressHistory: vi.fn(getAddressHistory) }
-    const harness = createHookTestHarness({ wallet: wallet as any })
+    const harness = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     harness.store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
     harness.store.dispatch(
       keyringsActions.setCurrent({
@@ -818,7 +859,10 @@ describe('useHistoryAutoRefresh', () => {
           detail: [{ txid: 'tx-next', confirmations: 1, timestamp: 100 }],
         }),
     }
-    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -855,7 +899,10 @@ describe('useHistoryAutoRefresh', () => {
           detail: [{ txid: 'tx-manual', confirmations: 1, timestamp: 100 }],
         }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { result, unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {
@@ -905,7 +952,10 @@ describe('useHistoryAutoRefresh', () => {
           detail: [{ txid: 'tx-new-poll', confirmations: 2, timestamp: 100 }],
         }),
     }
-    const { wrapper, store } = createHookTestHarness({ wallet: wallet as any })
+    const { wrapper, store } = createHookTestHarness({
+      wallet: wallet as any,
+      accountType: ADDRESS_KEYED_ACCOUNT,
+    })
     const { result, unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
     await act(async () => {

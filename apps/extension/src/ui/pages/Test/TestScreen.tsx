@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 import { Button, Card, Column, Content, Header, Input, Layout, Text } from '@/ui/components';
 import { AddressDetailPopover } from '@/ui/components/AddressDetailPopover';
@@ -7,9 +7,9 @@ import { AddressTypeCard2 } from '@/ui/components/AddressTypeCard';
 import { RemoveWalletPopover } from '@/ui/components/RemoveWalletPopover';
 import { SignPsbtWithRisksPopover } from '@/ui/components/SignPsbtWithRisksPopover';
 import { ProviderMethodArgs, ProviderMethods } from '@qbit/wallet-background/types';
-import { ADDRESS_TYPES, DummyTxType, SignMessageType, ToAddressInfo, ToSignData } from '@qbit/wallet-shared';
-import { useAsyncEffect, useCurrentKeyring, useKeyrings, useTools, useWallet } from '@qbit/wallet-state';
-import { ChainType } from '@qbit/wallet-types';
+import { ADDRESS_TYPES, SignMessageType, ToAddressInfo } from '@qbit/wallet-shared';
+import { useCurrentKeyring, useKeyrings, useTools, useWallet } from '@qbit/wallet-state';
+import { AddressType, ChainType } from '@qbit/wallet-types';
 import { Connect, SignMessage, SignPsbt, SwitchNetwork } from '../Approval/components';
 import { useNavigate } from '../MainRoute';
 import { testDecodedTx } from './testDecodedTx';
@@ -23,20 +23,6 @@ const DUMMY_SESSION = {
 export default function TestScreen() {
   const tools = useTools();
   const wallet = useWallet();
-
-  const testApprovalData = useRef<{ toSignDatas: ToSignData[] }>({ toSignDatas: [] });
-
-  useAsyncEffect(async () => {
-    const toSignDatas: ToSignData[] = [];
-
-    const types = [DummyTxType.SEND_QBIT, DummyTxType.SPLIT_QBIT, DummyTxType.MERGE_QBIT];
-    for (const txType of types) {
-      const data = await wallet.createDummyPsbt({ txType });
-      toSignDatas.push(data);
-    }
-
-    testApprovalData.current.toSignDatas = toSignDatas;
-  });
 
   const requestApproval = async (data: ProviderMethodArgs<ProviderMethods>) => {
     try {
@@ -57,39 +43,13 @@ export default function TestScreen() {
       <Content>
         <Column>
           <Button
-            text="SignPsbt"
-            onClick={() => {
-              requestApproval({
-                method: 'signPsbt',
-                params: {
-                  psbtHex: testApprovalData.current.toSignDatas[0].psbtHex,
-                  options: { toSignInputs: testApprovalData.current.toSignDatas[0].toSignInputs }
-                }
-              });
-            }}
-          />
-
-          <Button
-            text="Sign Multiple Psbts"
-            onClick={() => {
-              requestApproval({
-                method: 'multiSignPsbt',
-                params: {
-                  psbtHexs: testApprovalData.current.toSignDatas.map((item) => item.psbtHex),
-                  options: testApprovalData.current.toSignDatas.map((item) => ({ toSignInputs: item.toSignInputs }))
-                }
-              });
-            }}
-          />
-
-          <Button
             text="SignMessage"
             onClick={() => {
               requestApproval({
                 method: 'signMessage',
                 params: {
                   text: 'hello',
-                  type: SignMessageType.ECDSA
+                  type: SignMessageType.P2MR
                 }
               });
             }}
@@ -103,11 +63,11 @@ export default function TestScreen() {
                   messages: [
                     {
                       text: 'hello1',
-                      type: SignMessageType.BIP322_SIMPLE
+                      type: SignMessageType.P2MR
                     },
                     {
                       text: 'hello2',
-                      type: SignMessageType.ECDSA
+                      type: SignMessageType.P2MR
                     }
                   ]
                 }
@@ -148,7 +108,7 @@ function TestWalletAccounts() {
             text="Create multiple wallets"
             onClick={async () => {
               const count = 100;
-              const addressTypeInfo = ADDRESS_TYPES[0];
+              const addressTypeInfo = ADDRESS_TYPES.find((v) => v.value === AddressType.P2MR)!;
               for (let i = 0; i < count; i++) {
                 const mnemonics = await wallet.generatePreMnemonic();
                 await wallet.createKeyringWithMnemonics(
@@ -321,7 +281,7 @@ function TestApprovalSignText() {
     <SignMessage
       params={{
         data: {
-          toSignMessages: [{ text: 'hello', type: SignMessageType.ECDSA }]
+          toSignMessages: [{ text: 'hello', type: SignMessageType.P2MR }]
         },
         session: DUMMY_SESSION
       }}

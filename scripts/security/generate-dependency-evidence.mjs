@@ -8,8 +8,11 @@ import YAML from 'yaml'
 
 import { writeGeneratedEvidence } from './dependency-evidence-artifacts.mjs'
 import {
+  auditPathDirectDependency,
   exceptionCoversPath,
   fallbackReachability,
+  lockfileProductionPaths,
+  lockfileSnapshotClosures,
   normalizeResolvedVersion,
   packageIdentityFromReference,
   resolvedPackageKey,
@@ -27,9 +30,9 @@ const DIRECT_SECTIONS = [
 const TEST_PACKAGE =
   /(?:^|[/@-])(?:jest|vitest|playwright|testing-library|test-utils|jsdom|happy-dom|sinon|chai|mock)(?:$|[/@-])/i
 const EXTENSION_BUILD_PACKAGE =
-  /^(?:@babel\/|@pmmmwh\/react-refresh-webpack-plugin$|@svgr\/webpack$|@types\/|antd-dayjs-webpack-plugin$|babel-(?:loader|plugin|preset)|bfj$|browserify$|browserslist$|case-sensitive-paths-webpack-plugin$|cross-env$|css-(?:loader|minimizer-webpack-plugin)$|dotenv(?:-expand)?$|eslint-webpack-plugin$|file-loader$|fs-extra$|html-webpack-plugin$|mini-css-extract-plugin$|postcss(?:$|-)|prompts$|react-dev-utils$|react-refresh$|redux-devtools$|resolve$|resolve-url-loader$|source-map-loader$|style-(?:loader|resources-loader)$|tailwindcss$|terser-webpack-plugin$|ts-(?:import-plugin|loader)$|tsconfig-paths-webpack-plugin$|typescript(?:$|-)|webpack(?:$|-)|workbox-webpack-plugin$)/
+  /^(?:@babel\/|@pmmmwh\/react-refresh-webpack-plugin$|@svgr\/webpack$|@types\/|babel-(?:loader|plugin|preset)|browserify$|browserslist$|case-sensitive-paths-webpack-plugin$|cross-env$|css-(?:loader|minimizer-webpack-plugin)$|dotenv(?:-expand)?$|eslint-webpack-plugin$|file-loader$|fs-extra$|html-webpack-plugin$|mini-css-extract-plugin$|postcss(?:$|-)|prompts$|react-dev-utils$|react-refresh$|resolve$|resolve-url-loader$|source-map-loader$|style-(?:loader|resources-loader)$|tailwindcss$|terser-webpack-plugin$|ts-(?:import-plugin|loader)$|tsconfig-paths-webpack-plugin$|typescript(?:$|-)|webpack(?:$|-))/
 const DEVELOPMENT_QUALITY_PACKAGE =
-  /^(?:@notionhq\/client$|@trivago\/prettier-plugin-sort-imports$|@typescript-eslint\/|eslint(?:$|-)|prettier$)/
+  /^(?:@trivago\/prettier-plugin-sort-imports$|@typescript-eslint\/|eslint(?:$|-)|prettier$)/
 const SECURITY_ADJACENCY = {
   crypto:
     /(?:crypto|cipher|hash|sha\d*|md5|ripemd|secp|elliptic|noble|bip\d*|bitcoin|bitcore|hdkey|scrypt|pbkdf|aes|hmac|randombytes|tweetnacl|forge|sigstore|jose|ecdsa|slh|pqc|password|keyring|vault|encrypt|decrypt|mnemonic|signature)/i,
@@ -89,7 +92,7 @@ function deliveryFor(workspace, section, packageName) {
 }
 
 function lockPackageIdentity(lockKey) {
-  const identity = packageIdentityFromReference(lockKey.slice(1))
+  const identity = packageIdentityFromReference(lockKey)
   return identity.version ? identity : null
 }
 
@@ -182,20 +185,50 @@ for (const dependency of directDependencies) {
   deliveryLookup.set(`${dependency.workspace}\0${resolvedKey}`, dependency.delivery)
 }
 
+if (lockfile.lockfileVersion !== '9.0') {
+  throw new Error(
+    `evidence generation reads lockfileVersion 9.0, found ${lockfile.lockfileVersion}`
+  )
+}
+// Lockfile v9 keeps one `packages` entry per name@version and one `snapshots`
+// entry per peer variant, which is where the closure comes from.
 const resolvedGroups = new Map()
-for (const [lockKey, snapshot] of Object.entries(lockfile.packages || {})) {
+for (const [lockKey, entry] of Object.entries(lockfile.packages || {})) {
   const identity = lockPackageIdentity(lockKey)
   if (!identity) continue
-  const key = resolvedPackageKey(identity.package, identity.version)
-  const group = resolvedGroups.get(key) || {
+  resolvedGroups.set(resolvedPackageKey(identity.package, identity.version), {
     ...identity,
     peerVariants: 0,
-    integrity: snapshot.resolution?.integrity || null,
+    integrity: entry.resolution?.integrity || null,
     closures: new Set(),
-  }
+  })
+}
+for (const [snapshotKey, closure] of lockfileSnapshotClosures(lockfile)) {
+  const identity = lockPackageIdentity(snapshotKey)
+  const group =
+    identity && resolvedGroups.get(resolvedPackageKey(identity.package, identity.version))
+  if (!group) throw new Error(`snapshot ${snapshotKey} has no packages entry in pnpm-lock.yaml`)
   group.peerVariants += 1
-  group.closures.add(snapshot.dev === true ? 'development-only' : 'production-closure')
-  resolvedGroups.set(key, group)
+  group.closures.add(closure)
+}
+for (const group of resolvedGroups.values()) {
+  if (group.peerVariants === 0) {
+    throw new Error(`${group.package}@${group.version} has no snapshot in pnpm-lock.yaml`)
+  }
+}
+// Advisory reachability comes from the lockfile graph, not from how many
+// paths pnpm audit happens to list: a vulnerable name@version in a production
+// closure is reachable, and this records one production path to it.
+const productionPaths = lockfileProductionPaths(lockfile)
+for (const group of resolvedGroups.values()) {
+  if (
+    group.closures.has('production-closure') !==
+    productionPaths.has(`${group.package}@${group.version}`)
+  ) {
+    throw new Error(
+      `${group.package}@${group.version} production closure and production path disagree`
+    )
+  }
 }
 
 const securityAdjacentResolved = [...resolvedGroups.values()]
@@ -259,13 +292,10 @@ const advisories = Object.values(auditReport.advisories || {})
     ].sort()
     const exception = exceptions.get(`${advisoryId}|${advisory.module_name}`)
     const pathReviews = findingPaths.map(({ path, vulnerableVersion }) => {
-      const segments = path.split(' > ')
-      const workspace = segments[0]
-      const directIdentity = segments[1]
-        ? packageIdentityFromReference(segments[1])
-        : { package: null, version: null }
-      const directPackage = directIdentity.package
-      const directVersion = directIdentity.version
+      const { workspace, directPackage, directVersion } = auditPathDirectDependency(
+        path,
+        lockfile.importers
+      )
       const directKey = directPackage
         ? resolvedPackageKey(directPackage, directVersion)
         : null
@@ -306,6 +336,12 @@ const advisories = Object.values(auditReport.advisories || {})
         reachability,
       }
     })
+    const productionClosure = vulnerableVersions.map(vulnerableVersion => ({
+      vulnerableVersion,
+      path: productionPaths.get(`${advisory.module_name}@${vulnerableVersion}`) || null,
+    }))
+    const reachability = new Set(pathReviews.map(review => review.reachability))
+    if (productionClosure.some(entry => entry.path !== null)) reachability.add('reachable')
     const directness = directDependencies.some(
       dependency =>
         dependency.package === advisory.module_name &&
@@ -343,7 +379,8 @@ const advisories = Object.values(auditReport.advisories || {})
       url: advisory.url,
       vulnerableVersions,
       directness,
-      reachability: [...new Set(pathReviews.map(review => review.reachability))].sort(),
+      reachability: [...reachability].sort(),
+      productionClosure,
       acceptedException: exception
         ? {
             owner: exception.owner,
@@ -411,9 +448,9 @@ const inventory = {
     directDependencies:
       'Every declaration in every pnpm importer is classified by manifest section plus an explicit extension build/test tool pattern. Shipped-runtime means a direct product dependency, not proof that every transitive byte is bundled.',
     resolvedSecurityAdjacency:
-      'Every registry lock entry whose package name matches a reviewed crypto, serialization, networking, or archive adjacency rule is included; production-closure is pnpm closure metadata, not reachability proof.',
+      "Every registry lock entry whose package name matches a reviewed crypto, serialization, networking, or archive adjacency rule is included; production-closure means reachable from an importer's dependencies or optionalDependencies through lockfile snapshots, per peer variant, not reachability proof.",
     advisoryReachability:
-      'Each pnpm audit path is joined to its direct declaration by exact resolved package version. Exact accepted exception paths use their reviewed reachability; other paths inherit shipped runtime, extension build, test, or development-tooling context.',
+      "An advisory is reachable when a vulnerable name@version is in a production closure: reachable from an importer's dependencies or optionalDependencies through lockfile snapshots, following workspace links. productionClosure records one such path per vulnerable version, or null. Each pnpm audit path is joined to its direct declaration through its importer's lockfile resolution, as supporting evidence: exact accepted exception paths use their reviewed reachability; other paths inherit shipped runtime, extension build, test, or development-tooling context.",
   },
   summary: {
     workspaces: Object.keys(lockfile.importers).length,

@@ -1,5 +1,3 @@
-import bitcore from 'bitcore-lib'
-
 import { QbitApiError, type EsploraAddressStats, type EsploraTx } from '@qbit-oss/api'
 import { getWebsiteSafetyWarning } from '@qbit/phishing-detect'
 import {
@@ -34,47 +32,41 @@ import {
   type P2mrTransactionOutput,
   type Psbt as QbitPsbt,
 } from '@qbit-oss/protocol'
-import { ColdWalletKeyring } from '@qbit/keyring-service'
+import {
+  PQC_WARNING_SIGNATURE_THRESHOLD,
+  QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+} from '@qbit/keyring-service'
 import type {
   QbitRecoveryMigrationPlanVault,
   QbitRecoveryMigrationVault,
   QbitRecoveryNetworkVaultState,
   QbitRecoveryVaultState,
 } from '@qbit/keyring-service/qbit-hd-keyring'
-import { DisplayedKeyring, Keyring, KeyringType, ToSignInput } from '@qbit/keyring-service/types'
-import * as txHelpers from '@qbit/tx-helpers'
-import { UnspentOutput, signMessageOfBIP322Simple } from '@qbit/tx-helpers'
+import { DisplayedKeyring, Keyring, KeyringType } from '@qbit/keyring-service/types'
 import {
   addressToScriptPk,
   transactionCore,
-  eccManager,
   getAddressType,
   isPayToAnchorScript,
   isValidAddress,
   publicKeyToAddress,
   scriptPkToAddress,
-  toPsbtNetwork,
-  toXOnly,
 } from '@qbit/wallet-core'
 import {
   Account,
   AccountSignMethod,
-  AddressUserToSignInput,
   BUS_EVENTS,
   BUS_METHODS,
   type BiometricUnlockRecord,
   type BiometricUnlockStatus,
-  QbitBalance,
   CHAINS_MAP,
   ConnectedSite,
   DecodedPsbt,
   DeriveAccountResult,
-  DummyTxType,
   ErrorCodes,
   type FeeSummary,
   LocalPsbtSummary,
   PsbtActionDetailType,
-  PsbtActionInfo,
   PsbtActionType,
   QBIT_P2A_MAX_VALUE,
   QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
@@ -96,6 +88,7 @@ import {
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
   QbitP2mrSigningKeyInput,
+  QbitSignatureBudgetImpact,
   type QbitBroadcastFailure,
   type QbitConsolidationBatch,
   type QbitConsolidationStatus,
@@ -103,15 +96,14 @@ import {
   type QbitBroadcastLookup,
   type QbitBroadcastResult,
   type QbitBroadcastStatusCheck,
+  type QbitRestoreFloorSource,
   type QbitRestoreFloorSourceRecord,
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
-  PublicKeyUserToSignInput,
   RateUsStatus,
   RiskType,
   SESSION_EVENTS,
   SignMessageType,
-  SignPsbtOptions,
   SignedData,
   SignedMessage,
   ThemeMode,
@@ -144,22 +136,22 @@ import {
   selectQbitP2mrSendCoins,
   sortQbitCoinsByValue,
   t,
+  UnspentOutput,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
+import { getLocalVersionNotice } from '../config/local-version-notices'
+import { getLocalWalletConfig } from '../config/local-wallet-config'
 import {
   biometricUnlockService,
   contactBookService,
   keyringService,
-  notificationService,
   permissionService,
   phishingDetectService,
   preferenceService,
   qbitSendGuardService,
   sessionService,
-  walletApiService,
 } from '../services'
 import { getChainInfo } from '../shared/utils'
-import { chainTypeToCanonicalNetwork } from '../shared/utils/deriveContextHash'
 import { bgEventBus } from '../utils/eventBus'
 import { decodeOpReturnScript } from '../utils/decode-op-return'
 import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
@@ -174,21 +166,20 @@ import {
   type PsbtOutputOwner,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
-import { psbtFromString } from '../utils/psbt-utils'
 import {
   QBIT_BROADCAST_ABSENCE_PROBES,
   QBIT_BROADCAST_ABSENCE_PROBE_DELAY_MS,
-  QBIT_BROADCAST_DEADLINE_MS,
-  QBIT_BROADCAST_MIN_PASS_MS,
   QBIT_BROADCAST_RESEND_DELAYS_MS,
-  QBIT_BROADCAST_RESEND_WINDOW_MS,
   QBIT_BROADCAST_STATUS_CHECK_DEADLINE_MS,
   QBIT_LIFECYCLE_TX_READ_DEADLINE_MS,
   QbitBroadcastResponseMismatchError,
   classifyQbitBroadcastError,
   isQbitBroadcastResendable,
   isQbitTxSizeBroadcastRejection,
+  qbitBroadcastDeadlineMs,
+  qbitBroadcastMinPassMs,
   qbitBroadcastProbeDelay,
+  qbitBroadcastResendWindowMs,
   type QbitBroadcastErrorClassification,
 } from '../utils/qbit-broadcast'
 import {
@@ -206,6 +197,7 @@ import {
   getQbitAddressUtxos,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitAddressSummaries,
+  getQbitAddressSummary,
   getQbitRawTransaction,
   getQbitRawTransactionHex,
   getQbitSpendableBalanceV2,
@@ -224,7 +216,6 @@ import {
   qbitBalanceToWalletBalance,
   qbitFeeSummaryFromTiers,
   qbitStatsSnapshot,
-  qbitStatsToAddressSummary,
   qbitUnavailableFeeSummary,
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
@@ -267,7 +258,7 @@ import {
 import {
   QBIT_RECEIVE_GAP_LIMIT,
   planQbitReceiveIntent,
-  type QbitReceiveAllocationAddress,
+  type QbitReceiveGapPlan,
 } from '../utils/qbit-receive'
 import {
   QbitLatestAnswers,
@@ -400,12 +391,20 @@ type QbitReceiveIntentLedger = {
   usedIndexes: number[]
 }
 
+const QBIT_RECEIVE_ACCOUNT_CHANGED = 'Qbit account changed while preparing the receive screen'
+
 type QbitReceiveControllerContext = {
   network: QbitReceiveNetworkName
   keyring: WalletKeyring
   anchor: Account
   ledger: QbitReceiveIntentLedger
   addresses: QbitReceiveAddressState[]
+  /** Derivation index of the selected account, whose address Receive shows. */
+  selectedIndex: number
+  /** The stored selection this context was read for. */
+  selectedPubkey: string | undefined
+  /** Indexes of this wallet that a recovery migration plan pays, derived or not. */
+  sweepIndexes: Set<number>
   activityStatus: QbitReceiveState['activityStatus']
   floorsPending: boolean
   concurrentInstanceHint: boolean
@@ -483,18 +482,19 @@ function cloneFeeSummary(summary: FeeSummary): FeeSummary {
   }
 }
 
+/** The wallet creates and restores mnemonic wallets as Qbit P2MR wallets only. */
+function assertP2mrMnemonicWallet(addressType: AddressType): void {
+  if (addressType !== AddressType.P2MR) {
+    throw new Error(t('not_supported'))
+  }
+}
+
 function resolveHdPathForAddressType(
   addressType: AddressType,
   hdPath: string,
   chainType: ChainType
 ): string {
   return addressType === AddressType.P2MR ? getQbitHdPathForChainType(chainType) : hdPath
-}
-
-function assertCanCreateSigningRequest(account: Account | null | undefined) {
-  if (!getAccountCapabilities(account).canCreateSigningRequest) {
-    throw new Error(t('not_supported'))
-  }
 }
 
 function assertCanCreateQbitP2mrSend(account: Account | null | undefined) {
@@ -522,7 +522,6 @@ const QBIT_P2MR_RBF_SEQUENCE = 0xfffffffd
 const QBIT_RECENT_SPEND_PROBE_WAIT_MS = 2_000
 const QBIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000
 const QBIT_HISTORY_SNAPSHOT_LIMIT = 8
-const QBIT_HISTORY_PERSISTED_CACHE_LIMIT = 20
 // History is read and cached per account: that account's own public key on
 // one network. Earlier builds kept one history for every account of the
 // wallet under `qbit:<chain>:<first account's pubkey>`; this prefix never
@@ -644,6 +643,72 @@ const QBIT_FLOOR_SCAN_STABILITY_RETRIES = {
   stabilityRetries: 4,
   retryBaseDelayMs: 1_000,
   tipAdvanceSettleMs: 10_000,
+}
+
+// Each network's share of a floor summed across Testnet4 and regtest, worded
+// by the read its count came from.
+const QBIT_SUMMED_FLOOR_SHARE_KEYS: Record<
+  'testnet4' | 'regtest',
+  Record<QbitRestoreFloorSource, string>
+> = {
+  testnet4: {
+    'address-stats': 'qbit_restore_summed_floor_share_testnet4_stats',
+    history: 'qbit_restore_summed_floor_share_testnet4_history',
+  },
+  regtest: {
+    'address-stats': 'qbit_restore_summed_floor_share_regtest_stats',
+    history: 'qbit_restore_summed_floor_share_regtest_history',
+  },
+}
+
+// The refusal of that summed floor, by the restored network. The guidance
+// points at the optional network unless the restored network's own share is
+// strictly the larger one.
+const QBIT_SUMMED_FLOOR_REFUSAL_KEYS = {
+  testnet4: {
+    optional: 'qbit_restore_summed_floor_testnet4',
+    own: 'qbit_restore_summed_floor_testnet4_own_share_larger',
+  },
+  regtest: {
+    optional: 'qbit_restore_summed_floor_regtest',
+    own: 'qbit_restore_summed_floor_regtest_own_share_larger',
+  },
+} as const
+
+/**
+ * The refusal of a floor summed across Testnet4 and regtest, worded for the
+ * user: both networks' counts with the read each came from, and what to do.
+ * Undefined unless both networks answered, which every refused sum has: the
+ * restored network's share alone stays below the threshold.
+ */
+function qbitSummedFloorRefusal(
+  accountIndex: number | undefined,
+  shares: readonly {
+    name: 'mainnet' | 'testnet4' | 'regtest'
+    required: boolean
+    observation: QbitPqcSignatureActivity | undefined
+  }[]
+): string | undefined {
+  const testnet4 = shares.find(share => share.name === 'testnet4')
+  const regtest = shares.find(share => share.name === 'regtest')
+  if (!testnet4?.observation || !regtest?.observation) return undefined
+  const share = (name: 'testnet4' | 'regtest', observation: QbitPqcSignatureActivity) =>
+    t(
+      QBIT_SUMMED_FLOOR_SHARE_KEYS[name][
+        observation.floorSource === 'address-stats' ? 'address-stats' : 'history'
+      ],
+      [observation.observedSignatures.toLocaleString()]
+    )
+  const [restored, own, optional] = testnet4.required
+    ? (['testnet4', testnet4.observation, regtest.observation] as const)
+    : (['regtest', regtest.observation, testnet4.observation] as const)
+  const keys = QBIT_SUMMED_FLOOR_REFUSAL_KEYS[restored]
+  return t(own.observedSignatures > optional.observedSignatures ? keys.own : keys.optional, [
+    `${accountIndex}`,
+    share('testnet4', testnet4.observation),
+    share('regtest', regtest.observation),
+    PQC_WARNING_SIGNATURE_THRESHOLD.toLocaleString(),
+  ])
 }
 
 type QbitRecoveryMigrationPreparation = {
@@ -792,13 +857,6 @@ function sameQbitOutpoints(
         outpoint.txid === right[index]?.txid && outpoint.vout === right[index]?.vout
     )
   )
-}
-
-function transactionPsbtOutpoints(psbt: transactionCore.Psbt): QbitOutpoint[] {
-  return psbt.txInputs.map(input => ({
-    txid: Buffer.from(input.hash).reverse().toString('hex'),
-    vout: input.index,
-  }))
 }
 
 function qbitSigningKeysFromSerializable(
@@ -1037,10 +1095,6 @@ export class WalletController extends BaseController {
     endpoint: string
   ): string {
     return `${chainType}:${apiSurface}:${endpoint}`
-  }
-
-  private isQbitChain() {
-    return isQbitChainType(this.getChainType())
   }
 
   /**
@@ -1284,7 +1338,7 @@ export class WalletController extends BaseController {
 
   /**
    * Reserve the inputs of a send the wallet built but does not sign itself.
-   * An external (readonly) or cold-wallet account signs outside the wallet
+   * An external (readonly) account signs outside the wallet
    * and hands back bytes the UI cannot parse, so signPsbtV2 never runs for
    * it and the claim minted there for a locally signed send did not exist:
    * after an ambiguous broadcast the inputs stayed visible to every other
@@ -1319,10 +1373,7 @@ export class WalletController extends BaseController {
     const uiPort = this.callingUiPort
     const account = preferenceService.getCurrentAccount()
     const signMethod = getAccountCapabilities(account).signMethod
-    if (
-      !account ||
-      (signMethod !== AccountSignMethod.External && signMethod !== AccountSignMethod.ColdWallet)
-    ) {
+    if (!account || signMethod !== AccountSignMethod.External) {
       throw new Error('invalid externally signed Qbit send')
     }
     if (
@@ -1608,43 +1659,78 @@ export class WalletController extends BaseController {
     return queuedOperation
   }
 
-  unlock = (password: string): Promise<void> =>
-    this.enqueueChainStateChange(() => this.performUnlock(password))
+  /**
+   * Unlock with the password, after any chain state change already queued. A
+   * lock that comes in from the call on wins, even while the unlock waits its
+   * turn (behind a restore floor scan, say), when the keyring service's own
+   * pending-lock check no longer sees it: the unlock then ends locked and
+   * rejects with WALLET_LOCKED_DURING_UNLOCK.
+   */
+  unlock = (password: string): Promise<void> => {
+    const locksAtCall = this.lockRequests
+    return this.enqueueChainStateChange(() => this.performUnlock(password, locksAtCall))
+  }
 
-  private performUnlock = async (password: string): Promise<void> => {
+  private performUnlock = async (password: string, locksAtCall: number): Promise<void> => {
+    const assertNotLockedSinceCall = () => {
+      if (this.lockRequests !== locksAtCall) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    }
+    assertNotLockedSinceCall()
     const alianNameInited = preferenceService.getInitAlianNameStatus()
     const alianNames = contactBookService.listAlias()
     let deferredAccountChange: Account | undefined
-    await keyringService.submitPassword(password, {
-      beforeUnlock: async () => {
-        const hdPathChanged = await keyringService.syncQbitHdPath(
-          getQbitHdPathForChainType(this.getChainType())
-        )
+    try {
+      await keyringService.submitPassword(password, {
+        beforeUnlock: async () => {
+          // Thrown here, the keyring service drops what it loaded and stays locked.
+          assertNotLockedSinceCall()
+          const hdPathChanged = await keyringService.syncQbitHdPath(
+            getQbitHdPathForChainType(this.getChainType())
+          )
 
-        const keyring = await this.getCurrentKeyring()
-        const currentAccount = preferenceService.getCurrentAccount()
-        const preferredAccountIndex = currentAccount?.index ?? 0
-        const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
-          ? preferredAccountIndex
-          : 0
-        const selectedAccount = keyring?.accounts[selectedAccountIndex]
-        const qbitAccountChanged =
-          keyring?.type === KeyringType.QbitHdKeyring &&
-          selectedAccount !== undefined &&
-          (selectedAccount.pubkey !== currentAccount?.pubkey ||
-            selectedAccount.address !== currentAccount?.address)
+          const keyring = await this.getCurrentKeyring()
+          const currentAccount = preferenceService.getCurrentAccount()
+          const preferredAccountIndex = currentAccount?.index ?? 0
+          const selectedAccountIndex = keyring?.accounts[preferredAccountIndex]
+            ? preferredAccountIndex
+            : 0
+          const selectedAccount = keyring?.accounts[selectedAccountIndex]
+          const qbitAccountChanged =
+            keyring?.type === KeyringType.QbitHdKeyring &&
+            selectedAccount !== undefined &&
+            (selectedAccount.pubkey !== currentAccount?.pubkey ||
+              selectedAccount.address !== currentAccount?.address)
 
-        if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
-          await this.changeKeyring(keyring, selectedAccountIndex, {
-            broadcastAccountChange: false,
-          })
-          deferredAccountChange = selectedAccount
-        }
-      },
-    })
+          if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
+            await this.changeKeyring(keyring, selectedAccountIndex, {
+              broadcastAccountChange: false,
+            })
+            deferredAccountChange = selectedAccount
+          }
+        },
+      })
+      // A lock during the unlock's last step leaves the keyring locked, as the
+      // keyring service publishes no unlock while a lock is pending; so does a
+      // lock the keyring service makes on its own.
+      assertNotLockedSinceCall()
+      if (!this.isUnlocked()) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
+      }
+    } catch (error) {
+      // An account the unlock switched to is saved already, but its sites
+      // learn of it only from an unlocked wallet: the next unlock tells them.
+      if (deferredAccountChange) this.accountChangeUnannounced = true
+      throw error
+    }
     sessionService.broadcastEvent(SESSION_EVENTS.unlock)
-    if (deferredAccountChange) {
-      this.publishAccountChange(deferredAccountChange)
+    const accountChange =
+      deferredAccountChange ??
+      (this.accountChangeUnannounced ? (preferenceService.getCurrentAccount() ?? undefined) : undefined)
+    this.accountChangeUnannounced = false
+    if (accountChange) {
+      this.publishAccountChange(accountChange)
     }
     if (!alianNameInited && alianNames.length === 0) {
       this.initAlianNames()
@@ -1662,7 +1748,6 @@ export class WalletController extends BaseController {
   private kickPendingQbitRestoreFloorScan = (): void => {
     void this.enqueueChainStateChange(async () => {
       try {
-        if (!this.isQbitChain()) return
         if (!(await this.getQbitRestoreFloorsPending())) return
         const summary = await this.performQbitRestoreFloorScan()
         if (summary.possibleConcurrentInstance) {
@@ -1684,7 +1769,19 @@ export class WalletController extends BaseController {
     return keyringService.memStore.getState().isUnlocked
   }
 
+  /** Locks requested through lockWallet; see `unlock`. */
+  private lockRequests = 0
+  /** An unlock that a lock ended switched the account without announcing it. */
+  private accountChangeUnannounced = false
+
   lockWallet = async () => {
+    this.lockRequests += 1
+    // The lock ends the session the auto-lock was counting down, so its timer
+    // cannot lock a later unlock (the automatic biometric prompt, say) or
+    // report an auto-lock for a wallet already locked.
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
     // A locked wallet keeps no account's outputs in memory, not even while
     // the lock waits or if it fails. setLocked marks the wallet locked at
     // once, before it waits, so nothing is kept after this clear: not from
@@ -1713,11 +1810,7 @@ export class WalletController extends BaseController {
   }
 
   getAddressBalance = async (address: string) => {
-    const data = qbitBalanceToWalletBalance(
-      await this.getQbitApiClient().getAddressBalance(address)
-    )
-    preferenceService.updateAddressBalance(address, data)
-    return data
+    return qbitBalanceToWalletBalance(await this.getQbitApiClient().getAddressBalance(address))
   }
 
   getAddressBalanceV2 = async (address: string) => {
@@ -1801,21 +1894,8 @@ export class WalletController extends BaseController {
     return findActiveQbitAddressGroups(this.getQbitApiClient(), groups)
   }
 
-  getAddressCacheBalance = (address: string | undefined): QbitBalance => {
-    const defaultBalance: QbitBalance = {
-      confirm_amount: '0',
-      pending_amount: '0',
-      amount: '0',
-    }
-    if (!address) return defaultBalance
-    return preferenceService.getAddressBalance(address) || defaultBalance
-  }
-
   private getQbitHistoryScope = async (requestedAddress: string): Promise<QbitHistoryScope> => {
     const chainType = this.getChainType()
-    if (!isQbitChainType(chainType)) {
-      throw new Error(t('not_supported'))
-    }
     const network = chainTypeToQbitNetworkName(chainType)
     const keyring = await this.getCurrentKeyring()
     if (
@@ -1894,148 +1974,129 @@ export class WalletController extends BaseController {
     snapshotId?: string
     refreshSnapshotId?: string
   }) => {
-    if (this.isQbitChain()) {
+    if (
+      !Number.isSafeInteger(params.start) ||
+      params.start < 0 ||
+      !Number.isSafeInteger(params.limit) ||
+      params.limit < 0
+    ) {
+      throw new Error('Invalid Qbit history page')
+    }
+    // Later pages must read from one pinned immutable snapshot; paging
+    // without one would full-scan the account per chunk and return rows
+    // that need not match the session's page-one data.
+    if (params.start !== 0 && !params.snapshotId) {
+      throw new Error('Qbit history pages beyond the first require a pinned snapshot')
+    }
+    const scope = await this.getQbitHistoryScope(params.address)
+    this.pruneQbitHistorySnapshots()
+
+    let snapshot: QbitHistorySnapshot | undefined
+    if (params.snapshotId) {
+      const cached = this.qbitHistorySnapshots.get(params.snapshotId)
       if (
-        !Number.isSafeInteger(params.start) ||
-        params.start < 0 ||
-        !Number.isSafeInteger(params.limit) ||
-        params.limit < 0
+        !cached ||
+        cached.scopeKey !== scope.scopeKey ||
+        cached.chainType !== scope.chainType ||
+        cached.addressFingerprint !== scope.addressFingerprint
       ) {
-        throw new Error('Invalid Qbit history page')
+        throw new Error('Qbit history snapshot is stale or belongs to another account')
       }
-      // Later pages must read from one pinned immutable snapshot; paging
-      // without one would full-scan the account per chunk and return rows
-      // that need not match the session's page-one data.
-      if (params.start !== 0 && !params.snapshotId) {
-        throw new Error('Qbit history pages beyond the first require a pinned snapshot')
-      }
-      const scope = await this.getQbitHistoryScope(params.address)
-      this.pruneQbitHistorySnapshots()
-
-      let snapshot: QbitHistorySnapshot | undefined
-      if (params.snapshotId) {
-        const cached = this.qbitHistorySnapshots.get(params.snapshotId)
+      snapshot = cached
+    } else {
+      let reusable: QbitHistorySnapshot | undefined
+      if (params.start === 0 && params.refreshSnapshotId) {
+        const cached = this.qbitHistorySnapshots.get(params.refreshSnapshotId)
         if (
-          !cached ||
-          cached.scopeKey !== scope.scopeKey ||
-          cached.chainType !== scope.chainType ||
-          cached.addressFingerprint !== scope.addressFingerprint
+          cached &&
+          cached.scopeKey === scope.scopeKey &&
+          cached.chainType === scope.chainType &&
+          cached.addressFingerprint === scope.addressFingerprint &&
+          Date.now() - cached.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
         ) {
-          throw new Error('Qbit history snapshot is stale or belongs to another account')
+          reusable = cached
         }
-        snapshot = cached
-      } else {
-        let reusable: QbitHistorySnapshot | undefined
-        if (params.start === 0 && params.refreshSnapshotId) {
-          const cached = this.qbitHistorySnapshots.get(params.refreshSnapshotId)
-          if (
-            cached &&
-            cached.scopeKey === scope.scopeKey &&
-            cached.chainType === scope.chainType &&
-            cached.addressFingerprint === scope.addressFingerprint &&
-            Date.now() - cached.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
-          ) {
-            reusable = cached
-          }
-        }
+      }
 
-        if (reusable) {
-          // An invalid or unstable lightweight probe fails closed to the
-          // existing complete, stability-checked account scan below.
-          const revision = await probeQbitAccountHistoryRevision(
-            this.getQbitApiClient(scope.chainType),
-            [scope.address]
-          ).catch(() => undefined)
-          // A switch during the probe ends the read now, whether or not the
-          // probe succeeded, not after a full scan of an account that is no
-          // longer selected.
-          await this.assertQbitHistoryScopeStillActive(scope)
-          if (revision) {
-            // A reorg can drop the refreshed tip below a cached confirmed
-            // height. Reusing the cached list would clamp the reverted
-            // transaction to one confirmation, so fall through to a full scan.
-            const tipCoversCachedHeights = reusable.list.every(
-              item => item.height <= 0 || item.height <= revision.tipHeight
-            )
-            if (
-              revision.activityFingerprint === reusable.revision.activityFingerprint &&
-              tipCoversCachedHeights &&
-              Date.now() - reusable.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
-            ) {
-              const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
-              snapshot = {
-                ...scope,
-                id,
-                createdAt: Date.now(),
-                fullScanAt: reusable.fullScanAt,
-                revision,
-                list: reusable.list.map(item => {
-                  const confirmations =
-                    item.height > 0 ? Math.max(1, revision.tipHeight - item.height + 1) : 0
-                  return confirmations === item.confirmations ? item : { ...item, confirmations }
-                }),
-              }
+      if (reusable) {
+        // An invalid or unstable lightweight probe fails closed to the
+        // existing complete, stability-checked account scan below.
+        const revision = await probeQbitAccountHistoryRevision(
+          this.getQbitApiClient(scope.chainType),
+          [scope.address]
+        ).catch(() => undefined)
+        // A switch during the probe ends the read now, whether or not the
+        // probe succeeded, not after a full scan of an account that is no
+        // longer selected.
+        await this.assertQbitHistoryScopeStillActive(scope)
+        if (revision) {
+          // A reorg can drop the refreshed tip below a cached confirmed
+          // height. Reusing the cached list would clamp the reverted
+          // transaction to one confirmation, so fall through to a full scan.
+          const tipCoversCachedHeights = reusable.list.every(
+            item => item.height <= 0 || item.height <= revision.tipHeight
+          )
+          if (
+            revision.activityFingerprint === reusable.revision.activityFingerprint &&
+            tipCoversCachedHeights &&
+            Date.now() - reusable.fullScanAt < QBIT_HISTORY_SNAPSHOT_TTL_MS
+          ) {
+            const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
+            snapshot = {
+              ...scope,
+              id,
+              createdAt: Date.now(),
+              fullScanAt: reusable.fullScanAt,
+              revision,
+              list: reusable.list.map(item => {
+                const confirmations =
+                  item.height > 0 ? Math.max(1, revision.tipHeight - item.height + 1) : 0
+                return confirmations === item.confirmations ? item : { ...item, confirmations }
+              }),
             }
           }
         }
-
-        if (!snapshot) {
-          const data = await getQbitAccountHistory(
-            this.getQbitApiClient(scope.chainType),
-            [scope.address],
-            { start: 0, limit: Number.MAX_SAFE_INTEGER },
-            // Bounded scans at 0/1/3/7/15s cross electrs' 10s response-cache window.
-            { stabilityRetries: 4, retryBaseDelayMs: 1_000 }
-          )
-          await this.assertQbitHistoryScopeStillActive(scope)
-          const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
-          const createdAt = Date.now()
-          snapshot = {
-            ...scope,
-            id,
-            createdAt,
-            fullScanAt: createdAt,
-            revision: data.revision,
-            list: data.detail,
-          }
-        }
-
-        this.qbitHistorySnapshots.set(snapshot.id, snapshot)
-        this.pruneQbitHistorySnapshots(snapshot.createdAt)
-        preferenceService.updateAddressHistory(
-          scope.scopeKey,
-          snapshot.list.slice(0, QBIT_HISTORY_PERSISTED_CACHE_LIMIT)
-        )
       }
 
       if (!snapshot) {
-        throw new Error('Qbit history snapshot was not created')
+        const data = await getQbitAccountHistory(
+          this.getQbitApiClient(scope.chainType),
+          [scope.address],
+          { start: 0, limit: Number.MAX_SAFE_INTEGER },
+          // Bounded scans at 0/1/3/7/15s cross electrs' 10s response-cache window.
+          { stabilityRetries: 4, retryBaseDelayMs: 1_000 }
+        )
+        await this.assertQbitHistoryScopeStillActive(scope)
+        const id = `qbit-history-${++this.qbitHistorySnapshotSequence}`
+        const createdAt = Date.now()
+        snapshot = {
+          ...scope,
+          id,
+          createdAt,
+          fullScanAt: createdAt,
+          revision: data.revision,
+          list: data.detail,
+        }
       }
-      return {
-        start: params.start,
-        total: snapshot.list.length,
-        detail: snapshot.list.slice(params.start, params.start + params.limit),
-        snapshotId: snapshot.id,
-        scopeKey: snapshot.scopeKey,
-      }
-    }
-    throw new Error(t('not_supported'))
-  }
 
-  getAddressCacheHistory = async (address: string | undefined): Promise<TxHistoryItem[]> => {
-    if (!address) return []
-    if (this.isQbitChain()) {
-      const scope = await this.getQbitHistoryScope(address)
-      return preferenceService.getAddressHistory(scope.scopeKey)
+      this.qbitHistorySnapshots.set(snapshot.id, snapshot)
+      this.pruneQbitHistorySnapshots(snapshot.createdAt)
     }
-    return preferenceService.getAddressHistory(address)
+
+    if (!snapshot) {
+      throw new Error('Qbit history snapshot was not created')
+    }
+    return {
+      start: params.start,
+      total: snapshot.list.length,
+      detail: snapshot.list.slice(params.start, params.start + params.limit),
+      snapshotId: snapshot.id,
+      scopeKey: snapshot.scopeKey,
+    }
   }
 
   getQbitRawTransactionHex = async (txid: string): Promise<string> => {
     const chainType = this.getChainType()
-    if (!isQbitChainType(chainType)) {
-      throw new Error(t('not_supported'))
-    }
     const hex = await getQbitRawTransactionHex(this.getQbitApiClient(chainType), txid)
     if (this.getChainType() !== chainType) {
       throw new Error('Qbit network changed while loading raw transaction data')
@@ -2051,9 +2112,6 @@ export class WalletController extends BaseController {
   getQbitTxLifecycleStatus = async (
     txid: string
   ): Promise<{ state: 'confirmed' | 'pending' | 'gone' }> => {
-    if (!this.isQbitChain()) {
-      throw new Error(t('not_supported'))
-    }
     return this.qbitTxLifecycleStatusOn(this.getChainType(), txid)
   }
 
@@ -2135,32 +2193,8 @@ export class WalletController extends BaseController {
     await qbitSendGuardService.resetAllData()
     await permissionService.resetAllData()
     await contactBookService.resetAllData()
-    await walletApiService.resetAllData()
 
     this._resetTimeout()
-  }
-
-  getPrivateKey = async (password: string, { pubkey, type }: { pubkey: string; type: string }) => {
-    const isValidPassword = await this.verifyPassword(password)
-    if (!isValidPassword) {
-      throw new Error(t('password_error'))
-    }
-    if (type !== KeyringType.HdKeyring && type !== KeyringType.SimpleKeyring) {
-      throw new Error(t('not_supported'))
-    }
-    const keyring = await keyringService.getKeyringForAccount(pubkey, type)
-    if (!keyring) return null
-    const privateKey = await keyring.exportAccount(pubkey)
-    const networkType = this.getNetworkType()
-    const network = toPsbtNetwork(networkType)
-    const hex = privateKey
-    const wif = eccManager.eccPair
-      .fromPrivateKey(Buffer.from(privateKey, 'hex'), { network })
-      .toWIF()
-    return {
-      hex,
-      wif,
-    }
   }
 
   getMnemonics = async (password: string, keyring: WalletKeyring) => {
@@ -2220,6 +2254,7 @@ export class WalletController extends BaseController {
     accountIndexDerivation = false,
     options?: { pqcFloorsPending?: boolean }
   ) => {
+    assertP2mrMnemonicWallet(addressType)
     hdPath = resolveHdPathForAddressType(addressType, hdPath, this.getChainType())
     const originKeyring = await keyringService.createKeyringWithMnemonics(
       mnemonic,
@@ -2255,60 +2290,21 @@ export class WalletController extends BaseController {
     accountCount = 1,
     accountIndexDerivation = false
   ) => {
+    assertP2mrMnemonicWallet(addressType)
     hdPath = resolveHdPathForAddressType(addressType, hdPath, this.getChainType())
     const activeIndexes: number[] = []
     for (let i = 0; i < accountCount; i++) {
       activeIndexes.push(i)
     }
-    const originKeyring = keyringService.createTmpKeyring(
-      addressType === AddressType.P2MR ? KeyringType.QbitHdKeyring : KeyringType.HdKeyring,
-      {
-        mnemonic,
-        activeIndexes,
-        hdPath,
-        passphrase,
-        accountIndexDerivation,
-      }
-    )
+    const originKeyring = keyringService.createTmpKeyring(KeyringType.QbitHdKeyring, {
+      mnemonic,
+      activeIndexes,
+      hdPath,
+      passphrase,
+      accountIndexDerivation,
+    })
     const displayedKeyring = await keyringService.displayForKeyring(originKeyring, addressType, -1)
     return this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false)
-  }
-
-  createTmpKeyringWithMnemonics2 = async (
-    mnemonic: string,
-    passphrase: string,
-    hdPaths: string[],
-    addressTypes: AddressType[]
-  ) => {
-    const keyrings: WalletKeyring[] = []
-    const activeIndexes: number[] = [0]
-    let originKeyring
-    let originKeyringType: string | undefined
-    for (let i = 0; i < hdPaths.length; i++) {
-      const addressType = addressTypes[i]!
-      const hdPath = resolveHdPathForAddressType(addressType, hdPaths[i]!, this.getChainType())
-      const keyringType =
-        addressType === AddressType.P2MR ? KeyringType.QbitHdKeyring : KeyringType.HdKeyring
-      if (!originKeyring || originKeyringType !== keyringType) {
-        originKeyring = await keyringService.createTmpKeyring(keyringType, {
-          mnemonic,
-          activeIndexes,
-          hdPath,
-          passphrase,
-        })
-        originKeyringType = keyringType
-      } else {
-        originKeyring.changeHdPath(hdPath)
-      }
-      const displayedKeyring = await keyringService.displayForKeyring(
-        originKeyring,
-        addressType,
-        -1
-      )
-      const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false)
-      keyrings.push(keyring)
-    }
-    return keyrings
   }
 
   private observeQbitAccountActivityForNetwork = (
@@ -2357,24 +2353,25 @@ export class WalletController extends BaseController {
       addresses?: Record<string, string>
       scriptPubKey?: string
     }): Promise<QbitPqcSignatureActivity> => {
-      const activity = (
-        await Promise.all(
-          observers.map(async observer => {
-            if (observer.unavailable) return undefined
-            try {
-              return await observer.observe(account)
-            } catch (error) {
-              if (observer.required) throw error
-              observer.unavailable = true
-              log.warn(
-                `optional ${observer.name} qbit restore history is unavailable; continuing with the active network`,
-                error
-              )
-              return undefined
-            }
-          })
-        )
-      ).filter((observation): observation is QbitPqcSignatureActivity => observation !== undefined)
+      const observations = await Promise.all(
+        observers.map(async observer => {
+          if (observer.unavailable) return undefined
+          try {
+            return await observer.observe(account)
+          } catch (error) {
+            if (observer.required) throw error
+            observer.unavailable = true
+            log.warn(
+              `optional ${observer.name} qbit restore history is unavailable; continuing with the active network`,
+              error
+            )
+            return undefined
+          }
+        })
+      )
+      const activity = observations.filter(
+        (observation): observation is QbitPqcSignatureActivity => observation !== undefined
+      )
       const observedSignatures = activity.reduce(
         (total, observation) => total + observation.observedSignatures,
         0
@@ -2388,10 +2385,38 @@ export class WalletController extends BaseController {
       // The sum is the floor the keyring applies, so statistics floors that
       // each stay below the warning threshold must not reach it together.
       if (floorSource === 'address-stats') {
-        assertQbitStatsFloorBelowWarningThreshold(
-          observedSignatures,
-          `qbit account ${account.index} floors summed across networks`
-        )
+        try {
+          assertQbitStatsFloorBelowWarningThreshold(
+            observedSignatures,
+            `qbit account ${account.index} floors summed across networks`
+          )
+        } catch (error) {
+          // The required network's own floor stays below the threshold: a
+          // statistics floor is refused per address, and a history floor
+          // counts the inputs of at most the read's 6,400 transactions, in
+          // pages that each fit the 64 MiB response cap. So an optional
+          // network's share took the sum there. That share stays in the sum
+          // while its network answers, since leaving it out would
+          // under-advance the shared counter; the refusal shows both shares
+          // so the user can tell which one to act on.
+          const shares = observers.map(({ name, required }, index) => ({
+            name,
+            required,
+            observation: observations[index],
+          }))
+          const refusal = qbitSummedFloorRefusal(account.index, shares)
+          if (refusal === undefined) throw error
+          const counts = shares
+            .map(({ name, observation }) => {
+              return `${name} ${observation?.observedSignatures} (${observation?.floorSource})`
+            })
+            .join(' and ')
+          log.warn(
+            `qbit restore floor for account ${account.index} summed across ${counts} reaches the warning threshold; signing stays locked`,
+            error
+          )
+          throw new Error(refusal)
+        }
       }
       return {
         // Testnet4 and regtest share a derivation path and therefore a PQC
@@ -2449,9 +2474,6 @@ export class WalletController extends BaseController {
   }
 
   private performQbitRestoreFloorScan = async (options?: { lookahead?: number }) => {
-    if (!this.isQbitChain()) {
-      throw new Error(t('not_supported'))
-    }
     const chainType = this.getChainType()
     const qbitNetwork = chainTypeToQbitNetworkName(chainType)
     const networks = (await this.resolveQbitRestoreFloorScanChainTypes(chainType)).map(
@@ -2660,7 +2682,6 @@ export class WalletController extends BaseController {
     hdPath: string
     passphrase: string
   }): Promise<QbitRecoveryState> => {
-    if (!this.isQbitChain()) throw new Error(t('not_supported'))
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -2708,7 +2729,6 @@ export class WalletController extends BaseController {
     sourceKeyringIndex: number
     sourceAnchorPubkey?: string
   }): Promise<QbitRecoveryState> => {
-    if (!this.isQbitChain()) throw new Error(t('not_supported'))
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -3268,13 +3288,15 @@ export class WalletController extends BaseController {
         .slice(0, QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE)
       return {
         state: await this.getQbitRecoveryState(sourceKeyringIndex),
-        toSignDatas: await Promise.all(
-          prepared.map(plan =>
-            this.qbitRecoveryMigrationToSignData(
-              sourceKeyring,
-              state,
-              plan,
-              destinationKeyringIndex
+        toSignDatas: await this.openQbitRecoveryMigrationSignatureBatches(
+          await Promise.all(
+            prepared.map(plan =>
+              this.qbitRecoveryMigrationToSignData(
+                sourceKeyring,
+                state,
+                plan,
+                destinationKeyringIndex
+              )
             )
           )
         ),
@@ -3603,18 +3625,68 @@ export class WalletController extends BaseController {
       ?.networks?.[network] as QbitRecoveryNetworkVaultState
     return {
       state: nextState,
-      toSignDatas: await Promise.all(
-        newPlans.slice(0, QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE).map(plan =>
-          this.qbitRecoveryMigrationToSignData(
-            sourceKeyring,
-            persistedState,
-            plan,
-            destinationKeyringIndex
-          )
+      toSignDatas: await this.openQbitRecoveryMigrationSignatureBatches(
+        await Promise.all(
+          newPlans
+            .slice(0, QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE)
+            .map(plan =>
+              this.qbitRecoveryMigrationToSignData(
+                sourceKeyring,
+                persistedState,
+                plan,
+                destinationKeyringIndex
+              )
+            )
         )
       ),
       deferredSources,
     }
+  }
+
+  /**
+   * Open one signature batch for each source key's plans among those a
+   * review shows, and mark each plan with it. The review's sign button signs
+   * them one after another, each with the budget it was prepared with
+   * before any signed, so each plan after the first from a key finds the
+   * signatures of the plans before it spent, which only their batch
+   * accepts. A key with one plan needs none. A plan signed elsewhere in
+   * between is still refused. The review prepares its plans again each time
+   * it is shown, which reopens the same batch while nothing signed; see
+   * keyringService.openQbitRecoveryMigrationSigningBatch for when it closes.
+   */
+  private openQbitRecoveryMigrationSignatureBatches = async (
+    toSignDatas: ToSignData[]
+  ): Promise<ToSignData[]> => {
+    const plansBySource = new Map<string, ToSignData[]>()
+    for (const toSignData of toSignDatas) {
+      const sourceAddress = toSignData.qbitRecoveryMigration!.sourceAddress
+      plansBySource.set(sourceAddress, [...(plansBySource.get(sourceAddress) ?? []), toSignData])
+    }
+    const createdBatchIds: string[] = []
+    try {
+      for (const [sourceAddress, plans] of plansBySource) {
+        if (plans.length < 2) continue
+        const batch = await keyringService.openQbitRecoveryMigrationSigningBatch(
+          sourceAddress,
+          plans.map(plan => ({
+            psbt: qbitPsbtFromHex(plan.psbtHex),
+            keys: qbitSigningKeysFromSerializable(plan.qbitP2mrSigningKeys!),
+            approvedBudget: plan.signatureBudget!,
+          }))
+        )
+        if (batch.created) createdBatchIds.push(batch.id)
+        plans.forEach((plan, index) => {
+          plan.qbitSignatureBatch = { id: batch.id, index, budget: { ...batch.budget } }
+        })
+      }
+    } catch (error) {
+      // The review this preparation would have shown is not shown, so no
+      // batch it opened stays open. One it reopened is still another
+      // review's, which may be signing from it.
+      keyringService.releaseP2mrPsbtSigningBatches(createdBatchIds)
+      throw error
+    }
+    return toSignDatas
   }
 
   private validateQbitRecoveryMigrationSigning = async (
@@ -3969,19 +4041,23 @@ export class WalletController extends BaseController {
     refreshActivity: boolean,
     previousActivityStatus: QbitReceiveState['activityStatus'] = 'cached'
   ): Promise<QbitReceiveControllerContext> => {
-    if (!this.isQbitChain()) {
-      throw new Error(t('not_supported'))
-    }
     const chainType = this.getChainType()
     const network = chainTypeToQbitNetworkName(chainType)
     const keyring = await this.getCurrentKeyring()
     if (!keyring || keyring.type !== KeyringType.QbitHdKeyring) {
       throw new Error(t('not_supported'))
     }
+    // Read the selection after getCurrentKeyring, which can repair it, and
+    // before the activity check, so the check at the end of this read sees a
+    // change made while it waited.
+    const selectedPubkey = preferenceService.getCurrentAccount()?.pubkey
     const anchor = keyring.accounts[0]
     if (!anchor?.p2mr) {
       throw new Error('P2MR receive metadata is unavailable')
     }
+    // Match the selection the way getCurrentAccount does: by public key,
+    // falling back to the first account.
+    const selected = keyring.accounts.find(account => account.pubkey === selectedPubkey) ?? anchor
 
     let ledger = (await keyringService.getQbitReceiveState(
       anchor.pubkey,
@@ -4046,6 +4122,33 @@ export class WalletController extends BaseController {
       }
     })
     const rawKeyring = keyringService.keyrings[keyring.index]
+    // Every plan records the address it pays. A migration into this wallet,
+    // recognized by its anchor, also records each plan's index (version-1
+    // plans paid the anchor, index 0). That covers an index this keyring has
+    // not derived, or whose reservation its ledger lacks, as after the
+    // destination wallet is removed and its seed imported again.
+    const anchorPubkey = anchor.pubkey.toLowerCase()
+    const anchorAddress = anchor.p2mr.addresses[network]
+    const sweepIndexes = new Set<number>()
+    for (const other of keyringService.keyrings) {
+      const migration: QbitRecoveryMigrationVault | undefined =
+        other.getQbitRecoveryState?.()?.networks?.[network]?.migration
+      if (!migration) continue
+      const intoThisWallet =
+        migration.destinationPubkey?.toLowerCase() === anchorPubkey &&
+        migration.destinationAddress === anchorAddress
+      for (const plan of migration.plans ?? []) {
+        if (intoThisWallet) sweepIndexes.add(plan.destinationIndex ?? 0)
+        const paid = addresses.find(address => address.address === plan.destinationAddress)
+        if (paid) sweepIndexes.add(paid.index)
+      }
+    }
+    // changeKeyring does not wait for the receive queue, so another popup can
+    // select another account or wallet while this read waits. Refuse to answer
+    // or act for the earlier selection.
+    if (preferenceService.getCurrentAccount()?.pubkey !== selectedPubkey) {
+      throw new Error(QBIT_RECEIVE_ACCOUNT_CHANGED)
+    }
 
     return {
       network,
@@ -4053,38 +4156,66 @@ export class WalletController extends BaseController {
       anchor,
       ledger,
       addresses,
+      selectedIndex: selected.p2mr!.hkdf.index,
+      selectedPubkey,
+      sweepIndexes,
       activityStatus,
       floorsPending: rawKeyring?.pqcFloorsPending === true,
       concurrentInstanceHint: rawKeyring?.pqcConcurrentInstanceHint === true,
     }
   }
 
-  private buildQbitReceiveState = (context: QbitReceiveControllerContext): QbitReceiveState => {
+  /**
+   * The gap plan Receive and New Address share. It never picks an index a
+   * recovery migration pays.
+   */
+  private planQbitReceiveGap = (context: QbitReceiveControllerContext): QbitReceiveGapPlan => {
     const issuedIndexes = new Set(context.ledger.issuedIndexes)
-    const allocationAddresses: QbitReceiveAllocationAddress[] = context.addresses.map(address => ({
-      index: address.index,
-      issued: issuedIndexes.has(address.index),
-      used: address.used,
-      exhausted: address.signatureCounter.state === 'exhausted',
-    }))
-    const gapPlan = planQbitReceiveIntent(allocationAddresses)
-    const persistedCurrent = context.addresses.find(
-      address => address.index === context.ledger.currentIndex
+    return planQbitReceiveIntent(
+      context.addresses.map(address => ({
+        index: address.index,
+        issued: issuedIndexes.has(address.index),
+        used: address.used,
+        exhausted: address.signatureCounter.state === 'exhausted',
+      })),
+      context.sweepIndexes
     )
+  }
+
+  /**
+   * Receive state with the address at `shownIndex` as current: the selected
+   * account's unless a caller passes another index. A used address stays
+   * current and is marked used. An exhausted address cannot authorize
+   * spending what it receives, a never-issued one past the restore gap would
+   * not be found by a standard restore, so neither is current. A recovery
+   * migration records the addresses it pays as issued; until the sweep's
+   * activity shows, such an address is reserved for it and is not listed at
+   * all.
+   */
+  private buildQbitReceiveState = (
+    context: QbitReceiveControllerContext,
+    shownIndex = context.selectedIndex
+  ): QbitReceiveState => {
+    const issuedIndexes = new Set(context.ledger.issuedIndexes)
+    const gapPlan = this.planQbitReceiveGap(context)
+    const shown = context.addresses.find(address => address.index === shownIndex)
     const shouldHideAddresses = context.floorsPending || context.activityStatus !== 'live'
-    const current =
-      !shouldHideAddresses &&
-      persistedCurrent &&
-      !persistedCurrent.used &&
-      persistedCurrent.signatureCounter.state !== 'exhausted'
-        ? persistedCurrent
-        : null
+    const reservedForSweep = (address: QbitReceiveAddressState) =>
+      !address.used && context.sweepIndexes.has(address.index)
+    const offerable =
+      shown !== undefined &&
+      shown.signatureCounter.state !== 'exhausted' &&
+      !reservedForSweep(shown) &&
+      (shown.used || issuedIndexes.has(shown.index) || shown.index <= gapPlan.lastDiscoverableIndex)
+    const current = !shouldHideAddresses && offerable ? shown : null
     const previous = shouldHideAddresses
       ? []
       : context.addresses
           .filter(
             address =>
-              (issuedIndexes.has(address.index) || address.used) && address.index !== current?.index
+              (issuedIndexes.has(address.index) || address.used) &&
+              address.index !== current?.index &&
+              !reservedForSweep(address)
           )
           .sort((left, right) => right.index - left.index)
 
@@ -4120,6 +4251,34 @@ export class WalletController extends BaseController {
     const selected = preferenceService.getCurrentAccount()
     if (selected?.key === account.key && selected.address === account.address) return
     await this.changeKeyring(context.keyring, accountPosition)
+    // Save the switch now rather than after the store's debounced save, so a
+    // browser quit straight after New Address keeps the new account selected.
+    // This is not changeKeyring's persistPreference: a failed save there
+    // skips the account-change broadcast and fails New Address although the
+    // switch happened. A failed save here stays queued for the debounced save.
+    try {
+      await preferenceService.persist()
+    } catch (error) {
+      log.warn('[WalletController] Failed to save the receive account selection', error)
+    }
+  }
+
+  /**
+   * Read the receive context again after a ledger write, with a live activity
+   * check or from the vault cache. Refuse a read made for another selection:
+   * this operation's index and account switch belong to the earlier one.
+   */
+  private reloadQbitReceiveContext = async (
+    context: QbitReceiveControllerContext,
+    refreshActivity: boolean
+  ): Promise<QbitReceiveControllerContext> => {
+    const reloaded = refreshActivity
+      ? await this.loadQbitReceiveContext(true, 'cached')
+      : await this.loadQbitReceiveContext(false, context.activityStatus)
+    if (reloaded.selectedPubkey !== context.selectedPubkey) {
+      throw new Error(QBIT_RECEIVE_ACCOUNT_CHANGED)
+    }
+    return reloaded
   }
 
   private createNextQbitReceiveIntent = async (
@@ -4131,15 +4290,7 @@ export class WalletController extends BaseController {
     if (context.activityStatus !== 'live') {
       throw new Error('Live activity must be checked before creating a receive address')
     }
-    const issuedIndexes = new Set(context.ledger.issuedIndexes)
-    const gapPlan = planQbitReceiveIntent(
-      context.addresses.map(address => ({
-        index: address.index,
-        issued: issuedIndexes.has(address.index),
-        used: address.used,
-        exhausted: address.signatureCounter.state === 'exhausted',
-      }))
-    )
+    const gapPlan = this.planQbitReceiveGap(context)
     if (!gapPlan.nextIntent) {
       throw new Error(
         `Receive address gap limit (${QBIT_RECEIVE_GAP_LIMIT}) reached; wait for activity before creating another address`
@@ -4170,18 +4321,23 @@ export class WalletController extends BaseController {
     // so its history lands in usedIndexes before the address is exposed;
     // starting from 'cached' keeps a failed refresh from presenting the new
     // address as live-verified.
-    const refreshed = gapPlan.nextIntent.activatesIndex
-      ? await this.loadQbitReceiveContext(true, 'cached')
-      : await this.loadQbitReceiveContext(false, context.activityStatus)
-    const state = this.buildQbitReceiveState(refreshed)
+    const refreshed = await this.reloadQbitReceiveContext(
+      context,
+      gapPlan.nextIntent.activatesIndex
+    )
+    const issued = this.buildQbitReceiveState(refreshed, gapPlan.nextIntent.index)
     // The recheck can invalidate the index this intent just issued — another
     // copy of the seed already used it, or the refresh failed and the address
-    // is no longer live-verified. Only switch the wallet onto an index the
-    // state still exposes as the safe current address.
-    if (state.current?.index === gapPlan.nextIntent.index) {
-      await this.adoptQbitReceiveAccount(refreshed, gapPlan.nextIntent.index)
+    // is no longer live-verified. Only switch the wallet onto the new address
+    // while it is still safe to show; otherwise stay on the selected account.
+    if (issued.current?.used) {
+      throw new Error('The new receive address already has activity; press New Address again')
     }
-    return state
+    if (issued.current?.index !== gapPlan.nextIntent.index) {
+      return this.buildQbitReceiveState(refreshed)
+    }
+    await this.adoptQbitReceiveAccount(refreshed, gapPlan.nextIntent.index)
+    return issued
   }
 
   getQbitReceiveState = (): Promise<QbitReceiveState> =>
@@ -4189,15 +4345,28 @@ export class WalletController extends BaseController {
       this.buildQbitReceiveState(await this.loadQbitReceiveContext(true))
     )
 
+  /**
+   * Receive state for the selected account's own address. Never changes the
+   * selected account and never issues another address; only
+   * createQbitReceiveIntent (New Address) does. An unused address becomes the
+   * ledger's current intent before it is shown, which records it as issued
+   * the first time, so the gap plan counts it and a recovery migration
+   * prefers not to pay it.
+   */
   ensureQbitReceiveIntent = (): Promise<QbitReceiveState> =>
     this.enqueueQbitReceiveOperation(async () => {
       const context = await this.loadQbitReceiveContext(true)
       const state = this.buildQbitReceiveState(context)
-      if (state.current) {
-        await this.adoptQbitReceiveAccount(context, state.current.index)
+      const current = state.current
+      if (!current || current.used || context.ledger.currentIndex === current.index) {
         return state
       }
-      return !state.gap.canCreate ? state : this.createNextQbitReceiveIntent(context)
+      await keyringService.setQbitReceiveIntent(
+        context.anchor.pubkey,
+        context.network,
+        current.index
+      )
+      return this.buildQbitReceiveState(await this.reloadQbitReceiveContext(context, false))
     })
 
   createQbitReceiveIntent = (): Promise<QbitReceiveState> =>
@@ -4231,7 +4400,7 @@ export class WalletController extends BaseController {
     addressType: AddressType,
     options?: { gapLimit?: number; maxIndexes?: number } | null
   ) => {
-    if (!this.isQbitChain() || addressType !== AddressType.P2MR) {
+    if (addressType !== AddressType.P2MR) {
       throw new Error(t('not_supported'))
     }
     const chainType = this.getChainType()
@@ -4331,89 +4500,6 @@ export class WalletController extends BaseController {
         floorError: error instanceof Error ? error.message : String(error),
       }
     }
-  }
-
-  createKeyringWithColdWallet = async (
-    xpub: string,
-    addressType: AddressType,
-    alianName?: string,
-    hdPath?: string,
-    accountCount = 1
-  ) => {
-    if (this.isQbitChain()) {
-      // No hardware/cold signer supports qbit's SLH-DSA signatures (D5/#23;
-      // vendor support tracked in #44). Every configured chain is a qbit
-      // chain, so cold-wallet creation is disabled in V1.
-      throw new Error(t('hardware_wallet_not_supported'))
-    }
-    const accounts = await this.deriveAccountsFromXpub(xpub, addressType, hdPath, accountCount)
-    const addresses = accounts.map(acc => acc.address)
-    const publicKeys = accounts.map(acc => acc.pubkey)
-
-    const coldWalletKeyring = new ColdWalletKeyring({
-      xpub,
-      addresses,
-      connectionType: 'QR',
-      hdPath: hdPath!,
-      publicKeys,
-    })
-
-    const originKeyring = await keyringService.addKeyring(coldWalletKeyring, addressType)
-    const displayedKeyring = await keyringService.displayForKeyring(
-      originKeyring,
-      addressType,
-      keyringService.keyrings.length - 1
-    )
-
-    const keyring = this.displayedKeyringToWalletKeyring(
-      displayedKeyring,
-      keyringService.keyrings.length - 1
-    )
-
-    if (alianName) {
-      this.setKeyringAlianName(keyring, alianName)
-    }
-
-    await this.changeKeyring(keyring)
-
-    preferenceService.setShowSafeNotice(true)
-    return keyring
-  }
-
-  /**
-   * Derive accounts from extended public key (receive chain level only)
-   * For paths like m/84'/0'/0'/0, derives m/84'/0'/0'/0/i addresses
-   */
-  deriveAccountsFromXpub = async (
-    xpub: string,
-    addressType: AddressType,
-    hdPath?: string,
-    accountCount = 1
-  ): Promise<{ pubkey: string; address: string }[]> => {
-    if (this.isQbitChain()) {
-      // BIP32 xpubs can only derive secp256k1 addresses, which are not valid
-      // qbit P2MR addresses (D5/#23).
-      throw new Error(t('hardware_wallet_not_supported'))
-    }
-    // Validate xpub format
-    const validPrefixes = ['xpub', 'tpub', 'ypub', 'zpub']
-    if (!validPrefixes.some(prefix => xpub?.startsWith(prefix))) {
-      throw new Error('Invalid xpub format')
-    }
-
-    const hdPublicKey = new bitcore.HDPublicKey(xpub)
-    const networkType = this.getNetworkType()
-    const accounts: { pubkey: string; address: string }[] = []
-
-    // Derive addresses: m/84'/0'/0'/0/i
-    for (let i = 0; i < accountCount; i++) {
-      const addressKey = hdPublicKey.deriveChild(i)
-      const publicKeyHex = addressKey.publicKey.toString('hex')
-      const address = publicKeyToAddress(publicKeyHex, addressType, networkType)
-      accounts.push({ pubkey: publicKeyHex, address })
-    }
-
-    return accounts
   }
 
   // Queued with migration and other chain-state work: a migration start that
@@ -4656,7 +4742,7 @@ export class WalletController extends BaseController {
   }
 
   deriveNewAccountFromMnemonic = async (keyring: WalletKeyring, alianName?: string) => {
-    if (keyring.type !== KeyringType.HdKeyring && keyring.type !== KeyringType.QbitHdKeyring) {
+    if (keyring.type !== KeyringType.QbitHdKeyring) {
       throw new Error(t('not_supported'))
     }
     const derivationKey = this.accountDerivationKey(keyring)
@@ -4813,397 +4899,126 @@ export class WalletController extends BaseController {
       throw new Error(t('not_supported'))
     }
     const currentKeyringIndex = preferenceService.getCurrentKeyringIndex()
-    try {
-      await keyringService.changeAddressType(currentKeyringIndex, addressType)
-    } catch (error) {
-      // A change the keyring service cannot roll back locks the wallet on
-      // its own, without `lockWallet`: it keeps no account's outputs then
-      // either, and the pages and the UI are told it locked.
-      if (!this.isUnlocked()) {
-        this.qbitLatestUtxoReads.clear()
-        this.announceLock()
-      }
-      throw error
-    }
+    await keyringService.changeAddressType(currentKeyringIndex, addressType)
     const keyring = await this.getCurrentKeyring()
     if (!keyring) throw new Error('no current keyring')
     await this.changeKeyring(keyring, currentAccount?.index)
-  }
-
-  formatOptionsToSignInputs = async (_psbt: string | transactionCore.Psbt, options?: SignPsbtOptions) => {
-    const account = await this.getCurrentAccount()
-    if (!account) throw null
-    assertCanCreateSigningRequest(account)
-
-    let toSignInputs: ToSignInput[] = []
-    if (options && options.toSignInputs) {
-      // We expect userToSignInputs objects to be similar to ToSignInput interface,
-      // but we allow address to be specified in addition to publicKey for convenience.
-      toSignInputs = options.toSignInputs.map(input => {
-        const index = Number(input.index)
-        if (isNaN(index)) throw new Error('invalid index in toSignInput')
-
-        if (
-          !(input as AddressUserToSignInput).address &&
-          !(input as PublicKeyUserToSignInput).publicKey
-        ) {
-          throw new Error('no address or public key in toSignInput')
-        }
-
-        if (
-          (input as AddressUserToSignInput).address &&
-          (input as AddressUserToSignInput).address != account.address
-        ) {
-          throw new Error('invalid address in toSignInput')
-        }
-
-        if (
-          (input as PublicKeyUserToSignInput).publicKey &&
-          (input as PublicKeyUserToSignInput).publicKey != account.pubkey
-        ) {
-          throw new Error('invalid public key in toSignInput')
-        }
-
-        const sighashTypes = input.sighashTypes?.map(Number)
-        if (sighashTypes?.some(isNaN)) throw new Error('invalid sighash type in toSignInput')
-
-        let tapLeafHashToSign: string | Buffer | undefined
-        if (input.tapLeafHashToSign) {
-          if (typeof input.tapLeafHashToSign !== 'string') {
-            tapLeafHashToSign = Buffer.from(input.tapLeafHashToSign, 'hex')
-          } else if ((input.tapLeafHashToSign as any) instanceof Uint8Array) {
-            tapLeafHashToSign = Buffer.from(input.tapLeafHashToSign)
-          } else {
-            tapLeafHashToSign = input.tapLeafHashToSign
-          }
-
-          tapLeafHashToSign = tapLeafHashToSign!.toString('hex')
-        }
-        return {
-          index,
-          publicKey: account.pubkey,
-          sighashTypes,
-          useTweakedSigner: input.useTweakedSigner,
-          disableTweakSigner: input.disableTweakSigner,
-          tapLeafHashToSign,
-        } as any
-      })
-    } else {
-      const networkType = this.getNetworkType()
-      const psbtNetwork = toPsbtNetwork(networkType)
-
-      const psbt =
-        typeof _psbt === 'string'
-          ? transactionCore.Psbt.fromHex(_psbt as string, { network: psbtNetwork })
-          : (_psbt as transactionCore.Psbt)
-      psbt.data.inputs.forEach((v, index) => {
-        let script: any = null
-        let value = 0
-        if (v.witnessUtxo) {
-          script = v.witnessUtxo.script
-          value = v.witnessUtxo.value
-        } else if (v.nonWitnessUtxo) {
-          const tx = transactionCore.Transaction.fromBuffer(v.nonWitnessUtxo)
-          const output = tx.outs[psbt.txInputs[index]!.index]!
-          script = output.script
-          value = output.value
-        }
-        const isSigned =
-          v.finalScriptSig || v.finalScriptWitness || v.tapKeySig || v.partialSig || v.tapScriptSig
-        if (script && !isSigned) {
-          const address = scriptPkToAddress(script, networkType)
-          if (account.address === address) {
-            toSignInputs.push({
-              index,
-              publicKey: account.pubkey,
-              sighashTypes: v.sighashType ? [v.sighashType] : undefined,
-            })
-          }
-        }
-      })
-
-      if (toSignInputs.length === 0) {
-        psbt.data.inputs.forEach((input, index) => {
-          // if no toSignInputs, sign all inputs
-          toSignInputs.push({
-            index: index,
-            publicKey: account.pubkey,
-          })
-        })
-      }
-    }
-
-    return toSignInputs
-  }
-
-  formatPsbt = async (psbt: transactionCore.Psbt, toSignInputs: ToSignInput[], autoFinalized?: boolean) => {
-    const account = await this.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    assertCanCreateSigningRequest(account)
-
-    const keyring = await this.getCurrentKeyring()
-    if (!keyring) throw new Error('no current keyring')
-    const networkType = this.getNetworkType()
-    const psbtNetwork = toPsbtNetwork(networkType)
-
-    if (!toSignInputs) {
-      // When the caller omits an input list, derive all signable inputs.
-      toSignInputs = await this.formatOptionsToSignInputs(psbt)
-    }
-
-    let willBeSignedInputCount = 0
-    psbt.data.inputs.forEach((input, index) => {
-      const isSigned =
-        input.finalScriptSig ||
-        input.finalScriptWitness ||
-        input.tapKeySig ||
-        input.partialSig ||
-        input.tapScriptSig
-      if (isSigned) {
-        willBeSignedInputCount++
-        return
-      }
-
-      const isToBeSigned = toSignInputs.some(v => v.index === index)
-      if (!isToBeSigned) {
-        return
-      }
-      willBeSignedInputCount++
-
-      let isP2TR = false
-      const witnessScript = input.witnessUtxo?.script
-      if (witnessScript) {
-        try {
-          transactionCore.payments.p2tr({ output: witnessScript, network: psbtNetwork })
-          isP2TR = true
-        } catch (e) {
-          // skip
-        }
-      }
-
-      if (isP2TR) {
-        // fix p2tr input data
-        let isKeyPathP2TR = false
-
-        try {
-          const originXPubkey = toXOnly(Buffer.from(account.pubkey, 'hex')).toString('hex')
-          const tapInternalKey = toXOnly(Buffer.from(account.pubkey, 'hex'))
-          const { output } = transactionCore.payments.p2tr({
-            internalPubkey: tapInternalKey,
-            network: psbtNetwork,
-          })
-          if (input.witnessUtxo?.script.toString('hex') == output?.toString('hex')) {
-            isKeyPathP2TR = true
-          }
-          if (isKeyPathP2TR) {
-            input.tapInternalKey = tapInternalKey
-          } else {
-            // only keypath p2tr can have tapInternalKey
-            delete input.tapInternalKey
-          }
-
-          if (isKeyPathP2TR) {
-            // keypath p2tr should be signed with origin signer
-          } else {
-            const isToBeSigned: any = toSignInputs.find(v => v.index === index)
-            if (
-              isToBeSigned.useTweakedSigner == undefined &&
-              isToBeSigned.disableTweakSigner == undefined
-            ) {
-              if (input.tapLeafScript && input.tapLeafScript.length > 0) {
-                const script = input.tapLeafScript[0]!.script.toString('hex')
-                if (script.includes(originXPubkey)) {
-                  // if tapLeafScript contains origin pubkey, use origin signer
-                  isToBeSigned.useTweakedSigner = false
-                } else {
-                  // if tapLeafScript not contains origin pubkey, use tweaked signer
-                  isToBeSigned.useTweakedSigner = true
-                }
-              } else {
-                // if no tapLeafScript, use origin signer
-                isToBeSigned.useTweakedSigner = false
-              }
-            }
-          }
-        } catch (e) {
-          // skip
-        }
-      }
-    })
-
-    if (autoFinalized !== false && willBeSignedInputCount === psbt.inputCount) {
-      autoFinalized = true
-    } else {
-      autoFinalized = false
-    }
-
-    return {
-      psbt,
-      toSignInputs,
-      autoFinalized,
-    }
-  }
-
-  _signPsbt = async (psbt: transactionCore.Psbt, toSignInputs: ToSignInput[], autoFinalized: boolean) => {
-    const account = await this.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
-      throw new Error(t('not_supported'))
-    }
-
-    const keyring = await this.getCurrentKeyring()
-    if (!keyring) throw new Error('no current keyring')
-    const _keyring = keyringService.keyrings[keyring.index]!
-
-    toSignInputs.forEach(v => {
-      if (v.tapLeafHashToSign) {
-        v.tapLeafHashToSign = Buffer.from(v.tapLeafHashToSign as string, 'hex')
-      }
-    })
-    psbt = await keyringService.signTransaction(_keyring, psbt, toSignInputs as any)
-
-    if (autoFinalized) {
-      try {
-        toSignInputs.forEach(v => {
-          // psbt.validateSignaturesOfInput(v.index, validator);
-          psbt.finalizeInput(v.index)
-        })
-      } catch (e) {
-        // ignore
-      }
-    }
-    return psbt
-  }
-
-  // abstract wallet function
-  signPsbt = async (psbt: transactionCore.Psbt, opts?: SignPsbtOptions): Promise<transactionCore.Psbt> => {
-    const res = await this.formatPsbt(psbt, opts?.toSignInputs as any, opts?.autoFinalized as any)
-    const signedPsbt = await this._signPsbt(res.psbt, res.toSignInputs, res.autoFinalized)
-    return signedPsbt
   }
 
   // local sign function
   signPsbtV2 = async (toSignData: ToSignData): Promise<SignedData> => {
     // Before the first await: the port the signed bytes are handed back to.
     const uiPort = this.callingUiPort
-    if (toSignData.qbitP2mrSigningKeys?.length) {
-      const migrationContext = toSignData.qbitRecoveryMigration
-        ? await this.validateQbitRecoveryMigrationSigning(
-            toSignData.qbitRecoveryMigration,
-            toSignData
-          )
-        : undefined
-      const account = migrationContext?.account || preferenceService.getCurrentAccount()
-      if (!account) throw new Error('no current account')
-      if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
-        throw new Error(t('not_supported'))
-      }
+    if (!toSignData.qbitP2mrSigningKeys?.length) {
+      throw new Error(t('not_supported'))
+    }
 
-      const psbt = qbitPsbtFromHex(toSignData.psbtHex)
-      const qbitBroadcastIdentity = this.validatedQbitBroadcastIdentity(
-        psbt,
-        toSignData.qbitBroadcastIdentity
-      )
-      const chain = qbitBroadcastIdentity.chain
-      const consolidationOutputCounts =
-        this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
-        toSignData.qbitConsolidation?.fundingOutputCounts
-      if (consolidationOutputCounts) {
-        await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
-      }
-      const sign = async (): Promise<SignedData> => {
-        const signed = await keyringService.signP2mrPsbtWithCounter(
+    const migrationContext = toSignData.qbitRecoveryMigration
+      ? await this.validateQbitRecoveryMigrationSigning(
+          toSignData.qbitRecoveryMigration,
+          toSignData
+        )
+      : undefined
+    const account = migrationContext?.account || preferenceService.getCurrentAccount()
+    if (!account) throw new Error('no current account')
+    if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
+      throw new Error(t('not_supported'))
+    }
+
+    const psbt = qbitPsbtFromHex(toSignData.psbtHex)
+    const qbitBroadcastIdentity = this.validatedQbitBroadcastIdentity(
+      psbt,
+      toSignData.qbitBroadcastIdentity
+    )
+    const chain = qbitBroadcastIdentity.chain
+    const consolidationOutputCounts =
+      this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
+      toSignData.qbitConsolidation?.fundingOutputCounts
+    if (consolidationOutputCounts) {
+      await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
+    }
+    const sign = async (): Promise<SignedData> => {
+      const signed = await keyringService
+        .signP2mrPsbtWithCounter(
           account.address,
           {
             psbt,
             keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
           },
           toSignData.signatureBudget,
-          toSignData.qbitApprovedBatchDuplicate === true
+          toSignData.qbitSignatureBatch && {
+            id: toSignData.qbitSignatureBatch.id,
+            index: toSignData.qbitSignatureBatch.index,
+          }
         )
-        await this.refreshDisplayedQbitAccountAfterSigning(account.address)
-        const signedPsbt =
-          toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
-        const signedPsbtHex = qbitPsbtToHex(signedPsbt)
-        if (migrationContext) {
-          const finalized = finalizeP2mrPsbt(signedPsbt)
-          const rawTransaction = extractP2mrTransaction(finalized)
-          const txid = transactionCore.Transaction.fromBuffer(Buffer.from(rawTransaction)).getId()
-          await keyringService.updateQbitRecoveryMigrationPlan(
-            migrationContext.anchorAddress,
-            migrationContext.network,
-            migrationContext.plan.id,
-            {
-              status: 'signed',
-              signedPsbtHex,
-              txid,
-            }
-          )
-        }
-        return {
-          psbtHex: signedPsbtHex,
-          qbitBroadcastIdentity,
-        }
-      }
-      const signWithClaim = (claim: QbitSendBroadcastClaim) => async (): Promise<SignedData> => ({
-        ...(await sign()),
-        qbitSendBroadcastClaim: {
-          ...claim,
-          outpoints: claim.outpoints.map(outpoint => ({ ...outpoint })),
-        },
-      })
-      // A provider claim belongs to the provider request that approved it,
-      // which releases it when the request fails or is rejected, whatever
-      // becomes of the approval window; once that request has settled the
-      // claim is refused before a signature is spent. Only a claim the
-      // wallet mints for its own send is owned by the UI port that receives
-      // the signed bytes.
-      if (toSignData.qbitSendBroadcastClaim) {
-        const providerClaim = this.validatedQbitSendBroadcastClaim(
-          psbt,
-          toSignData.qbitSendBroadcastClaim,
-          toSignData.providerContext,
-          account.address
-        )
-        return qbitSendGuardService.runWithProviderBroadcastClaim(
-          providerClaim,
-          signWithClaim(providerClaim)
+        .catch(error => {
+          // A migration plan's batch closes when its review ends or is
+          // replaced, or on a lock, before any of the plan is signed; the
+          // screen then prepares the remaining plans again.
+          if (migrationContext && error?.code === QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE) {
+            throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED)
+          }
+          throw error
+        })
+      await this.refreshDisplayedQbitAccountAfterSigning(account.address)
+      const signedPsbt =
+        toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
+      const signedPsbtHex = qbitPsbtToHex(signedPsbt)
+      if (migrationContext) {
+        const finalized = finalizeP2mrPsbt(signedPsbt)
+        const rawTransaction = extractP2mrTransaction(finalized)
+        const txid = transactionCore.Transaction.fromBuffer(Buffer.from(rawTransaction)).getId()
+        await keyringService.updateQbitRecoveryMigrationPlan(
+          migrationContext.anchorAddress,
+          migrationContext.network,
+          migrationContext.plan.id,
+          {
+            status: 'signed',
+            signedPsbtHex,
+            txid,
+          }
         )
       }
-      const claim = this.walletQbitSendBroadcastClaim(
-        psbt,
+      return {
+        psbtHex: signedPsbtHex,
         qbitBroadcastIdentity,
-        toSignData,
+      }
+    }
+    const signWithClaim = (claim: QbitSendBroadcastClaim) => async (): Promise<SignedData> => ({
+      ...(await sign()),
+      qbitSendBroadcastClaim: {
+        ...claim,
+        outpoints: claim.outpoints.map(outpoint => ({ ...outpoint })),
+      },
+    })
+    // A provider claim belongs to the provider request that approved it,
+    // which releases it when the request fails or is rejected, whatever
+    // becomes of the approval window; once that request has settled the
+    // claim is refused before a signature is spent. Only a claim the
+    // wallet mints for its own send is owned by the UI port that receives
+    // the signed bytes.
+    if (toSignData.qbitSendBroadcastClaim) {
+      const providerClaim = this.validatedQbitSendBroadcastClaim(
+        psbt,
+        toSignData.qbitSendBroadcastClaim,
+        toSignData.providerContext,
         account.address
       )
-      if (claim) {
-        return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
-      }
-      return this.runWithNoQbitInputConflict(
-        chain,
-        qbitPsbtOutpoints(psbt),
-        sign,
-        qbitPsbtTxid(psbt)
+      return qbitSendGuardService.runWithProviderBroadcastClaim(
+        providerClaim,
+        signWithClaim(providerClaim)
       )
     }
-
-    if (toSignData.qbitSendBroadcastClaim) {
-      throw new Error('invalid Qbit send broadcast claim')
-    }
-
-    const psbt = psbtFromString(toSignData.psbtHex)
-    const sign = async () => {
-      await this._signPsbt(psbt, toSignData.toSignInputs, toSignData.autoFinalized!)
-      return {
-        psbtHex: psbt.toHex(),
-      }
-    }
-    if (!this.isQbitChain()) return sign()
-    return this.runWithNoQbitInputConflict(
-      this.getChainType(),
-      transactionPsbtOutpoints(psbt),
-      sign
+    const claim = this.walletQbitSendBroadcastClaim(
+      psbt,
+      qbitBroadcastIdentity,
+      toSignData,
+      account.address
     )
+    if (claim) {
+      return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
+    }
+    return this.runWithNoQbitInputConflict(chain, qbitPsbtOutpoints(psbt), sign, qbitPsbtTxid(psbt))
   }
 
   signMessage = async (params: ToSignMessage): Promise<SignedMessage> => {
@@ -5211,40 +5026,16 @@ export class WalletController extends BaseController {
       throw new Error('Invalid message length')
     }
 
-    if (params.type === SignMessageType.P2MR) {
-      return {
-        proof: await this.signP2mrMessage(
-          params.text,
-          params.p2mrAccountAddress,
-          params.signatureBudget
-        ),
-      }
+    if (params.type !== SignMessageType.P2MR) {
+      throw new Error(t('not_supported'))
     }
 
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    assertCanCreateSigningRequest(account)
-
-    if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
-      throw new Error('Readonly wallet cannot sign messages')
-    }
-
-    const networkType = this.getNetworkType()
-    if (params.type === SignMessageType.BIP322_SIMPLE) {
-      const signature = await signMessageOfBIP322Simple({
-        message: params.text,
-        address: account.address,
-        networkType,
-        wallet: this as any,
-      })
-      return {
-        signature,
-      }
-    } else {
-      const signature = await keyringService.signMessage(account.pubkey, account.type, params.text)
-      return {
-        signature,
-      }
+    return {
+      proof: await this.signP2mrMessage(
+        params.text,
+        params.p2mrAccountAddress,
+        params.signatureBudget
+      ),
     }
   }
 
@@ -5318,17 +5109,6 @@ export class WalletController extends BaseController {
       leafScript,
       controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
     })
-  }
-
-  deriveContextHash = async (appName: string, context: string): Promise<string> => {
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-    const canonicalNetwork = chainTypeToCanonicalNetwork(preferenceService.getChainType())
-    const keyring = await keyringService.getKeyringForAccount(account.pubkey, account.type)
-    if (!keyring.deriveContextHash) {
-      throw new Error('Current keyring does not support deriveContextHash')
-    }
-    return keyring.deriveContextHash(account.pubkey, appName, canonicalNetwork, context)
   }
 
   addContact = async (data: ContactBookItem) => {
@@ -5560,7 +5340,6 @@ export class WalletController extends BaseController {
       if (chainChanged) {
         preferenceService.setChainType(chainType)
       }
-      await walletApiService.setEndpoint(chain.endpoints[0]!)
 
       const keyring = await this.getCurrentKeyring()
       if (!keyring) throw new Error('no current keyring')
@@ -5594,12 +5373,6 @@ export class WalletController extends BaseController {
         await preferenceService.persist()
       } catch (rollbackError) {
         log.error('[WalletController] Failed to persist restored chain preferences', rollbackError)
-      }
-
-      try {
-        await walletApiService.setEndpoint(CHAINS_MAP[currentChainType]!.endpoints[0]!)
-      } catch (rollbackError) {
-        log.error('[WalletController] Failed to restore the previous API endpoint', rollbackError)
       }
 
       // Path rollback or a completed same-path re-arm can leave restored
@@ -5770,9 +5543,10 @@ export class WalletController extends BaseController {
 
   /**
    * Move off regtest without ever re-entering it. Unlocked wallets go through
-   * the full transition (HD path, endpoint, accounts, events); if that fails
-   * or the wallet is locked, the persisted chain and API endpoint are pinned
-   * to mainnet directly so nothing stays bound to the loopback endpoint.
+   * the full transition (HD path, accounts, events); if that fails or the
+   * wallet is locked, the persisted chain is pinned to mainnet directly. The
+   * API clients follow the chain and the cached loopback ones are dropped, so
+   * nothing stays bound to the loopback endpoint.
    */
   private leaveRegtestFailClosed = async (trigger: 'permission_removed' | 'disable'): Promise<void> => {
     if (preferenceService.getChainType() !== ChainType.QBIT_REGTEST) {
@@ -5796,11 +5570,6 @@ export class WalletController extends BaseController {
       await preferenceService.persist()
     } catch (error) {
       log.error('[WalletController] Failed to persist the mainnet fallback', summarizeError(error))
-    }
-    try {
-      await walletApiService.setEndpoint(CHAINS_MAP[ChainType.QBIT_MAINNET]!.endpoints[0]!)
-    } catch (error) {
-      log.error('[WalletController] Failed to restore the mainnet API endpoint', summarizeError(error))
     }
     this.dropRegtestApiClients()
 
@@ -6157,15 +5926,20 @@ export class WalletController extends BaseController {
    *
    * Every explorer read here shares one deadline,
    * `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`, and these are the slow reads of
-   * a bump: they all happen before the user signs. The original's output
-   * count goes with the plan, so its broadcast only asks what spends them.
+   * a bump: they all happen before the user signs. It starts once the
+   * assessment has been through the send guard's queue, which a broadcast
+   * can hold for as long as its own deadline: the wait spends none of it.
+   * The original's output count goes with the plan, so its broadcast only
+   * asks what spends them.
    */
   private assessQbitFeeBump = async (
     txid: string,
     requestedFeeRate?: number,
     chain: ChainType = this.getChainType()
   ): Promise<QbitFeeBumpAssessment> => {
-    const operation = new QbitExplorerOperation(QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS)
+    const operation = new QbitExplorerOperation(QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS, undefined, {
+      started: false,
+    })
     if (!isQbitChainType(chain) || !isHexByteString(txid, 32)) {
       return { eligible: false, reason: 'unverifiable' }
     }
@@ -6200,6 +5974,18 @@ export class WalletController extends BaseController {
     ) {
       return { eligible: false, reason: 'unverifiable' }
     }
+
+    // A replacement conflicts with every transaction that spends one of the
+    // original's outputs, and qbit Core evicts them all once its fee covers
+    // theirs. The wallet sends from its own unconfirmed change, so a later
+    // payment, the wallet's own or anyone's, would vanish with the bump; it
+    // is refused instead. The wallet's own records catch a spend the
+    // explorer has not indexed yet, and are asked first: both questions wait
+    // their turn on the send guard's queue, and the deadline starts once they
+    // are answered. The explorer, below, catches a spend made elsewhere.
+    await this.settleQbitRecentSpends(chain, account.address)
+    const dependentSpend = await qbitSendGuardService.hasDependentSpend(chain, originalTxid)
+    operation.start()
 
     const client = this.getQbitApiClient(chain)
     let transaction: EsploraTx
@@ -6356,14 +6142,8 @@ export class WalletController extends BaseController {
       return { eligible: false, reason: 'unverifiable' }
     }
 
-    // A replacement conflicts with every transaction that spends one of the
-    // original's outputs, and qbit Core evicts them all once its fee covers
-    // theirs. The wallet sends from its own unconfirmed change, so a later
-    // payment, the wallet's own or anyone's, would vanish with the bump; it
-    // is refused instead. The wallet's own records catch a spend the
-    // explorer has not indexed yet; the explorer catches one made elsewhere.
-    await this.settleQbitRecentSpends(chain, account.address)
-    if (await qbitSendGuardService.hasDependentSpend(chain, originalTxid)) {
+    // A later spend the wallet's own records hold (see above).
+    if (dependentSpend) {
       return { eligible: false, reason: 'has_descendants' }
     }
     let spenders: (string | undefined)[]
@@ -7049,7 +6829,7 @@ export class WalletController extends BaseController {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
     const chain = this.getChainType()
-    if (!isQbitChainType(chain) || !account.p2mr) throw new Error(t('not_supported'))
+    if (!account.p2mr) throw new Error(t('not_supported'))
     const counts = await getQbitAddressOutputCounts(this.getQbitApiClient(chain), account.address)
     return {
       chain,
@@ -7088,7 +6868,6 @@ export class WalletController extends BaseController {
     // The batch's inputs exist on this network only; the builder refuses
     // them if the wallet has moved to another one since.
     const chain = this.getChainType()
-    if (!isQbitChainType(chain)) throw new Error(t('not_supported'))
     // Unless given, the normal rate, or the relay floor without a quote.
     const feeRate =
       data.feeRate ?? (await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ?? 1
@@ -7423,33 +7202,6 @@ export class WalletController extends BaseController {
     }
   }
 
-  getToSignData = async ({
-    psbtHex,
-    options,
-    action,
-  }: {
-    psbtHex: string
-    options?: SignPsbtOptions
-    action?: PsbtActionInfo
-  }): Promise<ToSignData> => {
-    const toSignInputs = await this.formatOptionsToSignInputs(psbtHex, options)
-    const result = await this.formatPsbt(
-      transactionCore.Psbt.fromHex(psbtHex),
-      toSignInputs,
-      options?.autoFinalized
-    )
-    return {
-      psbtHex: result.psbt.toHex(),
-      toSignInputs: result.toSignInputs,
-      autoFinalized: result.autoFinalized,
-      action: action || {
-        name: '',
-        description: '',
-        type: PsbtActionType.DEFAULT,
-      },
-    }
-  }
-
   private getQbitMigrationProtectedAssetCount = async (
     account: Account,
     psbt: QbitPsbt,
@@ -7518,6 +7270,61 @@ export class WalletController extends BaseController {
     const fee = totalInputValue - totalOutputValue
     if (fee < 0n || ordinaryInputValue > fee + changeValue) return 0
     return coverage.assetCount
+  }
+
+  /**
+   * Open the batch a signPsbts approval covers, and mark each prepared entry
+   * with it: its entries are signed one at a time, in any order, so each may
+   * find signatures the others reserved spent, which only a batch member
+   * may. Only a batch this wallet's keys sign has one. Resolves with the
+   * batch's id, which the request then holds until it settles.
+   */
+  openQbitProviderSignatureBatch = async (
+    toSignDatas: ToSignData[]
+  ): Promise<string | undefined> => {
+    const account = preferenceService.getCurrentAccount()
+    if (!account) throw new Error('no current account')
+    const batch = await this.openQbitSignatureBatch(account, toSignDatas)
+    if (!batch) return undefined
+    toSignDatas.forEach((toSignData, index) => {
+      toSignData.qbitSignatureBatch = { id: batch.id, index, budget: { ...batch.budget } }
+    })
+    return batch.id
+  }
+
+  /**
+   * Close the batches a request opened, once it settles, answered or failed;
+   * see openQbitProviderSignatureBatch. Only the ids the request recorded
+   * when it opened them: the page's own parameters name none.
+   */
+  releaseQbitSignatureBatches = (batchIds: readonly string[]): void => {
+    if (batchIds.length > 0) keyringService.releaseP2mrPsbtSigningBatches(batchIds)
+  }
+
+  private openQbitSignatureBatch = async (
+    account: Account,
+    toSignDatas: readonly ToSignData[],
+    options?: { reuseScope?: string }
+  ): Promise<{ id: string; budget: QbitSignatureBudgetImpact } | undefined> => {
+    if (
+      toSignDatas.length < 2 ||
+      !account.p2mr ||
+      getAccountCapabilities(account).signMethod !== AccountSignMethod.Local ||
+      !toSignDatas.every(
+        toSignData => toSignData.qbitP2mrSigningKeys?.length && toSignData.signatureBudget
+      )
+    ) {
+      return undefined
+    }
+    return keyringService.openP2mrPsbtSigningBatch(
+      account.address,
+      toSignDatas.map(toSignData => ({
+        psbt: qbitPsbtFromHex(toSignData.psbtHex),
+        keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
+        approvedBudget: toSignData.signatureBudget!,
+      })),
+      options
+    )
   }
 
   prepareQbitProviderPsbt = async (
@@ -7679,16 +7486,19 @@ export class WalletController extends BaseController {
    * as the send guard hands it to its callback (see
    * `QbitSendGuardService.broadcastIfAllowed`), with this controller's pause
    * between its two rounds. It runs under `operation`, the broadcast's
-   * deadline, when given; see `assertNoExplorerSpendConflict`.
+   * deadline, when given, and leaves `submissionMs` of it for the pass's
+   * submission; see `assertNoExplorerSpendConflict`.
    */
   private checkQbitBroadcastOnExplorer(
     client: QbitWalletApiClient,
     spendCheck: QbitExplorerSpendCheck,
-    operation?: QbitExplorerOperation
+    operation?: QbitExplorerOperation,
+    submissionMs?: number
   ): Promise<void> {
     return assertNoExplorerSpendConflict(client, spendCheck, {
       intervalMs: this.qbitFeeBumpRecheckIntervalMs,
       ...(operation ? { operation } : {}),
+      ...(submissionMs === undefined ? {} : { submissionMs }),
     })
   }
 
@@ -7877,15 +7687,6 @@ export class WalletController extends BaseController {
     providerPush = false,
     retryOfUnknownOutcome = false
   ): Promise<QbitBroadcastResult> => {
-    // One deadline for the whole call: every pass, its fee bump check and
-    // submission, and every lookup. It starts once the call has the send
-    // guard's queue, so a send waiting behind another (which its own
-    // deadline bounds) is still tried. Once it passes, a lookup fails, which
-    // leaves the verdict unknown, and a pass with too little of it left
-    // sends nothing.
-    const operation = new QbitExplorerOperation(QBIT_BROADCAST_DEADLINE_MS, undefined, {
-      started: false,
-    })
     const chain = this.getChainType()
     // Every refusal below happens before dispatch, so nothing was sent and
     // the caller may abandon the retained bytes. The recovery screen releases
@@ -7916,6 +7717,19 @@ export class WalletController extends BaseController {
       })
     }
     const { client, rawtx, txid, outpoints } = prepared
+    // One deadline for the whole call: every pass, its fee bump check and
+    // submission, and every lookup, longer for bytes that take longer to
+    // upload. It starts once the call has the send guard's queue, so a send
+    // waiting behind another (which its own deadline bounds) is still tried.
+    // Once it passes, a lookup fails, which leaves the verdict unknown, and a
+    // pass with too little of it left sends nothing.
+    const operation = new QbitExplorerOperation(qbitBroadcastDeadlineMs(rawtx), undefined, {
+      started: false,
+    })
+    const minPassMs = qbitBroadcastMinPassMs(rawtx)
+    // Re-sends start within a window as much longer, so a first attempt
+    // that timed out at the end of its upload's budget can still be re-sent.
+    const resendWindowMs = qbitBroadcastResendWindowMs(rawtx)
 
     // A local signer can only return the transaction the wallet built, but an
     // external or cold-wallet signer hands back whatever was pasted or
@@ -7962,9 +7776,10 @@ export class WalletController extends BaseController {
       }
     }
     // A pass is sent only with at least a submission's reply budget of the
-    // deadline left: one cut off in flight would only add an unknown outcome.
+    // deadline left, its upload included: one cut off in flight would only
+    // add an unknown outcome. A re-send of the same bytes needs as much.
     const assertTimeToSend = (): void => {
-      if (operation.remainingMs() < QBIT_BROADCAST_MIN_PASS_MS) {
+      if (operation.remainingMs() < minPassMs) {
         deadlineRefused = true
         throw new Error('Qbit broadcast deadline left no time to send')
       }
@@ -7976,7 +7791,7 @@ export class WalletController extends BaseController {
       if (
         resends > 0 &&
         firstDispatchAt !== undefined &&
-        Date.now() - firstDispatchAt >= QBIT_BROADCAST_RESEND_WINDOW_MS
+        Date.now() - firstDispatchAt >= resendWindowMs
       ) {
         throw new Error('Qbit broadcast re-send window has passed')
       }
@@ -8003,7 +7818,7 @@ export class WalletController extends BaseController {
       // inputs went with the restart: what spends them is read as well.
       if (qbitExplorerSpendCheckIsNeeded(spendCheck)) {
         try {
-          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation)
+          await this.checkQbitBroadcastOnExplorer(client, spendCheck, operation, minPassMs)
         } catch (error) {
           dependentSpendRefused = true
           // Refused for lack of time, as a pass with too little left is.
@@ -8107,7 +7922,7 @@ export class WalletController extends BaseController {
             !isQbitBroadcastResendable(error) ||
             delay === undefined ||
             firstDispatchAt === undefined ||
-            Date.now() + delay - firstDispatchAt >= QBIT_BROADCAST_RESEND_WINDOW_MS
+            Date.now() + delay - firstDispatchAt >= resendWindowMs
           ) {
             return resolved
           }
@@ -8579,14 +8394,7 @@ export class WalletController extends BaseController {
       }
       accounts.push(account)
     }
-    const hdPath =
-      type === KeyringType.HdKeyring || type === KeyringType.QbitHdKeyring
-        ? displayedKeyring.keyring.hdPath
-        : ''
-    const accountIndexDerivation: boolean =
-      type === KeyringType.HdKeyring
-        ? (displayedKeyring.keyring.accountIndexDerivation ?? false)
-        : false
+    const hdPath = type === KeyringType.QbitHdKeyring ? displayedKeyring.keyring.hdPath : ''
     const alianName = preferenceService.getKeyringAlianName(
       key,
       initName ? `${KEYRING_TYPES[type]?.alianName ?? 'Unsupported Wallet'} #${index + 1}` : ''
@@ -8599,7 +8407,7 @@ export class WalletController extends BaseController {
       accounts,
       alianName,
       hdPath,
-      accountIndexDerivation,
+      accountIndexDerivation: false,
       ...(type === KeyringType.QbitHdKeyring && displayedKeyring.keyring.qbitRecovery
         ? { qbitRecovery: displayedKeyring.keyring.qbitRecovery }
         : {}),
@@ -9169,7 +8977,27 @@ export class WalletController extends BaseController {
     if (this.getChainType() !== context.chain) {
       throw new Error('The network changed while the PSBTs were analyzed')
     }
-    return this.analyzeLocalQbitPsbts(toSignDatas, context)
+    const summary = this.analyzeLocalQbitPsbts(toSignDatas, context)
+    // A local batch is the one its signer reviews here, so each review of
+    // the same approval (the same bytes with the same budgets, as before a
+    // quick-sign) reopens the same batch and keeps what its signed entries
+    // spent. Budgets prepared again after an entry spent open a batch of
+    // their own. A provider request's batch was opened at its approval.
+    if (
+      summary.parseErrorCount === 0 &&
+      !toSignDatas.some(
+        toSignData =>
+          toSignData.providerContext ||
+          toSignData.qbitRecoveryMigration ||
+          toSignData.qbitSignatureBatch
+      )
+    ) {
+      const batch = await this.openQbitSignatureBatch(context.account, toSignDatas, {
+        reuseScope: 'qbit-local-batch',
+      })
+      if (batch) summary.signatureBatch = batch
+    }
+    return summary
   }
 
   /**
@@ -9230,7 +9058,7 @@ export class WalletController extends BaseController {
   }
 
   getWalletConfig = async () => {
-    return walletApiService.config.getWalletConfig()
+    return getLocalWalletConfig()
   }
 
   getSkippedVersion = async () => {
@@ -9263,14 +9091,8 @@ export class WalletController extends BaseController {
     return result
   }
 
-  getAddressSummary = async (address: string) => {
-    return qbitStatsToAddressSummary(await this.getQbitApiClient().getAddressStats(address))
-  }
-
-  setPsbtSignNonSegwitEnable(psbt: transactionCore.Psbt, enabled: boolean) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    //@ts-ignore
-    psbt.__CACHE.__UNSAFE_SIGN_NONSEGWIT = enabled
+  getAddressSummary = (address: string) => {
+    return getQbitAddressSummary(this.getQbitApiClient(), address)
   }
 
   getShowSafeNotice = () => {
@@ -9281,12 +9103,8 @@ export class WalletController extends BaseController {
     return preferenceService.setShowSafeNotice(show)
   }
 
-  getVersionDetail = (version: string) => {
-    return walletApiService.config.getVersionDetail(version)
-  }
-
-  getEnableSignData = async () => {
-    return preferenceService.getEnableSignData()
+  getVersionDetail = async (version: string) => {
+    return getLocalVersionNotice(version)
   }
 
   /* Biometric (WebAuthn PRF) unlock. The ceremony and key derivation run in
@@ -9311,10 +9129,6 @@ export class WalletController extends BaseController {
     return biometricUnlockService.clearRecord()
   }
 
-  setEnableSignData = async (enable: boolean) => {
-    return preferenceService.setEnableSignData(enable)
-  }
-
   getAutoLockTimeId = async () => {
     return preferenceService.getAutoLockTimeId()
   }
@@ -9322,6 +9136,22 @@ export class WalletController extends BaseController {
   setAutoLockTimeId = async (timeId: number) => {
     await preferenceService.setAutoLockTimeId(timeId)
     this._resetTimeout()
+  }
+
+  getLockOnComputerLock = async () => {
+    return preferenceService.getLockOnComputerLock()
+  }
+
+  setLockOnComputerLock = async (enabled: boolean) => {
+    return preferenceService.setLockOnComputerLock(enabled)
+  }
+
+  getLockOnWindowsClosed = async () => {
+    return preferenceService.getLockOnWindowsClosed()
+  }
+
+  setLockOnWindowsClosed = async (enabled: boolean) => {
+    return preferenceService.setLockOnWindowsClosed(enabled)
   }
 
   getOpenInSidePanel = async () => {
@@ -9357,8 +9187,38 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * When the armed auto-lock timer is due, by the wall clock. A timer does
+   * not count the time the computer sleeps, so on its own it would let the
+   * first screen action after waking extend a session whose time had passed.
+   * A forward jump of the wall clock can bring the lock early; never later.
+   */
+  private autoLockDueAt: number | undefined
+
+  /**
+   * A screen action: start the auto-lock time over, unless the auto-lock is
+   * overdue, which locks instead (see `lockIfAutoLockOverdue`). On the unlock
+   * screen an action re-arms the timer as before, so an unlock it overlaps is
+   * not locked straight away.
+   */
   setLastActiveTime = async () => {
+    if (await this.lockIfAutoLockOverdue()) return
     this._resetTimeout()
+  }
+
+  /**
+   * Auto-lock now if its deadline has passed: on a screen action, and when
+   * the computer's idle state changes, as it does on waking, since the timer
+   * does not count the time the computer sleeps. Only an unlocked wallet that
+   * has a vault has a session to end: during first-time onboarding there is
+   * no vault to unlock again, and locking would strand the user. Resolves
+   * with whether it locked.
+   */
+  lockIfAutoLockOverdue = async (): Promise<boolean> => {
+    if (this.autoLockDueAt === undefined || this.now() < this.autoLockDueAt) return false
+    if (!this.isUnlocked() || !keyringService.hasVault()) return false
+    await this.autoLock()
+    return true
   }
 
   private _resetTimeout = () => {
@@ -9368,17 +9228,56 @@ export class WalletController extends BaseController {
 
     const timeId = preferenceService.getAutoLockTimeId()
     const timeConfig = getLockTimeInfo(timeId)
+    this.autoLockDueAt = this.now() + timeConfig.time
     this.timer = setTimeout(() => {
-      this.lockWallet()
-      bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
-        method: BUS_METHODS.AUTO_LOCKED,
-        params: {},
+      this.autoLock().catch(error => {
+        log.error('[WalletController] Auto-lock failed', summarizeError(error))
       })
     }, timeConfig.time)
   }
 
-  getBlockActiveInfo = () => {
-    return walletApiService.utility.getBlockActiveInfo()
+  /** The auto-lock: its timer ran out, or its deadline passed. */
+  private autoLock = (): Promise<void> => {
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
+    // A timer armed on the unlock screen finds nothing to lock, and must not
+    // cut short an unlock under way.
+    if (!this.isUnlocked()) return Promise.resolve()
+    // lockWallet marks the wallet locked before its first await.
+    const locked = this.lockWallet()
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.AUTO_LOCKED,
+      params: {},
+    })
+    return locked
+  }
+
+  /**
+   * Lock because the computer locked or the last browser window closed, when
+   * that event's setting is on. A setting that cannot be read counts as on.
+   * The caller waits for the worker's start-up first: only a keyring that has
+   * started can hold an unlocked wallet, since the keyring keeps its secrets
+   * in memory. Without a vault there is nothing to lock: during first-time
+   * onboarding the wallet could not be unlocked again, and the screens that
+   * create or restore it would fail. Locks whether or not the wallet reads
+   * unlocked, so an unlock still waiting or running ends locked (see
+   * `unlock`). Resolves with whether it locked.
+   */
+  lockOnSystemEvent = async (event: 'computer-locked' | 'windows-closed'): Promise<boolean> => {
+    if (!keyringService.memStore || !keyringService.hasVault()) return false
+    let enabled = true
+    try {
+      enabled =
+        event === 'computer-locked'
+          ? preferenceService.getLockOnComputerLock()
+          : preferenceService.getLockOnWindowsClosed()
+    } catch (error) {
+      log.error('[WalletController] Lock settings unreadable; locking', summarizeError(error))
+    }
+    if (!enabled) return false
+    await this.lockWallet()
+    return true
   }
 
   // Rate Us Status
@@ -9408,34 +9307,6 @@ export class WalletController extends BaseController {
 
   setGuideReaded = async () => {
     preferenceService.setGuideReaded(true)
-  }
-
-  getAnnouncements = async (cursor: number, size: number) => {
-    return walletApiService.utility.getAnnouncements(cursor, size)
-  }
-
-  // get the notifications
-  getNotifications = async () => {
-    return notificationService.getNotifications()
-  }
-
-  // mark the notification as read
-  readNotification = async (id: string) => {
-    return notificationService.markAsRead(id)
-  }
-
-  // mark all notifications as read
-  readAllNotifications = async () => {
-    return notificationService.readAll()
-  }
-
-  // delete the notification
-  deleteNotification = async (id: string) => {
-    return notificationService.deleteNotification(id)
-  }
-
-  getNotificationUnreadCount = (): number => {
-    return notificationService.getUnreadCount()
   }
 
   getAcceptLowFeeMode = async () => {
@@ -9529,33 +9400,6 @@ export class WalletController extends BaseController {
     await this.changeKeyring(keyring)
 
     preferenceService.setShowSafeNotice(true)
-  }
-
-  createDummyPsbt = async ({
-    txType,
-  }: {
-    txType: DummyTxType
-  }): Promise<{
-    psbtHex: string
-    toSignInputs: ToSignInput[]
-  }> => {
-    const account = preferenceService.getCurrentAccount()
-    if (!account) throw new Error('no current account')
-
-    const { psbt, toSignInputs } = txHelpers.createDummyTx({
-      txType,
-      address: account.address,
-      pubkey: account.pubkey,
-    })
-
-    const toSignData = await this.getToSignData({
-      psbtHex: psbt.toHex(),
-      options: {
-        toSignInputs: toSignInputs as any,
-        autoFinalized: false,
-      },
-    })
-    return toSignData
   }
 
   getQbitUnit() {

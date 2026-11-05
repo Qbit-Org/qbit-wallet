@@ -4,7 +4,6 @@ import {
   Account,
   AddressFlagType,
   AddressSummary,
-  Announcement,
   BiometricUnlockRecord,
   BiometricUnlockStatus,
   QbitBalance,
@@ -16,7 +15,6 @@ import {
   DecodedPsbt,
   DecodePsbtOptions,
   DeriveAccountResult,
-  DummyTxType,
   FeeSummary,
   LocalPsbtBatchReview,
   LocalPsbtSummary,
@@ -30,12 +28,9 @@ import {
   QbitSendBroadcastClaim,
   RateUsStatus,
   RegtestAccessStatus,
-  SignPsbtOptions,
   SignedData,
   SignedMessage,
-  StoredNotification,
   ToSignData,
-  ToSignInput,
   ToSignMessage,
   ThemeMode,
   TxHistoryItem,
@@ -89,9 +84,6 @@ export interface QbitP2mrDescriptorExport {
 }
 
 export interface WalletController {
-  openapi: {
-    [key: string]: (...params: any) => Promise<any>
-  }
   // for development use only
   requestMethod: (...params: any) => Promise<any>
 
@@ -140,7 +132,6 @@ export interface WalletController {
 
   getAddressBalanceV2(address: string): Promise<QbitBalanceSummary>
   getAddressBalance(address: string): Promise<QbitBalance>
-  getAddressCacheBalance(address: string): Promise<QbitBalance>
   getMultiAddressSummaries(addresses: string): Promise<AddressSummary[]>
   findActiveAddressGroups(
     groups: { type: number; address_arr: string[]; pubkey_arr: string[] }[]
@@ -161,7 +152,6 @@ export interface WalletController {
     snapshotId?: string
     scopeKey?: string
   }>
-  getAddressCacheHistory: (address: string) => Promise<TxHistoryItem[]>
   getQbitTxLifecycleStatus(txid: string): Promise<{ state: 'confirmed' | 'pending' | 'gone' }>
   getQbitRawTransactionHex(txid: string): Promise<string>
 
@@ -171,10 +161,6 @@ export interface WalletController {
   getCurrency(): Promise<string>
   setCurrency(currency: string): Promise<void>
 
-  getPrivateKey(
-    password: string,
-    account: { address: string; type: string }
-  ): Promise<{ hex: string; wif: string }>
   getMnemonics(
     password: string,
     keyring: WalletKeyring
@@ -199,20 +185,7 @@ export interface WalletController {
     accountCount: number,
     accountIndexDerivation?: boolean
   ): Promise<{ address: string; type: string }[]>
-  createKeyringWithColdWallet(
-    xpub: string,
-    addressType: AddressType,
-    alianName?: string,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<WalletKeyring>
 
-  deriveAccountsFromXpub(
-    xpub: string,
-    addressType: AddressType,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]>
 
   createTmpKeyringWithMnemonics(
     mnemonic: string,
@@ -222,13 +195,6 @@ export interface WalletController {
     accountCount?: number,
     accountIndexDerivation?: boolean
   ): Promise<WalletKeyring>
-
-  createTmpKeyringWithMnemonics2(
-    mnemonic: string,
-    passphrase: string,
-    hdPaths: string[],
-    addressTypes: AddressType[]
-  ): Promise<WalletKeyring[]>
 
   restoreQbitKeyringWithFloors(
     mnemonic: string,
@@ -377,7 +343,6 @@ export interface WalletController {
   /** Stop waiting for that read; a walk nothing waits for any more stops. */
   abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
-  getNetworkType(): Promise<NetworkType>
   setNetworkType(type: NetworkType): Promise<void>
 
   getChainType(): Promise<ChainType>
@@ -427,8 +392,6 @@ export interface WalletController {
 
   checkWebsite(website: string): Promise<WebsiteSafetyResult>
 
-  formatOptionsToSignInputs(psbtHex: string, options?: SignPsbtOptions): Promise<ToSignInput[]>
-
   getAddressSummary(address: string): Promise<AddressSummary>
 
   getShowSafeNotice(): Promise<boolean>
@@ -440,9 +403,6 @@ export interface WalletController {
 
   getVersionDetail(version: string): Promise<VersionDetail>
 
-  getEnableSignData(): Promise<boolean>
-  setEnableSignData(enable: boolean): Promise<void>
-
   // Biometric (WebAuthn PRF) unlock
   getBiometricUnlockStatus(): Promise<BiometricUnlockStatus>
   saveBiometricUnlockRecord(record: BiometricUnlockRecord, password: string): Promise<void>
@@ -451,6 +411,10 @@ export interface WalletController {
 
   setAutoLockTimeId(timeId: number): Promise<void>
   getAutoLockTimeId(): Promise<number>
+  getLockOnComputerLock(): Promise<boolean>
+  setLockOnComputerLock(enabled: boolean): Promise<void>
+  getLockOnWindowsClosed(): Promise<boolean>
+  setLockOnWindowsClosed(enabled: boolean): Promise<void>
 
   getDeveloperMode(): Promise<boolean>
   setDeveloperMode(developerMode: boolean): Promise<void>
@@ -458,16 +422,19 @@ export interface WalletController {
   getThemeMode(): Promise<ThemeMode>
   setThemeMode(themeMode: ThemeMode): Promise<void>
 
-  getBlockActiveInfo(): Promise<{ allTransactions: number; allAddrs: number }>
-
   getContactByAddress(address: string): Promise<ContactBookItem | undefined>
   getContactByAddressAndChain(
     address: string,
     chain: ChainType
   ): Promise<ContactBookItem | undefined>
-  updateContact(data: ContactBookItem): Promise<void>
+  addContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
+  updateContact(data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }): Promise<void>
   removeContact(address: string, chain?: ChainType): Promise<void>
-  replaceContact(address: string, chain: ChainType, data: ContactBookItem): Promise<void>
+  replaceContact(
+    address: string,
+    chain: ChainType,
+    data: Omit<ContactBookItem, 'isAlias'> & { isAlias?: boolean }
+  ): Promise<void>
   listContacts(): Promise<ContactBookItem[]>
   saveContactsOrder(contacts: ContactBookItem[]): Promise<void>
 
@@ -487,19 +454,6 @@ export interface WalletController {
   setRatePromptDismissedAt(timestamp: number | null): Promise<void>
   setHasShownSecondPrompt(hasShown: boolean): Promise<void>
   resetRateUsStatus(): Promise<void>
-  getAnnouncements(
-    cursor: number,
-    size: number
-  ): Promise<{
-    hasMore: boolean
-    list: Announcement[]
-  }>
-
-  getNotifications(): Promise<StoredNotification[]>
-  readNotification(id: string): Promise<void>
-  readAllNotifications(): Promise<void>
-  deleteNotification(id: string): Promise<void>
-  getNotificationUnreadCount(): Promise<number>
 
   getAcceptLowFeeMode(): Promise<boolean>
   setAcceptLowFeeMode(accept: boolean): Promise<void>
@@ -514,7 +468,6 @@ export interface WalletController {
 
   createKeyringWithAddress(address: string): Promise<void>
 
-  createDummyPsbt(params: { txType: DummyTxType }): Promise<ToSignData>
 }
 
 const WalletContext = React.createContext<{

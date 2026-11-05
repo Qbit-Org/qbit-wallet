@@ -8,7 +8,7 @@ import {
   type QbitTxOutspendsClient,
   type QbitTxOutspendsOptions,
 } from '../src/utils/qbit-api'
-import { QBIT_BROADCAST_MIN_PASS_MS } from '../src/utils/qbit-broadcast'
+import { QBIT_BROADCAST_MIN_PASS_MS, qbitBroadcastMinPassMs } from '../src/utils/qbit-broadcast'
 import {
   QBIT_EXPLORER_FRESH_READ_PARAM,
   QbitExplorerOperation,
@@ -309,6 +309,47 @@ describe('assertNoExplorerSpendConflict for a fee bump', () => {
     await expect(
       checkBump(client, ORIGINAL, 1, { operation: new QbitExplorerOperation(tight) })
     ).rejects.toThrow(UNCHECKED)
+    expect(client.getTxOutspends).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("leaves a large transaction's submission the budget it is given, and refuses at once without room for it (#130)", async () => {
+    vi.useFakeTimers()
+    const client = explorer([unspent])
+    // The largest standard transaction's submission, its upload included.
+    const submissionMs = qbitBroadcastMinPassMs('ab'.repeat(400_000))
+    expect(submissionMs).toBeGreaterThan(60_000)
+    // 20 s past it: the check's own budget caps it.
+    await expect(
+      settled(
+        checkBump(client, ORIGINAL, 1, {
+          operation: new QbitExplorerOperation(submissionMs + 20_000),
+          submissionMs,
+        })
+      )
+    ).resolves.toBeUndefined()
+    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(ONE_WAVE_BUDGET_MS)
+    // 10 s past it: 9.75 s for the check, the rest for the submission.
+    client.getTxOutspends.mockClear()
+    await expect(
+      settled(
+        checkBump(client, ORIGINAL, 1, {
+          operation: new QbitExplorerOperation(submissionMs + 10_000),
+          submissionMs,
+        })
+      )
+    ).resolves.toBeUndefined()
+    expect(client.getTxOutspends.mock.calls[0]![1]!.deadlineMs).toBe(9_750)
+
+    // Room for the whole check and a small transaction's submission, but
+    // not this one's: refused before any read, rather than holding the
+    // send guard's queue for a pass that would then be refused.
+    client.getTxOutspends.mockClear()
+    const operation = new QbitExplorerOperation(submissionMs + 5_000)
+    expect(operation.remainingMs() - RESERVED_MS).toBeGreaterThan(ONE_WAVE_BUDGET_MS)
+    await expect(
+      checkBump(client, ORIGINAL, 1, { operation, submissionMs })
+    ).rejects.toBeInstanceOf(QbitExplorerSpendCheckTimeoutError)
     expect(client.getTxOutspends).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
   })

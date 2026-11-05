@@ -1,4 +1,4 @@
-import { bnUtils } from './bn'
+import { BigNumber } from 'bignumber.js'
 
 function formatAmount<T extends string | number>(val: T): T {
   if (!val) {
@@ -11,7 +11,7 @@ function formatAmount<T extends string | number>(val: T): T {
       stringValue = stringValue.slice(0, -1)
     }
 
-    const result = bnUtils.compareAmount(stringValue, '0')
+    const result = new BigNumber(stringValue).comparedTo('0')
     if (result && result <= 0) {
       throw new Error('Amount must be greater than 0')
     }

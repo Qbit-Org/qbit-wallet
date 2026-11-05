@@ -51,12 +51,9 @@ module.exports = {
       },
     },
     {
-      files: [
-        'apps/extension/scripts/http-client-headers.test.js',
-        'apps/extension/scripts/runtime-network-audit.test.js',
-      ],
+      files: ['apps/extension/scripts/runtime-network-audit.test.js'],
       rules: {
-        // These tests deliberately evaluate transformed, repository-owned modules in isolation.
+        // This test deliberately evaluates transformed, repository-owned modules in isolation.
         'no-new-func': 'off',
       },
     },

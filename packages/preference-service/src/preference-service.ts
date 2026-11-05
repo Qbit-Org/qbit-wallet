@@ -5,13 +5,11 @@
 import {
   Account,
   AddressFlagType,
-  QbitBalance,
   DEFAULT_LOCKTIME_ID,
   DEFAULT_THEME_MODE,
   ErrorCodes,
   THEME_MODES,
   ThemeMode,
-  TxHistoryItem,
   WalletError,
   normalizeAvailableChainType,
 } from '@qbit/wallet-shared'
@@ -23,9 +21,6 @@ import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents }
 const SUPPORTED_LOCALES = ['en', 'zh_TW', 'fr', 'es', 'ru', 'ja']
 const RESTORE_SAVE_ATTEMPTS = 3
 const RESTORE_SAVE_RETRY_DELAY_MS = 100
-// History is cached per account, and Receive selects a new account for each
-// new address, so only the most recently written entries are kept.
-const HISTORY_CACHE_ENTRY_LIMIT = 16
 
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -35,8 +30,6 @@ const defaultTemplate = {
   editingKeyringIndex: 0,
   editingAccount: undefined,
   externalLinkAck: false,
-  balanceMap: {},
-  historyMap: {},
   locale: 'auto',
   watchAddressPreference: {},
   walletSavedList: [],
@@ -52,8 +45,9 @@ const defaultTemplate = {
   skippedVersion: '',
   showSafeNotice: true,
   addressFlags: {},
-  enableSignData: false,
   autoLockTimeId: DEFAULT_LOCKTIME_ID,
+  lockOnComputerLock: true,
+  lockOnWindowsClosed: true,
   openInSidePanel: false,
   developerMode: false,
   themeMode: DEFAULT_THEME_MODE,
@@ -275,7 +269,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     // A persisted regtest selection is kept here: whether it may be used is an
     // asynchronous background capability (optional loopback permission +
     // acknowledgement + service identity) that the wallet controller checks
-    // at startup before any endpoint is initialized, falling back to mainnet.
+    // at startup before the wallet uses the chain, falling back to mainnet.
     this.store.chainType = normalizeAvailableChainType(this.store.chainType)
 
     if (typeof this.store.regtestAccessAck !== 'string') {
@@ -286,35 +280,30 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.externalLinkAck = false
     }
 
-    if (typeof this.store.enableSignData !== 'boolean') {
-      this.store.enableSignData = false
-    }
+    // Earlier builds stored whether signData requests were allowed. That
+    // setting is gone, and the store loads every stored key, so drop it here
+    // rather than save it again with each change.
+    Reflect.deleteProperty(this.store, 'enableSignData')
 
     if (typeof this.store.showSafeNotice !== 'boolean') {
       this.store.showSafeNotice = true
     }
 
-    if (!this.store.balanceMap) {
-      this.store.balanceMap = {}
+    // Preferences stored before these settings existed have neither, and they
+    // are on unless the user turned them off.
+    if (typeof this.store.lockOnComputerLock !== 'boolean') {
+      this.store.lockOnComputerLock = true
     }
 
-    if (!this.store.historyMap) {
-      this.store.historyMap = {}
+    if (typeof this.store.lockOnWindowsClosed !== 'boolean') {
+      this.store.lockOnWindowsClosed = true
     }
 
-    // Earlier builds kept one Qbit history for every account of a wallet
-    // under `qbit:<chain>:<first account's pubkey>`. History is now kept per
-    // account under `qbit-account:` keys and those entries are never read, so
-    // drop them instead of keeping them unread.
-    const walletWideHistoryKeys = Object.keys(this.store.historyMap).filter(key =>
-      key.startsWith('qbit:')
-    )
-    if (walletWideHistoryKeys.length > 0) {
-      const historyMap = { ...this.store.historyMap }
-      for (const key of walletWideHistoryKeys) {
-        delete historyMap[key]
-      }
-      this.store.historyMap = historyMap
+    // Earlier builds kept a balance and a history cache here that nothing read.
+    // Drop them too, so the history of a removed wallet does not stay in
+    // storage.
+    for (const key of ['balanceMap', 'historyMap']) {
+      Reflect.deleteProperty(this.store, key)
     }
 
     if (!this.store.walletSavedList) {
@@ -375,55 +364,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   getPopupOpen(): boolean {
     return this.popupOpen
-  }
-
-  /**
-   * Address balance management
-   */
-  updateAddressBalance(address: string, data: QbitBalance): void {
-    const balanceMap = this.store.balanceMap || {}
-    this.store.balanceMap = {
-      ...balanceMap,
-      [address]: data,
-    }
-  }
-
-  removeAddressBalance(address: string): void {
-    if (address in this.store.balanceMap) {
-      const map = { ...this.store.balanceMap }
-      delete map[address]
-      this.store.balanceMap = map
-    }
-  }
-
-  getAddressBalance(address: string): QbitBalance | null {
-    const balanceMap = this.store.balanceMap || {}
-    return balanceMap[address] || null
-  }
-
-  /**
-   * Address history management
-   */
-  updateAddressHistory(address: string, data: TxHistoryItem[]): void {
-    const { [address]: _replaced, ...others } = this.store.historyMap || {}
-    const kept = Object.entries(others).slice(-(HISTORY_CACHE_ENTRY_LIMIT - 1))
-    this.store.historyMap = {
-      ...Object.fromEntries(kept),
-      [address]: data,
-    }
-  }
-
-  removeAddressHistory(address: string): void {
-    if (address in this.store.historyMap) {
-      const map = { ...this.store.historyMap }
-      delete map[address]
-      this.store.historyMap = map
-    }
-  }
-
-  getAddressHistory(address: string): TxHistoryItem[] {
-    const historyMap = this.store.historyMap || {}
-    return historyMap[address] || []
   }
 
   /**
@@ -582,14 +522,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     this.store.showSafeNotice = showSafeNotice
   }
 
-  getEnableSignData(): boolean {
-    return this.store.enableSignData
-  }
-
-  setEnableSignData(enableSignData: boolean): Promise<void> {
-    return this.setAndPersist('enableSignData', enableSignData)
-  }
-
   /**
    * Version management
    */
@@ -645,6 +577,26 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   setAutoLockTimeId(id: number): Promise<void> {
     return this.setAndPersist('autoLockTimeId', id)
+  }
+
+  /**
+   * Lock when the computer locks, and when the last normal browser window
+   * closes (Extension-specific). Both are on unless the user turned them off.
+   */
+  getLockOnComputerLock(): boolean {
+    return this.store.lockOnComputerLock !== false
+  }
+
+  setLockOnComputerLock(enabled: boolean): Promise<void> {
+    return this.setAndPersist('lockOnComputerLock', enabled)
+  }
+
+  getLockOnWindowsClosed(): boolean {
+    return this.store.lockOnWindowsClosed !== false
+  }
+
+  setLockOnWindowsClosed(enabled: boolean): Promise<void> {
+    return this.setAndPersist('lockOnWindowsClosed', enabled)
   }
 
   /**

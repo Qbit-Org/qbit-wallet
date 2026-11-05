@@ -39,13 +39,9 @@ vi.mock('../src/services', () => ({
   preferenceService: {
     getChainType: vi.fn(() => ChainType.QBIT_TESTNET4),
     getCurrentAccount: vi.fn(),
-    getAddressHistory: vi.fn(),
-    updateAddressHistory: vi.fn(),
   },
-  walletApiService: { setClientAddress: vi.fn() },
   sessionService: {},
   contactBookService: {},
-  notificationService: {},
   permissionService: {},
   phishingDetectService: {},
   qbitSendGuardService: {},
@@ -239,14 +235,6 @@ describe('WalletController Qbit account history snapshots', () => {
     })
     expect(apiMocks.client.getAddressHistory).toHaveBeenCalledTimes(1)
     expect(apiMocks.client.getAddressHistory).toHaveBeenCalledWith(firstAddress, expect.anything())
-    expect(preferenceService.updateAddressHistory).toHaveBeenCalledWith(
-      firstPage.scopeKey,
-      [
-        expect.objectContaining({ txid: '33'.repeat(32) }),
-        expect.objectContaining({ txid: '22'.repeat(32) }),
-        expect.objectContaining({ txid: '11'.repeat(32) }),
-      ]
-    )
   })
 
   it("leaves another account's transactions out of the selected account's history", async () => {
@@ -373,14 +361,10 @@ describe('WalletController Qbit account history snapshots', () => {
     await expect(
       controller.getAddressHistory({ address: secondAddress, start: 0, limit: 20 })
     ).rejects.toThrow('Requested Qbit history address is not the selected account')
-    await expect(controller.getAddressCacheHistory(secondAddress)).rejects.toThrow(
-      'Requested Qbit history address is not the selected account'
-    )
 
     expect(apiMocks.client.getTipHash).not.toHaveBeenCalled()
     expect(apiMocks.client.getAddressStats).not.toHaveBeenCalled()
     expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-    expect(preferenceService.getAddressHistory).not.toHaveBeenCalled()
   })
 
   it('ends a refresh whose account changes during the revision probe without a full scan', async () => {
@@ -396,7 +380,6 @@ describe('WalletController Qbit account history snapshots', () => {
       limit: 20,
     })
     apiMocks.client.getAddressHistory.mockClear()
-    vi.mocked(preferenceService.updateAddressHistory).mockClear()
     apiMocks.client.getAddressTxs.mockImplementation(async () => {
       selectedAccount = keyring.accounts[1]!
       return [tx]
@@ -411,7 +394,6 @@ describe('WalletController Qbit account history snapshots', () => {
       })
     ).rejects.toThrow('Qbit history account or network changed while loading')
     expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
   })
 
   it('falls back to a full scan when the revision probe fails', async () => {
@@ -454,7 +436,6 @@ describe('WalletController Qbit account history snapshots', () => {
       limit: 20,
     })
     apiMocks.client.getAddressHistory.mockClear()
-    vi.mocked(preferenceService.updateAddressHistory).mockClear()
     apiMocks.client.getTipHash.mockImplementationOnce(async () => {
       selectedAccount = keyring.accounts[1]!
       throw new Error('explorer unavailable')
@@ -469,7 +450,6 @@ describe('WalletController Qbit account history snapshots', () => {
       })
     ).rejects.toThrow('Qbit history account or network changed while loading')
     expect(apiMocks.client.getAddressHistory).not.toHaveBeenCalled()
-    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
   })
 
   it('drops a read that finishes after the selected account changes', async () => {
@@ -503,30 +483,6 @@ describe('WalletController Qbit account history snapshots', () => {
     await expect(settled).resolves.toMatchObject({
       message: 'Qbit history account or network changed while loading',
     })
-    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
-  })
-
-  it('never reads history cached under the earlier wallet-wide key as an account history', async () => {
-    const combinedRows = [
-      { txid: '66'.repeat(32), direction: 'self' },
-      { txid: '67'.repeat(32), direction: 'self' },
-    ] as any
-    const persisted = new Map<string, ReturnType<typeof preferenceService.getAddressHistory>>([
-      [`qbit:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`, combinedRows],
-    ])
-    vi.mocked(preferenceService.getAddressHistory).mockImplementation(
-      key => persisted.get(key) ?? []
-    )
-
-    await expect(controller.getAddressCacheHistory(firstAddress)).resolves.toEqual([])
-    selectedAccount = keyring.accounts[1]!
-    await expect(controller.getAddressCacheHistory(secondAddress)).resolves.toEqual([])
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(
-      `qbit-account:${ChainType.QBIT_TESTNET4}:${'11'.repeat(32)}`
-    )
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(
-      `qbit-account:${ChainType.QBIT_TESTNET4}:${'22'.repeat(32)}`
-    )
   })
 
   it('rejects later pages without a pinned snapshot instead of rescanning the account', async () => {
@@ -541,7 +497,7 @@ describe('WalletController Qbit account history snapshots', () => {
     expect(apiMocks.client.getAddressStats).not.toHaveBeenCalled()
   })
 
-  it('persists only a fixed first-page cache while retaining the complete snapshot', async () => {
+  it('pages the complete snapshot past the first page', async () => {
     const transactions = Array.from({ length: 21 }, (_, index) =>
       historyTx((index + 1).toString(16).padStart(64, '0'), 30 - index, [firstAddress])
     )
@@ -577,65 +533,6 @@ describe('WalletController Qbit account history snapshots', () => {
       total: 21,
       detail: [{ txid: transactions[20]!.txid }],
     })
-    expect(preferenceService.updateAddressHistory).toHaveBeenCalledTimes(1)
-    const [persistedScopeKey, persistedHistory] = vi.mocked(
-      preferenceService.updateAddressHistory
-    ).mock.calls[0]!
-    expect(persistedScopeKey).toBe(firstPage.scopeKey)
-    expect(persistedHistory.map(item => item.txid)).toEqual(
-      transactions.slice(0, 20).map(transaction => transaction.txid)
-    )
-  })
-
-  it('reads persisted Qbit history with the same account scope key used for writes', async () => {
-    const tx = historyTx('41'.repeat(32), 9, [firstAddress])
-    const persistedHistory = new Map<
-      string,
-      ReturnType<typeof preferenceService.getAddressHistory>
-    >()
-    vi.mocked(preferenceService.updateAddressHistory).mockImplementation((key, history) => {
-      persistedHistory.set(key, history)
-    })
-    vi.mocked(preferenceService.getAddressHistory).mockImplementation(
-      key => persistedHistory.get(key) ?? []
-    )
-    apiMocks.client.getAddressStats.mockImplementation(async address =>
-      stats(address, address === firstAddress ? 1 : 0)
-    )
-    apiMocks.client.getAddressHistory.mockImplementation(async address => ({
-      confirmed: address === firstAddress ? [tx] : [],
-      mempool: [],
-    }))
-    apiMocks.client.getAddressTxs.mockImplementation(async address =>
-      address === firstAddress ? [tx] : []
-    )
-
-    const page = await controller.getAddressHistory({
-      address: firstAddress,
-      start: 0,
-      limit: 20,
-    })
-    const cachedHistory = await controller.getAddressCacheHistory(firstAddress)
-    selectedAccount = keyring.accounts[1]!
-    const otherAccountHistory = await controller.getAddressCacheHistory(secondAddress)
-
-    expect(preferenceService.updateAddressHistory).toHaveBeenCalledWith(page.scopeKey, page.detail)
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(page.scopeKey)
-    expect(cachedHistory).toEqual(page.detail)
-    expect(otherAccountHistory).toEqual([])
-  })
-
-  it('keeps non-Qbit cache reads address-keyed and skips storage for an empty address', async () => {
-    const cachedAddress = 'address-keyed-entry'
-    const cachedHistory = [{ txid: 'cached' }] as any
-    vi.mocked(preferenceService.getChainType).mockReturnValue('UNKNOWN_CHAIN' as ChainType)
-    vi.mocked(preferenceService.getAddressHistory).mockReturnValueOnce(cachedHistory)
-
-    await expect(controller.getAddressCacheHistory(cachedAddress)).resolves.toBe(cachedHistory)
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledWith(cachedAddress)
-
-    await expect(controller.getAddressCacheHistory(undefined)).resolves.toEqual([])
-    expect(preferenceService.getAddressHistory).toHaveBeenCalledTimes(1)
   })
 
   it('reuses an unchanged recent revision under a new immutable snapshot identity', async () => {
@@ -688,13 +585,6 @@ describe('WalletController Qbit account history snapshots', () => {
         { txid: older.txid, confirmations: 5 },
       ],
     })
-    expect(vi.mocked(preferenceService.updateAddressHistory)).toHaveBeenLastCalledWith(
-      firstPage.scopeKey,
-      [
-        expect.objectContaining({ txid: tx.txid, confirmations: 5 }),
-        expect.objectContaining({ txid: older.txid, confirmations: 6 }),
-      ]
-    )
   })
 
   it('falls back to a full scan when public address stats change', async () => {
