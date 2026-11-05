@@ -853,6 +853,27 @@ describe('QbitRecoveryMigrationScreen', () => {
       expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1);
     });
 
+    it('shows the migration message when a confirmed plan cannot sign because its challenge is gone', async () => {
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as any);
+      reviewOf(3);
+      // Plan 1 was confirmed, and its challenge expired before it signed;
+      // the keyring refuses it at signing instead.
+      wallet.signPsbtV2.mockResolvedValueOnce({ psbtHex: 'signed' }).mockRejectedValueOnce({
+        code: 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED',
+        message: 'qbit_recovery_migration_signing_only'
+      });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('qbit_recovery_review_interrupted'));
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+      expect(wallet.confirmQbitRestoredFloorSigning).toHaveBeenCalledTimes(2);
+      expect(wallet.signPsbtV2).toHaveBeenCalledTimes(2);
+      expect(toastError).not.toHaveBeenCalledWith('qbit_recovery_error_body');
+    });
+
     it('keeps the generic message for any other signing failure', async () => {
       const toastError = vi.fn();
       vi.mocked(useTools).mockReturnValue({ toastError } as any);
