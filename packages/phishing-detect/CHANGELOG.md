@@ -1,5 +1,19 @@
 # @qbit/phishing-detect
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+  - @qbit/wallet-shared@3.0.0
+
 ## 0.4.1
 
 ### Patch Changes

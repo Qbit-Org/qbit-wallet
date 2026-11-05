@@ -1,5 +1,19 @@
 # @qbit/wallet-core
 
+## 1.1.7
+
+### Patch Changes
+
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+  - @qbit/wallet-shared@3.0.0
+
 ## 1.1.6
 
 ### Patch Changes

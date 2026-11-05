@@ -1,5 +1,48 @@
 # @qbit/wallet-state
 
+## 7.0.0
+
+### Major Changes
+
+- de81656: Remove the notification and announcement state, which only ever held empty lists. `useNotificationsLogic`, `useUnreadNotificationsCount` (and the 3-second poll behind it), `useAnnouncementCardLogic`, `StorageContext`, `useStorage`, `createStorageProvider` and the `StorageContextType` type are no longer exported. The `WalletController` interface drops `openapi`, `getBlockActiveInfo`, `getAnnouncements`, `getNotifications`, `readNotification`, `readAllNotifications`, `deleteNotification` and `getNotificationUnreadCount`, and `RouteTypes` drops `NotificationListScreen`. The settings state's `walletConfig` no longer has `moonPayEnabled` or `endpoint`.
+- de81656: Remove the signData and deriveContextHash approval screens, the developer-mode setting that allowed signData requests, and the background methods behind them. No provider method opened either screen. Breaking change: `WalletController` no longer has `getEnableSignData`, `setEnableSignData` or `deriveContextHash`, and `UI_CONTROLLER_METHODS` no longer lists the first two, so `getUiControllerMethod` refuses them. `PreferenceService` no longer has `getEnableSignData` or `setEnableSignData`, and `BasePreferenceStore` no longer has `enableSignData`. A stored `enableSignData` value is dropped when the preferences load and is not saved again. In `@qbit/wallet-state`, the `WalletController` interface no longer declares `getEnableSignData` or `setEnableSignData`.
+- de81656: Remove the `useModelPopover` hook, the `accountActions.setModelPopover` action and the `molelsPopover` field of the accounts state, so `AppState['accounts']` no longer has it. Nothing called the hook or dispatched the action. Only the `ui` slice is persisted, so stored state is unaffected. The internal `getAddressUtxoDust` helper, which had no callers, is removed too.
+
+### Minor Changes
+
+- de81656: `useSignPsbtLogic` signs each entry of a local batch, quick-signed or reviewed on its own, as a member of the batch the wallet opened for the reviewed approval, and returns `signatureBatchBudget`, the whole batch's signature budget, for the approval to show in place of each entry's own before and after figures, which depend on the signing order (#152).
+
+### Patch Changes
+
+- de81656: Drop the code paths for a chain that is not a Qbit chain. Every chain the wallet can select is a Qbit chain, and `normalizeChainType` now accepts only a string that `CHAINS_MAP` defines as its own key. A stored or requested chain that names a property every object inherits, such as `constructor`, `__proto__` or `toString`, and a value that is not a string but converts to a chain name, such as an array (`['QBIT_REGTEST']`) or a String object, now normalize to Qbit Mainnet like any other unknown value, through `normalizeChainType` and `normalizeAvailableChainType` alike, instead of passing through as a chain. `PreferenceService` therefore loads such a stored chain as Qbit Mainnet, so a stored `['QBIT_REGTEST']` can no longer select the local regtest endpoint at startup without the background's regtest check.
+
+  Breaking change in `@qbit/wallet-shared`: `COIN_DUST` is removed. The send screen's dust limit is `QBIT_P2MR_DUST`.
+
+  In `@qbit/wallet-background`, the `WalletController` methods that refused a chain that is not a Qbit chain no longer check for one: the history, raw transaction and lifecycle reads, the restore floor scan, recovery migration, receive and consolidation. The checks of a chain that a request names, in send claims, broadcast identities, external signing locks and fee bumps, stay. `restoreQbitKeyringWithFloors` refuses an address type other than P2MR, `getQbitConsolidationStatus` refuses an account without a P2MR script, and `getAddressCacheHistory` always reads the account's own history (`[]` for an empty address). `signPsbtV2` always checks a PSBT's inputs against the send guards before it signs. `createKeyringWithColdWallet` and `deriveAccountsFromXpub` refuse with `hardware_wallet_not_supported` without reading their arguments, as they already did on every Qbit chain (#53); a stored cold-wallet keyring still loads. `wallet-background` no longer imports `bitcore-lib`.
+
+  In `@qbit/wallet-state`, `useTxCreateScreenLogic` always applies `QBIT_P2MR_DUST` and the relay fee floor, and treats an account with a P2MR script as a P2MR send; `useFeeRateBarLogic` always keeps a typed rate above `QBIT_MAX_FEE_RATE` for the send screen to refuse.
+
+- de81656: Adding or editing a contact no longer clears its alias flag or silently replaces another contact. `updateContact`, `addContact` and `replaceContact` now take `isAlias` as optional: left unset, the stored entry keeps the alias flag of the entry already under the contact's address and chain, and a contact stored at an address with no entry gets `false`. A caller that sets `isAlias` still decides it. `addContact` is no longer the same as `updateContact`: it rejects with `ContactAlreadyExistsError` (`code` `CONTACT_ALREADY_EXISTS`) and changes nothing when a contact is already stored under the address and chain. `replaceContact` rejects the same way when another contact is stored under the new address and chain. Both check the store at the time of the write, so a screen that loaded before that contact was added cannot overwrite it. Address matching is exact, as in the stored key. Adding at an alias-only entry, editing a contact under its own address and chain, and moving it onto an alias-only entry all still save. `updateContact` still writes over the entry under its key. The wallet controller's `addContact` is now open to the wallet's own pages. The add and edit screen (`useEditContactScreenLogic`) no longer sends `isAlias`. It adds with `addContact`, moves with `replaceContact` and saves in place with `updateContact`. Before an add or a move, it checks the address, and in that case or when the contact book refuses, it shows "Another contact already has this address on this network" instead of saving. The message clears when the address changes.
+- de81656: `useCreateAccountCallback` and `useRestoreQbitWalletCallback` mark the wallet unlocked only if the background still reports it unlocked once the create or restore returns, so a lock that came in meanwhile is not overwritten and the wallet is not shown unlocked over a locked background.
+- de81656: `useSecurityCardLogic` backs the two new Security switches, "Lock when the computer locks" and "Lock when all windows close": it reads both settings, saves one change at a time, and keeps a switch as it was when its change is not saved, with the same error messages as the other security settings. The `WalletController` interface gains the four lock-setting methods.
+- de81656: Remove the `useInfiniteList` hook (`src/ui-hooks/useInfiniteList.ts`), a source file nothing imported. The package's entry points (`.` and `./types`) never reached it, so what the package exports is unchanged.
+- de81656: Fill every field that a saved `ui` state lacks when the wallet loads it. The `updateVersion` handler now gives the state saved by an earlier build each field of the current initial state that it is missing, at every depth, and keeps the values it saved. Before, a saved state without `addressInput` or `amountInput` made `updateAddressInput` or `updateAmountInput` throw, and a fee bar or send screen missing some fields stayed incomplete. Releases 1.0.5 to 1.0.7 start every new state with both fields, but kept a state that an earlier build saved without them as it was. A field that should hold an object but holds something else is replaced with its initial value, and a saved state that is not an object loads as the initial state.
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+  - @qbit/keyring-service@2.0.0
+  - @qbit/wallet-shared@3.0.0
+
 ## 6.0.0
 
 ### Major Changes

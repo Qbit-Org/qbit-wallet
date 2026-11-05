@@ -1,5 +1,34 @@
 # @qbit/wallet-shared
 
+## 3.0.0
+
+### Major Changes
+
+- de81656: Add `QbitSignatureBatchEntry` (`id`, `index` and the whole batch's `budget`) for the entries of a batch of PSBTs approved together (#152). `ToSignData.qbitSignatureBatch` replaces `qbitApprovedBatchDuplicate`, and `LocalPsbtSummary.signatureBatch` carries a local batch's id and budget.
+- de81656: Chrome MV3 is the only build target, so nothing reads the manifest version any more. Breaking change: `PlatformEnv` in `@qbit/wallet-shared` no longer has `MANIFEST_VERSION`; code that reads or sets it must drop it.
+
+  `@qbit/wallet-background`'s phishing controller uses DNR whenever `chrome.declarativeNetRequest` exists, without checking the manifest version. In a browser without that API the content script stays the only layer and the network rule health still reads `unsupported`. The package's unused, unexported copy of the extension's browser API wrappers (`src/webapi/browser.ts`) is removed.
+
+- de81656: Remove the announcement and notification types and the `ui_openapi` message type, which nothing sends any more. `Announcement`, `AnnouncementLinkType`, `NotificationListItem` and `StoredNotification` are no longer exported, `MESSAGE_TYPE.UI_OPENAPI` is gone, and `WalletConfig` no longer has `moonPayEnabled` or `endpoint`.
+- de81656: Drop the code paths for a chain that is not a Qbit chain. Every chain the wallet can select is a Qbit chain, and `normalizeChainType` now accepts only a string that `CHAINS_MAP` defines as its own key. A stored or requested chain that names a property every object inherits, such as `constructor`, `__proto__` or `toString`, and a value that is not a string but converts to a chain name, such as an array (`['QBIT_REGTEST']`) or a String object, now normalize to Qbit Mainnet like any other unknown value, through `normalizeChainType` and `normalizeAvailableChainType` alike, instead of passing through as a chain. `PreferenceService` therefore loads such a stored chain as Qbit Mainnet, so a stored `['QBIT_REGTEST']` can no longer select the local regtest endpoint at startup without the background's regtest check.
+
+  Breaking change in `@qbit/wallet-shared`: `COIN_DUST` is removed. The send screen's dust limit is `QBIT_P2MR_DUST`.
+
+  In `@qbit/wallet-background`, the `WalletController` methods that refused a chain that is not a Qbit chain no longer check for one: the history, raw transaction and lifecycle reads, the restore floor scan, recovery migration, receive and consolidation. The checks of a chain that a request names, in send claims, broadcast identities, external signing locks and fee bumps, stay. `restoreQbitKeyringWithFloors` refuses an address type other than P2MR, `getQbitConsolidationStatus` refuses an account without a P2MR script, and `getAddressCacheHistory` always reads the account's own history (`[]` for an empty address). `signPsbtV2` always checks a PSBT's inputs against the send guards before it signs. `createKeyringWithColdWallet` and `deriveAccountsFromXpub` refuse with `hardware_wallet_not_supported` without reading their arguments, as they already did on every Qbit chain (#53); a stored cold-wallet keyring still loads. `wallet-background` no longer imports `bitcore-lib`.
+
+  In `@qbit/wallet-state`, `useTxCreateScreenLogic` always applies `QBIT_P2MR_DUST` and the relay fee floor, and treats an account with a P2MR script as a P2MR send; `useFeeRateBarLogic` always keeps a typed rate above `QBIT_MAX_FEE_RATE` for the send screen to refuse.
+
+- de81656: Remove the constants `GAS_LEVEL_TEXT`, `MINIMUM_GAS_LIMIT`, `WALLETCONNECT_STATUS_MAP` and `KEYRING_CLASS` from the package root. Nothing in this repository used them; code that imports them must define its own values.
+
+### Minor Changes
+
+- de81656: Add `ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED` (-17), message key `qbit_recovery_review_interrupted`: a recovery migration plan named the signature batch of a review that ended, was replaced, or was closed by a lock, and nothing of it was signed (#156).
+
+### Patch Changes
+
+- de81656: Describe what `ErrorCodes.UNSUPPORTED_NETWORK` (4901) is used for: a provider request on a chain the wallet does not serve. Its value and message are unchanged.
+- de81656: Add `ErrorCodes.WALLET_LOCKED_DURING_UNLOCK` (-16), with the message key `wallet_locked_during_unlock`, for an unlock that ended locked because the wallet locked while it waited or ran.
+
 ## 2.0.1
 
 ### Patch Changes
