@@ -79,13 +79,6 @@ const UNKNOWN_LICENSE_EVIDENCE = new Map([
     },
   ],
   [
-    'react-cache@2.0.0-alpha.1',
-    {
-      disposition: 'MIT license text verified in LICENSE',
-      sha256: '52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85',
-    },
-  ],
-  [
     'spawndamnit@3.0.1',
     {
       disposition: 'MIT license text verified in LICENSE',

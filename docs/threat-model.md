@@ -152,9 +152,20 @@ Residual risk:
 
 - Existing weak-format vaults remain exposed to offline guessing until their
   first successful unlock completes the migration. The current passworder
-  decrypts that earlier format. The earlier package remains installed but
-  unused pending explicit approval to remove the dependency; a source guard
-  forbids reintroducing its production import.
+  decrypts that earlier format. The earlier package that wrote it is no
+  longer installed. Re-adding it would fail the license-baseline gate until
+  its license is reviewed. The signing-source guard reads only git-tracked
+  `.ts`, `.tsx`, `.js` and `.mjs` files under `packages/keyring-service/src/`,
+  `packages/wallet-background/src/`, `packages/wallet-core/src/` and
+  `apps/extension/src/background/`, and in them rejects only the bare name
+  `browser-passworder`, in single or double quotes, directly after `from` and
+  whitespace or directly after `require(`. Everything else passes it,
+  including side-effect, dynamic and subpath imports, backtick-quoted
+  `require` calls, other spacing, untracked files, other file types such as
+  `.cjs`, `.mts`, `.cts` and `.jsx`, and tracked paths that `git ls-files`
+  quotes, such as non-ASCII names. The migration tests build earlier-format
+  fields with the current library and check them against one that the earlier
+  package wrote.
 - JavaScript garbage collection prevents a general proof that every immutable
   string copy is erased. The design minimizes lifetime and forbids logging but
   relies on the browser process boundary.
