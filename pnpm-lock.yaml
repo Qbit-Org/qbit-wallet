@@ -56,7 +56,7 @@ overrides:
   websocket-driver: 0.7.5
 
 patchedDependencies:
-  bitcoinjs-lib@6.1.6: e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6
+  bitcoinjs-lib@6.1.8: e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6
   bitcore-lib@10.0.0: b74a113492c20fd4a2454ba6e1c4a024b6bd564e5b0ba0f96fd3d35248786596
   tiny-secp256k1@2.2.3: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 
@@ -89,8 +89,8 @@ importers:
         specifier: ^6.0.0
         version: 6.7.0(eslint@8.50.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.2.2)
       bitcoinjs-lib:
-        specifier: ^6.1.6
-        version: 6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)
+        specifier: ^6.1.8
+        version: 6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)
       eslint:
         specifier: ^8.0.0
         version: 8.50.0(supports-color@7.2.0)
@@ -696,8 +696,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       bitcoinjs-lib:
-        specifier: ^6.1.5
-        version: 6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)
+        specifier: ^6.1.8
+        version: 6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)
       bitcore-lib:
         specifier: ^10.0.0
         version: 10.0.0(patch_hash=b74a113492c20fd4a2454ba6e1c4a024b6bd564e5b0ba0f96fd3d35248786596)
@@ -1049,8 +1049,8 @@ importers:
         specifier: workspace:*
         version: link:../wallet-types
       bitcoinjs-lib:
-        specifier: ^6.1.5
-        version: 6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)
+        specifier: ^6.1.8
+        version: 6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)
       ecpair:
         specifier: ^2.1.0
         version: 2.1.0
@@ -4509,8 +4509,8 @@ packages:
   bip39@3.1.0:
     resolution: {integrity: sha512-c9kiwdk45Do5GL0vJMe7tS95VjCii65mYAH7DfWl3uW8AVzXKQVUm64i3hzVybBDMp9r7j9iNxR85+ul8MdN/A==}
 
-  bitcoinjs-lib@6.1.6:
-    resolution: {integrity: sha512-Fk8+Vc+e2rMoDU5gXkW9tD+313rhkm5h6N9HfZxXvYU9LedttVvmXKTgd9k5rsQJjkSfsv6XRM8uhJv94SrvcA==}
+  bitcoinjs-lib@6.1.8:
+    resolution: {integrity: sha512-A6o+yq7BvwlmLj4F0NC5f3XX109rRe5evxi368S9zil5voOtUfiqfiMCzZYKHk4k7iIJ3+NmcQW05Ar4CBlKyg==}
     engines: {node: '>=8.0.0'}
 
   bitcore-lib@10.0.0:
@@ -15184,7 +15184,7 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.8.0
 
-  bitcoinjs-lib@6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6):
+  bitcoinjs-lib@6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6):
     dependencies:
       '@noble/hashes': 1.8.0
       bech32: 2.0.0

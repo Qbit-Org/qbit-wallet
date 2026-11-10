@@ -180,7 +180,7 @@ test('first-party text contains only reviewed external, legal, protocol, and saf
 
 test('tracked filenames contain only the external patch name and a reviewed lexical overlap', () => {
   const allowed = new Map([
-    ['patches/bitcoinjs-lib@6.1.6.patch', 'external dependency patch'],
+    ['patches/bitcoinjs-lib@6.1.8.patch', 'external dependency patch'],
     ['.changeset/calm-qbits-prune.md', 'the letters “rune” occur inside “prune”'],
   ])
   const violations = trackedFiles()
