@@ -89,7 +89,20 @@ fix(keyring-service): reject an empty password on unlock
 docs: explain the regtest funding script
 ```
 
-`main` keeps a linear history, and pull requests are squash-merged.
+Every commit on `main` and `release/*` must carry a verified signature, and
+pull requests merge with a merge commit: squash and rebase merges are off. You
+don't need to sign your own commits. When a pull request is ready, a
+maintainer squashes it into one commit, signs it and merges it. That commit's
+message is the pull request's title and description, so write the title in
+the same style. If you open the pull request from your own copy of the
+repository, leave "Allow edits by maintainers" on, so the maintainer can push
+the signed commit to your branch. Without it, a maintainer opens the same
+change from a branch in this repository.
+
+A release pull request, from `release/x.y.z` into `main`, and a back-merge,
+from `main` into a release branch, are the exceptions. They merge as they
+are, with a merge commit, and every commit in them must already carry a
+verified signature.
 
 ### Changesets
 
@@ -138,8 +151,12 @@ pnpm test:security-tooling
 - Repository and organization administrators can bypass these rules. This is
   tracked as AR-03 in
   [`docs/security/accepted-risks.md`](docs/security/accepted-risks.md).
-- Release branches (`release/*`) have no ruleset. Their changes reach `main`
-  through a pull request that the `main` rules apply to.
+- A second ruleset requires a verified signature on every commit of `main`
+  and `release/*`, and it has no bypass list.
+- Release branches (`release/*`) have that signature rule and no other. Their
+  changes reach `main` through a pull request that the `main` rules apply to.
+- The rulesets are in [`.github/rulesets/`](.github/rulesets/), with how to
+  apply them and check them against GitHub.
 - Changes to keys, PQC, protocol, or signing code must fill in the
   counter-safety section of the pull request template.
 - New dependencies need a clear reason. We keep the dependency set small and
