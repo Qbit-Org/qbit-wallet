@@ -1,12 +1,13 @@
 # Dependency security and license review
 
-Review date: 2026-11-05 (advisory refresh of the 2026-09-02 review; evidence
+Review date: 2026-11-10 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
 2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
-the extension and keyring-service, and twice more on 2026-11-05, after the
+the extension and keyring-service, twice more on 2026-11-05, after the
 `@qbit/wallet-api` and `@qbit/notification-service` workspaces and then `antd`
-were removed)
+were removed, and on 2026-11-10 after `bitcoinjs-lib` moved to 6.1.8 for the
+critical `GHSA-8vv3-6qpc-gpw6`)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -24,14 +25,14 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `a941b06e311fb10a263b9f6836a777833b090249` |
+| Audited commit | `41ce38b884f4bc8b3a0e9d9de18ac68de4a2c6ff` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `7419a875589eebcb1bf6b200bee633d9f0c51410d0c490da84f500a34c0fe02e` |
+| `pnpm-lock.yaml` SHA-256 | `d8b1406274a8a86d953e675faad52e615937df69fd736c92f61c85322f45e2e3` |
 | [Raw audit output](./dependency-audit.json) SHA-256 | `a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `09129f12020b794970410b6c69aa4b2733e69c8063b39a3f255d029aba45d080` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `67af7f874e3b3fd8f6201e684d3b06106cd6efda2f13cc7639de01d0be367910` |
 | Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
@@ -95,8 +96,14 @@ left the result at 43 occurrences: 0 critical, 0 high, 33 moderate,
 and 10 low. Removing `antd`, which no screen rendered any more and through which
 `moment@2.30.1` had stayed in the lockfile after #140 removed its declaration,
 then cleared the moderate `moment`
-record `GHSA-4p3w-j4w9-5jqw` and reduced the current result to 42 occurrences:
-0 critical, 0 high, 32 moderate, and 10 low.
+record `GHSA-4p3w-j4w9-5jqw` and reduced the result to 42 occurrences:
+0 critical, 0 high, 32 moderate, and 10 low. With the lockfile unchanged, the
+critical `bitcoinjs-lib` record `GHSA-8vv3-6qpc-gpw6`, published on
+2026-11-10, raised the live result at `de81656` on `release/1.0.9` to 43
+occurrences: 1 critical, 0 high, 32 moderate, and 10 low, and the
+dependency-policy job failed on every pull request. Moving `bitcoinjs-lib` to
+6.1.8, the first patched 6.x release, cleared it and returned the current
+result to the same 42 records: 0 critical, 0 high, 32 moderate, and 10 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -122,7 +129,9 @@ record `GHSA-4p3w-j4w9-5jqw` and reduced the current result to 42 occurrences:
 | Audited result `eae9633` (2026-11-03, pnpm 11.28.9; one occurrence per advisory record) | 0 | 0 | 34 | 10 | 44 |
 | Audited result `68e6a41` (2026-11-05, `release/1.0.8` at #140 merged) | 0 | 0 | 33 | 10 | 43 |
 | Audited result `802dc03` (2026-11-05, `wallet-api` and `notification-service` removed) | 0 | 0 | 33 | 10 | 43 |
-| Current audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
+| Audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
+| Advisory-feed drift at unchanged-lock `release/1.0.9` `de81656` | 1 | 0 | 32 | 10 | 43 |
+| Current audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records; neither counts independent vulnerabilities. The final
@@ -325,7 +334,7 @@ and protocol dependencies with the greatest impact:
 | `@qbit-oss/pqc` 0.1.1 (npm) | PQC keys, signatures, counters, and WASM | Exact version, registry integrity, provenance (`Qbit-Org/qbit-pqc` `v0.1.1`, compared with the registry attestation), WASM and qbit Core fixture digests pinned; golden and qbit Core vectors, pin check, and extension import smoke are required here; package tests, MV3 smoke and reproducible rebuild run upstream |
 | `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.1`, compared with the registry attestation) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
 | `@noble/curves` 1.4.2/1.7.0; `@noble/hashes` 1.4.0/1.6.0/1.8.0 | Curve and hash primitives | Retain exact closure and conformance evidence |
-| `bitcoinjs-lib@6.1.6`; `tiny-secp256k1@2.2.3` | PSBT and classical signing | Wallet tests bind displayed and signed transaction bytes |
+| `bitcoinjs-lib@6.1.8`; `tiny-secp256k1@2.2.3` | PSBT and classical signing | Wallet tests bind displayed and signed transaction bytes; 6.1.8 fixes the critical `GHSA-8vv3-6qpc-gpw6` in `Block.checkTxRoots()`, which the wallet never calls, and keeps 6.1.6's `psbt.js` byte for byte, so the workspace patch applies unchanged |
 | `bitcore-lib@10.0.0`; `hdkey@2.1.0`; `bip39@3.1.0` | HD derivation, extended-key parsing, and mnemonics | Derivation/recovery tests required; no signing through transitive `elliptic` |
 | `@metamask/browser-passworder@6.0.0` | Vault encryption and legacy migration | Exact direct pin; new writes carry 900,000-round PBKDF2 metadata and AES-256-GCM; migration tests fail closed on storage error |
 | `browser-passworder@2.0.3` | Obsolete direct dependency | Source guard forbids import; retained pending explicit removal approval |
@@ -373,6 +382,10 @@ the two evidence files and this review as they are in its parent. The
 2026-11-03 removal of `antd`, `antd-dayjs-webpack-plugin` and
 `babel-plugin-import` was rebased and committed the same way, as `a941b06e`,
 which is not in this PR's history either.
+
+The 2026-11-10 move of `bitcoinjs-lib` to 6.1.8 is commit `41ce38b8`, and
+it is in this change's history: the regenerated evidence and this review
+follow in the next commit, whose parent it is.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -436,6 +449,7 @@ which is not in this PR's history either.
 | `eae96336` | Move from pnpm 8.6.0 to pnpm 11.28.9 with a hashed pin, convert the lockfile to v9, and read pnpm 11's settings, lockfile and audit paths in the policy and evidence tooling | Kept every resolved version and integrity; removed four auto-installed peers pnpm 8 never installed; zero critical/high findings with no exception in force |
 | `802dc03c` | Remove the unused `@qbit/wallet-api` and `@qbit/notification-service` workspaces | Dropped 2 workspaces, 20 direct declarations and the `@types/randomstring@1.3.0` license identity; the live audit stayed at zero critical/high findings |
 | `a941b06e` | Remove `antd`, which no screen rendered any more, and its `antd-dayjs-webpack-plugin` and `babel-plugin-import` build plugins | Cleared the moderate `moment` record `GHSA-4p3w-j4w9-5jqw`, which only `antd` still reached, and dropped 56 lock entries and their license identities, `moment@2.30.1` among them; the live audit stayed at zero critical/high findings |
+| `41ce38b8` | Move `bitcoinjs-lib` to 6.1.8, the first patched 6.x release for the critical `GHSA-8vv3-6qpc-gpw6`, and review its license identity | Restored zero critical/high findings on the 2026-11-10 live audit with no exception in force; only `bitcoinjs-lib` moved in the lockfile, and its `psbt.js` and the workspace patch are unchanged |
 
 ## Lint and dependency policy jobs
 
@@ -545,7 +559,10 @@ leaving 2,136. Removing `antd`, `antd-dayjs-webpack-plugin` and
 `babel-plugin-import` dropped the 56 identities, all MIT, that only they
 brought in, among them `antd@4.20.4`, `moment@2.30.1`, `dayjs@1.11.18`,
 `date-fns@2.30.0` and 34 `rc-*` component identities, and onboarded none,
-leaving 2,080.
+leaving 2,080. The 2026-11-10 refresh onboarded `bitcoinjs-lib@6.1.8` through
+the pending-review flow, verified MIT against its installed manifest and its
+license file, which is byte-identical to 6.1.6's, and dropped the superseded
+`bitcoinjs-lib@6.1.6`, leaving 2,080.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
@@ -583,25 +600,29 @@ same way, and none was rerun at the audited commits. The final tree has
 `a941b06e`'s lockfile and manifests and the follow-up fix that makes
 `getVersionDetail` ignore inherited names. The evidence they ran with matches
 the committed evidence in every record; at most the audited commit, the order
-of pnpm's raw audit lists and the hashes that depend on them differ.
+of pnpm's raw audit lists and the hashes that depend on them differ. The
+2026-11-10 `bitcoinjs-lib` move ran its unit tests, lint, typecheck and builds
+on the tree of its audited commit `41ce38b8`, apart from a later rewording of
+its changeset, which none of them reads, and its live policy and security
+suites with the evidence regenerated there.
 Environment-dependent release integration not run locally is identified below
 and remains subject to the PR's branch CI:
 
-| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 refresh result | 2026-11-03 pnpm 11.28.9 result | 2026-11-05 workspace and `antd` removal result |
-| --- | --- | --- | --- | --- | --- | --- |
-| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed from a clean `node_modules` against the v9 lockfile | Passed from an empty `node_modules` against both regenerated lockfiles; each is a one-pass pnpm 11.28.9 relock, the first of the base lockfile and the second of the first, and relocking the base lockfile gives the second byte for byte too |
-| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 730 repo-level warnings against base `0638892`'s 817, and per file and rule no file gains a warning except `settingLocales.test.ts`, whose one moved there from the deleted `EnableSignData.test.tsx` |
-| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed | Passed |
-| Typecheck | Passed | Passed | Passed | Passed | Passed; the extension's 20 and `@qbit/wallet-background`'s one known `tsc` errors are unchanged from the base | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base `0638892`, and `@qbit/wallet-background`'s one known error is unchanged |
-| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,143 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests |
-| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 138 policy-tooling tests passed; the adversarial suite was not run separately | 163 policy-tooling tests and the adversarial suite passed |
-| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force |
-| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally | Passed locally; `antd`'s code (`anticon`, `getPrefixCls`, `rc-notification`) no longer appears in `apps/extension/dist/chrome`, neither base nor branch bundles `moment` or `dayjs`, and the `moment` matches are unchanged wordlist and message text |
-| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Passed on the pinned Node 22.22.3 and pnpm 11.28.9; module ids differ from the base, module code does not (see below) | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`) on Node 24.22.2 and pnpm 11.28.9; canonical run in branch CI |
-| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the extension import smoke passed locally; remaining PQC gates run in branch CI |
-| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 refresh result | 2026-11-03 pnpm 11.28.9 result | 2026-11-05 workspace and `antd` removal result | 2026-11-10 `bitcoinjs-lib` 6.1.8 result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed from a clean `node_modules` against the v9 lockfile | Passed from an empty `node_modules` against both regenerated lockfiles; each is a one-pass pnpm 11.28.9 relock, the first of the base lockfile and the second of the first, and relocking the base lockfile gives the second byte for byte too | Passed against the regenerated lockfile, whose diff from the base touches only `bitcoinjs-lib`: its `patchedDependencies` key, one package entry, one snapshot and three importer specifiers; the installed copy is 6.1.8 with the workspace patch applied |
+| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 730 repo-level warnings against base `0638892`'s 817, and per file and rule no file gains a warning except `settingLocales.test.ts`, whose one moved there from the deleted `EnableSignData.test.tsx` | Passed with zero errors; 730 repo-level warnings, as on 2026-11-05; the only linted file that changed is a string in `fresh-chain-language.test.mjs` |
+| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed | Passed | Passed |
+| Typecheck | Passed | Passed | Passed | Passed | Passed; the extension's 20 and `@qbit/wallet-background`'s one known `tsc` errors are unchanged from the base | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base `0638892`, and `@qbit/wallet-background`'s one known error is unchanged | Passed (`corepack pnpm typecheck`, as CI runs it); the root `tsc` run over `apps/extension` was not repeated |
+| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,143 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,145 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests |
+| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 138 policy-tooling tests passed; the adversarial suite was not run separately | 163 policy-tooling tests and the adversarial suite passed | 163 policy-tooling tests and the adversarial suite passed |
+| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force; the base `de81656` fails on the unaccepted critical `GHSA-8vv3-6qpc-gpw6` |
+| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally | Passed locally; `antd`'s code (`anticon`, `getPrefixCls`, `rc-notification`) no longer appears in `apps/extension/dist/chrome`, neither base nor branch bundles `moment` or `dayjs`, and the `moment` matches are unchanged wordlist and message text | Passed locally; of the 71 MV3 ZIP entries only `background.js` differs from the base, and only in the four `bitcoinjs-lib` modules 6.1.8 changes (see below) |
+| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Passed on the pinned Node 22.22.3 and pnpm 11.28.9; module ids differ from the base, module code does not (see below) | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`) on Node 24.22.2 and pnpm 11.28.9; canonical run in branch CI | Not rerun as `build:repro:extension`; the base build reproduces the ZIP SHA-256 CI printed for `de81656`; canonical run in branch CI |
+| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the extension import smoke passed locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the SDK package pin check passed locally; remaining PQC gates run in branch CI |
+| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
 
 The local evidence host ran the repository pins, Node 22.22.3 with pnpm 8.6.0
 through Corepack; gates not rerun locally remain enforced by the PR's branch
@@ -647,8 +668,27 @@ bytes smaller. Uncompressed, `background.js` is 272,360 bytes and `ui.js`
 lose the deleted keys, and `images/icons/artifacts/announcement_art.png` is
 gone; the other 61 entries are byte-identical. Two clean rebuilds
 through `build:repro:extension -- --allow-toolchain-mismatch` produced the same
-ZIP. The dependency evidence this review is bound to was generated at
-`a941b06e`.
+ZIP. The 2026-11-05 evidence was generated at `a941b06e`.
+
+The 2026-11-10 move to `bitcoinjs-lib` 6.1.8 ran locally on Node 24.22.2 with
+pnpm 11.28.9, outside the pinned Node 22.22.3, so its results are a
+non-canonical local drill and branch CI runs the pinned toolchain. The base
+`de81656` and this change's tree were installed and built the same way, with
+the workspace builds and `package:test -- --artifact-version 1.0.8`; the
+branch was built before its changeset was reworded, which changes no build
+input. The base ZIP has SHA-256
+`0cd22edb3374205c5fb6dec5d078af6c960a0fad653af891752a6fe350182a8e`, the hash
+CI printed for `de81656` (run 42108542017), and the branch ZIP has
+`689001446fb3f9ddfc3dad6851b17b8eece383fe1040f0bb024323c376f22fda`. Of the 71
+entries, 70 are byte-identical. `background.js` is 186 bytes larger and
+differs only in the four
+`bitcoinjs-lib` modules that 6.1.8 changes: `fastMerkleRoot` reports an
+adjacent equal pair, `Block.calculateMerkleRoot` passes that flag on and
+`checkTxRoots` rejects a block that raises it, `initEccLib` accepts an options
+argument, and `Transaction` gains `stripWitnesses`. Webpack's module ids are
+unchanged, and the PSBT module, which the workspace patch edits, is
+byte-identical. The dependency evidence this review is bound to was generated
+at `41ce38b8`.
 
 ## Limitations and ongoing ownership
 
