@@ -9,6 +9,7 @@
 # administrators can bypass it (AR-03 in docs/security/accepted-risks.md).
 
 /.github/CODEOWNERS @Anatolie @kiwidream @djh58 @RobertClarke
+/.github/rulesets/ @Anatolie @kiwidream @djh58 @RobertClarke
 
 # Vaults, key material, derivation, and PQC/protocol pins.
 /packages/keyring-service/ @Anatolie @kiwidream @djh58 @RobertClarke
