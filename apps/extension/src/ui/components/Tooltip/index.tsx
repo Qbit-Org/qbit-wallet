@@ -1,5 +1,11 @@
 import React, { useState, useRef, useEffect, ReactNode } from 'react';
 
+import { spacing } from '@/ui/theme/spacing';
+
+// Horizontal gap kept between the tooltip and the window edge, matching the
+// home content padding so a wide tooltip lines up with the page.
+const EDGE_MARGIN_X = spacing.medium;
+
 interface TooltipProps {
   title: ReactNode;
   children: ReactNode;
@@ -100,10 +106,10 @@ export function Tooltip({
     const shouldAdjustY = autoAdjustOverflow && align.overflow?.adjustY !== false;
 
     if (shouldAdjustX) {
-      if (left < 8) left = 8;
-      if (left + tooltipRect.width > viewport.width - 8) {
-        left = viewport.width - tooltipRect.width - 8;
+      if (left + tooltipRect.width > viewport.width - EDGE_MARGIN_X) {
+        left = viewport.width - tooltipRect.width - EDGE_MARGIN_X;
       }
+      if (left < EDGE_MARGIN_X) left = EDGE_MARGIN_X;
     }
 
     if (shouldAdjustY) {
@@ -151,7 +157,8 @@ export function Tooltip({
     borderRadius: 0,
     padding: '12px 16px',
     boxShadow: '0px 12px 20px 0px rgba(0, 0, 0, 0.25)',
-    maxWidth: '328px',
+    boxSizing: 'border-box',
+    maxWidth: `min(328px, calc(100vw - ${EDGE_MARGIN_X * 2}px))`,
     wordWrap: 'break-word',
     whiteSpace: 'normal',
     wordBreak: 'break-word',
