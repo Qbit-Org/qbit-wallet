@@ -133,6 +133,26 @@ Controls and evidence:
   computer's idle state such as waking, locks instead of extending the
   session. Any lock ends the auto-lock time, so an old timer cannot lock a
   later unlock;
+- an auto-lock that falls due while the wallet signs a transaction, from the
+  signing call's first check to its last input, waits for that signing,
+  because a lock detaches the keyring and the signing would fail at its next
+  input. It locks one minute after the last such signing ends, time for the
+  page to start the broadcast or say what went wrong. The broadcast that
+  follows holds it the same way, and the minute then runs from its verdict.
+  A signing that succeeds less than a minute before the auto-lock falls due
+  gets that minute too. It never locks later than ten minutes after it fell
+  due, counted both by the wall clock and by the wait's own timer, so moving
+  the clock back does not stretch it: a signing is not a screen action, so a
+  batch of signings cannot stretch the wait, and a screen action after the
+  deadline does not start the time over either, since the session's time has
+  passed. The wait lasts only while the wallet page that asked for the
+  signing stays open: closing that page stops the signing before its next
+  input, since nothing can receive its signed bytes. The auto-lock then locks
+  at once if its deadline has passed, and otherwise at its deadline, unless
+  another page is still owed its minute. Past the ten minutes, or on waking
+  from a sleep that outlasted them, the wallet locks and the signing stops
+  with "The wallet locked before signing finished". The lock button, the
+  computer locking and the last window closing never wait;
 - with "Lock when the computer locks" on, the wallet locks when `chrome.idle`
   reports `locked`; with "Lock when all windows close" on, it locks when no
   `normal` browser window or installed web app (`app`) window remains, and
@@ -143,7 +163,10 @@ Controls and evidence:
 - a lock wins over an unlock that is still waiting its turn or running: the
   wallet notes the locks made since the unlock was called, and the unlock
   ends locked with "The wallet locked while unlocking" instead of opening
-  the wallet. Neither can the onboarding and recovery keepalive undo a lock:
+  the wallet. The recovery migration's keepalive runs only while its new
+  mnemonic exists, and stops once the destination wallet is created, so the
+  migration's signing gets the ordinary auto-lock and its wait for a
+  signing. Neither can the onboarding and recovery keepalive undo a lock:
   a refresh never unlocks; and
 - a lock forgets the keyring's secrets but not a broadcast already handed to
   the network, which still settles.
@@ -175,6 +198,10 @@ Residual risk:
   screen saver as locked, so the wallet locks then too. With both settings
   off, or with a long auto-lock and the computer left unlocked, the wallet
   stays unlocked until the auto-lock time.
+- A local signing, and the broadcast that follows it, keep an overdue
+  auto-lock waiting, with the signing's page open, for up to ten minutes. With the computer-lock setting off, a wallet
+  left unlocked during a large signing can therefore stay unlocked up to ten
+  minutes longer than the auto-lock alone would allow.
   Closing the last window matters where Chrome keeps running without one, as
   on macOS; where Chrome quits instead, the unlocked state ends with it.
   Windows the wallet cannot see, such as incognito windows while it is not

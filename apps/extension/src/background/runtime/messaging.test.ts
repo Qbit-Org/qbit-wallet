@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { approvalService, bgEventBus, preferenceService } from '@qbit/wallet-background';
-import { ErrorCodes, MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
+import { BUS_EVENTS, BUS_METHODS, ErrorCodes, MESSAGE_TYPE, PORT_CHANNELS } from '@qbit/wallet-shared';
 
 const EXTENSION_ID = 'wallet';
 vi.stubGlobal('chrome', {
@@ -40,6 +40,9 @@ const harness = vi.hoisted(() => {
     appStateReady: Promise.resolve(),
     handleRequest: vi.fn(),
     listeners: new Map<TestPort, (data: unknown) => unknown>(),
+    // What the background sent to each page.
+    requests: new Map<TestPort, unknown[]>(),
+    refusingPorts: new Set<TestPort>(),
     sessions,
     tabSessions
   };
@@ -70,8 +73,11 @@ vi.mock('@/shared/utils/message/portMessage', () => ({
       harness.listeners.set(this.port, listener);
     }
 
-    request() {
-      // This transport stub intentionally does not issue outbound requests.
+    request(data: unknown) {
+      // Recorded only; this transport stub issues no outbound requests. A
+      // port named in `refusingPorts` throws, as one with no request ids left.
+      if (harness.refusingPorts.has(this.port)) throw new Error('Too many requests');
+      harness.requests.set(this.port, [...(harness.requests.get(this.port) ?? []), data]);
     }
 
     send() {
@@ -143,6 +149,7 @@ import { APP_STATE_WAIT_MS, initMessaging } from './messaging';
 
 beforeEach(() => {
   harness.appStateReady = Promise.resolve();
+  harness.refusingPorts.clear();
 });
 
 function providerPort(url: string, sender: TestSender = {}): TestPort {
@@ -236,6 +243,80 @@ describe('background UI-port ownership of send claims', () => {
 
     expect(walletController.onUiPortDisconnected).not.toHaveBeenCalled();
     expect(walletController.runForUiPort).not.toHaveBeenCalled();
+  });
+});
+
+describe('background messages for one UI port (#171)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    harness.connectListener = undefined;
+    harness.listeners.clear();
+    harness.requests.clear();
+    initMessaging();
+  });
+
+  /** The page-only listener each connect registered, in connect order. */
+  const pageListeners = () =>
+    vi
+      .mocked(bgEventBus.addEventListener)
+      .mock.calls.filter(([event]) => event === BUS_EVENTS.toUIPort)
+      .map(([, listener]) => listener as (data: unknown) => void);
+
+  it('delivers a message to the page it names, and to no other', async () => {
+    const popup = uiPort(PORT_CHANNELS.POPUP);
+    const tab = uiPort('tab');
+    harness.connectListener!(popup);
+    harness.connectListener!(tab);
+    const { uiPort: popupId } = (await harness.listeners.get(popup)!({
+      type: MESSAGE_TYPE.UI_CONTROLLER,
+      method: 'signPsbtV2',
+      params: [{ psbtHex: 'aa' }]
+    })) as { uiPort: string };
+    const message = {
+      port: popupId,
+      method: BUS_METHODS.QBIT_SIGNING_PROGRESS,
+      params: { progressId: 'signing-1', signed: 1, total: 4 }
+    };
+
+    expect(pageListeners()).toHaveLength(2);
+    pageListeners().forEach((listener) => listener(message));
+
+    expect(harness.requests.get(popup)).toEqual([
+      { type: MESSAGE_TYPE.BG_BROADCAST, method: message.method, params: message.params }
+    ]);
+    expect(harness.requests.get(tab)).toBeUndefined();
+  });
+
+  it('drops a message that names no page', () => {
+    const popup = uiPort(PORT_CHANNELS.POPUP);
+    harness.connectListener!(popup);
+
+    pageListeners().forEach((listener) => listener({ method: BUS_METHODS.QBIT_SIGNING_PROGRESS, params: {} }));
+    pageListeners().forEach((listener) => listener(undefined));
+
+    expect(harness.requests.get(popup)).toBeUndefined();
+  });
+
+  it('keeps a page whose port refuses the message from failing the event', () => {
+    const popup = uiPort(PORT_CHANNELS.POPUP);
+    harness.connectListener!(popup);
+    harness.refusingPorts.add(popup);
+    const listeners = vi
+      .mocked(bgEventBus.addEventListener)
+      .mock.calls.filter(([event]) => event === BUS_EVENTS.broadcastToUI)
+      .map(([, listener]) => listener as (data: unknown) => void);
+
+    expect(() => listeners.forEach((listener) => listener({ method: 'walletLocked', params: {} }))).not.toThrow();
+  });
+
+  it('stops listening for a page once its port disconnects', () => {
+    const popup = uiPort(PORT_CHANNELS.POPUP);
+    harness.connectListener!(popup);
+    const [listener] = pageListeners();
+
+    popup.disconnectListener!();
+
+    expect(bgEventBus.removeEventListener).toHaveBeenCalledWith(BUS_EVENTS.toUIPort, listener);
   });
 });
 

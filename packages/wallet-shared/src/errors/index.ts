@@ -35,6 +35,11 @@ export enum ErrorCodes {
   // has ended, been replaced, or was closed by a lock. Nothing of the plan
   // was signed; the screen prepares the remaining plans again.
   QBIT_RECOVERY_REVIEW_INTERRUPTED = -17,
+  // The wallet locked while it signed a transaction (the lock button, the
+  // computer locking, the last window closing, or an auto-lock whose grace
+  // for signing ran out). Signing stopped at the next input, so nothing was
+  // signed for broadcast and nothing was sent.
+  WALLET_LOCKED_DURING_SIGNING = -18,
   // A provider sendQbit, pushTx or pushPsbt broadcast ended without a
   // verdict: the transaction named in the error data may be in the mempool,
   // so the dapp must check it before retrying. A sendQbit's inputs stay
@@ -70,6 +75,7 @@ export const ErrorMessages: {
   [ErrorCodes.PREFERENCE_NOT_RESTORED]: 'setting_not_saved_may_have_changed',
   [ErrorCodes.WALLET_LOCKED_DURING_UNLOCK]: 'wallet_locked_during_unlock',
   [ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED]: 'qbit_recovery_review_interrupted',
+  [ErrorCodes.WALLET_LOCKED_DURING_SIGNING]: 'wallet_locked_during_signing',
   [ErrorCodes.METHOD_NOT_FOUND]: 'code_method_not_found',
   [ErrorCodes.INVALID_PARAMS]: 'Invalid provider request parameters',
   [ErrorCodes.UserCancel]: 'user_rejected_the_request',

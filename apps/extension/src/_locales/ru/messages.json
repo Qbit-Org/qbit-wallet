@@ -1127,6 +1127,45 @@
   "signed": {
     "message": "Подписано"
   },
+  "signing_in_progress": {
+    "message": "Подписание…"
+  },
+  "signing_progress_title": {
+    "message": "Подписание транзакции"
+  },
+  "signing_progress_starting": {
+    "message": "Запуск…"
+  },
+  "signing_progress_inputs": {
+    "message": "Подписано входов: $1 из $2"
+  },
+  "signing_progress_transaction": {
+    "message": "Транзакция $1 из $2"
+  },
+  "signing_progress_minutes_left": {
+    "message": "Осталось около $1 мин"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "Осталось меньше минуты"
+  },
+  "signing_keep_open_title": {
+    "message": "Не закрывайте кошелёк"
+  },
+  "signing_keep_open": {
+    "message": "Если закрыть кошелёк до окончания подписания, транзакция будет отменена и ничего не будет отправлено."
+  },
+  "signing_keep_open_popup": {
+    "message": "Щелчок за пределами этого окна закрывает его. Если закрыть кошелёк до окончания подписания, транзакция будет отменена и ничего не будет отправлено."
+  },
+  "signing_many_inputs_title": {
+    "message": "Подписание займёт время"
+  },
+  "signing_many_inputs_body": {
+    "message": "Входов в этой транзакции: $1, и для каждого нужна своя подпись, поэтому подписание может занять несколько минут. Не закрывайте кошелёк до его окончания."
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "На боковой панели кошелёк остаётся открытым, пока вы работаете в других вкладках."
+  },
   "skip": {
     "message": "Пропустить"
   },
@@ -1354,6 +1393,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "Кошелёк заблокировался во время разблокировки. Разблокируйте его ещё раз."
+  },
+  "broadcasting_transaction": {
+    "message": "Отправка транзакции в сеть…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "Кошелёк заблокировался до окончания подписания, поэтому ничего не отправлено. Разблокируйте его и подпишите снова."
   },
   "use_at_your_own_risk": {
     "message": "Используйте на свой страх и риск"

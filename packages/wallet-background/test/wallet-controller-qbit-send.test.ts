@@ -1070,7 +1070,9 @@ describe('WalletController qbit P2MR send path', () => {
         account.address,
         expect.objectContaining({ keys: expect.any(Array) }),
         SIGNATURE_BUDGET,
-        { id: 'batch-1', index: 0 }
+        { id: 'batch-1', index: 0 },
+        // No page asked for this signing's progress.
+        { onProgress: undefined, signal: expect.any(AbortSignal) }
       )
     })
 
@@ -1547,7 +1549,8 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       expect.objectContaining({ keys }),
       SIGNATURE_BUDGET,
-      undefined
+      undefined,
+      { onProgress: undefined, signal: expect.any(AbortSignal) }
     )
     expect(extractP2mrTransaction(parsePsbt(hexToBytes(signedReplacement.psbtHex!))).length).toBe(
       replacement.feeBump!.replacementVsize
@@ -4181,7 +4184,8 @@ describe('WalletController qbit P2MR send path', () => {
         keys,
       }),
       SIGNATURE_BUDGET,
-      undefined
+      undefined,
+      { onProgress: undefined, signal: expect.any(AbortSignal) }
     )
     expect(emit).toHaveBeenCalledWith(BUS_EVENTS.broadcastToUI, {
       method: BUS_METHODS.ACCOUNTS_CHANGED,
@@ -5867,7 +5871,8 @@ describe('WalletController qbit P2MR send path', () => {
       sourceAccount.address,
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) }),
       migrationBudget,
-      undefined
+      undefined,
+      { onProgress: undefined, signal: expect.any(AbortSignal) }
     )
     expect(keyringService.updateQbitRecoveryMigrationPlan).toHaveBeenCalledWith(
       sourceAccount.address,

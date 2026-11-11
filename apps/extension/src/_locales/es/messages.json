@@ -1127,6 +1127,45 @@
   "signed": {
     "message": "Firmado"
   },
+  "signing_in_progress": {
+    "message": "Firmando…"
+  },
+  "signing_progress_title": {
+    "message": "Firmando la transacción"
+  },
+  "signing_progress_starting": {
+    "message": "Iniciando…"
+  },
+  "signing_progress_inputs": {
+    "message": "$1 de $2 entradas firmadas"
+  },
+  "signing_progress_transaction": {
+    "message": "Transacción $1 de $2"
+  },
+  "signing_progress_minutes_left": {
+    "message": "Quedan unos $1 min"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "Queda menos de un minuto"
+  },
+  "signing_keep_open_title": {
+    "message": "Mantén la billetera abierta"
+  },
+  "signing_keep_open": {
+    "message": "Si cierras la billetera antes de que termine la firma, la transacción se cancela y no se envía nada."
+  },
+  "signing_keep_open_popup": {
+    "message": "Al hacer clic fuera de esta ventana emergente, se cierra. Si cierras la billetera antes de que termine la firma, la transacción se cancela y no se envía nada."
+  },
+  "signing_many_inputs_title": {
+    "message": "La firma tardará un poco"
+  },
+  "signing_many_inputs_body": {
+    "message": "Esta transacción gasta $1 entradas y cada una necesita su propia firma, así que firmar puede tardar unos minutos. Mantén la billetera abierta hasta que termine."
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "Abierta en la barra lateral, la billetera sigue abierta mientras usas otras pestañas."
+  },
   "skip": {
     "message": "Omitir"
   },
@@ -1354,6 +1393,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "La billetera se bloqueó mientras se desbloqueaba. Vuelve a desbloquearla."
+  },
+  "broadcasting_transaction": {
+    "message": "Transmitiendo la transacción…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "La billetera se bloqueó antes de terminar la firma, así que no se envió nada. Desbloquéala y vuelve a firmar."
   },
   "use_at_your_own_risk": {
     "message": "Úsalo bajo tu propio riesgo"

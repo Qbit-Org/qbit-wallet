@@ -187,6 +187,30 @@ export interface QbitBroadcastIdentity {
   txid: string
 }
 
+/**
+ * How far one local P2MR signing has got, sent to the wallet page that asked
+ * for it (`QbitSigningOptions.progressId`) as BUS_METHODS.QBIT_SIGNING_PROGRESS.
+ * `signed` counts the inputs signed so far, cached signatures included, out
+ * of `total`; `cached` counts those whose signature came from the cache. It
+ * carries counts only: no digest, signature or key.
+ */
+export interface QbitSigningProgress {
+  progressId: string
+  signed: number
+  total: number
+  cached: number
+}
+
+/** Options of a local signing call: `signPsbtV2` and `signLocalBatchPsbt`. */
+export interface QbitSigningOptions {
+  /**
+   * Chosen by the calling page to receive this call's progress events, which
+   * carry it back. 1 to 64 letters, digits, `_` or `-`; any other value gets
+   * no progress, and the signing runs as usual.
+   */
+  progressId?: string
+}
+
 export interface SignedData {
   psbtHex?: string
   rawtx?: string

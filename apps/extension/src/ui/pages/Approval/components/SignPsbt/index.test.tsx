@@ -99,6 +99,17 @@ vi.mock('@/ui/components/SignPsbtWithRisksPopover', async () => {
   };
 });
 vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
+// The panels themselves have their own tests; here they only show what they were given.
+vi.mock('@/ui/components/SigningProgress', async (importOriginal) => {
+  const React = await import('react');
+  return {
+    ...(await importOriginal<typeof import('@/ui/components/SigningProgress')>()),
+    SigningProgress: ({ progress }: { progress: unknown }) =>
+      React.createElement('div', { 'data-testid': 'signing-progress', 'data-progress': JSON.stringify(progress) }),
+    LongSigningNotice: ({ inputCount }: { inputCount: number }) =>
+      React.createElement('div', { 'data-testid': 'long-signing-notice' }, `${inputCount}`)
+  };
+});
 vi.mock('@/ui/theme/colors', () => ({
   colors: { border: '', surface: '', warning_bg: '#fff4cc', warning_content: '#f4b62c' }
 }));
@@ -542,5 +553,153 @@ describe('SignPsbt cold-wallet signing', () => {
       ['70736274ff', false],
       ['70736274ff', false]
     ]);
+  });
+});
+
+describe('SignPsbt while it signs (#171)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAccountCapabilities).mockReturnValue({ signMethod: 'local' } as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBIT' as any);
+    vi.mocked(useTools).mockReturnValue({ copyToClipboard: vi.fn(), toastError: vi.fn() } as any);
+    vi.mocked(useWallet).mockReturnValue({ confirmQbitRestoredFloorSigning } as any);
+  });
+
+  afterEach(cleanup);
+
+  const signButton = () => screen.getByTestId('sign-psbt-button') as HTMLButtonElement;
+  const button = (text: string) => screen.getByText(text) as HTMLButtonElement;
+
+  it('shows the progress in place of the review while many inputs sign, with nothing to press', () => {
+    renderSignPsbt(
+      signPsbtLogic(toSignData(), {
+        isPsbtSigning: true,
+        signingInputCount: 106,
+        signingProgress: { signed: 36, total: 106 }
+      })
+    );
+
+    expect(JSON.parse(screen.getByTestId('signing-progress').dataset.progress!)).toEqual({ signed: 36, total: 106 });
+    expect(screen.queryByTestId('long-signing-notice')).toBeNull();
+    expect(button('reject').disabled).toBe(true);
+    expect(signButton().disabled).toBe(true);
+    expect(signButton().textContent).toBe('signing_in_progress');
+    fireEvent.click(signButton());
+    expect(onClickSign).not.toHaveBeenCalled();
+  });
+
+  it('keeps a short signing on the review, with Sign and Reject locked', () => {
+    renderSignPsbt(
+      signPsbtLogic(toSignData(), {
+        isPsbtSigning: true,
+        signingInputCount: 2,
+        signingProgress: { signed: 1, total: 2 }
+      })
+    );
+
+    expect(screen.queryByTestId('signing-progress')).toBeNull();
+    expect(button('reject').disabled).toBe(true);
+    expect(signButton().disabled).toBe(true);
+    expect(signButton().textContent).toBe('signing_in_progress');
+  });
+
+  it('keeps Reject locked when the screen falls back to loading or an error mid-signing', () => {
+    const view = renderSignPsbt(signPsbtLogic(toSignData(), { isPsbtSigning: true, showLoading: true }));
+    expect((screen.getByTestId('psbt-loading-reject-button') as HTMLButtonElement).disabled).toBe(true);
+    view.unmount();
+
+    renderSignPsbt(signPsbtLogic(toSignData(), { isPsbtSigning: true, decodeError: true }));
+    expect((screen.getByTestId('psbt-error-reject-button') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('psbt-error-retry-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('says before Sign that signing many inputs takes a while', () => {
+    renderSignPsbt(signPsbtLogic(toSignData(), { signingInputCount: 106 }));
+
+    expect(screen.getByTestId('long-signing-notice').textContent).toBe('106');
+    expect(signButton().disabled).toBe(false);
+    expect(signButton().textContent).toBe('sign');
+  });
+
+  it('keeps Sign disabled for a transaction already signed, with Reject available', () => {
+    renderSignPsbt(signPsbtLogic(toSignData(), { currentSigned: true, signingInputCount: 2 }));
+
+    expect(signButton().disabled).toBe(true);
+    expect(button('reject').disabled).toBe(false);
+  });
+
+  it('ignores the website check Retry while a short signing runs', () => {
+    const onRetryWebsiteCheck = vi.fn();
+    renderSignPsbt(
+      signPsbtLogic(toSignData(), {
+        isPsbtSigning: true,
+        signingInputCount: 2,
+        websiteCheckStatus: 'unverified',
+        websiteCheckWarning: 'Could not verify this website',
+        onRetryWebsiteCheck
+      })
+    );
+
+    fireEvent.click(screen.getByTestId('psbt-website-check-retry-button'));
+
+    expect(onRetryWebsiteCheck).not.toHaveBeenCalled();
+  });
+
+  it('keeps the website check Retry disabled through the restored-floor confirmation', async () => {
+    let resolveConfirm!: () => void;
+    confirmQbitRestoredFloorSigning.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveConfirm = resolve;
+      })
+    );
+    const onRetryWebsiteCheck = vi.fn();
+    renderSignPsbt(
+      signPsbtLogic(toSignData('challenge-9'), {
+        websiteCheckStatus: 'unverified',
+        websiteCheckWarning: 'Could not verify this website',
+        onRetryWebsiteCheck
+      })
+    );
+    fireEvent.click(screen.getByTestId('psbt-unverified-website-confirmation'));
+    fireEvent.click(screen.getByTestId('qbit-restored-floor-signing-confirmation'));
+    const retry = screen.getByTestId('psbt-website-check-retry-button') as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+
+    act(() => {
+      fireEvent.click(signButton());
+    });
+    expect(confirmQbitRestoredFloorSigning).toHaveBeenCalledTimes(1);
+    expect(retry.disabled).toBe(true);
+    fireEvent.click(retry);
+    expect(onRetryWebsiteCheck).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveConfirm();
+    });
+  });
+
+  it('says nothing about time for fewer inputs', () => {
+    renderSignPsbt(signPsbtLogic(toSignData(), { signingInputCount: 19 }));
+
+    expect(screen.queryByTestId('long-signing-notice')).toBeNull();
+  });
+
+  it("shows a quick-signed batch's progress in place of its list, with its buttons locked", () => {
+    renderSignPsbt(
+      signPsbtLogic(toSignData(), {
+        showMultiSignView: true,
+        toSignDatas: [toSignData(), toSignData()],
+        isPsbtSigning: true,
+        signingProgress: { signed: 3, total: 10, transactionIndex: 0, transactionCount: 2 }
+      })
+    );
+
+    expect(JSON.parse(screen.getByTestId('signing-progress').dataset.progress!)).toMatchObject({
+      transactionIndex: 0,
+      transactionCount: 2
+    });
+    expect(button('reject_all').disabled).toBe(true);
+    expect(button('signing_in_progress').disabled).toBe(true);
   });
 });

@@ -41,6 +41,94 @@ describe('useWalletKeepalive', () => {
     expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
   });
 
+  it('neither refreshes nor locks while inactive (#171)', async () => {
+    const wallet = { setLastActiveTime: vi.fn(), lockWallet: vi.fn() };
+    const { rerender } = renderHook(({ active }) => useWalletKeepalive(wallet, active), {
+      initialProps: { active: true }
+    });
+    await tick();
+    expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
+
+    // The mnemonic is gone: the ordinary auto-lock applies.
+    rerender({ active: false });
+    await tick(GRACE_PERIOD_MS);
+
+    expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
+    expect(wallet.lockWallet).not.toHaveBeenCalled();
+  });
+
+  it('keeps its deadline from the mount when it becomes active again (#171)', async () => {
+    const wallet = { setLastActiveTime: vi.fn(), lockWallet: vi.fn() };
+    const { rerender } = renderHook(({ active }) => useWalletKeepalive(wallet, active), {
+      initialProps: { active: false }
+    });
+    await tick(GRACE_PERIOD_MS - KEEPALIVE_TICK_MS);
+
+    rerender({ active: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wallet.lockWallet).not.toHaveBeenCalled();
+    monotonicNow += KEEPALIVE_TICK_MS;
+    await vi.advanceTimersByTimeAsync(KEEPALIVE_TICK_MS);
+
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps distrusting the wall clock after a backward jump when it becomes active again (#171)', async () => {
+    const wallet = { setLastActiveTime: vi.fn(), lockWallet: vi.fn() };
+    const { rerender } = renderHook(({ active }) => useWalletKeepalive(wallet, active), {
+      initialProps: { active: true }
+    });
+    await tick();
+    expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
+    // The wall clock moves back an hour: refreshes stop for good.
+    vi.setSystemTime(Date.now() - 60 * 60 * 1000);
+    await tick();
+    expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
+
+    rerender({ active: false });
+    rerender({ active: true });
+    vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+    await tick();
+
+    expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps retrying a failed deadline lock after it becomes inactive (#171)', async () => {
+    const wallet = {
+      setLastActiveTime: vi.fn(),
+      lockWallet: vi.fn().mockRejectedValueOnce(new Error('port closed')).mockResolvedValue(undefined)
+    };
+    const { rerender } = renderHook(({ active }) => useWalletKeepalive(wallet, active), {
+      initialProps: { active: true }
+    });
+    monotonicNow = GRACE_PERIOD_MS;
+    await vi.advanceTimersByTimeAsync(KEEPALIVE_TICK_MS);
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
+
+    // The mnemonic is cleared before the retry; the lock is still owed.
+    rerender({ active: false });
+    await tick();
+
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(2);
+    await tick();
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no second lock request while one is in flight, also after it becomes inactive (#171)', async () => {
+    const wallet = { setLastActiveTime: vi.fn(), lockWallet: vi.fn(() => new Promise<void>(() => undefined)) };
+    const { rerender } = renderHook(({ active }) => useWalletKeepalive(wallet, active), {
+      initialProps: { active: true }
+    });
+    monotonicNow = GRACE_PERIOD_MS;
+    await vi.advanceTimersByTimeAsync(KEEPALIVE_TICK_MS);
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
+
+    await tick();
+    rerender({ active: false });
+    await tick();
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps enforcing the monotonic deadline and retrying the lock after a backward clock jump', async () => {
     const wallet = {
       setLastActiveTime: vi.fn(),

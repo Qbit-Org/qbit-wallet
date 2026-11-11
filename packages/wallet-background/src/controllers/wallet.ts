@@ -35,6 +35,8 @@ import {
 import {
   PQC_WARNING_SIGNATURE_THRESHOLD,
   QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+  QbitSigningAbortedError,
+  type QbitSigningProgressListener,
 } from '@qbit/keyring-service'
 import type {
   QbitRecoveryMigrationPlanVault,
@@ -98,6 +100,8 @@ import {
   QbitRemoveKeyringOptions,
   QbitP2mrSigningKeyInput,
   QbitSignatureBudgetImpact,
+  type QbitSigningOptions,
+  type QbitSigningProgress,
   type QbitBroadcastFailure,
   type QbitConsolidationBatch,
   type QbitConsolidationStatus,
@@ -529,6 +533,40 @@ const ORIGIN_DISCONNECTED = {
 } as const
 const QBIT_P2MR_NON_RBF_SEQUENCE = 0xffffffff
 const QBIT_P2MR_RBF_SEQUENCE = 0xfffffffd
+/**
+ * The longest an auto-lock that falls due during a local signing waits for
+ * it, from the time it fell due. Signing a full 106-input transaction takes
+ * minutes; past this the wallet locks, and the signing stops. The same
+ * ten minutes cap how long a mnemonic screen keeps the wallet unlocked
+ * (`useWalletKeepalive`).
+ */
+export const AUTO_LOCK_SIGNING_GRACE_MS = 10 * 60_000
+/**
+ * How long after the last local signing ends an auto-lock that fell due
+ * during it still waits: time for the page to hand the signed transaction to
+ * its broadcast and show the result. Never past AUTO_LOCK_SIGNING_GRACE_MS.
+ */
+export const AUTO_LOCK_SIGNING_HANDOFF_MS = 60_000
+/**
+ * How many closed UI ports the controller remembers, so that a signing call
+ * that arrives after its page closed (it waited on its page's earlier calls)
+ * stops at once. Port ids are never reused, and such a wait is short.
+ */
+const CLOSED_UI_PORTS_KEPT = 256
+/** A page's `QbitSigningOptions.progressId`. */
+const QBIT_SIGNING_PROGRESS_ID = /^[A-Za-z0-9_-]{1,64}$/
+
+/**
+ * A local signing call under way, or the broadcast that follows one; see
+ * `WalletController.beginLocalSigning`.
+ */
+interface LocalSigning {
+  page: QbitSendClaimOwner | undefined
+  /** Aborted when the page closes: the keyring then stops before its next input. */
+  stop: AbortController
+  /** `lockRequests` when the call started, to tell a lock during it. */
+  locksBefore: number
+}
 const QBIT_RECENT_SPEND_PROBE_WAIT_MS = 2_000
 const QBIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000
 const QBIT_HISTORY_SNAPSHOT_LIMIT = 8
@@ -1597,7 +1635,16 @@ export class WalletController extends BaseController {
    */
   onUiPortDisconnected = (uiPort: QbitSendClaimOwner): Promise<void> => {
     this.abandonQbitUtxoSnapshotsOf(uiPort)
-    return qbitSendGuardService.releaseClaimsOwnedBy(uiPort)
+    const released = qbitSendGuardService.releaseClaimsOwnedBy(uiPort)
+    try {
+      this.stopLocalSigningsOf(uiPort)
+    } catch (error) {
+      log.error(
+        "[WalletController] Stopping a closed page's signings failed",
+        summarizeError(error)
+      )
+    }
+    return released
   }
 
   /**
@@ -1803,6 +1850,7 @@ export class WalletController extends BaseController {
     clearTimeout(this.timer)
     this.timer = null
     this.autoLockDueAt = undefined
+    this.clearAutoLockHold()
     // A locked wallet keeps no account's outputs in memory, not even while
     // the lock waits or if it fails. setLocked marks the wallet locked at
     // once, before it waits, so nothing is kept after this clear: not from
@@ -5298,122 +5346,61 @@ export class WalletController extends BaseController {
     return signedPsbt
   }
 
+  /**
+   * Report each input of a local signing to the page that asked for it, and
+   * to no other page: the messaging layer delivers `toUIPort` events only on
+   * the UI port named in them, the one the signing call arrived on. Without a
+   * calling port or a usable `progressId` nothing is reported, and the
+   * signing runs as usual.
+   */
+  private qbitSigningProgressReporter = (
+    uiPort: QbitSendClaimOwner | undefined,
+    progressId: unknown
+  ): QbitSigningProgressListener | undefined => {
+    if (
+      uiPort === undefined ||
+      typeof progressId !== 'string' ||
+      !QBIT_SIGNING_PROGRESS_ID.test(progressId)
+    ) {
+      return undefined
+    }
+    return (signed, total, cached) => {
+      const progress: QbitSigningProgress = { progressId, signed, total, cached }
+      bgEventBus.emit(BUS_EVENTS.toUIPort, {
+        port: uiPort,
+        method: BUS_METHODS.QBIT_SIGNING_PROGRESS,
+        params: progress,
+      })
+    }
+  }
+
   // local sign function
-  signPsbtV2 = async (toSignData: ToSignData): Promise<SignedData> => {
+  signPsbtV2 = async (
+    toSignData: ToSignData,
+    options?: QbitSigningOptions
+  ): Promise<SignedData> => {
     // Before the first await: the port the signed bytes are handed back to.
     const uiPort = this.callingUiPort
     if (toSignData.qbitP2mrSigningKeys?.length) {
-      const migrationContext = toSignData.qbitRecoveryMigration
-        ? await this.validateQbitRecoveryMigrationSigning(
-            toSignData.qbitRecoveryMigration,
-            toSignData
-          )
-        : undefined
-      const account = migrationContext?.account || preferenceService.getCurrentAccount()
-      if (!account) throw new Error('no current account')
-      if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
-        throw new Error(t('not_supported'))
-      }
-
-      const psbt = qbitPsbtFromHex(toSignData.psbtHex)
-      const qbitBroadcastIdentity = this.validatedQbitBroadcastIdentity(
-        psbt,
-        toSignData.qbitBroadcastIdentity
-      )
-      const chain = qbitBroadcastIdentity.chain
-      const consolidationOutputCounts =
-        this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
-        toSignData.qbitConsolidation?.fundingOutputCounts
-      if (consolidationOutputCounts) {
-        await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
-      }
-      const sign = async (): Promise<SignedData> => {
-        const signed = await keyringService
-          .signP2mrPsbtWithCounter(
-            account.address,
-            {
-              psbt,
-              keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
-            },
-            toSignData.signatureBudget,
-            toSignData.qbitSignatureBatch && {
-              id: toSignData.qbitSignatureBatch.id,
-              index: toSignData.qbitSignatureBatch.index,
-            }
-          )
-          .catch(error => {
-            // A migration plan's batch closes when its review ends or is
-            // replaced, or on a lock, before any of the plan is signed; the
-            // screen then prepares the remaining plans again.
-            if (migrationContext && error?.code === QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE) {
-              throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED)
-            }
-            throw error
-          })
-        await this.refreshDisplayedQbitAccountAfterSigning(account.address)
-        const signedPsbt =
-          toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
-        const signedPsbtHex = qbitPsbtToHex(signedPsbt)
-        if (migrationContext) {
-          const finalized = finalizeP2mrPsbt(signedPsbt)
-          const rawTransaction = extractP2mrTransaction(finalized)
-          const txid = transactionCore.Transaction.fromBuffer(Buffer.from(rawTransaction)).getId()
-          await keyringService.updateQbitRecoveryMigrationPlan(
-            migrationContext.anchorAddress,
-            migrationContext.network,
-            migrationContext.plan.id,
-            {
-              status: 'signed',
-              signedPsbtHex,
-              txid,
-            }
-          )
-        }
-        return {
-          psbtHex: signedPsbtHex,
-          qbitBroadcastIdentity,
-        }
-      }
-      const signWithClaim = (claim: QbitSendBroadcastClaim) => async (): Promise<SignedData> => ({
-        ...(await sign()),
-        qbitSendBroadcastClaim: {
-          ...claim,
-          outpoints: claim.outpoints.map(outpoint => ({ ...outpoint })),
-        },
-      })
-      // A provider claim belongs to the provider request that approved it,
-      // which releases it when the request fails or is rejected, whatever
-      // becomes of the approval window; once that request has settled the
-      // claim is refused before a signature is spent. Only a claim the
-      // wallet mints for its own send is owned by the UI port that receives
-      // the signed bytes.
-      if (toSignData.qbitSendBroadcastClaim) {
-        const providerClaim = this.validatedQbitSendBroadcastClaim(
-          psbt,
-          toSignData.qbitSendBroadcastClaim,
-          toSignData.providerContext,
-          account.address
+      // From here on, through the checks, the reads and the wait in the send
+      // guard's queue, the signing holds an auto-lock that falls due, and
+      // stops if its page closes (see `beginLocalSigning`).
+      const signing = this.beginLocalSigning(uiPort)
+      let signed = false
+      try {
+        const result = await this.signQbitP2mrLocally(
+          toSignData,
+          options,
+          uiPort,
+          signing.stop.signal
         )
-        return qbitSendGuardService.runWithProviderBroadcastClaim(
-          providerClaim,
-          signWithClaim(providerClaim)
-        )
+        signed = true
+        return result
+      } catch (error) {
+        throw this.signingErrorAfterLocks(error, signing.locksBefore)
+      } finally {
+        this.endLocalSigning(signing, signed)
       }
-      const claim = this.walletQbitSendBroadcastClaim(
-        psbt,
-        qbitBroadcastIdentity,
-        toSignData,
-        account.address
-      )
-      if (claim) {
-        return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
-      }
-      return this.runWithNoQbitInputConflict(
-        chain,
-        qbitPsbtOutpoints(psbt),
-        sign,
-        qbitPsbtTxid(psbt)
-      )
     }
 
     if (toSignData.qbitSendBroadcastClaim) {
@@ -5432,6 +5419,129 @@ export class WalletController extends BaseController {
       transactionPsbtOutpoints(psbt),
       sign
     )
+  }
+
+  /** The local P2MR signing of `signPsbtV2`, stopped before its next input by `signal`. */
+  private signQbitP2mrLocally = async (
+    toSignData: ToSignData,
+    options: QbitSigningOptions | undefined,
+    uiPort: QbitSendClaimOwner | undefined,
+    signal: AbortSignal
+  ): Promise<SignedData> => {
+    // A call whose page already closed does none of its checks or reads.
+    if (signal.aborted) throw new QbitSigningAbortedError()
+    const migrationContext = toSignData.qbitRecoveryMigration
+      ? await this.validateQbitRecoveryMigrationSigning(
+          toSignData.qbitRecoveryMigration,
+          toSignData
+        )
+      : undefined
+    const account = migrationContext?.account || preferenceService.getCurrentAccount()
+    if (!account) throw new Error('no current account')
+    if (getAccountCapabilities(account).signMethod !== AccountSignMethod.Local) {
+      throw new Error(t('not_supported'))
+    }
+
+    const psbt = qbitPsbtFromHex(toSignData.psbtHex)
+    const qbitBroadcastIdentity = this.validatedQbitBroadcastIdentity(
+      psbt,
+      toSignData.qbitBroadcastIdentity
+    )
+    const chain = qbitBroadcastIdentity.chain
+    const consolidationOutputCounts =
+      this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
+      toSignData.qbitConsolidation?.fundingOutputCounts
+    if (consolidationOutputCounts) {
+      await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
+    }
+    // Its page closed during those reads: it does not join the send guard's queue.
+    if (signal.aborted) throw new QbitSigningAbortedError()
+    const onProgress = this.qbitSigningProgressReporter(uiPort, options?.progressId)
+    const sign = async (): Promise<SignedData> => {
+      // Its page closed while it waited in the send guard's queue.
+      if (signal.aborted) throw new QbitSigningAbortedError()
+      const signed = await keyringService
+        .signP2mrPsbtWithCounter(
+          account.address,
+          {
+            psbt,
+            keys: qbitSigningKeysFromSerializable(toSignData.qbitP2mrSigningKeys!),
+          },
+          toSignData.signatureBudget,
+          toSignData.qbitSignatureBatch && {
+            id: toSignData.qbitSignatureBatch.id,
+            index: toSignData.qbitSignatureBatch.index,
+          },
+          { onProgress, signal }
+        )
+        .catch(error => {
+          // A migration plan's batch closes when its review ends or is
+          // replaced, or on a lock, before any of the plan is signed; the
+          // screen then prepares the remaining plans again.
+          if (migrationContext && error?.code === QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE) {
+            throw new WalletError(ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED)
+          }
+          throw error
+        })
+      await this.refreshDisplayedQbitAccountAfterSigning(account.address)
+      const signedPsbt =
+        toSignData.autoFinalized === false ? signed.psbt : finalizeP2mrPsbt(signed.psbt)
+      const signedPsbtHex = qbitPsbtToHex(signedPsbt)
+      if (migrationContext) {
+        const finalized = finalizeP2mrPsbt(signedPsbt)
+        const rawTransaction = extractP2mrTransaction(finalized)
+        const txid = transactionCore.Transaction.fromBuffer(Buffer.from(rawTransaction)).getId()
+        await keyringService.updateQbitRecoveryMigrationPlan(
+          migrationContext.anchorAddress,
+          migrationContext.network,
+          migrationContext.plan.id,
+          {
+            status: 'signed',
+            signedPsbtHex,
+            txid,
+          }
+        )
+      }
+      return {
+        psbtHex: signedPsbtHex,
+        qbitBroadcastIdentity,
+      }
+    }
+    const signWithClaim = (claim: QbitSendBroadcastClaim) => async (): Promise<SignedData> => ({
+      ...(await sign()),
+      qbitSendBroadcastClaim: {
+        ...claim,
+        outpoints: claim.outpoints.map(outpoint => ({ ...outpoint })),
+      },
+    })
+    // A provider claim belongs to the provider request that approved it,
+    // which releases it when the request fails or is rejected, whatever
+    // becomes of the approval window; once that request has settled the
+    // claim is refused before a signature is spent. Only a claim the
+    // wallet mints for its own send is owned by the UI port that receives
+    // the signed bytes.
+    if (toSignData.qbitSendBroadcastClaim) {
+      const providerClaim = this.validatedQbitSendBroadcastClaim(
+        psbt,
+        toSignData.qbitSendBroadcastClaim,
+        toSignData.providerContext,
+        account.address
+      )
+      return qbitSendGuardService.runWithProviderBroadcastClaim(
+        providerClaim,
+        signWithClaim(providerClaim)
+      )
+    }
+    const claim = this.walletQbitSendBroadcastClaim(
+      psbt,
+      qbitBroadcastIdentity,
+      toSignData,
+      account.address
+    )
+    if (claim) {
+      return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
+    }
+    return this.runWithNoQbitInputConflict(chain, qbitPsbtOutpoints(psbt), sign, qbitPsbtTxid(psbt))
   }
 
   signMessage = async (params: ToSignMessage): Promise<SignedMessage> => {
@@ -8117,6 +8227,17 @@ export class WalletController extends BaseController {
     const claim = qbitSendBroadcastClaim ?? undefined
     if (claim) qbitSendGuardService.beginBroadcastAttempt(claim, uiPort)
     let verdict: QbitSendClaimVerdict = 'inconclusive'
+    // The broadcast of a signing the auto-lock waited for, or that ended in
+    // the minute before its deadline (its page is owed the minute after it,
+    // and that minute has not run out), holds the auto-lock as that signing
+    // did: a large transaction's broadcast can outlast the minute, and a lock
+    // would take its verdict off the screen. The page then gets its minute
+    // from the verdict. See `beginLocalSigning`.
+    const owedUntil = uiPort === undefined ? undefined : this.autoLockHoldPages.get(uiPort)
+    const hold =
+      uiPort !== undefined && owedUntil !== undefined && owedUntil > this.now()
+        ? this.beginLocalSigning(uiPort)
+        : undefined
     try {
       const result = await this.attemptQbitBroadcast(
         txData,
@@ -8138,7 +8259,11 @@ export class WalletController extends BaseController {
             : 'proven_absent'
       return result
     } finally {
-      if (claim) await qbitSendGuardService.settleBroadcastAttempt(claim, verdict)
+      try {
+        if (claim) await qbitSendGuardService.settleBroadcastAttempt(claim, verdict)
+      } finally {
+        if (hold) this.endLocalSigning(hold, true)
+      }
     }
   }
 
@@ -9484,10 +9609,36 @@ export class WalletController extends BaseController {
    */
   signLocalBatchPsbt = async (
     toSignData: ToSignData,
-    review: LocalPsbtBatchReview
+    review: LocalPsbtBatchReview,
+    options?: QbitSigningOptions
   ): Promise<SignedData> => {
     // Before the first await: the port the signed bytes are handed back to.
     const uiPort = this.callingUiPort
+    // A batch whose wallet locked between two entries signs none of the
+    // rest, and says why, so its screen stops at the first.
+    if (this.readsLocked()) throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_SIGNING)
+    // Held, and stopped with its page, from the entry's own review read on;
+    // a lock there reads as a lock too, so the batch stops at it.
+    const signing = this.beginLocalSigning(uiPort)
+    let signed = false
+    try {
+      if (signing.stop.signal.aborted) throw new QbitSigningAbortedError()
+      const result = await this.signLocalBatchEntry(toSignData, review, options, uiPort)
+      signed = true
+      return result
+    } catch (error) {
+      throw this.signingErrorAfterLocks(error, signing.locksBefore)
+    } finally {
+      this.endLocalSigning(signing, signed)
+    }
+  }
+
+  private signLocalBatchEntry = async (
+    toSignData: ToSignData,
+    review: LocalPsbtBatchReview,
+    options: QbitSigningOptions | undefined,
+    uiPort: QbitSendClaimOwner | undefined
+  ): Promise<SignedData> => {
     if (toSignData?.providerContext) {
       throw new Error('A provider request is signed one transaction at a time')
     }
@@ -9520,7 +9671,7 @@ export class WalletController extends BaseController {
     if (item.risks.some(risk => !review.confirmedRisks.includes(risk.type))) {
       throw new Error('The transaction has a risk that was not confirmed')
     }
-    const sign = () => this.signPsbtV2(toSignData)
+    const sign = () => this.signPsbtV2(toSignData, options)
     return uiPort === undefined ? sign() : this.runForUiPort(uiPort, sign)
   }
 
@@ -9612,6 +9763,9 @@ export class WalletController extends BaseController {
 
   setAutoLockTimeId = async (timeId: number) => {
     await preferenceService.setAutoLockTimeId(timeId)
+    // An overdue auto-lock held for a signing stays held, as on a screen
+    // action: the new time applies from the next start of the time.
+    if (this.overdueAutoLockHeld()) return
     this._resetTimeout()
   }
 
@@ -9672,14 +9826,315 @@ export class WalletController extends BaseController {
    */
   private autoLockDueAt: number | undefined
 
+  /** Local signing calls under way; see `beginLocalSigning`. */
+  private localSignings = new Set<LocalSigning>()
+
+  /** The UI ports that closed most recently, oldest first; see `stopLocalSigningsOf`. */
+  private closedUiPorts = new Set<QbitSendClaimOwner>()
+
+  /**
+   * Set while an auto-lock that fell due is held: the wall-clock time when it
+   * locks after all. See `holdAutoLockForSigning` and `settleAutoLockAfterSignings`.
+   */
+  private autoLockHoldEndsAt: number | undefined
+
+  /**
+   * Set when the hold began because the deadline's timer ran out (or the
+   * deadline was found overdue): the deadline has passed even if the wall
+   * clock moved back since. See `settleAutoLockAfterSignings`.
+   */
+  private autoLockHeldPastDeadline = false
+
+  /**
+   * The timer that ends a hold for good, armed when the hold first starts (or
+   * a page is first owed its minute) and re-armed by nothing until the hold
+   * ends, and whether it ran out. A hold that starts over (after the minute
+   * after a signing, for the next signing) lasts no longer, whatever the wall
+   * clock says. See `armAutoLockHoldExpiry`.
+   */
+  private autoLockHoldTimer: ReturnType<typeof setTimeout> | undefined
+  private autoLockHoldExpired = false
+
+  /**
+   * Marks the deadline passed (`autoLockHeldPastDeadline`) when it comes while
+   * a page is owed its minute and no signing holds the auto-lock: only the
+   * wall clock would know it otherwise, and moving that back would let a
+   * screen action start the time over. See `markAutoLockDeadlineIn`.
+   */
+  private autoLockDeadlineTimer: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * The pages owed the minute after their signing while an auto-lock is held
+   * (those whose signing ended while it was held or about to fall due), each
+   * with the wall-clock end of its minute. See `settleAutoLockAfterSignings`
+   * and `stopLocalSigningsOf`.
+   */
+  private autoLockHoldPages = new Map<QbitSendClaimOwner, number>()
+
+  /**
+   * Start a local signing call for the wallet page `page`, from its first
+   * check through its reads and its wait in the send guard's queue to its
+   * last input. Only screen actions start the auto-lock time over, and a
+   * large signing runs for minutes while the user waits; a lock then detaches
+   * the keyring, and the signing fails at its next input. So an auto-lock
+   * that falls due during the call waits for it, for at most
+   * AUTO_LOCK_SIGNING_GRACE_MS past the time it fell due, and locks
+   * AUTO_LOCK_SIGNING_HANDOFF_MS after the last such call ends: time for the
+   * page to hand the signed transaction to its broadcast and show the result.
+   * That broadcast holds it the same way (see `broadcastQbitTx`), and the
+   * minute then runs from its verdict. A signing is not a screen action, so back-to-back signings never extend
+   * that limit. It holds only while its page waits: when the page closes,
+   * nothing can receive the signed bytes, so the signing stops before its
+   * next input (`stopLocalSigningsOf`) and holds nothing. A signing that came
+   * through no page never holds. The lock button, the computer locking and
+   * the last window closing still lock at once.
+   */
+  private beginLocalSigning = (page: QbitSendClaimOwner | undefined): LocalSigning => {
+    const signing: LocalSigning = {
+      page,
+      stop: new AbortController(),
+      locksBefore: this.lockRequests,
+    }
+    // Its page closed before the call got here: it stops before its first
+    // input and holds nothing.
+    if (page !== undefined && this.closedUiPorts.has(page)) signing.stop.abort()
+    this.localSignings.add(signing)
+    return signing
+  }
+
+  /** The local signing call `signing` ended; `signed` says whether it handed back signed bytes. */
+  private endLocalSigning = (signing: LocalSigning, signed: boolean): void => {
+    const held = this.signingHoldsAutoLock(signing)
+    this.localSignings.delete(signing)
+    if (!held) return
+    // Its page may still be handing the result off, or showing what went
+    // wrong, when the deadline comes. Once the deadline has passed it is owed
+    // the minute whatever the outcome, since the user waited for it. Before
+    // that, only signed bytes are owed it (under a hold, or with the deadline
+    // less than the minute away), so a call that fails at once never
+    // stretches the session past its deadline.
+    const now = this.now()
+    const dueAt = this.autoLockDueAt
+    if (
+      signing.page !== undefined &&
+      dueAt !== undefined &&
+      (this.autoLockOverdue() ||
+        (signed &&
+          (this.autoLockHoldEndsAt !== undefined || dueAt - now < AUTO_LOCK_SIGNING_HANDOFF_MS)))
+    ) {
+      this.autoLockHoldPages.set(signing.page, now + AUTO_LOCK_SIGNING_HANDOFF_MS)
+    }
+    if (this.signingsHoldingAutoLock() > 0) return
+    // Bookkeeping only: it must never turn the signing's own outcome into a
+    // failure. If it fails, the auto-lock timer armed before stays.
+    try {
+      this.settleAutoLockAfterSignings()
+    } catch (error) {
+      log.error('[WalletController] Auto-lock update after signing failed', summarizeError(error))
+    }
+  }
+
+  /** Whether `signing` holds the auto-lock: its page still waits for it. */
+  private signingHoldsAutoLock = (signing: LocalSigning): boolean =>
+    signing.page !== undefined && !signing.stop.signal.aborted
+
+  private signingsHoldingAutoLock = (): number =>
+    [...this.localSignings].filter(this.signingHoldsAutoLock).length
+
+  /**
+   * The page `page` closed: stop its signings before their next input, since
+   * nothing can receive their signed bytes, and end the hold of an overdue
+   * auto-lock that only they held. The page is remembered, so that a signing
+   * call of it still on its way stops as it arrives.
+   */
+  private stopLocalSigningsOf = (page: QbitSendClaimOwner): void => {
+    this.closedUiPorts.add(page)
+    if (this.closedUiPorts.size > CLOSED_UI_PORTS_KEPT) {
+      this.closedUiPorts.delete(this.closedUiPorts.values().next().value!)
+    }
+    for (const signing of this.localSignings) {
+      if (signing.page === page) signing.stop.abort()
+    }
+    this.autoLockHoldPages.delete(page)
+    if (this.signingsHoldingAutoLock() > 0) return
+    // Nothing held and nothing owed: the deadline's timer stands.
+    if (this.autoLockHoldEndsAt === undefined && this.autoLockHoldPages.size === 0) return
+    this.settleAutoLockAfterSignings()
+  }
+
+  /**
+   * The error a local signing call reports for `error`: a lock since
+   * `locksBefore` detaches the keyring, so the call fails at its next step
+   * with whatever it hit first (the keyring's liveness check, the vault write
+   * that has no password any more, or a read of the account). It reads as
+   * WALLET_LOCKED_DURING_SIGNING instead: the transaction was not signed, so
+   * nothing was sent. An error that carries a code, such as a migration
+   * review the lock closed, keeps it: its screen acts on that code.
+   */
+  private signingErrorAfterLocks = (error: unknown, locksBefore: number): unknown =>
+    this.lockRequests !== locksBefore && (error as { code?: unknown } | null)?.code === undefined
+      ? new WalletError(ErrorCodes.WALLET_LOCKED_DURING_SIGNING)
+      : error
+
+  /** Whether the wallet reads locked; false when that cannot be read. */
+  private readsLocked = (): boolean => {
+    try {
+      return !this.isUnlocked()
+    } catch {
+      return false
+    }
+  }
+
+  private armAutoLockTimer = (ms: number): void => {
+    clearTimeout(this.timer)
+    this.timer = setTimeout(this.autoLockNow, ms)
+  }
+
+  /**
+   * Arm the timer that ends the hold for good, `ms` from now, unless one is
+   * armed already: when it runs out the auto-lock locks, and no signing holds
+   * it again until it has.
+   */
+  /** Mark the deadline passed `ms` from now, or now if that is not ahead: see `autoLockDeadlineTimer`. */
+  private markAutoLockDeadlineIn = (ms: number): void => {
+    clearTimeout(this.autoLockDeadlineTimer)
+    this.autoLockDeadlineTimer = undefined
+    if (ms <= 0) {
+      this.autoLockHeldPastDeadline = true
+      return
+    }
+    this.autoLockDeadlineTimer = setTimeout(() => {
+      this.autoLockDeadlineTimer = undefined
+      this.autoLockHeldPastDeadline = true
+    }, ms)
+  }
+
+  private armAutoLockHoldExpiry = (ms: number): void => {
+    if (this.autoLockHoldTimer !== undefined) return
+    this.autoLockHoldTimer = setTimeout(() => {
+      this.autoLockHoldTimer = undefined
+      this.autoLockHoldExpired = true
+      this.autoLockNow()
+    }, ms)
+  }
+
+  /** Run the auto-lock now, logging rather than throwing a failure. */
+  private autoLockNow = (): void => {
+    this.autoLock().catch(error => {
+      log.error('[WalletController] Auto-lock failed', summarizeError(error))
+    })
+  }
+
+  private clearAutoLockHold = (): void => {
+    this.autoLockHoldEndsAt = undefined
+    this.autoLockHeldPastDeadline = false
+    clearTimeout(this.autoLockHoldTimer)
+    this.autoLockHoldTimer = undefined
+    this.autoLockHoldExpired = false
+    clearTimeout(this.autoLockDeadlineTimer)
+    this.autoLockDeadlineTimer = undefined
+    this.autoLockHoldPages.clear()
+  }
+
+  /** Whether an auto-lock is held now, by a signing or in the minute after one. */
+  private autoLockHeld = (): boolean =>
+    this.autoLockHoldEndsAt !== undefined && this.now() < this.autoLockHoldEndsAt
+
+  /**
+   * Whether the auto-lock deadline has passed: by the wall clock, or as a hold
+   * whose timer saw it pass, even if the wall clock moved back since.
+   */
+  private autoLockOverdue = (): boolean =>
+    this.autoLockHeldPastDeadline ||
+    (this.autoLockDueAt !== undefined && this.now() >= this.autoLockDueAt)
+
+  /** An overdue auto-lock held for a signing: no screen action or setting change starts its time over. */
+  private overdueAutoLockHeld = (): boolean => this.autoLockOverdue() && this.autoLockHeld()
+
+  /**
+   * Hold an auto-lock that fell due while a local signing runs: re-arm its
+   * timer for AUTO_LOCK_SIGNING_GRACE_MS past the time it fell due (see
+   * `beginLocalSigning`). Returns whether it is held; past that limit it is
+   * not.
+   */
+  private holdAutoLockForSigning = (): boolean => {
+    const dueAt = this.autoLockDueAt
+    if (dueAt === undefined || this.signingsHoldingAutoLock() === 0) return false
+    // The hold lasts until AUTO_LOCK_SIGNING_GRACE_MS past the deadline by
+    // the wall clock, and ends for good when the timer its first start armed
+    // runs out, so moving the clock back cannot stretch it.
+    if (this.autoLockHoldExpired) return false
+    const now = this.now()
+    const remaining = Math.min(dueAt + AUTO_LOCK_SIGNING_GRACE_MS - now, AUTO_LOCK_SIGNING_GRACE_MS)
+    if (remaining <= 0) return false
+    this.autoLockHoldEndsAt = now + remaining
+    this.autoLockHeldPastDeadline = true
+    this.armAutoLockTimer(remaining)
+    this.armAutoLockHoldExpiry(remaining)
+    return true
+  }
+
+  /**
+   * No signing holds the auto-lock any more: a signing ended, or a page closed
+   * and stopped its own. The auto-lock locks at its deadline, or at the end of
+   * the last minute still owed to a page (`autoLockHoldPages`) when that comes
+   * later, and never later than AUTO_LOCK_SIGNING_GRACE_MS past the deadline.
+   * Past that time it locks now. Every timer this arms lasts no longer than the
+   * auto-lock time, or the grace and the minute, whatever the wall clock did.
+   */
+  private settleAutoLockAfterSignings = (): void => {
+    const dueAt = this.autoLockDueAt
+    if (dueAt === undefined || !this.isUnlocked() || !keyringService.hasVault()) {
+      this.clearAutoLockHold()
+      return
+    }
+    const now = this.now()
+    // A deadline the timer already saw pass counts as passed, whatever the
+    // wall clock says now.
+    const deadline = this.autoLockHeldPastDeadline ? Math.min(dueAt, now) : dueAt
+    const owedUntil = Math.max(-Infinity, ...this.autoLockHoldPages.values())
+    if (owedUntil <= deadline) {
+      this.clearAutoLockHold()
+      if (now >= deadline) {
+        this.autoLockNow()
+        return
+      }
+      this.armAutoLockTimer(Math.min(deadline - now, this.autoLockTimeMs()))
+      return
+    }
+    const locksAt = Math.min(deadline + AUTO_LOCK_SIGNING_GRACE_MS, owedUntil)
+    if (now >= locksAt) {
+      this.clearAutoLockHold()
+      this.autoLockNow()
+      return
+    }
+    this.autoLockHoldEndsAt = locksAt
+    this.armAutoLockTimer(Math.min(locksAt - now, AUTO_LOCK_SIGNING_GRACE_MS))
+    // From here on the limit stands, also if the wall clock moves back
+    // before a signing holds the auto-lock again.
+    this.armAutoLockHoldExpiry(
+      Math.min(
+        deadline + AUTO_LOCK_SIGNING_GRACE_MS - now,
+        AUTO_LOCK_SIGNING_GRACE_MS + AUTO_LOCK_SIGNING_HANDOFF_MS
+      )
+    )
+    if (!this.autoLockHeldPastDeadline) this.markAutoLockDeadlineIn(deadline - now)
+  }
+
+  /** The auto-lock time the user chose, in milliseconds. */
+  private autoLockTimeMs = (): number => getLockTimeInfo(preferenceService.getAutoLockTimeId()).time
+
   /**
    * A screen action: start the auto-lock time over, unless the auto-lock is
    * overdue, which locks instead (see `lockIfAutoLockOverdue`). On the unlock
    * screen an action re-arms the timer as before, so an unlock it overlaps is
-   * not locked straight away.
+   * not locked straight away. An overdue auto-lock held for a signing, or in
+   * the minute after one, neither locks nor starts over: a screen action
+   * never extends a session whose time has passed.
    */
   setLastActiveTime = async () => {
     if (await this.lockIfAutoLockOverdue()) return
+    if (this.overdueAutoLockHeld()) return
     this._resetTimeout()
   }
 
@@ -9688,36 +10143,44 @@ export class WalletController extends BaseController {
    * the computer's idle state changes, as it does on waking, since the timer
    * does not count the time the computer sleeps. Only an unlocked wallet that
    * has a vault has a session to end: during first-time onboarding there is
-   * no vault to unlock again, and locking would strand the user. Resolves
-   * with whether it locked.
+   * no vault to unlock again, and locking would strand the user. An auto-lock
+   * held by or after a local signing does not lock yet (see
+   * `beginLocalSigning`). Resolves with whether it locked.
    */
   lockIfAutoLockOverdue = async (): Promise<boolean> => {
-    if (this.autoLockDueAt === undefined || this.now() < this.autoLockDueAt) return false
+    if (this.autoLockDueAt === undefined || !this.autoLockOverdue()) return false
     if (!this.isUnlocked() || !keyringService.hasVault()) return false
+    if (this.autoLockHeld() || this.holdAutoLockForSigning()) return false
     await this.autoLock()
     return true
   }
 
   private _resetTimeout = () => {
-    if (this.timer) {
-      clearTimeout(this.timer)
+    const owed = new Map(this.autoLockHoldPages)
+    this.clearAutoLockHold()
+    const autoLockMs = this.autoLockTimeMs()
+    const now = this.now()
+    this.autoLockDueAt = now + autoLockMs
+    // A screen action never cuts a page's minute after its signing short.
+    const owedUntil = Math.max(-Infinity, ...owed.values())
+    if (owedUntil > this.autoLockDueAt) {
+      for (const [page, until] of owed) this.autoLockHoldPages.set(page, until)
+      this.autoLockHoldEndsAt = owedUntil
+      this.armAutoLockTimer(Math.min(owedUntil - now, AUTO_LOCK_SIGNING_HANDOFF_MS))
+      this.armAutoLockHoldExpiry(autoLockMs + AUTO_LOCK_SIGNING_GRACE_MS)
+      this.markAutoLockDeadlineIn(autoLockMs)
+      return
     }
-
-    const timeId = preferenceService.getAutoLockTimeId()
-    const timeConfig = getLockTimeInfo(timeId)
-    this.autoLockDueAt = this.now() + timeConfig.time
-    this.timer = setTimeout(() => {
-      this.autoLock().catch(error => {
-        log.error('[WalletController] Auto-lock failed', summarizeError(error))
-      })
-    }, timeConfig.time)
+    this.armAutoLockTimer(autoLockMs)
   }
 
   /** The auto-lock: its timer ran out, or its deadline passed. */
   private autoLock = (): Promise<void> => {
+    if (this.isUnlocked() && this.holdAutoLockForSigning()) return Promise.resolve()
     clearTimeout(this.timer)
     this.timer = null
     this.autoLockDueAt = undefined
+    this.clearAutoLockHold()
     // A timer armed on the unlock screen finds nothing to lock, and must not
     // cut short an unlock under way.
     if (!this.isUnlocked()) return Promise.resolve()
