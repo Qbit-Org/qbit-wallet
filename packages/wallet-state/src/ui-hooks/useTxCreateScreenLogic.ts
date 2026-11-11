@@ -571,6 +571,10 @@ export function useTxCreateScreenLogic() {
     disabled: disabled || feeRateHeld,
     // Over the explorer's listing limit: the account can consolidate its outputs.
     showConsolidate: overExplorerLimit,
+    // What consolidating does for sends, which read the outputs from the
+    // account's history; not once that read has failed and the account
+    // cannot send.
+    consolidationNote: overExplorerLimit && !utxoLimitExceeded ? t('consolidation_send_note') : '',
 
     onClickNext,
     onClickConsolidate,

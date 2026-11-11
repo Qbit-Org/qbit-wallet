@@ -1713,10 +1713,10 @@
     "message": "Not moved yet"
   },
   "qbit_recovery_deferred_history_too_large": {
-    "message": "This account holds more outputs than the explorer lists and has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Switch to it, open Send and choose Consolidate outputs until it is within the explorer's limit, then return here."
+    "message": "The explorer does not list this account's outputs, and the account has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Consolidating does not change that. They can be moved here once the explorer's operator raises its limit and the explorer lists the outputs again."
   },
   "qbit_recovery_deferred_history_incomplete": {
-    "message": "This account holds more outputs than the explorer lists, and the wallet could not read its whole history from the explorer to find them, so its funds have not been moved yet. This can clear once its pending transactions change, for example when one confirms. Choose Check status and resume later to try again."
+    "message": "The explorer does not list this account's outputs, and the wallet could not read its whole history from the explorer to find them, so its funds have not been moved yet. This can clear once its pending transactions change, for example when one confirms. Choose Check status and resume later to try again."
   },
   "qbit_recovery_plan_prepared": {
     "message": "Ready for review and signing"
@@ -1914,7 +1914,7 @@
     "message": "Together with your earlier send that has not confirmed yet, this send would be larger than the network accepts. Wait for the earlier send to confirm, or send a smaller amount."
   },
   "utxo_limit_exceeded_balance": {
-    "message": "Too many outputs for the explorer to list. This total comes from the address summary."
+    "message": "The explorer does not list this account's outputs. This total comes from the address summary."
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Available and unavailable amounts are unknown because the explorer does not list this account's outputs."
@@ -1926,7 +1926,7 @@
     "message": "Balance could not be refreshed and may be out of date."
   },
   "utxo_limit_exceeded_send": {
-    "message": "This account can't send right now: it holds more outputs than the explorer lists, and the wallet couldn't read them all from its history. Consolidate its outputs to make them spendable."
+    "message": "The explorer does not list this account's outputs, and the wallet could not read them all from its history, so it cannot send from this account now. Reopen Send to try again."
   },
   "consolidate_outputs": {
     "message": "Consolidate outputs"
@@ -1935,10 +1935,16 @@
     "message": "Each batch sends this account's largest confirmed outputs back to its own address as one output. You choose how many go into each batch, and you review and sign every batch."
   },
   "consolidation_status": {
-    "message": "$1 confirmed outputs; the explorer lists up to $2. About $3 more batches of $4 outputs bring this account within that limit."
+    "message": "$1 confirmed outputs; the explorer lists up to $2 per address and refuses to list this account's."
+  },
+  "consolidation_status_no_limit": {
+    "message": "$1 confirmed outputs; the explorer refuses to list this account's."
+  },
+  "consolidation_refusal_lasts": {
+    "message": "Once an address has held more outputs than the explorer's limit, the explorer keeps refusing to list it, even after consolidation, until its operator raises the limit."
   },
   "consolidation_within_limit": {
-    "message": "This account is within the explorer's limit of $1 outputs. Nothing needs consolidating."
+    "message": "The explorer lists this account's outputs. Nothing needs consolidating."
   },
   "consolidation_pending": {
     "message": "Unconfirmed transactions spend $1 of these outputs. They leave the count once those transactions confirm."
@@ -1953,13 +1959,10 @@
     "message": "Consolidate next batch"
   },
   "consolidation_send_note": {
-    "message": "This account holds more outputs than the explorer lists. Consolidate them so it can send and migrate normally again."
-  },
-  "consolidation_status_confirming": {
-    "message": "$1 confirmed outputs; the explorer lists up to $2. The pending batches bring this account within that limit once they confirm."
+    "message": "The explorer does not list this account's outputs, so the wallet reads them from its history. Consolidating merges them into fewer outputs, so sends need fewer inputs."
   },
   "consolidation_error_within_limit": {
-    "message": "This account is within the explorer's output limit. It does not need consolidating."
+    "message": "The explorer lists this account's outputs. It does not need consolidating."
   },
   "consolidation_error_nothing_ready": {
     "message": "No confirmed outputs are ready to consolidate yet. Try again later."
@@ -1972,9 +1975,6 @@
   },
   "consolidation_error_keep_reading": {
     "message": "The wallet has read part of this account's history without finding outputs ready to merge. Prepare again to read further."
-  },
-  "consolidation_status_counts": {
-    "message": "$1 confirmed outputs; the explorer lists up to $2."
   },
   "consolidation_batch_size_label": {
     "message": "Outputs per batch"

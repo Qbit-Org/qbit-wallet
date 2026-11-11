@@ -1888,10 +1888,12 @@ describe('TxCreateScreen state hooks', () => {
         expect(result.current.error).toBe('utxo_limit_exceeded_send')
         expect(result.current.disabled).toBe(true)
       })
-      // Unknown, not zero, and the way out is offered.
+      // Unknown, not zero. Consolidation is still offered, but not the note
+      // that sends read the outputs from history: that read failed (#169).
       expect(result.current.availableAmount).toBe('--')
       expect(result.current.unavailableAmount).toBe('--')
       expect(result.current.showConsolidate).toBe(true)
+      expect(result.current.consolidationNote).toBe('')
       act(() => {
         result.current.onClickConsolidate()
       })
@@ -2074,6 +2076,7 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.showUnavailable).toBe(true)
       expect(result.current.error).toBe('')
       expect(result.current.showConsolidate).toBe(true)
+      expect(result.current.consolidationNote).toBe('consolidation_send_note')
     })
 
     it('shows an unknown balance figure as unknown, not 0, for an account without a P2MR script (#341)', async () => {
@@ -2155,6 +2158,7 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.error).toBe('')
       expect(result.current.availableAmount).toBe('0.06000000')
       expect(result.current.showConsolidate).toBe(true)
+      expect(result.current.consolidationNote).toBe('consolidation_send_note')
     })
 
     it('names the largest standard send when an amount needs more than 106 inputs', async () => {

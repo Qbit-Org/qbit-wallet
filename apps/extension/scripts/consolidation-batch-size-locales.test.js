@@ -8,13 +8,12 @@ const test = require('node:test');
 const localesDir = path.resolve(__dirname, '../src/_locales');
 const REQUIRED_LOCALES = ['en', 'es', 'fr', 'ja', 'ru', 'zh_TW'];
 // The consolidation screen's batch size (#170), with the placeholders each
-// key takes: the description and status lines, the field's label, range and
-// error, the fee of a full batch, and what a smaller batch adds in fees.
+// key takes: the description line, the field's label, range and error, the
+// fee of a full batch, and what a smaller batch adds in fees. The status
+// lines, which promise no number of batches (#169), are checked in
+// consolidation-locales.test.js.
 const KEYS = {
   consolidation_description: [],
-  consolidation_status: ['$1', '$2', '$3', '$4'],
-  consolidation_status_counts: ['$1', '$2'],
-  consolidation_status_confirming: ['$1', '$2'],
   consolidation_batch_size_label: [],
   consolidation_batch_size_range: ['$1', '$2'],
   consolidation_batch_size_invalid: ['$1', '$2'],

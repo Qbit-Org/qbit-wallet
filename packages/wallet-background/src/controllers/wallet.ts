@@ -216,7 +216,6 @@ import {
   findActiveQbitAddressGroups,
   findQbitSpentOutpoints,
   getQbitAccountHistory,
-  getQbitAddressOutputCounts,
   getQbitAddressUtxos,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitAddressSummaries,
@@ -224,6 +223,7 @@ import {
   getQbitRawTransactionHex,
   getQbitSpendableBalanceV2,
   getQbitTxSpenders,
+  getQbitUtxoListLimit,
   isQbitChainType,
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
@@ -233,7 +233,6 @@ import {
   probeQbitAccountHistoryRevision,
   qbitAddressHasUnconfirmedSpends,
   qbitAddressOutputCounts,
-  QBIT_EXPLORER_DEFAULT_UTXO_LIMIT,
   QBIT_FEE_QUOTE_TTL_MS,
   qbitBalanceToWalletBalance,
   qbitFeeSummaryFromTiers,
@@ -3334,9 +3333,11 @@ export class WalletController extends BaseController {
    * explorer will not list them, and their history is too long to read them
    * from, or, with `deferIncompleteHistory`, could not be read in full
    * through the read's own retries. Such a source is never planned or counted
-   * as swept, so its funds keep the migration open. A history too long may
-   * consolidate meanwhile (#344); one not read in full is read again by the
-   * next pass. Any other failure still fails the pass.
+   * as swept, so its funds keep the migration open. A history too long is
+   * planned once the explorer lists the source again, which takes its
+   * operator raising the limit, since consolidating does not end the refusal
+   * (#169); one not read in full is read again by the next pass. Any other
+   * failure still fails the pass.
    */
   private readQbitRecoverySourceUtxos = async (
     client: QbitWalletApiClient,
@@ -7722,26 +7723,34 @@ export class WalletController extends BaseController {
     return this.createSendAllQbitPsbtForAccount(data, account)
   }
 
-  /** Where the current account stands against the explorer's listing limit. */
+  /**
+   * Where the current account stands against the explorer's listing limit:
+   * whether the explorer refuses to list its outputs, as it answers now
+   * (`getQbitUtxoListLimit`), and the limit its refusal states.
+   */
   getQbitConsolidationStatus = async (): Promise<QbitConsolidationStatus> => {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
     const chain = this.getChainType()
     if (!account.p2mr) throw new Error(t('not_supported'))
-    const counts = await getQbitAddressOutputCounts(this.getQbitApiClient(chain), account.address)
+    const client = this.getQbitApiClient(chain)
+    const stats = await client.getAddressStats(account.address)
+    const counts = qbitAddressOutputCounts(stats, account.address)
+    const listing = await getQbitUtxoListLimit(client, account.address, stats)
     return {
       chain,
       address: account.address,
       ...counts,
-      outputLimit: QBIT_EXPLORER_DEFAULT_UTXO_LIMIT,
+      overLimit: listing.overLimit,
+      outputLimit: listing.overLimit ? (listing.limit ?? null) : null,
       maxInputCount: this.qbitConsolidationMaxInputCount(account),
       batchShape: this.qbitConsolidationShape(account),
     }
   }
 
   /**
-   * The next batch of a consolidation of the current account, which holds
-   * more confirmed outputs than the explorer will list: its largest mature
+   * The next batch of a consolidation of the current account, whose outputs
+   * the explorer refuses to list (`getQbitUtxoListLimit`): its largest mature
    * confirmed outputs, up to the request's batch size, sent whole to its own
    * address. The batch size (`maxInputs`) is a whole number from 2 to the
    * account's `maxInputCount`, the most one transaction carries within the
@@ -7793,7 +7802,10 @@ export class WalletController extends BaseController {
     const client = this.getQbitApiClient(chain)
     const stats = await client.getAddressStats(account.address, operation.read())
     const counts = qbitAddressOutputCounts(stats, account.address)
-    if (counts.confirmedUnspent <= QBIT_EXPLORER_DEFAULT_UTXO_LIMIT) {
+    // The explorer's answer, not the count: it keeps refusing an account
+    // that once passed its limit, with fewer outputs than that now.
+    const listing = await getQbitUtxoListLimit(client, account.address, stats, operation.read())
+    if (!listing.overLimit) {
       throw new Error(t('consolidation_error_within_limit'))
     }
     // A recovery migration cannot read such an account's outputs to plan
@@ -7873,7 +7885,7 @@ export class WalletController extends BaseController {
     this.recordQbitConsolidationBatch(qbitPsbtTxid(psbt), fundingOutputCounts)
     const qbitConsolidation: QbitConsolidationBatch = {
       confirmedOutputCount: counts.confirmedUnspent,
-      outputLimit: QBIT_EXPLORER_DEFAULT_UTXO_LIMIT,
+      outputLimit: listing.limit ?? null,
       amount: Number(decodeQbitPsbt(psbt).outputs[0]!.value),
       fundingOutputCounts,
       maxInputs: batchSize,

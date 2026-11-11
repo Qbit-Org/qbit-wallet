@@ -1713,10 +1713,10 @@
     "message": "Aún sin mover"
   },
   "qbit_recovery_deferred_history_too_large": {
-    "message": "Esta cuenta tiene más salidas de las que el explorador lista y más de $1 transacciones, demasiadas para que la cartera lea sus salidas desde su historial, así que sus fondos no se han movido. Cambia a esta cuenta, abre Enviar y elige Consolidar salidas hasta que quede dentro del límite del explorador; después vuelve aquí."
+    "message": "El explorador no lista las salidas de esta cuenta, y la cuenta tiene más de $1 transacciones, demasiadas para que la billetera lea sus salidas desde su historial, así que sus fondos no se han movido. Consolidar no cambia eso. Podrán moverse aquí cuando el operador del explorador suba su límite y el explorador vuelva a listar esas salidas."
   },
   "qbit_recovery_deferred_history_incomplete": {
-    "message": "Esta cuenta tiene más salidas de las que el explorador lista, y la cartera no pudo leer todo su historial desde el explorador para encontrarlas, así que sus fondos aún no se han movido. Esto puede resolverse cuando cambien sus transacciones pendientes, por ejemplo cuando una se confirme. Elige Comprobar estado y reanudar más tarde para volver a intentarlo."
+    "message": "El explorador no lista las salidas de esta cuenta, y la cartera no pudo leer todo su historial desde el explorador para encontrarlas, así que sus fondos aún no se han movido. Esto puede resolverse cuando cambien sus transacciones pendientes, por ejemplo cuando una se confirme. Elige Comprobar estado y reanudar más tarde para volver a intentarlo."
   },
   "qbit_recovery_plan_prepared": {
     "message": "Lista para revisión y firma"
@@ -1914,7 +1914,7 @@
     "message": "Junto con tu envío anterior, que aún no se ha confirmado, este envío superaría el tamaño que acepta la red. Espera a que se confirme el envío anterior o envía un importe menor."
   },
   "utxo_limit_exceeded_balance": {
-    "message": "Demasiadas salidas para que el explorador las liste. Este total procede del resumen de la dirección."
+    "message": "El explorador no lista las salidas de esta cuenta. Este total procede del resumen de la dirección."
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Los importes disponible y no disponible se desconocen porque el explorador no lista las salidas de esta cuenta."
@@ -1926,7 +1926,7 @@
     "message": "No se pudo actualizar el saldo; puede que no esté al día."
   },
   "utxo_limit_exceeded_send": {
-    "message": "No se puede enviar desde esta cuenta por ahora: tiene más salidas de las que el explorador lista y la billetera no pudo leerlas todas de su historial. Consolida sus salidas para poder gastarlas."
+    "message": "El explorador no lista las salidas de esta cuenta y la billetera no pudo leerlas todas de su historial, así que ahora no puede enviar desde esta cuenta. Vuelve a abrir Enviar para intentarlo de nuevo."
   },
   "consolidate_outputs": {
     "message": "Consolidar salidas"
@@ -1935,10 +1935,16 @@
     "message": "Cada lote envía las salidas confirmadas más grandes de esta cuenta a su propia dirección como una sola salida. Tú eliges cuántas entran en cada lote, y revisas y firmas cada lote."
   },
   "consolidation_status": {
-    "message": "$1 salidas confirmadas; el explorador lista hasta $2. Unos $3 lotes más de $4 salidas dejan esta cuenta dentro de ese límite."
+    "message": "$1 salidas confirmadas; el explorador lista hasta $2 por dirección y se niega a listar las de esta cuenta."
+  },
+  "consolidation_status_no_limit": {
+    "message": "$1 salidas confirmadas; el explorador se niega a listar las de esta cuenta."
+  },
+  "consolidation_refusal_lasts": {
+    "message": "Cuando una dirección ha tenido más salidas que el límite del explorador, este sigue negándose a listarla, incluso después de consolidarla, hasta que su operador suba el límite."
   },
   "consolidation_within_limit": {
-    "message": "Esta cuenta está dentro del límite de $1 salidas del explorador. No hace falta consolidar nada."
+    "message": "El explorador lista las salidas de esta cuenta. No hace falta consolidar nada."
   },
   "consolidation_pending": {
     "message": "Transacciones sin confirmar gastan $1 de estas salidas. Dejan de contar cuando esas transacciones se confirman."
@@ -1953,13 +1959,10 @@
     "message": "Consolidar el siguiente lote"
   },
   "consolidation_send_note": {
-    "message": "Esta cuenta tiene más salidas de las que el explorador lista. Consolídalas para que pueda enviar y migrar con normalidad otra vez."
-  },
-  "consolidation_status_confirming": {
-    "message": "$1 salidas confirmadas; el explorador lista hasta $2. Los lotes pendientes dejan esta cuenta dentro de ese límite cuando se confirmen."
+    "message": "El explorador no lista las salidas de esta cuenta, así que la billetera las lee de su historial. Consolidarlas las agrupa en menos salidas, y así los envíos necesitan menos entradas."
   },
   "consolidation_error_within_limit": {
-    "message": "Esta cuenta está dentro del límite de salidas del explorador. No hace falta consolidarla."
+    "message": "El explorador lista las salidas de esta cuenta. No hace falta consolidarla."
   },
   "consolidation_error_nothing_ready": {
     "message": "Todavía no hay salidas confirmadas listas para consolidar. Inténtalo más tarde."
@@ -1972,9 +1975,6 @@
   },
   "consolidation_error_keep_reading": {
     "message": "La billetera leyó parte del historial de esta cuenta sin encontrar salidas listas para unir. Prepara de nuevo para seguir leyendo."
-  },
-  "consolidation_status_counts": {
-    "message": "$1 salidas confirmadas; el explorador lista hasta $2."
   },
   "consolidation_batch_size_label": {
     "message": "Salidas por lote"

@@ -687,9 +687,11 @@ Residual risk:
   refused; a smaller inflated floor stands, because floors only rise. See
   [PQC counter custody and restoration](#pqc-counter-custody-and-restoration).
 - the explorer refuses to list the outputs of an address over its
-  `--utxos-limit` (the wallet assumes electrs' default of 500). The wallet then
-  reads them from the address's history, which fails closed, or consolidates
-  them in batches it verifies unspent. See
+  `--utxos-limit`: electrs' refusal states the limit, which mempool-qbit
+  relays with HTTP 413, and for an older explorer's bare HTTP 500 the wallet
+  assumes electrs' default of 500. An indexer can claim this refusal for any
+  address. The wallet then reads the outputs from the address's history,
+  which fails closed, or consolidates them in batches it verifies unspent. See
   [Explorer UTXO listing limit](./explorer-utxo-limit.md).
 - network endpoints learn queried wallet addresses. This review does not claim
   network-level privacy.

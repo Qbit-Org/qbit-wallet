@@ -52,6 +52,7 @@ export default function TxCreateScreen() {
     error,
     disabled,
     showConsolidate,
+    consolidationNote,
 
     onClickNext,
     onClickConsolidate
@@ -289,7 +290,9 @@ export default function TxCreateScreen() {
 
           {showConsolidate ? (
             <Column>
-              <Text text={t('consolidation_send_note')} size="xs" color="textDim" />
+              {consolidationNote ? (
+                <Text text={consolidationNote} size="xs" color="textDim" data-testid="consolidation-send-note" />
+              ) : null}
               <Button
                 preset="default"
                 text={t('consolidate_outputs')}

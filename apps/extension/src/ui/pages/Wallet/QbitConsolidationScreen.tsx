@@ -42,6 +42,7 @@ export default function QbitConsolidationScreen() {
     headerTitle,
     description,
     statusText,
+    refusalText,
     pendingText,
     batch,
     batchSummary,
@@ -86,6 +87,9 @@ export default function QbitConsolidationScreen() {
         <Column>
           <Text text={description} preset="sub" color="textDim" />
           {statusText ? <Text text={statusText} preset="regular" data-testid="consolidation-status" /> : null}
+          {refusalText ? (
+            <Text text={refusalText} size="xs" color="textDim" data-testid="consolidation-refusal" />
+          ) : null}
           {pendingText ? (
             <Text text={pendingText} size="xs" color="textDim" data-testid="consolidation-pending" />
           ) : null}
