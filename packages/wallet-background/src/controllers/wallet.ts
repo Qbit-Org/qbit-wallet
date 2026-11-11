@@ -100,6 +100,8 @@ import {
   QbitSignatureBudgetImpact,
   type QbitBroadcastFailure,
   type QbitConsolidationBatch,
+  type QbitConsolidationBatchShape,
+  type QbitConsolidationRequest,
   type QbitConsolidationStatus,
   type QbitBroadcastIdentity,
   type QbitBroadcastLookup,
@@ -125,6 +127,7 @@ import {
   WalletError,
   WalletKeyring,
   type WebsiteSafetyResult,
+  assertQbitConsolidationBatchSize,
   assertQbitFeeRateWithinPolicy,
   bgI18n,
   createUnverifiedWebsiteResult,
@@ -993,6 +996,37 @@ function summarizeError(error: unknown): { name?: string; code?: number } {
  * the oldest one's outputs again.
  */
 const QBIT_LATEST_UTXO_READS_PER_CLIENT = 4
+
+/**
+ * `data` as a consolidation request. The UI port carries a call's arguments
+ * as JSON, so a request passed as `undefined` arrives as `null`; either is
+ * an empty request. Anything else that is not an object is refused.
+ */
+function qbitConsolidationRequestOf(data: unknown): QbitConsolidationRequest {
+  if (data === undefined || data === null) return {}
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new TypeError('Qbit consolidation request must be an object')
+  }
+  return data as QbitConsolidationRequest
+}
+
+/**
+ * The batch size `request` asks for: `maxInputCount`, the account's most,
+ * when `maxInputs` is omitted, or else `maxInputs` once it is a whole number
+ * from 2 to that (`assertQbitConsolidationBatchSize`, a `RangeError`
+ * otherwise). JSON drops a key whose value is `undefined`, but turns NaN and
+ * ±Infinity into `null`, so `null` is refused like the value it may stand
+ * for, never read as omitted.
+ */
+function qbitConsolidationBatchSize(
+  request: QbitConsolidationRequest,
+  maxInputCount: number
+): number {
+  const { maxInputs } = request
+  if (maxInputs === undefined) return maxInputCount
+  assertQbitConsolidationBatchSize(maxInputs, maxInputCount)
+  return maxInputs
+}
 
 /**
  * Whether the recovery sweep may spend `utxo` from `account`: a positive
@@ -7274,24 +7308,31 @@ export class WalletController extends BaseController {
       ...counts,
       outputLimit: QBIT_EXPLORER_DEFAULT_UTXO_LIMIT,
       maxInputCount: this.qbitConsolidationMaxInputCount(account),
+      batchShape: this.qbitConsolidationShape(account),
     }
   }
 
   /**
    * The next batch of a consolidation of the current account, which holds
    * more confirmed outputs than the explorer will list: its largest mature
-   * confirmed outputs, as many as one standard transaction carries, sent
-   * whole to its own address. They come from a walk of the account's
-   * history that continues where the previous batch stopped, never from a
-   * balance. Each is checked unspent at `/tx/:txid/outspends` here and again
-   * before signing, and the ones a send claim, signing lock or recent
-   * broadcast holds stay out, so a batch whose broadcast is unresolved is
-   * never spent twice and a run cut short resumes from what is still
-   * unspent. The batch goes through the ordinary confirm, sign and broadcast
-   * flow.
+   * confirmed outputs, up to the request's batch size, sent whole to its own
+   * address. The batch size (`maxInputs`) is a whole number from 2 to the
+   * account's `maxInputCount`, the most one transaction carries within the
+   * standard size; omitted, it is that most.
+   * Anything else is refused with a `RangeError` before any explorer read.
+   * The fee rate (`feeRate`) must be within the wallet's policy; omitted,
+   * it is the normal rate. Any other value, `null` included, is refused with
+   * a `RangeError` before any explorer read as well.
+   * The outputs come from a walk of the account's history that continues
+   * where the previous batch stopped, never from a balance. Each is checked
+   * unspent at `/tx/:txid/outspends` here and again before signing, and the
+   * ones a send claim, signing lock or recent broadcast holds stay out, so a
+   * batch whose broadcast is unresolved is never spent twice and a run cut
+   * short resumes from what is still unspent. The batch goes through the
+   * ordinary confirm, sign and broadcast flow.
    */
   createQbitConsolidationPsbt = async (
-    data: { feeRate?: number; enableRBF?: boolean } = {}
+    data: QbitConsolidationRequest = {}
   ): Promise<ToSignData> => {
     // Started once the batch has the account's scan: waiting behind another
     // batch, which its own deadline bounds, spends none of it.
@@ -7302,12 +7343,24 @@ export class WalletController extends BaseController {
     if (!account) throw new Error('no current account')
     assertCanCreateQbitP2mrSend(account)
     if (!account.p2mr) throw new Error('Missing P2MR account metadata')
+    const request = qbitConsolidationRequestOf(data)
+    const maxInputCount = this.qbitConsolidationMaxInputCount(account)
+    // Checked before the fee quote, the statistics and the walk below read
+    // anything.
+    const batchSize = qbitConsolidationBatchSize(request, maxInputCount)
     // The batch's inputs exist on this network only; the builder refuses
     // them if the wallet has moved to another one since.
     const chain = this.getChainType()
     // Unless given, the normal rate, or the relay floor without a quote.
+    // Only an omitted rate is not given: JSON drops a key whose value is
+    // `undefined`, but turns NaN and ±Infinity into `null`, so `null` is
+    // refused below like the value it may stand for, before any explorer
+    // read, never read as omitted (`??` would read it so).
+    const requestedFeeRate: unknown = request.feeRate
     const feeRate =
-      data.feeRate ?? (await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ?? 1
+      requestedFeeRate === undefined
+        ? ((await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ?? 1)
+        : requestedFeeRate
     assertQbitFeeRateWithinPolicy(feeRate)
 
     const client = this.getQbitApiClient(chain)
@@ -7316,7 +7369,6 @@ export class WalletController extends BaseController {
     if (counts.confirmedUnspent <= QBIT_EXPLORER_DEFAULT_UTXO_LIMIT) {
       throw new Error(t('consolidation_error_within_limit'))
     }
-    const maxInputCount = this.qbitConsolidationMaxInputCount(account)
     // A recovery migration cannot read such an account's outputs to plan
     // them, so while one is open the keyring signs its consolidation as well
     // as its plans, until it lists again (#344).
@@ -7331,6 +7383,7 @@ export class WalletController extends BaseController {
         client,
         entry,
         maxInputCount,
+        batchSize,
         feeRate,
         operation
       )
@@ -7351,7 +7404,7 @@ export class WalletController extends BaseController {
           })),
           qbitUtxoChain: chain,
           qbitUtxoAddress: account.address,
-          enableRBF: data.enableRBF ?? true,
+          enableRBF: request.enableRBF ?? true,
         },
         account,
         { migrationConsolidation }
@@ -7396,6 +7449,7 @@ export class WalletController extends BaseController {
       outputLimit: QBIT_EXPLORER_DEFAULT_UTXO_LIMIT,
       amount: Number(decodeQbitPsbt(psbt).outputs[0]!.value),
       fundingOutputCounts,
+      maxInputs: batchSize,
     }
     return {
       ...toSignData,
@@ -7417,9 +7471,7 @@ export class WalletController extends BaseController {
   }
 
   /** The shape of a consolidation batch: a whole-balance send to the account itself. */
-  private qbitConsolidationShape(
-    account: Account
-  ): Parameters<typeof qbitP2mrMaxStandardInputCount>[0] {
+  private qbitConsolidationShape(account: Account): QbitConsolidationBatchShape {
     return {
       outputScriptLengths: [qbitHexToBytes(account.p2mr!.scriptPubKey).length],
       leafScriptLength: qbitHexToBytes(account.p2mr!.leafScript).length,
@@ -7434,12 +7486,14 @@ export class WalletController extends BaseController {
 
   /**
    * The largest unguarded, mature, confirmed outputs the scan holds, up to
-   * `maxInputCount`, each confirmed unspent and worth more than the fee its
+   * `batchSize`, each confirmed unspent and worth more than the fee its
    * input adds at `feeRate`. The scan first reads further pages until it
    * holds that many, and enough to pay the batch's fee and a dust output, or
    * its page budget runs out, so the largest-first choice spans everything
    * read so far. Outputs found spent leave the scan and the next largest
    * take their place. Empty when what was read cannot make such a batch.
+   * Inputs earlier batches handed out are checked again up to twice
+   * `maxInputCount`, the account's most, whatever this batch's size.
    * Every read runs under `operation`, the batch's deadline.
    */
   private async selectQbitConsolidationInputs(
@@ -7448,6 +7502,7 @@ export class WalletController extends BaseController {
     client: QbitWalletApiClient,
     entry: QbitConsolidationScanEntry,
     maxInputCount: number,
+    batchSize: number,
     feeRate: number,
     operation: QbitExplorerOperation
   ): Promise<QbitHistoryOutputCandidate[]> {
@@ -7475,7 +7530,7 @@ export class WalletController extends BaseController {
     const choose = (): Chosen[] =>
       sortQbitCoinsByValue(
         usable().map(candidate => ({ ...candidate, satoshis: candidate.value }))
-      ).slice(0, maxInputCount)
+      ).slice(0, batchSize)
     // Whether a batch of `chosen` merges anything: two inputs or more that
     // pay their fee and leave at least a dust output.
     const affordable = (chosen: readonly Chosen[]): boolean =>
@@ -7497,7 +7552,9 @@ export class WalletController extends BaseController {
     }
     // Inputs of earlier batches nothing holds any more were spent once their
     // batch went out, or the batch was never signed; the explorer says which,
-    // and the unspent ones return to the walk.
+    // and the unspent ones return to the walk. The budget stays at the
+    // account's most, so batches of a smaller size still return what larger
+    // ones handed out.
     const released = [...handedOut.values()]
       .filter(candidate => !reserved.has(`${candidate.txid}:${candidate.vout}`))
       .slice(0, 2 * maxInputCount)
@@ -7528,7 +7585,7 @@ export class WalletController extends BaseController {
             // holds cannot make a batch at all.
             return (
               affordable(chosen) &&
-              (chosen.length >= maxInputCount ||
+              (chosen.length >= batchSize ||
                 scan.candidates.size >= QBIT_CONSOLIDATION_MAX_CANDIDATES)
             )
           },
@@ -8289,12 +8346,13 @@ export class WalletController extends BaseController {
           if (error instanceof QbitExplorerSpendCheckTimeoutError) deadlineRefused = true
           // A failed check is reported by its cause, as any explorer error:
           // never as a conflict. An answer it could not use is an unexpected
-          // response, and a read is no submission the node could reject.
+          // response, and a read is no submission the node could reject or
+          // the explorer could refuse as too large.
           if (error instanceof QbitExplorerSpendCheckFailedError) {
             const { reason } = QbitApiError.is(error.failure)
               ? classifyQbitBroadcastError(error.failure)
               : { reason: 'invalid_response' as const }
-            checkFailureReason = reason === 'rejected' ? 'server' : reason
+            checkFailureReason = reason === 'rejected' || reason === 'too_large' ? 'server' : reason
           }
           throw error
         }

@@ -102,6 +102,26 @@ export class FakeQbitExplorer {
    * replacement paying enough. Off by default: the conflict is refused.
    */
   acceptReplacements = false
+  /**
+   * Refuse a broadcast weighing more than this, as mempool-qbit's
+   * `validateTransactionHex` does with its `MAX_PUSH_TX_SIZE_WEIGHT`: HTTP
+   * 400 with code -3 and no message, before the node sees the bytes. The
+   * weight is `pushWeightRule`'s. Unset by default, as on Esplora, which has
+   * no such limit.
+   */
+  pushWeightLimit: number | undefined = undefined
+  /**
+   * How `pushWeightLimit` weighs a broadcast. `'size'` is explorer 1.1.0's
+   * rule (qbit-explorer#58): qbit's weight, `byteLength(false) *
+   * (WITNESS_SCALE_FACTOR - 1) + byteLength()` with a factor of 1, the
+   * serialized size with witness, the bound of qbit Core's standard size.
+   * `'base-times-four'` is the rule of deployments before it: the
+   * transaction library's `weight()`, base bytes ×4 plus witness bytes,
+   * which refuses single-key P2MR transactions from 103 inputs.
+   */
+  pushWeightRule: 'size' | 'base-times-four' = 'size'
+  /** The input count of every broadcast decoded, in order, refused ones included. */
+  readonly pushedInputCounts: number[] = []
   /** Raw bytes of broadcast transactions, served at `/tx/:txid/hex`. */
   private readonly rawHex = new Map<string, string>()
   private order = 0
@@ -492,12 +512,27 @@ export class FakeQbitExplorer {
     return notFound()
   }
 
+  /** `tx`'s weight by `pushWeightRule`. */
+  private pushWeight(tx: transactionCore.Transaction): number {
+    if (this.pushWeightRule === 'base-times-four') return tx.weight()
+    const witnessScaleFactor = 1
+    return tx.byteLength(false) * (witnessScaleFactor - 1) + tx.byteLength()
+  }
+
   private acceptBroadcast(rawHex: string): Response {
     let tx: transactionCore.Transaction
     try {
       tx = transactionCore.Transaction.fromHex(rawHex)
     } catch {
       return new Response('TX decode failed', { status: 400 })
+    }
+    this.pushedInputCounts.push(tx.ins.length)
+    // Checked on the hex before the node is asked, so even a transaction the
+    // node holds is refused.
+    if (this.pushWeightLimit !== undefined && this.pushWeight(tx) > this.pushWeightLimit) {
+      return new Response(JSON.stringify({ error: 'sendrawtransaction RPC error: {"code":-3}' }), {
+        status: 400,
+      })
     }
     const txid = tx.getId()
     // As qbit Core's sendrawtransaction: a transaction it already holds is

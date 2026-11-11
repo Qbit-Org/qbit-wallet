@@ -104,6 +104,7 @@ describe('useTxConfirmScreenLogic', () => {
         outputLimit: 500,
         amount: 1_000_000,
         fundingOutputCounts: [2],
+        maxInputs: 25,
       },
     }
     const { wrapper, navigation } = createHookTestHarness({
@@ -120,10 +121,59 @@ describe('useTxConfirmScreenLogic', () => {
       await confirm
     })
 
+    // With the batch's size, so the next batch keeps it (#170).
     expect(navigation.replace).toHaveBeenCalledWith('TxSuccessScreen', {
       txid: TXID,
       consolidation: true,
+      consolidationMaxInputs: 25,
     })
+  })
+
+  it('names no size for a consolidation batch that recorded none (#170)', async () => {
+    vi.useFakeTimers()
+    const wallet = walletWithBroadcast()
+    wallet.broadcastQbitTx.mockResolvedValue({
+      success: true,
+      chain: ChainType.QBIT_REGTEST,
+      txid: TXID,
+      via: 'broadcast',
+    })
+    // Route state kept from a build whose batches had no size, or one that
+    // is not a whole number.
+    for (const maxInputs of [undefined, 'max', 2.5]) {
+      const batch = {
+        ...toSignData,
+        qbitConsolidation: {
+          confirmedOutputCount: 700,
+          outputLimit: 500,
+          amount: 1_000_000,
+          fundingOutputCounts: [2],
+          ...(maxInputs === undefined ? {} : { maxInputs }),
+        },
+      }
+      const { wrapper, navigation } = createHookTestHarness({
+        wallet: wallet as any,
+        routeState: { toSignData: batch },
+      })
+      const { result, unmount } = renderHook(() => useTxConfirmScreenLogic(), { wrapper })
+
+      await act(async () => {
+        const confirm = result.current.onClickConfirm([
+          { psbtHex: SIGNED_PSBT_HEX, qbitBroadcastIdentity: identity },
+        ])
+        await vi.advanceTimersByTimeAsync(3000)
+        await confirm
+      })
+
+      expect(navigation.replace).toHaveBeenCalledWith('TxSuccessScreen', {
+        txid: TXID,
+        consolidation: true,
+      })
+      expect(vi.mocked(navigation.replace).mock.calls[0]![1]).not.toHaveProperty(
+        'consolidationMaxInputs'
+      )
+      unmount()
+    }
   })
 
   it('hands the structured failure and the retained payload to the failure screen', async () => {
@@ -159,6 +209,54 @@ describe('useTxConfirmScreenLogic', () => {
     expect(navigation.goBack).not.toHaveBeenCalled()
     expect(wallet.signPsbtV2).not.toHaveBeenCalled()
     expect(wallet.getAddressSummary).not.toHaveBeenCalled()
+  })
+
+  it("hands a consolidation batch's context to the failure screen, for the success a retry or status check ends on (#170)", async () => {
+    const wallet = walletWithBroadcast()
+    const failure: QbitBroadcastFailure = {
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      txid: TXID,
+      outcome: 'unknown',
+      reason: 'timeout',
+      lookup: 'unavailable',
+    }
+    wallet.broadcastQbitTx.mockResolvedValue(failure)
+    const batchOf = (maxInputs?: unknown) => ({
+      ...toSignData,
+      qbitConsolidation: {
+        confirmedOutputCount: 700,
+        outputLimit: 500,
+        amount: 1_000_000,
+        fundingOutputCounts: [2],
+        ...(maxInputs === undefined ? {} : { maxInputs }),
+      },
+    })
+    // The size as the success screen takes it, checked the same way: a size
+    // that is no whole number, or none, is left out.
+    for (const [batch, context] of [
+      [batchOf(25), { consolidation: true, consolidationMaxInputs: 25 }],
+      [batchOf(2.5), { consolidation: true }],
+      [batchOf(), { consolidation: true }],
+      [toSignData, {}],
+    ] as const) {
+      const { wrapper, navigation } = createHookTestHarness({
+        wallet: wallet as any,
+        routeState: { toSignData: batch },
+      })
+      const { result, unmount } = renderHook(() => useTxConfirmScreenLogic(), { wrapper })
+
+      await act(async () => {
+        await result.current.onClickConfirm([{ psbtHex: SIGNED_PSBT_HEX }])
+      })
+
+      expect(navigation.replace).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(navigation.replace).mock.calls[0]).toEqual([
+        'TxFailScreen',
+        { result: failure, retained: { psbtHex: SIGNED_PSBT_HEX }, ...context },
+      ])
+      unmount()
+    }
   })
 
   it('reports an unknown verdict instead of throwing when the controller call itself fails', async () => {

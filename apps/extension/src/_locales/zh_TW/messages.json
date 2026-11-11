@@ -1283,6 +1283,12 @@
   "tx_broadcast_reason_rejected_unconfirmed": {
     "message": "網路節點回報了錯誤，但錢包無法確認這筆交易是否已被接受。"
   },
+  "tx_broadcast_reason_too_large": {
+    "message": "這筆交易太大而無法廣播，因此遭網路服務拒絕。若為整合，請準備較小的批次。"
+  },
+  "tx_broadcast_reason_too_large_unconfirmed": {
+    "message": "網路服務回報這筆交易太大而無法廣播，但錢包無法確認這筆交易是否已被接受。"
+  },
   "tx_broadcast_reason_server": {
     "message": "網路服務回傳錯誤。"
   },
@@ -1306,6 +1312,9 @@
   },
   "tx_broadcast_status_gone": {
     "message": "網路上尚未找到這筆交易。請稍候再查詢一次，或重新廣播。"
+  },
+  "tx_broadcast_status_gone_no_retry": {
+    "message": "網路上尚未找到這筆交易。請稍候再查詢一次。"
   },
   "tx_broadcast_status_unavailable": {
     "message": "無法連線至網路以查詢狀態。請稍後再試。"
@@ -1851,7 +1860,7 @@
     "message": "您可以使用 Touch ID 解鎖錢包,無需輸入密碼。您也可以之後在設定中啟用。"
   },
   "send_exceeds_standard_size": {
-    "message": "此金額需要超過 $1 個輸入，超出網路的標準交易大小。每次最多傳送 $2 $3，或使用「最大值」。"
+    "message": "此金額需要此帳戶超過 $1 個輸出，但一筆交易最多只能容納 $1 個。每次最多傳送 $2 $3，或使用「最大值」。"
   },
   "send_all_leaves_outputs_behind": {
     "message": "「最大值」會傳送您最大的 $1 個輸出，這是一筆交易可容納的上限。其餘 $4 個較小輸出中的 $2 $3 會留在此帳戶。"
@@ -1872,16 +1881,16 @@
     "message": "無法更新餘額，顯示的餘額可能不是最新的。"
   },
   "utxo_limit_exceeded_send": {
-    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，錢包也無法從其歷史記錄讀取全部輸出。請先整合輸出再從此帳戶傳送。"
+    "message": "此帳戶目前無法傳送：其輸出數量超過瀏覽器可列出的上限，錢包也無法從其歷史記錄讀取全部輸出。請先整合輸出，才能動用這些資金。"
   },
   "consolidate_outputs": {
     "message": "整合輸出"
   },
   "consolidation_description": {
-    "message": "每批會將此帳戶金額最大的已確認輸出（最多 $1 個）合併為一個輸出，傳回此帳戶自己的地址。每一批都需要你檢查並簽署。"
+    "message": "每批會將此帳戶金額最大的已確認輸出合併為一個輸出，傳回此帳戶自己的地址。每批包含幾個輸出由你決定，每一批都需要你檢查並簽署。"
   },
   "consolidation_status": {
-    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。大約再 $3 批即可回到此上限內。"
+    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。以每批 $4 個輸出計算，大約再 $3 批即可回到此上限內。"
   },
   "consolidation_within_limit": {
     "message": "此帳戶在瀏覽器 $1 個輸出的上限內，不需要整合。"
@@ -1918,6 +1927,27 @@
   },
   "consolidation_error_keep_reading": {
     "message": "錢包已讀取此帳戶的部分歷史記錄，但尚未找到可合併的輸出。請再次準備以繼續讀取。"
+  },
+  "consolidation_status_counts": {
+    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。"
+  },
+  "consolidation_batch_size_label": {
+    "message": "每批輸出數"
+  },
+  "consolidation_batch_size_range": {
+    "message": "可輸入 $1 至 $2，上限為一筆交易可容納的最大數量。"
+  },
+  "consolidation_batch_size_invalid": {
+    "message": "請輸入 $1 至 $2 之間的整數。"
+  },
+  "consolidation_fee_preview": {
+    "message": "裝滿 $1 個輸出的一批估計：手續費 $2 bits，大小 $3 kB。"
+  },
+  "consolidation_cost_note": {
+    "message": "每批都會留下一個輸出，因此每批 $1 個的手續費比每批 $3 個約多 $2%。"
+  },
+  "consolidation_cost_note_small": {
+    "message": "每批都會留下一個輸出，因此每批 $1 個的手續費比每批 $2 個多，但不到 1%。"
   },
   "net_spend_leaves_wallet": {
     "message": "離開您錢包的金額"

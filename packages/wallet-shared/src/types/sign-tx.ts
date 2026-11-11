@@ -139,6 +139,33 @@ export interface ToSignData {
   action?: PsbtActionInfo
 }
 
+/** What `createQbitConsolidationPsbt` takes to prepare the next batch. */
+export interface QbitConsolidationRequest {
+  /** Bits per vB; omitted means the normal rate, or the relay floor without a quote. */
+  feeRate?: number
+  /** Whether the batch signals replaceability; omitted means it does. */
+  enableRBF?: boolean
+  /**
+   * Inputs the batch may carry: a whole number from 2
+   * (`QBIT_CONSOLIDATION_MIN_INPUTS`) to the account's `maxInputCount`, as
+   * `isQbitConsolidationBatchSize` checks. Omitted means the maximum.
+   */
+  maxInputs?: number
+}
+
+/**
+ * The transaction shape of an account's consolidation batch, apart from its
+ * inputs and fee rate. With an input count it is what
+ * `estimateQbitP2mrTransaction` prices, and it is the shape
+ * `qbitP2mrMaxStandardInputCount` sizes.
+ */
+export interface QbitConsolidationBatchShape {
+  /** Output script lengths, in output order: the one output to the account's own script. */
+  outputScriptLengths: number[]
+  leafScriptLength: number
+  controlBlockLength: number
+}
+
 /**
  * One batch of a consolidation (`createQbitConsolidationPsbt`): outputs of
  * an account the explorer will not list, sent whole to its own address.
@@ -156,6 +183,13 @@ export interface QbitConsolidationBatch {
    * answer of any other length refuses the batch.
    */
   fundingOutputCounts: number[]
+  /**
+   * The batch size this batch was prepared with: the request's `maxInputs`,
+   * or the account's `maxInputCount` when none was given. The batch may
+   * carry fewer inputs. The next batch is requested with it, so it keeps
+   * the size.
+   */
+  maxInputs: number
 }
 
 /** Where an account stands against the explorer's listing limit (`getQbitConsolidationStatus`). */
@@ -172,6 +206,11 @@ export interface QbitConsolidationStatus {
   outputLimit: number
   /** Most inputs one consolidation batch carries within the standard size. */
   maxInputCount: number
+  /**
+   * The shape of this account's batch transaction, so the screen can price a
+   * batch of a chosen size before one is prepared.
+   */
+  batchShape: QbitConsolidationBatchShape
 }
 
 /**

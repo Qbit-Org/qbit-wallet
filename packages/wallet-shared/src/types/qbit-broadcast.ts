@@ -7,8 +7,9 @@ import type { QbitBroadcastIdentity, QbitSendBroadcastClaim } from './sign-tx'
  *
  * - `not_sent`: non-submission is proven. Either the wallet never dispatched
  *   the request (payload, guard, or network-switch failure observed before
- *   the bytes left the wallet) or the node definitively rejected the
- *   transaction and repeated follow-up lookups all found it absent.
+ *   the bytes left the wallet) or the node, or the explorer before relaying
+ *   it, definitively rejected the transaction and repeated follow-up lookups
+ *   all found it absent.
  * - `unknown`: anything inconclusive. The node may have accepted the
  *   transaction even though the wallet saw an error, so the UI must never
  *   claim the payment did not go out.
@@ -18,12 +19,22 @@ export type QbitBroadcastOutcome = 'not_sent' | 'unknown'
 /**
  * Stable, user-safe reason keys. The UI maps them to localized copy; they
  * never carry endpoint URLs, response bodies, or exception text.
+ *
+ * `too_large`: the explorer refused the bytes as over its size limit (code
+ * -3 with no message) before any node saw them, so resending the same bytes
+ * fails the same way. Since explorer 1.1.0 (qbit-explorer#58) that limit is
+ * qbit Core's standard size (`QBIT_MAX_STANDARD_TX_WEIGHT`), which every
+ * transaction the wallet builds keeps to; deployments before it weighed base
+ * bytes ×4 and refused single-key P2MR transactions from 103 inputs. Like
+ * `rejected`, it reads `not_sent` only once the follow-up lookups find the
+ * transaction absent.
  */
 export type QbitBroadcastFailureReason =
   | 'invalid_transaction'
   | 'guard_blocked'
   | 'chain_changed'
   | 'rejected'
+  | 'too_large'
   | 'network'
   | 'timeout'
   | 'server'

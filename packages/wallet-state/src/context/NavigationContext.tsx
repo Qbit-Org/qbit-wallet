@@ -97,7 +97,24 @@ export type RouteParamList = {
 
   // Transactions
   TxCreateScreen: undefined
-  QbitConsolidationScreen: undefined
+  QbitConsolidationScreen: {
+    /**
+     * The batch size to open at: the size of the batch that just went out
+     * (`QbitConsolidationBatch.maxInputs`), so the next batch keeps it, or
+     * the size the screen kept here for Back from the confirm screen. The
+     * screen checks it against the account's maximum, since route state can
+     * outlive an update or a change of the maximum, and opens at the
+     * maximum when it is missing or out of range.
+     */
+    maxInputs?: number
+    /**
+     * The account `maxInputs` was chosen for, by network and address: the
+     * screen opens at the maximum for any other. Without them, the size is
+     * for the account the screen opens for.
+     */
+    chain?: ChainType
+    address?: string
+  }
 
   TxConfirmScreen: {
     toSignData: ToSignData
@@ -106,6 +123,8 @@ export type RouteParamList = {
     txid: string
     /** The transaction was a consolidation batch; the screen offers the next one. */
     consolidation?: boolean
+    /** That batch's size, which the next batch is offered at; missing for a batch that recorded none. */
+    consolidationMaxInputs?: number
   }
   TxFailScreen: {
     result: QbitBroadcastFailure
@@ -114,14 +133,26 @@ export type RouteParamList = {
      * state is the only place it lives; it must never reach Redux or storage.
      */
     retained?: QbitRetainedBroadcast
+    /**
+     * The transaction is a consolidation batch: a retry or status check that
+     * ends on the success screen hands this and `consolidationMaxInputs` on
+     * to it, as `TxSuccessScreen` takes them.
+     */
+    consolidation?: boolean
+    /** That batch's size; missing for a batch that recorded none. */
+    consolidationMaxInputs?: number
   }
 }
 
 export type RouteTypes = keyof RouteParamList
 
+// A route whose params are all optional opens without any, as with an empty
+// object: its screen reads missing route state as `{}`.
 type NavigateArgs<T extends RouteTypes> = RouteParamList[T] extends undefined
   ? [screenName: T]
-  : [screenName: T, params: RouteParamList[T]]
+  : Partial<RouteParamList[T]> extends RouteParamList[T]
+    ? [screenName: T, params?: RouteParamList[T]]
+    : [screenName: T, params: RouteParamList[T]]
 
 export interface NavigationContextType {
   navigate<T extends RouteTypes>(...args: NavigateArgs<T>): void

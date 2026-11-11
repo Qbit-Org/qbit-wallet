@@ -5,6 +5,7 @@ import {
   PQC_SIGNATURE_BYTES,
   bytesToHex,
   decodePsbt,
+  extractP2mrTransaction,
   hexToBytes,
   p2mrAddressFromPubkey,
   p2mrLeafHash,
@@ -13,7 +14,17 @@ import {
   signP2mrPsbt,
   singleKeyLeafScript,
 } from '@qbit-oss/protocol'
-import { KeyringType, isQbitStandardTxSize, type ToSignData } from '@qbit/wallet-shared'
+import { transactionCore } from '@qbit/wallet-core'
+import {
+  KeyringType,
+  QBIT_MAX_FEE_RATE,
+  QBIT_MAX_STANDARD_TX_WEIGHT,
+  QBIT_MIN_RELAY_FEE_RATE,
+  estimateQbitP2mrTransaction,
+  isQbitStandardTxSize,
+  type QbitConsolidationRequest,
+  type ToSignData,
+} from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import { QBIT_CONSOLIDATION_BATCH_DEADLINE_MS, WalletController } from '../src/controllers/wallet'
 import { keyringService, preferenceService, qbitSendGuardService } from '../src/services'
@@ -224,14 +235,24 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       confirmedUnspent: 701,
       pendingSpent: 1,
       outputLimit: 500,
+      // Within the standard size.
       maxInputCount: 106,
+      batchShape: { outputScriptLengths: [34], leafScriptLength: 34, controlBlockLength: 1 },
     })
 
     const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
 
     const inputs = inputsOf(batch)
     expect(inputs).toHaveLength(106)
-    expect(isQbitStandardTxSize(batch.estimatedVsize!)).toBe(true)
+    // The status's shape prices the batch exactly, as the screen does before
+    // preparing one, and keeps it within the standard size.
+    const priced = estimateQbitP2mrTransaction({
+      ...status.batchShape,
+      inputCount: inputs.length,
+      feeRate: 1,
+    })
+    expect(priced).toMatchObject({ vsize: batch.estimatedVsize, fee: batch.estimatedFee })
+    expect(isQbitStandardTxSize(priced.vsize)).toBe(true)
     // The immature reward and the output a pending payment spends stay out.
     expect(inputs).not.toContain(`${fixture.immature.txid}:0`)
     expect(inputs).not.toContain(`${fixture.largest.txid}:0`)
@@ -263,12 +284,381 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       outputLimit: 500,
       amount: inputTotal - batch.estimatedFee!,
       fundingOutputCounts: inputs.map(() => 2),
+      maxInputs: 106,
     })
     expect(batch.estimatedFee).toBe(batch.estimatedVsize)
     // The pending spend was caught by the outspends check, not by a balance.
     expect(
       explorer.requests.some(request => request.path === `/tx/${fixture.largest.txid}/outspends`)
     ).toBe(true)
+  })
+
+  describe('batch size (#170)', () => {
+    // qbit Core's standard size: 106 single-key inputs to one output.
+    const MAX_BATCH = 106
+
+    /** `toSignData` signed, and its signed bytes as the explorer parses them. */
+    async function signedTransaction(wallet: WalletController, toSignData: ToSignData) {
+      const signed = await signBatch(wallet, toSignData)
+      const raw = extractP2mrTransaction(parsePsbt(hexToBytes(signed.psbtHex!)))
+      return { signed, transaction: transactionCore.Transaction.fromBuffer(Buffer.from(raw)) }
+    }
+
+    /** A controller on the mempool-qbit surface, as production broadcasts. */
+    function mempoolQbitController() {
+      const wallet = controller()
+      const { endpoint } = (wallet as any).getQbitApiEndpoint()
+      vi.spyOn(wallet as any, 'getQbitApiEndpoint').mockReturnValue({
+        endpoint,
+        apiSurface: 'mempool-qbit',
+      })
+      return wallet
+    }
+
+    async function broadcast(
+      wallet: WalletController,
+      toSignData: ToSignData,
+      signed: Awaited<ReturnType<typeof signBatch>>
+    ) {
+      return wallet.broadcastQbitTx(
+        signed.psbtHex!,
+        signed.qbitSendBroadcastClaim,
+        ChainType.QBIT_REGTEST,
+        toSignData.qbitBroadcastIdentity!.txid
+      )
+    }
+
+    it("sends a full batch of 106 through an explorer with qbit-explorer#58's push check", async () => {
+      explorer = overLimitAccount(700, 'mempool-qbit').explorer
+      // Explorer 1.1.0: the serialized size with witness over 400,000 is refused.
+      explorer.pushWeightLimit = 400_000
+      const wallet = mempoolQbitController()
+
+      const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      const { signed, transaction } = await signedTransaction(wallet, batch)
+
+      expect(inputsOf(batch)).toHaveLength(MAX_BATCH)
+      expect(batch.qbitConsolidation?.maxInputs).toBe(MAX_BATCH)
+      expect(transaction.byteLength()).toBe(398_827)
+      expect(transaction.byteLength()).toBe(batch.estimatedVsize)
+      expect(transaction.byteLength()).toBeLessThanOrEqual(QBIT_MAX_STANDARD_TX_WEIGHT)
+      await expect(broadcast(wallet, batch, signed)).resolves.toMatchObject({
+        success: true,
+        via: 'broadcast',
+      })
+      expect(explorer.txs.has(batch.qbitBroadcastIdentity!.txid)).toBe(true)
+      expect(explorer.pushedInputCounts).toEqual([MAX_BATCH])
+    })
+
+    it('reads a full batch an explorer before 1.1.0 refuses as not sent, frees its inputs, and sends a batch of 102', async () => {
+      explorer = overLimitAccount(700, 'mempool-qbit').explorer
+      // An explorer not yet updated to 1.1.0: base bytes ×4 plus witness bytes
+      // over 400,000 is refused, so 106 inputs (412,024) are.
+      explorer.pushWeightLimit = 400_000
+      explorer.pushWeightRule = 'base-times-four'
+      const wallet = mempoolQbitController()
+      const inconclusive = vi.spyOn(qbitSendGuardService, 'recordInconclusiveBroadcast')
+
+      const full = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      const { signed, transaction } = await signedTransaction(wallet, full)
+      expect(inputsOf(full)).toHaveLength(MAX_BATCH)
+      expect(transaction.weight()).toBe(412_024)
+
+      await expect(broadcast(wallet, full, signed)).resolves.toEqual({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: full.qbitBroadcastIdentity!.txid,
+        outcome: 'not_sent',
+        reason: 'too_large',
+        lookup: 'gone',
+        detail: 'HTTP 400: RPC error -3',
+      })
+      expect(explorer.txs.has(full.qbitBroadcastIdentity!.txid)).toBe(false)
+      // Proven absent: never held as possibly spent. The failure screen
+      // abandons the bytes, and nothing else holds the inputs.
+      expect(inconclusive).not.toHaveBeenCalled()
+      await expect(
+        wallet.releaseQbitSendBroadcastClaim(signed.qbitSendBroadcastClaim!)
+      ).resolves.toBe(true)
+      await expect(
+        qbitSendGuardService.getReservedOutpointKeys(ChainType.QBIT_REGTEST, account.address)
+      ).resolves.toEqual(new Set())
+
+      // A batch of 102 weighs 396,484 that way and goes through, from the
+      // largest of the freed outputs.
+      const smaller = await wallet.createQbitConsolidationPsbt({ feeRate: 1, maxInputs: 102 })
+      const resent = await signedTransaction(wallet, smaller)
+      expect(inputsOf(smaller)).toHaveLength(102)
+      expect(inputsOf(full)).toEqual(expect.arrayContaining(inputsOf(smaller)))
+      expect(resent.transaction.weight()).toBe(396_484)
+      await expect(broadcast(wallet, smaller, resent.signed)).resolves.toMatchObject({
+        success: true,
+        via: 'broadcast',
+      })
+      expect(explorer.txs.has(smaller.qbitBroadcastIdentity!.txid)).toBe(true)
+      expect(explorer.pushedInputCounts).toEqual([MAX_BATCH, 102])
+    })
+
+    describe("sends from more than 106 outputs, through an explorer with qbit-explorer#58's push check", () => {
+      /** An account within the listing limit holding 150 outputs, as the explorer lists them. */
+      function sendFixture() {
+        const fixture = overLimitAccount(150, 'mempool-qbit')
+        explorer = fixture.explorer
+        explorer.pushWeightLimit = 400_000
+        // What the send may spend: every output but the immature reward and
+        // the one a pending payment spends, largest first.
+        const values = fixture.funding
+          .filter(tx => tx.txid !== fixture.largest.txid)
+          .map(tx => tx.outputs[0]!.value)
+          .sort((a, b) => b - a)
+        return { values, wallet: mempoolQbitController() }
+      }
+      const sum = (values: number[]) => values.reduce((total, value) => total + value, 0)
+
+      it('sends the 106 largest on send-all and leaves the rest', async () => {
+        const { values, wallet } = sendFixture()
+        expect(values).toHaveLength(149)
+
+        const sendAll = await wallet.createSendAllQbitPsbt({ to: payer, feeRate: 1 })
+        const { signed, transaction } = await signedTransaction(wallet, sendAll)
+
+        expect(sendAll).toMatchObject({
+          inputCount: MAX_BATCH,
+          estimatedVsize: 398_827,
+          leftBehindInputCount: 149 - MAX_BATCH,
+          leftBehindSats: sum(values.slice(MAX_BATCH)),
+        })
+        expect(transaction.ins).toHaveLength(MAX_BATCH)
+        expect(transaction.outs).toHaveLength(1)
+        expect(transaction.byteLength()).toBe(398_827)
+        await expect(broadcast(wallet, sendAll, signed)).resolves.toMatchObject({
+          success: true,
+          via: 'broadcast',
+        })
+        expect(Math.max(...explorer.pushedInputCounts)).toBe(MAX_BATCH)
+      })
+
+      it('sends an amount that needs 106 inputs with change, and never builds 107', async () => {
+        const { values, wallet } = sendFixture()
+        const largest = sum(values.slice(0, MAX_BATCH))
+        // The most one transaction sends: the 106 largest, less their fee
+        // without change (398,827 bytes at 1 bit/vB). One bit more would need
+        // a 107th input, and nothing is built.
+        await expect(
+          wallet.createSendQbitPsbt({ to: payer, amount: largest - 398_827 + 1, feeRate: 1 })
+        ).rejects.toThrow(
+          `Amount needs more than 106 inputs, over the standard transaction size; at most ${largest - 398_827} sats can be sent in one transaction.`
+        )
+        // 106 inputs pay this amount, the fee with change (398,870 bytes),
+        // and 10,000 bits of change; 105 could not pay it.
+        const amount = largest - 398_870 - 10_000
+
+        const send = await wallet.createSendQbitPsbt({ to: payer, amount, feeRate: 1 })
+        const { signed, transaction } = await signedTransaction(wallet, send)
+
+        expect(send).toMatchObject({ inputCount: MAX_BATCH, estimatedVsize: 398_870 })
+        expect(transaction.ins).toHaveLength(MAX_BATCH)
+        expect(transaction.outs.map(output => Number(output.value))).toEqual([amount, 10_000])
+        expect(transaction.byteLength()).toBe(398_870)
+        await expect(broadcast(wallet, send, signed)).resolves.toMatchObject({
+          success: true,
+          via: 'broadcast',
+        })
+        expect(explorer.pushedInputCounts).toEqual([MAX_BATCH])
+      })
+    })
+
+    it.each([2, 10, MAX_BATCH])(
+      'builds a batch of the %i inputs asked for and records the size',
+      async size => {
+        const fixture = overLimitAccount()
+        explorer = fixture.explorer
+        const wallet = controller()
+
+        const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 1, maxInputs: size })
+
+        const inputs = inputsOf(batch)
+        expect(inputs).toHaveLength(size)
+        expect(batch.inputCount).toBe(size)
+        expect(batch.qbitConsolidation?.maxInputs).toBe(size)
+        // Still the largest of what the walk read.
+        const valueOf = (key: string) => {
+          const [txid, vout] = key.split(':')
+          return explorer.txs.get(txid!)!.outputs[Number(vout)]!.value
+        }
+        const scan = (wallet as any).qbitConsolidationScans.get(
+          `${ChainType.QBIT_REGTEST}:${account.address}`
+        ).scan
+        const smallestChosen = Math.min(...inputs.map(valueOf))
+        const passedOver = [...scan.candidates.keys()].filter(
+          key =>
+            key !== `${fixture.immature.txid}:0` &&
+            explorer.spenderOf(key.split(':')[0]!, 0) === undefined
+        )
+        expect(passedOver.every(key => valueOf(key) <= smallestChosen)).toBe(true)
+      }
+    )
+
+    it('takes the maximum when the size is omitted, an explicit undefined included', async () => {
+      const fixture = overLimitAccount()
+      explorer = fixture.explorer
+      const wallet = controller()
+
+      // As a caller inside the background may pass it; over the port the key is dropped.
+      const request: { feeRate: number; maxInputs: undefined } = {
+        feeRate: 1,
+        maxInputs: undefined,
+      }
+      const batch = await wallet.createQbitConsolidationPsbt(
+        request as unknown as QbitConsolidationRequest
+      )
+
+      expect(inputsOf(batch)).toHaveLength(MAX_BATCH)
+      expect(batch.qbitConsolidation?.maxInputs).toBe(MAX_BATCH)
+    })
+
+    it('reads fewer history pages for a smaller batch', async () => {
+      explorer = overLimitAccount().explorer
+      await controller().createQbitConsolidationPsbt({ feeRate: 1 })
+      const fullBatchPages = pageRequests(explorer)
+
+      explorer = overLimitAccount().explorer
+      const small = await controller().createQbitConsolidationPsbt({ feeRate: 1, maxInputs: 10 })
+
+      expect(inputsOf(small)).toHaveLength(10)
+      // About 25 outputs a page: one page holds ten, a full batch needs five.
+      expect(pageRequests(explorer)).toBe(1)
+      expect(fullBatchPages).toBeGreaterThanOrEqual(5)
+    })
+
+    it.each([
+      ['zero', 0],
+      ['one input', 1],
+      ['one past the maximum', MAX_BATCH + 1],
+      ['a fraction', 2.5],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['-Infinity', Number.NEGATIVE_INFINITY],
+      ['a negative number', -5],
+      ['a numeric string', '5'],
+      // What the port's JSON delivers for NaN and ±Infinity: never the maximum.
+      ['null', null],
+      ['a boolean', true],
+      ['an object', { value: 5 }],
+    ])('refuses %s as the batch size before any explorer read', async (_label, maxInputs) => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+
+      // No fee rate either, so even the fee quote would be a read.
+      const refusal = await wallet
+        .createQbitConsolidationPsbt({ maxInputs: maxInputs as any })
+        .catch(error => error)
+
+      expect(refusal).toBeInstanceOf(RangeError)
+      expect(refusal.message).toBe(`maxInputs must be a whole number from 2 to ${MAX_BATCH}`)
+      expect(explorer.requests).toEqual([])
+    })
+
+    it.each([
+      // What the port's JSON delivers for NaN and ±Infinity: never the normal rate.
+      ['null', null],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['zero', 0],
+      ['a rate below the relay floor', QBIT_MIN_RELAY_FEE_RATE / 2],
+      ['a rate past the ceiling', QBIT_MAX_FEE_RATE + 1],
+      ['a numeric string', '2'],
+    ])('refuses %s as the fee rate before any explorer read', async (_label, feeRate) => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+      const quote = vi.spyOn(wallet, 'getFeeSummary')
+
+      const refusal = await wallet
+        .createQbitConsolidationPsbt({ feeRate: feeRate as any, maxInputs: 10 })
+        .catch(error => error)
+
+      expect(refusal).toBeInstanceOf(RangeError)
+      expect(refusal.message).toBe(
+        `feeRate must be between ${QBIT_MIN_RELAY_FEE_RATE} and ${QBIT_MAX_FEE_RATE} bits/vB`
+      )
+      expect(quote).not.toHaveBeenCalled()
+      expect(explorer.requests).toEqual([])
+    })
+
+    it('takes the normal rate only for a fee rate left out, an explicit undefined included', async () => {
+      const fixture = overLimitAccount()
+      explorer = fixture.explorer
+      const wallet = controller()
+      const quote = vi.spyOn(wallet, 'getFeeSummary').mockResolvedValue({
+        list: [
+          { title: 'slow', desc: '', feeRate: 1 },
+          { title: 'avg', desc: '', feeRate: 3 },
+          { title: 'fast', desc: '', feeRate: 5 },
+        ],
+      } as any)
+
+      // As a caller inside the background may pass it; over the port the key is dropped.
+      const request = { feeRate: undefined, maxInputs: 10 }
+      const batch = await wallet.createQbitConsolidationPsbt(
+        request as unknown as QbitConsolidationRequest
+      )
+
+      expect(quote).toHaveBeenCalledTimes(1)
+      expect(inputsOf(batch)).toHaveLength(10)
+      // Priced at the normal rate of 3 bits/vB.
+      expect(batch.estimatedFee).toBe(batch.estimatedVsize! * 3)
+    })
+
+    it('reads a request the port delivers as null as an empty one, and refuses one that is no object', async () => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+
+      await expect(wallet.createQbitConsolidationPsbt('5' as any)).rejects.toThrow(TypeError)
+      await expect(wallet.createQbitConsolidationPsbt([5] as any)).rejects.toThrow(TypeError)
+      expect(explorer.requests).toEqual([])
+
+      const batch = await wallet.createQbitConsolidationPsbt(null as any)
+      expect(inputsOf(batch)).toHaveLength(MAX_BATCH)
+      expect(batch.qbitConsolidation?.maxInputs).toBe(MAX_BATCH)
+    })
+
+    it('never hands an input of a signed batch to a later batch of another size', async () => {
+      const fixture = overLimitAccount()
+      explorer = fixture.explorer
+      const wallet = controller()
+
+      const small = await wallet.createQbitConsolidationPsbt({ feeRate: 1, maxInputs: 10 })
+      await signBatch(wallet, small)
+      const full = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      await signBatch(wallet, full)
+      const tiny = await wallet.createQbitConsolidationPsbt({ feeRate: 1, maxInputs: 2 })
+
+      expect(inputsOf(full)).toHaveLength(MAX_BATCH)
+      expect(inputsOf(tiny)).toHaveLength(2)
+      const keys = [...inputsOf(small), ...inputsOf(full), ...inputsOf(tiny)]
+      expect(new Set(keys).size).toBe(keys.length)
+    })
+
+    it('refuses to sign a batch whose inputs a batch of another size took since', async () => {
+      const fixture = overLimitAccount()
+      explorer = fixture.explorer
+      const wallet = controller()
+
+      // The screen dropped the first batch for the new size, unsigned: its
+      // inputs return to the walk, and the larger batch takes them again.
+      const small = await wallet.createQbitConsolidationPsbt({ feeRate: 1, maxInputs: 10 })
+      const full = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      expect(inputsOf(full)).toEqual(expect.arrayContaining(inputsOf(small)))
+
+      await signBatch(wallet, full)
+      vi.mocked(keyringService.signP2mrPsbtWithCounter).mockClear()
+
+      // The dropped batch can never spend them a second time.
+      await expect(signBatch(wallet, small)).rejects.toThrow(
+        'Qbit transaction spends an input claimed by an approved send'
+      )
+      expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+    })
   })
 
   it('resumes after a failed broadcast without spending a reserved input twice', async () => {

@@ -66,7 +66,14 @@ function walletWithBroadcast() {
 }
 
 function renderFailScreen(
-  routeState: { result?: QbitBroadcastFailure; retained?: QbitRetainedBroadcast } | undefined,
+  routeState:
+    | {
+        result?: QbitBroadcastFailure
+        retained?: QbitRetainedBroadcast
+        consolidation?: unknown
+        consolidationMaxInputs?: unknown
+      }
+    | undefined,
   wallet = walletWithBroadcast()
 ) {
   const harness = createHookTestHarness({ wallet: wallet as any, routeState })
@@ -917,6 +924,133 @@ describe('useTxFailScreenLogic', () => {
       expect(wallet.getAddressSummary).not.toHaveBeenCalled()
     }
   )
+
+  describe('after the explorer refused the transaction as too large to broadcast (#170)', () => {
+    const tooLarge = (outcome: 'not_sent' | 'unknown'): QbitBroadcastFailure => ({
+      success: false,
+      chain: ChainType.QBIT_REGTEST,
+      txid: TXID,
+      outcome,
+      reason: 'too_large',
+      lookup: outcome === 'not_sent' ? 'gone' : 'unavailable',
+      detail: 'HTTP 400: RPC error -3',
+    })
+
+    it.each(['not_sent', 'unknown'] as const)(
+      'offers no retry on a %s verdict, the bytes in hand, and sends nothing if one is asked for',
+      async outcome => {
+        const wallet = walletWithBroadcast()
+        const { result } = renderFailScreen({ result: tooLarge(outcome), retained }, wallet)
+
+        // The explorer refuses the same bytes the same way.
+        expect(result.current.canRetry).toBe(false)
+        // Only an unknown verdict can still be looked up.
+        expect(result.current.canCheckStatus).toBe(outcome === 'unknown')
+
+        await act(async () => {
+          await result.current.onClickRetry()
+        })
+        expect(wallet.broadcastQbitTx).not.toHaveBeenCalled()
+        expect(result.current.busy).toBeNull()
+        expect(result.current.retryBlocked).toBeNull()
+      }
+    )
+
+    it('withdraws Retry once a retry ends in that refusal, and keeps the status check', async () => {
+      const wallet = walletWithBroadcast()
+      wallet.broadcastQbitTx.mockResolvedValue(tooLarge('not_sent'))
+      const { result } = renderFailScreen({ result: unknownFailure, retained }, wallet)
+      expect(result.current.canRetry).toBe(true)
+
+      await act(async () => {
+        await result.current.onClickRetry()
+      })
+
+      // The first attempt's verdict stays unknown; the refusal is its reason now.
+      expect(result.current.outcome).toBe('unknown')
+      expect(result.current.reason).toBe('too_large')
+      expect(result.current.canRetry).toBe(false)
+      expect(result.current.canCheckStatus).toBe(true)
+    })
+  })
+
+  describe("a consolidation batch's success through this screen (#170)", () => {
+    const succeed = (wallet: ReturnType<typeof walletWithBroadcast>) => {
+      wallet.broadcastQbitTx.mockResolvedValue({
+        success: true,
+        chain: ChainType.QBIT_REGTEST,
+        txid: TXID,
+        via: 'broadcast',
+      })
+      wallet.checkQbitBroadcastStatus.mockResolvedValue({
+        found: true,
+        txid: TXID,
+        state: 'pending',
+      })
+    }
+
+    it.each(['retry', 'status check'] as const)(
+      'hands the batch and its size on to the success screen a %s ends on',
+      async action => {
+        vi.useFakeTimers()
+        const wallet = walletWithBroadcast()
+        succeed(wallet)
+        const { result, navigation } = renderFailScreen(
+          { result: unknownFailure, retained, consolidation: true, consolidationMaxInputs: 25 },
+          wallet
+        )
+
+        await act(async () => {
+          const done =
+            action === 'retry' ? result.current.onClickRetry() : result.current.onClickCheckStatus()
+          await vi.advanceTimersByTimeAsync(3000)
+          await done
+        })
+
+        expect(navigation.replace).toHaveBeenCalledTimes(1)
+        expect(navigation.replace).toHaveBeenCalledWith('TxSuccessScreen', {
+          txid: TXID,
+          consolidation: true,
+          consolidationMaxInputs: 25,
+        })
+      }
+    )
+
+    it.each([
+      // Route state from an earlier version, which carried none.
+      ['none', {}, {}],
+      ['the flag alone', { consolidation: true }, { consolidation: true }],
+      [
+        'a size that is a string',
+        { consolidation: true, consolidationMaxInputs: '25' },
+        { consolidation: true },
+      ],
+      [
+        'a size that is no whole number',
+        { consolidation: true, consolidationMaxInputs: 2.5 },
+        { consolidation: true },
+      ],
+      ['a flag that is not true', { consolidation: 'true', consolidationMaxInputs: 25 }, {}],
+    ])('passes on what the confirm screen would for %s', async (_label, state, expected) => {
+      vi.useFakeTimers()
+      const wallet = walletWithBroadcast()
+      succeed(wallet)
+      const { result, navigation } = renderFailScreen(
+        { result: unknownFailure, retained, ...state },
+        wallet
+      )
+
+      await act(async () => {
+        const retry = result.current.onClickRetry()
+        await vi.advanceTimersByTimeAsync(3000)
+        await retry
+      })
+
+      expect(vi.mocked(navigation.replace).mock.calls).toEqual([
+        ['TxSuccessScreen', { txid: TXID, ...expected }],
+      ])
+    })
+  })
 
   it('treats a status check that throws as unavailable, never as not sent', async () => {
     const wallet = walletWithBroadcast()
