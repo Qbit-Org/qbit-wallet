@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "Refresh"
   },
+  "hide_balance": {
+    "message": "Hide balance"
+  },
+  "show_balance": {
+    "message": "Show balance"
+  },
+  "refresh_balance": {
+    "message": "Refresh balance"
+  },
   "refresh_page": {
     "message": "Refresh Page"
   },

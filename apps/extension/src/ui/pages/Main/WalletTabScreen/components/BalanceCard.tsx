@@ -57,18 +57,28 @@ export function BalanceCard() {
       }}
     >
       <Column style={{ padding: 8 }} gap={'md'}>
-        <Row itemsCenter>
-          <Text size="sm" text={t('wallet_balance')} style={{ color: colors[onCard] }} />
-          <Row
-            style={{ padding: 6, margin: -6 }}
-            onClick={(event) => {
-              stopCardToggle(event);
-              handleHiddenToggle();
-            }}
-          >
-            <Icon color={onCard} icon={isBalanceHidden ? 'balance-eyes-closed' : 'balance-eyes'} size={20} />
+        <Row itemsCenter justifyBetween>
+          <Row itemsCenter>
+            <Text size="sm" text={t('wallet_balance')} style={{ color: colors[onCard] }} />
+            <Tooltip
+              title={t(isBalanceHidden ? 'show_balance' : 'hide_balance')}
+              overlayStyle={{ fontSize: fontSizes.xs }}
+            >
+              <Row
+                style={{ padding: 6, margin: -6 }}
+                data-testid="balance-visibility-toggle"
+                onClick={(event) => {
+                  stopCardToggle(event);
+                  handleHiddenToggle();
+                }}
+              >
+                <Icon color={onCard} icon={isBalanceHidden ? 'balance-eyes-closed' : 'balance-eyes'} size={20} />
+              </Row>
+            </Tooltip>
           </Row>
-          <RefreshButton onClick={refreshBalance as any} hideText color={onCard} />
+          <Tooltip title={t('refresh_balance')} overlayStyle={{ fontSize: fontSizes.xs }}>
+            <RefreshButton onClick={refreshBalance as any} hideText color={onCard} />
+          </Tooltip>
         </Row>
 
         {balanceLoadFailed ? null : (

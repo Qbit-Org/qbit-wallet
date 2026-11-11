@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "Refrescar"
   },
+  "hide_balance": {
+    "message": "Ocultar saldo"
+  },
+  "show_balance": {
+    "message": "Mostrar saldo"
+  },
+  "refresh_balance": {
+    "message": "Actualizar saldo"
+  },
   "refresh_page": {
     "message": "Refrescar Página"
   },

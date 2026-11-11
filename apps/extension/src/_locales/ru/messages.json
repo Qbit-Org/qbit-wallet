@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "Обновить"
   },
+  "hide_balance": {
+    "message": "Скрыть баланс"
+  },
+  "show_balance": {
+    "message": "Показать баланс"
+  },
+  "refresh_balance": {
+    "message": "Обновить баланс"
+  },
   "refresh_page": {
     "message": "Обновить страницу"
   },

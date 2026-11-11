@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "更新"
   },
+  "hide_balance": {
+    "message": "残高を非表示"
+  },
+  "show_balance": {
+    "message": "残高を表示"
+  },
+  "refresh_balance": {
+    "message": "残高を更新"
+  },
   "refresh_page": {
     "message": "ページを更新"
   },

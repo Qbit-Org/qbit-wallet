@@ -149,8 +149,13 @@ export function Tooltip({
     pointerEvents: 'none',
     opacity: visible ? 1 : 0,
     transition: 'opacity 0.15s ease-in-out',
-    backgroundColor: '#071007',
-    color: '#FFF',
+    // 90% of the theme's paper with the page blurred behind it, so the tip
+    // reads as a layer over the content in both light and dark themes.
+    backgroundColor: 'color-mix(in srgb, var(--qbit-paper) 90%, transparent)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: '1px solid var(--qbit-line)',
+    color: 'var(--qbit-ink)',
     fontSize: '14px',
     lineHeight: '20px',
     fontFamily: 'Inter-Regular',

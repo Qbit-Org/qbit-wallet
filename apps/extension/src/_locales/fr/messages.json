@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "Rafraîchir"
   },
+  "hide_balance": {
+    "message": "Masquer le solde"
+  },
+  "show_balance": {
+    "message": "Afficher le solde"
+  },
+  "refresh_balance": {
+    "message": "Actualiser le solde"
+  },
   "refresh_page": {
     "message": "Rafraîchir la Page"
   },

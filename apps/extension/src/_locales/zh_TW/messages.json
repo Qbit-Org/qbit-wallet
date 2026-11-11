@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "刷新"
   },
+  "hide_balance": {
+    "message": "隱藏餘額"
+  },
+  "show_balance": {
+    "message": "顯示餘額"
+  },
+  "refresh_balance": {
+    "message": "重新整理餘額"
+  },
   "refresh_page": {
     "message": "刷新頁面"
   },
