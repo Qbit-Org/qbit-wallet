@@ -146,10 +146,11 @@ the ephemeral Chromium profile. A failed row contains:
 - `failing-identifiers.json` with the extension, account, and transaction IDs;
 - `pqc-sign-durations.json` for the row.
 
-The phishing, provider-ready and upgrade rows use their own fixtures and run
-without regtest, so the regtest, network-audit and PQC attachments above do
-not apply to them; a failed row of any of them attaches the extension
-service-worker log.
+The phishing, provider-ready, switch-account and upgrade rows use their own
+fixtures and run without regtest, so the regtest, network-audit and PQC
+attachments above do not apply to them; a failed row of any of them attaches
+the extension service-worker log. A failed switch-account row also attaches
+`empty-regtest-explorer.log`.
 
 The approval-hierarchy row also attaches `connect-approval-<theme>.png`,
 `message-approval-<theme>.png`, and `psbt-approval-<theme>.png` at 360x600 for
