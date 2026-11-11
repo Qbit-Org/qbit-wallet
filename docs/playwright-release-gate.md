@@ -23,14 +23,17 @@ corepack pnpm test:e2e:build
 The extension bundle must exist at `apps/extension/dist/chrome`. Playwright
 launches a persistent, isolated browser profile with `--load-extension` and
 `--disable-extensions-except`, then discovers the extension from its MV3
-service worker. Every spec except `phishing.spec.ts`, `provider-ready.spec.ts`
-and `upgrade.spec.ts` resets the Docker volumes, starts qbitd and
-electrs-qbit, funds through qbit Core, and mines confirmations explicitly. The
-phishing and provider-ready scenarios need no regtest node and serve their
-pages from loopback fixture servers. The upgrade scenario needs no regtest
-node either: it seeds the profile with the data that the 1.0.5, 1.0.6 and
-1.0.7 releases stored (`tests/fixtures/release-storage`), and the browser
-reaches nothing but loopback. The reset removes only the
+service worker. Every spec except `phishing.spec.ts`, `provider-ready.spec.ts`,
+`switch-account.spec.ts` and `upgrade.spec.ts` resets the Docker volumes,
+starts qbitd and electrs-qbit, funds through qbit Core, and mines
+confirmations explicitly. The phishing and provider-ready scenarios need no
+regtest node and serve their pages from loopback fixture servers. The
+switch-account scenarios need no regtest node either: their wallets live on
+Regtest, whose indexer is a loopback stand-in for a chain on which no address
+has any activity. Nor does the upgrade scenario: it seeds the profile with the
+data that the 1.0.5, 1.0.6 and 1.0.7 releases stored
+(`tests/fixtures/release-storage`), and the browser reaches nothing but
+loopback. The reset removes only the
 volumes of the selected compose project, so set `COMPOSE_PROJECT_NAME` to run
 the gate in an isolated project when the default `qbit-wallet-regtest`
 project's data must be preserved.
@@ -51,6 +54,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/provider-ready.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/recovery.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/switch-account.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
 ```
 
