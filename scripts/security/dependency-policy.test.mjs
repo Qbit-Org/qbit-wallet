@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { isDeepStrictEqual } from 'node:util'
 import YAML from 'yaml'
 
 import {
@@ -461,6 +462,165 @@ test('action audit accepts only local actions or full lowercase commit IDs', () 
   assert.match(audit.errors[4], /owner\/sequence-action@v1/)
 })
 
+test('action audit accepts an action in a subdirectory only from the allowlist, at a full lowercase commit ID', () => {
+  const sha = 'c'.repeat(40)
+  const notPinned = 'action is not pinned to a full commit'
+  const dotName = 'action owner or repository is . or ..'
+  const subdirectory =
+    "action subdirectory must be one of actions/cache/restore, actions/cache/save; a remote reusable workflow's steps are not audited"
+  const accepted = [
+    `actions/cache/restore@${sha}`,
+    `actions/cache/save@${sha}`,
+    // Owner and repository names are case-insensitive.
+    `Actions/Cache/restore@${sha}`,
+    `owner/repo@${sha}`,
+    `Owner.Name/repo_name-1@${sha}`,
+  ]
+  const rejected = [
+    // Only a full lowercase commit ID pins, as for any action.
+    ['actions/cache/restore@v4', notPinned],
+    ['actions/cache/restore@v4.3.0', notPinned],
+    ['actions/cache/restore@main', notPinned],
+    ['actions/cache/restore@refs/heads/main', notPinned],
+    ['actions/cache/restore@0057852', notPinned],
+    [`actions/cache/restore@${'C'.repeat(40)}`, notPinned],
+    [`actions/cache/restore@${sha}0`, notPinned],
+    [`actions/cache/restore@${sha.slice(1)}`, notPinned],
+    ['actions/cache/restore', notPinned],
+    ['actions/cache/restore@', notPinned],
+    [`actions/cache/restore@${sha} `, notPinned],
+    [`/actions/cache/restore@${sha}`, notPinned],
+    [`actions@${sha}`, notPinned],
+    [`actions/cache/restore@${sha}@${sha}`, notPinned],
+    [`docker://alpine@sha256:${'d'.repeat(64)}`, notPinned],
+    // . and .. are never an owner or a repository.
+    [`../cache@${sha}`, dotName],
+    [`actions/..@${sha}`, dotName],
+    [`actions/.@${sha}`, dotName],
+    [`../../actions/cache/restore@${sha}`, dotName],
+    [`actions/../cache/restore@${sha}`, dotName],
+    // Any other subdirectory, including one that only looks like the allowlist.
+    [`owner/repo/nested/action@${sha}`, subdirectory],
+    [`owner/repo/.github/actions/setup@${sha}`, subdirectory],
+    [`owner/cache/restore@${sha}`, subdirectory],
+    [`actions/checkout/restore@${sha}`, subdirectory],
+    [`actions/cache/Restore@${sha}`, subdirectory],
+    [`actions/cache/restore/@${sha}`, subdirectory],
+    [`actions/cache//restore@${sha}`, subdirectory],
+    [`actions/cache/./restore@${sha}`, subdirectory],
+    [`actions/cache/restore/..@${sha}`, subdirectory],
+    [`actions/cache/restore/.@${sha}`, subdirectory],
+    [`actions/cache/../cache/restore@${sha}`, subdirectory],
+    [`actions/cache/rest ore@${sha}`, subdirectory],
+  ]
+  const audit = auditActionReferences([
+    {
+      file: '.github/workflows/ci.yml',
+      source: [
+        'steps:',
+        ...[...accepted, ...rejected.map(([reference]) => reference)].map(
+          reference => `  - uses: ${JSON.stringify(reference)}`
+        ),
+      ].join('\n'),
+    },
+  ])
+  assert.equal(audit.actionCount, accepted.length + rejected.length)
+  assert.deepEqual(
+    audit.errors,
+    rejected.map(([reference, problem]) => `.github/workflows/ci.yml: ${problem}: ${reference}`)
+  )
+
+  // The owner/repo checks still apply to the owner/repo part of a subpath.
+  const setup = auditActionReferences([
+    {
+      file: '.github/workflows/ci.yml',
+      source: `steps:\n  - uses: pnpm/action-setup/sub@${sha}\n`,
+    },
+  ])
+  assert.deepEqual(setup.errors, [
+    `.github/workflows/ci.yml: ${subdirectory}: pnpm/action-setup/sub@${sha}`,
+    `.github/workflows/ci.yml: pnpm/action-setup installs pnpm without checking the packageManager hash; run pnpm through Corepack: pnpm/action-setup/sub@${sha}`,
+  ])
+})
+
+// actions/cache/restore and actions/cache/save serve only the tree pass marker,
+// so they are accepted only in its two workflow files: never in a local
+// composite action, which a marked workflow could call, or another workflow.
+test('action audit accepts the cache sub-actions only in the tree pass marker workflows', () => {
+  const sha = 'c'.repeat(40)
+  const steps = [`actions/cache/restore@${sha}`, `actions/cache/save@${sha}`]
+  const source = [
+    'runs:',
+    '  using: composite',
+    '  steps:',
+    ...steps.map(reference => `    - uses: ${reference}`),
+  ].join('\n')
+  const accepted = ['.github/workflows/ci.yml', '.github/workflows/playwright-release-gate.yml']
+  const refused = [
+    '.github/actions/marker-restore/action.yml',
+    '.github/actions/marker-save/action.yaml',
+    'action.yml',
+    '.github/workflows/release.yml',
+    '.github/workflows/reusable.yml',
+    '.github/workflows/CI.yml',
+    'apps/extension/.github/workflows/ci.yml',
+    './.github/workflows/ci.yml',
+  ]
+  for (const file of accepted) {
+    assert.deepEqual(auditActionReferences([{ file, source }]).errors, [], file)
+  }
+  for (const file of refused) {
+    assert.deepEqual(
+      auditActionReferences([{ file, source }]).errors.filter(
+        error => !error.includes('local action runtime')
+      ),
+      steps.map(
+        reference =>
+          `${file}: action subdirectory is used only by the tree pass marker in .github/workflows/ci.yml, .github/workflows/playwright-release-gate.yml: ${reference}`
+      ),
+      file
+    )
+  }
+  // The main action stays accepted anywhere.
+  assert.deepEqual(
+    auditActionReferences([
+      {
+        file: '.github/actions/setup/action.yml',
+        source: `runs:\n  using: composite\n  steps:\n    - uses: actions/cache@${sha}\n`,
+      },
+    ]).errors,
+    []
+  )
+})
+
+// A job-level `uses` calls a reusable workflow, whose steps this audit never
+// reads, so a remote one is rejected even at a full commit ID.
+test('action audit rejects a remote reusable workflow at any ref', () => {
+  const sha = 'c'.repeat(40)
+  const audit = auditActionReferences([
+    {
+      file: '.github/workflows/ci.yml',
+      source: [
+        'jobs:',
+        '  remote:',
+        `    uses: owner/repo/.github/workflows/build.yml@${sha}`,
+        '  remote-allowlisted-owner:',
+        `    uses: actions/cache/.github/workflows/x.yml@${sha}`,
+        '  remote-by-tag:',
+        '    uses: owner/repo/.github/workflows/build.yml@v1',
+        '  local:',
+        '    uses: ./.github/workflows/local.yml',
+      ].join('\n'),
+    },
+  ])
+  assert.equal(audit.actionCount, 4)
+  assert.deepEqual(audit.errors, [
+    `.github/workflows/ci.yml: action subdirectory must be one of actions/cache/restore, actions/cache/save; a remote reusable workflow's steps are not audited: owner/repo/.github/workflows/build.yml@${sha}`,
+    `.github/workflows/ci.yml: action subdirectory must be one of actions/cache/restore, actions/cache/save; a remote reusable workflow's steps are not audited: actions/cache/.github/workflows/x.yml@${sha}`,
+    '.github/workflows/ci.yml: action is not pinned to a full commit: owner/repo/.github/workflows/build.yml@v1',
+  ])
+})
+
 test('action audit fails closed for malformed YAML and non-string references', () => {
   const audit = auditActionReferences([
     {
@@ -548,59 +708,297 @@ test('action audit rejects pnpm/action-setup and setup-node cache: pnpm', () => 
 // store cache comes after the step that reads the store path from that pnpm
 // and before the install, and the release job, which receives RELEASE_PAT,
 // restores no cache at all.
+// pnpx and pnx run pnpm dlx, and pn is pnpm 11's short name for pnpm.
+const PNPM_WORD = /(?<![A-Za-z0-9_@./-])(?:pnpm|pnpx|pnx|pn)(?![A-Za-z0-9_.-])/
+// The tree pass marker's lookup and save (docs/ci-tree-pass-marker.md) hold one
+// small JSON file and never the pnpm store, and the lookup downloads nothing.
+// They are the only actions/cache sub-action steps a workflow may have, each
+// in its own job and with exactly these inputs.
+const TREE_PASS_MARKER_PATH = '${{ runner.temp }}/tree-pass-marker'
+const TREE_PASS_MARKER_STEPS = {
+  'tree-pass': {
+    uses: /^actions\/cache\/restore@[0-9a-f]{40}$/,
+    with: {
+      path: TREE_PASS_MARKER_PATH,
+      key: '${{ steps.key.outputs.prefix }}',
+      'restore-keys': '${{ steps.key.outputs.prefix }}',
+      'lookup-only': true,
+    },
+  },
+  'tree-pass-save': {
+    uses: /^actions\/cache\/save@[0-9a-f]{40}$/,
+    with: { path: TREE_PASS_MARKER_PATH, key: '${{ steps.record.outputs.key }}' },
+  },
+}
+
+function isTreePassMarkerStep(jobName, step) {
+  const expected = Object.hasOwn(TREE_PASS_MARKER_STEPS, jobName)
+    ? TREE_PASS_MARKER_STEPS[jobName]
+    : undefined
+  return (
+    expected !== undefined &&
+    expected.uses.test(step.uses || '') &&
+    isDeepStrictEqual(step.with, expected.with)
+  )
+}
+
+// A job's steps with every local composite action (`uses: ./path`) replaced by
+// the steps it runs, so the rules below see through them. `readAction(path)`
+// returns the parsed action.yml of a repository directory, or undefined.
+function inlineLocalActions(steps, readAction, where, chain = []) {
+  return steps.flatMap(step => {
+    const uses = typeof step?.uses === 'string' ? step.uses : ''
+    if (!uses.startsWith('./')) return [step]
+    const path = uses.slice(2).replace(/\/+$/, '')
+    assert.ok(
+      !path.split('/').includes('..'),
+      `${where}: local action ${uses} leaves the repository`
+    )
+    assert.ok(!chain.includes(path), `${where}: local action ${uses} uses itself`)
+    const definition = readAction?.(path)
+    assert.ok(definition, `${where}: local action ${uses} has no action.yml`)
+    if (definition.runs?.using !== 'composite') return [step]
+    return inlineLocalActions(definition.runs.steps ?? [], readAction, where, [...chain, path])
+  })
+}
+
+function localActionReader(repoRoot) {
+  return path => {
+    for (const name of ['action.yml', 'action.yaml']) {
+      const file = join(repoRoot, path, name)
+      if (existsSync(file)) return YAML.parse(readFileSync(file, 'utf8'))
+    }
+    return undefined
+  }
+}
+
+// Asserts the rules above for one job, local actions included; returns
+// whether it runs pnpm.
+function assertPnpmAfterCorepack(file, name, job, readAction) {
+  const where = `${file} job ${name}`
+  const steps = inlineLocalActions(job.steps || [], readAction, where)
+  const corepack = steps.findIndex(step => /\bcorepack enable\b/.test(step.run || ''))
+  const storePath = steps.findIndex(step => step.id === 'pnpm-store')
+  const install = steps.findIndex(step => /\bpnpm install\b/.test(step.run || ''))
+  // Every actions/cache step, including its restore and save sub-actions.
+  const cacheSteps = steps.flatMap((step, index) =>
+    /^actions\/cache(?:\/[^@]*)?@/i.test(step.uses || '') ? [index] : []
+  )
+  // A sub-action step must be one of the tree pass marker's two, in its job
+  // and with its exact inputs. Every other actions/cache step is a pnpm store
+  // cache and follows the store rules. Inputs that do not name pnpm prove
+  // nothing: ~/.local/share/pnpm/store does not match PNPM_WORD.
+  for (const index of cacheSteps) {
+    const step = steps[index]
+    assert.ok(
+      /^actions\/cache@/i.test(step.uses) || isTreePassMarkerStep(name, step),
+      `${where}: step ${step.name || index} uses ${step.uses}, but only the tree pass marker's lookup and save may use an actions/cache sub-action`
+    )
+  }
+  const caches = cacheSteps.filter(index => !isTreePassMarkerStep(name, steps[index]))
+  let runsPnpm = false
+  steps.forEach((step, index) => {
+    assert.doesNotMatch(step.uses || '', /^pnpm\/action-setup(?:[/@]|$)/i, where)
+    if (/^actions\/setup-node@/i.test(step.uses || '')) {
+      assert.equal(step.with?.cache, undefined, `${where}: setup-node must not cache pnpm`)
+    }
+    if (index === corepack) return
+    const text = JSON.stringify([step.run ?? null, step.with ?? null])
+    if (!PNPM_WORD.test(text) && !caches.includes(index)) return
+    runsPnpm = true
+    assert.ok(
+      corepack >= 0 && corepack < index,
+      `${where}: step ${step.name || index} runs pnpm before the Corepack step`
+    )
+  })
+  for (const index of caches) {
+    assert.ok(corepack < storePath && storePath < index && index < install, where)
+    assert.match(steps[storePath].run, /\$\(corepack pnpm store path --silent\)/, where)
+    assert.deepEqual(
+      steps[index].with,
+      {
+        path: '${{ steps.pnpm-store.outputs.path }}',
+        key: "${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}",
+      },
+      where
+    )
+  }
+  if (file === '.github/workflows/release.yml') {
+    assert.deepEqual(cacheSteps, [], `${where} holds RELEASE_PAT and must restore no cache`)
+  }
+  return runsPnpm
+}
+
 test('every workflow job runs pnpm only after the Corepack step', () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-  // pnpx and pnx run pnpm dlx, and pn is pnpm 11's short name for pnpm.
-  const pnpmWord = /(?<![A-Za-z0-9_@./-])(?:pnpm|pnpx|pnx|pn)(?![A-Za-z0-9_.-])/
   const workflows = trackedFiles(repoRoot).filter(file =>
     /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file)
   )
+  const readAction = localActionReader(repoRoot)
   let pnpmJobs = 0
   for (const file of workflows) {
     const { jobs } = YAML.parse(readFileSync(join(repoRoot, file), 'utf8'))
     for (const [name, job] of Object.entries(jobs)) {
-      const steps = job.steps || []
-      const where = `${file} job ${name}`
-      const corepack = steps.findIndex(step => /\bcorepack enable\b/.test(step.run || ''))
-      const storePath = steps.findIndex(step => step.id === 'pnpm-store')
-      const install = steps.findIndex(step => /\bpnpm install\b/.test(step.run || ''))
-      const caches = steps.flatMap((step, index) =>
-        /^actions\/cache@/i.test(step.uses || '') ? [index] : []
-      )
-      let runsPnpm = false
-      steps.forEach((step, index) => {
-        assert.doesNotMatch(step.uses || '', /^pnpm\/action-setup(?:[/@]|$)/i, where)
-        if (/^actions\/setup-node@/i.test(step.uses || '')) {
-          assert.equal(step.with?.cache, undefined, `${where}: setup-node must not cache pnpm`)
-        }
-        if (index === corepack) return
-        const text = JSON.stringify([step.run ?? null, step.with ?? null])
-        if (!pnpmWord.test(text) && !caches.includes(index)) return
-        runsPnpm = true
-        assert.ok(
-          corepack >= 0 && corepack < index,
-          `${where}: step ${step.name || index} runs pnpm before the Corepack step`
-        )
-      })
-      if (runsPnpm) pnpmJobs += 1
-      for (const index of caches) {
-        assert.ok(corepack < storePath && storePath < index && index < install, where)
-        assert.match(steps[storePath].run, /\$\(corepack pnpm store path --silent\)/, where)
-        assert.deepEqual(
-          steps[index].with,
-          {
-            path: '${{ steps.pnpm-store.outputs.path }}',
-            key: "${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}",
-          },
-          where
-        )
-      }
-      if (file === '.github/workflows/release.yml') {
-        assert.deepEqual(caches, [], `${where} holds RELEASE_PAT and must restore no cache`)
-      }
+      if (assertPnpmAfterCorepack(file, name, job, readAction)) pnpmJobs += 1
     }
   }
   assert.ok(pnpmJobs > 0)
+})
+
+test('only the tree pass marker steps, in their jobs and exact shapes, are exempt from the pnpm store rules', () => {
+  const sha = 'e'.repeat(40)
+  const corepack = { run: 'corepack enable' }
+  const storePath = {
+    id: 'pnpm-store',
+    run: 'echo "path=$(corepack pnpm store path --silent)" >> "$GITHUB_OUTPUT"',
+  }
+  const storeCache = {
+    uses: `actions/cache@${sha}`,
+    with: {
+      path: '${{ steps.pnpm-store.outputs.path }}',
+      key: "${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}",
+    },
+  }
+  const install = { run: 'corepack pnpm install --frozen-lockfile' }
+  const lookup = (withOverrides = {}, uses = `actions/cache/restore@${sha}`) => ({
+    uses,
+    with: { ...TREE_PASS_MARKER_STEPS['tree-pass'].with, ...withOverrides },
+  })
+  const save = (withOverrides = {}, uses = `actions/cache/save@${sha}`) => ({
+    uses,
+    with: { ...TREE_PASS_MARKER_STEPS['tree-pass-save'].with, ...withOverrides },
+  })
+  const fullRestore = {
+    uses: `actions/cache/restore@${sha}`,
+    with: { path: TREE_PASS_MARKER_PATH, key: 'x', 'restore-keys': 'tree-pass-' },
+  }
+  // Local composite actions, as a repository directory would hold them.
+  const localActions = {
+    '.github/actions/marker-restore': {
+      runs: { using: 'composite', steps: [fullRestore] },
+    },
+    '.github/actions/marker-save': {
+      runs: {
+        using: 'composite',
+        steps: [
+          {
+            uses: `actions/cache/save@${sha}`,
+            with: { path: TREE_PASS_MARKER_PATH, key: '${{ inputs.key }}' },
+          },
+        ],
+      },
+    },
+    '.github/actions/main-cache': {
+      runs: {
+        using: 'composite',
+        steps: [
+          {
+            uses: `actions/cache@${sha}`,
+            with: { path: TREE_PASS_MARKER_PATH, key: 'x', 'restore-keys': 'tree-pass-' },
+          },
+        ],
+      },
+    },
+    '.github/actions/nested': {
+      runs: { using: 'composite', steps: [{ uses: './.github/actions/marker-restore' }] },
+    },
+    '.github/actions/lookup-shape': {
+      runs: { using: 'composite', steps: [{ run: 'node x' }] },
+    },
+    '.github/actions/loop': {
+      runs: { using: 'composite', steps: [{ uses: './.github/actions/loop/' }] },
+    },
+  }
+  const check = (steps, job = 'lint') =>
+    assertPnpmAfterCorepack('.github/workflows/ci.yml', job, { steps }, path => localActions[path])
+
+  // The real shapes: a store cache in order, and each marker step in its job.
+  assert.equal(check([corepack, storePath, storeCache, install]), true)
+  assert.equal(check([{ uses: './.github/actions/lookup-shape' }, corepack]), false)
+  assert.equal(check([{ run: 'node x' }, lookup(), { run: 'node y' }], 'tree-pass'), false)
+  assert.equal(check([{ run: 'node x' }, save()], 'tree-pass-save'), false)
+
+  const storeDir = '~/.local/share/pnpm/store'
+  const refused = [
+    // A restore of the store with any key, before Corepack.
+    [
+      [
+        { uses: `actions/cache/restore@${sha}`, with: { path: storeDir, key: 'x' } },
+        corepack,
+        storePath,
+        install,
+      ],
+    ],
+    // The same after Corepack, with the wrong key or out of order.
+    [
+      [
+        corepack,
+        storePath,
+        { uses: `actions/cache/restore@${sha}`, with: { path: storeDir, key: 'x' } },
+        install,
+      ],
+    ],
+    [
+      [
+        corepack,
+        storePath,
+        install,
+        { uses: `actions/cache/save@${sha}`, with: { path: storeDir, key: 'x' } },
+      ],
+    ],
+    // Even the store's own inputs, through a sub-action.
+    [
+      [
+        corepack,
+        storePath,
+        { uses: `actions/cache/restore@${sha}`, with: storeCache.with },
+        install,
+      ],
+    ],
+    // A full restore of the marker path, anywhere.
+    [[lookup({ 'lookup-only': false }), corepack, storePath, install], 'tree-pass'],
+    [[lookup({ 'lookup-only': undefined }), corepack], 'tree-pass'],
+    [[fullRestore, corepack, storePath, install]],
+    [[fullRestore], 'playwright-release-gate'],
+    // The exact lookup or save, in any other job.
+    [[lookup(), corepack, storePath, install]],
+    [[lookup()], 'verify'],
+    [[lookup()], 'tree-pass-save'],
+    [[save()], 'tree-pass'],
+    [[save()], 'lint'],
+    // A shape that only resembles the marker's.
+    [[lookup({ 'restore-keys': 'tree-pass-' })], 'tree-pass'],
+    [[lookup({ key: 'x' })], 'tree-pass'],
+    [[lookup({ 'fail-on-cache-miss': true })], 'tree-pass'],
+    [[lookup({ path: `${TREE_PASS_MARKER_PATH}/../../.local/share/pnpm/store` })], 'tree-pass'],
+    [[lookup({ path: `${TREE_PASS_MARKER_PATH}\n${storeDir}` })], 'tree-pass'],
+    [[lookup({ 'lookup-only': 'true' })], 'tree-pass'],
+    [[save({ key: 'tree-pass-v1-x' })], 'tree-pass-save'],
+    [[save({ 'upload-chunk-size': 1 })], 'tree-pass-save'],
+    // The right inputs under another action.
+    [[lookup({}, `actions/cache/save@${sha}`)], 'tree-pass'],
+    [[lookup({}, `Actions/Cache/restore@${sha}`)], 'tree-pass'],
+    [[lookup({}, `actions/cache/restore@v4`)], 'tree-pass'],
+    [[lookup({}, `actions/cache@${sha}`)], 'tree-pass'],
+    [[save({}, `actions/cache/restore@${sha}`)], 'tree-pass-save'],
+    // Through a local composite action: a full restore right after checkout,
+    // a save of any key, the main action on the marker path, nested, looping
+    // or missing.
+    [[{ uses: './.github/actions/marker-restore' }, corepack, storePath, install]],
+    [[{ uses: './.github/actions/marker-save' }], 'verify'],
+    [[corepack, storePath, { uses: './.github/actions/main-cache' }, install]],
+    [[{ uses: './.github/actions/nested' }], 'playwright-release-gate'],
+    [[{ uses: './.github/actions/loop' }]],
+    [[{ uses: './.github/actions/missing' }]],
+    [[{ uses: './../outside' }]],
+  ]
+  for (const [steps, job] of refused) {
+    assert.throws(
+      () => check(steps, job),
+      assert.AssertionError,
+      `${job}: ${JSON.stringify(steps)}`
+    )
+  }
 })
 
 // The allowlist must still accept every command the repository really runs:
