@@ -188,6 +188,25 @@ export interface QbitPqcSignatureBatchRef {
   index: number
 }
 
+/**
+ * Told how far a P2MR PSBT signing has got: once with 0 when its checks have
+ * passed and the first input is about to be signed, then after every input,
+ * a cached signature included, until `signed` reaches `total`. `cached`
+ * counts the inputs so far whose signature came from the cache, without a
+ * new signature. A listener that throws does not stop the signing.
+ */
+export type QbitSigningProgressListener = (signed: number, total: number, cached: number) => void
+
+/** What a caller of `signP2mrPsbtWithCounter` may add. */
+export interface QbitP2mrSigningOptions {
+  onProgress?: QbitSigningProgressListener | undefined
+  /**
+   * Checked before each input: once it is aborted, the signing stops with
+   * QbitSigningAbortedError before signing another input.
+   */
+  signal?: AbortSignal | undefined
+}
+
 interface QbitPqcSignatureBatchDrift {
   reserved: number
   produced: number
@@ -307,6 +326,21 @@ export class QbitSignatureBatchInterruptedError extends Error {
   constructor(message = QBIT_SIGNATURE_BATCH_INTERRUPTED) {
     super(message)
     this.name = 'QbitSignatureBatchInterruptedError'
+  }
+}
+
+export const QBIT_SIGNING_ABORTED_CODE = 'QBIT_SIGNING_ABORTED'
+
+/**
+ * A P2MR PSBT signing stopped by its caller's abort signal, checked before
+ * each input. The inputs signed before it keep their spent counters.
+ */
+export class QbitSigningAbortedError extends Error {
+  readonly code = QBIT_SIGNING_ABORTED_CODE
+
+  constructor(message = 'The P2MR signing was stopped before it finished') {
+    super(message)
+    this.name = 'QbitSigningAbortedError'
   }
 }
 
@@ -3164,7 +3198,8 @@ export class KeyringService extends EventEmitter {
     expectedBudget?: QbitSignatureBudgetImpact,
     // The entry of an approved batch this request signs, whose other
     // entries may sign before it, in any order (openP2mrPsbtSigningBatch).
-    signatureBatch?: QbitPqcSignatureBatchRef
+    signatureBatch?: QbitPqcSignatureBatchRef,
+    { onProgress, signal }: QbitP2mrSigningOptions = {}
   ): Promise<QbitP2mrPsbtCounteredSignatureResult> => {
     const psbtSnapshot = clonePsbt(psbt)
     const keySnapshots = keys.map(key => ({
@@ -3206,6 +3241,14 @@ export class KeyringService extends EventEmitter {
       }
     })
     const cacheKeys = signingPlans.map(plan => pqcSignatureCacheKey(plan.sighash))
+    let cachedCount = 0
+    const reportProgress = (signed: number): void => {
+      try {
+        onProgress?.(signed, signingPlans.length, cachedCount)
+      } catch (error) {
+        this.logger?.warn?.('[KeyringService] P2MR signing progress listener failed', error)
+      }
+    }
     return this.pqcSignatureCounterMutex.lock(pubkey, async () => {
       this.assertLiveKeyrings([keyring])
       const budget = await this.getPqcSignatureBudgetLocked(keyring, pubkey, cacheKeys)
@@ -3238,7 +3281,9 @@ export class KeyringService extends EventEmitter {
       const preSigned = new Map<string, Uint8Array>()
       const counterResults: QbitP2mrPsbtCounterResult[] = []
       try {
+        reportProgress(0)
         for (const { key, keyPubkey, hashType, sighash, preSignedKey } of signingPlans) {
+          if (signal?.aborted) throw new QbitSigningAbortedError()
           const countered = await this.signPqcDigestWithCounterTargetUnlocked(
             target,
             sighash,
@@ -3256,6 +3301,8 @@ export class KeyringService extends EventEmitter {
             cached: countered.cached,
             counter: countered.counter,
           })
+          if (countered.cached) cachedCount += 1
+          reportProgress(counterResults.length)
         }
         if (batchEntry) batchEntry.entry.signed = true
       } finally {

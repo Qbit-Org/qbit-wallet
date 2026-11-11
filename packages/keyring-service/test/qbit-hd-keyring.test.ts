@@ -27,6 +27,7 @@ import {
 import { AddressType } from '@qbit/wallet-types'
 import {
   KeyringService,
+  QBIT_SIGNING_ABORTED_CODE,
   QbitRestoredFloorConfirmationError,
   QbitSignatureBatchInterruptedError,
 } from '../src/keyring-service'
@@ -1185,6 +1186,169 @@ describe('qbit-hd-keyring', () => {
     expect(decodePsbt(signed.psbt).inputs.map(input => input.scriptSigs.length)).toEqual([1, 1, 1])
     expect(await service.getPqcSignatureCounter(pubkey!)).toBe(3)
     expect(vaultPayload(storage)[0].data.pqcSignatureCounters[pubkey!]).toBe(3)
+  })
+
+  describe('signing progress (#171)', () => {
+    type Report = [signed: number, total: number, cached: number]
+
+    it('reports 0 once its checks pass, then every input as it signs', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { inputCount: 3 })
+      const reports: Report[] = []
+      const qbitKeyring = keyring as QbitHdKeyring
+      const originalSignPqcDigest = qbitKeyring.signPqcDigest.bind(qbitKeyring)
+      // What each signature saw reported before it ran.
+      const reportedBeforeSignature: number[] = []
+      qbitKeyring.signPqcDigest = async (address, digest) => {
+        reportedBeforeSignature.push(reports.length)
+        return originalSignPqcDigest(address, digest)
+      }
+
+      await service.signP2mrPsbtWithCounter(
+        pubkey!,
+        { psbt: fixture.psbt, keys: fixture.keys },
+        undefined,
+        undefined,
+        { onProgress: (signed, total, cached) => reports.push([signed, total, cached]) }
+      )
+
+      expect(reports).toEqual([
+        [0, 3, 0],
+        [1, 3, 0],
+        [2, 3, 0],
+        [3, 3, 0],
+      ])
+      expect(reportedBeforeSignature).toEqual([1, 2, 3])
+    })
+
+    it('counts a cached signature as signed', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { inputCount: 2 })
+      await service.signP2mrPsbtWithCounter(pubkey!, { psbt: fixture.psbt, keys: fixture.keys })
+      const reports: Report[] = []
+
+      const again = await service.signP2mrPsbtWithCounter(
+        pubkey!,
+        { psbt: fixture.psbt, keys: fixture.keys },
+        undefined,
+        undefined,
+        { onProgress: (signed, total, cached) => reports.push([signed, total, cached]) }
+      )
+
+      expect(again.counterResults.map(result => result.cached)).toEqual([true, true])
+      expect(reports).toEqual([
+        [0, 2, 0],
+        [1, 2, 1],
+        [2, 2, 2],
+      ])
+    })
+
+    it('stops reporting at the input that fails', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { inputCount: 3 })
+      const qbitKeyring = keyring as QbitHdKeyring
+      const originalSignPqcDigest = qbitKeyring.signPqcDigest.bind(qbitKeyring)
+      let signerCalls = 0
+      qbitKeyring.signPqcDigest = async (address, digest) => {
+        signerCalls += 1
+        if (signerCalls === 2) throw new Error('forced signer failure')
+        return originalSignPqcDigest(address, digest)
+      }
+      const reports: Report[] = []
+
+      await expect(
+        service.signP2mrPsbtWithCounter(
+          pubkey!,
+          { psbt: fixture.psbt, keys: fixture.keys },
+          undefined,
+          undefined,
+          { onProgress: (signed, total, cached) => reports.push([signed, total, cached]) }
+        )
+      ).rejects.toThrow('forced signer failure')
+
+      expect(reports).toEqual([
+        [0, 3, 0],
+        [1, 3, 0],
+      ])
+    })
+
+    it('stops before the next input once its signal is aborted, keeping what it spent', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { inputCount: 3 })
+      const stop = new AbortController()
+      const reports: Report[] = []
+
+      await expect(
+        service.signP2mrPsbtWithCounter(
+          pubkey!,
+          { psbt: fixture.psbt, keys: fixture.keys },
+          undefined,
+          undefined,
+          {
+            signal: stop.signal,
+            onProgress: (signed, total, cached) => {
+              reports.push([signed, total, cached])
+              if (signed === 1) stop.abort()
+            },
+          }
+        )
+      ).rejects.toMatchObject({ code: QBIT_SIGNING_ABORTED_CODE })
+
+      expect(reports).toEqual([
+        [0, 3, 0],
+        [1, 3, 0],
+      ])
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+    })
+
+    it('reports nothing for a PSBT it refuses before signing', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring)
+      const alreadySigned = signP2mrPsbt({
+        psbt: fixture.psbt,
+        keys: fixture.keys,
+        sign: () => dummyPqcSignature(0x5a),
+      }).psbt
+      const reports: Report[] = []
+
+      await expect(
+        service.signP2mrPsbtWithCounter(
+          pubkey!,
+          { psbt: alreadySigned, keys: fixture.keys },
+          undefined,
+          undefined,
+          { onProgress: (signed, total, cached) => reports.push([signed, total, cached]) }
+        )
+      ).rejects.toThrow(/already has a P2MR signature/)
+
+      expect(reports).toEqual([])
+    })
+
+    it('keeps signing when the listener throws', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { inputCount: 2 })
+
+      const signed = await service.signP2mrPsbtWithCounter(
+        pubkey!,
+        { psbt: fixture.psbt, keys: fixture.keys },
+        undefined,
+        undefined,
+        {
+          onProgress: () => {
+            throw new Error('listener failure')
+          },
+        }
+      )
+
+      expect(signed.signed).toHaveLength(2)
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
   })
 
   it('preflights exact P2MR PSBT impact and rejects a stale approved budget', async () => {

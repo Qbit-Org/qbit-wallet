@@ -1127,6 +1127,45 @@
   "signed": {
     "message": "Signé"
   },
+  "signing_in_progress": {
+    "message": "Signature…"
+  },
+  "signing_progress_title": {
+    "message": "Signature de la transaction"
+  },
+  "signing_progress_starting": {
+    "message": "Démarrage…"
+  },
+  "signing_progress_inputs": {
+    "message": "$1 entrées signées sur $2"
+  },
+  "signing_progress_transaction": {
+    "message": "Transaction $1 sur $2"
+  },
+  "signing_progress_minutes_left": {
+    "message": "Environ $1 min restantes"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "Moins d’une minute restante"
+  },
+  "signing_keep_open_title": {
+    "message": "Gardez le portefeuille ouvert"
+  },
+  "signing_keep_open": {
+    "message": "Fermer le portefeuille avant la fin de la signature annule la transaction, et rien n’est envoyé."
+  },
+  "signing_keep_open_popup": {
+    "message": "Cliquer en dehors de cette fenêtre contextuelle la ferme. Fermer le portefeuille avant la fin de la signature annule la transaction, et rien n’est envoyé."
+  },
+  "signing_many_inputs_title": {
+    "message": "La signature va prendre un moment"
+  },
+  "signing_many_inputs_body": {
+    "message": "Cette transaction dépense $1 entrées, et chacune a besoin de sa propre signature : la signature peut donc prendre quelques minutes. Gardez le portefeuille ouvert jusqu’à la fin."
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "Ouvert dans la barre latérale, le portefeuille reste ouvert pendant que vous utilisez d’autres onglets."
+  },
   "skip": {
     "message": "Passer"
   },
@@ -1354,6 +1393,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "Le portefeuille s'est verrouillé pendant le déverrouillage. Déverrouillez-le à nouveau."
+  },
+  "broadcasting_transaction": {
+    "message": "Diffusion de la transaction…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "Le portefeuille s’est verrouillé avant la fin de la signature, donc rien n’a été envoyé. Déverrouillez-le et signez à nouveau."
   },
   "use_at_your_own_risk": {
     "message": "Utilisation à vos propres risques"

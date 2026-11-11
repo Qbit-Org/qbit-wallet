@@ -23,6 +23,7 @@ import {
   QbitRecoveryDeferredSource,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
+  QbitSigningOptions,
   QbitRestoreFloorScanSummary,
   QbitReceiveState,
   QbitRestoreReport,
@@ -288,7 +289,8 @@ export interface WalletController {
 
   getCurrentKeyringAccounts(): Promise<Account[]>
 
-  signPsbtV2(toSignData: ToSignData): Promise<SignedData>
+  /** `options.progressId` asks for this signing's progress (QBIT_SIGNING_PROGRESS events). */
+  signPsbtV2(toSignData: ToSignData, options?: QbitSigningOptions): Promise<SignedData>
   /**
    * Reserve the inputs of a P2MR send the wallet built but an external or
    * cold-wallet signer signed, before its bytes reach the confirm screen.
@@ -411,7 +413,11 @@ export interface WalletController {
 
   decodePsbt(psbtHex: string, website: string, options?: DecodePsbtOptions): Promise<DecodedPsbt>
   analyzeLocalPsbts(toSignDatas: ToSignData[]): Promise<LocalPsbtSummary>
-  signLocalBatchPsbt(toSignData: ToSignData, review: LocalPsbtBatchReview): Promise<SignedData>
+  signLocalBatchPsbt(
+    toSignData: ToSignData,
+    review: LocalPsbtBatchReview,
+    options?: QbitSigningOptions
+  ): Promise<SignedData>
 
   expireUICachedData(address: string): Promise<void>
 

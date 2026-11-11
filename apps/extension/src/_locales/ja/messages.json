@@ -1127,6 +1127,45 @@
   "signed": {
     "message": "署名済み"
   },
+  "signing_in_progress": {
+    "message": "署名中…"
+  },
+  "signing_progress_title": {
+    "message": "トランザクションに署名中"
+  },
+  "signing_progress_starting": {
+    "message": "開始しています…"
+  },
+  "signing_progress_inputs": {
+    "message": "$2 件中 $1 件のインプットに署名済み"
+  },
+  "signing_progress_transaction": {
+    "message": "トランザクション $1 / $2"
+  },
+  "signing_progress_minutes_left": {
+    "message": "残り約 $1 分"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "残り 1 分未満"
+  },
+  "signing_keep_open_title": {
+    "message": "ウォレットを開いたままにしてください"
+  },
+  "signing_keep_open": {
+    "message": "署名が終わる前にウォレットを閉じると、トランザクションはキャンセルされ、何も送信されません。"
+  },
+  "signing_keep_open_popup": {
+    "message": "このポップアップの外側をクリックすると閉じます。署名が終わる前にウォレットを閉じると、トランザクションはキャンセルされ、何も送信されません。"
+  },
+  "signing_many_inputs_title": {
+    "message": "署名には時間がかかります"
+  },
+  "signing_many_inputs_body": {
+    "message": "このトランザクションは $1 件のインプットを使い、それぞれに個別の署名が必要なため、署名に数分かかることがあります。完了するまでウォレットを開いたままにしてください。"
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "サイドバーで開くと、他のタブを使っている間もウォレットは開いたままになります。"
+  },
   "skip": {
     "message": "スキップ"
   },
@@ -1354,6 +1393,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "ロック解除中にウォレットがロックされました。もう一度ロックを解除してください。"
+  },
+  "broadcasting_transaction": {
+    "message": "トランザクションをブロードキャスト中…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "署名が終わる前にウォレットがロックされたため、何も送信されていません。ロックを解除して、もう一度署名してください。"
   },
   "use_at_your_own_risk": {
     "message": "自己責任で使用してください"

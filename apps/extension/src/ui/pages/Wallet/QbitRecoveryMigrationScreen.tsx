@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 
 import { Button, Card, Checkbox, Column, Content, Footer, Header, Icon, Layout, Row, Text } from '@/ui/components';
 import { Popover } from '@/ui/components/Popover';
+import { SigningProgress } from '@/ui/components/SigningProgress';
 import { colors } from '@/ui/theme/colors';
 import { spacing } from '@/ui/theme/spacing';
 import { copyToClipboard, shortAddress } from '@/ui/utils';
@@ -20,7 +21,7 @@ import {
   ToSignData,
   WordsType
 } from '@qbit/wallet-shared';
-import { useChainType, useI18n, useQbitUnit, useTools, useWallet } from '@qbit/wallet-state';
+import { useChainType, useI18n, useQbitUnit, useSigningProgress, useTools, useWallet } from '@qbit/wallet-state';
 import { AddressType } from '@qbit/wallet-types';
 
 import { useNavigate } from '../MainRoute';
@@ -98,10 +99,6 @@ export default function QbitRecoveryMigrationScreen() {
   const sourceAnchorPubkey = (routeState as { sourceAnchorPubkey?: string } | null)?.sourceAnchorPubkey;
   const navigate = useNavigate();
   const wallet = useWallet();
-  // This route displays the freshly generated destination mnemonic, so the
-  // keepalive must stop after its grace period instead of holding the wallet
-  // unlocked for as long as an unattended side panel stays on the screen.
-  useWalletKeepalive(wallet);
   const tools = useTools();
   const { t } = useI18n();
   const qbitUnit = useQbitUnit();
@@ -120,6 +117,9 @@ export default function QbitRecoveryMigrationScreen() {
   const [showRestartWarning, setShowRestartWarning] = useState(false);
   const creatingDestination = useRef(false);
   const signingInFlight = useRef(false);
+  // Shown: Back stays disabled while the plans sign and move.
+  const [signingAndMoving, setSigningAndMoving] = useState(false);
+  const signingProgress = useSigningProgress();
 
   // Every failure shares one localized message, so the details panel carries
   // the failed step and the background's wording for support.
@@ -150,6 +150,13 @@ export default function QbitRecoveryMigrationScreen() {
     addressTypeIndex: 0,
     wordsType: WordsType.WORDS_24
   });
+  // This route displays the freshly generated destination mnemonic, so the
+  // keepalive must stop after its grace period instead of holding the wallet
+  // unlocked for as long as an unattended side panel stays on the screen. It
+  // runs only while the mnemonic exists: once it is cleared (the destination
+  // created), the ordinary auto-lock applies, whose wait for a signing then
+  // covers the plans' signing.
+  useWalletKeepalive(wallet, stage === 'seed' || Boolean(contextData.mnemonics));
 
   const updateContextData = useCallback((params: UpdateContextDataParams) => {
     setContextData((previous) => ({ ...previous, ...params }));
@@ -351,32 +358,41 @@ export default function QbitRecoveryMigrationScreen() {
     // error even though the first one succeeded.
     if (signingInFlight.current) return;
     signingInFlight.current = true;
+    setSigningAndMoving(true);
     setStage('loading');
     try {
-      for (const toSignData of toSignDatas) {
+      for (const [index, toSignData] of toSignDatas.entries()) {
         const risk = toSignData.signatureBudget?.restoredFloorRisk;
         if (!risk) {
           throw new Error(t('qbit_recovery_confirmation_unavailable'));
         }
+        const progressId = signingProgress.start({ index, count: toSignDatas.length });
         try {
           await wallet.confirmQbitRestoredFloorSigning(risk.challengeId);
-          await wallet.signPsbtV2(toSignData);
+          await wallet.signPsbtV2(toSignData, { progressId });
         } catch (error) {
           if ((error as { code?: unknown } | null)?.code === QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED_CODE) {
             throw REVIEW_INTERRUPTED;
           }
           throw error;
+        } finally {
+          signingProgress.stop(progressId);
         }
       }
       await resumeMigration();
     } catch (error) {
       // Either way the plans left are prepared again for another review.
       tools.toastError(
-        isMigrationReviewInterruptedError(error) ? t('qbit_recovery_review_interrupted') : t('qbit_recovery_error_body')
+        isMigrationReviewInterruptedError(error)
+          ? t('qbit_recovery_review_interrupted')
+          : (error as { code?: unknown } | null)?.code === ErrorCodes.WALLET_LOCKED_DURING_SIGNING
+            ? t('wallet_locked_during_signing')
+            : t('qbit_recovery_error_body')
       );
       await resumeMigration();
     } finally {
       signingInFlight.current = false;
+      setSigningAndMoving(false);
     }
   };
 
@@ -694,6 +710,9 @@ export default function QbitRecoveryMigrationScreen() {
         )}
       </Column>
     );
+  } else if (signingProgress.progress) {
+    // Signing the reviewed plans, one transaction after another.
+    body = <SigningProgress progress={signingProgress.progress} />;
   } else {
     body = (
       <Column gap="lg" itemsCenter data-testid="qbit-recovery-loading">
@@ -723,7 +742,8 @@ export default function QbitRecoveryMigrationScreen() {
 
   return (
     <Layout>
-      <Header onBack={onHeaderBack} title={t('qbit_recovery_move_funds')} />
+      {/* Leaving while plans sign would leave them signing unseen. */}
+      <Header onBack={onHeaderBack} backDisabled={signingAndMoving} title={t('qbit_recovery_move_funds')} />
       <Content>{body}</Content>
       {stage === 'review' ? (
         <Footer>

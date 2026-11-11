@@ -1127,6 +1127,45 @@
   "signed": {
     "message": "已簽署"
   },
+  "signing_in_progress": {
+    "message": "簽署中…"
+  },
+  "signing_progress_title": {
+    "message": "正在簽署交易"
+  },
+  "signing_progress_starting": {
+    "message": "正在開始…"
+  },
+  "signing_progress_inputs": {
+    "message": "已簽署 $1 / $2 個輸入"
+  },
+  "signing_progress_transaction": {
+    "message": "第 $1 筆交易，共 $2 筆"
+  },
+  "signing_progress_minutes_left": {
+    "message": "約剩 $1 分鐘"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "剩不到 1 分鐘"
+  },
+  "signing_keep_open_title": {
+    "message": "請保持錢包開啟"
+  },
+  "signing_keep_open": {
+    "message": "若在簽署完成前關閉錢包，交易將被取消，且不會送出任何內容。"
+  },
+  "signing_keep_open_popup": {
+    "message": "點擊此彈出視窗以外的地方會將其關閉。若在簽署完成前關閉錢包，交易將被取消，且不會送出任何內容。"
+  },
+  "signing_many_inputs_title": {
+    "message": "簽署需要一些時間"
+  },
+  "signing_many_inputs_body": {
+    "message": "此交易花費 $1 個輸入，每個輸入都需要各自的簽章，因此簽署可能需要幾分鐘。請保持錢包開啟直到完成。"
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "在側邊欄開啟時，錢包會在你使用其他分頁期間保持開啟。"
+  },
   "skip": {
     "message": "跳過"
   },
@@ -1354,6 +1393,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "錢包在解鎖期間已鎖定。請再次解鎖。"
+  },
+  "broadcasting_transaction": {
+    "message": "正在廣播交易…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "錢包在簽署完成前已鎖定，因此沒有送出任何內容。請解鎖後再簽署一次。"
   },
   "use_at_your_own_risk": {
     "message": "風險自負"

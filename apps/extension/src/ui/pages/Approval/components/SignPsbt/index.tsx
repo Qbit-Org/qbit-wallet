@@ -1,6 +1,6 @@
 import { LoaderCircle } from 'lucide-react';
 import { ListRef } from 'rc-virtual-list';
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { cloneElement, forwardRef, isValidElement, useEffect, useRef, useState } from 'react';
 
 import {
   Button,
@@ -21,6 +21,12 @@ import ColdWalletSignPsbt from '@/ui/components/ColdWallet/ColdWalletSignPsbt';
 import { PhishingDetection } from '@/ui/components/PhishingDetection';
 import { QbitRestoredFloorWarning } from '@/ui/components/QbitRestoredFloorWarning';
 import { SignPsbtWithRisksPopover, getRiskContentKey } from '@/ui/components/SignPsbtWithRisksPopover';
+import {
+  LONG_SIGNING_NOTICE_MIN_INPUTS,
+  LongSigningNotice,
+  SIGNING_PROGRESS_MIN_INPUTS,
+  SigningProgress
+} from '@/ui/components/SigningProgress';
 import WebsiteBar from '@/ui/components/WebsiteBar';
 import { walletErrorMessage } from '@/ui/utils';
 import { colors } from '@/ui/theme/colors';
@@ -148,6 +154,11 @@ export default function SignPsbt(props: SignPsbtProps) {
   const {
     showLoading,
     isPsbtRiskPopoverVisible,
+    isPsbtSigning,
+    signingHandedOff,
+    signingProgress,
+    signingInputCount,
+    currentSigned,
 
     t,
     session,
@@ -369,7 +380,14 @@ export default function SignPsbt(props: SignPsbtProps) {
   };
 
   const websiteCheckWarning = isUnverifiedWebsite ? (
-    <WebsiteCheckWarning warning={websiteCheckWarningText} onRetry={handleRetryWebsiteCheck} testIdPrefix="psbt-" />
+    <WebsiteCheckWarning
+      warning={websiteCheckWarningText}
+      onRetry={handleRetryWebsiteCheck}
+      // A re-check during a signing, or its restored-floor confirmation,
+      // would discard its result.
+      retryDisabled={isPsbtSigning || recoverySignLocked}
+      testIdPrefix="psbt-"
+    />
   ) : null;
 
   const unverifiedWebsiteConfirmation = isUnverifiedWebsite ? (
@@ -391,15 +409,25 @@ export default function SignPsbt(props: SignPsbtProps) {
     );
   }
 
+  // While a signing runs, the screen's back button would leave it running
+  // unseen: it stays in place but does nothing.
+  const signingHeader =
+    isPsbtSigning && isValidElement<{ backDisabled?: boolean }>(header) && header.type === Header
+      ? cloneElement(header, { backDisabled: true })
+      : header;
+
   // condition render
   if (isBlocked) {
     return <PhishingDetection handleCancel={handleClickBack} />;
   }
 
+  // A signing can be under way when the screen falls back to its error or
+  // loading view (the account changed in another window): nothing there
+  // leaves it either.
   if (decodeError) {
     return (
       <Layout>
-        {header}
+        {signingHeader}
         <Content>
           <Column>
             <Text text={t('warning')} preset="title-bold" textCenter mt="xxl" />
@@ -412,6 +440,7 @@ export default function SignPsbt(props: SignPsbtProps) {
               preset="default"
               text={t('reject')}
               onClick={onRejectApprovalError}
+              disabled={isPsbtSigning}
               full
               data-testid="psbt-error-reject-button"
             />
@@ -419,6 +448,7 @@ export default function SignPsbt(props: SignPsbtProps) {
               preset="primary"
               text={t('try_again')}
               onClick={onRetryDecode}
+              disabled={isPsbtSigning}
               full
               data-testid="psbt-error-retry-button"
             />
@@ -444,7 +474,7 @@ export default function SignPsbt(props: SignPsbtProps) {
   if (showLoading) {
     return (
       <Layout>
-        {header}
+        {signingHeader}
         <Content itemsCenter justifyCenter>
           <Column itemsCenter>
             <Icon size={fontSizes.xxxl} color="gold">
@@ -463,8 +493,36 @@ export default function SignPsbt(props: SignPsbtProps) {
               preset="default"
               text={t('reject')}
               onClick={handleClickBack}
+              disabled={isPsbtSigning}
               full
               data-testid="psbt-loading-reject-button"
+            />
+          </Row>
+        </Footer>
+      </Layout>
+    );
+  }
+
+  // A local signing of many inputs: the screen shows how far it has got, and
+  // that the wallet must stay open, until it ends.
+  if (isPsbtSigning && !showMultiSignView && signingInputCount >= SIGNING_PROGRESS_MIN_INPUTS) {
+    return (
+      <Layout>
+        {signingHeader}
+        <Content itemsCenter justifyCenter>
+          <SigningProgress progress={signingProgress} handedOff={signingHandedOff} />
+        </Content>
+        <Footer>
+          <Row full>
+            <Button preset="default" text={t('reject')} disabled aria-disabled full />
+            <Button
+              preset="primary"
+              text={t('signing_in_progress')}
+              loading
+              disabled
+              aria-disabled
+              full
+              data-testid="sign-psbt-button"
             />
           </Row>
         </Footer>
@@ -479,7 +537,7 @@ export default function SignPsbt(props: SignPsbtProps) {
 
     return (
       <Layout>
-        {header}
+        {signingHeader}
         <Content>
           {websiteCheckWarning}
           <Text text={t('sign_multiple_transactions')} preset="title-bold" textCenter mt="lg" />
@@ -539,24 +597,30 @@ export default function SignPsbt(props: SignPsbtProps) {
             </Card>
           )}
 
-          <AutoFitVirtualList
-            data={multiSignList}
-            itemHeight={ITEM_HEIGHT}
-            itemKey={(item) => 'psbt_' + item.index}
-            listRef={refList}
-          >
-            {(item, index) => (
-              <ForwardTransactionItem
-                buttonText={item.buttonText}
-                buttonPreset={item.buttonPreset}
-                psbtInfo={item.psbtInfo}
-                toSignData={toSignDatas[index]}
-                inSignatureBatch={signatureBatchBudget !== undefined}
-                onClick={item.onClick}
-                index={index}
-              />
-            )}
-          </AutoFitVirtualList>
+          {isPsbtSigning ? (
+            <Column mt="lg" fullX>
+              <SigningProgress progress={signingProgress} />
+            </Column>
+          ) : (
+            <AutoFitVirtualList
+              data={multiSignList}
+              itemHeight={ITEM_HEIGHT}
+              itemKey={(item) => 'psbt_' + item.index}
+              listRef={refList}
+            >
+              {(item, index) => (
+                <ForwardTransactionItem
+                  buttonText={item.buttonText}
+                  buttonPreset={item.buttonPreset}
+                  psbtInfo={item.psbtInfo}
+                  toSignData={toSignDatas[index]}
+                  inSignatureBatch={signatureBatchBudget !== undefined}
+                  onClick={item.onClick}
+                  index={index}
+                />
+              )}
+            </AutoFitVirtualList>
+          )}
 
           {/* Provider metadata follows the batch summary and the transaction list. */}
           <ProviderContextCard context={props.params.context || toSignDatas[0]?.providerContext} />
@@ -565,16 +629,30 @@ export default function SignPsbt(props: SignPsbtProps) {
         <Footer>
           {unverifiedWebsiteConfirmation}
           <Row full>
-            <Button preset="default" text={t('reject_all')} onClick={handleClickBack} full />
+            <Button
+              preset="default"
+              text={t('reject_all')}
+              onClick={handleClickBack}
+              disabled={isPsbtSigning}
+              aria-disabled={isPsbtSigning}
+              full
+            />
 
             {!isProviderBatch && (
               <Button
                 preset="primary"
-                text={isAllSigned ? t('submit') : `(${signedCount}/${toSignDatas.length}) ${t('signed')}`}
+                text={
+                  isPsbtSigning
+                    ? t('signing_in_progress')
+                    : isAllSigned
+                      ? t('submit')
+                      : `(${signedCount}/${toSignDatas.length}) ${t('signed')}`
+                }
                 onClick={handleTryMultiSign}
-                icon={hasBatchRisk ? 'risk' : allowQuickMultiSign ? undefined : 'alert'}
-                disabled={isUnverifiedWebsiteBlocked}
-                aria-disabled={isUnverifiedWebsiteBlocked}
+                icon={isPsbtSigning ? undefined : hasBatchRisk ? 'risk' : allowQuickMultiSign ? undefined : 'alert'}
+                loading={isPsbtSigning}
+                disabled={isUnverifiedWebsiteBlocked || isPsbtSigning}
+                aria-disabled={isUnverifiedWebsiteBlocked || isPsbtSigning}
                 full
               />
             )}
@@ -612,18 +690,22 @@ export default function SignPsbt(props: SignPsbtProps) {
 
   const signDisabled =
     !isValid ||
+    isPsbtSigning ||
+    // Signed already, its handoff refused: signing again would be refused too.
+    currentSigned ||
     isUnverifiedWebsiteBlocked ||
     recoverySignLocked ||
     Boolean(restoredFloorRisk && confirmedRecoveryChallenge !== restoredFloorRisk.challengeId);
 
   return (
     <Layout>
-      {header}
+      {signingHeader}
       <Content>
         <Column gap="xl">
           {websiteCheckWarning}
           {/* The action being authorized precedes secondary provider metadata. */}
           <ActionOverviewSection decodedPsbt={currentDecodedPsbt} action={currentToSignData.action!} />
+          {signingInputCount >= LONG_SIGNING_NOTICE_MIN_INPUTS && <LongSigningNotice inputCount={signingInputCount} />}
           <ProviderContextCard context={props.params.context || currentToSignData.providerContext} />
 
           {restoredFloorRisk && (
@@ -702,12 +784,20 @@ export default function SignPsbt(props: SignPsbtProps) {
       <Footer>
         {unverifiedWebsiteConfirmation}
         <Row full>
-          <Button preset="default" text={t('reject')} onClick={handleClickBack} full />
+          <Button
+            preset="default"
+            text={t('reject')}
+            onClick={handleClickBack}
+            disabled={isPsbtSigning}
+            aria-disabled={isPsbtSigning}
+            full
+          />
           <Button
             preset="primary"
-            icon={hasRisk ? 'risk' : undefined}
-            text={t('sign')}
+            icon={hasRisk && !isPsbtSigning ? 'risk' : undefined}
+            text={isPsbtSigning ? t('signing_in_progress') : t('sign')}
             onClick={() => void handleClickSign()}
+            loading={isPsbtSigning}
             disabled={signDisabled}
             aria-disabled={signDisabled}
             full

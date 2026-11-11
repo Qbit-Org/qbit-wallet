@@ -3,7 +3,11 @@ export {
   KeyringService,
   QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
   QbitSignatureBatchInterruptedError,
+  QBIT_SIGNING_ABORTED_CODE,
+  QbitSigningAbortedError,
   type PasswordLifecycleEvent,
+  type QbitP2mrSigningOptions,
+  type QbitSigningProgressListener,
 } from './keyring-service'
 
 // Keyring implementations

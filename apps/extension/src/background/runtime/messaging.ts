@@ -113,19 +113,38 @@ export function initMessaging() {
         }
       });
 
-      // push the message to UI
+      // push the message to UI. Nothing waits for the answer: a page that
+      // closes first rejects it, and a port that refuses the message (no
+      // request ids left) throws, which must not stop the other pages'
+      // listeners on the same event.
       const broadcastToUI = (data: any) => {
-        pm.request({
-          type: MESSAGE_TYPE.BG_BROADCAST,
-          method: data.method,
-          params: data.params
-        });
+        try {
+          void Promise.resolve(
+            pm.request({
+              type: MESSAGE_TYPE.BG_BROADCAST,
+              method: data.method,
+              params: data.params
+            })
+          ).catch(() => undefined);
+        } catch {
+          // This page misses the message; the others still get it.
+        }
       };
 
       bgEventBus.addEventListener(BUS_EVENTS.broadcastToUI, broadcastToUI);
 
+      // A message for this page only, such as the progress of a signing it
+      // asked for; every other page drops it.
+      const sendToThisUI = (data?: { port?: unknown; method?: string; params?: unknown }) => {
+        if (data?.port !== uiPortId) return;
+        broadcastToUI(data);
+      };
+
+      bgEventBus.addEventListener(BUS_EVENTS.toUIPort, sendToThisUI);
+
       port.onDisconnect.addListener(() => {
         bgEventBus.removeEventListener(BUS_EVENTS.broadcastToUI, broadcastToUI);
+        bgEventBus.removeEventListener(BUS_EVENTS.toUIPort, sendToThisUI);
         if (portName === PORT_CHANNELS.POPUP) {
           preferenceService.setPopupOpen(false);
         }

@@ -423,6 +423,7 @@ function useQbitBroadcastSucceededCallback() {
 export function usePushQbitTxCallback() {
   const wallet = useWallet()
   const tools = useTools()
+  const { t } = useI18n()
   const onBroadcastSucceeded = useQbitBroadcastSucceededCallback()
   return useCallback(
     async (
@@ -439,7 +440,8 @@ export function usePushQbitTxCallback() {
       const identity = payload.qbitBroadcastIdentity
       const chain = identity?.chain ?? claim?.chain ?? expectedChain
       const txid = identity?.txid ?? claim?.txid
-      tools.showLoading(true)
+      // Named, so the wait after a long signing reads as its own step.
+      tools.showLoading(true, t('broadcasting_transaction'))
       try {
         // Only the recovery screen says its verdict for these bytes is
         // unknown: after a background restart, the claim restored for this
@@ -474,7 +476,7 @@ export function usePushQbitTxCallback() {
         return failure
       }
     },
-    [wallet, tools, onBroadcastSucceeded]
+    [wallet, tools, t, onBroadcastSucceeded]
   )
 }
 

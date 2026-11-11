@@ -24,6 +24,13 @@
     color: var(--qbit-warning);
   }
 
+  // Unavailable while a signing runs.
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    color: var(--qbit-ink);
+  }
+
   &:focus-visible {
     outline: 2px solid var(--qbit-accent);
     outline-offset: 2px;

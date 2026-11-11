@@ -10,6 +10,11 @@ export interface ProgressProps {
   strokeWidth?: number;
   style?: React.CSSProperties;
   className?: string;
+  /** Names the bar for screen readers and makes it a progressbar to them; without it the bar is decoration. */
+  ariaLabel?: string;
+  /** Text screen readers read for the value instead of the percentage. */
+  ariaValueText?: string;
+  'data-testid'?: string;
 }
 
 export function Progress({
@@ -19,7 +24,10 @@ export function Progress({
   strokeColor = colors.accent,
   strokeWidth,
   style,
-  className
+  className,
+  ariaLabel,
+  ariaValueText,
+  'data-testid': testId
 }: ProgressProps) {
   // Size configurations
   const sizeConfig = {
@@ -44,6 +52,17 @@ export function Progress({
       }}
     >
       <div
+        {...(ariaLabel
+          ? {
+              role: 'progressbar',
+              'aria-label': ariaLabel,
+              'aria-valuemin': 0,
+              'aria-valuemax': 100,
+              'aria-valuenow': Math.round(clampedPercent),
+              'aria-valuetext': ariaValueText
+            }
+          : {})}
+        data-testid={testId}
         style={{
           flex: 1,
           height: `${height}px`,

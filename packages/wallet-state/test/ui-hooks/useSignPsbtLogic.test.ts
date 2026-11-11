@@ -1,6 +1,8 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import {
+  BUS_METHODS,
   DecodedPsbt,
+  ErrorCodes,
   KeyringType,
   type LocalPsbtSummary,
   PsbtActionDetailType,
@@ -23,6 +25,7 @@ import {
   useSignPsbtLogic,
 } from '../../src/ui-hooks/useSignPsbtLogic'
 import { accountActions } from '../../src/reducers/accounts'
+import { uiEventBus } from '../../src/utils/eventBus'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const SAFE_WEBSITE_RESULT = createClearWebsiteResult('example.test')
@@ -207,7 +210,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
 
     await waitFor(() => {
-      expect(wallet.signPsbtV2).toHaveBeenCalledWith(toSignData)
+      expect(wallet.signPsbtV2).toHaveBeenCalledWith(toSignData, { progressId: expect.any(String) })
     })
     expect(wallet.decodePsbt).toHaveBeenCalledWith(toSignData.psbtHex, 'https://example.test', {
       statedRecipients: [],
@@ -1472,7 +1475,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     expect(approval.resolveApproval).not.toHaveBeenCalled()
   })
 
-  it('does not let a stale local-sign rejection overwrite its successful replacement', async () => {
+  it('ignores a Sign press while a stale signing runs, and lets its rejection overwrite nothing', async () => {
     vi.useFakeTimers()
     let rejectFirstSign: ((reason: Error) => void) | undefined
     const firstSign = new Promise<{ psbtHex: string }>((_, reject) => {
@@ -1520,15 +1523,26 @@ describe('useSignPsbtLogic approval recovery', () => {
       await Promise.resolve()
     })
 
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(2)
-    expect(result.current.signedCount).toBe(1)
-    expect(result.current.multiSignList[0].buttonPreset).toBe('approval')
+    // The first signing still runs, so the press signs nothing (#34).
+    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(result.current.isPsbtSigning).toBe(true)
 
     await act(async () => {
       rejectFirstSign?.(new Error('stale signing failure'))
       await Promise.resolve()
     })
 
+    expect(result.current.isPsbtSigning).toBe(false)
+    expect(result.current.signedCount).toBe(0)
+    expect(tools.toastError).not.toHaveBeenCalled()
+
+    await act(async () => {
+      result.current.onClickSign()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(2)
     expect(result.current.signedCount).toBe(1)
     expect(result.current.multiSignList[0].buttonPreset).toBe('approval')
     expect(tools.toastError).not.toHaveBeenCalled()
@@ -1907,7 +1921,11 @@ describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', ()
     // Each PSBT carries only the risks the user confirmed for it; the wallet
     // reviews its bytes again and refuses any other.
     expect(wallet.signLocalBatchPsbt.mock.calls).toEqual([
-      [BATCH[0], { account: ACCOUNT, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] }],
+      [
+        BATCH[0],
+        { account: ACCOUNT, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] },
+        { progressId: expect.any(String) },
+      ],
       [
         BATCH[1],
         {
@@ -1915,6 +1933,7 @@ describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', ()
           chain: ChainType.QBIT_REGTEST,
           confirmedRisks: [RiskType.HIGH_FEE_RATE],
         },
+        { progressId: expect.any(String) },
       ],
       [
         BATCH[2],
@@ -1923,6 +1942,7 @@ describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', ()
           chain: ChainType.QBIT_REGTEST,
           confirmedRisks: [RiskType.UNRECOGNISED_OUTPUT],
         },
+        { progressId: expect.any(String) },
       ],
     ])
     expect(result.current.batchRiskReview).toBeNull()
@@ -2073,7 +2093,9 @@ describe('useSignPsbtLogic quick multi-sign of a flagged local batch (#367)', ()
       await result.current.onQuickMultiSign()
     })
     expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(4)
-    expect(wallet.signLocalBatchPsbt).toHaveBeenLastCalledWith(BATCH[2], expect.anything())
+    expect(wallet.signLocalBatchPsbt).toHaveBeenLastCalledWith(BATCH[2], expect.anything(), {
+      progressId: expect.any(String),
+    })
     expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
       { psbtHex: 'signed-clean-psbt' },
       { psbtHex: 'signed-high-fee-psbt' },
@@ -2297,7 +2319,9 @@ describe('useSignPsbtLogic signature batches (#152)', () => {
       await result.current.onClickSign()
     })
 
-    expect(wallet.signPsbtV2).toHaveBeenCalledWith(providerBatch[1])
+    expect(wallet.signPsbtV2).toHaveBeenCalledWith(providerBatch[1], {
+      progressId: expect.any(String),
+    })
   })
 
   it('shows why an entry of a batch a lock interrupted is refused, and signs nothing else', async () => {
@@ -2338,6 +2362,412 @@ describe('useSignPsbtLogic signature batches (#152)', () => {
     })
 
     expect(result.current.signatureBatchBudget).toBeUndefined()
-    expect(wallet.signPsbtV2).toHaveBeenCalledWith(BATCH[0])
+    expect(wallet.signPsbtV2).toHaveBeenCalledWith(BATCH[0], { progressId: expect.any(String) })
+  })
+})
+
+describe('useSignPsbtLogic signing state and progress (#171)', () => {
+  const P2MR_KEYS = Array.from({ length: 5 }, (_, inputIndex) => ({
+    inputIndex,
+    publicKey: '11'.repeat(32),
+    leafHash: '22'.repeat(32),
+  }))
+  const LARGE_SEND: ToSignData = {
+    psbtHex: 'large-psbt',
+    toSignInputs: [],
+    qbitP2mrSigningKeys: P2MR_KEYS,
+  }
+  const BATCH: ToSignData[] = [
+    { psbtHex: 'first-psbt', toSignInputs: [] },
+    { psbtHex: 'second-psbt', toSignInputs: [] },
+    { psbtHex: 'third-psbt', toSignInputs: [] },
+  ]
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  const progressIdOf = (options: unknown): string => (options as { progressId: string }).progressId
+
+  const report = (progressId: string, signed: number, total: number) =>
+    act(() => {
+      uiEventBus.emit(BUS_METHODS.QBIT_SIGNING_PROGRESS, { progressId, signed, total, cached: 0 })
+    })
+
+  beforeEach(() => {
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('counts the inputs this wallet signs for the transaction on screen', async () => {
+    const wallet = createSignPsbtWallet()
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createSendProps(LARGE_SEND, vi.fn())), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+
+    expect(result.current.signingInputCount).toBe(5)
+    expect(result.current.isPsbtSigning).toBe(false)
+    expect(result.current.signingProgress).toBeNull()
+  })
+
+  it('shows the progress of its own signing and ignores any other', async () => {
+    const wallet = createSignPsbtWallet()
+    const signing = deferred<SignedData>()
+    wallet.signPsbtV2.mockReturnValueOnce(signing.promise)
+    const handleConfirm = vi.fn()
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createSendProps(LARGE_SEND, handleConfirm)),
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+
+    act(() => {
+      void result.current.onClickSign()
+    })
+    expect(result.current.isPsbtSigning).toBe(true)
+    // Started, but the signer has not counted anything yet.
+    expect(result.current.signingProgress).toEqual({
+      transactionIndex: undefined,
+      transactionCount: undefined,
+    })
+    const progressId = progressIdOf(wallet.signPsbtV2.mock.calls[0]![1])
+
+    report('another-signing', 4, 5)
+    expect(result.current.signingProgress?.signed).toBeUndefined()
+    report(progressId, 2, 5)
+    expect(result.current.signingProgress).toMatchObject({ signed: 2, total: 5 })
+
+    await act(async () => {
+      signing.resolve({ psbtHex: 'signed-large-psbt' })
+      await Promise.resolve()
+    })
+    expect(handleConfirm).toHaveBeenCalledWith([{ psbtHex: 'signed-large-psbt' }])
+    // Handed to its broadcast, the screen keeps its signing state until the
+    // result screen replaces it, so Sign cannot start another signing.
+    expect(result.current.isPsbtSigning).toBe(true)
+    expect(result.current.signingHandedOff).toBe(true)
+    act(() => {
+      void result.current.onClickSign()
+    })
+    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+  })
+
+  it('signs once when Sign is pressed twice before the screen re-renders (#34)', async () => {
+    const wallet = createSignPsbtWallet()
+    const signing = deferred<SignedData>()
+    wallet.signPsbtV2.mockReturnValueOnce(signing.promise)
+    const { approval, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps([LARGE_SEND])), { wrapper })
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+
+    act(() => {
+      void result.current.onClickSign()
+      void result.current.onClickSign()
+    })
+    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      signing.resolve({ psbtHex: 'signed-large-psbt' })
+      await Promise.resolve()
+    })
+    expect(approval.resolveApproval).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives the screen back its Reject, not Sign, when the approval does not take the signed result', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.signPsbtV2.mockResolvedValueOnce({ psbtHex: 'signed-large-psbt' })
+    const { approval, tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    approval.resolveApproval.mockRejectedValueOnce(new Error('The approval is no longer pending'))
+    const { result } = renderHook(() => useSignPsbtLogic(createProps([LARGE_SEND])), { wrapper })
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+    expect(result.current.currentSigned).toBe(false)
+
+    await act(async () => {
+      await result.current.onClickSign()
+      await Promise.resolve()
+    })
+
+    expect(approval.resolveApproval).toHaveBeenCalledTimes(1)
+    expect(tools.toastError).toHaveBeenCalledWith('The approval is no longer pending')
+    expect(result.current.isPsbtSigning).toBe(false)
+    expect(result.current.signingHandedOff).toBe(false)
+    expect(result.current.signingProgress).toBeNull()
+    // Signed already, and its claim is still held: signing again would be refused.
+    expect(result.current.currentSigned).toBe(true)
+  })
+
+  it('returns to the review after a failed signing and drops its progress', async () => {
+    const wallet = createSignPsbtWallet()
+    const signing = deferred<SignedData>()
+    wallet.signPsbtV2.mockReturnValueOnce(signing.promise)
+    const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createSendProps(LARGE_SEND, vi.fn())), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+
+    let outcome: Promise<boolean>
+    act(() => {
+      outcome = result.current.onClickSign()
+    })
+    const progressId = progressIdOf(wallet.signPsbtV2.mock.calls[0]![1])
+    report(progressId, 3, 5)
+
+    const locked = {
+      message: 'The wallet locked before signing finished, so nothing was sent.',
+      code: ErrorCodes.WALLET_LOCKED_DURING_SIGNING,
+    }
+    let signed: boolean | undefined
+    await act(async () => {
+      signing.reject(locked)
+      signed = await outcome
+    })
+    expect(signed).toBe(false)
+    expect(result.current.isPsbtSigning).toBe(false)
+    expect(result.current.signingProgress).toBeNull()
+    expect(tools.toastError).toHaveBeenCalledWith(locked.message)
+
+    // A late count from the failed signing shows nothing.
+    report(progressId, 4, 5)
+    expect(result.current.signingProgress).toBeNull()
+  })
+
+  it('closes the disclaimer as a quick-signed batch starts, and signs one batch at a time', async () => {
+    const wallet = createSignPsbtWallet()
+    const first = deferred<SignedData>()
+    wallet.signLocalBatchPsbt
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue({ psbtHex: 'signed-later-psbt' })
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await act(async () => {
+      await result.current.onTryMultiSign()
+    })
+    expect(result.current.disclaimerVisible).toBe(true)
+
+    let quickSign: Promise<void> | undefined
+    act(() => {
+      quickSign = result.current.onQuickMultiSign()
+    })
+    // The progress takes the disclaimer's place at once.
+    expect(result.current.disclaimerVisible).toBe(false)
+    // A second Sign all while the batch runs starts nothing.
+    act(() => {
+      void result.current.onQuickMultiSign()
+    })
+    await waitFor(() => expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      first.resolve({ psbtHex: 'signed-first-psbt' })
+      await quickSign
+    })
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(BATCH.length)
+  })
+
+  it('signs one batch at a time on the risk-confirmed path too', async () => {
+    const wallet = createSignPsbtWallet()
+    const flagged = localSummaryFor(BATCH)
+    flagged.items[1] = {
+      ...flagged.items[1]!,
+      risks: [
+        {
+          type: RiskType.HIGH_FEE_RATE,
+          level: 'warning',
+          title: 'High fee',
+          desc: 'High fee',
+        } as any,
+      ],
+    }
+    wallet.analyzeLocalPsbts.mockResolvedValue(flagged)
+    const first = deferred<SignedData>()
+    wallet.signLocalBatchPsbt
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue({ psbtHex: 'signed-later-psbt' })
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    await waitFor(() => expect(result.current.batchRiskReview).not.toBeNull())
+
+    let confirmed: Promise<void> | undefined
+    act(() => {
+      confirmed = result.current.onBatchRiskConfirm()
+    })
+    await waitFor(() => expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1))
+    // A Sign all during the confirmed signing starts nothing.
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      first.resolve({ psbtHex: 'signed-first-psbt' })
+      await confirmed
+    })
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(BATCH.length)
+  })
+
+  it('keeps a risk review that is confirmed while another batch signs', async () => {
+    const wallet = createSignPsbtWallet()
+    const flagged = localSummaryFor(BATCH)
+    flagged.items[1] = {
+      ...flagged.items[1]!,
+      risks: [
+        {
+          type: RiskType.HIGH_FEE_RATE,
+          level: 'warning',
+          title: 'High fee',
+          desc: 'High fee',
+        } as any,
+      ],
+    }
+    wallet.analyzeLocalPsbts
+      .mockResolvedValueOnce(localSummaryFor(BATCH))
+      .mockResolvedValueOnce(flagged)
+    const { wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+    await waitFor(() => expect(result.current.batchRiskReview).not.toBeNull())
+
+    // Another batch starts signing while the review is open.
+    const running = deferred<SignedData>()
+    wallet.analyzeLocalPsbts.mockResolvedValueOnce(localSummaryFor(BATCH))
+    wallet.signLocalBatchPsbt
+      .mockReturnValueOnce(running.promise)
+      .mockResolvedValue({ psbtHex: 'signed' })
+    let quickSign: Promise<void> | undefined
+    act(() => {
+      quickSign = result.current.onQuickMultiSign()
+    })
+    await waitFor(() => expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      await result.current.onBatchRiskConfirm()
+    })
+    // Ignored while the batch runs, the review stays for later.
+    expect(result.current.batchRiskReview).not.toBeNull()
+
+    await act(async () => {
+      running.resolve({ psbtHex: 'signed-first-psbt' })
+      await quickSign
+    })
+  })
+
+  it('reports a failed handoff of an externally signed result, and keeps Sign disabled', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.reserveExternallySignedQbitSend.mockResolvedValue({ psbtHex: 'reserved-psbt' })
+    const { approval, store, tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    approval.resolveApproval.mockRejectedValueOnce(new Error('The approval is no longer pending'))
+    store.dispatch(
+      accountActions.setCurrent({
+        ...store.getState().accounts.current,
+        type: KeyringType.ReadonlyKeyring,
+      })
+    )
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      {
+        wrapper,
+      }
+    )
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+    act(() => {
+      result.current.setReadonlySignedPsbtHex('externally-signed-psbt')
+    })
+
+    await act(async () => {
+      await result.current.onClickSign()
+      await Promise.resolve()
+    })
+
+    expect(approval.resolveApproval).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(tools.toastError).toHaveBeenCalledWith('The approval is no longer pending')
+    )
+    expect(result.current.currentSigned).toBe(true)
+  })
+
+  it('stops a quick-signed batch at a lock and leaves the rest to sign after the unlock', async () => {
+    const wallet = createSignPsbtWallet()
+    const locked = {
+      message: 'The wallet locked before signing finished, so nothing was sent.',
+      code: ErrorCodes.WALLET_LOCKED_DURING_SIGNING,
+    }
+    wallet.signLocalBatchPsbt
+      .mockResolvedValueOnce({ psbtHex: 'signed-first-psbt' })
+      .mockRejectedValueOnce(locked)
+    const { approval, tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+
+    await act(async () => {
+      await result.current.onQuickMultiSign()
+    })
+
+    expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(2)
+    expect(tools.toastError).toHaveBeenCalledTimes(1)
+    expect(result.current.signedCount).toBe(1)
+    expect(result.current.isPsbtSigning).toBe(false)
+    expect(approval.resolveApproval).not.toHaveBeenCalled()
+  })
+
+  it('names the transaction of a quick-signed batch in its progress', async () => {
+    const wallet = createSignPsbtWallet()
+    const first = deferred<SignedData>()
+    wallet.signLocalBatchPsbt
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ psbtHex: 'signed-second-psbt' })
+      .mockResolvedValueOnce({ psbtHex: 'signed-third-psbt' })
+    const { approval, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+
+    let quickSign: Promise<void> | undefined
+    act(() => {
+      quickSign = result.current.onQuickMultiSign()
+    })
+    await waitFor(() => expect(wallet.signLocalBatchPsbt).toHaveBeenCalledTimes(1))
+    expect(result.current.isPsbtSigning).toBe(true)
+    const progressId = progressIdOf(wallet.signLocalBatchPsbt.mock.calls[0]![2])
+    report(progressId, 1, 2)
+    expect(result.current.signingProgress).toMatchObject({
+      signed: 1,
+      total: 2,
+      transactionIndex: 0,
+      transactionCount: 3,
+    })
+
+    await act(async () => {
+      first.resolve({ psbtHex: 'signed-first-psbt' })
+      await quickSign
+    })
+    const ids = wallet.signLocalBatchPsbt.mock.calls.map(call => progressIdOf(call[2]))
+    expect(new Set(ids).size).toBe(3)
+    expect(result.current.isPsbtSigning).toBe(false)
+    expect(result.current.signingProgress).toBeNull()
+    expect(approval.resolveApproval).toHaveBeenCalledWith(APPROVAL_ID, [
+      { psbtHex: 'signed-first-psbt' },
+      { psbtHex: 'signed-second-psbt' },
+      { psbtHex: 'signed-third-psbt' },
+    ])
   })
 })

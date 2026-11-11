@@ -1127,6 +1127,45 @@
   "signed": {
     "message": "Signed"
   },
+  "signing_in_progress": {
+    "message": "Signing…"
+  },
+  "signing_progress_title": {
+    "message": "Signing transaction"
+  },
+  "signing_progress_starting": {
+    "message": "Starting…"
+  },
+  "signing_progress_inputs": {
+    "message": "$1 of $2 inputs signed"
+  },
+  "signing_progress_transaction": {
+    "message": "Transaction $1 of $2"
+  },
+  "signing_progress_minutes_left": {
+    "message": "About $1 min left"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "Less than a minute left"
+  },
+  "signing_keep_open_title": {
+    "message": "Keep the wallet open"
+  },
+  "signing_keep_open": {
+    "message": "Closing the wallet before signing finishes cancels the transaction, and nothing is sent."
+  },
+  "signing_keep_open_popup": {
+    "message": "Clicking outside this popup closes it. Closing the wallet before signing finishes cancels the transaction, and nothing is sent."
+  },
+  "signing_many_inputs_title": {
+    "message": "Signing will take a while"
+  },
+  "signing_many_inputs_body": {
+    "message": "This transaction spends $1 inputs, and each needs its own signature, so signing can take a few minutes. Keep the wallet open until it finishes."
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "Opened in the sidebar, the wallet stays open while you use other tabs."
+  },
   "skip": {
     "message": "Skip"
   },
@@ -1354,6 +1393,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "The wallet locked while unlocking. Unlock it again."
+  },
+  "broadcasting_transaction": {
+    "message": "Broadcasting transaction…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "The wallet locked before signing finished, so nothing was sent. Unlock it and sign again."
   },
   "use_at_your_own_risk": {
     "message": "Use at your own risk"
