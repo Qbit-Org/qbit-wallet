@@ -10,6 +10,32 @@ const DEFAULT_RPC_HOST = '127.0.0.1'
 const DEFAULT_RPC_PORT = '18452'
 const DEFAULT_ELECTRS_URL = 'http://127.0.0.1:3002'
 const ELECTRS_INDEX_TIMEOUT_MS = 300_000
+/**
+ * qbit's coinbase maturity on regtest: a coinbase output at depth 1000 can be
+ * spent in the next block, and the node refuses it at depth 999
+ * (`bad-txns-premature-spend-of-coinbase`).
+ */
+export const REGTEST_COINBASE_MATURITY = 1000
+
+/** One half of electrs' `/address/:address` statistics. */
+export interface ElectrsTxoStats {
+  funded_txo_count: number
+  spent_txo_count: number
+  tx_count: number
+}
+
+/** electrs' `/address/:address` statistics: confirmed (`chain_stats`) and pending. */
+export interface ElectrsAddressStats {
+  chain_stats: ElectrsTxoStats
+  mempool_stats: ElectrsTxoStats
+}
+
+/** electrs' answer to `/address/:address/utxo`, whatever its status. */
+export interface ElectrsUtxoListing {
+  status: number
+  contentType: string | null
+  body: string
+}
 
 export interface RegtestSnapshot {
   chain: string
@@ -89,6 +115,54 @@ export class RegtestController {
     return hashes
   }
 
+  /**
+   * Gives `address` `count` coinbase outputs, one per block, as a miner's
+   * payout address receives them, and matures every one: `count` blocks
+   * mined to it, then blocks to the funding wallet until the newest of them
+   * is at `REGTEST_COINBASE_MATURITY`.
+   */
+  async mineMatureCoinbaseOutputs(address: string, count: number): Promise<void> {
+    this.trackAccount(address)
+    await this.mine(count, address)
+    await this.mine(REGTEST_COINBASE_MATURITY - 1)
+  }
+
+  /** electrs' statistics for `address`, read past any cache. */
+  async electrsAddressStats(address: string): Promise<ElectrsAddressStats> {
+    const response = await fetch(this.electrsUrl(`/address/${encodeURIComponent(address)}`), {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) {
+      throw new Error(`electrs statistics for ${address} failed with HTTP ${response.status}`)
+    }
+    const body = (await response.json()) as Partial<ElectrsAddressStats>
+    for (const half of [body.chain_stats, body.mempool_stats]) {
+      if (
+        !half ||
+        ![half.funded_txo_count, half.spent_txo_count, half.tx_count].every(
+          count => Number.isSafeInteger(count) && count >= 0
+        )
+      ) {
+        throw new Error(`electrs returned invalid statistics for ${address}`)
+      }
+    }
+    return body as ElectrsAddressStats
+  }
+
+  /** electrs' answer to the listing of `address`'s unspent outputs, refusals included. */
+  async electrsUtxoListing(address: string): Promise<ElectrsUtxoListing> {
+    const response = await fetch(this.electrsUrl(`/address/${encodeURIComponent(address)}/utxo`), {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    })
+    return {
+      status: response.status,
+      contentType: response.headers.get('content-type'),
+      body: await response.text(),
+    }
+  }
+
   trackTransaction(transactionId: string): void {
     if (!/^[0-9a-f]{64}$/i.test(transactionId)) {
       throw new Error(`cannot track invalid transaction id: ${transactionId}`)
@@ -166,9 +240,14 @@ export class RegtestController {
     }
   }
 
+  private electrsUrl(path: string): string {
+    return `${process.env['QBIT_REGTEST_ELECTRS_HTTP_URL'] || DEFAULT_ELECTRS_URL}${path}`
+  }
+
   private async getElectrsHeight(): Promise<number> {
-    const url = `${process.env['QBIT_REGTEST_ELECTRS_HTTP_URL'] || DEFAULT_ELECTRS_URL}/blocks/tip/height`
-    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+    const response = await fetch(this.electrsUrl('/blocks/tip/height'), {
+      signal: AbortSignal.timeout(15_000),
+    })
     if (!response.ok) throw new Error(`electrs height failed with HTTP ${response.status}`)
     const height = Number(await response.text())
     if (!Number.isSafeInteger(height) || height < 0) {
@@ -178,8 +257,7 @@ export class RegtestController {
   }
 
   private async waitForElectrsUtxo(address: string, transactionId: string): Promise<void> {
-    const baseUrl = process.env['QBIT_REGTEST_ELECTRS_HTTP_URL'] || DEFAULT_ELECTRS_URL
-    const url = `${baseUrl}/address/${encodeURIComponent(address)}/utxo`
+    const url = this.electrsUrl(`/address/${encodeURIComponent(address)}/utxo`)
     await this.waitFor(
       `electrs to expose confirmed transaction ${transactionId} exactly once`,
       async () => {

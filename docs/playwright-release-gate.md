@@ -43,6 +43,7 @@ Run one scenario from a clean deterministic state:
 corepack pnpm exec playwright test tests/e2e/scenarios/onboard.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/receive.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/send.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/consolidation.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp-events.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/approval-hierarchy.spec.ts
@@ -52,6 +53,17 @@ corepack pnpm exec playwright test tests/e2e/scenarios/recovery.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
+```
+
+The consolidation scenario runs one of two plans, which
+`QBIT_E2E_CONSOLIDATION_PLAN` chooses: `short` or `full` (see
+[Consolidation](#consolidation)). Unset or empty, it is `short` when
+`CI=true`, as in the G3 job, and `full` otherwise. Any other value fails the
+test before the harness is reset, naming the variable and the accepted
+values. The test title names the plan that ran.
+
+```sh
+QBIT_E2E_CONSOLIDATION_PLAN=short corepack pnpm exec playwright test tests/e2e/scenarios/consolidation.spec.ts
 ```
 
 Run the complete local gate after building:
@@ -74,11 +86,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 36 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 37 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 22 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 23 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -90,6 +102,7 @@ separately with two-decimal millisecond precision.
 | Receive/fund/rotate   | `scenarios/receive.spec.ts:5`             | Fund issued addresses, rotate safely, mine, and retain previous addresses                                  | Pass         |  26.2 s |
 | Send                  | `scenarios/send.spec.ts:23`               | Dust rejection; single/multi-input fees; exact displayed/on-chain fee equality; RBF replacement            | Pass         |  67.7 s |
 | Send at relay floor   | `scenarios/send.spec.ts:254`              | Custom 0.25 bits/vB: fee is vsize × 0.25 rounded up, accepted, equal on chain, confirmed; 0.24 blocks Next | Not recorded |       — |
+| Consolidation         | `scenarios/consolidation.spec.ts:144`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
 | dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
@@ -128,6 +141,50 @@ reached the recovery report). Both pass now, and no product blocker is open.
 The wipe/restore row keeps its explicit ten-minute report bound inside a
 fifteen-minute scenario timeout; do not raise either without measured product
 evidence.
+
+### Consolidation
+
+The consolidation row mines one coinbase output per block to the account, as
+a miner's payout address receives them, and matures them all. It turns the
+wallet's lock on computer lock off: under `xvfb-run`, Xvfb's screen saver
+starts ten minutes after the server last reset, since Playwright's input is
+no X input, and Chrome then reports the computer locked. The two plans:
+
+| Plan    | Funded outputs | Batches, in order      | Inputs consolidated | Confirmed outputs after |
+| ------- | -------------: | ---------------------- | ------------------: | ----------------------: |
+| `short` |            610 | 106, then 9            |                 115 |                     497 |
+| `full`  |            940 | 106, 106, 106, 106, 30 |                 454 |                     491 |
+
+Past 500 outputs the regtest explorer answers `/address/:address/utxo` with
+HTTP 400 and `Too many unspent transaction outputs (>500). Contact support to
+raise limits.`, while `/address/:address` still counts every output. The row
+asserts that answer over HTTP before the wallet reads it, so a change in the
+explorer's refusal fails here and not as a missing button. The send screen
+must then offer Consolidate, and the consolidation screen must state the
+count and the limit, refuse batch sizes 1 and 107, and preview the fee of a
+full batch.
+
+Each batch is prepared, reviewed, signed and broadcast through the screens,
+the first at 106 and the last at the plan's smaller size, whose fee preview
+and cost note the row checks. On chain, each batch must spend exactly the
+inputs its summary names, all the account's and none spent before, into one
+output back to the account, for the fee the screens showed. After every
+batch, "Consolidate next batch" must open the screen again at the size just
+sent, with the batch pending. Each batch is mined before the next is
+prepared, so the screen's count must then drop by n - 1 for a batch of n
+inputs. The screen reads the count as it opens, and the explorer lets a
+reply be reused for 10 s, so the row opens the screen again while it shows
+the counts from before the change, for up to 30 s, and fails on any other
+count.
+
+Both plans end at or under 500 confirmed outputs, and the explorer still
+refuses the listing with the same answer: electrs never lists an address
+again once it passed its limit (see
+[Explorer UTXO listing limit](explorer-utxo-limit.md)). The row ends there:
+the wallet must still offer Consolidate, show the new count and build a
+batch, which it leaves unsigned, and a send to another address, its outputs
+read from the account's history, must pay the recipient and the fee it
+showed.
 
 ## Failure Evidence
 
