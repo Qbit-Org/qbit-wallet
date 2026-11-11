@@ -1,5 +1,6 @@
 import { Button, Column, Icon, Row, Spin, Text, Tooltip } from '@/ui/components';
 import { RefreshButton } from '@/ui/components/RefreshButton';
+import { BulletedTip } from '@/ui/components/Tooltip/BulletedTip';
 import { ColorTypes, colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
@@ -161,10 +162,9 @@ export function BalanceCard() {
                 {/* The tooltip explains a measured Unavailable; an unknown split has the line below. */}
                 {balanceSplitUnknown ? null : (
                   <Tooltip
-                    title={unavailableTipText}
+                    title={<BulletedTip text={unavailableTipText} />}
                     overlayStyle={{
-                      fontSize: fontSizes.xs,
-                      whiteSpace: 'pre-line'
+                      fontSize: fontSizes.xs
                     }}
                   >
                     <Icon icon="circle-question" color={'onPrimary'} size={14} />

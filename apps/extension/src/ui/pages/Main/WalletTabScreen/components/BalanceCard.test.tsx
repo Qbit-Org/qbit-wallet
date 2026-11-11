@@ -9,6 +9,7 @@ import { BalanceCard } from './BalanceCard';
 
 vi.mock('@/ui/components', async () => {
   const React = await import('react');
+  const { createPortal } = await import('react-dom');
   const Container = ({
     children,
     style,
@@ -28,8 +29,14 @@ vi.mock('@/ui/components', async () => {
   const Text = ({ text, 'data-testid': dataTestId }: { text?: string; 'data-testid'?: string }) =>
     React.createElement('span', { 'data-testid': dataTestId }, text);
   const Icon = ({ icon }: { icon?: string }) => React.createElement('span', { 'data-icon': icon });
-  const Tooltip = ({ children, title }: { children?: ReactNode; title?: string }) =>
-    React.createElement('div', { 'data-testid': 'tooltip', title }, children);
+  const Tooltip = ({ children, title }: { children?: ReactNode; title?: ReactNode }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'tooltip' },
+      children,
+      // Portalled out, as the real overlay is, so the card's text stays the card's.
+      createPortal(React.createElement('div', { 'data-testid': 'tooltip-title' }, title), document.body)
+    );
   const Spin = () => React.createElement('span', { 'data-testid': 'spin' });
   const Button = ({
     text,
@@ -125,12 +132,14 @@ describe('BalanceCard', () => {
   });
 
   it('shows measured amounts and no unknown line for an ordinary balance', () => {
-    renderCard({ isDetailExpanded: true });
+    renderCard({ isDetailExpanded: true, unavailableTipText: 'Locked due to:\n• Protected assets\n• Unconfirmed' });
 
     const card = screen.getByTestId('wallet-balance-card');
     expect(card.textContent).toContain('available0.00005000');
     expect(card.textContent).toContain('unavailable0.00000000');
-    expect(screen.getByTestId('tooltip').getAttribute('title')).toBe('unavailable_tooltip');
+    const tip = screen.getByTestId('tooltip-title');
+    expect(tip.firstElementChild?.firstElementChild?.textContent).toBe('Locked due to:');
+    expect(Array.from(tip.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['Protected assets', 'Unconfirmed']);
     // The trigger uses the shared lucide glyph, not a one-off SVG.
     expect(screen.getByTestId('tooltip').querySelector('[data-icon]')?.getAttribute('data-icon')).toBe('circle-question');
     expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
