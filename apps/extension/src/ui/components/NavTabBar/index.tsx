@@ -8,7 +8,7 @@ import { Icon, IconTypes } from '../Icon';
 export function NavTabBar({ tab }: { tab: TabOption }) {
   return (
     <Grid
-      columns={3}
+      columns={4}
       style={{
         width: '100%',
         height: '67.5px',
@@ -17,6 +17,7 @@ export function NavTabBar({ tab }: { tab: TabOption }) {
       }}
     >
       <TabButton tabName="home" icon="qbitWallet" iconSize={26.45} isActive={tab === 'home'} data-testid="tab-home" />
+      <TabButton tabName="mine" icon="mine" isActive={tab === 'mine'} data-testid="tab-mine" />
       <TabButton tabName="discover" icon="compass" isActive={tab === 'discover'} data-testid="tab-discover" />
       <TabButton tabName="settings" icon="settings" isActive={tab === 'settings'} data-testid="tab-settings" />
     </Grid>
@@ -45,6 +46,8 @@ function TabButton({
       onClick={(e) => {
         if (tabName === 'home') {
           nav.navigate('MainScreen');
+        } else if (tabName === 'mine') {
+          nav.navigate('MineTabScreen');
         } else if (tabName === 'discover') {
           nav.navigate('DiscoverTabScreen');
         } else if (tabName === 'settings') {
