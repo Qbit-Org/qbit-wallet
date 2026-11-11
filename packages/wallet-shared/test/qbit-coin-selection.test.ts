@@ -4,6 +4,7 @@ import {
   QBIT_MAX_STANDARD_TX_WEIGHT,
   QBIT_MEMPOOL_ANCESTOR_SIZE_LIMIT,
   isQbitStandardTxSize,
+  qbitP2mrInputFee,
   qbitP2mrMaxStandardInputCount,
   selectQbitP2mrSendAllCoins,
   selectQbitP2mrSendCoins,
@@ -513,5 +514,96 @@ describe('selectQbitP2mrSendAllCoins', () => {
     expect(over.leftBehind).toHaveLength(1)
     expect(over.leftBehindSatoshis).toBe(10_000)
     expect(over.estimate?.vsize).toBe(398_827)
+  })
+})
+
+describe('coin selection at the 0.25 bits/vB relay floor', () => {
+  const sendShape = { ...SHAPE, changeScriptLength: P2MR_SCRIPT }
+
+  it('prices each input at a quarter of what it costs at 1 bit/vB', () => {
+    expect(qbitP2mrInputFee({ ...SHAPE, feeRate: 1 })).toBe(3_762)
+    expect(qbitP2mrInputFee({ ...SHAPE, feeRate: 0.25 })).toBe(940.5)
+    // A rate below the floor is priced at it.
+    expect(qbitP2mrInputFee({ ...SHAPE, feeRate: 0.1 })).toBe(940.5)
+    expect(qbitP2mrInputFee({ ...SHAPE, feeRate: 0 })).toBe(940.5)
+  })
+
+  it('sizes the standard transaction whatever the rate', () => {
+    expect(qbitP2mrMaxStandardInputCount(SHAPE)).toBe(106)
+    const sendAll = selectQbitP2mrSendAllCoins({ ...SHAPE, utxos: coins(107, 10_000), feeRate: 0.25 })
+    expect(sendAll).toMatchObject({ maxInputCount: 106, fee: 99_707, amount: 1_060_000 - 99_707 })
+    expect(sendAll.selected).toHaveLength(106)
+    expect(sendAll.leftBehind).toHaveLength(1)
+    expect(sendAll.estimate?.vsize).toBe(398_827)
+  })
+
+  it('spends outputs that cost more than they carry at 1 bit/vB', () => {
+    // At 1 bit/vB a 3,000- and a 3,762-bit output add at least what they
+    // carry and neither is spent; at 0.25 an input costs 940.5 bits.
+    const utxos = [coin(1, 3_000), coin(2, 3_762)]
+    expect(selectQbitP2mrSendCoins({ ...sendShape, utxos, amount: 4_000, feeRate: 1 })).toMatchObject(
+      { ok: false, reason: 'insufficient_balance' }
+    )
+    const selection = selectQbitP2mrSendCoins({ ...sendShape, utxos, amount: 4_000, feeRate: 0.25 })
+    // 7,579 vB without change is 1,895 bits; the 867-bit remainder is below dust.
+    expect(selection).toMatchObject({
+      ok: true,
+      inputCount: 2,
+      includeChange: false,
+      fee: 2_762,
+      changeDroppedSats: 867,
+    })
+    expect(selection.ok && selection.selected).toEqual([coin(2, 3_762), coin(1, 3_000)])
+  })
+
+  it('spends an output worth more than the 940.5 bits it adds', () => {
+    // 50,954 bits pay 50,000 and 954 of the 955-bit fee of a one-input send;
+    // a second input of 941 bits adds 940 to the fee and completes it.
+    const large = coin(1, 50_954)
+    const completed = selectQbitP2mrSendCoins({
+      ...sendShape,
+      utxos: [large, coin(2, 941)],
+      amount: 50_000,
+      feeRate: 0.25,
+    })
+    expect(completed).toMatchObject({
+      ok: true,
+      inputCount: 2,
+      includeChange: false,
+      fee: 1_895,
+      changeDroppedSats: 0,
+    })
+    // One bit less is not worth spending, and the send falls short.
+    expect(
+      selectQbitP2mrSendCoins({
+        ...sendShape,
+        utxos: [large, coin(2, 940)],
+        amount: 50_000,
+        feeRate: 0.25,
+      })
+    ).toMatchObject({ ok: false, reason: 'insufficient_balance' })
+    // At 1 bit/vB the 941-bit output is not worth spending either.
+    expect(
+      selectQbitP2mrSendCoins({
+        ...sendShape,
+        utxos: [large, coin(2, 941)],
+        amount: 50_000,
+        feeRate: 1,
+      })
+    ).toMatchObject({ ok: false, reason: 'insufficient_balance' })
+  })
+
+  it('pays a quarter of the fee for the same payment', () => {
+    const utxos = [...coins(20, 5_000), coin(20, 1_000_000)]
+    const atFloor = selectQbitP2mrSendCoins({ ...sendShape, utxos, amount: 50_000, feeRate: 0.25 })
+    // 3,860 vB with change: 965 bits, against 3,860 at 1 bit/vB.
+    expect(atFloor).toMatchObject({
+      ok: true,
+      inputCount: 1,
+      fee: 965,
+      change: 1_000_000 - 50_000 - 965,
+      includeChange: true,
+    })
+    expect(atFloor.ok && atFloor.selected).toEqual([coin(20, 1_000_000)])
   })
 })

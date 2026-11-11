@@ -141,7 +141,7 @@ export interface ToSignData {
 
 /** What `createQbitConsolidationPsbt` takes to prepare the next batch. */
 export interface QbitConsolidationRequest {
-  /** Bits per vB; omitted means the normal rate, or the relay floor without a quote. */
+  /** Bits per vB; omitted means the normal rate, or `QBIT_FALLBACK_FEE_RATE` without a quote. */
   feeRate?: number
   /** Whether the batch signals replaceability; omitted means it does. */
   enableRBF?: boolean

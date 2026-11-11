@@ -530,11 +530,14 @@
   "fee_estimates_unavailable": {
     "message": "手数料の見積もりを利用できません。"
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "手数料の見積もりを利用できません。リレー最小値の $1 bit/vB を使用しています。"
+  "fee_estimates_unavailable_using_default": {
+    "message": "手数料の見積もりを利用できません。ウォレットの既定の手数料率 $1 bit/vB を使用しています。"
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "手数料が安全上限の $1 bit/vB を超えています（このトランザクションの正確なサイズでは最大 $2 $3）。"
+  },
+  "fee_rate_below_minimum": {
+    "message": "手数料率の最小値は $1 bit/vB です。"
   },
   "estimated_inputs_and_size": {
     "message": "約$1件のインプット・約$2 kB"

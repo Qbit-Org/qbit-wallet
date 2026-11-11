@@ -110,7 +110,7 @@ describe('useActionOverviewSectionLogic spend summary (#271)', () => {
       feeWarningTitle: 'the_fee_rate_is_much_higher_than_recommended_fee_rate',
       feeWarnings: [
         'fee_warning_above_recommended:400,200,2',
-        'fee_warning_above_relay_floor:400,400,1',
+        'fee_warning_above_relay_floor:400,1600,0.25',
         'fee_warning_amount_share:1544,0.00100000,QBT',
       ],
       unrecognisedOutputs: 'unrecognised_outputs_summary:1,0.00100000,QBT',
@@ -128,7 +128,8 @@ describe('useActionOverviewSectionLogic spend summary (#271)', () => {
       },
     })
     expect(spend?.feeWarningTitle).toBe('high_fee_rate_risk_title')
-    expect(spend?.feeWarnings).toEqual(['fee_warning_above_relay_floor:100,100,1'])
+    // 100 bits/vB, the warning's bound, is 400 times the 0.25 bits/vB relay floor.
+    expect(spend?.feeWarnings).toEqual(['fee_warning_above_relay_floor:100,400,0.25'])
   })
 
   it('names a fee only its share of the amount flagged a high fee, not a high rate', () => {

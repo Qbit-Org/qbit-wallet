@@ -118,6 +118,7 @@
     "singleInputSingleOutputVsize": 3817,
     "singleInputTwoOutputVsize": 3860,
     "explicitSignatureItemVsize": 3818,
-    "dustBoundarySats": 2855
+    "dustBoundarySats": 2855,
+    "minRelayTxFeeSatPerKvb": 250
   }
 }

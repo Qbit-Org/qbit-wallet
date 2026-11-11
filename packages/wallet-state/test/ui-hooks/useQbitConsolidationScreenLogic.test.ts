@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -248,6 +248,253 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
     expect(result.current.batch).toBeUndefined()
     // On opening, after the first batch, and for the new account.
     expect(wallet.getQbitConsolidationStatus).toHaveBeenCalledTimes(3)
+  })
+
+  it('prepares a batch at 0.25 bits/vB, the relay floor, and none below it', async () => {
+    const { wallet, wrapper, store } = setup()
+    const prepared = batch('25')
+    wallet.createQbitConsolidationPsbt.mockResolvedValue(prepared)
+    act(() => {
+      store.dispatch(
+        (uiActions as any).updateFeeRateBar({
+          feeRate: 0.25,
+          feeRateInputVal: '0.25',
+          feeOptionIndex: 3,
+        })
+      )
+    })
+    const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
+
+    await waitFor(() => expect(result.current.canPrepare).toBe(true))
+    // A full batch of 106 inputs, 398,827 vB, at 0.25 bits/vB.
+    expect(result.current.feePreview).toBe('consolidation_fee_preview:106|99707|398.8')
+    act(() => {
+      result.current.onClickPrepare()
+    })
+    await waitFor(() => expect(result.current.batch).toBe(prepared))
+    expect(wallet.createQbitConsolidationPsbt).toHaveBeenCalledWith({
+      feeRate: 0.25,
+      enableRBF: true,
+      maxInputs: MAX_INPUT_COUNT,
+    })
+
+    // A smaller batch at the same rate: 25 inputs, 94,105 vB. The cost note
+    // compares sizes, which no rate changes.
+    act(() => {
+      result.current.onBatchSizeChange('25')
+    })
+    expect(result.current.feePreview).toBe('consolidation_fee_preview:25|23527|94.1')
+    expect(result.current.costNote).toBe('consolidation_cost_note:25|3|106')
+    expect(result.current.canPrepare).toBe(true)
+    act(() => {
+      result.current.onClickPrepare()
+    })
+    await waitFor(() =>
+      expect(wallet.createQbitConsolidationPsbt).toHaveBeenLastCalledWith({
+        feeRate: 0.25,
+        enableRBF: true,
+        maxInputs: 25,
+      })
+    )
+
+    act(() => {
+      store.dispatch(
+        (uiActions as any).updateFeeRateBar({
+          feeRate: 0.24,
+          feeRateInputVal: '0.24',
+          feeOptionIndex: 3,
+        })
+      )
+    })
+    expect(result.current.canPrepare).toBe(false)
+    expect(result.current.feePreview).toBe('')
+    expect(result.current.batch).toBeUndefined()
+    expect(wallet.createQbitConsolidationPsbt).toHaveBeenCalledTimes(2)
+  })
+
+  /** The fee bar's rate: Custom, typed as `text`, or a tier's. */
+  function selectRate(
+    store: ReturnType<typeof setup>['store'],
+    feeRate: number,
+    text: string,
+    feeOptionIndex = 3
+  ) {
+    act(() => {
+      store.dispatch(
+        (uiActions as any).updateFeeRateBar({ feeRate, feeRateInputVal: text, feeOptionIndex })
+      )
+    })
+  }
+
+  it('says the minimum is 0.25 bits/vB for a Custom rate typed below it, and nothing at it or while typing', async () => {
+    const { wrapper, store } = setup()
+    const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
+    await waitFor(() => expect(result.current.canPrepare).toBe(true))
+
+    for (const [text, feeRate, error, canPrepare] of [
+      ['0.24', 0.24, 'fee_rate_below_minimum:0.25', false],
+      ['0.25', 0.25, '', true],
+      ['0.', 0, '', false],
+      ['0.2', 0.2, 'fee_rate_below_minimum:0.25', false],
+      ['0', 0, '', false],
+      ['', 0, '', false],
+      ['0.26', 0.26, '', true],
+    ] as const) {
+      selectRate(store, feeRate, text)
+      // In the screen's error line.
+      expect(result.current.error).toBe(error)
+      expect(result.current.canPrepare).toBe(canPrepare)
+    }
+
+    // A tier's rate below the floor is not one the user typed: no batch, and nothing said.
+    selectRate(store, 0.2, '', 0)
+    expect(result.current.canPrepare).toBe(false)
+    expect(result.current.error).toBe('')
+  })
+
+  it('puts the minimum before a failed status read, and says nothing for an account the explorer lists', async () => {
+    const { wallet, wrapper, store } = setup()
+    wallet.getQbitConsolidationStatus.mockRejectedValue(new Error('explorer down'))
+    const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
+    await waitFor(() => expect(result.current.error).toBe('explorer down'))
+
+    selectRate(store, 0.24, '0.24')
+    expect(result.current.error).toBe('fee_rate_below_minimum:0.25')
+    selectRate(store, 0.25, '0.25')
+    expect(result.current.error).toBe('explorer down')
+    expect(result.current.canPrepare).toBe(true)
+    cleanup()
+
+    // An account the explorer lists has no batch to prepare at any rate.
+    const within = setup()
+    within.wallet.getQbitConsolidationStatus.mockResolvedValue({
+      ...status,
+      confirmedUnspent: 300,
+      pendingSpent: 0,
+      overLimit: false,
+      outputLimit: null,
+    })
+    const { result: withinLimit } = renderHook(() => useQbitConsolidationScreenLogic(), {
+      wrapper: within.wrapper,
+    })
+    await waitFor(() => expect(withinLimit.current.statusText).toBe('consolidation_within_limit'))
+    selectRate(within.store, 0.24, '0.24')
+    expect(withinLimit.current.error).toBe('')
+    expect(withinLimit.current.canPrepare).toBe(false)
+  })
+
+  /** The screen with its fee bar, as the consolidation screen renders them. */
+  function useScreenWithFeeBar() {
+    const screen = useQbitConsolidationScreenLogic()
+    return { screen, feeBar: useFeeRateBarLogic({ quote: screen.feeQuote }) }
+  }
+
+  // What the screen says for each Custom rate typed, the rate it reads as,
+  // and whether a batch can be prepared at it (#182).
+  it.each([
+    ['', 0, '', false],
+    ['0', 0, '', false],
+    ['0.', 0, '', false],
+    ['0.0', 0, 'fee_rate_below_minimum:0.25', false],
+    ['0.00', 0, 'fee_rate_below_minimum:0.25', false],
+    ['00', 0, 'fee_rate_below_minimum:0.25', false],
+    ['0.1', 0.1, 'fee_rate_below_minimum:0.25', false],
+    ['0.24', 0.24, 'fee_rate_below_minimum:0.25', false],
+    ['0.25', 0.25, '', true],
+    ['1', 1, '', true],
+  ] as const)(
+    'gives the minimum fee rate for a Custom rate typed as "%s" (%s bits/vB) only when it is a number below 0.25: "%s"',
+    async (text, feeRate, error, canPrepare) => {
+      const { wrapper, store } = setup()
+      const { result } = renderHook(useScreenWithFeeBar, { wrapper })
+      // At the Custom 2 bits/vB the screen opens with.
+      await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+
+      act(() => {
+        result.current.feeBar.adjustFeeRateInput(text)
+      })
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(feeRate))
+      expect(store.getState().ui.feeRateBar).toMatchObject({
+        feeOptionIndex: 3,
+        feeRateInputVal: text,
+      })
+      expect(result.current.screen.error).toBe(error)
+      expect(result.current.screen.canPrepare).toBe(canPrepare)
+    }
+  )
+
+  it('gives no minimum fee rate for a tier, below the floor or not, chosen after a Custom rate below it', async () => {
+    const { wallet, wrapper, store } = setup()
+    wallet.getFeeSummary.mockResolvedValue({
+      list: [
+        { title: 'slow', desc: '', feeRate: 0.2 },
+        { title: 'avg', desc: '', feeRate: 0.5 },
+        { title: 'fast', desc: '', feeRate: 1 },
+      ],
+      quote: { source: 'mempool-qbit', availability: 'available', freshness: 'live' },
+    })
+    const { result } = renderHook(useScreenWithFeeBar, { wrapper })
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+    await waitFor(() =>
+      expect(result.current.feeBar.feeOptions.slice(0, 3).map(option => option.feeRate)).toEqual([
+        0.2, 0.5, 1,
+      ])
+    )
+    act(() => {
+      result.current.feeBar.adjustFeeRateInput('0.0')
+    })
+    await waitFor(() => expect(result.current.screen.error).toBe('fee_rate_below_minimum:0.25'))
+
+    // Slow, at 0.2 bits/vB: no batch, and no reason, which is for a rate typed.
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(0)
+    })
+    await waitFor(() =>
+      expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 0, feeRate: 0.2 })
+    )
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.canPrepare).toBe(false)
+
+    // Normal, at 0.5 bits/vB.
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(1)
+    })
+    await waitFor(() => expect(result.current.screen.canPrepare).toBe(true))
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(0.5)
+    expect(result.current.screen.error).toBe('')
+  })
+
+  it('puts the minimum for a zero typed as "0.00" before a failed status read, and says nothing for an account the explorer lists', async () => {
+    const { wallet, wrapper, store } = setup()
+    wallet.getQbitConsolidationStatus.mockRejectedValue(new Error('explorer down'))
+    const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
+    await waitFor(() => expect(result.current.error).toBe('explorer down'))
+
+    selectRate(store, 0, '0.00')
+    expect(result.current.error).toBe('fee_rate_below_minimum:0.25')
+    expect(result.current.canPrepare).toBe(false)
+    // "0." is still being typed: the status read's error, and no batch.
+    selectRate(store, 0, '0.')
+    expect(result.current.error).toBe('explorer down')
+    expect(result.current.canPrepare).toBe(false)
+    cleanup()
+
+    // An account the explorer lists has no batch to prepare at any rate.
+    const within = setup()
+    within.wallet.getQbitConsolidationStatus.mockResolvedValue({
+      ...status,
+      confirmedUnspent: 300,
+      pendingSpent: 0,
+      overLimit: false,
+      outputLimit: null,
+    })
+    const { result: withinLimit } = renderHook(() => useQbitConsolidationScreenLogic(), {
+      wrapper: within.wrapper,
+    })
+    await waitFor(() => expect(withinLimit.current.statusText).toBe('consolidation_within_limit'))
+    selectRate(within.store, 0, '0.00')
+    expect(withinLimit.current.error).toBe('')
+    expect(withinLimit.current.canPrepare).toBe(false)
   })
 
   it('reports a failed batch without previewing anything', async () => {

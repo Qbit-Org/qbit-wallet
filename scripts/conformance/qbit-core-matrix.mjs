@@ -771,6 +771,98 @@ async function txFeesRow(context) {
   ])
   expectEqual('tx-fees', `dust:${boundary}-accepted-txid-length`, boundaryTxid.length, 64)
   mineOne()
+
+  // qbit Core keeps its relay floor and incremental relay fee in whole
+  // sat/kvB (DEFAULT_MIN_RELAY_TX_FEE and DEFAULT_INCREMENTAL_RELAY_FEE), so
+  // the wallet's floor in bits/vB is compared with both in that unit.
+  const floorSatPerKvb = matrixFixture.txFees.minRelayTxFeeSatPerKvb
+  expectEqual(
+    'tx-fees',
+    'relay-floor-constant:sat-per-kvb',
+    walletShared.QBIT_MIN_RELAY_FEE_RATE * 1000,
+    floorSatPerKvb
+  )
+  const mempoolInfo = cliJson(['getmempoolinfo'])
+  expectEqual(
+    'tx-fees',
+    'relay-floor:core-minrelaytxfee-sat-per-kvb',
+    coinToBaseUnits(mempoolInfo.minrelaytxfee),
+    BigInt(floorSatPerKvb)
+  )
+  expectEqual(
+    'tx-fees',
+    'relay-floor:core-incrementalrelayfee-sat-per-kvb',
+    coinToBaseUnits(mempoolInfo.incrementalrelayfee),
+    BigInt(floorSatPerKvb)
+  )
+
+  // A spend paying the wallet's fee at the floor is relayed, and the same
+  // spend paying one bit less is refused for the relay fee: the node requires
+  // exactly the fee the wallet computes, rounded up as the node rounds it.
+  const floorAccount = context.externalAccounts[4]
+  const floorFunding = fundAddress(floorAccount.addresses.regtest, 10_000_000n)
+  const floorDestination = fundingDestinationScript()
+  const floorVsize = walletShared.estimateQbitP2mrTransaction({
+    inputCount: 1,
+    outputScriptLengths: [floorDestination.length],
+    leafScriptLength: protocol.hexToBytes(floorAccount.leafScript).length,
+    controlBlockLength: protocol.buildControlBlock(protocol.P2MR_LEAF_VERSION_V1, []).length,
+  }).vsize
+  const floorFee = walletShared.qbitFeeForVsize(floorVsize, walletShared.QBIT_MIN_RELAY_FEE_RATE)
+  const signFloorSpend = async feeSats => {
+    const spend = makeSpendPsbt(floorAccount, floorFunding, floorDestination, feeSats)
+    const signed = await signPsbtWithKeyring(
+      spend.psbt,
+      context.externalKeyring,
+      floorAccount,
+      spend.leafHash
+    )
+    const rawHex = protocol.bytesToHex(
+      protocol.extractP2mrTransaction(protocol.finalizeP2mrPsbt(signed))
+    )
+    expectEqual(
+      'tx-fees',
+      `relay-floor:fee-${feeSats}:vsize-wallet-vs-core`,
+      floorVsize,
+      cliJson(['decoderawtransaction', rawHex]).vsize
+    )
+    return rawHex
+  }
+  const [belowFloor] = cliJson([
+    'testmempoolaccept',
+    JSON.stringify([await signFloorSpend(floorFee - 1)]),
+  ])
+  expectEqual(
+    'tx-fees',
+    `relay-floor:fee-${floorFee - 1}-rejected`,
+    { allowed: belowFloor.allowed, rejectReason: belowFloor['reject-reason'] },
+    { allowed: false, rejectReason: 'min relay fee not met' }
+  )
+  const atFloorHex = await signFloorSpend(floorFee)
+  const [atFloor] = cliJson(['testmempoolaccept', JSON.stringify([atFloorHex])])
+  expectTrue(
+    'tx-fees',
+    `relay-floor:fee-${floorFee}-accepted`,
+    atFloor.allowed,
+    atFloor['reject-reason']
+  )
+  expectEqual(
+    'tx-fees',
+    `relay-floor:fee-${floorFee}-core-fee`,
+    coinToBaseUnits(atFloor.fees.base),
+    BigInt(floorFee)
+  )
+  const floorTxid = cli(['sendrawtransaction', atFloorHex])
+  mineOne()
+  expectTrue(
+    'tx-fees',
+    `relay-floor:fee-${floorFee}-mined`,
+    Number(cliJson(['getrawtransaction', floorTxid, 'true']).confirmations || 0) >= 1,
+    `txid=${floorTxid}`
+  )
+  console.log(
+    `[qbit-conformance:tx-fees] relay floor ${floorSatPerKvb} sat/kvB: ${floorVsize} vB at ${floorFee} bits accepted and mined, ${floorFee - 1} refused (${belowFloor['reject-reason']})`
+  )
 }
 
 async function psbtRow(context) {

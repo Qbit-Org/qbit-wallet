@@ -22,9 +22,9 @@ export function FeeRateBar({
     fontSize,
     feeRateInputVal,
     adjustFeeRateInput,
+    minFeeRate,
     showCustomInput,
     toggleCustomInput,
-    supportLowFeeMode,
     feeEstimateUnavailable,
     fallbackFeeRate
   } = useFeeRateBarLogic({
@@ -115,7 +115,7 @@ export function FeeRateBar({
           text={
             fallbackFeeRate === undefined
               ? t('fee_estimates_unavailable')
-              : t('fee_estimates_unavailable_using_floor', [String(fallbackFeeRate)])
+              : t('fee_estimates_unavailable_using_default', [String(fallbackFeeRate)])
           }
           size="xs"
           color="warning"
@@ -135,7 +135,7 @@ export function FeeRateBar({
           autoFocus={true}
           enableStepper={true}
           step={0.01}
-          min={supportLowFeeMode ? 0.1 : 1}
+          min={minFeeRate}
         />
       )}
     </Column>

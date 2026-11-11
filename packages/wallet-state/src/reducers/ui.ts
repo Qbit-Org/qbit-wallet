@@ -1,4 +1,5 @@
 import { createSlice, Slice } from '@reduxjs/toolkit'
+import { QBIT_FALLBACK_FEE_RATE } from '@qbit/wallet-shared'
 
 import { updateVersion } from '../actions/global'
 import { NavigationSource } from '../types'
@@ -58,7 +59,8 @@ export const initialState: UIState = {
     amount: '',
   },
   feeRateBar: {
-    feeRate: 1,
+    // No fee bar has chosen a rate yet; a screen waits until one does.
+    feeRate: QBIT_FALLBACK_FEE_RATE,
     feeRateInputVal: '',
     enableLowFeeRate: false,
     feeOptionIndex: 1, // Default to AVG

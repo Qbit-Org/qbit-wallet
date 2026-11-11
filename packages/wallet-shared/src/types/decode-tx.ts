@@ -89,13 +89,14 @@ export type DecodedPsbtOutput =
 export type QbitFeeWarningReason =
   /** The rate is at least `QBIT_FEE_WARNING_RECOMMENDED_RATE_MULTIPLE` times the fastest live recommended rate. */
   | 'above_recommended_rate'
-  /** The rate is at least `QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE` times the relay floor, whatever the explorer recommends. */
+  /** The rate is at least `QBIT_FEE_WARNING_RATE_BOUND` bits/vB, whatever the explorer recommends. */
   | 'above_relay_floor'
   /**
    * The fee is at least `QBIT_FEE_WARNING_AMOUNT_PERCENT` of the amount sent, at a rate at least
-   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation. For a website's PSBT it is
-   * also flagged, whatever its rate, when the fee is at least that multiple of what the smallest
-   * send costs at the recommendation (`checkFeeShareWithoutSize`).
+   * `QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE` times the recommendation, or `QBIT_FALLBACK_FEE_RATE`
+   * when there is none or it is lower. For a website's PSBT it is also flagged, whatever its rate,
+   * when the fee is at least that multiple of what the smallest send costs at that rate
+   * (`checkFeeShareWithoutSize`).
    */
   | 'large_share_of_amount'
 

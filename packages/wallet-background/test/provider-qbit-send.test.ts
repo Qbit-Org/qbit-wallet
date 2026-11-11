@@ -173,6 +173,55 @@ describe('ProviderController qbit send', () => {
     expect(walletMock.acquireExternalQbitSigningLock).toHaveBeenCalledWith([toSignData], 'send')
   })
 
+  it('accepts a website feeRate from the 0.25 bits/vB relay floor up and refuses a lower one (#182)', async () => {
+    const provider = (await import('../src/controllers/provider/controller')).default
+    const [, sendApproval] = Reflect.getMetadata('APPROVAL', provider, 'sendQbit')
+    walletMock.createSendQbitPsbt.mockImplementation(async () => ({
+      psbtHex: '70736274ff',
+      toSignInputs: [],
+    }))
+    const providerContext = {
+      origin: 'https://otc.example',
+      account: 'qbrt1zprovidercontext',
+      chain: ChainType.QBIT_REGTEST,
+      network: 'regtest',
+    }
+    const request = (sendQbitParams: Record<string, unknown>) =>
+      sendApproval({
+        data: {
+          params: {
+            sendQbitParams: { toAddress: 'qbrt1zrecipient', satoshis: 40_000, ...sendQbitParams },
+          },
+        },
+        providerContext,
+      })
+
+    for (const feeRate of [0.25, 0.5, 1, 3]) {
+      walletMock.createSendQbitPsbt.mockClear()
+      await request({ feeRate })
+      expect(walletMock.createSendQbitPsbt).toHaveBeenCalledWith({
+        to: 'qbrt1zrecipient',
+        amount: 40_000,
+        feeRate,
+      })
+    }
+    // Omitted, the wallet's own normal rate applies.
+    walletMock.createSendQbitPsbt.mockClear()
+    await request({})
+    expect(walletMock.createSendQbitPsbt).toHaveBeenCalledWith({
+      to: 'qbrt1zrecipient',
+      amount: 40_000,
+    })
+
+    for (const feeRate of [0.24, 0.2499, 0, -0.25, null, Number.NaN, Infinity, '0.25', '1']) {
+      walletMock.createSendQbitPsbt.mockClear()
+      await expect(request({ feeRate })).rejects.toThrow(
+        'feeRate must be between 0.25 and 10000 bits/vB'
+      )
+      expect(walletMock.createSendQbitPsbt).not.toHaveBeenCalled()
+    }
+  })
+
   it.each(['signPsbt', 'signPsbts'] as const)(
     'atomically acquires an external lock before %s approval',
     async method => {

@@ -3,6 +3,8 @@ import {
   MempoolQbitClient,
   QbitApiError,
   addressBalanceFromStats,
+  feeEstimatesFromMempoolRecommendedFees,
+  feeTiersFromEstimates,
 } from '@qbit-oss/api'
 import type {
   AddressHistory,
@@ -15,12 +17,14 @@ import type {
   EsploraUtxo,
   FeeRateTier,
   MempoolQbitClientOptions,
+  MempoolRecommendedFees,
   RequestOptions,
 } from '@qbit-oss/api'
 import { QBIT_COINBASE_MATURITY } from '@qbit-oss/protocol'
 import { PQC_WARNING_SIGNATURE_THRESHOLD } from '@qbit/keyring-service'
 import { transactionCore } from '@qbit/wallet-core'
 import {
+  QBIT_FALLBACK_FEE_RATE,
   QBIT_MAX_FEE_RATE,
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
@@ -274,6 +278,46 @@ export class QbitWalletEsploraClient
   }
 }
 
+/**
+ * mempool-qbit's rates for its first three projected blocks, as
+ * `/fees/recommended` gives them but not rounded to whole numbers, so they
+ * go below 1 bit/vB, down to the node's relay floor. `@qbit-oss/api` has no
+ * call for it.
+ */
+const QBIT_PRECISE_FEES_PATH = '/fees/precise'
+
+/**
+ * The time a precise read has, headers and body, before the quote reads the
+ * whole-number tiers instead: a third of the 15 s budget every small reply
+ * has (`QBIT_EXPLORER_REPLY_TIMEOUT_MS`). Without it a route that takes the
+ * connection and never answers would hold every quote for that whole budget
+ * before the fallback is even sent, and the send screen holds Next for a
+ * tier's rate until the quote settles.
+ */
+const QBIT_PRECISE_FEES_TIMEOUT_MS = 5_000
+
+/**
+ * How long a client reads the whole-number tiers directly after its precise
+ * read failed, by any error, its own deadline included, or with tiers that
+ * give no available quote. A route that is missing, throttled or hung would
+ * otherwise cost every quote refresh a wasted request, or that deadline,
+ * before the fallback: twice the requests to an explorer that is throttling.
+ */
+const QBIT_PRECISE_FEES_COOL_DOWN_MS = 10 * 60_000
+
+/**
+ * Reads `/fees/precise` for `QbitWalletMempoolClient.getFeeTiers`. It is
+ * built from that client's options, so the request has the base URL, fetch,
+ * timeouts, signal and error types of its `/fees/recommended` read, but it
+ * is sent once: a failed precise read is not tried again, and the quote
+ * falls back at once to `/fees/recommended`, which keeps the client's retries.
+ */
+class QbitPreciseFeeReader extends EsploraClient {
+  read(options: RequestOptions): Promise<unknown> {
+    return this.getJson<unknown>(QBIT_PRECISE_FEES_PATH, options)
+  }
+}
+
 export class QbitWalletMempoolClient
   extends MempoolQbitClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
@@ -281,6 +325,14 @@ export class QbitWalletMempoolClient
   /** The most pages one history read fetches, as the client's `maxAddressHistoryPages`. */
   readonly maxHistoryWalkPages: number
   private readonly largeReadCeilingMs: number
+  /** The options the client was built with, for its reader of `/fees/precise`. */
+  private readonly preciseFeeReaderOptions: EsploraClientOptions
+  private preciseFees: QbitPreciseFeeReader | undefined
+  /**
+   * When (`Date.now()`) this client's last precise read failed, until one
+   * succeeds: see `QBIT_PRECISE_FEES_COOL_DOWN_MS`.
+   */
+  private preciseFeesFailedAt: number | undefined
 
   // The client clamps every call's maxPages to this ceiling (default 256), so
   // the two-read budgets above need it raised to match. The history reads
@@ -293,6 +345,84 @@ export class QbitWalletMempoolClient
     super(budgeted)
     this.maxHistoryWalkPages = maxAddressHistoryPages
     this.largeReadCeilingMs = budgeted.timeoutMs
+    this.preciseFeeReaderOptions = { ...budgeted, retries: 0 }
+  }
+
+  /**
+   * Fee-rate tiers for targets 1, 2 and 3 from `/fees/precise` (#182), whose
+   * rates go down to the node's relay floor of 0.25 bits/vB where
+   * `/fees/recommended` gives whole numbers of at least 1. The reply is
+   * checked as the SDK checks that of `/fees/recommended`: an object whose
+   * `fastestFee`, `halfHourFee` and `hourFee` are finite numbers above 0 and
+   * at most 10,000. Its tiers must also give an available quote
+   * (`qbitFeeSummaryFromTiers`).
+   *
+   * The whole-number tiers of `super.getFeeTiers` are read instead when the
+   * precise read fails in any way (any HTTP status, the network, a timeout,
+   * a body that is not JSON), takes longer than `QBIT_PRECISE_FEES_TIMEOUT_MS`
+   * (5 s), or its tiers fail those checks, so a broken precise endpoint never
+   * costs a quote the whole-number one still gives; when that read fails too,
+   * its error is the call's. Such a failure also starts a cool-down of
+   * `QBIT_PRECISE_FEES_COOL_DOWN_MS` (10 minutes) on this client, during
+   * which the call reads the whole-number tiers directly; the first call
+   * after it reads the precise tiers again, and a precise read that succeeds
+   * ends it. One operation scope (the caller's signal and deadline, and the
+   * client's signal) covers both reads: once it aborts, the call rejects
+   * with its error, makes no fallback read and starts no cool-down.
+   */
+  override getFeeTiers(options?: RequestOptions): Promise<FeeRateTier[]> {
+    return this.runOperation(options, async signal => {
+      const precise = this.preciseFeesCoolingDown()
+        ? undefined
+        : await this.readPreciseFeeTiers(signal)
+      return precise ?? super.getFeeTiers({ signal })
+    })
+  }
+
+  /** Whether a precise read failed less than `QBIT_PRECISE_FEES_COOL_DOWN_MS` ago. */
+  private preciseFeesCoolingDown(): boolean {
+    if (this.preciseFeesFailedAt === undefined) return false
+    // A clock set back before the failure ends the cool-down rather than lengthen it.
+    const age = Date.now() - this.preciseFeesFailedAt
+    return age >= 0 && age < QBIT_PRECISE_FEES_COOL_DOWN_MS
+  }
+
+  /**
+   * The tiers of one `/fees/precise` read, under its own deadline of
+   * `QBIT_PRECISE_FEES_TIMEOUT_MS` within the call's, or undefined when they
+   * cannot stand in for the whole-number ones, which starts the cool-down.
+   * It throws only once `signal` has aborted, with the error the call is
+   * aborted with.
+   */
+  private async readPreciseFeeTiers(signal: AbortSignal): Promise<FeeRateTier[] | undefined> {
+    let tiers: FeeRateTier[]
+    try {
+      const reply = await this.preciseFeeReader().read({
+        signal,
+        deadlineMs: QBIT_PRECISE_FEES_TIMEOUT_MS,
+      })
+      tiers = feeTiersFromEstimates(
+        feeEstimatesFromMempoolRecommendedFees(reply as MempoolRecommendedFees)
+      )
+    } catch {
+      // An operation scope's signal is aborted with the QbitApiError its call
+      // rejects with. The precise read's own deadline does not abort it, and
+      // so fails the read like any other error.
+      if (signal.aborted) throw signal.reason
+      this.preciseFeesFailedAt = Date.now()
+      return undefined
+    }
+    if (qbitFeeSummaryFromTiers(tiers, 'mempool-qbit').quote?.availability !== 'available') {
+      this.preciseFeesFailedAt = Date.now()
+      return undefined
+    }
+    this.preciseFeesFailedAt = undefined
+    return tiers
+  }
+
+  private preciseFeeReader(): QbitPreciseFeeReader {
+    this.preciseFees ??= new QbitPreciseFeeReader(this.preciseFeeReaderOptions)
+    return this.preciseFees
   }
 
   getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
@@ -4220,6 +4350,12 @@ export function qbitFeeSummaryFromTiers(
   }
 }
 
+/**
+ * The summary offered without a usable estimate: every tier at
+ * `QBIT_FALLBACK_FEE_RATE`, the rate the wallet sends at without one, not
+ * the relay floor, since the wallet then cannot see that the mempool's
+ * minimum has risen.
+ */
 export function qbitUnavailableFeeSummary(
   apiSurface: QbitFeeSummaryApiSurface,
   fallbackReason: FeeQuoteFallbackReason
@@ -4233,7 +4369,7 @@ export function qbitUnavailableFeeSummary(
     ].map(tier => ({
       ...tier,
       desc: qbitFeeTargetDescription(tier.targetBlocks),
-      feeRate: QBIT_MIN_RELAY_FEE_RATE,
+      feeRate: QBIT_FALLBACK_FEE_RATE,
     })),
     quote: {
       source: apiSurface,
@@ -4248,6 +4384,17 @@ type NormalizedQbitFeeTiers =
   | { valid: true; tiers: FeeRateTier[] }
   | { valid: false; reason: 'empty' | 'invalid' }
 
+/**
+ * The provider's tiers as the wallet quotes them, or why there are none.
+ * Each target is a whole number of blocks from 1 to 1,008, given once, with
+ * a finite rate above 0 and, as sent, at most `QBIT_MAX_FEE_RATE`. A rate
+ * below the relay floor is raised to `QBIT_MIN_RELAY_FEE_RATE`, and every
+ * rate is rounded up to hundredths of a bit/vB: the Custom rate input takes
+ * rates in hundredths and every screen shows them so, so a tier is a rate
+ * the user sees and can type exactly, and rounding up never offers less
+ * than the provider asked for. A slower target must not cost more than a
+ * faster one once both are rounded.
+ */
 function normalizeQbitFeeTiers(tiers: unknown): NormalizedQbitFeeTiers {
   if (!Array.isArray(tiers)) {
     return { valid: false, reason: 'invalid' }
@@ -4275,7 +4422,7 @@ function normalizeQbitFeeTiers(tiers: unknown): NormalizedQbitFeeTiers {
     targets.add(tier.target!)
     normalized.push({
       target: tier.target!,
-      feeRate: Math.max(QBIT_MIN_RELAY_FEE_RATE, tier.feeRate!),
+      feeRate: ceilQbitFeeRateToHundredths(Math.max(QBIT_MIN_RELAY_FEE_RATE, tier.feeRate!)),
     })
   }
 
@@ -4286,6 +4433,21 @@ function normalizeQbitFeeTiers(tiers: unknown): NormalizedQbitFeeTiers {
     }
   }
   return { valid: true, tiers: normalized }
+}
+
+/**
+ * The smallest whole number of hundredths of a bit/vB that is not below
+ * `feeRate`, a positive finite rate. `feeRate * 100` can land on either side
+ * of a whole number in binary (1.1 * 100 is 110.00000000000001, 0.29 * 100
+ * is 28.999999999999996), so the candidate is checked against `feeRate`
+ * itself: `n / 100` is the same number as the decimal `n / 100` a user types
+ * or a provider sends, so a rate already in hundredths comes back unchanged.
+ */
+function ceilQbitFeeRateToHundredths(feeRate: number): number {
+  let hundredths = Math.ceil(feeRate * 100)
+  while (hundredths / 100 < feeRate) hundredths += 1
+  while ((hundredths - 1) / 100 >= feeRate) hundredths -= 1
+  return hundredths / 100
 }
 
 function feeRateForTarget(tiers: FeeRateTier[], target: number): number | undefined {

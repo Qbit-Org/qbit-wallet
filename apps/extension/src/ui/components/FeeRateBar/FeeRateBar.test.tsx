@@ -10,8 +10,14 @@ vi.mock('@qbit/wallet-state', () => ({
   useI18n: vi.fn()
 }));
 
+// The props the fee bar last gave its Custom rate input.
+const inputProps = vi.hoisted(() => ({ current: undefined as Record<string, unknown> | undefined }));
+
 vi.mock('../Input', () => ({
-  Input: () => null
+  Input: (props: Record<string, unknown>) => {
+    inputProps.current = props;
+    return null;
+  }
 }));
 
 vi.mock('../Text', () => ({
@@ -32,6 +38,7 @@ describe('FeeRateBar', () => {
     setFeeOptionIndex,
     feeRateInputVal: '',
     adjustFeeRateInput: vi.fn(),
+    minFeeRate: 0.25,
     isCustomOption: vi.fn(() => false),
     fontSize: 'xxs',
     isSpecialLocale: false,
@@ -44,8 +51,10 @@ describe('FeeRateBar', () => {
   } as ReturnType<typeof useFeeRateBarLogic>;
 
   beforeEach(() => {
+    inputProps.current = undefined;
     vi.mocked(useI18n).mockReturnValue({
-      t: (key: string) => key
+      t: (key: string, substitutions?: string | string[] | Record<string, string | number>) =>
+        Array.isArray(substitutions) ? `${key}:${substitutions.join(',')}` : key
     } as ReturnType<typeof useI18n>);
     vi.mocked(useFeeRateBarLogic).mockReturnValue(defaultFeeRateLogic);
   });
@@ -73,7 +82,7 @@ describe('FeeRateBar', () => {
     expect(toggleCustomInput).not.toHaveBeenCalled();
   });
 
-  it('labels relay-floor fallback instead of presenting it as a live estimate', () => {
+  it('names the 1 bit/vB fallback rate in use instead of presenting it as a live estimate', () => {
     vi.mocked(useFeeRateBarLogic).mockReturnValue({
       ...defaultFeeRateLogic,
       feeOptions: [
@@ -87,7 +96,9 @@ describe('FeeRateBar', () => {
 
     render(<FeeRateBar />);
 
-    expect(screen.getByTestId('fee-estimates-unavailable').textContent).toBe('fee_estimates_unavailable_using_floor');
+    expect(screen.getByTestId('fee-estimates-unavailable').textContent).toBe(
+      'fee_estimates_unavailable_using_default:1'
+    );
   });
 
   it('offers the rates of the quote its screen shares instead of reading its own', () => {
@@ -139,6 +150,45 @@ describe('FeeRateBar', () => {
     expect(screen.queryByTestId('fee-rate-option-1')).toBeNull();
     fireEvent.click(screen.getByTestId('fee-rate-option-0'));
     expect(setFeeOptionIndex).toHaveBeenCalledWith(0);
+  });
+
+  it.each([false, true])(
+    'gives the Custom rate input the relay floor as its minimum, with low-fee mode %s',
+    (supportLowFeeMode) => {
+      vi.mocked(useFeeRateBarLogic).mockReturnValue({
+        ...defaultFeeRateLogic,
+        showCustomInput: true,
+        feeRateInputVal: '0.25',
+        supportLowFeeMode
+      } as ReturnType<typeof useFeeRateBarLogic>);
+
+      render(<FeeRateBar />);
+
+      expect(inputProps.current).toMatchObject({
+        value: '0.25',
+        min: 0.25,
+        step: 0.01,
+        decimalPlaces: 2,
+        enableStepper: true
+      });
+    }
+  );
+
+  it('shows tiers below 1 bit/vB at their own rates', () => {
+    vi.mocked(useFeeRateBarLogic).mockReturnValue({
+      ...defaultFeeRateLogic,
+      feeOptions: [
+        { index: 0, title: 'slow', desc: '', feeRate: 0.25 },
+        { index: 1, title: 'avg', desc: '', feeRate: 0.5 },
+        { index: 2, title: 'fast', desc: '', feeRate: 1 }
+      ]
+    } as ReturnType<typeof useFeeRateBarLogic>);
+
+    render(<FeeRateBar />);
+
+    expect(screen.getByTestId('fee-rate-option-0').textContent).toContain('0.25 bits/vB');
+    expect(screen.getByTestId('fee-rate-option-1').textContent).toContain('0.5 bits/vB');
+    expect(screen.getByTestId('fee-rate-option-2').textContent).toContain('1 bits/vB');
   });
 
   it('says estimates are unavailable without claiming a rate when it picks none', () => {

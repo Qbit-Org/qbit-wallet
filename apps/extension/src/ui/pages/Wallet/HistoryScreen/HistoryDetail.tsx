@@ -8,7 +8,15 @@ import { isMixedFundingTransaction } from '@/ui/pages/Wallet/HistoryScreen/histo
 import { colors } from '@/ui/theme/colors';
 import { satoshisToQbit } from '@/ui/utils';
 import { TxHistoryInOutItem } from '@qbit/wallet-shared';
-import { useChain, useI18n, useNavigation, useTools, useTxExplorerUrl, useWallet } from '@qbit/wallet-state';
+import {
+  formatFeeRate,
+  useChain,
+  useI18n,
+  useNavigation,
+  useTools,
+  useTxExplorerUrl,
+  useWallet
+} from '@qbit/wallet-state';
 
 interface HistoryDetailProps {
   detail: HistoryItem;
@@ -286,7 +294,7 @@ export function HistoryDetail({ detail, close }: HistoryDetailProps) {
               <Row justifyBetween>
                 <Text text={t('network_fee_rate')} color={'textDim'} />
                 <Row>
-                  <Text text={detail.feeRate}></Text>
+                  <Text text={formatFeeRate(detail.feeRate)} data-testid="history-detail-fee-rate"></Text>
                   <Text text={'bits/vB'} color={'textDim'} />
                 </Row>
               </Row>

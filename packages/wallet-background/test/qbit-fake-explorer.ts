@@ -94,6 +94,11 @@ export class FakeQbitExplorer {
    */
   readonly utxoRefusedAddresses = new Set<string>()
   feeRate = 1
+  /**
+   * What mempool-qbit's `/fees/precise` answers, on that surface only, as in
+   * production; by default the rates `/fees/recommended` gives.
+   */
+  preciseFees: unknown = undefined
   /** History rows without prevouts, as some backends serve them. */
   omitHistoryPrevouts = false
   /**
@@ -458,6 +463,17 @@ export class FakeQbitExplorer {
         economyFee: this.feeRate,
         minimumFee: this.feeRate,
       })
+    }
+    if (path === '/fees/precise' && this.surface === 'mempool-qbit') {
+      return json(
+        this.preciseFees ?? {
+          fastestFee: this.feeRate,
+          halfHourFee: this.feeRate,
+          hourFee: this.feeRate,
+          economyFee: this.feeRate,
+          minimumFee: this.feeRate,
+        }
+      )
     }
     if ((match = path.match(/^\/tx\/([0-9a-f]{64})$/))) {
       const tx = this.txs.get(match[1]!)

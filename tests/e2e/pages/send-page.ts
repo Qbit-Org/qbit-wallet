@@ -24,6 +24,15 @@ export class SendPage extends ExtensionPageObject {
     return this.byTestId('tx-create-error')
   }
 
+  get nextButton(): Locator {
+    return this.byTestId('tx-next-button')
+  }
+
+  /** The fee bar's Custom rate input, which has no test ID of its own. */
+  get customFeeRateInput(): Locator {
+    return this.page.getByPlaceholder('bits/vB', { exact: true })
+  }
+
   async waitForCreate(): Promise<void> {
     await this.waitForHashRoute('/wallet/tx/create')
     await expect(this.recipientInput).toBeVisible()
@@ -42,6 +51,31 @@ export class SendPage extends ExtensionPageObject {
     if ((await option.getAttribute('data-selected')) !== 'true') await option.click()
     await expect(option).toHaveAttribute('data-selected', 'true')
     return label
+  }
+
+  /** Selects Custom and types a rate in bits/vB, which the input must keep as typed. */
+  async enterCustomFeeRate(rate: string): Promise<void> {
+    // Custom follows the Slow, Normal and Fast tiers.
+    const custom = this.byTestId('fee-rate-option-3')
+    await expect(custom).toBeVisible()
+    if ((await custom.getAttribute('data-selected')) !== 'true') await custom.click()
+    await expect(custom).toHaveAttribute('data-selected', 'true')
+    await expect(this.customFeeRateInput).toBeVisible()
+    await this.customFeeRateInput.fill(rate)
+    await expect(this.customFeeRateInput).toHaveValue(rate)
+  }
+
+  async expectNextEnabled(): Promise<void> {
+    await expect(this.nextButton).toBeVisible()
+    await expect(this.nextButton).toHaveCSS('cursor', 'pointer')
+  }
+
+  /** Next shows its disabled style, and a click on it leaves the form in place. */
+  async expectNextDisabled(): Promise<void> {
+    await expect(this.nextButton).toBeVisible()
+    await expect(this.nextButton).toHaveCSS('cursor', 'not-allowed')
+    await this.nextButton.click()
+    await this.waitForCreate()
   }
 
   async setRbf(enabled: boolean): Promise<void> {
@@ -65,6 +99,18 @@ export class SendPage extends ExtensionPageObject {
     const match = text.match(/(\d+)\s+input/i)
     if (!match?.[1]) throw new Error(`unable to parse estimated input count from: ${text}`)
     return Number(match[1])
+  }
+
+  /** The fee the form estimates, in bits, from the end of its size estimate. */
+  async estimatedFeeBaseUnits(): Promise<number> {
+    const estimate = this.byTestId('tx-size-estimate')
+    await expect(estimate).toBeVisible()
+    const text = (await estimate.innerText()).trim()
+    // The fee is a whole number of bits, grouped for the UI language.
+    const match = text.match(/([\d.,\s]+)bits$/i)
+    const digits = match?.[1]?.replace(/\D/g, '')
+    if (!digits) throw new Error(`unable to parse estimated fee from: ${text}`)
+    return Number(digits)
   }
 
   async expectDustRejected(): Promise<string> {

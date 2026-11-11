@@ -74,11 +74,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 31 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 36 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 17 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 22 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -89,6 +89,7 @@ separately with two-decimal millisecond precision.
 | Onboard               | `scenarios/onboard.spec.ts:5`             | Create, back up, and open a Qbit P2MR wallet on regtest                                                    | Pass         |  14.9 s |
 | Receive/fund/rotate   | `scenarios/receive.spec.ts:5`             | Fund issued addresses, rotate safely, mine, and retain previous addresses                                  | Pass         |  26.2 s |
 | Send                  | `scenarios/send.spec.ts:23`               | Dust rejection; single/multi-input fees; exact displayed/on-chain fee equality; RBF replacement            | Pass         |  67.7 s |
+| Send at relay floor   | `scenarios/send.spec.ts:254`              | Custom 0.25 bits/vB: fee is vsize × 0.25 rounded up, accepted, equal on chain, confirmed; 0.24 blocks Next | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
 | dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
@@ -107,15 +108,19 @@ separately with two-decimal millisecond precision.
 | Phishing back button  | `scenarios/phishing.spec.ts:612`          | Back from the warning for a lookalike opened by its address returns to the page before                     | Not recorded |       — |
 | Provider ready        | `scenarios/provider-ready.spec.ts:240`    | A page that listens before the wallet loads hears it is ready, and a late listener can ask                 | Not recorded |       — |
 | Provider ready frames | `scenarios/provider-ready.spec.ts:261`    | A frame of another origin gets its own event and announcement; a sandboxed frame gets neither              | Not recorded |       — |
-| Wipe/restore          | `scenarios/recovery.spec.ts:86`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |
+| Wipe/restore          | `scenarios/recovery.spec.ts:88`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |
 | Lock                  | `scenarios/lock.spec.ts:25`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
 | Auto-lock             | `scenarios/lock.spec.ts:93`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
-| Window close          | `scenarios/lock.spec.ts:169`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
+| Window close          | `scenarios/lock.spec.ts:168`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
 | Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
 | Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
-| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:107`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:107`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:107`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Switch account        | `scenarios/switch-account.spec.ts:148`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
+| Rename wallet         | `scenarios/switch-account.spec.ts:306`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
+| Remove wallet         | `scenarios/switch-account.spec.ts:376`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
+| Read-only wallet      | `scenarios/switch-account.spec.ts:467`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
+| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:168`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:168`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:168`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 
 The dApp PSBT-signing and wipe/restore rows were previously blocked (a
 `-32603: Not supported` provider rejection and a restore scan that never

@@ -47,9 +47,9 @@ migration record, and archive. Each network's record moves through:
   plan for this network.
 - `migrated`: every recorded movement on this network is confirmed and a final
   source scan finds no protected or economically spendable balance at the
-  relay-fee floor. The recovered keyring remains available but is archived for
-  this network; sibling networks that still await their own sweep keep their
-  keys signable.
+  migration's 1 bit/vB rate. The recovered keyring remains available but is
+  archived for this network; sibling networks that still await their own sweep
+  keep their keys signable.
 
 Existing restored vaults without this field default to `seed-only-restored`
 with acknowledgement required. Invalid or incomplete migration metadata also
@@ -130,7 +130,7 @@ publicly link every source account, while per-account destinations remove that
 linkage at zero fee cost (the flow already builds one send-all transaction per
 source account either way). Destination indexes are allocated contiguously from
 zero rather than copied from the source: only funded accounts produce plans, so
-source *history* can reach an index far beyond the last funded predecessor, and
+source _history_ can reach an index far beyond the last funded predecessor, and
 copying it would leave the destination's funded indexes sparse — a standard
 gap-limit restore of the fresh seed would stop scanning before reaching them.
 Each plan records its source→destination pairing, a source account that sweeps
@@ -167,8 +167,11 @@ failure.
 
 The repository-aligned safe point is confirmation of every plan followed by
 a rescan showing no protected assets and no balance capable of producing a
-standard destination output at the one-sat/vB relay floor. Uneconomic dust
-stays in the retained source rather than aborting other account sweeps. A later
+standard destination output at 1 bit/vB
+(`QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE`), the migration's own rate, which
+stays above qbit Core's 0.25 bits/vB relay floor because signed plans cannot
+be bumped. Uneconomic dust stays in the retained source rather than aborting
+other account sweeps. A later
 deposit that makes that balance sweepable reopens migration. At the safe point
 the fresh destination becomes active and the recovered keyring is marked
 `migrated` for that network; the archived card then points at any sibling

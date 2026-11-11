@@ -1117,6 +1117,175 @@ describe('WalletController consolidation of an account over the explorer UTXO li
     expect(new Set(snapshot.utxos.map(utxo => `${utxo.txid}:${utxo.vout}`))).toEqual(expected)
   })
 
+  describe('fee rates from the 0.25 bits/vB relay floor (#182)', () => {
+    /** What the public explorers' `/fees/precise` answered on an empty mempool. */
+    const EMPTY_MEMPOOL = {
+      fastestFee: 1,
+      halfHourFee: 0.5,
+      hourFee: 0.25,
+      economyFee: 0.25,
+      minimumFee: 0.25,
+    }
+    const feeRequests = () =>
+      explorer.requests.map(request => request.path).filter(path => path.startsWith('/fee'))
+    const tierRates = (summary: { list: { feeRate: number }[] }) =>
+      summary.list.map(tier => tier.feeRate)
+
+    /** A controller on the mempool-qbit surface, with the real client. */
+    function mempoolQbitController(options: { now?: () => number } = {}) {
+      const wallet = controller(options)
+      const { endpoint } = (wallet as any).getQbitApiEndpoint()
+      vi.spyOn(wallet as any, 'getQbitApiEndpoint').mockReturnValue({
+        endpoint,
+        apiSurface: 'mempool-qbit',
+      })
+      return wallet
+    }
+
+    function inputsLessOutputs(toSignData: ToSignData): number {
+      const decoded = decodePsbt(parsePsbt(hexToBytes(toSignData.psbtHex)))
+      const inputs = decoded.inputs.reduce((sum, input) => sum + input.witnessUtxo!.value, 0n)
+      const outputs = decoded.outputs.reduce((sum, output) => sum + output.value, 0n)
+      return Number(inputs - outputs)
+    }
+
+    it('quotes the precise tiers below 1 bit/vB and prepares a batch at the normal one', async () => {
+      explorer = overLimitAccount(700, 'mempool-qbit').explorer
+      explorer.preciseFees = EMPTY_MEMPOOL
+      const wallet = mempoolQbitController({ now: () => 1_000 })
+
+      await expect(wallet.getFeeSummary()).resolves.toEqual({
+        list: [
+          { title: 'Slow', desc: '~3 min (3 blocks)', feeRate: 0.25, targetBlocks: 3 },
+          { title: 'Normal', desc: '~2 min (2 blocks)', feeRate: 0.5, targetBlocks: 2 },
+          { title: 'Fast', desc: '~1 min (1 block)', feeRate: 1, targetBlocks: 1 },
+        ],
+        quote: {
+          source: 'mempool-qbit',
+          availability: 'available',
+          freshness: 'live',
+          fetchedAt: 1_000,
+        },
+      })
+      expect(feeRequests()).toEqual(['/fees/precise'])
+
+      // Ten inputs to one output are 37,675 vB: 18,837.5 bits at 0.5, rounded up.
+      const batch = await wallet.createQbitConsolidationPsbt({ maxInputs: 10 })
+      expect(batch).toMatchObject({ estimatedVsize: 37_675, estimatedFee: 18_838 })
+      expect(inputsLessOutputs(batch)).toBe(18_838)
+      // From the cached quote.
+      expect(feeRequests()).toEqual(['/fees/precise'])
+    })
+
+    it('quotes the whole-number tiers when the precise read fails', async () => {
+      explorer = overLimitAccount(700, 'mempool-qbit').explorer
+      explorer.feeRate = 2
+      explorer.failures.push(({ path }) => (path === '/fees/precise' ? { status: 503 } : undefined))
+      const wallet = mempoolQbitController()
+
+      const summary = await wallet.getFeeSummary()
+
+      expect(tierRates(summary)).toEqual([2, 2, 2])
+      expect(summary.quote).toMatchObject({ availability: 'available', freshness: 'live' })
+      expect(feeRequests()).toEqual(['/fees/precise', '/fees/recommended'])
+    })
+
+    it('reads only the whole-number tiers on its refreshes for 10 minutes after the precise read fails', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(1_000_000)
+      explorer = overLimitAccount(700, 'mempool-qbit').explorer
+      explorer.feeRate = 2
+      explorer.preciseFees = EMPTY_MEMPOOL
+      let preciseFails = true
+      explorer.failures.push(({ path }) =>
+        preciseFails && path === '/fees/precise' ? { status: 404 } : undefined
+      )
+      const wallet = mempoolQbitController({ now: () => Date.now() })
+
+      expect(tierRates(await wallet.getFeeSummary())).toEqual([2, 2, 2])
+      // Each refresh after the first comes once the 60 s quote has expired,
+      // and reads through the controller's one client for the endpoint.
+      vi.setSystemTime(1_060_000)
+      expect(tierRates(await wallet.getFeeSummary())).toEqual([2, 2, 2])
+      vi.setSystemTime(1_599_999)
+      expect(tierRates(await wallet.getFeeSummary())).toEqual([2, 2, 2])
+      expect(feeRequests()).toEqual([
+        '/fees/precise',
+        '/fees/recommended',
+        '/fees/recommended',
+        '/fees/recommended',
+      ])
+
+      // The first refresh 10 minutes after the failure reads the route again.
+      preciseFails = false
+      vi.setSystemTime(1_660_000)
+      const summary = await wallet.getFeeSummary()
+      expect(tierRates(summary)).toEqual([0.25, 0.5, 1])
+      expect(summary.quote).toMatchObject({ availability: 'available', freshness: 'live' })
+      expect(feeRequests().slice(4)).toEqual(['/fees/precise'])
+    })
+
+    it('offers 1 bit/vB on every tier when neither fee endpoint answers', async () => {
+      explorer = overLimitAccount(700, 'mempool-qbit').explorer
+      explorer.preciseFees = EMPTY_MEMPOOL
+      let now = 1_000
+      const wallet = mempoolQbitController({ now: () => now })
+      const bothFail = () =>
+        explorer.failures.push(({ path }) =>
+          path.startsWith('/fees/') ? { status: 404 } : undefined
+        )
+
+      await wallet.getFeeSummary()
+      now += 60_000
+      bothFail()
+      const stale = await wallet.getFeeSummary()
+      expect(tierRates(stale)).toEqual([1, 1, 1])
+      expect(stale.quote).toEqual({
+        source: 'mempool-qbit',
+        availability: 'unavailable',
+        freshness: 'fallback',
+        fallbackReason: 'stale',
+      })
+
+      const unquoted = mempoolQbitController({ now: () => now })
+      const unavailable = await unquoted.getFeeSummary()
+      expect(tierRates(unavailable)).toEqual([1, 1, 1])
+      expect(unavailable.quote).toMatchObject({
+        availability: 'unavailable',
+        fallbackReason: 'unavailable',
+      })
+      expect(feeRequests()).toEqual([
+        '/fees/precise',
+        '/fees/precise',
+        '/fees/recommended',
+        '/fees/precise',
+        '/fees/recommended',
+      ])
+
+      // Its batch is priced at that 1 bit/vB, not the 0.25 floor.
+      const batch = await unquoted.createQbitConsolidationPsbt({ maxInputs: 10 })
+      expect(batch).toMatchObject({ estimatedVsize: 37_675, estimatedFee: 37_675 })
+    })
+
+    it('prepares a batch at 0.25 bits/vB and refuses 0.24 before any explorer read', async () => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+
+      const refusal = await wallet
+        .createQbitConsolidationPsbt({ feeRate: 0.24, maxInputs: 10 })
+        .catch(error => error)
+      expect(refusal).toBeInstanceOf(RangeError)
+      expect(refusal.message).toBe('feeRate must be between 0.25 and 10000 bits/vB')
+      expect(explorer.requests).toEqual([])
+
+      // 37,675 vB at 0.25 bits/vB is 9,418.75 bits, rounded up.
+      const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 0.25, maxInputs: 10 })
+      expect(inputsOf(batch)).toHaveLength(10)
+      expect(batch).toMatchObject({ estimatedVsize: 37_675, estimatedFee: 9_419 })
+      expect(inputsLessOutputs(batch)).toBe(9_419)
+    })
+  })
+
   describe('over a slow explorer (#56)', () => {
     beforeEach(() => {
       vi.useFakeTimers()
