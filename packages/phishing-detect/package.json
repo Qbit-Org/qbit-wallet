@@ -9,8 +9,7 @@
   "files": [
     "lib/**/*",
     "src/**/*",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md"
+    "README.md"
   ],
   "exports": {
     ".": {

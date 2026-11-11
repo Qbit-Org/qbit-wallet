@@ -74,11 +74,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 29 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 31 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 15 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 17 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -92,17 +92,19 @@ separately with two-decimal millisecond precision.
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
 | dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
-| Phishing block        | `scenarios/phishing.spec.ts:261`          | Block a direct navigation to a denylisted host before it reaches the network                               | Pass         |   2.1 s |
-| Phishing redirect     | `scenarios/phishing.spec.ts:278`          | Warn on a same-site redirect to a denylisted host; Proceed loads the site                                  | Not recorded |       — |
-| Phishing link wrapper | `scenarios/phishing.spec.ts:278`          | Warn on another site's link wrapper to a denylisted host; Proceed loads the site                           | Not recorded |       — |
-| Phishing site access  | `scenarios/phishing.spec.ts:314`          | Fall back to the block rule while site access is withheld; warn again once it is granted                   | Not recorded |       — |
-| Phishing new tab      | `scenarios/phishing.spec.ts:352`          | Warn in the new tab a link opens, and leave the source tab alone                                           | Not recorded |       — |
-| Phishing proceed      | `scenarios/phishing.spec.ts:377`          | Warn on a denylisted link; Proceed lifts only that host, which gets no wallet provider                     | Pass         |   7.4 s |
-| Phishing form         | `scenarios/phishing.spec.ts:430`          | A form from another tab reaches a host the user proceeded to once                                          | Not recorded |       — |
-| Phishing race         | `scenarios/phishing.spec.ts:458`          | Warn on a link clicked while the service worker runs; the warning page stays (#320)                        | Pass         |   5.8 s |
-| Phishing rule status  | `scenarios/phishing.spec.ts:489`          | The wallet pages report the installed block rule                                                           | Not recorded |       — |
-| Phishing invalid name | `scenarios/phishing.spec.ts:506`          | No Proceed for a denylisted name outside DNS syntax, and the warning says why                              | Not recorded |       — |
-| Phishing rule missing | `scenarios/phishing.spec.ts:521`          | Warn before a denylisted page runs script while the block rule is missing                                  | Not recorded |       — |
+| Phishing block        | `scenarios/phishing.spec.ts:265`          | Block a direct navigation to a denylisted host before it reaches the network                               | Pass         |   2.1 s |
+| Phishing redirect     | `scenarios/phishing.spec.ts:282`          | Warn on a same-site redirect to a denylisted host; Proceed loads the site                                  | Not recorded |       — |
+| Phishing link wrapper | `scenarios/phishing.spec.ts:282`          | Warn on another site's link wrapper to a denylisted host; Proceed loads the site                           | Not recorded |       — |
+| Phishing site access  | `scenarios/phishing.spec.ts:318`          | Fall back to the block rule while site access is withheld; warn again once it is granted                   | Not recorded |       — |
+| Phishing new tab      | `scenarios/phishing.spec.ts:356`          | Warn in the new tab a link opens, and leave the source tab alone                                           | Not recorded |       — |
+| Phishing proceed      | `scenarios/phishing.spec.ts:381`          | Warn on a denylisted link; Proceed lifts only that host, which gets no wallet provider                     | Pass         |   7.4 s |
+| Phishing form         | `scenarios/phishing.spec.ts:434`          | A form from another tab reaches a host the user proceeded to once                                          | Not recorded |       — |
+| Phishing race         | `scenarios/phishing.spec.ts:462`          | Warn on a link clicked while the service worker runs; the warning page stays (#320)                        | Pass         |   5.8 s |
+| Phishing rule status  | `scenarios/phishing.spec.ts:493`          | The wallet pages report the installed block rule                                                           | Not recorded |       — |
+| Phishing invalid name | `scenarios/phishing.spec.ts:510`          | No Proceed for a denylisted name outside DNS syntax, and the warning says why                              | Not recorded |       — |
+| Phishing rule missing | `scenarios/phishing.spec.ts:525`          | Warn before a denylisted page runs script while the block rule is missing                                  | Not recorded |       — |
+| Phishing lookalike    | `scenarios/phishing.spec.ts:575`          | Warn before a `qbit.<tld>` lookalike outside the denylist runs script; Proceed loads it without a provider | Not recorded |       — |
+| Phishing back button  | `scenarios/phishing.spec.ts:612`          | Back from the warning for a lookalike opened by its address returns to the page before                     | Not recorded |       — |
 | Provider ready        | `scenarios/provider-ready.spec.ts:240`    | A page that listens before the wallet loads hears it is ready, and a late listener can ask                 | Not recorded |       — |
 | Provider ready frames | `scenarios/provider-ready.spec.ts:261`    | A frame of another origin gets its own event and announcement; a sandboxed frame gets neither              | Not recorded |       — |
 | Wipe/restore          | `scenarios/recovery.spec.ts:86`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |

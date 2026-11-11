@@ -1,5 +1,4 @@
 import { ArrowLeft } from 'lucide-react';
-import { useMemo } from 'react';
 
 import { colors } from '@/ui/theme/colors';
 import { spacing } from '@/ui/theme/spacing';
@@ -35,7 +34,7 @@ function HeaderContainer(props: { children: React.ReactNode; shotHeight?: boolea
         justifyBetween
         itemsCenter
         style={{
-          height: props.shotHeight ? '48px' : '67.5px',
+          minHeight: props.shotHeight ? '48px' : '67.5px',
           paddingLeft: spacing.medium,
           paddingRight: spacing.medium
         }}
@@ -49,15 +48,10 @@ function HeaderContainer(props: { children: React.ReactNode; shotHeight?: boolea
 export function Header(props: HeaderProps) {
   const { onBack, backDisabled, title, LeftComponent, RightComponent, children, type } = props;
 
-  const CenterComponent = useMemo(() => {
-    if (children) {
-      return children;
-    } else if (title) {
-      return <Text text={title} preset="regular-bold" />;
-    } else {
-      return;
-    }
-  }, [title]);
+  // Render the current children: a header whose content changes after the
+  // first render, such as an approval's website bar once its check answers,
+  // must show the new content.
+  const CenterComponent = children ? children : title ? <Text text={title} preset="regular-bold" /> : undefined;
 
   if (type === 'style2' || type === 'home') {
     return (

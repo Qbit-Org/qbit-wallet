@@ -20,6 +20,10 @@ const FORM_URL = `http://${BLOCKED_HOST}${FORM_PATH}`
 // A link wrapper on another site, such as a search result or mail link
 // redirector, that the browser also resolves to the fixture server.
 const WRAPPER_HOST = 'links.wrapper-e2e.test'
+// A lookalike of qbit.org under another top-level domain that the denylist
+// does not name, so that no network rule stops it either.
+const LOOKALIKE_HOST = 'qbit.net'
+const LOOKALIKE_URL = `http://${LOOKALIKE_HOST}/claim?ref=lookalike`
 
 interface RecordedRequest {
   host: string
@@ -117,7 +121,7 @@ const test = base.extend<{ fixtureServer: PhishingFixtureServer; extension: Exte
     const userDataDir = testInfo.outputPath('chromium-profile')
     await mkdir(userDataDir, { recursive: true })
     const target = `127.0.0.1:${fixtureServer.port}`
-    const rules = [BLOCKED_HOST, OTHER_BLOCKED_HOST, WRAPPER_HOST].flatMap(host => [
+    const rules = [BLOCKED_HOST, OTHER_BLOCKED_HOST, WRAPPER_HOST, LOOKALIKE_HOST].flatMap(host => [
       `MAP ${host} ${target}`,
       `MAP *.${host} ${target}`,
     ])
@@ -224,9 +228,9 @@ async function answersProbe(extension: ExtensionSession, page: Page): Promise<bo
 }
 
 /** The paths requested from the first denylisted host, other than the favicon. */
-function pagePaths(server: PhishingFixtureServer): string[] {
+function pagePaths(server: PhishingFixtureServer, host = BLOCKED_HOST): string[] {
   return server
-    .requestsTo(BLOCKED_HOST)
+    .requestsTo(host)
     .map(request => request.path)
     .filter(path => path !== '/favicon.ico')
 }
@@ -566,5 +570,67 @@ test.describe('MV3 phishing protection', () => {
       '/beacon?stage=inline',
     ])
     expect(await page.evaluate(() => 'qbit' in window)).toBe(false)
+  })
+
+  test('shows the warning before a qbit.<tld> lookalike outside the denylist runs script', async ({
+    extension,
+    fixtureServer,
+  }) => {
+    // No network rule names the host, so the browser fetches the page, and
+    // the content script stops it before its inline script can run.
+    const worker = await extension.serviceWorker()
+    const blockedDomains = await worker.evaluate(
+      async () => (await chrome.declarativeNetRequest.getDynamicRules())[0]?.condition.requestDomains ?? []
+    )
+    expect(blockedDomains).not.toContain(LOOKALIKE_HOST)
+
+    const page = await extension.context.newPage()
+    // The warning page can replace the page before its load event.
+    await page.goto(LOOKALIKE_URL).catch(() => undefined)
+    await expect(page).toHaveURL(warningPagePattern(extension.extensionId))
+    expect(warningParams(page).get('hostname')).toBe(LOOKALIKE_HOST)
+    expect(warningParams(page).get('href')).toBe(LOOKALIKE_URL)
+    await page.waitForTimeout(1_000)
+    expect(pagePaths(fixtureServer, LOOKALIKE_HOST)).toEqual(['/claim?ref=lookalike'])
+
+    // Proceed releases the page in this tab: it reloads once and runs, still
+    // without the wallet provider.
+    await page.getByRole('button', { name: new RegExp(LOOKALIKE_HOST.replace(/\./g, '\\.')) }).click()
+    await expect(page).toHaveURL(LOOKALIKE_URL)
+    await expect(page.locator('h1')).toHaveText('phishing fixture')
+    await page.waitForTimeout(1_000)
+    await expect(page).toHaveURL(LOOKALIKE_URL)
+    expect(pagePaths(fixtureServer, LOOKALIKE_HOST)).toEqual([
+      '/claim?ref=lookalike',
+      '/claim?ref=lookalike',
+      '/claim?ref=lookalike',
+      '/beacon?stage=inline',
+    ])
+    expect(await page.evaluate(() => 'qbit' in window)).toBe(false)
+  })
+
+  test('returns to the page before on Back from the warning for a lookalike opened by its address', async ({
+    extension,
+    fixtureServer,
+  }) => {
+    // As for a typed address, a bookmark or a redirect. The warning page comes
+    // after the stopped page in the history, so Back loads the lookalike
+    // again; the background then takes the tab back past it, where it once
+    // sent it to the warning again, every time.
+    const page = await extension.context.newPage()
+    await page.goto(`${fixtureServer.origin}/start`)
+    await page.goto(LOOKALIKE_URL).catch(() => undefined)
+    await expect(page).toHaveURL(warningPagePattern(extension.extensionId))
+    expect(warningParams(page).get('href')).toBe(LOOKALIKE_URL)
+
+    await page.goBack({ waitUntil: 'commit' })
+    await expect(page).toHaveURL(`${fixtureServer.origin}/start`)
+    await page.waitForTimeout(1_000)
+    await expect(page).toHaveURL(`${fixtureServer.origin}/start`)
+    // Back loaded the lookalike once more, held, without its script.
+    expect(pagePaths(fixtureServer, LOOKALIKE_HOST)).toEqual([
+      '/claim?ref=lookalike',
+      '/claim?ref=lookalike',
+    ])
   })
 })

@@ -2,7 +2,11 @@ import log from 'loglevel'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BUNDLED_PHISHING_DENYLIST, PhishingService } from '@qbit/phishing-detect'
-import { PhishingMessageType, type PhishingNetworkRuleHealth } from '@qbit/wallet-shared'
+import {
+  PHISHING_PROCEED_REFUSED_ERROR,
+  PhishingMessageType,
+  type PhishingNetworkRuleHealth,
+} from '@qbit/wallet-shared'
 
 type Rule = chrome.declarativeNetRequest.Rule
 type MessageListener = (
@@ -282,6 +286,47 @@ describe('PhishingController DNR enforcement', () => {
     await expect(checkHost(browser, 'example.com')).resolves.toEqual({
       isPhishing: false,
       isDenylisted: false,
+    })
+  })
+
+  it('warns on and lets Proceed through a lookalike of qbit.org that no network rule names', async () => {
+    const browser = createBrowser()
+    await startController(browser)
+    const lookalike = 'qbit.net'
+
+    // The block rule names only the denylist; the content script's page hold
+    // and the warning page cover the lookalike.
+    expect(browser.state.dynamicRules[0]!.condition.requestDomains).not.toContain(lookalike)
+    await expect(checkHost(browser, lookalike)).resolves.toEqual({
+      isPhishing: true,
+      isDenylisted: true,
+    })
+    await expect(
+      send(
+        browser,
+        {
+          type: PhishingMessageType.REDIRECT_TO_PHISHING_PAGE,
+          hostname: lookalike,
+          url: `https://${lookalike}/claim`,
+        },
+        contentScript
+      )
+    ).resolves.toEqual({ success: true })
+    expect(warningUrlParams(browser).get('hostname')).toBe(lookalike)
+
+    await expect(proceed(browser, lookalike)).resolves.toEqual({ success: true })
+    expect(browser.state.sessionRules).toEqual([proceedRule(1, lookalike)])
+    await expect(checkHost(browser, `www.${lookalike}`)).resolves.toEqual({
+      isPhishing: false,
+      isDenylisted: true,
+    })
+    // The official website stays clear, and Proceed refuses it.
+    await expect(checkHost(browser, 'qbit.org')).resolves.toEqual({
+      isPhishing: false,
+      isDenylisted: false,
+    })
+    await expect(proceed(browser, 'qbit.org')).resolves.toEqual({
+      error: PHISHING_PROCEED_REFUSED_ERROR,
     })
   })
 

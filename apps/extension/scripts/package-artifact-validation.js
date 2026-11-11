@@ -46,8 +46,8 @@ const EXPECTED_MV3_INDEXER_HOST_PERMISSIONS = Object.freeze([
 // length, so that the domains stay only in the reviewed denylist source: a
 // denylist change fails packaging until it is reviewed and these are updated.
 const EXPECTED_MV3_PHISHING_HOST_PERMISSIONS = Object.freeze(bundledPhishingHostPermissions());
-const REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT = 29;
-const REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256 = 'ede26b8e47d19b7057d06c90605fd85c46ceec30306fd3751bfc7e37bcff7c22';
+const REVIEWED_PHISHING_HOST_PERMISSIONS_COUNT = 4;
+const REVIEWED_PHISHING_HOST_PERMISSIONS_SHA256 = '6a583af10ab9efe10466a49d6285b090c0bf19574ae74b82368ddb66c616a329';
 // A dotted hostname and its subdomains, or an exact IPv4 or IPv6 address.
 const PHISHING_HOST_PERMISSION_PATTERN =
   /^\*:\/\/(?:\*\.(?:[a-z0-9-]+\.)+[a-z0-9-]+|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\])\/\*$/;

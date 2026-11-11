@@ -5,6 +5,7 @@ import {
   SignMessageType,
   createBlockedWebsiteResult,
   createClearWebsiteResult,
+  createTrustedWebsiteResult,
   createUnverifiedWebsiteResult,
   type P2mrMessageProof,
   type WebsiteSafetyResult,
@@ -333,6 +334,24 @@ describe('useSignMessageLogic', () => {
     })
 
     expect(result.current.allowQuickMultiSign).toBe(false)
+  })
+
+  it('allows signing a batch at once on the official website without a stored site opt-in', async () => {
+    const wallet = walletWithSignMessage(vi.fn())
+    wallet.checkWebsite.mockResolvedValueOnce(createTrustedWebsiteResult('qbit.org'))
+    const harness = createHookTestHarness({ wallet: wallet as any })
+    const props = messageProps([
+      { text: 'first message', type: SignMessageType.P2MR },
+      { text: 'second message', type: SignMessageType.P2MR },
+    ])
+    const { result } = renderHook(() => useSignMessageLogic(props), {
+      wrapper: harness.wrapper,
+    })
+
+    await waitFor(() => expect(result.current.allowQuickMultiSign).toBe(true))
+    expect(result.current.websiteCheckStatus).toBe('clear')
+    expect(result.current.isTrustedWebsite).toBe(true)
+    expect(wallet.getConnectedSites).not.toHaveBeenCalled()
   })
 
   it('does not treat cached batch-sign trust as a safe verdict', async () => {

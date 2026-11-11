@@ -857,6 +857,9 @@
   "only_connect_with_sites_you_trust": {
     "message": "僅連接您信任的網站。"
   },
+  "official_qbit_website": {
+    "message": "Qbit 官方網站"
+  },
   "only_sign_this_message_if_you_fully_understand_the": {
     "message": "請只在您完全理解內容並信任請求網站的情況下簽署此訊息。"
   },

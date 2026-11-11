@@ -857,6 +857,9 @@
   "only_connect_with_sites_you_trust": {
     "message": "Подключайтесь только к сайтам, которым вы доверяете."
   },
+  "official_qbit_website": {
+    "message": "Официальный сайт Qbit"
+  },
   "only_sign_this_message_if_you_fully_understand_the": {
     "message": "Подписывайте это сообщение, только если вы полностью понимаете его содержание и доверяете запрашивающему сайту."
   },
