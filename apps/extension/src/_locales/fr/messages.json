@@ -1322,6 +1322,12 @@
   "tx_broadcast_reason_rejected_unconfirmed": {
     "message": "Le nœud du réseau a signalé une erreur, mais le portefeuille n'a pas pu confirmer si la transaction a été acceptée."
   },
+  "tx_broadcast_reason_too_large": {
+    "message": "Le service réseau a refusé cette transaction, trop volumineuse pour être diffusée. S'il s'agit d'une consolidation, préparez un lot plus petit."
+  },
+  "tx_broadcast_reason_too_large_unconfirmed": {
+    "message": "Le service réseau a signalé que cette transaction est trop volumineuse pour être diffusée, mais le portefeuille n'a pas pu confirmer si elle a été acceptée."
+  },
   "tx_broadcast_reason_server": {
     "message": "Le service réseau a renvoyé une erreur."
   },
@@ -1345,6 +1351,9 @@
   },
   "tx_broadcast_status_gone": {
     "message": "La transaction n'a pas encore été trouvée sur le réseau. Patientez un instant puis vérifiez à nouveau, ou réessayez la diffusion."
+  },
+  "tx_broadcast_status_gone_no_retry": {
+    "message": "La transaction n'a pas encore été trouvée sur le réseau. Patientez un instant puis vérifiez à nouveau."
   },
   "tx_broadcast_status_unavailable": {
     "message": "Impossible de joindre le réseau pour vérifier le statut. Réessayez dans un instant."
@@ -1896,7 +1905,7 @@
     "message": "Vous pouvez déverrouiller votre portefeuille avec Touch ID au lieu de votre mot de passe. Vous pourrez aussi l'activer plus tard dans les Réglages."
   },
   "send_exceeds_standard_size": {
-    "message": "Ce montant nécessite plus de $1 entrées et dépasse la taille de transaction standard du réseau. Envoyez au maximum $2 $3 à la fois, ou utilisez MAX."
+    "message": "Ce montant nécessite plus de $1 sorties de ce compte, mais une transaction peut en contenir au plus $1. Envoyez au maximum $2 $3 à la fois, ou utilisez MAX."
   },
   "send_all_leaves_outputs_behind": {
     "message": "MAX envoie vos $1 plus grandes sorties, le maximum qu'une transaction peut contenir. $2 $3 répartis sur $4 sorties plus petites restent sur ce compte."
@@ -1917,16 +1926,16 @@
     "message": "Impossible d’actualiser le solde ; il n’est peut-être plus à jour."
   },
   "utxo_limit_exceeded_send": {
-    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu toutes les lire dans son historique. Consolidez ses sorties pour envoyer depuis ce compte."
+    "message": "Impossible d'envoyer depuis ce compte pour l'instant : il détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu toutes les lire dans son historique. Consolidez ses sorties pour pouvoir les dépenser."
   },
   "consolidate_outputs": {
     "message": "Consolider les sorties"
   },
   "consolidation_description": {
-    "message": "Chaque lot renvoie jusqu'à $1 des plus grandes sorties confirmées de ce compte vers sa propre adresse, en une seule sortie. Vous vérifiez et signez chaque lot."
+    "message": "Chaque lot renvoie les plus grandes sorties confirmées de ce compte vers sa propre adresse, en une seule sortie. Vous choisissez combien chaque lot en contient, et vous vérifiez et signez chaque lot."
   },
   "consolidation_status": {
-    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2. Environ $3 lots de plus ramènent ce compte sous cette limite."
+    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2. Environ $3 lots de plus, de $4 sorties chacun, ramènent ce compte sous cette limite."
   },
   "consolidation_within_limit": {
     "message": "Ce compte respecte la limite de $1 sorties de l'explorateur. Rien n'est à consolider."
@@ -1963,6 +1972,27 @@
   },
   "consolidation_error_keep_reading": {
     "message": "Le portefeuille a lu une partie de l'historique de ce compte sans trouver de sorties prêtes à fusionner. Préparez de nouveau pour lire plus loin."
+  },
+  "consolidation_status_counts": {
+    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2."
+  },
+  "consolidation_batch_size_label": {
+    "message": "Sorties par lot"
+  },
+  "consolidation_batch_size_range": {
+    "message": "De $1 à $2, le maximum qu'une transaction peut contenir."
+  },
+  "consolidation_batch_size_invalid": {
+    "message": "Saisissez un nombre entier de $1 à $2."
+  },
+  "consolidation_fee_preview": {
+    "message": "Estimation pour un lot complet de $1 sorties : frais $2 bits, taille $3 ko."
+  },
+  "consolidation_cost_note": {
+    "message": "Chaque lot laisse une sortie sur le compte, donc des lots de $1 coûtent environ $2 % de frais de plus que des lots de $3."
+  },
+  "consolidation_cost_note_small": {
+    "message": "Chaque lot laisse une sortie sur le compte, donc des lots de $1 coûtent moins de 1 % de frais de plus que des lots de $2."
   },
   "net_spend_leaves_wallet": {
     "message": "Quitte votre portefeuille"

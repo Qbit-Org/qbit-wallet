@@ -1322,6 +1322,12 @@
   "tx_broadcast_reason_rejected_unconfirmed": {
     "message": "The network node reported an error, but the wallet couldn't confirm whether the transaction was accepted."
   },
+  "tx_broadcast_reason_too_large": {
+    "message": "The network service refused this transaction because it is too large to broadcast. For a consolidation, prepare a smaller batch."
+  },
+  "tx_broadcast_reason_too_large_unconfirmed": {
+    "message": "The network service reported that this transaction is too large to broadcast, but the wallet couldn't confirm whether it was accepted."
+  },
   "tx_broadcast_reason_server": {
     "message": "The network service returned an error."
   },
@@ -1345,6 +1351,9 @@
   },
   "tx_broadcast_status_gone": {
     "message": "The transaction hasn't been found on the network yet. Wait a moment and check again, or retry the broadcast."
+  },
+  "tx_broadcast_status_gone_no_retry": {
+    "message": "The transaction hasn't been found on the network yet. Wait a moment and check again."
   },
   "tx_broadcast_status_unavailable": {
     "message": "The network couldn't be reached to check the status. Try again in a moment."
@@ -1896,7 +1905,7 @@
     "message": "You can unlock your wallet with Touch ID instead of your password. You can also enable this later in Settings."
   },
   "send_exceeds_standard_size": {
-    "message": "This amount needs more than $1 inputs, over the network's standard transaction size. Send at most $2 $3 at a time, or use MAX."
+    "message": "This amount needs more than $1 of this account's outputs, but one transaction can carry at most $1. Send at most $2 $3 at a time, or use MAX."
   },
   "send_all_leaves_outputs_behind": {
     "message": "MAX sends your $1 largest outputs, the most one transaction can carry. $2 $3 in $4 smaller outputs stays in this account."
@@ -1917,16 +1926,16 @@
     "message": "Balance could not be refreshed and may be out of date."
   },
   "utxo_limit_exceeded_send": {
-    "message": "This account holds more outputs than the explorer lists, and the wallet could not read them all from its history. Consolidate its outputs to spend from it."
+    "message": "This account can't send right now: it holds more outputs than the explorer lists, and the wallet couldn't read them all from its history. Consolidate its outputs to make them spendable."
   },
   "consolidate_outputs": {
     "message": "Consolidate outputs"
   },
   "consolidation_description": {
-    "message": "Each batch sends up to $1 of this account's largest confirmed outputs back to its own address as one output. You review and sign every batch."
+    "message": "Each batch sends this account's largest confirmed outputs back to its own address as one output. You choose how many go into each batch, and you review and sign every batch."
   },
   "consolidation_status": {
-    "message": "$1 confirmed outputs; the explorer lists up to $2. About $3 more batches bring this account within that limit."
+    "message": "$1 confirmed outputs; the explorer lists up to $2. About $3 more batches of $4 outputs bring this account within that limit."
   },
   "consolidation_within_limit": {
     "message": "This account is within the explorer's limit of $1 outputs. Nothing needs consolidating."
@@ -1963,6 +1972,27 @@
   },
   "consolidation_error_keep_reading": {
     "message": "The wallet has read part of this account's history without finding outputs ready to merge. Prepare again to read further."
+  },
+  "consolidation_status_counts": {
+    "message": "$1 confirmed outputs; the explorer lists up to $2."
+  },
+  "consolidation_batch_size_label": {
+    "message": "Outputs per batch"
+  },
+  "consolidation_batch_size_range": {
+    "message": "From $1 to $2, the most one transaction can carry."
+  },
+  "consolidation_batch_size_invalid": {
+    "message": "Enter a whole number from $1 to $2."
+  },
+  "consolidation_fee_preview": {
+    "message": "Estimate for a full batch of $1 outputs: fee $2 bits, size $3 kB."
+  },
+  "consolidation_cost_note": {
+    "message": "Each batch leaves one output behind, so batches of $1 cost about $2% more in fees than batches of $3."
+  },
+  "consolidation_cost_note_small": {
+    "message": "Each batch leaves one output behind, so batches of $1 cost less than 1% more in fees than batches of $2."
   },
   "net_spend_leaves_wallet": {
     "message": "Leaves your wallet"

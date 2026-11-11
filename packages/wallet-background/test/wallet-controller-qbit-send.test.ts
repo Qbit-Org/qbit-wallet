@@ -3865,6 +3865,8 @@ describe('WalletController qbit P2MR send path', () => {
     await expect(send(700_000)).rejects.toThrow(
       `Amount needs more than 106 inputs, over the standard transaction size; at most ${largestSend} sats can be sent in one transaction.`
     )
+    // One bit more would need a 107th input.
+    await expect(send(largestSend + 1)).rejects.toThrow('Amount needs more than 106 inputs')
     expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
 
     const largest = await send(largestSend)
@@ -7943,6 +7945,46 @@ describe('WalletController qbit P2MR send path', () => {
     ])
   })
 
+  /** `count` funding txids, the ones `mockManyOutputRecoverySource` lists. */
+  const sourceTxids = (count: number) =>
+    Array.from({ length: count }, (_, index) => (index + 1).toString(16).padStart(64, '0'))
+
+  // Batches of 1.0.8 took up to 106 inputs, within the standard size: a plan
+  // it saved is offered and sent as any other (#170).
+  it.each([103, 106])(
+    'still offers an unsigned %i-input plan an earlier version saved for signing',
+    async inputCount => {
+      const wallet = new WalletController()
+      const fixture = qbitRecoveryMigrationFixture()
+      const savedPlan = {
+        id: `${fixture.sourceAccount.pubkey}:0`,
+        sourcePubkey: fixture.sourceAccount.pubkey,
+        sourceAddress: fixture.sourceAccount.address,
+        destinationAddress: fixture.destinationAccount.address,
+        amount: 10_000,
+        fee: inputCount * 50_000 - 10_000,
+        psbtHex: psbtHexWithDataOutputs(fixture.sourceAccount, [], sourceTxids(inputCount)),
+        status: 'prepared' as const,
+        sourceIndex: 0,
+        destinationIndex: 0,
+        destinationPubkey: fixture.destinationAccount.pubkey,
+      }
+      const { state } = mockManyOutputRecoverySource(wallet, fixture, [savedPlan], inputCount)
+
+      const prepared = await wallet.prepareQbitRecoveryMigration(2, 1)
+
+      expect(prepared.toSignDatas.map(toSignData => toSignData.psbtHex)).toEqual([
+        savedPlan.psbtHex,
+      ])
+      expect(prepared.toSignDatas.map(planInputCount)).toEqual([inputCount])
+      expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+      expect(
+        keyringService.replaceQbitRecoveryMigrationPlansWithDestinationReservations
+      ).not.toHaveBeenCalled()
+      expect(state.vault.migration.plans).toEqual([savedPlan])
+    }
+  )
+
   it('retires a signed plan the node rejects as oversized instead of failing every advance', async () => {
     const wallet = new WalletController()
     const fixture = qbitRecoveryMigrationFixture()
@@ -8038,6 +8080,84 @@ describe('WalletController qbit P2MR send path', () => {
     await expect(wallet.advanceQbitRecoveryMigration(2)).rejects.toBe(rejection)
     expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
     expect(state.vault.migration.plans).toEqual(fixture.vaultState.migration.plans)
+  })
+
+  /** A plan of `inputCount` inputs, signed by an earlier version, that the network no longer holds. */
+  function goneSignedPlan(
+    wallet: WalletController,
+    fixture: ReturnType<typeof qbitRecoveryMigrationFixture>,
+    inputCount: number
+  ) {
+    const psbtHex = psbtHexWithDataOutputs(
+      fixture.sourceAccount,
+      [],
+      Array.from({ length: inputCount }, (_, index) => (index + 1).toString(16).padStart(64, '0'))
+    )
+    const signedPlan = {
+      ...fixture.vaultState.migration.plans[0],
+      fee: inputCount * 50_000 - 10_000,
+      psbtHex,
+      signedPsbtHex: psbtHex,
+      status: 'signed' as const,
+    }
+    const { state } = mockManyOutputRecoverySource(wallet, fixture, [signedPlan], inputCount)
+    // Its funding transactions are confirmed, and nothing else spends them.
+    vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockImplementation(async txid =>
+      txid === signedPlan.txid ? { state: 'gone' } : { state: 'confirmed' }
+    )
+    mockSourceHistoryWithoutSpender(fixture)
+    return { signedPlan, state }
+  }
+
+  // Batches of 1.0.8 took up to 106 inputs (#170).
+  it.each([103, 106])(
+    'rebroadcasts a signed %i-input plan an earlier version saved',
+    async inputCount => {
+      const wallet = new WalletController()
+      const fixture = qbitRecoveryMigrationFixture()
+      const { signedPlan } = goneSignedPlan(wallet, fixture, inputCount)
+      let sent = false
+      const pushTx = vi.spyOn(wallet, 'pushTx').mockImplementation(async () => {
+        sent = true
+        return signedPlan.txid!
+      })
+      vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockImplementation(async txid =>
+        txid !== signedPlan.txid
+          ? { state: 'confirmed' }
+          : sent
+            ? { state: 'pending' }
+            : { state: 'gone' }
+      )
+
+      await wallet.advanceQbitRecoveryMigration(2)
+
+      expect(pushTx).toHaveBeenCalledWith(signedPlan.signedPsbtHex)
+      expect(keyringService.updateQbitRecoveryMigrationPlan).toHaveBeenCalledWith(
+        fixture.sourceAccount.address,
+        'regtest',
+        signedPlan.id,
+        { status: 'broadcast', signedPsbtHex: signedPlan.signedPsbtHex, txid: signedPlan.txid }
+      )
+      expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps a signed 106-input plan an explorer before 1.1.0 refuses, and fails the pass with the refusal', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const { signedPlan, state } = goneSignedPlan(wallet, fixture, 106)
+    // Such a deployment weighs base bytes ×4 and refuses 103 inputs and more
+    // with only the code. A node relays the plan and an explorer from 1.1.0
+    // on takes it, so it stays, for a later pass to send again.
+    const refusal = new QbitApiError('http', 'HTTP 400 from /tx', {
+      status: 400,
+      responseBody: '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}',
+    })
+    vi.spyOn(wallet, 'pushTx').mockRejectedValue(refusal)
+
+    await expect(wallet.advanceQbitRecoveryMigration(2)).rejects.toBe(refusal)
+    expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+    expect(state.vault.migration.plans).toEqual([signedPlan])
   })
 
   it('resolves migration sweep fee rates from the live estimate with a relay-floor fallback', async () => {

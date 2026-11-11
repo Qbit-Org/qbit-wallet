@@ -72,11 +72,30 @@ keeps its own meaning, so an outage is never shown as this state.
   reopens nothing.
 - **Consolidation.** The account can sweep its outputs to its own address one
   batch at a time. Each batch carries the largest mature confirmed outputs, at
-  most 106, the limit that keeps it within the 400,000 WU standard weight. The
-  inputs come from a newest-first walk of the history that resumes where the
-  previous batch stopped, with a bounded page budget per batch. They are never
-  taken from a balance. Every input is checked unspent at
-  `/tx/:txid/outspends` when the batch is built. When the wallet signs the
+  most 106, the limit that keeps it within the 400,000 WU standard weight.
+  The wallet relies on the explorer measuring the same size, as it does from
+  explorer 1.1.0 (qbit-explorer#58): its broadcast check refuses a
+  transaction whose serialized size with witness is over its
+  `MAX_PUSH_TX_SIZE_WEIGHT` of 400,000, with code -3 and before any node sees
+  it, so a full batch of 106 goes through. Deployments before 1.1.0 counted
+  base bytes ×4 plus witness bytes and refused 103 single-key inputs and
+  more. There a batch of 103 to 106 inputs reads "not sent", its inputs
+  return for the next batch, and a batch of 102 or fewer goes through. The
+  user may choose a smaller batch, any whole number of inputs from 2 to 106,
+  with 106 the default; a size outside that range is refused before the
+  explorer is asked anything. Smaller batches cost a little more in total,
+  since each pays for its own output and removes one output fewer than it
+  spends: per output removed, about 3% more at 25 inputs and 10% more at 10
+  than full batches. An explorer refusal of a batch as too large reads "not
+  sent" once the lookups find it absent, and its inputs return for the next
+  batch; before, it read "Payment status unknown" and held them for 10
+  minutes to 24 hours. The failure screen offers no Retry after that refusal,
+  since the explorer refuses the same bytes the same way. The inputs come
+  from a newest-first walk of the history that resumes where the previous
+  batch stopped, with a bounded page budget per batch; a smaller batch stops
+  it sooner. They are never taken from a balance. Every input is checked
+  unspent at `/tx/:txid/outspends` when the batch is built. When the wallet
+  signs the
   batch itself, the check runs again just before the one-time signatures are
   spent. Inputs a send claim, signing lock or recent broadcast holds stay out,
   so an interrupted run resumes without spending anything twice. The inputs of
@@ -94,9 +113,13 @@ keeps its own meaning, so an outage is never shown as this state.
   [PQC Signature Counter Lifecycle](pqc-counter-lifecycle.md#restore-safety).
 - **Recovery migration.** Preparing a migration reads an over-limit source
   account's outputs from its history as the send screen does, and the usual
-  batching splits them into plans of at most 106 inputs. A source whose history
-  exceeds the read limit cannot be planned. Preparation skips it, plans the
-  other sources, and names it on the migration screen. Its funds keep the
+  batching splits them into plans of at most 106 inputs. An explorer before
+  1.1.0 refuses a plan of 103 to 106 inputs. The plan stays signed, but the
+  pass that sends it ends with that refusal, so the migration does not move
+  past it until the explorer measures qbit's size; nothing is lost, and a
+  later pass sends it again. A source whose history exceeds the read limit cannot
+  be planned. Preparation skips it, plans the other sources, and names it on
+  the migration screen. Its funds keep the
   migration open, so it is never archived with them, and a check of an
   archived wallet that finds one reopens its migration. While a migration is
   open, the recovered wallet signs nothing but its reviewed plans, with one
@@ -116,8 +139,8 @@ keeps its own meaning, so an outage is never shown as this state.
   consolidate than they carry. Batches leave them out at the chosen fee rate,
   and the walk reads past them to older, larger outputs.
 - Each batch removes at most 105 outputs, since its 106 inputs become one
-  output. An address tens of thousands of outputs over the limit would need
-  hundreds of signed batches.
+  output, and fewer at a smaller chosen size. An address tens of thousands of
+  outputs over the limit would need hundreds of signed batches.
 
 For such accounts the explorer operator has to raise `--utxos-limit`. If the
 production limit is raised above 500, `QBIT_EXPLORER_DEFAULT_UTXO_LIMIT` keeps

@@ -73,6 +73,11 @@ export {
   type QbitSelectableCoin,
 } from './qbit-coin-selection'
 export {
+  QBIT_CONSOLIDATION_MIN_INPUTS,
+  assertQbitConsolidationBatchSize,
+  isQbitConsolidationBatchSize,
+} from './qbit-consolidation'
+export {
   QBIT_BROADCAST_DETAIL_MAX_LENGTH,
   qbitBroadcastErrorMessage,
   sanitizeQbitBroadcastDetail,

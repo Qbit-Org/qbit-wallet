@@ -2387,6 +2387,20 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
       reason: 'server',
       detail: unchecked,
     })
+    // A read is no submission: an answer shaped like the explorer's refusal
+    // of a transaction over its size limit says nothing of these bytes (#170).
+    getTxOutspendsMock.mockRejectedValueOnce(
+      new QbitApiError('http', 'HTTP 400', {
+        status: 400,
+        responseBody: '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}',
+      })
+    )
+    probeGone()
+    await expect(retry()).resolves.toMatchObject({
+      outcome: 'unknown',
+      reason: 'server',
+      detail: unchecked,
+    })
     getTxOutspendsMock.mockResolvedValueOnce('not a list')
     probeGone()
     await expect(retry()).resolves.toMatchObject({

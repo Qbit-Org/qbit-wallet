@@ -7,6 +7,7 @@ import {
   useCheckQbitBroadcastStatusCallback,
   usePushQbitTxCallback,
 } from 'src/hooks'
+import { qbitConsolidationRouteContext } from './qbitConsolidationRouteContext'
 
 export type TxFailScreenBusyAction = 'retry' | 'check'
 export type TxFailScreenStatusNotice = 'gone' | 'unavailable'
@@ -75,6 +76,10 @@ export function useTxFailScreenLogic() {
   const tools = useTools()
   const routeState = nav.getRouteState<'TxFailScreen'>()
   const retained = routeState?.retained
+  // A consolidation batch's context, handed on to the success screen a
+  // retry or status check ends on, checked as on the confirm screen's way
+  // there: route state may come from an earlier version.
+  const consolidation = qbitConsolidationRouteContext(routeState)
   const pushQbitTx = usePushQbitTxCallback()
   const checkBroadcastStatus = useCheckQbitBroadcastStatusCallback()
   const abandonBroadcast = useAbandonQbitBroadcastCallback()
@@ -106,7 +111,9 @@ export function useTxFailScreenLogic() {
   abandonRef.current = abandonBroadcast
 
   const txid = result.txid ?? ''
-  const canRetry = Boolean(retained?.psbtHex)
+  // Not after the explorer refused the transaction as too large to
+  // broadcast, whatever the outcome: it refuses the same bytes the same way.
+  const canRetry = Boolean(retained?.psbtHex) && result.reason !== 'too_large'
   const canCheckStatus =
     result.outcome === 'unknown' && txid.length > 0 && result.chain !== undefined
 
@@ -163,11 +170,11 @@ export function useTxFailScreenLogic() {
     // replacing this one): the verdict is settled above, but the success
     // screen must not replace whatever route the user is on now.
     if (leftWhileBusyRef.current) return
-    nav.replace('TxSuccessScreen', { txid: acceptedTxid })
+    nav.replace('TxSuccessScreen', { txid: acceptedTxid, ...consolidation })
   }
 
   const onClickRetry = async () => {
-    if (busyRef.current || !retained?.psbtHex) return
+    if (busyRef.current || !canRetry || !retained?.psbtHex) return
     busyRef.current = true
     setBusy('retry')
     setStatusNotice(null)

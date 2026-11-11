@@ -27,16 +27,50 @@ function coins(count: number, satoshis: number, offset = 0) {
 
 describe('qbit P2MR standard transaction size', () => {
   // Probe B: 106 single-key inputs fit qbit Core's 400,000 WU limit; 107 do not.
+  // Since qbit-explorer#58 the explorer's push check is the same bound (#170).
   it('caps a one- or two-output transaction at 106 inputs', () => {
     const twoOutputs = { ...SHAPE, outputScriptLengths: [P2MR_SCRIPT, P2MR_SCRIPT] }
+    expect(estimateQbitP2mrTransaction({ ...SHAPE, inputCount: 106 }).vsize).toBe(398_827)
+    expect(estimateQbitP2mrTransaction({ ...SHAPE, inputCount: 107 }).vsize).toBe(402_589)
     expect(estimateQbitP2mrTransaction({ ...twoOutputs, inputCount: 106 }).vsize).toBe(398_870)
     expect(estimateQbitP2mrTransaction({ ...twoOutputs, inputCount: 107 }).vsize).toBe(402_632)
+    expect(isQbitStandardTxSize(398_827)).toBe(true)
     expect(isQbitStandardTxSize(398_870)).toBe(true)
     expect(isQbitStandardTxSize(QBIT_MAX_STANDARD_TX_WEIGHT)).toBe(true)
+    expect(isQbitStandardTxSize(QBIT_MAX_STANDARD_TX_WEIGHT + 1)).toBe(false)
+    expect(isQbitStandardTxSize(402_589)).toBe(false)
     expect(isQbitStandardTxSize(402_632)).toBe(false)
 
     expect(qbitP2mrMaxStandardInputCount(SHAPE)).toBe(106)
     expect(qbitP2mrMaxStandardInputCount(twoOutputs)).toBe(106)
+  })
+
+  it('finds the most inputs within the standard size for any shape', () => {
+    const cases = [
+      { outputScriptLengths: [P2MR_SCRIPT], maxInputCount: 106 },
+      { outputScriptLengths: [P2MR_SCRIPT, P2MR_SCRIPT], maxInputCount: 106 },
+      // 106 inputs are exactly 400,000 bytes with a 1,162-byte second output.
+      { outputScriptLengths: [P2MR_SCRIPT, 1_162], maxInputCount: 106 },
+      { outputScriptLengths: [P2MR_SCRIPT, 1_163], maxInputCount: 105 },
+      { outputScriptLengths: [100_000], maxInputCount: 79 },
+      // Even one input is over the standard size.
+      { outputScriptLengths: [400_000], maxInputCount: 0 },
+    ]
+    for (const { outputScriptLengths, maxInputCount } of cases) {
+      const shape = { ...SHAPE, outputScriptLengths }
+      const vsize = (inputCount: number) =>
+        estimateQbitP2mrTransaction({ ...shape, inputCount }).vsize
+      expect(qbitP2mrMaxStandardInputCount(shape)).toBe(maxInputCount)
+      if (maxInputCount > 0) expect(isQbitStandardTxSize(vsize(maxInputCount))).toBe(true)
+      expect(isQbitStandardTxSize(vsize(maxInputCount + 1))).toBe(false)
+    }
+    expect(
+      estimateQbitP2mrTransaction({
+        ...SHAPE,
+        outputScriptLengths: [P2MR_SCRIPT, 1_162],
+        inputCount: 106,
+      }).vsize
+    ).toBe(QBIT_MAX_STANDARD_TX_WEIGHT)
   })
 })
 
@@ -111,7 +145,39 @@ describe('selectQbitP2mrSendCoins', () => {
       feeRate: 1,
     })
     expect(reachable).toMatchObject({ ok: true, inputCount: 106, includeChange: false })
+    expect(reachable.ok && reachable.estimate.vsize).toBe(398_827)
     expect(reachable.ok && isQbitStandardTxSize(reachable.estimate.vsize)).toBe(true)
+
+    // One bit more needs a 107th input, over the standard size.
+    expect(
+      selectQbitP2mrSendCoins({ ...sendShape, utxos, amount: largestSend + 1, feeRate: 1 })
+    ).toMatchObject({ ok: false, reason: 'exceeds_standard_size', maxInputCount: 106 })
+  })
+
+  it('never selects more than 106 inputs or a transaction over the standard size', () => {
+    const utxos = coins(150, 10_000)
+    // Whether change was included, for each selection of exactly 106 inputs.
+    const atLimit = new Set<boolean>()
+    for (const outputScriptLengths of [[P2MR_SCRIPT], [P2MR_SCRIPT, 80]]) {
+      for (let amount = 300_000; amount <= 700_000; amount += 2_500) {
+        const selection = selectQbitP2mrSendCoins({
+          ...sendShape,
+          outputScriptLengths,
+          utxos,
+          amount,
+          feeRate: 1,
+        })
+        if (selection.ok) {
+          expect(isQbitStandardTxSize(selection.estimate.vsize)).toBe(true)
+          expect(selection.inputCount).toBeLessThanOrEqual(106)
+          if (selection.inputCount === 106) atLimit.add(selection.includeChange)
+        } else {
+          expect(selection).toMatchObject({ reason: 'exceeds_standard_size', maxInputCount: 106 })
+        }
+      }
+    }
+    // The sweep reaches the limit both with change and without.
+    expect([...atLimit].sort()).toEqual([false, true])
   })
 
   it('never folds real change into the fee when the change output would not fit', () => {
@@ -126,6 +192,27 @@ describe('selectQbitP2mrSendCoins', () => {
     })
     // 106 inputs would owe 4,999 bits of change; it is never paid as fee.
     expect(selection).toMatchObject({ ok: false, reason: 'exceeds_standard_size' })
+  })
+
+  it('pays a remainder below dust as fee at exactly the standard size', () => {
+    // A 1,162-byte second output: 106 inputs are 400,000 bytes without
+    // change, and 400,043 with it.
+    const outputScriptLengths = [P2MR_SCRIPT, 1_162]
+    const folded = selectQbitP2mrSendCoins({
+      ...sendShape,
+      outputScriptLengths,
+      utxos: coins(106, 10_000),
+      amount: 658_658,
+      feeRate: 1,
+    })
+    expect(folded).toMatchObject({
+      ok: true,
+      inputCount: 106,
+      includeChange: false,
+      fee: 401_342,
+      changeDroppedSats: 1_342,
+    })
+    expect(folded.ok && folded.estimate.vsize).toBe(QBIT_MAX_STANDARD_TX_WEIGHT)
   })
 
   it('reports a plain shortfall when even every output could not cover the amount', () => {
@@ -413,5 +500,18 @@ describe('selectQbitP2mrSendAllCoins', () => {
     expect(selection.leftBehindSatoshis).toBe(44 * 4_000)
     expect(selection.estimate?.vsize).toBeLessThanOrEqual(QBIT_MAX_STANDARD_TX_WEIGHT)
     expect(selection.amount).toBe(106 * 20_000 - selection.fee)
+  })
+
+  it('spends all 106 outputs that fit and leaves the 107th behind', () => {
+    const fits = selectQbitP2mrSendAllCoins({ ...SHAPE, utxos: coins(106, 10_000), feeRate: 1 })
+    expect(fits.maxInputCount).toBe(106)
+    expect(fits.selected).toHaveLength(106)
+    expect(fits.leftBehind).toEqual([])
+    expect(fits.estimate?.vsize).toBe(398_827)
+    const over = selectQbitP2mrSendAllCoins({ ...SHAPE, utxos: coins(107, 10_000), feeRate: 1 })
+    expect(over.selected).toHaveLength(106)
+    expect(over.leftBehind).toHaveLength(1)
+    expect(over.leftBehindSatoshis).toBe(10_000)
+    expect(over.estimate?.vsize).toBe(398_827)
   })
 })

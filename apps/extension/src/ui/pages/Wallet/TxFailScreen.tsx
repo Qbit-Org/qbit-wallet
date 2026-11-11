@@ -47,13 +47,18 @@ export default function TxFailScreen() {
   // so the reason keeps the error but not the certainty. A guard refusal is
   // `unknown` only when the wallet no longer holds this transaction's own
   // reservation, which is what an earlier broadcast whose answer was lost
-  // leaves behind; the conflict line would be wrong and alarming there.
+  // leaves behind; the conflict line would be wrong and alarming there. The
+  // explorer's refusal of a transaction too large to broadcast is conclusive
+  // on the same terms as a rejection, so it keeps the error without the
+  // certainty, or the advice to prepare a smaller batch, when unknown.
   const reasonKey =
     isUnknown && reason === 'rejected'
       ? 'tx_broadcast_reason_rejected_unconfirmed'
       : isUnknown && reason === 'guard_blocked'
         ? 'tx_broadcast_reason_guard_blocked_unconfirmed'
-        : `tx_broadcast_reason_${reason}`;
+        : isUnknown && reason === 'too_large'
+          ? 'tx_broadcast_reason_too_large_unconfirmed'
+          : `tx_broadcast_reason_${reason}`;
 
   return (
     <Layout>
@@ -93,12 +98,16 @@ export default function TxFailScreen() {
               color="textDim"
               data-testid="tx-fail-signature-notice"
             />
-            <Text
-              preset="sub"
-              text={t('tx_broadcast_retry_notice')}
-              color="textDim"
-              data-testid="tx-fail-retry-notice"
-            />
+            {/* What Retry does, only where it is offered: never after the
+                explorer refused the transaction as too large to broadcast. */}
+            {canRetry ? (
+              <Text
+                preset="sub"
+                text={t('tx_broadcast_retry_notice')}
+                color="textDim"
+                data-testid="tx-fail-retry-notice"
+              />
+            ) : null}
           </Column>
 
           {txid ? (
@@ -123,10 +132,15 @@ export default function TxFailScreen() {
             />
           ) : null}
 
+          {/* Without Retry, a transaction not found yet can only be checked again. */}
           {statusNotice ? (
             <Text
               preset="sub"
-              text={statusNotice === 'gone' ? t('tx_broadcast_status_gone') : t('tx_broadcast_status_unavailable')}
+              text={
+                statusNotice === 'gone'
+                  ? t(canRetry ? 'tx_broadcast_status_gone' : 'tx_broadcast_status_gone_no_retry')
+                  : t('tx_broadcast_status_unavailable')
+              }
               color="warning"
               textCenter
               data-testid="tx-fail-status-notice"
@@ -160,6 +174,8 @@ export default function TxFailScreen() {
         </Column>
       </Content>
 
+      {/* The first action offered is the primary one: Retry, else Check
+          status, else Back to wallet. */}
       <Footer>
         <Column gap="md">
           {canRetry ? (
@@ -175,7 +191,7 @@ export default function TxFailScreen() {
           ) : null}
           {canCheckStatus ? (
             <Button
-              preset="defaultV2"
+              preset={canRetry ? 'defaultV2' : 'primary'}
               full
               text={t('tx_broadcast_check_status')}
               loading={isChecking}
@@ -185,7 +201,7 @@ export default function TxFailScreen() {
             />
           ) : null}
           <Button
-            preset="defaultV2"
+            preset={canRetry || canCheckStatus ? 'defaultV2' : 'primary'}
             full
             text={t('tx_broadcast_back_to_wallet')}
             disabled={actionsDisabled}

@@ -10,6 +10,7 @@ import {
   QbitBalanceSummary,
   QbitBroadcastResult,
   QbitBroadcastStatusCheck,
+  QbitConsolidationRequest,
   QbitConsolidationStatus,
   ConnectedSite,
   DecodedPsbt,
@@ -335,9 +336,10 @@ export interface WalletController {
   getQbitConsolidationStatus(): Promise<QbitConsolidationStatus>
   /**
    * The next consolidation batch of an account over the explorer's listing
-   * limit: its largest confirmed outputs, sent whole to its own address.
+   * limit: its largest confirmed outputs, at most `maxInputs` of them (the
+   * account's maximum when omitted), sent whole to its own address.
    */
-  createQbitConsolidationPsbt(data: { feeRate?: number; enableRBF?: boolean }): Promise<ToSignData>
+  createQbitConsolidationPsbt(data: QbitConsolidationRequest): Promise<ToSignData>
 
   pushTx(rawtx: string): Promise<string>
   broadcastQbitTx(

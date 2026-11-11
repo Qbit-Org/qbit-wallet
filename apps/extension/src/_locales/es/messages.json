@@ -1322,6 +1322,12 @@
   "tx_broadcast_reason_rejected_unconfirmed": {
     "message": "El nodo de la red informó un error, pero la billetera no pudo confirmar si la transacción fue aceptada."
   },
+  "tx_broadcast_reason_too_large": {
+    "message": "El servicio de red rechazó esta transacción porque es demasiado grande para difundirla. Si es una consolidación, prepara un lote más pequeño."
+  },
+  "tx_broadcast_reason_too_large_unconfirmed": {
+    "message": "El servicio de red indicó que esta transacción es demasiado grande para difundirla, pero la billetera no pudo confirmar si fue aceptada."
+  },
   "tx_broadcast_reason_server": {
     "message": "El servicio de red devolvió un error."
   },
@@ -1345,6 +1351,9 @@
   },
   "tx_broadcast_status_gone": {
     "message": "La transacción aún no se ha encontrado en la red. Espera un momento y vuelve a comprobar, o reintenta la difusión."
+  },
+  "tx_broadcast_status_gone_no_retry": {
+    "message": "La transacción aún no se ha encontrado en la red. Espera un momento y vuelve a comprobar."
   },
   "tx_broadcast_status_unavailable": {
     "message": "No se pudo contactar con la red para comprobar el estado. Inténtalo de nuevo en un momento."
@@ -1896,7 +1905,7 @@
     "message": "Puedes desbloquear tu billetera con Touch ID en lugar de tu contraseña. También puedes activarlo más tarde en Ajustes."
   },
   "send_exceeds_standard_size": {
-    "message": "Este importe necesita más de $1 entradas y supera el tamaño estándar de transacción de la red. Envía como máximo $2 $3 cada vez o usa MÁX."
+    "message": "Este importe necesita más de $1 salidas de esta cuenta, pero una transacción puede llevar como máximo $1. Envía como máximo $2 $3 cada vez o usa MÁX."
   },
   "send_all_leaves_outputs_behind": {
     "message": "MÁX envía tus $1 salidas más grandes, lo máximo que cabe en una transacción. $2 $3 en $4 salidas más pequeñas permanecen en esta cuenta."
@@ -1917,16 +1926,16 @@
     "message": "No se pudo actualizar el saldo; puede que no esté al día."
   },
   "utxo_limit_exceeded_send": {
-    "message": "Esta cuenta tiene más salidas de las que el explorador lista, y la billetera no pudo leerlas todas de su historial. Consolida sus salidas para enviar desde ella."
+    "message": "No se puede enviar desde esta cuenta por ahora: tiene más salidas de las que el explorador lista y la billetera no pudo leerlas todas de su historial. Consolida sus salidas para poder gastarlas."
   },
   "consolidate_outputs": {
     "message": "Consolidar salidas"
   },
   "consolidation_description": {
-    "message": "Cada lote envía hasta $1 de las salidas confirmadas más grandes de esta cuenta a su propia dirección como una sola salida. Revisas y firmas cada lote."
+    "message": "Cada lote envía las salidas confirmadas más grandes de esta cuenta a su propia dirección como una sola salida. Tú eliges cuántas entran en cada lote, y revisas y firmas cada lote."
   },
   "consolidation_status": {
-    "message": "$1 salidas confirmadas; el explorador lista hasta $2. Unos $3 lotes más dejan esta cuenta dentro de ese límite."
+    "message": "$1 salidas confirmadas; el explorador lista hasta $2. Unos $3 lotes más de $4 salidas dejan esta cuenta dentro de ese límite."
   },
   "consolidation_within_limit": {
     "message": "Esta cuenta está dentro del límite de $1 salidas del explorador. No hace falta consolidar nada."
@@ -1963,6 +1972,27 @@
   },
   "consolidation_error_keep_reading": {
     "message": "La billetera leyó parte del historial de esta cuenta sin encontrar salidas listas para unir. Prepara de nuevo para seguir leyendo."
+  },
+  "consolidation_status_counts": {
+    "message": "$1 salidas confirmadas; el explorador lista hasta $2."
+  },
+  "consolidation_batch_size_label": {
+    "message": "Salidas por lote"
+  },
+  "consolidation_batch_size_range": {
+    "message": "De $1 a $2, lo máximo que cabe en una transacción."
+  },
+  "consolidation_batch_size_invalid": {
+    "message": "Introduce un número entero de $1 a $2."
+  },
+  "consolidation_fee_preview": {
+    "message": "Estimación para un lote completo de $1 salidas: comisión $2 bits, tamaño $3 kB."
+  },
+  "consolidation_cost_note": {
+    "message": "Cada lote deja una salida en la cuenta, así que los lotes de $1 cuestan alrededor de un $2% más en comisiones que los lotes de $3."
+  },
+  "consolidation_cost_note_small": {
+    "message": "Cada lote deja una salida en la cuenta, así que los lotes de $1 cuestan menos de un 1% más en comisiones que los lotes de $2."
   },
   "net_spend_leaves_wallet": {
     "message": "Sale de su billetera"

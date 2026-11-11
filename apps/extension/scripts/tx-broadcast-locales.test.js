@@ -15,6 +15,7 @@ const FAILURE_REASONS = [
   'guard_blocked',
   'chain_changed',
   'rejected',
+  'too_large',
   'network',
   'timeout',
   'server',
@@ -34,6 +35,11 @@ test('broadcast recovery keys exist in every locale with matching placeholders',
   // An unknown verdict whose node answer was a rejection shows this instead
   // of the definitive rejected line.
   assert.ok(keys.includes('tx_broadcast_reason_rejected_unconfirmed'), 'en must describe an unconfirmed rejection');
+  // Likewise for the explorer's refusal of a transaction too large to broadcast.
+  assert.ok(
+    keys.includes('tx_broadcast_reason_too_large_unconfirmed'),
+    'en must describe an unconfirmed refusal of a transaction too large to broadcast'
+  );
   // An unknown verdict whose guard refusal was a reservation the wallet no
   // longer holds shows this instead of the conflict line.
   assert.ok(
@@ -48,7 +54,11 @@ test('broadcast recovery keys exist in every locale with matching placeholders',
     'tx_broadcast_retry_notice',
     'tx_broadcast_retry',
     'tx_broadcast_check_status',
-    'tx_broadcast_back_to_wallet'
+    'tx_broadcast_back_to_wallet',
+    // A status check that misses the transaction where Retry is not offered
+    // (after the explorer refused it as too large) says so without
+    // suggesting a retry (#170).
+    'tx_broadcast_status_gone_no_retry'
   ]) {
     assert.ok(keys.includes(key), `en must define ${key}`);
   }
