@@ -17,11 +17,107 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Tree pass marker (docs/ci-tree-pass-marker.md): on a pull request whose tree
+# under test already passed `Lint` and `Typecheck, test, and build` in an
+# earlier run that GitHub confirms, those two skip their work. Bump
+# TREE_PASS_WORKFLOW_SALT to invalidate this workflow's markers; the
+# TREE_PASS_SALT repository variable invalidates every workflow's markers
+# without a commit. The TREE_PASS_FORCE_LABEL label on a pull request makes it
+# run in full.
+env:
+  TREE_PASS_WORKFLOW: ci
+  TREE_PASS_WORKFLOW_SALT: '1'
+  TREE_PASS_REPOSITORY_SALT: ${{ vars.TREE_PASS_SALT }}
+  TREE_PASS_FORCE_LABEL: 'ci:full-run'
+
 jobs:
+  tree-pass:
+    name: Tree pass marker
+    # Pull requests only, so no other event waits for a GitHub-hosted runner.
+    # The covered jobs treat a skipped tree-pass as "run everything", and the
+    # save job then never runs.
+    if: github.event_name == 'pull_request'
+    # GitHub-hosted on purpose: Blacksmith runners serve actions/cache from
+    # Blacksmith's own store, and the marker relies on GitHub's cache scoping.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # This job only looks markers up; it can never write one.
+    cache-mode: read
+    # actions: read lets decide read the run, jobs and artifact a marker names;
+    # pull-requests: read, the labels, the pull requests from the head branch
+    # and this pull request's timeline.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      prefix: ${{ steps.key.outputs.prefix }}
+      skip: ${{ steps.decide.outputs.skip }}
+      save: ${{ steps.decide.outputs.save }}
+      run-url: ${{ steps.decide.outputs.run-url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          # The merge under test and its parents, for the head's tree.
+          fetch-depth: 2
+
+      # The script needs only Node's built-in modules, so the runner image's
+      # Node (22 on ubuntu-24.04) runs it, without a download that could fail.
+      - name: Compute the marker key
+        id: key
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TREE_PASS_PR_NUMBER: ${{ github.event.pull_request.number }}
+          TREE_PASS_HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
+          TREE_PASS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/security/tree-pass-marker.mjs key
+
+      - name: Look up the marker
+        id: lookup
+        if: steps.key.outputs.eligible == 'true'
+        # Any failure of the lookup means a full run, never a skip.
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/tree-pass-marker
+          # A marker's key is this prefix plus the run ID and attempt that saved
+          # it, and the newest match wins. Lookup-only: the entry is never
+          # downloaded or extracted, only its key is read.
+          key: ${{ steps.key.outputs.prefix }}
+          restore-keys: ${{ steps.key.outputs.prefix }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TREE_PASS_ELIGIBLE: ${{ steps.key.outputs.eligible }}
+          TREE_PASS_PREFIX: ${{ steps.key.outputs.prefix }}
+          TREE_PASS_HEAD_TREE: ${{ steps.key.outputs.head-tree }}
+          TREE_PASS_LOOKUP_OUTCOME: ${{ steps.lookup.outcome }}
+          TREE_PASS_MATCHED_KEY: ${{ steps.lookup.outputs.cache-matched-key }}
+          TREE_PASS_PR_NUMBER: ${{ github.event.pull_request.number }}
+          TREE_PASS_HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
+          TREE_PASS_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          # The names of the jobs the marker covers, which must have passed in
+          # the run a marker names.
+          TREE_PASS_COVERED_JOBS: '["Lint", "Typecheck, test, and build"]'
+        run: node scripts/security/tree-pass-marker.mjs decide
+
   lint:
     name: Lint
+    needs: tree-pass
+    # Lint is not a required check, so a marker hit skips the whole job. A
+    # failed marker job never skips it.
+    if: ${{ !cancelled() && !(needs.tree-pass.result == 'success' && needs.tree-pass.outputs.skip == 'true') }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
 
     steps:
       - name: Checkout
@@ -63,6 +159,12 @@ jobs:
       - name: Run deterministic repository lint
         run: corepack pnpm lint
 
+      - name: Record that this job ran
+        id: tested
+        run: echo 'tested=true' >> "$GITHUB_OUTPUT"
+
+  # Not covered by the tree pass marker: its live advisory audit and dated
+  # risk exceptions can change their verdict for the same tree.
   dependency-policy:
     name: Dependency policy
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -113,21 +215,43 @@ jobs:
 
   verify:
     name: Typecheck, test, and build
+    needs: tree-pass
+    # A required check. The job always runs, so its check reports success or
+    # failure, never "skipped"; on a marker hit only its steps are skipped. A
+    # failed marker job runs everything.
+    if: ${{ !cancelled() }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 60
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
 
     steps:
+      - name: Check for a tree pass marker
+        id: gate
+        env:
+          MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
+          MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
+          MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+        run: |
+          if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Set up Node.js
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
 
       - name: Run pnpm through Corepack
+        if: steps.gate.outputs.skip != 'true'
         # Corepack installs the pnpm that package.json's packageManager pins and
         # checks it against the pin's sha512 hash. No earlier step runs pnpm.
         # Its shim must come first on PATH, so package scripts that call `pnpm`
@@ -138,11 +262,13 @@ jobs:
 
       - name: Locate the pnpm store
         id: pnpm-store
+        if: steps.gate.outputs.skip != 'true'
         run: |
           store_path="$(corepack pnpm store path --silent)"
           echo "path=${store_path}" >> "$GITHUB_OUTPUT"
 
       - name: Cache the pnpm store
+        if: steps.gate.outputs.skip != 'true'
         # The checked pnpm above names the store, and the key is the runner OS
         # and the lockfile.
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -151,26 +277,33 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm install --frozen-lockfile
 
       - name: Report release readiness without changing GitHub settings
+        if: steps.gate.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: corepack pnpm run release:readiness -- --report-only
 
       - name: Prepare workspace declarations
+        if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
 
       - name: Build wallet background package
+        if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm --filter @qbit/wallet-background run build
 
       - name: Run adversarial security suite
+        if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm run test:security-adversarial
 
       - name: Typecheck packages
+        if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm -r --if-present run typecheck
 
       - name: Run unit tests
+        if: steps.gate.outputs.skip != 'true'
         run: |
           corepack pnpm -r --if-present test
           corepack pnpm run test:pqc-golden
@@ -178,22 +311,84 @@ jobs:
 
       - name: Resolve extension artifact version
         id: extension-version
+        if: steps.gate.outputs.skip != 'true'
         run: |
           artifact_version="$(node -p "require('./apps/extension/package.json').version.split('-beta')[0]")"
           echo "artifact_version=${artifact_version}" >> "$GITHUB_OUTPUT"
 
       - name: Build Chrome MV3 extension
+        if: steps.gate.outputs.skip != 'true'
         env:
           ARTIFACT_VERSION: ${{ steps.extension-version.outputs.artifact_version }}
         run: corepack pnpm --filter qbit-extension run package:test -- --artifact-version "$ARTIFACT_VERSION"
 
       - name: Verify two clean extension builds are byte-identical
+        if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm run build:repro:extension -- --skip-prepare
 
       - name: Upload Chrome MV3 extension artifact
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: chrome-mv3-extension
           path: apps/extension/dist/qbit-chrome-mv3-v*.zip*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Record that this job ran
+        id: tested
+        if: steps.gate.outputs.skip != 'true'
+        run: echo 'tested=true' >> "$GITHUB_OUTPUT"
+
+  tree-pass-save:
+    name: Record tree pass
+    # Every job the marker stands for. The implicit success() also requires
+    # each of them, and tree-pass, to have succeeded; the record step checks
+    # them again.
+    needs: [tree-pass, lint, verify]
+    if: needs.tree-pass.outputs.save == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # This job only writes the marker; it never restores one.
+    cache-mode: write-only
+    # pull-requests: read lets the record step read the labels again, since a
+    # re-run of failed jobs reuses tree-pass's decision.
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check every covered job ran and passed
+        id: record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TREE_PASS_NEEDS: ${{ toJSON(needs) }}
+          TREE_PASS_PR_NUMBER: ${{ github.event.pull_request.number }}
+          TREE_PASS_MARKER_DIR: ${{ runner.temp }}/tree-pass-marker
+        run: node scripts/security/tree-pass-marker.mjs record
+
+      # The artifact binds the key to this run: decide finds it by name in the
+      # run the key names. It comes first, so a marker never exists without it.
+      # A marker that cannot be recorded only means the next run runs in full.
+      - name: Upload the marker artifact
+        id: upload
+        if: steps.record.outputs.ok == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.record.outputs.artifact }}
+          path: ${{ runner.temp }}/tree-pass-marker
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Save the marker
+        if: steps.record.outputs.ok == 'true' && steps.upload.outcome == 'success'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/tree-pass-marker
+          key: ${{ steps.record.outputs.key }}
