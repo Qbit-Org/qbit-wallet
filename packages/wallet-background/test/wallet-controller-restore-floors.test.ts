@@ -27,6 +27,9 @@ vi.mock('../src/services', () => ({
   preferenceService: {
     getChainType: vi.fn(() => ChainType.QBIT_MAINNET),
     setShowSafeNotice: vi.fn(),
+    getKeyringAlianName: vi.fn(() => ''),
+    setKeyringAlianName: vi.fn(),
+    setKeyringColor: vi.fn(),
   },
   sessionService: {
     broadcastEvent: vi.fn(),
@@ -92,7 +95,7 @@ describe('WalletController qbit restore with floors', () => {
       addressType: AddressType.P2MR,
       accounts: [],
     } as any)
-    vi.spyOn(controller, 'changeKeyring').mockResolvedValue(undefined as any)
+    vi.spyOn(controller as any, 'selectKeyring').mockResolvedValue(undefined as any)
     vi.spyOn(log, 'warn').mockImplementation(() => {})
   })
 
@@ -1104,7 +1107,7 @@ describe('WalletController qbit restore with floors', () => {
       floorScanError: 'qbit address history changed while scanning qb1x',
     })
     expect(keyringService.addNewAccount).toHaveBeenCalledTimes(1)
-    expect(controller.changeKeyring).toHaveBeenCalledTimes(1)
+    expect((controller as any).selectKeyring).toHaveBeenCalledTimes(1)
     // Only a completed scan clears the gate.
     expect(restored.pqcFloorsPending).toBe(true)
     expect(await controller.getQbitRestoreFloorsPending()).toBe(true)

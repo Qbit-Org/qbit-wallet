@@ -1220,9 +1220,6 @@
   "switch_network": {
     "message": "Сменить сеть"
   },
-  "switch_wallet": {
-    "message": "Сменить кошелёк"
-  },
   "the_auto_lock_time_has_been_changed_to": {
     "message": "Время автоблокировки изменено на"
   },
@@ -1740,7 +1737,7 @@
     "message": "Первоначально восстановленный кошелёк доступен только для чтения. Его ключи и запись восстановления сохраняются, чтобы безопасно обнаружить и перевести средства после сбоя, реорганизации или нового поступления."
   },
   "qbit_recovery_complete_switch_wallet_hint": {
-    "message": "Доступ к первоначально восстановленному кошельку (только для чтения) можно получить через опцию «Сменить кошелёк» в левом верхнем углу."
+    "message": "Первоначально восстановленный кошелёк (только для чтения) можно открыть через переключатель аккаунтов на главном экране."
   },
   "qbit_recovery_original_address_label": {
     "message": "Первоначально восстановленный адрес:"
@@ -2188,5 +2185,95 @@
   },
   "phishing_protection_retry_no_answer": {
     "message": "Повторная попытка не ответила вовремя. Она ещё может завершиться; состояние выше обновится."
+  },
+  "account_switcher_search_placeholder": {
+    "message": "Поиск аккаунтов и кошельков"
+  },
+  "account_switcher_no_results": {
+    "message": "Подходящих аккаунтов нет"
+  },
+  "account_switcher_no_results_hint": {
+    "message": "Ищите по имени аккаунта, адресу или имени кошелька."
+  },
+  "account_switcher_add_or_import_wallet": {
+    "message": "Добавить или импортировать кошелёк"
+  },
+  "account_switcher_account_count_one": {
+    "message": "$1 аккаунт"
+  },
+  "account_switcher_account_count_few": {
+    "message": "$1 аккаунта"
+  },
+  "account_switcher_account_count_many": {
+    "message": "$1 аккаунтов"
+  },
+  "account_switcher_account_count_other": {
+    "message": "$1 аккаунта"
+  },
+  "account_switcher_open_label": {
+    "message": "Сменить аккаунт, текущий: $1 в $2"
+  },
+  "account_switcher_copy_address_label": {
+    "message": "Скопировать адрес: $1"
+  },
+  "account_switcher_add_account_label": {
+    "message": "Добавить аккаунт в $1"
+  },
+  "account_switcher_wallet_options_label": {
+    "message": "Действия: $1"
+  },
+  "account_switcher_account_options_label": {
+    "message": "Действия: $1 в $2"
+  },
+  "account_switcher_account_label": {
+    "message": "$1 в $2, $3"
+  },
+  "account_switcher_wallet_unavailable": {
+    "message": "Выбранный кошелёк больше недоступен"
+  },
+  "wallet_menu_add_account": {
+    "message": "Добавить аккаунт"
+  },
+  "wallet_menu_rename": {
+    "message": "Переименовать кошелёк"
+  },
+  "wallet_menu_change_color": {
+    "message": "Изменить цвет"
+  },
+  "wallet_tag_read_only": {
+    "message": "Только чтение"
+  },
+  "wallet_tag_recovered": {
+    "message": "Восстановлен"
+  },
+  "wallet_tag_archived": {
+    "message": "В архиве"
+  },
+  "wallet_invalid_note": {
+    "message": "Недействителен"
+  },
+  "wallet_color_green": {
+    "message": "Зелёный"
+  },
+  "wallet_color_blue": {
+    "message": "Синий"
+  },
+  "wallet_color_orange": {
+    "message": "Оранжевый"
+  },
+  "wallet_color_violet": {
+    "message": "Фиолетовый"
+  },
+  "wallet_color_teal": {
+    "message": "Бирюзовый"
+  },
+  "wallet_color_pink": {
+    "message": "Розовый"
+  },
+  "wallet_color_gold": {
+    "message": "Золотой"
+  },
+  "wallet_color_indigo": {
+    "message": "Индиго"
   }
 }

@@ -1,4 +1,5 @@
 import { AddressType } from '@qbit/wallet-types'
+import type { WalletColorKey } from '../utils/wallet-identity'
 import type { QbitRecoveryState } from './qbit-recovery-lifecycle'
 
 export type WalletKeyring = {
@@ -8,6 +9,12 @@ export type WalletKeyring = {
   addressType: AddressType
   accounts: Account[]
   alianName: string
+  /**
+   * The wallet's palette key: the one stored for it, or its slot's
+   * (`walletColorForSlot(index)`) when none is stored or the stored key is
+   * unknown. Always one of WALLET_COLOR_KEYS.
+   */
+  color: WalletColorKey
   hdPath: string
   accountIndexDerivation?: boolean
   qbitRecovery?: QbitRecoveryState

@@ -1220,9 +1220,6 @@
   "switch_network": {
     "message": "Switch Network"
   },
-  "switch_wallet": {
-    "message": "Switch Wallet"
-  },
   "the_auto_lock_time_has_been_changed_to": {
     "message": "The auto-lock time has been changed to"
   },
@@ -1740,7 +1737,7 @@
     "message": "The originally recovered wallet is read-only. Its keys and recovery record remain available so failed, reorganized, or newly received funds can be detected and moved safely."
   },
   "qbit_recovery_complete_switch_wallet_hint": {
-    "message": "You can access the originally recovered read-only wallet from the top left Switch Wallet option."
+    "message": "You can open the originally recovered read-only wallet from the account switcher on the home screen."
   },
   "qbit_recovery_original_address_label": {
     "message": "Original recovered address:"
@@ -2188,5 +2185,95 @@
   },
   "phishing_protection_retry_no_answer": {
     "message": "The retry did not answer in time. It may still finish; the status above updates when it does."
+  },
+  "account_switcher_search_placeholder": {
+    "message": "Search accounts or wallets"
+  },
+  "account_switcher_no_results": {
+    "message": "No matching accounts"
+  },
+  "account_switcher_no_results_hint": {
+    "message": "Search by account name, address or wallet name."
+  },
+  "account_switcher_add_or_import_wallet": {
+    "message": "Add or import wallet"
+  },
+  "account_switcher_account_count_one": {
+    "message": "$1 account"
+  },
+  "account_switcher_account_count_few": {
+    "message": "$1 accounts"
+  },
+  "account_switcher_account_count_many": {
+    "message": "$1 accounts"
+  },
+  "account_switcher_account_count_other": {
+    "message": "$1 accounts"
+  },
+  "account_switcher_open_label": {
+    "message": "Switch account, current: $1 in $2"
+  },
+  "account_switcher_copy_address_label": {
+    "message": "Copy address of $1"
+  },
+  "account_switcher_add_account_label": {
+    "message": "Add account to $1"
+  },
+  "account_switcher_wallet_options_label": {
+    "message": "Options for $1"
+  },
+  "account_switcher_account_options_label": {
+    "message": "Options for $1 in $2"
+  },
+  "account_switcher_account_label": {
+    "message": "$1 in $2, $3"
+  },
+  "account_switcher_wallet_unavailable": {
+    "message": "The selected wallet is no longer available"
+  },
+  "wallet_menu_add_account": {
+    "message": "Add Account"
+  },
+  "wallet_menu_rename": {
+    "message": "Rename Wallet"
+  },
+  "wallet_menu_change_color": {
+    "message": "Change Color"
+  },
+  "wallet_tag_read_only": {
+    "message": "Read Only"
+  },
+  "wallet_tag_recovered": {
+    "message": "Recovered"
+  },
+  "wallet_tag_archived": {
+    "message": "Archived"
+  },
+  "wallet_invalid_note": {
+    "message": "Invalid"
+  },
+  "wallet_color_green": {
+    "message": "Green"
+  },
+  "wallet_color_blue": {
+    "message": "Blue"
+  },
+  "wallet_color_orange": {
+    "message": "Orange"
+  },
+  "wallet_color_violet": {
+    "message": "Violet"
+  },
+  "wallet_color_teal": {
+    "message": "Teal"
+  },
+  "wallet_color_pink": {
+    "message": "Pink"
+  },
+  "wallet_color_gold": {
+    "message": "Gold"
+  },
+  "wallet_color_indigo": {
+    "message": "Indigo"
   }
 }

@@ -1,0 +1,51 @@
+// The avatar color comes from walletColors.ts through two custom properties,
+// so the theme switch below needs no re-render.
+.wallet-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background-color: var(--wallet-avatar-light);
+  // The glyph is drawn in the surface color: white on light, near black on dark.
+  color: var(--qbit-paper);
+}
+
+[data-theme='dark'] .wallet-avatar {
+  background-color: var(--wallet-avatar-dark);
+}
+
+.wallet-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: 16px;
+  padding: 0 5px;
+  border: 1px solid var(--qbit-line-strong);
+  background-color: var(--qbit-surface-tint);
+  color: var(--qbit-muted);
+  font-family: Inter-Bold, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.wallet-tag--recovered {
+  border-color: color-mix(in srgb, var(--qbit-warning) 45%, transparent);
+  background-color: color-mix(in srgb, var(--qbit-warning) 10%, var(--qbit-paper));
+  color: var(--qbit-warning);
+}
+
+.wallet-tag--cold {
+  border-color: rgba(37, 136, 235, 0.45);
+  background-color: rgba(37, 136, 235, 0.1);
+  color: #1461d1;
+}
+
+[data-theme='dark'] .wallet-tag--cold {
+  border-color: rgba(138, 180, 248, 0.45);
+  background-color: rgba(138, 180, 248, 0.12);
+  color: #8ab4f8;
+}

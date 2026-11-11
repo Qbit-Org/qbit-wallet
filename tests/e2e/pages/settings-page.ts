@@ -28,6 +28,32 @@ export class SettingsPage extends ExtensionPageObject {
     await expect(this.page.getByText('Change Password', { exact: true })).toBeVisible()
   }
 
+  /**
+   * Turns developer mode on from About, as a user does: ten taps on the
+   * version, each within 500 ms of the last. The taps are raw clicks about
+   * 120 ms apart, as locator clicks can be slower than that on a busy host. A
+   * missed round is tapped again only once the label shows the mode is still
+   * off, so the mode is never toggled twice.
+   */
+  async enableDeveloperMode(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.location.hash = '#/settings/about-us'
+    })
+    await this.waitForHashRoute('/settings/about-us')
+    const version = this.page.getByText(/^Version: /)
+    await expect(async () => {
+      if (!/\(Dev\)$/.test((await version.innerText()).trim())) {
+        const box = await version.boundingBox()
+        if (!box) throw new Error('the version label is not visible')
+        for (let tap = 0; tap < 10; tap += 1) {
+          await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+          await this.page.waitForTimeout(120)
+        }
+      }
+      await expect(version).toHaveText(/\(Dev\)$/, { timeout: 5_000 })
+    }).toPass({ timeout: 60_000 })
+  }
+
   async lockWallet(): Promise<void> {
     await this.waitUntilReady()
     await this.clickTestId('settings_lockwallet')

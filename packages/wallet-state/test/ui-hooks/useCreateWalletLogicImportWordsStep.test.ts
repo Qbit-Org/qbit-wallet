@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { WordsType } from '@qbit/wallet-shared'
@@ -17,14 +17,14 @@ const BAD_CHECKSUM_WORDS = new Array(12).fill('abandon')
 
 function renderImportStep() {
   const updateContextData = vi.fn()
-  const wallet = { ...createWalletMock(), getTotalKeyringCount: vi.fn().mockResolvedValue(0) }
+  const wallet = createWalletMock()
   const { wrapper, tools } = createHookTestHarness({ wallet })
   const contextData = { wordsType: WordsType.WORDS_12 } as ContextData
   const hook = renderHook(
     () => useCreateWalletLogicImportWordsStep({ contextData, updateContextData }),
     { wrapper }
   )
-  return { ...hook, updateContextData, tools }
+  return { ...hook, updateContextData, tools, wallet }
 }
 
 function typeWords(
@@ -76,12 +76,25 @@ describe('isMnemonicWord', () => {
   })
 })
 
+describe('useCreateWalletLogicImportWordsStep wallet name', () => {
+  it('suggests no wallet name, leaving the name to the background', async () => {
+    const { result, updateContextData, wallet } = renderImportStep()
+    // Give a lookup started on mount the time to settle.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    expect(updateContextData).not.toHaveBeenCalled()
+    for (const method of Object.values(wallet)) {
+      expect(method).not.toHaveBeenCalled()
+    }
+    expect(result.current.walletName).toBeUndefined()
+  })
+})
+
 describe('useCreateWalletLogicImportWordsStep word checks', () => {
-  it('flags nothing while the inputs are empty', async () => {
-    const { result, updateContextData } = renderImportStep()
-    await waitFor(() =>
-      expect(updateContextData).toHaveBeenCalledWith({ walletName: 'HD Wallet #1' })
-    )
+  it('flags nothing while the inputs are empty', () => {
+    const { result } = renderImportStep()
 
     expect(result.current.inputWordsInvalid).toEqual(new Array(12).fill(false))
     expect(result.current.inputWordsError).toBe(false)

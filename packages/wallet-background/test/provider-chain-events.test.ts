@@ -99,7 +99,7 @@ describe('provider events through the session service', () => {
           ],
         }) as any
     )
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
   })
 
   afterEach(async () => {
@@ -199,7 +199,7 @@ describe('provider events through the session service', () => {
       expect(received(origin), origin).toEqual([])
     }
     // The unchanged account is not re-announced to every origin on the chain.
-    expect(wallet.changeKeyring).toHaveBeenCalledWith(expect.anything(), 0, {
+    expect((wallet as any).selectKeyring).toHaveBeenCalledWith(expect.anything(), 0, {
       persistPreference: true,
       broadcastAccountChange: false,
     })
@@ -258,7 +258,7 @@ describe('provider events through the session service', () => {
     const reachedKeyring = new Promise<void>(resolve => {
       switchReachedKeyring = resolve
     })
-    vi.mocked(wallet.changeKeyring).mockImplementationOnce(async () => {
+    vi.mocked((wallet as any).selectKeyring).mockImplementationOnce(async () => {
       switchReachedKeyring()
       await new Promise<void>(resolve => {
         finishSwitch = resolve

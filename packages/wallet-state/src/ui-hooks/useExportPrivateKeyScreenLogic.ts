@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useI18n, useNavigation, useTools, useWallet } from 'src/context'
+import { isEnterPressedInField } from './isEnterPressedInField'
 
 type Status = '' | 'error' | 'warning' | undefined
 export function useExportPrivateKeyScreenLogic() {
@@ -27,8 +28,10 @@ export function useExportPrivateKeyScreenLogic() {
     }
   }
 
-  const handleOnKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if ('Enter' == e.key) {
+  // Enter in the password field submits it, on its keydown: the account
+  // switcher's account menu opens this screen on an Enter's keydown.
+  const handleOnKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isEnterPressedInField(e)) {
       btnClick()
     }
   }
@@ -55,7 +58,7 @@ export function useExportPrivateKeyScreenLogic() {
     setPassword,
     disabled,
     btnClick,
-    handleOnKeyUp,
+    handleOnKeyDown,
     privateKey,
     error,
     copy,

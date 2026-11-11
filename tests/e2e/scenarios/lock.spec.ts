@@ -100,8 +100,7 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   )
   expect(currentKeyring.index).toBeGreaterThanOrEqual(0)
 
-  await setup.home.openWalletManagement()
-  await setup.page.getByTestId('add-wallet-button').click()
+  await setup.home.openAddWallet()
   await setup.page.getByTestId('restore-from-mnemonics-option').click()
   await expect(setup.page).toHaveURL(/#\/account\/create-hd-wallet$/)
   await expect(setup.page.getByTestId('mnemonic-import-word-0')).toBeVisible()

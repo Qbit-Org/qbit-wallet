@@ -2,7 +2,7 @@ import { Button, Card, Column, Content, Header, Icon, Input, Layout, Row, Text }
 import { useExportPrivateKeyScreenLogic } from '@qbit/wallet-state';
 
 export default function ExportPrivateKeyScreen() {
-  const { t, setPassword, disabled, btnClick, handleOnKeyUp, privateKey, error, copy, onClickBack } =
+  const { t, setPassword, disabled, btnClick, handleOnKeyDown, privateKey, error, copy, onClickBack } =
     useExportPrivateKeyScreenLogic();
 
   return (
@@ -45,7 +45,7 @@ export default function ExportPrivateKeyScreen() {
               onChange={(e) => {
                 setPassword(e.target.value);
               }}
-              onKeyUp={(e) => handleOnKeyUp(e as any)}
+              onKeyDown={handleOnKeyDown}
               autoFocus={true}
             />
             {error && <Text text={error} preset="regular" color="dangerText" />}

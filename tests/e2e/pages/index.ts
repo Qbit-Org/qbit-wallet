@@ -1,3 +1,4 @@
+export * from './account-switcher-sheet'
 export * from './approvals-page'
 export * from './base-page'
 export * from './history-page'

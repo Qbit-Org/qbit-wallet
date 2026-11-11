@@ -1220,9 +1220,6 @@
   "switch_network": {
     "message": "Cambiar Red"
   },
-  "switch_wallet": {
-    "message": "Cambiar Billetera"
-  },
   "the_auto_lock_time_has_been_changed_to": {
     "message": "El tiempo de bloqueo automático ha sido cambiado a"
   },
@@ -1740,7 +1737,7 @@
     "message": "La cartera recuperada original es de solo lectura. Sus claves y registro de recuperación siguen disponibles para detectar y mover de forma segura fondos fallidos, reorganizados o recibidos posteriormente."
   },
   "qbit_recovery_complete_switch_wallet_hint": {
-    "message": "Puede acceder a la cartera recuperada original de solo lectura desde la opción Cambiar Billetera en la parte superior izquierda."
+    "message": "Puede abrir la cartera recuperada original de solo lectura desde el selector de cuentas de la pantalla de inicio."
   },
   "qbit_recovery_original_address_label": {
     "message": "Dirección recuperada original:"
@@ -2188,5 +2185,95 @@
   },
   "phishing_protection_retry_no_answer": {
     "message": "El reintento no respondió a tiempo. Puede que aún termine; el estado de arriba se actualizará cuando lo haga."
+  },
+  "account_switcher_search_placeholder": {
+    "message": "Buscar cuentas o billeteras"
+  },
+  "account_switcher_no_results": {
+    "message": "No hay cuentas coincidentes"
+  },
+  "account_switcher_no_results_hint": {
+    "message": "Busque por nombre de cuenta, dirección o nombre de billetera."
+  },
+  "account_switcher_add_or_import_wallet": {
+    "message": "Añadir o importar billetera"
+  },
+  "account_switcher_account_count_one": {
+    "message": "$1 cuenta"
+  },
+  "account_switcher_account_count_few": {
+    "message": "$1 cuentas"
+  },
+  "account_switcher_account_count_many": {
+    "message": "$1 cuentas"
+  },
+  "account_switcher_account_count_other": {
+    "message": "$1 cuentas"
+  },
+  "account_switcher_open_label": {
+    "message": "Cambiar de cuenta, actual: $1 en $2"
+  },
+  "account_switcher_copy_address_label": {
+    "message": "Copiar la dirección de $1"
+  },
+  "account_switcher_add_account_label": {
+    "message": "Añadir cuenta a $1"
+  },
+  "account_switcher_wallet_options_label": {
+    "message": "Opciones de $1"
+  },
+  "account_switcher_account_options_label": {
+    "message": "Opciones de $1 en $2"
+  },
+  "account_switcher_account_label": {
+    "message": "$1 en $2, $3"
+  },
+  "account_switcher_wallet_unavailable": {
+    "message": "La billetera seleccionada ya no está disponible"
+  },
+  "wallet_menu_add_account": {
+    "message": "Añadir Cuenta"
+  },
+  "wallet_menu_rename": {
+    "message": "Renombrar Billetera"
+  },
+  "wallet_menu_change_color": {
+    "message": "Cambiar Color"
+  },
+  "wallet_tag_read_only": {
+    "message": "Solo lectura"
+  },
+  "wallet_tag_recovered": {
+    "message": "Recuperada"
+  },
+  "wallet_tag_archived": {
+    "message": "Archivada"
+  },
+  "wallet_invalid_note": {
+    "message": "Inválida"
+  },
+  "wallet_color_green": {
+    "message": "Verde"
+  },
+  "wallet_color_blue": {
+    "message": "Azul"
+  },
+  "wallet_color_orange": {
+    "message": "Naranja"
+  },
+  "wallet_color_violet": {
+    "message": "Violeta"
+  },
+  "wallet_color_teal": {
+    "message": "Verde azulado"
+  },
+  "wallet_color_pink": {
+    "message": "Rosa"
+  },
+  "wallet_color_gold": {
+    "message": "Dorado"
+  },
+  "wallet_color_indigo": {
+    "message": "Índigo"
   }
 }

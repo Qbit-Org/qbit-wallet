@@ -108,6 +108,13 @@ export class RecoveryMigrationPage extends ExtensionPageObject {
     await expect(this.byTestId('qbit-recovery-complete')).toBeVisible({ timeout: 60_000 })
   }
 
+  /** The completion screen says where the archived wallet is: in the account switcher. */
+  async expectArchivedWalletHint(): Promise<void> {
+    await expect(this.byTestId('qbit-recovery-complete')).toContainText(
+      'You can open the originally recovered read-only wallet from the account switcher on the home screen.'
+    )
+  }
+
   async returnHome(): Promise<void> {
     await this.clickTestId('qbit-recovery-return-home-button')
     await this.waitForHashRoute('/main')

@@ -846,3 +846,138 @@ describe('PreferenceService stored chain', () => {
     expect(JSON.parse(adapter.disk.get('preference')!).chainType).toBe(ChainType.QBIT_MAINNET)
   })
 })
+
+describe('PreferenceService wallet colors', () => {
+  let adapter: DiskAdapter
+
+  const load = async () => {
+    const service = new PreferenceService()
+    await service.init({ storage: adapter, logger: { debug: vi.fn(), error: vi.fn() } })
+    return service
+  }
+  const saved = () => JSON.parse(adapter.disk.get('preference')!)
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    adapter = new DiskAdapter()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('starts a new store with no wallet colors', async () => {
+    const service = await load()
+
+    expect(service.getKeyringColor('keyring_0')).toBeUndefined()
+    expect(saved().keyringColors).toEqual({})
+  })
+
+  it('loads a store saved before wallets had colors with its names and no color', async () => {
+    const keyringAlianNames = { keyring_0: 'Qbit HD Wallet #1', keyring_1: 'Readonly #2' }
+    adapter.disk.set('preference', JSON.stringify({ locale: 'fr', keyringAlianNames }))
+
+    const service = await load()
+    expect(service.getKeyringAlianName('keyring_0')).toBe('Qbit HD Wallet #1')
+    expect(service.getKeyringAlianName('keyring_1')).toBe('Readonly #2')
+    expect(service.getKeyringColor('keyring_0')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_1')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(saved()).toMatchObject({ locale: 'fr', keyringAlianNames, keyringColors: {} })
+  })
+
+  it('gives a store whose color map is missing an empty one, as it does for names', async () => {
+    const storage = createStorage()
+    const rawStore: any = { locale: 'en', keyringAlianNames: null, keyringColors: null }
+    storage.createPersistentProxy.mockResolvedValue(rawStore)
+    const service = new PreferenceService()
+
+    await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
+
+    expect(rawStore.keyringAlianNames).toEqual({})
+    expect(rawStore.keyringColors).toEqual({})
+    expect(service.getKeyringColor('keyring_0')).toBeUndefined()
+  })
+
+  it('keeps a color per keyring across a reload', async () => {
+    const service = await load()
+
+    service.setKeyringColor('keyring_0', 'teal')
+    service.setKeyringColor('keyring_2', 'gold')
+    service.setKeyringColor('keyring_0', 'pink')
+
+    expect(service.getKeyringColor('keyring_0')).toBe('pink')
+    expect(service.getKeyringColor('keyring_1')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_2')).toBe('gold')
+    await vi.advanceTimersByTimeAsync(1000)
+    const reloaded = await load()
+    expect(reloaded.getKeyringColor('keyring_0')).toBe('pink')
+    expect(reloaded.getKeyringColor('keyring_2')).toBe('gold')
+    expect(saved().keyringColors).toEqual({ keyring_0: 'pink', keyring_2: 'gold' })
+  })
+
+  it('reads a stored value that is not a palette key as no color, and keeps it stored', async () => {
+    const keyringColors = {
+      keyring_0: 'crimson',
+      keyring_1: 42,
+      keyring_2: null,
+      keyring_3: 'pink',
+      keyring_4: '#1ab453',
+      keyring_5: 'Blue',
+    }
+    adapter.disk.set('preference', JSON.stringify({ locale: 'en', keyringColors }))
+
+    const service = await load()
+
+    expect(service.getKeyringColor('keyring_0')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_1')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_2')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_3')).toBe('pink')
+    expect(service.getKeyringColor('keyring_4')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_5')).toBeUndefined()
+    expect(service.getKeyringColor('constructor')).toBeUndefined()
+    expect(service.getKeyringColor('__proto__')).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(saved().keyringColors).toEqual(keyringColors)
+  })
+
+  it('writes nothing when a color is read', async () => {
+    const service = await load()
+    await vi.advanceTimersByTimeAsync(1000)
+    const writes = adapter.writes
+
+    expect(service.getKeyringColor('keyring_0')).toBeUndefined()
+    expect(service.getKeyringColor('keyring_9')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(adapter.writes).toBe(writes)
+  })
+
+  it("forgets a removed wallet's name and color, and nothing else", async () => {
+    const service = await load()
+    service.setKeyringAlianName('keyring_0', 'Wallet 1')
+    service.setKeyringAlianName('keyring_1', 'Wallet 2')
+    service.setKeyringColor('keyring_0', 'green')
+    service.setKeyringColor('keyring_1', 'blue')
+    service.setAccountAlianName('keyring_1#0', 'Account 1')
+
+    service.removeKeyringAlianName('keyring_1')
+    service.removeKeyringColor('keyring_1')
+
+    expect(service.getKeyringAlianName('keyring_0')).toBe('Wallet 1')
+    expect(service.getKeyringAlianName('keyring_1')).toBe('')
+    expect(service.getKeyringColor('keyring_0')).toBe('green')
+    expect(service.getKeyringColor('keyring_1')).toBeUndefined()
+    expect(service.getAccountAlianName('keyring_1#0')).toBe('Account 1')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(saved().keyringAlianNames).toEqual({ keyring_0: 'Wallet 1' })
+    expect(saved().keyringColors).toEqual({ keyring_0: 'green' })
+
+    const writes = adapter.writes
+    service.removeKeyringAlianName('keyring_1')
+    service.removeKeyringColor('keyring_7')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(adapter.writes).toBe(writes)
+  })
+})

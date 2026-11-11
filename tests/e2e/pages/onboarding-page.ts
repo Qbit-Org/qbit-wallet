@@ -155,6 +155,31 @@ export class OnboardingPage extends ExtensionPageObject {
     await this.submitAddressType(passphrase)
   }
 
+  /** From the new wallet screen: a wallet with a phrase this build generates. */
+  async createAdditionalWallet(): Promise<string[]> {
+    await this.waitForHashRoute('/account/add-keyring')
+    await this.clickTestId('create-wallet-with-mnemonics-option')
+    await this.waitForHashRoute('/account/create-hd-wallet')
+    const words = await this.readGeneratedMnemonic()
+    await this.acceptGeneratedMnemonic(words)
+    await this.submitAddressType()
+    return words
+  }
+
+  /**
+   * From the new wallet screen: a readonly wallet for a public key, which the
+   * screen offers in developer mode only.
+   */
+  async addReadonlyWallet(publicKey: string): Promise<void> {
+    await this.waitForHashRoute('/account/add-keyring')
+    await this.page.getByText('Readonly Wallet', { exact: true }).click()
+    await this.waitForHashRoute('/account/create-readonly-wallet')
+    await this.byTestId('readonly-public-key-input').fill(publicKey)
+    await this.clickTestId('readonly-public-key-continue-button')
+    await this.clickTestId('readonly-address-type-card-0')
+    await this.clickTestId('readonly-address-type-continue-button')
+  }
+
   private mnemonicWord(index: number): Locator {
     return this.byTestId(`mnemonic-word-${index}`).locator('span').last()
   }

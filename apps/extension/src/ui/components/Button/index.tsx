@@ -64,6 +64,14 @@ export interface ButtonProps {
   loading?: boolean;
   full?: boolean;
   max2Lines?: boolean;
+  /**
+   * The button renders as a div. A caller that needs it in the tab order
+   * passes `role="button"`, `tabIndex={0}` and an `onKeyDown` that activates
+   * it on Enter and Space (see `activateOnKey` in `@/ui/utils/keyboard`).
+   */
+  role?: React.AriaRole;
+  tabIndex?: number;
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
 }
 
 const $baseViewStyle: CSSProperties = {
@@ -346,12 +354,15 @@ export function Button(props: ButtonProps) {
     loading,
     full,
     max2Lines,
-    ...rest
+    onKeyDown,
+    ...otherProps
   } = props;
 
   const preset: Presets = props.preset || 'default';
   const [hover, setHover] = useState(false);
   const isDisabled = disabled || loading;
+  // A disabled button ignores keys as it ignores clicks.
+  const rest = isDisabled ? otherProps : { ...otherProps, onKeyDown };
   const $viewStyle = Object.assign(
     {},
     $viewPresets[preset],

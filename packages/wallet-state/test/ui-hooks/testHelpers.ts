@@ -52,6 +52,7 @@ export function createTestStore() {
       addressType: AddressType.P2TR,
       accounts: [currentAccount],
       alianName: 'HD Wallet #1',
+      color: 'green',
       hdPath: '',
     })
   )

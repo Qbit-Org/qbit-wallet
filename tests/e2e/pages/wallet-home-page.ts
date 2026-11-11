@@ -1,5 +1,11 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
+import {
+  AccountSwitcherSheet,
+  shortAddress,
+  WALLET_TAGS,
+  type WalletTag,
+} from './account-switcher-sheet'
 import { ExtensionPageObject } from './base-page'
 
 export class WalletHomePage extends ExtensionPageObject {
@@ -55,25 +61,84 @@ export class WalletHomePage extends ExtensionPageObject {
     await this.waitForHashRoute('/wallet/history')
   }
 
-  /** Select the current wallet's account at `address` from the account list. */
+  /** The account card: which wallet and account are open. A tap opens the account switcher. */
+  get accountCard(): Locator {
+    return this.byTestId('account-select')
+  }
+
+  get cardWalletName(): Locator {
+    return this.byTestId('account-select-wallet-name')
+  }
+
+  get cardAccountName(): Locator {
+    return this.byTestId('account-select-account-name')
+  }
+
+  /** The card's short address, which copies the address when tapped. */
+  get cardAddress(): Locator {
+    return this.byTestId('account-select-copy')
+  }
+
+  get cardWalletTile(): Locator {
+    return this.byTestId('account-select-wallet-tile')
+  }
+
+  cardTag(tag: WalletTag): Locator {
+    return this.byTestId(`account-select-tag-${tag}`)
+  }
+
+  /** The tags the card shows next to the wallet name. */
+  async cardTags(): Promise<WalletTag[]> {
+    const tags: WalletTag[] = []
+    for (const tag of WALLET_TAGS) {
+      if ((await this.cardTag(tag).count()) > 0) tags.push(tag)
+    }
+    return tags
+  }
+
+  /** Waits until the card shows this wallet, account and address. */
+  async expectCurrentAccount(expected: {
+    walletName?: string
+    accountName?: string
+    address?: string
+  }): Promise<void> {
+    if (expected.walletName !== undefined) {
+      await expect(this.cardWalletName).toHaveText(expected.walletName)
+    }
+    if (expected.accountName !== undefined) {
+      await expect(this.cardAccountName).toHaveText(expected.accountName)
+    }
+    if (expected.address !== undefined) {
+      await expect(this.cardAddress).toHaveText(shortAddress(expected.address))
+    }
+  }
+
+  /** Taps the account card, which opens the Switch Account sheet. */
+  async openAccountSwitcher(): Promise<AccountSwitcherSheet> {
+    await expect(this.accountCard).toBeVisible()
+    await this.accountCard.click()
+    const sheet = new AccountSwitcherSheet(this.page)
+    await sheet.waitUntilOpen()
+    return sheet
+  }
+
+  /** Selects the account at `address`, in any wallet: the card, then the account's row. */
   async switchAccount(address: string): Promise<void> {
-    await this.clickTestId('account-select')
-    await this.waitForHashRoute('/account/switch-account')
-    const item = this.byTestId(`account-item-${address}`)
-    await expect(item).toBeVisible()
-    // The row's name and short address select the account; its edges do not.
-    await item.getByText(`${address.slice(0, 8)}...${address.slice(-8)}`, { exact: true }).click()
+    const sheet = await this.openAccountSwitcher()
+    await sheet.selectAccount(address)
     await this.waitUntilReady()
+    await this.expectCurrentAccount({ address })
+  }
+
+  /** "Add or import wallet" in the account switcher, which opens the new wallet screen. */
+  async openAddWallet(): Promise<void> {
+    const sheet = await this.openAccountSwitcher()
+    await sheet.addOrImportWallet()
   }
 
   async openSettings(): Promise<void> {
     await this.clickTestId('tab-settings')
     await this.waitForHashRoute('/settings')
-  }
-
-  async openWalletManagement(): Promise<void> {
-    await this.clickTestId('wallet-management-entry')
-    await this.waitForHashRoute('/account/switch-keyring')
   }
 
   async expectSeedOnlyRecoveryWarning(): Promise<void> {
