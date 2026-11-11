@@ -173,8 +173,8 @@ export interface QbitConsolidationBatchShape {
 export interface QbitConsolidationBatch {
   /** Confirmed unspent outputs the explorer counted for the account before this batch. */
   confirmedOutputCount: number
-  /** The explorer listing limit the wallet assumes (electrs `--utxos-limit`). */
-  outputLimit: number
+  /** The explorer's listing limit, as `QbitConsolidationStatus.outputLimit` gives it. */
+  outputLimit: number | null
   /** What the batch's one output returns to the account: its inputs less the fee. */
   amount: number
   /**
@@ -196,14 +196,31 @@ export interface QbitConsolidationBatch {
 export interface QbitConsolidationStatus {
   chain: ChainType
   address: string
-  /** Confirmed outputs not spent in a block: what the explorer counts against its limit. */
+  /**
+   * Confirmed outputs not spent in a block. Whether the explorer lists them
+   * is its own answer (`overLimit`), not this count: electrs refuses an
+   * address whose set passed its limit at any point since it last cached it.
+   */
   confirmedUnspent: number
   /** Outputs mempool transactions spend; they leave the count once those confirm. */
   pendingSpent: number
   /** Outputs mempool transactions create; they join the count once those confirm. */
   pendingFunded: number
-  /** The explorer listing limit the wallet assumes (electrs `--utxos-limit`). */
-  outputLimit: number
+  /**
+   * Whether the explorer refuses to list the account's outputs, as it
+   * answered when asked. electrs keeps refusing an address whose output set
+   * passed its limit at any point since it last cached that set, so this
+   * can hold with `confirmedUnspent` within `outputLimit`, and consolidating
+   * does not end it: only a limit raised past the most the account held does.
+   */
+  overLimit: boolean
+  /**
+   * While `overLimit`, the explorer's listing limit (electrs `--utxos-limit`):
+   * the one its refusal states, or for an explorer that refuses with a bare
+   * HTTP 500, the one the wallet assumes. `null` when the refusal states
+   * none, and while the explorer lists the account.
+   */
+  outputLimit: number | null
   /** Most inputs one consolidation batch carries within the standard size. */
   maxInputCount: number
   /**

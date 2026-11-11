@@ -46,7 +46,8 @@ function logic(overrides: Partial<ReturnType<typeof useQbitConsolidationScreenLo
     headerTitle: 'consolidate_outputs',
     description: 'consolidation_description',
     status: undefined,
-    statusText: 'consolidation_status:812|500|2|106',
+    statusText: 'consolidation_status:812|50000',
+    refusalText: 'consolidation_refusal_lasts',
     pendingText: '',
     overLimit: true,
     batch: undefined,
@@ -83,12 +84,26 @@ describe('QbitConsolidationScreen (#277)', () => {
     vi.mocked(useQbitConsolidationScreenLogic).mockReturnValue(state);
     render(<QbitConsolidationScreen />);
 
-    expect(screen.getByTestId('consolidation-status').textContent).toBe('consolidation_status:812|500|2|106');
+    expect(screen.getByTestId('consolidation-status').textContent).toBe('consolidation_status:812|50000');
     // The fee bar offers its rates from the quote the screen holds preparation on.
     expect(feeRateBarProps.quote).toBe(feeQuote);
     expect(screen.queryByTestId('consolidation-confirm-button')).toBeNull();
     fireEvent.click(screen.getByTestId('consolidation-prepare-button'));
     expect(state.onClickPrepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('says that consolidating does not end the refusal, only while the explorer refuses (#169)', () => {
+    vi.mocked(useQbitConsolidationScreenLogic).mockReturnValue(logic());
+    render(<QbitConsolidationScreen />);
+    expect(screen.getByTestId('consolidation-refusal').textContent).toBe('consolidation_refusal_lasts');
+    cleanup();
+
+    vi.mocked(useQbitConsolidationScreenLogic).mockReturnValue(
+      logic({ overLimit: false, refusalText: '', statusText: 'consolidation_within_limit', canPrepare: false })
+    );
+    render(<QbitConsolidationScreen />);
+    expect(screen.getByTestId('consolidation-status').textContent).toBe('consolidation_within_limit');
+    expect(screen.queryByTestId('consolidation-refusal')).toBeNull();
   });
 
   it('shows the prepared batch and hands it to the confirm screen', () => {
@@ -171,7 +186,7 @@ describe('QbitConsolidationScreen batch size (#170)', () => {
         batchSizeText: '1',
         batchSize: undefined,
         batchSizeError: 'consolidation_batch_size_invalid:2|106',
-        statusText: 'consolidation_status_counts:812|500',
+        statusText: 'consolidation_status:812|50000',
         feePreview: '',
         canPrepare: false
       })

@@ -1713,10 +1713,10 @@
     "message": "Pas encore déplacé"
   },
   "qbit_recovery_deferred_history_too_large": {
-    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste et compte plus de $1 transactions, trop pour que le portefeuille lise ses sorties dans son historique : ses fonds n'ont donc pas été déplacés. Passez à ce compte, ouvrez Envoyer et choisissez Consolider les sorties jusqu'à ce qu'il respecte la limite de l'explorateur, puis revenez ici."
+    "message": "L'explorateur ne liste pas les sorties de ce compte, qui a plus de $1 transactions, trop pour que le portefeuille lise ses sorties dans son historique : ses fonds n'ont donc pas été déplacés. Consolider n'y change rien. Ses fonds pourront être déplacés ici une fois que l'opérateur de l'explorateur aura relevé sa limite et que l'explorateur listera de nouveau ces sorties."
   },
   "qbit_recovery_deferred_history_incomplete": {
-    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu lire tout son historique auprès de l'explorateur pour les trouver : ses fonds n'ont donc pas encore été déplacés. Cela peut se résoudre lorsque ses transactions en attente changent, par exemple quand l'une d'elles est confirmée. Choisissez Vérifier l’état et reprendre plus tard pour réessayer."
+    "message": "L'explorateur ne liste pas les sorties de ce compte, et le portefeuille n'a pas pu lire tout son historique auprès de l'explorateur pour les trouver : ses fonds n'ont donc pas encore été déplacés. Cela peut se résoudre lorsque ses transactions en attente changent, par exemple quand l'une d'elles est confirmée. Choisissez Vérifier l’état et reprendre plus tard pour réessayer."
   },
   "qbit_recovery_plan_prepared": {
     "message": "Prêt pour examen et signature"
@@ -1914,7 +1914,7 @@
     "message": "Avec votre envoi précédent, pas encore confirmé, cet envoi dépasserait la taille acceptée par le réseau. Attendez que l'envoi précédent soit confirmé, ou envoyez un montant plus faible."
   },
   "utxo_limit_exceeded_balance": {
-    "message": "Trop de sorties pour que l'explorateur les liste. Ce total provient du résumé de l'adresse."
+    "message": "L'explorateur ne liste pas les sorties de ce compte. Ce total provient du résumé de l'adresse."
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Les montants disponible et indisponible sont inconnus, car l'explorateur ne liste pas les sorties de ce compte."
@@ -1926,7 +1926,7 @@
     "message": "Impossible d’actualiser le solde ; il n’est peut-être plus à jour."
   },
   "utxo_limit_exceeded_send": {
-    "message": "Impossible d'envoyer depuis ce compte pour l'instant : il détient plus de sorties que l'explorateur n'en liste, et le portefeuille n'a pas pu toutes les lire dans son historique. Consolidez ses sorties pour pouvoir les dépenser."
+    "message": "L'explorateur ne liste pas les sorties de ce compte et le portefeuille n'a pas pu toutes les lire dans son historique : il ne peut donc pas envoyer depuis ce compte pour le moment. Rouvrez Envoyer pour réessayer."
   },
   "consolidate_outputs": {
     "message": "Consolider les sorties"
@@ -1935,10 +1935,16 @@
     "message": "Chaque lot renvoie les plus grandes sorties confirmées de ce compte vers sa propre adresse, en une seule sortie. Vous choisissez combien chaque lot en contient, et vous vérifiez et signez chaque lot."
   },
   "consolidation_status": {
-    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2. Environ $3 lots de plus, de $4 sorties chacun, ramènent ce compte sous cette limite."
+    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2 par adresse et refuse de lister celles de ce compte."
+  },
+  "consolidation_status_no_limit": {
+    "message": "$1 sorties confirmées ; l'explorateur refuse de lister celles de ce compte."
+  },
+  "consolidation_refusal_lasts": {
+    "message": "Dès qu'une adresse a détenu plus de sorties que la limite de l'explorateur, celui-ci refuse de la lister, même après consolidation, jusqu'à ce que son opérateur relève la limite."
   },
   "consolidation_within_limit": {
-    "message": "Ce compte respecte la limite de $1 sorties de l'explorateur. Rien n'est à consolider."
+    "message": "L'explorateur liste les sorties de ce compte. Rien n'est à consolider."
   },
   "consolidation_pending": {
     "message": "Des transactions non confirmées dépensent $1 de ces sorties. Elles sortent du décompte une fois ces transactions confirmées."
@@ -1953,13 +1959,10 @@
     "message": "Consolider le lot suivant"
   },
   "consolidation_send_note": {
-    "message": "Ce compte détient plus de sorties que l'explorateur n'en liste. Consolidez-les pour qu'il puisse de nouveau envoyer et migrer normalement."
-  },
-  "consolidation_status_confirming": {
-    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2. Les lots en attente ramènent ce compte sous cette limite une fois confirmés."
+    "message": "L'explorateur ne liste pas les sorties de ce compte : le portefeuille les lit donc dans son historique. Les consolider les regroupe en moins de sorties, et les envois demandent alors moins d'entrées."
   },
   "consolidation_error_within_limit": {
-    "message": "Ce compte respecte la limite de sorties de l'explorateur. Il n'a pas besoin d'être consolidé."
+    "message": "L'explorateur liste les sorties de ce compte. Il n'a pas besoin d'être consolidé."
   },
   "consolidation_error_nothing_ready": {
     "message": "Aucune sortie confirmée n'est encore prête à être consolidée. Réessayez plus tard."
@@ -1972,9 +1975,6 @@
   },
   "consolidation_error_keep_reading": {
     "message": "Le portefeuille a lu une partie de l'historique de ce compte sans trouver de sorties prêtes à fusionner. Préparez de nouveau pour lire plus loin."
-  },
-  "consolidation_status_counts": {
-    "message": "$1 sorties confirmées ; l'explorateur en liste au plus $2."
   },
   "consolidation_batch_size_label": {
     "message": "Sorties par lot"

@@ -101,34 +101,34 @@ function estimateBatch(
 }
 
 /**
- * Consolidation of an account holding more confirmed outputs than the
- * explorer lists: one batch at a time, each its largest outputs sent whole
- * to its own address, previewed here and then confirmed, signed and
- * broadcast on the ordinary confirm screen. A batch is never built from a
- * stale request: a result that lands after the account, network, fee rate
- * or batch size changed, or after a newer request started, is dropped.
+ * Consolidation of an account whose outputs the explorer refuses to list:
+ * one batch at a time, each its largest outputs sent whole to its own
+ * address, previewed here and then confirmed, signed and broadcast on the
+ * ordinary confirm screen. A batch is never built from a stale request: a
+ * result that lands after the account, network, fee rate or batch size
+ * changed, or after a newer request started, is dropped.
  *
  * The user chooses the batch size, from `QBIT_CONSOLIDATION_MIN_INPUTS` to
  * the account's maximum (`QbitConsolidationStatus.maxInputCount`), for an
- * account over the explorer's limit; one within it has nothing to merge, so
- * no size is offered. The screen opens at the size its route names, when
- * that is still within the range, and at the maximum otherwise: the size of
- * the batch that just went out, from the success screen, or the size the
- * user chose here before going on to the confirm screen, which the screen
- * keeps in its own route state for the account and network it was chosen
- * on, so Back from the confirm screen returns to it. A size the user types
- * applies only to the account and network it was typed for. The screen
- * holds one typed size, not one per account: another account or network
- * opens at its own opening size, and a size typed there replaces the first,
- * so switching back then opens the first at its opening size. Until the
- * status has loaded the maximum is unknown, so no size can be checked and
- * the field is not offered. A batch prepared after a failed status read
- * carries the size the route names, which the background checks against its
- * maximum, or none, and the background uses its maximum. A prepare still
- * current when it ends reads the status again: after a batch, whose counts
- * may have moved, and after an error only while the maximum is unknown, so
- * a status that loads then gives the screen its maximum, and a route's size
- * past that maximum gives way to it.
+ * account whose outputs the explorer refuses to list; one it lists has
+ * nothing to merge, so no size is offered. The screen opens at the size its
+ * route names, when that is still within the range, and at the maximum
+ * otherwise: the size of the batch that just went out, from the success
+ * screen, or the size the user chose here before going on to the confirm
+ * screen, which the screen keeps in its own route state for the account and
+ * network it was chosen on, so Back from the confirm screen returns to it. A
+ * size the user types applies only to the account and network it was typed
+ * for. The screen holds one typed size, not one per account: another account
+ * or network opens at its own opening size, and a size typed there replaces
+ * the first, so switching back then opens the first at its opening size.
+ * Until the status has loaded the maximum is unknown, so no size can be
+ * checked and the field is not offered. A batch prepared after a failed
+ * status read carries the size the route names, which the background checks
+ * against its maximum, or none, and the background uses its maximum. A
+ * prepare still current when it ends reads the status again: after a batch,
+ * whose counts may have moved, and after an error only while the maximum is
+ * unknown, so a status that loads then gives the screen its maximum, and a
+ * route's size past that maximum gives way to it.
  */
 export function useQbitConsolidationScreenLogic() {
   const { t } = useI18n()
@@ -364,37 +364,32 @@ export function useQbitConsolidationScreenLogic() {
     }
   }
 
-  const outputLimit = status?.outputLimit ?? 0
-  // Outputs pending batches spend leave the count once they confirm, and
-  // their own outputs join it.
-  const projectedOutputs = status
-    ? Math.max(0, status.confirmedUnspent - status.pendingSpent + status.pendingFunded)
-    : 0
-  // A batch of n inputs leaves one output behind, so it removes n - 1. No
-  // count follows from a size the range refuses.
-  const batchesLeft =
-    status && batchSize !== undefined
-      ? Math.ceil(Math.max(0, projectedOutputs - outputLimit) / (batchSize - 1))
-      : undefined
-  const overLimit = status ? status.confirmedUnspent > status.outputLimit : false
+  // The explorer's own answer, never a count against its limit: it keeps
+  // refusing an address that once held more than that, consolidated or not,
+  // so no number of batches is promised to end the refusal.
+  const overLimit = status?.overLimit === true
   // The batch size, its range, the fee of a full batch and the cost note:
-  // only for an account over the limit, whose maximum is known. Without the
-  // status there is no maximum to check a size against; a batch may still
-  // be prepared then (`canPrepare`), at the size the route names or the
-  // background's maximum. Within the limit there is nothing to prepare.
+  // only for an account the explorer refuses to list, whose maximum is
+  // known. Without the status there is no maximum to check a size against;
+  // a batch may still be prepared then (`canPrepare`), at the size the route
+  // names or the background's maximum. An account the explorer lists has
+  // nothing to prepare.
   const showBatchSize = maxInputCount !== undefined && overLimit
 
   const statusText = useMemo(() => {
     if (!status) return ''
-    if (!overLimit) return t('consolidation_within_limit', [String(status.outputLimit)])
-    const counts = [String(status.confirmedUnspent), String(status.outputLimit)]
-    // The pending batches suffice, whatever the size of the next.
-    if (projectedOutputs <= outputLimit) return t('consolidation_status_confirming', counts)
-    if (batchesLeft === undefined || batchSize === undefined) {
-      return t('consolidation_status_counts', counts)
+    if (!status.overLimit) return t('consolidation_within_limit')
+    if (status.outputLimit === null) {
+      return t('consolidation_status_no_limit', [String(status.confirmedUnspent)])
     }
-    return t('consolidation_status', [...counts, String(batchesLeft), String(batchSize)])
-  }, [status, overLimit, projectedOutputs, outputLimit, batchesLeft, batchSize, t])
+    return t('consolidation_status', [String(status.confirmedUnspent), String(status.outputLimit)])
+  }, [status, t])
+
+  // Why the refusal lasts is electrs' limit at work: said only when the
+  // refusal names that limit (or, for a bare 500, the one assumed). A 413 that
+  // names none may have another reason, such as a history too long to serve.
+  const refusalText =
+    overLimit && status?.outputLimit !== null ? t('consolidation_refusal_lasts') : ''
 
   const pendingText =
     status && status.pendingSpent > 0
@@ -466,6 +461,7 @@ export function useQbitConsolidationScreenLogic() {
     description: status ? t('consolidation_description') : '',
     status,
     statusText,
+    refusalText,
     pendingText,
     overLimit,
     batch: currentBatch,
@@ -496,7 +492,7 @@ export function useQbitConsolidationScreenLogic() {
     feePreview,
     costNote,
     // A status read that failed does not stop a batch: the background checks
-    // the counts again when it builds one.
+    // the explorer again when it builds one.
     error: error || statusError,
     preparing,
     canPrepare:

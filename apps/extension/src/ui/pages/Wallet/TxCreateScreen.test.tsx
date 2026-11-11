@@ -185,12 +185,28 @@ describe('TxCreateScreen fee details', () => {
     vi.mocked(useTxCreateScreenLogic).mockReturnValue({
       ...vi.mocked(useTxCreateScreenLogic)(),
       showConsolidate: true,
+      consolidationNote: 'consolidation_send_note',
       onClickConsolidate
     });
     render(<TxCreateScreen />);
 
+    expect(screen.getByTestId('consolidation-send-note').textContent).toBe('consolidation_send_note');
     fireEvent.click(screen.getByTestId('tx-consolidate-button'));
     expect(onClickConsolidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the consolidation note once the account cannot send (#169)', () => {
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      error: 'utxo_limit_exceeded_send',
+      showConsolidate: true,
+      consolidationNote: ''
+    });
+    render(<TxCreateScreen />);
+
+    expect(screen.getByTestId('tx-create-error').textContent).toBe('utxo_limit_exceeded_send');
+    expect(screen.queryByTestId('consolidation-send-note')).toBeNull();
+    expect(screen.getByTestId('tx-consolidate-button')).toBeTruthy();
   });
 
   it('shows what leaves the wallet and why its fee is abnormal (#271)', () => {

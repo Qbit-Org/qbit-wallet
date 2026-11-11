@@ -3,10 +3,10 @@ import { transactionCore } from '@qbit/wallet-core'
 /**
  * An in-memory explorer served over `fetch`, so tests drive the real
  * `@qbit-oss/api` clients: their paging, cursor checks, retries and error
- * classification. It models what #277 is about: electrs refuses
- * `/address/:a/utxo` with HTTP 500 for an address holding more confirmed
- * unspent outputs than `utxoLimit`, while the statistics, history pages,
- * transactions and `/tx/:txid/outspends` keep answering.
+ * classification. It models what #277 and #169 are about: the explorer
+ * refuses `/address/:a/utxo` for an address holding more confirmed unspent
+ * outputs than `utxoLimit` (as `utxoRefusal` words it), while the statistics,
+ * history pages, transactions and `/tx/:txid/outspends` keep answering.
  *
  * Esplora routes page confirmed history 25 rows at a time
  * (`/txs/chain[/:last]`) and list the mempool at `/txs/mempool`. With
@@ -75,6 +75,24 @@ export class FakeQbitExplorer {
   readonly failures: FakeFailure[] = []
   tipHeight = 2_000
   utxoLimit = 500
+  /**
+   * How the listing refuses an address over `utxoLimit` (#169):
+   *
+   * - `'mempool-qbit'`: HTTP 413 with electrs' reason as `{"error":"..."}`,
+   *   as mempool-qbit has since v1.0.0 (`getAddressLookupError` in
+   *   Qbit-Org/qbit-explorer@40bc676 `backend/src/utils/api.ts`).
+   * - `'electrs'`: HTTP 400 with the reason as text, as qbit-electrs itself
+   *   answers (`TooManyUtxos`, Qbit-Org/qbit-electrs@53102e9).
+   * - `'bare-500'`: HTTP 500 `{"error":"Failed to get address"}`, as
+   *   mempool-qbit before v1.0.0, which answered every failure that way.
+   */
+  utxoRefusal: 'mempool-qbit' | 'electrs' | 'bare-500' = 'mempool-qbit'
+  /**
+   * Addresses the listing refuses whatever they hold now: electrs refuses an
+   * address whose output set passed its limit at any point since it last
+   * cached that set (`utxo_delta` in `src/new_index/schema.rs`).
+   */
+  readonly utxoRefusedAddresses = new Set<string>()
   feeRate = 1
   /** History rows without prevouts, as some backends serve them. */
   omitHistoryPrevouts = false
@@ -162,6 +180,22 @@ export class FakeQbitExplorer {
       }
     }
     return this.spenders.get(`${txid.toLowerCase()}:${vout}`)
+  }
+
+  /** The listing's refusal of an over-limit address, as `utxoRefusal` words it. */
+  utxoListRefusal(): Response {
+    const reason = `Too many unspent transaction outputs (>${this.utxoLimit}). Contact support to raise limits.`
+    switch (this.utxoRefusal) {
+      case 'mempool-qbit':
+        return new Response(JSON.stringify({ error: reason }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' },
+        })
+      case 'electrs':
+        return new Response(reason, { status: 400, headers: { 'content-type': 'text/plain' } })
+      case 'bare-500':
+        return new Response('{"error":"Failed to get address"}', { status: 500 })
+    }
   }
 
   /** Unspent outputs paying `address`, as `txid:vout`. */
@@ -452,8 +486,11 @@ export class FakeQbitExplorer {
     }
     if ((match = path.match(/^\/address\/([^/]+)\/utxo$/))) {
       const address = decodeURIComponent(match[1]!)
-      if (this.unspent(address, { confirmedOnly: true }).size > this.utxoLimit) {
-        return new Response('{"error":"Failed to get address"}', { status: 500 })
+      if (
+        this.utxoRefusedAddresses.has(address) ||
+        this.unspent(address, { confirmedOnly: true }).size > this.utxoLimit
+      ) {
+        return this.utxoListRefusal()
       }
       return json(
         [...this.unspent(address)].map(key => {

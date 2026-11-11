@@ -28,6 +28,7 @@ const status = {
   confirmedUnspent: 812,
   pendingSpent: 106,
   pendingFunded: 1,
+  overLimit: true,
   outputLimit: 500,
   maxInputCount: MAX_INPUT_COUNT,
   batchShape,
@@ -120,11 +121,12 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
     wallet.createQbitConsolidationPsbt.mockResolvedValue(prepared)
     const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
 
-    // 812 confirmed outputs; once the pending batch confirms, 707 remain,
-    // two more batches of 106 (105 net each).
+    // No number of batches is promised: the explorer keeps refusing an
+    // account that once passed its limit (#169).
     await waitFor(() => {
-      expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
+      expect(result.current.statusText).toBe('consolidation_status:812|500')
     })
+    expect(result.current.refusalText).toBe('consolidation_refusal_lasts')
     expect(result.current.pendingText).toBe('consolidation_pending:106')
     expect(result.current.description).toBe('consolidation_description')
     expect(result.current.canPrepare).toBe(true)
@@ -267,23 +269,42 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
     expect(result.current.canPrepare).toBe(true)
   })
 
-  it('says when the pending batches already bring the account within the limit', async () => {
+  it('goes by the explorer refusing, not by the count, for an account it still refuses (#169)', async () => {
     const { wallet, wrapper } = setup()
+    // Within the stated limit by count, and refused all the same: electrs
+    // counts the most the address held since it last cached its outputs.
     wallet.getQbitConsolidationStatus.mockResolvedValue({
       ...status,
-      confirmedUnspent: 560,
-      pendingSpent: 106,
+      confirmedUnspent: 40_000,
+      pendingSpent: 0,
+      outputLimit: 50_000,
     })
     const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
 
     await waitFor(() => {
-      expect(result.current.statusText).toBe('consolidation_status_confirming:560|500')
+      expect(result.current.statusText).toBe('consolidation_status:40000|50000')
     })
+    expect(result.current.refusalText).toBe('consolidation_refusal_lasts')
+    expect(result.current.overLimit).toBe(true)
+    expect(result.current.canPrepare).toBe(true)
     // Whatever the size of the next batch.
     act(() => {
       result.current.onBatchSizeChange('abc')
     })
-    expect(result.current.statusText).toBe('consolidation_status_confirming:560|500')
+    expect(result.current.statusText).toBe('consolidation_status:40000|50000')
+  })
+
+  it('says the explorer refuses without a limit when its refusal states none (#169)', async () => {
+    const { wallet, wrapper } = setup()
+    wallet.getQbitConsolidationStatus.mockResolvedValue({ ...status, outputLimit: null })
+    const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.statusText).toBe('consolidation_status_no_limit:812')
+    })
+    // Nor why the refusal lasts: that is electrs' limit, which it did not name.
+    expect(result.current.refusalText).toBe('')
+    expect(result.current.canPrepare).toBe(true)
   })
 
   it('keeps a failed status read visible and still lets a batch be prepared', async () => {
@@ -308,24 +329,25 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
     })
     // The background checked the counts; the status is read again with the batch.
     await waitFor(() => expect(result.current.batch).toBe(prepared))
-    await waitFor(() =>
-      expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
-    )
+    await waitFor(() => expect(result.current.statusText).toBe('consolidation_status:812|500'))
     expect(result.current.error).toBe('')
   })
 
-  it('offers nothing to do for an account within the limit', async () => {
+  it('offers nothing to do for an account the explorer lists, whatever its count', async () => {
     const { wallet, wrapper } = setup()
+    // More outputs than an older explorer's 500, listed by one whose limit is higher.
     wallet.getQbitConsolidationStatus.mockResolvedValue({
       ...status,
-      confirmedUnspent: 300,
       pendingSpent: 0,
+      overLimit: false,
+      outputLimit: null,
     })
     const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
 
     await waitFor(() => {
-      expect(result.current.statusText).toBe('consolidation_within_limit:500')
+      expect(result.current.statusText).toBe('consolidation_within_limit')
     })
+    expect(result.current.refusalText).toBe('')
     expect(result.current.canPrepare).toBe(false)
   })
 
@@ -363,9 +385,7 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
       { wrapper }
     )
 
-    await waitFor(() =>
-      expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
-    )
+    await waitFor(() => expect(result.current.statusText).toBe('consolidation_status:812|500'))
     expect(result.current.canPrepare).toBe(false)
 
     await act(async () => {
@@ -380,9 +400,7 @@ describe('useQbitConsolidationScreenLogic (#277)', () => {
       store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
     })
     await waitFor(() => expect(wallet.getQbitConsolidationStatus).toHaveBeenCalledTimes(2))
-    await waitFor(() =>
-      expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
-    )
+    await waitFor(() => expect(result.current.statusText).toBe('consolidation_status:812|500'))
     expect(store.getState().ui.feeRateBar.feeRate).toBe(5)
     expect(result.current.canPrepare).toBe(false)
 
@@ -550,8 +568,9 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
       expect(result.current.batchSize).toBeUndefined()
       expect(result.current.batchSizeError).toBe('consolidation_batch_size_invalid:2|106')
       expect(result.current.canPrepare).toBe(false)
-      // Nothing is derived from a size the range refuses.
-      expect(result.current.statusText).toBe('consolidation_status_counts:812|500')
+      // Nothing is derived from a size the range refuses, and the status
+      // line does not depend on the size (#169).
+      expect(result.current.statusText).toBe('consolidation_status:812|500')
       expect(result.current.feePreview).toBe('')
       expect(result.current.costNote).toBe('')
       // Nor is one sent, should Prepare be reached anyway.
@@ -575,25 +594,20 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
     }
   })
 
-  it('requests the chosen size and counts the batches left by it', async () => {
+  it('requests the chosen size, and promises no number of batches by it (#169)', async () => {
     const { wallet, wrapper } = setup()
     wallet.createQbitConsolidationPsbt.mockResolvedValue(batch('01', 25))
     const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
     await waitFor(() => expect(result.current.canPrepare).toBe(true))
 
-    // 707 outputs once the pending batch confirms: 207 to remove, 24 a batch.
-    act(() => {
-      result.current.onBatchSizeChange('25')
-    })
-    expect(result.current.statusText).toBe('consolidation_status:812|500|9|25')
-    act(() => {
-      result.current.onBatchSizeChange('10')
-    })
-    expect(result.current.statusText).toBe('consolidation_status:812|500|23|10')
-    act(() => {
-      result.current.onBatchSizeChange('2')
-    })
-    expect(result.current.statusText).toBe('consolidation_status:812|500|207|2')
+    // The explorer keeps refusing an account that once passed its limit, so
+    // no size brings it within that limit in some number of batches.
+    for (const size of ['25', '10', '2']) {
+      act(() => {
+        result.current.onBatchSizeChange(size)
+      })
+      expect(result.current.statusText).toBe('consolidation_status:812|500')
+    }
 
     act(() => {
       result.current.onBatchSizeChange('25')
@@ -1035,7 +1049,7 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
       store.dispatch(uiActions.updateFeeRateBar({ feeRate: 3 }))
     })
     expect(result.current.error).toBe('')
-    expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
+    expect(result.current.statusText).toBe('consolidation_status:812|500')
     expect(result.current.canPrepare).toBe(true)
   })
 
@@ -1069,14 +1083,14 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
       await afterSecond.promise
     })
     expect(result.current.batchSizeText).toBe('106')
-    expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
+    expect(result.current.statusText).toBe('consolidation_status:812|500')
     await act(async () => {
       afterFirst.resolve({ ...status, confirmedUnspent: 900, maxInputCount: 50 })
       await afterFirst.promise
     })
     expect(result.current.maxBatchSize).toBe(MAX_INPUT_COUNT)
     expect(result.current.batchSizeText).toBe('106')
-    expect(result.current.statusText).toBe('consolidation_status:812|500|2|106')
+    expect(result.current.statusText).toBe('consolidation_status:812|500')
 
     // A refusal's read still running when the account changes is not
     // published for the account the screen moved to. A refusal reads the
@@ -1365,16 +1379,18 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
     ).toEqual([10, MAX_INPUT_COUNT])
   })
 
-  it('offers no batch size, range, fee preview or cost note for an account within the limit', async () => {
+  it('offers no batch size, range, fee preview or cost note for an account the explorer lists', async () => {
     const { wallet, wrapper } = setup({ maxInputs: 25 })
     wallet.getQbitConsolidationStatus.mockResolvedValue({
       ...status,
       confirmedUnspent: 300,
       pendingSpent: 0,
       pendingFunded: 0,
+      overLimit: false,
+      outputLimit: null,
     })
     const { result } = renderHook(() => useQbitConsolidationScreenLogic(), { wrapper })
-    await waitFor(() => expect(result.current.statusText).toBe('consolidation_within_limit:500'))
+    await waitFor(() => expect(result.current.statusText).toBe('consolidation_within_limit'))
 
     expect(result.current.showBatchSize).toBe(false)
     expect(result.current.batchSizeRange).toBe('')
@@ -1387,8 +1403,9 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
     })
     expect(result.current.batchSizeError).toBe('')
 
-    // Over the limit, with the pending batches enough or not, it is offered.
-    for (const confirmedUnspent of [560, 812]) {
+    // Refused by the explorer, it is offered whatever the count, below the
+    // limit included (#169).
+    for (const confirmedUnspent of [300, 812]) {
       const over = setup()
       over.wallet.getQbitConsolidationStatus.mockResolvedValue({ ...status, confirmedUnspent })
       const { result: shown, unmount } = renderHook(() => useQbitConsolidationScreenLogic(), {
@@ -1414,7 +1431,7 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
     })
     expect(result.current.feePreview).toBe('')
     expect(result.current.costNote).toBe('')
-    expect(result.current.statusText).toBe('consolidation_status:812|500|9|25')
+    expect(result.current.statusText).toBe('consolidation_status:812|500')
     act(() => {
       result.current.onClickPrepare()
     })

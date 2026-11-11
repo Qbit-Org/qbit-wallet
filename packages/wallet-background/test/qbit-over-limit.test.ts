@@ -5,11 +5,12 @@ import {
   continueQbitAddressOutputScan,
   createQbitAddressOutputScan,
   findQbitSpentOutpoints,
-  getQbitAddressOutputCounts,
   getQbitAddressUtxos,
   getQbitAddressUtxosClassifiedFromHistory,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitSpendableBalanceV2,
+  getQbitUtxoListLimit,
+  qbitAddressOutputCounts,
   qbitStatsSnapshot,
   QbitUtxoHistoryTooLargeError,
   readQbitAddressUtxos,
@@ -291,6 +292,106 @@ describe('outputs of an address over the explorer UTXO limit (#277)', () => {
     )
   })
 
+  describe('as each explorer refuses the listing (#169)', () => {
+    const utxoRequests = (explorer: FakeQbitExplorer) =>
+      explorer.requests.filter(request => request.path.endsWith('/utxo')).length
+
+    for (const refusal of ['mempool-qbit', 'electrs', 'bare-500'] as const) {
+      it(`reads the outputs from history when the listing is refused as ${refusal} words it`, async () => {
+        const fixture = overLimitExplorer()
+        const { explorer } = fixture
+        explorer.utxoRefusal = refusal
+        const client = clientFor(explorer)
+
+        const utxos = await getQbitAddressUtxos(client, address)
+
+        expect(keys(utxos)).toEqual(expectedSendable(fixture))
+        await expect(getQbitSpendableBalanceV2(client, address)).resolves.toMatchObject({
+          utxoLimitExceeded: true,
+        })
+        await expect(
+          getQbitUtxoListLimit(client, address, explorer.stats(address))
+        ).resolves.toEqual({ overLimit: true, limit: 500 })
+      })
+    }
+
+    it('asks once for a stated refusal, which is final, and statistics only to read history', async () => {
+      const { explorer } = overLimitExplorer()
+      const client = clientFor(explorer)
+
+      await getQbitAddressUtxos(client, address)
+
+      // The 413 is not retried as the bare 500 is, and the limit check reads
+      // no statistics of its own before the walk.
+      expect(utxoRequests(explorer)).toBe(1)
+      const statsRequests = explorer.requests.filter(request =>
+        /^\/address\/[^/]+$/.test(request.path)
+      ).length
+      explorer.requests.length = 0
+      explorer.utxoRefusal = 'bare-500'
+      await getQbitAddressUtxos(client, address)
+      expect(
+        explorer.requests.filter(request => /^\/address\/[^/]+$/.test(request.path)).length
+      ).toBe(statsRequests + 1)
+    })
+
+    for (const refusal of ['mempool-qbit', 'electrs'] as const) {
+      it(`reads an address ${refusal} keeps refusing with fewer outputs than the limit`, async () => {
+        // electrs refuses an address whose output set passed its limit since
+        // it last cached that set, as one that consolidated since would be.
+        const fixture = overLimitExplorer('esplora', { funded: 300 })
+        const { explorer } = fixture
+        explorer.utxoRefusal = refusal
+        explorer.utxoRefusedAddresses.add(address)
+        const client = clientFor(explorer)
+        const stats = explorer.stats(address)
+        expect(
+          stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count
+        ).toBeLessThan(explorer.utxoLimit)
+
+        expect(keys(await getQbitAddressUtxos(client, address))).toEqual(expectedSendable(fixture))
+        await expect(getQbitSpendableBalanceV2(client, address)).resolves.toMatchObject({
+          utxoLimitExceeded: true,
+        })
+        await expect(getQbitUtxoListLimit(client, address, stats)).resolves.toEqual({
+          overLimit: true,
+          limit: 500,
+        })
+      })
+    }
+
+    it("cannot tell an older explorer's bare 500 for such an address from an outage", async () => {
+      const { explorer } = overLimitExplorer('esplora', { funded: 300 })
+      explorer.utxoRefusal = 'bare-500'
+      explorer.utxoRefusedAddresses.add(address)
+      const client = clientFor(explorer)
+
+      await expect(getQbitAddressUtxos(client, address)).rejects.toMatchObject({
+        kind: 'http',
+        status: 500,
+      })
+      await expect(
+        getQbitUtxoListLimit(client, address, explorer.stats(address))
+      ).rejects.toMatchObject({ kind: 'http', status: 500 })
+      expect(pageRequests(explorer)).toBe(0)
+    })
+
+    it('lists an address the raised limit covers, past the 500 an older explorer had', async () => {
+      const fixture = overLimitExplorer()
+      const { explorer } = fixture
+      explorer.utxoLimit = 50_000
+      const client = clientFor(explorer)
+
+      const classified = await getQbitAddressUtxosClassifiedPastLimit(client, address)
+
+      expect(classified.historyStats).toBeUndefined()
+      expect(pageRequests(explorer)).toBe(0)
+      await expect(
+        getQbitUtxoListLimit(client, address, explorer.stats(address))
+      ).resolves.toEqual({ overLimit: false })
+    })
+  })
+
   it('keeps every other listing failure, and a 500 within the limit, as it was', async () => {
     const { explorer } = overLimitExplorer('esplora', { funded: 400 })
     explorer.failures.push(({ path }) =>
@@ -306,11 +407,11 @@ describe('outputs of an address over the explorer UTXO limit (#277)', () => {
     expect(pageRequests(explorer)).toBe(0)
   })
 
-  it('reports the confirmed and pending output counts the explorer limit sees', async () => {
+  it('reports the confirmed and pending output counts the explorer limit sees', () => {
     const { explorer } = overLimitExplorer()
     const stats = explorer.stats(address)
 
-    await expect(getQbitAddressOutputCounts(clientFor(explorer), address)).resolves.toEqual({
+    expect(qbitAddressOutputCounts(stats, address)).toEqual({
       confirmedUnspent: stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count,
       pendingSpent: 10,
       pendingFunded: 2,

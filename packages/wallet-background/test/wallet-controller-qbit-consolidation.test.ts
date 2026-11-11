@@ -234,6 +234,8 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       address: account.address,
       confirmedUnspent: 701,
       pendingSpent: 1,
+      // As the explorer's 413 states it (#169).
+      overLimit: true,
       outputLimit: 500,
       // Within the standard size.
       maxInputCount: 106,
@@ -835,6 +837,82 @@ describe('WalletController consolidation of an account over the explorer UTXO li
     await expect(wallet.createQbitConsolidationPsbt({ feeRate: 1 })).rejects.toThrow(
       'consolidation_error_within_limit'
     )
+  })
+
+  describe('as the explorer answers, not by the count (#169)', () => {
+    it('consolidates an account the explorer still refuses with fewer outputs than its limit', async () => {
+      explorer = overLimitAccount(450).explorer
+      // electrs keeps refusing an address whose set passed its limit since
+      // it last cached that set.
+      explorer.utxoRefusedAddresses.add(account.address)
+      const wallet = controller()
+
+      await expect(wallet.getQbitConsolidationStatus()).resolves.toMatchObject({
+        confirmedUnspent: 451,
+        overLimit: true,
+        outputLimit: 500,
+      })
+      const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      expect(inputsOf(batch)).toHaveLength(106)
+      expect(batch.qbitConsolidation).toMatchObject({ confirmedOutputCount: 451, outputLimit: 500 })
+    })
+
+    it('refuses an account the explorer lists since its limit was raised past it', async () => {
+      explorer = overLimitAccount().explorer
+      // 701 confirmed outputs: over an older explorer's 500, within 50,000.
+      explorer.utxoLimit = 50_000
+      const wallet = controller()
+
+      await expect(wallet.getQbitConsolidationStatus()).resolves.toMatchObject({
+        confirmedUnspent: 701,
+        overLimit: false,
+        outputLimit: null,
+      })
+      await expect(wallet.createQbitConsolidationPsbt({ feeRate: 1 })).rejects.toThrow(
+        'consolidation_error_within_limit'
+      )
+      // Nothing was walked or handed out for it.
+      expect((wallet as any).qbitConsolidationScans.size).toBe(0)
+    })
+
+    it('consolidates when the refusal states no limit, and says none', async () => {
+      explorer = overLimitAccount().explorer
+      explorer.failures.push(({ path }) =>
+        path.endsWith('/utxo') ? { status: 413, body: '{"error":"history too long"}' } : undefined
+      )
+      const wallet = controller()
+
+      await expect(wallet.getQbitConsolidationStatus()).resolves.toMatchObject({
+        overLimit: true,
+        outputLimit: null,
+      })
+      const batch = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+      expect(batch.qbitConsolidation).toMatchObject({ confirmedOutputCount: 701, outputLimit: null })
+    })
+
+    it("assumes 500 for an older explorer's bare 500, and only past it", async () => {
+      explorer = overLimitAccount().explorer
+      explorer.utxoRefusal = 'bare-500'
+      const wallet = controller()
+
+      await expect(wallet.getQbitConsolidationStatus()).resolves.toMatchObject({
+        overLimit: true,
+        outputLimit: 500,
+      })
+      expect((await wallet.createQbitConsolidationPsbt({ feeRate: 1 })).qbitConsolidation).toMatchObject({
+        outputLimit: 500,
+      })
+
+      explorer = overLimitAccount(450).explorer
+      explorer.utxoRefusal = 'bare-500'
+      explorer.utxoRefusedAddresses.add(account.address)
+      const older = controller()
+      // Within the assumed limit, a bare 500 is no different from an outage.
+      await expect(older.getQbitConsolidationStatus()).rejects.toMatchObject({ status: 500 })
+      await expect(older.createQbitConsolidationPsbt({ feeRate: 1 })).rejects.toMatchObject({
+        status: 500,
+      })
+    })
   })
 
   it('starts the walk over when a candidate turns out to be gone, instead of failing every batch', async () => {
