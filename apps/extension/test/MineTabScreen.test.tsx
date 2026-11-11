@@ -40,11 +40,13 @@ vi.mock('@/ui/components/SwitchNetworkBar', () => ({
 
 import { browserTabsCreate } from '@/background/webapi/browser';
 
+import { MINE_TAB_SEEN_STORAGE_KEY } from '../src/ui/components/NavTabBar/mineTabSeen';
 import MineTabScreen from '../src/ui/pages/Main/MineTabScreen';
 
 describe('MineTabScreen', () => {
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.mocked(browserTabsCreate).mockClear();
   });
 
@@ -52,9 +54,17 @@ describe('MineTabScreen', () => {
     render(<MineTabScreen />);
 
     expect(screen.getByText('Mine QBT. No hardware required.')).toBeTruthy();
-    expect(screen.getByText('Qbit Mine')).toBeTruthy();
+    // Header title and content heading.
+    expect(screen.getAllByText('Qbit Mine')).toHaveLength(2);
+    expect(screen.queryByText(/We handle the technical part/)).toBeNull();
     expect(screen.getByText('Paid every pool block')).toBeTruthy();
     expect(screen.getByTestId('nav-tab-bar').getAttribute('data-tab')).toBe('mine');
+  });
+
+  it('marks the Mine tab as seen so the NEW badge retires', () => {
+    render(<MineTabScreen />);
+
+    expect(localStorage.getItem(MINE_TAB_SEEN_STORAGE_KEY)).toBe('true');
   });
 
   it('opens qbit.org/mine with the extension UTM source in a new active tab', () => {

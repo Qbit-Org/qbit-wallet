@@ -1,5 +1,8 @@
+import { useEffect } from 'react';
+
 import { Button, Column, Content, Footer, Header, Icon, Layout, Row, Text } from '@/ui/components';
 import { NavTabBar } from '@/ui/components/NavTabBar';
+import { markMineTabSeen } from '@/ui/components/NavTabBar/mineTabSeen';
 import { SwitchNetworkBar } from '@/ui/components/SwitchNetworkBar';
 import { colors } from '@/ui/theme/colors';
 
@@ -17,13 +20,18 @@ const MINE_BENEFITS: ReadonlyArray<{ title: string; description: string }> = [
 ];
 
 export default function MineTabScreen() {
+  // Also covers arriving here without the tab button (e.g. a restored route).
+  useEffect(() => {
+    markMineTabSeen();
+  }, []);
+
   return (
     <Layout>
       <Header
         type="home"
         LeftComponent={
           <Row>
-            <Text preset="title-bold" text="Mine" />
+            <Text preset="title-bold" text="Qbit Mine" />
           </Row>
         }
         RightComponent={<SwitchNetworkBar />}
@@ -41,32 +49,28 @@ export default function MineTabScreen() {
               boxShadow: `0 8px 24px ${colors.shadow}`
             }}
           >
-            <Column gap="sm">
-              <Row itemsCenter style={{ gap: 6 }}>
-                <Icon icon="mine" color="accentDark" size={14} />
-                <Text text="Qbit Mine" preset="sub-bold" color="accentDark" />
+            <Column gap="md">
+              <Row itemsCenter style={{ gap: 8 }}>
+                <Icon icon="mine" color="accentDark" size={22} containerStyle={{ flexShrink: 0 }} />
+                <Text text="Qbit Mine" preset="title-bold" size="xxl" style={{ lineHeight: 1.15 }} />
               </Row>
-              <Text
-                text="Mine QBT. No hardware required."
-                preset="title-bold"
-                size="xl"
-                wrap
-                style={{ lineHeight: 1.25 }}
-              />
-              <Text
-                text="Rent mining power, earn QBT every few minutes, and keep it safe in your own Qbit Wallet. We handle the technical part."
-                size="xs"
-                color="textDim"
-                wrap
-                style={{ lineHeight: 1.45 }}
-              />
+              <Column gap="sm">
+                <Text text="Mine QBT. No hardware required." preset="bold" size="md" wrap style={{ lineHeight: 1.3 }} />
+                <Text
+                  text="Rent mining power, earn QBT every few minutes, and keep it safe in your own Qbit Wallet."
+                  size="xs"
+                  color="textDim"
+                  wrap
+                  style={{ lineHeight: 1.45 }}
+                />
+              </Column>
             </Column>
 
             <Column gap="md" data-testid="mine-benefits">
               {MINE_BENEFITS.map((benefit) => (
                 <Row key={benefit.title} style={{ gap: 8, alignItems: 'flex-start' }}>
                   <Icon icon="check" color="accentDark" size={14} containerStyle={{ flexShrink: 0, marginTop: 2 }} />
-                  <Column gap="zero" style={{ flex: 1, minWidth: 0 }}>
+                  <Column gap="sm" style={{ flex: 1, minWidth: 0 }}>
                     <Text text={benefit.title} preset="regular-bold" size="xs" wrap />
                     <Text text={benefit.description} size="xs" color="textDim" wrap style={{ lineHeight: 1.4 }} />
                   </Column>
