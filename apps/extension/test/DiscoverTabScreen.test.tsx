@@ -115,7 +115,7 @@ describe('DiscoverTabScreen', () => {
     expect(openEcosystemEntry).toHaveBeenCalledWith('qbit-testnet-faucet');
   });
 
-  it('renders the four community catalog entries on Mainnet in catalog order and opens by catalog ID', () => {
+  it('renders the five community catalog entries on Mainnet in catalog order and opens by catalog ID', () => {
     currentChainType = 'QBIT_MAINNET';
     localStorage.setItem(ECOSYSTEM_WARNING_ACK_STORAGE_KEY, 'true');
 
@@ -123,11 +123,13 @@ describe('DiscoverTabScreen', () => {
 
     expect(screen.getAllByRole('button').map((button) => button.getAttribute('data-testid'))).toEqual([
       'ecosystem-entry-prism-pool',
+      'ecosystem-entry-qbit-mine',
       'ecosystem-entry-qbit-block-visualizer',
       'ecosystem-entry-qbit-testnet-faucet-mainnet',
       'ecosystem-entry-qbit-rich-list'
     ]);
     expect(screen.getByText('Qbit Pool')).toBeTruthy();
+    expect(screen.getByText('Qbit Mine')).toBeTruthy();
     expect(screen.getByText('Qbit Block Visualizer')).toBeTruthy();
     expect(screen.getByText('Qbit Testnet Faucet')).toBeTruthy();
     expect(screen.getByText('Qbit Rich List')).toBeTruthy();

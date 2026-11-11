@@ -1,9 +1,7 @@
-import { browserTabsCreate } from '@/background/webapi/browser';
+import { openEcosystemEntry } from './ecosystemNavigation';
 
-export const QBIT_MINE_URL = 'https://qbit.org/mine?utm_source=qbit-wallet-extension';
-
-type OpenTab = (params: { url: string; active: true }) => Promise<unknown>;
-
-export async function openQbitMine(openTab: OpenTab = browserTabsCreate): Promise<unknown> {
-  return openTab({ url: QBIT_MINE_URL, active: true });
+// The Mine tab opens the same catalog entry that the App Center lists, so the
+// URL (with its UTM source) is defined once in the ecosystem catalog.
+export function openQbitMine(): Promise<unknown> {
+  return openEcosystemEntry('qbit-mine');
 }

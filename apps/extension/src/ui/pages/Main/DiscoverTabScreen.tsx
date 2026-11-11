@@ -13,6 +13,7 @@ import { openEcosystemEntry } from './ecosystemNavigation';
 const ECOSYSTEM_ARTWORK: Record<EcosystemArtwork, string> = {
   faucet: '/images/ecosystem/qbit-testnet-faucet.svg',
   'mining-pool': '/images/ecosystem/prism-testnet-pool.svg',
+  mine: '/images/ecosystem/qbit-mine.svg',
   'block-visualizer': '/images/ecosystem/qbit-block-visualizer.svg',
   'rich-list': '/images/ecosystem/qbit-rich-list.svg'
 };

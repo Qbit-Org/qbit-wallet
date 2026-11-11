@@ -60,6 +60,8 @@ describe('MineTabScreen', () => {
     expect(screen.queryByText(/We handle the technical part/)).toBeNull();
     expect(screen.getByText('Paid every pool block')).toBeTruthy();
     expect(screen.getByTestId('nav-tab-bar').getAttribute('data-tab')).toBe('mine');
+    // The network switch is hidden on this tab.
+    expect(screen.queryByTestId('switch-network-bar')).toBeNull();
   });
 
   it('marks the Mine tab as seen so the NEW badge retires', () => {

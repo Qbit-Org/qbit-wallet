@@ -3,8 +3,6 @@ import { useEffect } from 'react';
 import { Button, Column, Content, Footer, Header, Icon, Layout, Row, Text } from '@/ui/components';
 import { NavTabBar } from '@/ui/components/NavTabBar';
 import { markMineTabSeen } from '@/ui/components/NavTabBar/mineTabSeen';
-import { SwitchNetworkBar } from '@/ui/components/SwitchNetworkBar';
-import { colors } from '@/ui/theme/colors';
 
 import { openQbitMine } from './mineNavigation';
 
@@ -34,21 +32,10 @@ export default function MineTabScreen() {
             <Text preset="title-bold" text="Qbit Mine" />
           </Row>
         }
-        RightComponent={<SwitchNetworkBar />}
       />
       <Content>
         <div data-testid="mine-hero" style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
-          <Column
-            gap="lg"
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              padding: 16,
-              backgroundColor: colors.surface,
-              border: `1px solid ${colors.border}`,
-              boxShadow: `0 8px 24px ${colors.shadow}`
-            }}
-          >
+          <Column gap="xl" style={{ width: '100%' }}>
             <Column itemsCenter gap="zero">
               <Icon icon="mine" color="accentDark" size={30} containerStyle={{ marginBottom: 14 }} />
               <Column gap="sm" style={{ width: '100%' }}>

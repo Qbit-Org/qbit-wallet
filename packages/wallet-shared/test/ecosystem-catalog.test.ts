@@ -48,6 +48,18 @@ describe('Qbit ecosystem catalog', () => {
         source: 'qbit.org/ecosystem',
       },
       {
+        id: 'qbit-mine',
+        title: 'Qbit Mine',
+        description:
+          'Rent mining power and earn QBT every few minutes, paid straight to your own Qbit Wallet. No hardware required.',
+        canonicalUrl: 'https://qbit.org/mine?utm_source=qbit-wallet-extension',
+        supportedChains: [ChainType.QBIT_MAINNET],
+        artwork: 'mine',
+        tags: ['Mainnet', 'Mining'],
+        operator: 'community',
+        source: 'qbit.org/ecosystem',
+      },
+      {
         id: 'qbit-block-visualizer',
         title: 'Qbit Block Visualizer',
         description:
@@ -84,7 +96,7 @@ describe('Qbit ecosystem catalog', () => {
         source: 'qbit.org/ecosystem',
       },
     ])
-    expect(new Set(QBIT_ECOSYSTEM_CATALOG.map(entry => entry.id)).size).toBe(6)
+    expect(new Set(QBIT_ECOSYSTEM_CATALOG.map(entry => entry.id)).size).toBe(7)
   })
 
   it('shows the Testnet4 community tools on Testnet4', () => {
@@ -97,6 +109,7 @@ describe('Qbit ecosystem catalog', () => {
   it('shows the Mainnet community tools on Mainnet in catalog order', () => {
     expect(getEcosystemEntriesForChain(ChainType.QBIT_MAINNET).map(entry => entry.id)).toEqual([
       'prism-pool',
+      'qbit-mine',
       'qbit-block-visualizer',
       'qbit-testnet-faucet-mainnet',
       'qbit-rich-list',
@@ -111,6 +124,9 @@ describe('Qbit ecosystem catalog', () => {
     expect(getEcosystemNavigationUrl('qbit-testnet-faucet')).toBe('https://qbit.robertclarke.com/')
     expect(getEcosystemNavigationUrl('prism-testnet-pool')).toBe('https://qbit.org/pool?network=testnet4')
     expect(getEcosystemNavigationUrl('prism-pool')).toBe('https://qbit.org/pool')
+    expect(getEcosystemNavigationUrl('qbit-mine')).toBe(
+      'https://qbit.org/mine?utm_source=qbit-wallet-extension'
+    )
     expect(getEcosystemNavigationUrl('qbit-block-visualizer')).toBe('https://qbit.miller.nz/')
     expect(getEcosystemNavigationUrl('qbit-testnet-faucet-mainnet')).toBe(
       'https://qbit.robertclarke.com/?network=testnet4'
