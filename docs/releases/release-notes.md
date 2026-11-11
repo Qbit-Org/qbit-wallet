@@ -11,11 +11,11 @@ repository.
 
 - The minimum fee rate is now 0.25 bits/vB, down from 1 bit/vB. It is the
   lowest rate that qbit Core nodes relay. A payment that spends one input cost
-  at least 3,817 bits before and costs at least 955 bits now. Slow, Normal and
-  Fast can be below 1 bit/vB when the network is quiet, and a Custom rate can
-  be set from 0.25. Below that, Next stays disabled and the screen says "The
-  minimum fee rate is 0.25 bits/vB." A fee rate that a website asks for is
-  accepted from 0.25 as well.
+  at least 3,817 bits before and costs at least 955 bits now. When the network
+  is quiet, Slow can go down to 0.25 bits/vB and Normal to 0.5, and Fast stays
+  at 1 bit/vB or more. A Custom rate can be set from 0.25. Below that, Next
+  stays disabled and the screen says "The minimum fee rate is 0.25 bits/vB."
+  A fee rate that a website asks for is accepted from 0.25 as well.
 - When fee estimates are unavailable, the wallet still uses 1 bit/vB and says
   so. Speed up still raises the rate by at least 1 bit/vB, and a recovery
   migration still pays at least 1 bit/vB.
@@ -41,8 +41,9 @@ repository.
   reported as not sent once the wallet has checked that the network does not
   have it, and its coins are free to spend again. Before, it read "Payment
   status unknown" and its coins were set aside for 10 minutes to 24 hours.
-- A payment that would need more inputs than one transaction can carry now
-  says so, and what to do instead.
+- The message for a payment that needs more of the account's outputs than one
+  transaction can carry is reworded. It no longer refers to the network's
+  standard transaction size.
 
 ### Consolidation and accounts with many outputs
 
@@ -51,10 +52,11 @@ repository.
   MAX is the default. Before you prepare a batch, the screen shows the fee of
   a full batch of that size and how much more smaller batches cost in total.
   The next batch keeps the size you chose.
-- Full consolidation batches go through again. The explorer refused every
-  batch of 103 to 106 outputs because of a fault in its size check, which is
-  fixed on the explorer. If an explorer still refuses a batch as too large,
-  the wallet says that it was not sent, and you can prepare a smaller batch.
+- Transactions with 103 to 106 inputs now go through: full consolidation
+  batches, MAX sends and large recovery transfers. The explorer refused them
+  because of a fault in its size check, which is fixed on the explorer. If an
+  explorer still refuses a batch as too large, the wallet says that it was not
+  sent, and you can prepare a smaller batch.
 - The wallet now recognizes the answer that the explorer gives for an account
   with more outputs than it lists. Since the explorer changed that answer,
   such an account showed the explorer's error and could not send. Its balance
@@ -85,27 +87,35 @@ repository.
 - Switch Account lists every account under its wallet, with a search over
   account names, addresses and wallet names. One tap switches the wallet and
   the account together.
-- Wallet actions now sit on the wallet. "+" adds an account to that wallet,
-  and the wallet's menu has Add Account, Rename Wallet, Change Color, Show
-  Secret Recovery Phrase and Remove Wallet. An account's menu has Edit Name,
-  Copy Address and, where it applies, Export Private Key. The recovery phrase
-  is no longer offered in account menus.
+- Wallet actions now sit on the wallet. Its menu has Rename Wallet, Change
+  Color and Remove Wallet. A wallet that can add accounts also has "+" and Add
+  Account, and a wallet made from a recovery phrase has Show Secret Recovery
+  Phrase. An account's menu has Edit Name, Copy Address and, where it applies,
+  Export Private Key. The recovery phrase is no longer offered in account
+  menus.
 - Each wallet has a color, which Change Color sets from eight choices. New
   wallets are named "Wallet" and a number. The names of existing wallets and
   accounts are not changed.
 - Tags mark a wallet as Read Only, Recovered, Archived or Linked to Qbit Cold
   Wallet.
 - A wallet whose accounts cannot be listed stays in the list as Invalid. It
-  can be renamed and removed, and its recovery phrase can be shown first, so
-  that it can be backed up. Removing such a wallet always failed before.
+  can be renamed and removed, and one made from a recovery phrase can show
+  that phrase first, so that it can be backed up. Removing such a wallet
+  always failed before.
 - With the wallet open in more than one window, a switch, removal, rename,
-  color change or recovery-phrase request made from a list that another
-  window has since changed is refused, and the list is read again. Before,
-  such a switch could select an empty slot and tell connected websites an
-  address that had been removed. The last usable wallet cannot be removed,
-  even from two windows at once.
+  color change or recovery-phrase request for a wallet or account that
+  another window has since removed or replaced is refused, and the list is
+  read again. Before, such a switch could select an empty slot and tell
+  connected websites an address that had been removed. The last usable wallet
+  cannot be removed, even from two windows at once.
 - Removing a wallet that is not the current one leaves the current wallet and
   account as they were, and tells connected websites nothing.
+- Removing a wallet also forgets its stored name and color, so a later wallet
+  cannot pick them up.
+- If the wallet locks while a wallet or an account is being added, the
+  addition is saved but not selected, and the earlier selection stays after
+  you unlock. Before, connected websites were told the new address while the
+  wallet was locked.
 - The switcher, its menus and its dialogs work with the keyboard and with
   screen readers.
 
@@ -130,15 +140,18 @@ repository.
   signing all at once. Every request still needs your approval. Only that
   exact address is recognized: `www.qbit.org`, other subdomains and
   `http://qbit.org` are not.
-- A website at `qbit.` followed by any ending other than `org`, such as
-  `qbit.io`, is now treated as phishing. Its approvals are blocked, it gets no
-  wallet connection, and the phishing warning is shown in place of the page.
+- A website at `qbit.` followed by a top-level domain other than `org`, such
+  as `qbit.io`, or at a subdomain of one, is now treated as phishing. Its
+  approvals are blocked, it gets no wallet connection, and the phishing
+  warning is shown in place of the page.
 - The built-in phishing list now names `qbit.ca`, `qbit.com`, `qbit.io` and
   `qbit.me`. It replaces 29 entries, none of which imitated Qbit. The update
   adds no permission prompt.
-- Back on the phishing warning now returns to the page you came from. Before,
-  for a blocked site opened from its address, a bookmark or a redirect, Back
-  loaded the blocked page and then the warning again, every time.
+- Back on the phishing warning returns to the page you came from. That
+  matters for the lookalike sites above, which the wallet stops as their page
+  starts to load: without it, Back would load the blocked page and then the
+  warning again, every time. In 1.0.8 the same loop could happen for a listed
+  site whose blocking rules were missing.
 
 ### Restoring a wallet and recovery
 
@@ -150,15 +163,16 @@ repository.
 ### Qbit Mine
 
 - A new Mine tab, between the wallet tab and the App Center, introduces Qbit
-  Mine and opens `qbit.org/mine` in a new tab. The tab shows a NEW badge until
-  you first open it.
+  Mine, and its Open Qbit Mine button opens `qbit.org/mine` in a new browser
+  tab. The Mine tab shows a NEW badge until you first open it.
 - Qbit Mine is listed in the App Center on Mainnet.
 
 ### Balance card and tooltips
 
 - The Unavailable tip now lists as bullets why funds can be unavailable:
   protected assets, unconfirmed transactions, and coinbase maturity of 1,000
-  blocks. The Send screen shows the same tip.
+  blocks. It no longer points to the UTXO Management Tool. The Send screen
+  shows the same tip.
 - Tooltips now stay inside the wallet window and follow the light and dark
   themes. Before, a long tooltip was wider than the popup and ran past both
   edges.
@@ -171,8 +185,9 @@ repository.
   critical advisory (GHSA-8vv3-6qpc-gpw6) in its block and merkle-root code.
   The wallet never calls that code, and the library's PSBT code is unchanged.
 - The conformance tests now check the minimum fee rate against a real qbit
-  Core node: a payment at exactly 0.25 bits/vB is accepted and mined, and the
-  same payment with a fee one bit lower is refused.
+  Core node: a payment at the 0.25 bits/vB minimum, its fee rounded up to a
+  whole bit, is accepted and mined, and the same payment with a fee one bit
+  lower is refused.
 - The browser release gate grows from 29 to 36 tests. The new ones cover the
   account switcher, a send at the minimum fee rate, a lookalike website, and
   Back on the phishing warning.
@@ -188,6 +203,9 @@ repository.
   cancel button. Clicking outside the popup closes it. For a long signing,
   open the wallet in the sidebar, where it stays open while you use other
   tabs.
+- Miners choose which transactions they include, so a payment at a rate close
+  to the 0.25 bits/vB minimum can take longer to confirm. Speed up raises such
+  a payment to at least 1 bit/vB.
 - A payment of the whole balance and a consolidation batch cannot be sped up.
   They wait at the rate they were sent with. If the network's minimum rises
   above that rate, the transaction is dropped, its coins are free again, and
@@ -202,6 +220,9 @@ repository.
   load, and shows no warning where you have withheld the wallet's access to
   that site, though it still gets no wallet connection. Lookalikes of other
   shapes, such as `qbit-org.com` or `qbit.co.uk`, are not recognized (#33).
+- On the phishing warning, Back has nowhere to return to in a tab with no
+  earlier page, such as one that another application opened, so the warning
+  is shown again.
 - Removing a wallet shown as Invalid removes it on every network, even when
   it is invalid only on the current one. Back up its recovery phrase first.
 - Some errors on the consolidation screen are shown as the wallet received
