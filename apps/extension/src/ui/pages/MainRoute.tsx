@@ -22,8 +22,6 @@ import CreateHDWalletScreen from './Account/CreateHDWalletScreen';
 import CreatePasswordScreen from './Account/CreatePasswordScreen';
 import CreateReadonlyWalletScreen from './Account/CreateReadonlyWalletScreen';
 import CreateWatchWalletScreen from './Account/CreateWatchWalletScreen';
-import SwitchAccountScreen from './Account/SwitchAccountScreen';
-import SwitchKeyringScreen from './Account/SwitchKeyringScreen';
 import UnlockScreen from './Account/UnlockScreen';
 import ApprovalScreen from './Approval/ApprovalScreen';
 import ConnectedSitesScreen from './Approval/ConnectedSitesScreen';
@@ -40,9 +38,7 @@ import { LockTimePage } from './Settings/AdvancedScreen/LockTimePage';
 import { RegtestAccessScreen } from './Settings/AdvancedScreen/RegtestAccessScreen';
 import ChangePasswordScreen from './Settings/ChangePasswordScreen';
 import ContactsScreen from './Settings/ContactsScreen';
-import EditAccountNameScreen from './Settings/EditAccountNameScreen';
 import EditContactScreen from './Settings/EditContactScreen';
-import EditWalletNameScreen from './Settings/EditWalletNameScreen';
 import ExportMnemonicsScreen from './Settings/ExportMnemonicsScreen';
 import ExportPrivateKeyScreen from './Settings/ExportPrivateKeyScreen';
 import AppearanceScreen from './Settings/AppearanceScreen';
@@ -103,10 +99,6 @@ export const routes = {
   UnlockScreen: {
     path: '/account/unlock',
     element: <UnlockScreen />
-  },
-  SwitchAccountScreen: {
-    path: '/account/switch-account',
-    element: <SwitchAccountScreen />
   },
   ReceiveScreen: {
     path: '/wallet/receive',
@@ -190,17 +182,9 @@ export const routes = {
     path: '/connected-sites',
     element: <ConnectedSitesScreen />
   },
-  SwitchKeyringScreen: {
-    path: '/account/switch-keyring',
-    element: <SwitchKeyringScreen />
-  },
   AddKeyringScreen: {
     path: '/account/add-keyring',
     element: <AddKeyringScreen />
-  },
-  EditWalletNameScreen: {
-    path: '/settings/edit-wallet-name',
-    element: <EditWalletNameScreen />
   },
   CreateReadonlyWalletScreen: {
     path: '/account/create-readonly-wallet',
@@ -226,10 +210,6 @@ export const routes = {
   EditContactWithChainScreen: {
     path: '/settings/contact/:address/:chain',
     element: <EditContactScreen />
-  },
-  EditAccountNameScreen: {
-    path: '/settings/edit-account-name',
-    element: <EditAccountNameScreen />
   },
   phishing: {
     path: '/phishing',

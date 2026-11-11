@@ -4648,6 +4648,44 @@ describe('qbit-hd-keyring', () => {
       const failed = await service.getAllDisplayedKeyrings(true)
       expect(failed[0]!.keyring.qbitRecovery).toMatchObject({ status: 'seed-only-restored' })
     })
+
+    it('shows every wallet of a list for the network the list is kept under', async () => {
+      const { service, keyring, pubkey } = await createRestoredQbitService()
+      keyring.beginQbitRecoveryMigration('regtest', {
+        destinationKeyringIndex: 1,
+        destinationPubkey: 'ff'.repeat(32),
+        destinationAddress: 'qbit-regtest-destination',
+        network: 'regtest',
+      })
+      await service.markQbitRecoveryMigrated(pubkey, 'regtest')
+      let activeNetwork = 'regtest'
+      service.setActiveQbitNetworkResolver(() => activeNetwork)
+
+      // A read for regtest waits on the wallet's accounts while the network
+      // switches to testnet4.
+      const accounts = keyring.getAccounts.bind(keyring)
+      let release!: () => void
+      const gate = new Promise<void>(resolve => {
+        release = resolve
+      })
+      vi.spyOn(keyring, 'getAccounts').mockImplementationOnce(async () => {
+        const listed = await accounts()
+        await gate
+        return listed
+      })
+      const reading = service.getAllDisplayedKeyrings()
+      activeNetwork = 'testnet4'
+      release()
+      expect((await reading)[0]!.keyring.qbitRecovery).toMatchObject({ status: 'migrated' })
+
+      // Back on regtest, the list kept for regtest shows the wallet for regtest.
+      activeNetwork = 'regtest'
+      const displayed = await service.getAllDisplayedKeyrings()
+      expect(displayed[0]!.keyring.qbitRecovery).toMatchObject({
+        status: 'migrated',
+        otherNetworksPendingRecovery: true,
+      })
+    })
   })
 
   describe('hardware-wallet gating (D5)', () => {

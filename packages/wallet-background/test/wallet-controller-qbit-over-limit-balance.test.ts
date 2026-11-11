@@ -69,6 +69,8 @@ vi.mock('../src/services', async () => {
       getCurrentKeyringIndex: vi.fn(() => 0),
       getAutoLockTimeId: vi.fn(),
       resetAllData: vi.fn(async () => undefined),
+      removeKeyringAlianName: vi.fn(),
+      removeKeyringColor: vi.fn(),
     },
     qbitSendGuardService: guard,
     sessionService: { broadcastEvent: vi.fn() },
@@ -679,15 +681,34 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     await wallet.getQbitUtxoSnapshot()
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(SPENDABLE))
     const keyring = { type: KeyringType.QbitHdKeyring, index: 0, key: 'k', accounts: [account] }
-    vi.spyOn(wallet, 'getKeyrings')
-      .mockResolvedValueOnce([keyring] as any)
-      .mockResolvedValueOnce([] as any)
+    // Another wallet stays, as a removal requires, and becomes current.
+    const remaining = {
+      type: KeyringType.QbitHdKeyring,
+      index: 1,
+      key: 'keyring_1',
+      accounts: [{ ...account, key: 'keyring_1#0' }],
+    }
+    // The wallets the removal reads, before and after it.
+    vi.spyOn(wallet as any, 'readKeyringsAfresh')
+      .mockResolvedValueOnce([keyring, remaining])
+      .mockResolvedValueOnce([remaining])
     vi.spyOn(wallet as any, 'resolveQueuedWalletKeyring').mockReturnValue(keyring)
     vi.spyOn(wallet as any, 'collectQbitRecoveryRemovalReasons').mockResolvedValue([])
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
+    // The keyring service holds both wallets, each in its slot.
+    const slots = (keyringService as any).keyrings
+    slots.push({ type: KeyringType.QbitHdKeyring }, { type: KeyringType.QbitHdKeyring })
 
-    await wallet.removeKeyring(keyring as any)
+    try {
+      await wallet.removeKeyring(keyring as any)
+    } finally {
+      slots.length = 0
+    }
 
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(0)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(0, {
+      beforeRemove: expect.any(Function),
+    })
+    expect(selectKeyring).toHaveBeenCalledWith(remaining)
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
   })
 

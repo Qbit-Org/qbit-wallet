@@ -1181,9 +1181,6 @@
   "switch_network": {
     "message": "Changer de Réseau"
   },
-  "switch_wallet": {
-    "message": "Changer de Portefeuille"
-  },
   "the_auto_lock_time_has_been_changed_to": {
     "message": "Le délai de verrouillage automatique a été changé à"
   },
@@ -1686,7 +1683,7 @@
     "message": "Le portefeuille récupéré d’origine est en lecture seule. Ses clés et son dossier de récupération restent disponibles afin de détecter et déplacer en sécurité des fonds échoués, réorganisés ou nouvellement reçus."
   },
   "qbit_recovery_complete_switch_wallet_hint": {
-    "message": "Vous pouvez accéder au portefeuille récupéré d’origine (lecture seule) via l’option Changer de Portefeuille en haut à gauche."
+    "message": "Vous pouvez ouvrir le portefeuille récupéré d’origine (lecture seule) depuis le sélecteur de compte de l’écran d’accueil."
   },
   "qbit_recovery_original_address_label": {
     "message": "Adresse récupérée d’origine :"
@@ -2113,5 +2110,95 @@
   },
   "phishing_protection_retry_no_answer": {
     "message": "La nouvelle tentative n'a pas répondu à temps. Elle peut encore aboutir ; l'état ci-dessus se mettra à jour."
+  },
+  "account_switcher_search_placeholder": {
+    "message": "Rechercher des comptes ou portefeuilles"
+  },
+  "account_switcher_no_results": {
+    "message": "Aucun compte correspondant"
+  },
+  "account_switcher_no_results_hint": {
+    "message": "Recherchez par nom de compte, adresse ou nom de portefeuille."
+  },
+  "account_switcher_add_or_import_wallet": {
+    "message": "Ajouter ou importer un portefeuille"
+  },
+  "account_switcher_account_count_one": {
+    "message": "$1 compte"
+  },
+  "account_switcher_account_count_few": {
+    "message": "$1 comptes"
+  },
+  "account_switcher_account_count_many": {
+    "message": "$1 comptes"
+  },
+  "account_switcher_account_count_other": {
+    "message": "$1 comptes"
+  },
+  "account_switcher_open_label": {
+    "message": "Changer de compte, actuel : $1 dans $2"
+  },
+  "account_switcher_copy_address_label": {
+    "message": "Copier l'adresse de $1"
+  },
+  "account_switcher_add_account_label": {
+    "message": "Ajouter un compte à $1"
+  },
+  "account_switcher_wallet_options_label": {
+    "message": "Options de $1"
+  },
+  "account_switcher_account_options_label": {
+    "message": "Options de $1 dans $2"
+  },
+  "account_switcher_account_label": {
+    "message": "$1 dans $2, $3"
+  },
+  "account_switcher_wallet_unavailable": {
+    "message": "Le portefeuille sélectionné n'est plus disponible"
+  },
+  "wallet_menu_add_account": {
+    "message": "Ajouter un Compte"
+  },
+  "wallet_menu_rename": {
+    "message": "Renommer le Portefeuille"
+  },
+  "wallet_menu_change_color": {
+    "message": "Changer la Couleur"
+  },
+  "wallet_tag_read_only": {
+    "message": "Lecture seule"
+  },
+  "wallet_tag_recovered": {
+    "message": "Récupéré"
+  },
+  "wallet_tag_archived": {
+    "message": "Archivé"
+  },
+  "wallet_invalid_note": {
+    "message": "Invalide"
+  },
+  "wallet_color_green": {
+    "message": "Vert"
+  },
+  "wallet_color_blue": {
+    "message": "Bleu"
+  },
+  "wallet_color_orange": {
+    "message": "Orange"
+  },
+  "wallet_color_violet": {
+    "message": "Violet"
+  },
+  "wallet_color_teal": {
+    "message": "Bleu-vert"
+  },
+  "wallet_color_pink": {
+    "message": "Rose"
+  },
+  "wallet_color_gold": {
+    "message": "Or"
+  },
+  "wallet_color_indigo": {
+    "message": "Indigo"
   }
 }

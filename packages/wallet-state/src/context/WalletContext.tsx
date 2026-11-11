@@ -42,6 +42,7 @@ import {
   QbitUtxoSnapshot,
   UnspentOutput,
   VersionDetail,
+  WalletColorKey,
   WalletConfig,
   WalletKeyring,
   WebsiteSafetyResult,
@@ -393,11 +394,16 @@ export interface WalletController {
 
   getCurrentKeyring(): Promise<WalletKeyring>
   getKeyrings(): Promise<WalletKeyring[]>
-  getTotalKeyringCount(): Promise<number>
   changeKeyring(keyring: WalletKeyring, accountIndex?: number): Promise<void>
   getAllAddresses(keyring: WalletKeyring, index: number): Promise<string[]>
 
   setKeyringAlianName(keyring: WalletKeyring, name: string): Promise<WalletKeyring>
+  /**
+   * Set a wallet's color to a palette key (WALLET_COLOR_KEYS). Rejects a
+   * color that is not a palette key and a wallet that is not in use, storing
+   * nothing; resolves with the wallet, with the new color.
+   */
+  setKeyringColor(keyring: WalletKeyring, color: WalletColorKey): Promise<WalletKeyring>
   changeAddressType(addressType: AddressType): Promise<void>
 
   setAccountAlianName(account: Account, name: string): Promise<Account>

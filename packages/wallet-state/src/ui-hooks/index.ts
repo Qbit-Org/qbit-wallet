@@ -1,6 +1,5 @@
 export { useAddressTypeScreenLogic } from './useAddressTypeScreenLogic'
 export { useAmountInputLogic } from './useAmountInputLogic'
-export { useEditWalletNameScreenLogic } from './useEditWalletNameScreenLogic'
 export { useFeeRateBarLogic } from './useFeeRateBarLogic'
 export { useLockTimePageLogic } from './useLockTimePageLogic'
 export { useSecurityCardLogic } from './useSecurityCardLogic'
@@ -11,10 +10,9 @@ export { useCreateWalletLogicImportWordsStep } from './useCreateWalletLogicImpor
 
 export { useExportMnemonicsScreenLogic } from './useExportMnemonicsScreenLogic'
 export { useExportPrivateKeyScreenLogic } from './useExportPrivateKeyScreenLogic'
+export { isEnterPressedInField } from './isEnterPressedInField'
 
 export { useEditContactScreenLogic } from './useEditContactScreenLogic'
-
-export { useEditAccountNameScreenLogic } from './useEditAccountNameScreenLogic'
 
 export { useCreatePasswordScreenLogic } from './useCreatePasswordScreenLogic'
 

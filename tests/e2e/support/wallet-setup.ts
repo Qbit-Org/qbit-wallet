@@ -157,8 +157,7 @@ export async function beginRegtestWalletRestoreThroughUi(
   const initial = await onboardNewRegtestWallet(extension, options.password ?? E2E_PASSWORD)
   const temporaryAddress = initial.address
 
-  await initial.home.openWalletManagement()
-  await initial.page.getByTestId('add-wallet-button').click()
+  await initial.home.openAddWallet()
   const onboarding = new OnboardingPage(initial.page)
   const restoreStartedAt = performance.now()
   await onboarding.restoreAdditionalWallet(

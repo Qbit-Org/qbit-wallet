@@ -345,8 +345,15 @@ export class KeyringService extends EventEmitter {
   private qbitRecoveryMutex: SimpleMutex = new SimpleMutex()
   private qbitRestoredFloorSigningChallenges = new Map<string, QbitRestoredFloorSigningChallenge>()
   private qbitPqcSignatureBatches = new Map<string, QbitPqcSignatureBatch>()
+  // The shown wallets that getAllDisplayedKeyrings keeps, the network they
+  // are shown for, and the read that computed them.
   private cachedDisplayedKeyring: DisplayedKeyring[] | null = null
   private cachedDisplayedKeyringNetwork: QbitReceiveNetworkName | undefined = undefined
+  private cachedDisplayedKeyringRead = 0
+  // Counts the changes to the live keyrings (see invalidateDisplayedKeyrings).
+  private displayedKeyringsVersion = 0
+  // Numbers the reads that compute the shown wallets, in the order they start.
+  private displayedKeyringsReads = 0
   private activeQbitNetworkResolver?: () => string | undefined
   private passwordLifecycleHook?: (event: PasswordLifecycleEvent) => Promise<void> | void
   private initialBoostValue: string = 'true'
@@ -486,7 +493,7 @@ export class KeyringService extends EventEmitter {
 
     this.keyrings = []
     this.addressTypes = []
-    this.cachedDisplayedKeyring = null
+    this.invalidateDisplayedKeyrings()
     this.qbitRestoredFloorSigningChallenges.clear()
     this.qbitPqcSignatureBatches.clear()
     this.password = null
@@ -532,7 +539,7 @@ export class KeyringService extends EventEmitter {
 
     this.keyrings = []
     this.addressTypes = []
-    this.cachedDisplayedKeyring = null
+    this.invalidateDisplayedKeyrings()
     this.qbitRestoredFloorSigningChallenges.clear()
     this.qbitPqcSignatureBatches.clear()
     this.password = null
@@ -835,7 +842,7 @@ export class KeyringService extends EventEmitter {
         this.qbitRestoredFloorSigningChallenges.clear()
         this.keyrings.push(destination)
         this.addressTypes.push(AddressType.P2MR)
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
 
         let persisted = false
         try {
@@ -854,7 +861,7 @@ export class KeyringService extends EventEmitter {
               this.addressTypes.splice(pushedIndex, 1)
             }
             source.restoreQbitRecoveryState!(lockedSourceState)
-            this.cachedDisplayedKeyring = null
+            this.invalidateDisplayedKeyrings()
             try {
               // Re-persist the restored live state instead of rewinding to the
               // pre-operation vault snapshot: counter persists from other
@@ -973,7 +980,7 @@ export class KeyringService extends EventEmitter {
           network,
         })
         this.qbitRestoredFloorSigningChallenges.clear()
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
 
         let persisted = false
         try {
@@ -984,7 +991,7 @@ export class KeyringService extends EventEmitter {
         } catch (error) {
           if (!persisted) {
             source.restoreQbitRecoveryState!(lockedSourceState)
-            this.cachedDisplayedKeyring = null
+            this.invalidateDisplayedKeyrings()
             try {
               // Re-persist the restored live state instead of rewinding to the
               // pre-operation vault snapshot: counter persists from other
@@ -1033,7 +1040,7 @@ export class KeyringService extends EventEmitter {
       const keyrings = this.keyrings
       keyrings.push(keyring)
       this.addressTypes.push(addressType)
-      this.cachedDisplayedKeyring = null
+      this.invalidateDisplayedKeyrings()
 
       try {
         await this.persistAllKeyrings([keyring])
@@ -1102,7 +1109,7 @@ export class KeyringService extends EventEmitter {
           keyring.changeHdPath!(hdPath || '')
         }
         this.addressTypes[keyringIndex] = addressType
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
 
         await this.persistAllKeyrings([keyring])
       } catch (error) {
@@ -1129,7 +1136,7 @@ export class KeyringService extends EventEmitter {
           if (rollbackKeyring) {
             this.keyrings[keyringIndex] = rollbackKeyring
             this.addressTypes[keyringIndex] = previousAddressType
-            this.cachedDisplayedKeyring = null
+            this.invalidateDisplayedKeyrings()
             try {
               await this.persistAllKeyrings([rollbackKeyring])
             } catch (rollbackError) {
@@ -1149,7 +1156,7 @@ export class KeyringService extends EventEmitter {
           if (this.keyrings === keyrings) {
             this.keyrings = []
             this.addressTypes = []
-            this.cachedDisplayedKeyring = null
+            this.invalidateDisplayedKeyrings()
             this.password = null
             lockRequired = true
 
@@ -1224,7 +1231,7 @@ export class KeyringService extends EventEmitter {
           keyring.changeHdPath!(hdPath)
         }
 
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
         await this.storage.set(this.cachedKey, null)
         await this.persistAllKeyrings(pathChanges.map(({ keyring }) => keyring))
         await this._updateMemStoreKeyrings()
@@ -1265,7 +1272,7 @@ export class KeyringService extends EventEmitter {
         // remove keyrings
         this.keyrings = []
         this.addressTypes = []
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
         this.qbitRestoredFloorSigningChallenges.clear()
         this.qbitPqcSignatureBatches.clear()
 
@@ -1333,14 +1340,14 @@ export class KeyringService extends EventEmitter {
         })
         await this._updateMemStoreKeyrings()
 
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
 
         await options.beforeUnlock?.()
       } catch (error) {
         this.password = null
         this.keyrings = []
         this.addressTypes = []
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
         this.qbitRestoredFloorSigningChallenges.clear()
         this.qbitPqcSignatureBatches.clear()
         this.memStore.updateState({ isUnlocked: false, keyrings: [] })
@@ -1579,7 +1586,7 @@ export class KeyringService extends EventEmitter {
         })
 
         const accounts = await selectedKeyring.addAccounts(1)
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
 
         try {
           await this.persistAllKeyrings([selectedKeyring])
@@ -1764,7 +1771,7 @@ export class KeyringService extends EventEmitter {
         let persisted = false
         try {
           mutate(keyring)
-          this.cachedDisplayedKeyring = null
+          this.invalidateDisplayedKeyrings()
           await this.persistAllKeyrings([keyring])
           persisted = true
           await this._updateMemStoreKeyrings()
@@ -1772,7 +1779,7 @@ export class KeyringService extends EventEmitter {
         } catch (error) {
           if (!persisted) {
             keyring.restoreQbitRecoveryState(previousState)
-            this.cachedDisplayedKeyring = null
+            this.invalidateDisplayedKeyrings()
             try {
               // Re-persist the restored live state instead of rewinding to the
               // pre-mutation vault snapshot: counter persists from other
@@ -1907,7 +1914,7 @@ export class KeyringService extends EventEmitter {
               ...destination.reserveIndexes,
               ...(destination.reuseIndexes ?? []),
             ])
-            this.cachedDisplayedKeyring = null
+            this.invalidateDisplayedKeyrings()
             await this.persistAllKeyrings([sourceKeyring, destinationKeyring])
             persisted = true
             await this._updateMemStoreKeyrings()
@@ -1923,7 +1930,7 @@ export class KeyringService extends EventEmitter {
                 previousReceiveState,
                 previousActiveIndexes
               )
-              this.cachedDisplayedKeyring = null
+              this.invalidateDisplayedKeyrings()
               try {
                 await this.persistAllKeyrings([sourceKeyring, destinationKeyring])
               } catch (rollbackError) {
@@ -2020,7 +2027,7 @@ export class KeyringService extends EventEmitter {
 
   private persistQbitReceiveState = async (changedKeyrings: readonly Keyring[]): Promise<void> => {
     await this.persistAllKeyrings(changedKeyrings)
-    this.cachedDisplayedKeyring = null
+    this.invalidateDisplayedKeyrings()
     await this._updateMemStoreKeyrings()
     this.fullUpdate()
   }
@@ -2221,8 +2228,13 @@ export class KeyringService extends EventEmitter {
   private persistPqcSignatureCounterState = async (
     changedKeyrings: readonly Keyring[]
   ): Promise<void> => {
-    await this.persistAllKeyrings(changedKeyrings)
-    this.cachedDisplayedKeyring = null
+    try {
+      await this.persistAllKeyrings(changedKeyrings)
+    } finally {
+      // The live counters changed before this write, and a floor or scan
+      // whose write fails keeps its change in memory.
+      this.invalidateDisplayedKeyrings()
+    }
     await this._updateMemStoreKeyrings()
     this.fullUpdate()
   }
@@ -2232,8 +2244,11 @@ export class KeyringService extends EventEmitter {
     pubkey: string,
     reservation: QbitPqcSignatureCounterReservation
   ): Promise<void> => {
-    await keyring.rollbackPqcSignatureCounterReservation!(pubkey, reservation)
-    this.cachedDisplayedKeyring = null
+    try {
+      await keyring.rollbackPqcSignatureCounterReservation!(pubkey, reservation)
+    } finally {
+      this.invalidateDisplayedKeyrings()
+    }
     await this._updateMemStoreKeyrings()
     this.fullUpdate()
   }
@@ -3340,7 +3355,7 @@ export class KeyringService extends EventEmitter {
         })
 
         keyring.removeAccount(address)
-        this.cachedDisplayedKeyring = null
+        this.invalidateDisplayedKeyrings()
 
         try {
           await this.persistAllKeyrings([keyring])
@@ -3356,18 +3371,36 @@ export class KeyringService extends EventEmitter {
       })
     })
 
-  removeKeyring = async (keyringIndex: number): Promise<any> =>
+  /**
+   * Remove the wallet in slot `keyringIndex`, leaving an empty keyring in its
+   * slot. `beforeRemove` runs first, under the exclusion that every wallet
+   * addition and removal and every account or address type change takes, so
+   * none of them lands before the slot is emptied and what it reads still
+   * holds when the wallet goes. When it throws, nothing is removed and its
+   * error is passed on. A lock while it runs refuses the removal too.
+   */
+  removeKeyring = async (
+    keyringIndex: number,
+    options: { beforeRemove?: () => void | Promise<void> } = {}
+  ): Promise<any> =>
     this.passwordChangeMutex.lock(async () => {
       const keyrings = this.keyrings
       const previousKeyring = keyrings[keyringIndex] as Keyring | undefined
       if (!previousKeyring) {
         throw new Error(this.t('no_keyring_found_for_the_requested_account'))
       }
+      if (options.beforeRemove) {
+        await options.beforeRemove()
+        // A lock while it ran replaced the live keyrings.
+        if (this.keyrings !== keyrings) {
+          throw new Error(this.t('you_need_to_unlock_wallet_first'))
+        }
+      }
 
       const emptyKeyring = new EmptyKeyring()
       delete keyrings[keyringIndex]
       keyrings[keyringIndex] = emptyKeyring
-      this.cachedDisplayedKeyring = null
+      this.invalidateDisplayedKeyrings()
 
       try {
         await this.persistAllKeyrings([emptyKeyring])
@@ -3507,7 +3540,7 @@ export class KeyringService extends EventEmitter {
     operation: string,
     keyrings: Keyring[]
   ): Promise<void> => {
-    this.cachedDisplayedKeyring = null
+    this.invalidateDisplayedKeyrings()
     try {
       // Skips a session already replaced; the write re-checks once it holds
       // persistenceMutex, so a lock and unlock while it queues fails it too.
@@ -3587,7 +3620,7 @@ export class KeyringService extends EventEmitter {
 
       this.keyrings = keyrings
       this.addressTypes = addressTypes
-      this.cachedDisplayedKeyring = null
+      this.invalidateDisplayedKeyrings()
       return
     }
 
@@ -3796,12 +3829,17 @@ export class KeyringService extends EventEmitter {
    *
    * Is used for adding the current keyrings to the state object.
    * @param {Keyring} keyring
+   * @param display - The network a Qbit HD wallet's recovery state is shown
+   *   for; without it, the active network as this reads it. A list of the
+   *   wallets passes the network it is kept under, so a network switch while
+   *   the list is computed never shows some of its wallets for another one.
    * @returns {Promise<Object>} A keyring display object, with type and accounts properties.
    */
   displayForKeyring = async (
     keyring: Keyring,
     addressType: AddressType,
-    index: number
+    index: number,
+    display?: { network: QbitReceiveNetworkName | undefined }
   ): Promise<DisplayedKeyring> => {
     const accounts = await keyring.getAccounts()
     const all_accounts: { pubkey: string; brandName: string; keyring?: any }[] = []
@@ -3813,7 +3851,7 @@ export class KeyringService extends EventEmitter {
     if (keyring.type === KeyringType.QbitHdKeyring) {
       displayKeyring.qbitRecovery = await this.publicQbitRecoveryState(
         keyring,
-        this.activeQbitDisplayNetwork()
+        display ? display.network : this.activeQbitDisplayNetwork()
       )
     }
     for (let i = 0; i < accounts.length; i++) {
@@ -3834,24 +3872,65 @@ export class KeyringService extends EventEmitter {
     }
   }
 
+  /**
+   * Called on every change to the live keyrings: a wallet added, removed or
+   * replaced, an account added or removed, an address type, HD path,
+   * recovery, receive or signature-counter change, a lock, an unlock or a
+   * reset. It forgets the shown wallets and counts the change, so that a read
+   * of them already under way keeps nothing it computed (see
+   * getAllDisplayedKeyrings). A change calls it in the same step as the change
+   * or after it, never before an await that comes ahead of the change.
+   */
+  private invalidateDisplayedKeyrings = (): void => {
+    this.cachedDisplayedKeyring = null
+    this.displayedKeyringsVersion += 1
+  }
+
+  /**
+   * The wallets as shown, one per slot, kept for the reads that follow until
+   * the keyrings or the active network change. `resetCache` computes them
+   * even while a list is kept.
+   *
+   * A read keeps the list it computed only when no change to the keyrings
+   * landed while it computed it, and no read that started after it has kept
+   * its own list already. A read that started before a change (an account
+   * derived, a wallet added or removed, a lock) and settled after it would
+   * otherwise keep the wallets as they were, and every later read would
+   * return them until the next change. Such a read still returns what it
+   * computed, the answer a read started at that moment gets, and does not
+   * compute again: changes can keep coming, as a long signing writes a counter
+   * for every input it signs. An operation that changes the keyrings and then
+   * reads them starts its read after its change, so it gets the wallets as
+   * they are after it.
+   */
   getAllDisplayedKeyrings = async (resetCache?: boolean): Promise<DisplayedKeyring[]> => {
     // The cache is keyed by the active display network: testnet4 and regtest
     // share an HD path, so a network switch between them changes no keyring
     // yet still changes every recovery snapshot the cache holds.
     const activeNetwork = this.activeQbitDisplayNetwork()
     if (
-      resetCache ||
-      !this.cachedDisplayedKeyring ||
-      this.cachedDisplayedKeyringNetwork !== activeNetwork
+      !resetCache &&
+      this.cachedDisplayedKeyring &&
+      this.cachedDisplayedKeyringNetwork === activeNetwork
     ) {
-      this.cachedDisplayedKeyring = await Promise.all(
-        this.keyrings.map((keyring, index) =>
-          this.displayForKeyring(keyring, this.addressTypes[index]!, index)
-        )
-      )
-      this.cachedDisplayedKeyringNetwork = activeNetwork
+      return this.cachedDisplayedKeyring
     }
-    return this.cachedDisplayedKeyring
+    const version = this.displayedKeyringsVersion
+    this.displayedKeyringsReads += 1
+    const read = this.displayedKeyringsReads
+    const displayed = await Promise.all(
+      this.keyrings.map((keyring, index) =>
+        this.displayForKeyring(keyring, this.addressTypes[index]!, index, {
+          network: activeNetwork,
+        })
+      )
+    )
+    if (version === this.displayedKeyringsVersion && read > this.cachedDisplayedKeyringRead) {
+      this.cachedDisplayedKeyring = displayed
+      this.cachedDisplayedKeyringNetwork = activeNetwork
+      this.cachedDisplayedKeyringRead = read
+    }
+    return displayed
   }
 
   getAllVisibleAccountsArray = async () => {

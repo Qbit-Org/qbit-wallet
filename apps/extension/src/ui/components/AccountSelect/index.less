@@ -1,21 +1,133 @@
-.account-select-container {
+.account-card {
+  position: relative;
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 0.625rem;
-  justify-content: space-between;
-
-  height: 40px;
-
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 12px 12px 14px;
   background: var(--qbit-paper);
   border: 1px solid var(--qbit-line);
-  border-radius: 0;
+  box-shadow: 0 8px 24px var(--qbit-shadow);
+  transition: background-color 150ms ease, border-color 150ms ease;
 
-  cursor: pointer;
-
-  &:hover {
+  // Highlighted while the pointer is on the part that opens the switcher, not
+  // on the address, which copies and has its own hover.
+  &:has(.account-card__open:hover) {
     background: var(--qbit-accent-wash);
     border-color: var(--qbit-accent);
-    border-radius: 0;
   }
+}
+
+// Transparent, over everything in the card but the copy control.
+.account-card__open {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--qbit-accent);
+    outline-offset: -2px;
+  }
+}
+
+.account-card__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.account-card__wallet-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 16px;
+}
+
+.account-card__wallet-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--qbit-muted);
+  font-family: Inter-Bold, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-card__account-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--qbit-ink);
+  font-family: Inter-Regular, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Above the open button, so it gets its own taps.
+.account-card__copy {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  max-width: 100%;
+  margin: 0 0 0 -4px;
+  padding: 1px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--qbit-muted);
+  font-family: Inter-Regular, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: copy;
+
+  &:hover {
+    color: var(--qbit-ink);
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--qbit-accent);
+    outline-offset: 0;
+  }
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.account-card__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  // Inter's contextual alternates draw an "x" between two digits as "×"; an
+  // address must read exactly as it is.
+  font-variant-ligatures: no-contextual;
+}
+
+.account-card__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--qbit-line);
+  background: var(--qbit-paper);
+  color: var(--qbit-ink);
+  pointer-events: none;
 }

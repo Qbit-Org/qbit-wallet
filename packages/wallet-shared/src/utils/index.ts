@@ -48,6 +48,14 @@ export {
   qbitWalletOwns,
   type QbitWalletOwnership,
 } from './qbit-wallet-ownership'
+export {
+  WALLET_COLOR_KEYS,
+  defaultWalletName,
+  isWalletColorKey,
+  resolveWalletColor,
+  walletColorForSlot,
+  type WalletColorKey,
+} from './wallet-identity'
 export { isQbitAccountOutput } from './qbit-account-outputs'
 export { statedPsbtRecipients } from './psbt-stated-recipients'
 export { isWebsiteSuppliedPsbt, psbtReviewOptions } from './psbt-review-options'

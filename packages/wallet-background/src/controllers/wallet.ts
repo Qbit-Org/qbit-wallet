@@ -124,10 +124,12 @@ import {
   UTXO,
   WalletError,
   WalletKeyring,
+  type WalletColorKey,
   type WebsiteSafetyResult,
   assertQbitFeeRateWithinPolicy,
   bgI18n,
   createUnverifiedWebsiteResult,
+  defaultWalletName,
   estimateQbitP2mrTransaction,
   getAccountCapabilities,
   getLockTimeInfo,
@@ -135,6 +137,7 @@ import {
   isQbitAccountOutput,
   isQbitFeeRateWithinPolicy,
   isQbitStandardTxSize,
+  isWalletColorKey,
   normalizeChainType,
   qbitMaximumTotalFee,
   qbitBroadcastErrorMessage,
@@ -142,11 +145,13 @@ import {
   qbitP2mrInputsDominateFee,
   qbitP2mrMaxStandardInputCount,
   qbitWitnessStackLength,
+  resolveWalletColor,
   sanitizeQbitBroadcastDetail,
   selectQbitP2mrSendAllCoins,
   selectQbitP2mrSendCoins,
   sortQbitCoinsByValue,
   t,
+  walletColorForSlot,
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
 import { getLocalVersionNotice } from '../config/local-version-notices'
@@ -1701,6 +1706,9 @@ export class WalletController extends BaseController {
     assertNotLockedSinceCall()
     const alianNameInited = preferenceService.getInitAlianNameStatus()
     const alianNames = contactBookService.listAlias()
+    // The account stored as current before any wallet is loaded: the one the
+    // wallet locked with, which connected sites were last told.
+    const accountAtLock = preferenceService.getCurrentAccount()
     let deferredAccountChange: Account | undefined
     try {
       await keyringService.submitPassword(password, {
@@ -1723,9 +1731,20 @@ export class WalletController extends BaseController {
             selectedAccount !== undefined &&
             (selectedAccount.pubkey !== currentAccount?.pubkey ||
               selectedAccount.address !== currentAccount?.address)
+          // getCurrentKeyring, here or in a site's read while the wallets
+          // loaded, stores the first usable wallet's first account in place
+          // of a wallet it cannot read, such as one whose removal a lock
+          // interrupted, its slot now empty; and it announces nothing.
+          const accountReplaced =
+            currentAccount?.pubkey !== accountAtLock?.pubkey ||
+            currentAccount?.address !== accountAtLock?.address
 
-          if (keyring && selectedAccount && (hdPathChanged || qbitAccountChanged)) {
-            await this.changeKeyring(keyring, selectedAccountIndex, {
+          if (
+            keyring &&
+            selectedAccount &&
+            (hdPathChanged || qbitAccountChanged || accountReplaced)
+          ) {
+            await this.selectKeyring(keyring, selectedAccountIndex, {
               broadcastAccountChange: false,
             })
             deferredAccountChange = selectedAccount
@@ -2265,13 +2284,32 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * The recovery phrase of `keyring`, as a page passed it in, once `password`
+   * verifies. A page holds the wallets it read when it opened, and since then
+   * another window may have removed this one, leaving an empty keyring in its
+   * slot, or the slot may hold another wallet. So answer only for a wallet
+   * with a phrase that is still in use and is the wallet the page listed in
+   * its slot (walletInUse), and refuse anything else. A corrupted wallet
+   * still holds its slot, so its phrase can still be backed up before it is
+   * removed.
+   */
   getMnemonics = async (password: string, keyring: WalletKeyring) => {
     const isValidPassword = await this.verifyPassword(password)
     if (!isValidPassword) {
       throw new Error(t('password_error'))
     }
-    const originKeyring = keyringService.keyrings[keyring.index]!
+    this.assertWalletInUse(keyring)
+    if (keyring.type !== KeyringType.HdKeyring && keyring.type !== KeyringType.QbitHdKeyring) {
+      throw new Error(t('not_supported'))
+    }
+    const originKeyring = await this.walletInUse(keyring)
     const serialized = await originKeyring.serialize()
+    // A removal, a lock or a reset can empty the slot while the keyring is read.
+    this.assertSlotHolds(keyring.index, originKeyring)
+    if (typeof serialized?.mnemonic !== 'string' || !serialized.mnemonic) {
+      throw new Error(t('not_supported'))
+    }
     return {
       mnemonic: serialized.mnemonic,
       hdPath: serialized.hdPath,
@@ -2279,6 +2317,16 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * The P2MR descriptors of `keyring`, as a page passed it in, or of the
+   * current wallet when it passes none, once `password` verifies. They hold
+   * the wallet's private keys, and the export screen asks for them right
+   * after the phrase with the same copy of the wallet, so they follow
+   * getMnemonics' rule: answer only for a Qbit HD wallet on P2MR that is
+   * still in use and is the wallet the page listed in its slot (walletInUse),
+   * never for another wallet that took the slot since. A corrupted wallet
+   * still gets them: they come from its master key, not its accounts.
+   */
   exportP2mrDescriptors = async (
     password: string,
     keyring?: WalletKeyring,
@@ -2289,23 +2337,30 @@ export class WalletController extends BaseController {
       throw new Error(t('password_error'))
     }
 
-    const walletKeyring = keyring || (await this.getCurrentKeyring())
+    // Over the UI port a wallet the page leaves out arrives as null.
+    const walletKeyring = keyring ?? (await this.getCurrentKeyring())
+    if (walletKeyring === null) {
+      throw new Error(t('not_supported'))
+    }
+    this.assertWalletInUse(walletKeyring)
     if (
-      !walletKeyring ||
       walletKeyring.type !== KeyringType.QbitHdKeyring ||
       walletKeyring.addressType !== AddressType.P2MR
     ) {
       throw new Error(t('not_supported'))
     }
 
-    const originKeyring = keyringService.keyrings[walletKeyring.index]!
+    const originKeyring = await this.walletInUse(walletKeyring)
     if (!originKeyring.exportP2mrDescriptors) {
       throw new Error(t('not_supported'))
     }
 
-    return originKeyring.exportP2mrDescriptors(
+    const descriptors = await originKeyring.exportP2mrDescriptors(
       network || chainTypeToQbitNetworkName(this.getChainType())
     )
+    // A removal, a lock or a reset can empty the slot while the keyring is read.
+    this.assertSlotHolds(walletKeyring.index, originKeyring)
+    return descriptors
   }
 
   getPreMnemonics = () => keyringService.getPreMnemonics()
@@ -2334,17 +2389,16 @@ export class WalletController extends BaseController {
     )
     keyringService.removePreMnemonics()
 
+    const keyringIndex = this.addedKeyringIndex(originKeyring)
+    this.assignNewKeyringIdentity(keyringIndex)
     const displayedKeyring = await keyringService.displayForKeyring(
       originKeyring,
       addressType,
-      keyringService.keyrings.length - 1
+      keyringIndex
     )
-    const keyring = this.displayedKeyringToWalletKeyring(
-      displayedKeyring,
-      keyringService.keyrings.length - 1
-    )
+    const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
 
-    await this.changeKeyring(keyring)
+    await this.selectKeyring(keyring)
 
     preferenceService.setShowSafeNotice(true)
   }
@@ -2804,7 +2858,7 @@ export class WalletController extends BaseController {
     // Reusing a prior network's destination instead would silently discard
     // a seed the user now believes holds the migrated funds; that reuse is
     // its own explicit flow (beginQbitRecoveryMigrationToExistingDestination).
-    await keyringService.createQbitMigrationKeyring({
+    const destination = await keyringService.createQbitMigrationKeyring({
       sourceAddress: source.accounts[0]!.address,
       mnemonic,
       hdPath: resolveHdPathForAddressType(AddressType.P2MR, hdPath, this.getChainType()),
@@ -2812,11 +2866,12 @@ export class WalletController extends BaseController {
       network: chainTypeToQbitNetworkName(this.getChainType()),
     })
     keyringService.removePreMnemonics()
+    this.assignNewKeyringIdentity(destination.destinationKeyringIndex)
 
     // Creating the destination must not silently move the active account away
     // from the recovered source before its migration review is complete.
     const refreshedSource = await this.getQbitKeyringByIndex(sourceKeyringIndex)
-    await this.changeKeyring(refreshedSource, sourceAccountIndex)
+    await this.selectKeyring(refreshedSource, sourceAccountIndex)
     return this.getQbitRecoveryState(sourceKeyringIndex)
   }
 
@@ -3871,7 +3926,7 @@ export class WalletController extends BaseController {
       account => account.address === activationAddress
     )
     if (accountIndex < 0) throw new Error('Fresh Qbit migration destination is unavailable')
-    await this.changeKeyring(destination, accountIndex)
+    await this.selectKeyring(destination, accountIndex)
   }
 
   advanceQbitRecoveryMigration = async (
@@ -4356,10 +4411,10 @@ export class WalletController extends BaseController {
     const account = context.keyring.accounts[accountPosition]!
     const selected = preferenceService.getCurrentAccount()
     if (selected?.key === account.key && selected.address === account.address) return
-    await this.changeKeyring(context.keyring, accountPosition)
+    await this.selectKeyring(context.keyring, accountPosition)
     // Save the switch now rather than after the store's debounced save, so a
     // browser quit straight after New Address keeps the new account selected.
-    // This is not changeKeyring's persistPreference: a failed save there
+    // This is not selectKeyring's persistPreference: a failed save there
     // skips the account-change broadcast and fails New Address although the
     // switch happened. A failed save here stays queued for the debounced save.
     try {
@@ -4549,21 +4604,21 @@ export class WalletController extends BaseController {
       qbitNetwork
     )
     keyringService.removePreMnemonics()
+    const keyringIndex = this.addedKeyringIndex(originKeyring)
+    this.assignNewKeyringIdentity(keyringIndex)
     const displayedKeyring = await keyringService.displayForKeyring(
       originKeyring,
       addressType,
-      keyringService.keyrings.length - 1
+      keyringIndex
     )
-    const walletKeyring = this.displayedKeyringToWalletKeyring(
-      displayedKeyring,
-      keyringService.keyrings.length - 1
-    )
-    await this.changeKeyring(walletKeyring)
+    const walletKeyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
+    await this.selectKeyring(walletKeyring)
     preferenceService.setShowSafeNotice(true)
 
     if (discovery.activeIndexes.length > 0) {
-      const restoredKeyring = keyringService.keyrings[keyringService.keyrings.length - 1]
-      const [anchorPubkey] = (await restoredKeyring?.getAccounts()) || []
+      // The keyring this restore added, not the last slot: another wallet
+      // may have been added while the restored one was displayed and selected.
+      const [anchorPubkey] = (await originKeyring.getAccounts()) || []
       if (!anchorPubkey) {
         throw new Error('restored qbit keyring is missing its anchor account')
       }
@@ -4705,11 +4760,12 @@ export class WalletController extends BaseController {
   }
 
   // A queued chain-state operation captures its WalletKeyring argument before
-  // earlier queued work (for example a removal issued from another extension
-  // window) compacts keyringService.keyrings, so the captured numeric index
-  // can point at an unrelated wallet by the time the operation runs. Match the
-  // captured wallet back to a current keyring by its anchor account identity;
-  // the captured index only breaks ties between wallets sharing an anchor.
+  // earlier queued work runs, so by then the captured slot may be empty (a
+  // removal issued from another extension window leaves an empty keyring in
+  // it) or, after a reset or a failed addition, hold an unrelated wallet.
+  // Match the captured wallet back to a current keyring by its anchor account
+  // identity; the captured index only breaks ties between wallets sharing an
+  // anchor.
   private resolveQueuedWalletKeyring = (
     currentKeyrings: WalletKeyring[],
     captured: WalletKeyring
@@ -4731,6 +4787,60 @@ export class WalletController extends BaseController {
     return resolved
   }
 
+  // A wallet argument from a page crosses the UI port as JSON: a missing one
+  // arrives as null, and a malformed one may have no list of accounts.
+  private isWalletArgument = (value: unknown): value is WalletKeyringWithStatus =>
+    value !== null && typeof value === 'object' && Array.isArray((value as WalletKeyring).accounts)
+
+  // The wallet a queued removal is for: the one in the slot the page listed
+  // it in. A removal leaves an empty keyring in the slot and an addition takes
+  // a new one, so slots are never reused: the same wallet found in another
+  // slot was added again since (its phrase restored once more) and is not the
+  // wallet the page named, and a wallet a stale read still lists in a slot
+  // that is empty now is gone. A corrupted wallet is listed without accounts,
+  // so there is no anchor to match it by: the wallet still listed in the
+  // captured slot, under the same key and type and still without accounts, is
+  // taken for it. A wallet that lists accounts now never is.
+  private resolveQueuedRemovalTarget = (
+    currentKeyrings: WalletKeyring[],
+    captured: WalletKeyring
+  ): WalletKeyring => {
+    if (!this.isWalletArgument(captured)) {
+      throw new Error('Unknown wallet')
+    }
+    const resolved = captured.accounts[0]
+      ? this.resolveQueuedWalletKeyring(currentKeyrings, captured)
+      : currentKeyrings.find(
+          candidate =>
+            candidate.index === captured.index &&
+            candidate.key === captured.key &&
+            candidate.type === captured.type &&
+            !candidate.accounts[0]
+        )
+    if (
+      !resolved ||
+      resolved.index !== captured.index ||
+      !this.isKeyringSlotInUse(resolved.index, resolved.type)
+    ) {
+      throw new Error('The selected wallet is no longer available')
+    }
+    return resolved
+  }
+
+  // The recovery record of a Qbit HD wallet, looked up by its first account.
+  // A corrupted wallet lists no account yet can still be part of a migration,
+  // so its record is read from the slot it was just listed in.
+  private qbitRecoveryVaultStateOf = async (
+    keyring: WalletKeyring
+  ): Promise<QbitRecoveryVaultState | undefined> => {
+    const anchor = keyring.accounts[0]
+    if (anchor) {
+      return anchor.p2mr ? keyringService.getQbitRecoveryVaultState(anchor.address) : undefined
+    }
+    const raw = keyringService.keyrings[keyring.index]
+    return raw?.type === KeyringType.QbitHdKeyring ? raw.getQbitRecoveryState?.() : undefined
+  }
+
   // Reports every way removing `target` would touch an active recovery
   // migration; an empty result means the removal is recovery-safe. These
   // reasons feed the UI's risk-confirmation step — a confirmed removal
@@ -4741,9 +4851,8 @@ export class WalletController extends BaseController {
   ): Promise<QbitRecoveryRemovalReason[]> => {
     const reasons: QbitRecoveryRemovalReason[] = []
     for (const candidate of currentKeyrings) {
-      const anchor = candidate.accounts[0]
-      if (candidate.type !== KeyringType.QbitHdKeyring || !anchor?.p2mr) continue
-      const recovery = await keyringService.getQbitRecoveryVaultState(anchor.address)
+      if (candidate.type !== KeyringType.QbitHdKeyring) continue
+      const recovery = await this.qbitRecoveryVaultStateOf(candidate)
       if (!recovery) continue
       // Every network's lifecycle covers its own source and destination: a
       // wallet archived on one network may still be mid-migration on another.
@@ -4770,8 +4879,10 @@ export class WalletController extends BaseController {
           continue
         }
         if (!migration) continue
-        // Keyring indexes compact on removal while the vault keeps the index
-        // the destination had when migration started, so resolve the
+        // The vault keeps the slot the destination had when the migration
+        // started. A removal leaves its slot empty rather than move the
+        // wallets after it, but the destination may itself have been removed
+        // and its phrase restored into a new slot since, so resolve the
         // destination by its recorded keys and fall back to the persisted
         // index only when no keyring matches (that index only ever flags a
         // removal, never clears one, because a resolved identity match takes
@@ -4814,8 +4925,33 @@ export class WalletController extends BaseController {
     keyring: WalletKeyring,
     options?: QbitRemoveKeyringOptions
   ) => {
-    const currentKeyrings = await this.getKeyrings()
-    const target = this.resolveQueuedWalletKeyring(currentKeyrings, keyring)
+    // The keyring in the slot the page listed the wallet in, taken as the
+    // wallets are read just below, with nothing awaited in between: when they
+    // list the wallet in that slot, this is its keyring, and the slot is
+    // emptied only while it still holds it (see beforeRemove).
+    const listedKeyring = this.isWalletArgument(keyring)
+      ? keyringService.keyrings[keyring.index]
+      : undefined
+    // The wallets the removal judges, counts and picks from are read afresh,
+    // as they are when it runs.
+    const currentKeyrings = await this.readKeyringsAfresh()
+    const target = this.resolveQueuedRemovalTarget(currentKeyrings, keyring)
+    // Whether a listed wallet can be current once the target is gone. A lock
+    // can land while the wallets are read, and empties every slot, so a
+    // wallet counts only while its slot holds it. A usable wallet lists an
+    // account: one that lists none is listed as corrupted.
+    const canStay = (candidate: WalletKeyringWithStatus): boolean =>
+      candidate.index !== target.index &&
+      this.isUsableKeyring(candidate) &&
+      this.isKeyringSlotInUse(candidate.index, candidate.type)
+    // A usable wallet always stays: a corrupted one cannot be opened, so it
+    // does not count, and with none usable nothing is removed. Checked here,
+    // in the queue, so two windows removing the last two cannot both pass,
+    // and before the recovery check, so no risk is confirmed for nothing;
+    // and again right before the slot is emptied (see below).
+    if (!currentKeyrings.some(canStay)) {
+      throw new Error(t('removing_the_last_wallet_is_not_allowed'))
+    }
     // An acknowledgement covers the risk lines the user actually saw for this
     // wallet. Recovery state can change while the confirmation is open —
     // another window can reopen an archived source or broadcast a plan — so
@@ -4840,16 +4976,109 @@ export class WalletController extends BaseController {
       error.data = { reasons }
       throw error
     }
-    await keyringService.removeKeyring(target.index)
-    // Nor are the removed accounts' outputs kept; the others are read again.
-    this.qbitLatestUtxoReads.clear()
-    const keyrings = await this.getKeyrings()
-    const nextKeyring = keyrings[keyrings.length - 1]
-    if (nextKeyring && nextKeyring.accounts[0]) {
-      await this.changeKeyring(nextKeyring)
+    // From here until the removal has settled which wallet is current, a read
+    // that cannot use the wallet stored as current waits for it (see
+    // removalUnderWay): a site reading its account while the removal is
+    // saved finds the target's slot empty, and is answered once the removal
+    // has selected and announced the wallet current after it, or has failed
+    // and put the target back.
+    let settle!: () => void
+    this.removalUnderWay = new Promise<void>(resolve => {
+      settle = resolve
+    })
+    try {
+      await keyringService.removeKeyring(target.index, {
+        // Checked where no wallet can be added or removed before the slot is
+        // emptied. The wallets read above list a wallet another window is
+        // adding as soon as it is in the keyrings, before it is saved, and a
+        // failed save takes it out again and gives its slot back, which the
+        // next wallet added takes. So the slot must still hold the wallet
+        // resolved above, or the removal would empty it of another wallet and
+        // forget that wallet's name and color; and a usable wallet must stay.
+        beforeRemove: async () => {
+          if (!listedKeyring || keyringService.keyrings[target.index] !== listedKeyring) {
+            throw new Error('The selected wallet is no longer available')
+          }
+          if (!(await this.readKeyringsAfresh()).some(canStay)) {
+            throw new Error(t('removing_the_last_wallet_is_not_allowed'))
+          }
+        },
+      })
+      // The removed wallet's slot stays empty for good, so nothing reads its
+      // name or color again: forget both, so the stored names are those of the
+      // wallets in use and no later wallet can ever pick them up.
+      preferenceService.removeKeyringAlianName(target.key)
+      preferenceService.removeKeyringColor(target.key)
+      // Nor are the removed accounts' outputs kept; the others are read again.
+      this.qbitLatestUtxoReads.clear()
+      return await this.keepOrSelectCurrentAfterRemoval(target, canStay)
+    } finally {
+      this.removalUnderWay = undefined
+      settle()
+    }
+  }
+
+  /**
+   * Settles once the removal under way has settled which wallet is current
+   * after it, or has failed. Meanwhile a read that cannot use the wallet
+   * stored as current (the one removed, once its slot is empty) waits for it
+   * and reads again, and a read that began meanwhile and ends later reads
+   * again (see getCurrentKeyring): no read answers with, or stores, a wallet
+   * in place of one the removal is about to replace or to put back. Stored,
+   * that wallet would be current without connected sites or pages being
+   * told, and the removal would keep it; answered, a site would hold an
+   * account that is not current. Only a switch, which announces itself,
+   * changes the selection while a removal runs. Nothing the removal runs
+   * reads the current wallet, so it never waits for itself.
+   */
+  private removalUnderWay: Promise<void> | undefined
+
+  /**
+   * The wallet current once `target` is removed, which removeKeyring returns.
+   *
+   * The wallet stored as current stays when it is another wallet and its slot
+   * still holds it, usable, whatever the wallets read list: nothing is
+   * selected, so nothing is announced to connected sites. The selection is
+   * read with the target gone, so a switch another window made meanwhile is
+   * the one that stays; no read changes it while the removal runs, so a
+   * wallet stored as current was current when the removal began, or a switch
+   * announced it. Otherwise (the target was current, or the wallet
+   * stored as current cannot stay: its slot is empty, it is corrupted, or no
+   * wallet has that slot) the last usable wallet becomes current with its
+   * first account, so the removed wallet's account never stays selected while
+   * a usable wallet remains. With none left, as after a lock, nothing is
+   * selected and nothing is returned.
+   */
+  private keepOrSelectCurrentAfterRemoval = async (
+    target: WalletKeyring,
+    canStay: (candidate: WalletKeyringWithStatus) => boolean
+  ): Promise<WalletKeyringWithStatus | undefined> => {
+    for (let read = 1; read <= 3; read++) {
+      const keyrings = await this.readKeyringsAfresh()
+      // From here to the return, or to the selection, nothing waits: the
+      // selection and the slots checked are the background's as it returns,
+      // and the wallet returned is as it is now.
+      const currentIndex = preferenceService.getCurrentKeyringIndex()
+      if (currentIndex !== target.index && this.isKeyringSlotInUse(currentIndex)) {
+        const current = keyrings.find(candidate => candidate.index === currentIndex)
+        if (!current || !this.isKeyringSlotInUse(current.index, current.type)) {
+          // Another window added this wallet, and made it current, while the
+          // wallets were read: read them again.
+          continue
+        }
+        if (this.isUsableKeyring(current)) {
+          return current
+        }
+      }
+      const nextKeyring = keyrings.filter(canStay).pop()
+      if (nextKeyring) {
+        await this.selectKeyring(nextKeyring)
+      }
       return nextKeyring
     }
-    return
+    // Other windows kept adding wallets while they were read: the one they
+    // made current stays, and the page reads the selection itself.
+    return undefined
   }
 
   getKeyringByType = (type: string) => {
@@ -4865,8 +5094,10 @@ export class WalletController extends BaseController {
   private pendingAccountDerivations = new Set<string>()
 
   private accountDerivationKey = (keyring: WalletKeyring): string => {
-    // Same identity resolveQueuedWalletKeyring uses, so a captured index that
-    // compaction staled still maps to the same in-flight derivation.
+    // Same identity resolveQueuedWalletKeyring matches by, not the slot: the
+    // derivation runs on the wallet that identity resolves to, so a page's
+    // copy from before the wallet was removed and its phrase restored into a
+    // new slot shares one in-flight derivation with the restored wallet.
     const anchor = keyring.accounts[0]
     return `${keyring.type}:${anchor?.pubkey || anchor?.address || keyring.key}`
   }
@@ -4916,14 +5147,18 @@ export class WalletController extends BaseController {
       resolved.index
     )
     const newKeyring = this.displayedKeyringToWalletKeyring(displayedKeyring, resolved.index)
+    const newAccountIndex = newKeyring.accounts.length - 1
+    const newAccount = newKeyring.accounts[newAccountIndex]
 
-    await this.changeKeyring(newKeyring, newKeyring.accounts.length - 1)
-
-    if (alianName) {
-      const account = preferenceService.getCurrentAccount() as Account
-      preferenceService.setAccountAlianName(account.key, alianName)
-      account.alianName = alianName
+    // Name the account this call derived before selecting it, so the
+    // selection and its announcement carry the name, and a switch made
+    // elsewhere meanwhile cannot send the name to another account.
+    if (typeof alianName === 'string' && alianName && newAccount) {
+      preferenceService.setAccountAlianName(newAccount.key, alianName)
+      newAccount.alianName = alianName
     }
+
+    await this.selectKeyring(newKeyring, newAccountIndex)
 
     if (!rearmRestoredFloors) {
       return { floorScanPending: false }
@@ -4992,20 +5227,79 @@ export class WalletController extends BaseController {
     accountIndex = 0,
     options: { persistPreference?: boolean; broadcastAccountChange?: boolean } = {}
   ) => {
+    if (!this.isWalletArgument(keyring)) {
+      throw new Error('Unknown wallet')
+    }
     if (!this.isUsableKeyring(keyring)) {
       throw new Error('Keyring is corrupted')
     }
+    // From a page, an index the port cannot carry (undefined, NaN) arrives as null.
+    if (!Number.isSafeInteger(accountIndex) || accountIndex < 0) {
+      throw new Error('Invalid account index')
+    }
+    // The wallet passed in is a page's copy, read when it opened. Another
+    // window may have removed the wallet since, so select only from the
+    // wallet as it is now: an empty slot never becomes current, and an
+    // account that is gone or outdated is never stored or announced to
+    // connected sites. Slots are never reused, so the same wallet in another
+    // slot was added again since (its phrase restored once more) and is not
+    // the wallet the page named.
+    const current = this.resolveQueuedWalletKeyring(await this.getKeyrings(), keyring)
+    if (current.index !== keyring.index) {
+      throw new Error('The selected wallet is no longer available')
+    }
+    const listed = keyring.accounts[accountIndex]
+    const account = current.accounts[accountIndex]
+    if (
+      !listed ||
+      !account ||
+      (listed.pubkey ? listed.pubkey !== account.pubkey : listed.address !== account.address)
+    ) {
+      throw new Error('The selected account is no longer available')
+    }
+    // Reading the wallets can wait on a derivation, while a removal or a lock
+    // empties the slot.
+    if (!this.isKeyringSlotInUse(current.index, current.type)) {
+      throw new Error('The selected wallet is no longer available')
+    }
 
-    preferenceService.setCurrentKeyringIndex(keyring.index)
-    const account = keyring.accounts[accountIndex]!
-    preferenceService.setCurrentAccount(account)
+    await this.selectKeyring(current, accountIndex, options)
+  }
+
+  /**
+   * Select account `accountIndex` of `keyring`: the background's own
+   * switches, which pass a wallet they have just built or read, most of them
+   * right after saving a wallet or an account. The wallet is not read again:
+   * a lock that came in since, or a read that started before the save and
+   * cached the wallets as they were, must not turn a saved wallet or account
+   * into a failure, which the user would retry into a duplicate. When its
+   * slot no longer holds the wallet (a lock emptied the slots), nothing is
+   * selected or announced, and the call still succeeds; the preferences are
+   * saved when asked even then. Pages select through changeKeyring.
+   */
+  private selectKeyring = async (
+    keyring: WalletKeyringWithStatus,
+    accountIndex = 0,
+    options: { persistPreference?: boolean; broadcastAccountChange?: boolean } = {}
+  ): Promise<void> => {
+    if (!this.isUsableKeyring(keyring)) {
+      throw new Error('Keyring is corrupted')
+    }
+    const account = keyring.accounts[accountIndex]
+    if (!account) {
+      throw new Error('The selected account is no longer available')
+    }
+    const selected = this.isKeyringSlotInUse(keyring.index, keyring.type)
+    if (selected) {
+      preferenceService.setCurrentKeyringIndex(keyring.index)
+      preferenceService.setCurrentAccount(account)
+    }
     if (options.persistPreference) {
       await preferenceService.persist()
     }
-    if (account && options.broadcastAccountChange !== false) {
+    if (selected && options.broadcastAccountChange !== false) {
       this.publishAccountChange(account)
     }
-
   }
 
   getAllAddresses = async (keyring: WalletKeyring, index: number) => {
@@ -5022,15 +5316,22 @@ export class WalletController extends BaseController {
     return addresses
   }
 
-  changeAddressType = async (addressType: AddressType) => {
+  // Queued with removals and other chain-state work, so the wallet it checks
+  // is the wallet it changes: a removal that reached the keyring service
+  // first would empty that wallet's slot before the change is saved, and the
+  // change would be saved on the empty slot and reported as made, while the
+  // wallet current then kept its address type.
+  changeAddressType = (addressType: AddressType): Promise<void> =>
+    this.enqueueChainStateChange(() => this.performChangeAddressType(addressType))
+
+  private performChangeAddressType = async (addressType: AddressType): Promise<void> => {
     const currentAccount = await this.getCurrentAccount()
     const currentKeyring = await this.getCurrentKeyring()
-    if (!getAccountCapabilities(currentKeyring).canChangeAddressType) {
+    if (!currentKeyring || !getAccountCapabilities(currentKeyring).canChangeAddressType) {
       throw new Error(t('not_supported'))
     }
-    const currentKeyringIndex = preferenceService.getCurrentKeyringIndex()
     try {
-      await keyringService.changeAddressType(currentKeyringIndex, addressType)
+      await keyringService.changeAddressType(currentKeyring.index, addressType)
     } catch (error) {
       // A change the keyring service cannot roll back locks the wallet on
       // its own, without `lockWallet`: it keeps no account's outputs then
@@ -5041,9 +5342,25 @@ export class WalletController extends BaseController {
       }
       throw error
     }
+    // The change is saved, so nothing from here on fails the call. Another
+    // window may have switched to another wallet while it was saved, and
+    // announced it, or a lock may have come in: then the switch, or the
+    // lock, stays, and nothing is selected or announced.
     const keyring = await this.getCurrentKeyring()
-    if (!keyring) throw new Error('no current keyring')
-    await this.changeKeyring(keyring, currentAccount?.index)
+    if (keyring?.index !== currentKeyring.index) {
+      return
+    }
+    // The wallet changed is still current: select its account current now,
+    // with its address of the new type, and announce it. That is the account
+    // at the place of the one stored as current, which a page may have
+    // switched to meanwhile, whether it was read before the change derived
+    // the accounts again or after: an account's key names its slot and its
+    // place, and the accounts are derived again at the same places. Were
+    // that place gone, the first account would stand in.
+    const stored = preferenceService.getCurrentAccount()
+    const storedPlace = keyring.accounts.findIndex(account => account.key === stored?.key)
+    const place = storedPlace === -1 ? (currentAccount?.index ?? 0) : storedPlace
+    await this.selectKeyring(keyring, keyring.accounts[place] ? place : 0)
   }
 
   formatOptionsToSignInputs = async (_psbt: string | transactionCore.Psbt, options?: SignPsbtOptions) => {
@@ -5787,7 +6104,7 @@ export class WalletController extends BaseController {
         chainChanged ||
         (grantOrigin !== undefined &&
           keyring.accounts[selectedAccountIndex]?.pubkey === previousAccount?.pubkey)
-      await this.changeKeyring(keyring, selectedAccountIndex, {
+      await this.selectKeyring(keyring, selectedAccountIndex, {
         persistPreference: true,
         ...(quietReconcile ? { broadcastAccountChange: false } : {}),
       })
@@ -6024,7 +6341,7 @@ export class WalletController extends BaseController {
         const keyring = await this.getCurrentKeyring()
         if (!keyring) throw new Error('no current keyring')
         const accountIndex = preferenceService.getCurrentAccount()?.index ?? 0
-        await this.changeKeyring(keyring, keyring.accounts[accountIndex] ? accountIndex : 0, {
+        await this.selectKeyring(keyring, keyring.accounts[accountIndex] ? accountIndex : 0, {
           persistPreference: true,
           broadcastAccountChange: false,
         })
@@ -8783,6 +9100,107 @@ export class WalletController extends BaseController {
     return accounts
   }
 
+  /**
+   * Whether slot `index` holds a wallet right now, of `type` when given: not
+   * the empty slot a removal leaves, and not a slot a lock or a failed
+   * addition took away.
+   */
+  private isKeyringSlotInUse = (index: number, type?: string): boolean => {
+    if (!Number.isSafeInteger(index) || index < 0) {
+      return false
+    }
+    const keyring = keyringService.keyrings[index]
+    if (!keyring || keyring.type === KeyringType.Empty) {
+      return false
+    }
+    return type === undefined || keyring.type === type
+  }
+
+  /**
+   * The slot of a keyring the keyring service has just added. That is the
+   * last slot unless another wallet was added since, so look it up; the last
+   * slot stands in only when a lock replaced the keyrings meanwhile.
+   */
+  private addedKeyringIndex = (keyring: Keyring): number => {
+    const index = keyringService.keyrings.indexOf(keyring)
+    return index === -1 ? keyringService.keyrings.length - 1 : index
+  }
+
+  /**
+   * The default name of the wallet in slot `index`: "Wallet N", where N is
+   * the wallet's place among the wallets in use (the empty slots removals
+   * leave do not count), raised past numbers other wallets' stored names
+   * use (see defaultWalletName). A new wallet is always the last one, so its
+   * N is the number of wallets once it is added.
+   */
+  private defaultKeyringAlianName = (index: number): string => {
+    let position = 0
+    const otherNames: string[] = []
+    keyringService.keyrings.forEach((keyring, slot) => {
+      if (!keyring || keyring.type === KeyringType.Empty) {
+        return
+      }
+      if (slot <= index) {
+        position += 1
+      }
+      if (slot !== index) {
+        otherNames.push(preferenceService.getKeyringAlianName('keyring_' + slot))
+      }
+    })
+    return defaultWalletName(position, otherNames)
+  }
+
+  /**
+   * A wallet's name, as stored: a stored name is never rewritten. A wallet
+   * in use without one (an earlier build created it and its name was never
+   * read, or never reached the disk) gets its default name here and keeps
+   * it. With `initName` false, for a wallet that is not added yet, this only
+   * reads.
+   */
+  private keyringAlianName = (index: number, type: string, initName: boolean): string => {
+    const key = 'keyring_' + index
+    const stored = preferenceService.getKeyringAlianName(key)
+    if (stored || !initName) {
+      return stored
+    }
+    // A keyring of a type this build does not ship keeps the "Unsupported
+    // Wallet" label it is documented under; every other wallet is "Wallet N".
+    const name = KEYRING_TYPES[type]
+      ? this.defaultKeyringAlianName(index)
+      : `Unsupported Wallet #${index + 1}`
+    // Only a wallet still in its slot keeps the name. After a lock or a
+    // removal that came in while the wallets were read there is nothing to
+    // name, and the next read names the wallet again.
+    if (this.isKeyringSlotInUse(index, type)) {
+      preferenceService.setKeyringAlianName(key, name)
+    }
+    return name
+  }
+
+  /** A wallet's palette key: the stored one, else its slot's. Never writes. */
+  private keyringColor = (key: string, index: number): WalletColorKey =>
+    resolveWalletColor(preferenceService.getKeyringColor(key), index)
+
+  /**
+   * Store the name and color of a wallet just added to slot `index`: the
+   * palette key of its slot, and `alianName` when the user typed one, else
+   * its default name. Both replace anything stored under its key before,
+   * which no earlier wallet can own: slots are never reused, so only an
+   * addition that failed, or a reset that did not clear the preferences,
+   * leaves anything there. Skipped when the slot no longer holds a wallet (a
+   * lock replaced the keyrings meanwhile): reads show the slot color, and
+   * the first read after the next unlock names the wallet.
+   */
+  private assignNewKeyringIdentity = (index: number, alianName?: string | null): void => {
+    if (!this.isKeyringSlotInUse(index)) {
+      return
+    }
+    const key = 'keyring_' + index
+    const typedName = typeof alianName === 'string' ? alianName.trim() : ''
+    preferenceService.setKeyringColor(key, walletColorForSlot(index))
+    preferenceService.setKeyringAlianName(key, typedName || this.defaultKeyringAlianName(index))
+  }
+
   displayedKeyringToWalletKeyring = (
     displayedKeyring: DisplayedKeyring,
     index: number,
@@ -8866,10 +9284,7 @@ export class WalletController extends BaseController {
       type === KeyringType.HdKeyring
         ? (displayedKeyring.keyring.accountIndexDerivation ?? false)
         : false
-    const alianName = preferenceService.getKeyringAlianName(
-      key,
-      initName ? `${KEYRING_TYPES[type]?.alianName ?? 'Unsupported Wallet'} #${index + 1}` : ''
-    )!
+    const alianName = this.keyringAlianName(index, type, initName)
     const keyring: WalletKeyring = {
       index,
       key,
@@ -8877,6 +9292,7 @@ export class WalletController extends BaseController {
       addressType,
       accounts,
       alianName,
+      color: this.keyringColor(key, index),
       hdPath,
       accountIndexDerivation,
       ...(type === KeyringType.QbitHdKeyring && displayedKeyring.keyring.qbitRecovery
@@ -8894,10 +9310,7 @@ export class WalletController extends BaseController {
   ): CorruptedWalletKeyring => {
     const key = 'keyring_' + index
     const type = displayedKeyring.type
-    const alianName = preferenceService.getKeyringAlianName(
-      key,
-      initName ? `${KEYRING_TYPES[type]?.alianName ?? 'Unsupported Wallet'} #${index + 1}` : ''
-    )!
+    const alianName = this.keyringAlianName(index, type, initName)
 
     return {
       index,
@@ -8906,6 +9319,7 @@ export class WalletController extends BaseController {
       addressType: displayedKeyring.addressType,
       accounts: [],
       alianName,
+      color: this.keyringColor(key, index),
       hdPath: '',
       accountIndexDerivation: false,
       isCorrupted: true,
@@ -8952,8 +9366,21 @@ export class WalletController extends BaseController {
     return Boolean(keyring && !('isCorrupted' in keyring && keyring.isCorrupted))
   }
 
-  getKeyrings = async (): Promise<WalletKeyringWithStatus[]> => {
-    const displayedKeyrings = await keyringService.getAllDisplayedKeyrings()
+  getKeyrings = async (): Promise<WalletKeyringWithStatus[]> =>
+    this.walletKeyringsOf(await keyringService.getAllDisplayedKeyrings())
+
+  /**
+   * The wallets as the keyring service holds them when this is called, read
+   * slot by slot even while the service keeps a list of them: for decisions
+   * an earlier list must not make. A kept list already shows every change the
+   * service has finished; this also shows one still being saved, such as a
+   * receive address being issued. Like any read of them, it keeps the list it
+   * read only when no change lands while it reads.
+   */
+  private readKeyringsAfresh = async (): Promise<WalletKeyringWithStatus[]> =>
+    this.walletKeyringsOf(await keyringService.getAllDisplayedKeyrings(true))
+
+  private walletKeyringsOf = (displayedKeyrings: DisplayedKeyring[]): WalletKeyringWithStatus[] => {
     const keyrings: WalletKeyring[] = []
     for (let index = 0; index < displayedKeyrings.length; index++) {
       const displayedKeyring = displayedKeyrings[index]!
@@ -8971,14 +9398,22 @@ export class WalletController extends BaseController {
     return keyrings
   }
 
-  getTotalKeyringCount = async () => {
+  getCurrentKeyring = async (): Promise<WalletKeyring | null> => {
+    const storedIndex = preferenceService.getCurrentKeyringIndex()
+    const removalAtStart = this.removalUnderWay
+    let currentKeyringIndex = storedIndex
     const displayedKeyrings = await keyringService.getAllDisplayedKeyrings()
-    return displayedKeyrings.length
-  }
-
-  getCurrentKeyring = async () => {
-    let currentKeyringIndex = preferenceService.getCurrentKeyringIndex()
-    const displayedKeyrings = await keyringService.getAllDisplayedKeyrings()
+    // The wallets read may be out of date: another wallet was made current
+    // while they were read, as a switch or a removal does, or a removal under
+    // way when this read began has settled since, perhaps putting back the
+    // wallet whose slot they show empty. Answer for the wallet current now,
+    // never for one a later announcement replaced, and never store over it.
+    if (
+      preferenceService.getCurrentKeyringIndex() !== storedIndex ||
+      (removalAtStart !== undefined && removalAtStart !== this.removalUnderWay)
+    ) {
+      return this.getCurrentKeyring()
+    }
     if (currentKeyringIndex === undefined) {
       const currentAccount = preferenceService.getCurrentAccount()
       for (let i = 0; i < displayedKeyrings.length; i++) {
@@ -9002,6 +9437,15 @@ export class WalletController extends BaseController {
     )
 
     if (!this.isUsableKeyring(currentKeyring)) {
+      // A removal under way may have emptied this wallet's slot. It settles
+      // which wallet is current after it and announces it, or puts the
+      // wallet back when its save fails: wait for it, and answer for the
+      // wallet current then (see removalUnderWay).
+      const removal = this.removalUnderWay
+      if (removal) {
+        await removal
+        return this.getCurrentKeyring()
+      }
       for (let i = 0; i < displayedKeyrings.length; i++) {
         if (displayedKeyrings[i]!.type === KeyringType.Empty) {
           continue
@@ -9021,24 +9465,41 @@ export class WalletController extends BaseController {
     return this.isUsableKeyring(currentKeyring) ? currentKeyring : null
   }
 
+  /**
+   * The account stored as current, as the wallet current (getCurrentKeyring)
+   * lists it. The wallets read may be out of date: an account derived while
+   * they were read, then selected and announced to connected sites, is not
+   * among them. So when the wallet as read does not hold the account stored
+   * as current, the wallets are read again, three reads at most, before the
+   * wallet's first account stands in for it, as it does when no account is
+   * stored. The stand-in is never stored. Three reads in a row miss the
+   * stored account only when the wallet no longer holds it, as when its
+   * accounts were derived again for another address type or network and
+   * none of them is selected yet, or when changes keep overtaking the reads.
+   */
   getCurrentAccount = async () => {
-    const currentKeyring = await this.getCurrentKeyring()
-    if (!currentKeyring) return null
-    const account = preferenceService.getCurrentAccount()
-    let currentAccount: Account | undefined = undefined
-    currentKeyring.accounts.forEach(v => {
-      if (v.pubkey === account?.pubkey) {
-        currentAccount = v
+    for (let read = 1; ; read++) {
+      const currentKeyring = await this.getCurrentKeyring()
+      if (!currentKeyring) return null
+      const account = preferenceService.getCurrentAccount()
+      let currentAccount: Account | undefined = undefined
+      currentKeyring.accounts.forEach(v => {
+        if (v.pubkey === account?.pubkey) {
+          currentAccount = v
+        }
+      })
+      if (!currentAccount && account && read < 3) {
+        continue
       }
-    })
-    if (!currentAccount) {
-      currentAccount = currentKeyring.accounts[0]
-    }
-    if (currentAccount) {
-      currentAccount.flag = preferenceService.getAddressFlag(currentAccount.address)
-    }
+      if (!currentAccount) {
+        currentAccount = currentKeyring.accounts[0]
+      }
+      if (currentAccount) {
+        currentAccount.flag = preferenceService.getAddressFlag(currentAccount.address)
+      }
 
-    return currentAccount
+      return currentAccount
+    }
   }
 
   getEditingKeyring = async () => {
@@ -9130,10 +9591,147 @@ export class WalletController extends BaseController {
     this.announceRevocation(origin)
   }
 
-  setKeyringAlianName = (keyring: WalletKeyring, name: string) => {
-    preferenceService.setKeyringAlianName(keyring.key, name)
-    const newKeyring = Object.assign({}, keyring, { alianName: name })
-    return newKeyring
+  /**
+   * Throws unless `keyring`, as a page passed it in, is well formed and its
+   * slot holds a wallet of its type: "Unknown wallet" for a malformed one,
+   * its list of accounts included, and "The selected wallet is no longer
+   * available" for one never added or removed. A corrupted wallet still holds
+   * its slot, so it passes. Whether the slot holds the wallet the page listed
+   * there is walletInUse's to check.
+   */
+  private assertWalletInUse = (keyring: WalletKeyring): void => {
+    const index: unknown =
+      keyring !== null && typeof keyring === 'object' ? keyring.index : undefined
+    if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) {
+      throw new Error('Unknown wallet')
+    }
+    if (keyring.key !== 'keyring_' + index || typeof keyring.type !== 'string') {
+      throw new Error('Unknown wallet')
+    }
+    // The first account names the wallet (walletInUse).
+    const accounts: unknown = keyring.accounts
+    if (
+      !Array.isArray(accounts) ||
+      (accounts.length > 0 && (accounts[0] === null || typeof accounts[0] !== 'object'))
+    ) {
+      throw new Error('Unknown wallet')
+    }
+    if (!this.isKeyringSlotInUse(index, keyring.type)) {
+      throw new Error('The selected wallet is no longer available')
+    }
+  }
+
+  /**
+   * The keyring of `keyring`, as a page passed it in, once it is in use
+   * (assertWalletInUse) and is the wallet the page listed in its slot. A slot
+   * can come to hold another wallet of the same type: an addition whose save
+   * fails gives its slot back, as does the fresh wallet of a recovery
+   * migration whose save fails, and the next wallet added takes it; a reset
+   * empties every slot. So the wallet listed in the slot now must hold the
+   * page's first account, matched as resolveQueuedWalletKeyring matches it:
+   * by public key, or by address for an account without one. A corrupted
+   * wallet lists no account, so its copy is taken only for a wallet listed in
+   * its slot under the same key and type that lists no account either, as a
+   * removal takes it. A copy read before the wallet's accounts were derived
+   * again, by a change of its address type or a switch between mainnet and a
+   * test network, no longer matches either, and is refused until the page
+   * reads the wallets again. Act on the keyring returned only while its slot
+   * still holds it (assertSlotHolds).
+   */
+  private walletInUse = async (keyring: WalletKeyring): Promise<Keyring> => {
+    this.assertWalletInUse(keyring)
+    // The wallets are listed from the keyrings as they are now, `live`
+    // included: the keyring service keeps no list from before a change.
+    const live = keyringService.keyrings[keyring.index]!
+    const currentKeyrings = await this.getKeyrings()
+    const current = keyring.accounts[0]
+      ? this.resolveQueuedWalletKeyring(currentKeyrings, keyring)
+      : currentKeyrings.find(
+          candidate =>
+            candidate.index === keyring.index &&
+            candidate.key === keyring.key &&
+            candidate.type === keyring.type &&
+            !candidate.accounts[0]
+        )
+    if (!current || current.index !== keyring.index) {
+      throw new Error('The selected wallet is no longer available')
+    }
+    return live
+  }
+
+  /**
+   * Throws unless slot `index` still holds `live`, the keyring walletInUse
+   * returned for it. A removal puts an empty keyring in the slot before
+   * anything else, a lock or a reset empties every slot, and a slot given
+   * back holds another keyring once the next wallet is added. So a caller
+   * that reads or writes right after this check, with nothing awaited in
+   * between, never does so for a wallet that is gone.
+   */
+  private assertSlotHolds = (index: number, live: Keyring): void => {
+    if (keyringService.keyrings[index] !== live) {
+      throw new Error('The selected wallet is no longer available')
+    }
+  }
+
+  // Renames and color changes run one at a time, in the order they came in:
+  // each reads the wallets before it writes, and that read can take longer
+  // for one change than for the next, which would then be overwritten by the
+  // change that came before it.
+  private walletLabelChangeTail: Promise<void> = Promise.resolve()
+
+  private enqueueWalletLabelChange = <T>(change: () => Promise<T>): Promise<T> => {
+    const queuedChange = this.walletLabelChangeTail.then(change)
+    this.walletLabelChangeTail = queuedChange.then(
+      () => undefined,
+      () => undefined
+    )
+    return queuedChange
+  }
+
+  /**
+   * Rename a wallet. Refuses, and writes nothing for, a name that is not a
+   * string or is blank, and a wallet that is not in use or not the wallet
+   * the page listed in its slot (walletInUse): a rename that reaches the
+   * background after another window removed the wallet would otherwise store
+   * the name again for the empty slot, and one for a wallet whose slot
+   * another wallet took would rename that wallet. Resolves with the wallet as
+   * given, with the new name and its color.
+   */
+  setKeyringAlianName = async (keyring: WalletKeyring, name: string): Promise<WalletKeyring> => {
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new Error('Invalid wallet name')
+    }
+    return this.enqueueWalletLabelChange(async () => {
+      const live = await this.walletInUse(keyring)
+      this.assertSlotHolds(keyring.index, live)
+      preferenceService.setKeyringAlianName(keyring.key, name)
+      return Object.assign({}, keyring, {
+        alianName: name,
+        color: this.keyringColor(keyring.key, keyring.index),
+      })
+    })
+  }
+
+  /**
+   * Set a wallet's color to a palette key (WALLET_COLOR_KEYS). Refuses, and
+   * writes nothing for, a color that is not a palette key (null and other
+   * non-strings included) and a wallet that is not in use or not the wallet
+   * the page listed in its slot (walletInUse). Resolves with the wallet as
+   * given, with the new color, as setKeyringAlianName does.
+   */
+  setKeyringColor = async (
+    keyring: WalletKeyring,
+    color: WalletColorKey
+  ): Promise<WalletKeyring> => {
+    if (!isWalletColorKey(color)) {
+      throw new Error('Unknown wallet color')
+    }
+    return this.enqueueWalletLabelChange(async () => {
+      const live = await this.walletInUse(keyring)
+      this.assertSlotHolds(keyring.index, live)
+      preferenceService.setKeyringColor(keyring.key, color)
+      return Object.assign({}, keyring, { color })
+    })
   }
 
   setAccountAlianName = (account: Account, name: string) => {
@@ -9831,16 +10429,15 @@ export class WalletController extends BaseController {
       throw e
     }
 
+    const keyringIndex = this.addedKeyringIndex(originKeyring)
+    this.assignNewKeyringIdentity(keyringIndex, alianName)
     const displayedKeyring = await keyringService.displayForKeyring(
       originKeyring,
       addressType,
-      keyringService.keyrings.length - 1
+      keyringIndex
     )
-    const keyring = this.displayedKeyringToWalletKeyring(
-      displayedKeyring,
-      keyringService.keyrings.length - 1
-    )
-    await this.changeKeyring(keyring)
+    const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
+    await this.selectKeyring(keyring)
 
     preferenceService.setShowSafeNotice(true)
   }
@@ -9865,16 +10462,15 @@ export class WalletController extends BaseController {
     }
     const addressType = getAddressType(address, networkType)
     const originKeyring = await keyringService.importWatchAddress(address, addressType)
+    const keyringIndex = this.addedKeyringIndex(originKeyring)
+    this.assignNewKeyringIdentity(keyringIndex)
     const displayedKeyring = await keyringService.displayForKeyring(
       originKeyring,
       addressType,
-      keyringService.keyrings.length - 1
+      keyringIndex
     )
-    const keyring = this.displayedKeyringToWalletKeyring(
-      displayedKeyring,
-      keyringService.keyrings.length - 1
-    )
-    await this.changeKeyring(keyring)
+    const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
+    await this.selectKeyring(keyring)
 
     preferenceService.setShowSafeNotice(true)
   }

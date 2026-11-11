@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 
 import { test as base, expect, type Page } from '@playwright/test'
 
+import { walletColorForSlot } from '../../../packages/wallet-shared/src/utils/wallet-identity'
 import {
   RELEASES,
   readReleaseStorage,
@@ -22,8 +23,11 @@ interface AccountProbe {
 }
 
 interface KeyringProbe {
+  key: string
+  index: number
   type: string
   alianName: string
+  color: string
   addressType: number
   accounts: AccountProbe[]
 }
@@ -103,6 +107,63 @@ async function expectWallets(extension: ExtensionSession, page: Page, dump: Rele
   )
 }
 
+/**
+ * The release's wallets as the account card and the account switcher show
+ * them: their names as the release stored them, never renamed to "Wallet N",
+ * and, as the release stored no colors, each in its slot's color. Showing
+ * them stores no color.
+ */
+async function expectWalletIdentity(
+  extension: ExtensionSession,
+  home: WalletHomePage,
+  dump: ReleaseStorage
+) {
+  const keyrings = await extension.requestWalletController<KeyringProbe[]>(home.page, 'getKeyrings')
+  const currentAddress = dump.wallet.currentAccount.address
+  const current = keyrings.find(keyring =>
+    keyring.accounts.some(account => account.address === currentAddress)
+  )
+  expect(current).toBeDefined()
+  for (const keyring of keyrings) {
+    expect(keyring.color).toBe(walletColorForSlot(keyring.index))
+  }
+  await home.expectCurrentAccount({
+    walletName: current!.alianName,
+    accountName: dump.wallet.currentAccount.alianName,
+    address: currentAddress,
+  })
+  await expect(home.cardWalletTile).toHaveAttribute(
+    'data-color',
+    walletColorForSlot(current!.index)
+  )
+
+  const sheet = await home.openAccountSwitcher()
+  await expect.poll(() => sheet.walletKeys()).toEqual(keyrings.map(keyring => keyring.key))
+  for (const [position, keyring] of keyrings.entries()) {
+    await expect(sheet.walletName(keyring.key)).toHaveText(
+      dump.wallet.keyrings[position]!.alianName
+    )
+    await expect(sheet.walletTile(keyring.key)).toHaveAttribute(
+      'data-color',
+      walletColorForSlot(keyring.index)
+    )
+    await expect
+      .poll(() => sheet.walletTags(keyring.key))
+      .toEqual(keyring.type === 'Readonly' ? ['read-only'] : [])
+    expect(await sheet.accountAddresses(keyring.key)).toEqual(
+      dump.wallet.keyrings[position]!.accounts.map(account => account.address)
+    )
+  }
+  await expect(sheet.currentAccountRow).toHaveAttribute(
+    'data-testid',
+    `account-row-${currentAddress}`
+  )
+  await sheet.close()
+
+  const stored = await home.page.evaluate(() => chrome.storage.local.get('preference'))
+  expect(stored['preference']?.keyringColors ?? {}).toEqual({})
+}
+
 for (const release of RELEASES) {
   test(`upgrade from ${release}: the wallet unlocks with its accounts, settings, contacts and sites`, async ({
     extension,
@@ -120,6 +181,7 @@ for (const release of RELEASES) {
     await expect(
       page.getByText(dump.wallet.currentAccount.alianName, { exact: true })
     ).toBeVisible()
+    await expectWalletIdentity(extension, home, dump)
 
     expect(await extension.requestWalletController(page, 'getChainType')).toBe(settings.chainType)
     expect(await extension.requestWalletController(page, 'getLocale')).toBe(settings.locale)
@@ -171,6 +233,7 @@ for (const release of RELEASES) {
     await extension.restart()
     const reopened = await unlock(extension, dump)
     await expectWallets(extension, reopened.page, dump)
+    await expectWalletIdentity(extension, reopened.home, dump)
     expect(
       await extension.requestWalletController<SiteProbe[]>(reopened.page, 'getConnectedSites')
     ).toEqual([expect.objectContaining({ ...site, isConnected: true })])

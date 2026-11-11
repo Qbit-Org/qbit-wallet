@@ -1,66 +1,90 @@
-import { Copy } from 'lucide-react';
-import { shortAddress } from '@/ui/utils';
-import { useCurrentAccount, useNavigation, useTools } from '@qbit/wallet-state';
+import { ChevronsUpDown, Copy } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
 
-import { Column } from '../Column';
-import { Icon } from '../Icon';
-import { Row } from '../Row';
-import { Text } from '../Text';
+import { AccountSwitcherSheet } from '@/ui/components/AccountSwitcher';
+import { WalletAvatar, WalletTags, walletTagsFor } from '@/ui/components/WalletIdentity';
+import { shortAddress } from '@/ui/utils';
+import { QbitRecoveryState } from '@qbit/wallet-shared';
+import { useCurrentAccount, useCurrentKeyring, useI18n, useTools } from '@qbit/wallet-state';
+
 import './index.less';
 
-const AccountSelect = () => {
-  const nav = useNavigation();
+interface AccountSelectProps {
+  /**
+   * The current wallet's recovery state as the home screen last fetched it.
+   * The keyring snapshot in the store goes stale after a recovery change, so
+   * the tags follow this, as the recovery cards do.
+   */
+  recoveryState?: QbitRecoveryState;
+}
+
+/**
+ * The home screen's account card: which wallet and account are open. Tapping
+ * the address copies it; tapping anywhere else opens the account switcher.
+ */
+const AccountSelect = ({ recoveryState }: AccountSelectProps) => {
+  const currentKeyring = useCurrentKeyring();
   const currentAccount = useCurrentAccount();
   const tools = useTools();
+  const { t } = useI18n();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+
   const address = currentAccount.address;
+  const walletName = currentKeyring.alianName;
+  const accountName = currentAccount.alianName ?? '';
+  const tags = walletTagsFor(currentKeyring, recoveryState ?? currentKeyring.qbitRecovery);
+
+  const closeSwitcher = useCallback(() => {
+    setSwitcherOpen(false);
+    // The card stays mounted after a switch, so focus can go back to it.
+    openButtonRef.current?.focus();
+  }, []);
 
   return (
-    <Row
-      justifyBetween
-      px="md"
-      py="md"
-      bg="card"
-      itemsCenter
-      style={{
-        borderRadius: 0,
-        border: '1px solid var(--qbit-line)',
-        boxShadow: '0 8px 24px var(--qbit-shadow)'
-      }}
-    >
-      <Row style={{ flex: 1 }}>
-        <Icon size={15} icon="user" style={{ marginLeft: 10 }} />
-      </Row>
-
-      <Column
-        justifyCenter
-        rounded
-        px="sm"
-        style={{
-          flex: 1
-        }}
-        onClick={(e) => tools.copyToClipboard(address)}
-      >
-        <Text text={shortAddress(currentAccount?.alianName, 8)} textCenter ellipsis />
-        <Row selfItemsCenter itemsCenter>
-          <Text text={shortAddress(address)} color="textDim" />
-          <Copy size={14} style={{ color: 'var(--qbit-muted)' }} />
-        </Row>
-      </Column>
-
-      <Row
-        style={{ flex: 1 }}
-        fullY
-        py="md"
-        justifyEnd
-        itemsCenter
-        onClick={(e) => {
-          nav.navigate('SwitchAccountScreen');
-        }}
-        data-testid="account-select"
-      >
-        <Icon size={15} icon="right" style={{ marginRight: 10 }} />
-      </Row>
-    </Row>
+    <>
+      <div className="account-card">
+        {/* Covers the whole card under the copy control, so a tap anywhere else opens the switcher.
+            Being on top of the names, it also carries them in full for the pointer. */}
+        <button
+          ref={openButtonRef}
+          type="button"
+          className="account-card__open"
+          aria-haspopup="dialog"
+          aria-expanded={switcherOpen}
+          aria-label={t('account_switcher_open_label', [accountName, walletName])}
+          title={`${walletName}\n${accountName}`}
+          onClick={() => setSwitcherOpen(true)}
+          data-testid="account-select"
+        />
+        <WalletAvatar keyring={currentKeyring} size={40} data-testid="account-select-wallet-tile" />
+        <div className="account-card__text">
+          <div className="account-card__wallet-line">
+            <span className="account-card__wallet-name" data-testid="account-select-wallet-name">
+              {walletName}
+            </span>
+            <WalletTags tags={tags} testIdFor={(tag) => `account-select-tag-${tag}`} />
+          </div>
+          <span className="account-card__account-name" data-testid="account-select-account-name">
+            {accountName}
+          </span>
+          <button
+            type="button"
+            className="account-card__copy"
+            aria-label={t('account_switcher_copy_address_label', [accountName])}
+            onClick={() => tools.copyToClipboard(address)}
+            data-testid="account-select-copy"
+          >
+            <span className="account-card__address">{shortAddress(address)}</span>
+            <Copy size={13} aria-hidden="true" focusable="false" />
+          </button>
+        </div>
+        <span className="account-card__chevron" aria-hidden="true">
+          <ChevronsUpDown size={15} focusable="false" />
+        </span>
+      </div>
+      {switcherOpen && <AccountSwitcherSheet onClose={closeSwitcher} />}
+    </>
   );
 };
 

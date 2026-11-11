@@ -43,6 +43,13 @@ export interface BasePreferenceStore {
   keyringAlianNames: {
     [key: string]: string
   }
+  /**
+   * Wallet colors by keyring key, as palette keys (WALLET_COLOR_KEYS). A
+   * stored value that is not a palette key reads as no color.
+   */
+  keyringColors: {
+    [key: string]: string
+  }
   accountAlianNames: {
     [key: string]: string
   }

@@ -177,8 +177,15 @@ vi.mock('../src/services', () => ({
   },
   preferenceService: {
     getCurrentAccount: vi.fn(),
+    getCurrentKeyringIndex: vi.fn(),
     getAddressFlag: vi.fn(() => 0),
     getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
+    getKeyringAlianName: vi.fn(() => ''),
+    setKeyringAlianName: vi.fn(),
+    removeKeyringAlianName: vi.fn(),
+    getKeyringColor: vi.fn(() => undefined),
+    setKeyringColor: vi.fn(),
+    removeKeyringColor: vi.fn(),
   },
   qbitSendGuardService: {
     acquireExternalSigningLock: vi.fn(),
@@ -511,6 +518,22 @@ function installQbitDestinationRawKeyring(
   }
   ;(keyringService as any).keyrings[keyringIndex] = rawKeyring
   return rawKeyring
+}
+
+// The keyring service holds a wallet in the slot of each one listed, as it
+// does for every wallet it lists: a removal acts only on a wallet in its slot.
+function holdSlotsOf(...listed: Array<{ index: number; type: string }>) {
+  const keyrings = (keyringService as any).keyrings
+  for (const keyring of listed) {
+    if (!keyrings[keyring.index]) keyrings[keyring.index] = { type: keyring.type }
+  }
+}
+
+// The wallets `wallet` lists, whether read through the keyring service's
+// cache of shown wallets or afresh, as a removal reads them.
+function listWallets(wallet: WalletController, listed: unknown[]) {
+  vi.spyOn(wallet, 'getKeyrings').mockResolvedValue(listed as any)
+  vi.spyOn(wallet as any, 'readKeyringsAfresh').mockResolvedValue(listed)
 }
 
 function qbitRecoveryMigrationFixture() {
@@ -5221,7 +5244,7 @@ describe('WalletController qbit P2MR send path', () => {
       sourceKeyring as any,
       destinationKeyring as any,
     ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(sourceAccount as any)
     installQbitDestinationRawKeyring(destinationAccount, 1)
     // A prior testnet4 migration already archived into the destination; the
@@ -5279,6 +5302,11 @@ describe('WalletController qbit P2MR send path', () => {
 
   it('honors the confirmed fresh seed even when another network recorded a destination', async () => {
     const { wallet, sourceAccount } = installSecondNetworkRecoveryFixture()
+    vi.mocked(keyringService.createQbitMigrationKeyring).mockResolvedValueOnce({
+      destinationKeyringIndex: 2,
+      destinationPubkey: '73'.repeat(32),
+      destinationAddress: 'qbrt1zfresh',
+    })
 
     // The user only reaches the create path after backing up and confirming
     // this mnemonic; silently rerouting to the recorded destination would
@@ -5423,7 +5451,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     const scanAddress = (index: number) => `qbrt1zrescan${index}`
     ;(keyringService as any).keyrings[2] = {
       getAccounts: async () => [fixture.sourceAccount.pubkey],
@@ -5629,13 +5657,11 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [destinationAccount],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      sourceKeyring as any,
-      destinationKeyring as any,
-    ])
+    listWallets(wallet, [sourceKeyring as any, destinationKeyring as any])
     vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(sourceAccount as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     installQbitDestinationRawKeyring(destinationAccount)
+    holdSlotsOf(sourceKeyring)
 
     let vaultState: any = {
       version: 1,
@@ -5925,15 +5951,15 @@ describe('WalletController qbit P2MR send path', () => {
     expect(keyringService.markQbitRecoveryMigrated).toHaveBeenCalledWith(sourceAccount.address, 'regtest', {
       allowIncompletePlanRecord: true,
     })
-    expect(changeKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
 
-    changeKeyring.mockClear()
+    selectKeyring.mockClear()
     lifecycle.mockResolvedValue({ state: 'confirmed' })
     getAddressUtxosMock.mockResolvedValueOnce([dustUtxo])
     await expect(wallet.advanceQbitRecoveryMigration(2)).resolves.toMatchObject({
       status: 'migrated',
     })
-    expect(changeKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
 
     await expect(wallet.removeKeyring(sourceKeyring as any)).rejects.toMatchObject({
       code: ErrorCodes.QBIT_RECOVERY_REMOVAL_ACK_REQUIRED,
@@ -5956,8 +5982,10 @@ describe('WalletController qbit P2MR send path', () => {
           { role: 'destination', network: 'regtest', status: 'migrated' },
         ],
       })
-    ).resolves.toBe(destinationKeyring)
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3)
+    ).resolves.toBe(sourceKeyring)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3, {
+      beforeRemove: expect.any(Function),
+    })
   })
 
   it.each(['migrating', 'migrated'] as const)(
@@ -5966,11 +5994,9 @@ describe('WalletController qbit P2MR send path', () => {
       const wallet = new WalletController()
       const fixture = qbitRecoveryMigrationFixture()
       const vaultState = { ...fixture.vaultState, status }
-      vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-        fixture.sourceKeyring as any,
-        fixture.destinationKeyring as any,
-      ])
-      vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+      listWallets(wallet, [fixture.sourceKeyring as any, fixture.destinationKeyring as any])
+      holdSlotsOf(fixture.sourceKeyring, fixture.destinationKeyring)
+      vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
       vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
         address === fixture.sourceAccount.address ? wrapRegtestVaultState(vaultState) : undefined
       )
@@ -6008,14 +6034,18 @@ describe('WalletController qbit P2MR send path', () => {
           { role: 'source', network: 'regtest', status, hasInflightPlans: true },
         ],
       })
-      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index)
+      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index, {
+        beforeRemove: expect.any(Function),
+      })
       await wallet.removeKeyring(fixture.destinationKeyring as any, {
         acknowledgedQbitRecoveryRisks: true,
         acknowledgedQbitRecoveryReasons: [
           { role: 'destination', network: 'regtest', status, hasInflightPlans: true },
         ],
       })
-      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring.index)
+      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring.index, {
+        beforeRemove: expect.any(Function),
+      })
     }
   )
 
@@ -6031,11 +6061,9 @@ describe('WalletController qbit P2MR send path', () => {
         plans: [{ ...fixture.vaultState.migration.plans[0], status: 'prepared' as const }],
       },
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      fixture.sourceKeyring as any,
-      fixture.destinationKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [fixture.sourceKeyring as any, fixture.destinationKeyring as any])
+    holdSlotsOf(fixture.sourceKeyring, fixture.destinationKeyring)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
       address === fixture.sourceAccount.address ? wrapRegtestVaultState(vaultState) : undefined
     )
@@ -6072,7 +6100,9 @@ describe('WalletController qbit P2MR send path', () => {
         { role: 'source', network: 'regtest', status: 'migrating', hasInflightPlans: true },
       ] as any,
     })
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index, {
+      beforeRemove: expect.any(Function),
+    })
   })
 
   it('retains the migration destination after keyring compaction stales the persisted index', async () => {
@@ -6089,12 +6119,9 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('33'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      sourceKeyring as any,
-      destinationKeyring as any,
-      unrelatedKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [sourceKeyring as any, destinationKeyring as any, unrelatedKeyring as any])
+    holdSlotsOf(sourceKeyring, destinationKeyring, unrelatedKeyring)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
       address === fixture.sourceAccount.address ? wrapRegtestVaultState(fixture.vaultState) : undefined
     )
@@ -6105,8 +6132,11 @@ describe('WalletController qbit P2MR send path', () => {
     })
     expect(keyringService.removeKeyring).not.toHaveBeenCalled()
 
-    await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(unrelatedKeyring)
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3)
+    // The removed wallet is never the one returned as current.
+    await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(destinationKeyring)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3, {
+      beforeRemove: expect.any(Function),
+    })
   })
 
   it('recognizes the retained destination recorded under another coin type', async () => {
@@ -6135,12 +6165,8 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('33'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      sourceKeyring as any,
-      destinationKeyring as any,
-      unrelatedKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [sourceKeyring as any, destinationKeyring as any, unrelatedKeyring as any])
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
       address === fixture.sourceAccount.address ? wrapRegtestVaultState(vaultState) : undefined
     )
@@ -6176,8 +6202,10 @@ describe('WalletController qbit P2MR send path', () => {
 
       // The stale persisted index no longer misdirects the check once the
       // stored identity resolves to a live keyring.
-      await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(unrelatedKeyring)
-      expect(keyringService.removeKeyring).toHaveBeenCalledWith(2)
+      await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(destinationKeyring)
+      expect(keyringService.removeKeyring).toHaveBeenCalledWith(2, {
+        beforeRemove: expect.any(Function),
+      })
 
       // A candidate that cannot be verified surfaces the uncertainty for
       // confirmation instead of failing the removal closed: the target may be
@@ -6200,8 +6228,10 @@ describe('WalletController qbit P2MR send path', () => {
             { role: 'unverified', network: 'mainnet', status: 'migrating', hasInflightPlans: true },
           ],
         })
-      ).resolves.toBe(unrelatedKeyring)
-      expect(keyringService.removeKeyring).toHaveBeenLastCalledWith(2)
+      ).resolves.toBe(destinationKeyring)
+      expect(keyringService.removeKeyring).toHaveBeenLastCalledWith(2, {
+        beforeRemove: expect.any(Function),
+      })
     } finally {
       delete (keyringService as any).keyrings[0]
       delete (keyringService as any).keyrings[1]
@@ -6209,30 +6239,32 @@ describe('WalletController qbit P2MR send path', () => {
     }
   })
 
-  it('re-resolves a queued removal whose captured index was staled by compaction', async () => {
+  it('refuses a queued removal whose wallet is listed only in another slot', async () => {
     const wallet = new WalletController()
-    // The user asked to remove this wallet while it sat at index 2; an earlier
-    // queued removal then compacted the keyring array, moving it to index 1
-    // and moving an unrelated wallet into the captured slot.
+    // The user asked to remove this wallet while it sat in slot 2. A removal
+    // leaves its slot empty and an addition takes a new one, so slots are
+    // never reused: the same wallet listed in slot 1 is another wallet entry
+    // (its phrase restored again), not the one the user picked.
     const capturedTarget = {
       index: 2,
       type: KeyringType.QbitHdKeyring,
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('44'.repeat(32))],
     }
-    const compactedTarget = { ...capturedTarget, index: 1 }
+    const sameWalletElsewhere = { ...capturedTarget, index: 1 }
     const survivor = {
       index: 2,
       type: KeyringType.QbitHdKeyring,
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('55'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([compactedTarget as any, survivor as any])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [sameWalletElsewhere as any, survivor as any])
+    holdSlotsOf(sameWalletElsewhere, survivor)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockResolvedValue(undefined)
 
-    await wallet.removeKeyring(capturedTarget as any)
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(1)
+    await expect(wallet.removeKeyring(capturedTarget as any)).rejects.toThrow('no longer available')
+    expect(keyringService.removeKeyring).not.toHaveBeenCalled()
   })
 
   it('rejects a queued removal whose wallet was already removed', async () => {
@@ -6249,7 +6281,7 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('55'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([survivor as any])
+    listWallets(wallet, [survivor as any])
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockResolvedValue(undefined)
 
     await expect(wallet.removeKeyring(captured as any)).rejects.toThrow('no longer available')
@@ -6259,11 +6291,9 @@ describe('WalletController qbit P2MR send path', () => {
   it('queues keyring removal so it cannot interleave with a migration start', async () => {
     const wallet = new WalletController()
     const fixture = qbitRecoveryMigrationFixture()
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      fixture.sourceKeyring as any,
-      fixture.destinationKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [fixture.sourceKeyring as any, fixture.destinationKeyring as any])
+    holdSlotsOf(fixture.sourceKeyring, fixture.destinationKeyring)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // The removal was requested while the source still looked seed-only
     // restored, but a migration start is already in the chain-state queue:
     // the retained-wallet guard must observe the state that start persists,
@@ -6670,7 +6700,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // A reviewed protected-asset move rides outside the plan list; while it
     // sits in the mempool it hides the UTXOs it spends from the final scan.
     getAddressUtxosMock.mockResolvedValue([])
@@ -6690,7 +6720,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('activates the destination account a 1:1 sweep actually funded after archiving', async () => {
@@ -6736,13 +6766,13 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     getAddressUtxosMock.mockResolvedValue([])
 
     await expect(wallet.advanceQbitRecoveryMigration(2)).resolves.toMatchObject({
       status: 'migrated',
     })
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 1)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 1)
   })
 
   it('waits for an untracked protected-asset spender before archiving a plan-less source', async () => {
@@ -6769,7 +6799,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // Protected-only source: its provider transfer never became a migration
     // plan, so the plan list is empty and the UTXO scan is vacuously clean
     // while that transfer is unconfirmed.
@@ -6792,7 +6822,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('defers archiving a plan-less source while a coinbase reward is immature', async () => {
@@ -6822,7 +6852,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // A mined reward below qbit's 1,000-block coinbase maturity cannot enter a
     // sweep plan, so the spendable scan is vacuously clean while the source
     // still holds funds.
@@ -6858,7 +6888,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('defers unconfirmed source funds instead of sweeping them into plans', async () => {
@@ -6960,7 +6990,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // The sweep confirmed, but a later mined reward is still maturing: the
     // final scan must treat it as remaining funds.
     const coinbaseTxid = '78'.repeat(32)
@@ -6993,7 +7023,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('reopens a migrated source when an immature coinbase reward arrives', async () => {
@@ -7028,7 +7058,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrating' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // A reward mined to the archived source is invisible to the spendable
     // scan until maturity; the archive must still reopen for it instead of
     // presenting the source as fully migrated.
@@ -7057,7 +7087,7 @@ describe('WalletController qbit P2MR send path', () => {
       []
     )
     expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
   })
 
   it('keeps signed migration bytes when an empty UTXO response has no conflicting spend proof', async () => {
@@ -7532,7 +7562,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrating' }
       return fixture.publicState(vaultState)
     })
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     getAddressUtxosMock.mockResolvedValue([])
     mockUnreadableRecoverySource(unreadable.address)
 
@@ -7675,7 +7705,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrating' }
       return fixture.publicState(vaultState)
     })
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     getAddressUtxosMock.mockResolvedValue([])
     mockIncompleteRecoverySource(incomplete.address)
 

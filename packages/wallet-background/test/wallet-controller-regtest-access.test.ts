@@ -41,7 +41,9 @@ vi.mock('../src/services', () => ({
     setCurrentKeyringIndex: vi.fn(),
     setCurrentAccount: vi.fn(),
     getCurrentAccount: vi.fn(() => ({ index: 0 })),
-    getKeyringAlianName: vi.fn((_: string, defaultName: string) => defaultName),
+    getKeyringAlianName: vi.fn((_: string, defaultName?: string) => defaultName ?? ''),
+    setKeyringAlianName: vi.fn(),
+    getKeyringColor: vi.fn(() => undefined),
     getAccountAlianName: vi.fn((_: string, defaultName: string) => defaultName),
     getAddressFlag: vi.fn(() => 0),
     getAutoLockTimeId: vi.fn(() => 0),
@@ -166,8 +168,8 @@ function prepareWallet() {
   const wallet = new WalletController()
   const currentKeyring = { index: 0, accounts: [{}] }
   vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-  const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
-  return { wallet, changeKeyring }
+  const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
+  return { wallet, selectKeyring }
 }
 
 function expectNoChainMutation(wallet: WalletController) {
@@ -194,7 +196,7 @@ describe('WalletController local regtest capability', () => {
 
   it('rejects a direct regtest switch while locked without mutating any chain state', async () => {
     trackChain(ChainType.QBIT_MAINNET)
-    const { wallet, changeKeyring } = prepareWallet()
+    const { wallet, selectKeyring } = prepareWallet()
     const { adapter } = createAdapter()
     const fetch = healthyFetch()
     wallet.initRegtestAccess({ adapter, fetch, ackStore: createAckStore() })
@@ -206,7 +208,7 @@ describe('WalletController local regtest capability', () => {
       code: ErrorCodes.REGTEST_ACCESS_LOCKED,
     })
     expectNoChainMutation(wallet)
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
     expect(adapter.containsPermission).toHaveBeenCalled()
   })
@@ -232,7 +234,7 @@ describe('WalletController local regtest capability', () => {
 
   it('enters regtest once permission, acknowledgement and identity verification all succeed', async () => {
     const current = trackChain(ChainType.QBIT_MAINNET)
-    const { wallet, changeKeyring } = prepareWallet()
+    const { wallet, selectKeyring } = prepareWallet()
     const { adapter } = createAdapter({ containsPermission: vi.fn(async () => true) })
     const ackStore = createAckStore()
     wallet.initRegtestAccess({ adapter, fetch: healthyFetch(), ackStore })
@@ -247,7 +249,7 @@ describe('WalletController local regtest capability', () => {
     expect(current()).toBe(ChainType.QBIT_REGTEST)
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith(REGTEST_HD_PATH)
     expect(apiEndpoint(wallet)).toBe(QBIT_REGTEST_ORIGIN)
-    expect(changeKeyring).toHaveBeenCalled()
+    expect(selectKeyring).toHaveBeenCalled()
     expect(sessionService.broadcastChainChange).toHaveBeenCalledWith({
       previousChain: ChainType.QBIT_MAINNET,
       chain: ChainType.QBIT_REGTEST,
@@ -332,7 +334,7 @@ describe('WalletController local regtest capability', () => {
     'fails closed on a %s response without mutating chain state',
     async (_label, fetchImpl, code) => {
       trackChain(ChainType.QBIT_MAINNET)
-      const { wallet, changeKeyring } = prepareWallet()
+      const { wallet, selectKeyring } = prepareWallet()
       const { adapter } = createAdapter({ containsPermission: vi.fn(async () => true) })
       wallet.initRegtestAccess({
         adapter,
@@ -343,13 +345,13 @@ describe('WalletController local regtest capability', () => {
 
       await expect(wallet.setChainType(ChainType.QBIT_REGTEST)).rejects.toMatchObject({ code })
       expectNoChainMutation(wallet)
-      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectKeyring).not.toHaveBeenCalled()
     }
   )
 
   it('returns to mainnet through the serialized transition when the permission is revoked while active', async () => {
     const current = trackChain(ChainType.QBIT_REGTEST)
-    const { wallet, changeKeyring } = prepareWallet()
+    const { wallet, selectKeyring } = prepareWallet()
     const contains = vi.fn(async () => true)
     const { adapter, fireRemoved } = createAdapter({ containsPermission: contains })
     wallet.initRegtestAccess({
@@ -368,7 +370,7 @@ describe('WalletController local regtest capability', () => {
     await waitFor(() => expect(regtestClients(wallet)).toEqual([]))
     expect(apiEndpoint(wallet)).toBe(MAINNET_ENDPOINT)
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
-    expect(changeKeyring).toHaveBeenCalled()
+    expect(selectKeyring).toHaveBeenCalled()
     expect(preferenceService.setChainType).not.toHaveBeenCalledWith(ChainType.QBIT_REGTEST)
     await waitFor(() =>
       expect(sessionService.broadcastChainChange).toHaveBeenCalledWith(
@@ -400,7 +402,7 @@ describe('WalletController local regtest capability', () => {
   it('pins mainnet directly when revoked while the wallet is locked (no keyring loaded)', async () => {
     const current = trackChain(ChainType.QBIT_REGTEST)
     vi.mocked(keyringService.memStore.getState).mockReturnValue({ isUnlocked: false })
-    const { wallet, changeKeyring } = prepareWallet()
+    const { wallet, selectKeyring } = prepareWallet()
     const contains = vi.fn(async () => false)
     const { adapter, fireRemoved } = createAdapter({ containsPermission: contains })
     wallet.initRegtestAccess({
@@ -416,7 +418,7 @@ describe('WalletController local regtest capability', () => {
     await waitFor(() => expect(regtestClients(wallet)).toEqual([]))
     expect(apiEndpoint(wallet)).toBe(MAINNET_ENDPOINT)
     expect(preferenceService.persist).toHaveBeenCalled()
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(sessionService.broadcastChainChange).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -434,7 +436,7 @@ describe('WalletController local regtest capability', () => {
   // itself before it broadcasts.
   it('re-syncs the keyring onto the mainnet path when the serialized transition fails', async () => {
     const current = trackChain(ChainType.QBIT_REGTEST)
-    const { wallet, changeKeyring } = prepareWallet()
+    const { wallet, selectKeyring } = prepareWallet()
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
       index: 0,
       accounts: [{ address: 'mainnet-path-address' }],
@@ -458,9 +460,9 @@ describe('WalletController local regtest capability', () => {
     )
     // Twice: the transition's own attempt (which threw) and the fallback's.
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledTimes(2)
-    // The transition threw before it ever reached changeKeyring, so this call
+    // The transition threw before it ever reached selectKeyring, so this call
     // can only come from the fallback re-syncing the keyring itself.
-    expect(changeKeyring).toHaveBeenCalledTimes(1)
+    expect(selectKeyring).toHaveBeenCalledTimes(1)
     expect(keyringService.setLocked).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(sessionService.broadcastChainChange).toHaveBeenCalledWith({

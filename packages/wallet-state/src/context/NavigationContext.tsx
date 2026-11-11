@@ -46,14 +46,10 @@ export type RouteParamList = {
     fromUnlock?: boolean
   }
 
-  EditWalletNameScreen: {
-    keyring: WalletKeyring
-  }
   ExportMnemonicsScreen: { keyring: WalletKeyring }
   ExportPrivateKeyScreen: {
     account: Account
   }
-  SwitchAccountScreen: undefined
   ReceiveScreen: undefined
   HistoryScreen: undefined
   KeyringOrAccountScreen: undefined
@@ -63,9 +59,6 @@ export type RouteParamList = {
   }
   CreateAccountScreen: {
     keyringKey?: string
-  }
-  EditAccountNameScreen: {
-    account: Account
   }
   KeyringDetailScreen: {
     keyringKey?: string
