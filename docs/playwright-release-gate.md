@@ -102,7 +102,7 @@ separately with two-decimal millisecond precision.
 | Receive/fund/rotate   | `scenarios/receive.spec.ts:5`             | Fund issued addresses, rotate safely, mine, and retain previous addresses                                  | Pass         |  26.2 s |
 | Send                  | `scenarios/send.spec.ts:23`               | Dust rejection; single/multi-input fees; exact displayed/on-chain fee equality; RBF replacement            | Pass         |  67.7 s |
 | Send at relay floor   | `scenarios/send.spec.ts:254`              | Custom 0.25 bits/vB: fee is vsize × 0.25 rounded up, accepted, equal on chain, confirmed; 0.24 blocks Next | Not recorded |       — |
-| Consolidation         | `scenarios/consolidation.spec.ts:144`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
+| Consolidation         | `scenarios/consolidation.spec.ts:145`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
 | dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
@@ -172,10 +172,11 @@ output back to the account, for the fee the screens showed. After every
 batch, "Consolidate next batch" must open the screen again at the size just
 sent, with the batch pending. Each batch is mined before the next is
 prepared, so the screen's count must then drop by n - 1 for a batch of n
-inputs. The screen reads the count as it opens, and the explorer lets a
-reply be reused for 10 s, so the row opens the screen again while it shows
-the counts from before the change, for up to 30 s, and fails on any other
-count.
+inputs. The explorer lets each reply be reused for 10 s, and the row changes
+the chain faster than a person could, so after the funding, after each batch
+reaches the explorer's mempool and after each block it drops the browser's
+HTTP cache: the wallet's next read must show the new state at once, in one
+read.
 
 Both plans end at or under 500 confirmed outputs, and the explorer still
 refuses the listing with the same answer: electrs never lists an address

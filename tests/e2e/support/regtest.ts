@@ -10,10 +10,18 @@ const DEFAULT_RPC_HOST = '127.0.0.1'
 const DEFAULT_RPC_PORT = '18452'
 const DEFAULT_ELECTRS_URL = 'http://127.0.0.1:3002'
 const ELECTRS_INDEX_TIMEOUT_MS = 300_000
+// The budget of the script calls that mine hundreds of blocks, as `fund`
+// gives the 1001 blocks it may mine; `mine` keeps the script default.
+const BULK_MINING_TIMEOUT_MS = 300_000
 /**
- * qbit's coinbase maturity on regtest: a coinbase output at depth 1000 can be
- * spent in the next block, and the node refuses it at depth 999
- * (`bad-txns-premature-spend-of-coinbase`).
+ * The depth at which the wallet spends a coinbase output:
+ * `isQbitCoinbaseMature` (packages/wallet-background/src/utils/qbit-api.ts)
+ * against `QBIT_COINBASE_MATURITY`, 1000, from @qbit-oss/protocol. The
+ * regtest node agrees: it refuses a spend at depth 999
+ * (`bad-txns-premature-spend-of-coinbase`). `QBIT_REGTEST_COINBASE_MATURITY`
+ * (scripts/regtest/env.sh) is deliberately not read: it only sizes the
+ * funding script's own maturing, and a run that set it lower would still
+ * need depth 1000 here, the wallet's own rule.
  */
 export const REGTEST_COINBASE_MATURITY = 1000
 
@@ -100,12 +108,21 @@ export class RegtestController {
   }
 
   async mine(blocks: number, address?: string): Promise<string[]> {
+    return this.mineWithin(blocks, address)
+  }
+
+  private async mineWithin(
+    blocks: number,
+    address: string | undefined,
+    timeout?: number
+  ): Promise<string[]> {
     if (!Number.isSafeInteger(blocks) || blocks <= 0) {
       throw new Error(`blocks must be a positive integer, got ${blocks}`)
     }
     const output = await this.runScript(
       'mine',
-      address ? [String(blocks), address] : [String(blocks)]
+      address ? [String(blocks), address] : [String(blocks)],
+      timeout
     )
     const hashes = JSON.parse(output) as unknown
     if (!Array.isArray(hashes) || hashes.some(hash => typeof hash !== 'string')) {
@@ -123,8 +140,8 @@ export class RegtestController {
    */
   async mineMatureCoinbaseOutputs(address: string, count: number): Promise<void> {
     this.trackAccount(address)
-    await this.mine(count, address)
-    await this.mine(REGTEST_COINBASE_MATURITY - 1)
+    await this.mineWithin(count, address, BULK_MINING_TIMEOUT_MS)
+    await this.mineWithin(REGTEST_COINBASE_MATURITY - 1, undefined, BULK_MINING_TIMEOUT_MS)
   }
 
   /** electrs' statistics for `address`, read past any cache. */

@@ -24,15 +24,6 @@ export function refusedAccountStatus(
   return { confirmedOutputs, statedLimit, refusalShown: true, pendingSpent }
 }
 
-function sameStatus(left: ConsolidationStatus, right: ConsolidationStatus): boolean {
-  return (
-    left.confirmedOutputs === right.confirmedOutputs &&
-    left.statedLimit === right.statedLimit &&
-    left.refusalShown === right.refusalShown &&
-    left.pendingSpent === right.pendingSpent
-  )
-}
-
 /** A prepared batch, as its summary names it. */
 export interface ConsolidationBatchSummary {
   inputCount: number
@@ -171,41 +162,23 @@ export class ConsolidationPage extends ExtensionPageObject {
     }
   }
 
-  /** The screen, as it opened, shows `expected`. */
+  /**
+   * The screen, as it opened, shows `expected`: one read, no retry. The
+   * caller drops the browser's HTTP cache after each change to the chain
+   * (`dropBrowserHttpCache`), so the screen's read cannot be an earlier reply.
+   */
   async expectStatus(expected: ConsolidationStatus): Promise<void> {
     await this.waitUntilReady()
     expect(await this.readStatus(), 'the consolidation screen status').toEqual(expected)
   }
 
   /**
-   * The screen shows `expected`, after a change from `before` (a broadcast
-   * or a block). It reads the status as it opens, and the regtest explorer
-   * lets a reply be reused for 10 s (`cache-control: max-age=10`), so it may
-   * still show `before` for that long. While it does, and for at most
-   * `timeout`, it is opened again; any other status fails at once.
+   * Opens the screen again, as a reload does: it reads the account's status
+   * as it opens, and keeps its route state, so the batch size it opened at.
    */
-  async waitForStatus(
-    expected: ConsolidationStatus,
-    before: ConsolidationStatus,
-    timeout = 30_000
-  ): Promise<void> {
-    if (sameStatus(expected, before)) {
-      throw new Error(`no change to wait for: ${JSON.stringify(expected)}`)
-    }
-    const deadline = Date.now() + timeout
+  async reopen(): Promise<void> {
+    await this.page.reload({ waitUntil: 'domcontentloaded' })
     await this.waitUntilReady()
-    let shown = await this.readStatus()
-    while (sameStatus(shown, before)) {
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `the consolidation screen still shows ${JSON.stringify(before)} after ${timeout} ms, expected ${JSON.stringify(expected)}`
-        )
-      }
-      await this.page.reload({ waitUntil: 'domcontentloaded' })
-      await this.waitUntilReady()
-      shown = await this.readStatus()
-    }
-    expect(shown, 'the consolidation screen status').toEqual(expected)
   }
 
   /** The integers the range hint names: the smallest and the largest batch size. */
@@ -264,19 +237,23 @@ export class ConsolidationPage extends ExtensionPageObject {
 
   /**
    * Prepare, and wait within `timeout` for its outcome: the batch's summary,
-   * or the error that says why there is none. A Prepare that read part of
-   * the history without finding a batch asks to be repeated with that error
-   * too; the caller asserts whether one may occur.
+   * the error line, or both. The error line also carries a status read that
+   * failed after the batch was built, so it can show beside a batch; each is
+   * read on its own and both are returned, for the caller to assert. A
+   * Prepare that read part of the history without finding a batch asks to be
+   * repeated in that error line too.
    */
   async prepare(timeout: number): Promise<ConsolidationPrepareOutcome> {
     await this.expectPrepareEnabled(true)
+    // An error line already shown would be read as this Prepare's.
+    await expect(this.error).toHaveCount(0)
     await this.prepareButton.click()
-    await expect(this.batchSummary.or(this.error), 'the prepared batch or its error').toBeVisible({
-      timeout,
-    })
-    if (await this.error.isVisible()) {
-      return { batch: undefined, error: (await this.error.innerText()).trim() }
-    }
+    await expect(
+      this.batchSummary.or(this.error).first(),
+      'the prepared batch or its error'
+    ).toBeVisible({ timeout })
+    const error = (await this.error.isVisible()) ? (await this.error.innerText()).trim() : undefined
+    if (!(await this.batchSummary.isVisible())) return { batch: undefined, error }
     const text = await this.batchSummary.innerText()
     await expect(this.nextButton).toBeVisible()
     return {
@@ -284,7 +261,7 @@ export class ConsolidationPage extends ExtensionPageObject {
         inputCount: integerBefore(text, 'outputs', 'the batch input count'),
         feeBaseUnits: integerBefore(text, 'bits', 'the batch fee'),
       },
-      error: undefined,
+      error,
     }
   }
 
@@ -297,11 +274,14 @@ export class ConsolidationPage extends ExtensionPageObject {
 
   /**
    * Sign on the batch's confirm screen and wait, within `timeout`, for its
-   * broadcast to reach the success screen, and return its txid. A batch
-   * signs one input at a time behind the signing progress panel, so the
-   * caller sizes `timeout` to the batch. A batch pays only the account
-   * itself at the fee bar's rate, so no risk confirmation may come before
-   * its signing. The failure screen or the lock screen ends the wait at once.
+   * broadcast to reach the success screen, and return its txid. A batch of
+   * 4 inputs or more signs one input at a time behind the signing progress
+   * panel, whose Sign stays `aria-disabled` until the screen is left, so the
+   * caller sizes `timeout` to the batch. A batch pays only the account itself
+   * at the fee bar's rate, so no risk confirmation may come before its
+   * signing. The wait ends at once on the failure screen, on the lock
+   * screen, and on the confirm screen's Sign enabled again, where a refused
+   * signing returns with an error toast.
    */
   async signAndBroadcast(timeout: number): Promise<PqcSignResult> {
     const signButton = this.byTestId('sign-psbt-button')
@@ -314,15 +294,18 @@ export class ConsolidationPage extends ExtensionPageObject {
     const successTxid = this.byTestId('tx-success-txid')
     const failTxid = this.byTestId('tx-fail-txid')
     const unlockInput = this.byTestId('unlock-password-input')
+    const signEnabledAgain = this.page.locator(
+      '[data-testid="sign-psbt-button"][aria-disabled="false"]'
+    )
     await expect(
-      riskInput.or(progress).or(successTxid),
+      riskInput.or(progress).or(successTxid).first(),
       'the batch signing to start'
     ).toBeAttached()
     if (await riskInput.isVisible()) {
       throw new Error('a consolidation batch asked for a risk confirmation before signing')
     }
     await expect(
-      successTxid.or(failTxid).or(unlockInput),
+      successTxid.or(failTxid).or(unlockInput).or(signEnabledAgain).first(),
       'the batch to be signed and broadcast'
     ).toBeAttached({ timeout })
     if (await unlockInput.isVisible()) {
@@ -333,6 +316,14 @@ export class ConsolidationPage extends ExtensionPageObject {
       const reason = (await this.byTestId('tx-fail-reason').innerText()).trim()
       const txid = await failTxid.getAttribute('data-txid')
       throw new Error(`the batch ended on the failure screen: ${title}: ${reason} (txid ${txid})`)
+    }
+    if ((await successTxid.count()) === 0) {
+      const toasts = (await this.page.getByRole('alert').allInnerTexts())
+        .map(text => text.trim())
+        .filter(Boolean)
+      throw new Error(
+        `the batch signing was refused and the confirm screen offers Sign again: ${toasts.join(' | ') || 'no error toast'}`
+      )
     }
     const durationMs = performance.now() - startedAt
     const transactionId = await this.requiredAttribute(successTxid, 'data-txid')

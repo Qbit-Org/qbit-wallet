@@ -1,5 +1,6 @@
 import { ConsolidationPage, refusedAccountStatus, SendPage } from '../pages'
 import { expect, test } from '../fixtures/test'
+import { dropBrowserHttpCache } from '../support/browser-cache'
 import type { RegtestController } from '../support/regtest'
 import { provisionDeterministicRegtestWallet } from '../support/wallet-setup'
 
@@ -189,6 +190,10 @@ test(`G3 consolidation (${planTitle}): merges a refused account batch by batch, 
   })
   expect(funded.mempool_stats.tx_count).toBe(0)
   await expectExplorerRefusal(regtest, account)
+  // The wallet read the account before the funding, while the explorer still
+  // listed it, and on a fast runner the funding ends within the 10 s such a
+  // reply may be reused: without this the send screen reads that listing.
+  await dropBrowserHttpCache(setup.page)
 
   const consolidation = new ConsolidationPage(setup.page)
   await test.step('the send screen offers consolidation', async () => {
@@ -201,8 +206,8 @@ test(`G3 consolidation (${planTitle}): merges a refused account batch by batch, 
   })
 
   await test.step('the consolidation screen before any batch', async () => {
-    // Its first read of the account's status since the funding: nothing
-    // earlier to show, so no reload.
+    // Its first read since the funding and the cache drop: the explorer's
+    // current answer, read once.
     await consolidation.expectStatus(refusedAccountStatus(plan.fundedOutputs, EXPLORER_UTXO_LIMIT))
     await expect(consolidation.batchSizeInput).toHaveValue(String(MAX_BATCH_INPUTS))
     expect(await consolidation.rangeNumbers()).toEqual([MIN_BATCH_INPUTS, MAX_BATCH_INPUTS])
@@ -254,8 +259,8 @@ test(`G3 consolidation (${planTitle}): merges a refused account batch by batch, 
       // to be repeated.
       const { batch, error } = await consolidation.prepare(PREPARE_TIMEOUT_MS)
       expect(error, 'Prepare should build the batch at once').toBeUndefined()
-      if (!batch) throw new Error('Prepare showed neither a batch nor an error')
-      expect(batch.inputCount).toBe(size)
+      expect(batch?.inputCount, 'the prepared batch').toBe(size)
+      if (!batch) throw new Error('Prepare showed no batch')
       expect(batch.feeBaseUnits).toBe(preview.feeBaseUnits)
 
       await consolidation.continueToReview()
@@ -295,12 +300,14 @@ test(`G3 consolidation (${planTitle}): merges a refused account batch by batch, 
         })
         .toEqual({ confirmedOutputs, pendingTransactions: 1, pendingSpent: size })
       // After every batch, the last included: the screen opens again at the
-      // size just sent, with the batch pending until its block.
+      // size just sent, with the batch pending until its block. The cache
+      // drop keeps it from reading a reply from before the broadcast.
+      await dropBrowserHttpCache(setup.page)
       await consolidation.continueWithNextBatch()
       await expect(consolidation.batchSizeInput).toHaveValue(String(size))
-      const beforeBroadcast = refusedAccountStatus(confirmedOutputs, EXPLORER_UTXO_LIMIT)
-      const beforeBlock = refusedAccountStatus(confirmedOutputs, EXPLORER_UTXO_LIMIT, size)
-      await consolidation.waitForStatus(beforeBlock, beforeBroadcast)
+      await consolidation.expectStatus(
+        refusedAccountStatus(confirmedOutputs, EXPLORER_UTXO_LIMIT, size)
+      )
 
       await regtest.mine(1)
       confirmedOutputs -= size - 1
@@ -310,10 +317,11 @@ test(`G3 consolidation (${planTitle}): merges a refused account batch by batch, 
           timeout: 30_000,
         })
         .toEqual({ confirmedOutputs, pendingTransactions: 0, pendingSpent: 0 })
-      await consolidation.waitForStatus(
-        refusedAccountStatus(confirmedOutputs, EXPLORER_UTXO_LIMIT),
-        beforeBlock
-      )
+      // The explorer shows the block: no reply from before it may answer the
+      // screen, which reads the counts once as it opens again.
+      await dropBrowserHttpCache(setup.page)
+      await consolidation.reopen()
+      await consolidation.expectStatus(refusedAccountStatus(confirmedOutputs, EXPLORER_UTXO_LIMIT))
       await expect(consolidation.batchSizeInput).toHaveValue(String(size))
     })
   }
@@ -333,8 +341,8 @@ test(`G3 consolidation (${planTitle}): merges a refused account batch by batch, 
 
     // From the consolidation screen the last batch reopened, to Send by way
     // of the home screen, and a fresh consolidation screen from there: one
-    // with no route state opens at the maximum. It already read the status
-    // after the last block, so no earlier one can come back: no reload.
+    // with no route state opens at the maximum. The chain has not changed
+    // since the last cache drop, so its one read shows the final counts.
     await setup.page.goto(`chrome-extension://${extension.extensionId}/index.html#/main`, {
       waitUntil: 'domcontentloaded',
     })
