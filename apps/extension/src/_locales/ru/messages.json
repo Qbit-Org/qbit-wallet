@@ -530,11 +530,14 @@
   "fee_estimates_unavailable": {
     "message": "Оценки комиссии недоступны."
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "Оценки комиссии недоступны. Используется минимальная ставка ретрансляции $1 бит/vB."
+  "fee_estimates_unavailable_using_default": {
+    "message": "Оценки комиссии недоступны. Используется ставка кошелька по умолчанию: $1 бит/vB."
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "Комиссия превышает безопасный предел $1 бит/vB (максимум $2 $3 для точного размера этой транзакции)."
+  },
+  "fee_rate_below_minimum": {
+    "message": "Минимальная ставка комиссии — $1 бит/vB."
   },
   "estimated_inputs_and_size": {
     "message": "~$1 вход(ов) · ~$2 кБ"

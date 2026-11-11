@@ -179,7 +179,8 @@ import { decodeOpReturnScript } from '../utils/decode-op-return'
 import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
 import { assertQbitP2mrSigningLeafRecord } from '../utils/qbit-p2mr-signing-leaf'
 import {
-  QBIT_MIN_RELAY_FEE_RATE,
+  QBIT_FALLBACK_FEE_RATE,
+  QBIT_MAX_FEE_RATE,
   psbtReviewOptions,
   qbitWalletOwnership,
   qbitWalletOwns,
@@ -256,6 +257,7 @@ import {
   type QbitWalletApiClient,
 } from '../utils/qbit-api'
 import {
+  formatQbitFeeRateRoundedDown,
   isQbitFeeBumpCopyableOutput,
   qbitP2mrTransactionSignedBy,
   qbitRawP2mrTransaction,
@@ -585,6 +587,9 @@ const QBIT_HISTORY_PERSISTED_CACHE_LIMIT = 20
 // useHistoryScopeKey in @qbit/wallet-state builds the same key.
 const qbitAccountHistoryScopeKey = (chainType: ChainType, pubkey: string): string =>
   `qbit-account:${chainType}:${pubkey.toLowerCase()}`
+// The least a recovery migration's plan pays, in bits/vB: deliberately
+// above qbit Core's 0.25 bits/vB relay floor (#182), for the reasons at
+// resolveQbitRecoveryMigrationFeeRate.
 const QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE = 1
 const QBIT_RECOVERY_MIGRATION_PREFLIGHT_BATCH_SIZE = 64
 // History pages one consolidation batch may read. An active miner's newest
@@ -3473,8 +3478,11 @@ export class WalletController extends BaseController {
   // byte-for-byte, and the migrating-wallet signing gate blocks the ordinary
   // fee-bump flow; a plan priced at the relay floor could therefore stay
   // unmineable indefinitely whenever the clearing rate is higher. New plans
-  // take the live normal estimate, floored at the relay rate, which the
-  // unavailable-quote fallback also quotes.
+  // take the live normal estimate, but never less than
+  // QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE (1 bit/vB), deliberately above
+  // the 0.25 bits/vB relay floor: a live quote below 1 bit/vB says only that
+  // the mempool is quiet now. Without an estimate a plan takes that 1 bit/vB,
+  // which is also the rate the wallet sends at without one.
   private resolveQbitRecoveryMigrationFeeRate = async (): Promise<number> => {
     try {
       const feeSummary = await this.getFeeSummary()
@@ -3483,7 +3491,7 @@ export class WalletController extends BaseController {
         return Math.max(normalFeeRate, QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE)
       }
     } catch {
-      // An unavailable estimate degrades to the relay floor below.
+      // Without an estimate the plan takes the migration's own rate below.
     }
     return QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE
   }
@@ -3551,6 +3559,17 @@ export class WalletController extends BaseController {
     const resolvedFeeRate = feeRate ?? (await this.resolveQbitRecoveryMigrationFeeRate())
     if (!resolvedFeeRate || !Number.isFinite(resolvedFeeRate) || resolvedFeeRate <= 0) {
       throw new Error('Unable to determine a valid fee rate.')
+    }
+    // A rate the caller gives is held to the migration's own floor too. The
+    // wallet's fee policy, which every plan's send-all checks, now goes down
+    // to the 0.25 bits/vB relay floor and so no longer refuses it.
+    if (
+      resolvedFeeRate < QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE ||
+      resolvedFeeRate > QBIT_MAX_FEE_RATE
+    ) {
+      throw new RangeError(
+        `feeRate must be between ${QBIT_RECOVERY_MIGRATION_RELAY_FEE_RATE} and ${QBIT_MAX_FEE_RATE} bits/vB`
+      )
     }
 
     const destinationRawKeyring = keyringService.keyrings[destinationKeyringIndex]
@@ -7075,6 +7094,15 @@ export class WalletController extends BaseController {
     }
 
     const originalFeeRate = originalFee / raw.size
+    // qbit Core asks a replacement for a higher rate and for added fee of
+    // 0.25 bits per vbyte of its own size (DEFAULT_INCREMENTAL_RELAY_FEE{250}
+    // sat/kvB). The wallet deliberately asks more, as it did while its floor
+    // was 1 bit/vB (#182): a rate of at least the next whole bits/vB above the
+    // original's, and added fee of at least 1 bit per vbyte (checked below).
+    // The bump is then valid also at a node that raises its incremental
+    // relay fee to 1 bit/vB, and a bump of a transaction paying less than
+    // 1 bit/vB reaches at least 1 bit/vB, the rate the wallet sends at
+    // without an estimate, rather than rising by only 0.25.
     const targetFeeRate = Math.max(feeRate!, Math.floor(originalFeeRate) + 1)
     const withChangeEstimate = estimateQbitP2mrTransaction({
       inputCount: original.inputs.length,
@@ -7131,6 +7159,7 @@ export class WalletController extends BaseController {
     if (
       !Number.isSafeInteger(replacementFee) ||
       replacementFee > qbitMaximumTotalFee(replacementVsize) ||
+      // 1 bit per vbyte, four times the node's incremental relay fee: see targetFeeRate.
       feeDelta < replacementVsize ||
       replacementFee <= originalFee ||
       replacementFeeRate <= originalFeeRate
@@ -7305,14 +7334,15 @@ export class WalletController extends BaseController {
             type: PsbtActionDetailType.SATOSHIS,
             highlight: true,
           },
+          // Rounded down, never shown above the rate paid.
           {
             label: t('original_fee_rate'),
-            value: `${details.originalFeeRate.toFixed(2)} bits/vB`,
+            value: `${formatQbitFeeRateRoundedDown(details.originalFeeRate)} bits/vB`,
             type: PsbtActionDetailType.TEXT,
           },
           {
             label: t('replacement_fee_rate'),
-            value: `${details.replacementFeeRate.toFixed(2)} bits/vB`,
+            value: `${formatQbitFeeRateRoundedDown(details.replacementFeeRate)} bits/vB`,
             type: PsbtActionDetailType.TEXT,
           },
         ],
@@ -7582,7 +7612,8 @@ export class WalletController extends BaseController {
     const chain = this.getChainType()
     if (feeRate === undefined) {
       const feeSummary = await this.getFeeSummary(chain)
-      feeRate = feeSummary.list[1]?.feeRate ?? 1 // use normal fee rate or relay-floor fallback
+      // The normal rate, which is QBIT_FALLBACK_FEE_RATE without an estimate.
+      feeRate = feeSummary.list[1]?.feeRate ?? QBIT_FALLBACK_FEE_RATE
     }
     assertQbitFeeRateWithinPolicy(feeRate)
 
@@ -7787,7 +7818,8 @@ export class WalletController extends BaseController {
     // The batch's inputs exist on this network only; the builder refuses
     // them if the wallet has moved to another one since.
     const chain = this.getChainType()
-    // Unless given, the normal rate, or the relay floor without a quote.
+    // Unless given, the normal rate, which is QBIT_FALLBACK_FEE_RATE without
+    // an estimate.
     // Only an omitted rate is not given: JSON drops a key whose value is
     // `undefined`, but turns NaN and ±Infinity into `null`, so `null` is
     // refused below like the value it may stand for, before any explorer
@@ -7795,7 +7827,8 @@ export class WalletController extends BaseController {
     const requestedFeeRate: unknown = request.feeRate
     const feeRate =
       requestedFeeRate === undefined
-        ? ((await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ?? 1)
+        ? ((await operation.within(this.getFeeSummary(chain))).list[1]?.feeRate ??
+          QBIT_FALLBACK_FEE_RATE)
         : requestedFeeRate
     assertQbitFeeRateWithinPolicy(feeRate)
 
@@ -9981,7 +10014,7 @@ export class WalletController extends BaseController {
           return summary
         } catch (error) {
           this.qbitFeeQuoteCache.delete(cacheKey)
-          log.warn('Failed to refresh qbit fee estimates; using relay-floor fallback:', error)
+          log.warn('Failed to refresh qbit fee estimates; using the fallback rate:', error)
           return qbitUnavailableFeeSummary(apiSurface, cached ? 'stale' : 'unavailable')
         }
       })()
@@ -10135,7 +10168,7 @@ export class WalletController extends BaseController {
       },
       risks,
       isScammer: false,
-      recommendedFeeRate: recommendedFeeRate ?? QBIT_MIN_RELAY_FEE_RATE,
+      recommendedFeeRate: recommendedFeeRate ?? QBIT_FALLBACK_FEE_RATE,
       shouldWarnFeeRate: (spendSummary.feeAssessment?.reasons.length ?? 0) > 0,
       isCompleted,
       spendSummary,
@@ -10195,7 +10228,8 @@ export class WalletController extends BaseController {
         items.push({
           inputCount: decoded.inputInfos.length,
           outputCount: decoded.outputInfos.length,
-          feeRate: isCompleted ? decoded.feeRate.toFixed(2) : '-',
+          // Rounded down, never shown above the rate paid.
+          feeRate: isCompleted ? formatQbitFeeRateRoundedDown(decoded.feeRate) : '-',
           fee,
           totalInput: itemTotalInput,
           isCompleted,

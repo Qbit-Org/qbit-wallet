@@ -191,7 +191,9 @@ sendQbit(
 
 Builds, approves, signs, and broadcasts a P2MR transaction on the active chain. `toAddress` must
 be a P2MR address for that chain, and `satoshis` is an integer number of Qbit base units. If
-`feeRate` is omitted, Qbit Wallet selects its normal current fee rate.
+`feeRate` is omitted, Qbit Wallet selects its normal current fee rate. A `feeRate` is in bits per
+virtual byte and must be a number from 0.25, qbit Core's relay floor, to 10,000; any other value
+is refused.
 
 ```javascript
 const txid = await window.qbit.sendQbit(recipientAddress, 25_000, {

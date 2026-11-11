@@ -530,11 +530,14 @@
   "fee_estimates_unavailable": {
     "message": "Fee estimates are unavailable."
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "Fee estimates are unavailable. Using the $1 bit/vB relay floor."
+  "fee_estimates_unavailable_using_default": {
+    "message": "Fee estimates are unavailable. Using the wallet's default rate of $1 bit/vB."
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "Fee exceeds the wallet safety limit of $1 bit/vB (maximum $2 $3 for this exact transaction size)."
+  },
+  "fee_rate_below_minimum": {
+    "message": "The minimum fee rate is $1 bits/vB."
   },
   "estimated_inputs_and_size": {
     "message": "~$1 inputs · ~$2 kB"
@@ -2007,7 +2010,7 @@
     "message": "$1 bits/vB is $2× the fastest recommended rate of $3 bits/vB."
   },
   "fee_warning_above_relay_floor": {
-    "message": "$1 bits/vB is $2× the network minimum of $3 bit/vB."
+    "message": "$1 bits/vB is $2× the network minimum of $3 bits/vB."
   },
   "fee_warning_amount_share": {
     "message": "The fee is $1% of the $2 $3 this transaction sends to others."

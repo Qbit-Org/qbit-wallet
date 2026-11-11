@@ -530,11 +530,14 @@
   "fee_estimates_unavailable": {
     "message": "Les estimations de frais sont indisponibles."
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "Les estimations de frais sont indisponibles. Le minimum de relais de $1 bit/vB est utilisé."
+  "fee_estimates_unavailable_using_default": {
+    "message": "Les estimations de frais sont indisponibles. Le taux par défaut du portefeuille, $1 bit/vB, est utilisé."
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "Les frais dépassent la limite de sécurité de $1 bit/vB (maximum $2 $3 pour la taille exacte de cette transaction)."
+  },
+  "fee_rate_below_minimum": {
+    "message": "Le taux de frais minimum est de $1 bit/vB."
   },
   "estimated_inputs_and_size": {
     "message": "~$1 entrée(s) · ~$2 kB"

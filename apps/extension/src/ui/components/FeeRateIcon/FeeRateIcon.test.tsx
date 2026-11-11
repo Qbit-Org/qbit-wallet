@@ -68,7 +68,7 @@ describe('FeeRateIcon', () => {
     return screen.getByTestId('fee-rate-text');
   }
 
-  it('suppresses the relay-floor fallback headline and popover when qbit estimates are unavailable', async () => {
+  it('suppresses the fallback headline and popover when qbit estimates are unavailable', async () => {
     const headline = await renderSummary(
       feeSummary(1, {
         source: 'esplora',
@@ -113,5 +113,18 @@ describe('FeeRateIcon', () => {
     expect(screen.getByTestId('fee-priority-fee-low')).not.toBeNull();
     expect(screen.getByTestId('fee-priority-fee-medium')).not.toBeNull();
     expect(screen.getByTestId('fee-priority-fee-high')).not.toBeNull();
+  });
+
+  it('shows a live Normal rate below 1 bit/vB as it is', async () => {
+    const headline = await renderSummary(
+      feeSummary(0.5, {
+        source: 'mempool-qbit',
+        availability: 'available',
+        freshness: 'live'
+      })
+    );
+
+    expect(headline.textContent).toBe('0.5');
+    expect(headline.getAttribute('data-color')).toBe('green');
   });
 });

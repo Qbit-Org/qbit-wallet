@@ -530,11 +530,14 @@
   "fee_estimates_unavailable": {
     "message": "Las estimaciones de tarifas no están disponibles."
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "Las estimaciones de tarifas no están disponibles. Se usa el mínimo de retransmisión de $1 bit/vB."
+  "fee_estimates_unavailable_using_default": {
+    "message": "Las estimaciones de tarifas no están disponibles. Se usa la tasa predeterminada de la billetera, $1 bit/vB."
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "La tarifa supera el límite de seguridad de $1 bit/vB (máximo $2 $3 para el tamaño exacto de esta transacción)."
+  },
+  "fee_rate_below_minimum": {
+    "message": "La tasa de tarifa mínima es de $1 bits/vB."
   },
   "estimated_inputs_and_size": {
     "message": "~$1 entrada(s) · ~$2 kB"
@@ -2007,7 +2010,7 @@
     "message": "$1 bits/vB es $2× la tasa recomendada más rápida de $3 bits/vB."
   },
   "fee_warning_above_relay_floor": {
-    "message": "$1 bits/vB es $2× el mínimo de la red de $3 bit/vB."
+    "message": "$1 bits/vB es $2× el mínimo de la red de $3 bits/vB."
   },
   "fee_warning_amount_share": {
     "message": "La tarifa es el $1% de los $2 $3 que esta transacción envía a terceros."

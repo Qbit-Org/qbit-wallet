@@ -58,6 +58,27 @@ export function qbitRawP2mrTransaction(
   }
 }
 
+/**
+ * A fee rate in bits/vB as a fee bump's approval shows it: rounded down to
+ * hundredths and written with two decimals, so a rate shown is never higher
+ * than the rate paid. Rounding to nearest (`toFixed(2)`) would show 936 bits
+ * for 3,817 vB, 0.2452 bits/vB, as 0.25, the relay floor, which it does not
+ * pay (#182). `feeRate * 100` can land just below a whole number in binary
+ * floating point (0.29 * 100 is 28.999999999999996), so the candidate is
+ * checked against `feeRate` itself: `n / 100` is the same number as the
+ * decimal `n / 100`, so a rate already in hundredths is shown as it is.
+ */
+export function formatQbitFeeRateRoundedDown(feeRate: number): string {
+  let hundredths = Math.floor(feeRate * 100)
+  // Beyond 2^52 hundredths (about 4.5e13 bits/vB) a step of one hundredth is
+  // lost to rounding and the loops below need not end. Not reached: both
+  // rates are a fee in bits over a positive size. Shown as before.
+  if (!(Math.abs(hundredths) < 2 ** 52)) return feeRate.toFixed(2)
+  while ((hundredths + 1) / 100 <= feeRate) hundredths += 1
+  while (hundredths / 100 > feeRate) hundredths -= 1
+  return (hundredths / 100).toFixed(2)
+}
+
 /** Outputs a fee bump may carry over into its replacement: P2MR, or an OP_RETURN paying nothing. */
 export function isQbitFeeBumpCopyableOutput(output: P2mrTransactionOutput): boolean {
   const script = output.scriptPubKey

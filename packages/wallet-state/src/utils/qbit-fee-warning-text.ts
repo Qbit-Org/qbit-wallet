@@ -1,6 +1,8 @@
 import { numUtils } from '@qbit/base-utils'
 import { QBIT_MIN_RELAY_FEE_RATE, type QbitFeeAssessment } from '@qbit/wallet-shared'
 
+import { formatFeeRate } from './fee-rate-text'
+
 type Translate = (key: string, substitutions?: string | string[]) => string
 
 export interface QbitFeeWarningText {
@@ -10,10 +12,6 @@ export interface QbitFeeWarningText {
   lines: string[]
   /** Present when no live recommendation was available to compare the fee with. */
   recommendationUnavailable?: string
-}
-
-function formatRate(rate: number): string {
-  return String(Number(rate.toFixed(2)))
 }
 
 /** The whole multiple a rate is of another; rounding error never shows 9x for a rate flagged at 10x. */
@@ -31,15 +29,19 @@ export function qbitFeeWarningText(
   const { fee, feeRate, amount, recommendedFeeRate, reasons } = assessment
   const lines = reasons.map(reason => {
     switch (reason) {
+      // Rates as every screen shows them (`formatFeeRate`): the rate paid,
+      // worked out from the fee and the size, never above what it is, as the
+      // approval's own fee rate line shows it; and the recommendation, a
+      // quote's rate already in hundredths, as it is.
       case 'above_recommended_rate':
         return t('fee_warning_above_recommended', [
-          formatRate(feeRate),
+          formatFeeRate(feeRate),
           formatMultiple(feeRate, recommendedFeeRate),
-          formatRate(recommendedFeeRate),
+          formatFeeRate(recommendedFeeRate),
         ])
       case 'above_relay_floor':
         return t('fee_warning_above_relay_floor', [
-          formatRate(feeRate),
+          formatFeeRate(feeRate),
           formatMultiple(feeRate, QBIT_MIN_RELAY_FEE_RATE),
           String(QBIT_MIN_RELAY_FEE_RATE),
         ])

@@ -530,11 +530,14 @@
   "fee_estimates_unavailable": {
     "message": "目前無法取得手續費估算。"
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "目前無法取得手續費估算，將使用最低轉送費率 $1 bit/vB。"
+  "fee_estimates_unavailable_using_default": {
+    "message": "目前無法取得手續費估算，將使用錢包的預設費率 $1 bit/vB。"
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "手續費超過 $1 bit/vB 的安全上限（依此交易的精確大小，上限為 $2 $3）。"
+  },
+  "fee_rate_below_minimum": {
+    "message": "最低費率為 $1 bit/vB。"
   },
   "estimated_inputs_and_size": {
     "message": "約 $1 個輸入・約 $2 kB"

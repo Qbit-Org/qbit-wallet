@@ -158,7 +158,7 @@ describe('useFeeRateBarLogic', () => {
     expect(prepared.estimatedFee).toBe(3_860)
   })
 
-  it('still clamps a manual sub-1 Custom fee when low-fee mode is disabled', async () => {
+  it('takes a Custom rate down to the 0.25 bits/vB relay floor, without low-fee mode', async () => {
     const wallet = createWalletMock()
     wallet.getFeeSummary.mockResolvedValue(qbitFeeSummary())
     const { store, wrapper } = createHookTestHarness({ wallet })
@@ -168,6 +168,8 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.feeOptions).toHaveLength(4)
       expect(result.current.supportLowFeeMode).toBe(false)
     })
+    // The Custom input steps no lower than the relay floor.
+    expect(result.current.minFeeRate).toBe(0.25)
 
     act(() => {
       result.current.setFeeOptionIndex(0)
@@ -189,10 +191,23 @@ describe('useFeeRateBarLogic', () => {
     await waitFor(() => {
       expect(store.getState().ui.feeRateBar).toMatchObject({
         feeOptionIndex: 3,
-        feeRateInputVal: '1',
-        feeRate: 1,
+        feeRateInputVal: '0.25',
+        feeRate: 0.25,
       })
     })
+
+    // Below the floor the rate is kept as typed, not raised: the screen refuses it.
+    act(() => {
+      result.current.adjustFeeRateInput('0.24')
+    })
+    await waitFor(() => {
+      expect(store.getState().ui.feeRateBar).toMatchObject({
+        feeOptionIndex: 3,
+        feeRateInputVal: '0.24',
+        feeRate: 0.24,
+      })
+    })
+    expect(result.current.minFeeRate).toBe(0.25)
   })
 
   it('allows typing a decimal custom rate from an integer recommendation', async () => {
@@ -381,7 +396,7 @@ describe('useFeeRateBarLogic', () => {
     })
   })
 
-  it('says the relay floor is used, and uses it, when its own read fails', async () => {
+  it('says the 1 bit/vB fallback rate is used, and uses it, when its own read fails', async () => {
     const wallet = createWalletMock()
     wallet.getFeeSummary.mockRejectedValue(new Error('locked'))
     const { store, wrapper } = createHookTestHarness({ wallet })
@@ -391,8 +406,10 @@ describe('useFeeRateBarLogic', () => {
 
     await waitFor(() => expect(result.current.feeEstimateUnavailable).toBe(true))
     expect(result.current.feeOptions.map(result.current.isCustomOption)).toEqual([true])
+    // The fallback rate, not the 0.25 bits/vB relay floor.
     expect(result.current.fallbackFeeRate).toBe(1)
     await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+    expect(result.current.feeRateInputVal).toBe('1')
   })
 
   // The website PSBT risk popover shows one; the send screen's rate is in the
@@ -565,7 +582,7 @@ describe('useFeeRateBarLogic', () => {
 
     it.each([
       ['the low-fee slow rate when Normal is above 1', [0.5, 2], 0.5],
-      ['0.1 when both low-fee rates are above 1', [3, 2], 0.1],
+      ['the 0.25 bits/vB relay floor when both low-fee rates are above 1', [3, 2], 0.25],
     ])('offers %s', async (_label, lowFeeRates, slowRate) => {
       const wallet = createWalletMock()
       wallet.getLowFeeSummary.mockResolvedValue(lowFeeSummary(lowFeeRates))
@@ -592,19 +609,18 @@ describe('useFeeRateBarLogic', () => {
       await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(3))
     })
 
-    it('says the relay floor is used, and uses it, when the shared read fails', async () => {
+    it('says the fallback rate is used, and uses it, when the shared read fails', async () => {
       const { result, rerender, store } = renderSharedFeeBar(landed(qbitFeeSummary()))
       await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(2))
 
       rerender({ quote: landed() })
 
       expect(result.current.feeEstimateUnavailable).toBe(true)
-      // Only Custom, to set a rate above the floor.
+      // Only Custom, to set a rate of its own.
       expect(result.current.feeOptions).toHaveLength(1)
       expect(result.current.isCustomOption(result.current.feeOptions[0])).toBe(true)
-      await waitFor(() =>
-        expect(store.getState().ui.feeRateBar.feeRate).toBe(result.current.fallbackFeeRate)
-      )
+      expect(result.current.fallbackFeeRate).toBe(1)
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
     })
 
     it('gives each option the index it selects, from three tiers at most', () => {
@@ -634,7 +650,7 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.feeOptions.map(option => option.index)).toEqual([3])
     })
 
-    it('shows the relay floor in the input, not a tier’s earlier rate, once the quote cannot be read', async () => {
+    it('shows the fallback rate in the input, not a tier’s earlier rate, once the quote cannot be read', async () => {
       const { result, rerender, store } = renderSharedFeeBar(landed(qbitFeeSummary()))
       await waitFor(() => expect(result.current.feeOptions).toHaveLength(4))
       act(() => {
@@ -661,7 +677,7 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.feeRateInputVal).toBe('4')
     })
 
-    it('starts Custom from the relay floor in use, not a tier’s earlier rate', async () => {
+    it('starts Custom from the fallback rate in use, not a tier’s earlier rate', async () => {
       const { result, rerender, store } = renderSharedFeeBar(landed(qbitFeeSummary()))
       await waitFor(() => expect(result.current.feeOptions).toHaveLength(4))
       act(() => {
@@ -683,8 +699,8 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.feeRateInputVal).toBe('1')
     })
 
-    it('names the relay floor only while it is the rate in use', async () => {
-      const floorTiers = {
+    it('names the fallback rate only while it is the rate in use', async () => {
+      const fallbackTiers = {
         ...qbitFeeSummary('unavailable'),
         list: qbitFeeSummary().list.map(tier => ({ ...tier, feeRate: 1 })),
       }
@@ -702,8 +718,8 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.feeEstimateUnavailable).toBe(true)
       expect(result.current.fallbackFeeRate).toBeUndefined()
 
-      // A quote without estimates offers tiers at the floor.
-      rerender({ quote: landed(floorTiers) })
+      // A quote without estimates offers its tiers at the fallback rate.
+      rerender({ quote: landed(fallbackTiers) })
       act(() => {
         result.current.setFeeOptionIndex(1)
       })
@@ -736,10 +752,12 @@ describe('useFeeRateBarLogic', () => {
       act(() => {
         result.current.adjustFeeRateInput('0.5')
       })
-      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
+      // Without low-fee mode too, a rate from the relay floor up stands.
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.5')
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.5))
     })
 
-    it('keeps a Custom rate set while the quote cannot be read, and no lower than the floor', async () => {
+    it('keeps a Custom rate set while the quote cannot be read, down to the relay floor', async () => {
       const { result, store } = renderSharedFeeBar(landed())
       await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
       expect(result.current.feeOptions.map(result.current.isCustomOption)).toEqual([true])
@@ -758,13 +776,16 @@ describe('useFeeRateBarLogic', () => {
       await act(async () => {})
       expect(store.getState().ui.feeRateBar.feeRate).toBe(5)
 
-      // Low-fee mode cannot apply without a loaded quote.
+      // Low-fee mode cannot apply without a loaded quote, and need not:
+      // a Custom rate goes down to the relay floor all the same.
       expect(result.current.supportLowFeeMode).toBe(false)
       act(() => {
-        result.current.adjustFeeRateInput('0.5')
+        result.current.adjustFeeRateInput('0.25')
       })
-      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
-      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.25')
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.25))
+      expect(result.current.fallbackFeeRate).toBeUndefined()
+      expect(result.current.minFeeRate).toBe(0.25)
     })
 
     it('takes a rate typed while a tier was selected as Custom once the quote cannot be read', async () => {
@@ -809,7 +830,7 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.feeEstimateUnavailable).toBe(true)
     })
 
-    it('allows a Custom rate below 1 only once a low-fee read for the quote succeeds', async () => {
+    it('allows a Custom rate below 1 whether or not a low-fee read for the quote succeeds', async () => {
       const { result, rerender, store, wallet } = renderSharedFeeBar({ status: 'loading' })
       let rejectLowFee!: (error: Error) => void
       wallet.getLowFeeSummary.mockReturnValueOnce(
@@ -822,12 +843,12 @@ describe('useFeeRateBarLogic', () => {
       })
 
       rerender({ quote: landed(noMetadataSummary([2, 3, 4])) })
-      // Its low-fee read is pending: no Sub 1 tier yet.
+      // Its low-fee read is pending: no Sub 1 tier yet, and a Custom rate below 1 all the same.
       expect(result.current.supportLowFeeMode).toBe(false)
       act(() => {
         result.current.adjustFeeRateInput('0.5')
       })
-      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.5')
 
       // It failed: the quote's own rates, and still no Sub 1 tier.
       await act(async () => {
@@ -836,12 +857,14 @@ describe('useFeeRateBarLogic', () => {
       expect(feeRates(result.current.feeOptions)).toEqual([2, 3, 4, 0])
       expect(result.current.supportLowFeeMode).toBe(false)
       act(() => {
-        result.current.adjustFeeRateInput('0.5')
+        result.current.adjustFeeRateInput('0.26')
       })
-      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.26')
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.26))
+      expect(result.current.minFeeRate).toBe(0.25)
     })
 
-    it('allows a Custom rate below 1 only once low-fee mode applies to a loaded quote', async () => {
+    it('allows a Custom rate below 1 before and once low-fee mode applies to a loaded quote', async () => {
       const { result, rerender, store, wallet } = renderSharedFeeBar({ status: 'loading' })
       wallet.getLowFeeSummary.mockResolvedValue(lowFeeSummary([0.5, 0.8]))
       act(() => {
@@ -853,14 +876,16 @@ describe('useFeeRateBarLogic', () => {
       act(() => {
         result.current.adjustFeeRateInput('0.5')
       })
-      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('1')
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.5')
 
       rerender({ quote: landed(noMetadataSummary([2, 3, 4])) })
       await waitFor(() => expect(result.current.supportLowFeeMode).toBe(true))
+      // Low-fee mode no longer lowers the input's minimum below the relay floor.
+      expect(result.current.minFeeRate).toBe(0.25)
       act(() => {
-        result.current.adjustFeeRateInput('0.5')
+        result.current.adjustFeeRateInput('0.4')
       })
-      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.5')
+      expect(store.getState().ui.feeRateBar.feeRateInputVal).toBe('0.4')
     })
 
     it('leaves the shared quote as it is when low-fee mode lowers the slow rate', async () => {
@@ -892,6 +917,162 @@ describe('useFeeRateBarLogic', () => {
       expect(result.current.supportLowFeeMode).toBe(true)
       expect(summary).toEqual(before)
       expect(wallet.getFeeSummary).not.toHaveBeenCalled()
+    })
+
+    /** Slow, Normal and Fast at 0.25, 0.5 and 1 bits/vB, in hundredths as the background quotes them. */
+    function subOneBitSummary(availability: 'available' | 'unavailable' = 'available') {
+      return {
+        ...qbitFeeSummary(availability),
+        list: [
+          { title: 'slow', desc: 'slow', feeRate: 0.25, targetBlocks: 3 },
+          { title: 'avg', desc: 'avg', feeRate: 0.5, targetBlocks: 2 },
+          { title: 'fast', desc: 'fast', feeRate: 1, targetBlocks: 1 },
+        ],
+      }
+    }
+
+    it('selects each tier below 1 bit/vB at its own rate, Normal at 0.5 by default', async () => {
+      const quote = landed(subOneBitSummary())
+      const { result, store } = renderSharedFeeBar(quote)
+
+      await waitFor(() =>
+        expect(store.getState().ui.feeRateBar).toMatchObject({
+          feeOptionIndex: 1,
+          feeRate: 0.5,
+          feeRateSource: { quoteRead: quote.read, optionIndex: 1 },
+        })
+      )
+      expect(feeRates(result.current.feeOptions)).toEqual([0.25, 0.5, 1, 0])
+      expect(result.current.feeEstimateUnavailable).toBe(false)
+
+      for (const [index, feeRate, shown] of [
+        [0, 0.25, '0.25'],
+        [1, 0.5, '0.5'],
+        [2, 1, '1'],
+      ] as const) {
+        act(() => {
+          result.current.setFeeOptionIndex(index)
+        })
+        await waitFor(() =>
+          expect(store.getState().ui.feeRateBar).toMatchObject({
+            feeOptionIndex: index,
+            feeRateInputVal: shown,
+            feeRate,
+            feeRateSource: { quoteRead: quote.read, optionIndex: index },
+          })
+        )
+        expect(result.current.feeRateInputVal).toBe(shown)
+        // Live tiers: no fallback rate is in use, the one at 1 bit/vB included.
+        expect(result.current.fallbackFeeRate).toBeUndefined()
+      }
+    })
+
+    it('keeps a tier below 1 bit/vB when its rate is typed, and takes partial input as typed', async () => {
+      const { result, store } = renderSharedFeeBar(landed(subOneBitSummary()))
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.5))
+      act(() => {
+        result.current.setFeeOptionIndex(0)
+      })
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.25))
+
+      // The input hands back the rate it shows: still Slow, not Custom.
+      for (const same of ['0.25', '0.250']) {
+        act(() => {
+          result.current.adjustFeeRateInput(same)
+        })
+        expect(store.getState().ui.feeRateBar).toMatchObject({
+          feeOptionIndex: 0,
+          feeRateInputVal: '0.25',
+          feeRate: 0.25,
+        })
+      }
+
+      // A rate still being typed is Custom, as typed, and never rewritten.
+      for (const partial of ['0', '0.', '0.2']) {
+        act(() => {
+          result.current.adjustFeeRateInput(partial)
+        })
+        expect(store.getState().ui.feeRateBar).toMatchObject({
+          feeOptionIndex: 3,
+          feeRateInputVal: partial,
+        })
+        expect(result.current.feeRateInputVal).toBe(partial)
+      }
+      // 0.2 is below the floor: the store holds it for the screen to refuse.
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.2))
+
+      act(() => {
+        result.current.adjustFeeRateInput('0.26')
+      })
+      await waitFor(() =>
+        expect(store.getState().ui.feeRateBar).toMatchObject({
+          feeOptionIndex: 3,
+          feeRateInputVal: '0.26',
+          feeRate: 0.26,
+        })
+      )
+    })
+
+    it('clears text that is no rate, a pasted "0,25" included, and reads no rate from it', async () => {
+      const { result, store } = renderSharedFeeBar(landed(subOneBitSummary()))
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.5))
+      act(() => {
+        result.current.setFeeOptionIndex(3)
+      })
+
+      for (const text of ['', 'abc', '0,25', '1,5', '1e3', '-1', ' 2']) {
+        act(() => {
+          result.current.adjustFeeRateInput('0.25')
+        })
+        await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.25))
+
+        act(() => {
+          result.current.adjustFeeRateInput(text)
+        })
+        expect(store.getState().ui.feeRateBar).toMatchObject({
+          feeOptionIndex: 3,
+          feeRateInputVal: '',
+        })
+        // No rate at all, which every screen refuses; never 0.25 read from "0,25", nor 1 from "1,5".
+        await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0))
+      }
+    })
+
+    it('uses the 1 bit/vB fallback rate of a quote without estimates, and takes a Custom 0.25 there', async () => {
+      const fallbackTiers = {
+        ...qbitFeeSummary('unavailable'),
+        list: qbitFeeSummary().list.map(tier => ({ ...tier, feeRate: 1 })),
+      }
+      const { result, store } = renderSharedFeeBar(landed(fallbackTiers))
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(1))
+      expect(result.current.feeEstimateUnavailable).toBe(true)
+      expect(result.current.fallbackFeeRate).toBe(1)
+
+      // Typed over Normal's 1 bit/vB: Custom, at the relay floor.
+      act(() => {
+        result.current.adjustFeeRateInput('0.25')
+      })
+      await waitFor(() =>
+        expect(store.getState().ui.feeRateBar).toMatchObject({
+          feeOptionIndex: 3,
+          feeRateInputVal: '0.25',
+          feeRate: 0.25,
+        })
+      )
+      expect(result.current.fallbackFeeRate).toBeUndefined()
+      expect(result.current.feeEstimateUnavailable).toBe(true)
+    })
+
+    it('takes no tier at the relay floor of a quote without estimates for the fallback rate', async () => {
+      // Tiers at the floor are not what the wallet uses for want of estimates.
+      const floorTiers = {
+        ...qbitFeeSummary('unavailable'),
+        list: qbitFeeSummary().list.map(tier => ({ ...tier, feeRate: 0.25 })),
+      }
+      const { result, store } = renderSharedFeeBar(landed(floorTiers))
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(0.25))
+      expect(result.current.feeEstimateUnavailable).toBe(true)
+      expect(result.current.fallbackFeeRate).toBeUndefined()
     })
 
     describe('records the read and option its rate came from', () => {
@@ -989,7 +1170,7 @@ describe('useFeeRateBarLogic', () => {
         expect(wallet.getLowFeeSummary).not.toHaveBeenCalled()
       })
 
-      it('records the read that failed with the relay floor it uses', async () => {
+      it('records the read that failed with the fallback rate it uses', async () => {
         const { store, rerender } = renderSharedFeeBar({ status: 'loading' })
         // Fast at 40, as an earlier quote offered it.
         act(() => {

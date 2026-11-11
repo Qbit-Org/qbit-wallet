@@ -3959,7 +3959,7 @@ describe('WalletController qbit P2MR send path', () => {
         qbitUtxoAddress: account.address,
         qbitUtxos,
       })
-    ).rejects.toThrow(/between 1 and 10000/)
+    ).rejects.toThrow('feeRate must be between 0.25 and 10000 bits/vB')
 
     await expect(
       wallet.createSendQbitPsbt({
@@ -8304,5 +8304,401 @@ describe('WalletController qbit P2MR send path', () => {
     getTxStatusMock.mockRejectedValueOnce(error)
 
     await expect(wallet.getQbitTxLifecycleStatus('pending-tx')).rejects.toBe(error)
+  })
+  describe('fee rates from the 0.25 bits/vB relay floor (#182)', () => {
+    const POLICY_ERROR = 'feeRate must be between 0.25 and 10000 bits/vB'
+    /** A live Esplora quote below 1 bit/vB: Slow 0.25, Normal 0.5, Fast 0.75. */
+    const QUIET_TIERS = [
+      { target: 20, feeRate: 0.25 },
+      { target: 6, feeRate: 0.5 },
+      { target: 2, feeRate: 0.75 },
+    ]
+
+    function ownOutput(account: ReturnType<typeof p2mrAccount>, txid: string, satoshis: number) {
+      return {
+        txid,
+        vout: 0,
+        satoshis,
+        scriptPk: account.p2mr.scriptPubKey,
+        pubkey: account.pubkey,
+        addressType: AddressType.P2MR,
+      }
+    }
+
+    function feeOf(psbtHex: string) {
+      const summary = decodePsbt(parsePsbt(hexToBytes(psbtHex)))
+      const inputs = summary.inputs.reduce((sum, input) => sum + input.witnessUtxo!.value, 0n)
+      const outputs = summary.outputs.reduce((sum, output) => sum + output.value, 0n)
+      expect(summary.fee).toBe(inputs - outputs)
+      return Number(inputs - outputs)
+    }
+
+    function sendFrom(
+      wallet: WalletController,
+      account: ReturnType<typeof p2mrAccount>,
+      { amount, input, feeRate }: { amount: number; input: number; feeRate?: number }
+    ) {
+      return wallet.createSendQbitPsbt({
+        to: recipientAddress(),
+        amount,
+        ...(feeRate === undefined ? {} : { feeRate }),
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
+        qbitUtxos: [ownOutput(account, '71'.repeat(32), input)],
+      })
+    }
+
+    it('builds a one-input send at 0.25 bits/vB for 955 bits and refuses 0.24', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+
+      // 50,955 bits pay 50,000 and the fee exactly: no change output.
+      const send = await sendFrom(wallet, account, { amount: 50_000, input: 50_955, feeRate: 0.25 })
+
+      expect(send).toMatchObject({
+        estimatedVsize: 3_817,
+        estimatedFee: 955,
+        inputCount: 1,
+        changeDroppedSats: 0,
+      })
+      expect(feeOf(send.psbtHex)).toBe(955)
+      const outputs = decodePsbt(parsePsbt(hexToBytes(send.psbtHex))).outputs
+      expect(outputs.map(output => output.value)).toEqual([50_000n])
+      expectPreviewToMatchFinalizedTransaction(send)
+
+      vi.mocked(keyringService.preflightP2mrPsbtSigning).mockClear()
+      await expect(
+        sendFrom(wallet, account, { amount: 50_000, input: 50_955, feeRate: 0.24 })
+      ).rejects.toThrow(POLICY_ERROR)
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+    })
+
+    it('sends at a live normal rate below 1 bit/vB when no rate is given', async () => {
+      getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+
+      // 3,817 vB at 0.5 bits/vB is 1,908.5, so 1,909 bits.
+      const send = await sendFrom(wallet, account, { amount: 50_000, input: 51_909 })
+
+      expect(send).toMatchObject({ estimatedVsize: 3_817, estimatedFee: 1_909 })
+      expect(feeOf(send.psbtHex)).toBe(1_909)
+    })
+
+    it('builds a send-all at 0.25 bits/vB and refuses 0.24', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const sendAll = (feeRate: number) =>
+        wallet.createSendAllQbitPsbt({
+          to: recipientAddress(),
+          feeRate,
+          qbitUtxoChain: ChainType.QBIT_REGTEST,
+          qbitUtxoAddress: account.address,
+          qbitUtxos: [ownOutput(account, '72'.repeat(32), 50_000)],
+        })
+
+      const result = await sendAll(0.25)
+
+      expect(result).toMatchObject({ estimatedVsize: 3_817, estimatedFee: 955 })
+      expect(feeOf(result.psbtHex)).toBe(955)
+      const outputs = decodePsbt(parsePsbt(hexToBytes(result.psbtHex))).outputs
+      expect(outputs.map(output => output.value)).toEqual([49_045n])
+      await expect(sendAll(0.24)).rejects.toThrow(POLICY_ERROR)
+    })
+
+    it('prices a send-all at 1 bit/vB, not the floor, when no estimate is available', async () => {
+      getFeeTiersMock.mockRejectedValue(new Error('offline'))
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+
+      // Without a rate, as a request over the UI port arrives when the page left it out.
+      const result = await wallet.createSendAllQbitPsbt({
+        to: recipientAddress(),
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
+        qbitUtxos: [ownOutput(account, '73'.repeat(32), 50_000)],
+      } as Parameters<WalletController['createSendAllQbitPsbt']>[0])
+
+      expect(result).toMatchObject({ estimatedVsize: 3_817, estimatedFee: 3_817 })
+      expect(feeOf(result.psbtHex)).toBe(3_817)
+    })
+
+    describe('review of a PSBT', () => {
+      async function sendAt(wallet: WalletController, feeRate: number) {
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        return wallet.createSendQbitPsbt({
+          to: recipientAddress(),
+          amount: 100_000,
+          feeRate,
+          qbitUtxoChain: ChainType.QBIT_REGTEST,
+          qbitUtxoAddress: account.address,
+          qbitUtxos: [ownOutput(account, '74'.repeat(32), 10_000_000)],
+        })
+      }
+
+      it('recommends 1 bit/vB, not the 0.25 floor, without a live quote', async () => {
+        getFeeTiersMock.mockRejectedValue(new Error('offline'))
+        const wallet = new WalletController()
+        const send = await sendAt(wallet, 1)
+
+        const decoded = await wallet.decodePsbt(send.psbtHex, 'https://example.test', {
+          statedRecipients: [recipientAddress()],
+        })
+
+        expect(decoded.recommendedFeeRate).toBe(1)
+        expect(decoded.spendSummary.feeAssessment).toEqual({
+          fee: 3_860,
+          feeRate: 1,
+          amount: 100_000,
+          reasons: [],
+        })
+        expect(decoded.shouldWarnFeeRate).toBe(false)
+      })
+
+      it('judges the fee against a live quote below 1 bit/vB', async () => {
+        getFeeTiersMock.mockResolvedValue([
+          { target: 20, feeRate: 0.25 },
+          { target: 6, feeRate: 0.3 },
+          { target: 2, feeRate: 0.5 },
+        ])
+        const wallet = new WalletController()
+        const review = async (feeRate: number) =>
+          wallet.decodePsbt((await sendAt(wallet, feeRate)).psbtHex, 'https://example.test', {
+            statedRecipients: [recipientAddress()],
+          })
+
+        // Ten times the fastest live rate of 0.5 bits/vB: 3,860 vB for 19,300 bits.
+        const atTenTimes = await review(5)
+        expect(atTenTimes.recommendedFeeRate).toBe(0.5)
+        expect(atTenTimes.spendSummary.feeAssessment).toEqual({
+          fee: 19_300,
+          feeRate: 5,
+          amount: 100_000,
+          recommendedFeeRate: 0.5,
+          reasons: ['above_recommended_rate'],
+        })
+        expect(atTenTimes.shouldWarnFeeRate).toBe(true)
+        expect(atTenTimes.risks.map(risk => risk.type)).toEqual([RiskType.HIGH_FEE_RATE])
+
+        const justBelow = await review(4.99)
+        expect(justBelow.fee).toBe(19_262)
+        expect(justBelow.spendSummary.feeAssessment?.reasons).toEqual([])
+        expect(justBelow.shouldWarnFeeRate).toBe(false)
+      })
+    })
+
+    describe('fee bump', () => {
+      async function pendingSend(wallet: WalletController, feeRate: number) {
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        const original = await wallet.createSendQbitPsbt({
+          to: recipientAddress(),
+          amount: 10_000,
+          feeRate,
+          qbitUtxoChain: ChainType.QBIT_REGTEST,
+          qbitUtxoAddress: account.address,
+          qbitUtxos: [ownOutput(account, '75'.repeat(32), 100_000)],
+        })
+        const live = liveTransactionFromPsbt(original.psbtHex)
+        getTxMock.mockResolvedValue(live)
+        return { original, live }
+      }
+
+      // Each original is 3,860 vB with change, and so is its replacement.
+      it.each([
+        // 965 bits; a replacement at 1 bit/vB would add less than its size.
+        ['0.25', 0.25, QUIET_TIERS, { originalFee: 965, replacementFee: 4_825 }],
+        ['0.25', 0.25, undefined, { originalFee: 965, replacementFee: 34_740 }],
+        ['0.75', 0.75, QUIET_TIERS, { originalFee: 2_895, replacementFee: 6_755 }],
+        ['0.75', 0.75, undefined, { originalFee: 2_895, replacementFee: 34_740 }],
+        // As before #182: at least 2 bits/vB for an original at 1.
+        ['1', 1, QUIET_TIERS, { originalFee: 3_860, replacementFee: 7_720 }],
+        ['1', 1, undefined, { originalFee: 3_860, replacementFee: 34_740 }],
+      ] as const)(
+        'replaces an original paying %s bits/vB at the higher of its next whole rate and the quote',
+        async (_label, feeRate, tiers, { originalFee, replacementFee }) => {
+          // Without tiers, the test's quote: Fast 9 bits/vB.
+          if (tiers) getFeeTiersMock.mockResolvedValue(tiers)
+          const wallet = new WalletController()
+          const { original, live } = await pendingSend(wallet, feeRate)
+          expect(original.estimatedFee).toBe(originalFee)
+          expect(live.fee / live.size).toBe(feeRate)
+
+          const eligibility = await wallet.getQbitFeeBumpEligibility(live.txid)
+
+          expect(eligibility).toMatchObject({
+            eligible: true,
+            originalFee,
+            originalFeeRate: feeRate,
+            replacementFee,
+            replacementVsize: 3_860,
+            replacementFeeRate: replacementFee / 3_860,
+            feeDelta: replacementFee - originalFee,
+            changeDropped: false,
+          })
+          // The added fee pays at least 1 bit per vbyte of the replacement.
+          expect(replacementFee - originalFee).toBeGreaterThanOrEqual(3_860)
+
+          const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+          expect(feeOf(replacement.psbtHex)).toBe(replacementFee)
+          expect(replacement.feeBump).toMatchObject({ replacementFee, originalFee })
+        }
+      )
+
+      /** The approval's two fee-rate rows. */
+      const feeRateRows = (toSignData: { action?: { details?: { label: string }[] } }) =>
+        toSignData.action?.details?.filter(
+          detail => detail.label === 'original_fee_rate' || detail.label === 'replacement_fee_rate'
+        )
+
+      it('shows the approval’s rates rounded down to hundredths, never above the rate paid', async () => {
+        getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+        const wallet = new WalletController()
+        const { original, live } = await pendingSend(wallet, 0.256)
+        // 3,860 vB at 0.256 is 988.16 bits, so 989: 0.2562 bits/vB, which
+        // rounding to nearest shows as 0.26.
+        expect(original.estimatedFee).toBe(989)
+        expect(live.size).toBe(3_860)
+
+        const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+
+        // 989 + 3,860 bits for 3,860 vB: 1.2562 bits/vB.
+        expect(replacement.feeBump).toMatchObject({
+          originalFee: 989,
+          replacementFee: 4_849,
+          replacementVsize: 3_860,
+        })
+        expect(feeRateRows(replacement)).toEqual([
+          {
+            label: 'original_fee_rate',
+            value: '0.25 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+          {
+            label: 'replacement_fee_rate',
+            value: '1.25 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+        ])
+      })
+
+      it('shows a rate paid in whole hundredths as it is', async () => {
+        getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+        const wallet = new WalletController()
+        const { original, live } = await pendingSend(wallet, 1.15)
+        // 4,439 bits for 3,860 vB is 1.15 bits/vB exactly, which times 100
+        // is 114.99999999999999 in binary floating point.
+        expect(original.estimatedFee).toBe(4_439)
+        expect(live.fee / live.size).toBe(1.15)
+
+        const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+
+        // 4,439 + 3,860 bits for 3,860 vB: 2.15 bits/vB exactly.
+        expect(replacement.feeBump).toMatchObject({ originalFee: 4_439, replacementFee: 8_299 })
+        expect(feeRateRows(replacement)).toEqual([
+          {
+            label: 'original_fee_rate',
+            value: '1.15 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+          {
+            label: 'replacement_fee_rate',
+            value: '2.15 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+        ])
+      })
+    })
+
+    describe('recovery migration', () => {
+      function singleSourceMigration(wallet: WalletController) {
+        const fixture = qbitRecoveryMigrationFixture()
+        const source = p2mrAccount('61'.repeat(32), 0)
+        const sourceKeyring = { ...fixture.sourceKeyring, accounts: [source] }
+        const fundingTxid = '76'.repeat(32)
+        const state: { vault: any } = {
+          vault: {
+            ...fixture.vaultState,
+            migration: { ...fixture.vaultState.migration, plans: [] },
+          },
+        }
+        vi.spyOn(wallet as any, 'loadQbitRecoveryMigration').mockImplementation(async () => ({
+          sourceKeyring,
+          anchor: source,
+          network: 'regtest' as const,
+          state: state.vault,
+          destination: fixture.destinationKeyring,
+          destinationKeyringIndex: 3,
+        }))
+        vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async () =>
+          wrapRegtestVaultState(state.vault)
+        )
+        vi.mocked(
+          keyringService.replaceQbitRecoveryMigrationPlansWithDestinationReservations
+        ).mockImplementation(async (_address, _network, plans) => {
+          state.vault = {
+            ...state.vault,
+            migration: { ...state.vault.migration, plans: plans.map(plan => ({ ...plan })) },
+          }
+          return fixture.publicState(state.vault)
+        })
+        getAddressUtxosMock.mockImplementation(async () => [
+          {
+            txid: fundingTxid,
+            vout: 0,
+            value: 50_000,
+            status: { confirmed: true, block_height: 10 },
+          },
+        ])
+        getTxMock.mockImplementation(async txid => ({
+          txid,
+          vin: [{ is_coinbase: false }],
+          vout: [{ value: 50_000, scriptpubkey: source.p2mr.scriptPubKey }],
+        }))
+        return state
+      }
+
+      it('prices a plan at 1 bit/vB when the live normal rate is 0.5', async () => {
+        getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+        await expect(
+          (new WalletController() as any).resolveQbitRecoveryMigrationFeeRate()
+        ).resolves.toBe(1)
+
+        const wallet = new WalletController()
+        const state = singleSourceMigration(wallet)
+
+        const prepared = await wallet.prepareQbitRecoveryMigration(2)
+
+        expect(prepared.toSignDatas).toHaveLength(1)
+        // One input to one output: 3,817 vB at 1 bit/vB, not 1,909 bits at 0.5.
+        expect(prepared.toSignDatas[0]).toMatchObject({ estimatedFee: 3_817 })
+        expect(feeOf(prepared.toSignDatas[0]!.psbtHex)).toBe(3_817)
+        expect(state.vault.migration.plans).toEqual([
+          expect.objectContaining({ amount: 50_000 - 3_817, fee: 3_817 }),
+        ])
+      })
+
+      it('refuses a rate below 1 bit/vB that the caller gives, before reading anything', async () => {
+        const wallet = new WalletController()
+        const state = singleSourceMigration(wallet)
+
+        for (const feeRate of [0.25, 0.5, 0.99, QBIT_MAX_FEE_RATE + 1]) {
+          await expect(wallet.prepareQbitRecoveryMigration(2, feeRate)).rejects.toThrow(
+            `feeRate must be between 1 and ${QBIT_MAX_FEE_RATE} bits/vB`
+          )
+        }
+        expect(getAddressUtxosMock).not.toHaveBeenCalled()
+        expect(state.vault.migration.plans).toEqual([])
+
+        // 1 bit/vB itself is the migration's floor.
+        const prepared = await wallet.prepareQbitRecoveryMigration(2, 1)
+        expect(prepared.toSignDatas[0]).toMatchObject({ estimatedFee: 3_817 })
+      })
+    })
   })
 })

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  QBIT_MAX_FEE_RATE,
+  QBIT_FALLBACK_FEE_RATE,
   QBIT_MIN_RELAY_FEE_RATE,
   type FeeQuoteMetadata,
   type FeeSummary,
@@ -101,6 +101,37 @@ export function feeRateOrigin(
 }
 
 /**
+ * Plain decimal text, as the amount input passes it: digits, then at most one
+ * point and more digits. Anything else, such as "0,25", "1e3" or "-1", is not
+ * a rate, nor is it read as some other one.
+ */
+const FEE_RATE_TEXT = /^\d+(\.\d*)?$/
+
+/**
+ * Why the fee bar's selected rate is refused when it is a Custom rate typed
+ * below the relay floor, or '' for any other: the one decision behind the
+ * reason the send and consolidation screens give. The typed text decides,
+ * not the rate it reads as, which is 0 for several texts: an empty input,
+ * "0" and "0." get no reason, as the start of a rate still being typed,
+ * while every other number below the floor gets it, a zero such as "0.0",
+ * "0.00" or "00" as much as "0.1" or "0.24". A tier's rate is not one the
+ * user typed, and text that is no rate at all is cleared as it is typed.
+ */
+export function feeRateBelowMinimumError(
+  feeRateBar: Pick<UIState['feeRateBar'], 'feeOptionIndex' | 'feeRateInputVal'>,
+  t: (key: string, substitutions?: string[]) => string
+): string {
+  const text = feeRateBar.feeRateInputVal
+  const belowMinimum =
+    feeRateBar.feeOptionIndex === FeeRateType.CUSTOM &&
+    FEE_RATE_TEXT.test(text) &&
+    text !== '0' &&
+    text !== '0.' &&
+    Number(text) < QBIT_MIN_RELAY_FEE_RATE
+  return belowMinimum ? t('fee_rate_below_minimum', [String(QBIT_MIN_RELAY_FEE_RATE)]) : ''
+}
+
+/**
  * Whether the selected rate is settled for a screen that reads `quote` and
  * last ran its checks at `checkedFeeRate`: a Custom rate always; a tier's
  * once the fee bar chose it from `quote` and the screen's checks ran at it.
@@ -124,7 +155,7 @@ interface FeeBarQuote {
   read?: string
   options: FeeBarOption[]
   quote?: FeeQuoteMetadata
-  /** The read failed: no rates to offer but Custom, and the bar says it uses the relay floor. */
+  /** The read failed: no rates to offer but Custom, and the bar says it uses the fallback rate. */
   readFailed: boolean
   /** Low-fee mode's slow rate, below 1 sat/vB, is among the options. */
   lowFeeMode: boolean
@@ -142,7 +173,6 @@ const translationKeys = {
   [FeeRateType.FAST]: { type: FeeRateType.FAST, title: 'fast', desc: 'feerate_fast_desc' },
 } as const
 
-const DEFAULT_FEE_RATE = 1
 const AVG_OPTION_INDEX = 1
 
 // Fee rate display rules:
@@ -200,9 +230,9 @@ function withLowFeeSlowRate(list: FeeOption[], lowFeeSummary: FeeSummary): FeeOp
   }
   if (!slow) return list
 
-  // ensure slow fee rate is below 1 sat/vB
+  // ensure slow fee rate is below 1 sat/vB: the relay floor, the lowest a send accepts
   if (slow.feeRate > 1) {
-    slow = { ...slow, feeRate: 0.1 }
+    slow = { ...slow, feeRate: QBIT_MIN_RELAY_FEE_RATE }
   }
 
   return [slow, ...list.slice(1)]
@@ -316,26 +346,28 @@ export function useFeeRateBarLogic({
     readFailed,
   } = readQuote ?? shownQuote
 
-  // A rate below 1 sat/vB only where the bar offers low-fee mode's slow rate
-  // for the current quote: never before a quote arrives with its relay floor,
-  // nor while its low-fee read is pending or after it failed.
+  // Whether the bar offers low-fee mode's slow rate, below 1 sat/vB, for the
+  // current quote: never before a quote arrives, nor while its low-fee read is
+  // pending or after it failed. It no longer decides the lowest Custom rate,
+  // which is the relay floor whatever the bar offers.
   const supportLowFeeMode = readQuote?.lowFeeMode ?? false
 
-  // After a failed read no tier is left to select, and the relay floor is the
-  // rate in use: the input shows it rather than a tier's earlier rate.
-  const floorInUse = readFailed && !readonly && feeOptionIndex !== FeeRateType.CUSTOM
-  // The relay floor is also the rate in use from a tier of a quote without
-  // estimates, which offers its tiers at the floor.
-  const relayFloorInUse =
-    floorInUse ||
+  // After a failed read no tier is left to select, and the fallback rate, the
+  // wallet's rate without estimates, is the rate in use: the input shows it
+  // rather than a tier's earlier rate.
+  const fallbackAfterFailedRead = readFailed && !readonly && feeOptionIndex !== FeeRateType.CUSTOM
+  // The fallback rate is also the rate in use from a tier of a quote without
+  // estimates, which offers its tiers at that rate.
+  const fallbackRateInUse =
+    fallbackAfterFailedRead ||
     (!readonly &&
       feeQuote?.availability === 'unavailable' &&
       feeOptionIndex !== FeeRateType.CUSTOM &&
-      optionAt(feeOptions, feeOptionIndex)?.feeRate === QBIT_MIN_RELAY_FEE_RATE)
+      optionAt(feeOptions, feeOptionIndex)?.feeRate === QBIT_FALLBACK_FEE_RATE)
 
   // Memoize default value to avoid repeated calculations
   const defaultFeeRate = useMemo(
-    () => optionAt(feeOptions, AVG_OPTION_INDEX)?.feeRate ?? DEFAULT_FEE_RATE,
+    () => optionAt(feeOptions, AVG_OPTION_INDEX)?.feeRate ?? QBIT_FALLBACK_FEE_RATE,
     [feeOptions]
   )
 
@@ -354,10 +386,10 @@ export function useFeeRateBarLogic({
       return
     } else {
       // From the read the bar shows, which while a newer one loads is an earlier one.
-      // After a failed read no rates to select from: the relay floor, which the bar says it uses.
+      // After a failed read no rates to select from: the fallback rate, which the bar says it uses.
       // A tier the read does not offer falls back to a rate the read did not choose: no source.
       const option = optionAt(feeOptions, feeOptionIndex)
-      val = readFailed ? QBIT_MIN_RELAY_FEE_RATE : (option?.feeRate ?? defaultFeeRate)
+      val = readFailed ? QBIT_FALLBACK_FEE_RATE : (option?.feeRate ?? defaultFeeRate)
       source =
         readFailed || option !== undefined
           ? { quoteRead: shownRead, optionIndex: feeOptionIndex }
@@ -383,9 +415,9 @@ export function useFeeRateBarLogic({
       // When user manually changes the input, check if we need to switch to CUSTOM
       const shouldSwitchToCustom = feeOptionIndex !== FeeRateType.CUSTOM && feeOptions.length > 0
       // The rate the input shows for the selection: the selected tier's, or
-      // the relay floor in use after a failed read.
-      const selectedRate = floorInUse
-        ? QBIT_MIN_RELAY_FEE_RATE
+      // the fallback rate in use after a failed read.
+      const selectedRate = fallbackAfterFailedRead
+        ? QBIT_FALLBACK_FEE_RATE
         : optionAt(feeOptions, feeOptionIndex)?.feeRate
 
       // If currently on SLOW/AVG/FAST and user changes the value, switch to CUSTOM
@@ -410,41 +442,15 @@ export function useFeeRateBarLogic({
             shouldSwitchToCustom && selectedRate !== undefined ? FeeRateType.CUSTOM : undefined,
         })
 
-      // Allow empty input
-      if (inputVal === '') {
-        updateInputValue('')
-        return
-      }
-
-      const val = parseFloat(inputVal)
-
-      // Check if input is a valid number
-      if (isNaN(val)) {
-        updateInputValue('')
-        return
-      }
-
-      // Allow intermediate input like "0" or "0." for typing "0.1"
-      if (inputVal === '0' || inputVal.endsWith('.')) {
-        updateInputValue(inputVal)
-        return
-      }
-
-      // Validate and constrain the value
-      if (val <= 0) {
-        updateInputValue(defaultFeeRate.toString())
-      } else if (val > QBIT_MAX_FEE_RATE) {
-        // Kept as typed, not clamped: the screen blocks the rate and says why.
-        updateInputValue(inputVal)
-      } else if (val < 1 && supportLowFeeMode == false) {
-        updateInputValue('1')
-      } else if (val < 0.1) {
-        updateInputValue('0.1')
-      } else {
-        updateInputValue(inputVal)
-      }
+      // A rate is kept as typed, never clamped or rewritten: one still being
+      // typed ("0", "0." or "0.2"), one below the relay floor and one above
+      // the wallet's ceiling alike. The screen refuses a rate outside the fee
+      // policy, so Next stays disabled for it, and says why below the floor
+      // (`feeRateBelowMinimumError`) and above the ceiling. Text that is no
+      // rate at all clears the input, which no rate is read from either.
+      updateInputValue(inputVal === '' || FEE_RATE_TEXT.test(inputVal) ? inputVal : '')
     },
-    [defaultFeeRate, updateFeeRateBar, feeOptionIndex, feeOptions, floorInUse, supportLowFeeMode]
+    [updateFeeRateBar, feeOptionIndex, feeOptions, fallbackAfterFailedRead]
   )
 
   const isCustomOption = useCallback((option: FeeOption) => option.type === FeeRateType.CUSTOM, [t])
@@ -461,15 +467,15 @@ export function useFeeRateBarLogic({
         })
       } else if (index === FeeRateType.CUSTOM) {
         // When clicking on CUSTOM, show input with current custom value or empty,
-        // or with the relay floor in use rather than a tier's earlier rate
+        // or with the fallback rate in use rather than a tier's earlier rate
         updateFeeRateBar({
           feeOptionIndex: index,
           showCustomInput: true,
-          ...(floorInUse ? { feeRateInputVal: String(QBIT_MIN_RELAY_FEE_RATE) } : {}),
+          ...(fallbackAfterFailedRead ? { feeRateInputVal: String(QBIT_FALLBACK_FEE_RATE) } : {}),
         })
       }
     },
-    [feeOptions, floorInUse, updateFeeRateBar]
+    [feeOptions, fallbackAfterFailedRead, updateFeeRateBar]
   )
 
   const toggleCustomInput = useCallback(
@@ -483,8 +489,11 @@ export function useFeeRateBarLogic({
     feeOptions,
     feeOptionIndex,
     setFeeOptionIndex,
-    feeRateInputVal: floorInUse ? String(QBIT_MIN_RELAY_FEE_RATE) : feeRateInputVal,
+    feeRateInputVal: fallbackAfterFailedRead ? String(QBIT_FALLBACK_FEE_RATE) : feeRateInputVal,
     adjustFeeRateInput,
+    // The lowest rate the Custom input offers, its stepper's floor: the relay
+    // floor, in every state. A lower rate typed in is kept, and refused.
+    minFeeRate: QBIT_MIN_RELAY_FEE_RATE,
     isCustomOption,
     fontSize,
     isSpecialLocale,
@@ -493,8 +502,8 @@ export function useFeeRateBarLogic({
     supportLowFeeMode,
     feeQuote,
     feeEstimateUnavailable: readFailed || feeQuote?.availability === 'unavailable',
-    // The relay floor while it is the rate in use for want of estimates; none
-    // for a Custom rate or a tier above it, nor for a read-only bar.
-    fallbackFeeRate: relayFloorInUse ? QBIT_MIN_RELAY_FEE_RATE : undefined,
+    // The fallback rate while it is the rate in use for want of estimates;
+    // none for a Custom rate or a tier at another rate, nor for a read-only bar.
+    fallbackFeeRate: fallbackRateInUse ? QBIT_FALLBACK_FEE_RATE : undefined,
   }
 }

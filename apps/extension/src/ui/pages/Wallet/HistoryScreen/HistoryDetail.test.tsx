@@ -58,7 +58,9 @@ vi.mock('@/ui/utils', () => ({
   satoshisToQbit: (satoshis: number) => satoshis / 1e8
 }));
 
-vi.mock('@qbit/wallet-state', () => ({
+vi.mock('@qbit/wallet-state', async () => ({
+  // The package's own formatter: its index does not load in this test.
+  formatFeeRate: (await import('../../../../../../../packages/wallet-state/src/utils/fee-rate-text')).formatFeeRate,
   useChain: vi.fn(),
   useI18n: vi.fn(),
   useNavigation: vi.fn(),
@@ -429,6 +431,20 @@ describe('HistoryDetail qbit fee bump action', () => {
     await act(async () => pendingReplacement.resolve({ psbtHex: 'stale-replacement-psbt' }));
 
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('shows a fee rate below 1 bit/vB to two decimal places', () => {
+    // 955 bits for 3,817 vB: a one-input send at the 0.25 bits/vB relay floor.
+    render(<HistoryDetail detail={historyDetail({ fee: 955, size: 3_817, feeRate: 955 / 3_817 })} close={vi.fn()} />);
+
+    expect(screen.getByTestId('history-detail-fee-rate').textContent).toBe('0.25');
+  });
+
+  it('never shows a fee rate above the one paid: 936 bits for 3,817 vB as 0.24', () => {
+    // 0.2452 bits/vB, which rounded to the nearest hundredth reads as the 0.25 floor.
+    render(<HistoryDetail detail={historyDetail({ fee: 936, size: 3_817, feeRate: 936 / 3_817 })} close={vi.fn()} />);
+
+    expect(screen.getByTestId('history-detail-fee-rate').textContent).toBe('0.24');
   });
 
   it('keeps replacement-preparation failures on the detail screen with a localized error', async () => {

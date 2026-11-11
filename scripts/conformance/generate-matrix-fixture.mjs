@@ -192,6 +192,15 @@ const sizing = outputScriptLengths =>
     controlBlockLength,
   }).vsize
 
+// The wallet's relay floor in qbit Core's unit: Core keeps its relay fees in
+// whole sat/kvB, so a floor that is not a whole number of them is refused.
+const minRelayTxFeeSatPerKvb = walletShared.QBIT_MIN_RELAY_FEE_RATE * 1000
+if (!Number.isSafeInteger(minRelayTxFeeSatPerKvb) || minRelayTxFeeSatPerKvb <= 0) {
+  throw new Error(
+    `QBIT_MIN_RELAY_FEE_RATE ${walletShared.QBIT_MIN_RELAY_FEE_RATE} bits/vB is not a whole number of sat/kvB`
+  )
+}
+
 const fixture = {
   schemaVersion: 1,
   name: 'qbit-core-g2-matrix',
@@ -243,6 +252,7 @@ const fixture = {
       signatureItemLength: walletShared.QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES + 1,
     }).vsize,
     dustBoundarySats: walletShared.QBIT_P2MR_DUST,
+    minRelayTxFeeSatPerKvb,
   },
 }
 

@@ -39,7 +39,7 @@ import {
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
-import { useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
+import { feeRateBelowMinimumError, useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
 
 /** What the previewed send takes from the wallet, for the total and the fee check. */
 interface SendSpendPreview {
@@ -208,6 +208,9 @@ export function useTxCreateScreenLogic() {
   // failed read leaves no recommendation, which the screen says instead of
   // skipping the check.
   const feeQuote = useFeeQuoteRead()
+  // Why a Custom rate typed below the relay floor is refused, as the
+  // consolidation screen gives it too; '' for any other rate.
+  const feeRateBelowMinimum = feeRateBelowMinimumError(feeRateBarState, t)
 
   const dustSats = QBIT_P2MR_DUST
   const dustAmount = useMemo(() => numUtils.satoshisToAmount(dustSats), [dustSats])
@@ -329,10 +332,16 @@ export function useTxCreateScreenLogic() {
       return
     }
 
-    if (!Number.isFinite(feeRate) || feeRate <= 0) {
+    // A Custom rate typed below the relay floor is refused, and the screen
+    // says why, as it does for one above the ceiling.
+    if (feeRateBelowMinimum) {
+      setFeeCheckError(feeRateBelowMinimum)
       return
     }
-    if (feeRate < QBIT_MIN_RELAY_FEE_RATE) {
+    // Refused without a word: no rate yet (an empty input, "0" or "0." still
+    // being typed) and a tier's rate below the floor, which the user did not
+    // type.
+    if (!Number.isFinite(feeRate) || feeRate < QBIT_MIN_RELAY_FEE_RATE) {
       return
     }
 
@@ -421,6 +430,7 @@ export function useTxCreateScreenLogic() {
     qbitSpendableSatoshis,
     qbitSpendableUtxos,
     currentAccount,
+    feeRateBelowMinimum,
     t,
   ])
 

@@ -121,6 +121,17 @@ describe('consolidation batch shape', () => {
         feeRate: 1,
       })
     ).toMatchObject({ vsize: 398_827, fee: 398_827 })
+    // At the 0.25 bits/vB relay floor a full batch costs a quarter, rounded up.
+    expect(
+      estimateQbitP2mrTransaction({
+        ...status.batchShape,
+        inputCount: status.maxInputCount,
+        feeRate: 0.25,
+      })
+    ).toMatchObject({ vsize: 398_827, fee: 99_707 })
+    expect(
+      estimateQbitP2mrTransaction({ ...asEstimateParams(status.batchShape, 25), feeRate: 0.25 })
+    ).toMatchObject({ vsize: 94_105, fee: 23_527 })
   })
 
   it('keeps the size a batch was prepared with for the next request', () => {

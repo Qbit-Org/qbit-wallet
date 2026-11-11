@@ -10,7 +10,7 @@ import {
   isWebsiteSuppliedPsbt,
   psbtRelativeLocks
 } from '@qbit/wallet-shared';
-import { useI18n, useQbitUnit } from '@qbit/wallet-state';
+import { formatFeeRate, useI18n, useQbitUnit } from '@qbit/wallet-state';
 
 import { SignPsbtSection } from './Section';
 
@@ -257,7 +257,12 @@ export default function TransactionOverviewSection({
           <Row justifyBetween itemsCenter fullX>
             <Text text={t('fee_rate')} color="textDim" size="sm" />
             <Column gap="zero" style={{ alignItems: 'flex-end' }}>
-              <Text text={`${decodedPsbt.feeRate} bits/vB`} preset="bold" size="sm" color={getFeeRateColor()} />
+              <Text
+                text={`${formatFeeRate(decodedPsbt.feeRate)} bits/vB`}
+                preset="bold"
+                size="sm"
+                color={getFeeRateColor()}
+              />
               <Text
                 data-testid="psbt-network-fee-base-units"
                 text={`Exact fee: ${decodedPsbt.fee} bits`}

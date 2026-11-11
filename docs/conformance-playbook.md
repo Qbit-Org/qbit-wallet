@@ -39,11 +39,15 @@ isolated default-chain v1.0.0 runtime:
 | Wallet gate / default      | `mainnetReady: true`; an absent or unknown chain selection resolves to `QBIT_MAINNET`                                  |
 | API / explorer             | `https://mempool.qbit.org/api` / `https://mempool.qbit.org`                                                            |
 
-The fee and dust review found no wallet constant change. Core retains a
+The fee and dust review found no sizing or dust constant change. Core retains a
 3,681-byte maximum P2MR signature item, a 3,763-byte canonical single-key spend
-estimate, `DUST_RELAY_TX_FEE=750` sat/kvB, and a 2,855-sat P2MR dust boundary.
-The wallet retains exact one-input sizing of 3,817 vbytes for a default-hashtype
-signature and 3,818 vbytes for the maximum explicit-hashtype item.
+estimate, `DUST_RELAY_TX_FEE=750` sat/kvB, a 2,855-sat P2MR dust boundary, and
+a relay floor of `DEFAULT_MIN_RELAY_TX_FEE=250` sat/kvB with
+`DEFAULT_INCREMENTAL_RELAY_FEE=250` sat/kvB (`src/policy/policy.h`). The
+wallet's `QBIT_MIN_RELAY_FEE_RATE` has been that floor, 0.25 bits/vB, since
+#182; before, the wallet kept its own 1 bit/vB. The wallet retains exact
+one-input sizing of 3,817 vbytes for a default-hashtype signature and 3,818
+vbytes for the maximum explicit-hashtype item.
 
 Override `QBIT_RELEASE` in CI or `QBITD_IMAGE` locally to test a different
 release or candidate build. `scripts/conformance/core-pin.json` is the committed
@@ -62,7 +66,10 @@ QBIT_REGTEST_REQUIRED=1 corepack pnpm test:conformance
 - descriptor import, Core listing, and parser/serializer round trips
 - valid and invalid address parity through `validateaddress`
 - TypeScript signing through `testmempoolaccept` and mined confirmation
-- transaction size, fee, and dust-policy parity
+- transaction size, fee, relay-floor, and dust-policy parity: the wallet's
+  floor equals the node's `minrelaytxfee` and `incrementalrelayfee`, and a
+  spend paying exactly the wallet's fee at the floor is accepted and mined
+  while the same spend paying one bit less is refused
 - PSBT decode, combine, finalize, and cross-implementation finalization
 - P2MR message-proof parity through Core `signdatapqchash` /
   `verifydatapqchash` and the qbit-js wallet proof verifier in both directions
@@ -72,9 +79,9 @@ signed-release P2MR offline fixtures before the live rows. `matrix.json` is a
 separate committed wallet golden: its generator requires cryptographically
 verified Core release provenance, validates its 20+20 addresses through Core
 RPC, and the live suite independently checks the remaining
-descriptor/address/signing/sizing/PSBT behavior. The additional offline fixture
-is deliberately limited to commitment internals and fixed witness bytes that
-the RPC rows cannot expose.
+descriptor/address/signing/sizing/relay-floor/PSBT behavior. The additional
+offline fixture is deliberately limited to commitment internals and fixed
+witness bytes that the RPC rows cannot expose.
 
 ## Signed-release P2MR offline coverage
 

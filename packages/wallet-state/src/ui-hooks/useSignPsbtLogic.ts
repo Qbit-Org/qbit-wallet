@@ -6,6 +6,7 @@ import {
   DecodedPsbt,
   ErrorCodes,
   LocalPsbtSummary,
+  QBIT_FALLBACK_FEE_RATE,
   QbitProviderApprovalContext,
   SignedData,
   SignState,
@@ -105,7 +106,8 @@ export const initTxInfo: TxInfo = {
     },
     isScammer: false,
     shouldWarnFeeRate: false,
-    recommendedFeeRate: 1,
+    // Nothing decoded yet: the rate the wallet uses without a live estimate.
+    recommendedFeeRate: QBIT_FALLBACK_FEE_RATE,
     isCompleted: false,
     spendSummary: {
       account: '',

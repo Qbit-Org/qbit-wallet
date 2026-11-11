@@ -25,7 +25,7 @@ import {
   useTools,
   useWallet,
 } from '..'
-import { useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
+import { feeRateBelowMinimumError, useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
 
 /**
  * The text of a failed wallet call. The popup's wallet proxy rejects with the
@@ -138,7 +138,8 @@ export function useQbitConsolidationScreenLogic() {
   const qbitUnit = useQbitUnit()
   const chainType = useChainType()
   const { address } = useCurrentAccount()
-  const feeRate = useFeeRateBar().feeRate
+  const feeRateBar = useFeeRateBar()
+  const feeRate = feeRateBar.feeRate
   // The quote the fee bar offers its rates from, and the rate the batch's
   // check below last ran at. Until the bar has chosen the selected tier's
   // rate from the quote, the rate is the bar's default or one from an
@@ -368,6 +369,14 @@ export function useQbitConsolidationScreenLogic() {
   // refusing an address that once held more than that, consolidated or not,
   // so no number of batches is promised to end the refusal.
   const overLimit = status?.overLimit === true
+  // Whether the account has outputs to merge, as far as the screen knows: a
+  // batch may also be prepared after a failed status read, which the
+  // background checks again.
+  const hasBatchToPrepare = status ? overLimit : statusError !== ''
+  // Why a Custom rate typed below the relay floor is refused, as the send
+  // screen gives it too, said while there is a batch to prepare; no batch is
+  // prepared at such a rate.
+  const feeRateError = hasBatchToPrepare ? feeRateBelowMinimumError(feeRateBar, t) : ''
   // The batch size, its range, the fee of a full batch and the cost note:
   // only for an account the explorer refuses to list, whose maximum is
   // known. Without the status there is no maximum to check a size against;
@@ -492,13 +501,15 @@ export function useQbitConsolidationScreenLogic() {
     feePreview,
     costNote,
     // A status read that failed does not stop a batch: the background checks
-    // the explorer again when it builds one.
-    error: error || statusError,
+    // the explorer again when it builds one. A rate below the floor does, so
+    // its reason comes before that error.
+    error: error || feeRateError || statusError,
     preparing,
     canPrepare:
-      (status ? overLimit : statusError !== '') &&
+      hasBatchToPrepare &&
       !batchSizeInvalid &&
       feeRateValid &&
+      feeRateError === '' &&
       feeRateSettled &&
       !preparing,
     // For the fee bar: the quote the batch's rate is chosen from.

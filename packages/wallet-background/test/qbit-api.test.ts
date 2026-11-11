@@ -4350,13 +4350,14 @@ describe('qbit Esplora wallet adapters', () => {
     })
   })
 
-  it('normalizes positive sub-floor provider rates to the shared relay floor', () => {
+  it('raises positive provider rates below the 0.25 bits/vB relay floor to it, and keeps those above', () => {
     const summary = qbitFeeSummaryFromTiers([
       { target: 20, feeRate: 0.1 },
       { target: 6, feeRate: 0.25 },
       { target: 2, feeRate: 0.5 },
     ])
-    expect(summary.list.map(tier => tier.feeRate)).toEqual([1, 1, 1])
+    // From 0.25 up a tier is quoted as it is, below 1 bit/vB too: the floor is qbit Core's (#182).
+    expect(summary.list.map(tier => tier.feeRate)).toEqual([0.25, 0.25, 0.5])
     expect(summary.quote?.availability).toBe('available')
   })
 
@@ -4383,6 +4384,7 @@ describe('qbit Esplora wallet adapters', () => {
       ],
     ],
   ])('falls back safely for malicious fee tiers with %s', (_name, tiers) => {
+    // Every tier at the 1 bit/vB fallback rate, above the 0.25 relay floor (#182).
     expect(qbitFeeSummaryFromTiers(tiers)).toMatchObject({
       list: [{ feeRate: 1 }, { feeRate: 1 }, { feeRate: 1 }],
       quote: {
