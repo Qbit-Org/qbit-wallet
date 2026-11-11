@@ -27,6 +27,7 @@ import ApprovalScreen from './Approval/ApprovalScreen';
 import ConnectedSitesScreen from './Approval/ConnectedSitesScreen';
 import BoostScreen from './Main/BoostScreen';
 import DiscoverTabScreen from './Main/DiscoverTabScreen';
+import MineTabScreen from './Main/MineTabScreen';
 import SettingsTabScreen from './Main/SettingsTabScreen';
 import WalletTabScreen from './Main/WalletTabScreen';
 import WelcomeScreen from './Main/WelcomeScreen';
@@ -71,6 +72,10 @@ export const routes = {
   MainScreen: {
     path: '/main',
     element: <WalletTabScreen />
+  },
+  MineTabScreen: {
+    path: '/mine',
+    element: <MineTabScreen />
   },
   DiscoverTabScreen: {
     path: '/discover',

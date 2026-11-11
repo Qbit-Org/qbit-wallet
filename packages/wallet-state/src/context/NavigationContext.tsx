@@ -24,6 +24,7 @@ export type RouteParamList = {
   WalletTabScreen: undefined
   AppTabScreen: undefined
   TabMainScreen: undefined
+  MineTabScreen: undefined
   DiscoverTabScreen: undefined
   SettingsTabScreen: undefined
 

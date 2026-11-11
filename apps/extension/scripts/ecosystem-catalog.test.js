@@ -90,6 +90,8 @@ test('every purpose-specific ecosystem image is bundled locally', () => {
       '5b6e41dd6dddc82534c398d8edf1fd8821054db8575e8fe2b6a5f75b4fba6b3a',
     'build/_raw/images/ecosystem/prism-testnet-pool.svg':
       '4af9841e1a6601352737e192b05fa4c55fabba025c9d7a4a37acca4440b1f8f9',
+    'build/_raw/images/ecosystem/qbit-mine.svg':
+      '37f720b56ee9031210ea3ff39b6a738ffe6727801c117292693f3b926d3119ac',
     'build/_raw/images/ecosystem/qbit-block-visualizer.svg':
       '9132b1702bcaebbafb2eecf0127e1ab71c03bb614d6161c91e9b2fad4048314d',
     'build/_raw/images/ecosystem/qbit-rich-list.svg':
@@ -112,6 +114,7 @@ test('every purpose-specific ecosystem image is bundled locally', () => {
 
   assert.match(discoverSource, /\/images\/ecosystem\/qbit-testnet-faucet\.svg/);
   assert.match(discoverSource, /\/images\/ecosystem\/prism-testnet-pool\.svg/);
+  assert.match(discoverSource, /\/images\/ecosystem\/qbit-mine\.svg/);
   assert.match(discoverSource, /\/images\/ecosystem\/qbit-block-visualizer\.svg/);
   assert.match(discoverSource, /\/images\/ecosystem\/qbit-rich-list\.svg/);
   assert.doesNotMatch(catalogSource, /logoUrl|imageUrl|artworkUrl/);

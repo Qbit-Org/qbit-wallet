@@ -23,6 +23,7 @@ import {
   MapPin,
   Network,
   Palette,
+  Pickaxe,
   QrCode,
   Rabbit,
   Send,
@@ -99,6 +100,7 @@ type LucideIconName =
   | 'wallet'
   | 'user'
   | 'compass'
+  | 'mine'
   | 'settings'
   | 'copy'
   | 'eye'
@@ -152,6 +154,7 @@ const lucideRegistry: Partial<Record<IconTypes, LucideIcon>> = {
   // tab
   user: User,
   compass: Compass,
+  mine: Pickaxe,
   settings: Settings,
 
   // header
