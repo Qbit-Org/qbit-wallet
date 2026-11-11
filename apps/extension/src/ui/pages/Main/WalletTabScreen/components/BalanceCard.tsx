@@ -1,5 +1,6 @@
 import { Button, Column, Icon, Row, Spin, Text, Tooltip } from '@/ui/components';
 import { RefreshButton } from '@/ui/components/RefreshButton';
+import { BulletedTip } from '@/ui/components/Tooltip/BulletedTip';
 import { ColorTypes, colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
@@ -56,18 +57,28 @@ export function BalanceCard() {
       }}
     >
       <Column style={{ padding: 8 }} gap={'md'}>
-        <Row itemsCenter>
-          <Text size="sm" text={t('wallet_balance')} style={{ color: colors[onCard] }} />
-          <Row
-            style={{ padding: 6, margin: -6 }}
-            onClick={(event) => {
-              stopCardToggle(event);
-              handleHiddenToggle();
-            }}
-          >
-            <Icon color={onCard} icon={isBalanceHidden ? 'balance-eyes-closed' : 'balance-eyes'} size={20} />
+        <Row itemsCenter justifyBetween>
+          <Row itemsCenter>
+            <Text size="sm" text={t('wallet_balance')} style={{ color: colors[onCard] }} />
+            <Tooltip
+              title={t(isBalanceHidden ? 'show_balance' : 'hide_balance')}
+              overlayStyle={{ fontSize: fontSizes.xs }}
+            >
+              <Row
+                style={{ padding: 6, margin: -6 }}
+                data-testid="balance-visibility-toggle"
+                onClick={(event) => {
+                  stopCardToggle(event);
+                  handleHiddenToggle();
+                }}
+              >
+                <Icon color={onCard} icon={isBalanceHidden ? 'balance-eyes-closed' : 'balance-eyes'} size={20} />
+              </Row>
+            </Tooltip>
           </Row>
-          <RefreshButton onClick={refreshBalance as any} hideText color={onCard} />
+          <Tooltip title={t('refresh_balance')} overlayStyle={{ fontSize: fontSizes.xs }}>
+            <RefreshButton onClick={refreshBalance as any} hideText color={onCard} />
+          </Tooltip>
         </Row>
 
         {balanceLoadFailed ? null : (
@@ -156,26 +167,17 @@ export function BalanceCard() {
             />
 
             <Column style={{ flex: 1 }} gap={'zero'}>
-              <Row itemsCenter>
+              <Row itemsCenter gap="sm" style={{ minHeight: 20 }}>
                 <Text color={'onPrimary'} size="xs" text={t('unavailable')} style={{ fontWeight: 500 }}></Text>
                 {/* The tooltip explains a measured Unavailable; an unknown split has the line below. */}
-                {balanceSplitUnknown ? (
-                  <Row style={{ height: 20 }} />
-                ) : (
+                {balanceSplitUnknown ? null : (
                   <Tooltip
-                    title={unavailableTipText}
+                    title={<BulletedTip text={unavailableTipText} />}
                     overlayStyle={{
                       fontSize: fontSizes.xs
                     }}
                   >
-                    <Icon
-                      icon="balance-question"
-                      color={'onPrimary'}
-                      size={20}
-                      style={{
-                        marginBottom: 10
-                      }}
-                    />
+                    <Icon icon="circle-question" color={'onPrimary'} size={14} />
                   </Tooltip>
                 )}
               </Row>

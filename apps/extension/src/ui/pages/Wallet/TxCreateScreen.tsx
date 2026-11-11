@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Button, Column, Content, Header, Icon, Input, Layout, Row, Text, Tooltip } from '@/ui/components';
 import { FeeRateBar } from '@/ui/components/FeeRateBar';
 import { RBFBar } from '@/ui/components/RBFBar';
+import { BulletedTip } from '@/ui/components/Tooltip/BulletedTip';
 import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { useI18n, useTxCreateScreenLogic } from '@qbit/wallet-state';
@@ -141,7 +142,7 @@ export default function TxCreateScreen() {
                   }}
                 >
                   <Tooltip
-                    title={unavailableTipText}
+                    title={<BulletedTip text={unavailableTipText} />}
                     placement="top"
                     autoAdjustOverflow={true}
                     align={{

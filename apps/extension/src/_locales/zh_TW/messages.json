@@ -1007,6 +1007,15 @@
   "refresh": {
     "message": "刷新"
   },
+  "hide_balance": {
+    "message": "隱藏餘額"
+  },
+  "show_balance": {
+    "message": "顯示餘額"
+  },
+  "refresh_balance": {
+    "message": "重新整理餘額"
+  },
   "refresh_page": {
     "message": "刷新頁面"
   },
@@ -1389,7 +1398,7 @@
     "message": "不可用"
   },
   "unavailable_tooltip": {
-    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to:\n• Protected assets\n• Unconfirmed transactions\n• Awaiting coinbase maturity (1,000 blocks)"
   },
   "unconfirmed": {
     "message": "未確認"
