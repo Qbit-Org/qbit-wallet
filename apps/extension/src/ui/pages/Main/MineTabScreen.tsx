@@ -15,7 +15,7 @@ const MINE_BENEFITS: ReadonlyArray<{ title: string; description: string }> = [
     title: 'Pay with what you hold',
     description: 'BTC, ETH, SOL, USDC, USDT and more from 35+ chains, or send from an exchange.'
   },
-  { title: 'Mining in minutes', description: 'We rent the machines and point them at Qbit Pool.' },
+  { title: 'Mining in minutes', description: 'Qbit Mine rents hashrate and points it at Qbit Pool.' },
   { title: 'Paid every pool block', description: 'QBT goes straight to your Qbit address.' }
 ];
 
@@ -49,24 +49,29 @@ export default function MineTabScreen() {
               boxShadow: `0 8px 24px ${colors.shadow}`
             }}
           >
-            <Column gap="md">
-              <Row itemsCenter style={{ gap: 8 }}>
-                <Icon icon="mine" color="accentDark" size={22} containerStyle={{ flexShrink: 0 }} />
-                <Text text="Qbit Mine" preset="title-bold" size="xxl" style={{ lineHeight: 1.15 }} />
-              </Row>
-              <Column gap="sm">
-                <Text text="Mine QBT. No hardware required." preset="bold" size="md" wrap style={{ lineHeight: 1.3 }} />
+            <Column itemsCenter gap="zero">
+              <Icon icon="mine" color="accentDark" size={30} containerStyle={{ marginBottom: 14 }} />
+              <Column gap="sm" style={{ width: '100%' }}>
+                <Text
+                  text="Mine QBT. No hardware required."
+                  preset="bold"
+                  size="md"
+                  textCenter
+                  wrap
+                  style={{ lineHeight: 1.3 }}
+                />
                 <Text
                   text="Rent mining power, earn QBT every few minutes, and keep it safe in your own Qbit Wallet."
                   size="xs"
                   color="textDim"
+                  textCenter
                   wrap
                   style={{ lineHeight: 1.45 }}
                 />
               </Column>
             </Column>
 
-            <Column gap="md" data-testid="mine-benefits">
+            <Column gap="lg" data-testid="mine-benefits">
               {MINE_BENEFITS.map((benefit) => (
                 <Row key={benefit.title} style={{ gap: 8, alignItems: 'flex-start' }}>
                   <Icon icon="check" color="accentDark" size={14} containerStyle={{ flexShrink: 0, marginTop: 2 }} />

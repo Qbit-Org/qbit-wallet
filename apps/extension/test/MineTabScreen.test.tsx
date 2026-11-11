@@ -54,8 +54,9 @@ describe('MineTabScreen', () => {
     render(<MineTabScreen />);
 
     expect(screen.getByText('Mine QBT. No hardware required.')).toBeTruthy();
-    // Header title and content heading.
-    expect(screen.getAllByText('Qbit Mine')).toHaveLength(2);
+    // Only the header carries the title; the content area leads with the icon.
+    expect(screen.getAllByText('Qbit Mine')).toHaveLength(1);
+    expect(screen.getByText('Qbit Mine rents hashrate and points it at Qbit Pool.')).toBeTruthy();
     expect(screen.queryByText(/We handle the technical part/)).toBeNull();
     expect(screen.getByText('Paid every pool block')).toBeTruthy();
     expect(screen.getByTestId('nav-tab-bar').getAttribute('data-tab')).toBe('mine');
