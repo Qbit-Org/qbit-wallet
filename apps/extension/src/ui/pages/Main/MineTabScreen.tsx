@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { Button, Column, Content, Footer, Header, Icon, Layout, Row, Text } from '@/ui/components';
 import { NavTabBar } from '@/ui/components/NavTabBar';
 import { markMineTabSeen } from '@/ui/components/NavTabBar/mineTabSeen';
+import { colors } from '@/ui/theme/colors';
 
 import { openQbitMine } from './mineNavigation';
 
@@ -35,9 +36,21 @@ export default function MineTabScreen() {
       />
       <Content>
         <div data-testid="mine-hero" style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
-          <Column gap="xl" style={{ width: '100%' }}>
-            <Column itemsCenter gap="zero">
-              <Icon icon="mine" color="accentDark" size={30} containerStyle={{ marginBottom: 14 }} />
+          <Column style={{ width: '100%', gap: 22 }}>
+            <Column
+              itemsCenter
+              gap="zero"
+              data-testid="mine-header"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '14px 16px',
+                backgroundColor: colors.accentWash,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 8
+              }}
+            >
+              <Icon icon="mine" color="accentDark" size={36} containerStyle={{ marginBottom: 12 }} />
               <Column gap="sm" style={{ width: '100%' }}>
                 <Text
                   text="Mine QBT. No hardware required."
