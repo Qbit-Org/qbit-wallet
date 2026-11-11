@@ -81,6 +81,9 @@ describe('content-script entry', () => {
     await runContentScript('clear');
 
     expect(order).toEqual(['hold', 'navigation']);
+    // The warning page may take the place of a held page, none of whose
+    // script ran.
+    expect(modules.initializePhishingDetection).toHaveBeenCalledWith(true, true);
     expect(settle).toHaveBeenCalledWith('clear');
     // The page reloads to run, so it gets the provider then.
     expect(modules.initializeScriptInjection).not.toHaveBeenCalled();
@@ -94,7 +97,7 @@ describe('content-script entry', () => {
     it('guards navigation from the top frame', async () => {
       await runContentScript('clear');
 
-      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(true);
+      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(true, false);
       expect(modules.setupNavigationListeners).toHaveBeenCalledOnce();
     });
 
@@ -108,7 +111,7 @@ describe('content-script entry', () => {
       await import('./index');
       await vi.waitFor(() => expect(modules.initializeScriptInjection).toHaveBeenCalledOnce());
 
-      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(false);
+      expect(modules.initializePhishingDetection).toHaveBeenCalledWith(false, false);
       expect(modules.setupNavigationListeners).not.toHaveBeenCalled();
       expect(modules.setupPhishingListeners).not.toHaveBeenCalled();
     });

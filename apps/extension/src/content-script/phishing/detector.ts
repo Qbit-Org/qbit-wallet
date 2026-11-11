@@ -19,7 +19,21 @@ export function isExtensionContextValid(): boolean {
  */
 export type PhishingVerdict = 'phishing' | 'proceeded' | 'clear' | 'unknown';
 
-function requestWarningPage(hostname: string): void {
+/**
+ * How the browser reports this page's load: `navigate`, `reload`,
+ * `back_forward` (Back or Forward) or `prerender`, or undefined when it
+ * reports none.
+ */
+export function navigationType(): string | undefined {
+  try {
+    const [entry] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+    return entry?.type;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestWarningPage(hostname: string, pageHeld: boolean): void {
   if (!isExtensionContextValid()) return;
   try {
     chrome.runtime.sendMessage(
@@ -27,7 +41,11 @@ function requestWarningPage(hostname: string): void {
         type: 'REDIRECT_TO_PHISHING_PAGE',
         hostname,
         // Proceed returns to this exact URL instead of the bare hostname.
-        url: window.location.href
+        url: window.location.href,
+        // A held page reached with Back or Forward, as from the warning page:
+        // the background takes the tab back past it instead, as a warning page
+        // in a new entry would leave this page for Back to load again.
+        ...(pageHeld && navigationType() === 'back_forward' ? { fromHistory: true } : {})
       },
       () => {
         // eslint-disable-next-line @typescript-eslint/no-unused-expressions
@@ -41,9 +59,11 @@ function requestWarningPage(hostname: string): void {
 
 /**
  * Check if the current site is a phishing site, and if so ask the background
- * to show the warning page in this tab, unless `showWarning` is false
+ * to show the warning page in this tab, unless `showWarning` is false.
+ * `pageHeld` says that the page is held, stopped before any of its own script
+ * ran.
  */
-export async function checkPhishing(showWarning = true): Promise<PhishingVerdict> {
+export async function checkPhishing(showWarning = true, pageHeld = false): Promise<PhishingVerdict> {
   if (!isExtensionContextValid()) {
     return 'unknown';
   }
@@ -74,7 +94,7 @@ export async function checkPhishing(showWarning = true): Promise<PhishingVerdict
       if (showWarning) {
         // The next load of this page is held again.
         forgetRelease();
-        requestWarningPage(hostname);
+        requestWarningPage(hostname, pageHeld);
       }
       return 'phishing';
     }
@@ -92,12 +112,12 @@ export async function checkPhishing(showWarning = true): Promise<PhishingVerdict
 
 /**
  * Initialize phishing detection on page load. With `showWarning` false it
- * only reports the verdict.
+ * only reports the verdict; `pageHeld` is as for `checkPhishing`.
  */
-export async function initializePhishingDetection(showWarning = true): Promise<PhishingVerdict> {
-  const verdict = await checkPhishing(showWarning);
+export async function initializePhishingDetection(showWarning = true, pageHeld = false): Promise<PhishingVerdict> {
+  const verdict = await checkPhishing(showWarning, pageHeld);
   // Retry once: a message sent while the service worker starts can be lost.
-  return verdict === 'unknown' && isExtensionContextValid() ? checkPhishing(showWarning) : verdict;
+  return verdict === 'unknown' && isExtensionContextValid() ? checkPhishing(showWarning, pageHeld) : verdict;
 }
 
 /**

@@ -5,7 +5,6 @@
 export interface PhishingConfig {
   version: number;
   policyVersion: string;
-  sourceRevision: string;
   tolerance: number;
   fuzzylist: string[];
   whitelist: string[];

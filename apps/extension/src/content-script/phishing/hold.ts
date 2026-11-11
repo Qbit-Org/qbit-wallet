@@ -6,7 +6,7 @@
 import { normalizeHostname } from '@qbit/phishing-detect';
 
 import { isTopFrame } from '../frame';
-import { initializePhishingDetection, isExtensionContextValid, type PhishingVerdict } from './detector';
+import { initializePhishingDetection, isExtensionContextValid, navigationType, type PhishingVerdict } from './detector';
 import { isBundledDenylistedUrl } from './navigation';
 import { isReleased, recordRelease } from './release';
 
@@ -50,12 +50,8 @@ const NOTICE_MESSAGES: Record<NoticeReason, string> = {
  * load whose navigation the browser does not report counts as one.
  */
 function isReload(): boolean {
-  try {
-    const [entry] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
-    return !entry || entry.type === 'reload';
-  } catch {
-    return true;
-  }
+  const type = navigationType();
+  return type === undefined || type === 'reload';
 }
 
 /**
@@ -165,7 +161,8 @@ export class HeldPage {
       return;
     }
     button.disabled = true;
-    const verdict = await initializePhishingDetection();
+    // The page is still held, so the check can say so.
+    const verdict = await initializePhishingDetection(true, true);
     button.disabled = false;
     // The user asked, so a release may reload the page.
     this.mayReload = true;
@@ -219,10 +216,12 @@ export class HeldPage {
 
 /**
  * Stops the page before its own script runs when it is a top-frame page on a
- * host the bundled denylist covers, unless the background let it through
+ * host the bundled policy covers, unless the background let it through
  * earlier in this tab. The content script calls this first, at
  * document_start, so the network layer missing, for example because its rule
- * failed to install, does not let the page run until the warning arrives.
+ * failed to install, does not let the page run until the warning arrives. For
+ * a `qbit.<tld>` lookalike that is not on the denylist, which no network rule
+ * names, this is what stops the page.
  */
 export function holdDenylistedPage(): HeldPage | undefined {
   if (!isTopFrame() || !isBundledDenylistedUrl(window.location.href)) return undefined;

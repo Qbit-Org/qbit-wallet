@@ -21,9 +21,18 @@ export enum PhishingMessageType {
    * Expected parameters:
    * - hostname: string - The hostname that triggered the detection
    * - url: string - The original URL that was blocked
+   * - fromHistory?: true - The page is held, and the user reached it with
+   *   Back or Forward: the background takes the tab back past it instead,
+   *   while it is the tab's top-frame page and the tab has finished loading
+   *   it. It redirects as usual a tab with no earlier page, one it took back
+   *   since the warning page last opened in it, and a request from a frame
+   *   or without a document
    *
    * Response:
    * - success: boolean - Whether the redirect was successful
+   * - wentBack?: true - The tab went back instead
+   * - skipped?: true - Nothing was done: the host is no longer phishing, or
+   *   the tab has moved on from the page or is loading another
    * - error?: string - Error message if the redirect failed
    */
   REDIRECT_TO_PHISHING_PAGE = 'REDIRECT_TO_PHISHING_PAGE',

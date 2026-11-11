@@ -56,6 +56,38 @@ describe('content-script phishing check', () => {
     expect(window.location.href).toMatch(/\/claim\?ref=1$/);
   });
 
+  it.each([
+    ['a held page reached with Back or Forward', 'back_forward', true, { fromHistory: true }],
+    ['a held page the user navigated to', 'navigate', true, {}],
+    ['a held page that reloaded', 'reload', true, {}],
+    ['a page that is not held, whose load type a later check would repeat', 'back_forward', false, {}]
+  ])('says whether the warning is for %s', async (_label, type, pageHeld, extra) => {
+    vi.stubGlobal('performance', { getEntriesByType: () => [{ type }] });
+    const sendMessage = stubRuntime((message) =>
+      message.type === 'CHECK_PHISHING' ? { isPhishing: true, isDenylisted: true } : { success: true }
+    );
+
+    await expect(checkPhishing(true, pageHeld)).resolves.toBe('phishing');
+    expect(sendMessage.mock.calls[1]?.[0]).toEqual({
+      type: 'REDIRECT_TO_PHISHING_PAGE',
+      hostname: window.location.hostname,
+      url: window.location.href,
+      ...extra
+    });
+  });
+
+  it('keeps saying that a held page came from the history when its check answers only on the retry', async () => {
+    vi.stubGlobal('performance', { getEntriesByType: () => [{ type: 'back_forward' }] });
+    let failures = 1;
+    const sendMessage = stubRuntime(
+      (message) => (message.type === 'CHECK_PHISHING' ? { isPhishing: true, isDenylisted: true } : { success: true }),
+      () => (failures-- > 0 ? { message: 'Receiving end does not exist.' } : undefined)
+    );
+
+    await expect(initializePhishingDetection(true, true)).resolves.toBe('phishing');
+    expect(sendMessage.mock.calls.at(-1)?.[0]).toMatchObject({ type: 'REDIRECT_TO_PHISHING_PAGE', fromHistory: true });
+  });
+
   it('forgets a release record once the page is found phishing', async () => {
     window.sessionStorage.setItem('qbit-wallet:phishing-released', window.location.hostname);
     stubRuntime((message) =>

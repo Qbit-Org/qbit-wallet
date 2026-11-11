@@ -857,6 +857,9 @@
   "only_connect_with_sites_you_trust": {
     "message": "信頼できるサイトにのみ接続してください。"
   },
+  "official_qbit_website": {
+    "message": "Qbit 公式ウェブサイト"
+  },
   "only_sign_this_message_if_you_fully_understand_the": {
     "message": "内容を完全に理解し、リクエスト元のサイトを信頼する場合にのみ、このメッセージに署名してください。"
   },

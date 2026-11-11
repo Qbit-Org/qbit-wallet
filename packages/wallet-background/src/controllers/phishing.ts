@@ -276,6 +276,10 @@ class PhishingController {
   private sessionRuleUpdates: Promise<unknown> = Promise.resolve()
   // The latest redirect to the warning page per tab, until its outcome is checked.
   private readonly warningRedirects = new Map<number, WarningRedirect>()
+  // Tabs taken back past a held page since this worker last sent them to the
+  // warning page, and tabs being taken back now.
+  private readonly tabsTakenBack = new Set<number>()
+  private readonly tabsGoingBack = new Set<number>()
   private readonly blockRule = new PhishingBlockRule(
     () => phishingService.getConfig().blacklist ?? []
   )
@@ -410,6 +414,12 @@ class PhishingController {
               return { success: false, skipped: true }
             }
 
+            if (message.fromHistory === true) {
+              const back = await this.goBackPastHeldPage(tabId, sender)
+              if (back === 'went back') return { success: true, wentBack: true }
+              if (back === 'moved on') return { success: false, skipped: true }
+            }
+
             try {
               const href = blockedPageHref(message.url, message.hostname)
               await this.redirectToPhishingPage(tabId, href, message.hostname)
@@ -542,6 +552,7 @@ class PhishingController {
       const runtime = this.runtimeForWarningCheck()
       const watch = runtime ? watchTabToSettle(tabId, WARNING_PAGE_SETTLE_TIMEOUT_MS) : undefined
       if (watch) this.warningRedirects.set(tabId, redirect)
+      this.tabsTakenBack.delete(tabId)
       try {
         await chrome.tabs.update(tabId, { url: redirectUrl, active: true })
       } catch (error) {
@@ -556,6 +567,64 @@ class PhishingController {
     } catch (error) {
       log.error('[Phishing] Failed to redirect tab:', error)
       throw error // Re-throw to allow proper error handling by caller
+    }
+  }
+
+  /**
+   * Takes the tab back past a held phishing page that the user reached with
+   * Back or Forward, typically Back from the warning page. The warning page in
+   * a new entry would leave the held page behind it, and every Back would load
+   * that page again, stop it and send it to the warning again. Going back is
+   * the browser's own navigation, which script on the page cannot cancel.
+   *
+   * Only for the tab's top-frame page, and only while it is still the page
+   * that asked and the tab has finished loading it: the user may have moved
+   * on, or started Back again, which the browser would count from. A second
+   * request while the first is going back, such as Try again on the page's
+   * notice, is left to the first. A tab already taken back since this worker
+   * last sent it to the warning page gets the warning page instead: the user
+   * went Forward, or the page before went forward again by itself, which
+   * would otherwise repeat with no end. So does a tab with no earlier page,
+   * and a request from a frame or without a document.
+   */
+  private async goBackPastHeldPage(
+    tabId: number,
+    sender: chrome.runtime.MessageSender
+  ): Promise<'went back' | 'moved on' | 'warn'> {
+    if (sender.frameId !== 0 || !sender.documentId || this.tabsTakenBack.has(tabId)) return 'warn'
+    if (this.tabsGoingBack.has(tabId)) return 'moved on'
+    this.tabsGoingBack.add(tabId)
+    try {
+      if (!(await this.answersProbe(tabId, { documentId: sender.documentId }))) return 'moved on'
+      if ((await chrome.tabs.get(tabId)).status !== 'complete') return 'moved on'
+      // A follow-up of an earlier redirect must not send the tab on after this.
+      this.warningRedirects.delete(tabId)
+      await chrome.tabs.goBack(tabId)
+      this.tabsTakenBack.add(tabId)
+      return 'went back'
+    } catch {
+      // No earlier page, or the tab is gone.
+      return 'warn'
+    } finally {
+      this.tabsGoingBack.delete(tabId)
+    }
+  }
+
+  /**
+   * Whether the content script answers the probe in the tab's top frame, or
+   * in the given document while it is the tab's page. It does not answer from
+   * a page kept in the back/forward cache.
+   */
+  private async answersProbe(
+    tabId: number,
+    target: chrome.tabs.MessageSendOptions
+  ): Promise<boolean> {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: PHISHING_PAGE_PROBE }, target)
+      return response?.present === true
+    } catch {
+      // No content script answered.
+      return false
     }
   }
 
@@ -596,17 +665,7 @@ class PhishingController {
    * back or on to, or one whose navigation never left.
    */
   private async isContentScriptPageInTab(tabId: number): Promise<boolean> {
-    try {
-      const response = await chrome.tabs.sendMessage(
-        tabId,
-        { type: PHISHING_PAGE_PROBE },
-        { frameId: 0 }
-      )
-      return response?.present === true
-    } catch {
-      // No content script answered.
-      return false
-    }
+    return this.answersProbe(tabId, { frameId: 0 })
   }
 
   /**

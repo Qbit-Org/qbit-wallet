@@ -78,7 +78,7 @@ export default function Connect({ approvalId, params: { data, session } }: Props
 
   const currentKeyring = useCurrentKeyring();
   const currentAccount = useCurrentAccount();
-  const { status, warning, retry, guardVersionRef, blockedRef } = useConnectWebsiteCheck(session.origin);
+  const { status, trusted, warning, retry, guardVersionRef, blockedRef } = useConnectWebsiteCheck(session.origin);
   const renderedGuardVersion = guardVersionRef.current;
   const [acknowledgedOrigin, setAcknowledgedOrigin] = useState('');
   const isUnverifiedWebsite = status === 'unverified';
@@ -150,7 +150,7 @@ export default function Connect({ approvalId, params: { data, session } }: Props
   return (
     <Layout>
       <Header>
-        <WebsiteBar session={session} />
+        <WebsiteBar session={session} trusted={trusted} />
       </Header>
       <Content>
         <Column>

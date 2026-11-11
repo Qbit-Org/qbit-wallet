@@ -1,6 +1,8 @@
 import {
   WebsiteVerdictStatus,
   createUnverifiedWebsiteResult,
+  isTrustedWebsiteResult,
+  type WebsiteClearReason,
   type WebsiteSafetyResult,
 } from '@qbit/wallet-shared'
 import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
@@ -14,6 +16,8 @@ export type ConnectWebsiteCheckStatus = WebsiteCheckStatus
 export interface WebsiteSafetyCheckState {
   status: WebsiteCheckStatus
   result: WebsiteSafetyResult | undefined
+  /** Whether the site is the official Qbit website, from a `clear` result with reason `trusted`. */
+  trusted: boolean
   warning: string
   retry: () => void
   guardVersionRef: MutableRefObject<number>
@@ -30,6 +34,12 @@ interface WebsiteCheckSnapshot {
   status: WebsiteCheckStatus
   result: WebsiteSafetyResult | undefined
 }
+
+// Keyed by the shared union, so adding a clear reason there fails the
+// typecheck here until it is listed, rather than turning it unverified.
+const CLEAR_REASONS: ReadonlySet<string> = new Set(
+  Object.keys({ 'not-listed': true, trusted: true } satisfies Record<WebsiteClearReason, true>)
+)
 
 const UNVERIFIED_REASONS = new Set([
   'malformed-origin',
@@ -86,7 +96,8 @@ function isWebsiteSafetyResult(value: unknown): value is WebsiteSafetyResult {
       )
     case WebsiteVerdictStatus.CLEAR:
       return (
-        verdict.reason === 'not-listed' &&
+        typeof verdict.reason === 'string' &&
+        CLEAR_REASONS.has(verdict.reason) &&
         isNonEmptyString(verdict.hostname) &&
         verdict.warning === ''
       )
@@ -202,6 +213,7 @@ export function useWebsiteSafetyCheck(
   return {
     status,
     result,
+    trusted: status === 'clear' && isTrustedWebsiteResult(result),
     warning: result?.verdict.warning || '',
     retry,
     guardVersionRef,

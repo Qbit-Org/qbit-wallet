@@ -3,6 +3,7 @@ import {
   type WebsiteUnverifiedReason,
   createBlockedWebsiteResult,
   createClearWebsiteResult,
+  createTrustedWebsiteResult,
   createUnverifiedWebsiteResult,
 } from '@qbit/wallet-shared'
 import { EventEmitter } from 'eventemitter3'
@@ -11,6 +12,8 @@ import { classifyWebsiteOrigin, normalizeHostname } from './origin'
 import {
   BUNDLED_PHISHING_DENYLIST,
   BUNDLED_PHISHING_POLICY_METADATA,
+  findBundledPolicyMatch,
+  TRUSTED_WEBSITE_ORIGIN,
 } from './static-policy'
 import type {
   PhishingAdapter,
@@ -25,7 +28,7 @@ const USER_WHITELIST_KEY = 'phishing_user_whitelist'
 const POLICY_SCHEMA_VERSION = 3
 
 const BUNDLED_POLICY_WARNING =
-  'This website matches Qbit Wallet’s bundled malicious-site denylist. Reject this request.'
+  'This website matches Qbit Wallet’s bundled phishing policy, which covers sites that imitate qbit.org. Reject this request.'
 
 const WEBSITE_SAFETY_WARNINGS: Record<WebsiteUnverifiedReason, string> = {
   'malformed-origin':
@@ -48,11 +51,19 @@ export function getWebsiteSafetyWarning(reason: WebsiteUnverifiedReason): string
   return WEBSITE_SAFETY_WARNINGS[reason]!
 }
 
+/** Whether a public origin is exactly the official website's, port included. */
+function isTrustedWebsiteOrigin(origin: string): boolean {
+  try {
+    return new URL(origin.trim()).origin === TRUSTED_WEBSITE_ORIGIN
+  } catch {
+    return false
+  }
+}
+
 function createBundledConfig(userWhitelist: Iterable<string> = []): PhishingConfig {
   return {
     version: POLICY_SCHEMA_VERSION,
     policyVersion: BUNDLED_PHISHING_POLICY_METADATA.policyVersion,
-    sourceRevision: BUNDLED_PHISHING_POLICY_METADATA.sourceRevision,
     tolerance: 0,
     fuzzylist: [],
     whitelist: [...userWhitelist],
@@ -68,7 +79,6 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
   private initialized = false
   private readonly temporaryWhitelist = new Set<string>()
   private readonly permanentWhitelist = new Set<string>()
-  private readonly denylist = new Set(BUNDLED_PHISHING_DENYLIST)
 
   async init(config: PhishingServiceConfig): Promise<void> {
     this.adapter = config.adapter
@@ -106,15 +116,19 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
     return this.checkBundledDenylist(normalized, hostname)
   }
 
-  /** Strict approval check using only the bundled release policy. */
+  /**
+   * Strict approval check using only the bundled release policy. Only the
+   * exact official origin, https://qbit.org, is trusted; its subdomains and
+   * other ports are clear like any other site.
+   */
   checkWebsite(origin: string): WebsiteSafetyResult {
     const classification = classifyWebsiteOrigin(origin)
-    // A denylisted host in an http(s) origin is blocked whatever else is wrong
-    // with the origin: HTTP, a path or a label outside DNS syntax
+    // A host the policy covers in an http(s) origin is blocked whatever else
+    // is wrong with the origin: HTTP, a path or a label outside DNS syntax
     // (`a_b.<entry>`) must not soften the verdict to a warning the user can
     // acknowledge.
     const { hostname } = classification
-    const match = hostname ? this.findDenylistMatch(hostname) : undefined
+    const match = hostname ? findBundledPolicyMatch(hostname) : undefined
     if (hostname && match) {
       return createBlockedWebsiteResult(hostname, match, BUNDLED_POLICY_WARNING)
     }
@@ -127,6 +141,9 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
       )
     }
 
+    if (isTrustedWebsiteOrigin(origin)) {
+      return createTrustedWebsiteResult(classification.hostname)
+    }
     return createClearWebsiteResult(classification.hostname)
   }
 
@@ -135,14 +152,15 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
   }
 
   /**
-   * Whether the bundled denylist covers a hostname, ignoring every navigation
-   * bypass and DNS label syntax, so an odd but resolvable name such as
-   * `a_b.<entry>` still counts.
+   * Whether the bundled policy covers a hostname: a denylist entry or a
+   * `qbit.<tld>` lookalike, or a subdomain of either. It ignores every
+   * navigation bypass and DNS label syntax, so an odd but resolvable name such
+   * as `a_b.<entry>` still counts.
    */
   isDenylisted(hostname: string): boolean {
     if (!hostname || typeof hostname !== 'string') return false
     const normalized = normalizeHostname(hostname)
-    return !!normalized && this.findDenylistMatch(normalized) !== undefined
+    return !!normalized && findBundledPolicyMatch(normalized) !== undefined
   }
 
   /**
@@ -185,7 +203,7 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
   getStats() {
     return {
       policyVersion: BUNDLED_PHISHING_POLICY_METADATA.policyVersion,
-      blacklistSize: this.denylist.size,
+      blacklistSize: BUNDLED_PHISHING_DENYLIST.length,
       whitelistSize: this.permanentWhitelist.size,
       fuzzylistSize: 0,
       temporaryWhitelistSize: this.temporaryWhitelist.size,
@@ -200,15 +218,8 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
     return false
   }
 
-  private findDenylistMatch(hostname: string): string | undefined {
-    for (const domain of this.denylist) {
-      if (hostname === domain || hostname.endsWith(`.${domain}`)) return domain
-    }
-    return undefined
-  }
-
   private checkBundledDenylist(normalized: string, original: string): PhishingCheckResult {
-    const matchedPattern = this.findDenylistMatch(normalized)
+    const matchedPattern = findBundledPolicyMatch(normalized)
     if (!matchedPattern) return { isPhishing: false }
 
     this.emit('phishing:detected', original, 'Bundled denylist match')

@@ -133,7 +133,18 @@ describe('holding a denylisted page', () => {
   });
 
   it.each([
+    ['a lookalike of qbit.org outside the denylist, which no network rule stops', 'https://qbit.net/claim'],
+    ['a subdomain of one', 'https://login.qbit.xyz/']
+  ])('stops a top-frame page on %s', (_label, url) => {
+    loadPage(url);
+
+    expect(holdDenylistedPage()).toBeDefined();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     ['a host outside the denylist', 'https://example.com/'],
+    ['the official website', 'https://qbit.org/pool'],
     ['a page without an http(s) URL', 'file:///tmp/page.html']
   ])('leaves %s alone', (_label, url) => {
     loadPage(url);
@@ -453,6 +464,21 @@ describe('a held page that stays held', () => {
       )
     );
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('says on retry that a held page reached with Back or Forward came from the history', async () => {
+    vi.stubGlobal('performance', { getEntriesByType: () => [{ type: 'back_forward' }] });
+    hold().settle('unknown');
+    verdicts.push({ isPhishing: true, isDenylisted: true });
+
+    retryButton().click();
+
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'REDIRECT_TO_PHISHING_PAGE', fromHistory: true }),
+        expect.any(Function)
+      )
+    );
   });
 
   it('reloads on retry once the extension was reloaded, as only a new content script can ask', () => {

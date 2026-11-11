@@ -57,6 +57,7 @@ export default function SignMessage(props: SignMessageProps) {
     // state
     websiteCheckStatus,
     websiteCheckWarning: websiteCheckWarningText,
+    isTrustedWebsite,
     isBlocked,
     allowQuickMultiSign,
 
@@ -101,7 +102,7 @@ export default function SignMessage(props: SignMessageProps) {
   if (!header && session) {
     header = (
       <Header>
-        <WebsiteBar session={session} />
+        <WebsiteBar session={session} trusted={isTrustedWebsite} />
       </Header>
     );
   }
@@ -324,7 +325,7 @@ export default function SignMessage(props: SignMessageProps) {
     <Layout>
       <Content>
         <Header>
-          <WebsiteBar session={session} />
+          <WebsiteBar session={session} trusted={isTrustedWebsite} />
         </Header>
         <Column>
           {websiteCheckWarning}

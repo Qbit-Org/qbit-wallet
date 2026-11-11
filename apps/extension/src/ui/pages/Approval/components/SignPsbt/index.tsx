@@ -173,6 +173,7 @@ export default function SignPsbt(props: SignPsbtProps) {
     decodeError,
     websiteCheckStatus,
     websiteCheckWarning: websiteCheckWarningText,
+    isTrustedWebsite,
     isAllSigned,
     signedCount,
     multiSignList,
@@ -386,7 +387,7 @@ export default function SignPsbt(props: SignPsbtProps) {
   if (!header && session) {
     header = (
       <Header>
-        <WebsiteBar session={session} />
+        <WebsiteBar session={session} trusted={isTrustedWebsite} />
       </Header>
     );
   }

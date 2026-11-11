@@ -21,18 +21,6 @@ const reviewedResiduals = [
     reason: 'required license text',
   },
   {
-    matches: path => path === 'packages/phishing-detect/THIRD_PARTY_NOTICES.md',
-    reason: 'required third-party attribution',
-  },
-  {
-    matches: path => path === 'packages/phishing-detect/src/static-policy.ts',
-    reason: 'versioned source attribution and malicious-domain safety data',
-  },
-  {
-    matches: path => path === 'docs/privacy.md',
-    reason: 'denylist source attribution',
-  },
-  {
     matches: path => path === 'pnpm-lock.yaml',
     reason: 'generated external dependency metadata',
   },

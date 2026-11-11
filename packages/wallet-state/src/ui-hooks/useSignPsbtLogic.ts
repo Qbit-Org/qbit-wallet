@@ -160,6 +160,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const {
     status: websiteCheckStatus,
     result: websiteResult,
+    trusted: isTrustedWebsite,
     warning: websiteCheckWarning,
     retry: retryWebsiteCheck,
     guardVersionRef: websiteGuardVersionRef,
@@ -1008,6 +1009,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     decodeError,
     websiteCheckStatus,
     websiteCheckWarning,
+    isTrustedWebsite,
 
     disclaimerVisible,
     localPsbtSummary: currentLocalPsbtSummary,

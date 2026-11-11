@@ -349,6 +349,8 @@ Residual risk:
 
 Threats:
 
+- a site that imitates the official website, https://qbit.org, under another
+  top-level domain (`qbit.io`, `www.qbit.me`) being taken for it;
 - a page on a host in the bundled denylist running script before the wallet's
   warning appears;
 - the wallet provider being exposed to a denylisted page;
@@ -358,6 +360,19 @@ Threats:
 
 Controls and evidence:
 
+- the bundled policy (`qbit-static-v2`) covers `qbit.<tld>` under every
+  top-level domain other than `org`, and its subdomains, except special-use
+  names such as `qbit.localhost`; `qbit` must be the label right before the
+  top-level domain. The denylist names the lookalikes the network rules
+  below stop: `qbit.ca`, `qbit.com`, `qbit.io` and `qbit.me`. Every other
+  check, in the background (`checkPhishing`, `isDenylisted`,
+  `checkWebsite`, Proceed) and in the content script
+  (`findBundledPolicyMatch`), covers the whole policy, so a lookalike outside
+  the denylist gets the page hold, the warning page, no provider and blocked
+  approvals, but no network rule. Only the exact origin `https://qbit.org` is
+  trusted: approvals show it as the official website and let a batch be
+  signed at once without the per-site opt-in, and still ask for every
+  approval;
 - the background installs one dynamic `declarativeNetRequest` `block`
   rule whose `requestDomains` are the bundled denylist (each entry and its
   subdomains) for `main_frame` and `sub_frame` requests. A `block` rule needs
@@ -452,8 +467,23 @@ Controls and evidence:
   network layer that is missing, for example because its rule failed to
   install, on the sites the wallet may access: the browser runs no content
   script where the user withholds site access. A page the background sends
-  to the warning page stays stopped,
-  and one whose check does not answer within 3 seconds, or whose warning page
+  to the warning page stays stopped. The warning page comes after it in the
+  tab's history, so Back from the warning loads it again; the content script
+  then says that it loaded from the history, and the background takes the tab
+  back past it; before, it sent the page to the warning page again, every
+  time. It does so only for the tab's top-frame page while that page, by its
+  document, is still the one that asked and the tab has finished loading it,
+  and the browser's own navigation is one that script on the page cannot
+  cancel. A tab with no earlier page, such as one another application opened
+  on the page, gets the warning page again, and so does a tab the background
+  already took back since it last sent it to the warning page: the user went
+  Forward, or the page before went forward by itself, which would otherwise
+  repeat with no end. The background keeps that record only while its
+  service worker runs, so after a restart one Forward goes back once more
+  before the warning appears. A duplicated or reopened tab also loads as from
+  the history, so a held page in one that never got its warning goes back. A
+  page held as above
+  whose check does not answer within 3 seconds, or whose warning page
   does not arrive, shows a notice with a retry instead of a blank page. A
   page the background lets through, because the user proceeded to it, is
   recorded in the page's own sessionStorage and reloaded once, with a GET:
@@ -520,6 +550,15 @@ Controls and evidence:
 
 Residual risk:
 
+- a `qbit.<tld>` lookalike outside the denylist is in no network rule: the
+  browser contacts the site, and the content script stops the page at
+  `document_start`. A link to one that opens a new tab also sends the source
+  tab to the warning page, as for a denylisted host the redirect rule does
+  not cover. Where the user withholds the wallet's site access, the
+  page loads with no warning (but no provider), and in a frame it runs its
+  own script. Impersonations other than `qbit.<tld>`, such as
+  `qbit-org.com`, `qbit.co.uk` or `qbit.org.example.com`, are not in the
+  policy;
 - while the user withholds the wallet's site access (Chrome's "On click" or
   "On specific sites"), the redirect rule is removed and a top-level
   navigation to a denylisted host, whether typed, bookmarked, opened from
