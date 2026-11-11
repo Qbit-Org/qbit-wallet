@@ -156,26 +156,18 @@ export function BalanceCard() {
             />
 
             <Column style={{ flex: 1 }} gap={'zero'}>
-              <Row itemsCenter>
+              <Row itemsCenter gap="sm" style={{ minHeight: 20 }}>
                 <Text color={'onPrimary'} size="xs" text={t('unavailable')} style={{ fontWeight: 500 }}></Text>
                 {/* The tooltip explains a measured Unavailable; an unknown split has the line below. */}
-                {balanceSplitUnknown ? (
-                  <Row style={{ height: 20 }} />
-                ) : (
+                {balanceSplitUnknown ? null : (
                   <Tooltip
                     title={unavailableTipText}
                     overlayStyle={{
-                      fontSize: fontSizes.xs
+                      fontSize: fontSizes.xs,
+                      whiteSpace: 'pre-line'
                     }}
                   >
-                    <Icon
-                      icon="balance-question"
-                      color={'onPrimary'}
-                      size={20}
-                      style={{
-                        marginBottom: 10
-                      }}
-                    />
+                    <Icon icon="circle-question" color={'onPrimary'} size={14} />
                   </Tooltip>
                 )}
               </Row>

@@ -154,7 +154,7 @@ export default function TxCreateScreen() {
                       fontSize: fontSizes.xs,
                       maxWidth: '280px',
                       wordWrap: 'break-word',
-                      whiteSpace: 'normal'
+                      whiteSpace: 'pre-line'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center' }}>

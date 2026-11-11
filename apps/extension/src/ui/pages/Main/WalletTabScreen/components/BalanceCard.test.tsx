@@ -131,6 +131,8 @@ describe('BalanceCard', () => {
     expect(card.textContent).toContain('available0.00005000');
     expect(card.textContent).toContain('unavailable0.00000000');
     expect(screen.getByTestId('tooltip').getAttribute('title')).toBe('unavailable_tooltip');
+    // The trigger uses the shared lucide glyph, not a one-off SVG.
+    expect(screen.getByTestId('tooltip').querySelector('[data-icon]')?.getAttribute('data-icon')).toBe('circle-question');
     expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
     expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
   });
