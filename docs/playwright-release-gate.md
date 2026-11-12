@@ -78,11 +78,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 36 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 37 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 22 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 23 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -116,6 +116,7 @@ separately with two-decimal millisecond precision.
 | Lock                  | `scenarios/lock.spec.ts:25`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
 | Auto-lock             | `scenarios/lock.spec.ts:93`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
 | Window close          | `scenarios/lock.spec.ts:168`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
+| Lock after onboarding | `scenarios/lock.spec.ts:210`              | The creating page shows the lock screen on a lock and an auto-lock; a page left on Welcome does on a lock  | Not recorded |       — |
 | Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
 | Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
 | Switch account        | `scenarios/switch-account.spec.ts:148`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
