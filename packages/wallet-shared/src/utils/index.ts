@@ -19,6 +19,7 @@ export {
   type QbitUriParseErrorCode,
 } from './qbit-uri'
 export {
+  QBIT_FALLBACK_FEE_RATE,
   QBIT_MAX_FEE_RATE,
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
@@ -37,8 +38,8 @@ export {
 export {
   QBIT_FEE_WARNING_AMOUNT_PERCENT,
   QBIT_FEE_WARNING_AMOUNT_RATE_MULTIPLE,
+  QBIT_FEE_WARNING_RATE_BOUND,
   QBIT_FEE_WARNING_RECOMMENDED_RATE_MULTIPLE,
-  QBIT_FEE_WARNING_RELAY_FLOOR_MULTIPLE,
   QBIT_FEE_WARNING_SMALLEST_SEND_VSIZE,
   assessQbitFee,
   qbitRecommendedFeeRate,
@@ -48,6 +49,14 @@ export {
   qbitWalletOwns,
   type QbitWalletOwnership,
 } from './qbit-wallet-ownership'
+export {
+  WALLET_COLOR_KEYS,
+  defaultWalletName,
+  isWalletColorKey,
+  resolveWalletColor,
+  walletColorForSlot,
+  type WalletColorKey,
+} from './wallet-identity'
 export { isQbitAccountOutput } from './qbit-account-outputs'
 export { statedPsbtRecipients } from './psbt-stated-recipients'
 export { isWebsiteSuppliedPsbt, psbtReviewOptions } from './psbt-review-options'
@@ -72,6 +81,27 @@ export {
   type QbitP2mrSendSelection,
   type QbitSelectableCoin,
 } from './qbit-coin-selection'
+export {
+  isQbitSendPlanAmount,
+  planQbitSend,
+  type QbitSendPlan,
+  type QbitSendPlanMerge,
+  type QbitSendPlanPayment,
+  type QbitSendPlanRefusal,
+  type QbitSendPlanRefusalReason,
+  type QbitSendPlanShape,
+  type QbitSendPlanTarget,
+} from './qbit-send-plan'
+export {
+  QBIT_CONSOLIDATION_MIN_INPUTS,
+  assertQbitConsolidationBatchSize,
+  isQbitConsolidationBatchSize,
+} from './qbit-consolidation'
+export {
+  QBIT_SEND_PLAN_SECONDS_PER_SIGNATURE,
+  QBIT_SEND_PLAN_SECONDS_PER_TRANSACTION,
+  estimateQbitSendPlanSigningSeconds,
+} from './qbit-send-plan-time'
 export {
   QBIT_BROADCAST_DETAIL_MAX_LENGTH,
   qbitBroadcastErrorMessage,

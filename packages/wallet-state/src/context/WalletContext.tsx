@@ -10,6 +10,7 @@ import {
   QbitBalanceSummary,
   QbitBroadcastResult,
   QbitBroadcastStatusCheck,
+  QbitConsolidationRequest,
   QbitConsolidationStatus,
   ConnectedSite,
   DecodedPsbt,
@@ -23,10 +24,15 @@ import {
   QbitRecoveryDeferredSource,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
+  QbitSigningOptions,
   QbitRestoreFloorScanSummary,
   QbitReceiveState,
   QbitRestoreReport,
   QbitSendBroadcastClaim,
+  QbitSendPlanPrepareParams,
+  QbitSendPlanPrepareResult,
+  QbitSendPlanStartResult,
+  QbitSendPlanView,
   RateUsStatus,
   RegtestAccessStatus,
   SignPsbtOptions,
@@ -42,6 +48,7 @@ import {
   QbitUtxoSnapshot,
   UnspentOutput,
   VersionDetail,
+  WalletColorKey,
   WalletConfig,
   WalletKeyring,
   WebsiteSafetyResult,
@@ -288,7 +295,8 @@ export interface WalletController {
 
   getCurrentKeyringAccounts(): Promise<Account[]>
 
-  signPsbtV2(toSignData: ToSignData): Promise<SignedData>
+  /** `options.progressId` asks for this signing's progress (QBIT_SIGNING_PROGRESS events). */
+  signPsbtV2(toSignData: ToSignData, options?: QbitSigningOptions): Promise<SignedData>
   /**
    * Reserve the inputs of a P2MR send the wallet built but an external or
    * cold-wallet signer signed, before its bytes reach the confirm screen.
@@ -333,9 +341,27 @@ export interface WalletController {
   getQbitConsolidationStatus(): Promise<QbitConsolidationStatus>
   /**
    * The next consolidation batch of an account over the explorer's listing
-   * limit: its largest confirmed outputs, sent whole to its own address.
+   * limit: its largest confirmed outputs, at most `maxInputs` of them (the
+   * account's maximum when omitted), sent whole to its own address.
    */
-  createQbitConsolidationPsbt(data: { feeRate?: number; enableRBF?: boolean }): Promise<ToSignData>
+  createQbitConsolidationPsbt(data: QbitConsolidationRequest): Promise<ToSignData>
+
+  /**
+   * Price a send plan for review: the merges and the payment of an amount
+   * one transaction cannot carry (#188). An expected refusal is a result
+   * with `ok: false`, never a rejection.
+   */
+  prepareQbitSendPlan(params: QbitSendPlanPrepareParams): Promise<QbitSendPlanPrepareResult>
+  /** Confirm the reviewed draft: the background persists the plan and runs it. */
+  startQbitSendPlan(draftId: string): Promise<QbitSendPlanStartResult>
+  /** The current account's open plan on the active network, or null. */
+  getQbitSendPlan(): Promise<QbitSendPlanView | null>
+  /** Carry on with the plan as confirmed: sign what is left, or send again. */
+  continueQbitSendPlan(planId: string): Promise<QbitSendPlanView>
+  /** Cancel the plan; null once nothing of it is left to settle. */
+  cancelQbitSendPlan(planId: string): Promise<QbitSendPlanView | null>
+  /** Remove a finished plan from the home screen. */
+  dismissQbitSendPlan(planId: string): Promise<void>
 
   pushTx(rawtx: string): Promise<string>
   broadcastQbitTx(
@@ -393,11 +419,16 @@ export interface WalletController {
 
   getCurrentKeyring(): Promise<WalletKeyring>
   getKeyrings(): Promise<WalletKeyring[]>
-  getTotalKeyringCount(): Promise<number>
   changeKeyring(keyring: WalletKeyring, accountIndex?: number): Promise<void>
   getAllAddresses(keyring: WalletKeyring, index: number): Promise<string[]>
 
   setKeyringAlianName(keyring: WalletKeyring, name: string): Promise<WalletKeyring>
+  /**
+   * Set a wallet's color to a palette key (WALLET_COLOR_KEYS). Rejects a
+   * color that is not a palette key and a wallet that is not in use, storing
+   * nothing; resolves with the wallet, with the new color.
+   */
+  setKeyringColor(keyring: WalletKeyring, color: WalletColorKey): Promise<WalletKeyring>
   changeAddressType(addressType: AddressType): Promise<void>
 
   setAccountAlianName(account: Account, name: string): Promise<Account>
@@ -411,7 +442,11 @@ export interface WalletController {
 
   decodePsbt(psbtHex: string, website: string, options?: DecodePsbtOptions): Promise<DecodedPsbt>
   analyzeLocalPsbts(toSignDatas: ToSignData[]): Promise<LocalPsbtSummary>
-  signLocalBatchPsbt(toSignData: ToSignData, review: LocalPsbtBatchReview): Promise<SignedData>
+  signLocalBatchPsbt(
+    toSignData: ToSignData,
+    review: LocalPsbtBatchReview,
+    options?: QbitSigningOptions
+  ): Promise<SignedData>
 
   expireUICachedData(address: string): Promise<void>
 

@@ -13,6 +13,8 @@ import {
   getQbitAddressUtxosClassified,
   getQbitSpendableBalanceV2,
   getQbitTxSpenders,
+  getQbitUtxoListLimit,
+  isQbitUtxoListOverExplorerLimit,
   MAX_QBIT_HISTORY_REVISION_PROBE_ADDRESSES,
   observeQbitPqcSignatureActivity,
   observeQbitPqcSpentOutpoints,
@@ -24,6 +26,7 @@ import {
   qbitFeeSummaryFromTiers,
   qbitStatsToAddressSummary,
   qbitTxToHistoryItem,
+  qbitUtxoListRefusal,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
 } from '../src/utils/qbit-api'
@@ -1989,6 +1992,211 @@ describe('qbit Esplora wallet adapters', () => {
       client.getAddressUtxos.mockRejectedValue(timeout)
       await expect(getQbitSpendableBalanceV2(client as any, address)).rejects.toBe(timeout)
       expect(client.getAddressStats).not.toHaveBeenCalled()
+    })
+
+    describe('a refusal the explorer states (#169)', () => {
+      const listingUrl = `https://explorer.test/api/address/${address}/utxo`
+      const reason = 'Too many unspent transaction outputs (>50000). Contact support to raise limits.'
+      // mempool-qbit since v1.0.0: electrs' reason relayed as JSON with a 413.
+      const explorerRefusal = new QbitApiError('payload_too_large', `HTTP 413 from /utxo`, {
+        status: 413,
+        url: listingUrl,
+        responseBody: JSON.stringify({ error: reason }),
+      })
+      // qbit-electrs itself: the reason as text, with a 400.
+      const electrsRefusal = new QbitApiError('http', 'HTTP 400 from /utxo', {
+        status: 400,
+        url: listingUrl,
+        responseBody: reason,
+      })
+
+      it('reads the refusal and the limit it states from the explorer and from electrs', () => {
+        expect(qbitUtxoListRefusal(explorerRefusal)).toEqual({ stated: true, limit: 50_000 })
+        expect(qbitUtxoListRefusal(electrsRefusal)).toEqual({ stated: true, limit: 50_000 })
+        // A 413 that states no limit, and the reason at a status of its own.
+        expect(
+          qbitUtxoListRefusal(
+            new QbitApiError('payload_too_large', 'HTTP 413', {
+              status: 413,
+              url: listingUrl,
+              responseBody: '{"error":"history too long"}',
+            })
+          )
+        ).toEqual({ stated: true })
+        expect(
+          qbitUtxoListRefusal(
+            new QbitApiError('http', 'HTTP 500', {
+              status: 500,
+              url: listingUrl,
+              responseBody: reason.replace(' (>50000)', ''),
+            })
+          )
+        ).toEqual({ stated: true })
+        // An older mempool-qbit's bare 500 is a refusal it does not state.
+        expect(qbitUtxoListRefusal(listingRefused)).toEqual({ stated: false })
+      })
+
+      it('reads no limit from a malformed number and no refusal from anything else', () => {
+        for (const body of ['(>)', '(>-5)', '(>0)', '(>1e5)', `(>${'9'.repeat(16)})`]) {
+          expect(
+            qbitUtxoListRefusal(
+              new QbitApiError('http', 'HTTP 400', {
+                status: 400,
+                url: listingUrl,
+                responseBody: `Too many unspent transaction outputs ${body}. Contact support to raise limits.`,
+              })
+            )
+          ).toEqual({ stated: true })
+        }
+        const notRefusals = [
+          // Another route's refusal, and the same words from a per-output lookup.
+          new QbitApiError('payload_too_large', 'HTTP 413', {
+            status: 413,
+            url: `https://explorer.test/api/address/${address}/txs`,
+            responseBody: '{"error":"Too many history transactions (>50000)."}',
+          }),
+          new QbitApiError('http', 'HTTP 400', {
+            status: 400,
+            url: `https://explorer.test/api/tx/${'ab'.repeat(32)}`,
+            responseBody: reason,
+          }),
+          // Any other answer from the listing itself.
+          new QbitApiError('http', 'HTTP 400', {
+            status: 400,
+            url: listingUrl,
+            responseBody: 'invalid qbit address',
+          }),
+          new QbitApiError('http', 'HTTP 503', { status: 503, url: listingUrl }),
+          new QbitApiError('rate_limit', 'HTTP 429', { status: 429, url: listingUrl }),
+          new QbitApiError('timeout', 'request timed out', { url: listingUrl }),
+          new QbitApiError('network', 'fetch failed', { url: listingUrl }),
+          new Error(reason),
+        ]
+        for (const error of notRefusals) expect(qbitUtxoListRefusal(error)).toBeUndefined()
+      })
+
+      for (const [name, refusal] of [
+        ['mempool-qbit', explorerRefusal],
+        ['electrs', electrsRefusal],
+      ] as const) {
+        it(`treats ${name}'s refusal as the limit with fewer outputs than any limit`, async () => {
+          // electrs refuses an address whose set passed its limit since it
+          // last cached that set, so the count now says nothing.
+          const client = clientFor(12)
+          client.getAddressUtxos.mockRejectedValue(refusal)
+          await expect(getQbitSpendableBalanceV2(client as any, address)).resolves.toEqual({
+            availableBalance: null,
+            unavailableBalance: 12_000,
+            totalBalance: 12_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoLimitExceeded: true,
+          })
+        })
+      }
+
+      it('needs no statistics to call a stated refusal the limit', async () => {
+        const client = clientFor(12)
+        await expect(
+          isQbitUtxoListOverExplorerLimit(client as any, address, explorerRefusal)
+        ).resolves.toBe(true)
+        expect(client.getAddressStats).not.toHaveBeenCalled()
+        // A bare 500 still needs them, and more than the 500 outputs assumed.
+        await expect(
+          isQbitUtxoListOverExplorerLimit(client as any, address, listingRefused)
+        ).resolves.toBe(false)
+        await expect(
+          isQbitUtxoListOverExplorerLimit(clientFor(501) as any, address, listingRefused)
+        ).resolves.toBe(true)
+      })
+
+      it('fails the balance with the statistics failure behind a stated refusal', async () => {
+        // The refusal is the limit without them, as a send's history read
+        // takes it, but the split between Available and Unavailable needs them.
+        const client = clientFor(12)
+        client.getAddressUtxos.mockRejectedValue(explorerRefusal)
+        const statsFailure = new Error('stats unavailable')
+        client.getAddressStats.mockRejectedValue(statsFailure)
+        await expect(getQbitSpendableBalanceV2(client as any, address)).rejects.toBe(statsFailure)
+        // A bare 500 keeps its own meaning, as before.
+        const bare = clientFor(501)
+        bare.getAddressStats.mockRejectedValue(statsFailure)
+        await expect(getQbitSpendableBalanceV2(bare as any, address)).rejects.toBe(listingRefused)
+      })
+    })
+
+    describe('where an address stands against the limit, as the explorer answers (#169)', () => {
+      const listingUrl = `https://explorer.test/api/address/${address}/utxo`
+      const refusal = (responseBody: string) =>
+        new QbitApiError('payload_too_large', 'HTTP 413', {
+          status: 413,
+          url: listingUrl,
+          responseBody,
+        })
+
+      it('is within the limit whenever the explorer lists the outputs, whatever their count', async () => {
+        const client = clientFor(9_772)
+        client.getAddressUtxos.mockResolvedValue([])
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(9_772) as any)
+        ).resolves.toEqual({ overLimit: false })
+      })
+
+      it('refuses a listing reply that is not a list, as a send does', async () => {
+        const client = clientFor(12)
+        for (const reply of [{}, null, 'ok']) {
+          client.getAddressUtxos.mockResolvedValue(reply)
+          await expect(
+            getQbitUtxoListLimit(client as any, address, overLimitStats(12) as any)
+          ).rejects.toThrow(`invalid qbit UTXO response for ${address}`)
+        }
+      })
+
+      it('is over the limit the explorer states, whatever the count', async () => {
+        const client = clientFor(40_000)
+        client.getAddressUtxos.mockRejectedValue(
+          refusal(
+            '{"error":"Too many unspent transaction outputs (>50000). Contact support to raise limits."}'
+          )
+        )
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(40_000) as any)
+        ).resolves.toEqual({ overLimit: true, limit: 50_000 })
+        client.getAddressUtxos.mockRejectedValue(refusal('{"error":"history too long"}'))
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(40_000) as any)
+        ).resolves.toEqual({ overLimit: true })
+      })
+
+      it('takes a bare 500 as the assumed limit only past it, and throws anything else', async () => {
+        const client = clientFor(501)
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(501) as any)
+        ).resolves.toEqual({ overLimit: true, limit: 500 })
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(500) as any)
+        ).rejects.toBe(listingRefused)
+        const timeout = new QbitApiError('timeout', 'request timed out', { url: listingUrl })
+        client.getAddressUtxos.mockRejectedValue(timeout)
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(501) as any)
+        ).rejects.toBe(timeout)
+      })
+
+      it('throws the cancellation, not a refusal, once the caller has given up', async () => {
+        const client = clientFor(501)
+        const controller = new AbortController()
+        const reason = new Error('screen closed')
+        client.getAddressUtxos.mockImplementation(async () => {
+          controller.abort(reason)
+          throw listingRefused
+        })
+        await expect(
+          getQbitUtxoListLimit(client as any, address, overLimitStats(501) as any, {
+            signal: controller.signal,
+          })
+        ).rejects.toBe(reason)
+      })
     })
   })
 
@@ -4142,13 +4350,14 @@ describe('qbit Esplora wallet adapters', () => {
     })
   })
 
-  it('normalizes positive sub-floor provider rates to the shared relay floor', () => {
+  it('raises positive provider rates below the 0.25 bits/vB relay floor to it, and keeps those above', () => {
     const summary = qbitFeeSummaryFromTiers([
       { target: 20, feeRate: 0.1 },
       { target: 6, feeRate: 0.25 },
       { target: 2, feeRate: 0.5 },
     ])
-    expect(summary.list.map(tier => tier.feeRate)).toEqual([1, 1, 1])
+    // From 0.25 up a tier is quoted as it is, below 1 bit/vB too: the floor is qbit Core's (#182).
+    expect(summary.list.map(tier => tier.feeRate)).toEqual([0.25, 0.25, 0.5])
     expect(summary.quote?.availability).toBe('available')
   })
 
@@ -4175,6 +4384,7 @@ describe('qbit Esplora wallet adapters', () => {
       ],
     ],
   ])('falls back safely for malicious fee tiers with %s', (_name, tiers) => {
+    // Every tier at the 1 bit/vB fallback rate, above the 0.25 relay floor (#182).
     expect(qbitFeeSummaryFromTiers(tiers)).toMatchObject({
       list: [{ feeRate: 1 }, { feeRate: 1 }, { feeRate: 1 }],
       quote: {

@@ -173,6 +173,55 @@ describe('ProviderController qbit send', () => {
     expect(walletMock.acquireExternalQbitSigningLock).toHaveBeenCalledWith([toSignData], 'send')
   })
 
+  it('accepts a website feeRate from the 0.25 bits/vB relay floor up and refuses a lower one (#182)', async () => {
+    const provider = (await import('../src/controllers/provider/controller')).default
+    const [, sendApproval] = Reflect.getMetadata('APPROVAL', provider, 'sendQbit')
+    walletMock.createSendQbitPsbt.mockImplementation(async () => ({
+      psbtHex: '70736274ff',
+      toSignInputs: [],
+    }))
+    const providerContext = {
+      origin: 'https://otc.example',
+      account: 'qbrt1zprovidercontext',
+      chain: ChainType.QBIT_REGTEST,
+      network: 'regtest',
+    }
+    const request = (sendQbitParams: Record<string, unknown>) =>
+      sendApproval({
+        data: {
+          params: {
+            sendQbitParams: { toAddress: 'qbrt1zrecipient', satoshis: 40_000, ...sendQbitParams },
+          },
+        },
+        providerContext,
+      })
+
+    for (const feeRate of [0.25, 0.5, 1, 3]) {
+      walletMock.createSendQbitPsbt.mockClear()
+      await request({ feeRate })
+      expect(walletMock.createSendQbitPsbt).toHaveBeenCalledWith({
+        to: 'qbrt1zrecipient',
+        amount: 40_000,
+        feeRate,
+      })
+    }
+    // Omitted, the wallet's own normal rate applies.
+    walletMock.createSendQbitPsbt.mockClear()
+    await request({})
+    expect(walletMock.createSendQbitPsbt).toHaveBeenCalledWith({
+      to: 'qbrt1zrecipient',
+      amount: 40_000,
+    })
+
+    for (const feeRate of [0.24, 0.2499, 0, -0.25, null, Number.NaN, Infinity, '0.25', '1']) {
+      walletMock.createSendQbitPsbt.mockClear()
+      await expect(request({ feeRate })).rejects.toThrow(
+        'feeRate must be between 0.25 and 10000 bits/vB'
+      )
+      expect(walletMock.createSendQbitPsbt).not.toHaveBeenCalled()
+    }
+  })
+
   it.each(['signPsbt', 'signPsbts'] as const)(
     'atomically acquires an external lock before %s approval',
     async method => {
@@ -1070,6 +1119,20 @@ describe('ProviderController qbit send', () => {
       expect(notSent).toBeInstanceOf(Error)
       expect(notSent.message).toBe('HTTP 400: min relay fee not met')
       expect(notSent.code).toBeUndefined()
+      // The explorer refused it as too large, absence proven (#170).
+      walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: PUSHED_TXID,
+        outcome: 'not_sent',
+        reason: 'too_large',
+        lookup: 'gone',
+        detail: 'HTTP 400: RPC error -3',
+      })
+      const tooLarge = await push().catch(error => error)
+      expect(tooLarge).toBeInstanceOf(Error)
+      expect(tooLarge.message).toBe('HTTP 400: RPC error -3')
+      expect(tooLarge.code).toBeUndefined()
       walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
         success: false,
         chain: ChainType.QBIT_REGTEST,
@@ -1083,7 +1146,13 @@ describe('ProviderController qbit send', () => {
       // Inconclusive: the node may hold the transaction. The dapp gets the
       // distinct code and the txid to look up, not a plain failure it would
       // retry into a second payment.
-      for (const reason of ['timeout', 'server', 'invalid_response', 'unexpected'] as const) {
+      for (const reason of [
+        'timeout',
+        'server',
+        'invalid_response',
+        'unexpected',
+        'too_large',
+      ] as const) {
         walletMock.broadcastQbitProviderTx.mockResolvedValueOnce({
           success: false,
           chain: ChainType.QBIT_REGTEST,

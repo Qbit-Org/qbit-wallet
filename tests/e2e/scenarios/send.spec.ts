@@ -228,3 +228,105 @@ test('G3 send: rejects dust and proves single/multi-input fees plus RBF replacem
   await history.waitUntilReady()
   await history.waitForStatus(replacement.transactionId, 'Confirmed')
 })
+
+// One input, the recipient and change outputs, and this 14-byte memo, whose
+// output is 25 bytes (8 of value, 1 of script length, OP_RETURN, one push byte
+// and the memo): 3,885 vbytes. At 0.25 bits/vB that is 971.25 bits, so the fee
+// is rounded up to 972, as qbit Core rounds the fee it requires; 971 would be
+// refused for the relay fee.
+const FLOOR_SEND_MEMO = 'G3 relay floor'
+const FLOOR_SEND_VSIZE = 3_885
+const FLOOR_SEND_FEE = 972
+
+interface MempoolEntryProbe {
+  vsize: number
+}
+
+interface ConfirmedTransaction extends VerboseTransaction {
+  blockhash?: string
+  confirmations?: number
+}
+
+function qbtToBaseUnits(value: number): number {
+  return Math.round(value * 100_000_000)
+}
+
+test('G3 send: a Custom rate at the 0.25 bits/vB relay floor pays and confirms the exact fee', async ({
+  extension,
+  pqcMetrics,
+  regtest,
+}) => {
+  test.setTimeout(5 * 60_000)
+  const setup = await provisionDeterministicRegtestWallet(extension)
+  regtest.trackAccount(setup.address)
+  regtest.trackAccount(setup.temporaryAddress)
+
+  const funding = await regtest.fund(setup.address, '0.005')
+  await waitForWalletTransactions(extension, setup.page, [funding])
+  await setup.page.reload({ waitUntil: 'domcontentloaded' })
+  await setup.home.waitUntilReady()
+  await setup.home.openSend()
+
+  const send = new SendPage(setup.page)
+  await send.enterTransfer(setup.temporaryAddress, '0.001')
+  await send.expandAdvancedMemo(FLOOR_SEND_MEMO)
+  await send.enterCustomFeeRate('0.25')
+  await send.expectNextEnabled()
+  expect(await send.estimatedInputCount()).toBe(1)
+  expect(await send.estimatedFeeBaseUnits()).toBe(FLOOR_SEND_FEE)
+
+  // One step of the input below the floor: Next stays disabled.
+  await send.enterCustomFeeRate('0.24')
+  await send.expectNextDisabled()
+
+  await send.enterCustomFeeRate('0.25')
+  await send.expectNextEnabled()
+  expect(await send.estimatedFeeBaseUnits()).toBe(FLOOR_SEND_FEE)
+  await send.continueToReview()
+
+  const displayedFee = await send.exactFeeBaseUnits()
+  expect(displayedFee).toBe(FLOOR_SEND_FEE)
+  expect(await send.reviewedInputCount()).toBe(1)
+  const sent = await send.signAndBroadcast()
+  pqcMetrics.record({
+    accountId: setup.address,
+    durationMs: sent.durationMs,
+    inputCount: 1,
+    operation: 'wallet-send-sign',
+    transactionId: sent.transactionId,
+  })
+  regtest.trackTransaction(sent.transactionId)
+  await regtest.waitForMempoolTransaction(sent.transactionId)
+  const entry = await regtest.rpc<MempoolEntryProbe>('getmempoolentry', [sent.transactionId])
+  expect(entry.vsize).toBe(FLOOR_SEND_VSIZE)
+  expect(await regtest.mempoolFeeBaseUnits(sent.transactionId)).toBe(displayedFee)
+  await send.finishSuccess()
+
+  const [blockHash] = await regtest.mine(1)
+  const confirmed = await regtest.rpc<ConfirmedTransaction>('getrawtransaction', [
+    sent.transactionId,
+    true,
+  ])
+  expect(confirmed.blockhash).toBe(blockHash)
+  expect(confirmed.confirmations).toBeGreaterThanOrEqual(1)
+  // The fee the confirmed transaction paid: what it spent less what it pays.
+  let spent = 0
+  for (const input of confirmed.vin) {
+    const previous = await regtest.rpc<VerboseTransaction>('getrawtransaction', [input.txid, true])
+    const output = previous.vout[input.vout]
+    if (!output) throw new Error(`spent output ${input.txid}:${input.vout} is missing`)
+    spent += qbtToBaseUnits(output.value)
+  }
+  const paid = confirmed.vout.reduce((sum, output) => sum + qbtToBaseUnits(output.value), 0)
+  expect(spent - paid).toBe(displayedFee)
+
+  await waitForAddressUsed(extension, setup.page, setup.address)
+  await setup.page.goto(`chrome-extension://${extension.extensionId}/index.html#/wallet/history`, {
+    waitUntil: 'domcontentloaded',
+  })
+  const history = new HistoryPage(setup.page)
+  await history.waitUntilReady()
+  await history.waitForStatus(sent.transactionId, 'Confirmed')
+  await history.openTransaction(sent.transactionId)
+  expect(qbtToBaseUnits(Number(await history.detailNetworkFeeQbt()))).toBe(displayedFee)
+})

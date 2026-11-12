@@ -1,7 +1,7 @@
 import { WordsType } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 import { useEffect, useMemo, useState } from 'react'
-import { useI18n, useTools, useWallet } from 'src/context'
+import { useI18n, useTools } from 'src/context'
 import { isMnemonicWord, validateMnemonic } from 'src/utils/qbit-utils'
 
 export enum TabType {
@@ -29,6 +29,10 @@ export interface ContextData {
   customHdPath: string
   addressTypeIndex: number
   wordsType: WordsType
+  /**
+   * A name the user typed. None is suggested: the background names a wallet
+   * when it adds it, so a suggestion here could only disagree.
+   */
   walletName?: string
 }
 
@@ -81,8 +85,6 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
     return [getWords12Item(t), getWords24Item(t)]
   }, [t])
 
-  const wallet = useWallet()
-
   const [disabled, setDisabled] = useState(true)
 
   const [inputWords, setInputWords] = useState<Array<string>>(
@@ -106,21 +108,6 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
   const enablePhrase = true
 
   const maxWordsCount = wordsItems[contextData.wordsType].count
-
-  const initKey = async () => {
-    let totalKeyringCount = 0
-    try {
-      totalKeyringCount = await wallet.getTotalKeyringCount()
-    } catch (e) {
-      const error = e as Error
-      tools.toastError(error.message)
-    }
-    updateContextData({ walletName: `HD Wallet #${totalKeyringCount + 1}` })
-  }
-
-  useEffect(() => {
-    initKey()
-  }, [])
 
   useEffect(() => {
     setDisabled(true)

@@ -17,18 +17,16 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ApprovalProvider } from '../providers/ApprovalProvider';
 import { NavigationProvider } from '../providers/NavigationProvider';
 import AddKeyringScreen from './Account/AddKeyringScreen';
-import CreateAccountScreen from './Account/CreateAccountScreen';
 import CreateHDWalletScreen from './Account/CreateHDWalletScreen';
 import CreatePasswordScreen from './Account/CreatePasswordScreen';
 import CreateReadonlyWalletScreen from './Account/CreateReadonlyWalletScreen';
 import CreateWatchWalletScreen from './Account/CreateWatchWalletScreen';
-import SwitchAccountScreen from './Account/SwitchAccountScreen';
-import SwitchKeyringScreen from './Account/SwitchKeyringScreen';
 import UnlockScreen from './Account/UnlockScreen';
 import ApprovalScreen from './Approval/ApprovalScreen';
 import ConnectedSitesScreen from './Approval/ConnectedSitesScreen';
 import BoostScreen from './Main/BoostScreen';
 import DiscoverTabScreen from './Main/DiscoverTabScreen';
+import MineTabScreen from './Main/MineTabScreen';
 import SettingsTabScreen from './Main/SettingsTabScreen';
 import WalletTabScreen from './Main/WalletTabScreen';
 import WelcomeScreen from './Main/WelcomeScreen';
@@ -40,9 +38,7 @@ import { LockTimePage } from './Settings/AdvancedScreen/LockTimePage';
 import { RegtestAccessScreen } from './Settings/AdvancedScreen/RegtestAccessScreen';
 import ChangePasswordScreen from './Settings/ChangePasswordScreen';
 import ContactsScreen from './Settings/ContactsScreen';
-import EditAccountNameScreen from './Settings/EditAccountNameScreen';
 import EditContactScreen from './Settings/EditContactScreen';
-import EditWalletNameScreen from './Settings/EditWalletNameScreen';
 import ExportMnemonicsScreen from './Settings/ExportMnemonicsScreen';
 import ExportPrivateKeyScreen from './Settings/ExportPrivateKeyScreen';
 import AppearanceScreen from './Settings/AppearanceScreen';
@@ -54,6 +50,8 @@ import TestScreen from './Test/TestScreen';
 import HistoryScreen from './Wallet/HistoryScreen';
 import QbitConsolidationScreen from './Wallet/QbitConsolidationScreen';
 import QbitRecoveryMigrationScreen from './Wallet/QbitRecoveryMigrationScreen';
+import QbitSendPlanReviewScreen from './Wallet/QbitSendPlanReviewScreen';
+import QbitSendPlanScreen from './Wallet/QbitSendPlanScreen';
 import ReceiveScreen from './Wallet/ReceiveScreen';
 import TxConfirmScreen from './Wallet/TxConfirmScreen';
 import TxCreateScreen from './Wallet/TxCreateScreen';
@@ -76,6 +74,10 @@ export const routes = {
     path: '/main',
     element: <WalletTabScreen />
   },
+  MineTabScreen: {
+    path: '/mine',
+    element: <MineTabScreen />
+  },
   DiscoverTabScreen: {
     path: '/discover',
     element: <DiscoverTabScreen />
@@ -92,9 +94,11 @@ export const routes = {
     path: '/account/create-hd-wallet',
     element: <CreateHDWalletScreen />
   },
-  CreateAccountScreen: {
+  // The New account screen became a dialog over the account switcher (#177);
+  // a URL kept from a build that had the screen opens the home screen.
+  CreateAccountScreenRedirect: {
     path: '/account/create',
-    element: <CreateAccountScreen />
+    element: <Navigate to="/main" replace />
   },
   CreatePasswordScreen: {
     path: '/account/create-password',
@@ -103,10 +107,6 @@ export const routes = {
   UnlockScreen: {
     path: '/account/unlock',
     element: <UnlockScreen />
-  },
-  SwitchAccountScreen: {
-    path: '/account/switch-account',
-    element: <SwitchAccountScreen />
   },
   ReceiveScreen: {
     path: '/wallet/receive',
@@ -128,6 +128,14 @@ export const routes = {
   TxConfirmScreen: {
     path: '/wallet/tx/confirm',
     element: <TxConfirmScreen />
+  },
+  QbitSendPlanReviewScreen: {
+    path: '/wallet/tx/plan/review',
+    element: <QbitSendPlanReviewScreen />
+  },
+  QbitSendPlanScreen: {
+    path: '/wallet/tx/plan',
+    element: <QbitSendPlanScreen />
   },
   TxSuccessScreen: {
     path: '/wallet/tx/success',
@@ -190,17 +198,9 @@ export const routes = {
     path: '/connected-sites',
     element: <ConnectedSitesScreen />
   },
-  SwitchKeyringScreen: {
-    path: '/account/switch-keyring',
-    element: <SwitchKeyringScreen />
-  },
   AddKeyringScreen: {
     path: '/account/add-keyring',
     element: <AddKeyringScreen />
-  },
-  EditWalletNameScreen: {
-    path: '/settings/edit-wallet-name',
-    element: <EditWalletNameScreen />
   },
   CreateReadonlyWalletScreen: {
     path: '/account/create-readonly-wallet',
@@ -226,10 +226,6 @@ export const routes = {
   EditContactWithChainScreen: {
     path: '/settings/contact/:address/:chain',
     element: <EditContactScreen />
-  },
-  EditAccountNameScreen: {
-    path: '/settings/edit-account-name',
-    element: <EditAccountNameScreen />
   },
   phishing: {
     path: '/phishing',
@@ -261,13 +257,15 @@ export function useNavigate() {
   const navigatingRef = useRef(false);
 
   return useCallback(
-    (routKey: RouteTypes | '#back', state?: any, pathState?: any) => {
+    (routKey: RouteTypes | '#back', state?: any, pathState?: any, options?: { replace?: boolean }) => {
       /** Prevent duplicate route entries while navigation is in flight. */
       if (navigatingRef.current) {
         return;
       }
 
       navigatingRef.current = true;
+      // A new history entry, unless `replace` takes the current one's place.
+      const replace = options?.replace === true;
 
       if (routKey === '#back') {
         window.history.back();
@@ -283,7 +281,7 @@ export function useNavigate() {
       const route: any = routes[routKey];
       if (route.getDynamicPath) {
         const path = route.getDynamicPath(pathState);
-        navigate(path, { replace: false, state });
+        navigate(path, { replace, state });
         navigatingRef.current = false;
         return;
       }
@@ -292,7 +290,7 @@ export function useNavigate() {
         {
           pathname: route.path
         },
-        { replace: false, state }
+        { replace, state }
       );
 
       navigatingRef.current = false;

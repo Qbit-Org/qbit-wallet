@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { noteWalletActivity } from './walletActivity';
+
 const WALLET_KEEPALIVE_INTERVAL_MS = 10 * 1000;
 const WALLET_KEEPALIVE_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
@@ -13,28 +15,51 @@ const WALLET_KEEPALIVE_GRACE_PERIOD_MS = 10 * 60 * 1000;
 // of waiting out the timer the last refresh armed. A system lock wins: a
 // refresh never unlocks, so it cannot undo the lock when the computer locks
 // or the last window closes, and the first refresh after the computer slept
-// past the auto-lock time locks instead of extending the session.
-export const useWalletKeepalive = (wallet: { setLastActiveTime(): void; lockWallet(): void }) => {
+// past the auto-lock time locks instead of extending the session. `active`
+// says whether the mnemonic is on screen: while it is not, the keepalive
+// neither refreshes nor locks, and the ordinary auto-lock applies. Its ten
+// minutes still count from the mount.
+export const useWalletKeepalive = (wallet: { setLastActiveTime(): void; lockWallet(): void }, active = true) => {
   const beginTimeRef = useRef<number>(performance.now());
   const lastWallClockTimeRef = useRef<number>(Date.now());
   const wallClockDeadlineRef = useRef<number>(lastWallClockTimeRef.current + WALLET_KEEPALIVE_GRACE_PERIOD_MS);
+  // Once the wall clock moved backwards it stays untrusted for the screen's
+  // life, also across the effect running again when `active` changes.
+  const wallClockUntrustedRef = useRef(false);
+  // Once its deadline came, the keepalive keeps asking for the lock until one
+  // succeeds, also after `active` turns false: a failed lock is never dropped.
+  const deadlineReachedRef = useRef(false);
+  const deadlineLockedRef = useRef(false);
+  // A lock request still in flight, across the effect running again, so a
+  // re-run never sends a second one.
+  const lockRequestedRef = useRef(false);
   useEffect(() => {
-    let lockRequested = false;
+    if (deadlineLockedRef.current) return undefined;
+    if (!active && !deadlineReachedRef.current) return undefined;
     const enforceDeadline = () => {
-      if (lockRequested) return;
-      lockRequested = true;
+      deadlineReachedRef.current = true;
+      if (lockRequestedRef.current) return;
+      lockRequestedRef.current = true;
       try {
         // A rejected lock (transient port failure) re-arms the retry on the
         // next interval tick.
-        Promise.resolve(wallet.lockWallet()).catch(() => {
-          lockRequested = false;
-        });
+        Promise.resolve(wallet.lockWallet()).then(
+          () => {
+            deadlineLockedRef.current = true;
+          },
+          () => {
+            lockRequestedRef.current = false;
+          }
+        );
       } catch {
-        lockRequested = false;
+        lockRequestedRef.current = false;
       }
     };
-    const lockTimeout = setTimeout(enforceDeadline, WALLET_KEEPALIVE_GRACE_PERIOD_MS);
-    let wallClockUntrusted = false;
+    const lockTimeout = setTimeout(
+      enforceDeadline,
+      Math.max(0, WALLET_KEEPALIVE_GRACE_PERIOD_MS - (performance.now() - beginTimeRef.current))
+    );
+
     const interval = setInterval(() => {
       const wallClockTime = Date.now();
       if (
@@ -51,9 +76,9 @@ export const useWalletKeepalive = (wallet: { setLastActiveTime(): void; lockWall
         // The wall clock moved backwards, so its deadline can no longer be
         // trusted: stop extending the grace period, permanently — a later
         // forward jump must not resume refreshes.
-        wallClockUntrusted = true;
+        wallClockUntrustedRef.current = true;
       }
-      if (wallClockUntrusted) {
+      if (wallClockUntrustedRef.current) {
         // Keep the interval ticking so the monotonic deadline above is still
         // enforced even if the browser throttled the scheduled lock, and so a
         // failed lock request is retried.
@@ -61,21 +86,15 @@ export const useWalletKeepalive = (wallet: { setLastActiveTime(): void; lockWall
       }
 
       lastWallClockTimeRef.current = wallClockTime;
-      try {
-        // The interface types setLastActiveTime as void, but the background
-        // implementation is async; a refresh rejected by a locking wallet must
-        // not become an unhandled rejection.
-        Promise.resolve(wallet.setLastActiveTime()).catch(() => undefined);
-      } catch {
-        // ignore
-      }
+      // A refresh that fails is dropped; the next tick sends another.
+      noteWalletActivity(wallet);
     }, WALLET_KEEPALIVE_INTERVAL_MS);
 
     return () => {
       clearTimeout(lockTimeout);
       clearInterval(interval);
     };
-  }, []);
+  }, [active]);
 };
 
 export const useSelectOption = <T>({

@@ -493,6 +493,141 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
     expect(statusLookups()).toBe(QBIT_BROADCAST_ABSENCE_PROBES)
   })
 
+  describe("the explorer's refusal of a transaction over its size limit (#170)", () => {
+    // mempool-qbit's answer, sent before the node sees the bytes.
+    const TOO_LARGE_REFUSAL = {
+      status: 400,
+      body: '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}',
+    }
+
+    it('reads "not sent" once the lookups prove absence, and holds the input only by its claim', async () => {
+      const wallet = controller()
+      postOutcomes = [TOO_LARGE_REFUSAL]
+      const inconclusive = vi.spyOn(qbitSendGuardService, 'recordInconclusiveBroadcast')
+
+      const { claim, result } = await send(wallet)
+
+      expect(result).toEqual({
+        success: false,
+        chain: ChainType.QBIT_REGTEST,
+        txid: fixture.txid,
+        outcome: 'not_sent',
+        reason: 'too_large',
+        lookup: 'gone',
+        detail: 'HTTP 400: RPC error -3',
+      })
+      // Never sent again: the same bytes would be refused the same way.
+      expect(posts).toEqual([fixture.rawTxHex])
+      expect(statusLookups()).toBe(QBIT_BROADCAST_ABSENCE_PROBES)
+      expect(inconclusive).not.toHaveBeenCalled()
+      // The screen abandons the bytes, and nothing else holds the input.
+      await expectClaimHeld()
+      await expect(wallet.releaseQbitSendBroadcastClaim(claim)).resolves.toBe(true)
+      await expect(
+        qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, [SOURCE])
+      ).resolves.toBeUndefined()
+    })
+
+    it('stays unknown, and keeps the input held, when the lookups cannot run', async () => {
+      const wallet = controller()
+      postOutcomes = [TOO_LARGE_REFUSAL]
+      explorer.failures.push(({ path }) => (isLookup(path) ? { status: 400 } : undefined))
+
+      const { claim, result } = await send(wallet)
+
+      expect(result).toMatchObject({
+        success: false,
+        txid: fixture.txid,
+        outcome: 'unknown',
+        reason: 'too_large',
+        lookup: 'unavailable',
+      })
+      expect(posts).toHaveLength(1)
+      // Released or not, the claim's input stays reserved as possibly spent.
+      await wallet.releaseQbitSendBroadcastClaim(claim)
+      await expectSpentNotClaimed()
+    })
+
+    it('reports the transaction a lookup finds despite the refusal as sent', async () => {
+      const wallet = controller()
+      // The network holds the transaction (here the fake's node took it).
+      postOutcomes = [{ ...TOO_LARGE_REFUSAL, accepted: true }]
+
+      const { result } = await send(wallet)
+
+      expect(result).toEqual({
+        success: true,
+        chain: ChainType.QBIT_REGTEST,
+        txid: fixture.txid,
+        via: 'lookup',
+      })
+      expect(posts).toHaveLength(1)
+      await expectSpentNotClaimed()
+    })
+
+    it("refuses 107 inputs and takes 106 with explorer 1.1.0's check, qbit Core's standard size", async () => {
+      const wallet = controller()
+      // qbit-explorer#58: the serialized size with witness over 400,000 is
+      // refused. 107 single-key inputs are 402,589 bytes, 106 are 398,827.
+      explorer.pushWeightLimit = 400_000
+      const oversizedSourceTxid = fakeTxid(4)
+      explorer.addTx({
+        txid: oversizedSourceTxid,
+        inputs: [{ txid: fakeTxid(4, 5_000_000), vout: 0 }],
+        outputs: Array.from({ length: 107 }, () => ({
+          address,
+          script: bytesToHex(script),
+          value: 50_000,
+        })),
+        height: 102,
+      })
+      const oversizedFixture = payment(107, oversizedSourceTxid)
+      expect(oversizedFixture.rawTxHex).toHaveLength(2 * 402_589)
+      expect(largeFixture.rawTxHex).toHaveLength(2 * 398_827)
+
+      const { result } = await send(wallet, oversizedFixture)
+
+      expect(result).toMatchObject({
+        success: false,
+        txid: oversizedFixture.txid,
+        outcome: 'not_sent',
+        reason: 'too_large',
+        lookup: 'gone',
+      })
+      expect(explorer.txs.has(oversizedFixture.txid)).toBe(false)
+      // The largest standard transaction goes through the same explorer.
+      await expect(send(wallet, largeFixture)).resolves.toMatchObject({
+        result: { success: true, txid: largeFixture.txid, via: 'broadcast' },
+      })
+      expect(posts).toEqual([oversizedFixture.rawTxHex, largeFixture.rawTxHex])
+      expect(explorer.pushedInputCounts).toEqual([107, 106])
+    })
+
+    it('reads the largest standard transaction an explorer before 1.1.0 refuses as not sent', async () => {
+      const wallet = controller()
+      // Such a deployment weighs base bytes ×4 plus witness bytes: 106
+      // single-key inputs weigh 412,024, over its 400,000.
+      explorer.pushWeightLimit = 400_000
+      explorer.pushWeightRule = 'base-times-four'
+
+      const { result } = await send(wallet, largeFixture)
+
+      expect(result).toMatchObject({
+        success: false,
+        txid: largeFixture.txid,
+        outcome: 'not_sent',
+        reason: 'too_large',
+        lookup: 'gone',
+      })
+      expect(posts).toEqual([largeFixture.rawTxHex])
+      expect(explorer.txs.has(largeFixture.txid)).toBe(false)
+      // A transaction within that weight goes through the same explorer.
+      await expect(send(wallet)).resolves.toMatchObject({
+        result: { success: true, txid: fixture.txid, via: 'broadcast' },
+      })
+    })
+  })
+
   it('sends nothing again once the claim for those bytes is no longer held', async () => {
     const wallet = controller()
     postOutcomes = [{ status: 502, body: HTML_BODY }]

@@ -94,7 +94,7 @@ export interface QbitP2mrSelectionShape {
   outputScriptLengths: readonly number[]
   leafScriptLength: number
   controlBlockLength: number
-  /** Rates below 1 sat/vB use the wallet's 1 sat/vB relay floor. */
+  /** Bits/vB. A rate below `QBIT_MIN_RELAY_FEE_RATE` is priced at that floor. */
   feeRate: number
 }
 
@@ -116,6 +116,7 @@ function estimate(
 export function qbitP2mrMaxStandardInputCount(
   shape: Omit<QbitP2mrSelectionShape, 'feeRate'>
 ): number {
+  // The rate prices a transaction but never changes its size.
   const sized = { ...shape, feeRate: QBIT_MIN_RELAY_FEE_RATE }
   const one = estimate(sized, 1).vsize
   const perInput = estimate(sized, 2).vsize - one

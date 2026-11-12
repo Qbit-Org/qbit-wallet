@@ -8,6 +8,7 @@ import { chromium, expect, test, type BrowserContext, type Page } from '@playwri
 import { ApprovalsPage, OnboardingPage, SendPage, WalletHomePage } from '../../../e2e/pages'
 import { DappServer } from '../../../e2e/support/dapp-server'
 import { FIXED_MNEMONIC } from '../../../e2e/support/wallet-setup'
+import { CAPTURE_SEND_AMOUNT, releaseSavedUi } from '../release-storage'
 
 /**
  * Drives one released build through the setup the README describes and
@@ -144,6 +145,22 @@ async function currentKeyring(page: Page): Promise<WalletKeyringProbe> {
   return callController<WalletKeyringProbe>(page, 'getCurrentKeyring')
 }
 
+/**
+ * Where the build lists wallets and accounts. Builds with the account
+ * switcher list them in one sheet that the home screen's account card opens,
+ * and the card shows the wallet tile. Releases up to 1.0.8 list them on two
+ * pages: the wallets behind the header's wallet chip, and the current
+ * wallet's accounts behind the card.
+ */
+type AccountLists = 'switcher' | 'pages'
+
+async function accountLists(page: Page): Promise<AccountLists> {
+  const cardWalletTile = page.getByTestId('account-select-wallet-tile')
+  const walletChip = page.getByTestId('wallet-management-entry')
+  await expect(cardWalletTile.or(walletChip).first()).toBeVisible()
+  return (await cardWalletTile.count()) > 0 ? 'switcher' : 'pages'
+}
+
 test('captures the storage a released build writes', async () => {
   test.setTimeout(15 * 60_000)
   requireEnv('QBIT_CAPTURE_RELEASE', RELEASE)
@@ -196,26 +213,40 @@ test('captures the storage a released build writes', async () => {
     await home.waitUntilReady()
     await expect(page.getByTestId('switch-network-bar')).toContainText('Testnet')
 
-    // 3. A second, named account.
-    await goTo(page, extensionId, '/account/switch-account')
-    await page.getByTestId('new-account-button').click()
-    await page.getByTestId('create-account-name-input').fill(SECOND_ACCOUNT_NAME)
+    // 3. A second, named account. Releases up to 1.0.8 ask its name on a
+    // screen of its own, reached from the accounts page; from 1.0.9 a dialog
+    // over the account switcher asks it, which leaves the home screen's route
+    // as it is. Either goes once the account exists.
+    const lists = await accountLists(page)
+    if (lists === 'switcher') {
+      const switcher = await home.openAccountSwitcher()
+      await switcher.addAccount((await currentKeyring(page)).key)
+    } else {
+      await goTo(page, extensionId, '/account/switch-account')
+      await page.getByTestId('new-account-button').click()
+    }
+    const accountName = page.getByTestId('create-account-name-input')
+    await accountName.fill(SECOND_ACCOUNT_NAME)
     await page.getByTestId('create-account-confirm-button').click()
+    await expect(accountName).toHaveCount(0)
     await home.waitUntilReady()
     const hdWallet = await currentKeyring(page)
     expect(hdWallet.accounts).toHaveLength(2)
 
     // 4. Developer mode, by tapping the version as a user does.
     await goTo(page, extensionId, '/settings/about-us')
-    // Ten taps less than 500 ms apart, as raw clicks: locator clicks can be
-    // slower than that on a busy host. A missed round is tapped again, but
-    // only once the mode is known to be off, so it is never toggled twice.
+    // Ten taps about 120 ms apart, well within the 500 ms the screen allows
+    // between taps, as raw clicks: locator clicks can be slower than that on a
+    // busy host, and taps sent back to back can turn the mode on and off again
+    // in one round. A missed round is tapped again, but only once the mode is
+    // known to be off, so it is never toggled twice.
     await expect(async () => {
       if (!(await callController<boolean>(page, 'getDeveloperMode'))) {
         const box = await page.getByText(/^Version:/).boundingBox({ timeout: 10_000 })
         if (!box) throw new Error('the version label is not visible')
         for (let tap = 0; tap < 10; tap += 1) {
           await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+          await page.waitForTimeout(120)
         }
       }
       await expect
@@ -233,8 +264,13 @@ test('captures the storage a released build writes', async () => {
       await goTo(page, extensionId, '/main')
       await page.reload({ waitUntil: 'domcontentloaded' })
       await home.waitUntilReady()
-      await home.openWalletManagement()
-      await page.getByTestId('add-wallet-button').click()
+      if (lists === 'switcher') {
+        await home.openAddWallet()
+      } else {
+        await page.getByTestId('wallet-management-entry').click()
+        await expect(page).toHaveURL(/#\/account\/switch-keyring(?:$|\?)/)
+        await page.getByTestId('add-wallet-button').click()
+      }
       await page.getByText('Readonly Wallet', { exact: true }).click({ timeout: 15_000 })
     }).toPass({ timeout: 120_000 })
     await page.getByTestId('readonly-public-key-input').fill(readonlyPublicKey)
@@ -245,19 +281,24 @@ test('captures the storage a released build writes', async () => {
     const readonlyWallet = await currentKeyring(page)
     expect(readonlyWallet.type).toBe('Readonly')
 
-    // 6. Back to the mnemonic wallet's second account.
-    await goTo(page, extensionId, '/account/switch-keyring')
-    await page.getByTestId(`wallet-item-${hdWallet.key}`).click()
-    await home.waitUntilReady()
+    // 6. Back to the mnemonic wallet's second account: one tap in the
+    //    account switcher, or the wallet's page and then the account's.
     const savings = hdWallet.accounts[1]!
-    await goTo(page, extensionId, '/account/switch-account')
-    await page
-      .getByTestId(`account-item-${savings.address}`)
-      .getByText(`${savings.address.slice(0, 8)}...${savings.address.slice(-8)}`, {
-        exact: true,
-      })
-      .click()
-    await home.waitUntilReady()
+    if (lists === 'switcher') {
+      await home.switchAccount(savings.address)
+    } else {
+      await goTo(page, extensionId, '/account/switch-keyring')
+      await page.getByTestId(`wallet-item-${hdWallet.key}`).click()
+      await home.waitUntilReady()
+      await goTo(page, extensionId, '/account/switch-account')
+      await page
+        .getByTestId(`account-item-${savings.address}`)
+        .getByText(`${savings.address.slice(0, 8)}...${savings.address.slice(-8)}`, {
+          exact: true,
+        })
+        .click()
+      await home.waitUntilReady()
+    }
     await expect
       .poll(
         async () => (await callController<WalletAccountProbe>(page, 'getCurrentAccount')).address
@@ -306,9 +347,11 @@ test('captures the storage a released build writes', async () => {
     await expect.poll(() => callController<string>(page, 'getThemeMode')).toBe(THEME_MODE)
 
     // 10. Saved UI state: a collapsed balance card, hidden balances and a
-    //     half-written send. From 1.0.6 the card has no breakdown to show,
-    //     and does not collapse, until a balance loads, which it never does
-    //     offline: the capture then records that it could not collapse it.
+    //     half-written send, left without sending. From 1.0.6 the card has no
+    //     breakdown to show, and does not collapse, until a balance loads,
+    //     which it never does offline: the capture then records that it
+    //     could not collapse it. Releases before 1.0.9 save the send form
+    //     with the two preferences; from 1.0.9 nothing typed there is saved.
     await goTo(page, extensionId, '/main')
     await home.waitUntilReady()
     await expect(home.balanceCard.getByTestId('balance-loading')).toHaveCount(0, {
@@ -328,7 +371,7 @@ test('captures the storage a released build writes', async () => {
     await home.openSend()
     const send = new SendPage(page)
     await send.waitForCreate()
-    await send.enterTransfer(contactAddress, '0.0001')
+    await send.enterTransfer(contactAddress, CAPTURE_SEND_AMOUNT)
     await goTo(page, extensionId, '/main')
     await home.waitUntilReady()
 
@@ -363,8 +406,13 @@ test('captures the storage a released build writes', async () => {
     const storageDump = await page.evaluate(() => chrome.storage.local.get(null))
     const userAgent = await page.evaluate(() => navigator.userAgent)
 
-    const savedUi = JSON.parse(localStorageDump['redux_localstorage_simple_ui'] ?? '{}')
-    expect(savedUi.balanceDetailExpanded, 'the balance card is expanded').toBe(!collapsible)
+    // What this build saved of its ui state: the whole state with the send
+    // form of step 10 before 1.0.9, the two preferences alone from 1.0.9.
+    // Anything else is refused here, before a file is written.
+    const savedUi = releaseSavedUi(manifest.version, localStorageDump, contactAddress)
+    expect(savedUi.preferences.balanceDetailExpanded, 'the balance card is expanded').toBe(
+      !collapsible
+    )
 
     await mkdir(outputDir, { recursive: true })
     const write = (name: string, value: unknown) =>

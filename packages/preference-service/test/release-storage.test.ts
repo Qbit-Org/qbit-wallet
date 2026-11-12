@@ -39,6 +39,9 @@ const OPTIONAL_KEYS = ['regtestAccessAck', 'guideReaded', 'addressSummary']
 // Settings earlier releases saved that this build drops when it loads them.
 const DROPPED_KEYS = ['enableSignData']
 
+// Settings this build adds when it loads a store saved before they existed.
+const ADDED_KEYS = ['keyringColors', 'lockOnComputerLock', 'lockOnWindowsClosed']
+
 async function loadPreferences(dump: ReleaseStorage) {
   const storage = new DumpStorage(dump.storage)
   const service = new PreferenceService()
@@ -91,6 +94,35 @@ describe.each(RELEASES)('preferences stored by %s', release => {
       expect(service.getAccountAlianName(`keyring_0#${index}`)).toBe(account.alianName)
     })
     expect(service.getAccountAlianName('keyring_1#0')).toBe(readonlyWallet!.accounts[0]!.alianName)
+  })
+
+  // Releases before wallet colors stored none: every wallet then shows its
+  // slot's color, which the wallet controller resolves without writing. The
+  // next save adds the empty color map and changes nothing the release saved.
+  it('load with no wallet color, and save back only an empty color map', async () => {
+    const dump = readReleaseStorage(release)
+    const before = structuredClone(dump.storage['preference']) as Record<string, unknown>
+    expect(before).not.toHaveProperty('keyringColors')
+    const { service, storage } = await loadPreferences(dump)
+
+    dump.wallet.keyrings.forEach((_keyring, index) => {
+      expect(service.getKeyringColor(`keyring_${index}`)).toBeUndefined()
+    })
+    await service.persist()
+
+    const saved = storage.values['preference'] as Record<string, unknown>
+    for (const [key, value] of Object.entries(before)) {
+      if (!DROPPED_KEYS.includes(key)) {
+        expect(saved[key], key).toEqual(value)
+      }
+    }
+    // chrome.storage.local drops a key whose value is undefined.
+    const added = Object.keys(saved).filter(key => !(key in before) && saved[key] !== undefined)
+    expect(added).toContain('keyringColors')
+    for (const key of added) {
+      expect(ADDED_KEYS, key).toContain(key)
+    }
+    expect(saved['keyringColors']).toEqual({})
   })
 
   it('saves those settings back unchanged', async () => {

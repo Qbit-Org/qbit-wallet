@@ -124,18 +124,6 @@ and write their changelogs, but they are not published to npm. The extension
 (`qbit-extension`) is versioned by hand for each store release, so changesets
 skip it. See [`docs/package-release.md`](docs/package-release.md).
 
-### Wording check
-
-A test scans every tracked file, including changesets and docs, for wording
-that does not fit the project, such as references to other chains. It is
-`scripts/security/fresh-chain-language.test.mjs`, and it runs in the
-`Dependency policy` CI job as part of `pnpm test:security-tooling`. If it
-fails, reword the flagged lines. You can run it locally:
-
-```sh
-pnpm test:security-tooling
-```
-
 ## Review
 
 - A ruleset on `main` requires one approving review, and the most recent

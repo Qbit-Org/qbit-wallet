@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
+import { HashRouter, MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -132,5 +132,74 @@ describe('NavigationProvider', () => {
     fireEvent.click(screen.getByTestId('trigger-lock'));
 
     expect(screen.getByTestId('unlock-screen')).toBeTruthy();
+  });
+});
+
+// One lock leaves one unlock entry: from Home or from the unlock screen the
+// step takes the shown entry's place; from elsewhere it adds one.
+describe('NavigationProvider navToLock in the window history', () => {
+  function LockProbe() {
+    const nav = useContext(NavigationContext) as unknown as NavigationContextType;
+    const location = useLocation();
+    const navigationType = useNavigationType();
+    return (
+      <div>
+        <span data-testid="pathname">{location.pathname}</span>
+        <span data-testid="navigation-type">{navigationType}</span>
+        <span data-testid="state">{JSON.stringify(location.state ?? null)}</span>
+        <button data-testid="lock" onClick={() => nav.navToLock({ autoUnlockByFace: false })} />
+      </div>
+    );
+  }
+
+  /** A page at `address`; locks it through navToLock and returns the entries added. */
+  function lockFrom(address: string): number {
+    window.history.replaceState(null, '', address);
+    const before = window.history.length;
+    render(
+      <HashRouter>
+        <NavigationProvider>
+          <Routes>
+            <Route path="*" element={<LockProbe />} />
+          </Routes>
+        </NavigationProvider>
+      </HashRouter>
+    );
+    fireEvent.click(screen.getByTestId('lock'));
+    return window.history.length - before;
+  }
+
+  const shown = () => ({
+    pathname: screen.getByTestId('pathname').textContent,
+    navigationType: screen.getByTestId('navigation-type').textContent,
+    state: JSON.parse(screen.getByTestId('state').textContent ?? 'null')
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it.each([
+    ['Home', '/index.html#/main'],
+    ['the unlock screen another route already showed', '/index.html#/account/unlock']
+  ])('takes the place of %s, with the route state', (_label, address) => {
+    expect(lockFrom(address)).toBe(0);
+    expect(shown()).toEqual({
+      pathname: '/account/unlock',
+      navigationType: 'REPLACE',
+      state: { autoUnlockByFace: false }
+    });
+  });
+
+  it.each([
+    ['another screen', '/index.html#/settings'],
+    ['Home in an approval window', '/notification.html#/main']
+  ])('adds the unlock screen after %s', (_label, address) => {
+    expect(lockFrom(address)).toBe(1);
+    expect(shown()).toEqual({
+      pathname: '/account/unlock',
+      navigationType: 'PUSH',
+      state: { autoUnlockByFace: false }
+    });
   });
 });

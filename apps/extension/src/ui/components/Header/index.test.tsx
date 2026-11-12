@@ -36,4 +36,23 @@ describe('Header', () => {
 
     expect(screen.getByTestId('header-back-button').style.cursor).toBe('pointer');
   });
+
+  it('renders children that change after the first render', () => {
+    // An approval renders its website bar before the website check answers,
+    // then again with the official-website badge.
+    const { rerender } = render(
+      <Header>
+        <span>https://qbit.org</span>
+      </Header>
+    );
+
+    rerender(
+      <Header>
+        <span>https://qbit.org</span>
+        <span data-testid="website-bar-trusted">Official Qbit website</span>
+      </Header>
+    );
+
+    expect(screen.getByTestId('website-bar-trusted')).not.toBeNull();
+  });
 });

@@ -76,7 +76,10 @@ vi.mock('../src/services', () => ({
     getCurrentAccount: () => serviceHolder.currentAccount,
     getCurrentKeyringIndex: () => 0,
     getAccountAlianName: (_key: string, defaultName: string) => defaultName,
-    getKeyringAlianName: (_key: string, defaultName: string) => defaultName,
+    getKeyringAlianName: (_key: string, defaultName?: string) => defaultName ?? '',
+    setKeyringAlianName: () => undefined,
+    getKeyringColor: () => undefined,
+    setKeyringColor: () => undefined,
     getAddressFlag: () => 0,
     getChainType: () => ChainType.QBIT_REGTEST,
   },
@@ -88,6 +91,9 @@ vi.mock('../src/services', () => ({
     // The wallet's own record of later spends stays empty here, so a fee
     // bump's descendant check rests on what electrs reports.
     hasDependentSpend: async () => false,
+    // No send plan is open here, so none holds an input of a fee bump's
+    // original.
+    getPlanHeldOutpointKeys: async () => new Set<string>(),
     takeRecentSpendersToProbe: async () => [],
     settleRecentSpendProbe: async () => undefined,
     recordAcceptedBroadcast: async () => undefined,

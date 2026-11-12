@@ -271,7 +271,7 @@ describe('TxCreateScreen state hooks', () => {
     })
   })
 
-  it('blocks qbit sends that fit balance but cannot cover P2MR fees', async () => {
+  it('blocks qbit sends that fit balance but cannot cover P2MR fees, and says so (#188)', async () => {
     const account = p2mrAccount()
     const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
@@ -316,17 +316,21 @@ describe('TxCreateScreen state hooks', () => {
       result.current.onAmountInputChange('0.00009500')
     })
 
+    // The balance covers the amount, not its fee: the screen says so and
+    // offers what can be sent instead.
     await waitFor(() => {
-      expect(result.current.error).toBe('amount_exceeds_your_available_balance')
+      expect(result.current.sendPlanRefusal?.message).toBe('send_plan_short_of_fees')
       expect(result.current.disabled).toBe(true)
     })
+    expect(result.current.error).toBe('')
+    expect(result.current.sendPlanRefusal?.offerButtonText).toBe('send_plan_use_max_sendable')
 
     act(() => {
       result.current.onAmountInputChange('0.00008000')
     })
 
     await waitFor(() => {
-      expect(result.current.error).toBe('amount_exceeds_your_available_balance')
+      expect(result.current.sendPlanRefusal?.message).toBe('send_plan_short_of_fees')
       expect(result.current.disabled).toBe(true)
     })
 
@@ -1888,10 +1892,12 @@ describe('TxCreateScreen state hooks', () => {
         expect(result.current.error).toBe('utxo_limit_exceeded_send')
         expect(result.current.disabled).toBe(true)
       })
-      // Unknown, not zero, and the way out is offered.
+      // Unknown, not zero. Consolidation is still offered, but not the note
+      // that sends read the outputs from history: that read failed (#169).
       expect(result.current.availableAmount).toBe('--')
       expect(result.current.unavailableAmount).toBe('--')
       expect(result.current.showConsolidate).toBe(true)
+      expect(result.current.consolidationNote).toBe('')
       act(() => {
         result.current.onClickConsolidate()
       })
@@ -2074,6 +2080,7 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.showUnavailable).toBe(true)
       expect(result.current.error).toBe('')
       expect(result.current.showConsolidate).toBe(true)
+      expect(result.current.consolidationNote).toBe('consolidation_send_note')
     })
 
     it('shows an unknown balance figure as unknown, not 0, for an account without a P2MR script (#341)', async () => {
@@ -2155,12 +2162,13 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.error).toBe('')
       expect(result.current.availableAmount).toBe('0.06000000')
       expect(result.current.showConsolidate).toBe(true)
+      expect(result.current.consolidationNote).toBe('consolidation_send_note')
     })
 
-    it('names the largest standard send when an amount needs more than 106 inputs', async () => {
+    it('plans an amount that needs more than 106 inputs instead of refusing it (#188)', async () => {
       const account = p2mrAccount()
       const harness = createSendHarness()
-      const { t, wrapper } = withRecordingI18n(harness.wrapper)
+      const { wrapper } = withRecordingI18n(harness.wrapper)
       loadAccount(harness, account, manyOutputs(account, Array(150).fill(10_000)))
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
@@ -2171,12 +2179,12 @@ describe('TxCreateScreen state hooks', () => {
       })
 
       await waitFor(() => {
-        expect(result.current.error).toBe('send_exceeds_standard_size')
-        expect(result.current.disabled).toBe(true)
+        expect(result.current.sendPlanNotice).toBeDefined()
+        expect(result.current.disabled).toBe(false)
       })
-      // 106 inputs of 10,000 less the exact 398,827-bit fee.
-      expect(t).toHaveBeenCalledWith('send_exceeds_standard_size', ['106', '0.00661173', 'QBT'])
+      expect(result.current.error).toBe('')
 
+      // One transaction of it is never built.
       const { result: prepare } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
       await expect(
         prepare.current({
@@ -2184,7 +2192,7 @@ describe('TxCreateScreen state hooks', () => {
           toAmount: 700_000,
           feeRate: 1,
         })
-      ).rejects.toThrow('send_exceeds_standard_size')
+      ).rejects.toThrow('send_plan_outputs_changed')
       expect(harness.wallet.createSendQbitPsbt).not.toHaveBeenCalled()
     })
 
@@ -2261,14 +2269,15 @@ describe('TxCreateScreen state hooks', () => {
       expect(preflight(100_000)).toMatchObject({ canCover: true, exceedsAncestorSize: true })
     })
 
-    it('discloses the outputs Max leaves behind past the standard size', async () => {
+    it('discloses the outputs Max leaves behind past the standard size when combining them gains nothing', async () => {
       const account = p2mrAccount()
       const harness = createSendHarness()
       const { t, wrapper } = withRecordingI18n(harness.wrapper)
+      // Outputs worth less than their own fee: a send plan would not spend them.
       loadAccount(
         harness,
         account,
-        manyOutputs(account, [...Array(44).fill(4_000), ...Array(106).fill(20_000)])
+        manyOutputs(account, [...Array(44).fill(3_000), ...Array(106).fill(20_000)])
       )
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
@@ -2284,12 +2293,13 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.feeDetail).toMatchObject({
         inputCount: 106,
         leftBehindInputCount: 44,
-        leftBehindSats: 176_000,
+        leftBehindSats: 132_000,
       })
+      expect(result.current.sendPlanNotice).toBeUndefined()
       expect(result.current.leftBehindNote).toBe('send_all_leaves_outputs_behind')
       expect(t).toHaveBeenCalledWith('send_all_leaves_outputs_behind', [
         '106',
-        '0.00176000',
+        '0.00132000',
         'QBT',
         '44',
       ])
@@ -2809,7 +2819,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         feeWarningTitle: 'the_fee_rate_is_much_higher_than_recommended_fee_rate',
         feeWarnings: [
           'fee_warning_above_recommended:400,200,2',
-          'fee_warning_above_relay_floor:400,400,1',
+          'fee_warning_above_relay_floor:400,1600,0.25',
           'fee_warning_amount_share:1544,0.00100000,QBT',
         ],
         feeRecommendationUnavailable: undefined,
@@ -2830,7 +2840,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         totalSpend: '0.01644000',
         feeWarningTitle: 'high_fee_rate_risk_title',
         feeWarnings: [
-          'fee_warning_above_relay_floor:400,400,1',
+          'fee_warning_above_relay_floor:400,1600,0.25',
           'fee_warning_amount_share:1544,0.00100000,QBT',
         ],
         feeRecommendationUnavailable: 'fee_warning_recommendation_unavailable',
@@ -2851,7 +2861,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       result.current.onAmountInputChange('0.00020000')
     })
 
-    // Until the quote loads the relay floor stands in for it, and 2 bits/vB is twice that.
+    // Until the quote loads the 1 bit/vB fallback rate stands in for it, and 2 bits/vB is twice that.
     await waitFor(() => {
       expect(result.current.spendSummary).toMatchObject({ feeWarnings: [] })
     })
@@ -3031,7 +3041,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
   })
 
   it('keeps Next disabled while the rate catches up with a newer quote, then judges the fee', async () => {
-    // Fast at 150 bits/vB, 150 times the relay floor.
+    // Fast at 150 bits/vB, past the 100 bits/vB bound of an abnormal rate.
     const busyQuote = {
       ...LIVE_QUOTE,
       list: [
@@ -3104,7 +3114,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     }
   })
 
-  // Slow, Normal and Fast at 50, 100 and 150 bits/vB: 50 to 150 times the relay floor.
+  // Slow, Normal and Fast at 50, 100 and 150 bits/vB: 200 to 600 times the relay floor.
   const BUSY_QUOTE = {
     ...LIVE_QUOTE,
     list: [
@@ -3562,7 +3572,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     const { result, store, quoteRead, heldOnTestnet } =
       await sendOnAnotherNetworkWhileItsQuoteLoads()
 
-    // Testnet's quote has no estimates: its tiers are at the relay floor.
+    // Testnet's quote has no estimates: its tiers are at the 1 bit/vB fallback rate.
     await act(async () => {
       quoteRead.resolve(FALLBACK_QUOTE)
     })
@@ -3579,7 +3589,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     expectHeld(heldOnTestnet())
   })
 
-  it('keeps Next disabled after a network change whose quote cannot be read until the relay floor is in use', async () => {
+  it('keeps Next disabled after a network change whose quote cannot be read until the fallback rate is in use', async () => {
     const { result, store, quoteRead, heldOnTestnet } =
       await sendOnAnotherNetworkWhileItsQuoteLoads()
 
@@ -3598,4 +3608,331 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     expect(result.current.screen.disabled).toBe(false)
     expectHeld(heldOnTestnet())
   })
+
+  it('accepts a Custom rate of 0.25 bits/vB, the relay floor, and refuses 0.24', async () => {
+    const { result, store } = renderSend({ feeRate: 0.25, quote: LIVE_QUOTE })
+    act(() => {
+      result.current.onAmountInputChange('0.00100000')
+    })
+
+    // One input paying the recipient and change: 3,860 vB at 0.25 bits/vB.
+    await waitFor(() => expect(result.current.disabled).toBe(false))
+    expect(result.current.feeDetail).toMatchObject({
+      estimatedFee: 965,
+      estimatedVsize: 3_860,
+      inputCount: 1,
+      changeDroppedSats: 0,
+    })
+    expect(result.current.spendSummary).toEqual({ totalSpend: '0.00100965', feeWarnings: [] })
+    expect(result.current.error).toBe('')
+
+    act(() => {
+      store.dispatch(
+        (uiActions as any).updateFeeRateBar({
+          feeRate: 0.24,
+          feeRateInputVal: '0.24',
+          feeOptionIndex: 3,
+        })
+      )
+    })
+    await waitFor(() => expect(result.current.disabled).toBe(true))
+    expect(result.current.feeDetail).toBeUndefined()
+    expect(result.current.spendSummary).toBeUndefined()
+    expect(result.current.error).toBe('fee_rate_below_minimum:0.25')
+  })
+
+  it('keeps Next disabled for a Custom rate typed below the floor, still being typed or no rate at all', async () => {
+    const { wrapper, recipient, store, wallet } = prepareSend({ feeRate: 1, quote: LIVE_QUOTE })
+    const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00100000')
+    })
+    await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(3_860))
+
+    const typeRate = async (text: string) => {
+      act(() => {
+        result.current.feeBar.adjustFeeRateInput(text)
+      })
+      await act(async () => {})
+    }
+
+    await typeRate('0.25')
+    await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(965))
+    expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 3, feeRate: 0.25 })
+    expect(result.current.screen.disabled).toBe(false)
+
+    for (const [text, error] of [
+      ['0.24', 'fee_rate_below_minimum:0.25'],
+      ['0', ''],
+      ['0.', ''],
+      ['0.2', 'fee_rate_below_minimum:0.25'],
+      ['', ''],
+      ['abc', ''],
+      ['0,25', ''],
+    ]) {
+      await typeRate(text)
+      await waitFor(() => expect(result.current.screen.disabled).toBe(true))
+      expect(store.getState().ui.feeRateBar.feeRate).toBeLessThan(0.25)
+      expect(result.current.screen.feeDetail).toBeUndefined()
+      expect(result.current.screen.error).toBe(error)
+
+      await typeRate('0.25')
+      await waitFor(() => expect(result.current.screen.disabled).toBe(false))
+    }
+    expect(wallet.createSendQbitPsbt).not.toHaveBeenCalled()
+  })
+
+  it('says the minimum is 0.25 bits/vB for a Custom rate typed below it, and nothing at it or while typing', async () => {
+    const { wrapper, recipient, store } = prepareSend({ feeRate: 1, quote: LIVE_QUOTE })
+    const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00100000')
+    })
+    await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(3_860))
+
+    for (const [text, feeRate, error, disabled] of [
+      ['0.24', 0.24, 'fee_rate_below_minimum:0.25', true],
+      ['0.25', 0.25, '', false],
+      ['0.', 0, '', true],
+      ['0.2', 0.2, 'fee_rate_below_minimum:0.25', true],
+      ['0', 0, '', true],
+      ['', 0, '', true],
+      ['0.26', 0.26, '', false],
+    ] as const) {
+      act(() => {
+        result.current.feeBar.adjustFeeRateInput(text)
+      })
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(feeRate))
+      await act(async () => {})
+      // In the screen's error line, where it says why a rate above the ceiling is refused.
+      expect(result.current.screen.error).toBe(error)
+      expect(result.current.screen.disabled).toBe(disabled)
+    }
+  })
+
+  it('says nothing about the minimum for a tier below it, which the user did not type', async () => {
+    const { wrapper, recipient, store } = prepareSend({
+      feeRate: 1,
+      quote: {
+        ...LIVE_QUOTE,
+        list: [
+          { title: 'Slow', desc: '', feeRate: 0.2 },
+          { title: 'Normal', desc: '', feeRate: 0.5 },
+          { title: 'Fast', desc: '', feeRate: 1 },
+        ],
+      },
+    })
+    const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00100000')
+    })
+    await waitFor(() => expect(feeBarRates(result.current.feeBar)).toEqual([0.2, 0.5, 1]))
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(1)
+    })
+    await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(1_930))
+
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(0)
+    })
+    await waitFor(() =>
+      expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 0, feeRate: 0.2 })
+    )
+    await act(async () => {})
+    expect(result.current.screen.disabled).toBe(true)
+    expect(result.current.screen.feeDetail).toBeUndefined()
+    expect(result.current.screen.error).toBe('')
+  })
+
+  // What the send screen says for each Custom rate typed, the rate it reads
+  // as, and whether Next stays disabled (#182).
+  it.each([
+    ['', 0, '', true],
+    ['0', 0, '', true],
+    ['0.', 0, '', true],
+    ['0.0', 0, 'fee_rate_below_minimum:0.25', true],
+    ['0.00', 0, 'fee_rate_below_minimum:0.25', true],
+    ['00', 0, 'fee_rate_below_minimum:0.25', true],
+    ['0.1', 0.1, 'fee_rate_below_minimum:0.25', true],
+    ['0.24', 0.24, 'fee_rate_below_minimum:0.25', true],
+    ['0.25', 0.25, '', false],
+    ['1', 1, '', false],
+  ] as const)(
+    'gives the minimum fee rate for a Custom rate typed as "%s" (%s bits/vB) only when it is a number below 0.25: "%s"',
+    async (text, feeRate, error, disabled) => {
+      const { wrapper, recipient, store } = prepareSend({ feeRate: 2, quote: LIVE_QUOTE })
+      const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+      act(() => {
+        result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+        result.current.screen.onAmountInputChange('0.00100000')
+      })
+      // At the Custom 2 bits/vB the screen opens with: 3,860 vB.
+      await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(7_720))
+      expect(result.current.screen.disabled).toBe(false)
+
+      act(() => {
+        result.current.feeBar.adjustFeeRateInput(text)
+      })
+      await waitFor(() => expect(store.getState().ui.feeRateBar.feeRate).toBe(feeRate))
+      await act(async () => {})
+      expect(store.getState().ui.feeRateBar).toMatchObject({
+        feeOptionIndex: 3,
+        feeRateInputVal: text,
+      })
+      expect(result.current.screen.error).toBe(error)
+      expect(result.current.screen.disabled).toBe(disabled)
+    }
+  )
+
+  it('gives no minimum fee rate for a tier, below the floor or not, chosen after a Custom rate below it', async () => {
+    const { wrapper, recipient, store } = prepareSend({
+      feeRate: 1,
+      quote: {
+        ...LIVE_QUOTE,
+        list: [
+          { title: 'Slow', desc: '', feeRate: 0.2 },
+          { title: 'Normal', desc: '', feeRate: 0.5 },
+          { title: 'Fast', desc: '', feeRate: 1 },
+        ],
+      },
+    })
+    const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.screen.onAmountInputChange('0.00100000')
+    })
+    await waitFor(() => expect(feeBarRates(result.current.feeBar)).toEqual([0.2, 0.5, 1]))
+    act(() => {
+      result.current.feeBar.adjustFeeRateInput('0.0')
+    })
+    await waitFor(() => expect(result.current.screen.error).toBe('fee_rate_below_minimum:0.25'))
+
+    // Slow, at 0.2 bits/vB: refused, without the reason, which is for a rate typed.
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(0)
+    })
+    await waitFor(() =>
+      expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 0, feeRate: 0.2 })
+    )
+    await act(async () => {})
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.disabled).toBe(true)
+
+    // Normal, at 0.5 bits/vB: 1,930 bits for 3,860 vB.
+    act(() => {
+      result.current.feeBar.setFeeOptionIndex(1)
+    })
+    await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(1_930))
+    expect(result.current.screen.error).toBe('')
+    expect(result.current.screen.disabled).toBe(false)
+  })
+
+  /** Slow, Normal and Fast at 0.25, 0.5 and 1 bits/vB, as the background quotes an empty mempool. */
+  const SUB_ONE_BIT_QUOTE = {
+    list: [
+      { title: 'Slow', desc: '', feeRate: 0.25 },
+      { title: 'Normal', desc: '', feeRate: 0.5 },
+      { title: 'Fast', desc: '', feeRate: 1 },
+    ],
+    quote: { source: 'mempool-qbit', availability: 'available', freshness: 'live' },
+  }
+
+  it('previews a 3,817 vB one-input send at 955, 1,909 and 3,817 bits from tiers of 0.25, 0.5 and 1 bits/vB', async () => {
+    const { wrapper, recipient, store } = prepareSend({
+      feeRate: 1,
+      quote: SUB_ONE_BIT_QUOTE,
+      utxoValues: [100_000],
+    })
+    // Normal, which the bar opens at.
+    store.dispatch((uiActions as any).updateFeeRateBar({ feeOptionIndex: 1 }))
+    const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    act(() => {
+      result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+    })
+    act(() => {
+      result.current.screen.onAmountMaxClick()
+    })
+
+    // The default option, Normal, at 0.5 bits/vB.
+    await waitFor(() =>
+      expect(result.current.screen.feeDetail).toMatchObject({
+        estimatedFee: 1_909,
+        estimatedVsize: 3_817,
+        inputCount: 1,
+      })
+    )
+    expect(store.getState().ui.feeRateBar.feeRate).toBe(0.5)
+    expect(feeBarRates(result.current.feeBar)).toEqual([0.25, 0.5, 1])
+    expect(result.current.screen.disabled).toBe(false)
+
+    for (const [index, feeRate, fee] of [
+      [0, 0.25, 955],
+      [2, 1, 3_817],
+      [1, 0.5, 1_909],
+    ] as const) {
+      act(() => {
+        result.current.feeBar.setFeeOptionIndex(index)
+      })
+      await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(fee))
+      expect(store.getState().ui.feeRateBar.feeRate).toBe(feeRate)
+      expect(result.current.screen.feeDetail?.estimatedVsize).toBe(3_817)
+      expect(result.current.screen.spendSummary).toEqual({
+        totalSpend: '0.00100000',
+        feeWarnings: [],
+      })
+      expect(result.current.screen.disabled).toBe(false)
+    }
+  })
+
+  it.each([
+    ['a quote without estimates', false],
+    ['a fee read that failed', true],
+  ])(
+    'sends at the 1 bit/vB fallback rate after %s, and at a Custom 0.25 bits/vB when asked',
+    async (_label, readFails) => {
+      const { wallet, wrapper, recipient, store } = prepareSend({
+        feeRate: 1,
+        quote: FALLBACK_QUOTE,
+        utxoValues: [100_000],
+      })
+      if (readFails) wallet.getFeeSummary.mockRejectedValue(new Error('fee read failed'))
+      // Normal, at an earlier quote's 40 bits/vB.
+      store.dispatch(
+        (uiActions as any).updateFeeRateBar({
+          feeRate: 40,
+          feeRateInputVal: '40',
+          feeOptionIndex: 1,
+        })
+      )
+      const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+      act(() => {
+        result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
+      })
+      act(() => {
+        result.current.screen.onAmountMaxClick()
+      })
+
+      await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(3_817))
+      expect(store.getState().ui.feeRateBar.feeRate).toBe(1)
+      expect(result.current.feeBar.fallbackFeeRate).toBe(1)
+      expect(result.current.screen.disabled).toBe(false)
+      // Normal is at the fallback rate; after a failed read there is no Normal
+      // to select, and the input shows the fallback rate all the same.
+      act(() => {
+        result.current.feeBar.setFeeOptionIndex(1)
+      })
+      expect(result.current.feeBar.feeRateInputVal).toBe('1')
+
+      act(() => {
+        result.current.feeBar.adjustFeeRateInput('0.25')
+      })
+      await waitFor(() => expect(result.current.screen.feeDetail?.estimatedFee).toBe(955))
+      expect(store.getState().ui.feeRateBar).toMatchObject({ feeOptionIndex: 3, feeRate: 0.25 })
+      expect(result.current.feeBar.fallbackFeeRate).toBeUndefined()
+      expect(result.current.screen.disabled).toBe(false)
+    }
+  )
 })

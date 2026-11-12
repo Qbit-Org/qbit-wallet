@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "Create a password"
   },
-  "create_an_account": {
-    "message": "Create an Account"
-  },
   "hardware_wallet_not_supported": {
     "message": "Hardware wallets don't support Qbit's post-quantum signatures yet. Track progress in the project's hardware-wallet documentation."
   },
@@ -530,11 +527,14 @@
   "fee_estimates_unavailable": {
     "message": "Fee estimates are unavailable."
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "Fee estimates are unavailable. Using the $1 bit/vB relay floor."
+  "fee_estimates_unavailable_using_default": {
+    "message": "Fee estimates are unavailable. Using the wallet's default rate of $1 bit/vB."
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "Fee exceeds the wallet safety limit of $1 bit/vB (maximum $2 $3 for this exact transaction size)."
+  },
+  "fee_rate_below_minimum": {
+    "message": "The minimum fee rate is $1 bits/vB."
   },
   "estimated_inputs_and_size": {
     "message": "~$1 inputs · ~$2 kB"
@@ -857,6 +857,9 @@
   "only_connect_with_sites_you_trust": {
     "message": "Only connect with sites you trust."
   },
+  "official_qbit_website": {
+    "message": "Official Qbit website"
+  },
   "only_sign_this_message_if_you_fully_understand_the": {
     "message": "Only sign this message if you fully understand the content and trust the requesting site."
   },
@@ -1001,6 +1004,15 @@
   "refresh": {
     "message": "Refresh"
   },
+  "hide_balance": {
+    "message": "Hide balance"
+  },
+  "show_balance": {
+    "message": "Show balance"
+  },
+  "refresh_balance": {
+    "message": "Refresh balance"
+  },
   "refresh_page": {
     "message": "Refresh Page"
   },
@@ -1127,6 +1139,45 @@
   "signed": {
     "message": "Signed"
   },
+  "signing_in_progress": {
+    "message": "Signing…"
+  },
+  "signing_progress_title": {
+    "message": "Signing transaction"
+  },
+  "signing_progress_starting": {
+    "message": "Starting…"
+  },
+  "signing_progress_inputs": {
+    "message": "$1 of $2 inputs signed"
+  },
+  "signing_progress_transaction": {
+    "message": "Transaction $1 of $2"
+  },
+  "signing_progress_minutes_left": {
+    "message": "About $1 min left"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "Less than a minute left"
+  },
+  "signing_keep_open_title": {
+    "message": "Keep the wallet open"
+  },
+  "signing_keep_open": {
+    "message": "Closing the wallet before signing finishes cancels the transaction, and nothing is sent."
+  },
+  "signing_keep_open_popup": {
+    "message": "Clicking outside this popup closes it. Closing the wallet before signing finishes cancels the transaction, and nothing is sent."
+  },
+  "signing_many_inputs_title": {
+    "message": "Signing will take a while"
+  },
+  "signing_many_inputs_body": {
+    "message": "This transaction spends $1 inputs, and each needs its own signature, so signing can take a few minutes. Keep the wallet open until it finishes."
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "Opened in the sidebar, the wallet stays open while you use other tabs."
+  },
   "skip": {
     "message": "Skip"
   },
@@ -1180,9 +1231,6 @@
   },
   "switch_network": {
     "message": "Switch Network"
-  },
-  "switch_wallet": {
-    "message": "Switch Wallet"
   },
   "the_auto_lock_time_has_been_changed_to": {
     "message": "The auto-lock time has been changed to"
@@ -1283,6 +1331,12 @@
   "tx_broadcast_reason_rejected_unconfirmed": {
     "message": "The network node reported an error, but the wallet couldn't confirm whether the transaction was accepted."
   },
+  "tx_broadcast_reason_too_large": {
+    "message": "The network service refused this transaction because it is too large to broadcast. For a consolidation, prepare a smaller batch."
+  },
+  "tx_broadcast_reason_too_large_unconfirmed": {
+    "message": "The network service reported that this transaction is too large to broadcast, but the wallet couldn't confirm whether it was accepted."
+  },
   "tx_broadcast_reason_server": {
     "message": "The network service returned an error."
   },
@@ -1306,6 +1360,9 @@
   },
   "tx_broadcast_status_gone": {
     "message": "The transaction hasn't been found on the network yet. Wait a moment and check again, or retry the broadcast."
+  },
+  "tx_broadcast_status_gone_no_retry": {
+    "message": "The transaction hasn't been found on the network yet. Wait a moment and check again."
   },
   "tx_broadcast_status_unavailable": {
     "message": "The network couldn't be reached to check the status. Try again in a moment."
@@ -1338,7 +1395,7 @@
     "message": "Unavailable"
   },
   "unavailable_tooltip": {
-    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to:\n• Protected assets\n• Unconfirmed transactions\n• Awaiting coinbase maturity (1,000 blocks)"
   },
   "unconfirmed": {
     "message": "unconfirmed"
@@ -1354,6 +1411,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "The wallet locked while unlocking. Unlock it again."
+  },
+  "broadcasting_transaction": {
+    "message": "Broadcasting transaction…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "The wallet locked before signing finished, so nothing was sent. Unlock it and sign again."
   },
   "use_at_your_own_risk": {
     "message": "Use at your own risk"
@@ -1659,10 +1722,10 @@
     "message": "Not moved yet"
   },
   "qbit_recovery_deferred_history_too_large": {
-    "message": "This account holds more outputs than the explorer lists and has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Switch to it, open Send and choose Consolidate outputs until it is within the explorer's limit, then return here."
+    "message": "The explorer does not list this account's outputs, and the account has more than $1 transactions, too many for the wallet to read its outputs from its history, so its funds have not been moved. Consolidating does not change that. They can be moved here once the explorer's operator raises its limit and the explorer lists the outputs again."
   },
   "qbit_recovery_deferred_history_incomplete": {
-    "message": "This account holds more outputs than the explorer lists, and the wallet could not read its whole history from the explorer to find them, so its funds have not been moved yet. This can clear once its pending transactions change, for example when one confirms. Choose Check status and resume later to try again."
+    "message": "The explorer does not list this account's outputs, and the wallet could not read its whole history from the explorer to find them, so its funds have not been moved yet. This can clear once its pending transactions change, for example when one confirms. Choose Check status and resume later to try again."
   },
   "qbit_recovery_plan_prepared": {
     "message": "Ready for review and signing"
@@ -1686,7 +1749,7 @@
     "message": "The originally recovered wallet is read-only. Its keys and recovery record remain available so failed, reorganized, or newly received funds can be detected and moved safely."
   },
   "qbit_recovery_complete_switch_wallet_hint": {
-    "message": "You can access the originally recovered read-only wallet from the top left Switch Wallet option."
+    "message": "You can open the originally recovered read-only wallet from the account switcher on the home screen."
   },
   "qbit_recovery_original_address_label": {
     "message": "Original recovered address:"
@@ -1850,17 +1913,335 @@
   "touch_id_onboarding_desc": {
     "message": "You can unlock your wallet with Touch ID instead of your password. You can also enable this later in Settings."
   },
-  "send_exceeds_standard_size": {
-    "message": "This amount needs more than $1 inputs, over the network's standard transaction size. Send at most $2 $3 at a time, or use MAX."
-  },
   "send_all_leaves_outputs_behind": {
     "message": "MAX sends your $1 largest outputs, the most one transaction can carry. $2 $3 in $4 smaller outputs stays in this account."
   },
   "send_exceeds_ancestor_size": {
     "message": "Together with your earlier send that has not confirmed yet, this send would be larger than the network accepts. Wait for the earlier send to confirm, or send a smaller amount."
   },
+  "send_plan_notice_title": {
+    "message": "This payment needs $1 transactions"
+  },
+  "send_plan_notice_title_everything": {
+    "message": "Sending your whole balance needs $1 transactions"
+  },
+  "send_plan_steps_none": {
+    "message": "Only the payment is left: your funds are already combined."
+  },
+  "send_plan_steps_one": {
+    "message": "One to combine your funds, then the payment."
+  },
+  "send_plan_steps_many": {
+    "message": "$1 to combine your funds, then the payment."
+  },
+  "send_plan_receives": {
+    "message": "Recipient receives"
+  },
+  "send_plan_total_fee": {
+    "message": "Total fee"
+  },
+  "send_plan_signing_label": {
+    "message": "Signing"
+  },
+  "send_plan_signatures": {
+    "message": "$1 signatures"
+  },
+  "send_plan_time_minutes": {
+    "message": "about $1 min"
+  },
+  "send_plan_time_under_a_minute": {
+    "message": "under a minute"
+  },
+  "send_plan_left_behind": {
+    "message": "$1 $2 stays in this account: funds worth less than the fee to send them."
+  },
+  "send_plan_unconfirmed_not_included": {
+    "message": "$1 $2 has not confirmed yet and is not included. It can be sent once it confirms."
+  },
+  "send_plan_short_of_fees": {
+    "message": "Your balance covers this amount, but not the amount plus every fee."
+  },
+  "send_plan_exceeds_plan_size": {
+    "message": "This amount needs more transactions than one payment can use."
+  },
+  "send_plan_exceeds_maximum_fee": {
+    "message": "At this amount the fee would pass the wallet's safety limit."
+  },
+  "send_plan_nothing_to_send": {
+    "message": "Nothing can be sent: these funds are worth less than the fees to send them."
+  },
+  "send_plan_max_sendable": {
+    "message": "You can send up to $1 $2."
+  },
+  "send_plan_use_max_sendable": {
+    "message": "Use $1 $2"
+  },
+  "send_plan_unconfirmed_note": {
+    "message": "$1 $2 has not confirmed yet and can be sent once it confirms."
+  },
+  "send_plan_already_open": {
+    "message": "A payment from this account is already in progress."
+  },
+  "send_plan_open_holds_rest": {
+    "message": "A payment from this account is already in progress and holds the rest of its funds."
+  },
+  "send_plan_view_open": {
+    "message": "View payment"
+  },
+  "send_plan_outputs_unavailable": {
+    "message": "The wallet could not read this account's funds, so it cannot prepare this payment now. Try again in a moment."
+  },
+  "send_plan_outputs_changed": {
+    "message": "The funds this payment would use have changed. Review the payment again."
+  },
+  "send_plan_review_expired": {
+    "message": "This review has expired. Review the payment again."
+  },
+  "send_plan_review_unavailable": {
+    "message": "This review is no longer available. Go back and review the payment again."
+  },
+  "send_plan_review_title": {
+    "message": "Review payment"
+  },
+  "send_plan_review_transactions": {
+    "message": "Transactions"
+  },
+  "send_plan_review_change": {
+    "message": "Back to this wallet"
+  },
+  "send_plan_review_budget": {
+    "message": "Signatures left: $1 now, $2 after"
+  },
+  "send_plan_review_note": {
+    "message": "Signing continues if you close this window. Locking the wallet pauses it until you unlock it."
+  },
+  "send_plan_revision_title": {
+    "message": "This changes the payment you confirmed"
+  },
+  "send_plan_revision_unchanged": {
+    "message": "The recipient and the amount stay the same."
+  },
+  "send_plan_revision_recipient_unchanged": {
+    "message": "The recipient stays the same."
+  },
+  "send_plan_revision_amount": {
+    "message": "The recipient now receives $1 $2 instead of $3 $4."
+  },
+  "send_plan_revision_paid": {
+    "message": "Fees already paid: $1 $2"
+  },
+  "send_plan_revision_total_fee": {
+    "message": "The total fee is now $1 $2 instead of $3 $4."
+  },
+  "send_plan_revision_same_title": {
+    "message": "A new plan for the same payment"
+  },
+  "send_plan_revision_same": {
+    "message": "The recipient, the amount and the total fee stay the same."
+  },
+  "send_plan_header": {
+    "message": "Payment"
+  },
+  "send_plan_to": {
+    "message": "To $1"
+  },
+  "send_plan_fee_summary": {
+    "message": "Total fee: $1 $2 ($3 bits/vB)"
+  },
+  "send_plan_stage_signing": {
+    "message": "Signing"
+  },
+  "send_plan_stage_combining": {
+    "message": "Combining your funds"
+  },
+  "send_plan_stage_paying": {
+    "message": "Sending the payment"
+  },
+  "send_plan_stage_done": {
+    "message": "Payment sent"
+  },
+  "send_plan_signatures_progress": {
+    "message": "$1 of $2 signatures"
+  },
+  "send_plan_combine_progress": {
+    "message": "$1 of $2 confirmed"
+  },
+  "send_plan_signing_close_note": {
+    "message": "You can close this window: signing continues. Locking the wallet pauses it."
+  },
+  "send_plan_waiting_note": {
+    "message": "The payment goes out once your combined funds confirm. You can close this window."
+  },
+  "send_plan_slow_merge": {
+    "message": "Combining your funds is taking longer than usual to confirm. You can keep waiting, or raise the fee."
+  },
+  "send_plan_cancelling_title": {
+    "message": "Cancelling the payment"
+  },
+  "send_plan_cancelling_body": {
+    "message": "The wallet is checking one transaction before it releases your funds."
+  },
+  "send_plan_read_failed": {
+    "message": "The wallet could not read this payment's progress. It will try again shortly."
+  },
+  "send_plan_paused_locked": {
+    "message": "The wallet locked before signing finished"
+  },
+  "send_plan_paused_locked_body": {
+    "message": "Signing continues once the wallet is unlocked."
+  },
+  "send_plan_paused_interrupted": {
+    "message": "Signing stopped before it finished"
+  },
+  "send_plan_paused_interrupted_body": {
+    "message": "The browser or the wallet restarted, or signing failed. Continue to sign the rest."
+  },
+  "send_plan_paused_merge_refused": {
+    "message": "Your funds could not be combined as planned"
+  },
+  "send_plan_paused_merge_refused_body": {
+    "message": "A transaction that combines your funds cannot be sent as planned. Review the payment again to go on."
+  },
+  "send_plan_paused_outputs_spent": {
+    "message": "Funds this payment uses were spent"
+  },
+  "send_plan_paused_outputs_spent_body": {
+    "message": "Something outside this payment spent funds it was going to use. Review the payment again, or cancel it."
+  },
+  "send_plan_paused_payment_fee_too_low": {
+    "message": "The payment's fee is too low"
+  },
+  "send_plan_paused_payment_fee_too_low_body": {
+    "message": "The network asks for a higher fee to accept the payment. Raise the fee to send it."
+  },
+  "send_plan_paused_payment_refused": {
+    "message": "The network refused the payment"
+  },
+  "send_plan_paused_payment_refused_body": {
+    "message": "The payment was not sent. Review it again, or cancel it."
+  },
+  "send_plan_paused_payment_refused_unexplained": {
+    "message": "The network refused the payment without a reason"
+  },
+  "send_plan_paused_payment_refused_unexplained_body": {
+    "message": "The payment was not sent. A fee that is too low is the usual cause: raise the fee to send it, or review it again."
+  },
+  "send_plan_paused_unreadable": {
+    "message": "This payment cannot be read"
+  },
+  "send_plan_paused_unreadable_body": {
+    "message": "This version of the wallet cannot read the saved payment, so it cannot go on with it."
+  },
+  "send_plan_paused_other": {
+    "message": "The payment is paused"
+  },
+  "send_plan_funds_untouched": {
+    "message": "Nothing has been sent to the recipient. Your funds are in this wallet, as they were."
+  },
+  "send_plan_funds_partly_combined": {
+    "message": "Nothing has been sent to the recipient. Your funds are in this wallet, partly combined."
+  },
+  "send_plan_funds_combined": {
+    "message": "Nothing has been sent to the recipient. Your funds are in this wallet, combined."
+  },
+  "send_plan_may_confirm_title": {
+    "message": "The payment may still go through"
+  },
+  "send_plan_may_confirm_body": {
+    "message": "The payment was sent, but the wallet got no answer, so it may still go through. The wallet keeps checking. Until this is settled, do not pay this recipient another way."
+  },
+  "send_plan_may_confirm_continue": {
+    "message": "You can send the same payment again, which cannot pay the recipient twice."
+  },
+  "send_plan_may_confirm_raise_or_continue": {
+    "message": "You can raise its fee or send the same payment again. Neither can pay the recipient twice."
+  },
+  "send_plan_may_confirm_raise": {
+    "message": "You can raise its fee, which cannot pay the recipient twice."
+  },
+  "send_plan_may_confirm_funds_held": {
+    "message": "The funds this payment uses are in this wallet, held for it."
+  },
+  "send_plan_may_confirm_funds_partly_combined": {
+    "message": "The funds this payment uses are in this wallet, partly combined and held for it."
+  },
+  "send_plan_may_confirm_funds_combined": {
+    "message": "The funds this payment uses are in this wallet, combined and held for it."
+  },
+  "send_plan_action_replan": {
+    "message": "Review again"
+  },
+  "send_plan_action_raise_merge_fee": {
+    "message": "Speed up with a higher fee"
+  },
+  "send_plan_action_raise_payment_fee": {
+    "message": "Raise the fee"
+  },
+  "send_plan_action_cancel": {
+    "message": "Cancel payment"
+  },
+  "send_plan_action_dismiss": {
+    "message": "Remove from home"
+  },
+  "send_plan_cancel_title": {
+    "message": "Cancel this payment?"
+  },
+  "send_plan_cancel_body": {
+    "message": "Nothing will be sent to the recipient. Funds already combined stay in this wallet as fewer, larger amounts, and fees already paid are not returned."
+  },
+  "send_plan_cancel_body_untouched": {
+    "message": "Nothing has been sent yet. Cancelling leaves your funds as they are, and no fee has been paid."
+  },
+  "send_plan_cancel_keep": {
+    "message": "Keep the payment"
+  },
+  "send_plan_raise_title": {
+    "message": "Raise the fee"
+  },
+  "send_plan_raise_body": {
+    "message": "Choose a rate above $1 bits/vB. You review the new total fee before anything changes."
+  },
+  "send_plan_replan_title": {
+    "message": "Review the payment again"
+  },
+  "send_plan_replan_body": {
+    "message": "The wallet plans the payment again from your funds as they are now, at the rate you choose here. The last plan used $1 bits/vB. You review the new plan before anything is signed."
+  },
+  "send_plan_revise_refused": {
+    "message": "The wallet cannot prepare this change now."
+  },
+  "send_plan_fee_rate_too_low": {
+    "message": "This fee rate is too low to replace the transaction already sent. Use at least $1 bits/vB."
+  },
+  "send_plan_home_sending": {
+    "message": "Sending $1 $2"
+  },
+  "send_plan_home_paused": {
+    "message": "Payment of $1 $2 paused: needs you"
+  },
+  "send_plan_home_sent": {
+    "message": "Sent $1 $2"
+  },
+  "send_plan_home_cancelling": {
+    "message": "Cancelling a payment of $1 $2"
+  },
+  "send_plan_status_signing": {
+    "message": "Signing: $1 of $2 signatures"
+  },
+  "send_plan_status_waiting": {
+    "message": "Combining your funds: $1 of $2 confirmed"
+  },
+  "send_plan_status_sending": {
+    "message": "Sending the payment"
+  },
+  "send_plan_status_sent": {
+    "message": "The network accepted the payment."
+  },
+  "send_plan_status_may_confirm": {
+    "message": "The payment may still go through: do not pay this recipient another way."
+  },
   "utxo_limit_exceeded_balance": {
-    "message": "Too many outputs for the explorer to list. This total comes from the address summary."
+    "message": "The explorer does not list this account's outputs. This total comes from the address summary."
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "Available and unavailable amounts are unknown because the explorer does not list this account's outputs."
@@ -1872,19 +2253,25 @@
     "message": "Balance could not be refreshed and may be out of date."
   },
   "utxo_limit_exceeded_send": {
-    "message": "This account holds more outputs than the explorer lists, and the wallet could not read them all from its history. Consolidate its outputs to spend from it."
+    "message": "The explorer does not list this account's outputs, and the wallet could not read them all from its history, so it cannot send from this account now. Reopen Send to try again."
   },
   "consolidate_outputs": {
     "message": "Consolidate outputs"
   },
   "consolidation_description": {
-    "message": "Each batch sends up to $1 of this account's largest confirmed outputs back to its own address as one output. You review and sign every batch."
+    "message": "Each batch sends this account's largest confirmed outputs back to its own address as one output. You choose how many go into each batch, and you review and sign every batch."
   },
   "consolidation_status": {
-    "message": "$1 confirmed outputs; the explorer lists up to $2. About $3 more batches bring this account within that limit."
+    "message": "$1 confirmed outputs; the explorer lists up to $2 per address and refuses to list this account's."
+  },
+  "consolidation_status_no_limit": {
+    "message": "$1 confirmed outputs; the explorer refuses to list this account's."
+  },
+  "consolidation_refusal_lasts": {
+    "message": "Once an address has held more outputs than the explorer's limit, the explorer keeps refusing to list it, even after consolidation, until its operator raises the limit."
   },
   "consolidation_within_limit": {
-    "message": "This account is within the explorer's limit of $1 outputs. Nothing needs consolidating."
+    "message": "The explorer lists this account's outputs. Nothing needs consolidating."
   },
   "consolidation_pending": {
     "message": "Unconfirmed transactions spend $1 of these outputs. They leave the count once those transactions confirm."
@@ -1899,13 +2286,10 @@
     "message": "Consolidate next batch"
   },
   "consolidation_send_note": {
-    "message": "This account holds more outputs than the explorer lists. Consolidate them so it can send and migrate normally again."
-  },
-  "consolidation_status_confirming": {
-    "message": "$1 confirmed outputs; the explorer lists up to $2. The pending batches bring this account within that limit once they confirm."
+    "message": "The explorer does not list this account's outputs, so the wallet reads them from its history. Consolidating merges them into fewer outputs, so sends need fewer inputs."
   },
   "consolidation_error_within_limit": {
-    "message": "This account is within the explorer's output limit. It does not need consolidating."
+    "message": "The explorer lists this account's outputs. It does not need consolidating."
   },
   "consolidation_error_nothing_ready": {
     "message": "No confirmed outputs are ready to consolidate yet. Try again later."
@@ -1918,6 +2302,24 @@
   },
   "consolidation_error_keep_reading": {
     "message": "The wallet has read part of this account's history without finding outputs ready to merge. Prepare again to read further."
+  },
+  "consolidation_batch_size_label": {
+    "message": "Outputs per batch"
+  },
+  "consolidation_batch_size_range": {
+    "message": "From $1 to $2, the most one transaction can carry."
+  },
+  "consolidation_batch_size_invalid": {
+    "message": "Enter a whole number from $1 to $2."
+  },
+  "consolidation_fee_preview": {
+    "message": "Estimate for a full batch of $1 outputs: fee $2 bits, size $3 kB."
+  },
+  "consolidation_cost_note": {
+    "message": "Each batch leaves one output behind, so batches of $1 cost about $2% more in fees than batches of $3."
+  },
+  "consolidation_cost_note_small": {
+    "message": "Each batch leaves one output behind, so batches of $1 cost less than 1% more in fees than batches of $2."
   },
   "net_spend_leaves_wallet": {
     "message": "Leaves your wallet"
@@ -1932,7 +2334,7 @@
     "message": "$1 bits/vB is $2× the fastest recommended rate of $3 bits/vB."
   },
   "fee_warning_above_relay_floor": {
-    "message": "$1 bits/vB is $2× the network minimum of $3 bit/vB."
+    "message": "$1 bits/vB is $2× the network minimum of $3 bits/vB."
   },
   "fee_warning_amount_share": {
     "message": "The fee is $1% of the $2 $3 this transaction sends to others."
@@ -2113,5 +2515,104 @@
   },
   "phishing_protection_retry_no_answer": {
     "message": "The retry did not answer in time. It may still finish; the status above updates when it does."
+  },
+  "account_switcher_search_placeholder": {
+    "message": "Search accounts or wallets"
+  },
+  "account_switcher_no_results": {
+    "message": "No matching accounts"
+  },
+  "account_switcher_no_results_hint": {
+    "message": "Search by account name, address or wallet name."
+  },
+  "account_switcher_add_or_import_wallet": {
+    "message": "Add or import wallet"
+  },
+  "account_switcher_account_count_one": {
+    "message": "$1 account"
+  },
+  "account_switcher_account_count_few": {
+    "message": "$1 accounts"
+  },
+  "account_switcher_account_count_many": {
+    "message": "$1 accounts"
+  },
+  "account_switcher_account_count_other": {
+    "message": "$1 accounts"
+  },
+  "account_switcher_open_label": {
+    "message": "Switch account, current: $1 in $2"
+  },
+  "account_switcher_copy_address_label": {
+    "message": "Copy address of $1"
+  },
+  "account_switcher_add_account_label": {
+    "message": "Add account to $1"
+  },
+  "account_switcher_wallet_options_label": {
+    "message": "Options for $1"
+  },
+  "account_switcher_account_options_label": {
+    "message": "Options for $1 in $2"
+  },
+  "account_switcher_account_label": {
+    "message": "$1 in $2, $3"
+  },
+  "account_switcher_wallet_unavailable": {
+    "message": "The selected wallet is no longer available"
+  },
+  "account_created": {
+    "message": "Account created"
+  },
+  "create": {
+    "message": "Create"
+  },
+  "wallet_menu_add_account": {
+    "message": "Add Account"
+  },
+  "wallet_menu_rename": {
+    "message": "Rename Wallet"
+  },
+  "wallet_menu_change_color": {
+    "message": "Change Color"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "Backup/Show Seed Phrase"
+  },
+  "wallet_tag_read_only": {
+    "message": "Read Only"
+  },
+  "wallet_tag_recovered": {
+    "message": "Recovered"
+  },
+  "wallet_tag_archived": {
+    "message": "Archived"
+  },
+  "wallet_invalid_note": {
+    "message": "Invalid"
+  },
+  "wallet_color_green": {
+    "message": "Green"
+  },
+  "wallet_color_blue": {
+    "message": "Blue"
+  },
+  "wallet_color_orange": {
+    "message": "Orange"
+  },
+  "wallet_color_violet": {
+    "message": "Violet"
+  },
+  "wallet_color_teal": {
+    "message": "Teal"
+  },
+  "wallet_color_pink": {
+    "message": "Pink"
+  },
+  "wallet_color_gold": {
+    "message": "Gold"
+  },
+  "wallet_color_indigo": {
+    "message": "Indigo"
   }
 }

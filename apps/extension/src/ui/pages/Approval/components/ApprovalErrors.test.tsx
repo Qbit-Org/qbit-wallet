@@ -96,7 +96,14 @@ vi.mock('@/ui/components', async () => {
   };
 });
 
-vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
+vi.mock('@/ui/components/WebsiteBar', async () => {
+  const React = await import('react');
+
+  return {
+    default: ({ trusted }: { trusted?: boolean }) =>
+      trusted ? React.createElement('span', { 'data-testid': 'website-bar-trusted' }) : null
+  };
+});
 vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', async () => {
   const React = await import('react');
   return {
@@ -416,6 +423,32 @@ describe('approval error recovery screens', () => {
     expect(contextCard.getByText(context.account)).not.toBeNull();
     expect(contextCard.getByText(context.chain)).not.toBeNull();
     expect(contextCard.getByText(context.network)).not.toBeNull();
+  });
+
+  it('marks the official Qbit website only for its trusted verdict', () => {
+    const checkState = {
+      status: 'clear',
+      trusted: true,
+      warning: '',
+      retry: vi.fn(),
+      result: undefined,
+      guardVersionRef: { current: 0 },
+      blockedRef: { current: false }
+    };
+    vi.mocked(useConnectWebsiteCheck).mockReturnValue(
+      checkState as unknown as ReturnType<typeof useConnectWebsiteCheck>
+    );
+
+    const { unmount } = render(<Connect params={{ session }} />);
+    expect(screen.getByTestId('website-bar-trusted')).not.toBeNull();
+    unmount();
+
+    vi.mocked(useConnectWebsiteCheck).mockReturnValue({
+      ...checkState,
+      trusted: false
+    } as unknown as ReturnType<typeof useConnectWebsiteCheck>);
+    render(<Connect params={{ session }} />);
+    expect(screen.queryByTestId('website-bar-trusted')).toBeNull();
   });
 
   it('blocks a connection with no continue control for a blocked verdict', () => {

@@ -17,6 +17,7 @@ const EXTENSION_ID = 'abcdefghijklmnopabcdefghijklmnop'
 const EXTENSION_ORIGIN = `chrome-extension://${EXTENSION_ID}`
 const WARNING_PAGE = `${EXTENSION_ORIGIN}/index.html#/phishing`
 const TAB_ID = 7
+const HELD_DOCUMENT = 'held-document'
 const [BLOCKED_HOST] = BUNDLED_PHISHING_DENYLIST as [string]
 const BLOCKED_URL = `http://${BLOCKED_HOST}/claim?ref=1`
 
@@ -41,6 +42,10 @@ function createBrowser() {
     contexts: [] as { frameId: number; documentUrl: string }[],
     // Whether the tab's top frame shows a page the content script runs on.
     contentScriptPage: false,
+    // The document of that page.
+    documentId: HELD_DOCUMENT,
+    // Whether the tab has an earlier page to go back to.
+    canGoBack: true,
     dynamicRules: [] as chrome.declarativeNetRequest.Rule[],
   }
   const declarativeNetRequest = {
@@ -72,7 +77,15 @@ function createBrowser() {
       state.contentScriptPage = false
       return { id: tabId }
     }),
-    // Only a content script in the top frame answers the probe.
+    // Going back leaves the tab loading the earlier page.
+    goBack: vi.fn(async (_tabId: number) => {
+      if (!state.canGoBack) throw new Error('Cannot find a next page in history.')
+      state.status = 'loading'
+      state.contexts = []
+      state.contentScriptPage = false
+    }),
+    // Only a content script in the top frame, or in the document named,
+    // answers the probe.
     sendMessage: vi.fn(
       async (
         tabId: number,
@@ -82,7 +95,7 @@ function createBrowser() {
         if (
           state.contentScriptPage &&
           tabId === TAB_ID &&
-          options?.frameId === 0 &&
+          (options?.frameId === 0 || options?.documentId === state.documentId) &&
           message.type === PHISHING_PAGE_PROBE
         ) {
           return { present: true }
@@ -494,5 +507,154 @@ describe('PhishingController warning page follow-up', () => {
 
     await expect(clickBlockedLink(browser)).resolves.toEqual({ isPhishing: true, redirected: true })
     expect(isWatching(browser)).toBe(false)
+  })
+})
+
+describe('PhishingController Back past a held page', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** The held page on the denylisted host, reached with Back or Forward. */
+  const heldPage: chrome.runtime.MessageSender = {
+    ...startPage,
+    origin: `http://${BLOCKED_HOST}`,
+    url: BLOCKED_URL,
+    documentId: HELD_DOCUMENT,
+  }
+
+  function askFromHistory(browser: Browser, sender = heldPage, fromHistory: unknown = true) {
+    return send(
+      browser,
+      {
+        type: PhishingMessageType.REDIRECT_TO_PHISHING_PAGE,
+        hostname: BLOCKED_HOST,
+        url: BLOCKED_URL,
+        fromHistory,
+      },
+      sender
+    )
+  }
+
+  /** A controller with the held page in the tab. */
+  async function heldPageInTab() {
+    const browser = createBrowser()
+    await startController(browser)
+    browser.state.contentScriptPage = true
+    return browser
+  }
+
+  it('takes the tab back past the page instead of adding the warning page after it', async () => {
+    const browser = await heldPageInTab()
+
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: true, wentBack: true })
+    expect(browser.tabs.goBack).toHaveBeenCalledExactlyOnceWith(TAB_ID)
+    expect(browser.tabs.update).not.toHaveBeenCalled()
+  })
+
+  it('sends a tab with no earlier page to the warning page', async () => {
+    const browser = await heldPageInTab()
+    browser.state.canGoBack = false
+
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: true })
+    expect(browser.tabs.goBack).toHaveBeenCalledOnce()
+    expect(warningUrls(browser)).toHaveLength(1)
+    expect(new URLSearchParams(new URL(warningUrls(browser)[0]!).hash.split('?')[1]).get('href')).toBe(
+      BLOCKED_URL
+    )
+    finishLoading(browser, 'warning')
+    await settle()
+    expect(isWatching(browser)).toBe(false)
+  })
+
+  it('sends the tab to the warning page when it asks again after going back, until that page opens there', async () => {
+    const browser = await heldPageInTab()
+    // The held page loads again: the user went Forward, or the page before
+    // went forward by itself, which would otherwise repeat with no end.
+    const heldPageAgain = () => {
+      browser.state.status = 'complete'
+      browser.state.contentScriptPage = true
+    }
+
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: true, wentBack: true })
+    heldPageAgain()
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: true })
+    expect(browser.tabs.goBack).toHaveBeenCalledOnce()
+    expect(warningUrls(browser)).toHaveLength(1)
+    finishLoading(browser, 'warning')
+    await settle()
+
+    // Back from that warning page goes back past the page again.
+    heldPageAgain()
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: true, wentBack: true })
+    expect(browser.tabs.goBack).toHaveBeenCalledTimes(2)
+    expect(warningUrls(browser)).toHaveLength(1)
+  })
+
+  it('goes back once for two requests at the same time, such as the first check and Try again', async () => {
+    const browser = await heldPageInTab()
+
+    const answers = await Promise.all([askFromHistory(browser), askFromHistory(browser)])
+
+    expect(answers).toEqual(
+      expect.arrayContaining([{ success: true, wentBack: true }, { success: false, skipped: true }])
+    )
+    expect(browser.tabs.goBack).toHaveBeenCalledOnce()
+    expect(browser.tabs.update).not.toHaveBeenCalled()
+  })
+
+  it('leaves alone a tab that is loading another page, such as one the user went back to', async () => {
+    const browser = await heldPageInTab()
+    browser.state.status = 'loading'
+
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: false, skipped: true })
+    expect(browser.tabs.goBack).not.toHaveBeenCalled()
+    expect(browser.tabs.update).not.toHaveBeenCalled()
+  })
+
+  it('leaves alone a tab that has moved on from the page', async () => {
+    const browser = await heldPageInTab()
+    browser.state.documentId = 'the page the user went on to'
+
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: false, skipped: true })
+    expect(browser.tabs.goBack).not.toHaveBeenCalled()
+    expect(browser.tabs.update).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a frame', { ...heldPage, frameId: 3 }, true],
+    ['a sender without a document', { ...heldPage, documentId: undefined }, true],
+    ['a request that does not say so exactly', heldPage, 'true'],
+  ])('sends the tab to the warning page for %s', async (_label, sender, fromHistory) => {
+    const browser = await heldPageInTab()
+
+    await expect(askFromHistory(browser, sender, fromHistory)).resolves.toEqual({ success: true })
+    expect(browser.tabs.goBack).not.toHaveBeenCalled()
+    expect(warningUrls(browser)).toHaveLength(1)
+    finishLoading(browser, 'warning')
+    await settle()
+    expect(isWatching(browser)).toBe(false)
+  })
+
+  it('does nothing for a host the user has since proceeded to', async () => {
+    const browser = await heldPageInTab()
+    // Proceed from a warning page in another tab lifts the host everywhere.
+    await expect(
+      send(
+        browser,
+        { type: PhishingMessageType.SKIP_PHISHING_PROTECTION, hostname: BLOCKED_HOST },
+        {
+          id: EXTENSION_ID,
+          origin: EXTENSION_ORIGIN,
+          tab: { id: TAB_ID + 1 } as chrome.tabs.Tab,
+          url: `${WARNING_PAGE}?hostname=${BLOCKED_HOST}`,
+        }
+      )
+    ).resolves.toEqual({ success: true })
+
+    await expect(askFromHistory(browser)).resolves.toEqual({ success: false, skipped: true })
+    expect(browser.tabs.goBack).not.toHaveBeenCalled()
+    expect(browser.tabs.update).not.toHaveBeenCalled()
   })
 })

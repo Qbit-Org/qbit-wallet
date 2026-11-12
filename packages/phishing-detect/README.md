@@ -4,9 +4,19 @@ Deterministic website-safety checks for Qbit Wallet.
 
 ## Policy
 
-- The denylist and its provenance metadata ship with the package.
+- The policy is Qbit's own and ships with the package. It targets sites that
+  imitate the official website, https://qbit.org.
+- A `qbit.<tld>` host under any top-level domain other than `org`, or a
+  subdomain of one, is a lookalike (`findQbitLookalikeDomain()`), except for
+  special-use names such as `qbit.localhost` or `qbit.test`. `qbit` must be the
+  label right before the top-level domain, so `qbit.co.uk` or
+  `qbit.<site>.com` are not covered.
+- The denylist names the lookalikes that the browser's network rules stop
+  before the page loads: `qbit.ca`, `qbit.com`, `qbit.io` and `qbit.me`.
 - Matching uses normalized exact hostnames and subdomains.
 - Approval checks classify an origin as `blocked`, `clear`, or `unverified`.
+  `clear` has reason `trusted` only for the exact origin https://qbit.org, and
+  `not-listed` otherwise.
 - Local navigation bypasses never turn an approval result into `clear`.
 - Policy evaluation makes no network requests.
 
@@ -28,16 +38,18 @@ const verdict = detector.checkWebsite('https://example.com')
 ```
 
 Use `checkWebsite()` for connected-site and signing approvals. It returns
-`blocked` for an http(s) origin whose host the bundled denylist covers, even
+`blocked` for an http(s) origin whose host the bundled policy covers, even
 when the origin is otherwise malformed or insecure (HTTP, a path, or a label
 outside DNS syntax such as `a_b.<entry>`). Otherwise it validates the complete
 origin and fails closed to an `unverified` verdict when an origin cannot be
 evaluated safely.
 
-`isDenylisted()` answers whether the bundled denylist covers a hostname,
-ignoring navigation bypasses and DNS label syntax. The extension uses it to
-withhold the wallet provider from denylisted pages, including ones the user
-proceeded to. A DNR rule can name only a well-formed public hostname, so
+`isDenylisted()` answers whether the bundled policy covers a hostname, a
+denylist entry or a lookalike, ignoring navigation bypasses and DNS label
+syntax. The extension uses it to withhold the wallet provider from denylisted
+pages, including ones the user proceeded to. `findBundledPolicyMatch()` gives
+the same answer outside the service, as the matched domain, for the extension's
+content script. A DNR rule can name only a well-formed public hostname, so
 validate a host before putting it in one: `parseDnrDomain()` returns the form
 a rule's `requestDomains` takes, or why it cannot, and `partitionDnrDomains()`
 splits a list into the distinct domains a rule can name and the entries it
@@ -73,9 +85,6 @@ Adapters provide only `get` and `set`; they have no policy-fetching interface.
 pnpm --filter @qbit/phishing-detect test
 pnpm --filter @qbit/phishing-detect build
 ```
-
-The bundled source attribution is recorded in
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 ## License
 

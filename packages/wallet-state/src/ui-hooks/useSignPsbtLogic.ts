@@ -4,7 +4,9 @@ import {
   AccountSignMethod,
   ApprovalSession,
   DecodedPsbt,
+  ErrorCodes,
   LocalPsbtSummary,
+  QBIT_FALLBACK_FEE_RATE,
   QbitProviderApprovalContext,
   SignedData,
   SignState,
@@ -25,6 +27,7 @@ import {
   useCurrentAddress,
   useSetCurrentAccountCallback,
 } from 'src/hooks/accounts'
+import { useSigningProgress } from 'src/hooks/signing'
 import { useWebsiteSafetyCheck } from './useConnectWebsiteCheck'
 
 type AsyncStatus = 'idle' | 'loading' | 'success' | 'error'
@@ -103,7 +106,8 @@ export const initTxInfo: TxInfo = {
     },
     isScammer: false,
     shouldWarnFeeRate: false,
-    recommendedFeeRate: 1,
+    // Nothing decoded yet: the rate the wallet uses without a live estimate.
+    recommendedFeeRate: QBIT_FALLBACK_FEE_RATE,
     isCompleted: false,
     spendSummary: {
       account: '',
@@ -147,6 +151,17 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const { resolveApproval, rejectApproval } = useApproval()
 
   const [isPsbtSigning, setIsPsbtSigning] = useState(false)
+  // A single transaction's signed result went to its broadcast or approval.
+  const [signingHandedOff, setSigningHandedOff] = useState(false)
+  // Set synchronously by a local signing: a second Sign press can land
+  // before React re-renders the screen into its signing state.
+  const localSignInFlight = useRef(false)
+  // The same for a quick-signed batch.
+  const batchSignInFlight = useRef(false)
+  // What the last single-transaction handoff returned: the confirm screen's
+  // broadcast, or the approval's resolution.
+  const handoffRef = useRef<Promise<unknown> | null>(null)
+  const signingProgress = useSigningProgress()
   const [isPsbtRiskPopoverVisible, setIsPsbtRiskPopoverVisible] = useState(false)
   const [isColdWalletSigning, setIsColdWalletSigning] = useState(false)
   const [readonlySignedPsbtHex, setReadonlySignedPsbtHex] = useState('')
@@ -160,6 +175,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   const {
     status: websiteCheckStatus,
     result: websiteResult,
+    trusted: isTrustedWebsite,
     warning: websiteCheckWarning,
     retry: retryWebsiteCheck,
     guardVersionRef: websiteGuardVersionRef,
@@ -661,12 +677,17 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       }
       if (signedStates[i] === SignState.SUCCESS) continue
 
+      const progressId = signingProgress.start({ index: i, count: toSignDatas.length })
       try {
-        const signedData = await wallet.signLocalBatchPsbt(withSignatureBatch(i, summary), {
-          account: summary.account,
-          chain: summary.chain,
-          confirmedRisks: risksConfirmed ? summary.items[i].risks.map(risk => risk.type) : [],
-        })
+        const signedData = await wallet.signLocalBatchPsbt(
+          withSignatureBatch(i, summary),
+          {
+            account: summary.account,
+            chain: summary.chain,
+            confirmedRisks: risksConfirmed ? summary.items[i].risks.map(risk => risk.type) : [],
+          },
+          { progressId }
+        )
         if (!onSignedData(signedData, i, signingWebsiteGuardVersion)) {
           return
         }
@@ -681,12 +702,22 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         signedStates[i] = SignState.FAILED
         setSignedStates([...signedStates])
         tools.toastError(`Signing failed for PSBT ${i}: ${e.message}`)
+        // A locked wallet signs none of the rest; they stay to sign after
+        // the unlock.
+        if (e?.code === ErrorCodes.WALLET_LOCKED_DURING_SIGNING) return
+      } finally {
+        signingProgress.stop(progressId)
       }
     }
   }
 
   const onQuickMultiSign = async () => {
     if (reviewNextRestoredFloorRequest()) return
+    // One batch at a time: the disclaimer's Sign all could start another.
+    if (batchSignInFlight.current) return
+    batchSignInFlight.current = true
+    // The signing progress replaces the disclaimer at once.
+    setDisclaimerVisible(false)
     const signingWebsiteGuardVersion = websiteGuardVersionRef.current
     // Not bumped: an analysis already running for this account still lands
     // if this one fails.
@@ -731,12 +762,15 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         tools.toastError(e.message)
       }
     } finally {
+      batchSignInFlight.current = false
       setIsPsbtSigning(false)
       setDisclaimerVisible(false)
     }
   }
 
   const onBatchRiskConfirm = async (): Promise<void> => {
+    // A batch is already signing: this confirmation keeps its review for later.
+    if (batchSignInFlight.current) return
     // Consumed here, so a second click before the popover closes signs nothing.
     const review = batchRiskReviewRef.current
     batchRiskReviewRef.current = null
@@ -750,10 +784,12 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       return
     }
 
+    batchSignInFlight.current = true
     try {
       setIsPsbtSigning(true)
       await signLocalBatch(review.summary, true, review.websiteGuardVersion)
     } finally {
+      batchSignInFlight.current = false
       setIsPsbtSigning(false)
     }
   }
@@ -764,12 +800,33 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
   }
 
   const localSign = async (): Promise<boolean> => {
+    // The signing already running decides the outcome; a press made while it
+    // runs signs nothing.
+    if (localSignInFlight.current) return true
+    localSignInFlight.current = true
+    setIsPsbtSigning(true)
+    const progressId = signingProgress.start()
     const signingWebsiteGuardVersion = websiteGuardVersionRef.current
+    // A single transaction handed to its broadcast or approval leaves this
+    // screen; until it does, the screen keeps its signing state and Sign
+    // stays locked.
+    let handedOff = false
 
     try {
       const toSignData = withSignatureBatch(signingTxIndex, currentLocalPsbtSummary)
-      const signedData = await wallet.signPsbtV2(toSignData)
-      onSignedData(signedData, signingTxIndex, signingWebsiteGuardVersion)
+      const signedData = await wallet.signPsbtV2(toSignData, { progressId })
+      handedOff =
+        onSignedData(signedData, signingTxIndex, signingWebsiteGuardVersion) && !isMultipleViewMode
+      if (handedOff) {
+        setSigningHandedOff(true)
+        void Promise.resolve(handoffRef.current).catch(() => {
+          // Reported by onSignedData; here the screen leaves its signing state.
+          localSignInFlight.current = false
+          signingProgress.stop(progressId)
+          setIsPsbtSigning(false)
+          setSigningHandedOff(false)
+        })
+      }
       // Even when the website guard rejects the handoff above, the successful
       // signPsbtV2 call already consumed the restored-floor challenge and PQC
       // budget, so the attempt must not be reported as retryable.
@@ -791,6 +848,12 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       signedStates[signingTxIndex] = SignState.FAILED
       setSignedStates([...signedStates])
       return false
+    } finally {
+      if (!handedOff) {
+        localSignInFlight.current = false
+        signingProgress.stop(progressId)
+        setIsPsbtSigning(false)
+      }
     }
   }
 
@@ -922,11 +985,17 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
 
     // single mode
     if (!isMultipleViewMode) {
-      if (handleConfirm) {
-        handleConfirm(signedDatas.current)
-      } else {
-        resolveApproval(approvalId, signedDatas.current)
-      }
+      const handoff = handleConfirm
+        ? Promise.resolve(handleConfirm(signedDatas.current))
+        : resolveApproval(approvalId, signedDatas.current)
+      handoffRef.current = handoff
+      // The approval never took the signed result, so this screen stays with
+      // its Reject; Sign stays disabled (`currentSigned`), since the result's
+      // claim is still held and signing again would be refused.
+      void Promise.resolve(handoff).catch(error => {
+        logger.error('Handing off the signed transaction failed:', error)
+        tools.toastError(error?.message || t('unknown_error'))
+      })
       return true
     }
 
@@ -995,11 +1064,24 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
 
   const backButtonText = isMultipleViewMode ? t('back') : t('reject')
 
+  // How many signatures the transaction on screen needs when this wallet
+  // signs it: one per input it signs.
+  const signingInputCount =
+    accountCapabilities.signMethod === AccountSignMethod.Local
+      ? (currentToSignData?.qbitP2mrSigningKeys?.length ?? 0)
+      : 0
+
   return {
     isPsbtRiskPopoverVisible,
     t,
     session,
     isPsbtSigning,
+    signingHandedOff,
+    // The transaction on screen is signed: a single transaction whose handoff
+    // failed keeps its signatures, and its claim, so it cannot sign again.
+    currentSigned: signingTxIndex >= 0 && signedStates[signingTxIndex] === SignState.SUCCESS,
+    signingProgress: signingProgress.progress,
+    signingInputCount,
 
     // page state
     isColdWalletSigning,
@@ -1008,6 +1090,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
     decodeError,
     websiteCheckStatus,
     websiteCheckWarning,
+    isTrustedWebsite,
 
     disclaimerVisible,
     localPsbtSummary: currentLocalPsbtSummary,

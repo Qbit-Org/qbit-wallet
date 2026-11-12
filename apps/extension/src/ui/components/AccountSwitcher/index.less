@@ -1,0 +1,538 @@
+@font-regular: Inter-Regular, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+@font-bold: Inter-Bold, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+@group-header-height: 48px;
+
+// Focus rings and the search field's focus border use --qbit-accent-dark: at
+// least 3:1 on every background here (paper, canvas, surface tint, accent
+// wash), in both themes, where --qbit-accent is under 3:1 in the light one.
+
+.switcher {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--qbit-ink);
+  font-family: @font-regular;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.switcher__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 14px 12px 10px 16px;
+  border-bottom: 1px solid var(--qbit-line);
+}
+
+.switcher__title {
+  margin: 0;
+  overflow: hidden;
+  font-family: @font-regular;
+  font-size: 16px;
+  font-weight: normal;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin: 10px 16px 6px;
+  padding: 0 10px;
+  height: 36px;
+  border: 1px solid var(--qbit-line);
+  background: var(--qbit-canvas);
+
+  &:focus-within {
+    border-color: var(--qbit-accent-dark);
+  }
+}
+
+.switcher__search-icon {
+  flex-shrink: 0;
+  color: var(--qbit-muted);
+}
+
+.switcher__search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--qbit-ink);
+  caret-color: var(--qbit-accent);
+  font-family: @font-regular;
+  font-size: 14px;
+}
+
+// Grows into the height a search or a removal frees, so the footer stays at
+// the bottom of the sheet.
+.switcher__list {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 6px;
+  // A row brought into view (by focus, for one) lands below the wallet header
+  // stuck at the top, not under it.
+  scroll-padding-top: @group-header-height;
+}
+
+.switcher__footer {
+  flex-shrink: 0;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--qbit-line);
+
+  [role='button']:focus-visible {
+    outline: 2px solid var(--qbit-accent-dark);
+    outline-offset: 2px;
+  }
+}
+
+.switcher__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 24px;
+  color: var(--qbit-muted);
+  text-align: center;
+}
+
+.switcher__empty-title {
+  color: var(--qbit-ink);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.switcher__empty-hint {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.switcher-group {
+  margin-top: 6px;
+}
+
+// Stays at the top of the list while its wallet's accounts scroll under it,
+// until the end of its group takes it away and the next wallet's takes over.
+.switcher-group__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: @group-header-height;
+  padding: 6px 6px 6px 16px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--qbit-line);
+  border-bottom: 1px solid var(--qbit-line);
+  background: var(--qbit-surface-tint);
+}
+
+.switcher-group__titles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.switcher-group__name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.switcher-group__name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: @font-bold;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-group__count {
+  color: var(--qbit-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+// The wallet's "+" and its menu button, close together at the end of the
+// header; a wallet without "+" keeps its menu button in the same place.
+.switcher-group__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.switcher-group__accounts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.switcher-row {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding-right: 6px;
+  border-left: 3px solid transparent;
+  transition: background-color 150ms ease;
+
+  &:hover {
+    background: var(--qbit-surface-tint);
+  }
+}
+
+.switcher-row--current,
+.switcher-row--current:hover {
+  border-left-color: var(--qbit-accent);
+  background: var(--qbit-accent-wash);
+}
+
+.switcher-row--pending {
+  opacity: 0.6;
+}
+
+.switcher-row__select {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 52px;
+  margin: 0;
+  padding: 7px 8px 7px 15px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--qbit-accent-dark);
+    outline-offset: -2px;
+  }
+}
+
+.switcher-row__mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--qbit-line-strong);
+
+  .switcher-row--current & {
+    color: var(--qbit-accent-dark);
+  }
+}
+
+.switcher-row__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.switcher-row__name {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-row__address {
+  overflow: hidden;
+  color: var(--qbit-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  // Inter's contextual alternates draw an "x" between two digits as "×"; an
+  // address must read exactly as it is.
+  font-variant-ligatures: no-contextual;
+}
+
+.switcher-invalid {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 16px 0 57px;
+  border: 0;
+  background: transparent;
+  color: var(--qbit-danger-text);
+  font-family: @font-regular;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--qbit-surface-tint);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--qbit-accent-dark);
+    outline-offset: -2px;
+  }
+}
+
+.switcher-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--qbit-ink);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--qbit-accent-wash);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--qbit-accent-dark);
+    outline-offset: -2px;
+  }
+
+  &[aria-expanded='true'] {
+    background: var(--qbit-accent-wash);
+  }
+
+  &[aria-disabled='true'] {
+    background: transparent;
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.switcher-icon-button--accent {
+  color: var(--qbit-accent-dark);
+}
+
+.switcher-icon-button--muted {
+  color: var(--qbit-muted);
+}
+
+// Over the sheet while a menu is open: a tap outside the menu closes it
+// without reaching the row under it.
+.switcher-menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+.switcher-menu {
+  position: absolute;
+  z-index: 11;
+  width: 220px;
+  max-width: calc(100% - 16px);
+  padding: 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--qbit-line);
+  background: var(--qbit-paper);
+  box-shadow: 0 12px 28px var(--qbit-shadow);
+}
+
+.switcher-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--qbit-ink);
+  font-family: @font-regular;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--qbit-accent-wash);
+    outline: none;
+  }
+}
+
+.switcher-menu__item--danger {
+  color: var(--qbit-danger-text);
+}
+
+.switcher-menu__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.switcher-menu__label {
+  min-width: 0;
+}
+
+.switcher-dialog {
+  outline: none;
+}
+
+.switcher-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+}
+
+.switcher-dialog__title {
+  margin: 0;
+  color: var(--qbit-ink);
+  font-family: @font-regular;
+  font-size: 16px;
+  font-weight: normal;
+  line-height: 22px;
+}
+
+// A dialog's name field shows it has focus, which the shared input does not
+// draw: a 2 px ring, as the switcher's other focus rings, drawn inside the
+// field over its own border as an outline, so the field keeps its size and
+// place whatever styles the input sets.
+.switcher-dialog__field:focus-within {
+  outline: 2px solid var(--qbit-accent-dark);
+  outline-offset: -2px;
+}
+
+// A title with the dialog's close button at its end, which takes no more
+// height than the title.
+.switcher-dialog__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -5px -10px -5px 0;
+
+  .switcher-dialog__title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+// The wallet a new account goes to, as the sheet heads a wallet's group: its
+// tile and name on a tinted band, joined to the name field below.
+.create-account-wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--qbit-line);
+  border-bottom: 0;
+  background: var(--qbit-surface-tint);
+}
+
+.create-account-wallet__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--qbit-ink);
+  font-family: @font-bold;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-dialog__subtitle {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--qbit-muted);
+  font-family: @font-regular;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-dialog__actions {
+  display: flex;
+  gap: 8px;
+
+  [role='button']:focus-visible {
+    outline: 2px solid var(--qbit-accent-dark);
+    outline-offset: 2px;
+  }
+}
+
+.wallet-color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 52px);
+  justify-content: space-between;
+  row-gap: 14px;
+}
+
+.wallet-color-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin: 0;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--qbit-line-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--qbit-accent-dark);
+    outline-offset: 1px;
+  }
+
+  &[aria-disabled='true'] {
+    cursor: progress;
+  }
+}
+
+.wallet-color-swatch--current,
+.wallet-color-swatch--current:hover {
+  border-color: var(--qbit-ink);
+}
+
+.wallet-color-swatch__check {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--qbit-paper);
+  border-radius: 50%;
+  background: var(--qbit-ink);
+  color: var(--qbit-paper);
+}

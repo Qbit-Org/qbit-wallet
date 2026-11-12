@@ -68,8 +68,9 @@ export type QbitRecoveryDeferredSource =
       /**
        * The explorer will not list its outputs, and its history is longer than
        * the wallet reads to find them (more than `maxTransactions`).
-       * Consolidating it to within the listing limit lets a later pass list
-       * them.
+       * Consolidating does not change that: a later pass lists them only once
+       * the explorer lists the account again, which takes its operator
+       * raising the listing limit past the most the account held.
        */
       reason: 'history_too_large'
       maxTransactions: number

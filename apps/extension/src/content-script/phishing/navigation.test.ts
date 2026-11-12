@@ -257,9 +257,20 @@ describe('content-script link interception', () => {
     expect(followedLinks()).toEqual([]);
   });
 
+  it.each([
+    ['a lookalike outside the denylist', 'https://qbit.net/claim'],
+    ['a subdomain of one', 'https://app.qbit.xyz/'],
+    ['one under an internationalized top-level domain', 'https://qbit.xn--p1ai/']
+  ])('cancels a click on a link to %s, which imitates qbit.org', (_label, href) => {
+    expect(click(link({ href }))).toBe(true);
+    expect(sentMessages()).toEqual([{ type: 'CHECK_NAVIGATION', url: href }]);
+  });
+
   it('leaves a click on a clear link to the browser without asking the background', () => {
     expect(click(link({ href: 'https://example.com/claim' }))).toBe(false);
     expect(click(link({ href: '/claim' }))).toBe(false);
+    expect(click(link({ href: 'https://qbit.org/pool' }))).toBe(false);
+    expect(click(link({ href: 'https://mempool.qbit.org/tx/abc' }))).toBe(false);
     expect(runtime.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -413,7 +424,17 @@ describe('isBundledDenylistedUrl', () => {
     `x${BLOCKED_HOST}`,
     `${BLOCKED_HOST.split('.')[0]}`,
     'example.com',
-    'qbit.org'
+    'qbit.org',
+    'www.qbit.org',
+    'mempool.qbit.org',
+    'qbit.net',
+    'a.b.qbit.xyz',
+    'qbit.xn--p1ai',
+    'qbit.co.uk',
+    'qbit.robertclarke.com',
+    'qbitinfo.org',
+    'qbit.localhost',
+    'qbit.test'
   ])('agrees with the background for %s', (hostname) => {
     expect(isBundledDenylistedUrl(`https://${hostname}/path`)).toBe(service.checkPhishing(hostname).isPhishing);
   });

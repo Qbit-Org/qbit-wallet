@@ -385,6 +385,11 @@ export const INTERNAL_REQUEST_SESSION = {
 export const BUS_EVENTS = {
   broadcastToUI: 'broadcastToUI',
   broadcastToBG: 'broadcastToBG',
+  // `{ port, method, params }` for one wallet page only: `port` names the UI
+  // port a controller call arrived on (`WalletController.runForUiPort`). The
+  // messaging layer delivers it to that port as a BG_BROADCAST, and to no
+  // other page.
+  toUIPort: 'toUIPort',
 }
 
 export const BUS_METHODS = {
@@ -396,6 +401,12 @@ export const BUS_METHODS = {
   SIGN_FINISHED: 'signFinished',
   LOCALE_CHANGED: 'localeChanged',
   REGTEST_ACCESS_CHANGED: 'regtestAccessChanged',
+  // A local signing's progress (QbitSigningProgress), sent only to the page
+  // that asked for it with BUS_EVENTS.toUIPort.
+  QBIT_SIGNING_PROGRESS: 'qbitSigningProgress',
+  // An open send plan changed: `{ planId, revision }`, sent to every wallet
+  // page. It carries no plan content; pages read the plan again.
+  QBIT_SEND_PLAN_CHANGED: 'qbitSendPlanChanged',
 
   USER_UI_INTERACT: 'USER_UI_INTERACT', // used to notify background script that user has interacted with the UI
 }

@@ -25,7 +25,9 @@ interface AccountProbe {
 }
 
 interface KeyringProbe {
+  key: string
   index: number
+  alianName: string
   accounts: AccountProbe[]
 }
 
@@ -163,6 +165,20 @@ test('G3 recovery: wipes, proves passphrase separation, and restores funded floo
   expect(
     restoredKeyring?.accounts.map(account => account.p2mr?.signatureCounter.provenance)
   ).toEqual(['restored-floor', 'restored-floor'])
+  const temporaryKeyring = keyrings.find(keyring => keyring.key !== restoredKeyring!.key)
+  expect(keyrings.map(keyring => keyring.alianName)).toEqual(['Wallet 1', 'Wallet 2'])
+
+  // The restored wallet is current, tagged Recovered on the card and in the
+  // account switcher; the wallet onboarding created has no tag.
+  await restored.home.expectCurrentAccount({
+    walletName: 'Wallet 2',
+    address: rotation.previous,
+  })
+  await expect.poll(() => restored.home.cardTags()).toEqual(['recovered'])
+  const switcher = await restored.home.openAccountSwitcher()
+  await expect.poll(() => switcher.walletTags(restoredKeyring!.key)).toEqual(['recovered'])
+  await expect.poll(() => switcher.walletTags(temporaryKeyring!.key)).toEqual([])
+  await switcher.close()
 
   expect(await addressBalance(extension, restored.page, rotation.previous)).toEqual(
     expectedFirstBalance
@@ -302,6 +318,7 @@ test('G3 recovery: wipes, proves passphrase separation, and restores funded floo
   }
   await migration.checkStatus()
   await migration.waitUntilComplete()
+  await migration.expectArchivedWalletHint()
 
   const migratedState = await extension.requestWalletController<RecoveryStateProbe>(
     restored.page,
@@ -344,9 +361,19 @@ test('G3 recovery: wipes, proves passphrase separation, and restores funded floo
   )
   const archivedSource = finalKeyrings.find(keyring => keyring.index === sourceKeyringIndex)
   expect(archivedSource).toBeDefined()
-  await extension.requestWalletController<void>(restored.page, 'changeKeyring', [archivedSource, 0])
-  await restored.page.reload({ waitUntil: 'domcontentloaded' })
+  // The fresh wallet the migration created is named by the "Wallet N" rule.
+  expect(finalKeyrings.map(keyring => keyring.alianName)).toEqual([
+    'Wallet 1',
+    'Wallet 2',
+    'Wallet 3',
+  ])
+  // As the completion hint says, the archived wallet is in the account
+  // switcher, now tagged Archived; one tap on its account opens it.
+  const finalSwitcher = await restored.home.openAccountSwitcher()
+  await expect.poll(() => finalSwitcher.walletTags(archivedSource!.key)).toEqual(['archived'])
+  await finalSwitcher.selectAccount(archivedSource!.accounts[0]!.address)
   await restored.home.expectArchivedRecoveryWarning()
+  await expect(restored.home.cardTag('archived')).toBeVisible()
   // The archive is per network: this seed still holds unswept sibling
   // networks, and the archived card says so.
   await expect(restored.page.getByTestId('qbit-recovery-other-networks-hint')).toBeVisible()

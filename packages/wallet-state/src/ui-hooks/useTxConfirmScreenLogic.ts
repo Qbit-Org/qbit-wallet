@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { QbitRetainedBroadcast, SignPsbtParams, SignPsbtResult } from '@qbit/wallet-shared'
 import { useI18n, useNavigation } from 'src/context'
 import { useAbandonQbitBroadcastCallback, usePushQbitTxCallback } from 'src/hooks'
+import { txConsolidationRouteContext } from './qbitConsolidationRouteContext'
 
 /**
  * Confirmation screen for a send: signs, then broadcasts the signed payload
@@ -84,15 +85,14 @@ export function useTxConfirmScreenLogic() {
     // Replace, not push, on both verdicts: the signer must not stay one
     // history step behind the next screen, or a browser back would re-enter
     // it with the same unsigned request and sign (and pay) a second time.
+    // A consolidation batch's context goes to either, so a batch that ends
+    // on the success screen through a retry or a status check still offers
+    // the next batch at its size.
+    const consolidation = txConsolidationRouteContext(toSignData)
     if (result.success === true) {
-      nav.replace(
-        'TxSuccessScreen',
-        toSignData.qbitConsolidation
-          ? { txid: result.txid, consolidation: true }
-          : { txid: result.txid }
-      )
+      nav.replace('TxSuccessScreen', { txid: result.txid, ...consolidation })
     } else {
-      nav.replace('TxFailScreen', { result, retained })
+      nav.replace('TxFailScreen', { result, retained, ...consolidation })
     }
   }
 

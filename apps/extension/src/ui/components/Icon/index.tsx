@@ -23,6 +23,7 @@ import {
   MapPin,
   Network,
   Palette,
+  Pickaxe,
   QrCode,
   Rabbit,
   Send,
@@ -81,7 +82,6 @@ export const svgRegistry = {
   // action (balance toggles)
   'balance-eyes': '/images/icons/action/balance-eyes.svg',
   'balance-eyes-closed': '/images/icons/action/balance-eyes-closed.svg',
-  'balance-question': '/images/icons/action/balance-question.svg',
 
   // artifacts
   'singer-info': '/images/icons/artifacts/singer-info.svg'
@@ -99,6 +99,7 @@ type LucideIconName =
   | 'wallet'
   | 'user'
   | 'compass'
+  | 'mine'
   | 'settings'
   | 'copy'
   | 'eye'
@@ -152,6 +153,7 @@ const lucideRegistry: Partial<Record<IconTypes, LucideIcon>> = {
   // tab
   user: User,
   compass: Compass,
+  mine: Pickaxe,
   settings: Settings,
 
   // header

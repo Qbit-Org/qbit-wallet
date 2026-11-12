@@ -3,6 +3,8 @@ import {
   MempoolQbitClient,
   QbitApiError,
   addressBalanceFromStats,
+  feeEstimatesFromMempoolRecommendedFees,
+  feeTiersFromEstimates,
 } from '@qbit-oss/api'
 import type {
   AddressHistory,
@@ -15,12 +17,14 @@ import type {
   EsploraUtxo,
   FeeRateTier,
   MempoolQbitClientOptions,
+  MempoolRecommendedFees,
   RequestOptions,
 } from '@qbit-oss/api'
 import { QBIT_COINBASE_MATURITY } from '@qbit-oss/protocol'
 import { PQC_WARNING_SIGNATURE_THRESHOLD } from '@qbit/keyring-service'
 import { transactionCore } from '@qbit/wallet-core'
 import {
+  QBIT_FALLBACK_FEE_RATE,
   QBIT_MAX_FEE_RATE,
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
@@ -274,6 +278,46 @@ export class QbitWalletEsploraClient
   }
 }
 
+/**
+ * mempool-qbit's rates for its first three projected blocks, as
+ * `/fees/recommended` gives them but not rounded to whole numbers, so they
+ * go below 1 bit/vB, down to the node's relay floor. `@qbit-oss/api` has no
+ * call for it.
+ */
+const QBIT_PRECISE_FEES_PATH = '/fees/precise'
+
+/**
+ * The time a precise read has, headers and body, before the quote reads the
+ * whole-number tiers instead: a third of the 15 s budget every small reply
+ * has (`QBIT_EXPLORER_REPLY_TIMEOUT_MS`). Without it a route that takes the
+ * connection and never answers would hold every quote for that whole budget
+ * before the fallback is even sent, and the send screen holds Next for a
+ * tier's rate until the quote settles.
+ */
+const QBIT_PRECISE_FEES_TIMEOUT_MS = 5_000
+
+/**
+ * How long a client reads the whole-number tiers directly after its precise
+ * read failed, by any error, its own deadline included, or with tiers that
+ * give no available quote. A route that is missing, throttled or hung would
+ * otherwise cost every quote refresh a wasted request, or that deadline,
+ * before the fallback: twice the requests to an explorer that is throttling.
+ */
+const QBIT_PRECISE_FEES_COOL_DOWN_MS = 10 * 60_000
+
+/**
+ * Reads `/fees/precise` for `QbitWalletMempoolClient.getFeeTiers`. It is
+ * built from that client's options, so the request has the base URL, fetch,
+ * timeouts, signal and error types of its `/fees/recommended` read, but it
+ * is sent once: a failed precise read is not tried again, and the quote
+ * falls back at once to `/fees/recommended`, which keeps the client's retries.
+ */
+class QbitPreciseFeeReader extends EsploraClient {
+  read(options: RequestOptions): Promise<unknown> {
+    return this.getJson<unknown>(QBIT_PRECISE_FEES_PATH, options)
+  }
+}
+
 export class QbitWalletMempoolClient
   extends MempoolQbitClient
   implements QbitTxOutspendsClient, QbitAddressHistoryPageClient
@@ -281,6 +325,14 @@ export class QbitWalletMempoolClient
   /** The most pages one history read fetches, as the client's `maxAddressHistoryPages`. */
   readonly maxHistoryWalkPages: number
   private readonly largeReadCeilingMs: number
+  /** The options the client was built with, for its reader of `/fees/precise`. */
+  private readonly preciseFeeReaderOptions: EsploraClientOptions
+  private preciseFees: QbitPreciseFeeReader | undefined
+  /**
+   * When (`Date.now()`) this client's last precise read failed, until one
+   * succeeds: see `QBIT_PRECISE_FEES_COOL_DOWN_MS`.
+   */
+  private preciseFeesFailedAt: number | undefined
 
   // The client clamps every call's maxPages to this ceiling (default 256), so
   // the two-read budgets above need it raised to match. The history reads
@@ -293,6 +345,84 @@ export class QbitWalletMempoolClient
     super(budgeted)
     this.maxHistoryWalkPages = maxAddressHistoryPages
     this.largeReadCeilingMs = budgeted.timeoutMs
+    this.preciseFeeReaderOptions = { ...budgeted, retries: 0 }
+  }
+
+  /**
+   * Fee-rate tiers for targets 1, 2 and 3 from `/fees/precise` (#182), whose
+   * rates go down to the node's relay floor of 0.25 bits/vB where
+   * `/fees/recommended` gives whole numbers of at least 1. The reply is
+   * checked as the SDK checks that of `/fees/recommended`: an object whose
+   * `fastestFee`, `halfHourFee` and `hourFee` are finite numbers above 0 and
+   * at most 10,000. Its tiers must also give an available quote
+   * (`qbitFeeSummaryFromTiers`).
+   *
+   * The whole-number tiers of `super.getFeeTiers` are read instead when the
+   * precise read fails in any way (any HTTP status, the network, a timeout,
+   * a body that is not JSON), takes longer than `QBIT_PRECISE_FEES_TIMEOUT_MS`
+   * (5 s), or its tiers fail those checks, so a broken precise endpoint never
+   * costs a quote the whole-number one still gives; when that read fails too,
+   * its error is the call's. Such a failure also starts a cool-down of
+   * `QBIT_PRECISE_FEES_COOL_DOWN_MS` (10 minutes) on this client, during
+   * which the call reads the whole-number tiers directly; the first call
+   * after it reads the precise tiers again, and a precise read that succeeds
+   * ends it. One operation scope (the caller's signal and deadline, and the
+   * client's signal) covers both reads: once it aborts, the call rejects
+   * with its error, makes no fallback read and starts no cool-down.
+   */
+  override getFeeTiers(options?: RequestOptions): Promise<FeeRateTier[]> {
+    return this.runOperation(options, async signal => {
+      const precise = this.preciseFeesCoolingDown()
+        ? undefined
+        : await this.readPreciseFeeTiers(signal)
+      return precise ?? super.getFeeTiers({ signal })
+    })
+  }
+
+  /** Whether a precise read failed less than `QBIT_PRECISE_FEES_COOL_DOWN_MS` ago. */
+  private preciseFeesCoolingDown(): boolean {
+    if (this.preciseFeesFailedAt === undefined) return false
+    // A clock set back before the failure ends the cool-down rather than lengthen it.
+    const age = Date.now() - this.preciseFeesFailedAt
+    return age >= 0 && age < QBIT_PRECISE_FEES_COOL_DOWN_MS
+  }
+
+  /**
+   * The tiers of one `/fees/precise` read, under its own deadline of
+   * `QBIT_PRECISE_FEES_TIMEOUT_MS` within the call's, or undefined when they
+   * cannot stand in for the whole-number ones, which starts the cool-down.
+   * It throws only once `signal` has aborted, with the error the call is
+   * aborted with.
+   */
+  private async readPreciseFeeTiers(signal: AbortSignal): Promise<FeeRateTier[] | undefined> {
+    let tiers: FeeRateTier[]
+    try {
+      const reply = await this.preciseFeeReader().read({
+        signal,
+        deadlineMs: QBIT_PRECISE_FEES_TIMEOUT_MS,
+      })
+      tiers = feeTiersFromEstimates(
+        feeEstimatesFromMempoolRecommendedFees(reply as MempoolRecommendedFees)
+      )
+    } catch {
+      // An operation scope's signal is aborted with the QbitApiError its call
+      // rejects with. The precise read's own deadline does not abort it, and
+      // so fails the read like any other error.
+      if (signal.aborted) throw signal.reason
+      this.preciseFeesFailedAt = Date.now()
+      return undefined
+    }
+    if (qbitFeeSummaryFromTiers(tiers, 'mempool-qbit').quote?.availability !== 'available') {
+      this.preciseFeesFailedAt = Date.now()
+      return undefined
+    }
+    this.preciseFeesFailedAt = undefined
+    return tiers
+  }
+
+  private preciseFeeReader(): QbitPreciseFeeReader {
+    this.preciseFees ??= new QbitPreciseFeeReader(this.preciseFeeReaderOptions)
+    return this.preciseFees
   }
 
   getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
@@ -583,22 +713,76 @@ export function qbitBalanceToSummary(
 }
 
 /**
- * electrs refuses to list the outputs of an address holding more than its
- * `--utxos-limit` (500 unless configured otherwise) confirmed unspent outputs,
- * and mempool-qbit relays that refusal as a bare HTTP 500 while the address
- * statistics still answer.
+ * The listing limit the wallet assumes for an explorer that refuses an
+ * over-limit address with a bare HTTP 500 and nothing more, as mempool-qbit
+ * did before v1.0.0: electrs' default `--utxos-limit`. A newer explorer says
+ * that it refuses, and electrs' message states the limit
+ * (`qbitUtxoListRefusal`).
  */
 export const QBIT_EXPLORER_DEFAULT_UTXO_LIMIT = 500
 
+// qbit-electrs refuses an over-limit listing (`TooManyUtxos`) with HTTP 400
+// and "Too many unspent transaction outputs (>N). Contact support to raise
+// limits."; mempool-qbit since v1.0.0 relays that reason with HTTP 413, as
+// `{"error":"..."}` to a client that accepts JSON.
+const QBIT_UTXO_LIMIT_REFUSAL = /Too many unspent transaction outputs(?: \(>(\d{1,15})\))?/
+const QBIT_UTXO_LIST_ROUTE = /\/address\/[^/?#]+\/utxo(?:[?#]|$)/
+
+/** The explorer's refusal to list an address's outputs (`qbitUtxoListRefusal`). */
+export interface QbitUtxoListRefusal {
+  /**
+   * Whether the explorer said so itself: electrs' refusal at any status, or
+   * an HTTP 413 from the listing. electrs refuses an address whose output set
+   * passed its limit at any point since it last cached that set, so a stated
+   * refusal holds whatever the address holds now, fewer outputs than the
+   * limit included. A bare HTTP 500 is not stated: an older mempool-qbit
+   * answers every failure of the route that way.
+   */
+  stated: boolean
+  /** The limit electrs' message states (`(>N)`), when it does. */
+  limit?: number
+}
+
 /**
- * Whether a failed UTXO listing is the explorer's UTXO limit: an HTTP 500
- * from `/address/:a/utxo` for an address whose statistics show more
- * confirmed unspent outputs than
- * the limit. electrs counts the confirmed set before it applies the mempool,
- * so pending spends do not bring an address back under it.
- * A 500 for a smaller address stays an ordinary failure, so an outage is
- * never presented as this state. A statistics lookup that fails as well
- * answers false, so the caller reports the listing failure itself.
+ * The explorer's refusal to list an address's outputs, read from `error`, a
+ * failure of `/address/:a/utxo` itself, or undefined for any other failure:
+ * the classifier's per-output lookups can fail with a 500 of their own.
+ */
+export function qbitUtxoListRefusal(error: unknown): QbitUtxoListRefusal | undefined {
+  if (
+    !(error instanceof QbitApiError) ||
+    !error.url ||
+    !QBIT_UTXO_LIST_ROUTE.test(error.url) ||
+    error.status === undefined ||
+    error.status < 400
+  ) {
+    return undefined
+  }
+  const stated = QBIT_UTXO_LIMIT_REFUSAL.exec(error.responseBody ?? '')
+  if (stated) {
+    const limit = stated[1] === undefined ? undefined : Number(stated[1])
+    return {
+      stated: true,
+      ...(limit !== undefined && Number.isSafeInteger(limit) && limit > 0 ? { limit } : {}),
+    }
+  }
+  if (error.kind === 'payload_too_large') return { stated: true }
+  if (error.kind === 'http' && error.status === 500) return { stated: false }
+  return undefined
+}
+
+/**
+ * Whether a failed UTXO listing is the explorer's UTXO limit. A refusal the
+ * explorer states (`qbitUtxoListRefusal`) is, whatever the address's
+ * statistics show. A bare HTTP 500 is only for an address whose statistics
+ * show more confirmed unspent outputs than the limit the wallet assumes for
+ * such an explorer (`QBIT_EXPLORER_DEFAULT_UTXO_LIMIT`). electrs counts the
+ * confirmed set before it applies the mempool, so pending spends do not bring
+ * an address back under it. A bare 500 for a smaller address stays an
+ * ordinary failure, and so does one whose statistics lookup fails as well:
+ * the caller reports the listing failure itself. Nothing in a bare 500 says
+ * which explorer answered, so one for a larger address counts even from an
+ * explorer that states its refusals, where it can only be an outage.
  */
 export async function isQbitUtxoListOverExplorerLimit(
   client: Pick<QbitEsploraClient, 'getAddressStats'>,
@@ -606,12 +790,20 @@ export async function isQbitUtxoListOverExplorerLimit(
   error: unknown,
   options: QbitReadCancellation = {}
 ): Promise<boolean> {
+  const refusal = qbitUtxoListRefusal(error)
+  if (!refusal) return false
+  // A stated refusal needs no statistics to tell it from an outage.
+  if (refusal.stated) return true
   return (await qbitUtxoListOverExplorerLimitStats(client, address, error, options)) !== undefined
 }
 
 /**
- * `isQbitUtxoListOverExplorerLimit`, answering with the checked address
- * statistics that show the limit, or undefined when the failure is not it.
+ * The checked address statistics behind a failed UTXO listing that is the
+ * explorer's UTXO limit (`isQbitUtxoListOverExplorerLimit`), or undefined
+ * when the failure is not it. Statistics that cannot be read leave a bare
+ * 500 its own meaning (undefined), and fail a refusal the explorer states
+ * with their own error: it is the limit without them, but what the caller
+ * reads from them is missing.
  */
 async function qbitUtxoListOverExplorerLimitStats(
   client: Pick<QbitEsploraClient, 'getAddressStats'>,
@@ -619,29 +811,79 @@ async function qbitUtxoListOverExplorerLimitStats(
   error: unknown,
   options: QbitReadCancellation = {}
 ): Promise<EsploraAddressStats | undefined> {
-  // Only the listing request itself: the classifier's per-output lookups
-  // can fail with a 500 of their own.
-  if (
-    !(error instanceof QbitApiError) ||
-    error.kind !== 'http' ||
-    error.status !== 500 ||
-    !error.url ||
-    !/\/address\/[^/?#]+\/utxo(?:[?#]|$)/.test(error.url)
-  ) {
-    return undefined
-  }
+  const refusal = qbitUtxoListRefusal(error)
+  if (!refusal) return undefined
   let stats: EsploraAddressStats
   try {
     stats = await client.getAddressStats(address, options)
     assertValidQbitStats(stats, address)
-  } catch {
+  } catch (statsFailure) {
     throwIfQbitReadCancelled(options)
-    // Without statistics the listing failure keeps its own meaning.
+    if (refusal.stated) throw statsFailure
     return undefined
   }
-  const confirmedUnspentOutputs =
-    stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count
-  return confirmedUnspentOutputs > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT ? stats : undefined
+  return qbitRefusalOverLimit(refusal, stats) ? stats : undefined
+}
+
+/**
+ * Where an address whose listing the explorer refused (`refusal`) stands
+ * against its limit, given the address's checked statistics `stats`: over
+ * it, with the limit the refusal states, for a refusal the explorer states,
+ * whatever the statistics show; for a bare HTTP 500, over the limit the
+ * wallet assumes for such an explorer (`QBIT_EXPLORER_DEFAULT_UTXO_LIMIT`)
+ * only when the statistics show more confirmed unspent outputs than that.
+ * Undefined when the refusal is not the limit. The one rule both the send
+ * and the consolidation paths apply.
+ */
+function qbitRefusalOverLimit(
+  refusal: QbitUtxoListRefusal,
+  stats: EsploraAddressStats
+): Extract<QbitUtxoListLimit, { overLimit: true }> | undefined {
+  if (refusal.stated) {
+    return { overLimit: true, ...(refusal.limit !== undefined ? { limit: refusal.limit } : {}) }
+  }
+  const confirmedUnspent = stats.chain_stats.funded_txo_count - stats.chain_stats.spent_txo_count
+  return confirmedUnspent > QBIT_EXPLORER_DEFAULT_UTXO_LIMIT
+    ? { overLimit: true, limit: QBIT_EXPLORER_DEFAULT_UTXO_LIMIT }
+    : undefined
+}
+
+/**
+ * Where an address stands against the explorer's listing limit, as the
+ * explorer answers (`getQbitUtxoListLimit`): it lists the address's outputs,
+ * or refuses to, with the limit its refusal states, or for a bare HTTP 500
+ * the one the wallet assumes (`QBIT_EXPLORER_DEFAULT_UTXO_LIMIT`). `limit`
+ * is absent when a refusal states none.
+ */
+export type QbitUtxoListLimit = { overLimit: false } | { overLimit: true; limit?: number }
+
+/**
+ * Where `address` stands against the explorer's listing limit, by asking it
+ * for the address's outputs: the explorer's own answer, which no count
+ * stands in for, since electrs keeps refusing an address whose output set
+ * passed its limit at any point since it last cached that set. `stats`, the
+ * address's statistics, checked, decide a bare HTTP 500 as
+ * `isQbitUtxoListOverExplorerLimit` does. Any other failure of the listing
+ * is thrown, and so is a reply that is not a list, which a send refuses too.
+ */
+export async function getQbitUtxoListLimit(
+  client: Pick<QbitEsploraClient, 'getAddressUtxos'>,
+  address: string,
+  stats: EsploraAddressStats,
+  options: RequestOptions = {}
+): Promise<QbitUtxoListLimit> {
+  let utxos: unknown
+  try {
+    utxos = await client.getAddressUtxos(address, options)
+  } catch (error) {
+    throwIfQbitReadCancelled(options)
+    const refusal = qbitUtxoListRefusal(error)
+    const overLimit = refusal && qbitRefusalOverLimit(refusal, stats)
+    if (overLimit) return overLimit
+    throw error
+  }
+  if (!Array.isArray(utxos)) throw new Error(`invalid qbit UTXO response for ${address}`)
+  return { overLimit: false }
 }
 
 /**
@@ -2061,21 +2303,18 @@ export async function readQbitAddressUtxos(
   }
 }
 
-/** The address's output counts from its statistics, as the explorer's limit sees them. */
+/** The address's output counts from its statistics. */
 export interface QbitAddressOutputCounts {
-  /** Confirmed outputs not spent in a block: what electrs counts against its limit. */
+  /**
+   * Confirmed outputs not spent in a block. electrs refuses to list an
+   * address whose set passed its limit at any point since it last cached
+   * that set, so this count alone does not say whether it lists them.
+   */
   confirmedUnspent: number
   /** Outputs mempool transactions spend; they leave the count once those confirm. */
   pendingSpent: number
   /** Outputs mempool transactions create; they join the count once those confirm. */
   pendingFunded: number
-}
-
-export async function getQbitAddressOutputCounts(
-  client: Pick<QbitEsploraClient, 'getAddressStats'>,
-  address: string
-): Promise<QbitAddressOutputCounts> {
-  return qbitAddressOutputCounts(await client.getAddressStats(address), address)
 }
 
 /** The output counts in `stats`, the statistics of `address`, which it checks first. */
@@ -4111,6 +4350,12 @@ export function qbitFeeSummaryFromTiers(
   }
 }
 
+/**
+ * The summary offered without a usable estimate: every tier at
+ * `QBIT_FALLBACK_FEE_RATE`, the rate the wallet sends at without one, not
+ * the relay floor, since the wallet then cannot see that the mempool's
+ * minimum has risen.
+ */
 export function qbitUnavailableFeeSummary(
   apiSurface: QbitFeeSummaryApiSurface,
   fallbackReason: FeeQuoteFallbackReason
@@ -4124,7 +4369,7 @@ export function qbitUnavailableFeeSummary(
     ].map(tier => ({
       ...tier,
       desc: qbitFeeTargetDescription(tier.targetBlocks),
-      feeRate: QBIT_MIN_RELAY_FEE_RATE,
+      feeRate: QBIT_FALLBACK_FEE_RATE,
     })),
     quote: {
       source: apiSurface,
@@ -4139,6 +4384,17 @@ type NormalizedQbitFeeTiers =
   | { valid: true; tiers: FeeRateTier[] }
   | { valid: false; reason: 'empty' | 'invalid' }
 
+/**
+ * The provider's tiers as the wallet quotes them, or why there are none.
+ * Each target is a whole number of blocks from 1 to 1,008, given once, with
+ * a finite rate above 0 and, as sent, at most `QBIT_MAX_FEE_RATE`. A rate
+ * below the relay floor is raised to `QBIT_MIN_RELAY_FEE_RATE`, and every
+ * rate is rounded up to hundredths of a bit/vB: the Custom rate input takes
+ * rates in hundredths and every screen shows them so, so a tier is a rate
+ * the user sees and can type exactly, and rounding up never offers less
+ * than the provider asked for. A slower target must not cost more than a
+ * faster one once both are rounded.
+ */
 function normalizeQbitFeeTiers(tiers: unknown): NormalizedQbitFeeTiers {
   if (!Array.isArray(tiers)) {
     return { valid: false, reason: 'invalid' }
@@ -4166,7 +4422,7 @@ function normalizeQbitFeeTiers(tiers: unknown): NormalizedQbitFeeTiers {
     targets.add(tier.target!)
     normalized.push({
       target: tier.target!,
-      feeRate: Math.max(QBIT_MIN_RELAY_FEE_RATE, tier.feeRate!),
+      feeRate: ceilQbitFeeRateToHundredths(Math.max(QBIT_MIN_RELAY_FEE_RATE, tier.feeRate!)),
     })
   }
 
@@ -4177,6 +4433,21 @@ function normalizeQbitFeeTiers(tiers: unknown): NormalizedQbitFeeTiers {
     }
   }
   return { valid: true, tiers: normalized }
+}
+
+/**
+ * The smallest whole number of hundredths of a bit/vB that is not below
+ * `feeRate`, a positive finite rate. `feeRate * 100` can land on either side
+ * of a whole number in binary (1.1 * 100 is 110.00000000000001, 0.29 * 100
+ * is 28.999999999999996), so the candidate is checked against `feeRate`
+ * itself: `n / 100` is the same number as the decimal `n / 100` a user types
+ * or a provider sends, so a rate already in hundredths comes back unchanged.
+ */
+function ceilQbitFeeRateToHundredths(feeRate: number): number {
+  let hundredths = Math.ceil(feeRate * 100)
+  while (hundredths / 100 < feeRate) hundredths += 1
+  while ((hundredths - 1) / 100 >= feeRate) hundredths -= 1
+  return hundredths / 100
 }
 
 function feeRateForTarget(tiers: FeeRateTier[], target: number): number | undefined {

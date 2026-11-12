@@ -32,7 +32,7 @@ export interface FeeSummary {
     /** Qbit confirmation target; one qbit block is expected every minute. */
     targetBlocks?: number
   }[]
-  /** Present for qbit provider and relay-floor fallback quotes. */
+  /** Present for qbit provider quotes and for the fallback quote offered without estimates. */
   quote?: FeeQuoteMetadata
 }
 

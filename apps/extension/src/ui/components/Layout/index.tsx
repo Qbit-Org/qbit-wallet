@@ -1,8 +1,11 @@
-import React, { CSSProperties, useEffect } from 'react';
+import React, { CSSProperties, useEffect, useRef } from 'react';
+import { useStore } from 'react-redux';
 
+import { enteringUnlockReplaces } from '@/ui/pages/Account/UnlockScreen/unlockEntry';
 import { routes } from '@/ui/pages/MainRoute';
 import { colors } from '@/ui/theme/colors';
-import { useBooted, useIsUnlocked } from '@qbit/wallet-state';
+import { noteRedirectToUnlock } from '@/ui/utils/sendFormReturn';
+import { type AppState, useBooted, useIsUnlocked } from '@qbit/wallet-state';
 
 import './index.less';
 
@@ -13,14 +16,25 @@ export interface LayoutProps {
 export function Layout(props: LayoutProps) {
   const isBooted = useBooted();
   const isUnlocked = useIsUnlocked();
+  const store = useStore<AppState>();
+  // Whether this screen has been shown with the wallet unlocked. One that
+  // mounted locked never was: a page loaded or restored while locked, one
+  // that did not know yet it was unlocked, a form reached by Back from the
+  // unlock screen.
+  const shownUnlockedRef = useRef(false);
 
   useEffect(() => {
+    if (isUnlocked) {
+      shownUnlockedRef.current = true;
+    }
     if (isBooted && !isUnlocked && location.href.includes(routes.UnlockScreen.path) === false) {
+      // Whether the unlock may return here: only to a send form shown unlocked.
+      noteRedirectToUnlock(routes.TxCreateScreen.path, store.getState(), shownUnlockedRef.current);
       const basePath = location.href.split('#')[0];
-      location.href = `${basePath}#${routes.UnlockScreen.path}`;
+      location[enteringUnlockReplaces() ? 'replace' : 'assign'](`${basePath}#${routes.UnlockScreen.path}`);
       return;
     }
-  }, [isBooted, isUnlocked]);
+  }, [isBooted, isUnlocked, store]);
 
   const { children, style: $styleBase } = props;
   return (

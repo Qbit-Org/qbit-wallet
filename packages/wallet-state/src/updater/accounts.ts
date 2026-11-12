@@ -97,14 +97,37 @@ export function AccountUpdater() {
   }, [dispatch])
 
   useEffect(() => {
+    // Layout sends a locked page to the unlock screen once the store knows the
+    // wallet has a vault (isBooted), which the page reads only as it loads. A
+    // page that loaded before the wallet was created would never know, so
+    // every lock asks again, after marking the page locked: a page that knew
+    // does not wait for the answer. Only a vault found is published. That is
+    // safe while nothing removes the vault under a page that stays loaded
+    // (anything that ever does must reload the pages): a late answer then
+    // cannot undo a newer one. It leaves isUnlocked alone, so an unlock that
+    // came first stays. A failed read changes nothing; the next lock reads
+    // again.
+    let mounted = true
+    const publishVault = async (): Promise<void> => {
+      try {
+        // Not after unmount: a read still in flight then publishes nothing.
+        if ((await wallet.hasVault()) && mounted) {
+          dispatch(globalActions.update({ isBooted: true }))
+        }
+      } catch {
+        // Nothing to publish.
+      }
+    }
     const lockHandler = () => {
       dispatch(globalActions.update({ isUnlocked: false }))
+      publishVault()
     }
     uiEventBus.addEventListener(BUS_METHODS.LOCKED, lockHandler)
     return () => {
+      mounted = false
       uiEventBus.removeEventListener(BUS_METHODS.LOCKED, lockHandler)
     }
-  }, [dispatch])
+  }, [dispatch, wallet])
 
   useEffect(() => {
     const unlockHandler = () => {

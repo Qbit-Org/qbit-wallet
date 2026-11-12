@@ -44,7 +44,10 @@ vi.mock('@/ui/utils', () => ({
   amountToSatoshis: (val: unknown) => Number(val)
 }));
 
-vi.mock('@qbit/wallet-state', () => ({
+vi.mock('@qbit/wallet-state', async () => ({
+  // The package's own formatter: its index does not load in this test.
+  formatFeeRate: (await import('../../../../../../../../../packages/wallet-state/src/utils/fee-rate-text'))
+    .formatFeeRate,
   useI18n: vi.fn(),
   useQbitUnit: vi.fn()
 }));
@@ -120,6 +123,36 @@ describe('TransactionOverviewSection signature budget row', () => {
       'Batch signature budget: 5 new; 100 before, 95 after all transactions'
     );
     expect(screen.queryByText('Signature budget: 100 before, 98 after')).toBeNull();
+  });
+
+  it('shows a fee rate below 1 bit/vB to two decimal places, beside the exact fee', () => {
+    // 955 bits for 3,817 vB: a one-input send at the 0.25 bits/vB relay floor.
+    render(
+      <TransactionOverviewSection
+        decodedPsbt={{ ...decodedPsbt, fee: 955, feeRate: 955 / 3_817 }}
+        networkFee={0.00000955}
+        toSignData={toSignDataWithBudget()}
+      />
+    );
+
+    expect(screen.getByText('0.25 bits/vB')).toBeTruthy();
+    expect(screen.getByTestId('psbt-network-fee-base-units').textContent).toBe('Exact fee: 955 bits');
+  });
+
+  it('never shows a fee rate above the one paid: 936 bits for 3,817 vB, below the floor, as 0.24 bits/vB', () => {
+    // 0.2452 bits/vB, which the node refuses; rounded to the nearest
+    // hundredth it would read as the 0.25 floor.
+    render(
+      <TransactionOverviewSection
+        decodedPsbt={{ ...decodedPsbt, fee: 936, feeRate: 936 / 3_817 }}
+        networkFee={0.00000936}
+        toSignData={toSignDataWithBudget()}
+      />
+    );
+
+    expect(screen.getByText('0.24 bits/vB')).toBeTruthy();
+    expect(screen.queryByText('0.25 bits/vB')).toBeNull();
+    expect(screen.getByTestId('psbt-network-fee-base-units').textContent).toBe('Exact fee: 936 bits');
   });
 
   it('renders no budget row when the approval has no preflighted budget', () => {

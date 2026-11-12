@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { ComponentProps, CSSProperties, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -50,7 +50,27 @@ vi.mock('@/ui/components', async () => {
   };
 });
 
-vi.mock('@/ui/components/AccountSelect', () => ({ default: () => null }));
+// What the account card showed at each commit: its wallet name, its wallet tile's color and its tags.
+const cardCommits = vi.hoisted(() => [] as string[]);
+
+// The real account card renders; only the sheet it opens is left out.
+vi.mock('@/ui/components/AccountSwitcher', () => ({ AccountSwitcherSheet: () => null }));
+vi.mock('@/ui/components/AccountSelect', async (importOriginal) => {
+  const React = await import('react');
+  const { default: AccountSelect } = await importOriginal<typeof import('@/ui/components/AccountSelect')>();
+  function RecordedAccountSelect(props: ComponentProps<typeof AccountSelect>) {
+    React.useLayoutEffect(() => {
+      const name = document.querySelector('[data-testid="account-select-wallet-name"]')?.textContent;
+      const color = document.querySelector('[data-testid="account-select-wallet-tile"]')?.getAttribute('data-color');
+      const tags = Array.from(document.querySelectorAll('[data-testid^="account-select-tag-"]'), (tag) =>
+        tag.getAttribute('data-testid')?.replace('account-select-tag-', '')
+      );
+      cardCommits.push(`${name} (${color}): ${tags.join(',')}`);
+    });
+    return React.createElement(AccountSelect, props);
+  }
+  return { default: RecordedAccountSelect };
+});
 vi.mock('@/ui/components/FeeRateIcon', () => ({ FeeRateIcon: () => null }));
 vi.mock('@/ui/components/LoadingPage', () => ({ default: () => null }));
 vi.mock('@/ui/components/NavTabBar', () => ({ NavTabBar: () => null }));
@@ -73,8 +93,15 @@ vi.mock('@/ui/web/tabs', () => ({ getCurrentTab: vi.fn(async () => undefined) })
 vi.mock('../../MainRoute', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('../../Settings/SwitchChainModal', () => ({ SwitchChainModal: () => null }));
 vi.mock('./SidePanelExpand', () => ({ SidePanelExpand: () => null }));
-vi.mock('./components/BalanceCard', () => ({ BalanceCard: () => null }));
+vi.mock('./components/BalanceCard', async () => {
+  const React = await import('react');
+  return { BalanceCard: () => React.createElement('div', { 'data-testid': 'balance-card' }) };
+});
 vi.mock('./components/HomeTips', () => ({ HomeTips: () => null }));
+vi.mock('./components/QbitSendPlanResumeCard', async () => {
+  const React = await import('react');
+  return { QbitSendPlanResumeCard: () => React.createElement('div', { 'data-testid': 'send-plan-resume-card' }) };
+});
 vi.mock('./components/WalletActions', async () => {
   const React = await import('react');
   return {
@@ -156,7 +183,9 @@ vi.mock('@qbit/wallet-state', () => {
     useChain: vi.fn(),
     useCurrentAccount: vi.fn(),
     useCurrentKeyring: vi.fn(),
-    useI18n: vi.fn(() => ({ t: (key: string) => key })),
+    useI18n: vi.fn(() => ({
+      t: (key: string, substitutions?: string[]) => (substitutions ? `${key}(${substitutions.join('|')})` : key)
+    })),
     useIsUnlocked: vi.fn(),
     useNavigation: vi.fn(),
     useSkipVersionCallback: vi.fn(),
@@ -179,6 +208,7 @@ function recoveredKeyring(recovery = seedOnlyRecovery, overrides: Record<string,
     index: 2,
     type: KeyringType.QbitHdKeyring,
     alianName: 'Recovered wallet',
+    color: 'orange',
     accounts: [{ address: 'qbrt1qrecovered', pubkey: 'anchor-pubkey-2' }],
     qbitRecovery: recovery,
     ...overrides
@@ -220,6 +250,18 @@ describe('WalletTabScreen recovery acceptance', () => {
   afterEach(() => {
     cleanup();
     localStorage.clear();
+  });
+
+  it('puts the send plan card after the recovery banner and before the balance and actions (#188)', async () => {
+    render(<WalletTabScreen />);
+    await screen.findByTestId('recovery-status');
+
+    const order = ['recovery-status', 'send-plan-resume-card', 'balance-card', 'wallet-actions'].map((testId) =>
+      screen.getByTestId(testId)
+    );
+    order.slice(1).forEach((element, index) => {
+      expect(order[index]?.compareDocumentPosition(element) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
   });
 
   it('keeps explicit acceptance across display refreshes and resets it for a lifecycle change', async () => {
@@ -405,6 +447,50 @@ describe('WalletTabScreen recovery acceptance', () => {
     expect(screen.getByTestId('recovery-acknowledgement').textContent).toBe('required');
   });
 
+  it('tags the account card from the fetched recovery state, not the stale snapshot', async () => {
+    walletMock.getQbitRecoveryState.mockResolvedValue({ ...seedOnlyRecovery, status: 'migrated' });
+    render(<WalletTabScreen />);
+
+    // The snapshot says recovered; the fetched state says archived.
+    await waitFor(() => expect(screen.getByTestId('account-select-tag-archived')).toBeTruthy());
+    expect(screen.queryByTestId('account-select-tag-recovered')).toBeNull();
+    expect(screen.getByTestId('account-select-wallet-name').textContent).toBe('Recovered wallet');
+    expect(screen.getByTestId('account-select-wallet-tile').getAttribute('data-color')).toBe('orange');
+  });
+
+  it('never shows the recovery tag of the wallet switched from on the card of the wallet switched to', async () => {
+    const clean = { ...seedOnlyRecovery, status: 'clean' };
+    walletMock.getQbitRecoveryState.mockImplementation(async (index: number) =>
+      index === 2 ? seedOnlyRecovery : clean
+    );
+    const { rerender } = render(<WalletTabScreen />);
+    await waitFor(() => expect(screen.getByTestId('account-select-tag-recovered')).toBeTruthy());
+    cardCommits.length = 0;
+
+    // Switch to another Qbit HD wallet, which is clean and teal, where the recovered one is orange.
+    vi.mocked(useCurrentKeyring).mockReturnValue(
+      recoveredKeyring(clean, {
+        key: 'keyring-3',
+        index: 3,
+        alianName: 'Clean wallet',
+        color: 'teal',
+        accounts: [{ address: 'qbrt1qclean', pubkey: 'anchor-pubkey-3' }]
+      })
+    );
+    rerender(<WalletTabScreen />);
+
+    await waitFor(() => expect(screen.getByTestId('account-select-wallet-name').textContent).toBe('Clean wallet'));
+    await waitFor(() => expect(walletMock.getQbitRecoveryState).toHaveBeenLastCalledWith(3, 'anchor-pubkey-3'));
+    // Every commit that shows the clean wallet, by its name or by its tile, shows both and no tag.
+    const cleanWalletCommits = cardCommits.filter(
+      (commit) => commit.startsWith('Clean wallet ') || commit.includes(' (teal):')
+    );
+    expect(cleanWalletCommits.length).toBeGreaterThan(0);
+    expect(new Set(cleanWalletCommits)).toEqual(new Set(['Clean wallet (teal): ']));
+    // The recovery cards below the card follow the fetched state as before.
+    expect(screen.queryByTestId('recovery-status')).toBeNull();
+  });
+
   it('hides the receive action when the authoritative state reports archival', async () => {
     vi.mocked(useCurrentKeyring).mockReturnValue(
       recoveredKeyring({ ...seedOnlyRecovery, status: 'migrating', acknowledgement: 'accepted' })
@@ -418,6 +504,57 @@ describe('WalletTabScreen recovery acceptance', () => {
 
     await waitFor(() => expect(screen.getByTestId('wallet-actions').getAttribute('data-hide-receive')).toBe('true'));
     expect(screen.getByTestId('recovery-status').textContent).toBe('migrated');
+  });
+});
+
+describe('WalletTabScreen header and account card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.setItem('version_detail', JSON.stringify({ version: '1.0.0' }));
+    vi.mocked(useChain).mockReturnValue({} as never);
+    vi.mocked(useCurrentAccount).mockReturnValue({
+      key: 'keyring_4#1',
+      address: 'qbrt1qsecondaccountaddressvalue',
+      alianName: 'Account 2'
+    } as never);
+    vi.mocked(useCurrentKeyring).mockReturnValue({
+      key: 'keyring_4',
+      index: 4,
+      type: KeyringType.HdKeyring,
+      alianName: 'Wallet 3',
+      color: 'violet',
+      accounts: [{ address: 'qbrt1qsecondaccountaddressvalue', pubkey: 'pubkey-4' }]
+    } as never);
+    vi.mocked(useIsUnlocked).mockReturnValue(true);
+    vi.mocked(useNavigation).mockReturnValue({ navToLock: vi.fn() } as never);
+    vi.mocked(useSkipVersionCallback).mockReturnValue(vi.fn());
+    vi.mocked(useTools).mockReturnValue({ toastError: vi.fn(), copyToClipboard: vi.fn() } as never);
+    vi.mocked(useVersionInfo).mockReturnValue({ currentVesion: '1.0.0', skipped: true, newVersion: '1.0.0' } as never);
+    vi.mocked(useWallet).mockReturnValue({ getCurrentConnectedSite: vi.fn() } as never);
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  it('has no wallet chip in the header', () => {
+    render(<WalletTabScreen />);
+
+    expect(screen.queryByTestId('wallet-management-entry')).toBeNull();
+    expect(screen.queryByText('switch_wallet')).toBeNull();
+    expect(screen.getByTestId('lock-wallet-button')).toBeTruthy();
+  });
+
+  it('names the wallet and the account on the account card, with the wallet tile', () => {
+    render(<WalletTabScreen />);
+
+    expect(screen.getByTestId('account-select-wallet-name').textContent).toBe('Wallet 3');
+    expect(screen.getByTestId('account-select-account-name').textContent).toBe('Account 2');
+    expect(screen.getByTestId('account-select-wallet-tile').getAttribute('data-color')).toBe('violet');
+    expect(screen.getByRole('button', { name: 'account_switcher_open_label(Account 2|Wallet 3)' })).toBe(
+      screen.getByTestId('account-select')
+    );
   });
 });
 

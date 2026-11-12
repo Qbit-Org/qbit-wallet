@@ -19,6 +19,7 @@ import {
   phishingDetectService,
   preferenceService,
   qbitSendGuardService,
+  qbitSendPlanStore,
   walletController
 } from '@qbit/wallet-background';
 import { bgI18n, normalizeChainType, t } from '@qbit/wallet-shared';
@@ -171,6 +172,16 @@ export async function restoreAppState() {
 
     await startService('send guard', () => qbitSendGuardService.init());
 
+    // The open send plans, and what each holds, before anything can spend:
+    // the guard holds a plan's outputs again from its stored record. A read
+    // that fails stops start-up, as for every service; a document holding
+    // plans this version cannot read does not, and those plans show as
+    // unreadable to their accounts.
+    await startService('send plans', async () => {
+      await qbitSendPlanStore.init({ storage: proxyStorage });
+      await walletController.restoreQbitSendPlans();
+    });
+
     // Local regtest is gated by a background capability (optional loopback
     // host permission + acknowledgement + verified service). Resolve it before
     // the wallet uses the chain: a persisted regtest selection that no longer
@@ -235,6 +246,14 @@ export async function restoreAppState() {
 
     walletController.setBackgroundInited(true);
     settleAppState();
+
+    // Plans advance once start-up is over: from here, a timer, every unlock
+    // and every wallet page that reads a plan carry them on.
+    try {
+      walletController.startQbitSendPlanEngine();
+    } catch (engineError) {
+      logger.error('[Background] send plans failed to start advancing', engineError);
+    }
   } catch (err) {
     console.error('[Background] Initialization failed', err);
     const reason = proxyStorage.isStartupReadError(err) ? 'stored-settings-unreadable' : 'unknown';

@@ -55,6 +55,7 @@ export function useSignMessageLogic(props: SignMessageProps) {
   const {
     status: websiteCheckStatus,
     result: websiteResult,
+    trusted: isTrustedWebsite,
     warning: websiteCheckWarning,
     retry: onRetryWebsiteCheck,
     guardVersionRef: websiteGuardVersionRef,
@@ -386,6 +387,7 @@ export function useSignMessageLogic(props: SignMessageProps) {
     // state
     websiteCheckStatus,
     websiteCheckWarning,
+    isTrustedWebsite,
     isBlocked,
     allowQuickMultiSign,
 

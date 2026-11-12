@@ -6,6 +6,7 @@ export { default as permissionService } from './permission'
 export { default as phishingDetectService } from './phishing'
 export { default as preferenceService } from './preference'
 export { default as qbitSendGuardService } from './qbitSendGuards'
+export { default as qbitSendPlanStore } from './qbitSendPlanStore'
 export {
   default as regtestAccessService,
   type RegtestAccessAckStore,

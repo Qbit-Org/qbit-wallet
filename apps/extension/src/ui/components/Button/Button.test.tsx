@@ -125,3 +125,37 @@ describe('Button loading state', () => {
     expect(button.querySelector('.icon-spin')).toBeTruthy();
   });
 });
+
+describe('Button keyboard access', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('passes the role, tab stop and key handler a caller gives it', () => {
+    const onKeyDown = vi.fn();
+    render(<Button text="Add" role="button" tabIndex={0} onKeyDown={onKeyDown} data-testid="keyboard-button" />);
+
+    const button = screen.getByTestId('keyboard-button');
+    expect(button.getAttribute('role')).toBe('button');
+    expect(button.tabIndex).toBe(0);
+    fireEvent.keyDown(button, { key: 'Enter' });
+    expect(onKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['disabled', { disabled: true }],
+    ['loading', { loading: true }]
+  ])('ignores keys while %s, as it ignores clicks', (_state, props) => {
+    const onKeyDown = vi.fn();
+    const onClick = vi.fn();
+    render(
+      <Button text="Add" role="button" onKeyDown={onKeyDown} onClick={onClick} data-testid="keyboard-button" {...props} />
+    );
+
+    const button = screen.getByTestId('keyboard-button');
+    fireEvent.keyDown(button, { key: 'Enter' });
+    fireEvent.click(button);
+    expect(onKeyDown).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+});

@@ -177,14 +177,22 @@ vi.mock('../src/services', () => ({
   },
   preferenceService: {
     getCurrentAccount: vi.fn(),
+    getCurrentKeyringIndex: vi.fn(),
     getAddressFlag: vi.fn(() => 0),
     getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
+    getKeyringAlianName: vi.fn(() => ''),
+    setKeyringAlianName: vi.fn(),
+    removeKeyringAlianName: vi.fn(),
+    getKeyringColor: vi.fn(() => undefined),
+    setKeyringColor: vi.fn(),
+    removeKeyringColor: vi.fn(),
   },
   qbitSendGuardService: {
     acquireExternalSigningLock: vi.fn(),
     assertNoOverlap: vi.fn(),
     broadcastIfAllowed: vi.fn(),
     forgetProvenAbsentBroadcast: vi.fn(async () => true),
+    getPlanHeldOutpointKeys: vi.fn(async () => new Set()),
     getReservedOutpointKeys: vi.fn(async () => new Set()),
     hasDependentSpend: vi.fn(async () => false),
     hasUnknownBroadcastOutcome: vi.fn(async () => false),
@@ -513,6 +521,22 @@ function installQbitDestinationRawKeyring(
   return rawKeyring
 }
 
+// The keyring service holds a wallet in the slot of each one listed, as it
+// does for every wallet it lists: a removal acts only on a wallet in its slot.
+function holdSlotsOf(...listed: Array<{ index: number; type: string }>) {
+  const keyrings = (keyringService as any).keyrings
+  for (const keyring of listed) {
+    if (!keyrings[keyring.index]) keyrings[keyring.index] = { type: keyring.type }
+  }
+}
+
+// The wallets `wallet` lists, whether read through the keyring service's
+// cache of shown wallets or afresh, as a removal reads them.
+function listWallets(wallet: WalletController, listed: unknown[]) {
+  vi.spyOn(wallet, 'getKeyrings').mockResolvedValue(listed as any)
+  vi.spyOn(wallet as any, 'readKeyringsAfresh').mockResolvedValue(listed)
+}
+
 function qbitRecoveryMigrationFixture() {
   const sourceAccount = p2mrAccount('41'.repeat(32))
   const destinationAccount = p2mrAccount('22'.repeat(32))
@@ -603,6 +627,7 @@ describe('WalletController qbit P2MR send path', () => {
     )
     vi.mocked(qbitSendGuardService.takeRecentSpendersToProbe).mockResolvedValue([])
     vi.mocked(qbitSendGuardService.hasDependentSpend).mockResolvedValue(false)
+    vi.mocked(qbitSendGuardService.getPlanHeldOutpointKeys).mockResolvedValue(new Set())
     vi.mocked(qbitSendGuardService.releaseExternalSigningLock).mockResolvedValue(true)
     vi.mocked(
       qbitSendGuardService.promoteExternalSigningLockToBroadcastClaim
@@ -1070,7 +1095,9 @@ describe('WalletController qbit P2MR send path', () => {
         account.address,
         expect.objectContaining({ keys: expect.any(Array) }),
         SIGNATURE_BUDGET,
-        { id: 'batch-1', index: 0 }
+        { id: 'batch-1', index: 0 },
+        // No page asked for this signing's progress.
+        { onProgress: undefined, signal: expect.any(AbortSignal) }
       )
     })
 
@@ -1547,7 +1574,8 @@ describe('WalletController qbit P2MR send path', () => {
       account.address,
       expect.objectContaining({ keys }),
       SIGNATURE_BUDGET,
-      undefined
+      undefined,
+      { onProgress: undefined, signal: expect.any(AbortSignal) }
     )
     expect(extractP2mrTransaction(parsePsbt(hexToBytes(signedReplacement.psbtHex!))).length).toBe(
       replacement.feeBump!.replacementVsize
@@ -3862,6 +3890,8 @@ describe('WalletController qbit P2MR send path', () => {
     await expect(send(700_000)).rejects.toThrow(
       `Amount needs more than 106 inputs, over the standard transaction size; at most ${largestSend} sats can be sent in one transaction.`
     )
+    // One bit more would need a 107th input.
+    await expect(send(largestSend + 1)).rejects.toThrow('Amount needs more than 106 inputs')
     expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
 
     const largest = await send(largestSend)
@@ -3931,7 +3961,7 @@ describe('WalletController qbit P2MR send path', () => {
         qbitUtxoAddress: account.address,
         qbitUtxos,
       })
-    ).rejects.toThrow(/between 1 and 10000/)
+    ).rejects.toThrow('feeRate must be between 0.25 and 10000 bits/vB')
 
     await expect(
       wallet.createSendQbitPsbt({
@@ -4181,7 +4211,8 @@ describe('WalletController qbit P2MR send path', () => {
         keys,
       }),
       SIGNATURE_BUDGET,
-      undefined
+      undefined,
+      { onProgress: undefined, signal: expect.any(AbortSignal) }
     )
     expect(emit).toHaveBeenCalledWith(BUS_EVENTS.broadcastToUI, {
       method: BUS_METHODS.ACCOUNTS_CHANGED,
@@ -5221,7 +5252,7 @@ describe('WalletController qbit P2MR send path', () => {
       sourceKeyring as any,
       destinationKeyring as any,
     ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(sourceAccount as any)
     installQbitDestinationRawKeyring(destinationAccount, 1)
     // A prior testnet4 migration already archived into the destination; the
@@ -5279,6 +5310,11 @@ describe('WalletController qbit P2MR send path', () => {
 
   it('honors the confirmed fresh seed even when another network recorded a destination', async () => {
     const { wallet, sourceAccount } = installSecondNetworkRecoveryFixture()
+    vi.mocked(keyringService.createQbitMigrationKeyring).mockResolvedValueOnce({
+      destinationKeyringIndex: 2,
+      destinationPubkey: '73'.repeat(32),
+      destinationAddress: 'qbrt1zfresh',
+    })
 
     // The user only reaches the create path after backing up and confirming
     // this mnemonic; silently rerouting to the recorded destination would
@@ -5423,7 +5459,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     const scanAddress = (index: number) => `qbrt1zrescan${index}`
     ;(keyringService as any).keyrings[2] = {
       getAccounts: async () => [fixture.sourceAccount.pubkey],
@@ -5629,13 +5665,11 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [destinationAccount],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      sourceKeyring as any,
-      destinationKeyring as any,
-    ])
+    listWallets(wallet, [sourceKeyring as any, destinationKeyring as any])
     vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(sourceAccount as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     installQbitDestinationRawKeyring(destinationAccount)
+    holdSlotsOf(sourceKeyring)
 
     let vaultState: any = {
       version: 1,
@@ -5867,7 +5901,8 @@ describe('WalletController qbit P2MR send path', () => {
       sourceAccount.address,
       expect.objectContaining({ psbt: expect.any(Object), keys: expect.any(Array) }),
       migrationBudget,
-      undefined
+      undefined,
+      { onProgress: undefined, signal: expect.any(AbortSignal) }
     )
     expect(keyringService.updateQbitRecoveryMigrationPlan).toHaveBeenCalledWith(
       sourceAccount.address,
@@ -5925,15 +5960,15 @@ describe('WalletController qbit P2MR send path', () => {
     expect(keyringService.markQbitRecoveryMigrated).toHaveBeenCalledWith(sourceAccount.address, 'regtest', {
       allowIncompletePlanRecord: true,
     })
-    expect(changeKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
 
-    changeKeyring.mockClear()
+    selectKeyring.mockClear()
     lifecycle.mockResolvedValue({ state: 'confirmed' })
     getAddressUtxosMock.mockResolvedValueOnce([dustUtxo])
     await expect(wallet.advanceQbitRecoveryMigration(2)).resolves.toMatchObject({
       status: 'migrated',
     })
-    expect(changeKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(destinationKeyring, 0)
 
     await expect(wallet.removeKeyring(sourceKeyring as any)).rejects.toMatchObject({
       code: ErrorCodes.QBIT_RECOVERY_REMOVAL_ACK_REQUIRED,
@@ -5956,8 +5991,10 @@ describe('WalletController qbit P2MR send path', () => {
           { role: 'destination', network: 'regtest', status: 'migrated' },
         ],
       })
-    ).resolves.toBe(destinationKeyring)
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3)
+    ).resolves.toBe(sourceKeyring)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3, {
+      beforeRemove: expect.any(Function),
+    })
   })
 
   it.each(['migrating', 'migrated'] as const)(
@@ -5966,11 +6003,9 @@ describe('WalletController qbit P2MR send path', () => {
       const wallet = new WalletController()
       const fixture = qbitRecoveryMigrationFixture()
       const vaultState = { ...fixture.vaultState, status }
-      vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-        fixture.sourceKeyring as any,
-        fixture.destinationKeyring as any,
-      ])
-      vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+      listWallets(wallet, [fixture.sourceKeyring as any, fixture.destinationKeyring as any])
+      holdSlotsOf(fixture.sourceKeyring, fixture.destinationKeyring)
+      vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
       vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
         address === fixture.sourceAccount.address ? wrapRegtestVaultState(vaultState) : undefined
       )
@@ -6008,14 +6043,18 @@ describe('WalletController qbit P2MR send path', () => {
           { role: 'source', network: 'regtest', status, hasInflightPlans: true },
         ],
       })
-      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index)
+      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index, {
+        beforeRemove: expect.any(Function),
+      })
       await wallet.removeKeyring(fixture.destinationKeyring as any, {
         acknowledgedQbitRecoveryRisks: true,
         acknowledgedQbitRecoveryReasons: [
           { role: 'destination', network: 'regtest', status, hasInflightPlans: true },
         ],
       })
-      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring.index)
+      expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring.index, {
+        beforeRemove: expect.any(Function),
+      })
     }
   )
 
@@ -6031,11 +6070,9 @@ describe('WalletController qbit P2MR send path', () => {
         plans: [{ ...fixture.vaultState.migration.plans[0], status: 'prepared' as const }],
       },
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      fixture.sourceKeyring as any,
-      fixture.destinationKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [fixture.sourceKeyring as any, fixture.destinationKeyring as any])
+    holdSlotsOf(fixture.sourceKeyring, fixture.destinationKeyring)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
       address === fixture.sourceAccount.address ? wrapRegtestVaultState(vaultState) : undefined
     )
@@ -6072,7 +6109,9 @@ describe('WalletController qbit P2MR send path', () => {
         { role: 'source', network: 'regtest', status: 'migrating', hasInflightPlans: true },
       ] as any,
     })
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(fixture.sourceKeyring.index, {
+      beforeRemove: expect.any(Function),
+    })
   })
 
   it('retains the migration destination after keyring compaction stales the persisted index', async () => {
@@ -6089,12 +6128,9 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('33'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      sourceKeyring as any,
-      destinationKeyring as any,
-      unrelatedKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [sourceKeyring as any, destinationKeyring as any, unrelatedKeyring as any])
+    holdSlotsOf(sourceKeyring, destinationKeyring, unrelatedKeyring)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
       address === fixture.sourceAccount.address ? wrapRegtestVaultState(fixture.vaultState) : undefined
     )
@@ -6105,8 +6141,11 @@ describe('WalletController qbit P2MR send path', () => {
     })
     expect(keyringService.removeKeyring).not.toHaveBeenCalled()
 
-    await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(unrelatedKeyring)
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3)
+    // The removed wallet is never the one returned as current.
+    await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(destinationKeyring)
+    expect(keyringService.removeKeyring).toHaveBeenCalledWith(3, {
+      beforeRemove: expect.any(Function),
+    })
   })
 
   it('recognizes the retained destination recorded under another coin type', async () => {
@@ -6135,12 +6174,8 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('33'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      sourceKeyring as any,
-      destinationKeyring as any,
-      unrelatedKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [sourceKeyring as any, destinationKeyring as any, unrelatedKeyring as any])
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async address =>
       address === fixture.sourceAccount.address ? wrapRegtestVaultState(vaultState) : undefined
     )
@@ -6176,8 +6211,10 @@ describe('WalletController qbit P2MR send path', () => {
 
       // The stale persisted index no longer misdirects the check once the
       // stored identity resolves to a live keyring.
-      await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(unrelatedKeyring)
-      expect(keyringService.removeKeyring).toHaveBeenCalledWith(2)
+      await expect(wallet.removeKeyring(unrelatedKeyring as any)).resolves.toBe(destinationKeyring)
+      expect(keyringService.removeKeyring).toHaveBeenCalledWith(2, {
+        beforeRemove: expect.any(Function),
+      })
 
       // A candidate that cannot be verified surfaces the uncertainty for
       // confirmation instead of failing the removal closed: the target may be
@@ -6200,8 +6237,10 @@ describe('WalletController qbit P2MR send path', () => {
             { role: 'unverified', network: 'mainnet', status: 'migrating', hasInflightPlans: true },
           ],
         })
-      ).resolves.toBe(unrelatedKeyring)
-      expect(keyringService.removeKeyring).toHaveBeenLastCalledWith(2)
+      ).resolves.toBe(destinationKeyring)
+      expect(keyringService.removeKeyring).toHaveBeenLastCalledWith(2, {
+        beforeRemove: expect.any(Function),
+      })
     } finally {
       delete (keyringService as any).keyrings[0]
       delete (keyringService as any).keyrings[1]
@@ -6209,30 +6248,32 @@ describe('WalletController qbit P2MR send path', () => {
     }
   })
 
-  it('re-resolves a queued removal whose captured index was staled by compaction', async () => {
+  it('refuses a queued removal whose wallet is listed only in another slot', async () => {
     const wallet = new WalletController()
-    // The user asked to remove this wallet while it sat at index 2; an earlier
-    // queued removal then compacted the keyring array, moving it to index 1
-    // and moving an unrelated wallet into the captured slot.
+    // The user asked to remove this wallet while it sat in slot 2. A removal
+    // leaves its slot empty and an addition takes a new one, so slots are
+    // never reused: the same wallet listed in slot 1 is another wallet entry
+    // (its phrase restored again), not the one the user picked.
     const capturedTarget = {
       index: 2,
       type: KeyringType.QbitHdKeyring,
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('44'.repeat(32))],
     }
-    const compactedTarget = { ...capturedTarget, index: 1 }
+    const sameWalletElsewhere = { ...capturedTarget, index: 1 }
     const survivor = {
       index: 2,
       type: KeyringType.QbitHdKeyring,
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('55'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([compactedTarget as any, survivor as any])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [sameWalletElsewhere as any, survivor as any])
+    holdSlotsOf(sameWalletElsewhere, survivor)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockResolvedValue(undefined)
 
-    await wallet.removeKeyring(capturedTarget as any)
-    expect(keyringService.removeKeyring).toHaveBeenCalledWith(1)
+    await expect(wallet.removeKeyring(capturedTarget as any)).rejects.toThrow('no longer available')
+    expect(keyringService.removeKeyring).not.toHaveBeenCalled()
   })
 
   it('rejects a queued removal whose wallet was already removed', async () => {
@@ -6249,7 +6290,7 @@ describe('WalletController qbit P2MR send path', () => {
       addressType: AddressType.P2MR,
       accounts: [p2mrAccount('55'.repeat(32))],
     }
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([survivor as any])
+    listWallets(wallet, [survivor as any])
     vi.mocked(keyringService.getQbitRecoveryVaultState).mockResolvedValue(undefined)
 
     await expect(wallet.removeKeyring(captured as any)).rejects.toThrow('no longer available')
@@ -6259,11 +6300,9 @@ describe('WalletController qbit P2MR send path', () => {
   it('queues keyring removal so it cannot interleave with a migration start', async () => {
     const wallet = new WalletController()
     const fixture = qbitRecoveryMigrationFixture()
-    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([
-      fixture.sourceKeyring as any,
-      fixture.destinationKeyring as any,
-    ])
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    listWallets(wallet, [fixture.sourceKeyring as any, fixture.destinationKeyring as any])
+    holdSlotsOf(fixture.sourceKeyring, fixture.destinationKeyring)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // The removal was requested while the source still looked seed-only
     // restored, but a migration start is already in the chain-state queue:
     // the retained-wallet guard must observe the state that start persists,
@@ -6670,7 +6709,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // A reviewed protected-asset move rides outside the plan list; while it
     // sits in the mempool it hides the UTXOs it spends from the final scan.
     getAddressUtxosMock.mockResolvedValue([])
@@ -6690,7 +6729,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('activates the destination account a 1:1 sweep actually funded after archiving', async () => {
@@ -6736,13 +6775,13 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     getAddressUtxosMock.mockResolvedValue([])
 
     await expect(wallet.advanceQbitRecoveryMigration(2)).resolves.toMatchObject({
       status: 'migrated',
     })
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 1)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 1)
   })
 
   it('waits for an untracked protected-asset spender before archiving a plan-less source', async () => {
@@ -6769,7 +6808,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // Protected-only source: its provider transfer never became a migration
     // plan, so the plan list is empty and the UTXO scan is vacuously clean
     // while that transfer is unconfirmed.
@@ -6792,7 +6831,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('defers archiving a plan-less source while a coinbase reward is immature', async () => {
@@ -6822,7 +6861,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // A mined reward below qbit's 1,000-block coinbase maturity cannot enter a
     // sweep plan, so the spendable scan is vacuously clean while the source
     // still holds funds.
@@ -6858,7 +6897,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('defers unconfirmed source funds instead of sweeping them into plans', async () => {
@@ -6960,7 +6999,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrated' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // The sweep confirmed, but a later mined reward is still maturing: the
     // final scan must treat it as remaining funds.
     const coinbaseTxid = '78'.repeat(32)
@@ -6993,7 +7032,7 @@ describe('WalletController qbit P2MR send path', () => {
       'regtest',
       { allowIncompletePlanRecord: true }
     )
-    expect(changeKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
+    expect(selectKeyring).toHaveBeenCalledWith(fixture.destinationKeyring, 0)
   })
 
   it('reopens a migrated source when an immature coinbase reward arrives', async () => {
@@ -7028,7 +7067,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrating' }
       return currentPublicState()
     })
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     // A reward mined to the archived source is invisible to the spendable
     // scan until maturity; the archive must still reopen for it instead of
     // presenting the source as fully migrated.
@@ -7057,7 +7096,7 @@ describe('WalletController qbit P2MR send path', () => {
       []
     )
     expect(keyringService.markQbitRecoveryMigrated).not.toHaveBeenCalled()
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
   })
 
   it('keeps signed migration bytes when an empty UTXO response has no conflicting spend proof', async () => {
@@ -7532,7 +7571,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrating' }
       return fixture.publicState(vaultState)
     })
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     getAddressUtxosMock.mockResolvedValue([])
     mockUnreadableRecoverySource(unreadable.address)
 
@@ -7675,7 +7714,7 @@ describe('WalletController qbit P2MR send path', () => {
       vaultState = { ...vaultState, status: 'migrating' }
       return fixture.publicState(vaultState)
     })
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     getAddressUtxosMock.mockResolvedValue([])
     mockIncompleteRecoverySource(incomplete.address)
 
@@ -7938,6 +7977,46 @@ describe('WalletController qbit P2MR send path', () => {
     ])
   })
 
+  /** `count` funding txids, the ones `mockManyOutputRecoverySource` lists. */
+  const sourceTxids = (count: number) =>
+    Array.from({ length: count }, (_, index) => (index + 1).toString(16).padStart(64, '0'))
+
+  // Batches of 1.0.8 took up to 106 inputs, within the standard size: a plan
+  // it saved is offered and sent as any other (#170).
+  it.each([103, 106])(
+    'still offers an unsigned %i-input plan an earlier version saved for signing',
+    async inputCount => {
+      const wallet = new WalletController()
+      const fixture = qbitRecoveryMigrationFixture()
+      const savedPlan = {
+        id: `${fixture.sourceAccount.pubkey}:0`,
+        sourcePubkey: fixture.sourceAccount.pubkey,
+        sourceAddress: fixture.sourceAccount.address,
+        destinationAddress: fixture.destinationAccount.address,
+        amount: 10_000,
+        fee: inputCount * 50_000 - 10_000,
+        psbtHex: psbtHexWithDataOutputs(fixture.sourceAccount, [], sourceTxids(inputCount)),
+        status: 'prepared' as const,
+        sourceIndex: 0,
+        destinationIndex: 0,
+        destinationPubkey: fixture.destinationAccount.pubkey,
+      }
+      const { state } = mockManyOutputRecoverySource(wallet, fixture, [savedPlan], inputCount)
+
+      const prepared = await wallet.prepareQbitRecoveryMigration(2, 1)
+
+      expect(prepared.toSignDatas.map(toSignData => toSignData.psbtHex)).toEqual([
+        savedPlan.psbtHex,
+      ])
+      expect(prepared.toSignDatas.map(planInputCount)).toEqual([inputCount])
+      expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+      expect(
+        keyringService.replaceQbitRecoveryMigrationPlansWithDestinationReservations
+      ).not.toHaveBeenCalled()
+      expect(state.vault.migration.plans).toEqual([savedPlan])
+    }
+  )
+
   it('retires a signed plan the node rejects as oversized instead of failing every advance', async () => {
     const wallet = new WalletController()
     const fixture = qbitRecoveryMigrationFixture()
@@ -8033,6 +8112,84 @@ describe('WalletController qbit P2MR send path', () => {
     await expect(wallet.advanceQbitRecoveryMigration(2)).rejects.toBe(rejection)
     expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
     expect(state.vault.migration.plans).toEqual(fixture.vaultState.migration.plans)
+  })
+
+  /** A plan of `inputCount` inputs, signed by an earlier version, that the network no longer holds. */
+  function goneSignedPlan(
+    wallet: WalletController,
+    fixture: ReturnType<typeof qbitRecoveryMigrationFixture>,
+    inputCount: number
+  ) {
+    const psbtHex = psbtHexWithDataOutputs(
+      fixture.sourceAccount,
+      [],
+      Array.from({ length: inputCount }, (_, index) => (index + 1).toString(16).padStart(64, '0'))
+    )
+    const signedPlan = {
+      ...fixture.vaultState.migration.plans[0],
+      fee: inputCount * 50_000 - 10_000,
+      psbtHex,
+      signedPsbtHex: psbtHex,
+      status: 'signed' as const,
+    }
+    const { state } = mockManyOutputRecoverySource(wallet, fixture, [signedPlan], inputCount)
+    // Its funding transactions are confirmed, and nothing else spends them.
+    vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockImplementation(async txid =>
+      txid === signedPlan.txid ? { state: 'gone' } : { state: 'confirmed' }
+    )
+    mockSourceHistoryWithoutSpender(fixture)
+    return { signedPlan, state }
+  }
+
+  // Batches of 1.0.8 took up to 106 inputs (#170).
+  it.each([103, 106])(
+    'rebroadcasts a signed %i-input plan an earlier version saved',
+    async inputCount => {
+      const wallet = new WalletController()
+      const fixture = qbitRecoveryMigrationFixture()
+      const { signedPlan } = goneSignedPlan(wallet, fixture, inputCount)
+      let sent = false
+      const pushTx = vi.spyOn(wallet, 'pushTx').mockImplementation(async () => {
+        sent = true
+        return signedPlan.txid!
+      })
+      vi.spyOn(wallet, 'getQbitTxLifecycleStatus').mockImplementation(async txid =>
+        txid !== signedPlan.txid
+          ? { state: 'confirmed' }
+          : sent
+            ? { state: 'pending' }
+            : { state: 'gone' }
+      )
+
+      await wallet.advanceQbitRecoveryMigration(2)
+
+      expect(pushTx).toHaveBeenCalledWith(signedPlan.signedPsbtHex)
+      expect(keyringService.updateQbitRecoveryMigrationPlan).toHaveBeenCalledWith(
+        fixture.sourceAccount.address,
+        'regtest',
+        signedPlan.id,
+        { status: 'broadcast', signedPsbtHex: signedPlan.signedPsbtHex, txid: signedPlan.txid }
+      )
+      expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps a signed 106-input plan an explorer before 1.1.0 refuses, and fails the pass with the refusal', async () => {
+    const wallet = new WalletController()
+    const fixture = qbitRecoveryMigrationFixture()
+    const { signedPlan, state } = goneSignedPlan(wallet, fixture, 106)
+    // Such a deployment weighs base bytes ×4 and refuses 103 inputs and more
+    // with only the code. A node relays the plan and an explorer from 1.1.0
+    // on takes it, so it stays, for a later pass to send again.
+    const refusal = new QbitApiError('http', 'HTTP 400 from /tx', {
+      status: 400,
+      responseBody: '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}',
+    })
+    vi.spyOn(wallet, 'pushTx').mockRejectedValue(refusal)
+
+    await expect(wallet.advanceQbitRecoveryMigration(2)).rejects.toBe(refusal)
+    expect(keyringService.replaceQbitRecoveryMigrationPlans).not.toHaveBeenCalled()
+    expect(state.vault.migration.plans).toEqual([signedPlan])
   })
 
   it('resolves migration sweep fee rates from the live estimate with a relay-floor fallback', async () => {
@@ -8149,5 +8306,401 @@ describe('WalletController qbit P2MR send path', () => {
     getTxStatusMock.mockRejectedValueOnce(error)
 
     await expect(wallet.getQbitTxLifecycleStatus('pending-tx')).rejects.toBe(error)
+  })
+  describe('fee rates from the 0.25 bits/vB relay floor (#182)', () => {
+    const POLICY_ERROR = 'feeRate must be between 0.25 and 10000 bits/vB'
+    /** A live Esplora quote below 1 bit/vB: Slow 0.25, Normal 0.5, Fast 0.75. */
+    const QUIET_TIERS = [
+      { target: 20, feeRate: 0.25 },
+      { target: 6, feeRate: 0.5 },
+      { target: 2, feeRate: 0.75 },
+    ]
+
+    function ownOutput(account: ReturnType<typeof p2mrAccount>, txid: string, satoshis: number) {
+      return {
+        txid,
+        vout: 0,
+        satoshis,
+        scriptPk: account.p2mr.scriptPubKey,
+        pubkey: account.pubkey,
+        addressType: AddressType.P2MR,
+      }
+    }
+
+    function feeOf(psbtHex: string) {
+      const summary = decodePsbt(parsePsbt(hexToBytes(psbtHex)))
+      const inputs = summary.inputs.reduce((sum, input) => sum + input.witnessUtxo!.value, 0n)
+      const outputs = summary.outputs.reduce((sum, output) => sum + output.value, 0n)
+      expect(summary.fee).toBe(inputs - outputs)
+      return Number(inputs - outputs)
+    }
+
+    function sendFrom(
+      wallet: WalletController,
+      account: ReturnType<typeof p2mrAccount>,
+      { amount, input, feeRate }: { amount: number; input: number; feeRate?: number }
+    ) {
+      return wallet.createSendQbitPsbt({
+        to: recipientAddress(),
+        amount,
+        ...(feeRate === undefined ? {} : { feeRate }),
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
+        qbitUtxos: [ownOutput(account, '71'.repeat(32), input)],
+      })
+    }
+
+    it('builds a one-input send at 0.25 bits/vB for 955 bits and refuses 0.24', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+
+      // 50,955 bits pay 50,000 and the fee exactly: no change output.
+      const send = await sendFrom(wallet, account, { amount: 50_000, input: 50_955, feeRate: 0.25 })
+
+      expect(send).toMatchObject({
+        estimatedVsize: 3_817,
+        estimatedFee: 955,
+        inputCount: 1,
+        changeDroppedSats: 0,
+      })
+      expect(feeOf(send.psbtHex)).toBe(955)
+      const outputs = decodePsbt(parsePsbt(hexToBytes(send.psbtHex))).outputs
+      expect(outputs.map(output => output.value)).toEqual([50_000n])
+      expectPreviewToMatchFinalizedTransaction(send)
+
+      vi.mocked(keyringService.preflightP2mrPsbtSigning).mockClear()
+      await expect(
+        sendFrom(wallet, account, { amount: 50_000, input: 50_955, feeRate: 0.24 })
+      ).rejects.toThrow(POLICY_ERROR)
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+    })
+
+    it('sends at a live normal rate below 1 bit/vB when no rate is given', async () => {
+      getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+
+      // 3,817 vB at 0.5 bits/vB is 1,908.5, so 1,909 bits.
+      const send = await sendFrom(wallet, account, { amount: 50_000, input: 51_909 })
+
+      expect(send).toMatchObject({ estimatedVsize: 3_817, estimatedFee: 1_909 })
+      expect(feeOf(send.psbtHex)).toBe(1_909)
+    })
+
+    it('builds a send-all at 0.25 bits/vB and refuses 0.24', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const sendAll = (feeRate: number) =>
+        wallet.createSendAllQbitPsbt({
+          to: recipientAddress(),
+          feeRate,
+          qbitUtxoChain: ChainType.QBIT_REGTEST,
+          qbitUtxoAddress: account.address,
+          qbitUtxos: [ownOutput(account, '72'.repeat(32), 50_000)],
+        })
+
+      const result = await sendAll(0.25)
+
+      expect(result).toMatchObject({ estimatedVsize: 3_817, estimatedFee: 955 })
+      expect(feeOf(result.psbtHex)).toBe(955)
+      const outputs = decodePsbt(parsePsbt(hexToBytes(result.psbtHex))).outputs
+      expect(outputs.map(output => output.value)).toEqual([49_045n])
+      await expect(sendAll(0.24)).rejects.toThrow(POLICY_ERROR)
+    })
+
+    it('prices a send-all at 1 bit/vB, not the floor, when no estimate is available', async () => {
+      getFeeTiersMock.mockRejectedValue(new Error('offline'))
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+
+      // Without a rate, as a request over the UI port arrives when the page left it out.
+      const result = await wallet.createSendAllQbitPsbt({
+        to: recipientAddress(),
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
+        qbitUtxos: [ownOutput(account, '73'.repeat(32), 50_000)],
+      } as Parameters<WalletController['createSendAllQbitPsbt']>[0])
+
+      expect(result).toMatchObject({ estimatedVsize: 3_817, estimatedFee: 3_817 })
+      expect(feeOf(result.psbtHex)).toBe(3_817)
+    })
+
+    describe('review of a PSBT', () => {
+      async function sendAt(wallet: WalletController, feeRate: number) {
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        return wallet.createSendQbitPsbt({
+          to: recipientAddress(),
+          amount: 100_000,
+          feeRate,
+          qbitUtxoChain: ChainType.QBIT_REGTEST,
+          qbitUtxoAddress: account.address,
+          qbitUtxos: [ownOutput(account, '74'.repeat(32), 10_000_000)],
+        })
+      }
+
+      it('recommends 1 bit/vB, not the 0.25 floor, without a live quote', async () => {
+        getFeeTiersMock.mockRejectedValue(new Error('offline'))
+        const wallet = new WalletController()
+        const send = await sendAt(wallet, 1)
+
+        const decoded = await wallet.decodePsbt(send.psbtHex, 'https://example.test', {
+          statedRecipients: [recipientAddress()],
+        })
+
+        expect(decoded.recommendedFeeRate).toBe(1)
+        expect(decoded.spendSummary.feeAssessment).toEqual({
+          fee: 3_860,
+          feeRate: 1,
+          amount: 100_000,
+          reasons: [],
+        })
+        expect(decoded.shouldWarnFeeRate).toBe(false)
+      })
+
+      it('judges the fee against a live quote below 1 bit/vB', async () => {
+        getFeeTiersMock.mockResolvedValue([
+          { target: 20, feeRate: 0.25 },
+          { target: 6, feeRate: 0.3 },
+          { target: 2, feeRate: 0.5 },
+        ])
+        const wallet = new WalletController()
+        const review = async (feeRate: number) =>
+          wallet.decodePsbt((await sendAt(wallet, feeRate)).psbtHex, 'https://example.test', {
+            statedRecipients: [recipientAddress()],
+          })
+
+        // Ten times the fastest live rate of 0.5 bits/vB: 3,860 vB for 19,300 bits.
+        const atTenTimes = await review(5)
+        expect(atTenTimes.recommendedFeeRate).toBe(0.5)
+        expect(atTenTimes.spendSummary.feeAssessment).toEqual({
+          fee: 19_300,
+          feeRate: 5,
+          amount: 100_000,
+          recommendedFeeRate: 0.5,
+          reasons: ['above_recommended_rate'],
+        })
+        expect(atTenTimes.shouldWarnFeeRate).toBe(true)
+        expect(atTenTimes.risks.map(risk => risk.type)).toEqual([RiskType.HIGH_FEE_RATE])
+
+        const justBelow = await review(4.99)
+        expect(justBelow.fee).toBe(19_262)
+        expect(justBelow.spendSummary.feeAssessment?.reasons).toEqual([])
+        expect(justBelow.shouldWarnFeeRate).toBe(false)
+      })
+    })
+
+    describe('fee bump', () => {
+      async function pendingSend(wallet: WalletController, feeRate: number) {
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        const original = await wallet.createSendQbitPsbt({
+          to: recipientAddress(),
+          amount: 10_000,
+          feeRate,
+          qbitUtxoChain: ChainType.QBIT_REGTEST,
+          qbitUtxoAddress: account.address,
+          qbitUtxos: [ownOutput(account, '75'.repeat(32), 100_000)],
+        })
+        const live = liveTransactionFromPsbt(original.psbtHex)
+        getTxMock.mockResolvedValue(live)
+        return { original, live }
+      }
+
+      // Each original is 3,860 vB with change, and so is its replacement.
+      it.each([
+        // 965 bits; a replacement at 1 bit/vB would add less than its size.
+        ['0.25', 0.25, QUIET_TIERS, { originalFee: 965, replacementFee: 4_825 }],
+        ['0.25', 0.25, undefined, { originalFee: 965, replacementFee: 34_740 }],
+        ['0.75', 0.75, QUIET_TIERS, { originalFee: 2_895, replacementFee: 6_755 }],
+        ['0.75', 0.75, undefined, { originalFee: 2_895, replacementFee: 34_740 }],
+        // As before #182: at least 2 bits/vB for an original at 1.
+        ['1', 1, QUIET_TIERS, { originalFee: 3_860, replacementFee: 7_720 }],
+        ['1', 1, undefined, { originalFee: 3_860, replacementFee: 34_740 }],
+      ] as const)(
+        'replaces an original paying %s bits/vB at the higher of its next whole rate and the quote',
+        async (_label, feeRate, tiers, { originalFee, replacementFee }) => {
+          // Without tiers, the test's quote: Fast 9 bits/vB.
+          if (tiers) getFeeTiersMock.mockResolvedValue(tiers)
+          const wallet = new WalletController()
+          const { original, live } = await pendingSend(wallet, feeRate)
+          expect(original.estimatedFee).toBe(originalFee)
+          expect(live.fee / live.size).toBe(feeRate)
+
+          const eligibility = await wallet.getQbitFeeBumpEligibility(live.txid)
+
+          expect(eligibility).toMatchObject({
+            eligible: true,
+            originalFee,
+            originalFeeRate: feeRate,
+            replacementFee,
+            replacementVsize: 3_860,
+            replacementFeeRate: replacementFee / 3_860,
+            feeDelta: replacementFee - originalFee,
+            changeDropped: false,
+          })
+          // The added fee pays at least 1 bit per vbyte of the replacement.
+          expect(replacementFee - originalFee).toBeGreaterThanOrEqual(3_860)
+
+          const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+          expect(feeOf(replacement.psbtHex)).toBe(replacementFee)
+          expect(replacement.feeBump).toMatchObject({ replacementFee, originalFee })
+        }
+      )
+
+      /** The approval's two fee-rate rows. */
+      const feeRateRows = (toSignData: { action?: { details?: { label: string }[] } }) =>
+        toSignData.action?.details?.filter(
+          detail => detail.label === 'original_fee_rate' || detail.label === 'replacement_fee_rate'
+        )
+
+      it('shows the approval’s rates rounded down to hundredths, never above the rate paid', async () => {
+        getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+        const wallet = new WalletController()
+        const { original, live } = await pendingSend(wallet, 0.256)
+        // 3,860 vB at 0.256 is 988.16 bits, so 989: 0.2562 bits/vB, which
+        // rounding to nearest shows as 0.26.
+        expect(original.estimatedFee).toBe(989)
+        expect(live.size).toBe(3_860)
+
+        const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+
+        // 989 + 3,860 bits for 3,860 vB: 1.2562 bits/vB.
+        expect(replacement.feeBump).toMatchObject({
+          originalFee: 989,
+          replacementFee: 4_849,
+          replacementVsize: 3_860,
+        })
+        expect(feeRateRows(replacement)).toEqual([
+          {
+            label: 'original_fee_rate',
+            value: '0.25 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+          {
+            label: 'replacement_fee_rate',
+            value: '1.25 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+        ])
+      })
+
+      it('shows a rate paid in whole hundredths as it is', async () => {
+        getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+        const wallet = new WalletController()
+        const { original, live } = await pendingSend(wallet, 1.15)
+        // 4,439 bits for 3,860 vB is 1.15 bits/vB exactly, which times 100
+        // is 114.99999999999999 in binary floating point.
+        expect(original.estimatedFee).toBe(4_439)
+        expect(live.fee / live.size).toBe(1.15)
+
+        const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+
+        // 4,439 + 3,860 bits for 3,860 vB: 2.15 bits/vB exactly.
+        expect(replacement.feeBump).toMatchObject({ originalFee: 4_439, replacementFee: 8_299 })
+        expect(feeRateRows(replacement)).toEqual([
+          {
+            label: 'original_fee_rate',
+            value: '1.15 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+          {
+            label: 'replacement_fee_rate',
+            value: '2.15 bits/vB',
+            type: PsbtActionDetailType.TEXT,
+          },
+        ])
+      })
+    })
+
+    describe('recovery migration', () => {
+      function singleSourceMigration(wallet: WalletController) {
+        const fixture = qbitRecoveryMigrationFixture()
+        const source = p2mrAccount('61'.repeat(32), 0)
+        const sourceKeyring = { ...fixture.sourceKeyring, accounts: [source] }
+        const fundingTxid = '76'.repeat(32)
+        const state: { vault: any } = {
+          vault: {
+            ...fixture.vaultState,
+            migration: { ...fixture.vaultState.migration, plans: [] },
+          },
+        }
+        vi.spyOn(wallet as any, 'loadQbitRecoveryMigration').mockImplementation(async () => ({
+          sourceKeyring,
+          anchor: source,
+          network: 'regtest' as const,
+          state: state.vault,
+          destination: fixture.destinationKeyring,
+          destinationKeyringIndex: 3,
+        }))
+        vi.mocked(keyringService.getQbitRecoveryVaultState).mockImplementation(async () =>
+          wrapRegtestVaultState(state.vault)
+        )
+        vi.mocked(
+          keyringService.replaceQbitRecoveryMigrationPlansWithDestinationReservations
+        ).mockImplementation(async (_address, _network, plans) => {
+          state.vault = {
+            ...state.vault,
+            migration: { ...state.vault.migration, plans: plans.map(plan => ({ ...plan })) },
+          }
+          return fixture.publicState(state.vault)
+        })
+        getAddressUtxosMock.mockImplementation(async () => [
+          {
+            txid: fundingTxid,
+            vout: 0,
+            value: 50_000,
+            status: { confirmed: true, block_height: 10 },
+          },
+        ])
+        getTxMock.mockImplementation(async txid => ({
+          txid,
+          vin: [{ is_coinbase: false }],
+          vout: [{ value: 50_000, scriptpubkey: source.p2mr.scriptPubKey }],
+        }))
+        return state
+      }
+
+      it('prices a plan at 1 bit/vB when the live normal rate is 0.5', async () => {
+        getFeeTiersMock.mockResolvedValue(QUIET_TIERS)
+        await expect(
+          (new WalletController() as any).resolveQbitRecoveryMigrationFeeRate()
+        ).resolves.toBe(1)
+
+        const wallet = new WalletController()
+        const state = singleSourceMigration(wallet)
+
+        const prepared = await wallet.prepareQbitRecoveryMigration(2)
+
+        expect(prepared.toSignDatas).toHaveLength(1)
+        // One input to one output: 3,817 vB at 1 bit/vB, not 1,909 bits at 0.5.
+        expect(prepared.toSignDatas[0]).toMatchObject({ estimatedFee: 3_817 })
+        expect(feeOf(prepared.toSignDatas[0]!.psbtHex)).toBe(3_817)
+        expect(state.vault.migration.plans).toEqual([
+          expect.objectContaining({ amount: 50_000 - 3_817, fee: 3_817 }),
+        ])
+      })
+
+      it('refuses a rate below 1 bit/vB that the caller gives, before reading anything', async () => {
+        const wallet = new WalletController()
+        const state = singleSourceMigration(wallet)
+
+        for (const feeRate of [0.25, 0.5, 0.99, QBIT_MAX_FEE_RATE + 1]) {
+          await expect(wallet.prepareQbitRecoveryMigration(2, feeRate)).rejects.toThrow(
+            `feeRate must be between 1 and ${QBIT_MAX_FEE_RATE} bits/vB`
+          )
+        }
+        expect(getAddressUtxosMock).not.toHaveBeenCalled()
+        expect(state.vault.migration.plans).toEqual([])
+
+        // 1 bit/vB itself is the migration's floor.
+        const prepared = await wallet.prepareQbitRecoveryMigration(2, 1)
+        expect(prepared.toSignDatas[0]).toMatchObject({ estimatedFee: 3_817 })
+      })
+    })
   })
 })

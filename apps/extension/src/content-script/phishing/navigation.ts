@@ -1,8 +1,8 @@
 /**
  * Navigation interception module
- * Shows the phishing warning in place of a link to a denylisted host
+ * Shows the phishing warning in place of a link to a host the bundled policy covers
  */
-import { BUNDLED_PHISHING_DENYLIST, normalizeHostname } from '@qbit/phishing-detect';
+import { findBundledPolicyMatch, normalizeHostname } from '@qbit/phishing-detect';
 import { PHISHING_PAGE_PROBE, PhishingMessageType } from '@qbit/wallet-shared';
 
 import { isTopFrame } from '../frame';
@@ -64,19 +64,15 @@ function linkHostname(url: string): string | undefined {
   }
 }
 
-function isHostOrSubdomain(hostname: string, domain: string): boolean {
-  return hostname === domain || hostname.endsWith(`.${domain}`);
-}
-
 /**
- * Whether the URL is http(s) on a host the bundled denylist covers, matched as
- * the background matches it: the listed host or one of its subdomains. The
- * background's navigation verdict uses only this list, so a URL it does not
- * cover needs no check.
+ * Whether the URL is http(s) on a host the bundled policy covers, matched as
+ * the background matches it: a denylist entry or a `qbit.<tld>` lookalike of
+ * qbit.org, or one of their subdomains. The background's navigation verdict
+ * uses only this policy, so a URL it does not cover needs no check.
  */
 export function isBundledDenylistedUrl(url: string): boolean {
   const hostname = linkHostname(url);
-  return !!hostname && BUNDLED_PHISHING_DENYLIST.some((domain) => isHostOrSubdomain(hostname, domain));
+  return !!hostname && findBundledPolicyMatch(hostname) !== undefined;
 }
 
 /**

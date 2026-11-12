@@ -5,6 +5,349 @@ the project's earlier, private tracker, not to issues or pull requests in this
 repository. From 1.0.8, issue numbers such as #30 refer to issues in this
 repository.
 
+## 1.0.9
+
+### Sending and fees
+
+- An amount that needs more than 106 of an account's outputs can now be sent
+  with one confirmation (#188). Before, the send screen refused it, and MAX
+  sent only the 106 largest outputs. The wallet first combines the account's
+  funds with transactions that pay its own address, then pays the recipient
+  with one transaction once they confirm. The send screen says how many
+  transactions it takes, exactly what the recipient receives, the total fee
+  and about how long signing takes, and the review shows them again before
+  you confirm. MAX sends the whole confirmed balance this way, less the
+  fees, and says what stays in the account because it is worth less than
+  the fee to send it, and what has not confirmed yet and is not included.
+  When one transaction of the largest outputs, change not confirmed yet
+  included, sends at least as much, MAX sends that one transaction instead.
+  If the balance cannot pay the amount and every fee, the send screen
+  offers the largest amount it can send, for you to choose. While such a
+  payment is in progress, MAX sends one transaction of the funds it does
+  not hold, as before, and the send screen links to that payment; an amount
+  that needs the funds combined waits until that payment is done.
+- Signing such a payment takes minutes, one signature for each output it
+  spends, and goes on if you close the wallet window; a card on the home
+  screen leads back to its progress. An auto-lock that falls due while it
+  signs waits until the signing ends, also with no wallet window open, but
+  never longer than 10 minutes plus twice the time the signing was expected
+  to take. Any other lock pauses the signing until you unlock it. The
+  payment itself goes out when the combined funds confirm, also while the
+  wallet is locked. Nothing reaches the recipient before then, and if
+  something stops the payment, the wallet says where your funds are: in your
+  wallet, partly or fully combined.
+- If one of the combining transactions stays unconfirmed for 30 minutes, or
+  the network refuses the payment for its fee, the progress view offers to
+  raise the fee. You review the new total fee and confirm once. An exact
+  amount never changes; for a payment of the whole balance the review states
+  the new amount beside the old one.
+- The minimum fee rate is now 0.25 bits/vB, down from 1 bit/vB. It is the
+  lowest rate that qbit Core nodes relay. A payment that spends one input cost
+  at least 3,817 bits before and costs at least 955 bits now. When the network
+  is quiet, Slow can go down to 0.25 bits/vB and Normal to 0.5, and Fast stays
+  at 1 bit/vB or more. A Custom rate can be set from 0.25. Below that, Next
+  stays disabled and the screen says "The minimum fee rate is 0.25 bits/vB."
+  A fee rate that a website asks for is accepted from 0.25 as well.
+- When fee estimates are unavailable, the wallet still uses 1 bit/vB and says
+  so. Speed up still raises the rate by at least 1 bit/vB, and a recovery
+  migration still pays at least 1 bit/vB.
+- A fee rate that the wallet works out from a fee and a size, in an approval,
+  in Speed up or in the history, is rounded down, so it never reads higher
+  than the rate paid.
+- Signing a transaction with many inputs now shows its progress. Each input
+  needs its own signature, and 106 inputs took about a minute and a half to
+  sign on a test machine. From 4 inputs, the review gives way to a "Signing
+  transaction" screen with a progress bar, a count such as "42 of 106 inputs
+  signed", the time left and a "Keep the wallet open" notice. Back, Reject and
+  Sign stay locked until the signing is done. A transaction with 20 or more
+  inputs says before you sign that signing will take a while. Before, the
+  screen did not change while the wallet signed, and Sign stayed enabled.
+- Closing the wallet while it signs now stops the signing before its next
+  input, and nothing is sent. Before, the wallet kept signing in the
+  background for a result that could no longer be sent, which held up the
+  next send for up to a minute and a half.
+- Pressing Sign a second time no longer starts a second signing.
+- After signing, the wallet says "Broadcasting transaction…" instead of
+  showing a spinner with no text.
+- A transaction that the explorer refuses as too large to broadcast is now
+  reported as not sent once the wallet has checked that the network does not
+  have it, and its coins are free to spend again. Before, it read "Payment
+  status unknown" and its coins were set aside for 10 minutes to 24 hours.
+- What you enter on the Send screen is no longer saved in the extension's
+  local storage: the recipient, amount, memo and fee rate are kept by the open
+  wallet window only. Before, they were saved there, also while the wallet
+  was locked, and a wallet window that opened or reloaded on the Send screen
+  showed them again, also for another account or network. The first wallet
+  window that opens after the update removes what earlier versions saved.
+  Hidden balances and the expanded or collapsed balance card are still
+  remembered, and so is the replace-by-fee choice, as the default for the
+  next send (#197).
+- Selecting another account or network now clears the Send screen, also when
+  you select it in another window while the Send screen is open. A payment
+  that Next was still preparing for the earlier account or network is
+  dropped: its confirmation does not open, and no error of it is shown.
+- Pressing Next again while a payment is still being prepared now opens one
+  confirmation, for the last press; before, each press opened its own, one
+  behind the other. Leaving the Send screen before the payment is ready no
+  longer opens its confirmation.
+
+### Consolidation and accounts with many outputs
+
+- You can now choose the size of a consolidation batch. "Outputs per batch"
+  takes a whole number from 2 to 106, the most one transaction can carry, and
+  MAX is the default. Before you prepare a batch, the screen shows the fee of
+  a full batch of that size and how much more smaller batches cost in total.
+  The next batch keeps the size you chose.
+- Transactions with 103 to 106 inputs now go through: full consolidation
+  batches, MAX sends and large recovery transfers. The explorer refused them
+  because of a fault in its size check, which is fixed on the explorer. If an
+  explorer still refuses a batch as too large, the wallet says that it was not
+  sent, and you can prepare a smaller batch.
+- The wallet now recognizes the answer that the explorer gives for an account
+  with more outputs than it lists. Since the explorer changed that answer,
+  such an account showed the explorer's error and could not send. Its balance
+  now comes from the address summary again, and its sends read the outputs
+  from the account's history.
+- Consolidation now follows the explorer's own answer. An account that the
+  explorer lists is told that nothing needs consolidating, however many
+  outputs it has, and an account that the explorer still refuses can
+  consolidate even when it has fewer outputs than the limit.
+- The wallet no longer says that consolidating makes the explorer list an
+  account again. Once an address has held more outputs than the explorer's
+  limit, the explorer keeps refusing to list it, even after consolidation,
+  until its operator raises the limit. Consolidating still merges the outputs
+  into fewer, so sends need fewer inputs. The send, balance and recovery
+  screens are reworded to match.
+- An error on the consolidation screen now shows its message instead of
+  "[object Object]".
+- A batch that succeeds only after Retry or Check status now offers
+  "Consolidate next batch" too, and keeps the batch size.
+
+### Accounts and wallets
+
+- The home screen has one account switcher in place of the wallet chip and
+  the account card. The card shows the wallet's color, the wallet name above
+  the account name, the wallet's tags and the short address. Tapping the
+  address copies it, and tapping anywhere else on the card opens Switch
+  Account.
+- Switch Account lists every account under its wallet, with a search over
+  account names, addresses and wallet names. One tap switches the wallet and
+  the account together.
+- Wallet actions now sit on the wallet. Its menu has Rename Wallet, Change
+  Color and Remove Wallet. A wallet that can add accounts also has "+" and Add
+  Account, which open a dialog over Switch Account, and a wallet made from a
+  recovery phrase has Backup/Show Seed Phrase. An account's menu has Edit
+  Name, Copy Address and, where it applies, Export Private Key. The recovery
+  phrase is no longer offered in account menus.
+- Each wallet has a color, which Change Color sets from eight choices. New
+  wallets are named "Wallet" and a number. The names of existing wallets and
+  accounts are not changed.
+- Tags mark a wallet as Read Only, Recovered, Archived or Linked to Qbit Cold
+  Wallet.
+- A wallet whose accounts cannot be listed stays in the list as Invalid. It
+  can be renamed and removed, and one made from a recovery phrase can show
+  that phrase first, so that it can be backed up. Removing such a wallet
+  always failed before.
+- With the wallet open in more than one window, a switch, removal, rename,
+  color change or recovery-phrase request for a wallet or account that
+  another window has since removed or replaced is refused, and the list is
+  read again. Before, such a switch could select an empty slot and tell
+  connected websites an address that had been removed. The last usable wallet
+  cannot be removed, even from two windows at once.
+- Removing a wallet that is not the current one leaves the current wallet and
+  account as they were, and tells connected websites nothing.
+- Removing a wallet also forgets its stored name and color, so a later wallet
+  cannot pick them up.
+- If the wallet locks while a wallet or an account is being added, the
+  addition is saved but not selected, and the earlier selection stays after
+  you unlock. Before, connected websites were told the new address while the
+  wallet was locked.
+- The switcher, its menus and its dialogs work with the keyboard and with
+  screen readers.
+
+### Locking and unlocking
+
+- The auto-lock no longer ends a long signing. When the auto-lock time comes
+  while a transaction is being signed, the wallet waits for the signing, and
+  locks one minute after the signing ends or after its broadcast answers. It
+  waits only while the page that asked for the signing is open, and never
+  locks more than 10 minutes late. A payment that combines funds first waits
+  longer, as described under "Sending and fees". Before, the lock failed the
+  signing with an internal error such as "KeyringController - password is not
+  a string".
+- The lock button, the computer locking and the last window closing still
+  lock the wallet at once. A signing that a lock stops now says "The wallet
+  locked before signing finished, so nothing was sent. Unlock it and sign
+  again."
+- The page a first wallet was created or restored in now goes to the unlock
+  screen when the wallet locks, like every other wallet page, and so does a
+  page that was open before the wallet existed. Before, such a page kept
+  showing the send form, the receive screen, the settings and the other
+  wallet screens while the wallet was locked; only Home went to the unlock
+  screen.
+- Opening the wallet now counts as using it. When you open the popup or the
+  sidebar, the auto-lock time starts over, as it does when you press a key
+  there. Before, a popup opened shortly before the auto-lock time locked a
+  few seconds later, while you were looking at it. Opening the wallet in a
+  full tab does not count, and neither does a page that a website causes to
+  open, such as an approval window or the phishing warning; keys and the
+  mouse count there as before.
+- Unlocking returns to the send you were filling in. When the wallet locks
+  while the send form is open, that page shows the form again once the wallet
+  is unlocked, with the recipient, amount, memo and fee choice you left.
+  Before, the unlock opened Home, where Send starts an empty form. If the
+  account or the network changed in the meantime, the wallet opens Home and
+  clears the form. Time spent in another tab or application still counts
+  toward the auto-lock.
+- Back after an unlock no longer returns to Home or to the unlock screen.
+  After a lock on Home the unlock leaves the history as it was, so Back from
+  Home does what it did before the lock, and in a tab opened on the wallet it
+  leaves the wallet. After a lock on another screen, Back after the unlock
+  returns to that screen, except the confirm step of a send, which Home
+  replaces so that Back goes to the screen before it, such as the send form,
+  and never offers the same transaction to sign again. After a lock on the
+  send form, the unlock shows the form again and Back goes where it went
+  before the lock. Before, one lock could add up to three unlock screens to
+  the history and the unlock added Home twice, so Back kept showing Home or
+  the unlock screen and never left the wallet; a tab opened unlocked came back
+  to Home the same way.
+
+### Websites and approvals
+
+- `https://qbit.org` is recognized as the official Qbit website. The connect,
+  message-signing and PSBT-signing approvals show "Official Qbit website"
+  under its address, and "Sign all" on a batch from it skips the notice about
+  signing all at once. Every request still needs your approval. Only that
+  exact address is recognized: `www.qbit.org`, other subdomains and
+  `http://qbit.org` are not.
+- A website at `qbit.` followed by a top-level domain other than `org`, such
+  as `qbit.io`, or at a subdomain of one, is now treated as phishing. Its
+  approvals are blocked, it gets no wallet connection, and the phishing
+  warning is shown in place of the page.
+- The built-in phishing list now names `qbit.ca`, `qbit.com`, `qbit.io` and
+  `qbit.me`. It replaces 29 entries, none of which imitated Qbit. The update
+  adds no permission prompt.
+- Back on the phishing warning returns to the page you came from. That
+  matters for the lookalike sites above, which the wallet stops as their page
+  starts to load: without it, Back would load the blocked page and then the
+  warning again, every time. In 1.0.8 the same loop could happen for a listed
+  site whose blocking rules were missing.
+
+### Restoring a wallet and recovery
+
+- A recovery migration shows the same signing progress for each transfer.
+  The lock that protects a new recovery phrase left on screen, 10 minutes
+  after the screen opens, now runs only while that phrase exists, so it no
+  longer cuts a long migration signing short.
+
+### Qbit Mine
+
+- A new Mine tab, between the wallet tab and the App Center, introduces Qbit
+  Mine, and its Open Qbit Mine button opens `qbit.org/mine` in a new browser
+  tab. The Mine tab shows a NEW badge until you first open it.
+- Qbit Mine is listed in the App Center on Mainnet.
+
+### Balance card and tooltips
+
+- The Unavailable tip now lists as bullets why funds can be unavailable:
+  protected assets, unconfirmed transactions, and coinbase maturity of 1,000
+  blocks. It no longer points to the UTXO Management Tool. The Send screen
+  shows the same tip.
+- Tooltips now stay inside the wallet window and follow the light and dark
+  themes. Before, a long tooltip was wider than the popup and ran past both
+  edges.
+- The buttons that hide the balance and refresh it now have tooltips, and
+  refresh moves to the card's top-right corner.
+
+### Repository and release
+
+- The transaction library, `bitcoinjs-lib`, moves from 6.1.6 to 6.1.8 for a
+  critical advisory (GHSA-8vv3-6qpc-gpw6) in its block and merkle-root code.
+  The wallet never calls that code, and the library's PSBT code is unchanged.
+- The conformance tests now check the minimum fee rate against a real qbit
+  Core node: a payment at the 0.25 bits/vB minimum, its fee rounded up to a
+  whole bit, is accepted and mined, and the same payment with a fee one bit
+  lower is refused.
+- The browser release gate grows from 29 to 53 tests. The new ones cover the
+  account switcher, a send at the minimum fee rate, a payment that combines
+  an account's 214 outputs before it pays, a lookalike website, Back on the
+  phishing warning, the consolidation of an account that the explorer refuses
+  to list, a lock on a page opened before the wallet existed, Back around a
+  lock and an unlock, the send form shown again after an unlock, and what the
+  send form keeps across a reload, a lock and an account or network switch.
+- CI skips a pull request's repeated run when the same tree has already
+  passed. The dependency policy job always runs.
+- The repository's wording check,
+  `scripts/security/fresh-chain-language.test.mjs`, is removed, because the
+  cleanup it guarded is complete.
+
+### Known limitations
+
+- Closing the wallet while it signs cancels the transaction, and there is no
+  cancel button. Clicking outside the popup closes it. For a long signing,
+  open the wallet in the sidebar, where it stays open while you use other
+  tabs.
+- Miners choose which transactions they include, so a payment at a rate close
+  to the 0.25 bits/vB minimum can take longer to confirm. Speed up raises such
+  a payment to at least 1 bit/vB.
+- A payment of the whole balance and a consolidation batch cannot be sped up.
+  They wait at the rate they were sent with. If the network's minimum rises
+  above that rate, the transaction is dropped, its coins are free again, and
+  it can be sent again at a higher rate.
+- An address that has once held more outputs than the explorer's limit stays
+  unlisted after it consolidates, until the explorer's operator raises the
+  limit. An account whose history the wallet cannot read in full either
+  cannot send, and Consolidate is still offered to it although it cannot help
+  (#169).
+- Only the four lookalike sites named above are blocked before the browser
+  contacts them. Any other `qbit.` lookalike is stopped as its page starts to
+  load, and shows no warning where you have withheld the wallet's access to
+  that site, though it still gets no wallet connection. Lookalikes of other
+  shapes, such as `qbit-org.com` or `qbit.co.uk`, are not recognized (#33).
+- On the phishing warning, Back has nowhere to return to in a tab with no
+  earlier page, such as one that another application opened, so the warning
+  is shown again.
+- Removing a wallet shown as Invalid removes it on every network, even when
+  it is invalid only on the current one. Back up its recovery phrase first.
+- A lock closes the report shown after a wallet is restored, and a lock while
+  the restore is still scanning keeps it from showing at all; it is not shown
+  after the unlock. Its notices go with it: that the signature counters were
+  rebuilt from on-chain history and are minimums, with the advice to move
+  funds to a fresh wallet if the phrase was used in another wallet; the note
+  that some counters were rebuilt from the explorer's address totals; the
+  warning that address discovery stopped at its scan limit; and the network
+  and the number of addresses restored. The warning that another copy of the
+  phrase may be in use is still shown on Receive. A signature-counter
+  reconstruction that did not finish is retried after the unlock.
+- Some errors on the consolidation screen are shown as the wallet received
+  them, in English and with the explorer's address.
+- Upgrade safety (#30) is still only partly done: the upgrade test starts
+  from the data that 1.0.5 to 1.0.7 stored, and not yet from 1.0.8's.
+- Website request handling (#34) is still only partly done: this release
+  stops a second Sign press from signing again. Approval time limits, request
+  size limits and the other items in that issue are still open.
+- After an unlock, a recipient that was only partly typed is not brought back
+  with the rest of the send form.
+- A payment that combines funds first is kept unencrypted in the extension's
+  storage until you leave its success screen or it is cancelled: its
+  recipient, its amount, the account's outputs it spends and, until it
+  completes, the signed payment, so that the payment can go out while the
+  wallet is locked. A copy of the signed payment taken from this browser
+  profile's storage stays valid after a cancel, until one of the outputs it
+  spends is spent elsewhere; it can only pay that recipient that amount. To
+  be sure a cancelled payment cannot go out, send the combined funds (#188).
+- While such a payment may still go through after it left the wallet without
+  an answer, it cannot be cancelled, and Continue sends the same payment
+  again.
+- Removing a wallet cancels its payments in progress, with no warning before
+  you confirm the removal.
+- A lock or a network switch partway through signing one of these
+  transactions signs it again in full once more than 16 of its inputs were
+  signed: up to 105 extra signatures for a full combining transaction.
+- One payment combines at most 11,236 outputs; for more, the send screen
+  offers the largest amount one payment can send. A website's request to send
+  an amount that needs more than 106 outputs is still refused.
+
 ## 1.0.8
 
 ### Sending and fees

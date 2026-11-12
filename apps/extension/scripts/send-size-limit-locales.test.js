@@ -7,11 +7,12 @@ const test = require('node:test');
 
 const localesDir = path.resolve(__dirname, '../src/_locales');
 const REQUIRED_LOCALES = ['en', 'es', 'fr', 'ja', 'ru', 'zh_TW'];
-// The send screen's errors for a send past a network size limit, with the
-// placeholders each takes: the standard transaction size (#276) and the
-// unconfirmed ancestor size (#345).
+// The send screen's notes for a send past a network size limit, with the
+// placeholders each takes: what MAX leaves behind when one transaction
+// carries the most it can send (#276, #170), and the unconfirmed ancestor
+// size (#345). An amount past what one transaction carries is a send plan
+// (#188, send-plan-locales.test.js).
 const KEYS = {
-  send_exceeds_standard_size: ['$1', '$2', '$3'],
   send_all_leaves_outputs_behind: ['$1', '$2', '$3', '$4'],
   send_exceeds_ancestor_size: []
 };

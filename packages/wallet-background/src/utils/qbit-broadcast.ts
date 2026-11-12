@@ -120,8 +120,9 @@ export interface QbitBroadcastErrorClassification {
   reason: QbitBroadcastFailureReason
   /**
    * True only when the node itself answered that it will not accept these
-   * bytes. Everything else (transport loss, timeouts, gateway errors, odd
-   * responses) may hide an accepted transaction and stays inconclusive.
+   * bytes, or the explorer refused them as too large before relaying them
+   * (`too_large`). Everything else (transport loss, timeouts, gateway errors,
+   * odd responses) may hide an accepted transaction and stays inconclusive.
    */
   definitiveRejection: boolean
   detail?: string
@@ -150,6 +151,25 @@ const ALREADY_ACCEPTED_HINT = /already/i
  */
 const REJECTION_RPC_CODES = new Set([-25, -26])
 const ALREADY_IN_CHAIN_RPC_CODE = -27
+
+/**
+ * The code mempool-qbit's `validateTransactionHex` (backend/src/api/common.ts
+ * in Qbit-Org/qbit-explorer) refuses a broadcast with when the transaction is
+ * over its `MAX_PUSH_TX_SIZE_WEIGHT` (400,000). Since explorer 1.1.0
+ * (qbit-explorer#58) it measures qbit's weight, the serialized size with
+ * witness, so its limit is qbit Core's standard size
+ * (`QBIT_MAX_STANDARD_TX_WEIGHT`), which every transaction the wallet builds
+ * keeps to. Deployments before 1.1.0 weighed base bytes ×4 plus witness bytes
+ * and refused single-key P2MR transactions from 103 inputs, which nodes
+ * relay. Both `POST /tx` and `/tx/push` run that check on the hex before
+ * anything is sent to the node, and both answer HTTP 400 with only the code:
+ * `{"error":"sendrawtransaction RPC error: {\"code\":-3}"}`, or the same text
+ * unwrapped. The check's other refusals carry other codes (-4 unparsable,
+ * -5 unreachable script; the request parsing before it -1 and -2). qbitd's
+ * own -3 (`RPC_TYPE_ERROR`) refuses a parameter of the wrong type before the
+ * transaction is read, so it accepts nothing either.
+ */
+const EXPLORER_TOO_LARGE_RPC_CODE = -3
 
 /**
  * Reject reasons the node's validation and policy layers report (qbitd's
@@ -279,6 +299,13 @@ function withDetail(
  * or one of the known acceptance/generic phrases. Anything else (a proxy or
  * gateway page, an HTML error, an empty or arbitrary body) is inconclusive,
  * and its text never surfaces, not even as collapsed support detail.
+ *
+ * One envelope is the explorer's rather than the node's: code -3 with no
+ * message, its refusal of a transaction over its size limit before any
+ * node sees it (see `EXPLORER_TOO_LARGE_RPC_CODE`). That refusal is
+ * definitive, as `too_large`. Only an HTTP 400 is read this way, which is
+ * how the explorer sends it: under any other status a -3 is no answer the
+ * explorer gives and stays inconclusive, as every non-400 failure does.
  */
 function classifyHttpRejection(error: QbitApiError): QbitBroadcastErrorClassification {
   const body = error.responseBody?.trim() ?? ''
@@ -298,6 +325,12 @@ function classifyHttpRejection(error: QbitApiError): QbitBroadcastErrorClassific
     `HTTP ${error.status}: ${message || `RPC error ${code}`}`
   )
   if (genericFailure && !knownReason) return withDetail('server', false, detail)
+  // A -3 that carries a message is not the explorer's refusal and is read
+  // below as the node's answer it is; so is a body mentioning "already"
+  // anywhere, which may be acceptance.
+  if (code === EXPLORER_TOO_LARGE_RPC_CODE && message === '' && !ALREADY_ACCEPTED_HINT.test(body)) {
+    return withDetail('too_large', true, detail)
+  }
 
   const definitiveRejection =
     !alreadyAccepted &&
@@ -329,9 +362,10 @@ function classifyUnknownOutcome(error: QbitApiError): QbitBroadcastErrorClassifi
 
 /**
  * Classify an error raised after the broadcast request was dispatched. Only a
- * node-level HTTP 400 rejection with a recognizable reason is definitive; the
- * caller still has to prove absence with a lifecycle lookup before reporting
- * `not_sent`.
+ * node-level HTTP 400 rejection with a recognizable reason, or the explorer's
+ * HTTP 400 refusal of a transaction over its size limit (`too_large`), is
+ * definitive; the caller still has to prove absence with a lifecycle lookup
+ * before reporting `not_sent`.
  */
 export function classifyQbitBroadcastError(error: unknown): QbitBroadcastErrorClassification {
   if (error instanceof QbitBroadcastResponseMismatchError) {
@@ -414,6 +448,12 @@ const TX_SIZE_REJECT_REASON = /^(?:\d+:\s*)?tx-size(?:$|[^a-z0-9-])/i
  * True when the node definitively refused the bytes as larger than the
  * standard weight. That verdict depends on the bytes alone, so no retry of
  * them can succeed on any node running standard policy.
+ *
+ * The explorer's code-only -3 (`too_large`) is not one. It names no reason,
+ * and its limit is a setting of the deployment: the standard size since
+ * explorer 1.1.0, but base bytes ×4 before it, which refused transactions
+ * from 103 single-key inputs that nodes relay. Esplora has no such check, so
+ * the same bytes may still be relayed elsewhere.
  */
 export function isQbitTxSizeBroadcastRejection(error: unknown): boolean {
   if (!(error instanceof QbitApiError) || error.kind !== 'http' || error.status !== 400) {

@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "創建密碼"
   },
-  "create_an_account": {
-    "message": "創建帳戶"
-  },
   "hardware_wallet_not_supported": {
     "message": "硬體錢包尚不支援 Qbit 的後量子簽名。請在專案的硬體錢包文件中追蹤進度。"
   },
@@ -530,11 +527,14 @@
   "fee_estimates_unavailable": {
     "message": "目前無法取得手續費估算。"
   },
-  "fee_estimates_unavailable_using_floor": {
-    "message": "目前無法取得手續費估算，將使用最低轉送費率 $1 bit/vB。"
+  "fee_estimates_unavailable_using_default": {
+    "message": "目前無法取得手續費估算，將使用錢包的預設費率 $1 bit/vB。"
   },
   "fee_exceeds_wallet_safety_maximum": {
     "message": "手續費超過 $1 bit/vB 的安全上限（依此交易的精確大小，上限為 $2 $3）。"
+  },
+  "fee_rate_below_minimum": {
+    "message": "最低費率為 $1 bit/vB。"
   },
   "estimated_inputs_and_size": {
     "message": "約 $1 個輸入・約 $2 kB"
@@ -857,6 +857,9 @@
   "only_connect_with_sites_you_trust": {
     "message": "僅連接您信任的網站。"
   },
+  "official_qbit_website": {
+    "message": "Qbit 官方網站"
+  },
   "only_sign_this_message_if_you_fully_understand_the": {
     "message": "請只在您完全理解內容並信任請求網站的情況下簽署此訊息。"
   },
@@ -1001,6 +1004,15 @@
   "refresh": {
     "message": "刷新"
   },
+  "hide_balance": {
+    "message": "隱藏餘額"
+  },
+  "show_balance": {
+    "message": "顯示餘額"
+  },
+  "refresh_balance": {
+    "message": "重新整理餘額"
+  },
   "refresh_page": {
     "message": "刷新頁面"
   },
@@ -1127,6 +1139,45 @@
   "signed": {
     "message": "已簽署"
   },
+  "signing_in_progress": {
+    "message": "簽署中…"
+  },
+  "signing_progress_title": {
+    "message": "正在簽署交易"
+  },
+  "signing_progress_starting": {
+    "message": "正在開始…"
+  },
+  "signing_progress_inputs": {
+    "message": "已簽署 $1 / $2 個輸入"
+  },
+  "signing_progress_transaction": {
+    "message": "第 $1 筆交易，共 $2 筆"
+  },
+  "signing_progress_minutes_left": {
+    "message": "約剩 $1 分鐘"
+  },
+  "signing_progress_under_a_minute": {
+    "message": "剩不到 1 分鐘"
+  },
+  "signing_keep_open_title": {
+    "message": "請保持錢包開啟"
+  },
+  "signing_keep_open": {
+    "message": "若在簽署完成前關閉錢包，交易將被取消，且不會送出任何內容。"
+  },
+  "signing_keep_open_popup": {
+    "message": "點擊此彈出視窗以外的地方會將其關閉。若在簽署完成前關閉錢包，交易將被取消，且不會送出任何內容。"
+  },
+  "signing_many_inputs_title": {
+    "message": "簽署需要一些時間"
+  },
+  "signing_many_inputs_body": {
+    "message": "此交易花費 $1 個輸入，每個輸入都需要各自的簽章，因此簽署可能需要幾分鐘。請保持錢包開啟直到完成。"
+  },
+  "signing_many_inputs_sidebar": {
+    "message": "在側邊欄開啟時，錢包會在你使用其他分頁期間保持開啟。"
+  },
   "skip": {
     "message": "跳過"
   },
@@ -1180,9 +1231,6 @@
   },
   "switch_network": {
     "message": "切換網路"
-  },
-  "switch_wallet": {
-    "message": "切換錢包"
   },
   "the_auto_lock_time_has_been_changed_to": {
     "message": "自動鎖定時間已更改為"
@@ -1283,6 +1331,12 @@
   "tx_broadcast_reason_rejected_unconfirmed": {
     "message": "網路節點回報了錯誤，但錢包無法確認這筆交易是否已被接受。"
   },
+  "tx_broadcast_reason_too_large": {
+    "message": "這筆交易太大而無法廣播，因此遭網路服務拒絕。若為整合，請準備較小的批次。"
+  },
+  "tx_broadcast_reason_too_large_unconfirmed": {
+    "message": "網路服務回報這筆交易太大而無法廣播，但錢包無法確認這筆交易是否已被接受。"
+  },
   "tx_broadcast_reason_server": {
     "message": "網路服務回傳錯誤。"
   },
@@ -1306,6 +1360,9 @@
   },
   "tx_broadcast_status_gone": {
     "message": "網路上尚未找到這筆交易。請稍候再查詢一次，或重新廣播。"
+  },
+  "tx_broadcast_status_gone_no_retry": {
+    "message": "網路上尚未找到這筆交易。請稍候再查詢一次。"
   },
   "tx_broadcast_status_unavailable": {
     "message": "無法連線至網路以查詢狀態。請稍後再試。"
@@ -1338,7 +1395,7 @@
     "message": "不可用"
   },
   "unavailable_tooltip": {
-    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to protected assets or unconfirmed transactions. In most cases, you can use the UTXO Management Tool to review and unlock spendable UTXOs."
+    "message": "If your balance shows as unavailable, it may be because your UTXOs are locked due to:\n• Protected assets\n• Unconfirmed transactions\n• Awaiting coinbase maturity (1,000 blocks)"
   },
   "unconfirmed": {
     "message": "未確認"
@@ -1354,6 +1411,12 @@
   },
   "wallet_locked_during_unlock": {
     "message": "錢包在解鎖期間已鎖定。請再次解鎖。"
+  },
+  "broadcasting_transaction": {
+    "message": "正在廣播交易…"
+  },
+  "wallet_locked_during_signing": {
+    "message": "錢包在簽署完成前已鎖定，因此沒有送出任何內容。請解鎖後再簽署一次。"
   },
   "use_at_your_own_risk": {
     "message": "風險自負"
@@ -1659,10 +1722,10 @@
     "message": "尚未移轉"
   },
   "qbit_recovery_deferred_history_too_large": {
-    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，且交易超過 $1 筆，錢包無法從其歷史讀取輸出，因此資金尚未移轉。請切換到此帳戶，開啟「傳送」並選擇「整合輸出」，直到帳戶符合瀏覽器的上限後再返回此處。"
+    "message": "瀏覽器不會列出此帳戶的輸出，且帳戶交易超過 $1 筆，錢包無法從其歷史讀取輸出，因此資金尚未移轉。整合輸出也無法改變這一點。待瀏覽器營運者提高上限、瀏覽器重新列出這些輸出後，即可在此移轉資金。"
   },
   "qbit_recovery_deferred_history_incomplete": {
-    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，且錢包無法從瀏覽器讀取其完整歷史以找出這些輸出，因此資金尚未移轉。待其未確認交易有所變動（例如其中一筆獲得確認）後，此情況可能會解除。請稍後選擇「檢查狀態並繼續」再試一次。"
+    "message": "瀏覽器不會列出此帳戶的輸出，且錢包無法從瀏覽器讀取其完整歷史以找出這些輸出，因此資金尚未移轉。待其未確認交易有所變動（例如其中一筆獲得確認）後，此情況可能會解除。請稍後選擇「檢查狀態並繼續」再試一次。"
   },
   "qbit_recovery_plan_prepared": {
     "message": "已準備檢查與簽署"
@@ -1686,7 +1749,7 @@
     "message": "最初復原的錢包為唯讀。其金鑰與復原記錄會保留，以便安全偵測並移動失敗、重組或新收到的資金。"
   },
   "qbit_recovery_complete_switch_wallet_hint": {
-    "message": "您可以從左上角的「切換錢包」選項存取最初復原的唯讀錢包。"
+    "message": "您可以從主畫面的帳戶切換器開啟最初復原的唯讀錢包。"
   },
   "qbit_recovery_original_address_label": {
     "message": "最初復原的地址："
@@ -1850,17 +1913,335 @@
   "touch_id_onboarding_desc": {
     "message": "您可以使用 Touch ID 解鎖錢包,無需輸入密碼。您也可以之後在設定中啟用。"
   },
-  "send_exceeds_standard_size": {
-    "message": "此金額需要超過 $1 個輸入，超出網路的標準交易大小。每次最多傳送 $2 $3，或使用「最大值」。"
-  },
   "send_all_leaves_outputs_behind": {
     "message": "「最大值」會傳送您最大的 $1 個輸出，這是一筆交易可容納的上限。其餘 $4 個較小輸出中的 $2 $3 會留在此帳戶。"
   },
   "send_exceeds_ancestor_size": {
     "message": "加上您尚未確認的上一筆傳送，此筆傳送將超過網路接受的大小。請等待上一筆傳送確認，或傳送較小的金額。"
   },
+  "send_plan_notice_title": {
+    "message": "這筆付款需要 $1 筆交易"
+  },
+  "send_plan_notice_title_everything": {
+    "message": "傳送全部餘額需要 $1 筆交易"
+  },
+  "send_plan_steps_none": {
+    "message": "只剩付款：您的資金已經合併完成。"
+  },
+  "send_plan_steps_one": {
+    "message": "1 筆合併您的資金，然後是付款。"
+  },
+  "send_plan_steps_many": {
+    "message": "$1 筆合併您的資金，然後是付款。"
+  },
+  "send_plan_receives": {
+    "message": "收款人收到"
+  },
+  "send_plan_total_fee": {
+    "message": "手續費總計"
+  },
+  "send_plan_signing_label": {
+    "message": "簽署"
+  },
+  "send_plan_signatures": {
+    "message": "$1 個簽章"
+  },
+  "send_plan_time_minutes": {
+    "message": "約 $1 分鐘"
+  },
+  "send_plan_time_under_a_minute": {
+    "message": "不到 1 分鐘"
+  },
+  "send_plan_left_behind": {
+    "message": "$1 $2 會留在此帳戶：價值低於傳送手續費的資金。"
+  },
+  "send_plan_unconfirmed_not_included": {
+    "message": "$1 $2 尚未確認，因此不包含在內。確認後即可傳送。"
+  },
+  "send_plan_short_of_fees": {
+    "message": "您的餘額足以支付此金額，但不足以支付金額加上所有手續費。"
+  },
+  "send_plan_exceeds_plan_size": {
+    "message": "此金額需要的交易筆數，超過一筆付款可以使用的上限。"
+  },
+  "send_plan_exceeds_maximum_fee": {
+    "message": "以此金額傳送，手續費將超過錢包的安全上限。"
+  },
+  "send_plan_nothing_to_send": {
+    "message": "沒有可以傳送的資金：這些資金的價值低於傳送它們的手續費。"
+  },
+  "send_plan_max_sendable": {
+    "message": "您最多可以傳送 $1 $2。"
+  },
+  "send_plan_use_max_sendable": {
+    "message": "改用 $1 $2"
+  },
+  "send_plan_unconfirmed_note": {
+    "message": "$1 $2 尚未確認，確認後即可傳送。"
+  },
+  "send_plan_already_open": {
+    "message": "此帳戶已有一筆付款正在進行中。"
+  },
+  "send_plan_open_holds_rest": {
+    "message": "此帳戶已有一筆付款正在進行中，其餘資金由該付款保留。"
+  },
+  "send_plan_view_open": {
+    "message": "查看付款"
+  },
+  "send_plan_outputs_unavailable": {
+    "message": "錢包無法讀取此帳戶的資金，因此目前無法準備這筆付款。請稍後再試。"
+  },
+  "send_plan_outputs_changed": {
+    "message": "這筆付款要使用的資金已變更。請重新檢查付款。"
+  },
+  "send_plan_review_expired": {
+    "message": "此檢查已過期。請重新檢查付款。"
+  },
+  "send_plan_review_unavailable": {
+    "message": "此檢查已無法使用。請返回並重新檢查付款。"
+  },
+  "send_plan_review_title": {
+    "message": "檢查付款"
+  },
+  "send_plan_review_transactions": {
+    "message": "交易"
+  },
+  "send_plan_review_change": {
+    "message": "退回此錢包"
+  },
+  "send_plan_review_budget": {
+    "message": "剩餘簽章：目前 $1，之後 $2"
+  },
+  "send_plan_review_note": {
+    "message": "關閉此視窗後簽署仍會繼續。鎖定錢包會暫停簽署，直到您解鎖為止。"
+  },
+  "send_plan_revision_title": {
+    "message": "這會變更您已確認的付款"
+  },
+  "send_plan_revision_unchanged": {
+    "message": "收款人與金額維持不變。"
+  },
+  "send_plan_revision_recipient_unchanged": {
+    "message": "收款人維持不變。"
+  },
+  "send_plan_revision_amount": {
+    "message": "收款人現在收到 $1 $2，而不是 $3 $4。"
+  },
+  "send_plan_revision_paid": {
+    "message": "已支付的手續費：$1 $2"
+  },
+  "send_plan_revision_total_fee": {
+    "message": "手續費總計現在是 $1 $2，而不是 $3 $4。"
+  },
+  "send_plan_revision_same_title": {
+    "message": "同一筆付款的新規劃"
+  },
+  "send_plan_revision_same": {
+    "message": "收款人、金額與手續費總計維持不變。"
+  },
+  "send_plan_header": {
+    "message": "付款"
+  },
+  "send_plan_to": {
+    "message": "收款地址 $1"
+  },
+  "send_plan_fee_summary": {
+    "message": "手續費總計：$1 $2（$3 bit/vB）"
+  },
+  "send_plan_stage_signing": {
+    "message": "簽署"
+  },
+  "send_plan_stage_combining": {
+    "message": "合併您的資金"
+  },
+  "send_plan_stage_paying": {
+    "message": "傳送付款"
+  },
+  "send_plan_stage_done": {
+    "message": "付款已傳送"
+  },
+  "send_plan_signatures_progress": {
+    "message": "已簽署 $1 / $2 個簽章"
+  },
+  "send_plan_combine_progress": {
+    "message": "已確認 $1 / $2 筆"
+  },
+  "send_plan_signing_close_note": {
+    "message": "您可以關閉此視窗，簽署仍會繼續。鎖定錢包會暫停簽署。"
+  },
+  "send_plan_waiting_note": {
+    "message": "合併的資金確認後就會傳送付款。您可以關閉此視窗。"
+  },
+  "send_plan_slow_merge": {
+    "message": "合併資金的交易確認時間比平常久。您可以繼續等待，或提高手續費。"
+  },
+  "send_plan_cancelling_title": {
+    "message": "正在取消付款"
+  },
+  "send_plan_cancelling_body": {
+    "message": "錢包正在檢查一筆交易，之後才會釋出您的資金。"
+  },
+  "send_plan_read_failed": {
+    "message": "錢包無法讀取這筆付款的進度，稍後會再試一次。"
+  },
+  "send_plan_paused_locked": {
+    "message": "錢包在簽署完成前已鎖定"
+  },
+  "send_plan_paused_locked_body": {
+    "message": "錢包解鎖後，簽署就會繼續。"
+  },
+  "send_plan_paused_interrupted": {
+    "message": "簽署在完成前停止了"
+  },
+  "send_plan_paused_interrupted_body": {
+    "message": "瀏覽器或錢包已重新啟動，或簽署失敗。請繼續以簽署其餘部分。"
+  },
+  "send_plan_paused_merge_refused": {
+    "message": "無法依計畫合併您的資金"
+  },
+  "send_plan_paused_merge_refused_body": {
+    "message": "合併您資金的交易無法依計畫傳送。請重新檢查付款以繼續。"
+  },
+  "send_plan_paused_outputs_spent": {
+    "message": "這筆付款要用的資金已被花用"
+  },
+  "send_plan_paused_outputs_spent_body": {
+    "message": "這筆付款以外的操作花用了它要使用的資金。請重新檢查付款，或取消付款。"
+  },
+  "send_plan_paused_payment_fee_too_low": {
+    "message": "付款的手續費太低"
+  },
+  "send_plan_paused_payment_fee_too_low_body": {
+    "message": "網路需要更高的手續費才會接受這筆付款。請提高手續費以傳送付款。"
+  },
+  "send_plan_paused_payment_refused": {
+    "message": "網路拒絕了這筆付款"
+  },
+  "send_plan_paused_payment_refused_body": {
+    "message": "這筆付款沒有送出。請重新檢查，或取消付款。"
+  },
+  "send_plan_paused_payment_refused_unexplained": {
+    "message": "網路拒絕了這筆付款，但未說明原因"
+  },
+  "send_plan_paused_payment_refused_unexplained_body": {
+    "message": "這筆付款沒有送出。常見原因是手續費太低：請提高手續費以傳送付款，或重新檢查。"
+  },
+  "send_plan_paused_unreadable": {
+    "message": "無法讀取這筆付款"
+  },
+  "send_plan_paused_unreadable_body": {
+    "message": "此版本的錢包無法讀取已儲存的付款，因此無法繼續進行。"
+  },
+  "send_plan_paused_other": {
+    "message": "付款已暫停"
+  },
+  "send_plan_funds_untouched": {
+    "message": "尚未傳送任何資金給收款人。您的資金仍在此錢包中，維持原狀。"
+  },
+  "send_plan_funds_partly_combined": {
+    "message": "尚未傳送任何資金給收款人。您的資金在此錢包中，已部分合併。"
+  },
+  "send_plan_funds_combined": {
+    "message": "尚未傳送任何資金給收款人。您的資金在此錢包中，已合併完成。"
+  },
+  "send_plan_may_confirm_title": {
+    "message": "這筆付款仍可能完成"
+  },
+  "send_plan_may_confirm_body": {
+    "message": "這筆付款已送出，但錢包沒有收到回應，所以仍可能完成。錢包會持續確認。在確定結果之前，請勿以其他方式付款給此收款人。"
+  },
+  "send_plan_may_confirm_continue": {
+    "message": "您可以再次傳送同一筆付款，這不會讓收款人收到兩次付款。"
+  },
+  "send_plan_may_confirm_raise_or_continue": {
+    "message": "您可以提高手續費，或再次傳送同一筆付款。兩者都不會讓收款人收到兩次付款。"
+  },
+  "send_plan_may_confirm_raise": {
+    "message": "您可以提高手續費，這不會讓收款人收到兩次付款。"
+  },
+  "send_plan_may_confirm_funds_held": {
+    "message": "此付款使用的資金在此錢包中，由此付款保留。"
+  },
+  "send_plan_may_confirm_funds_partly_combined": {
+    "message": "此付款使用的資金在此錢包中，已部分合併，並由此付款保留。"
+  },
+  "send_plan_may_confirm_funds_combined": {
+    "message": "此付款使用的資金在此錢包中，已合併完成，並由此付款保留。"
+  },
+  "send_plan_action_replan": {
+    "message": "重新檢查"
+  },
+  "send_plan_action_raise_merge_fee": {
+    "message": "提高手續費以加快"
+  },
+  "send_plan_action_raise_payment_fee": {
+    "message": "提高手續費"
+  },
+  "send_plan_action_cancel": {
+    "message": "取消付款"
+  },
+  "send_plan_action_dismiss": {
+    "message": "從首頁移除"
+  },
+  "send_plan_cancel_title": {
+    "message": "要取消這筆付款嗎？"
+  },
+  "send_plan_cancel_body": {
+    "message": "不會傳送任何資金給收款人。已合併的資金會以較少、較大的金額留在此錢包中，已支付的手續費不會退還。"
+  },
+  "send_plan_cancel_body_untouched": {
+    "message": "尚未傳送任何內容。取消後您的資金維持原狀，也沒有支付任何手續費。"
+  },
+  "send_plan_cancel_keep": {
+    "message": "保留付款"
+  },
+  "send_plan_raise_title": {
+    "message": "提高手續費"
+  },
+  "send_plan_raise_body": {
+    "message": "請選擇高於 $1 bit/vB 的費率。在任何變更之前，您會先檢查新的手續費總計。"
+  },
+  "send_plan_replan_title": {
+    "message": "重新檢查付款"
+  },
+  "send_plan_replan_body": {
+    "message": "錢包會依您目前的資金，以您在此選擇的費率重新規劃這筆付款。上一個規劃使用 $1 bit/vB。在簽署任何內容之前，您會先檢查新的規劃。"
+  },
+  "send_plan_revise_refused": {
+    "message": "錢包目前無法準備此變更。"
+  },
+  "send_plan_fee_rate_too_low": {
+    "message": "此費率過低，無法取代已送出的交易。請至少使用 $1 bit/vB。"
+  },
+  "send_plan_home_sending": {
+    "message": "正在傳送 $1 $2"
+  },
+  "send_plan_home_paused": {
+    "message": "$1 $2 的付款已暫停：需要您處理"
+  },
+  "send_plan_home_sent": {
+    "message": "已傳送 $1 $2"
+  },
+  "send_plan_home_cancelling": {
+    "message": "正在取消 $1 $2 的付款"
+  },
+  "send_plan_status_signing": {
+    "message": "簽署中：$1 / $2 個簽章"
+  },
+  "send_plan_status_waiting": {
+    "message": "合併資金中：已確認 $1 / $2 筆"
+  },
+  "send_plan_status_sending": {
+    "message": "正在傳送付款"
+  },
+  "send_plan_status_sent": {
+    "message": "網路已接受這筆付款。"
+  },
+  "send_plan_status_may_confirm": {
+    "message": "這筆付款仍可能完成：請勿以其他方式付款給此收款人。"
+  },
   "utxo_limit_exceeded_balance": {
-    "message": "輸出數量過多，瀏覽器無法列出。此總額來自地址摘要。"
+    "message": "瀏覽器不會列出此帳戶的輸出。此總額來自地址摘要。"
   },
   "utxo_limit_exceeded_balance_detail": {
     "message": "由於瀏覽器未列出此帳戶的輸出，可用與不可用金額未知。"
@@ -1872,19 +2253,25 @@
     "message": "無法更新餘額，顯示的餘額可能不是最新的。"
   },
   "utxo_limit_exceeded_send": {
-    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限，錢包也無法從其歷史記錄讀取全部輸出。請先整合輸出再從此帳戶傳送。"
+    "message": "瀏覽器不會列出此帳戶的輸出，錢包也無法從其歷史記錄讀取全部輸出，因此目前無法從此帳戶傳送。請重新開啟「傳送」再試一次。"
   },
   "consolidate_outputs": {
     "message": "整合輸出"
   },
   "consolidation_description": {
-    "message": "每批會將此帳戶金額最大的已確認輸出（最多 $1 個）合併為一個輸出，傳回此帳戶自己的地址。每一批都需要你檢查並簽署。"
+    "message": "每批會將此帳戶金額最大的已確認輸出合併為一個輸出，傳回此帳戶自己的地址。每批包含幾個輸出由你決定，每一批都需要你檢查並簽署。"
   },
   "consolidation_status": {
-    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。大約再 $3 批即可回到此上限內。"
+    "message": "已確認輸出 $1 個；瀏覽器每個地址最多列出 $2 個，並拒絕列出此帳戶的輸出。"
+  },
+  "consolidation_status_no_limit": {
+    "message": "已確認輸出 $1 個；瀏覽器拒絕列出此帳戶的輸出。"
+  },
+  "consolidation_refusal_lasts": {
+    "message": "地址的輸出數量一旦超過瀏覽器的上限，即使整合之後，瀏覽器仍會拒絕列出，直到其營運者提高上限為止。"
   },
   "consolidation_within_limit": {
-    "message": "此帳戶在瀏覽器 $1 個輸出的上限內，不需要整合。"
+    "message": "瀏覽器可以列出此帳戶的輸出，不需要整合。"
   },
   "consolidation_pending": {
     "message": "未確認的交易正在花費其中 $1 個輸出。這些交易確認後，它們就不再計入。"
@@ -1899,13 +2286,10 @@
     "message": "整合下一批"
   },
   "consolidation_send_note": {
-    "message": "此帳戶的輸出數量超過瀏覽器可列出的上限。整合後即可再次正常傳送與遷移。"
-  },
-  "consolidation_status_confirming": {
-    "message": "已確認輸出 $1 個；瀏覽器最多列出 $2 個。待確認的批次確認後，此帳戶即會回到此上限內。"
+    "message": "瀏覽器不會列出此帳戶的輸出，因此錢包會從其歷史記錄讀取。整合可將它們合併為較少的輸出，傳送時所需的輸入也會減少。"
   },
   "consolidation_error_within_limit": {
-    "message": "此帳戶在瀏覽器的輸出上限內，不需要整合。"
+    "message": "瀏覽器可以列出此帳戶的輸出，不需要整合。"
   },
   "consolidation_error_nothing_ready": {
     "message": "目前還沒有可整合的已確認輸出，請稍後再試。"
@@ -1918,6 +2302,24 @@
   },
   "consolidation_error_keep_reading": {
     "message": "錢包已讀取此帳戶的部分歷史記錄，但尚未找到可合併的輸出。請再次準備以繼續讀取。"
+  },
+  "consolidation_batch_size_label": {
+    "message": "每批輸出數"
+  },
+  "consolidation_batch_size_range": {
+    "message": "可輸入 $1 至 $2，上限為一筆交易可容納的最大數量。"
+  },
+  "consolidation_batch_size_invalid": {
+    "message": "請輸入 $1 至 $2 之間的整數。"
+  },
+  "consolidation_fee_preview": {
+    "message": "裝滿 $1 個輸出的一批估計：手續費 $2 bits，大小 $3 kB。"
+  },
+  "consolidation_cost_note": {
+    "message": "每批都會留下一個輸出，因此每批 $1 個的手續費比每批 $3 個約多 $2%。"
+  },
+  "consolidation_cost_note_small": {
+    "message": "每批都會留下一個輸出，因此每批 $1 個的手續費比每批 $2 個多，但不到 1%。"
   },
   "net_spend_leaves_wallet": {
     "message": "離開您錢包的金額"
@@ -2113,5 +2515,104 @@
   },
   "phishing_protection_retry_no_answer": {
     "message": "重試未在時限內回應。它仍可能完成，完成後上方的狀態會更新。"
+  },
+  "account_switcher_search_placeholder": {
+    "message": "搜尋帳戶或錢包"
+  },
+  "account_switcher_no_results": {
+    "message": "沒有符合的帳戶"
+  },
+  "account_switcher_no_results_hint": {
+    "message": "可依帳戶名稱、地址或錢包名稱搜尋。"
+  },
+  "account_switcher_add_or_import_wallet": {
+    "message": "新增或匯入錢包"
+  },
+  "account_switcher_account_count_one": {
+    "message": "$1 個帳戶"
+  },
+  "account_switcher_account_count_few": {
+    "message": "$1 個帳戶"
+  },
+  "account_switcher_account_count_many": {
+    "message": "$1 個帳戶"
+  },
+  "account_switcher_account_count_other": {
+    "message": "$1 個帳戶"
+  },
+  "account_switcher_open_label": {
+    "message": "切換帳戶（目前：$2 的 $1）"
+  },
+  "account_switcher_copy_address_label": {
+    "message": "複製 $1 的地址"
+  },
+  "account_switcher_add_account_label": {
+    "message": "新增帳戶至 $1"
+  },
+  "account_switcher_wallet_options_label": {
+    "message": "$1 的選項"
+  },
+  "account_switcher_account_options_label": {
+    "message": "$2 中 $1 的選項"
+  },
+  "account_switcher_account_label": {
+    "message": "$2 的 $1，$3"
+  },
+  "account_switcher_wallet_unavailable": {
+    "message": "所選錢包已無法使用"
+  },
+  "account_created": {
+    "message": "帳戶已創建"
+  },
+  "create": {
+    "message": "創建"
+  },
+  "wallet_menu_add_account": {
+    "message": "新增帳戶"
+  },
+  "wallet_menu_rename": {
+    "message": "重新命名錢包"
+  },
+  "wallet_menu_change_color": {
+    "message": "變更顏色"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "備份/顯示助記詞"
+  },
+  "wallet_tag_read_only": {
+    "message": "唯讀"
+  },
+  "wallet_tag_recovered": {
+    "message": "已復原"
+  },
+  "wallet_tag_archived": {
+    "message": "已封存"
+  },
+  "wallet_invalid_note": {
+    "message": "無效"
+  },
+  "wallet_color_green": {
+    "message": "綠色"
+  },
+  "wallet_color_blue": {
+    "message": "藍色"
+  },
+  "wallet_color_orange": {
+    "message": "橙色"
+  },
+  "wallet_color_violet": {
+    "message": "紫色"
+  },
+  "wallet_color_teal": {
+    "message": "藍綠色"
+  },
+  "wallet_color_pink": {
+    "message": "粉紅色"
+  },
+  "wallet_color_gold": {
+    "message": "金色"
+  },
+  "wallet_color_indigo": {
+    "message": "靛藍色"
   }
 }

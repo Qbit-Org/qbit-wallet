@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KeyringType } from '@qbit/keyring-service/types'
 import { BUS_EVENTS, BUS_METHODS, ErrorCodes, SESSION_EVENTS } from '@qbit/wallet-shared'
+import type { Account } from '@qbit/wallet-shared'
 import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
 import log from 'loglevel'
 import { WalletController, canDeriveAddressFromPublicKey } from '../src/controllers/wallet'
@@ -37,7 +38,12 @@ vi.mock('../src/services', () => ({
     setCurrentKeyringIndex: vi.fn(),
     setCurrentAccount: vi.fn(),
     getCurrentAccount: vi.fn(),
-    getKeyringAlianName: vi.fn((_: string, defaultName: string) => defaultName),
+    getKeyringAlianName: vi.fn((_: string, defaultName?: string) => defaultName ?? ''),
+    setKeyringAlianName: vi.fn(),
+    removeKeyringAlianName: vi.fn(),
+    getKeyringColor: vi.fn(() => undefined),
+    setKeyringColor: vi.fn(),
+    removeKeyringColor: vi.fn(),
     getAccountAlianName: vi.fn((_: string, defaultName: string) => defaultName),
     getAddressFlag: vi.fn(() => 0),
     getAutoLockTimeId: vi.fn(() => 0),
@@ -65,6 +71,10 @@ vi.mock('../src/services/approval', () => ({
 }))
 
 const validCompressedPubkey = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
+// More points on the curve, for wallets and accounts with distinct keys.
+const secondPubkey = '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5'
+const thirdPubkey = '02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9'
+const fourthPubkey = '02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13'
 const invalidPubkey = 'aa'.repeat(32)
 
 function createDisplayedKeyring({
@@ -148,14 +158,14 @@ describe('WalletController keyring recovery', () => {
     const currentKeyring = { index: 0, accounts: [{ address: 'mainnet-address' }] }
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(currentAccount as any)
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await expect(wallet.setChainType(ChainType.QBIT_MAINNET)).resolves.toBeUndefined()
 
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
     expect(preferenceService.setChainType).toHaveBeenCalledWith(ChainType.QBIT_MAINNET)
     expect(apiEndpoint(wallet)).toBe('https://mempool.qbit.org/api')
-    expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, currentAccount.index, {
+    expect(selectKeyring).toHaveBeenCalledWith(currentKeyring, currentAccount.index, {
       persistPreference: true,
       broadcastAccountChange: false,
     })
@@ -191,7 +201,7 @@ describe('WalletController keyring recovery', () => {
       index: 0,
       accounts: [currentAccount],
     } as any)
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     const floorScan = vi
       .spyOn(wallet as any, 'performQbitRestoreFloorScan')
       .mockImplementation(async () => {
@@ -225,11 +235,11 @@ describe('WalletController keyring recovery', () => {
     const getCurrentAccount = vi.spyOn(wallet, 'getCurrentAccount')
     const currentKeyring = { index: 0, accounts: [{ index: 0 }] }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await expect(wallet.setChainType(ChainType.QBIT_MAINNET)).resolves.toBeUndefined()
 
-    expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 0, {
+    expect(selectKeyring).toHaveBeenCalledWith(currentKeyring, 0, {
       persistPreference: true,
       broadcastAccountChange: false,
     })
@@ -237,7 +247,7 @@ describe('WalletController keyring recovery', () => {
     // afterwards reads what getAccounts() will return.
     expect(
       getCurrentAccount.mock.invocationCallOrder.every(
-        order => order > changeKeyring.mock.invocationCallOrder[0]!
+        order => order > selectKeyring.mock.invocationCallOrder[0]!
       )
     ).toBe(true)
   })
@@ -260,10 +270,11 @@ describe('WalletController keyring recovery', () => {
       pubkey: 'mainnet-pubkey',
       address: 'mainnet-address',
     }
-    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
-      index: 0,
-      accounts: [targetAccount],
-    } as any)
+    // The current wallet, as the keyring service lists and holds it.
+    const currentKeyring = { index: 0, type: KeyringType.QbitHdKeyring, accounts: [targetAccount] }
+    ;(keyringService.keyrings as any[]).push({ type: KeyringType.QbitHdKeyring })
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
+    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([currentKeyring] as any)
     const persistStarted = deferred()
     const releasePersist = deferred()
     vi.mocked(preferenceService.persist).mockImplementationOnce(async () => {
@@ -316,7 +327,7 @@ describe('WalletController keyring recovery', () => {
       type: KeyringType.QbitHdKeyring,
       pqcFloorsPending: false,
     }
-    ;(keyringService.keyrings as any[]).push(restoredKeyring)
+    ;(keyringService.keyrings as any[]).push(restoredKeyring, { type: KeyringType.QbitHdKeyring })
     vi.mocked(keyringService.syncQbitHdPath).mockImplementation(async () => {
       restoredKeyring.pqcFloorsPending = true
       return true
@@ -324,10 +335,10 @@ describe('WalletController keyring recovery', () => {
     const floorScan = vi
       .spyOn(wallet as any, 'performQbitRestoreFloorScan')
       .mockResolvedValue(undefined as any)
-    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
-      index: 1,
-      accounts: [targetAccount],
-    } as any)
+    // The current wallet, as the keyring service lists and holds it.
+    const currentKeyring = { index: 1, type: KeyringType.QbitHdKeyring, accounts: [targetAccount] }
+    vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
+    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([currentKeyring] as any)
     const failure = new Error('preference persistence failed')
     vi.mocked(preferenceService.persist)
       .mockRejectedValueOnce(failure)
@@ -366,8 +377,8 @@ describe('WalletController keyring recovery', () => {
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
     const firstRefreshStarted = deferred()
     const releaseFirstRefresh = deferred()
-    const changeKeyring = vi
-      .spyOn(wallet, 'changeKeyring')
+    const selectKeyring = vi
+      .spyOn(wallet as any, 'selectKeyring')
       .mockImplementationOnce(async () => {
         firstRefreshStarted.resolve()
         await releaseFirstRefresh.promise
@@ -382,7 +393,7 @@ describe('WalletController keyring recovery', () => {
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledTimes(1)
     expect(preferenceService.setChainType).toHaveBeenCalledTimes(1)
     expect(apiEndpoint(wallet)).toBe('https://mempool.qbit.org/api')
-    expect(changeKeyring).toHaveBeenCalledTimes(1)
+    expect(selectKeyring).toHaveBeenCalledTimes(1)
 
     releaseFirstRefresh.resolve()
     await Promise.all([mainnetSwitch, regtestSwitch])
@@ -396,7 +407,7 @@ describe('WalletController keyring recovery', () => {
       ChainType.QBIT_REGTEST,
     ])
     expect(apiEndpoint(wallet)).toBe('http://127.0.0.1:3002')
-    expect(changeKeyring).toHaveBeenCalledTimes(2)
+    expect(selectKeyring).toHaveBeenCalledTimes(2)
   })
 
   it('serializes unlock recovery with a queued chain switch', async () => {
@@ -417,7 +428,7 @@ describe('WalletController keyring recovery', () => {
       type: KeyringType.QbitHdKeyring,
       accounts: [currentAccount],
     } as any)
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
     const unlockSyncStarted = deferred()
     const releaseUnlockSync = deferred()
     vi.mocked(keyringService.syncQbitHdPath)
@@ -456,7 +467,7 @@ describe('WalletController keyring recovery', () => {
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({ index: 0, accounts: [{}] } as any)
     const firstRefreshStarted = deferred()
     const releaseFirstRefresh = deferred()
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockImplementation(async () => {
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockImplementation(async () => {
       firstRefreshStarted.resolve()
       await releaseFirstRefresh.promise
     })
@@ -471,7 +482,7 @@ describe('WalletController keyring recovery', () => {
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledTimes(2)
     expect(preferenceService.setChainType).toHaveBeenCalledTimes(1)
     expect(apiEndpoint(wallet)).toBe('https://mempool.qbit.org/api')
-    expect(changeKeyring).toHaveBeenCalledTimes(2)
+    expect(selectKeyring).toHaveBeenCalledTimes(2)
     expect(sessionService.broadcastChainChange).toHaveBeenCalledTimes(1)
   })
 
@@ -487,7 +498,7 @@ describe('WalletController keyring recovery', () => {
     const wallet = new WalletController()
     vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue({ index: 0 } as any)
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({ index: 0, accounts: [{}] } as any)
-    vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     const failedSwitch = wallet.setChainType(ChainType.QBIT_MAINNET)
     const queuedSwitch = wallet.setChainType(ChainType.QBIT_REGTEST)
@@ -513,12 +524,12 @@ describe('WalletController keyring recovery', () => {
     const wallet = new WalletController()
     const currentKeyring = { index: 0, accounts: [{ index: 0 }] }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await expect(wallet.setChainType(ChainType.QBIT_MAINNET)).resolves.toBeUndefined()
 
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
-    expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 0, { persistPreference: true })
+    expect(selectKeyring).toHaveBeenCalledWith(currentKeyring, 0, { persistPreference: true })
     expect(preferenceService.setChainType).not.toHaveBeenCalled()
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
     expect(sessionService.broadcastChainChange).not.toHaveBeenCalled()
@@ -553,7 +564,7 @@ describe('WalletController keyring recovery', () => {
       accounts: [{}, {}, { pubkey: 'mainnet-pubkey', address: 'mainnet-address' }],
     }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockImplementation(async () => {
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockImplementation(async () => {
       order.push('account-refreshed')
     })
 
@@ -563,7 +574,7 @@ describe('WalletController keyring recovery', () => {
       beforeUnlock: expect.any(Function),
     })
     expect(keyringService.syncQbitHdPath).toHaveBeenCalledWith("m/87'/0'/0'/0")
-    expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 2, {
+    expect(selectKeyring).toHaveBeenCalledWith(currentKeyring, 2, {
       broadcastAccountChange: false,
     })
     expect(order).toEqual([
@@ -593,11 +604,11 @@ describe('WalletController keyring recovery', () => {
       ],
     }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await wallet.unlock('password')
 
-    expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 2, {
+    expect(selectKeyring).toHaveBeenCalledWith(currentKeyring, 2, {
       broadcastAccountChange: false,
     })
     clearTimeout(wallet.timer)
@@ -618,11 +629,11 @@ describe('WalletController keyring recovery', () => {
       ],
     }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await wallet.unlock('password')
 
-    expect(changeKeyring).toHaveBeenCalledWith(currentKeyring, 1, {
+    expect(selectKeyring).toHaveBeenCalledWith(currentKeyring, 1, {
       broadcastAccountChange: false,
     })
     clearTimeout(wallet.timer)
@@ -641,11 +652,11 @@ describe('WalletController keyring recovery', () => {
       accounts: [{ pubkey: 'first-pubkey', address: 'first-address' }, currentAccount],
     }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await wallet.unlock('password')
 
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     clearTimeout(wallet.timer)
   })
 
@@ -653,11 +664,11 @@ describe('WalletController keyring recovery', () => {
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue({ index: 0 } as any)
     const wallet = new WalletController()
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(null)
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockResolvedValue(undefined)
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
 
     await expect(wallet.unlock('password')).resolves.toBeUndefined()
 
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     clearTimeout(wallet.timer)
   })
 
@@ -673,7 +684,7 @@ describe('WalletController keyring recovery', () => {
       accounts: [{ pubkey: 'fresh-pubkey', address: 'fresh-address' }],
     } as any)
     const failure = new Error('account reconciliation failed')
-    vi.spyOn(wallet, 'changeKeyring').mockRejectedValue(failure)
+    vi.spyOn(wallet as any, 'selectKeyring').mockRejectedValue(failure)
 
     await expect(wallet.unlock('password')).rejects.toBe(failure)
 
@@ -688,7 +699,7 @@ describe('WalletController keyring recovery', () => {
     const currentKeyring = { type: KeyringType.QbitHdKeyring, accounts: [fresh] }
     vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue(currentKeyring as any)
     // Switching the account saves it at once; it is announced separately.
-    const changeKeyring = vi.spyOn(wallet, 'changeKeyring').mockImplementation(async () => {
+    const selectKeyring = vi.spyOn(wallet as any, 'selectKeyring').mockImplementation(async () => {
       vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(fresh as any)
     })
     ;(keyringService as any).setLocked = vi.fn()
@@ -706,12 +717,12 @@ describe('WalletController keyring recovery', () => {
     await expect(wallet.unlock('password')).rejects.toMatchObject({
       code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK,
     })
-    expect(changeKeyring).toHaveBeenCalledTimes(1)
+    expect(selectKeyring).toHaveBeenCalledTimes(1)
     expect(accountsChanged()).toEqual([])
 
     // The next unlock finds the account already switched, and announces it.
     await wallet.unlock('password')
-    expect(changeKeyring).toHaveBeenCalledTimes(1)
+    expect(selectKeyring).toHaveBeenCalledTimes(1)
     expect(accountsChanged()).toEqual([
       [SESSION_EVENTS.accountsChanged, ['fresh-address'], undefined, ChainType.QBIT_MAINNET],
     ])
@@ -785,18 +796,30 @@ describe('WalletController keyring recovery', () => {
       hkdf: { account: 0, change: 0 },
     }
     const exportP2mrDescriptors = vi.fn().mockResolvedValue(descriptorExport)
-    ;(keyringService.keyrings as any)[0] = { exportP2mrDescriptors }
+    ;(keyringService.keyrings as any)[0] = {
+      type: KeyringType.QbitHdKeyring,
+      exportP2mrDescriptors,
+    }
+    // The wallet as the page listed it, which the background still lists.
+    const listed = {
+      key: 'keyring_0',
+      index: 0,
+      type: KeyringType.QbitHdKeyring,
+      addressType: AddressType.P2MR,
+      accounts: [
+        {
+          type: KeyringType.QbitHdKeyring,
+          pubkey: '11'.repeat(32),
+          address: 'qb1zexample',
+          key: 'keyring_0#0',
+          index: 0,
+        },
+      ],
+    }
+    vi.spyOn(wallet, 'getKeyrings').mockResolvedValue([listed] as any)
     vi.mocked(keyringService.verifyPassword).mockResolvedValue(true)
 
-    const result = await wallet.exportP2mrDescriptors(
-      'password',
-      {
-        type: KeyringType.QbitHdKeyring,
-        addressType: AddressType.P2MR,
-        index: 0,
-      } as any,
-      'regtest'
-    )
+    const result = await wallet.exportP2mrDescriptors('password', listed as any, 'regtest')
 
     expect(result).toBe(descriptorExport)
     expect(keyringService.verifyPassword).toHaveBeenCalledWith('password')
@@ -804,16 +827,9 @@ describe('WalletController keyring recovery', () => {
 
     vi.mocked(keyringService.verifyPassword).mockResolvedValue(false)
     await expect(
-      wallet.exportP2mrDescriptors(
-        'bad-password',
-        {
-          type: KeyringType.QbitHdKeyring,
-          addressType: AddressType.P2MR,
-          index: 0,
-        } as any,
-        'regtest'
-      )
+      wallet.exportP2mrDescriptors('bad-password', listed as any, 'regtest')
     ).rejects.toThrow()
+    expect(exportP2mrDescriptors).toHaveBeenCalledTimes(1)
   })
 
   it('returns invalid readonly keyrings as corrupted when listing keyrings', async () => {
@@ -838,6 +854,10 @@ describe('WalletController keyring recovery', () => {
 
   it('lists a keyring of an unregistered type as an Unsupported Wallet nothing can select', async () => {
     const wallet = new WalletController()
+    ;(keyringService.keyrings as any[]).push(
+      { type: 'Other Key Type' },
+      { type: KeyringType.ReadonlyKeyring }
+    )
     vi.mocked(preferenceService.getCurrentKeyringIndex).mockReturnValue(0)
     vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue([
       {
@@ -857,6 +877,7 @@ describe('WalletController keyring recovery', () => {
       index: 0,
       type: 'Other Key Type',
       alianName: 'Unsupported Wallet #1',
+      color: 'green',
       isCorrupted: true,
       corruptedReason: 'No account',
       accounts: [],
@@ -917,11 +938,23 @@ describe('WalletController keyring recovery', () => {
 
   it('publishes account changes by default when switching keyrings', async () => {
     const wallet = new WalletController()
-    const account = { address: 'account-address', pubkey: 'account-pubkey' }
+    ;(keyringService.keyrings as any[]).push(
+      { type: KeyringType.ReadonlyKeyring },
+      { type: KeyringType.ReadonlyKeyring },
+      { type: KeyringType.ReadonlyKeyring }
+    )
+    vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue([
+      createDisplayedKeyring({ index: 0, pubkey: secondPubkey }),
+      createDisplayedKeyring({ index: 1, pubkey: thirdPubkey }),
+      createDisplayedKeyring({ index: 2, pubkey: validCompressedPubkey }),
+    ] as any)
+    const keyring = (await wallet.getKeyrings())[2]!
+    const account = keyring.accounts[0]!
     const emit = vi.spyOn(bgEventBus, 'emit')
 
-    await wallet.changeKeyring({ index: 2, accounts: [account] } as any)
+    await wallet.changeKeyring(keyring)
 
+    expect(preferenceService.setCurrentKeyringIndex).toHaveBeenCalledWith(2)
     expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
       SESSION_EVENTS.accountsChanged,
       [account.address],
@@ -961,5 +994,241 @@ describe('WalletController keyring recovery', () => {
     expect(
       vi.mocked(permissionService.removeConnectedSite).mock.invocationCallOrder[0]
     ).toBeLessThan(vi.mocked(sessionService.broadcastEvent).mock.invocationCallOrder[0]!)
+  })
+})
+
+describe('WalletController changeKeyring', () => {
+  // A wallet as the keyring service displays it: HD, one P2WPKH account per key.
+  const hdWallet = (index: number, pubkeys: string[]) => ({
+    type: KeyringType.HdKeyring,
+    accounts: pubkeys.map(pubkey => ({ pubkey, brandName: KeyringType.HdKeyring })),
+    keyring: {},
+    addressType: AddressType.P2WPKH,
+    index,
+  })
+  // The slot a removed wallet leaves: it stays, empty, for good.
+  const emptySlot = (index: number) => ({
+    type: KeyringType.Empty,
+    accounts: [],
+    keyring: {},
+    addressType: AddressType.P2WPKH,
+    index,
+  })
+
+  // The keyring service holds these slots and displays them.
+  const holdSlots = (slots: Array<{ type: string }>) => {
+    const keyrings = keyringService.keyrings as any[]
+    keyrings.length = 0
+    keyrings.push(...slots.map(slot => ({ type: slot.type })))
+    vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue(slots as any)
+  }
+
+  // What the background has selected, kept the way preferenceService keeps it.
+  let selection: { index?: number; account?: Account | null }
+
+  // Two wallets, the first one's account selected: the wallets as a page lists them.
+  const listTwoWallets = async (wallet: WalletController) => {
+    holdSlots([hdWallet(0, [validCompressedPubkey]), hdWallet(1, [secondPubkey, thirdPubkey])])
+    const listed = await wallet.getKeyrings()
+    selection = { index: 0, account: listed[0]!.accounts[0] }
+    return listed
+  }
+
+  const expectNothingSelectedOrAnnounced = (emit: { mock: { calls: unknown[] } }) => {
+    expect(preferenceService.setCurrentKeyringIndex).not.toHaveBeenCalled()
+    expect(preferenceService.setCurrentAccount).not.toHaveBeenCalled()
+    expect(preferenceService.persist).not.toHaveBeenCalled()
+    expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
+    expect(emit.mock.calls).toEqual([])
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_MAINNET)
+    selection = {}
+    vi.mocked(preferenceService.getCurrentKeyringIndex).mockImplementation(
+      () => selection.index as number
+    )
+    vi.mocked(preferenceService.setCurrentKeyringIndex).mockImplementation(index => {
+      selection.index = index
+    })
+    vi.mocked(preferenceService.getCurrentAccount).mockImplementation(
+      () => selection.account as Account
+    )
+    vi.mocked(preferenceService.setCurrentAccount).mockImplementation(account => {
+      selection.account = account
+    })
+  })
+
+  afterEach(() => {
+    vi.mocked(preferenceService.getCurrentKeyringIndex).mockReset()
+    vi.mocked(preferenceService.setCurrentKeyringIndex).mockReset()
+    vi.mocked(preferenceService.getCurrentAccount).mockReset()
+    vi.mocked(preferenceService.setCurrentAccount).mockReset()
+  })
+
+  it('refuses a wallet removed since the page listed it, and selects and announces nothing', async () => {
+    const wallet = new WalletController()
+    const listed = await listTwoWallets(wallet)
+    // Another window removes the second wallet.
+    holdSlots([hdWallet(0, [validCompressedPubkey]), emptySlot(1)])
+    const emit = vi.spyOn(bgEventBus, 'emit')
+
+    await expect(wallet.changeKeyring(listed[1]!, 1)).rejects.toThrow(
+      'The selected wallet is no longer available'
+    )
+
+    expectNothingSelectedOrAnnounced(emit)
+    // The wallet and the account that were current stay current.
+    expect((await wallet.getCurrentKeyring())?.index).toBe(0)
+    expect((await wallet.getCurrentAccount())?.pubkey).toBe(validCompressedPubkey)
+    emit.mockRestore()
+  })
+
+  it('refuses a wallet argument that is no wallet, and selects and announces nothing', async () => {
+    const wallet = new WalletController()
+    const listed = await listTwoWallets(wallet)
+    const emit = vi.spyOn(bgEventBus, 'emit')
+
+    // Over the UI port a missing wallet arrives as null.
+    for (const keyring of [
+      null,
+      undefined,
+      'keyring_1',
+      { ...listed[1]!, accounts: undefined },
+      { ...listed[1]!, accounts: {} },
+    ]) {
+      await expect(wallet.changeKeyring(keyring as any, 0), String(keyring)).rejects.toThrow(
+        'Unknown wallet'
+      )
+    }
+
+    expectNothingSelectedOrAnnounced(emit)
+    emit.mockRestore()
+  })
+
+  it('refuses a wallet whose slot empties while the wallets are read', async () => {
+    const wallet = new WalletController()
+    const listed = await listTwoWallets(wallet)
+    const displayed = await keyringService.getAllDisplayedKeyrings()
+    // The read waits on a derivation and a removal completes meanwhile, so the
+    // read still returns the wallets as they were.
+    vi.mocked(keyringService.getAllDisplayedKeyrings).mockImplementationOnce(async () => {
+      ;(keyringService.keyrings as any[])[1] = { type: KeyringType.Empty }
+      return displayed
+    })
+    const emit = vi.spyOn(bgEventBus, 'emit')
+
+    await expect(wallet.changeKeyring(listed[1]!, 1)).rejects.toThrow(
+      'The selected wallet is no longer available'
+    )
+
+    expectNothingSelectedOrAnnounced(emit)
+    emit.mockRestore()
+  })
+
+  it('refuses an account its wallet does not hold at that place', async () => {
+    const wallet = new WalletController()
+    const listed = await listTwoWallets(wallet)
+    const emit = vi.spyOn(bgEventBus, 'emit')
+    const pastTheEnd = {
+      ...listed[1]!,
+      accounts: [
+        ...listed[1]!.accounts,
+        { ...listed[1]!.accounts[1]!, key: 'keyring_1#2', index: 2, pubkey: fourthPubkey },
+      ],
+    }
+
+    await expect(wallet.changeKeyring(pastTheEnd, 2)).rejects.toThrow(
+      'The selected account is no longer available'
+    )
+    // The wallet now holds another account where the page listed this one.
+    holdSlots([hdWallet(0, [validCompressedPubkey]), hdWallet(1, [secondPubkey, fourthPubkey])])
+    await expect(wallet.changeKeyring(listed[1]!, 1)).rejects.toThrow(
+      'The selected account is no longer available'
+    )
+
+    expectNothingSelectedOrAnnounced(emit)
+    emit.mockRestore()
+  })
+
+  it.each([null, Number.NaN, -1, 0.5, '1'])(
+    'refuses %s as the account index, which no account has',
+    async accountIndex => {
+      const wallet = new WalletController()
+      const listed = await listTwoWallets(wallet)
+      const emit = vi.spyOn(bgEventBus, 'emit')
+
+      // From a page, an index the port cannot carry arrives as null.
+      await expect(
+        wallet.changeKeyring(listed[1]!, accountIndex as unknown as number)
+      ).rejects.toThrow('Invalid account index')
+
+      expectNothingSelectedOrAnnounced(emit)
+      emit.mockRestore()
+    }
+  )
+
+  it('selects and announces the account as its wallet holds it now', async () => {
+    const wallet = new WalletController()
+    const listed = await listTwoWallets(wallet)
+    const current = listed[1]!.accounts[1]!
+    // The page's copy is outdated: another name, another address.
+    const outdated = {
+      ...listed[1]!,
+      accounts: listed[1]!.accounts.map(account => ({
+        ...account,
+        alianName: 'Old name',
+        address: 'outdated-address',
+      })),
+    }
+    const emit = vi.spyOn(bgEventBus, 'emit')
+
+    await wallet.changeKeyring(outdated, 1, { persistPreference: true })
+
+    expect(selection.index).toBe(1)
+    expect(selection.account).toEqual(current)
+    expect(preferenceService.persist).toHaveBeenCalledTimes(1)
+    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
+      SESSION_EVENTS.accountsChanged,
+      [current.address],
+      undefined,
+      ChainType.QBIT_MAINNET
+    )
+    expect(emit).toHaveBeenCalledWith(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.ACCOUNTS_CHANGED,
+      params: current,
+    })
+    expect((await wallet.getCurrentKeyring())?.index).toBe(1)
+    expect((await wallet.getCurrentAccount())?.pubkey).toBe(thirdPubkey)
+    emit.mockRestore()
+  })
+
+  it('selects a wallet it has just added, from the wallet built before any read listed it', async () => {
+    const wallet = new WalletController()
+    holdSlots([hdWallet(0, [validCompressedPubkey])])
+    selection = { index: 0 }
+    const added = createDisplayedKeyring({ index: 1, pubkey: fourthPubkey })
+    const raw = { type: KeyringType.ReadonlyKeyring }
+    vi.mocked(keyringService.importPublicKeyOnly).mockImplementation(async () => {
+      ;(keyringService.keyrings as any[]).push(raw)
+      vi.mocked(keyringService.getAllDisplayedKeyrings).mockResolvedValue([
+        hdWallet(0, [validCompressedPubkey]),
+        added,
+      ] as any)
+      return raw as any
+    })
+    vi.mocked(keyringService.displayForKeyring).mockResolvedValue(added as any)
+
+    await wallet.createKeyringWithPublicKey(fourthPubkey, AddressType.P2WPKH)
+
+    expect(selection.index).toBe(1)
+    expect(selection.account?.pubkey).toBe(fourthPubkey)
+    expect(sessionService.broadcastEvent).toHaveBeenCalledWith(
+      SESSION_EVENTS.accountsChanged,
+      [selection.account!.address],
+      undefined,
+      ChainType.QBIT_MAINNET
+    )
   })
 })

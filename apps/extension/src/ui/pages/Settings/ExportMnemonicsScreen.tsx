@@ -1,4 +1,3 @@
-import type { KeyboardEvent } from 'react';
 import { useState } from 'react';
 
 import { Button, Card, Column, Content, Grid, Header, Icon, Input, Layout, Row, Text, TextArea } from '@/ui/components';
@@ -15,15 +14,15 @@ export default function ExportMnemonicsScreen() {
     setPassword,
     disabled,
     btnClick,
-    handleOnKeyUp,
+    handleOnKeyDown,
     mnemonic,
+    hdPath,
     passphrase,
     p2mrDescriptors,
     importDescriptorsJson,
     isP2mrKeyring,
     error,
     copy,
-    keyring,
     onClickBack
   } = useExportMnemonicsScreenLogic();
 
@@ -89,7 +88,7 @@ export default function ExportMnemonicsScreen() {
               onChange={(e) => {
                 setPassword(e.target.value);
               }}
-              onKeyUp={(e: KeyboardEvent<HTMLInputElement>) => handleOnKeyUp(e)}
+              onKeyDown={handleOnKeyDown}
               autoFocus={true}
             />
             {error && <Text text={error} preset="regular" color="dangerText" />}
@@ -123,14 +122,16 @@ export default function ExportMnemonicsScreen() {
             <Card>
               <Column>
                 <Text text={t('advance_options')} />
-                <Text
-                  text={`${t('derivation_path')}: ${keyring.hdPath}/0 (${pathName})`}
-                  preset="sub"
-                  onClick={() => {
-                    copy(keyring.hdPath);
-                  }}
-                  disableTranslate
-                />
+                {hdPath && (
+                  <Text
+                    text={`${t('derivation_path')}: ${hdPath}/0 (${pathName})`}
+                    preset="sub"
+                    onClick={() => {
+                      copy(hdPath);
+                    }}
+                    disableTranslate
+                  />
+                )}
                 {passphrase && <Text text={`${t('passphrase')}: ${passphrase}`} preset="sub" disableTranslate />}
               </Column>
             </Card>

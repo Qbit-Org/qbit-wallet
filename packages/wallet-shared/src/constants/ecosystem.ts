@@ -4,10 +4,11 @@ export type EcosystemEntryId =
   | 'qbit-testnet-faucet'
   | 'prism-testnet-pool'
   | 'prism-pool'
+  | 'qbit-mine'
   | 'qbit-block-visualizer'
   | 'qbit-testnet-faucet-mainnet'
   | 'qbit-rich-list'
-export type EcosystemArtwork = 'faucet' | 'mining-pool' | 'block-visualizer' | 'rich-list'
+export type EcosystemArtwork = 'faucet' | 'mining-pool' | 'mine' | 'block-visualizer' | 'rich-list'
 
 export interface EcosystemCatalogEntry {
   readonly id: EcosystemEntryId
@@ -58,6 +59,18 @@ export const QBIT_ECOSYSTEM_CATALOG: readonly EcosystemCatalogEntry[] = Object.f
     supportedChains: MAINNET_ONLY,
     artwork: 'mining-pool',
     tags: Object.freeze(['Mainnet', 'PRISM', 'Mining pool']),
+    operator: 'community',
+    source: 'qbit.org/ecosystem',
+  }),
+  Object.freeze({
+    id: 'qbit-mine',
+    title: 'Qbit Mine',
+    description:
+      'Rent mining power and earn QBT every few minutes, paid straight to your own Qbit Wallet. No hardware required.',
+    canonicalUrl: 'https://qbit.org/mine?utm_source=qbit-wallet-extension',
+    supportedChains: MAINNET_ONLY,
+    artwork: 'mine',
+    tags: Object.freeze(['Mainnet', 'Mining']),
     operator: 'community',
     source: 'qbit.org/ecosystem',
   }),

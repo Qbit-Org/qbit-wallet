@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "a941b06e311fb10a263b9f6836a777833b090249",
-  "lockfileSha256": "7419a875589eebcb1bf6b200bee633d9f0c51410d0c490da84f500a34c0fe02e",
+  "auditedCommit": "41ce38b884f4bc8b3a0e9d9de18ac68de4a2c6ff",
+  "lockfileSha256": "d8b1406274a8a86d953e675faad52e615937df69fd736c92f61c85322f45e2e3",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
     "sha256": "a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88",
@@ -129,8 +129,8 @@
       "workspacePackage": "@qbit/wallet-toolkit",
       "package": "bitcoinjs-lib",
       "section": "devDependencies",
-      "requested": "^6.1.6",
-      "resolved": "6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)",
+      "requested": "^6.1.8",
+      "resolved": "6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)",
       "delivery": "development-quality-tooling",
       "securityAdjacency": [
         "crypto"
@@ -2832,8 +2832,8 @@
       "workspacePackage": "@qbit/keyring-service",
       "package": "bitcoinjs-lib",
       "section": "dependencies",
-      "requested": "^6.1.5",
-      "resolved": "6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)",
+      "requested": "^6.1.8",
+      "resolved": "6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "crypto"
@@ -3264,8 +3264,8 @@
       "workspacePackage": "@qbit/wallet-core",
       "package": "bitcoinjs-lib",
       "section": "dependencies",
-      "requested": "^6.1.5",
-      "resolved": "6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)",
+      "requested": "^6.1.8",
+      "resolved": "6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "crypto"
@@ -4767,7 +4767,7 @@
     },
     {
       "package": "bitcoinjs-lib",
-      "version": "6.1.6",
+      "version": "6.1.8",
       "categories": [
         "crypto"
       ],
@@ -4775,28 +4775,28 @@
         "production-closure"
       ],
       "peerVariants": 1,
-      "integrity": "sha512-Fk8+Vc+e2rMoDU5gXkW9tD+313rhkm5h6N9HfZxXvYU9LedttVvmXKTgd9k5rsQJjkSfsv6XRM8uhJv94SrvcA==",
+      "integrity": "sha512-A6o+yq7BvwlmLj4F0NC5f3XX109rRe5evxi368S9zil5voOtUfiqfiMCzZYKHk4k7iIJ3+NmcQW05Ar4CBlKyg==",
       "directDeclarations": [
         {
           "workspace": ".",
           "section": "devDependencies",
           "delivery": "development-quality-tooling",
-          "requested": "^6.1.6",
-          "resolved": "6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)"
+          "requested": "^6.1.8",
+          "resolved": "6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)"
         },
         {
           "workspace": "packages/keyring-service",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "^6.1.5",
-          "resolved": "6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)"
+          "requested": "^6.1.8",
+          "resolved": "6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)"
         },
         {
           "workspace": "packages/wallet-core",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "^6.1.5",
-          "resolved": "6.1.6(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)"
+          "requested": "^6.1.8",
+          "resolved": "6.1.8(patch_hash=e13defec66a968d6cd92feb28c541944df590e898555f242c2a8f4fa9d17dfc6)"
         }
       ]
     },

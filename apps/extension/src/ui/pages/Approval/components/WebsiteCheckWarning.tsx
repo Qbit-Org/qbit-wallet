@@ -21,6 +21,8 @@ export interface WebsiteCheckWarningProps {
    * `<prefix>website-check-warning|error|retry-button` ids are preserved.
    */
   testIdPrefix?: WebsiteCheckWarningTestIdPrefix;
+  /** Shows Retry disabled, as while a signing runs. */
+  retryDisabled?: boolean;
 }
 
 /**
@@ -32,7 +34,12 @@ export interface WebsiteCheckWarningProps {
  * Retry action instead of a full-width button. It is never collapsible,
  * dismissible or hidden.
  */
-export default function WebsiteCheckWarning({ warning, onRetry, testIdPrefix = '' }: WebsiteCheckWarningProps) {
+export default function WebsiteCheckWarning({
+  warning,
+  onRetry,
+  testIdPrefix = '',
+  retryDisabled = false
+}: WebsiteCheckWarningProps) {
   const { t } = useI18n();
 
   return (
@@ -60,6 +67,7 @@ export default function WebsiteCheckWarning({ warning, onRetry, testIdPrefix = '
         type="button"
         className="approval-website-check-retry"
         onClick={onRetry}
+        disabled={retryDisabled}
         data-testid={`${testIdPrefix}website-check-retry-button`}
       >
         {t('try_again')}

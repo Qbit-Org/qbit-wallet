@@ -3,10 +3,10 @@ import { transactionCore } from '@qbit/wallet-core'
 /**
  * An in-memory explorer served over `fetch`, so tests drive the real
  * `@qbit-oss/api` clients: their paging, cursor checks, retries and error
- * classification. It models what #277 is about: electrs refuses
- * `/address/:a/utxo` with HTTP 500 for an address holding more confirmed
- * unspent outputs than `utxoLimit`, while the statistics, history pages,
- * transactions and `/tx/:txid/outspends` keep answering.
+ * classification. It models what #277 and #169 are about: the explorer
+ * refuses `/address/:a/utxo` for an address holding more confirmed unspent
+ * outputs than `utxoLimit` (as `utxoRefusal` words it), while the statistics,
+ * history pages, transactions and `/tx/:txid/outspends` keep answering.
  *
  * Esplora routes page confirmed history 25 rows at a time
  * (`/txs/chain[/:last]`) and list the mempool at `/txs/mempool`. With
@@ -75,7 +75,30 @@ export class FakeQbitExplorer {
   readonly failures: FakeFailure[] = []
   tipHeight = 2_000
   utxoLimit = 500
+  /**
+   * How the listing refuses an address over `utxoLimit` (#169):
+   *
+   * - `'mempool-qbit'`: HTTP 413 with electrs' reason as `{"error":"..."}`,
+   *   as mempool-qbit has since v1.0.0 (`getAddressLookupError` in
+   *   Qbit-Org/qbit-explorer@40bc676 `backend/src/utils/api.ts`).
+   * - `'electrs'`: HTTP 400 with the reason as text, as qbit-electrs itself
+   *   answers (`TooManyUtxos`, Qbit-Org/qbit-electrs@53102e9).
+   * - `'bare-500'`: HTTP 500 `{"error":"Failed to get address"}`, as
+   *   mempool-qbit before v1.0.0, which answered every failure that way.
+   */
+  utxoRefusal: 'mempool-qbit' | 'electrs' | 'bare-500' = 'mempool-qbit'
+  /**
+   * Addresses the listing refuses whatever they hold now: electrs refuses an
+   * address whose output set passed its limit at any point since it last
+   * cached that set (`utxo_delta` in `src/new_index/schema.rs`).
+   */
+  readonly utxoRefusedAddresses = new Set<string>()
   feeRate = 1
+  /**
+   * What mempool-qbit's `/fees/precise` answers, on that surface only, as in
+   * production; by default the rates `/fees/recommended` gives.
+   */
+  preciseFees: unknown = undefined
   /** History rows without prevouts, as some backends serve them. */
   omitHistoryPrevouts = false
   /**
@@ -102,6 +125,36 @@ export class FakeQbitExplorer {
    * replacement paying enough. Off by default: the conflict is refused.
    */
   acceptReplacements = false
+  /**
+   * Refuse a broadcast weighing more than this, as mempool-qbit's
+   * `validateTransactionHex` does with its `MAX_PUSH_TX_SIZE_WEIGHT`: HTTP
+   * 400 with code -3 and no message, before the node sees the bytes. The
+   * weight is `pushWeightRule`'s. Unset by default, as on Esplora, which has
+   * no such limit.
+   */
+  pushWeightLimit: number | undefined = undefined
+  /**
+   * How `pushWeightLimit` weighs a broadcast. `'size'` is explorer 1.1.0's
+   * rule (qbit-explorer#58): qbit's weight, `byteLength(false) *
+   * (WITNESS_SCALE_FACTOR - 1) + byteLength()` with a factor of 1, the
+   * serialized size with witness, the bound of qbit Core's standard size.
+   * `'base-times-four'` is the rule of deployments before it: the
+   * transaction library's `weight()`, base bytes ×4 plus witness bytes,
+   * which refuses single-key P2MR transactions from 103 inputs.
+   */
+  pushWeightRule: 'size' | 'base-times-four' = 'size'
+  /** The input count of every broadcast decoded, in order, refused ones included. */
+  readonly pushedInputCounts: number[] = []
+  /**
+   * Every broadcast accepted, in order: its outputs, and the height of each
+   * transaction it spends at that moment (undefined while that one is in
+   * the mempool).
+   */
+  readonly accepted: {
+    txid: string
+    outputs: { script: string; value: number }[]
+    parentHeights: (number | undefined)[]
+  }[] = []
   /** Raw bytes of broadcast transactions, served at `/tx/:txid/hex`. */
   private readonly rawHex = new Map<string, string>()
   private order = 0
@@ -142,6 +195,22 @@ export class FakeQbitExplorer {
       }
     }
     return this.spenders.get(`${txid.toLowerCase()}:${vout}`)
+  }
+
+  /** The listing's refusal of an over-limit address, as `utxoRefusal` words it. */
+  utxoListRefusal(): Response {
+    const reason = `Too many unspent transaction outputs (>${this.utxoLimit}). Contact support to raise limits.`
+    switch (this.utxoRefusal) {
+      case 'mempool-qbit':
+        return new Response(JSON.stringify({ error: reason }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' },
+        })
+      case 'electrs':
+        return new Response(reason, { status: 400, headers: { 'content-type': 'text/plain' } })
+      case 'bare-500':
+        return new Response('{"error":"Failed to get address"}', { status: 500 })
+    }
   }
 
   /** Unspent outputs paying `address`, as `txid:vout`. */
@@ -405,6 +474,17 @@ export class FakeQbitExplorer {
         minimumFee: this.feeRate,
       })
     }
+    if (path === '/fees/precise' && this.surface === 'mempool-qbit') {
+      return json(
+        this.preciseFees ?? {
+          fastestFee: this.feeRate,
+          halfHourFee: this.feeRate,
+          hourFee: this.feeRate,
+          economyFee: this.feeRate,
+          minimumFee: this.feeRate,
+        }
+      )
+    }
     if ((match = path.match(/^\/tx\/([0-9a-f]{64})$/))) {
       const tx = this.txs.get(match[1]!)
       return tx ? json(this.esploraTx(tx)) : notFound()
@@ -432,8 +512,11 @@ export class FakeQbitExplorer {
     }
     if ((match = path.match(/^\/address\/([^/]+)\/utxo$/))) {
       const address = decodeURIComponent(match[1]!)
-      if (this.unspent(address, { confirmedOnly: true }).size > this.utxoLimit) {
-        return new Response('{"error":"Failed to get address"}', { status: 500 })
+      if (
+        this.utxoRefusedAddresses.has(address) ||
+        this.unspent(address, { confirmedOnly: true }).size > this.utxoLimit
+      ) {
+        return this.utxoListRefusal()
       }
       return json(
         [...this.unspent(address)].map(key => {
@@ -492,12 +575,27 @@ export class FakeQbitExplorer {
     return notFound()
   }
 
+  /** `tx`'s weight by `pushWeightRule`. */
+  private pushWeight(tx: transactionCore.Transaction): number {
+    if (this.pushWeightRule === 'base-times-four') return tx.weight()
+    const witnessScaleFactor = 1
+    return tx.byteLength(false) * (witnessScaleFactor - 1) + tx.byteLength()
+  }
+
   private acceptBroadcast(rawHex: string): Response {
     let tx: transactionCore.Transaction
     try {
       tx = transactionCore.Transaction.fromHex(rawHex)
     } catch {
       return new Response('TX decode failed', { status: 400 })
+    }
+    this.pushedInputCounts.push(tx.ins.length)
+    // Checked on the hex before the node is asked, so even a transaction the
+    // node holds is refused.
+    if (this.pushWeightLimit !== undefined && this.pushWeight(tx) > this.pushWeightLimit) {
+      return new Response(JSON.stringify({ error: 'sendrawtransaction RPC error: {"code":-3}' }), {
+        status: 400,
+      })
     }
     const txid = tx.getId()
     // As qbit Core's sendrawtransaction: a transaction it already holds is
@@ -533,6 +631,14 @@ export class FakeQbitExplorer {
       }
     }
     this.rawHex.set(txid, rawHex)
+    this.accepted.push({
+      txid,
+      outputs: tx.outs.map(output => ({
+        script: Buffer.from(output.script).toString('hex'),
+        value: Number(output.value),
+      })),
+      parentHeights: inputs.map(input => this.txs.get(input.txid)?.height),
+    })
     this.addTx({
       txid,
       inputs,

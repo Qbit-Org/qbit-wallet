@@ -55,7 +55,7 @@
     "@noble/secp256k1": "^1.7.1",
     "@qbit/wallet-shared": "workspace:*",
     "@qbit/wallet-types": "workspace:*",
-    "bitcoinjs-lib": "^6.1.5",
+    "bitcoinjs-lib": "^6.1.8",
     "ecpair": "^2.1.0",
     "tiny-secp256k1": "^2.2.3",
     "varuint-bitcoin": "^1.1.2"

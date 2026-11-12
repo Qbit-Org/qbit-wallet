@@ -9,6 +9,7 @@ import { BalanceCard } from './BalanceCard';
 
 vi.mock('@/ui/components', async () => {
   const React = await import('react');
+  const { createPortal } = await import('react-dom');
   const Container = ({
     children,
     style,
@@ -28,8 +29,17 @@ vi.mock('@/ui/components', async () => {
   const Text = ({ text, 'data-testid': dataTestId }: { text?: string; 'data-testid'?: string }) =>
     React.createElement('span', { 'data-testid': dataTestId }, text);
   const Icon = ({ icon }: { icon?: string }) => React.createElement('span', { 'data-icon': icon });
-  const Tooltip = ({ children, title }: { children?: ReactNode; title?: string }) =>
-    React.createElement('div', { 'data-testid': 'tooltip', title }, children);
+  // Keyed by a string title, or "rich" for element content, so each tooltip can be found.
+  const Tooltip = ({ children, title }: { children?: ReactNode; title?: ReactNode }) => {
+    const key = typeof title === 'string' ? title : 'rich';
+    return React.createElement(
+      'div',
+      { 'data-testid': `tooltip:${key}` },
+      children,
+      // Portalled out, as the real overlay is, so the card's text stays the card's.
+      createPortal(React.createElement('div', { 'data-testid': `tooltip-title:${key}` }, title), document.body)
+    );
+  };
   const Spin = () => React.createElement('span', { 'data-testid': 'spin' });
   const Button = ({
     text,
@@ -56,7 +66,11 @@ vi.mock('./QbitDisplay', async () => {
   const React = await import('react');
   return {
     QbitDisplay: ({ balance, preset }: { balance: string; preset?: string }) =>
-      React.createElement('span', { 'data-testid': preset === 'sub' ? 'balance-split-amount' : 'balance-amount' }, balance)
+      React.createElement(
+        'span',
+        { 'data-testid': preset === 'sub' ? 'balance-split-amount' : 'balance-amount' },
+        balance
+      )
   };
 });
 vi.mock('@qbit/wallet-state', () => ({ useBalanceCardLogic: vi.fn() }));
@@ -114,7 +128,20 @@ describe('BalanceCard', () => {
     expect(screen.getByTestId('balance-utxo-limit-note').textContent).toBe('utxo_limit_exceeded_balance');
     expect(screen.getByTestId('balance-split-unknown-note').textContent).toBe('utxo_limit_exceeded_balance_detail');
     // The tooltip explaining a measured Unavailable is not offered for an unknown one.
-    expect(screen.queryByTestId('tooltip')).toBeNull();
+    expect(screen.queryByTestId('tooltip:rich')).toBeNull();
+  });
+
+  it('labels the balance visibility toggle and the refresh button', () => {
+    renderCard({ isBalanceHidden: false });
+    expect(screen.getByTestId('tooltip:hide_balance').contains(screen.getByTestId('balance-visibility-toggle'))).toBe(
+      true
+    );
+    expect(screen.getByTestId('tooltip:refresh_balance')).toBeTruthy();
+    cleanup();
+
+    renderCard({ isBalanceHidden: true });
+    expect(screen.getByTestId('tooltip:show_balance')).toBeTruthy();
+    expect(screen.queryByTestId('tooltip:hide_balance')).toBeNull();
   });
 
   it('shows the split line only in the expanded rows', () => {
@@ -125,12 +152,21 @@ describe('BalanceCard', () => {
   });
 
   it('shows measured amounts and no unknown line for an ordinary balance', () => {
-    renderCard({ isDetailExpanded: true });
+    renderCard({ isDetailExpanded: true, unavailableTipText: 'Locked due to:\n• Protected assets\n• Unconfirmed' });
 
     const card = screen.getByTestId('wallet-balance-card');
     expect(card.textContent).toContain('available0.00005000');
     expect(card.textContent).toContain('unavailable0.00000000');
-    expect(screen.getByTestId('tooltip').getAttribute('title')).toBe('unavailable_tooltip');
+    const tip = screen.getByTestId('tooltip-title:rich');
+    expect(tip.firstElementChild?.firstElementChild?.textContent).toBe('Locked due to:');
+    expect(Array.from(tip.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
+      'Protected assets',
+      'Unconfirmed'
+    ]);
+    // The trigger uses the shared lucide glyph, not a one-off SVG.
+    expect(screen.getByTestId('tooltip:rich').querySelector('[data-icon]')?.getAttribute('data-icon')).toBe(
+      'circle-question'
+    );
     expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
     expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
   });

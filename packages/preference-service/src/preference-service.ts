@@ -12,7 +12,9 @@ import {
   THEME_MODES,
   ThemeMode,
   TxHistoryItem,
+  WalletColorKey,
   WalletError,
+  isWalletColorKey,
   normalizeAvailableChainType,
 } from '@qbit/wallet-shared'
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
@@ -47,6 +49,7 @@ const defaultTemplate = {
   currency: 'USD',
   chainType: ChainType.QBIT_MAINNET as any,
   keyringAlianNames: {},
+  keyringColors: {},
   accountAlianNames: {},
   uiCachedData: {},
   skippedVersion: '',
@@ -337,6 +340,12 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.keyringAlianNames = {}
     }
 
+    // Stores saved before wallets had colors have none; each of their
+    // wallets shows the color of its slot until the user picks one.
+    if (!this.store.keyringColors) {
+      this.store.keyringColors = {}
+    }
+
     if (!this.store.accountAlianNames) {
       this.store.accountAlianNames = {}
     }
@@ -508,6 +517,41 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.setKeyringAlianName(keyringKey, defaultName)
     }
     return this.store.keyringAlianNames[keyringKey] || ''
+  }
+
+  /** Forget a keyring's name, for a wallet that was removed. */
+  removeKeyringAlianName(keyringKey: string): void {
+    if (Object.prototype.hasOwnProperty.call(this.store.keyringAlianNames, keyringKey)) {
+      const names = { ...this.store.keyringAlianNames }
+      delete names[keyringKey]
+      this.store.keyringAlianNames = names
+    }
+  }
+
+  /**
+   * Keyring colors: a palette key (WALLET_COLOR_KEYS) by keyring key. A
+   * keyring without one shows the color of its slot, which the wallet
+   * controller resolves; nothing here writes a color on read.
+   */
+  setKeyringColor(keyringKey: string, color: WalletColorKey): void {
+    this.store.keyringColors = Object.assign({}, this.store.keyringColors, {
+      [keyringKey]: color,
+    })
+  }
+
+  /** The stored palette key, or undefined when none or an unknown key is stored. */
+  getKeyringColor(keyringKey: string): WalletColorKey | undefined {
+    const color: unknown = this.store.keyringColors[keyringKey]
+    return isWalletColorKey(color) ? color : undefined
+  }
+
+  /** Forget a keyring's color, for a wallet that was removed. */
+  removeKeyringColor(keyringKey: string): void {
+    if (Object.prototype.hasOwnProperty.call(this.store.keyringColors, keyringKey)) {
+      const colors = { ...this.store.keyringColors }
+      delete colors[keyringKey]
+      this.store.keyringColors = colors
+    }
   }
 
   /**

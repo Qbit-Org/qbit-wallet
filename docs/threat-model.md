@@ -56,8 +56,8 @@ when no registry advisory exists.
 Primary assets are mnemonic/private/PQC secret material, encrypted vaults and
 password-verification material, approved transaction/message intent, exact
 PSBT/sighash bytes, per-key PQC signature counters and cached signatures,
-provider permissions, trusted network/chain selection, bundled WASM, and
-release provenance.
+open send plans and their signed payments, provider permissions, trusted
+network/chain selection, bundled WASM, and release provenance.
 
 Untrusted inputs include:
 
@@ -133,6 +133,26 @@ Controls and evidence:
   computer's idle state such as waking, locks instead of extending the
   session. Any lock ends the auto-lock time, so an old timer cannot lock a
   later unlock;
+- an auto-lock that falls due while the wallet signs a transaction, from the
+  signing call's first check to its last input, waits for that signing,
+  because a lock detaches the keyring and the signing would fail at its next
+  input. It locks one minute after the last such signing ends, time for the
+  page to start the broadcast or say what went wrong. The broadcast that
+  follows holds it the same way, and the minute then runs from its verdict.
+  A signing that succeeds less than a minute before the auto-lock falls due
+  gets that minute too. It never locks later than ten minutes after it fell
+  due, counted both by the wall clock and by the wait's own timer, so moving
+  the clock back does not stretch it: a signing is not a screen action, so a
+  batch of signings cannot stretch the wait, and a screen action after the
+  deadline does not start the time over either, since the session's time has
+  passed. The wait lasts only while the wallet page that asked for the
+  signing stays open: closing that page stops the signing before its next
+  input, since nothing can receive its signed bytes. The auto-lock then locks
+  at once if its deadline has passed, and otherwise at its deadline, unless
+  another page is still owed its minute. Past the ten minutes, or on waking
+  from a sleep that outlasted them, the wallet locks and the signing stops
+  with "The wallet locked before signing finished". The lock button, the
+  computer locking and the last window closing never wait;
 - with "Lock when the computer locks" on, the wallet locks when `chrome.idle`
   reports `locked`; with "Lock when all windows close" on, it locks when no
   `normal` browser window or installed web app (`app`) window remains, and
@@ -143,7 +163,10 @@ Controls and evidence:
 - a lock wins over an unlock that is still waiting its turn or running: the
   wallet notes the locks made since the unlock was called, and the unlock
   ends locked with "The wallet locked while unlocking" instead of opening
-  the wallet. Neither can the onboarding and recovery keepalive undo a lock:
+  the wallet. The recovery migration's keepalive runs only while its new
+  mnemonic exists, and stops once the destination wallet is created, so the
+  migration's signing gets the ordinary auto-lock and its wait for a
+  signing. Neither can the onboarding and recovery keepalive undo a lock:
   a refresh never unlocks; and
 - a lock forgets the keyring's secrets but not a broadcast already handed to
   the network, which still settles.
@@ -175,6 +198,10 @@ Residual risk:
   screen saver as locked, so the wallet locks then too. With both settings
   off, or with a long auto-lock and the computer left unlocked, the wallet
   stays unlocked until the auto-lock time.
+- A local signing, and the broadcast that follows it, keep an overdue
+  auto-lock waiting, with the signing's page open, for up to ten minutes. With the computer-lock setting off, a wallet
+  left unlocked during a large signing can therefore stay unlocked up to ten
+  minutes longer than the auto-lock alone would allow.
   Closing the last window matters where Chrome keeps running without one, as
   on macOS; where Chrome quits instead, the unlocked state ends with it.
   Windows the wallet cannot see, such as incognito windows while it is not
@@ -248,6 +275,133 @@ Residual risk:
   what regtest reported. If Testnet4's own count is the larger share, that
   floor can be up to just under the threshold, and it stands, as the
   quarter-budget residual above allows.
+
+## Send plans
+
+A payment that needs more outputs than one transaction carries runs as a
+send plan (#188): merges that pay the account's own address, then one
+payment, after one confirmation. The background carries the plan on with no
+wallet window open, through a lock and through a restart.
+
+Threats:
+
+- a changed or replayed plan record in extension storage steering a
+  signature or a payment;
+- a stored signed payment sent other than as the user confirmed it;
+- another spend (a send, a website request, consolidation, the recovery
+  migration) taking a plan's outputs midway; and
+- a long plan signing keeping the wallet unlocked.
+
+Controls and evidence:
+
+- the plan store (`QbitSendPlanStore`, `chrome.storage.local` key
+  `qbitSendPlans`) is one versioned document. A document of another version
+  is neither read nor written over, and an entry that fails validation stays
+  as it was but is never read as a plan. The store holds, in the clear, the
+  account's address and public key, the recipient, the amount, the change,
+  the fee rate and fees, each transaction's unsigned PSBT (and so the
+  account's outputs it spends, with their amounts), statuses and times, and
+  the payment's signed PSBT until the plan completes. It holds no key
+  material and no signed merge: merges are signed in memory and broadcast
+  at once;
+- the store is outside the vault on purpose. Every vault write re-encrypts
+  the whole vault, and signing writes it twice per signature, so megabytes
+  of transactions there would slow hundreds of signatures; and the vault
+  cannot be read while the wallet is locked, which is when the payment may
+  have to go out;
+- nothing ties the record to the vault, so what a record changed on disk
+  can do is bounded by what the background checks and what the user is
+  shown. A signed transaction is valid only as signed, so the stored payment
+  can only be a transaction the account's key signed, and it is sent only
+  once its finalized bytes parse and carry the payment's recorded id. On
+  load, on every write, and again before signing any transaction, the
+  background checks the stored PSBT itself: a merge pays one output to the
+  account's own script; the payment pays the recorded recipient the recorded
+  amount, memo outputs of no value and any change to the account; the id is
+  the step's; and the size and the fee are exactly what the wallet's own
+  rules give for that transaction at its recorded rate, which is within the
+  fee policy and no higher than the plan's rate. A merge's fee is its exact
+  price; the payment's is its exact price, or, for an amount paid without
+  change, that plus at most the remainder the planner itself would fold into
+  it. A record that fails is not read as a plan: it is shown as one the
+  wallet cannot read, with Cancel only, and nothing of it is signed. The
+  store answers from memory, so a record changed on disk takes effect only
+  after the service worker restarts, and after a restart nothing is signed
+  until the user presses Continue on the progress screen, which shows the
+  recipient, the amount and the total fee with its rate. Continue is offered
+  and accepted only while the wallet is unlocked: the UI port carries no
+  proof of the password, so a page left open on a locked wallet, or any
+  other caller, cannot approve a changed record for the next unlock to sign
+  unseen. A changed record
+  can therefore show wrong progress, drop the plan's holds, end the plan, or
+  put another recipient, another amount or another fee rate (within the
+  policy, up to 10,000 bits/vB, with every transaction priced exactly at it)
+  in front of the user before Continue; it cannot make the wallet sign
+  without the user, and it cannot hide a fee above the rate shown. What the
+  record shows is what its transactions pay: the stored payment, unsigned
+  and signed, must pay the recorded recipient the recorded amount, or the
+  record is unreadable. The fees an earlier version of the plan already paid
+  are a displayed figure only and cannot be checked;
+- a signed payment is a valid transaction for as long as the outputs it
+  spends are unspent, wherever its bytes are. The wallet keeps them in the
+  clear so that it can send them while locked, and deletes them when the
+  plan completes or is cancelled; deleting them cannot void them. Someone
+  who can read this browser profile's storage while a plan is waiting can
+  copy the signed payment and broadcast it once the merges have confirmed,
+  also after the user cancelled; and a copy of the whole record put back
+  into storage after a cancel is, after the next restart of the service
+  worker, a genuine plan to the wallet, which holds its outputs again and
+  sends its payment when the merges are confirmed, with no Continue.
+  Either way the transaction is the one the user confirmed: it pays that
+  recipient that amount, once, and nothing else. A user who cancelled and
+  must be sure the payment cannot happen has to spend one of the outputs it
+  would spend; an ordinary send of the combined funds does that;
+- every version of the payment that ever left the wallet without a verdict
+  is remembered, since any of them may still confirm. While one may, the
+  plan offers no new plan from other outputs; a spend of the payment's
+  inputs by any version completes the plan. Nor is a cancel offered then,
+  which would stop tracking that version and free its inputs for a second
+  payment, and the progress screen says the payment may still go through.
+  Cancel and a new plan come back once an input of the payment is spent by
+  a transaction that is no version of it; removing or resetting the wallet
+  ends such a plan all the same;
+- while a plan is open, the send guard holds every input of its
+  transactions and the outputs of its merges, restored from the store at
+  start-up before anything can spend. Sends, website requests,
+  consolidation and the recovery migration cannot spend them, Speed up
+  cannot replace the plan's transactions, and a plan never starts over
+  outputs something else holds;
+- the stored signed payment may be broadcast while the wallet is locked, and
+  the merges' confirmations are watched then too: the payment is exactly
+  the transaction the user confirmed and cannot be altered. Signing never
+  runs while locked. A lock stops the plan's signing before its next
+  signature, and the plan carries on after the next unlock;
+- an auto-lock that falls due while a plan signs waits for that signing.
+  The signing belongs to no page, so closing the wallet window ends neither
+  the signing nor the wait. When signing ends the wallet locks at once if
+  the deadline has passed. The wait lasts at most ten minutes plus twice the
+  time the signatures still to make are expected to take
+  (`estimateQbitSendPlanSigningSeconds`) past the deadline, so a slow
+  machine finishes and a stalled one locks in the end. The lock button, the
+  computer locking and the last window closing still lock at once, and
+  pause the plan's signing; and
+- no permission is added: a 15-second timer in the service worker advances
+  an open plan, and so do the service worker starting, an unlock and an
+  open wallet page.
+
+Residual risk:
+
+- anyone who can read the extension's storage on disk learns an open plan's
+  recipient, amount and the account's outputs, and a completed plan's until
+  it leaves the home screen;
+- cancelling deletes the stored signed payment, but a copy read from storage
+  before then stays valid until something else spends one of the outputs it
+  spends. It can only pay the recipient what the user confirmed;
+- with the computer-lock setting off, a plan of 216 signatures keeps an
+  overdue auto-lock waiting for up to about 19 minutes (ten minutes plus
+  twice its 279-second estimate); and
+- if the browser stops the service worker anyway, the plan advances the next
+  time the extension runs.
 
 ## WASM and extension supply chain
 
@@ -349,6 +503,8 @@ Residual risk:
 
 Threats:
 
+- a site that imitates the official website, https://qbit.org, under another
+  top-level domain (`qbit.io`, `www.qbit.me`) being taken for it;
 - a page on a host in the bundled denylist running script before the wallet's
   warning appears;
 - the wallet provider being exposed to a denylisted page;
@@ -358,6 +514,19 @@ Threats:
 
 Controls and evidence:
 
+- the bundled policy (`qbit-static-v2`) covers `qbit.<tld>` under every
+  top-level domain other than `org`, and its subdomains, except special-use
+  names such as `qbit.localhost`; `qbit` must be the label right before the
+  top-level domain. The denylist names the lookalikes the network rules
+  below stop: `qbit.ca`, `qbit.com`, `qbit.io` and `qbit.me`. Every other
+  check, in the background (`checkPhishing`, `isDenylisted`,
+  `checkWebsite`, Proceed) and in the content script
+  (`findBundledPolicyMatch`), covers the whole policy, so a lookalike outside
+  the denylist gets the page hold, the warning page, no provider and blocked
+  approvals, but no network rule. Only the exact origin `https://qbit.org` is
+  trusted: approvals show it as the official website and let a batch be
+  signed at once without the per-site opt-in, and still ask for every
+  approval;
 - the background installs one dynamic `declarativeNetRequest` `block`
   rule whose `requestDomains` are the bundled denylist (each entry and its
   subdomains) for `main_frame` and `sub_frame` requests. A `block` rule needs
@@ -452,8 +621,23 @@ Controls and evidence:
   network layer that is missing, for example because its rule failed to
   install, on the sites the wallet may access: the browser runs no content
   script where the user withholds site access. A page the background sends
-  to the warning page stays stopped,
-  and one whose check does not answer within 3 seconds, or whose warning page
+  to the warning page stays stopped. The warning page comes after it in the
+  tab's history, so Back from the warning loads it again; the content script
+  then says that it loaded from the history, and the background takes the tab
+  back past it; before, it sent the page to the warning page again, every
+  time. It does so only for the tab's top-frame page while that page, by its
+  document, is still the one that asked and the tab has finished loading it,
+  and the browser's own navigation is one that script on the page cannot
+  cancel. A tab with no earlier page, such as one another application opened
+  on the page, gets the warning page again, and so does a tab the background
+  already took back since it last sent it to the warning page: the user went
+  Forward, or the page before went forward by itself, which would otherwise
+  repeat with no end. The background keeps that record only while its
+  service worker runs, so after a restart one Forward goes back once more
+  before the warning appears. A duplicated or reopened tab also loads as from
+  the history, so a held page in one that never got its warning goes back. A
+  page held as above
+  whose check does not answer within 3 seconds, or whose warning page
   does not arrive, shows a notice with a retry instead of a blank page. A
   page the background lets through, because the user proceeded to it, is
   recorded in the page's own sessionStorage and reloaded once, with a GET:
@@ -520,6 +704,15 @@ Controls and evidence:
 
 Residual risk:
 
+- a `qbit.<tld>` lookalike outside the denylist is in no network rule: the
+  browser contacts the site, and the content script stops the page at
+  `document_start`. A link to one that opens a new tab also sends the source
+  tab to the warning page, as for a denylisted host the redirect rule does
+  not cover. Where the user withholds the wallet's site access, the
+  page loads with no warning (but no provider), and in a frame it runs its
+  own script. Impersonations other than `qbit.<tld>`, such as
+  `qbit-org.com`, `qbit.co.uk` or `qbit.org.example.com`, are not in the
+  policy;
 - while the user withholds the wallet's site access (Chrome's "On click" or
   "On specific sites"), the redirect rule is removed and a top-level
   navigation to a denylisted host, whether typed, bookmarked, opened from
@@ -621,9 +814,11 @@ Residual risk:
   refused; a smaller inflated floor stands, because floors only rise. See
   [PQC counter custody and restoration](#pqc-counter-custody-and-restoration).
 - the explorer refuses to list the outputs of an address over its
-  `--utxos-limit` (the wallet assumes electrs' default of 500). The wallet then
-  reads them from the address's history, which fails closed, or consolidates
-  them in batches it verifies unspent. See
+  `--utxos-limit`: electrs' refusal states the limit, which mempool-qbit
+  relays with HTTP 413, and for an older explorer's bare HTTP 500 the wallet
+  assumes electrs' default of 500. An indexer can claim this refusal for any
+  address. The wallet then reads the outputs from the address's history,
+  which fails closed, or consolidates them in batches it verifies unspent. See
   [Explorer UTXO listing limit](./explorer-utxo-limit.md).
 - network endpoints learn queried wallet addresses. This review does not claim
   network-level privacy.
@@ -688,7 +883,8 @@ that Proceed adds; the denylist host permissions let only that redirect fire
 (see "Phishing navigation protection");
 `sidePanel` is used for the optional wallet panel; `idle` tells the background
 when the computer locks, so the wallet can lock too (see "Vault and key
-handling"); `storage` holds wallet state;
+handling"); `storage` holds wallet state, open send plans included, which
+need no other permission (see "Send plans");
 and `unlimitedStorage` supports local wallet/index state. Permission expansion
 requires CODEOWNERS review and a package-policy expectation change.
 

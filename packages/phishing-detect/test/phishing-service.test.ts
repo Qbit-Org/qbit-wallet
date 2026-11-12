@@ -89,6 +89,109 @@ describe('PhishingService', () => {
     expect(service.isDenylisted(undefined as unknown as string)).toBe(false)
   })
 
+  it.each([
+    ['https://qbit.net', 'qbit.net', 'qbit.net'],
+    ['https://www.qbit.xyz', 'www.qbit.xyz', 'qbit.xyz'],
+    ['https://a.b.qbit.app', 'a.b.qbit.app', 'qbit.app'],
+    ['https://QBIT.Finance', 'qbit.finance', 'qbit.finance'],
+    ['https://qbit.xn--p1ai', 'qbit.xn--p1ai', 'qbit.xn--p1ai'],
+    ['http://qbit.dev', 'qbit.dev', 'qbit.dev'],
+    ['https://qbit.ai/claim', 'qbit.ai', 'qbit.ai'],
+    ['https://login.qbit.me', 'login.qbit.me', 'qbit.me'],
+  ])(
+    'blocks %s, which imitates qbit.org under another top-level domain',
+    async (origin, hostname, matchedDomain) => {
+      const { service } = await setup()
+
+      expect(service.checkWebsite(origin)).toEqual({
+        verdict: {
+          status: WebsiteVerdictStatus.BLOCKED,
+          reason: 'denylist',
+          hostname,
+          matchedDomain,
+          warning: expect.stringContaining('Reject this request'),
+        },
+        allowQuickMultiSign: false,
+      })
+    }
+  )
+
+  it('handles a lookalike outside the denylist as a denylisted host in navigation checks', async () => {
+    const { service } = await setup()
+
+    expect(service.checkPhishing('qbit.net')).toEqual({
+      isPhishing: true,
+      reason: 'Bundled denylist match',
+      matchedPattern: 'qbit.net',
+    })
+    expect(service.isDenylisted('www.qbit.net')).toBe(true)
+
+    // Proceed lifts the navigation warning only.
+    service.addToWhitelist('qbit.net')
+    expect(service.checkPhishing('www.qbit.net').isPhishing).toBe(false)
+    expect(service.isDenylisted('qbit.net')).toBe(true)
+    expect(service.checkWebsite('https://qbit.net').verdict.status).toBe(
+      WebsiteVerdictStatus.BLOCKED
+    )
+  })
+
+  it.each(['https://qbit.org', 'https://QBIT.ORG', 'https://qbit.org:443', 'https://qbit.org/'])(
+    'trusts the official website origin %s',
+    async origin => {
+      const { service } = await setup()
+
+      expect(service.checkWebsite(origin)).toEqual({
+        verdict: {
+          status: WebsiteVerdictStatus.CLEAR,
+          reason: 'trusted',
+          hostname: 'qbit.org',
+          warning: '',
+        },
+        allowQuickMultiSign: true,
+      })
+    }
+  )
+
+  it.each([
+    ['https://www.qbit.org', 'www.qbit.org'],
+    ['https://mempool.qbit.org', 'mempool.qbit.org'],
+    ['https://qbit.org:8443', 'qbit.org'],
+    ['https://qbit.org.', 'qbit.org'],
+    ['https://qbitinfo.org', 'qbitinfo.org'],
+    ['https://qbit.robertclarke.com', 'qbit.robertclarke.com'],
+    ['https://qbit.miller.nz', 'qbit.miller.nz'],
+    ['https://qbit.co.uk', 'qbit.co.uk'],
+    ['https://qbit-org.com', 'qbit-org.com'],
+  ])('leaves %s clear without trusting it', async (origin, hostname) => {
+    const { service } = await setup()
+
+    expect(service.checkWebsite(origin)).toEqual({
+      verdict: {
+        status: WebsiteVerdictStatus.CLEAR,
+        reason: 'not-listed',
+        hostname,
+        warning: '',
+      },
+      allowQuickMultiSign: false,
+    })
+  })
+
+  it.each([
+    ['http://qbit.org', 'insecure-protocol'],
+    ['https://qbit.org/pool', 'malformed-origin'],
+    ['https://user@qbit.org', 'malformed-origin'],
+    ['https://qbit.localhost', 'localhost'],
+    ['https://qbit.test', 'private-network'],
+    ['https://qbit.local', 'private-network'],
+  ])('neither trusts nor blocks %s (%s)', async (origin, reason) => {
+    const { service } = await setup()
+
+    expect(service.checkWebsite(origin)).toMatchObject({
+      verdict: { status: WebsiteVerdictStatus.UNVERIFIED, reason },
+      allowQuickMultiSign: false,
+    })
+  })
+
   it('returns clear only for a valid public HTTPS origin absent from the policy', async () => {
     const { service } = await setup()
 
@@ -236,8 +339,7 @@ describe('PhishingService', () => {
     const config = service.getConfig()
 
     expect(config.policyVersion).toBe(BUNDLED_PHISHING_POLICY_METADATA.policyVersion)
-    expect(config.sourceRevision).toBe(BUNDLED_PHISHING_POLICY_METADATA.sourceRevision)
-    expect(config.blacklist).toHaveLength(29)
+    expect(config.blacklist).toEqual(['qbit.ca', 'qbit.com', 'qbit.io', 'qbit.me'])
     expect(config.fuzzylist).toEqual([])
     expect(config.lastFetchTime).toBe(0)
     expect(config.cacheExpireTime).toBe(0)

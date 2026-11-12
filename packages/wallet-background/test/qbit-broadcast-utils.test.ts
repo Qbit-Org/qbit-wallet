@@ -238,6 +238,98 @@ describe('classifyQbitBroadcastError', () => {
     expect(classification.definitiveRejection).toBe(false)
   })
 
+  // mempool-qbit's validateTransactionHex refuses a transaction over its size
+  // limit with only the code, before the node sees it (#170). Since explorer
+  // 1.1.0 that limit is qbit Core's standard size; before, it was base bytes
+  // ×4 plus witness bytes.
+  it.each([
+    [
+      'as JSON, as production sends it',
+      '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}',
+    ],
+    ['as plain text', 'sendrawtransaction RPC error: {"code":-3}'],
+    ['as a structured envelope', '{"error":{"code":-3,"message":""}}'],
+  ])(
+    "classifies the explorer's too-large refusal %s as too_large and definitive",
+    (_label, body) => {
+      expect(classifyQbitBroadcastError(rejection(body))).toEqual({
+        reason: 'too_large',
+        definitiveRejection: true,
+        detail: 'HTTP 400: RPC error -3',
+      })
+      // The explorer would refuse the same bytes the same way.
+      expect(isQbitBroadcastResendable(rejection(body))).toBe(false)
+    }
+  )
+
+  it.each([
+    [
+      'a -3 that carries a message',
+      'sendrawtransaction RPC error: {"code":-3,"message":"Expected type string, got number"}',
+      {
+        reason: 'rejected',
+        definitiveRejection: false,
+        detail: 'HTTP 400: Expected type string, got number',
+      },
+    ],
+    [
+      'a -3 whose message says it is already known',
+      'sendrawtransaction RPC error: {"code":-3,"message":"txn-already-known"}',
+      { reason: 'rejected', definitiveRejection: false, detail: 'HTTP 400: txn-already-known' },
+    ],
+    [
+      'a code-only -3 with "already" elsewhere in the body',
+      '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}","note":"already in mempool"}',
+      { reason: 'rejected', definitiveRejection: false, detail: 'HTTP 400: RPC error -3' },
+    ],
+    [
+      'a code-only -25',
+      'sendrawtransaction RPC error: {"code":-25}',
+      { reason: 'rejected', definitiveRejection: true, detail: 'HTTP 400: RPC error -25' },
+    ],
+    [
+      'a code-only -26',
+      '{"error":"sendrawtransaction RPC error: {\\"code\\":-26}"}',
+      { reason: 'rejected', definitiveRejection: true, detail: 'HTTP 400: RPC error -26' },
+    ],
+    [
+      'the generic failure',
+      '{"error":"Failed to send raw transaction"}',
+      {
+        reason: 'server',
+        definitiveRejection: false,
+        detail: 'HTTP 400: Failed to send raw transaction',
+      },
+    ],
+    [
+      'an "already" acceptance',
+      'sendrawtransaction RPC error: {"code":-27,"message":"Transaction already in block chain"}',
+      {
+        reason: 'rejected',
+        definitiveRejection: false,
+        detail: 'HTTP 400: Transaction already in block chain',
+      },
+    ],
+    [
+      'another refusal of the explorer check',
+      '{"error":"sendrawtransaction RPC error: {\\"code\\":-4}"}',
+      { reason: 'rejected', definitiveRejection: false, detail: 'HTTP 400: RPC error -4' },
+    ],
+  ])('keeps classifying %s as before', (_label, body, expected) => {
+    expect(classifyQbitBroadcastError(rejection(body))).toEqual(expected)
+  })
+
+  it.each([500, 502, 413])(
+    'never reads a code-only -3 under HTTP %i as the explorer refusal',
+    status => {
+      const body = '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}'
+      const classification = classifyQbitBroadcastError(
+        new QbitApiError('http', `HTTP ${status} from ${ENDPOINT}`, { status, responseBody: body })
+      )
+      expect(classification).toMatchObject({ reason: 'server', definitiveRejection: false })
+    }
+  )
+
   it('classifies a reply past the size limit as an unusable answer, not an unexpected error', () => {
     const tooLarge = new QbitApiError(
       'response_too_large',
@@ -483,6 +575,11 @@ describe('isQbitTxSizeBroadcastRejection', () => {
     ['a server error', rejection(500, 'tx-size')],
     ['a timeout', new QbitApiError('timeout', 'request timed out')],
     ['a plain error', new Error('tx-size')],
+    // A setting of the deployment, not a verdict on the bytes (#170).
+    [
+      "the explorer's too-large refusal",
+      rejection(400, '{"error":"sendrawtransaction RPC error: {\\"code\\":-3}"}'),
+    ],
   ])('does not treat %s as tx-size', (_label, error) => {
     expect(isQbitTxSizeBroadcastRejection(error)).toBe(false)
   })

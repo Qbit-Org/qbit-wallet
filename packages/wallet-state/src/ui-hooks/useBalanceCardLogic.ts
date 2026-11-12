@@ -104,6 +104,21 @@ export function useBalanceCardLogic() {
   const totalAmountMainPart = totalAmount.slice(0, -8)
   const totalAmountSubPart = totalAmount.slice(-8)
 
+  // The balance shown when the card mounts was read before whatever moved
+  // funds since, possibly minutes earlier on another screen (a send plan
+  // holding, combining or spending the account's outputs, a payment going
+  // out): read it again at once, not at the first poll. Once per mount, and
+  // not while no balance is shown, when the first read is on its way.
+  const mountReadRef = useRef(false)
+  useEffect(() => {
+    if (mountReadRef.current) return
+    mountReadRef.current = true
+    if (!hasLoadedBalance) return
+    fetchBalance().catch(() => {
+      // A failed read keeps the last balance; the poll retries.
+    })
+  }, [fetchBalance, hasLoadedBalance])
+
   // Passive refresh every 10 seconds
   useEffect(() => {
     const intervalId = setInterval(() => {

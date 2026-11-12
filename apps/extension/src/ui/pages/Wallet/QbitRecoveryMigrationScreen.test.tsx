@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { copyToClipboard } from '@/ui/utils';
-import { ErrorCodes, WordsType } from '@qbit/wallet-shared';
+import { BUS_METHODS, ErrorCodes, WordsType } from '@qbit/wallet-shared';
 import { useI18n, useQbitUnit, useTools, useWallet } from '@qbit/wallet-state';
+import { uiEventBus } from '../../../../../../packages/wallet-state/src/utils/eventBus';
+import { unhandledRejectionsDuring } from '../../../../../../tests/support/unhandledRejections';
 
 import QbitRecoveryMigrationScreen from './QbitRecoveryMigrationScreen';
 
@@ -111,11 +113,11 @@ vi.mock('@/ui/components', async () => {
       }),
       children
     );
-  const Header = ({ title, onBack }: { title?: string; onBack?: () => void }) =>
+  const Header = ({ title, onBack, backDisabled }: { title?: string; onBack?: () => void; backDisabled?: boolean }) =>
     React.createElement(
       'header',
       null,
-      React.createElement('button', { 'data-testid': 'header-back', onClick: onBack }),
+      React.createElement('button', { 'data-testid': 'header-back', onClick: onBack, disabled: backDisabled }),
       title
     );
   const Text = ({ text, 'data-testid': dataTestId }: { text?: string; 'data-testid'?: string }) =>
@@ -155,13 +157,28 @@ vi.mock('@/ui/utils', () => ({
   }
 }));
 
-vi.mock('@qbit/wallet-state', () => ({
+vi.mock('@qbit/wallet-state', async () => ({
   useChainType: () => 'QBIT_TESTNET4',
   useI18n: vi.fn(),
   useQbitUnit: vi.fn(),
+  // The real hook, listening on the real UI event bus.
+  useSigningProgress: (
+    await vi.importActual<typeof import('../../../../../../packages/wallet-state/src/hooks/signing')>(
+      '../../../../../../packages/wallet-state/src/hooks/signing'
+    )
+  ).useSigningProgress,
   useTools: vi.fn(),
   useWallet: vi.fn()
 }));
+
+// The panel has its own tests; here it only shows what it was given.
+vi.mock('@/ui/components/SigningProgress', async () => {
+  const React = await import('react');
+  return {
+    SigningProgress: ({ progress }: { progress: unknown }) =>
+      React.createElement('div', { 'data-testid': 'signing-progress', 'data-progress': JSON.stringify(progress) })
+  };
+});
 
 const seedOnlyState = {
   status: 'seed-only-restored',
@@ -340,7 +357,7 @@ describe('QbitRecoveryMigrationScreen', () => {
     fireEvent.click(signButton);
 
     await waitFor(() => expect(wallet.confirmQbitRestoredFloorSigning).toHaveBeenCalledWith('migration-challenge'));
-    await waitFor(() => expect(wallet.signPsbtV2).toHaveBeenCalledWith(toSignData));
+    await waitFor(() => expect(wallet.signPsbtV2).toHaveBeenCalledWith(toSignData, { progressId: expect.any(String) }));
     expect(await screen.findByTestId('qbit-recovery-complete')).toBeTruthy();
     expect(screen.getByTestId('qbit-recovery-complete-destination').textContent).toBe('qbrt1zfreshdestination');
     expect(screen.getByText('qbrt1zrecovered')).toBeTruthy();
@@ -814,6 +831,47 @@ describe('QbitRecoveryMigrationScreen', () => {
       expect(toastError).not.toHaveBeenCalled();
     });
 
+    it('shows which plan is signing and how far it has got (#171)', async () => {
+      vi.mocked(useTools).mockReturnValue({ toastError: vi.fn() } as any);
+      const plans = reviewOf(2);
+      let finishFirst: (signed: { psbtHex: string }) => void = () => undefined;
+      wallet.signPsbtV2
+        .mockImplementationOnce(
+          (_plan: unknown, options: { progressId: string }) =>
+            new Promise((resolve) => {
+              uiEventBus.emit(BUS_METHODS.QBIT_SIGNING_PROGRESS, {
+                progressId: options.progressId,
+                signed: 40,
+                total: 106,
+                cached: 0
+              });
+              finishFirst = resolve;
+            })
+        )
+        .mockResolvedValueOnce({ psbtHex: 'signed' });
+
+      render(<QbitRecoveryMigrationScreen />);
+      await pressSign();
+
+      const panel = await screen.findByTestId('signing-progress');
+      expect(JSON.parse(panel.dataset.progress!)).toEqual({
+        signed: 40,
+        total: 106,
+        transactionIndex: 0,
+        transactionCount: 2,
+        remainingMs: undefined
+      });
+      // Leaving now would leave the plans signing unseen.
+      expect((screen.getByTestId('header-back') as HTMLButtonElement).disabled).toBe(true);
+
+      await act(async () => {
+        finishFirst({ psbtHex: 'signed' });
+      });
+      await waitFor(() => expect(wallet.prepareQbitRecoveryMigration).toHaveBeenCalledTimes(2));
+      expect(wallet.signPsbtV2.mock.calls.map(([plan]) => plan)).toEqual(plans);
+      expect(screen.queryByTestId('signing-progress')).toBeNull();
+    });
+
     it('prepares the plans left again, with the migration message, when the review was interrupted', async () => {
       const toastError = vi.fn();
       vi.mocked(useTools).mockReturnValue({ toastError } as any);
@@ -1069,17 +1127,27 @@ describe('QbitRecoveryMigrationScreen', () => {
   });
 
   it('keeps a rejected keepalive refresh from becoming an unhandled rejection', async () => {
-    // Without the catch inside the keepalive, this rejection surfaces as an
-    // unhandled error and fails the test file.
-    wallet.setLastActiveTime.mockRejectedValue(new Error('wallet is locking'));
+    // The refresh is a plain function around the spy that counts it: a spy
+    // attaches handlers to the promises it returns, which would hide the
+    // rejection this test is about.
+    vi.mocked(useWallet).mockReturnValue({
+      ...wallet,
+      setLastActiveTime: () => {
+        wallet.setLastActiveTime();
+        return Promise.reject(new Error('wallet is locking'));
+      }
+    } as unknown as ReturnType<typeof useWallet>);
     vi.useFakeTimers();
     render(<QbitRecoveryMigrationScreen />);
     await flushInitialLoad();
 
-    await act(async () => {
-      vi.advanceTimersByTime(10 * 1000);
-      await Promise.resolve();
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(10 * 1000);
+        await Promise.resolve();
+      });
     });
+    expect(unhandled).toEqual([]);
     expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
   });
 });

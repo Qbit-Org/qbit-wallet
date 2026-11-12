@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Card, Column, Content, Footer, Header, Icon, Layout, Row, Text, Tooltip } from '@/ui/components';
+import { Column, Content, Footer, Header, Layout, Row } from '@/ui/components';
 import AccountSelect from '@/ui/components/AccountSelect';
 import { FeeRateIcon } from '@/ui/components/FeeRateIcon';
 import LoadingPage from '@/ui/components/LoadingPage';
@@ -9,7 +9,6 @@ import { SwitchNetworkBar } from '@/ui/components/SwitchNetworkBar';
 import { ThemeToggle } from '@/ui/components/ThemeToggle';
 import { UpgradePopover } from '@/ui/components/UpgradePopover';
 import { VersionNotice } from '@/ui/components/VersionNotice';
-import { fontSizes } from '@/ui/theme/font';
 import { getCurrentTab } from '@/ui/web/tabs';
 import { walletErrorMessage } from '@/ui/utils';
 import { KeyringType } from '@qbit/keyring-service/types';
@@ -37,6 +36,7 @@ import { BalanceCard } from './components/BalanceCard';
 import { HomeTips } from './components/HomeTips';
 import { WalletActions } from './components/WalletActions';
 import { QbitRecoveryWarning } from './components/QbitRecoveryWarning';
+import { QbitSendPlanResumeCard } from './components/QbitSendPlanResumeCard';
 
 const STORAGE_VERSION_KEY = 'version_detail';
 
@@ -53,7 +53,12 @@ export default function WalletTabScreen() {
   const { t } = useI18n();
   const [connected, setConnected] = useState(false);
   const [continuedUseAccepted, setContinuedUseAccepted] = useState(false);
-  const [recoveryState, setRecoveryState] = useState<QbitRecoveryState | undefined>(currentKeyring.qbitRecovery);
+  // The recovery state shown, with the wallet it was read for.
+  const [recovery, setRecovery] = useState<{ keyringKey: string; state: QbitRecoveryState | undefined }>({
+    keyringKey: currentKeyring.key,
+    state: currentKeyring.qbitRecovery
+  });
+  const recoveryState = recovery.state;
 
   const skipVersion = useSkipVersionCallback();
 
@@ -94,8 +99,8 @@ export default function WalletTabScreen() {
   }, [currentKeyring.index, recoveryState?.status]);
 
   useEffect(() => {
-    setRecoveryState(currentKeyring.qbitRecovery);
-  }, [currentKeyring.index, currentKeyring.qbitRecovery]);
+    setRecovery({ keyringKey: currentKeyring.key, state: currentKeyring.qbitRecovery });
+  }, [currentKeyring.key, currentKeyring.index, currentKeyring.qbitRecovery]);
 
   useEffect(() => {
     if (currentKeyring.type !== KeyringType.QbitHdKeyring) {
@@ -104,11 +109,12 @@ export default function WalletTabScreen() {
     }
 
     const keyringIndex = currentKeyring.index;
+    const keyringKey = currentKeyring.key;
     // Keyring removal compacts indexes while this screen stays mounted, so
     // the refresh resolves the wallet by its anchor pubkey like the
     // acknowledge/dismiss calls below; the captured index only breaks ties.
     const anchorPubkey = currentKeyring.accounts[0]?.pubkey;
-    activeRecoveryKeyringKeyRef.current = currentKeyring.key;
+    activeRecoveryKeyringKeyRef.current = keyringKey;
 
     let cancelled = false;
     let latestRequestId = 0;
@@ -118,7 +124,7 @@ export default function WalletTabScreen() {
         .getQbitRecoveryState(keyringIndex, anchorPubkey)
         .then((state) => {
           if (cancelled || requestId !== latestRequestId) return;
-          setRecoveryState(state);
+          setRecovery({ keyringKey, state });
         })
         .catch(() => {
           // Keep the last known snapshot; the next mutation broadcast retries.
@@ -179,28 +185,6 @@ export default function WalletTabScreen() {
         type="home"
         LeftComponent={
           <Row itemsCenter>
-            <Tooltip
-              title={t('switch_wallet')}
-              overlayStyle={{
-                minWidth: '70px',
-                fontSize: '12px'
-              }}
-              placement="bottom"
-            >
-              <Card
-                preset="style2"
-                style={{ height: 28 }}
-                onClick={() => {
-                  navigate('SwitchKeyringScreen');
-                }}
-                data-testid="wallet-management-entry"
-              >
-                <Row itemsCenter gap="sm">
-                  <Icon icon="wallet" size={fontSizes.icon} />
-                  <Text text={`${currentKeyring.index + 1}`} size="xxs" />
-                </Row>
-              </Card>
-            </Tooltip>
             <FeeRateIcon />
             <SwitchNetworkBar />
           </Row>
@@ -215,7 +199,9 @@ export default function WalletTabScreen() {
       />
 
       <Content>
-        <AccountSelect />
+        {/* Only a state read for the wallet on the card: right after a switch, until the
+            state of the wallet switched to is set, the card shows that wallet's own snapshot. */}
+        <AccountSelect recoveryState={recovery.keyringKey === currentKeyring.key ? recoveryState : undefined} />
 
         <Column gap="lg2" mt="md">
           <HomeTips />
@@ -234,7 +220,7 @@ export default function WalletTabScreen() {
                   .acknowledgeQbitRecoveryRisk(currentKeyring.index, currentKeyring.accounts[0]?.pubkey)
                   .then((state) => {
                     if (activeRecoveryKeyringKeyRef.current !== keyringKey) return;
-                    setRecoveryState(state);
+                    setRecovery({ keyringKey, state });
                     setContinuedUseAccepted(false);
                   })
                   .catch((error) => tools.toastError(walletErrorMessage(error, t('unknown_error'))));
@@ -245,7 +231,7 @@ export default function WalletTabScreen() {
                   .dismissQbitRecoveryWarning(currentKeyring.index, currentKeyring.accounts[0]?.pubkey)
                   .then((state) => {
                     if (activeRecoveryKeyringKeyRef.current !== keyringKey) return;
-                    setRecoveryState(state);
+                    setRecovery({ keyringKey, state });
                   })
                   .catch((error) => tools.toastError(walletErrorMessage(error, t('unknown_error'))));
               }}
@@ -257,6 +243,8 @@ export default function WalletTabScreen() {
               }
             />
           ) : null}
+
+          <QbitSendPlanResumeCard />
 
           <BalanceCard />
           <WalletActions chain={chain} hideReceive={recoveryState?.status === 'migrated'} />

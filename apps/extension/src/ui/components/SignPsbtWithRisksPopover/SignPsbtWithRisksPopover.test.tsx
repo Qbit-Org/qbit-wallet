@@ -8,7 +8,9 @@ import { useI18n } from '@qbit/wallet-state';
 
 import { SignPsbtWithRisksPopover } from '.';
 
-vi.mock('@qbit/wallet-state', () => ({
+vi.mock('@qbit/wallet-state', async () => ({
+  // The package's own formatter: its index does not load in this test.
+  formatFeeRate: (await import('../../../../../../packages/wallet-state/src/utils/fee-rate-text')).formatFeeRate,
   useI18n: vi.fn()
 }));
 
@@ -122,5 +124,52 @@ describe('SignPsbtWithRisksPopover confirmation readiness', () => {
     render(<SignPsbtWithRisksPopover decodedPsbt={highFee(false)} onConfirm={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getByText('high_fee_rate_risk_title')).toBeTruthy();
     expect(screen.queryByText('high_fee_risk_title')).toBeNull();
+  });
+
+  it('shows a fee rate below 1 bit/vB in the fee detail to two decimal places', () => {
+    // A small website payment whose fee, 955 bits for 3,817 vB, is at the 0.25 bits/vB relay floor.
+    const decoded = {
+      feeRate: 955 / 3_817,
+      risks: [{ type: RiskType.HIGH_FEE_RATE, level: 'warning', title: '', desc: '' }],
+      spendSummary: {
+        feeAssessment: {
+          fee: 955,
+          feeRate: 955 / 3_817,
+          amount: 3_000,
+          recommendedFeeRate: 0.25,
+          reasons: ['large_share_of_amount'],
+          highFeeAtNormalRate: true
+        }
+      }
+    } as unknown as DecodedPsbt;
+
+    render(<SignPsbtWithRisksPopover decodedPsbt={decoded} onConfirm={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText('view'));
+
+    expect(screen.getByText('0.25 bits/vB')).toBeTruthy();
+  });
+
+  it('never shows a current fee rate above the one paid: 936 bits for 3,817 vB as 0.24 bits/vB', () => {
+    // 0.2452 bits/vB, below the 0.25 bits/vB relay floor the node enforces.
+    const decoded = {
+      feeRate: 936 / 3_817,
+      risks: [{ type: RiskType.HIGH_FEE_RATE, level: 'warning', title: '', desc: '' }],
+      spendSummary: {
+        feeAssessment: {
+          fee: 936,
+          feeRate: 936 / 3_817,
+          amount: 3_000,
+          recommendedFeeRate: 0.25,
+          reasons: ['large_share_of_amount'],
+          highFeeAtNormalRate: true
+        }
+      }
+    } as unknown as DecodedPsbt;
+
+    render(<SignPsbtWithRisksPopover decodedPsbt={decoded} onConfirm={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText('view'));
+
+    expect(screen.getByText('0.24 bits/vB')).toBeTruthy();
+    expect(screen.queryByText('0.25 bits/vB')).toBeNull();
   });
 });

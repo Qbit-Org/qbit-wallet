@@ -113,6 +113,8 @@ describe('WalletController qbit receive intents', () => {
       pqcConcurrentInstanceHint: false,
     })
     vi.spyOn(controller, 'getCurrentKeyring').mockImplementation(async () => keyring)
+    // The wallet list holds the same wallet: both read the keyring service.
+    vi.spyOn(controller, 'getKeyrings').mockImplementation(async () => [keyring])
     vi.spyOn(controller, 'findActiveAddressGroups').mockImplementation(async groups => [
       {
         type: groups[0]!.type,
@@ -171,7 +173,7 @@ describe('WalletController qbit receive intents', () => {
     keyring.accounts.push(account(1))
     ledgers.testnet4 = { currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] }
     selectedAccount = keyring.accounts[0]
-    const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+    const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
     vi.mocked(controller.findActiveAddressGroups).mockRejectedValue(new Error('offline'))
 
     const ensured = await controller.ensureQbitReceiveIntent()
@@ -190,7 +192,7 @@ describe('WalletController qbit receive intents', () => {
         },
       })
     }
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
     expect(ledgers.testnet4).toEqual({
       currentIndex: 1,
@@ -229,7 +231,7 @@ describe('WalletController qbit receive intents', () => {
     keyring.accounts.push(account(1))
     ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
     activeAddresses = ['tq-0']
-    const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+    const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
 
     const first = await controller.ensureQbitReceiveIntent()
     const second = await controller.ensureQbitReceiveIntent()
@@ -240,7 +242,7 @@ describe('WalletController qbit receive intents', () => {
     }
     expect(keyringService.recordQbitReceiveActivity).toHaveBeenCalledTimes(1)
     expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
   })
 
@@ -248,13 +250,13 @@ describe('WalletController qbit receive intents', () => {
     keyring.accounts.push(account(1))
     ledgers.testnet4 = { currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] }
     selectedAccount = keyring.accounts[0]
-    const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+    const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
 
     const state = await controller.ensureQbitReceiveIntent()
 
     expect(state.current?.index).toBe(0)
     expect(state.previous.map(item => item.index)).toEqual([1])
-    expect(changeKeyring).not.toHaveBeenCalled()
+    expect(selectKeyring).not.toHaveBeenCalled()
     expect(sessionService.broadcastEvent).not.toHaveBeenCalled()
     expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
     // The ledger's current intent follows the unused address on screen.
@@ -338,7 +340,7 @@ describe('WalletController qbit receive intents', () => {
     it('New Address issues nothing for a wallet left during its activity check', async () => {
       ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
       const other = walletKeyring([account(0, 'normal', 'local', 'other')])
-      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
       vi.mocked(controller.findActiveAddressGroups).mockImplementationOnce(async groups => {
         keyring = other
         selectedAccount = other.accounts[0]
@@ -347,14 +349,14 @@ describe('WalletController qbit receive intents', () => {
 
       await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
       expect(keyringService.setQbitReceiveIntent).not.toHaveBeenCalled()
-      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectKeyring).not.toHaveBeenCalled()
       expect(selectedAccount?.pubkey).toBe('other-0')
     })
 
     it('New Address keeps a wallet selected while its intent is written', async () => {
       ledgers.testnet4 = { currentIndex: 0, issuedIndexes: [0], usedIndexes: [] }
       const other = walletKeyring([account(0, 'normal', 'local', 'other')])
-      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
       vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
         async (_anchor, network, index) => {
           const ledger = ledgers[network as Network]
@@ -368,7 +370,7 @@ describe('WalletController qbit receive intents', () => {
       )
 
       await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
-      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectKeyring).not.toHaveBeenCalled()
       expect(selectedAccount?.pubkey).toBe('other-0')
     })
 
@@ -380,7 +382,7 @@ describe('WalletController qbit receive intents', () => {
         account(0, 'normal', 'local', 'other'),
         account(1, 'normal', 'local', 'other'),
       ])
-      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
       vi.mocked(keyringService.setQbitReceiveIntent).mockImplementationOnce(
         async (_anchor, network, index) => {
           const ledger = ledgers[network as Network]
@@ -401,7 +403,7 @@ describe('WalletController qbit receive intents', () => {
         })
 
       await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
-      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectKeyring).not.toHaveBeenCalled()
       expect(selectedAccount?.pubkey).toBe('pub-0')
     })
 
@@ -409,7 +411,7 @@ describe('WalletController qbit receive intents', () => {
       keyring.accounts.push(account(1))
       ledgers.testnet4 = { currentIndex: 1, issuedIndexes: [0, 1], usedIndexes: [] }
       selectedAccount = keyring.accounts[1]
-      const changeKeyring = vi.spyOn(controller, 'changeKeyring')
+      const selectKeyring = vi.spyOn(controller as any, 'selectKeyring')
       vi.mocked(controller.findActiveAddressGroups)
         .mockImplementationOnce(async groups => noActivity(groups[0]!.type))
         .mockImplementationOnce(async groups => {
@@ -418,7 +420,7 @@ describe('WalletController qbit receive intents', () => {
         })
 
       await expect(controller.createQbitReceiveIntent()).rejects.toThrow('account changed')
-      expect(changeKeyring).not.toHaveBeenCalled()
+      expect(selectKeyring).not.toHaveBeenCalled()
       expect(selectedAccount?.p2mr?.hkdf.index).toBe(0)
     })
   })

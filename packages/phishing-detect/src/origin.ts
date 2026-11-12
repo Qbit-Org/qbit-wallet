@@ -77,6 +77,22 @@ function isValidDnsHostname(hostname: string): boolean {
   })
 }
 
+function isLocalhostName(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.endsWith('.localhost')
+}
+
+function hasPrivateNameSuffix(hostname: string): boolean {
+  return PRIVATE_NAME_SUFFIXES.some(suffix => hostname.endsWith(suffix))
+}
+
+/**
+ * Whether a normalized hostname is a special-use name that nobody can
+ * register: localhost, or one under a private-network suffix such as `.test`.
+ */
+export function isSpecialUseHostname(hostname: string): boolean {
+  return isLocalhostName(hostname) || hasPrivateNameSuffix(hostname)
+}
+
 function isIpv4Loopback(octets: Ipv4Octets): boolean {
   return octets[0] === 127
 }
@@ -165,8 +181,7 @@ export function classifyWebsiteOrigin(origin: string): WebsiteOriginClassificati
   }
 
   if (
-    hostname === 'localhost' ||
-    hostname.endsWith('.localhost') ||
+    isLocalhostName(hostname) ||
     (ipv4 && isIpv4Loopback(ipv4)) ||
     (ipv6 && isIpv6Loopback(ipv6))
   ) {
@@ -177,7 +192,7 @@ export function classifyWebsiteOrigin(origin: string): WebsiteOriginClassificati
     (ipv4 && isNonPublicIpv4(ipv4)) ||
     (ipv6 && isNonPublicIpv6(ipv6)) ||
     (!ipv4 && !ipv6 && !hostname.includes('.')) ||
-    PRIVATE_NAME_SUFFIXES.some(suffix => hostname.endsWith(suffix))
+    hasPrivateNameSuffix(hostname)
   ) {
     return { kind: 'unverified', reason: 'private-network', hostname }
   }

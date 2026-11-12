@@ -18,6 +18,7 @@ describe('openEcosystemEntry', () => {
     ['qbit-testnet-faucet', 'https://qbit.robertclarke.com/'],
     ['prism-testnet-pool', 'https://qbit.org/pool?network=testnet4'],
     ['prism-pool', 'https://qbit.org/pool'],
+    ['qbit-mine', 'https://qbit.org/mine?utm_source=qbit-wallet-extension'],
     ['qbit-block-visualizer', 'https://qbit.miller.nz/'],
     ['qbit-testnet-faucet-mainnet', 'https://qbit.robertclarke.com/?network=testnet4'],
     ['qbit-rich-list', 'https://qbitinfo.org/']

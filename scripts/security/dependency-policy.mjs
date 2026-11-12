@@ -492,6 +492,45 @@ function auditActionRuntime(file, definition) {
 // instead. Owner and repository names are case-insensitive in `uses`.
 const PNPM_SETUP_ACTION = /^pnpm\/action-setup(?:[/@]|$)/i
 
+// A remote action is `owner/repo@ref`, or `owner/repo/path@ref` for an action
+// in a subdirectory. Either way the ref must be a full lowercase commit ID,
+// and neither owner nor repo may be `.` or `..`. A subdirectory is accepted
+// only from ACTION_SUBDIRECTORIES: a remote reusable workflow has the same
+// form (`owner/repo/.github/workflows/x.yml@ref`, used by a job), and no audit
+// here reads the steps it runs.
+const PINNED_REMOTE_ACTION = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\/([^@]+))?@[0-9a-f]{40}$/
+const ACTION_SUBDIRECTORIES = new Set(['actions/cache/restore', 'actions/cache/save'])
+// Those two serve only the tree pass marker (docs/ci-tree-pass-marker.md), in
+// these workflow files. Anywhere else, a local action or another workflow
+// included, they could restore a marker entry in full, which the marker never
+// does, or save one.
+const ACTION_SUBDIRECTORY_FILES = new Set([
+  '.github/workflows/ci.yml',
+  '.github/workflows/playwright-release-gate.yml',
+])
+
+// Why a remote `uses` reference in `file` is rejected, or null when it is
+// accepted.
+function remoteActionError(reference, file) {
+  const match = PINNED_REMOTE_ACTION.exec(reference)
+  if (!match) return 'action is not pinned to a full commit'
+  const [, owner, repository, path] = match
+  if (['.', '..'].includes(owner) || ['.', '..'].includes(repository)) {
+    return 'action owner or repository is . or ..'
+  }
+  // Owner and repository names are case-insensitive; the path is not.
+  if (
+    path !== undefined &&
+    !ACTION_SUBDIRECTORIES.has(`${owner.toLowerCase()}/${repository.toLowerCase()}/${path}`)
+  ) {
+    return `action subdirectory must be one of ${[...ACTION_SUBDIRECTORIES].join(', ')}; a remote reusable workflow's steps are not audited`
+  }
+  if (path !== undefined && !ACTION_SUBDIRECTORY_FILES.has(file)) {
+    return `action subdirectory is used only by the tree pass marker in ${[...ACTION_SUBDIRECTORY_FILES].join(', ')}`
+  }
+  return null
+}
+
 export function auditActionReferences(actionFiles) {
   const errors = []
   let actionCount = 0
@@ -522,11 +561,9 @@ export function auditActionReferences(actionFiles) {
           actionCount += 1
           if (typeof nestedValue !== 'string' || nestedValue.length === 0) {
             errors.push(`${file}: action reference must be a non-empty string`)
-          } else if (
-            !nestedValue.startsWith('./') &&
-            !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[0-9a-f]{40}$/.test(nestedValue)
-          ) {
-            errors.push(`${file}: action is not pinned to a full commit: ${nestedValue}`)
+          } else if (!nestedValue.startsWith('./')) {
+            const problem = remoteActionError(nestedValue, file)
+            if (problem) errors.push(`${file}: ${problem}: ${nestedValue}`)
           }
           if (typeof nestedValue === 'string' && PNPM_SETUP_ACTION.test(nestedValue)) {
             errors.push(

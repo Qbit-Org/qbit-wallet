@@ -4,8 +4,21 @@ export const QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES = 3680
 /** A zero-depth P2MR control block contains only its leaf-version byte. */
 export const QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES = 1
 
-/** Effective qbit min-relay floor, in bits (satoshis) per virtual byte. */
-export const QBIT_MIN_RELAY_FEE_RATE = 1
+/**
+ * qbit Core's relay floor, in bits (satoshis) per virtual byte: its
+ * `DEFAULT_MIN_RELAY_TX_FEE{250}` sat/kvB (`src/policy/policy.h`). The node
+ * rounds the fee it requires up, as `qbitFeeForVsize` does, so a fee at
+ * exactly this rate is relayed. The wallet accepts no lower rate.
+ */
+export const QBIT_MIN_RELAY_FEE_RATE = 0.25
+
+/**
+ * The rate, in bits/vB, the wallet uses when it has no live fee estimate.
+ * It is above the relay floor: without an estimate the wallet cannot see
+ * that the mempool's minimum has risen, and a send at the floor could then
+ * stay unconfirmed.
+ */
+export const QBIT_FALLBACK_FEE_RATE = 1
 
 /** Wallet sanity ceiling for automatic and custom qbit fees, in bits/vB. */
 export const QBIT_MAX_FEE_RATE = 10_000
@@ -20,7 +33,10 @@ export interface QbitP2mrTransactionEstimateParams {
   controlBlockLength: number
   /** Defaults to a 3,680-byte SIGHASH_DEFAULT signature item. */
   signatureItemLength?: number
-  /** Rates below 1 sat/vB use the wallet's 1 sat/vB relay floor. */
+  /**
+   * Bits/vB; defaults to `QBIT_FALLBACK_FEE_RATE`. A rate below
+   * `QBIT_MIN_RELAY_FEE_RATE` is priced at that floor.
+   */
   feeRate?: number
 }
 
@@ -108,7 +124,7 @@ export function estimateQbitP2mrTransaction(
     leafScriptLength,
     controlBlockLength,
     signatureItemLength = QBIT_P2MR_DEFAULT_SIGNATURE_ITEM_BYTES,
-    feeRate = 1,
+    feeRate = QBIT_FALLBACK_FEE_RATE,
   } = params
 
   assertSafeInteger('inputCount', inputCount, 1)

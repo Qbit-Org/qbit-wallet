@@ -18,6 +18,7 @@ import {
 } from '@qbit-oss/protocol'
 import { transactionCore } from '@qbit/wallet-core'
 import {
+  formatQbitFeeRateRoundedDown,
   isQbitFeeBumpCopyableOutput,
   qbitP2mrTransactionSignedBy,
   qbitRawP2mrTransaction,
@@ -189,5 +190,46 @@ describe('qbit fee-bump original verification', () => {
     ]) {
       expect(isQbitFeeBumpCopyableOutput(output)).toBe(false)
     }
+  })
+})
+
+describe('formatQbitFeeRateRoundedDown (#182)', () => {
+  it('rounds a rate down to hundredths, so it never reads above the rate paid', () => {
+    // 936 bits for 3,817 vB is 0.2452 bits/vB, below the 0.25 relay floor.
+    expect(formatQbitFeeRateRoundedDown(936 / 3_817)).toBe('0.24')
+    expect(formatQbitFeeRateRoundedDown(0.2452)).toBe('0.24')
+    // 955 bits for 3,817 vB, a one-input send at the floor: 0.2502 bits/vB.
+    expect(formatQbitFeeRateRoundedDown(955 / 3_817)).toBe('0.25')
+    // 989 and 4,849 bits for 3,860 vB: 0.2562 and 1.2562 bits/vB.
+    expect(formatQbitFeeRateRoundedDown(989 / 3_860)).toBe('0.25')
+    expect(formatQbitFeeRateRoundedDown(4_849 / 3_860)).toBe('1.25')
+    expect(formatQbitFeeRateRoundedDown(0.999)).toBe('0.99')
+    expect(formatQbitFeeRateRoundedDown(1.0099)).toBe('1.00')
+    expect(formatQbitFeeRateRoundedDown(9_999.999)).toBe('9999.99')
+  })
+
+  it('shows a rate already in hundredths as it is, in two decimals', () => {
+    // Times 100 these are 28.999999999999996, 56.99999999999999,
+    // 114.99999999999999 and 434.99999999999994 in binary floating point.
+    expect(formatQbitFeeRateRoundedDown(0.29)).toBe('0.29')
+    expect(formatQbitFeeRateRoundedDown(1_131 / 3_900)).toBe('0.29')
+    expect(formatQbitFeeRateRoundedDown(0.57)).toBe('0.57')
+    expect(formatQbitFeeRateRoundedDown(4_439 / 3_860)).toBe('1.15')
+    expect(formatQbitFeeRateRoundedDown(4.35)).toBe('4.35')
+    // Times 100 this is 110.00000000000001.
+    expect(formatQbitFeeRateRoundedDown(1.1)).toBe('1.10')
+    expect(formatQbitFeeRateRoundedDown(0.25)).toBe('0.25')
+    expect(formatQbitFeeRateRoundedDown(1)).toBe('1.00')
+    expect(formatQbitFeeRateRoundedDown(2.2)).toBe('2.20')
+    expect(formatQbitFeeRateRoundedDown(10_000)).toBe('10000.00')
+    expect(formatQbitFeeRateRoundedDown(0)).toBe('0.00')
+  })
+
+  it('returns for any number, as toFixed(2) where hundredths lose their meaning', () => {
+    expect(formatQbitFeeRateRoundedDown(5.5e11)).toBe('550000000000.00')
+    expect(formatQbitFeeRateRoundedDown(1e20)).toBe('100000000000000000000.00')
+    expect(formatQbitFeeRateRoundedDown(Number.MAX_VALUE)).toBe(Number.MAX_VALUE.toFixed(2))
+    expect(formatQbitFeeRateRoundedDown(Number.POSITIVE_INFINITY)).toBe('Infinity')
+    expect(formatQbitFeeRateRoundedDown(Number.NaN)).toBe('NaN')
   })
 })

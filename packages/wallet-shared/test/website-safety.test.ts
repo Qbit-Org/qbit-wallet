@@ -4,7 +4,9 @@ import {
   WebsiteVerdictStatus,
   createBlockedWebsiteResult,
   createClearWebsiteResult,
+  createTrustedWebsiteResult,
   createUnverifiedWebsiteResult,
+  isTrustedWebsiteResult,
 } from '../src/types/website-safety'
 
 describe('website safety verdicts', () => {
@@ -56,5 +58,31 @@ describe('website safety verdicts', () => {
       },
       allowQuickMultiSign: false,
     })
+  })
+
+  it('defines trusted as a clear verdict for the official website that allows quick multi-signing', () => {
+    const result = createTrustedWebsiteResult('qbit.org')
+
+    expect(result).toEqual({
+      verdict: {
+        status: WebsiteVerdictStatus.CLEAR,
+        reason: 'trusted',
+        hostname: 'qbit.org',
+        warning: '',
+      },
+      allowQuickMultiSign: true,
+    })
+    expect(isTrustedWebsiteResult(result)).toBe(true)
+  })
+
+  it('trusts no other verdict', () => {
+    expect(isTrustedWebsiteResult(undefined)).toBe(false)
+    expect(isTrustedWebsiteResult(createClearWebsiteResult('example.com'))).toBe(false)
+    expect(
+      isTrustedWebsiteResult(createBlockedWebsiteResult('qbit.io', 'qbit.io', 'Blocked.'))
+    ).toBe(false)
+    expect(
+      isTrustedWebsiteResult(createUnverifiedWebsiteResult('timeout', 'Timed out.'))
+    ).toBe(false)
   })
 })

@@ -29,12 +29,14 @@ vi.mock('@/ui/components', async () => {
   }) => React.createElement('div', { onClick, 'data-testid': dataTestId }, children);
   const Button = ({
     text,
+    preset,
     disabled,
     loading,
     onClick,
     'data-testid': dataTestId
   }: {
     text?: string;
+    preset?: string;
     disabled?: boolean;
     loading?: boolean;
     onClick?: () => void;
@@ -42,7 +44,13 @@ vi.mock('@/ui/components', async () => {
   }) =>
     React.createElement(
       'button',
-      { disabled: disabled || loading, 'data-loading': loading ? 'true' : 'false', onClick, 'data-testid': dataTestId },
+      {
+        disabled: disabled || loading,
+        'data-loading': loading ? 'true' : 'false',
+        'data-preset': preset,
+        onClick,
+        'data-testid': dataTestId
+      },
       text
     );
   // Mirrors the real Header: a disabled back arrow drops its click handler.
@@ -166,6 +174,59 @@ describe('TxFailScreen', () => {
     expect(screen.getByTestId('tx-fail-reason').textContent).toBe('tx_broadcast_reason_guard_blocked_unconfirmed');
     expect(screen.getByTestId('tx-fail-replacement-warning').textContent).toBe('tx_unknown_warning');
     expect(screen.getByTestId('tx-fail-check-status-button')).not.toBeNull();
+  });
+
+  it('says the explorer refused a transaction too large to broadcast, once it was proven not sent (#170)', () => {
+    vi.mocked(useTxFailScreenLogic).mockReturnValue(
+      logic({ outcome: 'not_sent', reason: 'too_large', canRetry: false, canCheckStatus: false, detail: '' })
+    );
+    render(<TxFailScreen />);
+
+    expect(screen.getByTestId('tx-fail-title').textContent).toBe('tx_not_sent_title');
+    expect(screen.getByTestId('tx-fail-body').textContent).toBe('tx_not_sent_body');
+    expect(screen.getByTestId('tx-fail-reason').textContent).toBe('tx_broadcast_reason_too_large');
+    expect(screen.queryByTestId('tx-fail-replacement-warning')).toBeNull();
+    // The same bytes would be refused the same way: no Retry, nor what it does.
+    expect(screen.queryByTestId('tx-fail-retry-button')).toBeNull();
+    expect(screen.queryByTestId('tx-fail-retry-notice')).toBeNull();
+    // Back to wallet is all that is left, and the primary action.
+    expect(screen.getByTestId('tx-fail-back-button').getAttribute('data-preset')).toBe('primary');
+  });
+
+  it('keeps an unconfirmed refusal of a transaction too large to broadcast neutral (#170)', () => {
+    vi.mocked(useTxFailScreenLogic).mockReturnValue(
+      logic({ outcome: 'unknown', reason: 'too_large', canRetry: false })
+    );
+    render(<TxFailScreen />);
+
+    // The lookups could not prove the transaction absent: neither "refused,
+    // prepare a smaller batch" nor "not sent" may stand under "status unknown".
+    expect(screen.getByTestId('tx-fail-title').textContent).toBe('tx_unknown_title');
+    expect(screen.getByTestId('tx-fail-body').textContent).toBe('tx_unknown_body');
+    expect(screen.getByTestId('tx-fail-reason').textContent).toBe('tx_broadcast_reason_too_large_unconfirmed');
+    expect(screen.getByTestId('tx-fail-replacement-warning').textContent).toBe('tx_unknown_warning');
+    expect(screen.queryByTestId('tx-fail-retry-button')).toBeNull();
+    expect(screen.queryByTestId('tx-fail-retry-notice')).toBeNull();
+    // Check status leads, Back to wallet follows.
+    expect(screen.getByTestId('tx-fail-check-status-button').getAttribute('data-preset')).toBe('primary');
+    expect(screen.getByTestId('tx-fail-back-button').getAttribute('data-preset')).toBe('defaultV2');
+  });
+
+  it('offers no retry in what a status check says, without Retry (#170)', () => {
+    vi.mocked(useTxFailScreenLogic).mockReturnValue(
+      logic({ outcome: 'unknown', reason: 'too_large', canRetry: false, statusNotice: 'gone' })
+    );
+    render(<TxFailScreen />);
+
+    expect(screen.getByTestId('tx-fail-status-notice').textContent).toBe('tx_broadcast_status_gone_no_retry');
+  });
+
+  it('leads with Retry where it is offered (#170)', () => {
+    render(<TxFailScreen />);
+
+    expect(screen.getByTestId('tx-fail-retry-button').getAttribute('data-preset')).toBe('primary');
+    expect(screen.getByTestId('tx-fail-check-status-button').getAttribute('data-preset')).toBe('defaultV2');
+    expect(screen.getByTestId('tx-fail-back-button').getAttribute('data-preset')).toBe('defaultV2');
   });
 
   it('keeps technical detail out of the primary copy until the disclosure is opened', () => {

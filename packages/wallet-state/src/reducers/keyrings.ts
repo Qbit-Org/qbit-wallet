@@ -1,4 +1,4 @@
-import { Account, WalletKeyring } from '@qbit/wallet-shared'
+import { Account, WalletKeyring, walletColorForSlot } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 import { createSlice, Slice } from '@reduxjs/toolkit'
 
@@ -16,6 +16,7 @@ const initialKeyring: WalletKeyring = {
   addressType: AddressType.P2TR,
   accounts: [],
   alianName: '',
+  color: walletColorForSlot(0),
   hdPath: '',
 }
 
@@ -49,6 +50,19 @@ const slice: Slice<KeyringsState> = createSlice({
       state.keyrings.forEach(v => {
         if (v.key === keyring.key) {
           v.alianName = keyring.alianName
+        }
+      })
+    },
+
+    // With the wallet setKeyringColor resolves with.
+    updateKeyringColor(state, action: { payload: WalletKeyring }) {
+      const keyring = action.payload
+      if (state.current.key === keyring.key) {
+        state.current.color = keyring.color
+      }
+      state.keyrings.forEach(v => {
+        if (v.key === keyring.key) {
+          v.color = keyring.color
         }
       })
     },

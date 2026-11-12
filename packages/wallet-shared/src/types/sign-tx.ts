@@ -139,6 +139,33 @@ export interface ToSignData {
   action?: PsbtActionInfo
 }
 
+/** What `createQbitConsolidationPsbt` takes to prepare the next batch. */
+export interface QbitConsolidationRequest {
+  /** Bits per vB; omitted means the normal rate, or `QBIT_FALLBACK_FEE_RATE` without a quote. */
+  feeRate?: number
+  /** Whether the batch signals replaceability; omitted means it does. */
+  enableRBF?: boolean
+  /**
+   * Inputs the batch may carry: a whole number from 2
+   * (`QBIT_CONSOLIDATION_MIN_INPUTS`) to the account's `maxInputCount`, as
+   * `isQbitConsolidationBatchSize` checks. Omitted means the maximum.
+   */
+  maxInputs?: number
+}
+
+/**
+ * The transaction shape of an account's consolidation batch, apart from its
+ * inputs and fee rate. With an input count it is what
+ * `estimateQbitP2mrTransaction` prices, and it is the shape
+ * `qbitP2mrMaxStandardInputCount` sizes.
+ */
+export interface QbitConsolidationBatchShape {
+  /** Output script lengths, in output order: the one output to the account's own script. */
+  outputScriptLengths: number[]
+  leafScriptLength: number
+  controlBlockLength: number
+}
+
 /**
  * One batch of a consolidation (`createQbitConsolidationPsbt`): outputs of
  * an account the explorer will not list, sent whole to its own address.
@@ -146,8 +173,8 @@ export interface ToSignData {
 export interface QbitConsolidationBatch {
   /** Confirmed unspent outputs the explorer counted for the account before this batch. */
   confirmedOutputCount: number
-  /** The explorer listing limit the wallet assumes (electrs `--utxos-limit`). */
-  outputLimit: number
+  /** The explorer's listing limit, as `QbitConsolidationStatus.outputLimit` gives it. */
+  outputLimit: number | null
   /** What the batch's one output returns to the account: its inputs less the fee. */
   amount: number
   /**
@@ -156,22 +183,51 @@ export interface QbitConsolidationBatch {
    * answer of any other length refuses the batch.
    */
   fundingOutputCounts: number[]
+  /**
+   * The batch size this batch was prepared with: the request's `maxInputs`,
+   * or the account's `maxInputCount` when none was given. The batch may
+   * carry fewer inputs. The next batch is requested with it, so it keeps
+   * the size.
+   */
+  maxInputs: number
 }
 
 /** Where an account stands against the explorer's listing limit (`getQbitConsolidationStatus`). */
 export interface QbitConsolidationStatus {
   chain: ChainType
   address: string
-  /** Confirmed outputs not spent in a block: what the explorer counts against its limit. */
+  /**
+   * Confirmed outputs not spent in a block. Whether the explorer lists them
+   * is its own answer (`overLimit`), not this count: electrs refuses an
+   * address whose set passed its limit at any point since it last cached it.
+   */
   confirmedUnspent: number
   /** Outputs mempool transactions spend; they leave the count once those confirm. */
   pendingSpent: number
   /** Outputs mempool transactions create; they join the count once those confirm. */
   pendingFunded: number
-  /** The explorer listing limit the wallet assumes (electrs `--utxos-limit`). */
-  outputLimit: number
+  /**
+   * Whether the explorer refuses to list the account's outputs, as it
+   * answered when asked. electrs keeps refusing an address whose output set
+   * passed its limit at any point since it last cached that set, so this
+   * can hold with `confirmedUnspent` within `outputLimit`, and consolidating
+   * does not end it: only a limit raised past the most the account held does.
+   */
+  overLimit: boolean
+  /**
+   * While `overLimit`, the explorer's listing limit (electrs `--utxos-limit`):
+   * the one its refusal states, or for an explorer that refuses with a bare
+   * HTTP 500, the one the wallet assumes. `null` when the refusal states
+   * none, and while the explorer lists the account.
+   */
+  outputLimit: number | null
   /** Most inputs one consolidation batch carries within the standard size. */
   maxInputCount: number
+  /**
+   * The shape of this account's batch transaction, so the screen can price a
+   * batch of a chosen size before one is prepared.
+   */
+  batchShape: QbitConsolidationBatchShape
 }
 
 /**
@@ -185,6 +241,30 @@ export interface QbitConsolidationStatus {
 export interface QbitBroadcastIdentity {
   chain: ChainType
   txid: string
+}
+
+/**
+ * How far one local P2MR signing has got, sent to the wallet page that asked
+ * for it (`QbitSigningOptions.progressId`) as BUS_METHODS.QBIT_SIGNING_PROGRESS.
+ * `signed` counts the inputs signed so far, cached signatures included, out
+ * of `total`; `cached` counts those whose signature came from the cache. It
+ * carries counts only: no digest, signature or key.
+ */
+export interface QbitSigningProgress {
+  progressId: string
+  signed: number
+  total: number
+  cached: number
+}
+
+/** Options of a local signing call: `signPsbtV2` and `signLocalBatchPsbt`. */
+export interface QbitSigningOptions {
+  /**
+   * Chosen by the calling page to receive this call's progress events, which
+   * carry it back. 1 to 64 letters, digits, `_` or `-`; any other value gets
+   * no progress, and the signing runs as usual.
+   */
+  progressId?: string
 }
 
 export interface SignedData {

@@ -78,10 +78,12 @@ export function AmountInput(props: InputProps) {
     }
   };
 
+  // Neither step goes below `min`: from an empty field, or a value under it,
+  // stepping up lands on `min`.
   const handleStepUp = () => {
     const currentVal = parseFloat(props.value!) || 0;
     const decimal = decimalPlaces !== undefined ? decimalPlaces : 2;
-    const newVal = (currentVal + step).toFixed(decimal);
+    const newVal = Math.max(min, currentVal + step).toFixed(decimal);
     setValidAmount(newVal);
     setInputValue(newVal);
   };
