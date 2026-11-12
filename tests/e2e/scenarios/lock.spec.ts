@@ -274,7 +274,8 @@ test('G3 lock: sends pages opened before the wallet existed to the unlock screen
   await extension.captureWalletBroadcasts(creatingPage)
   await extension.requestWalletController<void>(creatingPage, 'setAutoLockTimeId', [0])
   await home.openSend()
-  await new SendPage(creatingPage).waitForCreate()
+  const send = new SendPage(creatingPage)
+  await send.waitForCreate()
   expect(await extension.documentMark(creatingPage)).toBe(creatingMark)
   // The capture is kept on this document's window, so finding the lock in it
   // also shows the page was not reloaded while it waited.
@@ -286,5 +287,11 @@ test('G3 lock: sends pages opened before the wallet existed to the unlock screen
     .toContain(LOCKED_METHOD)
   expect(await extension.walletBroadcastMethods(creatingPage)).toContain(AUTO_LOCKED_METHOD)
   await creatingUnlock.waitForUnlock()
-  await unlockToHome()
+  // The lock took this page from the send form it showed unlocked. With the
+  // account and network unchanged, the unlock brings the form back, and its
+  // Back goes Home.
+  await creatingUnlock.unlock(E2E_PASSWORD, '/wallet/tx/create')
+  await send.waitForCreate()
+  await send.back()
+  await home.waitUntilReady()
 })

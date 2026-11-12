@@ -73,10 +73,14 @@ export class SettingsPage extends ExtensionPageObject {
     await expect(this.unlockPasswordInput).toBeVisible()
   }
 
-  async unlock(password: string): Promise<void> {
+  /**
+   * Unlocks and waits for the route the unlock leads to: Home, unless a lock
+   * took the page from a send form it showed unlocked, which comes back.
+   */
+  async unlock(password: string, route = '/main'): Promise<void> {
     await this.waitForUnlock()
     await this.unlockPasswordInput.fill(password)
     await this.clickTestId('unlock-button')
-    await this.waitForHashRoute('/main')
+    await this.waitForHashRoute(route)
   }
 }
