@@ -97,7 +97,9 @@ message is the pull request's title and description, so write the title in
 the same style. If you open the pull request from your own copy of the
 repository, leave "Allow edits by maintainers" on, so the maintainer can push
 the signed commit to your branch. Without it, a maintainer opens the same
-change from a branch in this repository.
+change from a branch in this repository. An open pull request usually shows
+a failing `signed-landing` check until it is one commit signed by a person,
+normally the maintainer's squash. That is expected.
 
 A release pull request, from `release/x.y.z` into `main`, and a back-merge,
 from `main` into a release branch, are the exceptions. They merge as they
@@ -139,8 +141,9 @@ pnpm test:security-tooling
 - A ruleset on `main` requires one approving review, and the most recent
   push must be approved by someone other than the person who pushed it. New
   pushes dismiss earlier approvals.
-- It also requires two status checks: `Typecheck, test, and build` and
-  `Playwright G3 scenarios`. The other CI jobs, including `Lint` and
+- A second ruleset requires three status checks:
+  `Typecheck, test, and build`, `Playwright G3 scenarios` and
+  `signed-landing`. The other CI jobs, including `Lint` and
   `Dependency policy`, are not required, so reviewers check them before
   merging.
 - Every change needs a review from one of the code owners listed in
@@ -148,13 +151,18 @@ pnpm test:security-tooling
   have their own rules there: key management, signing, approvals,
   permissions, the provider API, build scripts, dependencies, and CI
   workflows. Expect a slower, more careful review for these.
-- Repository and organization administrators can bypass these rules. This is
-  tracked as AR-03 in
-  [`docs/security/accepted-risks.md`](docs/security/accepted-risks.md).
-- A second ruleset requires a verified signature on every commit of `main`
+- Repository and organization administrators can bypass the review rules
+  when they merge a pull request, but not the status checks. AR-03 in
+  [`docs/security/accepted-risks.md`](docs/security/accepted-risks.md) tracks
+  this bypass; its entry still describes the wider one from before these
+  rulesets and is updated when they are applied.
+- Another ruleset requires a verified signature on every commit of `main`
   and `release/*`, and it has no bypass list.
-- Release branches (`release/*`) have that signature rule and no other. Their
-  changes reach `main` through a pull request that the `main` rules apply to.
+- Release branches (`release/*`) have that signature rule, take changes
+  through pull requests only, and require the `signed-landing` check. They
+  require no approval. Their changes reach `main`
+  through a pull request that the `main` rules apply to. Reconcile branches
+  such as `release/1.0.8-reconcile-main` are left out of both rules.
 - The rulesets are in [`.github/rulesets/`](.github/rulesets/), with how to
   apply them and check them against GitHub.
 - Changes to keys, PQC, protocol, or signing code must fill in the
