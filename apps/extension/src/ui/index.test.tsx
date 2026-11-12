@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { act, fireEvent, screen } from '@testing-library/react';
 
+import { unhandledRejectionsDuring } from '../../../../tests/support/unhandledRejections';
+
 // The page as the entry module sees it through its mocked imports: the wallet
 // proxy, the idle timer's action handler, and the roots it renders into.
 const page = vi.hoisted(() => {
@@ -127,8 +129,6 @@ vi.mock('./web/ui-messaging', () => ({
   setupEventBusListeners: () => undefined
 }));
 
-const realSetTimeout = globalThis.setTimeout;
-
 // Load the entry module as a fresh page at `pathname`, and let it run until it
 // waits on a timer.
 async function openPage(pathname: string) {
@@ -145,24 +145,6 @@ async function wait(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
-}
-
-// Rejections that nothing handled while `run` ran, as Node reports them once
-// the microtasks have run.
-async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
-  const reasons: unknown[] = [];
-  const record = (reason: unknown) => {
-    reasons.push(reason);
-  };
-  globalThis.process.on('unhandledRejection', record);
-  try {
-    await run();
-    await new Promise((resolve) => realSetTimeout(resolve, 0));
-    await new Promise((resolve) => realSetTimeout(resolve, 0));
-  } finally {
-    globalThis.process.off('unhandledRejection', record);
-  }
-  return reasons;
 }
 
 const shownRoute = () => screen.getByTestId('route').textContent;
@@ -269,6 +251,45 @@ describe('the wallet page entry', () => {
     act(() => page.onIdleAction?.());
 
     expect(page.setLastActiveTime).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts each action the idle timer reports as one screen action, without waiting for its answer', async () => {
+    await openPage('/notification.html');
+    expect(shownRoute()).toBe('home');
+    expect(page.events).toEqual(['status:ready']);
+
+    act(() => page.onIdleAction?.());
+    expect(page.setLastActiveTime).toHaveBeenCalledTimes(1);
+    act(() => page.onIdleAction?.());
+
+    expect(page.events).toEqual(['status:ready', 'setLastActiveTime', 'setLastActiveTime']);
+    expect(page.setLastActiveTime.mock.calls).toEqual([[], []]);
+  });
+
+  it.each([
+    [
+      'rejects with a plain object, as for a wallet that is locking',
+      () => Promise.reject({ message: 'The wallet is locking.', stack: 'at lockWallet' })
+    ],
+    [
+      'throws, as the port does with every request id in use',
+      () => {
+        throw Object.assign(new Error('Request limit exceeded.'), { code: -32005 });
+      }
+    ]
+  ])('keeps the page, leaves nothing unhandled and asks only once per action when the call %s', async (_, failure) => {
+    await openPage('/notification.html');
+    page.reply = failure;
+
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      expect(() => act(() => page.onIdleAction?.())).not.toThrow();
+      expect(() => act(() => page.onIdleAction?.())).not.toThrow();
+      await wait(10 * 60_000);
+    });
+
+    expect(unhandled).toEqual([]);
+    expect(page.setLastActiveTime).toHaveBeenCalledTimes(2);
+    expect(shownRoute()).toBe('home');
   });
 
   it.each([

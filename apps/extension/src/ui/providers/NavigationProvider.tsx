@@ -4,6 +4,7 @@ import { useLocation, useNavigate as useNavigateOrigin } from 'react-router-dom'
 import { NavigationContext, NavigationContextType, RouteTypes, useChain } from '@qbit/wallet-state';
 import { getExplorerUrl } from '@qbit/wallet-shared';
 
+import { enteringUnlockReplaces } from '../pages/Account/UnlockScreen/unlockEntry';
 import { routes } from '../pages/MainRoute';
 import { openExtensionInTab } from '../web/tabs';
 
@@ -81,7 +82,8 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         navigate('MainScreen');
       },
       navToLock: (params?: any) => {
-        navigate('UnlockScreen', params);
+        // With Layout's redirect, one lock leaves one unlock entry.
+        navigate('UnlockScreen', params, undefined, { replace: enteringUnlockReplaces() });
       },
       navToWelcome: () => {
         // todo

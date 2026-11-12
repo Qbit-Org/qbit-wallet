@@ -10,8 +10,10 @@ import { Layout } from './index';
 
 vi.mock('@/ui/pages/MainRoute', () => ({
   routes: {
+    MainScreen: { path: '/main' },
     UnlockScreen: { path: '/account/unlock' },
-    TxCreateScreen: { path: '/wallet/tx/create' }
+    TxCreateScreen: { path: '/wallet/tx/create' },
+    TxConfirmScreen: { path: '/wallet/tx/confirm' }
   }
 }));
 
@@ -24,58 +26,61 @@ const ADDRESS = 'qb1zlayoutaccount';
 // The store's record of the account and network the send form belongs to.
 const SCOPE = { address: ADDRESS, chainType: ChainType.QBIT_MAINNET };
 
-describe('Layout sending a locked page to the unlock screen', () => {
-  let isUnlocked = false;
-  let state = {
+let isUnlocked = false;
+let state = {
+  accounts: { current: { address: ADDRESS } },
+  settings: { chainType: ChainType.QBIT_MAINNET },
+  ui: { sendFormScope: SCOPE }
+};
+// The page's store, as far as Layout reads it.
+const store = {
+  getState: () => state,
+  subscribe: () => () => undefined,
+  dispatch: (action: unknown) => action
+};
+
+const layout = () => (
+  <Provider store={store as never}>
+    <Layout />
+  </Provider>
+);
+
+// A screen shown with the wallet unlocked, then a lock; the history entries
+// the lock added.
+function showUnlockedThenLock(route: string, page = '/popup.html'): number {
+  window.history.replaceState(null, '', `${page}#${route}`);
+  const before = window.history.length;
+  isUnlocked = true;
+  const view = render(layout());
+  isUnlocked = false;
+  view.rerender(layout());
+  view.unmount();
+  return window.history.length - before;
+}
+
+beforeEach(() => {
+  isUnlocked = false;
+  state = {
     accounts: { current: { address: ADDRESS } },
     settings: { chainType: ChainType.QBIT_MAINNET },
     ui: { sendFormScope: SCOPE }
   };
-  // The page's store, as far as Layout reads it.
-  const store = {
-    getState: () => state,
-    subscribe: () => () => undefined,
-    dispatch: (action: unknown) => action
-  };
+  vi.mocked(useBooted).mockReturnValue(true);
+  vi.mocked(useIsUnlocked).mockImplementation(() => isUnlocked);
+});
 
-  const layout = () => (
-    <Provider store={store as never}>
-      <Layout />
-    </Provider>
-  );
+afterEach(() => {
+  cleanup();
+  forgetInterruptedSendForm();
+});
 
+describe('Layout sending a locked page to the unlock screen', () => {
   // A screen that mounts with the page's lock state as it is: locked, unless
   // the test unlocked it.
   function mountAt(route: string, page = '/popup.html') {
     window.history.replaceState(null, '', `${page}#${route}`);
     render(layout()).unmount();
   }
-
-  // A screen shown with the wallet unlocked, then a lock.
-  function showUnlockedThenLock(route: string, page = '/popup.html') {
-    window.history.replaceState(null, '', `${page}#${route}`);
-    isUnlocked = true;
-    const view = render(layout());
-    isUnlocked = false;
-    view.rerender(layout());
-    view.unmount();
-  }
-
-  beforeEach(() => {
-    isUnlocked = false;
-    state = {
-      accounts: { current: { address: ADDRESS } },
-      settings: { chainType: ChainType.QBIT_MAINNET },
-      ui: { sendFormScope: SCOPE }
-    };
-    vi.mocked(useBooted).mockReturnValue(true);
-    vi.mocked(useIsUnlocked).mockImplementation(() => isUnlocked);
-  });
-
-  afterEach(() => {
-    cleanup();
-    forgetInterruptedSendForm();
-  });
 
   it('remembers the send form shown unlocked, with the account and network it was shown for', () => {
     showUnlockedThenLock('/wallet/tx/create');
@@ -141,5 +146,51 @@ describe('Layout sending a locked page to the unlock screen', () => {
 
     expect(window.location.hash).toBe('#/main');
     expect(getInterruptedSendForm()).toBe(remembered);
+  });
+});
+
+describe('Layout’s history entry for the unlock screen', () => {
+  it('puts the unlock screen in Home’s place', () => {
+    expect(showUnlockedThenLock('/main', '/index.html')).toBe(0);
+    expect(window.location.hash).toBe('#/account/unlock');
+  });
+
+  it.each([['/settings'], ['/wallet/receive'], ['/wallet/tx/create']])('adds the unlock screen after %s', (route) => {
+    expect(showUnlockedThenLock(route, '/index.html')).toBe(1);
+    expect(window.location.hash).toBe('#/account/unlock');
+  });
+
+  it('adds the unlock screen in an approval window, Home too', () => {
+    expect(showUnlockedThenLock('/main', '/notification.html')).toBe(1);
+    expect(window.location.hash).toBe('#/account/unlock');
+  });
+
+  it('stays put on the unlock screen', () => {
+    expect(showUnlockedThenLock('/account/unlock', '/index.html')).toBe(0);
+    expect(window.location.hash).toBe('#/account/unlock');
+  });
+
+  // The unlock steps back to a remembered form: the entry before the unlock
+  // screen has to be that form.
+  it('remembers the send form only with the unlock screen in the entry after it', () => {
+    expect(showUnlockedThenLock('/wallet/tx/create')).toBe(1);
+    expect(getInterruptedSendForm()).toBeDefined();
+  });
+
+  it('puts the unlock screen in the send confirm screen’s place, and forgets the send form', () => {
+    showUnlockedThenLock('/wallet/tx/create');
+    expect(getInterruptedSendForm()).toBeDefined();
+
+    expect(showUnlockedThenLock('/wallet/tx/confirm', '/index.html')).toBe(0);
+    expect(window.location.hash).toBe('#/account/unlock');
+    expect(getInterruptedSendForm()).toBeUndefined();
+  });
+
+  it('forgets the send form when a lock reaches Home, whose entry the unlock screen takes', () => {
+    showUnlockedThenLock('/wallet/tx/create');
+    expect(getInterruptedSendForm()).toBeDefined();
+
+    expect(showUnlockedThenLock('/main')).toBe(0);
+    expect(getInterruptedSendForm()).toBeUndefined();
   });
 });

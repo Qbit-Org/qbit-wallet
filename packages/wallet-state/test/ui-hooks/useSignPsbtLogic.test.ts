@@ -26,6 +26,7 @@ import {
 } from '../../src/ui-hooks/useSignPsbtLogic'
 import { accountActions } from '../../src/reducers/accounts'
 import { uiEventBus } from '../../src/utils/eventBus'
+import { unhandledRejectionsDuring } from '../../../../tests/support/unhandledRejections'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const SAFE_WEBSITE_RESULT = createClearWebsiteResult('example.test')
@@ -1481,11 +1482,20 @@ describe('useSignPsbtLogic approval recovery', () => {
     const firstSign = new Promise<{ psbtHex: string }>((_, reject) => {
       rejectFirstSign = reject
     })
-    const wallet = createSignPsbtWallet()
+    // Signing is a plain function around the spy that counts it: a spy
+    // attaches handlers to the promises it returns, which would hide a
+    // rejection that the hook leaves unhandled.
+    const signs = vi.fn()
+    const wallet = {
+      ...createSignPsbtWallet(),
+      signPsbtV2: (...args: unknown[]) => {
+        signs(...args)
+        return signs.mock.calls.length === 1
+          ? firstSign
+          : Promise.resolve({ psbtHex: 'replacement-signature' })
+      },
+    }
     wallet.checkWebsite.mockReturnValue(new Promise(() => undefined))
-    wallet.signPsbtV2
-      .mockReturnValueOnce(firstSign)
-      .mockResolvedValueOnce({ psbtHex: 'replacement-signature' })
     const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
     const { result } = renderHook(
       () =>
@@ -1510,7 +1520,7 @@ describe('useSignPsbtLogic approval recovery', () => {
     act(() => {
       result.current.onClickSign()
     })
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(signs).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       result.current.onRetryWebsiteCheck()
@@ -1524,14 +1534,17 @@ describe('useSignPsbtLogic approval recovery', () => {
     })
 
     // The first signing still runs, so the press signs nothing (#34).
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(1)
+    expect(signs).toHaveBeenCalledTimes(1)
     expect(result.current.isPsbtSigning).toBe(true)
 
-    await act(async () => {
-      rejectFirstSign?.(new Error('stale signing failure'))
-      await Promise.resolve()
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        rejectFirstSign?.(new Error('stale signing failure'))
+        await Promise.resolve()
+      })
     })
 
+    expect(unhandled).toEqual([])
     expect(result.current.isPsbtSigning).toBe(false)
     expect(result.current.signedCount).toBe(0)
     expect(tools.toastError).not.toHaveBeenCalled()
@@ -1542,7 +1555,7 @@ describe('useSignPsbtLogic approval recovery', () => {
       await Promise.resolve()
     })
 
-    expect(wallet.signPsbtV2).toHaveBeenCalledTimes(2)
+    expect(signs).toHaveBeenCalledTimes(2)
     expect(result.current.signedCount).toBe(1)
     expect(result.current.multiSignList[0].buttonPreset).toBe('approval')
     expect(tools.toastError).not.toHaveBeenCalled()

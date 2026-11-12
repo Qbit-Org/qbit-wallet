@@ -46,6 +46,7 @@ Run one scenario from a clean deterministic state:
 corepack pnpm exec playwright test tests/e2e/scenarios/onboard.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/receive.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/send.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/send-draft.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/consolidation.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp-events.spec.ts
@@ -55,6 +56,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/provider-ready.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/recovery.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/unlock-history.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/switch-account.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
 ```
@@ -90,11 +92,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 37 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 52 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 23 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 38 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -106,6 +108,14 @@ separately with two-decimal millisecond precision.
 | Receive/fund/rotate   | `scenarios/receive.spec.ts:5`             | Fund issued addresses, rotate safely, mine, and retain previous addresses                                  | Pass         |  26.2 s |
 | Send                  | `scenarios/send.spec.ts:23`               | Dust rejection; single/multi-input fees; exact displayed/on-chain fee equality; RBF replacement            | Pass         |  67.7 s |
 | Send at relay floor   | `scenarios/send.spec.ts:254`              | Custom 0.25 bits/vB: fee is vsize × 0.25 rounded up, accepted, equal on chain, confirmed; 0.24 blocks Next | Not recorded |       — |
+| Draft not saved       | `scenarios/send-draft.spec.ts:142`        | Nothing typed into the send form is saved to storage, before or after a lock                               | Not recorded |       — |
+| Draft after restart   | `scenarios/send-draft.spec.ts:171`        | After a restart and a network switch, the form opened by its route is empty, also after a reload           | Not recorded |       — |
+| Draft on reload       | `scenarios/send-draft.spec.ts:203`        | Reloading the tab on the send form opens it empty                                                          | Not recorded |       — |
+| Draft account switch  | `scenarios/send-draft.spec.ts:220`        | Switching account in the page empties the send form                                                        | Not recorded |       — |
+| Draft network switch  | `scenarios/send-draft.spec.ts:233`        | Switching network in the page empties the send form                                                        | Not recorded |       — |
+| Draft, other window   | `scenarios/send-draft.spec.ts:247`        | An account switch in another window empties the open form; hiding balances there does not                  | Not recorded |       — |
+| Draft, other network  | `scenarios/send-draft.spec.ts:286`        | A network switch in another window empties the open form                                                   | Not recorded |       — |
+| Draft across a lock   | `scenarios/send-draft.spec.ts:305`        | The open page keeps the form across Back, Forward and a lock; Send starts a new one                        | Not recorded |       — |
 | Consolidation         | `scenarios/consolidation.spec.ts:145`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
 | dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
@@ -132,13 +142,19 @@ separately with two-decimal millisecond precision.
 | Lock after onboarding | `scenarios/lock.spec.ts:210`              | The creating page shows the lock screen on a lock and an auto-lock; a page left on Welcome does on a lock  | Not recorded |       — |
 | Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
 | Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
-| Switch account        | `scenarios/switch-account.spec.ts:148`    | The card shows the wallet by its tile; two taps switch wallets; Add account and search                     | Not recorded |       — |
-| Rename wallet         | `scenarios/switch-account.spec.ts:380`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
-| Remove wallet         | `scenarios/switch-account.spec.ts:450`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
-| Read-only wallet      | `scenarios/switch-account.spec.ts:541`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
-| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:168`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:168`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:168`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Unlock in a tab       | `scenarios/unlock-history.spec.ts:59`     | In a tab opened locked, the unlock leaves Home as the tab's one wallet entry; Back leaves the wallet       | Not recorded |       — |
+| Back from Home        | `scenarios/unlock-history.spec.ts:76`     | In a tab opened unlocked, Back from Home leaves the wallet instead of landing on Home again                | Not recorded |       — |
+| Unlock after a lock   | `scenarios/unlock-history.spec.ts:88`     | A lock from Settings and an unlock leave Settings, then Home; Back shows Settings, not the unlock screen   | Not recorded |       — |
+| Home lock button      | `scenarios/unlock-history.spec.ts:117`    | Home's lock button leaves one unlock entry in Home's place; the unlock puts Home back; Back leaves         | Not recorded |       — |
+| Lock on Home          | `scenarios/unlock-history.spec.ts:139`    | A lock from outside the page while Home shows: one unlock entry in Home's place, then Home back            | Not recorded |       — |
+| Lock on the send form | `scenarios/unlock-history.spec.ts:159`    | A lock while the send form shows: the unlock shows the form with what was typed; Back gives Home           | Not recorded |       — |
+| Switch account        | `scenarios/switch-account.spec.ts:101`    | The card shows the wallet by its tile; two taps switch wallets; Add account and search                     | Not recorded |       — |
+| Rename wallet         | `scenarios/switch-account.spec.ts:333`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
+| Remove wallet         | `scenarios/switch-account.spec.ts:403`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
+| Read-only wallet      | `scenarios/switch-account.spec.ts:494`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
+| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:165`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:165`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:165`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 
 The dApp PSBT-signing and wipe/restore rows were previously blocked (a
 `-32603: Not supported` provider rejection and a restore scan that never

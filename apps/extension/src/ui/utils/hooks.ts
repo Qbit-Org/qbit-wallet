@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { noteWalletActivity } from './walletActivity';
+
 const WALLET_KEEPALIVE_INTERVAL_MS = 10 * 1000;
 const WALLET_KEEPALIVE_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
@@ -84,14 +86,8 @@ export const useWalletKeepalive = (wallet: { setLastActiveTime(): void; lockWall
       }
 
       lastWallClockTimeRef.current = wallClockTime;
-      try {
-        // The interface types setLastActiveTime as void, but the background
-        // implementation is async; a refresh rejected by a locking wallet must
-        // not become an unhandled rejection.
-        Promise.resolve(wallet.setLastActiveTime()).catch(() => undefined);
-      } catch {
-        // ignore
-      }
+      // A refresh that fails is dropped; the next tick sends another.
+      noteWalletActivity(wallet);
     }, WALLET_KEEPALIVE_INTERVAL_MS);
 
     return () => {

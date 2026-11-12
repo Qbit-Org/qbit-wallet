@@ -247,13 +247,15 @@ export function useNavigate() {
   const navigatingRef = useRef(false);
 
   return useCallback(
-    (routKey: RouteTypes | '#back', state?: any, pathState?: any) => {
+    (routKey: RouteTypes | '#back', state?: any, pathState?: any, options?: { replace?: boolean }) => {
       /** Prevent duplicate route entries while navigation is in flight. */
       if (navigatingRef.current) {
         return;
       }
 
       navigatingRef.current = true;
+      // A new history entry, unless `replace` takes the current one's place.
+      const replace = options?.replace === true;
 
       if (routKey === '#back') {
         window.history.back();
@@ -269,7 +271,7 @@ export function useNavigate() {
       const route: any = routes[routKey];
       if (route.getDynamicPath) {
         const path = route.getDynamicPath(pathState);
-        navigate(path, { replace: false, state });
+        navigate(path, { replace, state });
         navigatingRef.current = false;
         return;
       }
@@ -278,7 +280,7 @@ export function useNavigate() {
         {
           pathname: route.path
         },
-        { replace: false, state }
+        { replace, state }
       );
 
       navigatingRef.current = false;

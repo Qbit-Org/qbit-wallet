@@ -1,6 +1,7 @@
 import React, { CSSProperties, useEffect, useRef } from 'react';
 import { useStore } from 'react-redux';
 
+import { enteringUnlockReplaces } from '@/ui/pages/Account/UnlockScreen/unlockEntry';
 import { routes } from '@/ui/pages/MainRoute';
 import { colors } from '@/ui/theme/colors';
 import { noteRedirectToUnlock } from '@/ui/utils/sendFormReturn';
@@ -30,7 +31,7 @@ export function Layout(props: LayoutProps) {
       // Whether the unlock may return here: only to a send form shown unlocked.
       noteRedirectToUnlock(routes.TxCreateScreen.path, store.getState(), shownUnlockedRef.current);
       const basePath = location.href.split('#')[0];
-      location.href = `${basePath}#${routes.UnlockScreen.path}`;
+      location[enteringUnlockReplaces() ? 'replace' : 'assign'](`${basePath}#${routes.UnlockScreen.path}`);
       return;
     }
   }, [isBooted, isUnlocked, store]);

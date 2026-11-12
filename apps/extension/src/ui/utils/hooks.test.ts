@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderHook } from '@testing-library/react';
 
+import { unhandledRejectionsDuring } from '../../../../../tests/support/unhandledRejections';
 import { useWalletKeepalive } from './hooks';
 
 const KEEPALIVE_TICK_MS = 10 * 1000;
@@ -126,6 +127,48 @@ describe('useWalletKeepalive', () => {
     await tick();
     rerender({ active: false });
     await tick();
+    expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      'rejects with a plain object, as for a wallet that is locking',
+      () => Promise.reject({ message: 'The wallet is locking.', stack: 'at lockWallet' })
+    ],
+    [
+      'throws, as the port does with every request id in use',
+      () => {
+        throw Object.assign(new Error('Request limit exceeded.'), { code: -32005 });
+      }
+    ]
+  ])('keeps ticking, and leaves nothing unhandled, when a refresh %s', async (_, failure) => {
+    // A plain function around the spy that counts the refreshes: a spy
+    // attaches handlers to the promises it returns, which would hide a
+    // rejection that the keepalive leaves unhandled.
+    const refreshes = vi.fn();
+    const wallet = {
+      setLastActiveTime: (): Promise<void> => {
+        refreshes();
+        return failure();
+      },
+      lockWallet: vi.fn()
+    };
+    renderHook(() => useWalletKeepalive(wallet));
+
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await tick();
+      await tick();
+      await tick();
+    });
+
+    expect(unhandled).toEqual([]);
+    expect(refreshes).toHaveBeenCalledTimes(3);
+    expect(wallet.lockWallet).not.toHaveBeenCalled();
+
+    // The deadline is still enforced.
+    monotonicNow = GRACE_PERIOD_MS;
+    await vi.advanceTimersByTimeAsync(KEEPALIVE_TICK_MS);
+    expect(refreshes).toHaveBeenCalledTimes(3);
     expect(wallet.lockWallet).toHaveBeenCalledTimes(1);
   });
 
