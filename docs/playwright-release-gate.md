@@ -148,10 +148,10 @@ separately with two-decimal millisecond precision.
 | Home lock button      | `scenarios/unlock-history.spec.ts:117`    | Home's lock button leaves one unlock entry in Home's place; the unlock puts Home back; Back leaves         | Not recorded |       — |
 | Lock on Home          | `scenarios/unlock-history.spec.ts:139`    | A lock from outside the page while Home shows: one unlock entry in Home's place, then Home back            | Not recorded |       — |
 | Lock on the send form | `scenarios/unlock-history.spec.ts:159`    | A lock while the send form shows: the unlock shows the form with what was typed; Back gives Home           | Not recorded |       — |
-| Switch account        | `scenarios/switch-account.spec.ts:101`    | The card shows the wallet by its tile; two taps switch wallets; Add account and search                     | Not recorded |       — |
-| Rename wallet         | `scenarios/switch-account.spec.ts:333`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
-| Remove wallet         | `scenarios/switch-account.spec.ts:403`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
-| Read-only wallet      | `scenarios/switch-account.spec.ts:494`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
+| Switch account        | `scenarios/switch-account.spec.ts:136`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
+| Rename wallet         | `scenarios/switch-account.spec.ts:362`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
+| Remove wallet         | `scenarios/switch-account.spec.ts:432`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
+| Read-only wallet      | `scenarios/switch-account.spec.ts:523`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
 | Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:165`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 | Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:165`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 | Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:165`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |

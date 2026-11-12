@@ -72,38 +72,54 @@ describe('AccountSelect', () => {
     vi.clearAllMocks();
   });
 
-  it('shows the wallet tile, the account name and the short address, and names the wallet only on the open button', () => {
-    const { container } = render(<AccountSelect />);
+  it('names the wallet above the account, with its tile and the short address', () => {
+    render(<AccountSelect />);
 
+    const walletName = screen.getByTestId('account-select-wallet-name');
+    const accountName = screen.getByTestId('account-select-account-name');
+    expect(walletName.textContent).toBe('Qbit HD Wallet #4');
+    expect(accountName.textContent).toBe('Account 2');
+    expect(walletName.compareDocumentPosition(accountName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const tile = screen.getByTestId('account-select-wallet-tile');
     expect(tile.getAttribute('data-color')).toBe('teal');
     expect(tile.getAttribute('aria-hidden')).toBe('true');
     expect(tile.style.width).toBe('28px');
     expect(tile.style.height).toBe('28px');
-    expect(screen.getByTestId('account-select-account-name').textContent).toBe('Account 2');
     expect(screen.getByTestId('account-select-copy').textContent).toBe(shortAddress(account.address));
 
-    // No text on the card names the wallet; the open button over it does.
-    expect(container.textContent).not.toContain('Qbit HD Wallet #4');
+    // The open button over the card names both too.
     const card = screen.getByTestId('account-select');
     expect(screen.getByRole('button', { name: 'account_switcher_open_label(Account 2|Qbit HD Wallet #4)' })).toBe(card);
     expect(card.getAttribute('title')).toBe('Qbit HD Wallet #4\nAccount 2');
   });
 
-  it('shows the wallet tags right after the account name, and the address after both', () => {
+  // Which element holds what; where the lines fall is layout, which the e2e scenario checks.
+  it('shows the tags after the wallet name on the first line, and the account name alone on the next', () => {
     vi.mocked(useCurrentKeyring).mockReturnValue(keyring({ qbitRecovery: recovery('seed-only-restored') }));
     render(<AccountSelect />);
 
-    // The name and the tags share a line, which puts the tags under the name
-    // when both do not fit: that is layout, which the e2e scenario checks.
+    const walletName = screen.getByTestId('account-select-wallet-name');
+    const walletLine = walletName.parentElement;
+    expect(Array.from(walletLine?.children ?? [])).toEqual([
+      walletName,
+      screen.getByTestId('account-select-tag-recovered')
+    ]);
     const accountName = screen.getByTestId('account-select-account-name');
-    const line = Array.from(accountName.parentElement?.children ?? []);
-    expect(line).toHaveLength(2);
-    expect(line[0]).toBe(accountName);
-    expect(line[1]).toBe(screen.getByTestId('account-select-tag-recovered'));
+    expect(walletLine?.nextElementSibling).toBe(accountName);
+    expect(accountName.children).toHaveLength(0);
+    expect(accountName.textContent).toBe('Account 2');
     const copy = screen.getByTestId('account-select-copy');
-    expect(accountName.parentElement?.nextElementSibling).toBe(copy);
+    expect(accountName.nextElementSibling).toBe(copy);
     expect(copy.nextElementSibling).toBeNull();
+  });
+
+  it('keeps only the name on the wallet line of a wallet without tags', () => {
+    render(<AccountSelect />);
+
+    // Nothing follows the name, so the line's gap adds no space after it.
+    const walletName = screen.getByTestId('account-select-wallet-name');
+    expect(Array.from(walletName.parentElement?.children ?? [])).toEqual([walletName]);
+    expect(screen.queryAllByTestId(/^account-select-tag-/)).toHaveLength(0);
   });
 
   it('shows the slot color when the store has no color yet', () => {
