@@ -137,6 +137,20 @@ repository.
   showing the send form, the receive screen, the settings and the other
   wallet screens while the wallet was locked; only Home went to the unlock
   screen.
+- Opening the wallet now counts as using it. When you open the popup or the
+  sidebar, the auto-lock time starts over, as it does when you press a key
+  there. Before, a popup opened shortly before the auto-lock time locked a
+  few seconds later, while you were looking at it. Opening the wallet in a
+  full tab does not count, and neither does a page that a website causes to
+  open, such as an approval window or the phishing warning; keys and the
+  mouse count there as before.
+- Unlocking returns to the send you were filling in. When the wallet locks
+  while the send form is open, that page shows the form again once the wallet
+  is unlocked, with the recipient, amount, memo and fee choice you left.
+  Before, the unlock opened Home, where Send starts an empty form. If the
+  account or the network changed in the meantime, the wallet opens Home and
+  clears the form. Time spent in another tab or application still counts
+  toward the auto-lock.
 
 ### Websites and approvals
 
@@ -248,6 +262,8 @@ repository.
 - Website request handling (#34) is still only partly done: this release
   stops a second Sign press from signing again. Approval time limits, request
   size limits and the other items in that issue are still open.
+- After an unlock, a recipient that was only partly typed is not brought back
+  with the rest of the send form.
 
 ## 1.0.8
 

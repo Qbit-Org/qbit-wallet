@@ -22,6 +22,7 @@ import { ToolsProvider } from './providers/ToolsProvider';
 import { initializeAppConfig } from './utils/appConfig';
 import { BackgroundStartupFailure, waitForBackgroundStartup } from './utils/backgroundStartup';
 import { applyExternalMonitorFix } from './utils/platformFixes';
+import { noteWalletOpened } from './utils/walletOpened';
 import { createPortMessageChannel, createWalletProxy, setupEventBusListeners } from './web/ui-messaging';
 // Initialize platform environment
 initPlatformEnv();
@@ -89,6 +90,9 @@ async function waitUntilReady() {
   }
   PlatformEnv.READY_TO_RENDER = true;
   renderApp();
+  // Opening the popup or the side panel counts as a screen action, once per
+  // page load: this point runs once, and only after start-up succeeded.
+  noteWalletOpened(wallet as Parameters<typeof noteWalletOpened>[0]);
 }
 
 waitUntilReady();

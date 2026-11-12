@@ -6,6 +6,7 @@ import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Input';
 import { Logo } from '@/ui/components/Logo';
 import { Text } from '@/ui/components/Text';
+import { useSendFormReturn } from '@/ui/utils/sendFormReturn';
 import { getUiType } from '@/ui/web';
 import { ErrorCodes } from '@qbit/wallet-shared';
 import {
@@ -52,13 +53,30 @@ export default function UnlockScreen() {
   const unlockInFlightRef = useRef(false);
   // Set once this screen's own unlock succeeds; navigateAfterUnlock routes it.
   const unlockedHereRef = useRef(false);
+  // The locks the store has reported while this screen is up. An attempt's
+  // unlock is still the current one only if none has come since it began.
+  const locksRef = useRef(0);
   const [loading, setLoading] = useState(false);
+  // Back to the send form a lock interrupted in this page, for both routes
+  // an unlock takes here; never in an approval window.
+  const sendFormReturn = useSendFormReturn(navigate);
 
   useEffect(() => {
-    if (isUnlocked && !isInNotification) {
+    if (!isUnlocked) {
+      locksRef.current += 1;
+    }
+  }, [isUnlocked]);
+
+  // Every unlock comes this way first, this screen's own too: the store turns
+  // unlocked before that unlock returns. Which one it is cannot be told here
+  // (an attempt in flight, such as a Touch ID prompt left open, may not be
+  // what unlocked), so a hidden page waits until it is shown, as for another
+  // window's unlock; navigateAfterUnlock ends that wait for this screen's own.
+  useEffect(() => {
+    if (isUnlocked && !isInNotification && !sendFormReturn.route(false)) {
       navigate('MainScreen');
     }
-  }, [isUnlocked, isInNotification, navigate]);
+  }, [isUnlocked, isInNotification, navigate, sendFormReturn]);
 
   // In an approval window, MainScreen would hide the pending approval. After
   // an unlock in another window, return to root so BoostScreen renders the
@@ -81,7 +99,8 @@ export default function UnlockScreen() {
     };
   }, [isUnlocked, isInNotification, loading, navigation, getApproval]);
 
-  const navigateAfterUnlock = async () => {
+  // `locksAtStart`: the locks seen when the attempt that unlocked began.
+  const navigateAfterUnlock = async (locksAtStart: number) => {
     if (isInNotification) {
       // useUnlockCallback settled only an unlock request; BoostScreen shows
       // any other pending approval again or closes the window.
@@ -89,9 +108,13 @@ export default function UnlockScreen() {
       return;
     }
     const hasVault = await wallet.hasVault();
+    // After a lock since the attempt began, the unlock is not taken for this
+    // screen's own, whoever made it: the page waits as for another window's.
+    const ownUnlock = locksRef.current === locksAtStart;
     if (!hasVault) {
+      sendFormReturn.abandon();
       navigate('WelcomeScreen');
-    } else {
+    } else if (!sendFormReturn.route(ownUnlock)) {
       navigate('MainScreen');
     }
   };
@@ -101,11 +124,12 @@ export default function UnlockScreen() {
       return;
     }
     unlockInFlightRef.current = true;
+    const locksAtStart = locksRef.current;
     setLoading(true);
     try {
       await unlock(password);
       unlockedHereRef.current = true;
-      await navigateAfterUnlock();
+      await navigateAfterUnlock(locksAtStart);
     } catch (e) {
       console.log(e);
       // The wallet locked while unlocking (the computer locked, say); the
@@ -126,11 +150,12 @@ export default function UnlockScreen() {
       return;
     }
     unlockInFlightRef.current = true;
+    const locksAtStart = locksRef.current;
     setLoading(true);
     try {
       await unlockWithBiometric();
       unlockedHereRef.current = true;
-      await navigateAfterUnlock();
+      await navigateAfterUnlock(locksAtStart);
     } catch (e) {
       if (e instanceof BiometricCeremonyCancelledError) {
         // The user dismissed the TouchID prompt; the password input stays.
