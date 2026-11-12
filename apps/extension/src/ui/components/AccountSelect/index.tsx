@@ -45,8 +45,7 @@ const AccountSelect = ({ recoveryState }: AccountSelectProps) => {
     <>
       <div className="account-card">
         {/* Covers the whole card under the copy control, so a tap anywhere else opens the switcher.
-            Being on top of the account name, it also carries it in full for the pointer, with the
-            name of the wallet, which the card shows only by its tile. */}
+            Being on top of the names, it also carries them in full for the pointer. */}
         <button
           ref={openButtonRef}
           type="button"
@@ -60,12 +59,15 @@ const AccountSelect = ({ recoveryState }: AccountSelectProps) => {
         />
         <WalletAvatar keyring={currentKeyring} size={28} data-testid="account-select-wallet-tile" />
         <div className="account-card__text">
-          <div className="account-card__name-line">
-            <span className="account-card__account-name" data-testid="account-select-account-name">
-              {accountName}
+          <div className="account-card__wallet-line">
+            <span className="account-card__wallet-name" data-testid="account-select-wallet-name">
+              {walletName}
             </span>
             <WalletTags tags={tags} testIdFor={(tag) => `account-select-tag-${tag}`} />
           </div>
+          <span className="account-card__account-name" data-testid="account-select-account-name">
+            {accountName}
+          </span>
           <button
             type="button"
             className="account-card__copy"

@@ -1,9 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-
 import { expect, type Locator, type Page } from '@playwright/test'
 
-import { extensionDist } from '../support/paths'
 import {
   AccountSwitcherSheet,
   shortAddress,
@@ -11,59 +7,6 @@ import {
   type WalletTag,
 } from './account-switcher-sheet'
 import { ExtensionPageObject } from './base-page'
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-let labelTemplates: string[] | undefined
-
-/**
- * The account card's label, `account_switcher_open_label`, in each locale the
- * build under test ships: the card is in the wallet's language, which need
- * not be English (the upgrade fixtures are in Spanish). `$1` is the account
- * and `$2` the wallet, as in "Switch account, current: $1 in $2".
- */
-function accountCardLabelTemplates(): string[] {
-  if (!labelTemplates) {
-    const localesDir = resolve(extensionDist, '_locales')
-    labelTemplates = readdirSync(localesDir).flatMap(locale => {
-      const messagesPath = resolve(localesDir, locale, 'messages.json')
-      if (!existsSync(messagesPath)) return []
-      const messages = JSON.parse(readFileSync(messagesPath, 'utf8')) as Record<
-        string,
-        { message?: string } | undefined
-      >
-      const template = messages['account_switcher_open_label']?.message
-      return template === undefined ? [] : [template]
-    })
-    if (labelTemplates.length === 0) {
-      throw new Error(`no locale under ${localesDir} has account_switcher_open_label`)
-    }
-  }
-  return labelTemplates
-}
-
-/**
- * The card's accessible name when it names this wallet, and this account
- * when one is given, in any shipped locale. The whole name must match, so
- * "Wallet 1" does not pass for "Wallet 10".
- */
-function accountCardLabel(walletName: string, accountName?: string): RegExp {
-  const account = accountName === undefined ? '.*' : escapeRegExp(accountName)
-  const wallet = escapeRegExp(walletName)
-  const labels = accountCardLabelTemplates().map(template =>
-    template
-      .split(/(\$[12])/)
-      .map(part => {
-        if (part === '$1') return account
-        if (part === '$2') return wallet
-        return escapeRegExp(part)
-      })
-      .join('')
-  )
-  return new RegExp(`^(?:${labels.join('|')})$`)
-}
 
 /** The networks the switcher offers, by chain type, with the name the switcher shows. */
 const NETWORK_LABELS = {
@@ -160,6 +103,11 @@ export class WalletHomePage extends ExtensionPageObject {
     return this.byTestId('account-select')
   }
 
+  /** The wallet's name, on the card's first line, above the account name. */
+  get cardWalletName(): Locator {
+    return this.byTestId('account-select-wallet-name')
+  }
+
   get cardAccountName(): Locator {
     return this.byTestId('account-select-account-name')
   }
@@ -177,10 +125,7 @@ export class WalletHomePage extends ExtensionPageObject {
     return this.byTestId(`account-select-tag-${tag}`)
   }
 
-  /**
-   * The wallet's tags, which the card shows after the account name: beside
-   * it, or under it when the line has no room for both.
-   */
+  /** The wallet's tags, which the card shows after the wallet name, on its line. */
   async cardTags(): Promise<WalletTag[]> {
     const tags: WalletTag[] = []
     for (const tag of WALLET_TAGS) {
@@ -190,8 +135,8 @@ export class WalletHomePage extends ExtensionPageObject {
   }
 
   /**
-   * Waits until the card shows this wallet, account and address. The card
-   * shows no wallet name, so the wallet is checked on its accessible name.
+   * Waits until the card shows this wallet, account and address, by their
+   * text, which is the same in every locale.
    */
   async expectCurrentAccount(expected: {
     walletName?: string
@@ -199,9 +144,7 @@ export class WalletHomePage extends ExtensionPageObject {
     address?: string
   }): Promise<void> {
     if (expected.walletName !== undefined) {
-      await expect(this.accountCard).toHaveAccessibleName(
-        accountCardLabel(expected.walletName, expected.accountName)
-      )
+      await expect(this.cardWalletName).toHaveText(expected.walletName)
     }
     if (expected.accountName !== undefined) {
       await expect(this.cardAccountName).toHaveText(expected.accountName)

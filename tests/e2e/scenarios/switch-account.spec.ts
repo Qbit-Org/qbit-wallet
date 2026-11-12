@@ -4,7 +4,13 @@ import type { Locator, Page } from '@playwright/test'
 
 import { walletColorForSlot } from '../../../packages/wallet-shared/src/utils/wallet-identity'
 import { expect, test } from '../fixtures/empty-regtest'
-import { OnboardingPage, RecoveryReportPage, SettingsPage, WalletHomePage } from '../pages'
+import {
+  OnboardingPage,
+  RecoveryReportPage,
+  SettingsPage,
+  WalletHomePage,
+  type WalletTag,
+} from '../pages'
 import type { ExtensionSession } from '../support/extension-session'
 import { E2E_PASSWORD, FIXED_MNEMONIC } from '../support/wallet-setup'
 
@@ -89,6 +95,35 @@ async function box(locator: Locator) {
   return bounds
 }
 
+/** How much of an element's text its box cuts off: 0 when it shows whole. */
+async function cutOff(locator: Locator): Promise<number> {
+  return locator.evaluate(element => element.scrollWidth - element.clientWidth)
+}
+
+/**
+ * The card's three lines: the wallet name, with `tag` after it on its line
+ * and inside it, then the account name, then the address. The tile is
+ * centred against them.
+ */
+async function expectCardLines(home: WalletHomePage, tag: WalletTag) {
+  await expect(home.cardTag(tag)).toBeVisible()
+  const walletBox = await box(home.cardWalletName)
+  const tagBox = await box(home.cardTag(tag))
+  const accountBox = await box(home.cardAccountName)
+  const addressBox = await box(home.cardAddress)
+  const centre = (bounds: { y: number; height: number }) => bounds.y + bounds.height / 2
+  expect(tagBox.x).toBeGreaterThanOrEqual(walletBox.x + walletBox.width)
+  expect(centre(tagBox)).toBeCloseTo(centre(walletBox), 0)
+  // The account name spans the line, so it shows where the line ends.
+  expect(walletBox.x).toBeCloseTo(accountBox.x, 0)
+  expect(tagBox.x + tagBox.width).toBeLessThanOrEqual(accountBox.x + accountBox.width + 0.5)
+  expect(Math.max(walletBox.y + walletBox.height, tagBox.y + tagBox.height)).toBeLessThanOrEqual(
+    accountBox.y + 0.5
+  )
+  expect(accountBox.y + accountBox.height).toBeLessThanOrEqual(addressBox.y + 0.5)
+  expect(centre(await box(home.cardWalletTile))).toBeCloseTo(centre(await box(home.accountCard)), 0)
+}
+
 /** Opens a new wallet page, as reopening the popup does, and closes the old one. */
 async function reopenWallet(extension: ExtensionSession, page: Page): Promise<WalletHomePage> {
   const reopened = await extension.openWallet('/main')
@@ -98,50 +133,44 @@ async function reopenWallet(extension: ExtensionSession, page: Page): Promise<Wa
   return home
 }
 
-test('switch account: the card shows the wallet by its tile, two taps switch wallets, Add account and search', async ({
+test('switch account: the card names the wallet, two taps switch wallets, Add account and search', async ({
   extension,
 }) => {
   const { page, home, created, restored } = await setUpTwoWallets(extension)
 
-  // The header has no wallet chip, and the card shows no wallet name: its tile
-  // carries the wallet's color, and the wallet's tags sit on the account name's
-  // line, after the name, when both fit.
+  // The header has no wallet chip. The card names the wallet above the
+  // account, its tile carries the wallet's color, and the wallet's tags sit
+  // on the wallet name's line, after the name.
   await expect(page.getByTestId('wallet-management-entry')).toHaveCount(0)
-  const cardContent = home.accountCard.locator('xpath=..')
-  await expect(cardContent).toContainText('Account 1')
-  await expect(cardContent).not.toContainText('Wallet 2')
+  await home.expectCurrentAccount({ walletName: 'Wallet 2', accountName: 'Account 1' })
   await expect(home.cardWalletTile).toHaveAttribute(
     'data-color',
     walletColorForSlot(restored.index)
   )
   await expect.poll(() => home.cardTags()).toEqual(['recovered'])
-  const nameBox = await box(home.cardAccountName)
-  const tagBox = await box(home.cardTag('recovered'))
-  expect(tagBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width)
-  expect(tagBox.y).toBeGreaterThanOrEqual(nameBox.y)
-  expect(tagBox.y + tagBox.height).toBeLessThanOrEqual(nameBox.y + nameBox.height)
+  await expectCardLines(home, 'recovered')
 
   // In the 357 px popup, a 20-character account name, the longest a name can
-  // be, leaves no room for the tag beside it. The name stays whole, and the
-  // tag goes on a line of its own, under the name and above the address.
-  // Then the name and the width go back to what the rest of the test expects.
+  // be, shows whole on its own line. A 20-character wallet name is cut, and
+  // the tag keeps its width on the wallet name's line. Then the names and the
+  // width go back to what the rest of the test expects.
   const viewport = page.viewportSize()
   const restoredAddress = restored.accounts[0]!.address
-  const longName = 'Mortgage Overpayment'
+  const longAccountName = 'Mortgage Overpayment'
+  const longWalletName = 'W'.repeat(20)
   await page.setViewportSize({ width: 357, height: viewport?.height ?? 860 })
   const renaming = await home.openAccountSwitcher()
-  await renaming.renameAccount(restoredAddress, longName)
+  await renaming.renameAccount(restoredAddress, longAccountName)
+  await renaming.renameWallet(restored.key, longWalletName)
   await renaming.close()
-  await home.expectCurrentAccount({ walletName: 'Wallet 2', accountName: longName })
-  expect(await home.cardAccountName.evaluate(name => name.scrollWidth - name.clientWidth)).toBe(0)
-  const longNameBox = await box(home.cardAccountName)
-  const droppedTagBox = await box(home.cardTag('recovered'))
-  const addressBox = await box(home.cardAddress)
-  expect(droppedTagBox.x).toBeCloseTo(longNameBox.x, 0)
-  expect(droppedTagBox.y).toBeGreaterThanOrEqual(longNameBox.y + longNameBox.height)
-  expect(droppedTagBox.y + droppedTagBox.height).toBeLessThanOrEqual(addressBox.y)
+  await home.expectCurrentAccount({ walletName: longWalletName, accountName: longAccountName })
+  expect(await cutOff(home.cardAccountName)).toBe(0)
+  expect(await cutOff(home.cardWalletName)).toBeGreaterThan(0)
+  expect(await cutOff(home.cardTag('recovered'))).toBe(0)
+  await expectCardLines(home, 'recovered')
   const renamingBack = await home.openAccountSwitcher()
   await renamingBack.renameAccount(restoredAddress, 'Account 1')
+  await renamingBack.renameWallet(restored.key, 'Wallet 2')
   await renamingBack.close()
   if (viewport) await page.setViewportSize(viewport)
   await home.expectCurrentAccount({ walletName: 'Wallet 2', accountName: 'Account 1' })
