@@ -116,6 +116,24 @@ export interface QbitRemoveKeyringOptions {
 }
 
 /**
+ * Options for WalletController.resetWallet. A reset removes every wallet at
+ * once, so it surfaces the QbitRecoveryRemovalReasons of all of them together
+ * and needs the same acknowledgement a single removal does.
+ */
+export interface QbitResetWalletOptions extends QbitRemoveKeyringOptions {
+  /**
+   * The key of the wallet whose removal led to this reset: the page offered
+   * the reset because removing that wallet would leave no usable one. The
+   * page's wallet list can be out of date, so the background checks this
+   * again inside the reset, the way a removal judges its own refusal, and
+   * rejects with WALLET_RESET_NOT_LAST_WALLET, erasing nothing, when the
+   * wallet is gone or another usable wallet exists. Left out for a reset
+   * asked for as such, which erases every wallet whatever their number.
+   */
+  lastWalletKey?: string
+}
+
+/**
  * Internal binding carried by a migration PSBT. The wallet controller checks
  * every field against encrypted migration state before the counter-safe signer
  * is allowed to run.

@@ -1356,7 +1356,7 @@ describe('WalletController consolidation of an account over the explorer UTXO li
 
     /** The send screen of `uiPort` reads the account's outputs as read `readId`. */
     const openSend = (wallet: WalletController, uiPort: string, readId: string) =>
-      wallet.runForUiPort(uiPort, () => wallet.getQbitUtxoSnapshot(readId))
+      wallet.runForUiPort(uiPort, () => wallet.getQbitUtxoSnapshot(readId), 'getQbitUtxoSnapshot')
 
     it("stops a send screen's walk once the screen is left", async () => {
       explorer = overLimitAccount().explorer
@@ -1368,7 +1368,11 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       const pagesRead = pageRequests(explorer)
       expect(pagesRead).toBeGreaterThan(0)
 
-      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('1'))
+      await wallet.runForUiPort(
+        'popup:1',
+        () => wallet.abandonQbitUtxoSnapshot('1'),
+        'abandonQbitUtxoSnapshot'
+      )
       expect(await read).toBeInstanceOf(Error)
       await vi.advanceTimersByTimeAsync(10 * 60_000)
 
@@ -1387,7 +1391,11 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       await vi.advanceTimersByTimeAsync(10_000)
 
       // The popup's screen is left; the tab's still waits, for the same walk.
-      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('1'))
+      await wallet.runForUiPort(
+        'popup:1',
+        () => wallet.abandonQbitUtxoSnapshot('1'),
+        'abandonQbitUtxoSnapshot'
+      )
       expect(await popup).toBeInstanceOf(Error)
       const pagesRead = pageRequests(explorer)
       await vi.advanceTimersByTimeAsync(10_000)

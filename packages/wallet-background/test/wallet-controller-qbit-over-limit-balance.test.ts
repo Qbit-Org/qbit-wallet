@@ -172,15 +172,21 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
       amount: 25_000,
       feeRate: 1,
     })
-    const signed = await wallet.runForUiPort(uiPort, () => wallet.signPsbtV2(toSignData))
+    const signed = await wallet.runForUiPort(
+      uiPort,
+      () => wallet.signPsbtV2(toSignData),
+      'signPsbtV2'
+    )
     const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
     return { claim, psbtHex: signed.psbtHex!, held: claim.outpoints.length * OUTPUT_VALUE }
   }
 
   async function send(wallet: WalletController, uiPort = 'popup:1') {
     const { claim, psbtHex, held } = await sign(wallet, uiPort)
-    const result = await wallet.runForUiPort(uiPort, () =>
-      wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid)
+    const result = await wallet.runForUiPort(
+      uiPort,
+      () => wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     return { claim, result, held }
   }
@@ -932,9 +938,17 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
       return explorer.fetch(input, init)
     })
     const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
-    const abandoned = wallet.runForUiPort('popup:1', () => wallet.getQbitUtxoSnapshot('read-1'))
+    const abandoned = wallet.runForUiPort(
+      'popup:1',
+      () => wallet.getQbitUtxoSnapshot('read-1'),
+      'getQbitUtxoSnapshot'
+    )
     await pageArrived
-    await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('read-1'))
+    await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.abandonQbitUtxoSnapshot('read-1'),
+      'abandonQbitUtxoSnapshot'
+    )
     // The caller stops waiting at once, whatever the walk does.
     await expect(abandoned).rejects.toThrow('abandoned')
     release()

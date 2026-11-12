@@ -122,6 +122,20 @@ export function useSettingsTabScreenLogic() {
     }
   }, [t, isCustomHdPath, currentKeyring, currentAccount.index, currentKeyringCapabilities])
 
+  const settings_security: SettingsItemType = useMemo(() => {
+    return {
+      key: 'settings_security',
+      label: t('security'),
+      value: '',
+      desc: '',
+      right: true,
+      icon: 'security',
+      onClick: (): void => {
+        nav.navigate('SecurityScreen')
+      },
+    }
+  }, [t, nav])
+
   const settings_appearance: SettingsItemType = useMemo(() => {
     return {
       key: 'settings_appearance',
@@ -197,6 +211,7 @@ export function useSettingsTabScreenLogic() {
     settings_switchNetwork,
     settings_addressBook,
     settings_addressType,
+    settings_security,
     settings_appearance,
     settings_advanced,
     settings_aboutus,

@@ -322,6 +322,9 @@ async function captureRequestContext(origin: string) {
     chain,
     network: activeQbitNetwork(chain),
     account: account?.address || '',
+    // Read after the account, which a read begun before a reset can still
+    // answer with: a reset that began to erase the wallet since moved it.
+    walletResetGeneration: wallet.walletResetGeneration,
   }
 }
 
@@ -336,7 +339,8 @@ async function assertRequestContext(
   if (
     current.chain !== snapshot.chain ||
     current.network !== snapshot.network ||
-    current.account !== snapshot.account
+    current.account !== snapshot.account ||
+    current.walletResetGeneration !== snapshot.walletResetGeneration
   ) {
     throw new Error('Qbit provider context changed during approval')
   }

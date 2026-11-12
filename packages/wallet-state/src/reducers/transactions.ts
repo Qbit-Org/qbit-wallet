@@ -2,7 +2,7 @@ import { QbitUtxoSnapshot, UnspentOutput } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import { createSlice, Slice } from '@reduxjs/toolkit'
 
-import { updateVersion } from '../actions/global'
+import { resetWalletState, updateVersion } from '../actions/global'
 
 export interface QbitTx {
   fromAddress: string
@@ -121,6 +121,7 @@ const slice: Slice<TransactionsState> = createSlice({
         state.utxosRead = 0
       }
     })
+    builder.addCase(resetWalletState, () => initialState)
   },
 })
 

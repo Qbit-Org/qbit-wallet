@@ -19,7 +19,7 @@ export default function CreatePasswordScreen() {
     onSkipBiometric
     // The TouchID sheet can close the browser-action popup mid-ceremony, so
     // the onboarding step is only offered in tab/sidepanel/notification
-    // surfaces; popup users enable it later via Settings → Security.
+    // surfaces; popup users enable it later in Advanced Settings.
   } = useCreatePasswordScreenLogic({ offerBiometrics: !getUiType().isPop });
   const { t } = useI18n();
 

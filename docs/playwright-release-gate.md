@@ -24,13 +24,14 @@ The extension bundle must exist at `apps/extension/dist/chrome`. Playwright
 launches a persistent, isolated browser profile with `--load-extension` and
 `--disable-extensions-except`, then discovers the extension from its MV3
 service worker. Every spec except `phishing.spec.ts`, `provider-ready.spec.ts`,
-`switch-account.spec.ts` and `upgrade.spec.ts` resets the Docker volumes,
-starts qbitd and electrs-qbit, funds through qbit Core, and mines
-confirmations explicitly. The phishing and provider-ready scenarios need no
+`reset-wallet.spec.ts`, `switch-account.spec.ts` and `upgrade.spec.ts` resets
+the Docker volumes, starts qbitd and electrs-qbit, funds through qbit Core, and
+mines confirmations explicitly. The phishing and provider-ready scenarios need no
 regtest node and serve their pages from loopback fixture servers. The
-switch-account scenarios need no regtest node either: their wallets live on
-Regtest, whose indexer is a loopback stand-in for a chain on which no address
-has any activity. Nor does the upgrade scenario: it seeds the profile with the
+switch-account and reset-wallet scenarios need no regtest node either: their
+wallets live on Regtest, whose indexer is a loopback stand-in for a chain on
+which no address has any activity, and the reset-wallet dapp page is a loopback
+fixture server. Nor does the upgrade scenario: it seeds the profile with the
 data that the 1.0.5, 1.0.6 and 1.0.7 releases stored
 (`tests/fixtures/release-storage`), and the browser reaches nothing but
 loopback. The reset removes only the
@@ -59,6 +60,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/unlock-history.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/switch-account.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/reset-wallet.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
 ```
 
@@ -93,11 +95,11 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 53 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 59 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 39 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 45 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -120,7 +122,7 @@ separately with two-decimal millisecond precision.
 | Consolidation         | `scenarios/consolidation.spec.ts:145`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
 | Send plan             | `scenarios/send-plan.spec.ts:117`         | 214 outputs, MAX, one review: 2 merges, then the payment; reopen mid-signing; exact amount, fee, spends    | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
-| dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
+| dApp events           | `scenarios/dapp-events.spec.ts:7`         | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
 | Phishing block        | `scenarios/phishing.spec.ts:265`          | Block a direct navigation to a denylisted host before it reaches the network                               | Pass         |   2.1 s |
 | Phishing redirect     | `scenarios/phishing.spec.ts:282`          | Warn on a same-site redirect to a denylisted host; Proceed loads the site                                  | Not recorded |       — |
@@ -152,8 +154,14 @@ separately with two-decimal millisecond precision.
 | Lock on the send form | `scenarios/unlock-history.spec.ts:159`    | A lock while the send form shows: the unlock shows the form with what was typed; Back gives Home           | Not recorded |       — |
 | Switch account        | `scenarios/switch-account.spec.ts:136`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
 | Rename wallet         | `scenarios/switch-account.spec.ts:362`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
-| Remove wallet         | `scenarios/switch-account.spec.ts:432`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
-| Read-only wallet      | `scenarios/switch-account.spec.ts:523`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
+| Remove wallet         | `scenarios/switch-account.spec.ts:432`    | Remove Wallet, new wallets named "Wallet N"; the last wallet opens the reset, and Cancel keeps it          | Not recorded |       — |
+| Read-only wallet      | `scenarios/switch-account.spec.ts:525`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
+| Reset wallet          | `scenarios/reset-wallet.spec.ts:323`      | Reset only with the password; Welcome keeps language and theme; new wallet: new password, no old data      | Not recorded |       — |
+| Reset last wallet     | `scenarios/reset-wallet.spec.ts:458`      | Remove on the last wallet opens the reset, no toast; Cancel keeps it; with two wallets it removes one      | Not recorded |       — |
+| Reset everywhere      | `scenarios/reset-wallet.spec.ts:502`      | An untouched second window opens on Welcome; a connected site is disconnected and must ask again           | Not recorded |       — |
+| Security phrase/pass  | `scenarios/reset-wallet.spec.ts:569`      | Security shows the current wallet's phrase after the password; Change Password works, Back returns         | Not recorded |       — |
+| Reset re-read         | `scenarios/reset-wallet.spec.ts:614`      | Remove Wallet reads the wallets again: one another window added makes it the ordinary removal              | Not recorded |       — |
+| Reset race            | `scenarios/reset-wallet.spec.ts:644`      | A reset asked for as the last wallet is refused once another window added one; the toast says so           | Not recorded |       — |
 | Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:165`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 | Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:165`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 | Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:165`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
@@ -236,11 +244,15 @@ the ephemeral Chromium profile. A failed row contains:
 - `failing-identifiers.json` with the extension, account, and transaction IDs;
 - `pqc-sign-durations.json` for the row.
 
-The phishing, provider-ready, switch-account and upgrade rows use their own
-fixtures and run without regtest, so the regtest, network-audit and PQC
-attachments above do not apply to them; a failed row of any of them attaches
-the extension service-worker log. A failed switch-account row also attaches
-`empty-regtest-explorer.log`.
+The phishing, provider-ready, reset-wallet, switch-account and upgrade rows use
+their own fixtures and run without regtest, so the regtest, network-audit and
+PQC attachments above do not apply to them; a failed row of any of them
+attaches the extension service-worker log. A failed reset-wallet or
+switch-account row also attaches `empty-regtest-explorer.log`. A reset-wallet
+row also fails when a wallet page or the service worker logs an error, or a
+wallet page shows the refusal a call that waited for a reset gets, and then
+attaches them as `wallet-errors.log`; console lines that only mention that
+refusal are attached as `reset-refusal-notes.log`.
 
 The approval-hierarchy row also attaches `connect-approval-<theme>.png`,
 `message-approval-<theme>.png`, and `psbt-approval-<theme>.png` at 360x600 for

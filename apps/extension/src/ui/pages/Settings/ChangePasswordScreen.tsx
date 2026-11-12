@@ -23,13 +23,13 @@ export default function ChangePasswordScreen() {
   const goBack = () => {
     // When this screen loads as the first history entry (e.g. opened
     // directly by URL) there is nothing behind it; rebuild the natural
-    // chain like BiometricUnlockScreen does.
+    // chain, Settings → Security, like BiometricUnlockScreen does.
     const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
     if (historyIndex > 0) {
       window.history.go(-1);
     } else {
       routerNavigate('/settings', { replace: true });
-      routerNavigate('/settings/advanced');
+      routerNavigate('/settings/security');
     }
   };
 

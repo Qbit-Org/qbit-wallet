@@ -16,6 +16,7 @@ import { routes, useNavigate, type RouteTypes } from './MainRoute';
 // a stub, so loading it does not load the whole wallet app.
 vi.mock('../components', () => ({ Content: () => null, Icon: () => null }));
 vi.mock('../components/ErrorBoundary', () => ({ ErrorBoundary: () => null }));
+vi.mock('../components/PageStartup', () => ({ PageStartup: () => null }));
 vi.mock('../providers/ApprovalProvider', () => ({ ApprovalProvider: () => null }));
 vi.mock('../providers/NavigationProvider', () => ({ NavigationProvider: () => null }));
 vi.mock('@qbit/wallet-state', () => ({}));
@@ -41,6 +42,7 @@ vi.mock('./Settings/AdvancedScreen', () => ({ default: () => null }));
 vi.mock('./Settings/AdvancedScreen/LockTimePage', () => ({ LockTimePage: () => null }));
 vi.mock('./Settings/AdvancedScreen/RegtestAccessScreen', () => ({ RegtestAccessScreen: () => null }));
 vi.mock('./Settings/ChangePasswordScreen', () => ({ default: () => null }));
+vi.mock('./Settings/SecurityScreen', () => ({ default: () => null }));
 vi.mock('./Settings/ContactsScreen', () => ({ default: () => null }));
 vi.mock('./Settings/EditContactScreen', () => ({ default: () => null }));
 vi.mock('./Settings/ExportMnemonicsScreen', () => ({ default: () => null }));

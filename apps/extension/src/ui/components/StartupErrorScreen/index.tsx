@@ -55,11 +55,21 @@ function translate(key: TextKey, localeLoaded: boolean): string {
 }
 
 /**
- * Shown instead of the wallet when background start-up has failed. Retry
- * restarts the extension, which runs start-up again from the start; it writes
- * nothing, so stored data is read again exactly as it was left.
+ * Shown instead of the wallet when start-up has failed. After a failure of
+ * the background's start-up, Retry restarts the extension, which runs that
+ * start-up again from the start; it writes nothing, so stored data is read
+ * again exactly as it was left. A page whose own start-up failed passes
+ * `onRetry` instead, which runs that page's start-up again: the extension is
+ * not restarted, so the other wallet windows stay open, and the hint about
+ * the restart is not shown.
  */
-export function StartupErrorScreen({ reason }: { reason: BackgroundStartupFailure['reason'] }) {
+export function StartupErrorScreen({
+  reason,
+  onRetry
+}: {
+  reason: BackgroundStartupFailure['reason'];
+  onRetry?: () => void;
+}) {
   const [localeLoaded, setLocaleLoaded] = useState(false);
   const t = (key: TextKey) => translate(key, localeLoaded);
 
@@ -98,9 +108,9 @@ export function StartupErrorScreen({ reason }: { reason: BackgroundStartupFailur
               preset="primary"
               text={t('startup_error_retry')}
               style={{ width: '280px', height: '48px', flexShrink: 0 }}
-              onClick={() => browserRuntimeReload()}
+              onClick={() => (onRetry ? onRetry() : browserRuntimeReload())}
             />
-            <Text preset="sub" text={t('startup_error_retry_hint')} color="textDim" textCenter />
+            {onRetry ? null : <Text preset="sub" text={t('startup_error_retry_hint')} color="textDim" textCenter />}
           </Column>
         </Column>
       </Content>

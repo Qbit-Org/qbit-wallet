@@ -15,6 +15,7 @@ import {
   getInterruptedSendForm,
   SEND_FORM_RETURN_FALLBACK_MS
 } from '@/ui/utils/sendFormReturn';
+import { forgetShownWalletId, getShownWalletId, reopenOutOfDatePage } from '@/ui/utils/walletReset';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BUS_METHODS, KeyringType } from '@qbit/wallet-shared';
 import {
@@ -29,6 +30,8 @@ import {
   WalletProvider
 } from '@qbit/wallet-state';
 import { AddressType, ChainType } from '@qbit/wallet-types';
+
+import { installPageChecks } from './support/pageChecks';
 
 // The extension APIs some screens reach for as they load; none of them takes
 // part here: every property is another such stand-in, every call does nothing.
@@ -882,8 +885,11 @@ describe('a send form the page never showed unlocked', () => {
     expectNoDraft();
   });
 
-  it('ends on Home, as before, for a page that loaded on the send form before it knew it was unlocked', async () => {
-    // The page reads whether the wallet is unlocked only after it booted.
+  // The page does not show its routes before it knows whether the wallet is
+  // unlocked (PageStartup reads that with the rest as it starts), so it never
+  // mounts the form locked on the way: no unlock screen in between, and no
+  // return remembered. The form it then shows unlocked is one it showed.
+  it('shows the send form only once it knows the wallet is unlocked, for a page that loads on it', async () => {
     let answerIsUnlocked!: (unlocked: boolean) => void;
     background.wallet.isUnlocked.mockImplementationOnce(
       () =>
@@ -892,20 +898,118 @@ describe('a send form the page never showed unlocked', () => {
         })
     );
     loadPageAt('/wallet/tx/create');
-    await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
-    await screen.findByTestId('unlock-password-input');
+    await waitFor(() => expect(background.wallet.isUnlocked).toHaveBeenCalled());
+    expect(screen.queryByTestId('unlock-password-input')).toBeNull();
+    expect(screen.queryByTestId('recipient-address-input')).toBeNull();
     expectNoDraft();
     const formAtLoad = store.getState().ui.uiTxCreateScreen;
     const chainReads = background.wallet.getChainType.mock.calls.length;
+    const homeVisits = visits.home;
 
     await act(async () => {
       answerIsUnlocked(true);
     });
 
-    await waitFor(() => expect(window.location.hash).toBe('#/main'));
-    await screen.findByTestId('home-screen');
+    await screen.findByTestId('recipient-address-input');
+    expect(window.location.hash).toBe('#/wallet/tx/create');
+    expect(screen.queryByTestId('unlock-password-input')).toBeNull();
+    expect(homeVisitsSince(homeVisits)).toBe(0);
+    expect(getInterruptedSendForm()).toBeUndefined();
     expect(background.wallet.getChainType.mock.calls.length).toBe(chainReads);
-    expect(store.getState().ui.uiTxCreateScreen).toEqual(formAtLoad);
+    // Shown unlocked, the form takes the replace-by-fee choice the background
+    // keeps for the next send, and nothing else: no draft comes back.
+    expect(store.getState().ui.uiTxCreateScreen).toEqual({ ...formAtLoad, enableRBF: false });
     expectNoDraft();
+  });
+});
+
+// The return with the page's own checks in place, as the UI entry wires them:
+// an unlock reaches the page only once the id of the wallet set up has been
+// compared with the one it shows, and a reset, or the background refusing the
+// page as out of date, drops the form with the rest of the page's memory.
+describe('the send form a lock interrupted, with the page’s wallet checks in place', () => {
+  let checks: ReturnType<typeof installPageChecks>;
+  const walletIdRead = vi.fn(async (): Promise<string | null> => 'wallet-1');
+
+  beforeEach(async () => {
+    prepare();
+    walletIdRead.mockImplementation(async () => 'wallet-1');
+    Object.assign(background.wallet, { isBooted: vi.fn(async () => true), getWalletId: walletIdRead });
+    // This screen's own unlock: announced to every page first, and answered
+    // once the check has settled, as the wallet proxy answers it.
+    background.wallet.unlock.mockImplementation(async () => {
+      background.state.unlocked = true;
+      checks.broadcast(BUS_METHODS.UNLOCKED);
+      await checks.afterUnlock();
+    });
+    loadPageAt('/main');
+    checks = installPageChecks(store, background.wallet as never);
+    await screen.findByTestId('home-screen');
+    await waitFor(() => expect(getShownWalletId()).toBe('wallet-1'));
+    await openSendForm();
+    await fillSendForm();
+    await act(async () => {
+      background.state.unlocked = false;
+      checks.broadcast(BUS_METHODS.LOCKED);
+    });
+    await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
+    await screen.findByTestId('unlock-password-input');
+    expect(getInterruptedSendForm()).toBeDefined();
+    // Locked, the draft is in the page's memory only: nothing of it is saved.
+    expect(store.getState().ui.uiTxCreateScreen).toEqual(FILLED_FORM);
+    expect(Object.values({ ...localStorage }).join('\n')).not.toContain(RECIPIENT);
+  });
+
+  afterEach(() => {
+    checks.uninstall();
+    forgetShownWalletId();
+    tearDown();
+  });
+
+  it('returns to it after this screen’s unlock, once the id of the wallet set up is checked', async () => {
+    const idReads = walletIdRead.mock.calls.length;
+
+    await unlockHere();
+
+    await waitFor(() => expect(window.location.hash).toBe('#/wallet/tx/create'));
+    await expectFilledSendForm();
+    expect(walletIdRead.mock.calls.length).toBeGreaterThan(idReads);
+  });
+
+  it('returns to it after another window’s unlock, once the id is checked', async () => {
+    const idReads = walletIdRead.mock.calls.length;
+
+    await act(async () => {
+      background.state.unlocked = true;
+      checks.broadcast(BUS_METHODS.UNLOCKED);
+    });
+
+    await waitFor(() => expect(window.location.hash).toBe('#/wallet/tx/create'));
+    await expectFilledSendForm();
+    expect(walletIdRead.mock.calls.length).toBeGreaterThan(idReads);
+  });
+
+  it('leaves no form to return to after a reset', async () => {
+    await act(async () => {
+      checks.broadcast(BUS_METHODS.WALLET_RESET);
+    });
+
+    expect(checks.reload).toHaveBeenCalledTimes(1);
+    expect(getInterruptedSendForm()).toBeUndefined();
+    expectEmptySendFormState();
+    expect(store.getState().ui.sendFormScope).toBeNull();
+    expect(Object.values({ ...localStorage }).join('\n')).not.toContain(RECIPIENT);
+  });
+
+  it('leaves no form to return to when the background refuses the page as out of date', async () => {
+    await act(async () => {
+      reopenOutOfDatePage();
+    });
+
+    expect(checks.reloadOnBoot).toHaveBeenCalledTimes(1);
+    expect(getInterruptedSendForm()).toBeUndefined();
+    expectEmptySendFormState();
+    expect(store.getState().ui.sendFormScope).toBeNull();
+    expect(Object.values({ ...localStorage }).join('\n')).not.toContain(RECIPIENT);
   });
 });

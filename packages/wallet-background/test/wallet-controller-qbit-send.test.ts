@@ -4305,8 +4305,10 @@ describe('WalletController qbit P2MR send path', () => {
     vi.spyOn(wallet, 'getCurrentAccount').mockResolvedValue(account as any)
 
     // Signed in the notification window the dapp's approval opened.
-    const result = await wallet.runForUiPort('notification:1', () =>
-      wallet.signPsbtV2(toSignData)
+    const result = await wallet.runForUiPort(
+      'notification:1',
+      () => wallet.signPsbtV2(toSignData),
+      'signPsbtV2'
     )
 
     expect(toSignData.qbitSendBroadcastClaim.address).toBe(account.address)

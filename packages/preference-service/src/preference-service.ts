@@ -22,6 +22,26 @@ import { ChainType } from '@qbit/wallet-types'
 import { EventEmitter } from 'eventemitter3'
 import cloneDeep from 'lodash/cloneDeep.js'
 import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents } from './types'
+
+/** Whether `value` is a wallet identity as createWalletId makes one. */
+function isWalletId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value)
+}
+
+/** A new wallet identity: 16 bytes from the platform's random source, in hex. */
+function newWalletId(): string {
+  const webCrypto = (
+    globalThis as unknown as {
+      crypto?: { getRandomValues<T extends Uint8Array>(values: T): T }
+    }
+  ).crypto
+  if (!webCrypto) {
+    throw new Error('Secure random values are unavailable')
+  }
+  const bytes = webCrypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 const SUPPORTED_LOCALES = ['en', 'zh_TW', 'fr', 'es', 'ru', 'ja']
 const RESTORE_SAVE_ATTEMPTS = 3
 const RESTORE_SAVE_RETRY_DELAY_MS = 100
@@ -144,11 +164,25 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     }
   }
 
-  resetAllData = async () => {
+  /**
+   * Replace every preference with its default, saved before this resolves.
+   * Rejects, keeping the current preferences, when that write fails. The
+   * preferences `keep` names keep their current values instead, in the same
+   * write, so no moment on disk has them at their defaults (a wallet reset
+   * keeps the language and the theme).
+   */
+  resetAllData = async (options: { keep?: readonly (keyof BasePreferenceStore)[] } = {}) => {
+    const kept: Partial<Record<keyof BasePreferenceStore, unknown>> = {}
+    for (const key of options.keep ?? []) {
+      if (this.store && key in this.store) {
+        kept[key] = this.store[key]
+      }
+    }
     const finalTemplate = cloneDeep({
       ...this.template,
       ...this.platformDefaults,
       locale: this.defaultLang,
+      ...kept,
     }) as BasePreferenceStore
 
     this.pendingResets++
@@ -187,38 +221,59 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     key: K,
     value: BasePreferenceStore[K]
   ): Promise<void> {
+    const request = this.nextPersistRequest(key)
+    return this.inPersistOrder(() => this.applyAndPersist(key, value, request))
+  }
+
+  /** The number of a change of `key` asked for now; see saveRestoredValue. */
+  private nextPersistRequest(key: keyof BasePreferenceStore): number {
     const request = (this.persistRequests.get(key) ?? 0) + 1
     this.persistRequests.set(key, request)
-    const run = this.pendingPersist.then(async () => {
-      const store = this.store
-      const hadValue = key in store
-      const previous = store[key]
-      store[key] = value
-      const applied = store[key]
-      try {
-        await this.persist()
-      } catch (error) {
-        if (this.store === store && store[key] === applied) {
-          if (hadValue) {
-            store[key] = previous
-          } else {
-            delete store[key]
-          }
-          const restore = await this.saveRestoredValue(store, key, request)
-          if (restore) {
-            const failure = new WalletError(
-              ErrorCodes.PREFERENCE_NOT_RESTORED,
-              `Failed to save ${String(key)}, and its previous value could not be saved again`
-            )
-            ;(failure as { cause?: unknown }).cause = restore.error
-            throw failure
-          }
-        }
-        throw error
-      }
-    })
-    this.pendingPersist = run.catch(() => undefined)
+    return request
+  }
+
+  /** Run `change` once every change asked for before it has ended. */
+  private inPersistOrder<T>(change: () => Promise<T>): Promise<T> {
+    const run = this.pendingPersist.then(change)
+    this.pendingPersist = run.then(
+      () => undefined,
+      () => undefined
+    )
     return run
+  }
+
+  /** setAndPersist's change, run in its turn (inPersistOrder). */
+  private async applyAndPersist<K extends keyof BasePreferenceStore>(
+    key: K,
+    value: BasePreferenceStore[K],
+    request: number
+  ): Promise<void> {
+    const store = this.store
+    const hadValue = key in store
+    const previous = store[key]
+    store[key] = value
+    const applied = store[key]
+    try {
+      await this.persist()
+    } catch (error) {
+      if (this.store === store && store[key] === applied) {
+        if (hadValue) {
+          store[key] = previous
+        } else {
+          delete store[key]
+        }
+        const restore = await this.saveRestoredValue(store, key, request)
+        if (restore) {
+          const failure = new WalletError(
+            ErrorCodes.PREFERENCE_NOT_RESTORED,
+            `Failed to save ${String(key)}, and its previous value could not be saved again`
+          )
+          ;(failure as { cause?: unknown }).cause = restore.error
+          throw failure
+        }
+      }
+      throw error
+    }
   }
 
   /**
@@ -284,6 +339,9 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
     if (typeof this.store.regtestAccessAck !== 'string') {
       delete this.store.regtestAccessAck
+    }
+    if ('walletId' in this.store && !isWalletId(this.store.walletId)) {
+      delete this.store.walletId
     }
 
     if (typeof this.store.externalLinkAck !== 'boolean') {
@@ -753,6 +811,110 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     } else {
       delete this.store.regtestAccessAck
     }
+  }
+
+  /**
+   * Whether a wallet reset still owes the clearing of the wallet data (see
+   * `walletResetPending`). Throws while the preferences are not loaded, as
+   * whether one is pending is unknown then.
+   */
+  getWalletResetPending(): boolean {
+    return this.store.walletResetPending === true
+  }
+
+  /**
+   * Record that a wallet reset is pending, resolving once that is on disk.
+   * Rejects when it cannot be saved, and then reads as not pending, though
+   * the disk may keep it when the old value cannot be saved again either
+   * (see setAndPersist). resetAllData clears it.
+   */
+  setWalletResetPending(): Promise<void> {
+    return this.setAndPersist('walletResetPending', true)
+  }
+
+  /**
+   * Forget a pending wallet reset recorded by setWalletResetPending, for a
+   * reset that then erased nothing, resolving once that is on disk. Rejects
+   * when it cannot be saved; the mark then stays, which counts only once
+   * nothing is booted.
+   */
+  clearWalletResetPending(): Promise<void> {
+    return this.setAndPersist('walletResetPending', undefined)
+  }
+
+  /** Whether init has loaded the preferences: until then none can be read or written. */
+  isInitialized(): boolean {
+    return this.initialized
+  }
+
+  /**
+   * The identity of the wallet set up in this browser (`walletId`), if one
+   * was made, as memory holds it: while createWalletId saves a new one, that
+   * is the value being saved. What a caller hands out goes through
+   * readWalletId instead.
+   */
+  getWalletId(): string | undefined {
+    const id = this.store.walletId
+    return isWalletId(id) ? id : undefined
+  }
+
+  /** The creation of a walletId under way (createWalletId), which readWalletId waits for. */
+  private walletIdCreation: Promise<string | undefined> | undefined
+
+  /** The walletId createWalletId is saving now, in memory before it is on disk. */
+  private walletIdUnsaved: string | undefined
+
+  /**
+   * The walletId as it is on disk, read at once: none while the first one is
+   * still being saved, as no caller has been handed it yet (readWalletId).
+   */
+  getSavedWalletId(): string | undefined {
+    const id = this.getWalletId()
+    return id !== undefined && id === this.walletIdUnsaved ? undefined : id
+  }
+
+  /**
+   * The walletId as it is on disk. While one is being made and saved, the
+   * read waits for that save and answers what it saved, or fails with it:
+   * an id whose save fails is put back to none, and must never have been
+   * handed out.
+   */
+  readWalletId(): Promise<string | undefined> {
+    const creation = this.walletIdCreation
+    if (!creation) return Promise.resolve(this.getWalletId())
+    return creation.then(() => this.getWalletId())
+  }
+
+  /**
+   * The wallet's identity (`walletId`), made the first time and saved before
+   * this resolves: 16 bytes from the platform's random source, in hex, tied
+   * to nothing else. It runs in turn with the other saved changes, so calls
+   * at once make one id and all resolve with it. `wanted` is asked right
+   * before an id is made: when it answers false, none is made or saved and
+   * this resolves undefined. Rejects when it cannot be saved, and the id then
+   * reads as absent, as setAndPersist leaves a value it could not save.
+   */
+  createWalletId(wanted: () => boolean = (): boolean => true): Promise<string | undefined> {
+    const request = this.nextPersistRequest('walletId')
+    const creation = this.inPersistOrder(async () => {
+      const existing = this.getWalletId()
+      if (existing !== undefined) return existing
+      if (!wanted()) return undefined
+      const id = newWalletId()
+      this.walletIdUnsaved = id
+      try {
+        await this.applyAndPersist('walletId', id, request)
+      } finally {
+        this.walletIdUnsaved = undefined
+      }
+      return id
+    })
+    this.walletIdCreation = creation
+    const settled = (): void => {
+      if (this.walletIdCreation === creation) this.walletIdCreation = undefined
+    }
+    creation.then(settled, settled)
+    return creation
   }
 
   /**

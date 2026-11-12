@@ -145,6 +145,7 @@ export type AppStore = ReturnType<typeof createAppStore>
 export type AppState = ReturnType<AppStore['getState']>
 export type AppDispatch = AppStore['dispatch']
 
+export { resetWalletState } from './actions/global'
 export * from './biometric'
 export * from './context'
 export * from './hooks'

@@ -1,8 +1,7 @@
 import { Trash2 } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { shortAddress } from '@/ui/utils';
-import { activateOnKey, keepTabInside } from '@/ui/utils/keyboard';
 import { Account, ErrorCodes, QbitRecoveryRemovalReason, WalletKeyring } from '@qbit/wallet-shared';
 import {
   accountActions,
@@ -18,93 +17,11 @@ import {
 import { Button } from '../Button';
 import { Card } from '../Card';
 import { Column } from '../Column';
-import { Input } from '../Input';
+import { KeyboardDialog, keyboardButton } from '../KeyboardDialog';
 import { Popover } from '../Popover';
+import { isRecoveryRiskAgreementTyped, RecoveryRiskConfirmation } from '../RecoveryRiskConfirmation';
 import { Row } from '../Row';
 import { Text } from '../Text';
-
-const AGREEMENT_TEXT = 'CONFIRM';
-
-// Maps removal reasons to risk lines, deduplicated so a wallet migrating on
-// several networks reads as one risk rather than one per network.
-function riskMessageKeys(reasons: QbitRecoveryRemovalReason[]): string[] {
-  const keys: string[] = [];
-  const push = (key: string) => {
-    if (!keys.includes(key)) {
-      keys.push(key);
-    }
-  };
-  for (const reason of reasons) {
-    if (reason.role === 'source') {
-      push(
-        reason.status === 'migrated'
-          ? 'qbit_recovery_removal_source_migrated'
-          : 'qbit_recovery_removal_source_migrating'
-      );
-    } else if (reason.role === 'destination') {
-      push('qbit_recovery_removal_destination');
-    } else {
-      push('qbit_recovery_removal_unverified');
-    }
-    if (reason.hasInflightPlans) {
-      push('qbit_recovery_removal_inflight');
-    }
-  }
-  if (keys.length === 0) {
-    // The background refused without detail; show the broadest warning.
-    push('qbit_recovery_removal_unverified');
-  }
-  return keys;
-}
-
-/**
- * Takes focus when the popover opens, keeps Tab inside it and cancels on
- * Escape, so the popover works without a pointer.
- */
-function KeyboardDialog({
-  label,
-  onEscape,
-  children
-}: {
-  label: string;
-  onEscape: () => void;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const node = ref.current;
-    if (node && !node.contains(document.activeElement)) {
-      node.focus({ preventScroll: true });
-    }
-  }, []);
-  return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      tabIndex={-1}
-      style={{ outline: 'none' }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          onEscape();
-          return;
-        }
-        keepTabInside(event, ref.current);
-      }}>
-      {children}
-    </div>
-  );
-}
-
-/** Keyboard access for the popover's buttons, which render as divs. */
-const keyboardButton = (enabled: boolean, activate: () => void) => ({
-  role: 'button',
-  tabIndex: enabled ? 0 : -1,
-  onKeyDown: activateOnKey(activate)
-});
 
 export const RemoveWalletPopover = ({ keyring, onClose }: { keyring: WalletKeyring; onClose: () => void }) => {
   const wallet = useWallet();
@@ -125,7 +42,7 @@ export const RemoveWalletPopover = ({ keyring, onClose }: { keyring: WalletKeyri
   // active recovery migration and asked for an explicit risk confirmation.
   const [recoveryReasons, setRecoveryReasons] = useState<QbitRecoveryRemovalReason[] | null>(null);
   const [inputValue, setInputValue] = useState('');
-  const understand = inputValue.toUpperCase() === AGREEMENT_TEXT;
+  const understand = isRecoveryRiskAgreementTyped(inputValue);
 
   // Buttons are plain divs and state lands only on the next render, so a
   // double-click (or a cancel racing the removal) needs the ref to be
@@ -304,28 +221,13 @@ export const RemoveWalletPopover = ({ keyring, onClose }: { keyring: WalletKeyri
         <KeyboardDialog label={t('qbit_recovery_removal_title')} onEscape={cancel}>
           <Column justifyCenter itemsCenter>
             {header}
-            <Text text={t('qbit_recovery_removal_title')} preset="title-bold" textCenter />
-
-            <Column gap="md" fullX mb="md">
-              {riskMessageKeys(recoveryReasons).map((key) => (
-                <Text key={key} text={t(key)} preset="sub" />
-              ))}
-            </Column>
-
-            <Text text={t('this_action_is_not_reversible')} color="red_dark" />
-
-            <Column fullX>
-              <Text text={`${t('enter')} “${AGREEMENT_TEXT}” ${t('to_proceed')}`} preset="bold" />
-              <Input
-                preset="text"
-                autoFocus={true}
-                value={inputValue}
-                data-testid="recovery-removal-confirmation-input"
-                onChange={(e) => {
-                  setInputValue(e.target.value);
-                }}
-              />
-            </Column>
+            <RecoveryRiskConfirmation
+              title={t('qbit_recovery_removal_title')}
+              reasons={recoveryReasons}
+              value={inputValue}
+              onChange={setInputValue}
+              inputTestId="recovery-removal-confirmation-input"
+            />
 
             <Row full>
               <Button

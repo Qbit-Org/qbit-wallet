@@ -484,6 +484,35 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     await expect(reopened.keyrings[0]!.getAccounts()).resolves.toHaveLength(2)
   })
 
+  // WalletController.resetWallet relies on this to know no vault write is
+  // under way before it erases the vault: after a lock, a write queued on the
+  // vault settles only once every write queued before it has, and fails.
+  it('settles a write asked for after a lock only once the write under way has committed', async () => {
+    const { service, storage } = await createUnlockedWallet([sampleMnemonic])
+    service.keyrings[0]!.addAccounts(1)
+    const hold = holdNextSerialize(service.keyrings[0]!)
+    const persist = service.persistAllKeyrings([])
+    await hold.started
+    await service.setLocked()
+
+    let settled = false
+    const queued = service.persistAllKeyrings([]).then(
+      () => 'saved',
+      (error: Error) => error.message
+    )
+    void queued.finally(() => {
+      settled = true
+    })
+    await drainTasks()
+    expect(settled).toBe(false)
+    hold.release()
+
+    await expect(persist).resolves.toBe(true)
+    await expect(queued).resolves.toBe('keyringcontroller_password_is_not_a_string')
+    const reopened = await reopenWallet(storage)
+    await expect(reopened.keyrings[0]!.getAccounts()).resolves.toHaveLength(2)
+  })
+
   it('does not bring back a vault that a reset wiped during a write', async () => {
     const { service, storage } = await createUnlockedWallet()
     const hold = holdNextSerialize(service.keyrings[0]!)

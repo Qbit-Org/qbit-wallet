@@ -81,6 +81,21 @@ export interface BasePreferenceStore {
    * service before regtest becomes selectable.
    */
   regtestAccessAck?: string
+  /**
+   * A wallet reset recorded this before it erased the wallets, and resetAllData
+   * clears it with every other preference once the rest of the wallet data is
+   * cleared. While nothing is booted, it means that clearing is still owed.
+   * Only `true` counts.
+   */
+  walletResetPending?: boolean
+  /**
+   * The identity of the wallet set up in this browser: an opaque random
+   * value made the first time it is asked for (createWalletId), tied to
+   * nothing else. resetAllData drops it with the wallets, and the next
+   * wallet gets another. Absent in a new store and in one saved before it
+   * existed.
+   */
+  walletId?: string
 
   // Mobile-specific fields (optional)
   guideReaded?: boolean

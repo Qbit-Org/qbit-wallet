@@ -1,19 +1,8 @@
-import { LoaderCircle } from 'lucide-react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { HashRouter, Navigate, Route, Routes, useNavigate as useNavigateOrigin } from 'react-router-dom';
 
-import {
-  accountActions,
-  globalActions,
-  settingsActions,
-  useAppDispatch,
-  useIsReady,
-  useIsUnlocked,
-  useWallet
-} from '@qbit/wallet-state';
-
-import { Content, Icon } from '../components';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { PageStartup } from '../components/PageStartup';
 import { ApprovalProvider } from '../providers/ApprovalProvider';
 import { NavigationProvider } from '../providers/NavigationProvider';
 import AddKeyringScreen from './Account/AddKeyringScreen';
@@ -45,6 +34,7 @@ import AppearanceScreen from './Settings/AppearanceScreen';
 import BiometricUnlockScreen from './Settings/BiometricUnlockScreen';
 import LanguageScreen from './Settings/LanguageScreen';
 import NetworkTypeScreen from './Settings/NetworkTypeScreen';
+import SecurityScreen from './Settings/SecurityScreen';
 import UpgradeNoticeScreen from './Settings/UpgradeNoticeScreen';
 import TestScreen from './Test/TestScreen';
 import HistoryScreen from './Wallet/HistoryScreen';
@@ -149,6 +139,10 @@ export const routes = {
   NetworkTypeScreen: {
     path: '/settings/network-type',
     element: <NetworkTypeScreen />
+  },
+  SecurityScreen: {
+    path: '/settings/security',
+    element: <SecurityScreen />
   },
   ChangePasswordScreen: {
     path: '/settings/password',
@@ -299,110 +293,8 @@ export function useNavigate() {
   );
 }
 
-const Main = () => {
-  const wallet = useWallet();
-  const dispatch = useAppDispatch();
-
-  const isReady = useIsReady();
-  const isUnlocked = useIsUnlocked();
-
-  const selfRef = useRef({
-    settingsLoaded: false,
-    accountLoaded: false,
-    configLoaded: false
-  });
-  const self = selfRef.current;
-  const init = useCallback(async () => {
-    try {
-      if (!self.accountLoaded) {
-        const currentAccount = await wallet.getCurrentAccount();
-        if (currentAccount) {
-          dispatch(accountActions.setCurrent(currentAccount));
-
-          const accounts = await wallet.getAccounts();
-          dispatch(accountActions.setAccounts(accounts));
-
-          if (accounts.length > 0) {
-            self.accountLoaded = true;
-          }
-        }
-      }
-
-      if (!self.settingsLoaded) {
-        const chainType = await wallet.getChainType();
-        dispatch(
-          settingsActions.updateSettings({
-            chainType
-          })
-        );
-
-        const _locale = await wallet.getLocale();
-        dispatch(settingsActions.updateSettings({ locale: _locale }));
-        self.settingsLoaded = true;
-      }
-
-      if (!self.configLoaded) {
-        self.configLoaded = true;
-
-        // already load when reloadAccounts
-        // wallet.getWalletConfig().then((data) => {
-        //   dispatch(settingsActions.updateSettings({ walletConfig: data }));
-        // });
-        wallet.getSkippedVersion().then((data) => {
-          dispatch(settingsActions.updateSettings({ skippedVersion: data }));
-        });
-
-        wallet.getAutoLockTimeId().then((data) => {
-          dispatch(settingsActions.updateSettings({ autoLockTimeId: data }));
-        });
-        wallet.getDeveloperMode().then((data) => {
-          dispatch(settingsActions.updateSettings({ developerMode: data }));
-        });
-      }
-
-      dispatch(globalActions.update({ isReady: true }));
-    } catch (e) {
-      console.log('init error', e);
-    }
-  }, [wallet, dispatch, isReady, isUnlocked]);
-
-  useEffect(() => {
-    wallet.hasVault().then((val) => {
-      if (val) {
-        dispatch(globalActions.update({ isBooted: true }));
-        wallet.isUnlocked().then((isUnlocked) => {
-          dispatch(globalActions.update({ isUnlocked }));
-        });
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    init();
-  }, [init]);
-
-  if (!isReady) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '400vw',
-          height: '00vh',
-          overflowY: 'auto',
-          overflowX: 'hidden'
-        }}
-      >
-        <Content justifyCenter itemsCenter>
-          <Icon>
-            <LoaderCircle className="icon-spin" size="1em" />
-          </Icon>
-        </Content>
-      </div>
-    );
-  }
-
-  return (
+const Main = () => (
+  <PageStartup>
     <HashRouter>
       <NavigationProvider>
         <ApprovalProvider>
@@ -416,7 +308,7 @@ const Main = () => {
         </ApprovalProvider>
       </NavigationProvider>
     </HashRouter>
-  );
-};
+  </PageStartup>
+);
 
 export default Main;

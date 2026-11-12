@@ -107,6 +107,8 @@ const walletController = vi.hoisted(() => {
   // destructive.
   controller.performRemoveKeyring = vi.fn();
   controller.resetAllData = vi.fn();
+  // The guarded reset the UI does call.
+  controller.resetWallet = vi.fn(async () => undefined);
   return controller;
 });
 
@@ -427,6 +429,43 @@ describe('background UI-port controller dispatch', () => {
     expect(walletController.performRemoveKeyring).not.toHaveBeenCalled();
     expect(walletController.resetAllData).not.toHaveBeenCalled();
     expect(walletController.runForUiPort).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the id of the wallet it shows', 'abc', ['abc']],
+    ['a malformed id, for the controller to refuse', null, [null]],
+    ['no id when it sent none', undefined, []]
+  ])('passes the controller %s', async (_label, walletId, passed) => {
+    const message: Record<string, unknown> = { type: MESSAGE_TYPE.UI_CONTROLLER, method: 'getWalletId', params: [] };
+    if (walletId !== undefined) message.walletId = walletId;
+    walletController.getWalletId = vi.fn().mockResolvedValue('abc');
+
+    await request(message);
+
+    expect(vi.mocked(walletController.runForUiPort as (...args: unknown[]) => unknown).mock.calls).toEqual([
+      [expect.stringMatching(/^popup:/), expect.any(Function), 'getWalletId', ...passed]
+    ]);
+  });
+
+  it('passes both arguments of resetWallet to the controller as the page sent them, and never resetAllData', async () => {
+    const options = {
+      acknowledgedQbitRecoveryRisks: true,
+      acknowledgedQbitRecoveryReasons: [{ role: 'source', network: 'mainnet', status: 'migrating' }]
+    };
+
+    await expect(
+      request({ type: MESSAGE_TYPE.UI_CONTROLLER, method: 'resetWallet', params: ['correct horse', options] })
+    ).resolves.toBeUndefined();
+
+    expect(walletController.resetWallet).toHaveBeenCalledExactlyOnceWith('correct horse', options);
+    // The controller method is named, so a call made while a reset runs can
+    // wait for it, and the reset itself is let through.
+    expect(walletController.runForUiPort).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/^popup:/),
+      expect.any(Function),
+      'resetWallet'
+    );
+    expect(walletController.resetAllData).not.toHaveBeenCalled();
   });
 
   it.each([undefined, null, 'aa', { 0: 'aa', length: 1 }])(

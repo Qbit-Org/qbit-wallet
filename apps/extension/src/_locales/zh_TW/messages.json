@@ -1418,6 +1418,39 @@
   "wallet_locked_during_signing": {
     "message": "錢包在簽署完成前已鎖定，因此沒有送出任何內容。請解鎖後再簽署一次。"
   },
+  "wallet_reset_incomplete": {
+    "message": "錢包已清除，但部分已儲存的資料無法清除。這些資料會在建立新錢包之前清除。"
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "這已不是唯一可用的錢包，因此沒有清除任何資料。您可以改為移除此錢包。"
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "無法完成重設，錢包可能已清除，也可能尚未清除。請重新啟動瀏覽器，再開啟 Qbit Wallet 確認。"
+  },
+  "wallet_page_out_of_date": {
+    "message": "此頁面顯示的錢包已不在這裡設定，因此未執行該請求。頁面將重新載入。"
+  },
+  "security": {
+    "message": "安全性"
+  },
+  "reset_wallet": {
+    "message": "重設錢包"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "移除後將不會剩下其他可用的錢包，因此移除此錢包會重設 Qbit Wallet。"
+  },
+  "reset_wallet_erases": {
+    "message": "這會從此瀏覽器清除所有錢包及其金鑰、您的密碼、Touch ID 解鎖、已連接的網站、錢包與帳戶的名稱和顏色、地址簿以及您的設定。"
+  },
+  "reset_wallet_keeps": {
+    "message": "您的語言和主題會保留。"
+  },
+  "reset_wallet_restore_warning": {
+    "message": "錢包只能透過其助記詞或私鑰還原。繼續之前，請確認您已備妥。"
+  },
+  "reset_wallet_recovery_title": {
+    "message": "要清除的錢包中，有錢包屬於 Qbit 復原移轉的一部分"
+  },
   "use_at_your_own_risk": {
     "message": "風險自負"
   },

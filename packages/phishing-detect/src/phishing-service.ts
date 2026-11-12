@@ -190,6 +190,22 @@ export class PhishingService extends EventEmitter<PhishingServiceEvents> {
     }
   }
 
+  /**
+   * Forgets every navigation bypass, the session ones and the stored ones,
+   * and stores the empty list. Unlike the list's other writes, a failed write
+   * rejects, so a caller that must leave no bypass behind (a wallet reset)
+   * learns of it; so does a call before init has given the service its
+   * storage. Either way the bypasses are gone from memory.
+   */
+  async clearWhitelist(): Promise<void> {
+    this.temporaryWhitelist.clear()
+    this.permanentWhitelist.clear()
+    if (!this.adapter) {
+      throw new Error('PhishingService: not initialized, so the stored bypasses were not cleared')
+    }
+    await this.adapter.set(USER_WHITELIST_KEY, [])
+  }
+
   /** Re-applies the bundled policy and normalizes disallowed remote policy state. */
   async forceUpdate(): Promise<void> {
     await this.clearRemotePolicyState()

@@ -509,13 +509,15 @@ test('switch account: Remove Wallet, new wallets named "Wallet N" and the last w
   )
   expect(await currentAddress(extension, page)).toBe(kept.accounts[0]!.address)
 
-  // The last wallet cannot be removed: the menu says so and opens no confirmation.
-  await sheet.chooseWalletMenuItem(kept.key, 'remove')
+  // Removing the last wallet would reset the wallet: the menu opens the Reset
+  // Wallet dialog instead of the removal popover or a refusal, and Cancel
+  // keeps the wallet. (The reset itself is covered by reset-wallet.spec.ts.)
+  const reset = await sheet.chooseRemoveOnLastWallet(kept.key)
   await expect(
-    page.getByText('Removing the last wallet is not allowed', { exact: true }).first()
-  ).toBeVisible()
-  await expect(sheet.removalDialog).toHaveCount(0)
-  await expect(sheet.menu).toHaveCount(0)
+    page.getByText('Removing the last wallet is not allowed', { exact: true })
+  ).toHaveCount(0)
+  await reset.cancel()
+  await expect(sheet.root).toBeVisible()
   await expect.poll(() => sheet.walletKeys()).toEqual([kept.key])
   expect(await walletSummary(extension, page)).toEqual([{ name: 'Wallet 2', accounts: 2 }])
 })
