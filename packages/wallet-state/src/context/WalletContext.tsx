@@ -24,6 +24,7 @@ import {
   QbitRecoveryDeferredSource,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
+  QbitResetWalletOptions,
   QbitSigningOptions,
   QbitRestoreFloorScanSummary,
   QbitReceiveState,
@@ -106,6 +107,13 @@ export interface WalletController {
   >
 
   getDesc: () => string
+  /**
+   * Sets the password when no wallet is set up yet. Rejects with
+   * WALLET_RESET_INCOMPLETE, setting no password, when a reset that erased
+   * the keys still owes the clearing of the rest and that fails again, and
+   * with WALLET_RESET_OUTCOME_UNKNOWN after a reset of unknown outcome, until
+   * the background starts again.
+   */
   boot(password: string): Promise<void>
   isBooted(): Promise<boolean>
 
@@ -128,8 +136,17 @@ export interface WalletController {
   hasVault(): Promise<boolean>
 
   verifyPassword(password: string): Promise<boolean>
+  /**
+   * Rejects with WALLET_RESET_OUTCOME_UNKNOWN after a reset of unknown
+   * outcome, until the background starts again; the password stays as it is.
+   */
   changePassword: (password: string, newPassword: string) => Promise<void>
 
+  /**
+   * Rejects with WALLET_LOCKED_DURING_UNLOCK when a lock comes in while it
+   * runs, and with WALLET_RESET_OUTCOME_UNKNOWN, whatever the password, after
+   * a reset of unknown outcome, until the background starts again.
+   */
   unlock(password: string): Promise<void>
   isUnlocked(): Promise<boolean>
 
@@ -510,7 +527,31 @@ export interface WalletController {
   getOpenInSidePanel(): Promise<boolean>
   setOpenInSidePanel(openInSidePanel: boolean): Promise<void>
 
-  resetAllData(): Promise<void>
+  /**
+   * Erases every wallet, the password and the stored wallet data, after the
+   * background has checked `password`. Rejects with
+   * QBIT_RECOVERY_REMOVAL_ACK_REQUIRED (reasons in `data.reasons`) until the
+   * recovery risks are acknowledged in `options`, with
+   * WALLET_RESET_NOT_LAST_WALLET when `options.lastWalletKey` no longer names
+   * the last usable wallet, with WALLET_RESET_INCOMPLETE when the wallets are
+   * gone but other stored data is still to be cleared, and with
+   * WALLET_RESET_OUTCOME_UNKNOWN when storage failed while the keys were
+   * being erased. Any other rejection from the background means nothing was
+   * erased; a request that never reached it, or whose answer was lost, says
+   * nothing either way. Every open wallet page is told of a reset with
+   * BUS_METHODS.WALLET_RESET.
+   */
+  resetWallet(password: string, options?: QbitResetWalletOptions): Promise<void>
+
+  /**
+   * The identity of what is set up in this browser: an opaque random string
+   * that stays the same through locks, unlocks, password changes, additions,
+   * removals and background restarts, and is different after a reset. Null
+   * while nothing is booted. Readable while locked. A page compares it after
+   * its connection to the background comes back, to learn whether what it
+   * shows is still what the background holds.
+   */
+  getWalletId(): Promise<string | null>
 
   getGuideReaded(): Promise<boolean>
   setGuideReaded(): Promise<void>

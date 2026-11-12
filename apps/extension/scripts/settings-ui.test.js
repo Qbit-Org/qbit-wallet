@@ -18,6 +18,7 @@ const settingsLogicSource = fs.readFileSync(
   path.join(extensionDir, '../../packages/wallet-state/src/ui-hooks/useSettingsTabScreenLogic.ts'),
   'utf8'
 );
+const mainRouteSource = fs.readFileSync(path.join(extensionDir, 'src/ui/pages/MainRoute.tsx'), 'utf8');
 const sharedConstantsSource = fs.readFileSync(
   path.join(extensionDir, '../../packages/wallet-shared/src/constants/common.ts'),
   'utf8'
@@ -55,9 +56,24 @@ test('settings navigation rows use one even vertical gap', () => {
   assert.match(settingsSource, /<Column fullX style=\{\{ gap: spacing\.extraSmall \}\}>/);
   assert.match(
     settingsSource,
-    /renderGroup\(\[\s*settings_connectedSites,\s*settings_switchNetwork,\s*settings_addressBook,\s*settings_addressType,\s*settings_appearance,\s*settings_advanced,\s*settings_lockwallet,\s*settings_aboutus\s*\]\)/
+    /renderGroup\(\[\s*settings_connectedSites,\s*settings_switchNetwork,\s*settings_addressBook,\s*settings_addressType,\s*settings_security,\s*settings_appearance,\s*settings_advanced,\s*settings_lockwallet,\s*settings_aboutus\s*\]\)/
   );
   assert.doesNotMatch(settingsSource, /<Divider|function Divider/);
+});
+
+test('Security sits directly above Appearance and opens the Security screen', () => {
+  assert.match(settingsSource, /settings_security,\s*settings_appearance,/);
+  const securityItemSource = settingsLogicSource.slice(
+    settingsLogicSource.indexOf('const settings_security'),
+    settingsLogicSource.indexOf('const settings_appearance')
+  );
+
+  assert.match(securityItemSource, /key: ['"]settings_security['"]/);
+  assert.match(securityItemSource, /label: t\(['"]security['"]\)/);
+  assert.match(securityItemSource, /icon: ['"]security['"]/);
+  assert.match(securityItemSource, /nav\.navigate\(['"]SecurityScreen['"]\)/);
+  assert.match(iconSource, /security: Shield\w*,/);
+  assert.match(mainRouteSource, /SecurityScreen: \{\s*path: ['"]\/settings\/security['"],\s*element: <SecurityScreen \/>/);
 });
 
 test('settings no longer exposes the Expand View action', () => {

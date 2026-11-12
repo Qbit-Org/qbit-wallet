@@ -17,6 +17,7 @@ import {
   Globe,
   History,
   Info,
+  KeyRound,
   Link2,
   Lock,
   LucideIcon,
@@ -26,8 +27,11 @@ import {
   Pickaxe,
   QrCode,
   Rabbit,
+  RectangleEllipsis,
+  RotateCcw,
   Send,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   TriangleAlert,
   Turtle,
@@ -120,6 +124,10 @@ type LucideIconName =
   | 'addressType'
   | 'appearance'
   | 'advance'
+  | 'security'
+  | 'changePassword'
+  | 'recoveryPhrase'
+  | 'reset'
   | 'aboutUsLogo'
   | 'network'
   | 'gas'
@@ -185,6 +193,10 @@ const lucideRegistry: Partial<Record<IconTypes, LucideIcon>> = {
   addressType: MapPin,
   appearance: Palette,
   advance: SlidersHorizontal,
+  security: ShieldCheck,
+  changePassword: RectangleEllipsis,
+  recoveryPhrase: KeyRound,
+  reset: RotateCcw,
   aboutUsLogo: Info,
   network: Network,
 

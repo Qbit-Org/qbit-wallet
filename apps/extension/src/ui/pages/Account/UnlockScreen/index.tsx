@@ -6,7 +6,9 @@ import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Input';
 import { Logo } from '@/ui/components/Logo';
 import { Text } from '@/ui/components/Text';
+import { walletErrorMessage } from '@/ui/utils';
 import { useSendFormReturn } from '@/ui/utils/sendFormReturn';
+import { isShownWalletGoneError, reconcileWalletReset } from '@/ui/utils/walletReset';
 import { getUiType } from '@/ui/web';
 import { ErrorCodes } from '@qbit/wallet-shared';
 import {
@@ -195,6 +197,13 @@ export default function UnlockScreen() {
     };
   }, [isUnlocked, isInNotification, loading, navigation, getApproval]);
 
+  // A refused unlock can also mean that no wallet is left: a reset the
+  // background finished when it started again, whose WALLET_RESET this page
+  // missed while its connection was down. Asked before the screen blames the
+  // password or the Touch ID record: when none is left, the page reopens on
+  // the Welcome screen instead (reconcileWalletReset).
+  const walletsGone = async () => (await reconcileWalletReset(() => wallet.isBooted())) === 'erased';
+
   // `locksAtStart`: the locks seen when the attempt that unlocked began.
   const navigateAfterUnlock = async (locksAtStart: number) => {
     if (isInNotification) {
@@ -239,13 +248,36 @@ export default function UnlockScreen() {
       if (unlocked) {
         return;
       }
+      const rejection = (e ?? {}) as { code?: unknown; message?: unknown };
+      if (rejection.code === ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN) {
+        // A reset ended without knowing whether it erased the wallets: no
+        // unlock is let through until the browser restarts, whatever the
+        // password. Say so, rather than call a right password wrong.
+        tools.toastError(
+          typeof rejection.message === 'string' && rejection.message
+            ? rejection.message
+            : t('wallet_reset_outcome_unknown')
+        );
+        return;
+      }
       // The wallet locked while unlocking (the computer locked, say); the
       // password was not the problem.
-      tools.toastError(
-        (e as { code?: unknown } | null)?.code === ErrorCodes.WALLET_LOCKED_DURING_UNLOCK
-          ? t('wallet_locked_during_unlock')
-          : t('password_error')
-      );
+      if (rejection.code === ErrorCodes.WALLET_LOCKED_DURING_UNLOCK) {
+        tools.toastError(t('wallet_locked_during_unlock'));
+        return;
+      }
+      // This page shows a wallet that is no longer set up: the background
+      // refused the unlock (-22), or the page's own check found it and the
+      // reload did not take the page in time (createUnlockGate). Say so, not
+      // the password; the page is reopening.
+      if (isShownWalletGoneError(e) || rejection.code === ErrorCodes.WALLET_PAGE_OUT_OF_DATE) {
+        tools.toastError(walletErrorMessage(e, t('wallet_page_out_of_date')));
+        return;
+      }
+      if (await walletsGone()) {
+        return;
+      }
+      tools.toastError(t('password_error'));
     } finally {
       unlockInFlightRef.current = false;
       setLoading(false);
@@ -271,6 +303,8 @@ export default function UnlockScreen() {
         console.log(e);
       } else if (e instanceof BiometricCeremonyCancelledError) {
         // The user dismissed the TouchID prompt; the password input stays.
+      } else if (await walletsGone()) {
+        // The record went with the wallets; the page reopens on Welcome.
       } else if (e instanceof BiometricRecordStaleError) {
         tools.toastError(t('touch_id_unlock_expired'));
       } else {

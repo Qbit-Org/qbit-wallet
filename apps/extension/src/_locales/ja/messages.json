@@ -1418,6 +1418,39 @@
   "wallet_locked_during_signing": {
     "message": "署名が終わる前にウォレットがロックされたため、何も送信されていません。ロックを解除して、もう一度署名してください。"
   },
+  "wallet_reset_incomplete": {
+    "message": "ウォレットは消去されましたが、保存されていた一部のデータを消去できませんでした。新しいウォレットを作成する前に消去されます。"
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "このウォレットは使用できる唯一のウォレットではなくなったため、何も消去されませんでした。代わりにこのウォレットを削除できます。"
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "リセットを完了できませんでした。ウォレットが消去されたかどうかは確認できていません。ブラウザを再起動してから Qbit Wallet を開いて確認してください。"
+  },
+  "wallet_page_out_of_date": {
+    "message": "このページには、ここに設定されなくなったウォレットが表示されていたため、リクエストは実行されませんでした。ページを再読み込みします。"
+  },
+  "security": {
+    "message": "セキュリティ"
+  },
+  "reset_wallet": {
+    "message": "ウォレットをリセット"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "使えるウォレットが他に残らないため、このウォレットを削除すると Qbit Wallet がリセットされます。"
+  },
+  "reset_wallet_erases": {
+    "message": "このブラウザから、すべてのウォレットとその鍵、パスワード、Touch IDロック解除、接続済みサイト、ウォレットとアカウントの名前と色、アドレス帳、設定が消去されます。"
+  },
+  "reset_wallet_keeps": {
+    "message": "言語とテーマはそのまま残ります。"
+  },
+  "reset_wallet_restore_warning": {
+    "message": "ウォレットはシードフレーズまたは秘密鍵からしか復元できません。続ける前に、それらがお手元にあることを確認してください。"
+  },
+  "reset_wallet_recovery_title": {
+    "message": "消去するウォレットの中に、Qbit 復旧移行の一部であるものがあります"
+  },
   "use_at_your_own_risk": {
     "message": "自己責任で使用してください"
   },

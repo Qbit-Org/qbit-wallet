@@ -1,0 +1,5 @@
+---
+'@qbit/preference-service': minor
+---
+
+`resetAllData` takes an optional `{ keep }` list of preferences whose current values go into the reset's single write in place of their defaults; a wallet reset keeps `locale` and `themeMode` this way. `setWalletResetPending()` records, on disk before it resolves, that a wallet reset is under way, `getWalletResetPending()` reads it back, and `clearWalletResetPending()` takes it back, resolving once that is on disk; the mark is the optional `walletResetPending` field of the store, absent in a new store and in one saved before it existed, and `resetAllData` clears it with everything else. `getWalletId()` reads the optional `walletId` field and `createWalletId(wanted?)` makes one from the platform's random source, saved before it resolves and made once for calls at the same time; `resetAllData` drops it. `readWalletId()` waits for an id that is being saved, so none is handed out before it is on disk. `getSavedWalletId()` answers the id as it is on disk, and none while a first id is still being saved. `isInitialized()` tells whether `init` has loaded the preferences.

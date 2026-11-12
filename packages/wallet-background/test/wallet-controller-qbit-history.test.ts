@@ -504,6 +504,42 @@ describe('WalletController Qbit account history snapshots', () => {
     expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
   })
 
+  it('keeps nothing of a read that a reset overtook, the same account selected or not', async () => {
+    const tx = historyTx('66'.repeat(32), 9, [firstAddress])
+    const pendingScans: (() => void)[] = []
+    const scanStarted = new Promise<void>(resolve => {
+      apiMocks.client.getAddressHistory.mockImplementation(
+        address =>
+          new Promise(done => {
+            pendingScans.push(() =>
+              done({ confirmed: address === firstAddress ? [tx] : [], mempool: [] })
+            )
+            resolve()
+          })
+      )
+    })
+    apiMocks.client.getAddressStats.mockImplementation(async address =>
+      stats(address, address === firstAddress ? 1 : 0)
+    )
+    apiMocks.client.getAddressTxs.mockImplementation(async address =>
+      address === firstAddress ? [tx] : []
+    )
+
+    const read = controller.getAddressHistory({ address: firstAddress, start: 0, limit: 20 })
+    const settled = read.catch(error => error)
+    await scanStarted
+    // A reset begins to erase the wallets, as it does before their keys go;
+    // the preferences, and so the account selected, are reset only later.
+    controller.walletResetGeneration += 1
+    pendingScans.forEach(finish => finish())
+
+    await expect(settled).resolves.toMatchObject({
+      message: 'Qbit Wallet was reset while this request ran, so it saved nothing',
+    })
+    expect(preferenceService.updateAddressHistory).not.toHaveBeenCalled()
+    expect((controller as any).qbitHistorySnapshots.size).toBe(0)
+  })
+
   it('never reads history cached under the earlier wallet-wide key as an account history', async () => {
     const combinedRows = [
       { txid: '66'.repeat(32), direction: 'self' },

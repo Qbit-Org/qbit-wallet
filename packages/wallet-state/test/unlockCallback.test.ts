@@ -143,6 +143,44 @@ describe('useUnlockCallback when the wallet locks during the unlock', () => {
   })
 })
 
+// After a reset of unknown outcome the background refuses every unlock until
+// it starts again; the page must get that refusal as it came.
+describe('a reset of unknown outcome', () => {
+  const outcomeUnknown = {
+    code: ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN,
+    message:
+      'The reset could not be finished. Restart your browser, then open Qbit Wallet to check.',
+  }
+
+  it('rejects the unlock with the refusal as it came, and leaves the wallet shown as locked', async () => {
+    const { wrapper, approval, navigation, store, wallet } = setup(
+      vi.fn().mockRejectedValue(outcomeUnknown)
+    )
+    const { result } = renderHook(() => useUnlockCallback(), { wrapper })
+
+    await act(async () => {
+      await expect(result.current('password')).rejects.toBe(outcomeUnknown)
+    })
+
+    expect(store.getState().global.isUnlocked).toBe(false)
+    expect(wallet.resolveUnlockApproval).not.toHaveBeenCalled()
+    expectApprovalContextUntouched(approval, navigation)
+  })
+
+  it('rejects a TouchID unlock with it too, keeping the record, which is not stale', async () => {
+    biometric.isBiometricUnlockSupported.mockResolvedValue(true)
+    biometric.unwrapBiometricPassword.mockResolvedValue('password')
+    const { wrapper, wallet } = setup(vi.fn().mockRejectedValue(outcomeUnknown))
+    const { result } = renderHook(() => useBiometricUnlock(), { wrapper })
+
+    await act(async () => {
+      await expect(result.current.unlockWithBiometric()).rejects.toBe(outcomeUnknown)
+    })
+
+    expect(wallet.clearBiometricUnlock).not.toHaveBeenCalled()
+  })
+})
+
 describe('useBiometricUnlock approval handling', () => {
   it('asks the background to resolve only the unlock request after a TouchID unlock', async () => {
     biometric.isBiometricUnlockSupported.mockResolvedValue(true)

@@ -14,15 +14,23 @@ import { SecurityCard } from './SecurityCard';
 
 vi.mock('@/ui/components', async () => {
   const React = await import('react');
-  const Container = ({ children, ...rest }: { children?: ReactNode; 'data-testid'?: string }) =>
-    React.createElement('div', { 'data-testid': rest['data-testid'] }, children);
+  const Container = ({
+    children,
+    onClick,
+    ...rest
+  }: {
+    children?: ReactNode;
+    onClick?: () => void;
+    'data-testid'?: string;
+  }) => React.createElement('div', { 'data-testid': rest['data-testid'], onClick }, children);
   const Text = ({ text }: { text?: string }) => React.createElement('span', null, text);
   const Switch = ({ checked, onChange }: { checked?: boolean; onChange?: (checked: boolean) => void }) =>
     React.createElement('button', { 'data-checked': String(checked), onClick: () => onChange?.(!checked) });
   return { Card: Container, Column: Container, Icon: Container, Row: Container, Switch, Text };
 });
 
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
+const navigate = vi.hoisted(() => ({ to: [] as string[] }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => (path: string) => navigate.to.push(path) }));
 
 vi.mock('@qbit/wallet-state', () => ({
   useAutoLockTimeId: vi.fn(),
@@ -46,6 +54,7 @@ describe('SecurityCard lock switches', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    navigate.to = [];
     logic.lockOnComputerLock = true;
     logic.lockOnWindowsClosed = false;
     vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
@@ -106,6 +115,26 @@ describe('SecurityCard lock switches', () => {
     render(<SecurityCard />);
     expect(screen.queryByTestId(COMPUTER_LOCK_ROW)).toBeNull();
     expect(screen.queryByTestId(WINDOWS_CLOSED_ROW)).toBeNull();
+  });
+
+  // Change Password moved to Settings → Security; nothing else moved.
+  it('no longer offers Change Password, and still offers Touch ID, the auto-lock time and the lock switches', () => {
+    vi.mocked(useBiometricUnlock).mockReturnValue({ ready: true, supported: true, enrolled: true } as ReturnType<
+      typeof useBiometricUnlock
+    >);
+    const { container } = render(<SecurityCard />);
+
+    expect(screen.queryByText('change_password')).toBeNull();
+    expect(screen.getByText('touch_id_unlock')).toBeTruthy();
+    expect(screen.getByText('automatic_lock_time')).toBeTruthy();
+    expect(screen.getByTestId(COMPUTER_LOCK_ROW)).toBeTruthy();
+    expect(screen.getByTestId(WINDOWS_CLOSED_ROW)).toBeTruthy();
+
+    // No row of the card leads to the password screen.
+    container.querySelectorAll('div').forEach((row) => fireEvent.click(row));
+    expect(navigate.to).toContain('/settings/biometric');
+    expect(navigate.to).toContain('/settings/lock-time');
+    expect(navigate.to).not.toContain('/settings/password');
   });
 
   it('has the lock labels and the locked-while-unlocking message in every locale', () => {

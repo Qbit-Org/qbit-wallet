@@ -14,7 +14,7 @@ import {
 import { useNavigate as useRouterNavigate } from 'react-router-dom';
 
 /**
- * Settings → Security → Touch ID Unlock. Enrollment requires the wallet
+ * Advanced Settings → Touch ID Unlock. Enrollment requires the wallet
  * password (step-up) and runs the WebAuthn ceremony in this page. In the
  * popup surface the browser's TouchID prompt can close the popup mid-flow;
  * a dismissed or interrupted ceremony saves no record, so the user simply

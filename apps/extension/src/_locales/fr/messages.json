@@ -1418,6 +1418,39 @@
   "wallet_locked_during_signing": {
     "message": "Le portefeuille s’est verrouillé avant la fin de la signature, donc rien n’a été envoyé. Déverrouillez-le et signez à nouveau."
   },
+  "wallet_reset_incomplete": {
+    "message": "Vos portefeuilles ont été effacés, mais certaines données enregistrées n'ont pas pu l'être. Elles seront effacées avant la création d'un nouveau portefeuille."
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "Ce n'est plus votre seul portefeuille utilisable, donc rien n'a été effacé. Vous pouvez le supprimer à la place."
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "La réinitialisation n'a pas pu être terminée, et vos portefeuilles ont peut-être été effacés. Redémarrez votre navigateur, puis ouvrez Qbit Wallet pour vérifier."
+  },
+  "wallet_page_out_of_date": {
+    "message": "Cette page affichait un portefeuille qui n'est plus configuré ici ; la demande n'a donc pas été exécutée. La page va se recharger."
+  },
+  "security": {
+    "message": "Sécurité"
+  },
+  "reset_wallet": {
+    "message": "Réinitialiser le Portefeuille"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "Il ne resterait aucun autre portefeuille utilisable : supprimer celui-ci réinitialise Qbit Wallet."
+  },
+  "reset_wallet_erases": {
+    "message": "Cette action efface de ce navigateur tous les portefeuilles et leurs clés, votre mot de passe, le déverrouillage par Touch ID, les sites connectés, les noms et couleurs des portefeuilles et des comptes, le carnet d'adresses et vos paramètres."
+  },
+  "reset_wallet_keeps": {
+    "message": "Votre langue et votre thème sont conservés."
+  },
+  "reset_wallet_restore_warning": {
+    "message": "Vos portefeuilles ne pourront être restaurés qu'à partir de leurs phrases de récupération ou de leurs clés privées. Assurez-vous de les avoir avant de continuer."
+  },
+  "reset_wallet_recovery_title": {
+    "message": "Un portefeuille que vous effacez fait partie d’une migration de récupération Qbit"
+  },
   "use_at_your_own_risk": {
     "message": "Utilisation à vos propres risques"
   },

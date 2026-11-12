@@ -2,7 +2,7 @@ import { createSlice, Slice } from '@reduxjs/toolkit'
 import { QBIT_FALLBACK_FEE_RATE } from '@qbit/wallet-shared'
 import type { ChainType } from '@qbit/wallet-types'
 
-import { updateVersion } from '../actions/global'
+import { resetWalletState, updateVersion } from '../actions/global'
 import { NavigationSource } from '../types'
 
 /** The quote read, and the option, from which a fee bar chose its rate. */
@@ -286,6 +286,8 @@ const slice: Slice<UIState> = createSlice({
       fillMissing(state, initialState)
       return state
     })
+    // Drafts such as the send form belong to the erased wallets.
+    builder.addCase(resetWalletState, () => initialState)
   },
 })
 

@@ -242,6 +242,16 @@ export async function restoreAppState() {
     );
     // Initialize phishing service early to ensure protection is active
 
+    // A reset that erased the wallets but not all of the rest of the wallet
+    // data is finished here, with every service it clears started. If it still
+    // cannot be, the rest of the background starts anyway: the reset stays
+    // pending, and creating a wallet finishes it first or is refused.
+    try {
+      await walletController.finishPendingWalletReset();
+    } catch (resetError) {
+      logger.error('[Background] The pending wallet reset could not be finished', resetError);
+    }
+
     appStateRestored = true;
 
     walletController.setBackgroundInited(true);

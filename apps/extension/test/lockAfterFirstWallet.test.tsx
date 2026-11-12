@@ -9,16 +9,22 @@ import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import Main from '@/ui/pages/MainRoute';
+import { forgetShownWalletId, getShownWalletId } from '@/ui/utils/walletReset';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BUS_METHODS, KeyringType } from '@qbit/wallet-shared';
 import { AccountUpdater, createAppStore, uiEventBus, WalletProvider } from '@qbit/wallet-state';
 import { AddressType, ChainType } from '@qbit/wallet-types';
+
+import { installPageChecks } from './support/pageChecks';
 
 // The extension's test config takes @qbit/wallet-state from its sources, whose
 // own `src/...` imports only that package's config resolves. The page's real
 // store, hooks and updater come from the package's build instead, which the
 // checks build before they test.
 vi.mock('@qbit/wallet-state', () => import('../../../packages/wallet-state/lib/index.mjs'));
+// The home screen, which only an unlock below goes to, as a stand-in: its own
+// reads of the browser's tabs take no part here.
+vi.mock('@/ui/pages/Main/WalletTabScreen', () => ({ default: () => <span data-testid="home-screen" /> }));
 
 // The extension APIs some screens reach for as they load; none of them takes
 // part here: every property is another such stand-in, every call does nothing.
@@ -107,6 +113,9 @@ function createBackground() {
         })
     ),
     isBooted: vi.fn(async () => true),
+    // The id of the wallet set up, which the page reads as it starts: none
+    // before a wallet is saved.
+    getWalletId: vi.fn(async (): Promise<string | null> => (state.vault ? 'wallet-1' : null)),
     isUnlocked: vi.fn(async () => state.unlocked),
     getCurrentAccount: vi.fn(async () => (state.vault ? ACCOUNT : null)),
     getAccounts: vi.fn(async () => (state.vault ? [ACCOUNT] : [])),
@@ -268,6 +277,69 @@ describe('a page that loaded before the wallet existed', () => {
     background.state.holdVaultReads = false;
     await lock();
     await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
+  });
+});
+
+// The same page with the page's own checks in place, as the UI entry wires
+// them: the background's broadcasts reach it through setupEventBusListeners,
+// an UNLOCKED only once the id of the wallet set up has been compared with
+// the one the page shows.
+describe('a page that loaded before the wallet existed, with the page’s wallet checks in place', () => {
+  let checks: ReturnType<typeof installPageChecks>;
+
+  afterEach(() => {
+    checks.uninstall();
+    forgetShownWalletId();
+  });
+
+  // The wallet is saved and announced unlocked; the page, on the settings,
+  // then locks and shows the unlock screen.
+  async function lockedAfterTheFirstWallet() {
+    await loadPageAt('/welcome');
+    checks = installPageChecks(store, background.wallet);
+    await act(async () => {
+      background.state.vault = true;
+      checks.broadcast(BUS_METHODS.UNLOCKED);
+    });
+    // The run the unlock starts records the id of the wallet just saved.
+    await waitFor(() => expect(getShownWalletId()).toBe('wallet-1'));
+    await goTo('/settings', 'settings_lockwallet');
+    await act(async () => {
+      background.state.unlocked = false;
+      checks.broadcast(BUS_METHODS.LOCKED);
+    });
+    await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
+    await screen.findByTestId('unlock-password-input');
+  }
+
+  it('goes to the unlock screen when the wallet locks, and to the wallet at an unlock of that wallet', async () => {
+    await lockedAfterTheFirstWallet();
+    const idReads = background.wallet.getWalletId.mock.calls.length;
+
+    await act(async () => {
+      background.state.unlocked = true;
+      checks.broadcast(BUS_METHODS.UNLOCKED);
+    });
+
+    await waitFor(() => expect(window.location.hash).toBe('#/main'));
+    await screen.findByTestId('home-screen');
+    expect(background.wallet.getWalletId.mock.calls.length).toBeGreaterThan(idReads);
+    expect(store.getState().global.isUnlocked).toBe(true);
+    expect(checks.reloadOnBoot).not.toHaveBeenCalled();
+  });
+
+  it('reopens instead at an unlock of another wallet set up since', async () => {
+    await lockedAfterTheFirstWallet();
+    background.wallet.getWalletId.mockImplementation(async () => 'wallet-2');
+
+    await act(async () => {
+      background.state.unlocked = true;
+      checks.broadcast(BUS_METHODS.UNLOCKED);
+    });
+
+    await waitFor(() => expect(checks.reloadOnBoot).toHaveBeenCalledTimes(1));
+    expect(store.getState().global.isUnlocked).toBe(false);
+    expect(window.location.hash).toBe('#/account/unlock');
   });
 });
 

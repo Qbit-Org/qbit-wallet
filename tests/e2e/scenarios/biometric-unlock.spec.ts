@@ -32,7 +32,7 @@ async function closeAutoOpenedTabs(
 
 async function openAdvancedSettings(page: Page): Promise<void> {
   await gotoHashRoute(page, '/settings/advanced')
-  await expect(page.getByText('Change Password', { exact: true })).toBeVisible()
+  await expect(page.getByText('Automatic Lock Time', { exact: true })).toBeVisible()
 }
 
 test('B1 biometric: onboarding enrollment, TouchID unlock, and password-change re-wrap', async ({
@@ -52,7 +52,7 @@ test('B1 biometric: onboarding enrollment, TouchID unlock, and password-change r
   await home.waitUntilReady()
   await home.switchToRegtest()
 
-  // Settings → Security reflects the enrollment made during onboarding.
+  // Advanced Settings reflects the enrollment made during onboarding.
   await openAdvancedSettings(page)
   await expect(page.getByTestId('touch-id-settings-row')).toContainText('On')
 
@@ -130,7 +130,7 @@ test('B2 biometric: settings enrollment with step-up, persistence across restart
   await home.waitUntilReady()
   await home.switchToRegtest()
 
-  // Enroll from Settings → Security with the wallet password as step-up.
+  // Enroll from Advanced Settings with the wallet password as step-up.
   await openAdvancedSettings(page)
   const settingsRow = page.getByTestId('touch-id-settings-row')
   await expect(settingsRow).toContainText('Off')

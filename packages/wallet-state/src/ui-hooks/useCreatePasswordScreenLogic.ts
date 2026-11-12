@@ -15,7 +15,7 @@ export interface CreatePasswordScreenOptions {
    * Whether to offer the optional "Enable Touch ID" step after boot. The
    * extension passes false in the browser-action popup, where the TouchID
    * sheet can close the surface mid-ceremony; enrollment stays available
-   * later via Settings → Security, which routes the popup to a full tab.
+   * later in Advanced Settings, which routes the popup to a full tab.
    */
   offerBiometrics?: boolean
 }
@@ -66,8 +66,11 @@ export function useCreatePasswordScreenLogic(options: CreatePasswordScreenOption
           navigateAfterBoot()
         }
       })
-      .catch(err => {
-        tools.toastError(err)
+      .catch((err: unknown) => {
+        // Rejections cross the UI port as plain objects, and the toast shows
+        // text: an object there would throw while it renders.
+        const message = (err as { message?: unknown } | null | undefined)?.message
+        tools.toastError(typeof message === 'string' && message ? message : t('unknown_error'))
       })
   }
 

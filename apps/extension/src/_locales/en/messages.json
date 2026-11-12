@@ -1418,6 +1418,39 @@
   "wallet_locked_during_signing": {
     "message": "The wallet locked before signing finished, so nothing was sent. Unlock it and sign again."
   },
+  "wallet_reset_incomplete": {
+    "message": "Your wallets were erased, but some saved data could not be cleared. It will be cleared before a new wallet is created."
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "This is no longer your only usable wallet, so nothing was erased. You can remove it instead."
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "The reset could not be finished, and your wallets may or may not have been erased. Restart your browser, then open Qbit Wallet to check."
+  },
+  "wallet_page_out_of_date": {
+    "message": "This page was showing a wallet that is no longer set up here, so the request was not carried out. The page will reload."
+  },
+  "security": {
+    "message": "Security"
+  },
+  "reset_wallet": {
+    "message": "Reset Wallet"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "No other wallet you can use would remain, so removing this one resets Qbit Wallet."
+  },
+  "reset_wallet_erases": {
+    "message": "This erases from this browser every wallet and its keys, your password, Touch ID unlock, connected sites, wallet and account names and colors, the address book and your settings."
+  },
+  "reset_wallet_keeps": {
+    "message": "Your language and theme are kept."
+  },
+  "reset_wallet_restore_warning": {
+    "message": "Your wallets can be restored only from their seed phrases or private keys. Make sure you have them before you continue."
+  },
+  "reset_wallet_recovery_title": {
+    "message": "A wallet you are erasing is part of a Qbit recovery migration"
+  },
   "use_at_your_own_risk": {
     "message": "Use at your own risk"
   },

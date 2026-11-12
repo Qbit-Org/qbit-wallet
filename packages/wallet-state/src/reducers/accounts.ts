@@ -6,7 +6,7 @@ import {
   TxHistoryItem,
 } from '@qbit/wallet-shared'
 
-import { updateVersion } from '../actions/global'
+import { resetWalletState, updateVersion } from '../actions/global'
 
 export interface Molels {
   states: boolean
@@ -284,6 +284,7 @@ const slice: Slice<AccountsState> = createSlice({
         state.balanceStatusMap = {}
       }
     })
+    builder.addCase(resetWalletState, () => initialState)
   },
 })
 

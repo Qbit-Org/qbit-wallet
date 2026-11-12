@@ -32,26 +32,9 @@ export function SecurityCard() {
     navigate('/settings/biometric');
   };
 
-  const openChangePassword = () => {
-    navigate('/settings/password');
-  };
-
   return (
     <Card style={{ borderRadius: 0 }}>
       <Column fullX>
-        {/* Change Password Option */}
-        <Row
-          justifyBetween
-          style={{
-            cursor: 'pointer',
-            marginBottom: 16
-          }}
-          onClick={openChangePassword}
-        >
-          <Text text={t('change_password')} preset="bold" size="sm" />
-          <Icon icon="right" size={fontSizes.lg} color="textDim" />
-        </Row>
-
         {/* Touch ID Unlock Option */}
         {biometricReady && biometricSupported ? (
           <Row

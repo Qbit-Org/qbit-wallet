@@ -114,6 +114,8 @@ vi.mock('@qbit/wallet-state', async () => {
     useKeyrings: () => useSelect((state) => state.keyrings),
     useI18n: () => ({ t: harness.t, locale: 'en' }),
     useNavigation: () => harness.nav,
+    // As the hook does: the page-side call the reset dialog makes.
+    useResetWallet: () => (password: string, options?: unknown) => harness.wallet.resetWallet(password, options),
     useReloadAccounts: () => harness.reloadAccounts,
     useTools: () => harness.tools,
     useWallet: () => harness.wallet
@@ -208,6 +210,8 @@ beforeEach(() => {
     setAccountAlianName: vi.fn(async (account: Account, name: string) => ({ ...account, alianName: name })),
     setKeyringColor: vi.fn(async (keyring: WalletKeyring, color: string) => ({ ...keyring, color })),
     removeKeyring: vi.fn(),
+    resetWallet: vi.fn(),
+    isBooted: vi.fn(async () => true),
     isUnlocked: vi.fn(async () => true),
     getNextAlianName: vi.fn(async (keyring: WalletKeyring) => `Account ${keyring.accounts.length + 1}`),
     deriveNewAccountFromMnemonic: vi.fn(async () => ({ floorScanPending: false }))
@@ -1359,36 +1363,63 @@ describe('AccountSwitcherSheet corrupted wallets', () => {
 });
 
 describe('AccountSwitcherSheet removing a wallet', () => {
-  it('refuses to remove the last wallet', async () => {
+  // The removal would leave no wallet to open: the switcher reads the wallets
+  // again, then offers the reset in its place, and sends nothing before the
+  // user confirms it there.
+  const expectResetOffered = async () => {
+    expect(await screen.findByRole('dialog', { name: 'reset_wallet' })).toBeTruthy();
+    expect(screen.getByTestId('reset-wallet-last-wallet').textContent).toBe('reset_wallet_last_wallet');
+    expect(screen.queryByText('please_pay_attention_to_whether_you_have_backed_up')).toBeNull();
+    expect(harness.tools.toastError).not.toHaveBeenCalled();
+    expect(harness.wallet.removeKeyring).not.toHaveBeenCalled();
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
+  };
+
+  it('removing the last wallet opens the reset confirmation', async () => {
     await renderSheet([makeKeyring(0, KeyringType.QbitHdKeyring, 1)]);
+    harness.wallet.resetWallet.mockReturnValue(new Promise(() => undefined));
 
     fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
     fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    await expectResetOffered();
+    expect(screen.queryByRole('menu')).toBeNull();
+    // Read once on opening, and again before the reset was offered.
+    expect(harness.wallet.getKeyrings).toHaveBeenCalledTimes(2);
 
-    expect(harness.tools.toastError).toHaveBeenCalledWith('removing_the_last_wallet_is_not_allowed');
-    expect(screen.queryByText('please_pay_attention_to_whether_you_have_backed_up')).toBeNull();
+    // Only the confirmation sends it, with the typed password, naming the
+    // wallet it was offered for so the background checks it again.
+    fireEvent.change(screen.getByTestId('reset-wallet-password-input'), { target: { value: 'hunter22' } });
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('reset-wallet-confirm-button'));
+
+    expect(harness.wallet.resetWallet).toHaveBeenCalledTimes(1);
+    expect(harness.wallet.resetWallet).toHaveBeenCalledWith('hunter22', { lastWalletKey: 'keyring_0' });
     expect(harness.wallet.removeKeyring).not.toHaveBeenCalled();
+    expect(harness.tools.toastError).not.toHaveBeenCalled();
   });
 
   // As in the background, a usable wallet must stay: a corrupted one cannot be
   // opened, so it does not count.
-  it('refuses to remove the only usable wallet beside a corrupted one, but not the corrupted one', async () => {
+  it('treats the only usable wallet beside a corrupted one as the last, but not the corrupted one', async () => {
     const broken = makeKeyring(2, KeyringType.QbitHdKeyring, 0, { isCorrupted: true, alianName: 'Broken' });
     await renderSheet([makeKeyring(0, KeyringType.QbitHdKeyring, 1), broken]);
 
     fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
     fireEvent.click(screen.getByTestId('wallet-menu-remove'));
-    expect(harness.tools.toastError).toHaveBeenCalledWith('removing_the_last_wallet_is_not_allowed');
-    expect(screen.queryByText('please_pay_attention_to_whether_you_have_backed_up')).toBeNull();
+    await expectResetOffered();
+    fireEvent.click(screen.getByTestId('reset-wallet-cancel-button'));
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
 
     fireEvent.click(screen.getByTestId('wallet-menu-keyring_2'));
     fireEvent.click(screen.getByTestId('wallet-menu-remove'));
     expect(screen.getByText('please_pay_attention_to_whether_you_have_backed_up')).toBeTruthy();
-    expect(harness.tools.toastError).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
+    expect(harness.tools.toastError).not.toHaveBeenCalled();
     expect(harness.wallet.removeKeyring).not.toHaveBeenCalled();
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
   });
 
-  it('refuses every removal when no wallet is usable', async () => {
+  it('offers the reset for any wallet when no wallet is usable', async () => {
     await renderSheet([
       makeKeyring(0, KeyringType.HdKeyring, 0, { isCorrupted: true }),
       makeKeyring(1, KeyringType.QbitHdKeyring, 0, { isCorrupted: true })
@@ -1397,8 +1428,199 @@ describe('AccountSwitcherSheet removing a wallet', () => {
     fireEvent.click(screen.getByTestId('wallet-menu-keyring_1'));
     fireEvent.click(screen.getByTestId('wallet-menu-remove'));
 
-    expect(harness.tools.toastError).toHaveBeenCalledWith('removing_the_last_wallet_is_not_allowed');
+    await expectResetOffered();
+  });
+
+  it('closes the reset confirmation with Escape, sending nothing and keeping the sheet open', async () => {
+    const { onClose } = await renderSheet([makeKeyring(0, KeyringType.QbitHdKeyring, 1)]);
+
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    const dialog = await screen.findByRole('dialog', { name: 'reset_wallet' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.change(screen.getByTestId('reset-wallet-password-input'), { target: { value: 'hunter22' } });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wallet-menu-keyring_0'));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
+    expect(harness.wallet.removeKeyring).not.toHaveBeenCalled();
+  });
+
+  // Another window added a wallet while the reset confirmation was open: the
+  // switcher's own list shows it, and removing this wallet no longer resets.
+  it('closes the last-wallet reset confirmation once another usable wallet is listed', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1)];
+    await renderSheet(keyrings);
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    expect(await screen.findByRole('dialog', { name: 'reset_wallet' })).toBeTruthy();
+
+    // A corrupted wallet is no usable one: the premise holds.
+    const broken = makeKeyring(2, KeyringType.QbitHdKeyring, 0, { isCorrupted: true, alianName: 'Broken' });
+    act(() => {
+      harness.dispatch({ type: 'keyrings/setKeyrings', payload: [...keyrings, broken] });
+    });
+    expect(screen.getByRole('dialog', { name: 'reset_wallet' })).toBeTruthy();
+
+    const added = makeKeyring(1, KeyringType.QbitHdKeyring, 1);
+    act(() => {
+      harness.dispatch({ type: 'keyrings/setKeyrings', payload: [...keyrings, broken, added] });
+    });
+
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
+    // It says why it went.
+    expect(harness.tools.toastError).toHaveBeenCalledWith('wallet_reset_not_last_wallet');
+    expect(document.activeElement).toBe(screen.getByTestId('wallet-menu-keyring_0'));
+    // Remove Wallet is an ordinary removal again.
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    expect(screen.getByText('please_pay_attention_to_whether_you_have_backed_up')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
+    expect(harness.wallet.removeKeyring).not.toHaveBeenCalled();
+  });
+
+  it('shows a reset it already sent to its end, then closes the outdated confirmation', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1)];
+    await renderSheet(keyrings);
+    const answer = deferred<void>();
+    harness.wallet.resetWallet.mockReturnValueOnce(answer.promise);
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    await screen.findByRole('dialog', { name: 'reset_wallet' });
+    fireEvent.change(screen.getByTestId('reset-wallet-password-input'), { target: { value: 'hunter22' } });
+    fireEvent.click(screen.getByTestId('reset-wallet-confirm-button'));
+
+    const added = makeKeyring(1, KeyringType.QbitHdKeyring, 1);
+    act(() => {
+      harness.dispatch({ type: 'keyrings/setKeyrings', payload: [...keyrings, added] });
+    });
+    expect(screen.getByRole('dialog', { name: 'reset_wallet' })).toBeTruthy();
+
+    await act(async () => answer.reject({ message: 'Password is incorrect' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull());
+    // Not silently: the background's answer is shown as the dialog goes.
+    expect(harness.tools.toastError).toHaveBeenCalledWith('Password is incorrect');
+    expect(harness.wallet.resetWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes an outdated reset that the background answers with -11, saying why, with no risk step', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1)];
+    await renderSheet(keyrings);
+    const answer = deferred<void>();
+    harness.wallet.resetWallet.mockReturnValueOnce(answer.promise);
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    await screen.findByRole('dialog', { name: 'reset_wallet' });
+    fireEvent.change(screen.getByTestId('reset-wallet-password-input'), { target: { value: 'hunter22' } });
+    fireEvent.click(screen.getByTestId('reset-wallet-confirm-button'));
+    const added = makeKeyring(1, KeyringType.QbitHdKeyring, 1);
+    act(() => {
+      harness.dispatch({ type: 'keyrings/setKeyrings', payload: [...keyrings, added] });
+    });
+
+    await act(async () =>
+      answer.reject({
+        code: -11,
+        data: { reasons: [{ role: 'destination', network: 'regtest', status: 'migrating' }] }
+      })
+    );
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull());
+    expect(screen.queryByText('reset_wallet_recovery_title')).toBeNull();
+    expect(harness.tools.toastError).toHaveBeenCalledWith('wallet_reset_not_last_wallet');
+    expect(harness.wallet.resetWallet).toHaveBeenCalledTimes(1);
+  });
+
+  // Another window added a wallet after this sheet read the wallets: the read
+  // before the reset is offered finds it, as a fresh list would show it.
+  it('reads the wallets again before offering the reset, and offers the removal when another usable wallet turned up', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1)];
+    await renderSheet(keyrings);
+    harness.wallet.getKeyrings.mockResolvedValue([...keyrings, makeKeyring(1, KeyringType.QbitHdKeyring, 1)]);
+
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+
+    expect(await screen.findByText('please_pay_attention_to_whether_you_have_backed_up')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
+    expect(harness.wallet.getKeyrings).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('wallet-group-keyring_1')).toBeTruthy();
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
+    expect(harness.wallet.removeKeyring).not.toHaveBeenCalled();
+  });
+
+  it('offers nothing when the fresh list no longer has the wallet', async () => {
+    await renderSheet([makeKeyring(0, KeyringType.QbitHdKeyring, 1)]);
+    harness.wallet.getKeyrings.mockResolvedValue([makeKeyring(1, KeyringType.QbitHdKeyring, 1)]);
+
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+
+    await waitFor(() => expect(screen.queryByTestId('wallet-group-keyring_0')).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
     expect(screen.queryByText('please_pay_attention_to_whether_you_have_backed_up')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('switch-account-search'));
+  });
+
+  it('judges from the list it has when the read fails, and the background checks again', async () => {
+    await renderSheet([makeKeyring(0, KeyringType.QbitHdKeyring, 1)]);
+    harness.wallet.getKeyrings.mockRejectedValue({ message: 'port gone' });
+    harness.wallet.resetWallet.mockReturnValue(new Promise(() => undefined));
+
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    await expectResetOffered();
+    fireEvent.change(screen.getByTestId('reset-wallet-password-input'), { target: { value: 'hunter22' } });
+    fireEvent.click(screen.getByTestId('reset-wallet-confirm-button'));
+
+    expect(harness.wallet.resetWallet).toHaveBeenCalledWith('hunter22', { lastWalletKey: 'keyring_0' });
+  });
+
+  // The background found another usable wallet inside the reset and erased
+  // nothing (WALLET_RESET_NOT_LAST_WALLET).
+  it('closes the reset, shows why, and reads the wallets again when the wallet is no longer the last', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1)];
+    await renderSheet(keyrings);
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    await expectResetOffered();
+    harness.wallet.getKeyrings.mockResolvedValue([...keyrings, makeKeyring(1, KeyringType.QbitHdKeyring, 1)]);
+    harness.wallet.resetWallet.mockRejectedValue({ code: -20, message: 'wallet_reset_not_last_wallet' });
+
+    fireEvent.change(screen.getByTestId('reset-wallet-password-input'), { target: { value: 'hunter22' } });
+    fireEvent.click(screen.getByTestId('reset-wallet-confirm-button'));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull());
+    expect(harness.tools.toastError).toHaveBeenCalledWith('wallet_reset_not_last_wallet');
+    expect(await screen.findByTestId('wallet-group-keyring_1')).toBeTruthy();
+    expect(harness.wallet.getKeyrings).toHaveBeenCalledTimes(3);
+    // The menu now has the truth: Remove Wallet is an ordinary removal.
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_0'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    expect(screen.getByText('please_pay_attention_to_whether_you_have_backed_up')).toBeTruthy();
+    expect(harness.wallet.resetWallet).toHaveBeenCalledTimes(1);
+  });
+
+  // Another window removed the other wallet meanwhile: the background refuses
+  // the removal, and the refusal stays a refusal.
+  it('never turns a refused removal into a reset', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1), makeKeyring(1, KeyringType.QbitHdKeyring, 1)];
+    await renderSheet(keyrings);
+    harness.wallet.removeKeyring.mockRejectedValue({ message: 'removing_the_last_wallet_is_not_allowed' });
+
+    fireEvent.click(screen.getByTestId('wallet-menu-keyring_1'));
+    fireEvent.click(screen.getByTestId('wallet-menu-remove'));
+    fireEvent.click(screen.getByText('remove'));
+
+    await waitFor(() => expect(harness.tools.toastError).toHaveBeenCalledWith('removing_the_last_wallet_is_not_allowed'));
+    await waitFor(() => expect(screen.queryByText('please_pay_attention_to_whether_you_have_backed_up')).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
+    expect(harness.wallet.removeKeyring).toHaveBeenCalledTimes(1);
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
   });
 
   it('confirms in the removal popover, then drops the wallet from the open sheet', async () => {
@@ -1412,10 +1634,12 @@ describe('AccountSwitcherSheet removing a wallet', () => {
     fireEvent.click(screen.getByTestId('wallet-menu-keyring_1'));
     fireEvent.click(screen.getByTestId('wallet-menu-remove'));
     expect(screen.getByText('please_pay_attention_to_whether_you_have_backed_up')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'reset_wallet' })).toBeNull();
     fireEvent.click(screen.getByText('remove'));
 
     await waitFor(() => expect(screen.queryByTestId('wallet-group-keyring_1')).toBeNull());
     expect(harness.wallet.removeKeyring).toHaveBeenCalledWith(keyrings[1], undefined);
+    expect(harness.wallet.resetWallet).not.toHaveBeenCalled();
     expect(screen.queryByText('please_pay_attention_to_whether_you_have_backed_up')).toBeNull();
     expect(harness.store.state.currentAccount).toEqual(keyrings[0].accounts[0]);
     expect(screen.getByTestId(`account-row-${keyrings[0].accounts[0].address}`).getAttribute('aria-current')).toBe('true');
@@ -1514,7 +1738,7 @@ describe('AccountSwitcherSheet renaming and colors', () => {
     expect(screen.getByTestId('name-edit-dialog')).toBeTruthy();
   });
 
-  it('renames an account, and keeps the dialog open with the error when the background refuses', async () => {
+  it('renames an account, and closes the dialog with the error when the background refuses', async () => {
     const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 2)];
     const account = keyrings[0].accounts[0];
     harness.wallet.setAccountAlianName.mockRejectedValueOnce({ message: 'storage is locked' });
@@ -1526,13 +1750,76 @@ describe('AccountSwitcherSheet renaming and colors', () => {
     fireEvent.submit(screen.getByTestId('name-edit-input').closest('form') as HTMLFormElement);
 
     await waitFor(() => expect(harness.tools.toastError).toHaveBeenCalledWith('storage is locked'));
-    expect(screen.getByTestId('name-edit-dialog')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTestId('name-edit-dialog')).toBeNull());
 
+    // A retry starts again from the account's menu.
+    fireEvent.click(screen.getByTestId(`account-menu-${account.address}`));
+    fireEvent.click(screen.getByTestId('account-menu-edit-name'));
+    fireEvent.change(screen.getByTestId('name-edit-input'), { target: { value: 'Rent' } });
     fireEvent.click(screen.getByTestId('name-edit-save'));
     await waitFor(() => expect(screen.queryByTestId('name-edit-dialog')).toBeNull());
+    expect(harness.wallet.setAccountAlianName).toHaveBeenCalledTimes(2);
     expect(harness.wallet.setAccountAlianName).toHaveBeenLastCalledWith(account, 'Rent');
     expect(screen.getByTestId(`account-row-${account.address}`).textContent).toContain('Rent');
     expect(harness.store.state.currentAccount.alianName).toBe('Rent');
+  });
+
+  it('explains a refused account rename as a refused wallet rename when the wallet is gone, and reads the wallets again', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1), makeKeyring(1, KeyringType.QbitHdKeyring, 1)];
+    const account = keyrings[1].accounts[0];
+    await renderSheet(keyrings);
+    // Another window removed the second wallet after the sheet read the wallets.
+    harness.wallet.getKeyrings.mockResolvedValue([keyrings[0]]);
+    harness.wallet.setAccountAlianName.mockRejectedValueOnce({
+      message: 'The selected account is no longer available'
+    });
+
+    fireEvent.click(screen.getByTestId(`account-menu-${account.address}`));
+    fireEvent.click(screen.getByTestId('account-menu-edit-name'));
+    fireEvent.change(screen.getByTestId('name-edit-input'), { target: { value: 'Rent' } });
+    fireEvent.submit(screen.getByTestId('name-edit-input').closest('form') as HTMLFormElement);
+
+    // In the user's language, not the background's.
+    await waitFor(() => expect(harness.tools.toastError).toHaveBeenCalledWith('account_switcher_wallet_unavailable'));
+    await waitFor(() => expect(screen.queryByTestId('wallet-group-keyring_1')).toBeNull());
+    expect(screen.queryByTestId('name-edit-dialog')).toBeNull();
+  });
+
+  it('closes the dialog on a refused account rename and reads the wallets again, so a retry names the account they now list', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1)];
+    const stale = keyrings[0].accounts[0];
+    await renderSheet(keyrings);
+    // The slot holds another wallet now, its account under the same key.
+    const fresh = { ...stale, address: `${stale.address}new`, pubkey: `${stale.pubkey}new` };
+    harness.wallet.getKeyrings.mockResolvedValue([{ ...keyrings[0], accounts: [fresh] }]);
+    harness.wallet.setAccountAlianName.mockRejectedValueOnce({
+      message: 'The selected account is no longer available'
+    });
+
+    fireEvent.click(screen.getByTestId(`account-menu-${stale.address}`));
+    fireEvent.click(screen.getByTestId('account-menu-edit-name'));
+    fireEvent.change(screen.getByTestId('name-edit-input'), { target: { value: 'Rent' } });
+    fireEvent.submit(screen.getByTestId('name-edit-input').closest('form') as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(harness.tools.toastError).toHaveBeenCalledWith('The selected account is no longer available')
+    );
+    // The dialog would find its account again by keys only, which the fresh
+    // account holds now: it closes rather than offer a save that names it.
+    await waitFor(() => expect(screen.queryByTestId('name-edit-dialog')).toBeNull());
+    await waitFor(() => expect(screen.getByTestId(`account-row-${fresh.address}`)).toBeTruthy());
+
+    // A retry starts from the row the wallets now list.
+    fireEvent.click(screen.getByTestId(`account-menu-${fresh.address}`));
+    fireEvent.click(screen.getByTestId('account-menu-edit-name'));
+    fireEvent.change(screen.getByTestId('name-edit-input'), { target: { value: 'Rent' } });
+    fireEvent.click(screen.getByTestId('name-edit-save'));
+    await waitFor(() => expect(screen.queryByTestId('name-edit-dialog')).toBeNull());
+    expect(harness.wallet.setAccountAlianName).toHaveBeenCalledTimes(2);
+    expect(harness.wallet.setAccountAlianName).toHaveBeenLastCalledWith(
+      expect.objectContaining({ address: fresh.address }),
+      'Rent'
+    );
   });
 
   it('leaves another dialog open when a save settles after its own dialog was dismissed', async () => {
