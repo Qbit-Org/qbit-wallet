@@ -10,6 +10,7 @@ const LOCALES = ['en', 'es', 'fr', 'ja', 'ru', 'zh_TW'];
 
 // Copy the account switcher added or changed.
 const SWITCHER_KEYS = [
+  'account_created',
   'account_switcher_account_count_few',
   'account_switcher_account_count_many',
   'account_switcher_account_count_one',
@@ -25,6 +26,7 @@ const SWITCHER_KEYS = [
   'account_switcher_search_placeholder',
   'account_switcher_wallet_options_label',
   'account_switcher_wallet_unavailable',
+  'create',
   'qbit_recovery_complete_switch_wallet_hint',
   'wallet_color_blue',
   'wallet_color_gold',
@@ -36,6 +38,7 @@ const SWITCHER_KEYS = [
   'wallet_color_violet',
   'wallet_invalid_note',
   'wallet_menu_add_account',
+  'wallet_menu_backup_seed_phrase',
   'wallet_menu_change_color',
   'wallet_menu_rename',
   'wallet_tag_archived',
@@ -49,7 +52,7 @@ const SAME_AS_ENGLISH = {
 };
 
 // Keys whose last caller the account switcher replaced.
-const REMOVED_KEYS = ['switch_wallet'];
+const REMOVED_KEYS = ['create_an_account', 'switch_wallet'];
 
 const placeholders = (message) => (message.match(/\$\d+/g) || []).sort();
 const read = (locale) => JSON.parse(fs.readFileSync(path.join(localesDir, locale, 'messages.json'), 'utf8'));

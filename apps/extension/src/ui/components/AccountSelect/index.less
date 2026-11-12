@@ -32,7 +32,7 @@
   cursor: pointer;
 
   &:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: -2px;
   }
 }
@@ -44,25 +44,25 @@
   min-width: 0;
 }
 
-.account-card__wallet-line {
+// The account name, then the wallet's tags: beside the name when both fit,
+// or on a line of their own under it, so a tag never shortens the name. Only
+// a name wider than the whole line ends in an ellipsis.
+.account-card__name-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   min-width: 0;
-  height: 16px;
 }
 
-.account-card__wallet-name {
-  min-width: 0;
+// A tag wider than the whole line, as the cold wallet's is in some languages
+// in the narrowest side panel, ends in an ellipsis instead of running under
+// the chevron.
+.account-card__name-line .wallet-tag {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
-  color: var(--qbit-muted);
-  font-family: Inter-Bold, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 11px;
-  line-height: 16px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .account-card__account-name {
@@ -93,7 +93,7 @@
   font-family: Inter-Regular, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px;
   line-height: 18px;
-  cursor: copy;
+  cursor: pointer;
 
   &:hover {
     color: var(--qbit-ink);
@@ -101,7 +101,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: 0;
   }
 

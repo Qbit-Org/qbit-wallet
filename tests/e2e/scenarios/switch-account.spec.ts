@@ -145,19 +145,53 @@ async function reopenWallet(extension: ExtensionSession, page: Page): Promise<Wa
   return home
 }
 
-test('switch account: the card names the wallet, two taps switch wallets, Add account and search', async ({
+test('switch account: the card shows the wallet by its tile, two taps switch wallets, Add account and search', async ({
   extension,
 }) => {
   const { page, home, created, restored } = await setUpTwoWallets(extension)
 
-  // The header has no wallet chip; the card names the wallet above the account.
+  // The header has no wallet chip, and the card shows no wallet name: its tile
+  // carries the wallet's color, and the wallet's tags sit on the account name's
+  // line, after the name, when both fit.
   await expect(page.getByTestId('wallet-management-entry')).toHaveCount(0)
-  expect((await box(home.cardWalletName)).y).toBeLessThan((await box(home.cardAccountName)).y)
+  const cardContent = home.accountCard.locator('xpath=..')
+  await expect(cardContent).toContainText('Account 1')
+  await expect(cardContent).not.toContainText('Wallet 2')
   await expect(home.cardWalletTile).toHaveAttribute(
     'data-color',
     walletColorForSlot(restored.index)
   )
   await expect.poll(() => home.cardTags()).toEqual(['recovered'])
+  const nameBox = await box(home.cardAccountName)
+  const tagBox = await box(home.cardTag('recovered'))
+  expect(tagBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width)
+  expect(tagBox.y).toBeGreaterThanOrEqual(nameBox.y)
+  expect(tagBox.y + tagBox.height).toBeLessThanOrEqual(nameBox.y + nameBox.height)
+
+  // In the 357 px popup, a 20-character account name, the longest a name can
+  // be, leaves no room for the tag beside it. The name stays whole, and the
+  // tag goes on a line of its own, under the name and above the address.
+  // Then the name and the width go back to what the rest of the test expects.
+  const viewport = page.viewportSize()
+  const restoredAddress = restored.accounts[0]!.address
+  const longName = 'Mortgage Overpayment'
+  await page.setViewportSize({ width: 357, height: viewport?.height ?? 860 })
+  const renaming = await home.openAccountSwitcher()
+  await renaming.renameAccount(restoredAddress, longName)
+  await renaming.close()
+  await home.expectCurrentAccount({ walletName: 'Wallet 2', accountName: longName })
+  expect(await home.cardAccountName.evaluate(name => name.scrollWidth - name.clientWidth)).toBe(0)
+  const longNameBox = await box(home.cardAccountName)
+  const droppedTagBox = await box(home.cardTag('recovered'))
+  const addressBox = await box(home.cardAddress)
+  expect(droppedTagBox.x).toBeCloseTo(longNameBox.x, 0)
+  expect(droppedTagBox.y).toBeGreaterThanOrEqual(longNameBox.y + longNameBox.height)
+  expect(droppedTagBox.y + droppedTagBox.height).toBeLessThanOrEqual(addressBox.y)
+  const renamingBack = await home.openAccountSwitcher()
+  await renamingBack.renameAccount(restoredAddress, 'Account 1')
+  await renamingBack.close()
+  if (viewport) await page.setViewportSize(viewport)
+  await home.expectCurrentAccount({ walletName: 'Wallet 2', accountName: 'Account 1' })
 
   // Every account, grouped under its wallet in wallet order, the current one marked.
   let sheet = await home.openAccountSwitcher()
@@ -180,16 +214,52 @@ test('switch account: the card names the wallet, two taps switch wallets, Add ac
     `account-row-${restored.accounts[0]!.address}`
   )
 
-  // "+" on the wallet that is not current derives the account there and selects it.
-  // The new account screen names that wallet.
+  // Each Create's own "Account created" toast: none is on screen before it
+  // (an earlier one, which lasts about 2 s, has gone), one after it. Then the
+  // dialog and the sheet under it close over the home screen.
+  const accountCreatedToast = page.getByText('Account created', { exact: true })
+  const expectNoAccountCreatedToast = () => expect(accountCreatedToast).toHaveCount(0)
+  const expectAccountCreated = async () => {
+    await expect(accountCreatedToast).toBeVisible()
+    await expect(sheet.newAccountDialog).toHaveCount(0)
+    await sheet.waitUntilClosed()
+  }
+
+  // "+" on the wallet that is not current opens the New account dialog over
+  // the open sheet; the dialog names that wallet.
   await sheet.addAccount(created.key)
-  await expect(page.getByTestId('create-account-wallet-name')).toHaveText('Wallet 1')
-  await expect(page.getByTestId('create-account-wallet-tile')).toHaveAttribute(
+  await sheet.expectNewAccountDialogOverSheet()
+  await expect(sheet.newAccountWalletName).toHaveText('Wallet 1')
+  await expect(sheet.newAccountWalletTile).toHaveAttribute(
     'data-color',
     walletColorForSlot(created.index)
   )
-  await page.getByTestId('create-account-name-input').fill('Savings')
-  await page.getByTestId('create-account-confirm-button').click()
+
+  // Cancel, and Escape, go back to the open sheet with focus on the "+", and
+  // create nothing.
+  const beforeAdding = [
+    { name: 'Wallet 1', accounts: 1 },
+    { name: 'Wallet 2', accounts: 1 },
+  ]
+  await sheet.newAccountCancelButton.click()
+  await expect(sheet.newAccountDialog).toHaveCount(0)
+  await expect(sheet.root).toBeVisible()
+  await expect(sheet.addAccountButton(created.key)).toBeFocused()
+  expect(await walletSummary(extension, page)).toEqual(beforeAdding)
+  await sheet.addAccount(created.key)
+  await sheet.expectNewAccountDialogOverSheet()
+  await page.keyboard.press('Escape')
+  await expect(sheet.newAccountDialog).toHaveCount(0)
+  await expect(sheet.root).toBeVisible()
+  await expect(sheet.addAccountButton(created.key)).toBeFocused()
+  expect(await walletSummary(extension, page)).toEqual(beforeAdding)
+
+  // Create derives the account there and selects it.
+  await sheet.addAccount(created.key)
+  await sheet.newAccountNameInput.fill('Savings')
+  await expectNoAccountCreatedToast()
+  await sheet.newAccountCreateButton.click()
+  await expectAccountCreated()
   await home.waitUntilReady()
   const savings = (await walletKeyring(extension, page, created.key)).accounts[1]
   expect(savings?.alianName).toBe('Savings')
@@ -207,9 +277,11 @@ test('switch account: the card names the wallet, two taps switch wallets, Add ac
   // The wallet menu's Add Account does the same for the restored wallet.
   sheet = await home.openAccountSwitcher()
   await sheet.chooseWalletMenuItem(restored.key, 'add-account')
-  await expect(page).toHaveURL(/#\/account\/create(?:$|\?)/)
-  await expect(page.getByTestId('create-account-wallet-name')).toHaveText('Wallet 2')
-  await page.getByTestId('create-account-confirm-button').click()
+  await sheet.expectNewAccountDialogOverSheet()
+  await expect(sheet.newAccountWalletName).toHaveText('Wallet 2')
+  await expectNoAccountCreatedToast()
+  await sheet.newAccountCreateButton.click()
+  await expectAccountCreated()
   await home.waitUntilReady()
   const restoredSecond = (await walletKeyring(extension, page, restored.key)).accounts[1]
   expect(restoredSecond?.alianName).toBe('Account 2')
@@ -239,7 +311,7 @@ test('switch account: the card names the wallet, two taps switch wallets, Add ac
   })
   expect(await currentAddress(extension, page)).toBe(savings!.address)
 
-  // With the keyboard: Enter on "+" opens the new account screen, whose name
+  // With the keyboard: Enter on "+" opens the New account dialog, whose name
   // field has focus by the time that key comes up, and nothing is created
   // until Enter is pressed in the field.
   sheet = await home.openAccountSwitcher()
@@ -247,9 +319,9 @@ test('switch account: the card names the wallet, two taps switch wallets, Add ac
   await page.keyboard.press('Tab')
   await expect(sheet.addAccountButton(created.key)).toBeFocused()
   await page.keyboard.press('Enter', { delay: 80 })
-  await expect(page).toHaveURL(/#\/account\/create(?:$|\?)/)
-  await expect(page.getByTestId('create-account-wallet-name')).toHaveText('Wallet 1')
-  const nameField = page.getByTestId('create-account-name-input')
+  await sheet.expectNewAccountDialogOverSheet()
+  await expect(sheet.newAccountWalletName).toHaveText('Wallet 1')
+  const nameField = sheet.newAccountNameInput
   await expect(nameField).toBeFocused()
   await expect(nameField).toHaveAttribute('placeholder', 'Account 3')
   expect(await walletSummary(extension, page)).toEqual([
@@ -257,7 +329,9 @@ test('switch account: the card names the wallet, two taps switch wallets, Add ac
     { name: 'Wallet 2', accounts: 2 },
   ])
   await nameField.fill('Travel')
+  await expectNoAccountCreatedToast()
   await nameField.press('Enter', { delay: 80 })
+  await expectAccountCreated()
   await home.waitUntilReady()
   const travel = (await walletKeyring(extension, page, created.key)).accounts[2]
   expect(travel?.alianName).toBe('Travel')

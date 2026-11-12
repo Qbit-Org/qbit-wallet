@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "創建密碼"
   },
-  "create_an_account": {
-    "message": "創建帳戶"
-  },
   "hardware_wallet_not_supported": {
     "message": "硬體錢包尚不支援 Qbit 的後量子簽名。請在專案的硬體錢包文件中追蹤進度。"
   },
@@ -2246,6 +2243,12 @@
   "account_switcher_wallet_unavailable": {
     "message": "所選錢包已無法使用"
   },
+  "account_created": {
+    "message": "帳戶已創建"
+  },
+  "create": {
+    "message": "創建"
+  },
   "wallet_menu_add_account": {
     "message": "新增帳戶"
   },
@@ -2254,6 +2257,9 @@
   },
   "wallet_menu_change_color": {
     "message": "變更顏色"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "備份/顯示助記詞"
   },
   "wallet_tag_read_only": {
     "message": "唯讀"

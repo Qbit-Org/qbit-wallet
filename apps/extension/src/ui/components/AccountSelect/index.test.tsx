@@ -72,17 +72,38 @@ describe('AccountSelect', () => {
     vi.clearAllMocks();
   });
 
-  it('names the wallet above the account, with its tile and the short address', () => {
+  it('shows the wallet tile, the account name and the short address, and names the wallet only on the open button', () => {
+    const { container } = render(<AccountSelect />);
+
+    const tile = screen.getByTestId('account-select-wallet-tile');
+    expect(tile.getAttribute('data-color')).toBe('teal');
+    expect(tile.getAttribute('aria-hidden')).toBe('true');
+    expect(tile.style.width).toBe('28px');
+    expect(tile.style.height).toBe('28px');
+    expect(screen.getByTestId('account-select-account-name').textContent).toBe('Account 2');
+    expect(screen.getByTestId('account-select-copy').textContent).toBe(shortAddress(account.address));
+
+    // No text on the card names the wallet; the open button over it does.
+    expect(container.textContent).not.toContain('Qbit HD Wallet #4');
+    const card = screen.getByTestId('account-select');
+    expect(screen.getByRole('button', { name: 'account_switcher_open_label(Account 2|Qbit HD Wallet #4)' })).toBe(card);
+    expect(card.getAttribute('title')).toBe('Qbit HD Wallet #4\nAccount 2');
+  });
+
+  it('shows the wallet tags right after the account name, and the address after both', () => {
+    vi.mocked(useCurrentKeyring).mockReturnValue(keyring({ qbitRecovery: recovery('seed-only-restored') }));
     render(<AccountSelect />);
 
-    const walletName = screen.getByTestId('account-select-wallet-name');
+    // The name and the tags share a line, which puts the tags under the name
+    // when both do not fit: that is layout, which the e2e scenario checks.
     const accountName = screen.getByTestId('account-select-account-name');
-    expect(walletName.textContent).toBe('Qbit HD Wallet #4');
-    expect(accountName.textContent).toBe('Account 2');
-    expect(walletName.compareDocumentPosition(accountName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByTestId('account-select-wallet-tile').getAttribute('data-color')).toBe('teal');
-    expect(screen.getByTestId('account-select-wallet-tile').getAttribute('aria-hidden')).toBe('true');
-    expect(screen.getByTestId('account-select-copy').textContent).toBe(shortAddress(account.address));
+    const line = Array.from(accountName.parentElement?.children ?? []);
+    expect(line).toHaveLength(2);
+    expect(line[0]).toBe(accountName);
+    expect(line[1]).toBe(screen.getByTestId('account-select-tag-recovered'));
+    const copy = screen.getByTestId('account-select-copy');
+    expect(accountName.parentElement?.nextElementSibling).toBe(copy);
+    expect(copy.nextElementSibling).toBeNull();
   });
 
   it('shows the slot color when the store has no color yet', () => {

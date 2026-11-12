@@ -17,12 +17,13 @@ import {
   useI18n,
   useKeyrings,
   useNavigation,
+  useReloadAccounts,
   useTools,
   useWallet
 } from '@qbit/wallet-state';
 
 import { ActionMenu, ActionMenuItem } from './ActionMenu';
-import { NameEditDialog, WalletColorPicker } from './SwitcherDialogs';
+import { NameEditDialog, NewAccountDialog, WalletColorPicker } from './SwitcherDialogs';
 import { accountCountLabel } from './accountCount';
 import './index.less';
 
@@ -57,7 +58,8 @@ type DialogState =
   | { kind: 'rename-wallet'; keyringKey: string }
   | { kind: 'rename-account'; keyringKey: string; accountKey: string }
   | { kind: 'color'; keyringKey: string }
-  | { kind: 'remove'; keyringKey: string };
+  | { kind: 'remove'; keyringKey: string }
+  | { kind: 'new-account'; keyringKey: string };
 
 interface WalletGroup {
   keyring: WalletKeyring;
@@ -84,6 +86,7 @@ function AccountSwitcherContent() {
   const dispatch = useAppDispatch();
   const tools = useTools();
   const nav = useNavigation();
+  const reloadAccounts = useReloadAccounts();
   const { t, locale } = useI18n();
   const keyrings = useKeyrings();
   const currentAccount = useCurrentAccount();
@@ -94,6 +97,7 @@ function AccountSwitcherContent() {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -253,6 +257,21 @@ function AccountSwitcherContent() {
     if (refocus) anchor?.focus({ preventScroll: true });
   };
 
+  // Whether the sheet is leaving: a switch is under way, which takes the sheet
+  // away once it settles with whatever is open on it, or the sheet already
+  // slides away. Nothing on it opens or acts then.
+  const isLeaving = () => switchingRef.current || closingRef.current;
+
+  // `action`, unless the sheet is leaving: then it only closes an open menu.
+  const unlessLeaving = (action: () => void) => () => {
+    if (isLeaving()) {
+      closeMenu();
+      return;
+    }
+    action();
+  };
+
+  // Every way to a dialog, the "+" and the menu items, keeps to unlessLeaving.
   const openDialog = (next: DialogState) => {
     returnFocusRef.current = menu?.anchor ?? (document.activeElement as HTMLElement | null);
     setMenu(null);
@@ -308,7 +327,7 @@ function AccountSwitcherContent() {
   };
 
   const selectAccount = async (keyring: WalletKeyring, account: Account) => {
-    if (switchingRef.current || closingRef.current) return;
+    if (isLeaving()) return;
     if (account.key === currentAccount.key) {
       close();
       return;
@@ -340,9 +359,59 @@ function AccountSwitcherContent() {
     close();
   };
 
+  // The New account dialog, over the sheet, for the wallet of the "+" or menu;
+  // never in place of another dialog, which could be one still deriving.
   const addAccount = (keyring: WalletKeyring) => {
-    setMenu(null);
-    nav.navigate('CreateAccountScreen', { keyringKey: keyring.key });
+    if (dialogRef.current) return;
+    openDialog({ kind: 'new-account', keyringKey: keyring.key });
+  };
+
+  // Derives one more account on the wallet the dialog shows, as the sheet
+  // lists it; the background selects it. The dialog never offers Create again,
+  // since a derive that fails may still have created the account: it closes
+  // when the derive settles, whatever the outcome, and the store reads the
+  // wallets and the selection back from the background even once the sheet is
+  // gone. Without a name the background names the account as it derives it.
+  const createAccount = async (keyring: WalletKeyring, name?: string) => {
+    const started = dialogRef.current;
+    let created = false;
+    try {
+      const result = await (name
+        ? wallet.deriveNewAccountFromMnemonic(keyring, name)
+        : wallet.deriveNewAccountFromMnemonic(keyring));
+      created = true;
+      if (result?.floorScanPending) {
+        // The account exists and is selected, but the restored wallet's
+        // signature-counter scan did not complete, so signing stays locked
+        // until a later scan succeeds.
+        tools.toastWarning(t('qbit_restore_floors_incomplete_warning'));
+      } else {
+        tools.toastSuccess(t('account_created'));
+      }
+    } catch (error) {
+      // A restored wallet commits the account before its floor scan, and a
+      // request the port dropped can still complete in the background, so the
+      // account may exist all the same. The wallets read again show what is
+      // there; one another window removed reads as gone, in the user's
+      // language, and its dialog closes with it.
+      tools.toastError(walletErrorMessage(await explainRefusal(keyring, error), t('unknown_error')));
+    }
+    // A wallets read still pending, such as the one made on opening, must
+    // not replace what the reload reads after it.
+    dropPendingKeyringsRead();
+    try {
+      await reloadAccounts();
+    } catch {
+      // The home screen keeps the last synced account until the next reload.
+    }
+    // Once its dialog is gone (its wallet went, or the sheet closed and is
+    // gone too), nothing closes: not another dialog opened since, nor the
+    // sheet under it. The sheet cannot begin to close while the dialog is open:
+    // the dialog covers it and takes Escape.
+    if (!mountedRef.current || started === null || dialogRef.current !== started) return;
+    closeDialog();
+    // The new account is selected: the home screen shows it.
+    if (created) close();
   };
 
   const removeWallet = (keyring: WalletKeyring) => {
@@ -387,7 +456,7 @@ function AccountSwitcherContent() {
     // "Invalid" note asks for removal, so it must stay reachable for a backup.
     if (MNEMONIC_BACKED_KEYRING_TYPES.includes(keyring.type)) {
       items.push({
-        label: t('show_secret_recovery_phrase'),
+        label: t('wallet_menu_backup_seed_phrase'),
         icon: <KeyRound size={14} />,
         onSelect: () => {
           setMenu(null);
@@ -439,6 +508,10 @@ function AccountSwitcherContent() {
   };
 
   const openMenu = (event: React.MouseEvent<HTMLButtonElement>, target: MenuTarget) => {
+    if (isLeaving()) {
+      closeMenu();
+      return;
+    }
     const anchor = event.currentTarget;
     setMenu((open) => (open && open.anchor === anchor ? null : { ...target, anchor }));
   };
@@ -481,6 +554,8 @@ function AccountSwitcherContent() {
     refreshKeyrings();
   };
 
+  const addOrImportWallet = unlessLeaving(() => nav.navigate('AddKeyringScreen'));
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // Keys from a dialog over the sheet are the dialog's.
     if (dialog || !rootRef.current?.contains(event.target as Node)) return;
@@ -511,7 +586,7 @@ function AccountSwitcherContent() {
       onKeyDown={onKeyDown}
       data-testid="switch-account-sheet"
     >
-      <div className="switcher__header">
+      <div ref={headerRef} className="switcher__header">
         <h2 id={titleId} className="switcher__title">
           {t('switch_account')}
         </h2>
@@ -577,36 +652,38 @@ function AccountSwitcherContent() {
                     </span>
                   )}
                 </div>
-                {canAddAccount && (
+                <div className="switcher-group__actions">
+                  {canAddAccount && (
+                    <button
+                      type="button"
+                      className="switcher-icon-button switcher-icon-button--accent"
+                      aria-label={t('account_switcher_add_account_label', [keyring.alianName])}
+                      onClick={unlessLeaving(() => addAccount(keyring))}
+                      data-testid={`wallet-add-account-${keyring.key}`}
+                    >
+                      <Plus size={17} aria-hidden="true" focusable="false" />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="switcher-icon-button switcher-icon-button--accent"
-                    aria-label={t('account_switcher_add_account_label', [keyring.alianName])}
-                    onClick={() => addAccount(keyring)}
-                    data-testid={`wallet-add-account-${keyring.key}`}
+                    className="switcher-icon-button"
+                    aria-label={t('account_switcher_wallet_options_label', [keyring.alianName])}
+                    aria-haspopup="menu"
+                    aria-expanded={walletMenuOpen}
+                    aria-controls={walletMenuOpen ? menuId : undefined}
+                    onClick={(event) => openMenu(event, { kind: 'wallet', keyringKey: keyring.key })}
+                    data-testid={`wallet-menu-${keyring.key}`}
                   >
-                    <Plus size={17} aria-hidden="true" focusable="false" />
+                    <Ellipsis size={17} aria-hidden="true" focusable="false" />
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="switcher-icon-button"
-                  aria-label={t('account_switcher_wallet_options_label', [keyring.alianName])}
-                  aria-haspopup="menu"
-                  aria-expanded={walletMenuOpen}
-                  aria-controls={walletMenuOpen ? menuId : undefined}
-                  onClick={(event) => openMenu(event, { kind: 'wallet', keyringKey: keyring.key })}
-                  data-testid={`wallet-menu-${keyring.key}`}
-                >
-                  <Ellipsis size={17} aria-hidden="true" focusable="false" />
-                </button>
+                </div>
               </div>
 
               {corrupted ? (
                 <button
                   type="button"
                   className="switcher-invalid"
-                  onClick={() => tools.toastError(t('invalid_wallet_please_remove_it_and_add_new_one'))}
+                  onClick={unlessLeaving(() => tools.toastError(t('invalid_wallet_please_remove_it_and_add_new_one')))}
                   data-testid={`wallet-invalid-${keyring.key}`}
                 >
                   {t('wallet_invalid_note')}
@@ -684,8 +761,8 @@ function AccountSwitcherContent() {
           LeftAccessory={<Plus size={16} aria-hidden="true" focusable="false" />}
           role="button"
           tabIndex={0}
-          onClick={() => nav.navigate('AddKeyringScreen')}
-          onKeyDown={activateOnKey(() => nav.navigate('AddKeyringScreen'))}
+          onClick={addOrImportWallet}
+          onKeyDown={activateOnKey(addOrImportWallet)}
           style={{ minHeight: 44 }}
           data-testid="add-wallet-button"
         />
@@ -696,18 +773,18 @@ function AccountSwitcherContent() {
           id={menuId}
           anchor={menu.anchor}
           container={rootRef.current}
+          clearOf={headerRef.current}
           label={
             menu.kind === 'wallet'
               ? t('account_switcher_wallet_options_label', [menuKeyring.alianName])
               : t('account_switcher_account_options_label', [menuAccount?.alianName ?? '', menuKeyring.alianName])
           }
-          items={
-            menu.kind === 'wallet'
-              ? walletMenuItems(menuKeyring)
-              : menuAccount
-                ? accountMenuItems(menuKeyring, menuAccount)
-                : []
-          }
+          items={(menu.kind === 'wallet'
+            ? walletMenuItems(menuKeyring)
+            : menuAccount
+              ? accountMenuItems(menuKeyring, menuAccount)
+              : []
+          ).map((item) => ({ ...item, onSelect: unlessLeaving(item.onSelect) }))}
           onDismiss={() => closeMenu()}
         />
       )}
@@ -732,6 +809,13 @@ function AccountSwitcherContent() {
         <WalletColorPicker
           keyring={dialogKeyring}
           onPick={(color) => saveWalletColor(dialogKeyring, color)}
+          onDismiss={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'new-account' && dialogKeyring && (
+        <NewAccountDialog
+          keyring={dialogKeyring}
+          onCreate={(name) => createAccount(dialogKeyring, name)}
           onDismiss={closeDialog}
         />
       )}

@@ -2,6 +2,10 @@
 @font-bold: Inter-Bold, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 @group-header-height: 48px;
 
+// Focus rings and the search field's focus border use --qbit-accent-dark: at
+// least 3:1 on every background here (paper, canvas, surface tint, accent
+// wash), in both themes, where --qbit-accent is under 3:1 in the light one.
+
 .switcher {
   position: relative;
   display: flex;
@@ -49,7 +53,7 @@
   background: var(--qbit-canvas);
 
   &:focus-within {
-    border-color: var(--qbit-accent);
+    border-color: var(--qbit-accent-dark);
   }
 }
 
@@ -92,7 +96,7 @@
   border-top: 1px solid var(--qbit-line);
 
   [role='button']:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: 2px;
   }
 }
@@ -169,6 +173,15 @@
   line-height: 15px;
 }
 
+// The wallet's "+" and its menu button, close together at the end of the
+// header; a wallet without "+" keeps its menu button in the same place.
+.switcher-group__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
 .switcher-group__accounts {
   margin: 0;
   padding: 0;
@@ -214,7 +227,7 @@
   cursor: pointer;
 
   &:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: -2px;
   }
 }
@@ -274,7 +287,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: -2px;
   }
 }
@@ -298,12 +311,18 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: -2px;
   }
 
   &[aria-expanded='true'] {
     background: var(--qbit-accent-wash);
+  }
+
+  &[aria-disabled='true'] {
+    background: transparent;
+    cursor: not-allowed;
+    opacity: 0.45;
   }
 }
 
@@ -392,6 +411,57 @@
   line-height: 22px;
 }
 
+// A dialog's name field shows it has focus, which the shared input does not
+// draw: a 2 px ring, as the switcher's other focus rings, drawn inside the
+// field over its own border as an outline, so the field keeps its size and
+// place whatever styles the input sets.
+.switcher-dialog__field:focus-within {
+  outline: 2px solid var(--qbit-accent-dark);
+  outline-offset: -2px;
+}
+
+// A title with the dialog's close button at its end, which takes no more
+// height than the title.
+.switcher-dialog__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -5px -10px -5px 0;
+
+  .switcher-dialog__title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+// The wallet a new account goes to, as the sheet heads a wallet's group: its
+// tile and name on a tinted band, joined to the name field below.
+.create-account-wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--qbit-line);
+  border-bottom: 0;
+  background: var(--qbit-surface-tint);
+}
+
+.create-account-wallet__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--qbit-ink);
+  font-family: @font-bold;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .switcher-dialog__subtitle {
   margin-top: 2px;
   overflow: hidden;
@@ -408,7 +478,7 @@
   gap: 8px;
 
   [role='button']:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: 2px;
   }
 }
@@ -438,7 +508,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--qbit-accent);
+    outline: 2px solid var(--qbit-accent-dark);
     outline-offset: 1px;
   }
 

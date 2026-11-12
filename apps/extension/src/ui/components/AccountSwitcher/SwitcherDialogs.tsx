@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -10,7 +10,7 @@ import { WALLET_COLOR_NAME_KEYS, WALLET_PALETTE } from '@/ui/theme/walletColors'
 import { walletErrorMessage } from '@/ui/utils';
 import { activateOnKey, keepTabInside, tabbableElements } from '@/ui/utils/keyboard';
 import { MAX_ALIAS_NAME_LENGTH, WalletColorKey, WalletKeyring, resolveWalletColor } from '@qbit/wallet-shared';
-import { useI18n, useTools } from '@qbit/wallet-state';
+import { isEnterPressedInField, useI18n, useTools, useWallet } from '@qbit/wallet-state';
 
 /**
  * A modal dialog over the account switcher: rendered into document.body so it
@@ -19,11 +19,14 @@ import { useI18n, useTools } from '@qbit/wallet-state';
  */
 function SwitcherDialog({
   labelledBy,
+  busy,
   onDismiss,
   children,
   'data-testid': dataTestId
 }: {
   labelledBy: string;
+  /** Marks the dialog busy while its action runs. */
+  busy?: boolean;
   onDismiss: () => void;
   children: React.ReactNode;
   'data-testid': string;
@@ -45,6 +48,7 @@ function SwitcherDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-busy={busy || undefined}
         tabIndex={-1}
         className="switcher-dialog"
         onKeyDown={(event) => {
@@ -152,16 +156,18 @@ export function NameEditDialog({
         <h2 id={titleId} className="switcher-dialog__title">
           {title}
         </h2>
-        <Input
-          preset="text"
-          value={name}
-          autoFocus
-          maxLength={MAX_ALIAS_NAME_LENGTH}
-          aria-label={t('name_label')}
-          onFocus={(event) => event.target.select()}
-          onChange={(event) => setName(event.target.value)}
-          data-testid="name-edit-input"
-        />
+        <div className="switcher-dialog__field">
+          <Input
+            preset="text"
+            value={name}
+            autoFocus
+            maxLength={MAX_ALIAS_NAME_LENGTH}
+            aria-label={t('name_label')}
+            onFocus={(event) => event.target.select()}
+            onChange={(event) => setName(event.target.value)}
+            data-testid="name-edit-input"
+          />
+        </div>
         <div className="switcher-dialog__actions">
           <DialogButton text={t('cancel')} onActivate={onDismiss} data-testid="name-edit-cancel" />
           <DialogButton
@@ -174,6 +180,155 @@ export function NameEditDialog({
           />
         </div>
       </form>
+    </SwitcherDialog>
+  );
+}
+
+/**
+ * Names one more account of a wallet and asks the switcher to derive it. The
+ * field suggests the name the background would give; a typed name is sent
+ * trimmed, and an empty one not at all, so the background names the account.
+ * Once the derive is asked for, the dialog never offers Create again and
+ * cannot be dismissed: the derive cannot be cancelled, and one that fails may
+ * still have created the account, so a second try could create another. The
+ * switcher closes the dialog when the derive settles.
+ */
+export function NewAccountDialog({
+  keyring,
+  onCreate,
+  onDismiss
+}: {
+  /** The wallet that gets the account, as the switcher lists it. */
+  keyring: WalletKeyring;
+  /**
+   * Derives the account with the name given, or with none for the background
+   * to name it; the switcher reports how it went and closes the dialog.
+   */
+  onCreate: (name: string | undefined) => Promise<void>;
+  onDismiss: () => void;
+}) {
+  const { t } = useI18n();
+  const wallet = useWallet();
+  const titleId = useId();
+  const walletNameId = useId();
+  const nameAreaRef = useRef<HTMLDivElement>(null);
+  const [name, setName] = useState('');
+  const [suggestedName, setSuggestedName] = useState('');
+  // The derive can take many seconds when the wallet was restored, so the
+  // ref refuses a second Create at once, before the busy state is on screen.
+  const creatingRef = useRef(false);
+  const [creating, setCreating] = useState(false);
+
+  // The name the background would give the account, as a hint, read again
+  // whenever the sheet's copy of the wallet changes (its opening read lands,
+  // or a later read brings an account added in another window). It follows
+  // that copy, so it can still differ from the name Create gives when another
+  // window adds an account after the sheet's last read: the background names
+  // the account when it derives it. An answer to an older read is dropped;
+  // while the account is created nothing is read. Without an answer the field
+  // suggests nothing.
+  useEffect(() => {
+    if (creatingRef.current) return;
+    let current = true;
+    wallet
+      .getNextAlianName(keyring)
+      .then((next) => {
+        if (current) setSuggestedName(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [wallet, keyring]);
+
+  const create = () => {
+    if (creatingRef.current) return;
+    creatingRef.current = true;
+    setCreating(true);
+    // While busy the buttons leave the tab order, so focus goes to the name
+    // field, which stays focusable: Tab cannot walk out of the dialog.
+    nameAreaRef.current?.querySelector('input')?.focus({ preventScroll: true });
+    // Without a name the background names the account when it derives it,
+    // from the accounts it has then: one added elsewhere meanwhile cannot
+    // leave two accounts with the suggested name.
+    void onCreate(name.trim() || undefined);
+  };
+
+  const dismiss = () => {
+    if (!creatingRef.current) onDismiss();
+  };
+
+  return (
+    <SwitcherDialog labelledBy={titleId} busy={creating} onDismiss={dismiss} data-testid="new-account-dialog">
+      <div className="switcher-dialog__body">
+        <div className="switcher-dialog__title-row">
+          <h2 id={titleId} className="switcher-dialog__title">
+            {t('new_account')}
+          </h2>
+          <button
+            type="button"
+            className="switcher-icon-button"
+            aria-label={t('close')}
+            aria-disabled={creating || undefined}
+            tabIndex={creating ? -1 : undefined}
+            onClick={dismiss}
+            data-testid="create-account-close-button"
+          >
+            <X size={16} aria-hidden="true" focusable="false" />
+          </button>
+        </div>
+        {/* The new account's name under the wallet it goes to, as the sheet
+            lists an account under its wallet's header. */}
+        <div ref={nameAreaRef}>
+          <div className="create-account-wallet">
+            <WalletAvatar keyring={keyring} size={28} data-testid="create-account-wallet-tile" />
+            <span
+              id={walletNameId}
+              className="create-account-wallet__name"
+              title={keyring.alianName}
+              data-testid="create-account-wallet-name"
+            >
+              {keyring.alianName}
+            </span>
+          </div>
+          <div className="switcher-dialog__field">
+            <Input
+              preset="text"
+              value={name}
+              placeholder={suggestedName}
+              maxLength={MAX_ALIAS_NAME_LENGTH}
+              readOnly={creating}
+              autoFocus
+              aria-label={t('name_label')}
+              // The field takes focus first, so it names the wallet too.
+              aria-describedby={walletNameId}
+              onChange={(event) => setName(event.target.value)}
+              // On the keydown of an Enter pressed in the field only: "+" and
+              // Add Account open the dialog on an Enter's keydown, and that
+              // key's keyup or repeats must not create an account.
+              onKeyDown={(event) => {
+                if (isEnterPressedInField(event)) create();
+              }}
+              data-testid="create-account-name-input"
+            />
+          </div>
+        </div>
+        <div className="switcher-dialog__actions">
+          <DialogButton
+            text={t('cancel')}
+            disabled={creating}
+            onActivate={dismiss}
+            data-testid="create-account-cancel-button"
+          />
+          <DialogButton
+            text={t('create')}
+            preset="primary"
+            loading={creating}
+            onActivate={create}
+            data-testid="create-account-confirm-button"
+          />
+        </div>
+      </div>
     </SwitcherDialog>
   );
 }

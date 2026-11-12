@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "Crea una contraseña"
   },
-  "create_an_account": {
-    "message": "Crear una Cuenta"
-  },
   "hardware_wallet_not_supported": {
     "message": "Las carteras de hardware aún no admiten las firmas poscuánticas de Qbit. Sigue el progreso en la documentación de carteras de hardware del proyecto."
   },
@@ -2246,6 +2243,12 @@
   "account_switcher_wallet_unavailable": {
     "message": "La billetera seleccionada ya no está disponible"
   },
+  "account_created": {
+    "message": "Cuenta creada"
+  },
+  "create": {
+    "message": "Crear"
+  },
   "wallet_menu_add_account": {
     "message": "Añadir Cuenta"
   },
@@ -2254,6 +2257,9 @@
   },
   "wallet_menu_change_color": {
     "message": "Cambiar Color"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "Respaldar/Mostrar Frase Semilla"
   },
   "wallet_tag_read_only": {
     "message": "Solo lectura"
