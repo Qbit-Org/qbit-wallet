@@ -1,5 +1,0 @@
----
-'@qbit/wallet-state': minor
----
-
-Show the progress of a local signing (#171). `useSigningProgress()` follows the signings a page starts: `start(transaction?)` hands out the `progressId` to pass to the signing call, `progress` holds the inputs signed, their total, the transaction of a batch and, once three new signatures are timed, the time left (cached signatures, which come back at once, are not counted in the rate), and `stop(id)` ends it. Only that signing's events show. `useSignPsbtLogic` passes a `progressId` to every local signing and returns `signingProgress` and `signingInputCount`. A Sign press while a local signing runs signs nothing (#34). A single transaction handed to its broadcast or approval keeps `isPsbtSigning` set until its screen goes away. If the approval refuses the result, the screen gets its Reject back, and `currentSigned` (now returned) keeps Sign disabled, since the result's claim is still held. A quick-signed batch closes the disclaimer as it starts, runs one at a time, and stops at a lock. The broadcast after signing names its step (`broadcasting_transaction`).

@@ -1,5 +1,27 @@
 # @qbit/wallet-storage
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [34f14f2]
+- Updated dependencies [f755b4e]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [3f369b4]
+- Updated dependencies [002b24e]
+- Updated dependencies [d139bd5]
+- Updated dependencies [de81656]
+- Updated dependencies [5d1f01d]
+- Updated dependencies [5e032b2]
+- Updated dependencies [de2dce5]
+  - @qbit/wallet-shared@3.0.0
+
 ## 0.3.1
 
 ### Patch Changes

@@ -1,5 +1,28 @@
 # @qbit/wallet-core
 
+## 1.1.7
+
+### Patch Changes
+
+- 41ce38b: Require 6.1.8 of the PSBT and transaction library, which fixes the critical advisory GHSA-8vv3-6qpc-gpw6 (CVE-2026-107846, a recurrence of CVE-2012-2459): its block merkle-root check accepted a transaction list padded with a duplicate transaction. The wallet never parses or checks a block, and no wallet code path changes. The library's PSBT code in 6.1.8 is byte-identical to 6.1.6's, and the workspace patch applies to it unchanged.
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [34f14f2]
+- Updated dependencies [f755b4e]
+- Updated dependencies [de81656]
+- Updated dependencies [de81656]
+- Updated dependencies [3f369b4]
+- Updated dependencies [002b24e]
+- Updated dependencies [d139bd5]
+- Updated dependencies [de81656]
+- Updated dependencies [5d1f01d]
+- Updated dependencies [5e032b2]
+- Updated dependencies [de2dce5]
+  - @qbit/wallet-shared@3.0.0
+
 ## 1.1.6
 
 ### Patch Changes
