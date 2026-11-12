@@ -16,11 +16,14 @@ vi.mock('@qbit/wallet-state', () => ({}));
 
 const ADDRESS = 'qb1zdecisionaccount';
 const SEND_FORM_PATH = '/wallet/tx/create';
+// The store's record of the account and network the form's values belong to.
+const SCOPE = { address: ADDRESS, chainType: ChainType.QBIT_MAINNET };
 
-function storeState(address = ADDRESS, chainType = ChainType.QBIT_MAINNET) {
+function storeState(address = ADDRESS, chainType = ChainType.QBIT_MAINNET, scope = SCOPE) {
   return {
     accounts: { current: { address } },
-    settings: { chainType }
+    settings: { chainType },
+    ui: { sendFormScope: scope }
   } as unknown as Parameters<typeof noteRedirectToUnlock>[1];
 }
 
@@ -40,9 +43,11 @@ function interruptSendForm(): InterruptedSendForm {
 
 type Selection = { address: string | undefined; chainType: ChainType };
 
-// The page a decision runs in: its store's lock state, and the reads it sends.
+// The page a decision runs in: its store's lock state and send form scope,
+// and the reads it sends.
 function createPage() {
   let unlocked = true;
+  let scope: ReturnType<SendFormReturnPage['formScope']> = SCOPE;
   const listeners = new Set<() => void>();
   const reads: { resolve: (selection: Selection) => void; reject: (error: unknown) => void }[] = [];
   const page = {
@@ -59,6 +64,7 @@ function createPage() {
           reads.push({ resolve, reject });
         })
     ),
+    formScope: () => scope,
     go: vi.fn()
   } satisfies SendFormReturnPage;
   const setUnlocked = (next: boolean) => {
@@ -70,7 +76,11 @@ function createPage() {
     if (!sent) throw new Error(`read ${index} was not sent`);
     return sent;
   };
-  return { page, read, listeners, setUnlocked };
+  // The store clears the form for another account or network: a new scope.
+  const setScope = (next: typeof scope) => {
+    scope = next;
+  };
+  return { page, read, listeners, setUnlocked, setScope };
 }
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -81,9 +91,11 @@ describe('the send form a lock interrupted', () => {
   });
 
   it('is remembered from the send form, with the account and network the store had', () => {
-    redirectFrom(SEND_FORM_PATH, '/index.html', storeState('qb1zother', ChainType.QBIT_TESTNET4));
+    const scope = { address: 'qb1zother', chainType: ChainType.QBIT_TESTNET4 };
+    redirectFrom(SEND_FORM_PATH, '/index.html', storeState('qb1zother', ChainType.QBIT_TESTNET4, scope));
 
-    expect(getInterruptedSendForm()).toEqual({ address: 'qb1zother', chainType: ChainType.QBIT_TESTNET4 });
+    expect(getInterruptedSendForm()).toEqual({ address: 'qb1zother', chainType: ChainType.QBIT_TESTNET4, scope });
+    expect(getInterruptedSendForm()?.scope).toBe(scope);
   });
 
   it.each([['/wallet/tx/create/'], ['/wallet/tx/create?amount=1']])(
@@ -132,7 +144,7 @@ describe('the send form a lock interrupted', () => {
     }
 
     redirectFrom(SEND_FORM_PATH);
-    expect(getInterruptedSendForm()).toEqual({ address: ADDRESS, chainType: ChainType.QBIT_MAINNET });
+    expect(getInterruptedSendForm()).toEqual({ address: ADDRESS, chainType: ChainType.QBIT_MAINNET, scope: SCOPE });
   });
 
   it('is written to no storage', () => {
@@ -183,6 +195,22 @@ describe('deciding where an unlock goes', () => {
 
     decideSendFormReturn(form, page, false);
     read(0).resolve(selection);
+    await settled();
+
+    expect(page.go).toHaveBeenCalledOnce();
+    expect(page.go).toHaveBeenCalledWith('home');
+    expect(getInterruptedSendForm()).toBeUndefined();
+  });
+
+  it('goes Home for the same account and network once the store has cleared the form since the lock', async () => {
+    const form = interruptSendForm();
+    const { page, read, setScope } = createPage();
+
+    decideSendFormReturn(form, page, false);
+    // Away and back: the store cleared the form twice, and records a new scope
+    // for the account and network it started with.
+    setScope({ ...SCOPE });
+    read(0).resolve({ address: ADDRESS, chainType: ChainType.QBIT_MAINNET });
     await settled();
 
     expect(page.go).toHaveBeenCalledOnce();

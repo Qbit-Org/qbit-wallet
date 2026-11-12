@@ -6,6 +6,9 @@ import { getUiType } from '@/ui/web';
 import { type AppState, useResetFeeRateBar, useResetUiTxCreateScreen, useWallet } from '@qbit/wallet-state';
 import type { ChainType } from '@qbit/wallet-types';
 
+/** The store's record of the account and network the send form's values belong to. */
+type SendFormScope = AppState['ui']['sendFormScope'];
+
 /**
  * The send form a lock took the page away from: the account and network it
  * was shown for, as the page's store had them at the lock.
@@ -17,10 +20,15 @@ import type { ChainType } from '@qbit/wallet-types';
 export interface InterruptedSendForm {
   readonly address: string;
   readonly chainType: ChainType;
+  /**
+   * The store's `ui.sendFormScope` at the lock. The store records a new one
+   * each time it clears the form for another account or network.
+   */
+  readonly scope: SendFormScope;
 }
 
 // Page memory only: it lives as long as the page, and is written neither to
-// the store, which the page saves, nor to any storage or the background.
+// the store nor to any storage or the background.
 let interruptedSendForm: InterruptedSendForm | undefined;
 
 /**
@@ -29,17 +37,18 @@ let interruptedSendForm: InterruptedSendForm | undefined;
  * with the wallet unlocked (`shownUnlocked`) and a lock now takes the page
  * away from it, outside an approval window; any other redirect forgets any
  * form remembered. A form that mounted locked is taken as never shown
- * unlocked: on a page loaded or restored while locked, or before it knew it
- * was unlocked, its values are whatever the store last saved, from any page,
- * and one reached by Back from the unlock screen is treated the same. An
- * unlock goes Home from it, as before. Nor is a form remembered before the
- * page has finished loading: a redirect made that early replaces the form's
- * history entry instead of adding one. A remembered form thus means that the
- * history entry before the unlock screen is a form this page showed.
+ * unlocked: a page loaded or restored while locked, or before it knew it was
+ * unlocked, starts with an empty form, as nothing of the form is saved for a
+ * page to load, and one reached by Back from the unlock screen is treated the
+ * same. An unlock goes Home from it, as before. Nor is a form remembered
+ * before the page has finished loading: a redirect made that early replaces
+ * the form's history entry instead of adding one. A remembered form thus
+ * means that the history entry before the unlock screen is a form this page
+ * showed.
  */
 export function noteRedirectToUnlock(
   sendFormPath: string,
-  state: Pick<AppState, 'accounts' | 'settings'>,
+  state: Pick<AppState, 'accounts' | 'settings' | 'ui'>,
   shownUnlocked: boolean
 ): void {
   // The route HashRouter shows, matched the way it matches it.
@@ -51,7 +60,11 @@ export function noteRedirectToUnlock(
   const addsHistoryEntry = document.readyState === 'complete';
   interruptedSendForm =
     onSendForm && shownUnlocked && addsHistoryEntry
-      ? { address: state.accounts.current.address, chainType: state.settings.chainType }
+      ? {
+          address: state.accounts.current.address,
+          chainType: state.settings.chainType,
+          scope: state.ui.sendFormScope
+        }
       : undefined;
 }
 
@@ -89,6 +102,8 @@ export interface SendFormReturnPage {
   subscribe(listener: () => void): () => void;
   /** The account and network the background has selected, now. */
   readSelection(): Promise<{ address: string | undefined; chainType: ChainType }>;
+  /** The page's store's `ui.sendFormScope`, now. */
+  formScope(): SendFormScope;
   /** Takes the route decided on. */
   go(route: SendFormReturnRoute): void;
 }
@@ -111,7 +126,9 @@ export interface SendFormReturnDecision {
  * first; `stopWaiting` ends the wait sooner, for an unlock found to be this
  * page's own. The account and network are then read from the background: the
  * ones the form was shown for take the page back to it; any other, or a read
- * that failed, Home. The route is taken only if, when the reads land, the page
+ * that failed, Home. So does a form that the page's store has cleared since
+ * the lock, for another account or network, even one switched away from and
+ * back to. The route is taken only if, when the reads land, the page
  * is still unlocked and `form` is still the one remembered. A lock in between
  * takes none and leaves `form` remembered for the next unlock. One read per
  * decision: nothing is retried.
@@ -152,7 +169,8 @@ export function decideSendFormReturn(
     }
     end('routed');
     forgetInterruptedSendForm();
-    page.go(same ? 'sendForm' : 'home');
+    // A new scope in the store means it cleared the form since the lock.
+    page.go(same && page.formScope() === form.scope ? 'sendForm' : 'home');
   }
 
   // A lock ends the unlock this decision is for, whether it waits or reads.
@@ -223,6 +241,7 @@ export function useSendFormReturn(navigate: (to: 'MainScreen' | '#back') => void
             const [account, chainType] = await Promise.all([wallet.getCurrentAccount(), wallet.getChainType()]);
             return { address: account?.address, chainType };
           },
+          formScope: () => store.getState().ui.sendFormScope,
           go: (to) => {
             if (to === 'sendForm') {
               // One step back: the form, with the screen it was opened from behind it.

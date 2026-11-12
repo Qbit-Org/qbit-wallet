@@ -21,12 +21,15 @@ vi.mock('@qbit/wallet-state', () => ({
 }));
 
 const ADDRESS = 'qb1zlayoutaccount';
+// The store's record of the account and network the send form belongs to.
+const SCOPE = { address: ADDRESS, chainType: ChainType.QBIT_MAINNET };
 
 describe('Layout sending a locked page to the unlock screen', () => {
   let isUnlocked = false;
   let state = {
     accounts: { current: { address: ADDRESS } },
-    settings: { chainType: ChainType.QBIT_MAINNET }
+    settings: { chainType: ChainType.QBIT_MAINNET },
+    ui: { sendFormScope: SCOPE }
   };
   // The page's store, as far as Layout reads it.
   const store = {
@@ -62,7 +65,8 @@ describe('Layout sending a locked page to the unlock screen', () => {
     isUnlocked = false;
     state = {
       accounts: { current: { address: ADDRESS } },
-      settings: { chainType: ChainType.QBIT_MAINNET }
+      settings: { chainType: ChainType.QBIT_MAINNET },
+      ui: { sendFormScope: SCOPE }
     };
     vi.mocked(useBooted).mockReturnValue(true);
     vi.mocked(useIsUnlocked).mockImplementation(() => isUnlocked);
@@ -77,7 +81,8 @@ describe('Layout sending a locked page to the unlock screen', () => {
     showUnlockedThenLock('/wallet/tx/create');
 
     expect(window.location.hash).toBe('#/account/unlock');
-    expect(getInterruptedSendForm()).toEqual({ address: ADDRESS, chainType: ChainType.QBIT_MAINNET });
+    expect(getInterruptedSendForm()).toEqual({ address: ADDRESS, chainType: ChainType.QBIT_MAINNET, scope: SCOPE });
+    expect(getInterruptedSendForm()?.scope).toBe(SCOPE);
   });
 
   it('remembers the send form shown with a query', () => {
@@ -126,7 +131,8 @@ describe('Layout sending a locked page to the unlock screen', () => {
     const remembered = getInterruptedSendForm();
     state = {
       accounts: { current: { address: 'qb1zanotheraccount' } },
-      settings: { chainType: ChainType.QBIT_TESTNET4 }
+      settings: { chainType: ChainType.QBIT_TESTNET4 },
+      ui: { sendFormScope: { address: 'qb1zanotheraccount', chainType: ChainType.QBIT_TESTNET4 } }
     };
 
     mountAt('/account/unlock');

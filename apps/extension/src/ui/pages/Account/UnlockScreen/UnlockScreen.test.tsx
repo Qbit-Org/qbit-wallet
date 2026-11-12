@@ -73,11 +73,18 @@ vi.mock('@/ui/web', () => ({ getUiType: vi.fn() }));
 
 vi.mock('../../MainRoute', () => ({ useNavigate: vi.fn() }));
 
+// The store's record of the account and network the send form belongs to:
+// one object, as the page's store keeps it until it clears the form.
+const SEND_FORM_SCOPE = vi.hoisted(() => ({ address: 'qb1zsendformaccount', chainType: 'QBIT_MAINNET' }));
+
 // The page's store, as the mocked hooks below report it.
 vi.mock('react-redux', async () => {
   const walletState = await import('@qbit/wallet-state');
   const store = {
-    getState: () => ({ global: { isUnlocked: vi.mocked(walletState.useIsUnlocked)() } }),
+    getState: () => ({
+      global: { isUnlocked: vi.mocked(walletState.useIsUnlocked)() },
+      ui: { sendFormScope: SEND_FORM_SCOPE }
+    }),
     subscribe: () => () => undefined
   };
   return { useStore: () => store };
@@ -261,7 +268,10 @@ describe('UnlockScreen after the wallet unlocks', () => {
     const toastError = vi.fn();
     vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
     // Errors reach the page over the port as plain objects.
-    unlock.mockRejectedValue({ message: 'The wallet locked while unlocking.', code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK });
+    unlock.mockRejectedValue({
+      message: 'The wallet locked while unlocking.',
+      code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK
+    });
     renderScreen();
 
     fireEvent.change(screen.getByTestId('unlock-password-input'), { target: { value: 'password' } });
@@ -311,7 +321,8 @@ describe('UnlockScreen after the wallet unlocks', () => {
         '/wallet/tx/create',
         {
           accounts: { current: { address: ADDRESS } },
-          settings: { chainType: ChainType.QBIT_MAINNET }
+          settings: { chainType: ChainType.QBIT_MAINNET },
+          ui: { sendFormScope: SEND_FORM_SCOPE }
         } as unknown as Parameters<typeof noteRedirectToUnlock>[1],
         true
       );
@@ -463,7 +474,11 @@ describe('UnlockScreen after the wallet unlocks', () => {
 
       expect(unlock).toHaveBeenCalledOnce();
       expect(navigate).not.toHaveBeenCalled();
-      expect(getInterruptedSendForm()).toEqual({ address: ADDRESS, chainType: ChainType.QBIT_MAINNET });
+      expect(getInterruptedSendForm()).toEqual({
+        address: ADDRESS,
+        chainType: ChainType.QBIT_MAINNET,
+        scope: SEND_FORM_SCOPE
+      });
 
       await unlockHere(view);
 

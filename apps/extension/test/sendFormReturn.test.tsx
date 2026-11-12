@@ -308,10 +308,21 @@ async function unlockInAnotherWindow() {
   });
 }
 
-async function switchAccountInAnotherWindow() {
+async function selectAccountInAnotherWindow(selected: typeof FIRST_ACCOUNT) {
   await act(async () => {
-    background.state.account = SECOND_ACCOUNT;
-    uiEventBus.emit(BUS_METHODS.ACCOUNTS_CHANGED, SECOND_ACCOUNT);
+    background.state.account = selected;
+    uiEventBus.emit(BUS_METHODS.ACCOUNTS_CHANGED, selected);
+  });
+}
+
+async function switchAccountInAnotherWindow() {
+  await selectAccountInAnotherWindow(SECOND_ACCOUNT);
+}
+
+async function selectNetworkInAnotherWindow(chainType: ChainType) {
+  await act(async () => {
+    background.state.chainType = chainType;
+    uiEventBus.emit(BUS_METHODS.CHAIN_CHANGED, { type: chainType });
   });
 }
 
@@ -345,7 +356,7 @@ function prepare() {
   background = createBackground();
 }
 
-// The page loads at `route`, with the store the page saved before, if any.
+// The page loads at `route`, with whatever localStorage holds from before.
 function loadPageAt(route: string) {
   window.history.replaceState(null, '', `/popup.html#${route}`);
   store = createAppStore();
@@ -638,6 +649,83 @@ describe('unlocking returns to the send form a lock interrupted', () => {
     await expectFilledSendForm();
   });
 
+  describe.each([
+    [
+      'the account',
+      async () => {
+        await switchAccountInAnotherWindow();
+        await selectAccountInAnotherWindow(FIRST_ACCOUNT);
+      }
+    ],
+    [
+      'the network',
+      async () => {
+        await selectNetworkInAnotherWindow(ChainType.QBIT_TESTNET4);
+        await selectNetworkInAnotherWindow(ChainType.QBIT_MAINNET);
+      }
+    ]
+  ])('when another window switches %s away and back before the return is decided', (_what, awayAndBack) => {
+    // The store cleared the form at each switch: the page goes Home, as for
+    // another account or network, not back to an emptied form.
+    async function expectHomeWithAnEmptyForm() {
+      await waitFor(() => expect(window.location.hash).toBe('#/main'));
+      await screen.findByTestId('home-screen');
+      expectEmptySendFormState();
+      expect(getInterruptedSendForm()).toBeUndefined();
+    }
+
+    it('goes Home from a page that was hidden, once it is shown', async () => {
+      await fillSendForm();
+      await lock();
+      hidden = true;
+      await unlockInAnotherWindow();
+      await pause(50);
+      expect(window.location.hash).toBe('#/account/unlock');
+
+      await awayAndBack();
+      await showPage();
+
+      await expectHomeWithAnEmptyForm();
+    });
+
+    it('goes Home from a page that was shown, while its reads were out', async () => {
+      await fillSendForm();
+      await lock();
+      let answerChainType!: (chainType: ChainType) => void;
+      background.wallet.getChainType.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answerChainType = resolve;
+          })
+      );
+      await unlockInAnotherWindow();
+      await waitFor(() => expect(answerChainType).toBeTypeOf('function'));
+
+      await awayAndBack();
+      // The background has the account and network of the lock again.
+      await act(async () => {
+        answerChainType(ChainType.QBIT_MAINNET);
+      });
+
+      await expectHomeWithAnEmptyForm();
+    });
+  });
+
+  it('returns a hidden page to the send form as it was when another window selects the same account again', async () => {
+    await fillSendForm();
+    await lock();
+    hidden = true;
+    await unlockInAnotherWindow();
+    await pause(50);
+
+    // A read of the same account: no switch, so the form is not cleared.
+    await selectAccountInAnotherWindow(FIRST_ACCOUNT);
+    await showPage();
+
+    await waitFor(() => expect(window.location.hash).toBe('#/wallet/tx/create'));
+    await expectFilledSendForm();
+  });
+
   it('goes Home after a lock on another screen that followed a lock on the send form', async () => {
     await fillSendForm();
     await lock();
@@ -736,8 +824,9 @@ describe('unlocking returns to the send form a lock interrupted', () => {
 });
 
 describe('a send form the page never showed unlocked', () => {
-  // A draft another page saved: the ui slice the store keeps in localStorage,
-  // and the replace-by-fee choice that page saved in the background.
+  // A draft an earlier build saved: builds before 1.0.9 kept the whole ui
+  // slice, the send form in it, in localStorage, and the replace-by-fee choice
+  // in the background. This build loads only the display preferences from it.
   function saveDraft() {
     background.state.enableRBF = false;
     localStorage.setItem(
@@ -756,12 +845,27 @@ describe('a send form the page never showed unlocked', () => {
 
   afterEach(tearDown);
 
+  // Nothing of that draft is in the page: no recipient, amount, memo or fee
+  // choice in its store, and no recipient in localStorage. The form that
+  // mounted reads replace-by-fee from the background, which is not the draft.
+  function expectNoDraft() {
+    expect(store.getState().ui.uiTxCreateScreen).toMatchObject({ toInfo: { address: '' }, inputAmount: '', memo: '' });
+    expect(store.getState().ui.feeRateBar).toMatchObject({
+      feeOptionIndex: 1,
+      feeRateInputVal: '',
+      showCustomInput: false
+    });
+    expect(Object.values({ ...localStorage }).join('\n')).not.toContain(RECIPIENT);
+  }
+
   it('goes Home after unlocking a page that loaded locked on the send form, reading nothing for a return', async () => {
     background.state.unlocked = false;
     loadPageAt('/wallet/tx/create');
     await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
     await screen.findByTestId('unlock-password-input');
-    expect(store.getState().ui.uiTxCreateScreen).toEqual(FILLED_FORM);
+    // The page starts with an empty form: the draft is not loaded.
+    expectNoDraft();
+    const formAtLoad = store.getState().ui.uiTxCreateScreen;
     const chainReads = background.wallet.getChainType.mock.calls.length;
     const homeVisits = visits.home;
 
@@ -771,8 +875,9 @@ describe('a send form the page never showed unlocked', () => {
     await screen.findByTestId('home-screen');
     expect(homeVisitsSince(homeVisits)).toBeGreaterThan(0);
     expect(background.wallet.getChainType.mock.calls.length).toBe(chainReads);
-    // Untouched, as before: only Send clears it.
-    expect(store.getState().ui.uiTxCreateScreen).toEqual(FILLED_FORM);
+    // Untouched, as before: only Send clears it. Nor does the draft come back.
+    expect(store.getState().ui.uiTxCreateScreen).toEqual(formAtLoad);
+    expectNoDraft();
   });
 
   it('ends on Home, as before, for a page that loaded on the send form before it knew it was unlocked', async () => {
@@ -787,6 +892,8 @@ describe('a send form the page never showed unlocked', () => {
     loadPageAt('/wallet/tx/create');
     await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
     await screen.findByTestId('unlock-password-input');
+    expectNoDraft();
+    const formAtLoad = store.getState().ui.uiTxCreateScreen;
     const chainReads = background.wallet.getChainType.mock.calls.length;
 
     await act(async () => {
@@ -796,6 +903,7 @@ describe('a send form the page never showed unlocked', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/main'));
     await screen.findByTestId('home-screen');
     expect(background.wallet.getChainType.mock.calls.length).toBe(chainReads);
-    expect(store.getState().ui.uiTxCreateScreen).toEqual(FILLED_FORM);
+    expect(store.getState().ui.uiTxCreateScreen).toEqual(formAtLoad);
+    expectNoDraft();
   });
 });

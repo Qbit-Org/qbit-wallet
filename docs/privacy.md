@@ -93,7 +93,7 @@ The extension uses browser extension-local storage, not browser sync storage, fo
 
 The wallet UI also writes the extension pages' `localStorage`, unencrypted and on the device only:
 
-- `redux_localstorage_simple_ui`: the persisted `ui` slice of the wallet state (`packages/wallet-state/src/index.ts`), which holds the send-screen draft (recipient address, amount, memo and RBF choice), the address and amount inputs, the fee-rate selection, the hidden-balance and balance-detail toggles, and the navigation source;
+- `redux_localstorage_simple_ui`: two display preferences of the wallet state (`createAppStore` in `packages/wallet-state/src/index.ts`), whether balances are hidden and whether the balance card's breakdown is expanded. What is entered on the send screen (recipient address, amount, memo and fee-rate selection) is not written here: the wallet keeps it in the memory of the open wallet page, and clears it when another account or network is selected. The RBF choice is kept with the wallet's preferences in extension-local storage, as the default for the next send. Versions 1.0.8 and earlier also kept the send-screen draft here, with the address and amount inputs, the fee-rate selection and the navigation source; from 1.0.9, the first wallet page that opens replaces the record with the two preferences alone, or removes it if it cannot be rewritten, before it shows anything;
 - `themeMode`: the light or dark theme;
 - `i18nextLng` and `userSelectedLanguage`: the interface language and whether the user chose it;
 - `version_detail`: the last extension version whose bundled version notice was seen or dismissed; and
