@@ -38,6 +38,12 @@ export class SendPage extends ExtensionPageObject {
     await expect(this.recipientInput).toBeVisible()
   }
 
+  /** Taps the form's own Back arrow. */
+  async back(): Promise<void> {
+    await this.waitForCreate()
+    await this.clickTestId('header-back-button')
+  }
+
   async enterTransfer(recipient: string, amountQbt: string): Promise<void> {
     await this.waitForCreate()
     await this.recipientInput.fill(recipient)
