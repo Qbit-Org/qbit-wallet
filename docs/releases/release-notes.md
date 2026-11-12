@@ -28,11 +28,14 @@ repository.
   that needs the funds combined waits until that payment is done.
 - Signing such a payment takes minutes, one signature for each output it
   spends, and goes on if you close the wallet window; a card on the home
-  screen leads back to its progress. Locking the wallet pauses the signing until
-  you unlock it. The payment itself goes out when the combined funds
-  confirm, also while the wallet is locked. Nothing reaches the recipient
-  before then, and if something stops the payment, the wallet says where
-  your funds are: in your wallet, partly or fully combined.
+  screen leads back to its progress. An auto-lock that falls due while it
+  signs waits until the signing ends, also with no wallet window open, but
+  never longer than 10 minutes plus twice the time the signing was expected
+  to take. Any other lock pauses the signing until you unlock it. The
+  payment itself goes out when the combined funds confirm, also while the
+  wallet is locked. Nothing reaches the recipient before then, and if
+  something stops the payment, the wallet says where your funds are: in your
+  wallet, partly or fully combined.
 - If one of the combining transactions stays unconfirmed for 30 minutes, or
   the network refuses the payment for its fee, the progress view offers to
   raise the fee. You review the new total fee and confirm once. An exact
@@ -132,10 +135,10 @@ repository.
   the account together.
 - Wallet actions now sit on the wallet. Its menu has Rename Wallet, Change
   Color and Remove Wallet. A wallet that can add accounts also has "+" and Add
-  Account, and a wallet made from a recovery phrase has Show Secret Recovery
-  Phrase. An account's menu has Edit Name, Copy Address and, where it applies,
-  Export Private Key. The recovery phrase is no longer offered in account
-  menus.
+  Account, which open a dialog over Switch Account, and a wallet made from a
+  recovery phrase has Backup/Show Seed Phrase. An account's menu has Edit
+  Name, Copy Address and, where it applies, Export Private Key. The recovery
+  phrase is no longer offered in account menus.
 - Each wallet has a color, which Change Color sets from eight choices. New
   wallets are named "Wallet" and a number. The names of existing wallets and
   accounts are not changed.
@@ -168,8 +171,10 @@ repository.
   while a transaction is being signed, the wallet waits for the signing, and
   locks one minute after the signing ends or after its broadcast answers. It
   waits only while the page that asked for the signing is open, and never
-  locks more than 10 minutes late. Before, the lock failed the signing with an
-  internal error such as "KeyringController - password is not a string".
+  locks more than 10 minutes late. A payment that combines funds first waits
+  longer, as described under "Sending and fees". Before, the lock failed the
+  signing with an internal error such as "KeyringController - password is not
+  a string".
 - The lock button, the computer locking and the last window closing still
   lock the wallet at once. A signing that a lock stops now says "The wallet
   locked before signing finished, so nothing was sent. Unlock it and sign
@@ -263,13 +268,13 @@ repository.
   Core node: a payment at the 0.25 bits/vB minimum, its fee rounded up to a
   whole bit, is accepted and mined, and the same payment with a fee one bit
   lower is refused.
-- The browser release gate grows from 29 to 52 tests. The new ones cover the
-  account switcher, a send at the minimum fee rate, a lookalike website, Back
-  on the phishing warning, the consolidation of an account that the explorer
-  refuses to list, a lock on a page opened before the wallet existed, Back
-  around a lock and an unlock, the send form shown again after an unlock, and
-  what the send form keeps across a reload, a lock and an account or network
-  switch.
+- The browser release gate grows from 29 to 53 tests. The new ones cover the
+  account switcher, a send at the minimum fee rate, a payment that combines
+  an account's 214 outputs before it pays, a lookalike website, Back on the
+  phishing warning, the consolidation of an account that the explorer refuses
+  to list, a lock on a page opened before the wallet existed, Back around a
+  lock and an unlock, the send form shown again after an unlock, and what the
+  send form keeps across a reload, a lock and an account or network switch.
 - CI skips a pull request's repeated run when the same tree has already
   passed. The dependency policy job always runs.
 - The repository's wording check,
@@ -323,6 +328,25 @@ repository.
   size limits and the other items in that issue are still open.
 - After an unlock, a recipient that was only partly typed is not brought back
   with the rest of the send form.
+- A payment that combines funds first is kept unencrypted in the extension's
+  storage until you leave its success screen or it is cancelled: its
+  recipient, its amount, the account's outputs it spends and, until it
+  completes, the signed payment, so that the payment can go out while the
+  wallet is locked. A copy of the signed payment taken from this browser
+  profile's storage stays valid after a cancel, until one of the outputs it
+  spends is spent elsewhere; it can only pay that recipient that amount. To
+  be sure a cancelled payment cannot go out, send the combined funds (#188).
+- While such a payment may still go through after it left the wallet without
+  an answer, it cannot be cancelled, and Continue sends the same payment
+  again.
+- Removing a wallet cancels its payments in progress, with no warning before
+  you confirm the removal.
+- A lock or a network switch partway through signing one of these
+  transactions signs it again in full once more than 16 of its inputs were
+  signed: up to 105 extra signatures for a full combining transaction.
+- One payment combines at most 11,236 outputs; for more, the send screen
+  offers the largest amount one payment can send. A website's request to send
+  an amount that needs more than 106 outputs is still refused.
 
 ## 1.0.8
 
