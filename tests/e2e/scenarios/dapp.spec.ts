@@ -179,7 +179,9 @@ test('G3 dapp: connects, signs/verifies, signs a PSBT, broadcasts, and revokes',
     await settings.openConnectedSites()
     const connectedSites = new ApprovalsPage(setup.page)
     await connectedSites.waitForConnectedSites()
-    expect(await connectedSites.connectedSiteOrigins()).toContain(origin)
+    // The screen lists the sites after an asynchronous read, so its heading
+    // can be visible before any row is.
+    await expect.poll(() => connectedSites.connectedSiteOrigins()).toContain(origin)
     await connectedSites.revokeSite(origin)
 
     expect(

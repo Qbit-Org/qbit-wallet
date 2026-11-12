@@ -48,6 +48,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/receive.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/send.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/send-draft.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/consolidation.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/send-plan.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/dapp-events.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/approval-hierarchy.spec.ts
@@ -92,7 +93,7 @@ CI, so focused tests and retry-only passes fail the job.
 
 ## Scenario Matrix
 
-The complete gate is 52 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 53 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
@@ -117,6 +118,7 @@ separately with two-decimal millisecond precision.
 | Draft, other network  | `scenarios/send-draft.spec.ts:286`        | A network switch in another window empties the open form                                                   | Not recorded |       — |
 | Draft across a lock   | `scenarios/send-draft.spec.ts:305`        | The open page keeps the form across Back, Forward and a lock; Send starts a new one                        | Not recorded |       — |
 | Consolidation         | `scenarios/consolidation.spec.ts:145`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
+| Send plan             | `scenarios/send-plan.spec.ts:117`         | 214 outputs, MAX, one review: 2 merges, then the payment; reopen mid-signing; exact amount, fee, spends    | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
 | dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
@@ -162,6 +164,19 @@ reached the recovery report). Both pass now, and no product blocker is open.
 The wipe/restore row keeps its explicit ten-minute report bound inside a
 fifteen-minute scenario timeout; do not raise either without measured product
 evidence.
+
+The send-plan row signs 216 signatures in the browser, so it sets its own
+twelve-minute timeout. Three consecutive local runs on 2026-11-12, headful
+under Xvfb against the pinned images, passed on the first attempt in 243,
+207 and 212 seconds, 11.4 minutes for the three with their regtest resets.
+Funding the 214 outputs in one transaction took 9-11 seconds; signing, from
+the confirmation to the signed payment, 174-204 seconds (0.81-0.94 seconds
+a signature); and the payment reached the mempool 10-14 seconds after the
+block that confirmed the merges. The gate's runners sign at about 1.25
+seconds a signature, so the row should take about 6 minutes there. It sets
+the longest auto-lock first: the default 3 minutes falls due about when
+signing ends, and the lock that follows takes the progress screen to the
+unlock screen at a point that depends on the runner's pace.
 
 ### Consolidation
 
@@ -236,6 +251,14 @@ action is what is asserted: the title and the requested destination and amount
 rows must be fully inside the first 360x600 viewport. The row rejects that
 request and then asserts the regtest mempool is still empty.
 
+The send-plan row attaches `send-plan-<screen>.png` at the popup's 357x600 on
+every run: the send screen's card, the review, signing, the home screen's
+card, waiting for the merges and the success screen. Each is taken after
+asserting that the screen's key content is whole in that first viewport,
+except the send screen's Next, which follows the form's other fields below
+the fold at that size, as for any send. The row also attaches
+`send-plan-timings.json` with its funding, signing and payment times.
+
 The run-level PQC canary is
 `test-results/playwright/pqc-sign-durations.jsonl`. Samples from the run above
 were 4,463.36 ms for a one-input send, 6,977.43 ms for a three-input send,
@@ -243,7 +266,10 @@ were 4,463.36 ms for a one-input send, 6,977.43 ms for a three-input send,
 message signature. In passing gate runs from 2026-10-23 to 2026-10-27,
 before and after the SDK moved to npm, they ranged over 3.9-5.1 s, 5.4-7.6 s,
 5.4-7.3 s and 0.8-1.6 s. Treat large movement as a regression signal, not as
-a fixed cross-machine threshold.
+a fixed cross-machine threshold. The send-plan row adds one
+`wallet-send-plan-sign` sample of 216 inputs, from the confirmation to the
+signed payment: 174,477.62-203,590.26 ms in the local runs above, not yet
+recorded in CI.
 
 The network audit allows only configured Qbit chain/explorer URL prefixes. A
 dApp fixture may add only its own loopback HTTP origin. Add intentional chain

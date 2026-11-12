@@ -36,6 +36,7 @@ import { BalanceCard } from './components/BalanceCard';
 import { HomeTips } from './components/HomeTips';
 import { WalletActions } from './components/WalletActions';
 import { QbitRecoveryWarning } from './components/QbitRecoveryWarning';
+import { QbitSendPlanResumeCard } from './components/QbitSendPlanResumeCard';
 
 const STORAGE_VERSION_KEY = 'version_detail';
 
@@ -242,6 +243,8 @@ export default function WalletTabScreen() {
               }
             />
           ) : null}
+
+          <QbitSendPlanResumeCard />
 
           <BalanceCard />
           <WalletActions chain={chain} hideReceive={recoveryState?.status === 'migrated'} />

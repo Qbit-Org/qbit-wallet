@@ -404,6 +404,9 @@ export const BUS_METHODS = {
   // A local signing's progress (QbitSigningProgress), sent only to the page
   // that asked for it with BUS_EVENTS.toUIPort.
   QBIT_SIGNING_PROGRESS: 'qbitSigningProgress',
+  // An open send plan changed: `{ planId, revision }`, sent to every wallet
+  // page. It carries no plan content; pages read the plan again.
+  QBIT_SEND_PLAN_CHANGED: 'qbitSendPlanChanged',
 
   USER_UI_INTERACT: 'USER_UI_INTERACT', // used to notify background script that user has interacted with the UI
 }

@@ -9,6 +9,35 @@ repository.
 
 ### Sending and fees
 
+- An amount that needs more than 106 of an account's outputs can now be sent
+  with one confirmation (#188). Before, the send screen refused it, and MAX
+  sent only the 106 largest outputs. The wallet first combines the account's
+  funds with transactions that pay its own address, then pays the recipient
+  with one transaction once they confirm. The send screen says how many
+  transactions it takes, exactly what the recipient receives, the total fee
+  and about how long signing takes, and the review shows them again before
+  you confirm. MAX sends the whole confirmed balance this way, less the
+  fees, and says what stays in the account because it is worth less than
+  the fee to send it, and what has not confirmed yet and is not included.
+  When one transaction of the largest outputs, change not confirmed yet
+  included, sends at least as much, MAX sends that one transaction instead.
+  If the balance cannot pay the amount and every fee, the send screen
+  offers the largest amount it can send, for you to choose. While such a
+  payment is in progress, MAX sends one transaction of the funds it does
+  not hold, as before, and the send screen links to that payment; an amount
+  that needs the funds combined waits until that payment is done.
+- Signing such a payment takes minutes, one signature for each output it
+  spends, and goes on if you close the wallet window; a card on the home
+  screen leads back to its progress. Locking the wallet pauses the signing until
+  you unlock it. The payment itself goes out when the combined funds
+  confirm, also while the wallet is locked. Nothing reaches the recipient
+  before then, and if something stops the payment, the wallet says where
+  your funds are: in your wallet, partly or fully combined.
+- If one of the combining transactions stays unconfirmed for 30 minutes, or
+  the network refuses the payment for its fee, the progress view offers to
+  raise the fee. You review the new total fee and confirm once. An exact
+  amount never changes; for a payment of the whole balance the review states
+  the new amount beside the old one.
 - The minimum fee rate is now 0.25 bits/vB, down from 1 bit/vB. It is the
   lowest rate that qbit Core nodes relay. A payment that spends one input cost
   at least 3,817 bits before and costs at least 955 bits now. When the network
@@ -41,9 +70,6 @@ repository.
   reported as not sent once the wallet has checked that the network does not
   have it, and its coins are free to spend again. Before, it read "Payment
   status unknown" and its coins were set aside for 10 minutes to 24 hours.
-- The message for a payment that needs more of the account's outputs than one
-  transaction can carry is reworded. It no longer refers to the network's
-  standard transaction size.
 - What you enter on the Send screen is no longer saved in the extension's
   local storage: the recipient, amount, memo and fee rate are kept by the open
   wallet window only. Before, they were saved there, also while the wallet

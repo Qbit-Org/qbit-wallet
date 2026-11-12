@@ -56,8 +56,8 @@ when no registry advisory exists.
 Primary assets are mnemonic/private/PQC secret material, encrypted vaults and
 password-verification material, approved transaction/message intent, exact
 PSBT/sighash bytes, per-key PQC signature counters and cached signatures,
-provider permissions, trusted network/chain selection, bundled WASM, and
-release provenance.
+open send plans and their signed payments, provider permissions, trusted
+network/chain selection, bundled WASM, and release provenance.
 
 Untrusted inputs include:
 
@@ -275,6 +275,133 @@ Residual risk:
   what regtest reported. If Testnet4's own count is the larger share, that
   floor can be up to just under the threshold, and it stands, as the
   quarter-budget residual above allows.
+
+## Send plans
+
+A payment that needs more outputs than one transaction carries runs as a
+send plan (#188): merges that pay the account's own address, then one
+payment, after one confirmation. The background carries the plan on with no
+wallet window open, through a lock and through a restart.
+
+Threats:
+
+- a changed or replayed plan record in extension storage steering a
+  signature or a payment;
+- a stored signed payment sent other than as the user confirmed it;
+- another spend (a send, a website request, consolidation, the recovery
+  migration) taking a plan's outputs midway; and
+- a long plan signing keeping the wallet unlocked.
+
+Controls and evidence:
+
+- the plan store (`QbitSendPlanStore`, `chrome.storage.local` key
+  `qbitSendPlans`) is one versioned document. A document of another version
+  is neither read nor written over, and an entry that fails validation stays
+  as it was but is never read as a plan. The store holds, in the clear, the
+  account's address and public key, the recipient, the amount, the change,
+  the fee rate and fees, each transaction's unsigned PSBT (and so the
+  account's outputs it spends, with their amounts), statuses and times, and
+  the payment's signed PSBT until the plan completes. It holds no key
+  material and no signed merge: merges are signed in memory and broadcast
+  at once;
+- the store is outside the vault on purpose. Every vault write re-encrypts
+  the whole vault, and signing writes it twice per signature, so megabytes
+  of transactions there would slow hundreds of signatures; and the vault
+  cannot be read while the wallet is locked, which is when the payment may
+  have to go out;
+- nothing ties the record to the vault, so what a record changed on disk
+  can do is bounded by what the background checks and what the user is
+  shown. A signed transaction is valid only as signed, so the stored payment
+  can only be a transaction the account's key signed, and it is sent only
+  once its finalized bytes parse and carry the payment's recorded id. On
+  load, on every write, and again before signing any transaction, the
+  background checks the stored PSBT itself: a merge pays one output to the
+  account's own script; the payment pays the recorded recipient the recorded
+  amount, memo outputs of no value and any change to the account; the id is
+  the step's; and the size and the fee are exactly what the wallet's own
+  rules give for that transaction at its recorded rate, which is within the
+  fee policy and no higher than the plan's rate. A merge's fee is its exact
+  price; the payment's is its exact price, or, for an amount paid without
+  change, that plus at most the remainder the planner itself would fold into
+  it. A record that fails is not read as a plan: it is shown as one the
+  wallet cannot read, with Cancel only, and nothing of it is signed. The
+  store answers from memory, so a record changed on disk takes effect only
+  after the service worker restarts, and after a restart nothing is signed
+  until the user presses Continue on the progress screen, which shows the
+  recipient, the amount and the total fee with its rate. Continue is offered
+  and accepted only while the wallet is unlocked: the UI port carries no
+  proof of the password, so a page left open on a locked wallet, or any
+  other caller, cannot approve a changed record for the next unlock to sign
+  unseen. A changed record
+  can therefore show wrong progress, drop the plan's holds, end the plan, or
+  put another recipient, another amount or another fee rate (within the
+  policy, up to 10,000 bits/vB, with every transaction priced exactly at it)
+  in front of the user before Continue; it cannot make the wallet sign
+  without the user, and it cannot hide a fee above the rate shown. What the
+  record shows is what its transactions pay: the stored payment, unsigned
+  and signed, must pay the recorded recipient the recorded amount, or the
+  record is unreadable. The fees an earlier version of the plan already paid
+  are a displayed figure only and cannot be checked;
+- a signed payment is a valid transaction for as long as the outputs it
+  spends are unspent, wherever its bytes are. The wallet keeps them in the
+  clear so that it can send them while locked, and deletes them when the
+  plan completes or is cancelled; deleting them cannot void them. Someone
+  who can read this browser profile's storage while a plan is waiting can
+  copy the signed payment and broadcast it once the merges have confirmed,
+  also after the user cancelled; and a copy of the whole record put back
+  into storage after a cancel is, after the next restart of the service
+  worker, a genuine plan to the wallet, which holds its outputs again and
+  sends its payment when the merges are confirmed, with no Continue.
+  Either way the transaction is the one the user confirmed: it pays that
+  recipient that amount, once, and nothing else. A user who cancelled and
+  must be sure the payment cannot happen has to spend one of the outputs it
+  would spend; an ordinary send of the combined funds does that;
+- every version of the payment that ever left the wallet without a verdict
+  is remembered, since any of them may still confirm. While one may, the
+  plan offers no new plan from other outputs; a spend of the payment's
+  inputs by any version completes the plan. Nor is a cancel offered then,
+  which would stop tracking that version and free its inputs for a second
+  payment, and the progress screen says the payment may still go through.
+  Cancel and a new plan come back once an input of the payment is spent by
+  a transaction that is no version of it; removing or resetting the wallet
+  ends such a plan all the same;
+- while a plan is open, the send guard holds every input of its
+  transactions and the outputs of its merges, restored from the store at
+  start-up before anything can spend. Sends, website requests,
+  consolidation and the recovery migration cannot spend them, Speed up
+  cannot replace the plan's transactions, and a plan never starts over
+  outputs something else holds;
+- the stored signed payment may be broadcast while the wallet is locked, and
+  the merges' confirmations are watched then too: the payment is exactly
+  the transaction the user confirmed and cannot be altered. Signing never
+  runs while locked. A lock stops the plan's signing before its next
+  signature, and the plan carries on after the next unlock;
+- an auto-lock that falls due while a plan signs waits for that signing.
+  The signing belongs to no page, so closing the wallet window ends neither
+  the signing nor the wait. When signing ends the wallet locks at once if
+  the deadline has passed. The wait lasts at most ten minutes plus twice the
+  time the signatures still to make are expected to take
+  (`estimateQbitSendPlanSigningSeconds`) past the deadline, so a slow
+  machine finishes and a stalled one locks in the end. The lock button, the
+  computer locking and the last window closing still lock at once, and
+  pause the plan's signing; and
+- no permission is added: a 15-second timer in the service worker advances
+  an open plan, and so do the service worker starting, an unlock and an
+  open wallet page.
+
+Residual risk:
+
+- anyone who can read the extension's storage on disk learns an open plan's
+  recipient, amount and the account's outputs, and a completed plan's until
+  it leaves the home screen;
+- cancelling deletes the stored signed payment, but a copy read from storage
+  before then stays valid until something else spends one of the outputs it
+  spends. It can only pay the recipient what the user confirmed;
+- with the computer-lock setting off, a plan of 216 signatures keeps an
+  overdue auto-lock waiting for up to about 19 minutes (ten minutes plus
+  twice its 279-second estimate); and
+- if the browser stops the service worker anyway, the plan advances the next
+  time the extension runs.
 
 ## WASM and extension supply chain
 
@@ -756,7 +883,8 @@ that Proceed adds; the denylist host permissions let only that redirect fire
 (see "Phishing navigation protection");
 `sidePanel` is used for the optional wallet panel; `idle` tells the background
 when the computer locks, so the wallet can lock too (see "Vault and key
-handling"); `storage` holds wallet state;
+handling"); `storage` holds wallet state, open send plans included, which
+need no other permission (see "Send plans");
 and `unlimitedStorage` supports local wallet/index state. Permission expansion
 requires CODEOWNERS review and a package-policy expectation change.
 

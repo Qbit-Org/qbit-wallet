@@ -2,11 +2,14 @@ import {
   Account,
   QbitBroadcastFailure,
   QbitRetainedBroadcast,
+  QbitSendPlanReview,
   ToSignData,
   WalletKeyring,
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 import React, { useContext } from 'react'
+
+import type { QbitSendPlanRevised } from '../utils/qbit-send-plan'
 
 export type RouteParamList = {
   WelcomeScreen: undefined
@@ -110,12 +113,26 @@ export type RouteParamList = {
   TxConfirmScreen: {
     toSignData: ToSignData
   }
+  /**
+   * The one review of a send plan (#188) before it is confirmed. Route state
+   * outlives the draft it names and can come from an earlier version, so the
+   * screen checks the review before showing or confirming it.
+   */
+  QbitSendPlanReviewScreen: {
+    review: QbitSendPlanReview
+    /** For a revision: the plan it revises, as the progress screen showed it. */
+    revised?: QbitSendPlanRevised
+  }
+  /** The progress of the current account's open send plan, read from the background. */
+  QbitSendPlanScreen: undefined
   TxSuccessScreen: {
     txid: string
     /** The transaction was a consolidation batch; the screen offers the next one. */
     consolidation?: boolean
     /** That batch's size, which the next batch is offered at; missing for a batch that recorded none. */
     consolidationMaxInputs?: number
+    /** The payment of this completed send plan: leaving the screen removes the plan from the home screen. */
+    sendPlanId?: string
   }
   TxFailScreen: {
     result: QbitBroadcastFailure

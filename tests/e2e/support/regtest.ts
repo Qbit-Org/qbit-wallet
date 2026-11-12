@@ -45,6 +45,22 @@ export interface ElectrsUtxoListing {
   body: string
 }
 
+const DEFAULT_FUNDING_WALLET = 'qbit-funding'
+const DEFAULT_COINBASE_MATURITY = 1_000
+const BITS_PER_COIN = 100_000_000
+// What the funding transaction's own fee may take on top of its outputs: one
+// coinbase input and a change output at the node's fallback rate cost far less.
+const FUNDING_FEE_ALLOWANCE_BITS = 1_000_000
+// The most outputs `fundOutputs` writes into one transaction, well within the
+// standard size and electrs' listing limit.
+const MAX_FUNDED_OUTPUTS = 1_000
+
+export interface FundedOutputs {
+  txid: string
+  /** The funding transaction's outputs that pay the address: 0 to count - 1. */
+  vouts: number[]
+}
+
 export interface RegtestSnapshot {
   chain: string
   blocks: number
@@ -73,6 +89,50 @@ interface ElectrsUtxo {
     confirmed: boolean
     block_height?: number
   }
+}
+
+interface FundedRawTransaction {
+  hex: string
+  changepos: number
+}
+
+interface SignedRawTransaction {
+  hex: string
+  complete: boolean
+}
+
+interface DecodedOutput {
+  n: number
+  value: number
+  scriptPubKey: { hex: string }
+}
+
+/** `value` as the CompactSize count of a serialized transaction, in hex. */
+function compactSizeHex(value: number): string {
+  if (value < 0xfd) return value.toString(16).padStart(2, '0')
+  if (value <= 0xffff) {
+    const bytes = Buffer.alloc(3)
+    bytes.writeUInt8(0xfd, 0)
+    bytes.writeUInt16LE(value, 1)
+    return bytes.toString('hex')
+  }
+  throw new Error(`compact size ${value} is out of the range this helper writes`)
+}
+
+/**
+ * A version-2 transaction without inputs that pays `count` outputs of
+ * `satoshis` each to `scriptHex`, in the encoding without witness data, for
+ * the funding wallet to add inputs and change to.
+ */
+function rawTransactionWithOutputs(scriptHex: string, count: number, satoshis: number): string {
+  const value = Buffer.alloc(8)
+  value.writeBigUInt64LE(BigInt(satoshis))
+  const output = `${value.toString('hex')}${compactSizeHex(scriptHex.length / 2)}${scriptHex}`
+  return `02000000${compactSizeHex(0)}${compactSizeHex(count)}${output.repeat(count)}00000000`
+}
+
+function coinsToBits(value: number): number {
+  return Math.round(value * BITS_PER_COIN)
 }
 
 export class RegtestController {
@@ -105,6 +165,88 @@ export class RegtestController {
     await this.waitForElectrsTip()
     await this.waitForElectrsUtxo(address, txid)
     return txid
+  }
+
+  /**
+   * Fund `address` with `count` outputs of `satoshis` bits each in ONE
+   * transaction, mine it, and wait until electrs lists every one of them
+   * confirmed. The node's address-keyed RPCs (`sendmany`,
+   * `createrawtransaction`) refuse an address named twice, so the outputs are
+   * serialized here and the funding wallet adds the inputs, the change (after
+   * them) and the signatures with `fundrawtransaction` and
+   * `signrawtransactionwithwallet`. One block instead of one per output, as
+   * `fund` would take.
+   */
+  async fundOutputs(address: string, count: number, satoshis: number): Promise<FundedOutputs> {
+    if (!Number.isSafeInteger(count) || count < 1 || count > MAX_FUNDED_OUTPUTS) {
+      throw new Error(`count must be an integer from 1 to ${MAX_FUNDED_OUTPUTS}, got ${count}`)
+    }
+    if (!Number.isSafeInteger(satoshis) || satoshis < 1) {
+      throw new Error(`satoshis must be a positive integer, got ${satoshis}`)
+    }
+    this.trackAccount(address)
+    const wallet = process.env['QBIT_FUNDING_WALLET'] || DEFAULT_FUNDING_WALLET
+    const needed = count * satoshis + FUNDING_FEE_ALLOWANCE_BITS
+    if ((await this.fundingBalance(wallet)) < needed) {
+      // As `fund` does: mature one coinbase of the funding wallet, which the
+      // mine script creates or loads.
+      const maturity = Number(
+        process.env['QBIT_REGTEST_COINBASE_MATURITY'] || DEFAULT_COINBASE_MATURITY
+      )
+      await this.mine(maturity + 1)
+      const balance = await this.fundingBalance(wallet)
+      if (balance < needed) {
+        throw new Error(`funding wallet holds ${balance} bits, ${needed} are needed`)
+      }
+    }
+
+    const target = await this.rpc<{ isvalid: boolean; scriptPubKey?: string }>('validateaddress', [
+      address,
+    ])
+    if (!target.isvalid || !target.scriptPubKey) {
+      throw new Error(`the node does not accept ${address} as an address`)
+    }
+    const unfunded = rawTransactionWithOutputs(target.scriptPubKey, count, satoshis)
+    // Change goes after the outputs; the hex is read without witness data.
+    const funded = await this.rpc<FundedRawTransaction>(
+      'fundrawtransaction',
+      [unfunded, { changePosition: count }, false],
+      wallet
+    )
+    const signed = await this.rpc<SignedRawTransaction>(
+      'signrawtransactionwithwallet',
+      [funded.hex],
+      wallet
+    )
+    if (!signed.complete)
+      throw new Error('the funding wallet could not sign the funding transaction')
+    const decoded = await this.rpc<{ vout: DecodedOutput[] }>('decoderawtransaction', [signed.hex])
+    const paying = decoded.vout.filter(
+      output =>
+        output.scriptPubKey.hex === target.scriptPubKey && coinsToBits(output.value) === satoshis
+    )
+    const vouts = paying.map(output => output.n)
+    if (vouts.length !== count || vouts.some((vout, index) => vout !== index)) {
+      throw new Error(
+        `the funding transaction pays ${address} at outputs ${vouts.join(',')}, expected 0 to ${count - 1}`
+      )
+    }
+    const txid = await this.rpc<string>('sendrawtransaction', [signed.hex])
+    this.trackTransaction(txid)
+    await this.mine(1)
+    await this.waitForElectrsOutputs(address, txid, vouts)
+    return { txid, vouts }
+  }
+
+  /** A JSON answer of the regtest electrs HTTP API at `path` (starting with `/`). */
+  async electrsJson<T>(path: string): Promise<T> {
+    const baseUrl = process.env['QBIT_REGTEST_ELECTRS_HTTP_URL'] || DEFAULT_ELECTRS_URL
+    const response = await fetch(`${baseUrl}${path}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) throw new Error(`electrs ${path} failed with HTTP ${response.status}`)
+    return (await response.json()) as T
   }
 
   async mine(blocks: number, address?: string): Promise<string[]> {
@@ -312,6 +454,48 @@ export class RegtestController {
           throw new Error(
             `electrs returned ${matches.length} copies of ${transactionId}: ${states.join(', ') || 'missing'}`
           )
+        }
+        return true
+      },
+      ELECTRS_INDEX_TIMEOUT_MS
+    )
+  }
+
+  /** The funding wallet's spendable balance in bits; 0 while the wallet is not loaded. */
+  private async fundingBalance(wallet: string): Promise<number> {
+    try {
+      return coinsToBits(await this.rpc<number>('getbalance', [], wallet))
+    } catch {
+      return 0
+    }
+  }
+
+  /** Waits until electrs lists exactly `vouts` of `transactionId` at `address`, all confirmed. */
+  private async waitForElectrsOutputs(
+    address: string,
+    transactionId: string,
+    vouts: readonly number[]
+  ): Promise<void> {
+    const expected = [...vouts].sort((a, b) => a - b).join(',')
+    await this.waitFor(
+      `electrs to list ${vouts.length} confirmed outputs of ${transactionId}`,
+      async () => {
+        const body = await this.electrsJson<unknown>(`/address/${encodeURIComponent(address)}/utxo`)
+        if (!Array.isArray(body)) throw new Error('electrs returned an invalid UTXO response')
+        const listed = body.filter(
+          (candidate): candidate is ElectrsUtxo & { vout: number } =>
+            Boolean(candidate) &&
+            typeof candidate === 'object' &&
+            candidate.txid === transactionId &&
+            Number.isSafeInteger(candidate.vout) &&
+            candidate.status?.confirmed === true
+        )
+        const found = listed
+          .map(utxo => utxo.vout)
+          .sort((a, b) => a - b)
+          .join(',')
+        if (found !== expected) {
+          throw new Error(`electrs lists ${listed.length} confirmed outputs of ${transactionId}`)
         }
         return true
       },

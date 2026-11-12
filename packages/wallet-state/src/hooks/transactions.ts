@@ -15,11 +15,15 @@ import {
   QbitP2mrSendCandidate,
   QbitRetainedBroadcast,
   QbitSendBroadcastClaim,
+  QbitSendPlan,
+  QbitSendPlanRefusal,
+  QbitSendPlanTarget,
   QbitUtxoSnapshot,
   ToAddressInfo,
   ToSignData,
   UnspentOutput,
   qbitBroadcastErrorMessage,
+  planQbitSend,
   qbitP2mrInputsDominateFee,
   sanitizeQbitBroadcastDetail,
   selectQbitP2mrSendAllCoins,
@@ -240,6 +244,61 @@ export function estimateQbitP2mrSendAllPreflight({
   }
 }
 
+/**
+ * What the recipient receives from the send-all of `preflight` sent now: its
+ * output when it can be sent (at least dust, within the fee ceiling, and
+ * within the ancestor limit of the change it spends), or 0 when it cannot.
+ * MAX compares it with what a send plan delivers (#188).
+ */
+export function qbitP2mrSendAllSendableSatoshis(
+  preflight: Pick<
+    ReturnType<typeof estimateQbitP2mrSendAllPreflight>,
+    'canCover' | 'exceedsAncestorSize' | 'exceedsMaximumTotalFee' | 'outputSatoshis'
+  >
+): number {
+  return preflight.canCover && !preflight.exceedsAncestorSize && !preflight.exceedsMaximumTotalFee
+    ? preflight.outputSatoshis
+    : 0
+}
+
+/**
+ * The send plan (#188) for a payment one transaction cannot carry, priced
+ * by `planQbitSend` on the shape the send preflights above price: the
+ * recipient's and memo outputs, the account's own script for each merge's
+ * output and the change, its leaf script and a zero-depth control block.
+ * It plans the account's confirmed outputs only. `feeRate` and an amount
+ * target must already be valid (`isQbitFeeRateWithinPolicy`,
+ * `isQbitSendPlanAmount`): the planner throws a `RangeError` for a caller's
+ * error. Undefined for an account without a P2MR script.
+ */
+export function planQbitP2mrSendPreflight({
+  utxos,
+  account,
+  target,
+  feeRate,
+  memo,
+  memos,
+}: {
+  utxos: UnspentOutput[]
+  account: Account
+  target: QbitSendPlanTarget
+  feeRate: number
+  memo?: string
+  memos?: string[]
+}): QbitSendPlan<UnspentOutput> | QbitSendPlanRefusal | undefined {
+  if (!account.p2mr) return undefined
+  const scriptLength = hexByteLength(account.p2mr.scriptPubKey)
+  return planQbitSend({
+    utxos,
+    target,
+    paymentOutputScriptLengths: [scriptLength, ...qbitMemoOutputScriptLengths(memo, memos)],
+    accountScriptLength: scriptLength,
+    leafScriptLength: hexByteLength(account.p2mr.leafScript),
+    controlBlockLength: QBIT_P2MR_ZERO_DEPTH_CONTROL_BLOCK_BYTES,
+    feeRate,
+  })
+}
+
 export function usePrepareSendQBTCallback() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
@@ -259,6 +318,7 @@ export function usePrepareSendQBTCallback() {
       memos,
       disableAutoAdjust,
       enableRBF,
+      utxoSnapshot,
     }: {
       toAddressInfo: ToAddressInfo
       toAmount: number
@@ -267,6 +327,12 @@ export function usePrepareSendQBTCallback() {
       memos?: string[]
       disableAutoAdjust?: boolean
       enableRBF?: boolean
+      /**
+       * Outputs read just now for the selected account, to build from
+       * instead of the cache: the send plan's background found outputs the
+       * cache does not hold yet.
+       */
+      utxoSnapshot?: QbitUtxoSnapshot
     }) => {
       if (!canCreateQbitSendRequest(currentAccount)) {
         throw new Error(t('not_supported'))
@@ -280,9 +346,10 @@ export function usePrepareSendQBTCallback() {
       // account and network they were read for, which the builder checks
       // against its own either way.
       const snapshot: QbitUtxoSnapshot =
-        utxos.length > 0 && utxosAddress !== null && utxosChain !== null
+        utxoSnapshot ??
+        (utxos.length > 0 && utxosAddress !== null && utxosChain !== null
           ? { address: utxosAddress, chain: utxosChain, utxos }
-          : await fetchUtxos()
+          : await fetchUtxos())
       const spendableUtxos = getQbitP2mrSpendableUtxos(snapshot.utxos, currentAccount)
       const safeBalance = spendableUtxos.reduce((pre, cur) => pre + cur.satoshis, 0)
       if (safeBalance < toAmount) {
@@ -347,14 +414,11 @@ export function usePrepareSendQBTCallback() {
             ])
           )
         }
+        // The send screen prices such an amount as a send plan; it reaches
+        // this one-transaction send only when the outputs changed between
+        // its preview and this build.
         if (preflight.exceedsStandardSize) {
-          throw new Error(
-            t('send_exceeds_standard_size', [
-              String(preflight.maxInputCount),
-              numUtils.satoshisToAmount(preflight.maxStandardAmount),
-              qbitUnit,
-            ])
-          )
+          throw new Error(t('send_plan_outputs_changed'))
         }
         if (preflight.exceedsAncestorSize) {
           throw new Error(t('send_exceeds_ancestor_size'))

@@ -1913,14 +1913,332 @@
   "touch_id_onboarding_desc": {
     "message": "Vous pouvez déverrouiller votre portefeuille avec Touch ID au lieu de votre mot de passe. Vous pourrez aussi l'activer plus tard dans les Réglages."
   },
-  "send_exceeds_standard_size": {
-    "message": "Ce montant nécessite plus de $1 sorties de ce compte, mais une transaction peut en contenir au plus $1. Envoyez au maximum $2 $3 à la fois, ou utilisez MAX."
-  },
   "send_all_leaves_outputs_behind": {
     "message": "MAX envoie vos $1 plus grandes sorties, le maximum qu'une transaction peut contenir. $2 $3 répartis sur $4 sorties plus petites restent sur ce compte."
   },
   "send_exceeds_ancestor_size": {
     "message": "Avec votre envoi précédent, pas encore confirmé, cet envoi dépasserait la taille acceptée par le réseau. Attendez que l'envoi précédent soit confirmé, ou envoyez un montant plus faible."
+  },
+  "send_plan_notice_title": {
+    "message": "Ce paiement nécessite $1 transactions"
+  },
+  "send_plan_notice_title_everything": {
+    "message": "Envoyer tout votre solde nécessite $1 transactions"
+  },
+  "send_plan_steps_none": {
+    "message": "Il ne reste que le paiement : vos fonds sont déjà regroupés."
+  },
+  "send_plan_steps_one": {
+    "message": "Une pour regrouper vos fonds, puis le paiement."
+  },
+  "send_plan_steps_many": {
+    "message": "$1 pour regrouper vos fonds, puis le paiement."
+  },
+  "send_plan_receives": {
+    "message": "Le destinataire reçoit"
+  },
+  "send_plan_total_fee": {
+    "message": "Frais totaux"
+  },
+  "send_plan_signing_label": {
+    "message": "Signature"
+  },
+  "send_plan_signatures": {
+    "message": "Signatures : $1"
+  },
+  "send_plan_time_minutes": {
+    "message": "environ $1 min"
+  },
+  "send_plan_time_under_a_minute": {
+    "message": "moins d’une minute"
+  },
+  "send_plan_left_behind": {
+    "message": "$1 $2 reste sur ce compte : des fonds qui valent moins que les frais pour les envoyer."
+  },
+  "send_plan_unconfirmed_not_included": {
+    "message": "$1 $2 n’est pas encore confirmé et n’est pas inclus. Il pourra être envoyé une fois confirmé."
+  },
+  "send_plan_short_of_fees": {
+    "message": "Votre solde couvre ce montant, mais pas le montant plus tous les frais."
+  },
+  "send_plan_exceeds_plan_size": {
+    "message": "Ce montant nécessite plus de transactions qu’un seul paiement ne peut en utiliser."
+  },
+  "send_plan_exceeds_maximum_fee": {
+    "message": "Pour ce montant, les frais dépasseraient la limite de sécurité du portefeuille."
+  },
+  "send_plan_nothing_to_send": {
+    "message": "Rien ne peut être envoyé : ces fonds valent moins que les frais pour les envoyer."
+  },
+  "send_plan_max_sendable": {
+    "message": "Vous pouvez envoyer jusqu’à $1 $2."
+  },
+  "send_plan_use_max_sendable": {
+    "message": "Utiliser $1 $2"
+  },
+  "send_plan_unconfirmed_note": {
+    "message": "$1 $2 n’est pas encore confirmé et pourra être envoyé une fois confirmé."
+  },
+  "send_plan_already_open": {
+    "message": "Un paiement depuis ce compte est déjà en cours."
+  },
+  "send_plan_open_holds_rest": {
+    "message": "Un paiement depuis ce compte est déjà en cours et retient le reste de ses fonds."
+  },
+  "send_plan_view_open": {
+    "message": "Voir le paiement"
+  },
+  "send_plan_outputs_unavailable": {
+    "message": "Le portefeuille n’a pas pu lire les fonds de ce compte et ne peut donc pas préparer ce paiement pour le moment. Réessayez dans un instant."
+  },
+  "send_plan_outputs_changed": {
+    "message": "Les fonds que ce paiement utiliserait ont changé. Vérifiez à nouveau le paiement."
+  },
+  "send_plan_review_expired": {
+    "message": "Cette vérification a expiré. Vérifiez à nouveau le paiement."
+  },
+  "send_plan_review_unavailable": {
+    "message": "Cette vérification n’est plus disponible. Revenez en arrière et vérifiez à nouveau le paiement."
+  },
+  "send_plan_review_title": {
+    "message": "Vérifier le paiement"
+  },
+  "send_plan_review_transactions": {
+    "message": "Transactions prévues"
+  },
+  "send_plan_review_change": {
+    "message": "Revient à ce portefeuille"
+  },
+  "send_plan_review_budget": {
+    "message": "Signatures restantes : $1 maintenant, $2 après"
+  },
+  "send_plan_review_note": {
+    "message": "La signature continue si vous fermez cette fenêtre. Verrouiller le portefeuille la met en pause jusqu’à ce que vous le déverrouilliez."
+  },
+  "send_plan_revision_title": {
+    "message": "Ceci modifie le paiement que vous avez confirmé"
+  },
+  "send_plan_revision_unchanged": {
+    "message": "Le destinataire et le montant restent les mêmes."
+  },
+  "send_plan_revision_recipient_unchanged": {
+    "message": "Le destinataire reste le même."
+  },
+  "send_plan_revision_amount": {
+    "message": "Le destinataire reçoit désormais $1 $2 au lieu de $3 $4."
+  },
+  "send_plan_revision_paid": {
+    "message": "Frais déjà payés : $1 $2"
+  },
+  "send_plan_revision_total_fee": {
+    "message": "Les frais totaux sont désormais de $1 $2 au lieu de $3 $4."
+  },
+  "send_plan_revision_same_title": {
+    "message": "Un nouveau plan pour le même paiement"
+  },
+  "send_plan_revision_same": {
+    "message": "Le destinataire, le montant et les frais totaux restent les mêmes."
+  },
+  "send_plan_header": {
+    "message": "Paiement"
+  },
+  "send_plan_to": {
+    "message": "À $1"
+  },
+  "send_plan_fee_summary": {
+    "message": "Frais totaux : $1 $2 ($3 bit/vB)"
+  },
+  "send_plan_stage_signing": {
+    "message": "Signature"
+  },
+  "send_plan_stage_combining": {
+    "message": "Regroupement de vos fonds"
+  },
+  "send_plan_stage_paying": {
+    "message": "Envoi du paiement"
+  },
+  "send_plan_stage_done": {
+    "message": "Paiement envoyé"
+  },
+  "send_plan_signatures_progress": {
+    "message": "$1 signatures sur $2"
+  },
+  "send_plan_combine_progress": {
+    "message": "$1 confirmées sur $2"
+  },
+  "send_plan_signing_close_note": {
+    "message": "Vous pouvez fermer cette fenêtre : la signature continue. Verrouiller le portefeuille la met en pause."
+  },
+  "send_plan_waiting_note": {
+    "message": "Le paiement part dès que vos fonds regroupés sont confirmés. Vous pouvez fermer cette fenêtre."
+  },
+  "send_plan_slow_merge": {
+    "message": "Le regroupement de vos fonds met plus de temps que d’habitude à être confirmé. Vous pouvez continuer d’attendre, ou augmenter les frais."
+  },
+  "send_plan_cancelling_title": {
+    "message": "Annulation du paiement"
+  },
+  "send_plan_cancelling_body": {
+    "message": "Le portefeuille vérifie une transaction avant de libérer vos fonds."
+  },
+  "send_plan_read_failed": {
+    "message": "Le portefeuille n’a pas pu lire la progression de ce paiement. Il réessaiera sous peu."
+  },
+  "send_plan_paused_locked": {
+    "message": "Le portefeuille s’est verrouillé avant la fin de la signature"
+  },
+  "send_plan_paused_locked_body": {
+    "message": "La signature reprend dès que le portefeuille est déverrouillé."
+  },
+  "send_plan_paused_interrupted": {
+    "message": "La signature s’est arrêtée avant la fin"
+  },
+  "send_plan_paused_interrupted_body": {
+    "message": "Le navigateur ou le portefeuille a redémarré, ou la signature a échoué. Continuez pour signer le reste."
+  },
+  "send_plan_paused_merge_refused": {
+    "message": "Vos fonds n’ont pas pu être regroupés comme prévu"
+  },
+  "send_plan_paused_merge_refused_body": {
+    "message": "Une transaction qui regroupe vos fonds ne peut pas être envoyée comme prévu. Vérifiez à nouveau le paiement pour continuer."
+  },
+  "send_plan_paused_outputs_spent": {
+    "message": "Des fonds utilisés par ce paiement ont été dépensés"
+  },
+  "send_plan_paused_outputs_spent_body": {
+    "message": "Quelque chose en dehors de ce paiement a dépensé des fonds qu’il allait utiliser. Vérifiez à nouveau le paiement, ou annulez-le."
+  },
+  "send_plan_paused_payment_fee_too_low": {
+    "message": "Les frais du paiement sont trop bas"
+  },
+  "send_plan_paused_payment_fee_too_low_body": {
+    "message": "Le réseau demande des frais plus élevés pour accepter le paiement. Augmentez les frais pour l’envoyer."
+  },
+  "send_plan_paused_payment_refused": {
+    "message": "Le réseau a refusé le paiement"
+  },
+  "send_plan_paused_payment_refused_body": {
+    "message": "Le paiement n’a pas été envoyé. Vérifiez-le à nouveau, ou annulez-le."
+  },
+  "send_plan_paused_payment_refused_unexplained": {
+    "message": "Le réseau a refusé le paiement sans donner de raison"
+  },
+  "send_plan_paused_payment_refused_unexplained_body": {
+    "message": "Le paiement n’a pas été envoyé. La cause habituelle est des frais trop bas : augmentez les frais pour l’envoyer, ou vérifiez-le à nouveau."
+  },
+  "send_plan_paused_unreadable": {
+    "message": "Ce paiement ne peut pas être lu"
+  },
+  "send_plan_paused_unreadable_body": {
+    "message": "Cette version du portefeuille ne peut pas lire le paiement enregistré et ne peut donc pas le poursuivre."
+  },
+  "send_plan_paused_other": {
+    "message": "Le paiement est en pause"
+  },
+  "send_plan_funds_untouched": {
+    "message": "Rien n’a été envoyé au destinataire. Vos fonds sont dans ce portefeuille, comme avant."
+  },
+  "send_plan_funds_partly_combined": {
+    "message": "Rien n’a été envoyé au destinataire. Vos fonds sont dans ce portefeuille, en partie regroupés."
+  },
+  "send_plan_funds_combined": {
+    "message": "Rien n’a été envoyé au destinataire. Vos fonds sont dans ce portefeuille, regroupés."
+  },
+  "send_plan_may_confirm_title": {
+    "message": "Le paiement peut encore aboutir"
+  },
+  "send_plan_may_confirm_body": {
+    "message": "Le paiement a été envoyé, mais le portefeuille n’a reçu aucune réponse : il peut donc encore aboutir. Le portefeuille continue de vérifier. Tant que ce n’est pas réglé, ne payez pas ce destinataire d’une autre façon."
+  },
+  "send_plan_may_confirm_continue": {
+    "message": "Vous pouvez renvoyer le même paiement, ce qui ne peut pas payer le destinataire deux fois."
+  },
+  "send_plan_may_confirm_raise_or_continue": {
+    "message": "Vous pouvez augmenter ses frais ou renvoyer le même paiement. Ni l’un ni l’autre ne peut payer le destinataire deux fois."
+  },
+  "send_plan_may_confirm_raise": {
+    "message": "Vous pouvez augmenter ses frais, ce qui ne peut pas payer le destinataire deux fois."
+  },
+  "send_plan_may_confirm_funds_held": {
+    "message": "Les fonds qu’utilise ce paiement sont dans ce portefeuille, retenus pour lui."
+  },
+  "send_plan_may_confirm_funds_partly_combined": {
+    "message": "Les fonds qu’utilise ce paiement sont dans ce portefeuille, en partie regroupés et retenus pour lui."
+  },
+  "send_plan_may_confirm_funds_combined": {
+    "message": "Les fonds qu’utilise ce paiement sont dans ce portefeuille, regroupés et retenus pour lui."
+  },
+  "send_plan_action_replan": {
+    "message": "Vérifier à nouveau"
+  },
+  "send_plan_action_raise_merge_fee": {
+    "message": "Accélérer avec des frais plus élevés"
+  },
+  "send_plan_action_raise_payment_fee": {
+    "message": "Augmenter les frais"
+  },
+  "send_plan_action_cancel": {
+    "message": "Annuler le paiement"
+  },
+  "send_plan_action_dismiss": {
+    "message": "Retirer de l’accueil"
+  },
+  "send_plan_cancel_title": {
+    "message": "Annuler ce paiement ?"
+  },
+  "send_plan_cancel_body": {
+    "message": "Rien ne sera envoyé au destinataire. Les fonds déjà regroupés restent dans ce portefeuille en montants moins nombreux et plus grands, et les frais déjà payés ne sont pas remboursés."
+  },
+  "send_plan_cancel_body_untouched": {
+    "message": "Rien n’a encore été envoyé. L’annulation laisse vos fonds tels quels, et aucuns frais n’ont été payés."
+  },
+  "send_plan_cancel_keep": {
+    "message": "Garder le paiement"
+  },
+  "send_plan_raise_title": {
+    "message": "Augmenter les frais"
+  },
+  "send_plan_raise_body": {
+    "message": "Choisissez un taux supérieur à $1 bit/vB. Vous vérifiez les nouveaux frais totaux avant que quoi que ce soit ne change."
+  },
+  "send_plan_replan_title": {
+    "message": "Vérifier à nouveau le paiement"
+  },
+  "send_plan_replan_body": {
+    "message": "Le portefeuille prépare à nouveau le paiement à partir de vos fonds tels qu’ils sont maintenant, au taux que vous choisissez ici. Le plan précédent utilisait $1 bit/vB. Vous vérifiez le nouveau plan avant que quoi que ce soit ne soit signé."
+  },
+  "send_plan_revise_refused": {
+    "message": "Le portefeuille ne peut pas préparer cette modification pour le moment."
+  },
+  "send_plan_fee_rate_too_low": {
+    "message": "Ce taux de frais est trop bas pour remplacer la transaction déjà envoyée. Utilisez au moins $1 bit/vB."
+  },
+  "send_plan_home_sending": {
+    "message": "Envoi de $1 $2"
+  },
+  "send_plan_home_paused": {
+    "message": "Paiement de $1 $2 en pause : action requise"
+  },
+  "send_plan_home_sent": {
+    "message": "Envoyé : $1 $2"
+  },
+  "send_plan_home_cancelling": {
+    "message": "Annulation d’un paiement de $1 $2"
+  },
+  "send_plan_status_signing": {
+    "message": "Signature : $1 signatures sur $2"
+  },
+  "send_plan_status_waiting": {
+    "message": "Regroupement de vos fonds : $1 confirmées sur $2"
+  },
+  "send_plan_status_sending": {
+    "message": "Envoi du paiement"
+  },
+  "send_plan_status_sent": {
+    "message": "Le réseau a accepté le paiement."
+  },
+  "send_plan_status_may_confirm": {
+    "message": "Le paiement peut encore aboutir : ne payez pas ce destinataire d’une autre façon."
   },
   "utxo_limit_exceeded_balance": {
     "message": "L'explorateur ne liste pas les sorties de ce compte. Ce total provient du résumé de l'adresse."

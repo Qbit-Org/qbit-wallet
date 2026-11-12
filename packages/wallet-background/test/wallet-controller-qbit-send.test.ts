@@ -192,6 +192,7 @@ vi.mock('../src/services', () => ({
     assertNoOverlap: vi.fn(),
     broadcastIfAllowed: vi.fn(),
     forgetProvenAbsentBroadcast: vi.fn(async () => true),
+    getPlanHeldOutpointKeys: vi.fn(async () => new Set()),
     getReservedOutpointKeys: vi.fn(async () => new Set()),
     hasDependentSpend: vi.fn(async () => false),
     hasUnknownBroadcastOutcome: vi.fn(async () => false),
@@ -626,6 +627,7 @@ describe('WalletController qbit P2MR send path', () => {
     )
     vi.mocked(qbitSendGuardService.takeRecentSpendersToProbe).mockResolvedValue([])
     vi.mocked(qbitSendGuardService.hasDependentSpend).mockResolvedValue(false)
+    vi.mocked(qbitSendGuardService.getPlanHeldOutpointKeys).mockResolvedValue(new Set())
     vi.mocked(qbitSendGuardService.releaseExternalSigningLock).mockResolvedValue(true)
     vi.mocked(
       qbitSendGuardService.promoteExternalSigningLockToBroadcastClaim

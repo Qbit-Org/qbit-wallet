@@ -50,6 +50,8 @@ import TestScreen from './Test/TestScreen';
 import HistoryScreen from './Wallet/HistoryScreen';
 import QbitConsolidationScreen from './Wallet/QbitConsolidationScreen';
 import QbitRecoveryMigrationScreen from './Wallet/QbitRecoveryMigrationScreen';
+import QbitSendPlanReviewScreen from './Wallet/QbitSendPlanReviewScreen';
+import QbitSendPlanScreen from './Wallet/QbitSendPlanScreen';
 import ReceiveScreen from './Wallet/ReceiveScreen';
 import TxConfirmScreen from './Wallet/TxConfirmScreen';
 import TxCreateScreen from './Wallet/TxCreateScreen';
@@ -126,6 +128,14 @@ export const routes = {
   TxConfirmScreen: {
     path: '/wallet/tx/confirm',
     element: <TxConfirmScreen />
+  },
+  QbitSendPlanReviewScreen: {
+    path: '/wallet/tx/plan/review',
+    element: <QbitSendPlanReviewScreen />
+  },
+  QbitSendPlanScreen: {
+    path: '/wallet/tx/plan',
+    element: <QbitSendPlanScreen />
   },
   TxSuccessScreen: {
     path: '/wallet/tx/success',

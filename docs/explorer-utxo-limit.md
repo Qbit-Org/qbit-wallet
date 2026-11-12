@@ -97,6 +97,20 @@ other transient reply first.
   fail, the outputs stay unknown, and recovery skips the source for that
   pass and names it; the check of an archived migration fails instead and
   reopens nothing.
+
+  A payment that needs more of the account's outputs than one transaction
+  carries (106 single-key inputs) is no longer refused. The send screen
+  prices it as a send plan from the outputs this read found: transactions
+  that combine the account's own confirmed outputs and pay them back to its
+  address (merges, at most 106 inputs each), then one payment that spends
+  the merges' outputs once they confirm. The user confirms the plan once and
+  the wallet signs, sends and watches every transaction (see
+  [qbit Fee Policy](qbit-fee-policy.md#send-plans)). The background reads the
+  outputs again the same way when it prepares the plan, so a plan runs above
+  the listing limit wherever a send can read the account's outputs. Where
+  that read fails, as for a history past the read limit, the send screen
+  still says it cannot send from the account and offers consolidation, and
+  no plan is prepared either.
 - **Consolidation.** The account can sweep its outputs to its own address one
   batch at a time, while the explorer refuses to list them. Whether it does is
   the explorer's own answer, asked again for the consolidation screen's status
@@ -141,6 +155,11 @@ other transient reply first.
   confirmed rows after it, so when the pending rows fill whole pages (50
   each) the walk steps back one row and reads on from there. It ends only
   when that page holds the pending row alone.
+
+  A payment no longer needs consolidating first: a send plan makes the
+  merges it needs itself (see Sending). Consolidation stays the way to merge
+  outputs without paying anyone, and the only one for an account whose
+  outputs the send screen cannot read, since it needs no full history read.
 - **Restored wallets.** Rebuilding a restored wallet's signature-counter
   floors reads no outputs. An address whose history is too long to read in
   full takes its floor from its statistics instead, so a restored account

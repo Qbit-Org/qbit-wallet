@@ -58,11 +58,14 @@ const background = vi.hoisted(() => {
       setChainType: vi.fn()
     },
     qbitSendGuardService: { init: vi.fn() },
+    qbitSendPlanStore: { init: vi.fn(reads('qbitSendPlans')) },
     walletController: {
       initRegtestAccess: vi.fn(),
       prepareStartupChainType: vi.fn(),
+      restoreQbitSendPlans: vi.fn(),
       setBackgroundInited: vi.fn(),
-      setBackgroundStartupFailed: vi.fn()
+      setBackgroundStartupFailed: vi.fn(),
+      startQbitSendPlanEngine: vi.fn()
     }
   };
 });
@@ -312,5 +315,75 @@ describe('restoreAppState', () => {
     await expect(asked).rejects.toMatchObject({ reason });
     await expect(restore.whenAppStateRestored()).rejects.toMatchObject({ reason });
     expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith(reason);
+  });
+
+  describe('send plans', () => {
+    const order = (mock: { mock: { invocationCallOrder: number[] } }) => mock.mock.invocationCallOrder[0] ?? -1;
+
+    it('holds the stored plans again right after the send guard starts, and advances them once start-up is over', async () => {
+      const { isAppStateRestored } = await startWorker();
+
+      expect(isAppStateRestored()).toBe(true);
+      const [[{ storage: adapter }]] = background.keyringService.init.mock.calls;
+      expect(background.qbitSendPlanStore.init).toHaveBeenCalledExactlyOnceWith({ storage: adapter });
+      // The holds are restored before any service a send could come through
+      // starts, and the plans advance only once the background is ready.
+      expect(order(background.qbitSendGuardService.init)).toBeLessThan(order(background.qbitSendPlanStore.init));
+      expect(order(background.qbitSendPlanStore.init)).toBeLessThan(
+        order(background.walletController.restoreQbitSendPlans)
+      );
+      expect(order(background.walletController.restoreQbitSendPlans)).toBeLessThan(
+        order(background.permissionService.init)
+      );
+      expect(order(background.walletController.setBackgroundInited)).toBeLessThan(
+        order(background.walletController.startQbitSendPlanEngine)
+      );
+      expect(browserStorage.set).not.toHaveBeenCalled();
+    });
+
+    it('stops start-up as unreadable when the stored plans cannot be read, holding and advancing nothing', async () => {
+      vi.resetModules();
+      const { default: storage } = await import('../utils/storage');
+      const readStore = storage.get;
+      vi.spyOn(storage, 'get').mockImplementation(async (key?: string) => {
+        if (key === 'qbitSendPlans') throw unreadable();
+        return readStore(key);
+      });
+      const { restoreAppState, isAppStateRestored } = await import('./restore');
+
+      await restoreAppState();
+
+      expect(background.qbitSendPlanStore.init).toHaveBeenCalledTimes(1);
+      expect(background.walletController.restoreQbitSendPlans).not.toHaveBeenCalled();
+      expect(background.walletController.startQbitSendPlanEngine).not.toHaveBeenCalled();
+      expect(background.walletController.setBackgroundStartupFailed).toHaveBeenCalledWith('stored-settings-unreadable');
+      expect(isAppStateRestored()).toBe(false);
+      expect(browserStorage.set).not.toHaveBeenCalled();
+    });
+
+    it('starts normally from a readable store holding plans this version cannot read, which show as unreadable', async () => {
+      browserStorage.disk = {
+        ...structuredClone(STORE_1_0_6),
+        qbitSendPlans: { version: 2, plans: [{ id: 'a1'.repeat(16) }] }
+      };
+
+      const { isAppStateRestored } = await startWorker();
+
+      expect(isAppStateRestored()).toBe(true);
+      expect(background.walletController.restoreQbitSendPlans).toHaveBeenCalledTimes(1);
+      expect(background.walletController.startQbitSendPlanEngine).toHaveBeenCalledTimes(1);
+      expect(browserStorage.set).not.toHaveBeenCalled();
+    });
+
+    it('stays started when the plans fail to start advancing', async () => {
+      background.walletController.startQbitSendPlanEngine.mockImplementationOnce(() => {
+        throw new Error('engine failed');
+      });
+
+      const { isAppStateRestored } = await startWorker();
+
+      expect(isAppStateRestored()).toBe(true);
+      expect(background.walletController.setBackgroundStartupFailed).not.toHaveBeenCalled();
+    });
   });
 });

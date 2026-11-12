@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KeyringType } from '@qbit/keyring-service/types'
 import { BUS_EVENTS, BUS_METHODS, ErrorCodes, SESSION_EVENTS } from '@qbit/wallet-shared'
-import { AddressType } from '@qbit/wallet-types'
+import { AddressType, ChainType } from '@qbit/wallet-types'
 import log from 'loglevel'
 import { WalletController } from '../src/controllers/wallet'
 import { preferenceService, sessionService } from '../src/services'
@@ -649,5 +649,147 @@ describe('the last usable wallet', () => {
     expect(keyrings.service.removeKeyring).toHaveBeenCalledTimes(1)
     expect((await wallet.getKeyrings()).map(keyring => keyring.index)).toEqual([1])
     expect(preferenceService.getCurrentAccount()).toMatchObject({ key: second.accounts[0].key })
+  })
+})
+
+describe('the send plans of a removed wallet', () => {
+  type Accounts = { chain: ChainType; address: string }[]
+  const engine = () =>
+    (
+      wallet as unknown as {
+        qbitSendPlans: {
+          endPlansOf(accounts: Accounts): Promise<{ ended: string[]; mayHaveBeenSent: string[] }>
+        }
+      }
+    ).qbitSendPlans
+
+  const TEST_NETWORKS_HD_PATH = "m/87'/1'/0'/0"
+  const PHRASE = 'the phrase of the wallet removed'
+
+  /**
+   * The keys the wallet in slot 0 derives from its phrase on the path the
+   * active network does not use, one per active account, as a temporary
+   * keyring made from that phrase derives them.
+   */
+  function derivedOnTheOtherPath(activeIndexes: number[]): Map<string, string> {
+    Object.assign(keyrings.live[0]!, { mnemonic: PHRASE, passphrase: 'extra word', activeIndexes })
+    const derived = new Map(activeIndexes.map(index => [String(index), keyrings.nextId()]))
+    keyrings.service.createTmpKeyring.mockImplementationOnce(((
+      _type: string,
+      options: { mnemonic: string; activeIndexes: number[] }
+    ) => ({
+      getQbitAccounts: async () =>
+        options.mnemonic === PHRASE
+          ? options.activeIndexes.map(index => {
+              const id = derived.get(String(index))!
+              return { pubkey: id, addresses: keyrings.addresses(id) }
+            })
+          : [],
+    })) as never)
+    return derived
+  }
+
+  it('ends the send plans of every account the wallet held, on every network, once its slot is empty', async () => {
+    const first = usableWallet(2)
+    usableWallet()
+    const derived = derivedOnTheOtherPath([0, 1])
+    const [target] = await listed()
+    const ended = vi.spyOn(engine(), 'endPlansOf').mockImplementation(async () => {
+      // Only once the wallet is gone: a removal that fails ends nothing.
+      expect(keyrings.live[0]!.type).toBe('Empty')
+      return { ended: ['a1'.repeat(16)], mayHaveBeenSent: ['a1'.repeat(16)] }
+    })
+
+    await wallet.removeKeyring(target)
+
+    expect(ended).toHaveBeenCalledTimes(1)
+    const accounts = ended.mock.calls[0]![0]
+    const ids = target.accounts.map((account: { pubkey: string }) => account.pubkey)
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).toBe(first)
+    // Each account's address on mainnet, the active network, as the wallet
+    // lists it; and on the test networks, whose derivation path is the
+    // other one, as its phrase derives it there: one temporary keyring for
+    // both, nothing being stored for them.
+    expect(keyrings.service.createTmpKeyring).toHaveBeenCalledTimes(1)
+    expect(keyrings.service.createTmpKeyring).toHaveBeenCalledWith(KeyringType.QbitHdKeyring, {
+      mnemonic: PHRASE,
+      passphrase: 'extra word',
+      activeIndexes: [0, 1],
+      hdPath: TEST_NETWORKS_HD_PATH,
+    })
+    expect(accounts).toEqual(
+      expect.arrayContaining([
+        ...ids.map((id: string) => ({
+          chain: ChainType.QBIT_MAINNET,
+          address: keyrings.addresses(id).mainnet,
+        })),
+        ...[...derived.values()].flatMap(id => [
+          { chain: ChainType.QBIT_TESTNET4, address: keyrings.addresses(id).testnet4 },
+          { chain: ChainType.QBIT_REGTEST, address: keyrings.addresses(id).regtest },
+        ]),
+      ])
+    )
+    expect(new Set(accounts.map(account => account.chain))).toEqual(
+      new Set([ChainType.QBIT_MAINNET, ChainType.QBIT_TESTNET4, ChainType.QBIT_REGTEST])
+    )
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('may have paid already'))
+  })
+
+  it('ends the plans of its mainnet accounts when it is removed on testnet4, with nothing stored for them', async () => {
+    // A mainnet start of the wallet's may be awaiting its first write, or a
+    // prepare its outputs: nothing of it is stored yet.
+    preferenceService.setChainType(ChainType.QBIT_TESTNET4)
+    usableWallet(2)
+    usableWallet()
+    const derived = derivedOnTheOtherPath([0, 1])
+    const [target] = await listed()
+    const ended = vi.spyOn(engine(), 'endPlansOf')
+
+    await wallet.removeKeyring(target)
+
+    expect(keyrings.service.createTmpKeyring).toHaveBeenCalledTimes(1)
+    expect(keyrings.service.createTmpKeyring).toHaveBeenCalledWith(KeyringType.QbitHdKeyring, {
+      mnemonic: PHRASE,
+      passphrase: 'extra word',
+      activeIndexes: [0, 1],
+      hdPath: MAINNET_HD_PATH,
+    })
+    const ids = target.accounts.map((account: { pubkey: string }) => account.pubkey)
+    expect(ended).toHaveBeenCalledTimes(1)
+    expect(ended.mock.calls[0]![0]).toEqual(
+      expect.arrayContaining([
+        ...[...derived.values()].map(id => ({
+          chain: ChainType.QBIT_MAINNET,
+          address: keyrings.addresses(id).mainnet,
+        })),
+        ...ids.flatMap((id: string) => [
+          { chain: ChainType.QBIT_TESTNET4, address: keyrings.addresses(id).testnet4 },
+          { chain: ChainType.QBIT_REGTEST, address: keyrings.addresses(id).regtest },
+        ]),
+      ])
+    )
+    // The listed keys are the test networks' path's: mainnet's addresses
+    // are the derived keys', never theirs.
+    expect(ended.mock.calls[0]![0]).not.toContainEqual({
+      chain: ChainType.QBIT_MAINNET,
+      address: keyrings.addresses(ids[0]).mainnet,
+    })
+  })
+
+  it('ends nothing when the removal is refused', async () => {
+    usableWallet()
+    const [only] = await listed()
+    const ended = vi.spyOn(engine(), 'endPlansOf')
+    await expect(wallet.removeKeyring(only)).rejects.toThrow()
+    expect(ended).not.toHaveBeenCalled()
+  })
+
+  it('removes the wallet when the stored plans cannot be read', async () => {
+    usableWallet()
+    usableWallet()
+    const [target] = await listed()
+    await wallet.removeKeyring(target)
+    expect((await wallet.getKeyrings()).map(keyring => keyring.index)).toEqual([1])
   })
 })

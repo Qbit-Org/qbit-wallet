@@ -7,9 +7,18 @@ import {
   QBIT_MIN_RELAY_FEE_RATE,
   QBIT_P2MR_DUST,
   assessQbitFee,
+  estimateQbitSendPlanSigningSeconds,
+  isQbitFeeRateWithinPolicy,
+  isQbitSendPlanAmount,
   qbitRecommendedFeeRate,
   qbitWalletOwnership,
   qbitWalletOwns,
+  type QbitSendPlan,
+  type QbitSendPlanPrepareParams,
+  type QbitSendPlanPrepareRefusal,
+  type QbitSendPlanRefusal,
+  type QbitSendPlanTarget,
+  type UnspentOutput,
 } from '@qbit/wallet-shared'
 import {
   type AppState,
@@ -20,6 +29,8 @@ import {
   useCurrentAccount,
   estimateQbitP2mrSendAllPreflight,
   estimateQbitP2mrSendPreflight,
+  planQbitP2mrSendPreflight,
+  qbitP2mrSendAllSendableSatoshis,
   QBIT_MEMO_MAX_BYTES,
   qbitMemoByteLength,
   useFeeRateBar,
@@ -39,10 +50,19 @@ import {
   useUtxos,
   useUtxosLoaded,
 } from '..'
+import { useQbitSendPlan } from '../hooks/sendPlan'
 import { hasAccountBalanceRead } from '../reducers/accounts'
 import type { SendFormScope } from '../reducers/ui'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
+import {
+  qbitSendPlanAmount,
+  qbitSendPlanCountFormat,
+  qbitSendPlanErrorMessage,
+  qbitSendPlanRefusalText,
+  qbitSendPlanStepsText,
+  qbitSendPlanTimeText,
+} from '../utils/qbit-send-plan'
 import { feeRateBelowMinimumError, useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
 
 /** What the previewed send takes from the wallet, for the total and the fee check. */
@@ -54,6 +74,66 @@ interface SendSpendPreview {
   /** Exact fee, including any change folded into it. */
   fee: number
   vsize: number
+}
+
+/**
+ * What the send screen previews for a payment one transaction cannot carry
+ * (#188): the send plan, or why there is none and what can be sent instead,
+ * or that only a plan can pay it while another payment of the account is in
+ * progress.
+ */
+type SendPlanPreview =
+  | { kind: 'open' }
+  | {
+      kind: 'plan'
+      plan: QbitSendPlan<UnspentOutput>
+      /** What Next prepares, priced for exactly these. */
+      recipientAddress: string
+      target: QbitSendPlanTarget
+      feeRate: number
+    }
+  | {
+      kind: 'refusal'
+      reason: QbitSendPlanPrepareRefusal
+      /** The largest amount to offer, in bits; 0 for none. */
+      offer: number
+      /** Funds not confirmed yet that the offer leaves out; 0 when it takes them or there are none. */
+      unconfirmedSatoshis: number
+    }
+
+/** What Next's request to prepare the plan was answered with, while the form holds. */
+type SendPlanPrepareOutcome =
+  | {
+      kind: 'refused'
+      reason: QbitSendPlanPrepareRefusal
+      offer: number
+      unconfirmedSatoshis: number
+    }
+  | { kind: 'plan_open' }
+
+/** The send screen's card for a send plan: what will happen, priced in full. */
+export interface TxCreateSendPlanNotice {
+  title: string
+  /** "K to combine your funds, then the payment." */
+  steps: string
+  /** Exactly what the recipient receives, with the unit. */
+  receives: string
+  totalFee: string
+  /** The signatures it uses and about how long signing takes. */
+  signing: string
+  /** For the whole balance: what stays in the account as worth less than its fee, when anything does. */
+  leftBehind: string
+  /** For the whole balance: the funds not confirmed yet, which it does not include; empty for none. */
+  unconfirmed: string
+}
+
+/** Why the amount cannot be sent as it is, and the amount the user may choose instead. */
+export interface TxCreateSendPlanRefusal {
+  message: string
+  /** "You can send up to …", with the button that sets the amount to it; empty for none. */
+  offerText: string
+  offerButtonText: string
+  unconfirmedText: string
 }
 
 /** The send screen's total and fee warning for its preview. */
@@ -84,7 +164,7 @@ function formKeyOf(scope: SendFormScope | null): string {
 }
 
 export function useTxCreateScreenLogic() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const accountBalance = useAccountBalance()
   const currentAccount = useCurrentAccount()
   const nav = useNavigation()
@@ -126,6 +206,24 @@ export function useTxCreateScreenLogic() {
   >(undefined)
 
   const [spendPreview, setSpendPreview] = useState<SendSpendPreview | undefined>(undefined)
+  // The send plan for a payment one transaction cannot carry, or why there
+  // is none, from the same checks; and what Next's request to prepare the
+  // plan was answered with. Both hold only for the form they were made for.
+  const [sendPlanPreview, setSendPlanPreview] = useState<SendPlanPreview | undefined>(undefined)
+  // MAX sends one transaction of what the account's payment in progress
+  // leaves free, where a plan would have combined more (#188).
+  const [sendAllBesidePlan, setSendAllBesidePlan] = useState(false)
+  const [prepareOutcome, setPrepareOutcome] = useState<SendPlanPrepareOutcome | undefined>(
+    undefined
+  )
+  const [planPreparing, setPlanPreparing] = useState(false)
+  const planPreparingRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    return (): void => {
+      mountedRef.current = false
+    }
+  }, [])
   // The rate the checks below last ran at: until they run at the selected
   // rate, Next and the preview are for an earlier one.
   const [checkedFeeRate, setCheckedFeeRate] = useState<number | undefined>(undefined)
@@ -140,9 +238,46 @@ export function useTxCreateScreenLogic() {
   const chain = useChain()
   const chainType = useChainType()
 
+  // The account's send plan on this network, as this page follows it
+  // (#188). One that has not completed is in progress: the background
+  // starts no other plan for the account until it ends (`plan_open`). A
+  // completed one waiting to be dismissed is not; a new plan starts beside it.
+  const { plan: accountSendPlan, refresh: refreshSendPlan } = useQbitSendPlan()
+  const sendPlanInProgress =
+    accountSendPlan !== undefined &&
+    accountSendPlan !== null &&
+    accountSendPlan.phase !== 'completed'
+  // The background leaves what a plan holds out of every read of the
+  // outputs, from the moment it holds it: outputs read before the plan
+  // started, or before its transactions changed (a new review, a fee raise),
+  // can include outputs it holds now, and outputs read before it ended lack
+  // the ones it let go. Its id and transactions name what it holds, for
+  // that: undefined until this page has read the plan, '' with none in
+  // progress.
+  const sendPlanHolds =
+    accountSendPlan === undefined
+      ? undefined
+      : sendPlanInProgress
+        ? `${accountSendPlan.id}:${accountSendPlan.steps.map(step => step.txid).join(',')}`
+        : ''
+  // Counts the changes of that this page sees, for which the outputs are
+  // read again below. Its first read of the plan, on opening the screen or
+  // after an account or network change, is not one: the outputs are read
+  // at the same moment.
+  const [sendPlanHoldsChanges, setSendPlanHoldsChanges] = useState(0)
+  const seenSendPlanHoldsRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const seen = seenSendPlanHoldsRef.current
+    seenSendPlanHoldsRef.current = sendPlanHolds
+    if (seen !== undefined && sendPlanHolds !== undefined && seen !== sendPlanHolds) {
+      setSendPlanHoldsChanges(changes => changes + 1)
+    }
+  }, [sendPlanHolds])
+
   const tools = useTools()
   // The account and network this screen reads outputs for, as the cache
-  // keys them. The read runs again when either changes under the open screen.
+  // keys them. The read runs again when either changes under the open
+  // screen, and when what the account's plan in progress holds changes.
   const utxoReadKey = `${chainType}:${currentAccount.address}`
   // How this screen's own read for `utxoReadKey` ended. Until it lands an
   // empty cache may be from an earlier read, or no read at all; `failed`
@@ -196,7 +331,7 @@ export function useTxCreateScreenLogic() {
       read.abort()
       hideLoadingOverlay()
     }
-  }, [utxoReadKey])
+  }, [utxoReadKey, sendPlanHoldsChanges])
   useEffect(() => {
     if (accountBalance.utxoLimitExceeded === true) hideLoadingOverlay()
   }, [accountBalance.utxoLimitExceeded])
@@ -324,6 +459,9 @@ export function useTxCreateScreenLogic() {
     setDisabled(true)
     setFeeDetail(undefined)
     setSpendPreview(undefined)
+    setSendPlanPreview(undefined)
+    setSendAllBesidePlan(false)
+    setPrepareOutcome(undefined)
     if (utxoLimitExceeded) {
       setError(t('utxo_limit_exceeded_send'))
       return
@@ -383,21 +521,132 @@ export function useTxCreateScreenLogic() {
 
     if (hasQbitUtxoPreflight) {
       const previewFeeRate = Math.min(feeRate, QBIT_MAX_FEE_RATE)
-      const preflight =
-        toSatoshis === qbitSpendableSatoshis
-          ? estimateQbitP2mrSendAllPreflight({
-              utxos: qbitSpendableUtxos,
-              account: currentAccount,
-              feeRate: previewFeeRate,
-              memo: memo || undefined,
-            })
-          : estimateQbitP2mrSendPreflight({
-              utxos: qbitSpendableUtxos,
-              account: currentAccount,
-              amount: toSatoshis,
-              feeRate: previewFeeRate,
-              memo: memo || undefined,
-            })
+      const sendAll = toSatoshis === qbitSpendableSatoshis
+      // What MAX sends in one transaction; for an amount, also what the
+      // largest outputs could send now, to offer when it is refused.
+      const sendAllPreflight = estimateQbitP2mrSendAllPreflight({
+        utxos: qbitSpendableUtxos,
+        account: currentAccount,
+        feeRate: previewFeeRate,
+        memo: memo || undefined,
+      })
+      // What that one transaction pays the recipient if sent now; 0 when it cannot be sent.
+      const sendAllSendable = qbitP2mrSendAllSendableSatoshis(sendAllPreflight)
+      const preflight = sendAll
+        ? sendAllPreflight
+        : estimateQbitP2mrSendPreflight({
+            utxos: qbitSpendableUtxos,
+            account: currentAccount,
+            amount: toSatoshis,
+            feeRate: previewFeeRate,
+            memo: memo || undefined,
+          })
+
+      // A payment one transaction cannot carry is priced as a send plan
+      // (#188), on the same outputs and shape: MAX past what one
+      // transaction carries, when the plan pays the recipient more, an
+      // amount that needs more outputs than that, and an amount the balance
+      // covers without its fees, for which the plan names what can be sent
+      // instead.
+      let planTarget: QbitSendPlanTarget | undefined
+      if (isQbitFeeRateWithinPolicy(feeRate)) {
+        if (sendAll) {
+          if (sendAllPreflight.leftBehindInputCount > 0) planTarget = { kind: 'everything' }
+        } else if (
+          isQbitSendPlanAmount(toSatoshis) &&
+          'exceedsStandardSize' in preflight &&
+          (preflight.exceedsStandardSize ||
+            (!preflight.canCover &&
+              !preflight.exceedsAncestorSize &&
+              !preflight.exceedsMaximumTotalFee))
+        ) {
+          planTarget = { kind: 'amount', amount: toSatoshis }
+        }
+      }
+      // While another payment of the account is in progress the background
+      // starts no plan beside it. MAX then sends one transaction of the
+      // outputs that payment leaves free, which are the ones read here, as
+      // MAX did before plans, and says that payment holds the rest. An
+      // amount only a plan can pay waits for it, below.
+      if (sendPlanInProgress && planTarget?.kind === 'everything') {
+        planTarget = undefined
+        setSendAllBesidePlan(true)
+      }
+      let planned: QbitSendPlan<UnspentOutput> | QbitSendPlanRefusal | undefined
+      if (planTarget) {
+        try {
+          planned = planQbitP2mrSendPreflight({
+            utxos: qbitSpendableUtxos,
+            account: currentAccount,
+            target: planTarget,
+            feeRate,
+            memo: memo || undefined,
+          })
+        } catch (e) {
+          // The planner refuses only malformed input, which the checks above rule out.
+          console.error('The send plan could not be priced:', e)
+        }
+      }
+      // A plan that combines outputs replaces the one-transaction send; one
+      // without merges is that send, previewed as before. MAX sends the most
+      // the wallet can send now: a plan spends confirmed outputs only, and
+      // one transaction of the largest outputs, unconfirmed ones included,
+      // can pay more. The plan is chosen only when it pays the recipient
+      // more; on a tie one transaction is, since it waits for nothing.
+      // `in` narrows the plan here, where this package compiles without strict null checks.
+      const planRefusal = planned && 'reason' in planned ? planned : undefined
+      const plan = planned && !('reason' in planned) ? planned : undefined
+      if (
+        planTarget &&
+        plan &&
+        plan.merges.length > 0 &&
+        (planTarget.kind === 'amount' || plan.payment.amount > sendAllSendable)
+      ) {
+        if (sendPlanInProgress) {
+          // Only a plan pays this amount: Next waits for the payment in
+          // progress, which the screen names and links to.
+          setSendPlanPreview({ kind: 'open' })
+          return
+        }
+        setSendPlanPreview({
+          kind: 'plan',
+          plan,
+          recipientAddress: toInfo.address,
+          target: planTarget,
+          feeRate,
+        })
+        setSpendPreview({
+          recipientAddress: toInfo.address,
+          recipientSatoshis: plan.payment.amount,
+          fee: plan.totalFee,
+          vsize: plan.merges.reduce((sum, merge) => sum + merge.vsize, plan.payment.vsize),
+        })
+        setDisabled(false)
+        return
+      }
+      // A refusal offers the most the user can send now: the plan's, from
+      // confirmed outputs, or one transaction of the largest outputs,
+      // unconfirmed ones included, when that sends more. While another
+      // payment is in progress no plan can start, and only that one
+      // transaction can be sent.
+      const refuse = (refused: QbitSendPlanRefusal): void => {
+        setSendPlanPreview(
+          sendPlanInProgress || sendAllSendable > refused.maxSendable
+            ? {
+                kind: 'refusal',
+                reason: refused.reason,
+                offer: sendAllSendable,
+                unconfirmedSatoshis: 0,
+              }
+            : {
+                kind: 'refusal',
+                reason: refused.reason,
+                offer: refused.maxSendable,
+                unconfirmedSatoshis: refused.unconfirmedSatoshis,
+              }
+        )
+      }
+
       if (feeRate > QBIT_MAX_FEE_RATE || preflight.exceedsMaximumTotalFee) {
         setFeeCheckError(
           t('fee_exceeds_wallet_safety_maximum', [
@@ -409,13 +658,12 @@ export function useTxCreateScreenLogic() {
         return
       }
       if ('exceedsStandardSize' in preflight && preflight.exceedsStandardSize) {
-        setFeeCheckError(
-          t('send_exceeds_standard_size', [
-            String(preflight.maxInputCount),
-            numUtils.satoshisToAmount(preflight.maxStandardAmount),
-            qbitUnit,
-          ])
-        )
+        if (planRefusal) {
+          refuse(planRefusal)
+          return
+        }
+        // A plan without merges would be a send that one transaction carries.
+        setFeeCheckError(t('unknown_error'))
         return
       }
       if (preflight.exceedsAncestorSize) {
@@ -423,6 +671,10 @@ export function useTxCreateScreenLogic() {
         return
       }
       if (!preflight.canCover) {
+        if (planRefusal) {
+          refuse(planRefusal)
+          return
+        }
         setFeeCheckError(t('amount_exceeds_your_available_balance'))
         return
       }
@@ -467,6 +719,7 @@ export function useTxCreateScreenLogic() {
     qbitSpendableUtxos,
     currentAccount,
     feeRateBelowMinimum,
+    sendPlanInProgress,
     t,
   ])
 
@@ -521,6 +774,76 @@ export function useTxCreateScreenLogic() {
         ])
       : undefined
 
+  const formatCount = useMemo(() => qbitSendPlanCountFormat(locale), [locale])
+  // The plan's card, priced at the settled rate, until Next's request to
+  // prepare it is answered with a refusal.
+  const plannedSend =
+    !feeRateHeld && !prepareOutcome && sendPlanPreview?.kind === 'plan'
+      ? sendPlanPreview
+      : undefined
+  const sendPlanNotice = useMemo((): TxCreateSendPlanNotice | undefined => {
+    if (!plannedSend) return undefined
+    const { plan } = plannedSend
+    const transactions = plan.merges.length + 1
+    // For the whole balance: confirmed outputs not worth their fee stay in
+    // the account, and outputs not confirmed yet are not included, each
+    // said on its own.
+    const everything = plan.target === 'everything'
+    const stays = everything ? plan.leftBehindSatoshis : 0
+    const unconfirmed = everything ? plan.unconfirmedSatoshis : 0
+    return {
+      title: t(
+        plan.target === 'everything'
+          ? 'send_plan_notice_title_everything'
+          : 'send_plan_notice_title',
+        [String(transactions)]
+      ),
+      steps: qbitSendPlanStepsText(plan.merges.length, t),
+      receives: `${qbitSendPlanAmount(plan.payment.amount)} ${qbitUnit}`,
+      totalFee: `${qbitSendPlanAmount(plan.totalFee)} ${qbitUnit}`,
+      signing: `${t('send_plan_signatures', [formatCount(plan.signatureCount)])} · ${qbitSendPlanTimeText(
+        estimateQbitSendPlanSigningSeconds(plan.signatureCount, transactions),
+        t
+      )}`,
+      leftBehind:
+        stays > 0 ? t('send_plan_left_behind', [qbitSendPlanAmount(stays), qbitUnit]) : '',
+      unconfirmed:
+        unconfirmed > 0
+          ? t('send_plan_unconfirmed_not_included', [qbitSendPlanAmount(unconfirmed), qbitUnit])
+          : '',
+    }
+  }, [plannedSend, t, qbitUnit, formatCount])
+
+  // Why the amount cannot be sent as it is: from the checks at the settled
+  // rate, or from the background's answer to Next.
+  const refusal =
+    prepareOutcome?.kind === 'refused'
+      ? prepareOutcome
+      : !feeRateHeld && !prepareOutcome && sendPlanPreview?.kind === 'refusal'
+        ? sendPlanPreview
+        : undefined
+  const sendPlanRefusal = useMemo((): TxCreateSendPlanRefusal | undefined => {
+    if (!refusal) return undefined
+    const { reason, offer, unconfirmedSatoshis } = refusal
+    return {
+      message: qbitSendPlanRefusalText(reason, t),
+      offerText:
+        offer > 0 ? t('send_plan_max_sendable', [qbitSendPlanAmount(offer), qbitUnit]) : '',
+      offerButtonText:
+        offer > 0 ? t('send_plan_use_max_sendable', [qbitSendPlanAmount(offer), qbitUnit]) : '',
+      unconfirmedText:
+        unconfirmedSatoshis > 0
+          ? t('send_plan_unconfirmed_note', [qbitSendPlanAmount(unconfirmedSatoshis), qbitUnit])
+          : '',
+    }
+  }, [refusal, t, qbitUnit])
+
+  // The account's payment in progress keeps this amount waiting: from the
+  // checks at the settled rate, or from the background's answer to Next.
+  const sendPlanWaits =
+    prepareOutcome?.kind === 'plan_open' ||
+    (!feeRateHeld && !prepareOutcome && sendPlanPreview?.kind === 'open')
+
   const headerTitle = `${t('send')} ${qbitUnit}`
 
   const onAddressInputChange = val => setUiState({ toInfo: val })
@@ -559,6 +882,129 @@ export function useTxCreateScreenLogic() {
     nav.navigate('QbitConsolidationScreen')
   }
 
+  // The amount a refusal offers, set only when the user chooses it: never
+  // in place of the amount they typed without their say.
+  const onClickMaxSendable = (): void => {
+    if (!refusal || refusal.offer <= 0) return
+    setAutoAdjust(false)
+    setUiState({ inputAmount: numUtils.satoshisToAmount(refusal.offer) })
+  }
+
+  const onClickViewSendPlan = (): void => {
+    nav.navigate('QbitSendPlanScreen')
+  }
+
+  // What Next's request was made for; an answer for anything else is dropped.
+  const formScope = [
+    chainType,
+    currentAccount.address,
+    toInfo.address,
+    toSatoshis,
+    feeRate,
+    memo,
+    enableRBF,
+  ].join('|')
+  const formScopeRef = useRef(formScope)
+  formScopeRef.current = formScope
+
+  /**
+   * The background found the payment fits one transaction after all (it read
+   * the account's outputs afresh): send it as one, from outputs read again
+   * now, so the build does not refuse what the cache still holds. MAX takes
+   * the whole balance those outputs hold.
+   */
+  const sendInOneTransaction = async (
+    preview: Extract<SendPlanPreview, { kind: 'plan' }>,
+    scope: string
+  ): Promise<void> => {
+    const snapshot = await fetchUtxos()
+    if (!mountedRef.current || formScopeRef.current !== scope) return
+    const toAmount =
+      preview.target.kind === 'everything'
+        ? getQbitP2mrSpendableUtxos(snapshot.utxos, currentAccount).reduce(
+            (sum, utxo) => sum + utxo.satoshis,
+            0
+          )
+        : preview.target.amount
+    const toSignData = await prepareSendQBT({
+      toAddressInfo: toInfo,
+      toAmount,
+      feeRate: preview.feeRate,
+      enableRBF,
+      memo: memo || undefined,
+      utxoSnapshot: snapshot,
+    })
+    if (!mountedRef.current || formScopeRef.current !== scope) return
+    nav.navigate('TxConfirmScreen', { toSignData })
+  }
+
+  /**
+   * Ask the background to price the plan for review, once at a time. The
+   * arguments cross a JSON port, so they are checked first as the background
+   * checks them. A review goes to the review screen; a refusal stays on this
+   * screen with its reason, and `not_needed` sends the payment as one
+   * transaction. An answer that lands after the form changed is dropped.
+   */
+  const prepareSendPlan = async (
+    preview: Extract<SendPlanPreview, { kind: 'plan' }>
+  ): Promise<void> => {
+    if (planPreparingRef.current) return
+    const params: QbitSendPlanPrepareParams = {
+      to: preview.recipientAddress,
+      target: preview.target,
+      feeRate: preview.feeRate,
+      enableRBF,
+      ...(memo ? { memo } : {}),
+    }
+    if (!isQbitFeeRateWithinPolicy(params.feeRate)) return
+    if (params.target.kind === 'amount' && !isQbitSendPlanAmount(params.target.amount)) return
+    const scope = formScopeRef.current
+    planPreparingRef.current = true
+    setPlanPreparing(true)
+    setError('')
+    tools.showLoading(true)
+    try {
+      const result = await wallet.prepareQbitSendPlan(params)
+      if (!mountedRef.current || formScopeRef.current !== scope) return
+      // `in` narrows the result here, where this package compiles without strict null checks.
+      if ('review' in result) {
+        nav.navigate('QbitSendPlanReviewScreen', { review: result.review })
+        return
+      }
+      switch (result.reason) {
+        case 'not_needed':
+          await sendInOneTransaction(preview, scope)
+          return
+        case 'plan_open':
+          // A plan this page has not read yet: it reads it now, and once the
+          // plan shows, prices this send beside it.
+          setPrepareOutcome({ kind: 'plan_open' })
+          refreshSendPlan()
+          return
+        case 'outputs_unavailable':
+          setError(t('send_plan_outputs_unavailable'))
+          return
+        default:
+          setPrepareOutcome({
+            kind: 'refused',
+            reason: result.reason,
+            offer: Number.isSafeInteger(result.maxSendable) ? Math.max(0, result.maxSendable) : 0,
+            unconfirmedSatoshis: Number.isSafeInteger(result.unconfirmedSatoshis)
+              ? Math.max(0, result.unconfirmedSatoshis)
+              : 0,
+          })
+      }
+    } catch (e) {
+      if (mountedRef.current && formScopeRef.current === scope) {
+        setError(qbitSendPlanErrorMessage(e, t('unknown_error')))
+      }
+    } finally {
+      tools.showLoading(false)
+      planPreparingRef.current = false
+      if (mountedRef.current) setPlanPreparing(false)
+    }
+  }
+
   // Next's clicks, counted; leaving the screen counts as one more.
   const nextClicks = useRef(0)
   useEffect(
@@ -570,6 +1016,10 @@ export function useTxCreateScreenLogic() {
 
   const onClickNext = () => {
     const click = ++nextClicks.current
+    if (plannedSend) {
+      void prepareSendPlan(plannedSend)
+      return
+    }
     // A send built, or refused, for the form as it was when Next was
     // clicked: neither is shown once Next is clicked again or the screen is
     // left, nor once the store has cleared the form for another account or
@@ -619,7 +1069,9 @@ export function useTxCreateScreenLogic() {
     // None at a rate not yet settled: the estimate is then pending, also
     // when the check at the earlier rate failed and its error is not shown.
     feeDetail: feeRateHeld ? undefined : feeDetail,
-    feeEstimatePending: feeRateHeld && (feeDetail !== undefined || feeCheckError !== ''),
+    feeEstimatePending:
+      feeRateHeld &&
+      (feeDetail !== undefined || sendPlanPreview !== undefined || feeCheckError !== ''),
     leftBehindNote,
     spendSummary,
     // For the fee bar: the quote the fee check uses.
@@ -638,7 +1090,21 @@ export function useTxCreateScreenLogic() {
 
     // Checks of the fee made at a rate not yet settled say nothing of the settled one.
     error: error || (feeRateHeld ? '' : feeCheckError),
-    disabled: disabled || feeRateHeld,
+    disabled: disabled || feeRateHeld || planPreparing || prepareOutcome !== undefined,
+    // A payment one transaction cannot carry (#188): the plan that sends it,
+    // or why it cannot be sent and what can be sent instead.
+    sendPlanNotice,
+    sendPlanRefusal,
+    // The account already has a payment in progress, shown with the link to
+    // it: one this amount waits for, as only a plan can pay it, or, for MAX,
+    // one that holds the rest of the balance.
+    sendPlanOpenText: sendPlanWaits
+      ? t('send_plan_already_open')
+      : !feeRateHeld && sendAllBesidePlan
+        ? t('send_plan_open_holds_rest')
+        : '',
+    onClickMaxSendable,
+    onClickViewSendPlan,
     // Over the explorer's listing limit: the account can consolidate its outputs.
     showConsolidate: overExplorerLimit,
     // What consolidating does for sends, which read the outputs from the

@@ -145,6 +145,16 @@ export class FakeQbitExplorer {
   pushWeightRule: 'size' | 'base-times-four' = 'size'
   /** The input count of every broadcast decoded, in order, refused ones included. */
   readonly pushedInputCounts: number[] = []
+  /**
+   * Every broadcast accepted, in order: its outputs, and the height of each
+   * transaction it spends at that moment (undefined while that one is in
+   * the mempool).
+   */
+  readonly accepted: {
+    txid: string
+    outputs: { script: string; value: number }[]
+    parentHeights: (number | undefined)[]
+  }[] = []
   /** Raw bytes of broadcast transactions, served at `/tx/:txid/hex`. */
   private readonly rawHex = new Map<string, string>()
   private order = 0
@@ -621,6 +631,14 @@ export class FakeQbitExplorer {
       }
     }
     this.rawHex.set(txid, rawHex)
+    this.accepted.push({
+      txid,
+      outputs: tx.outs.map(output => ({
+        script: Buffer.from(output.script).toString('hex'),
+        value: Number(output.value),
+      })),
+      parentHeights: inputs.map(input => this.txs.get(input.txid)?.height),
+    })
     this.addTx({
       txid,
       inputs,

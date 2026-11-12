@@ -10,6 +10,12 @@ export type QbitFeeBumpUnavailableReason =
    * evict that payment, so the bump is refused.
    */
   | 'has_descendants'
+  /**
+   * A send plan holds one of its inputs: the plan tracks this transaction
+   * until it confirms or the plan is removed from the home screen, and
+   * nothing outside the plan replaces it.
+   */
+  | 'held_by_send_plan'
   | 'unverifiable'
 
 export interface QbitFeeBumpDetails {

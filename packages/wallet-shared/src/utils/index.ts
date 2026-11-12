@@ -82,10 +82,26 @@ export {
   type QbitSelectableCoin,
 } from './qbit-coin-selection'
 export {
+  isQbitSendPlanAmount,
+  planQbitSend,
+  type QbitSendPlan,
+  type QbitSendPlanMerge,
+  type QbitSendPlanPayment,
+  type QbitSendPlanRefusal,
+  type QbitSendPlanRefusalReason,
+  type QbitSendPlanShape,
+  type QbitSendPlanTarget,
+} from './qbit-send-plan'
+export {
   QBIT_CONSOLIDATION_MIN_INPUTS,
   assertQbitConsolidationBatchSize,
   isQbitConsolidationBatchSize,
 } from './qbit-consolidation'
+export {
+  QBIT_SEND_PLAN_SECONDS_PER_SIGNATURE,
+  QBIT_SEND_PLAN_SECONDS_PER_TRANSACTION,
+  estimateQbitSendPlanSigningSeconds,
+} from './qbit-send-plan-time'
 export {
   QBIT_BROADCAST_DETAIL_MAX_LENGTH,
   qbitBroadcastErrorMessage,

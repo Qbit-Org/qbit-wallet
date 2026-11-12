@@ -4,6 +4,7 @@ export {
   QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
   QbitSignatureBatchInterruptedError,
   QBIT_SIGNING_ABORTED_CODE,
+  QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS,
   QbitSigningAbortedError,
   type PasswordLifecycleEvent,
   type QbitP2mrSigningOptions,

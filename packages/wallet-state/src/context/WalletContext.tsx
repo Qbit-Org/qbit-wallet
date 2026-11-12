@@ -29,6 +29,10 @@ import {
   QbitReceiveState,
   QbitRestoreReport,
   QbitSendBroadcastClaim,
+  QbitSendPlanPrepareParams,
+  QbitSendPlanPrepareResult,
+  QbitSendPlanStartResult,
+  QbitSendPlanView,
   RateUsStatus,
   RegtestAccessStatus,
   SignPsbtOptions,
@@ -341,6 +345,23 @@ export interface WalletController {
    * account's maximum when omitted), sent whole to its own address.
    */
   createQbitConsolidationPsbt(data: QbitConsolidationRequest): Promise<ToSignData>
+
+  /**
+   * Price a send plan for review: the merges and the payment of an amount
+   * one transaction cannot carry (#188). An expected refusal is a result
+   * with `ok: false`, never a rejection.
+   */
+  prepareQbitSendPlan(params: QbitSendPlanPrepareParams): Promise<QbitSendPlanPrepareResult>
+  /** Confirm the reviewed draft: the background persists the plan and runs it. */
+  startQbitSendPlan(draftId: string): Promise<QbitSendPlanStartResult>
+  /** The current account's open plan on the active network, or null. */
+  getQbitSendPlan(): Promise<QbitSendPlanView | null>
+  /** Carry on with the plan as confirmed: sign what is left, or send again. */
+  continueQbitSendPlan(planId: string): Promise<QbitSendPlanView>
+  /** Cancel the plan; null once nothing of it is left to settle. */
+  cancelQbitSendPlan(planId: string): Promise<QbitSendPlanView | null>
+  /** Remove a finished plan from the home screen. */
+  dismissQbitSendPlan(planId: string): Promise<void>
 
   pushTx(rawtx: string): Promise<string>
   broadcastQbitTx(

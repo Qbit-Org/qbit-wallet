@@ -1913,14 +1913,332 @@
   "touch_id_onboarding_desc": {
     "message": "您可以使用 Touch ID 解鎖錢包,無需輸入密碼。您也可以之後在設定中啟用。"
   },
-  "send_exceeds_standard_size": {
-    "message": "此金額需要此帳戶超過 $1 個輸出，但一筆交易最多只能容納 $1 個。每次最多傳送 $2 $3，或使用「最大值」。"
-  },
   "send_all_leaves_outputs_behind": {
     "message": "「最大值」會傳送您最大的 $1 個輸出，這是一筆交易可容納的上限。其餘 $4 個較小輸出中的 $2 $3 會留在此帳戶。"
   },
   "send_exceeds_ancestor_size": {
     "message": "加上您尚未確認的上一筆傳送，此筆傳送將超過網路接受的大小。請等待上一筆傳送確認，或傳送較小的金額。"
+  },
+  "send_plan_notice_title": {
+    "message": "這筆付款需要 $1 筆交易"
+  },
+  "send_plan_notice_title_everything": {
+    "message": "傳送全部餘額需要 $1 筆交易"
+  },
+  "send_plan_steps_none": {
+    "message": "只剩付款：您的資金已經合併完成。"
+  },
+  "send_plan_steps_one": {
+    "message": "1 筆合併您的資金，然後是付款。"
+  },
+  "send_plan_steps_many": {
+    "message": "$1 筆合併您的資金，然後是付款。"
+  },
+  "send_plan_receives": {
+    "message": "收款人收到"
+  },
+  "send_plan_total_fee": {
+    "message": "手續費總計"
+  },
+  "send_plan_signing_label": {
+    "message": "簽署"
+  },
+  "send_plan_signatures": {
+    "message": "$1 個簽章"
+  },
+  "send_plan_time_minutes": {
+    "message": "約 $1 分鐘"
+  },
+  "send_plan_time_under_a_minute": {
+    "message": "不到 1 分鐘"
+  },
+  "send_plan_left_behind": {
+    "message": "$1 $2 會留在此帳戶：價值低於傳送手續費的資金。"
+  },
+  "send_plan_unconfirmed_not_included": {
+    "message": "$1 $2 尚未確認，因此不包含在內。確認後即可傳送。"
+  },
+  "send_plan_short_of_fees": {
+    "message": "您的餘額足以支付此金額，但不足以支付金額加上所有手續費。"
+  },
+  "send_plan_exceeds_plan_size": {
+    "message": "此金額需要的交易筆數，超過一筆付款可以使用的上限。"
+  },
+  "send_plan_exceeds_maximum_fee": {
+    "message": "以此金額傳送，手續費將超過錢包的安全上限。"
+  },
+  "send_plan_nothing_to_send": {
+    "message": "沒有可以傳送的資金：這些資金的價值低於傳送它們的手續費。"
+  },
+  "send_plan_max_sendable": {
+    "message": "您最多可以傳送 $1 $2。"
+  },
+  "send_plan_use_max_sendable": {
+    "message": "改用 $1 $2"
+  },
+  "send_plan_unconfirmed_note": {
+    "message": "$1 $2 尚未確認，確認後即可傳送。"
+  },
+  "send_plan_already_open": {
+    "message": "此帳戶已有一筆付款正在進行中。"
+  },
+  "send_plan_open_holds_rest": {
+    "message": "此帳戶已有一筆付款正在進行中，其餘資金由該付款保留。"
+  },
+  "send_plan_view_open": {
+    "message": "查看付款"
+  },
+  "send_plan_outputs_unavailable": {
+    "message": "錢包無法讀取此帳戶的資金，因此目前無法準備這筆付款。請稍後再試。"
+  },
+  "send_plan_outputs_changed": {
+    "message": "這筆付款要使用的資金已變更。請重新檢查付款。"
+  },
+  "send_plan_review_expired": {
+    "message": "此檢查已過期。請重新檢查付款。"
+  },
+  "send_plan_review_unavailable": {
+    "message": "此檢查已無法使用。請返回並重新檢查付款。"
+  },
+  "send_plan_review_title": {
+    "message": "檢查付款"
+  },
+  "send_plan_review_transactions": {
+    "message": "交易"
+  },
+  "send_plan_review_change": {
+    "message": "退回此錢包"
+  },
+  "send_plan_review_budget": {
+    "message": "剩餘簽章：目前 $1，之後 $2"
+  },
+  "send_plan_review_note": {
+    "message": "關閉此視窗後簽署仍會繼續。鎖定錢包會暫停簽署，直到您解鎖為止。"
+  },
+  "send_plan_revision_title": {
+    "message": "這會變更您已確認的付款"
+  },
+  "send_plan_revision_unchanged": {
+    "message": "收款人與金額維持不變。"
+  },
+  "send_plan_revision_recipient_unchanged": {
+    "message": "收款人維持不變。"
+  },
+  "send_plan_revision_amount": {
+    "message": "收款人現在收到 $1 $2，而不是 $3 $4。"
+  },
+  "send_plan_revision_paid": {
+    "message": "已支付的手續費：$1 $2"
+  },
+  "send_plan_revision_total_fee": {
+    "message": "手續費總計現在是 $1 $2，而不是 $3 $4。"
+  },
+  "send_plan_revision_same_title": {
+    "message": "同一筆付款的新規劃"
+  },
+  "send_plan_revision_same": {
+    "message": "收款人、金額與手續費總計維持不變。"
+  },
+  "send_plan_header": {
+    "message": "付款"
+  },
+  "send_plan_to": {
+    "message": "收款地址 $1"
+  },
+  "send_plan_fee_summary": {
+    "message": "手續費總計：$1 $2（$3 bit/vB）"
+  },
+  "send_plan_stage_signing": {
+    "message": "簽署"
+  },
+  "send_plan_stage_combining": {
+    "message": "合併您的資金"
+  },
+  "send_plan_stage_paying": {
+    "message": "傳送付款"
+  },
+  "send_plan_stage_done": {
+    "message": "付款已傳送"
+  },
+  "send_plan_signatures_progress": {
+    "message": "已簽署 $1 / $2 個簽章"
+  },
+  "send_plan_combine_progress": {
+    "message": "已確認 $1 / $2 筆"
+  },
+  "send_plan_signing_close_note": {
+    "message": "您可以關閉此視窗，簽署仍會繼續。鎖定錢包會暫停簽署。"
+  },
+  "send_plan_waiting_note": {
+    "message": "合併的資金確認後就會傳送付款。您可以關閉此視窗。"
+  },
+  "send_plan_slow_merge": {
+    "message": "合併資金的交易確認時間比平常久。您可以繼續等待，或提高手續費。"
+  },
+  "send_plan_cancelling_title": {
+    "message": "正在取消付款"
+  },
+  "send_plan_cancelling_body": {
+    "message": "錢包正在檢查一筆交易，之後才會釋出您的資金。"
+  },
+  "send_plan_read_failed": {
+    "message": "錢包無法讀取這筆付款的進度，稍後會再試一次。"
+  },
+  "send_plan_paused_locked": {
+    "message": "錢包在簽署完成前已鎖定"
+  },
+  "send_plan_paused_locked_body": {
+    "message": "錢包解鎖後，簽署就會繼續。"
+  },
+  "send_plan_paused_interrupted": {
+    "message": "簽署在完成前停止了"
+  },
+  "send_plan_paused_interrupted_body": {
+    "message": "瀏覽器或錢包已重新啟動，或簽署失敗。請繼續以簽署其餘部分。"
+  },
+  "send_plan_paused_merge_refused": {
+    "message": "無法依計畫合併您的資金"
+  },
+  "send_plan_paused_merge_refused_body": {
+    "message": "合併您資金的交易無法依計畫傳送。請重新檢查付款以繼續。"
+  },
+  "send_plan_paused_outputs_spent": {
+    "message": "這筆付款要用的資金已被花用"
+  },
+  "send_plan_paused_outputs_spent_body": {
+    "message": "這筆付款以外的操作花用了它要使用的資金。請重新檢查付款，或取消付款。"
+  },
+  "send_plan_paused_payment_fee_too_low": {
+    "message": "付款的手續費太低"
+  },
+  "send_plan_paused_payment_fee_too_low_body": {
+    "message": "網路需要更高的手續費才會接受這筆付款。請提高手續費以傳送付款。"
+  },
+  "send_plan_paused_payment_refused": {
+    "message": "網路拒絕了這筆付款"
+  },
+  "send_plan_paused_payment_refused_body": {
+    "message": "這筆付款沒有送出。請重新檢查，或取消付款。"
+  },
+  "send_plan_paused_payment_refused_unexplained": {
+    "message": "網路拒絕了這筆付款，但未說明原因"
+  },
+  "send_plan_paused_payment_refused_unexplained_body": {
+    "message": "這筆付款沒有送出。常見原因是手續費太低：請提高手續費以傳送付款，或重新檢查。"
+  },
+  "send_plan_paused_unreadable": {
+    "message": "無法讀取這筆付款"
+  },
+  "send_plan_paused_unreadable_body": {
+    "message": "此版本的錢包無法讀取已儲存的付款，因此無法繼續進行。"
+  },
+  "send_plan_paused_other": {
+    "message": "付款已暫停"
+  },
+  "send_plan_funds_untouched": {
+    "message": "尚未傳送任何資金給收款人。您的資金仍在此錢包中，維持原狀。"
+  },
+  "send_plan_funds_partly_combined": {
+    "message": "尚未傳送任何資金給收款人。您的資金在此錢包中，已部分合併。"
+  },
+  "send_plan_funds_combined": {
+    "message": "尚未傳送任何資金給收款人。您的資金在此錢包中，已合併完成。"
+  },
+  "send_plan_may_confirm_title": {
+    "message": "這筆付款仍可能完成"
+  },
+  "send_plan_may_confirm_body": {
+    "message": "這筆付款已送出，但錢包沒有收到回應，所以仍可能完成。錢包會持續確認。在確定結果之前，請勿以其他方式付款給此收款人。"
+  },
+  "send_plan_may_confirm_continue": {
+    "message": "您可以再次傳送同一筆付款，這不會讓收款人收到兩次付款。"
+  },
+  "send_plan_may_confirm_raise_or_continue": {
+    "message": "您可以提高手續費，或再次傳送同一筆付款。兩者都不會讓收款人收到兩次付款。"
+  },
+  "send_plan_may_confirm_raise": {
+    "message": "您可以提高手續費，這不會讓收款人收到兩次付款。"
+  },
+  "send_plan_may_confirm_funds_held": {
+    "message": "此付款使用的資金在此錢包中，由此付款保留。"
+  },
+  "send_plan_may_confirm_funds_partly_combined": {
+    "message": "此付款使用的資金在此錢包中，已部分合併，並由此付款保留。"
+  },
+  "send_plan_may_confirm_funds_combined": {
+    "message": "此付款使用的資金在此錢包中，已合併完成，並由此付款保留。"
+  },
+  "send_plan_action_replan": {
+    "message": "重新檢查"
+  },
+  "send_plan_action_raise_merge_fee": {
+    "message": "提高手續費以加快"
+  },
+  "send_plan_action_raise_payment_fee": {
+    "message": "提高手續費"
+  },
+  "send_plan_action_cancel": {
+    "message": "取消付款"
+  },
+  "send_plan_action_dismiss": {
+    "message": "從首頁移除"
+  },
+  "send_plan_cancel_title": {
+    "message": "要取消這筆付款嗎？"
+  },
+  "send_plan_cancel_body": {
+    "message": "不會傳送任何資金給收款人。已合併的資金會以較少、較大的金額留在此錢包中，已支付的手續費不會退還。"
+  },
+  "send_plan_cancel_body_untouched": {
+    "message": "尚未傳送任何內容。取消後您的資金維持原狀，也沒有支付任何手續費。"
+  },
+  "send_plan_cancel_keep": {
+    "message": "保留付款"
+  },
+  "send_plan_raise_title": {
+    "message": "提高手續費"
+  },
+  "send_plan_raise_body": {
+    "message": "請選擇高於 $1 bit/vB 的費率。在任何變更之前，您會先檢查新的手續費總計。"
+  },
+  "send_plan_replan_title": {
+    "message": "重新檢查付款"
+  },
+  "send_plan_replan_body": {
+    "message": "錢包會依您目前的資金，以您在此選擇的費率重新規劃這筆付款。上一個規劃使用 $1 bit/vB。在簽署任何內容之前，您會先檢查新的規劃。"
+  },
+  "send_plan_revise_refused": {
+    "message": "錢包目前無法準備此變更。"
+  },
+  "send_plan_fee_rate_too_low": {
+    "message": "此費率過低，無法取代已送出的交易。請至少使用 $1 bit/vB。"
+  },
+  "send_plan_home_sending": {
+    "message": "正在傳送 $1 $2"
+  },
+  "send_plan_home_paused": {
+    "message": "$1 $2 的付款已暫停：需要您處理"
+  },
+  "send_plan_home_sent": {
+    "message": "已傳送 $1 $2"
+  },
+  "send_plan_home_cancelling": {
+    "message": "正在取消 $1 $2 的付款"
+  },
+  "send_plan_status_signing": {
+    "message": "簽署中：$1 / $2 個簽章"
+  },
+  "send_plan_status_waiting": {
+    "message": "合併資金中：已確認 $1 / $2 筆"
+  },
+  "send_plan_status_sending": {
+    "message": "正在傳送付款"
+  },
+  "send_plan_status_sent": {
+    "message": "網路已接受這筆付款。"
+  },
+  "send_plan_status_may_confirm": {
+    "message": "這筆付款仍可能完成：請勿以其他方式付款給此收款人。"
   },
   "utxo_limit_exceeded_balance": {
     "message": "瀏覽器不會列出此帳戶的輸出。此總額來自地址摘要。"
