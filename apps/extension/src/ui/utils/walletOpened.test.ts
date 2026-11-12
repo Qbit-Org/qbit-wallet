@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { unhandledRejectionsDuring } from '../../../../../tests/support/unhandledRejections';
 import { noteWalletOpened } from './walletOpened';
 
 // A wallet whose setLastActiveTime gives what `reply` returns or throws. The
@@ -18,24 +19,6 @@ function walletReplying(reply: () => Promise<void>) {
 }
 
 const answered = async () => undefined;
-
-// Rejections that nothing handled while `run` ran, as Node reports them once
-// the microtasks have run.
-async function unhandledRejectionsDuring(run: () => void): Promise<unknown[]> {
-  const reasons: unknown[] = [];
-  const record = (reason: unknown) => {
-    reasons.push(reason);
-  };
-  globalThis.process.on('unhandledRejection', record);
-  try {
-    run();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  } finally {
-    globalThis.process.off('unhandledRejection', record);
-  }
-  return reasons;
-}
 
 function onPage(pathname: string) {
   window.history.replaceState(null, '', pathname);

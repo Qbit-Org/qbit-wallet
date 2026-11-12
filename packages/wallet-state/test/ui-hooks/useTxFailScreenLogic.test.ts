@@ -13,6 +13,7 @@ import {
   mergeQbitBroadcastRetry,
   useTxFailScreenLogic,
 } from '../../src/ui-hooks/useTxFailScreenLogic'
+import { unhandledRejectionsDuring } from '../../../../tests/support/unhandledRejections'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const TXID = 'cd'.repeat(32)
@@ -490,21 +491,30 @@ describe('useTxFailScreenLogic', () => {
   })
 
   it('still leaves the send flow, without logging, when handing the claim back fails at the port', async () => {
-    const wallet = walletWithBroadcast()
-    wallet.abandonQbitSendBroadcastClaim.mockRejectedValue(
-      new Error('port closed http://127.0.0.1:3002')
-    )
+    // A plain function around the spy that counts the calls: a spy attaches
+    // handlers to the promises it returns, which would hide a rejection that
+    // the screen leaves unhandled, and that a browser logs.
+    const handedBack = vi.fn()
+    const wallet = Object.assign(walletWithBroadcast(), {
+      abandonQbitSendBroadcastClaim: (handed: QbitSendBroadcastClaim): Promise<void> => {
+        handedBack(handed)
+        return Promise.reject(new Error('port closed http://127.0.0.1:3002'))
+      },
+    })
     const consoleSpies = (['error', 'warn', 'log'] as const).map(level =>
       vi.spyOn(console, level).mockImplementation(() => undefined)
     )
     const { result, navigation } = renderFailScreen({ result: unknownFailure, retained }, wallet)
 
-    await act(async () => {
-      result.current.onClickBackToWallet()
-      await new Promise(resolve => setTimeout(resolve, 0))
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        result.current.onClickBackToWallet()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
     })
 
-    expect(wallet.abandonQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+    expect(unhandled).toEqual([])
+    expect(handedBack).toHaveBeenCalledWith(claim)
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
     expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
     for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled()
@@ -634,21 +644,30 @@ describe('useTxFailScreenLogic', () => {
   })
 
   it('still leaves the send flow, without logging, when the release fails at the port', async () => {
-    const wallet = walletWithBroadcast()
-    wallet.releaseQbitSendBroadcastClaim.mockRejectedValue(
-      new Error('port closed http://127.0.0.1:3002')
-    )
+    // A plain function around the spy that counts the calls: a spy attaches
+    // handlers to the promises it returns, which would hide a rejection that
+    // the screen leaves unhandled, and that a browser logs.
+    const released = vi.fn()
+    const wallet = Object.assign(walletWithBroadcast(), {
+      releaseQbitSendBroadcastClaim: (handed: QbitSendBroadcastClaim): Promise<boolean> => {
+        released(handed)
+        return Promise.reject(new Error('port closed http://127.0.0.1:3002'))
+      },
+    })
     const consoleSpies = (['error', 'warn', 'log'] as const).map(level =>
       vi.spyOn(console, level).mockImplementation(() => undefined)
     )
     const { result, navigation } = renderFailScreen({ result: notSentFailure, retained }, wallet)
 
-    await act(async () => {
-      result.current.onClickBackToWallet()
-      await new Promise(resolve => setTimeout(resolve, 0))
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        result.current.onClickBackToWallet()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
     })
 
-    expect(wallet.releaseQbitSendBroadcastClaim).toHaveBeenCalledWith(claim)
+    expect(unhandled).toEqual([])
+    expect(released).toHaveBeenCalledWith(claim)
     expect(navigation.replace).toHaveBeenCalledWith('MainScreen')
     for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled()
     consoleSpies.forEach(spy => spy.mockRestore())

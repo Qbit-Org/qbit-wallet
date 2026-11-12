@@ -168,6 +168,18 @@ repository.
   account or the network changed in the meantime, the wallet opens Home and
   clears the form. Time spent in another tab or application still counts
   toward the auto-lock.
+- Back after an unlock no longer returns to Home or to the unlock screen.
+  After a lock on Home the unlock leaves the history as it was, so Back from
+  Home does what it did before the lock, and in a tab opened on the wallet it
+  leaves the wallet. After a lock on another screen, Back after the unlock
+  returns to that screen, except the confirm step of a send, which Home
+  replaces so that Back goes to the screen before it, such as the send form,
+  and never offers the same transaction to sign again. After a lock on the
+  send form, the unlock shows the form again and Back goes where it went
+  before the lock. Before, one lock could add up to three unlock screens to
+  the history and the unlock added Home twice, so Back kept showing Home or
+  the unlock screen and never left the wallet; a tab opened unlocked came back
+  to Home the same way.
 
 ### Websites and approvals
 
@@ -225,9 +237,13 @@ repository.
   Core node: a payment at the 0.25 bits/vB minimum, its fee rounded up to a
   whole bit, is accepted and mined, and the same payment with a fee one bit
   lower is refused.
-- The browser release gate grows from 29 to 36 tests. The new ones cover the
-  account switcher, a send at the minimum fee rate, a lookalike website, and
-  Back on the phishing warning.
+- The browser release gate grows from 29 to 52 tests. The new ones cover the
+  account switcher, a send at the minimum fee rate, a lookalike website, Back
+  on the phishing warning, the consolidation of an account that the explorer
+  refuses to list, a lock on a page opened before the wallet existed, Back
+  around a lock and an unlock, the send form shown again after an unlock, and
+  what the send form keeps across a reload, a lock and an account or network
+  switch.
 - CI skips a pull request's repeated run when the same tree has already
   passed. The dependency policy job always runs.
 - The repository's wording check,

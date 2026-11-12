@@ -6,6 +6,7 @@ import { copyToClipboard } from '@/ui/utils';
 import { BUS_METHODS, ErrorCodes, WordsType } from '@qbit/wallet-shared';
 import { useI18n, useQbitUnit, useTools, useWallet } from '@qbit/wallet-state';
 import { uiEventBus } from '../../../../../../packages/wallet-state/src/utils/eventBus';
+import { unhandledRejectionsDuring } from '../../../../../../tests/support/unhandledRejections';
 
 import QbitRecoveryMigrationScreen from './QbitRecoveryMigrationScreen';
 
@@ -1126,17 +1127,27 @@ describe('QbitRecoveryMigrationScreen', () => {
   });
 
   it('keeps a rejected keepalive refresh from becoming an unhandled rejection', async () => {
-    // Without the catch inside the keepalive, this rejection surfaces as an
-    // unhandled error and fails the test file.
-    wallet.setLastActiveTime.mockRejectedValue(new Error('wallet is locking'));
+    // The refresh is a plain function around the spy that counts it: a spy
+    // attaches handlers to the promises it returns, which would hide the
+    // rejection this test is about.
+    vi.mocked(useWallet).mockReturnValue({
+      ...wallet,
+      setLastActiveTime: () => {
+        wallet.setLastActiveTime();
+        return Promise.reject(new Error('wallet is locking'));
+      }
+    } as unknown as ReturnType<typeof useWallet>);
     vi.useFakeTimers();
     render(<QbitRecoveryMigrationScreen />);
     await flushInitialLoad();
 
-    await act(async () => {
-      vi.advanceTimersByTime(10 * 1000);
-      await Promise.resolve();
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        vi.advanceTimersByTime(10 * 1000);
+        await Promise.resolve();
+      });
     });
+    expect(unhandled).toEqual([]);
     expect(wallet.setLastActiveTime).toHaveBeenCalledTimes(1);
   });
 });

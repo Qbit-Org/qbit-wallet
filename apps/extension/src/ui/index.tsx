@@ -22,6 +22,7 @@ import { ToolsProvider } from './providers/ToolsProvider';
 import { initializeAppConfig } from './utils/appConfig';
 import { BackgroundStartupFailure, waitForBackgroundStartup } from './utils/backgroundStartup';
 import { applyExternalMonitorFix } from './utils/platformFixes';
+import { noteWalletActivity } from './utils/walletActivity';
 import { noteWalletOpened } from './utils/walletOpened';
 import { createPortMessageChannel, createWalletProxy, setupEventBusListeners } from './web/ui-messaging';
 // Initialize platform environment
@@ -58,7 +59,7 @@ function renderApp() {
                 <AppDimensions>
                   <IdleTimerProvider
                     onAction={() => {
-                      wallet.setLastActiveTime();
+                      noteWalletActivity(wallet as Parameters<typeof noteWalletActivity>[0]);
                     }}>
                     <AccountUpdater />
                     <AsyncMainRoute />

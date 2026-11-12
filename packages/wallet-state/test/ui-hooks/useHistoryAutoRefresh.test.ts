@@ -12,6 +12,7 @@ import {
 import { accountActions } from '../../src/reducers/accounts'
 import { keyringsActions } from '../../src/reducers/keyrings'
 import { settingsActions } from '../../src/reducers/settings'
+import { unhandledRejectionsDuring } from '../../../../tests/support/unhandledRejections'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const address = 'qb1ztestaccount'
@@ -225,6 +226,9 @@ describe('useHistoryAutoRefresh', () => {
     expect(retained).toMatchObject({ txid: 'tx-probe-error', confirmations: 0 })
     expect(retained?.replaced).toBeUndefined()
     expect(history.verifiedPendingTxids).toEqual([])
+    // The failed probe holds back only its own transaction: the rest of the
+    // read still lands.
+    expect(list.find(item => item.txid === 'tx-anchor')).toMatchObject({ confirmations: 2 })
     unmount()
   })
 
@@ -969,20 +973,33 @@ describe('useHistoryAutoRefresh', () => {
     expect(wallet.getAddressHistory).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps polling after a failed fetch', async () => {
+  it('keeps polling after a failed fetch, and leaves nothing unhandled', async () => {
     const { wrapper, wallet } = createHarness()
-    wallet.getAddressHistory.mockRejectedValueOnce(new Error('offline'))
+    // The first read fails. The wallet's method becomes a plain function
+    // around its spy: a spy attaches handlers to the promises it returns,
+    // which would hide a rejection that the poll leaves unhandled.
+    const reads = wallet.getAddressHistory
+    Object.assign(wallet, {
+      getAddressHistory: (...args: Parameters<typeof reads>) => {
+        const answer = reads(...args)
+        return reads.mock.calls.length === 1 ? Promise.reject(new Error('offline')) : answer
+      },
+    })
     const { unmount } = renderHook(() => useHistoryAutoRefresh(), { wrapper })
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0)
-    })
-    expect(wallet.getAddressHistory).toHaveBeenCalledTimes(1)
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(reads).toHaveBeenCalledTimes(1)
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
     })
-    expect(wallet.getAddressHistory).toHaveBeenCalledTimes(2)
+
+    expect(unhandled).toEqual([])
+    expect(reads).toHaveBeenCalledTimes(2)
     unmount()
   })
 })
