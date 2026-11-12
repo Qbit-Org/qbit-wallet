@@ -134,8 +134,9 @@ Registry advisory data can change without a repository change, so this
 snapshot is not permanent. The live audit runs in the `Dependency policy` CI
 job on every pull request into `main` or a `release/*` branch and on every
 push to `main`, and that job fails on any unaccepted critical or high
-advisory. It is not a required status check: the `main` ruleset requires only
-`Typecheck, test, and build` and `Playwright G3 scenarios`, so a failing
+advisory. It is not a required status check: the rulesets require only
+`Typecheck, test, and build`, `Playwright G3 scenarios` and `signed-landing`
+on `main`, so a failing
 dependency-policy run does not block a merge ([Qbit-Org/qbit-wallet#5](https://github.com/Qbit-Org/qbit-wallet/issues/5)). It failed on
 `main` at `e14fe9d4` (run 39671024040), and it passes on current pull
 requests into `release/1.0.5` after #307 cleared the late-October advisories
