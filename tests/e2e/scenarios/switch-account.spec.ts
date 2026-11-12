@@ -1,13 +1,11 @@
 import { createECDH } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
 
-import { test as base, expect, type Locator, type Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { walletColorForSlot } from '../../../packages/wallet-shared/src/utils/wallet-identity'
+import { expect, test } from '../fixtures/empty-regtest'
 import { OnboardingPage, RecoveryReportPage, SettingsPage, WalletHomePage } from '../pages'
-import { EmptyRegtestExplorer } from '../support/empty-regtest-explorer'
-import { ExtensionSession } from '../support/extension-session'
-import { assertRepositoryRoot } from '../support/paths'
+import type { ExtensionSession } from '../support/extension-session'
 import { E2E_PASSWORD, FIXED_MNEMONIC } from '../support/wallet-setup'
 
 interface AccountProbe {
@@ -24,51 +22,6 @@ interface KeyringProbe {
   color: string
   accounts: AccountProbe[]
 }
-
-// Needs no regtest node: the wallets live on Regtest, whose indexer is a
-// loopback stand-in for a chain on which no address has any activity.
-const test = base.extend<{ explorer: EmptyRegtestExplorer; extension: ExtensionSession }>({
-  // Playwright reads a fixture's dependencies from this pattern; this one has none.
-  // eslint-disable-next-line no-empty-pattern
-  explorer: async ({}, use, testInfo) => {
-    const explorer = new EmptyRegtestExplorer()
-    await explorer.start()
-    try {
-      await use(explorer)
-    } finally {
-      try {
-        if (testInfo.status !== testInfo.expectedStatus) {
-          await testInfo.attach('empty-regtest-explorer.log', {
-            body: explorer.log(),
-            contentType: 'text/plain',
-          })
-        }
-      } finally {
-        await explorer.close()
-      }
-    }
-  },
-  extension: async ({ explorer }, use, testInfo) => {
-    assertRepositoryRoot()
-    const userDataDir = testInfo.outputPath('chromium-profile')
-    await mkdir(userDataDir, { recursive: true })
-    const extension = new ExtensionSession(userDataDir, undefined, {
-      browserArgs: explorer.browserArgs,
-    })
-    await extension.start()
-    try {
-      await use(extension)
-    } finally {
-      try {
-        if (testInfo.status !== testInfo.expectedStatus) {
-          await extension.attachServiceWorkerLog(testInfo)
-        }
-      } finally {
-        await extension.close()
-      }
-    }
-  },
-})
 
 async function walletKeyrings(extension: ExtensionSession, page: Page): Promise<KeyringProbe[]> {
   return extension.requestWalletController<KeyringProbe[]>(page, 'getKeyrings')

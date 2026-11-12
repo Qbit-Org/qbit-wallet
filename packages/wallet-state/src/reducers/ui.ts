@@ -1,5 +1,6 @@
 import { createSlice, Slice } from '@reduxjs/toolkit'
 import { QBIT_FALLBACK_FEE_RATE } from '@qbit/wallet-shared'
+import type { ChainType } from '@qbit/wallet-types'
 
 import { updateVersion } from '../actions/global'
 import { NavigationSource } from '../types'
@@ -9,6 +10,12 @@ export interface FeeRateSource {
   /** The `read` of the quote, as useFeeQuoteRead names it. */
   quoteRead: string
   optionIndex: number
+}
+
+/** An account on a network: `accounts.current.address` and `settings.chainType`. */
+export interface SendFormScope {
+  address: string
+  chainType: ChainType
 }
 
 export interface UIState {
@@ -41,6 +48,11 @@ export interface UIState {
   navigationSource: NavigationSource
   isBalanceHidden: boolean
   balanceDetailExpanded: boolean
+  /**
+   * The account and network the send form's values were entered under: the
+   * last ones the store knew, null before it knew any (`scopeSendForm`).
+   */
+  sendFormScope: SendFormScope | null
 }
 
 export const initialState: UIState = {
@@ -70,10 +82,60 @@ export const initialState: UIState = {
   navigationSource: NavigationSource.NORMAL,
   isBalanceHidden: false,
   balanceDetailExpanded: true,
+  sendFormScope: null,
+}
+
+/**
+ * The ui state once the store selects the account at `address` on
+ * `chainType`. The send form (`uiTxCreateScreen`), the fee bar and the
+ * address and amount inputs hold what was entered for the account and
+ * network that `sendFormScope` records. When a known account and network
+ * replace those with different ones, the four take their initial values,
+ * and the new ones are recorded. An empty address is no account yet, as
+ * before the accounts load: it changes nothing, so the values stay for an
+ * account and network that come back unchanged. The first account and
+ * network known are recorded as they are, with nothing cleared.
+ */
+export function scopeSendForm(state: UIState, address: string, chainType: ChainType): UIState {
+  if (!address) return state
+  const scope = state.sendFormScope
+  if (scope?.address === address && scope.chainType === chainType) return state
+  const sendFormScope = { address, chainType }
+  if (!scope) return { ...state, sendFormScope }
+  return {
+    ...state,
+    uiTxCreateScreen: initialState.uiTxCreateScreen,
+    addressInput: initialState.addressInput,
+    amountInput: initialState.amountInput,
+    feeRateBar: initialState.feeRateBar,
+    sendFormScope,
+  }
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The part of the ui state a wallet page saves: its display preferences. */
+export type SavedUiState = Pick<UIState, 'isBalanceHidden' | 'balanceDetailExpanded'>
+
+function ownBoolean(fields: Record<string, unknown>, key: keyof SavedUiState): boolean | undefined {
+  const value = Object.prototype.hasOwnProperty.call(fields, key) ? fields[key] : undefined
+  return typeof value === 'boolean' ? value : undefined
+}
+
+/**
+ * The display preferences of `ui`, and nothing else of it. A preference that
+ * `ui` does not hold as a boolean of its own takes its initial value, as both
+ * do when `ui` is not an object.
+ */
+export function savedUiState(ui: unknown): SavedUiState {
+  const fields = isPlainObject(ui) ? ui : {}
+  return {
+    isBalanceHidden: ownBoolean(fields, 'isBalanceHidden') ?? initialState.isBalanceHidden,
+    balanceDetailExpanded:
+      ownBoolean(fields, 'balanceDetailExpanded') ?? initialState.balanceDetailExpanded,
+  }
+}
 
 /**
  * Give `target` every field of `defaults` it lacks, at every depth. A field
@@ -214,9 +276,12 @@ const slice: Slice<UIState> = createSlice({
   },
   extraReducers: builder => {
     builder.addCase(updateVersion, state => {
-      // The state saved by any earlier build: anything it lacks takes its
-      // initial value, so no reducer meets a missing object. A fee rate
-      // stored before rates recorded their source has none.
+      // A ui state that a store preloads without some fields: anything it
+      // lacks takes its initial value, so no reducer meets a missing object,
+      // and a fee rate without its source has none. createAppStore preloads
+      // a complete state (the saved preferences over the initial one), so
+      // this is for a store that preloads one of its own, such as a state an
+      // earlier build saved.
       if (!isPlainObject(state)) return initialState
       fillMissing(state, initialState)
       return state

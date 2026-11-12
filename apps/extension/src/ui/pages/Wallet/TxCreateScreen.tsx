@@ -25,6 +25,7 @@ export default function TxCreateScreen() {
 
     toInfo,
     onAddressInputChange,
+    formKey,
 
     inputAmount,
     onAmountInputChange,
@@ -69,8 +70,12 @@ export default function TxCreateScreen() {
   const feeEstimateText = (inputs: string, size: string, fee: string) =>
     `${t('estimated_inputs_and_size', [inputs, size])} · ${fee} bits`;
 
-  // Keep an already-entered memo visible when returning to this screen.
-  const [advancedExpanded, setAdvancedExpanded] = useState(() => Boolean(memo));
+  // Keep an already-entered memo visible when returning to this screen. A
+  // form the store clears for another account or network starts again as a
+  // newly opened one, with Advanced closed as its memo is empty.
+  const [advanced, setAdvanced] = useState(() => ({ formKey, expanded: Boolean(memo) }));
+  const advancedExpanded = advanced.formKey === formKey ? advanced.expanded : Boolean(memo);
+  const toggleAdvanced = () => setAdvanced({ formKey, expanded: !advancedExpanded });
 
   return (
     <Layout>
@@ -83,7 +88,10 @@ export default function TxCreateScreen() {
       <Content style={{ padding: '0px 16px 24px' }}>
         <Column>
           <Column>
+            {/* The address input keeps its own copy of the address: it starts
+                again when the store clears the form for another account or network. */}
             <Input
+              key={formKey}
               preset="address"
               addressInputData={toInfo}
               onAddressInputChange={onAddressInputChange}
@@ -270,7 +278,7 @@ export default function TxCreateScreen() {
           </Column>
 
           <Column mt="lg">
-            <Row itemsCenter onClick={() => setAdvancedExpanded(!advancedExpanded)} data-testid="advanced-toggle">
+            <Row itemsCenter onClick={toggleAdvanced} data-testid="advanced-toggle">
               <Text text={t('advanced')} preset="regular" color="textDim" />
               <Icon icon={advancedExpanded ? 'up' : 'down'} color="textDim" size={14} />
             </Row>

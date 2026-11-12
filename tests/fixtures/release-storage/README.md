@@ -57,7 +57,10 @@ The same steps ran on each build, from a fresh Chromium profile:
    build's own approval popup.
 9. Choose the dark theme.
 10. Collapse the balance card, hide balances, and type the contact's address
-    and `0.0001` on the send screen without sending.
+    and `0.0001` on the send screen, then leave it without sending. Releases
+    before 1.0.9 save that half-written send with the two display
+    preferences; from 1.0.9 nothing typed on the send screen is saved, and
+    the capture shows it.
 11. Switch the language to Español.
 
 The browser resolves no host but `127.0.0.1`, so no explorer saw these wallets,
@@ -77,14 +80,28 @@ none does. The 1.0.6 and 1.0.7 captures therefore hold the default
 build could not take in `notes` in `wallet.json`. The three captures here
 predate `notes`, so this paragraph records it for them.
 
-Every captured `ui` state already holds `addressInput`, `amountInput` and the
-other fields the wallet now fills in when it loads an older state
-(`updateVersion` in `packages/wallet-state/src/reducers/ui.ts`). The one field
-missing, `feeRateBar.feeRateSource` in 1.0.5 and 1.0.6, was filled in before
-that change too. So these captures check that the fill keeps what the releases
-saved, but they cannot show the `updateAddressInput` crash it prevents, which
-needs a state without `addressInput`: the states built by hand in
-`packages/wallet-state/test/reducers/ui.test.ts` show it.
+What a release saved under `redux_localstorage_simple_ui` depends on its
+version. Releases before 1.0.9 saved their whole `ui` state there, the send
+form that step 10 filled in included; from 1.0.9 a release saves the two
+display preferences alone, `isBalanceHidden` and `balanceDetailExpanded`.
+`savedWholeUi` in `release-storage.ts` tells which from the version, never
+from what a capture holds, so that a capture that lost its send form fails
+the tests instead of passing for a later release's. `releaseSavedUi` there
+refuses a saved value of any other shape than its release's: the capture
+checks it before it writes a file, and the tests with every capture.
+
+The current code reads only the two preferences from the saved value
+(`createAppStore` in `packages/wallet-state/src/index.ts`). Everything else a
+release saved there starts at its initial value, and the stored value is
+replaced, as the store is made, with the two preferences alone, or removed if
+it cannot be written; two preferences saved alone are left as they are.
+`packages/wallet-state/test/release-storage.test.ts` checks this with each
+capture and, as no release from 1.0.9 on is captured yet, with a value of
+that shape built in the test. The fill of the fields an older state lacks
+(`updateVersion` in `packages/wallet-state/src/reducers/ui.ts`) therefore no
+longer meets a captured state; the states built by hand in
+`packages/wallet-state/test/reducers/ui.test.ts` test it, and the
+`updateAddressInput` crash it prevents.
 
 | Release | ZIP                          | SHA-256                                                            | Captured   |
 | ------- | ---------------------------- | ------------------------------------------------------------------ | ---------- |
@@ -132,6 +149,8 @@ refuses a profile directory that already holds a profile. A step can time out
 on a busy host; run it again with a new, empty profile directory.
 
 To add a release, capture it, add its version to `RELEASES` in
-`release-storage.ts`, and add its row to the tables above. A later build may
-need the capture's steps adjusted to its screens; keep the same wallet setup,
-so that every release's data covers the same ground.
+`release-storage.ts`, and add its row to the tables above. The tests tell
+from its version whether it saved its whole `ui` state or the two
+preferences alone (`savedWholeUi`). A later build may need the capture's
+steps adjusted to its screens; keep the same wallet setup, so that every
+release's data covers the same ground.

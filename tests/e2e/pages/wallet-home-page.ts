@@ -65,6 +65,18 @@ function accountCardLabel(walletName: string, accountName?: string): RegExp {
   return new RegExp(`^(?:${labels.join('|')})$`)
 }
 
+/** The networks the switcher offers, by chain type, with the name the switcher shows. */
+const NETWORK_LABELS = {
+  QBIT_MAINNET: 'Mainnet',
+  QBIT_TESTNET4: 'Testnet4',
+  QBIT_REGTEST: 'Regtest',
+} as const
+
+export type Network = keyof typeof NETWORK_LABELS
+
+/** The eye the balance card shows while balances are hidden, as an image or as a mask. */
+const BALANCE_HIDDEN_ICON = '[src*="balance-eyes-closed"], [style*="balance-eyes-closed"]'
+
 export class WalletHomePage extends ExtensionPageObject {
   constructor(page: Page) {
     super(page)
@@ -85,12 +97,18 @@ export class WalletHomePage extends ExtensionPageObject {
   }
 
   async switchToRegtest(): Promise<void> {
+    await this.switchNetwork('QBIT_REGTEST')
+  }
+
+  /** Selects `network` in the switcher, unless it is the one selected. */
+  async switchNetwork(network: Network): Promise<void> {
     await this.waitUntilReady()
-    if ((await this.networkSwitcher.innerText()).includes('Regtest')) return
+    const label = NETWORK_LABELS[network]
+    if ((await this.networkSwitcher.innerText()).includes(label)) return
 
     await this.networkSwitcher.click()
-    await this.clickTestId('chain-item-QBIT_REGTEST')
-    await expect(this.networkSwitcher).toContainText('Regtest')
+    await this.clickTestId(`chain-item-${network}`)
+    await expect(this.networkSwitcher).toContainText(label)
     await expect(this.byTestId('receive-button')).toBeVisible()
   }
 
@@ -101,6 +119,25 @@ export class WalletHomePage extends ExtensionPageObject {
   async balanceText(): Promise<string> {
     await expect(this.balanceCard).toBeVisible()
     return (await this.balanceCard.innerText()).replace(/\s+/g, ' ').trim()
+  }
+
+  /** The balance card's eye, which hides or shows the balances. */
+  get balanceVisibilityToggle(): Locator {
+    return this.byTestId('balance-visibility-toggle')
+  }
+
+  /** Whether the balance card hides the balances, as its eye shows. */
+  async balancesHidden(): Promise<boolean> {
+    await expect(this.balanceVisibilityToggle).toBeVisible()
+    return (await this.balanceVisibilityToggle.locator(BALANCE_HIDDEN_ICON).count()) > 0
+  }
+
+  /** Hides or shows the balances with the card's eye, unless they already are. */
+  async setBalancesHidden(hidden: boolean): Promise<void> {
+    if ((await this.balancesHidden()) !== hidden) await this.balanceVisibilityToggle.click()
+    await expect(this.balanceVisibilityToggle.locator(BALANCE_HIDDEN_ICON)).toHaveCount(
+      hidden ? 1 : 0
+    )
   }
 
   async openReceive(): Promise<void> {

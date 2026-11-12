@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useStore } from 'react-redux'
 
 import { numUtils } from '@qbit/base-utils'
 import {
@@ -11,6 +12,7 @@ import {
   qbitWalletOwns,
 } from '@qbit/wallet-shared'
 import {
+  type AppState,
   useAccountBalance,
   useAccountsState,
   useChain,
@@ -31,12 +33,14 @@ import {
   useQbitUnit,
   useTools,
   useWallet,
+  useUIState,
   useUiTxCreateScreen,
   useUpdateUiTxCreateScreen,
   useUtxos,
   useUtxosLoaded,
 } from '..'
 import { hasAccountBalanceRead } from '../reducers/accounts'
+import type { SendFormScope } from '../reducers/ui'
 import { isValidAddress } from '../utils/qbit-utils'
 import { qbitFeeWarningText } from '../utils/qbit-fee-warning-text'
 import { feeRateBelowMinimumError, useFeeQuoteRead, useFeeRateSettled } from './useFeeRateBarLogic'
@@ -62,6 +66,23 @@ export interface TxCreateSpendSummary {
   feeRecommendationUnavailable?: string
 }
 
+// The store records a new scope object for the first account and network it
+// knows, which clears nothing, and at each clear of the send form for another
+// account or network, also for one that comes back. Each gets a key of its
+// own here, so the key changes with every scope the store records.
+const formKeys = new WeakMap<SendFormScope, string>()
+let formKeysGiven = 0
+
+function formKeyOf(scope: SendFormScope | null): string {
+  if (!scope) return ''
+  let key = formKeys.get(scope)
+  if (key === undefined) {
+    key = String(++formKeysGiven)
+    formKeys.set(scope, key)
+  }
+  return key
+}
+
 export function useTxCreateScreenLogic() {
   const { t } = useI18n()
   const accountBalance = useAccountBalance()
@@ -74,6 +95,11 @@ export function useTxCreateScreenLogic() {
   const setUiState = useUpdateUiTxCreateScreen()
   const uiState = useUiTxCreateScreen()
   const feeRateBarState = useFeeRateBar()
+  // The account and network the form's values belong to. The store clears
+  // the values when other ones replace them, and records those instead.
+  const { sendFormScope } = useUIState()
+  const store = useStore<AppState>()
+  const formKey = formKeyOf(sendFormScope)
 
   const toInfo = uiState.toInfo
   const inputAmount = uiState.inputAmount
@@ -175,11 +201,21 @@ export function useTxCreateScreenLogic() {
     if (accountBalance.utxoLimitExceeded === true) hideLoadingOverlay()
   }, [accountBalance.utxoLimitExceeded])
 
+  // The user's replace-by-fee choices on this form, counted.
+  const rbfChoices = useRef(0)
+  // The saved choice, read again when the store clears the form for another
+  // account or network, as a newly opened form reads it. A read lands only
+  // if no later read has started and the user has not chosen since it did.
   useEffect(() => {
+    let latest = true
+    const choices = rbfChoices.current
     wallet.getEnableRBF().then(enableRBF => {
-      setUiState({ enableRBF })
+      if (latest && rbfChoices.current === choices) setUiState({ enableRBF })
     })
-  }, [wallet, setUiState])
+    return (): void => {
+      latest = false
+    }
+  }, [wallet, setUiState, formKey])
 
   const prepareSendQBT = usePrepareSendQBTCallback()
 
@@ -507,6 +543,7 @@ export function useTxCreateScreenLogic() {
   }
 
   const onRBFChange = (value: boolean) => {
+    rbfChoices.current += 1
     setUiState({ enableRBF: value })
     // The choice applies to this send either way; only the saved default failed.
     wallet.setEnableRBF(value).catch(error => {
@@ -522,7 +559,23 @@ export function useTxCreateScreenLogic() {
     nav.navigate('QbitConsolidationScreen')
   }
 
+  // Next's clicks, counted; leaving the screen counts as one more.
+  const nextClicks = useRef(0)
+  useEffect(
+    () => (): void => {
+      nextClicks.current += 1
+    },
+    []
+  )
+
   const onClickNext = () => {
+    const click = ++nextClicks.current
+    // A send built, or refused, for the form as it was when Next was
+    // clicked: neither is shown once Next is clicked again or the screen is
+    // left, nor once the store has cleared the form for another account or
+    // network, which records a new scope.
+    const isLatest = (): boolean =>
+      nextClicks.current === click && store.getState().ui.sendFormScope === sendFormScope
     prepareSendQBT({
       toAddressInfo: toInfo,
       toAmount: toSatoshis,
@@ -531,11 +584,13 @@ export function useTxCreateScreenLogic() {
       memo: memo || undefined,
     })
       .then(toSignData => {
+        if (!isLatest()) return
         nav.navigate('TxConfirmScreen', {
           toSignData,
         })
       })
       .catch(e => {
+        if (!isLatest()) return
         console.log(e)
         setError(e.message)
       })
@@ -547,6 +602,11 @@ export function useTxCreateScreenLogic() {
 
     toInfo,
     onAddressInputChange,
+    // A new key for each scope the store records: the first account and
+    // network known, and each clear for another account or network, also for
+    // one that comes back. An input that keeps its own copy of a value, as
+    // the address input does, is keyed on it to start again from the store's.
+    formKey,
 
     toSatoshis,
     inputAmount,

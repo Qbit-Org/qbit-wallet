@@ -1,10 +1,11 @@
 import React, { type ReactNode } from 'react'
-import { configureStore } from '@reduxjs/toolkit'
+import { configureStore, type AnyAction, type Dispatch } from '@reduxjs/toolkit'
 import { vi } from 'vitest'
 import { Provider } from 'react-redux'
 import { KeyringType } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 
+import { createAppStore } from '../../src'
 import accounts from '../../src/reducers/accounts'
 import global from '../../src/reducers/global'
 import keyrings from '../../src/reducers/keyrings'
@@ -18,18 +19,8 @@ import { NavigationContext, type NavigationContextType } from '../../src/context
 import { ToolsContext, type ToolsContextType } from '../../src/context/ToolsContext'
 import { WalletProvider } from '../../src/context/WalletContext'
 
-export function createTestStore() {
-  const store = configureStore({
-    reducer: {
-      accounts,
-      transactions,
-      settings,
-      global,
-      keyrings,
-      ui,
-    },
-  })
-
+/** Selects the test account, in its keyring, in `store`. */
+function selectTestAccount(store: { dispatch: Dispatch<AnyAction> }): void {
   const currentAccount = {
     type: KeyringType.HdKeyring,
     address: 'qb1ztestaccount',
@@ -56,7 +47,33 @@ export function createTestStore() {
       hdPath: '',
     })
   )
+}
 
+export function createTestStore() {
+  const store = configureStore({
+    reducer: {
+      accounts,
+      transactions,
+      settings,
+      global,
+      keyrings,
+      ui,
+    },
+  })
+
+  selectTestAccount(store)
+
+  return store
+}
+
+/**
+ * A wallet page's own store (`createAppStore`), with the test account
+ * selected: the slices together with what the page's store adds to them,
+ * such as clearing the send form for another account or network.
+ */
+export function createAppTestStore() {
+  const store = createAppStore()
+  selectTestAccount(store)
   return store
 }
 
@@ -125,13 +142,15 @@ export function createHookTestHarness({
   routeState = {},
   navigation = createNavigationMock(routeState),
   tools = createToolsMock(),
+  store = createTestStore(),
 }: {
   wallet?: ReturnType<typeof createWalletMock>
   routeState?: any
   navigation?: NavigationContextType
   tools?: ToolsContextType
+  /** The store the hooks read: `createTestStore()` unless given. */
+  store?: ReturnType<typeof createTestStore> | ReturnType<typeof createAppStore>
 } = {}) {
-  const store = createTestStore()
   const approval = {
     getApproval: vi.fn().mockResolvedValue(undefined),
     resolveApproval: vi.fn().mockResolvedValue(undefined),

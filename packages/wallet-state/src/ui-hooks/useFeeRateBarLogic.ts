@@ -43,8 +43,9 @@ export type FeeQuoteState =
 
 const QUOTE_LOADING: FeeQuoteState = { status: 'loading' }
 
-// The fee-bar store, with the source of its rate, is saved and outlives the
-// page that wrote it, so a read's name is unique to this page as well.
+// A read's name starts with a part unique to this page. The fee-bar store,
+// with the source of its rate, stays in the page that wrote it, so only this
+// page's names reach it; the part keeps a name unique across pages all the same.
 const FEE_QUOTE_READS_PAGE = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`
 let feeQuoteReads = 0
 

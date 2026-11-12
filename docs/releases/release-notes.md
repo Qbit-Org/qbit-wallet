@@ -44,6 +44,23 @@ repository.
 - The message for a payment that needs more of the account's outputs than one
   transaction can carry is reworded. It no longer refers to the network's
   standard transaction size.
+- What you enter on the Send screen is no longer saved in the extension's
+  local storage: the recipient, amount, memo and fee rate are kept by the open
+  wallet window only. Before, they were saved there, also while the wallet
+  was locked, and a wallet window that opened or reloaded on the Send screen
+  showed them again, also for another account or network. The first wallet
+  window that opens after the update removes what earlier versions saved.
+  Hidden balances and the expanded or collapsed balance card are still
+  remembered, and so is the replace-by-fee choice, as the default for the
+  next send (#197).
+- Selecting another account or network now clears the Send screen, also when
+  you select it in another window while the Send screen is open. A payment
+  that Next was still preparing for the earlier account or network is
+  dropped: its confirmation does not open, and no error of it is shown.
+- Pressing Next again while a payment is still being prepared now opens one
+  confirmation, for the last press; before, each press opened its own, one
+  behind the other. Leaving the Send screen before the payment is ready no
+  longer opens its confirmation.
 
 ### Consolidation and accounts with many outputs
 
