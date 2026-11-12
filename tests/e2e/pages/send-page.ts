@@ -77,6 +77,16 @@ export class SendPage extends ExtensionPageObject {
     await this.amountInput.fill(amountQbt)
   }
 
+  /** The amount field's MAX, which fills in everything the account can send. */
+  async pressMax(): Promise<void> {
+    await this.waitForCreate()
+    // MAX sits beside the amount input in the same field and has no test ID of its own.
+    const max = this.amountInput.locator('xpath=..').getByText('MAX', { exact: true })
+    await expect(max).toBeVisible()
+    await max.click()
+    await expect(this.amountInput).not.toHaveValue('')
+  }
+
   async chooseFeeRateOption(index: number): Promise<string> {
     const option = this.byTestId(`fee-rate-option-${index}`)
     await expect(option).toBeVisible()

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { Button, Column, Content, Header, Icon, Input, Layout, Row, Text, Tooltip } from '@/ui/components';
+import { Button, Card, Column, Content, Header, Icon, Input, Layout, Row, Text, Tooltip } from '@/ui/components';
 import { FeeRateBar } from '@/ui/components/FeeRateBar';
 import { RBFBar } from '@/ui/components/RBFBar';
 import { BulletedTip } from '@/ui/components/Tooltip/BulletedTip';
@@ -17,6 +17,9 @@ function localeNumberFormat(locale: string, options: Intl.NumberFormatOptions): 
     return new Intl.NumberFormat(undefined, options);
   }
 }
+
+// The send plan's card stays compact: it sits above Next in a 600px popup.
+const $sendPlanCardStyle = { padding: '10px 12px' };
 
 export default function TxCreateScreen() {
   const {
@@ -55,9 +58,14 @@ export default function TxCreateScreen() {
     disabled,
     showConsolidate,
     consolidationNote,
+    sendPlanNotice,
+    sendPlanRefusal,
+    sendPlanOpenText,
 
     onClickNext,
-    onClickConsolidate
+    onClickConsolidate,
+    onClickMaxSendable,
+    onClickViewSendPlan
   } = useTxCreateScreenLogic();
   const { locale } = useI18n();
   // The size in kB with one decimal, and the fee in whole bits.
@@ -113,6 +121,31 @@ export default function TxCreateScreen() {
               onMaxClick={onAmountMaxClick}
               data-testid="transfer-amount-input"
             />
+            {/* Right under the amount, where it shows without scrolling at the popup's height. */}
+            {sendPlanRefusal ? (
+              <Column gap="sm" fullX data-testid="tx-send-plan-refusal">
+                <Text text={sendPlanRefusal.message} color="error" data-testid="tx-send-plan-refusal-message" />
+                {sendPlanRefusal.offerText ? (
+                  <Text text={sendPlanRefusal.offerText} size="sm" data-testid="tx-send-plan-offer" />
+                ) : null}
+                {sendPlanRefusal.unconfirmedText ? (
+                  <Text
+                    text={sendPlanRefusal.unconfirmedText}
+                    size="xs"
+                    color="textDim"
+                    data-testid="tx-send-plan-unconfirmed"
+                  />
+                ) : null}
+                {sendPlanRefusal.offerButtonText ? (
+                  <Button
+                    preset="defaultV2"
+                    text={sendPlanRefusal.offerButtonText}
+                    onClick={onClickMaxSendable}
+                    data-testid="tx-send-plan-max-sendable"
+                  />
+                ) : null}
+              </Column>
+            ) : null}
 
             <Column gap="zero" fullX>
               <Row
@@ -243,6 +276,42 @@ export default function TxCreateScreen() {
             {leftBehindNote ? (
               <Text text={leftBehindNote} size="xs" color="textDim" data-testid="tx-left-behind-note" />
             ) : null}
+            {sendPlanNotice ? (
+              <Card preset="style2" style={$sendPlanCardStyle} data-testid="tx-send-plan-notice">
+                <Column gap="sm" fullX>
+                  <Text text={sendPlanNotice.title} preset="bold" data-testid="tx-send-plan-title" />
+                  <Text text={sendPlanNotice.steps} size="xs" color="textDim" data-testid="tx-send-plan-steps" />
+                  <Row justifyBetween itemsCenter fullX>
+                    <Text text={t('send_plan_receives')} size="xs" color="textDim" />
+                    <Text text={sendPlanNotice.receives} size="xs" preset="bold" data-testid="tx-send-plan-receives" />
+                  </Row>
+                  <Row justifyBetween itemsCenter fullX>
+                    <Text text={t('send_plan_total_fee')} size="xs" color="textDim" />
+                    <Text text={sendPlanNotice.totalFee} size="xs" data-testid="tx-send-plan-total-fee" />
+                  </Row>
+                  <Row justifyBetween itemsCenter fullX>
+                    <Text text={t('send_plan_signing_label')} size="xs" color="textDim" />
+                    <Text text={sendPlanNotice.signing} size="xs" data-testid="tx-send-plan-signing" />
+                  </Row>
+                  {sendPlanNotice.leftBehind ? (
+                    <Text
+                      text={sendPlanNotice.leftBehind}
+                      size="xs"
+                      color="textDim"
+                      data-testid="tx-send-plan-left-behind"
+                    />
+                  ) : null}
+                  {sendPlanNotice.unconfirmed ? (
+                    <Text
+                      text={sendPlanNotice.unconfirmed}
+                      size="xs"
+                      color="textDim"
+                      data-testid="tx-send-plan-unconfirmed-not-included"
+                    />
+                  ) : null}
+                </Column>
+              </Card>
+            ) : null}
             {spendSummary ? (
               <Column gap="sm" fullX mt="md" data-testid="tx-spend-summary">
                 <Row justifyBetween itemsCenter fullX>
@@ -296,6 +365,18 @@ export default function TxCreateScreen() {
           </Column>
 
           {error && <Text text={error} color="error" data-testid="tx-create-error" />}
+
+          {sendPlanOpenText ? (
+            <Column gap="sm" fullX data-testid="tx-send-plan-open">
+              <Text text={sendPlanOpenText} color="warning" />
+              <Button
+                preset="defaultV2"
+                text={t('send_plan_view_open')}
+                onClick={onClickViewSendPlan}
+                data-testid="tx-send-plan-open-link"
+              />
+            </Column>
+          ) : null}
 
           {showConsolidate ? (
             <Column>

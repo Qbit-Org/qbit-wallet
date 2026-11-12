@@ -168,6 +168,96 @@ approval, a fee bump, a history entry), it rounds the rate down to hundredths,
 so a rate shown is never higher than the rate paid: 936 bits for 3,817 vbytes
 shows as 0.24 bits/vB, below the floor, not 0.25.
 
+## Send plans
+
+A payment that needs more of the account's outputs than one transaction
+carries (106 single-key inputs) is sent as a send plan (#188): merges, each
+spending up to 106 of the account's confirmed outputs and paying them back
+to its address in one output, then one payment that spends output 0 of
+every merge, and any outputs left over, once the merges have confirmed.
+The whole plan is priced before anything is signed:
+
+- Every merge and the payment pay the rate chosen on the send screen, with
+  no margin added. Sizes are exact, so each fee is the transaction's exact
+  size times that rate, rounded up, as for one send: a full merge, 106
+  inputs and one output, is 398,827 vbytes and pays 99,707 bits at
+  0.25 bits/vB. The send screen's card and the review state the total fee,
+  every merge's fee plus the payment's, and exactly what the recipient
+  receives. The payment's id is fixed when the plan is reviewed.
+- A plan spends confirmed outputs only, highest value first, and only
+  outputs worth more than the fee their own input adds. For an amount it
+  takes the fewest outputs that pay the amount and every fee, and returns
+  change to the account as one send does: at least 2,855 bits, or a smaller
+  remainder paid as fee.
+- MAX, on an account one transaction cannot empty, sends the most the
+  account can send now. A plan sends what the account's confirmed outputs
+  hold, less every fee; one transaction of the 106 largest outputs, the
+  account's unconfirmed change included, can send more. MAX takes the plan
+  only when it pays the recipient more, and one transaction on a tie, since
+  that waits for no merge. With the plan, outputs worth no more than the
+  fee their input adds stay in the account, and the card says how much
+  stays and how much has not confirmed yet and is not included. With one
+  transaction, the outputs it cannot carry stay, as the send screen says.
+- An account has one plan at a time. While one is in progress, until the
+  network accepts its payment or its cancellation is done, no other plan
+  starts: MAX sends one transaction of the outputs that plan does not hold,
+  at most the 106 largest, and when outputs stay behind the send screen
+  says that a payment is in progress and holds the rest, with a link to
+  it. An amount one transaction of those outputs can pay is sent that way;
+  an amount only a plan can pay waits until that payment is done, and the
+  screen says so, with the link. A refusal then offers only what one
+  transaction can send. A plan whose payment the network accepted no
+  longer counts, even before it is removed from the home screen.
+- When the balance cannot pay the amount and every fee, the send screen
+  says so before anything is signed and offers the largest amount it can
+  send now, as a number the user chooses: what a plan of the confirmed
+  outputs delivers, or what one transaction of the largest outputs sends
+  when that is more. The amount is never lowered without that choice. A
+  plan has one level of merges, at most 106 merges of 106 outputs (11,236
+  outputs), and an amount that needs more is refused with the largest
+  amount one plan can send.
+- The send screen's total and its abnormal-fee warnings (below) judge the
+  whole plan: its total fee, against the size of all its transactions and
+  the amount the recipient receives.
+
+The rate does not change by itself after the review. The payment is signed,
+with its fee, before the merges confirm, and the wallet never rebuilds it at
+another fee on its own. A merge the network refuses, and that is proven not
+sent, is sent again, the same bytes, up to three sends 15 seconds apart; then
+the plan pauses and offers Review again, a new plan from the account's
+current outputs at a rate the user chooses, or Cancel.
+
+The user can raise a plan's fee, and each raise is reviewed and confirmed
+once, like a new plan:
+
+- When a merge has stayed unconfirmed for 30 minutes and the plan is waiting
+  (not while it is still signing), the progress view offers to raise the fee.
+  Every transaction of the plan that has not confirmed is priced again at
+  the higher rate, the payment included. Each merge in the network is
+  replaced by one that spends the same inputs, under the rule Speed up uses:
+  a higher fee, a higher rate, and at least 1 bit/vB more for the
+  replacement's size (398,827 bits more for a full merge). The payment is
+  built again on the replacements and signed again.
+- When the network refuses the payment for its fee, or refuses it without
+  giving a reason, as the production explorer relays a refusal, the plan
+  pauses and offers to raise the payment's fee. The payment is built again
+  over the same inputs at the higher rate and signed again.
+
+For an exact amount the amount never changes: the extra fees come out of the
+change, and when the change cannot cover them the raise is refused and the
+largest sendable amount is offered. For a payment of the whole balance the
+amount is recomputed, and the review states the new amount beside the one it
+replaces. A rate that is not high enough to replace what is in the network
+is refused with the lowest rate that works; the wallet adds no margin of its
+own. If the merge that was to be replaced confirms first, its replacement and
+the payment signed on it are void, and the plan pauses for a new review.
+Speed up cannot replace a plan's transactions from outside the plan while
+the plan holds their inputs, and is not offered for them
+(`held_by_send_plan`). A completed plan holds its payment's inputs until the
+payment confirms or the plan is removed from the home screen, which leaving
+the success screen does; from then on the payment can be sped up like any
+other pending payment.
+
 ## Abnormal-fee warnings
 
 The 10,000 bits/vB ceiling only stops mistakes no one would make by hand, so

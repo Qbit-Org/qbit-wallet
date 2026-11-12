@@ -205,6 +205,8 @@ function createBackground() {
     getQbitUtxoSnapshot: vi.fn(async () => ({ address: state.account.address, chain: state.chainType, utxos: [] })),
     abandonQbitUtxoSnapshot: vi.fn(async () => undefined),
     getFeeSummary: vi.fn(async () => FEE_SUMMARY),
+    // The send screen follows the account's send plan; this account has none.
+    getQbitSendPlan: vi.fn(async () => null),
     getLowFeeSummary: vi.fn(async () => FEE_SUMMARY)
   };
   return { state, wallet };

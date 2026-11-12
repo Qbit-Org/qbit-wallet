@@ -1913,14 +1913,332 @@
   "touch_id_onboarding_desc": {
     "message": "Puedes desbloquear tu billetera con Touch ID en lugar de tu contraseña. También puedes activarlo más tarde en Ajustes."
   },
-  "send_exceeds_standard_size": {
-    "message": "Este importe necesita más de $1 salidas de esta cuenta, pero una transacción puede llevar como máximo $1. Envía como máximo $2 $3 cada vez o usa MÁX."
-  },
   "send_all_leaves_outputs_behind": {
     "message": "MÁX envía tus $1 salidas más grandes, lo máximo que cabe en una transacción. $2 $3 en $4 salidas más pequeñas permanecen en esta cuenta."
   },
   "send_exceeds_ancestor_size": {
     "message": "Junto con tu envío anterior, que aún no se ha confirmado, este envío superaría el tamaño que acepta la red. Espera a que se confirme el envío anterior o envía un importe menor."
+  },
+  "send_plan_notice_title": {
+    "message": "Este pago necesita $1 transacciones"
+  },
+  "send_plan_notice_title_everything": {
+    "message": "Enviar todo tu saldo necesita $1 transacciones"
+  },
+  "send_plan_steps_none": {
+    "message": "Solo queda el pago: tus fondos ya están reunidos."
+  },
+  "send_plan_steps_one": {
+    "message": "Una para reunir tus fondos y después el pago."
+  },
+  "send_plan_steps_many": {
+    "message": "$1 para reunir tus fondos y después el pago."
+  },
+  "send_plan_receives": {
+    "message": "El destinatario recibe"
+  },
+  "send_plan_total_fee": {
+    "message": "Tarifa total"
+  },
+  "send_plan_signing_label": {
+    "message": "Firma"
+  },
+  "send_plan_signatures": {
+    "message": "$1 firmas"
+  },
+  "send_plan_time_minutes": {
+    "message": "unos $1 min"
+  },
+  "send_plan_time_under_a_minute": {
+    "message": "menos de un minuto"
+  },
+  "send_plan_left_behind": {
+    "message": "$1 $2 se queda en esta cuenta: fondos que valen menos que la tarifa para enviarlos."
+  },
+  "send_plan_unconfirmed_not_included": {
+    "message": "$1 $2 aún no se ha confirmado y no está incluido. Podrá enviarse cuando se confirme."
+  },
+  "send_plan_short_of_fees": {
+    "message": "Tu saldo cubre este importe, pero no el importe más todas las tarifas."
+  },
+  "send_plan_exceeds_plan_size": {
+    "message": "Este importe necesita más transacciones de las que puede usar un solo pago."
+  },
+  "send_plan_exceeds_maximum_fee": {
+    "message": "Con este importe, la tarifa superaría el límite de seguridad de la billetera."
+  },
+  "send_plan_nothing_to_send": {
+    "message": "No se puede enviar nada: estos fondos valen menos que las tarifas para enviarlos."
+  },
+  "send_plan_max_sendable": {
+    "message": "Puedes enviar hasta $1 $2."
+  },
+  "send_plan_use_max_sendable": {
+    "message": "Usar $1 $2"
+  },
+  "send_plan_unconfirmed_note": {
+    "message": "$1 $2 aún no se ha confirmado y podrá enviarse cuando se confirme."
+  },
+  "send_plan_already_open": {
+    "message": "Ya hay un pago en curso desde esta cuenta."
+  },
+  "send_plan_open_holds_rest": {
+    "message": "Ya hay un pago en curso desde esta cuenta y retiene el resto de sus fondos."
+  },
+  "send_plan_view_open": {
+    "message": "Ver el pago"
+  },
+  "send_plan_outputs_unavailable": {
+    "message": "La billetera no pudo leer los fondos de esta cuenta, así que ahora no puede preparar este pago. Inténtalo de nuevo en un momento."
+  },
+  "send_plan_outputs_changed": {
+    "message": "Los fondos que usaría este pago han cambiado. Revisa el pago de nuevo."
+  },
+  "send_plan_review_expired": {
+    "message": "Esta revisión ha caducado. Revisa el pago de nuevo."
+  },
+  "send_plan_review_unavailable": {
+    "message": "Esta revisión ya no está disponible. Vuelve atrás y revisa el pago de nuevo."
+  },
+  "send_plan_review_title": {
+    "message": "Revisar el pago"
+  },
+  "send_plan_review_transactions": {
+    "message": "Transacciones"
+  },
+  "send_plan_review_change": {
+    "message": "Vuelve a esta billetera"
+  },
+  "send_plan_review_budget": {
+    "message": "Firmas restantes: $1 ahora, $2 después"
+  },
+  "send_plan_review_note": {
+    "message": "La firma continúa si cierras esta ventana. Bloquear la billetera la pausa hasta que la desbloquees."
+  },
+  "send_plan_revision_title": {
+    "message": "Esto cambia el pago que confirmaste"
+  },
+  "send_plan_revision_unchanged": {
+    "message": "El destinatario y el importe no cambian."
+  },
+  "send_plan_revision_recipient_unchanged": {
+    "message": "El destinatario no cambia."
+  },
+  "send_plan_revision_amount": {
+    "message": "El destinatario recibe ahora $1 $2 en lugar de $3 $4."
+  },
+  "send_plan_revision_paid": {
+    "message": "Tarifas ya pagadas: $1 $2"
+  },
+  "send_plan_revision_total_fee": {
+    "message": "La tarifa total es ahora $1 $2 en lugar de $3 $4."
+  },
+  "send_plan_revision_same_title": {
+    "message": "Un nuevo plan para el mismo pago"
+  },
+  "send_plan_revision_same": {
+    "message": "El destinatario, el importe y la tarifa total no cambian."
+  },
+  "send_plan_header": {
+    "message": "Pago"
+  },
+  "send_plan_to": {
+    "message": "Para $1"
+  },
+  "send_plan_fee_summary": {
+    "message": "Tarifa total: $1 $2 ($3 bits/vB)"
+  },
+  "send_plan_stage_signing": {
+    "message": "Firma"
+  },
+  "send_plan_stage_combining": {
+    "message": "Reunir tus fondos"
+  },
+  "send_plan_stage_paying": {
+    "message": "Envío del pago"
+  },
+  "send_plan_stage_done": {
+    "message": "Pago enviado"
+  },
+  "send_plan_signatures_progress": {
+    "message": "$1 de $2 firmas"
+  },
+  "send_plan_combine_progress": {
+    "message": "$1 de $2 confirmadas"
+  },
+  "send_plan_signing_close_note": {
+    "message": "Puedes cerrar esta ventana: la firma continúa. Bloquear la billetera la pausa."
+  },
+  "send_plan_waiting_note": {
+    "message": "El pago sale en cuanto se confirmen tus fondos reunidos. Puedes cerrar esta ventana."
+  },
+  "send_plan_slow_merge": {
+    "message": "Reunir tus fondos está tardando más de lo habitual en confirmarse. Puedes seguir esperando o subir la tarifa."
+  },
+  "send_plan_cancelling_title": {
+    "message": "Cancelando el pago"
+  },
+  "send_plan_cancelling_body": {
+    "message": "La billetera está comprobando una transacción antes de liberar tus fondos."
+  },
+  "send_plan_read_failed": {
+    "message": "La billetera no pudo leer el progreso de este pago. Lo intentará de nuevo en breve."
+  },
+  "send_plan_paused_locked": {
+    "message": "La billetera se bloqueó antes de terminar la firma"
+  },
+  "send_plan_paused_locked_body": {
+    "message": "La firma continúa en cuanto se desbloquea la billetera."
+  },
+  "send_plan_paused_interrupted": {
+    "message": "La firma se detuvo antes de terminar"
+  },
+  "send_plan_paused_interrupted_body": {
+    "message": "El navegador o la billetera se reiniciaron, o la firma falló. Continúa para firmar el resto."
+  },
+  "send_plan_paused_merge_refused": {
+    "message": "No se pudieron reunir tus fondos como estaba previsto"
+  },
+  "send_plan_paused_merge_refused_body": {
+    "message": "Una transacción que reúne tus fondos no se puede enviar como estaba previsto. Revisa el pago de nuevo para seguir."
+  },
+  "send_plan_paused_outputs_spent": {
+    "message": "Se gastaron fondos que usa este pago"
+  },
+  "send_plan_paused_outputs_spent_body": {
+    "message": "Algo ajeno a este pago gastó fondos que iba a usar. Revisa el pago de nuevo o cancélalo."
+  },
+  "send_plan_paused_payment_fee_too_low": {
+    "message": "La tarifa del pago es demasiado baja"
+  },
+  "send_plan_paused_payment_fee_too_low_body": {
+    "message": "La red pide una tarifa más alta para aceptar el pago. Sube la tarifa para enviarlo."
+  },
+  "send_plan_paused_payment_refused": {
+    "message": "La red rechazó el pago"
+  },
+  "send_plan_paused_payment_refused_body": {
+    "message": "El pago no se envió. Revísalo de nuevo o cancélalo."
+  },
+  "send_plan_paused_payment_refused_unexplained": {
+    "message": "La red rechazó el pago sin dar un motivo"
+  },
+  "send_plan_paused_payment_refused_unexplained_body": {
+    "message": "El pago no se envió. La causa habitual es una tarifa demasiado baja: sube la tarifa para enviarlo o revísalo de nuevo."
+  },
+  "send_plan_paused_unreadable": {
+    "message": "No se puede leer este pago"
+  },
+  "send_plan_paused_unreadable_body": {
+    "message": "Esta versión de la billetera no puede leer el pago guardado, así que no puede continuarlo."
+  },
+  "send_plan_paused_other": {
+    "message": "El pago está en pausa"
+  },
+  "send_plan_funds_untouched": {
+    "message": "No se ha enviado nada al destinatario. Tus fondos están en esta billetera, como estaban."
+  },
+  "send_plan_funds_partly_combined": {
+    "message": "No se ha enviado nada al destinatario. Tus fondos están en esta billetera, en parte reunidos."
+  },
+  "send_plan_funds_combined": {
+    "message": "No se ha enviado nada al destinatario. Tus fondos están en esta billetera, reunidos."
+  },
+  "send_plan_may_confirm_title": {
+    "message": "El pago aún puede completarse"
+  },
+  "send_plan_may_confirm_body": {
+    "message": "El pago se envió, pero la billetera no recibió respuesta, así que aún puede completarse. La billetera sigue comprobándolo. Hasta que se aclare, no pagues a este destinatario de otra forma."
+  },
+  "send_plan_may_confirm_continue": {
+    "message": "Puedes volver a enviar el mismo pago, lo que no puede pagar dos veces al destinatario."
+  },
+  "send_plan_may_confirm_raise_or_continue": {
+    "message": "Puedes subir su tarifa o volver a enviar el mismo pago. Ninguna de las dos cosas puede pagar dos veces al destinatario."
+  },
+  "send_plan_may_confirm_raise": {
+    "message": "Puedes subir su tarifa, lo que no puede pagar dos veces al destinatario."
+  },
+  "send_plan_may_confirm_funds_held": {
+    "message": "Los fondos que usa este pago están en esta billetera, retenidos para él."
+  },
+  "send_plan_may_confirm_funds_partly_combined": {
+    "message": "Los fondos que usa este pago están en esta billetera, en parte reunidos y retenidos para él."
+  },
+  "send_plan_may_confirm_funds_combined": {
+    "message": "Los fondos que usa este pago están en esta billetera, reunidos y retenidos para él."
+  },
+  "send_plan_action_replan": {
+    "message": "Revisar de nuevo"
+  },
+  "send_plan_action_raise_merge_fee": {
+    "message": "Acelerar con una tarifa más alta"
+  },
+  "send_plan_action_raise_payment_fee": {
+    "message": "Subir la tarifa"
+  },
+  "send_plan_action_cancel": {
+    "message": "Cancelar el pago"
+  },
+  "send_plan_action_dismiss": {
+    "message": "Quitar del inicio"
+  },
+  "send_plan_cancel_title": {
+    "message": "¿Cancelar este pago?"
+  },
+  "send_plan_cancel_body": {
+    "message": "No se enviará nada al destinatario. Los fondos ya reunidos se quedan en esta billetera como importes más grandes y en menor número, y las tarifas ya pagadas no se devuelven."
+  },
+  "send_plan_cancel_body_untouched": {
+    "message": "Todavía no se ha enviado nada. Al cancelar, tus fondos quedan como están y no se ha pagado ninguna tarifa."
+  },
+  "send_plan_cancel_keep": {
+    "message": "Mantener el pago"
+  },
+  "send_plan_raise_title": {
+    "message": "Subir la tarifa"
+  },
+  "send_plan_raise_body": {
+    "message": "Elige una tasa superior a $1 bits/vB. Revisarás la nueva tarifa total antes de que cambie nada."
+  },
+  "send_plan_replan_title": {
+    "message": "Revisar el pago de nuevo"
+  },
+  "send_plan_replan_body": {
+    "message": "La billetera vuelve a planificar el pago con tus fondos tal como están ahora, a la tasa que elijas aquí. El plan anterior usaba $1 bits/vB. Revisarás el nuevo plan antes de que se firme nada."
+  },
+  "send_plan_revise_refused": {
+    "message": "La billetera no puede preparar este cambio ahora."
+  },
+  "send_plan_fee_rate_too_low": {
+    "message": "Esta tasa de tarifa es demasiado baja para reemplazar la transacción ya enviada. Usa al menos $1 bits/vB."
+  },
+  "send_plan_home_sending": {
+    "message": "Enviando $1 $2"
+  },
+  "send_plan_home_paused": {
+    "message": "Pago de $1 $2 en pausa: te necesita"
+  },
+  "send_plan_home_sent": {
+    "message": "Enviado: $1 $2"
+  },
+  "send_plan_home_cancelling": {
+    "message": "Cancelando un pago de $1 $2"
+  },
+  "send_plan_status_signing": {
+    "message": "Firmando: $1 de $2 firmas"
+  },
+  "send_plan_status_waiting": {
+    "message": "Reuniendo tus fondos: $1 de $2 confirmadas"
+  },
+  "send_plan_status_sending": {
+    "message": "Enviando el pago"
+  },
+  "send_plan_status_sent": {
+    "message": "La red aceptó el pago."
+  },
+  "send_plan_status_may_confirm": {
+    "message": "El pago aún puede completarse: no pagues a este destinatario de otra forma."
   },
   "utxo_limit_exceeded_balance": {
     "message": "El explorador no lista las salidas de esta cuenta. Este total procede del resumen de la dirección."

@@ -137,6 +137,66 @@ budget per 32-byte P2MR pubkey inside the encrypted keyring vault.
   and archived-source resume semantics are specified in
   [Seed-only restored Qbit wallet safety](seed-only-restored-wallet-safety.md).
 
+## Send Plans
+
+A send plan (#188) signs one signature per input of every transaction it
+sends: every merge's inputs, then the payment's, which has one input for each
+merge's output and one for each output it spends directly. 214 outputs sent
+in two merges of 106 and a payment of 4 inputs take 216 signatures. The send
+screen and the review state the count, and the review shows the signatures
+left before and after the plan.
+
+- One approval covers the whole plan. Preparing the review opens one
+  signature batch (`openP2mrPsbtSigningBatch`) with an entry for each
+  transaction, and the review's confirmation is that batch's approval. Each
+  transaction then signs under its own entry's approved figures; when a
+  figure no longer continues that approval, the plan pauses rather than sign
+  with another.
+- The background signs the plan whether or not a wallet window is open, but
+  only in a session the user authorised by confirming the plan or by
+  Continue: never while the wallet is locked, and never after a restart of
+  the browser or the extension until the user presses Continue, which the
+  wallet offers and accepts only while it is unlocked. A lock
+  stops the signing before its next signature, and so does a switch to
+  another network. The plan carries on after the next unlock in the same
+  session whenever the only change since the approval is what its own
+  signatures took: the counter moved by exactly the signatures the keyring
+  reported for the plan, plus at most one for each signing that was cut
+  short (the keyring takes an input's count before it makes the signature),
+  and every transaction left signs the inputs it was approved for under the
+  same limit. Anything else, such as a signature another request made with
+  the key meanwhile, waits for Continue, which approves the signatures left
+  and opens a new batch for them. Continue records the figures it approves
+  as a review does, for every transaction that may still need a signature:
+  each merge that has not confirmed, and the payment while it is unsigned.
+  The plan never signs on figures no start or Continue approved: a merge
+  that had confirmed when Continue was pressed and is later reorganised out
+  for good waits for another Continue.
+- The signed payment is kept in the plan's store and broadcast as signed, so
+  a resumed plan never signs it again, unless the stored bytes cannot be
+  read; then Continue signs the same transaction again. Signed merges are
+  kept only in memory and broadcast as soon as they are signed. A merge sent,
+  or whose broadcast had no verdict, is looked up and never signed again
+  while it may exist. A merge whose bytes a restart lost before it reached
+  the network, or that is proven absent after a restart, is signed again
+  after Continue: the same transaction with the same id. So is a transaction
+  whose signing a lock, a network switch or a restart cut short, from its
+  first input. The key's signature cache keeps its 16 most recent
+  signatures, and signing a transaction again from its first input evicts
+  them before it reaches them: a transaction cut short within its first 16
+  inputs costs nothing more, and one cut short later is signed again in
+  full, each input counted again before it is signed, up to 105 extra
+  signatures for a full merge.
+- A plan whose review is changed (Review again after a refused merge or
+  payment) is priced and approved as a new plan, and signs its new
+  transactions under a new batch. Signatures the earlier version made for
+  transactions it never sent stay counted.
+- On a seed-only restored wallet, the review carries the restored-floor
+  confirmation for the plan's first signature, which the user gives once for
+  the whole plan. The background confirms each later signature's challenge
+  itself, one at a time, just before that signature and only in an
+  authorised session.
+
 ## Integration Rules
 
 C5 transaction signing and C7 message signing should call

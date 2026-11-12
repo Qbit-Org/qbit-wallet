@@ -1913,14 +1913,332 @@
   "touch_id_onboarding_desc": {
     "message": "パスワードの代わりにTouch IDでウォレットのロックを解除できます。後で設定から有効にすることもできます。"
   },
-  "send_exceeds_standard_size": {
-    "message": "この金額にはこのアカウントのアウトプットが $1 個より多く必要ですが、1 つのトランザクションに入れられるのは最大 $1 個です。一度に送れるのは最大 $2 $3 です。「最大」も使えます。"
-  },
   "send_all_leaves_outputs_behind": {
     "message": "「最大」では、1 つのトランザクションに収まる上限である大きい順の $1 個のアウトプットを送ります。より小さい $4 個のアウトプットにある $2 $3 はこのアカウントに残ります。"
   },
   "send_exceeds_ancestor_size": {
     "message": "まだ確認されていない前回の送金と合わせると、この送金はネットワークが受け付けるサイズを超えます。前回の送金が確認されるまで待つか、より少ない金額を送ってください。"
+  },
+  "send_plan_notice_title": {
+    "message": "この支払いには $1 件のトランザクションが必要です"
+  },
+  "send_plan_notice_title_everything": {
+    "message": "残高をすべて送るには $1 件のトランザクションが必要です"
+  },
+  "send_plan_steps_none": {
+    "message": "残りは支払いだけです。資金はすでにまとめられています。"
+  },
+  "send_plan_steps_one": {
+    "message": "資金をまとめるトランザクション 1 件のあと、支払いを送ります。"
+  },
+  "send_plan_steps_many": {
+    "message": "資金をまとめるトランザクション $1 件のあと、支払いを送ります。"
+  },
+  "send_plan_receives": {
+    "message": "受信者が受け取る額"
+  },
+  "send_plan_total_fee": {
+    "message": "手数料の合計"
+  },
+  "send_plan_signing_label": {
+    "message": "署名"
+  },
+  "send_plan_signatures": {
+    "message": "署名 $1 件"
+  },
+  "send_plan_time_minutes": {
+    "message": "約 $1 分"
+  },
+  "send_plan_time_under_a_minute": {
+    "message": "1 分未満"
+  },
+  "send_plan_left_behind": {
+    "message": "$1 $2 はこのアカウントに残ります。送るための手数料より少ない資金です。"
+  },
+  "send_plan_unconfirmed_not_included": {
+    "message": "$1 $2 はまだ承認されていないため含まれていません。承認されると送れるようになります。"
+  },
+  "send_plan_short_of_fees": {
+    "message": "残高はこの金額をまかなえますが、金額とすべての手数料の合計には足りません。"
+  },
+  "send_plan_exceeds_plan_size": {
+    "message": "この金額には、1 回の支払いで使えるより多くのトランザクションが必要です。"
+  },
+  "send_plan_exceeds_maximum_fee": {
+    "message": "この金額では、手数料がウォレットの安全上限を超えてしまいます。"
+  },
+  "send_plan_nothing_to_send": {
+    "message": "送れるものがありません。これらの資金は、送るための手数料より少ない額です。"
+  },
+  "send_plan_max_sendable": {
+    "message": "送れるのは最大 $1 $2 です。"
+  },
+  "send_plan_use_max_sendable": {
+    "message": "$1 $2 にする"
+  },
+  "send_plan_unconfirmed_note": {
+    "message": "$1 $2 はまだ承認されていません。承認されると送れるようになります。"
+  },
+  "send_plan_already_open": {
+    "message": "このアカウントからの支払いがすでに進行中です。"
+  },
+  "send_plan_open_holds_rest": {
+    "message": "このアカウントからの支払いがすでに進行中で、残りの資金はその支払いのために確保されています。"
+  },
+  "send_plan_view_open": {
+    "message": "支払いを表示"
+  },
+  "send_plan_outputs_unavailable": {
+    "message": "このアカウントの資金を読み取れなかったため、今はこの支払いを準備できません。しばらくしてからもう一度お試しください。"
+  },
+  "send_plan_outputs_changed": {
+    "message": "この支払いで使う資金が変わりました。支払いをもう一度確認してください。"
+  },
+  "send_plan_review_expired": {
+    "message": "この確認画面は期限切れです。支払いをもう一度確認してください。"
+  },
+  "send_plan_review_unavailable": {
+    "message": "この確認画面はもう利用できません。戻って支払いをもう一度確認してください。"
+  },
+  "send_plan_review_title": {
+    "message": "支払いの確認"
+  },
+  "send_plan_review_transactions": {
+    "message": "トランザクション"
+  },
+  "send_plan_review_change": {
+    "message": "このウォレットに戻る額"
+  },
+  "send_plan_review_budget": {
+    "message": "残りの署名数：現在 $1、送信後 $2"
+  },
+  "send_plan_review_note": {
+    "message": "このウィンドウを閉じても署名は続きます。ウォレットをロックすると、ロックを解除するまで一時停止します。"
+  },
+  "send_plan_revision_title": {
+    "message": "確認済みの支払いが変わります"
+  },
+  "send_plan_revision_unchanged": {
+    "message": "受信者と金額は変わりません。"
+  },
+  "send_plan_revision_recipient_unchanged": {
+    "message": "受信者は変わりません。"
+  },
+  "send_plan_revision_amount": {
+    "message": "受信者が受け取る額は $3 $4 から $1 $2 に変わります。"
+  },
+  "send_plan_revision_paid": {
+    "message": "支払い済みの手数料：$1 $2"
+  },
+  "send_plan_revision_total_fee": {
+    "message": "手数料の合計は $3 $4 から $1 $2 に変わります。"
+  },
+  "send_plan_revision_same_title": {
+    "message": "同じ支払いの新しい計画"
+  },
+  "send_plan_revision_same": {
+    "message": "受信者、金額、手数料の合計は変わりません。"
+  },
+  "send_plan_header": {
+    "message": "支払い"
+  },
+  "send_plan_to": {
+    "message": "送り先 $1"
+  },
+  "send_plan_fee_summary": {
+    "message": "手数料の合計: $1 $2（$3 bit/vB）"
+  },
+  "send_plan_stage_signing": {
+    "message": "署名"
+  },
+  "send_plan_stage_combining": {
+    "message": "資金をまとめる"
+  },
+  "send_plan_stage_paying": {
+    "message": "支払いを送る"
+  },
+  "send_plan_stage_done": {
+    "message": "支払い完了"
+  },
+  "send_plan_signatures_progress": {
+    "message": "署名 $1 / $2 件"
+  },
+  "send_plan_combine_progress": {
+    "message": "$1 / $2 件承認済み"
+  },
+  "send_plan_signing_close_note": {
+    "message": "このウィンドウは閉じても大丈夫です。署名は続きます。ウォレットをロックすると一時停止します。"
+  },
+  "send_plan_waiting_note": {
+    "message": "まとめた資金が承認されると支払いが送られます。このウィンドウは閉じても大丈夫です。"
+  },
+  "send_plan_slow_merge": {
+    "message": "資金をまとめるトランザクションの承認に、いつもより時間がかかっています。このまま待つか、手数料を上げることができます。"
+  },
+  "send_plan_cancelling_title": {
+    "message": "支払いをキャンセル中"
+  },
+  "send_plan_cancelling_body": {
+    "message": "ウォレットは資金を解放する前に、トランザクションを 1 件確認しています。"
+  },
+  "send_plan_read_failed": {
+    "message": "この支払いの進捗を読み取れませんでした。まもなく再試行します。"
+  },
+  "send_plan_paused_locked": {
+    "message": "署名が終わる前にウォレットがロックされました"
+  },
+  "send_plan_paused_locked_body": {
+    "message": "ウォレットのロックを解除すると、署名が再開されます。"
+  },
+  "send_plan_paused_interrupted": {
+    "message": "署名が途中で止まりました"
+  },
+  "send_plan_paused_interrupted_body": {
+    "message": "ブラウザーかウォレットが再起動したか、署名に失敗しました。続行して残りに署名してください。"
+  },
+  "send_plan_paused_merge_refused": {
+    "message": "資金を予定どおりにまとめられませんでした"
+  },
+  "send_plan_paused_merge_refused_body": {
+    "message": "資金をまとめるトランザクションを予定どおりに送れません。続けるには支払いをもう一度確認してください。"
+  },
+  "send_plan_paused_outputs_spent": {
+    "message": "この支払いで使う資金が使われました"
+  },
+  "send_plan_paused_outputs_spent_body": {
+    "message": "この支払いの外で、使う予定だった資金が使われました。支払いをもう一度確認するか、キャンセルしてください。"
+  },
+  "send_plan_paused_payment_fee_too_low": {
+    "message": "支払いの手数料が低すぎます"
+  },
+  "send_plan_paused_payment_fee_too_low_body": {
+    "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要です。送るには手数料を上げてください。"
+  },
+  "send_plan_paused_payment_refused": {
+    "message": "ネットワークが支払いを拒否しました"
+  },
+  "send_plan_paused_payment_refused_body": {
+    "message": "支払いは送られていません。もう一度確認するか、キャンセルしてください。"
+  },
+  "send_plan_paused_payment_refused_unexplained": {
+    "message": "ネットワークが理由を示さずに支払いを拒否しました"
+  },
+  "send_plan_paused_payment_refused_unexplained_body": {
+    "message": "支払いは送られていません。よくある原因は手数料が低すぎることです。送るには手数料を上げるか、もう一度確認してください。"
+  },
+  "send_plan_paused_unreadable": {
+    "message": "この支払いを読み取れません"
+  },
+  "send_plan_paused_unreadable_body": {
+    "message": "このバージョンのウォレットは保存された支払いを読み取れないため、続けることができません。"
+  },
+  "send_plan_paused_other": {
+    "message": "支払いは一時停止中です"
+  },
+  "send_plan_funds_untouched": {
+    "message": "受信者にはまだ何も送られていません。資金はこのウォレットに、元のままあります。"
+  },
+  "send_plan_funds_partly_combined": {
+    "message": "受信者にはまだ何も送られていません。資金はこのウォレットにあり、一部がまとめられています。"
+  },
+  "send_plan_funds_combined": {
+    "message": "受信者にはまだ何も送られていません。資金はこのウォレットにあり、まとめられています。"
+  },
+  "send_plan_may_confirm_title": {
+    "message": "支払いはまだ完了する可能性があります"
+  },
+  "send_plan_may_confirm_body": {
+    "message": "支払いは送られましたが、ウォレットに応答がなかったため、まだ完了する可能性があります。ウォレットは確認を続けます。結果がわかるまで、この受信者に別の方法で支払わないでください。"
+  },
+  "send_plan_may_confirm_continue": {
+    "message": "同じ支払いをもう一度送ることができます。受信者に二重に支払われることはありません。"
+  },
+  "send_plan_may_confirm_raise_or_continue": {
+    "message": "手数料を上げるか、同じ支払いをもう一度送ることができます。どちらでも受信者に二重に支払われることはありません。"
+  },
+  "send_plan_may_confirm_raise": {
+    "message": "手数料を上げることができます。受信者に二重に支払われることはありません。"
+  },
+  "send_plan_may_confirm_funds_held": {
+    "message": "この支払いが使う資金はこのウォレットにあり、この支払いのために確保されています。"
+  },
+  "send_plan_may_confirm_funds_partly_combined": {
+    "message": "この支払いが使う資金はこのウォレットにあり、一部がまとめられ、この支払いのために確保されています。"
+  },
+  "send_plan_may_confirm_funds_combined": {
+    "message": "この支払いが使う資金はこのウォレットにあり、まとめられ、この支払いのために確保されています。"
+  },
+  "send_plan_action_replan": {
+    "message": "もう一度確認"
+  },
+  "send_plan_action_raise_merge_fee": {
+    "message": "手数料を上げて早める"
+  },
+  "send_plan_action_raise_payment_fee": {
+    "message": "手数料を上げる"
+  },
+  "send_plan_action_cancel": {
+    "message": "支払いをキャンセル"
+  },
+  "send_plan_action_dismiss": {
+    "message": "ホームから削除"
+  },
+  "send_plan_cancel_title": {
+    "message": "この支払いをキャンセルしますか？"
+  },
+  "send_plan_cancel_body": {
+    "message": "受信者には何も送られません。すでにまとめた資金は、少数の大きな額としてこのウォレットに残り、支払い済みの手数料は戻りません。"
+  },
+  "send_plan_cancel_body_untouched": {
+    "message": "まだ何も送られていません。キャンセルしても資金はそのままで、手数料も支払われていません。"
+  },
+  "send_plan_cancel_keep": {
+    "message": "支払いを続ける"
+  },
+  "send_plan_raise_title": {
+    "message": "手数料を上げる"
+  },
+  "send_plan_raise_body": {
+    "message": "$1 bit/vB より高い手数料率を選んでください。何かが変わる前に、新しい手数料の合計を確認できます。"
+  },
+  "send_plan_replan_title": {
+    "message": "支払いをもう一度確認"
+  },
+  "send_plan_replan_body": {
+    "message": "ウォレットは、現在の資金から、ここで選ぶ手数料率で支払いを計画し直します。前回の計画は $1 bit/vB でした。何かに署名する前に、新しい計画を確認できます。"
+  },
+  "send_plan_revise_refused": {
+    "message": "今はこの変更を準備できません。"
+  },
+  "send_plan_fee_rate_too_low": {
+    "message": "この手数料率は低すぎて、送信済みのトランザクションを置き換えられません。$1 bit/vB 以上にしてください。"
+  },
+  "send_plan_home_sending": {
+    "message": "$1 $2 を送金中"
+  },
+  "send_plan_home_paused": {
+    "message": "$1 $2 の支払いが一時停止中：対応が必要です"
+  },
+  "send_plan_home_sent": {
+    "message": "$1 $2 を送金しました"
+  },
+  "send_plan_home_cancelling": {
+    "message": "$1 $2 の支払いをキャンセル中"
+  },
+  "send_plan_status_signing": {
+    "message": "署名中：$1 / $2 件"
+  },
+  "send_plan_status_waiting": {
+    "message": "資金をまとめています：$1 / $2 件承認済み"
+  },
+  "send_plan_status_sending": {
+    "message": "支払いを送っています"
+  },
+  "send_plan_status_sent": {
+    "message": "ネットワークが支払いを受け付けました。"
+  },
+  "send_plan_status_may_confirm": {
+    "message": "支払いはまだ完了する可能性があります：この受信者に別の方法で支払わないでください。"
   },
   "utxo_limit_exceeded_balance": {
     "message": "エクスプローラーはこのアカウントのアウトプットを一覧表示しません。この合計はアドレスの概要から取得しています。"

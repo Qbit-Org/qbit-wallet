@@ -91,6 +91,9 @@ vi.mock('../src/services', () => ({
     // The wallet's own record of later spends stays empty here, so a fee
     // bump's descendant check rests on what electrs reports.
     hasDependentSpend: async () => false,
+    // No send plan is open here, so none holds an input of a fee bump's
+    // original.
+    getPlanHeldOutpointKeys: async () => new Set<string>(),
     takeRecentSpendersToProbe: async () => [],
     settleRecentSpendProbe: async () => undefined,
     recordAcceptedBroadcast: async () => undefined,

@@ -792,3 +792,48 @@ describe('useFetchBalanceCallback', () => {
     expect(result.current.card.balanceLoadFailed).toBe(false)
   })
 })
+
+describe('useBalanceCardLogic on returning to the home screen', () => {
+  it('reads the balance again at once when it mounts showing one read earlier (#188)', async () => {
+    // A send plan started on another screen and holds every output now.
+    const wallet = Object.assign(createWalletMock(), {
+      getAddressSummary: vi
+        .fn()
+        .mockResolvedValue({ totalSatoshis: 214_000_000, spendableSatoshis: 0 }),
+      getAddressBalanceV2: vi.fn().mockResolvedValue({
+        availableBalance: 0,
+        unavailableBalance: 214_000_000,
+        totalBalance: 214_000_000,
+        immatureBalance: 0,
+        pendingBalance: 0,
+        chainType: ChainType.QBIT_MAINNET,
+      }),
+    })
+    const harness = createHookTestHarness({ wallet })
+    harness.store.dispatch(
+      accountActions['setCurrent']!({
+        address,
+        pubkey: '11'.repeat(32),
+        type: 'Qbit HD Key Tree',
+      } as any)
+    )
+    // The balance read before the plan started.
+    harness.store.dispatch(
+      accountActions['setBalanceV2']!({
+        address,
+        balance: {
+          availableBalance: 214_000_000,
+          unavailableBalance: 0,
+          totalBalance: 214_000_000,
+          chainType: ChainType.QBIT_MAINNET,
+        } as any,
+      })
+    )
+    const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+    expect(result.current.availableAmount).toBe('2.14000000')
+
+    await waitFor(() => expect(result.current.availableAmount).toBe('0.00000000'))
+    expect(result.current.unavailableAmount).toBe('2.14000000')
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
+  })
+})

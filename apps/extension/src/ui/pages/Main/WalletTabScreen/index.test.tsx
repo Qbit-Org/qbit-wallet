@@ -93,8 +93,15 @@ vi.mock('@/ui/web/tabs', () => ({ getCurrentTab: vi.fn(async () => undefined) })
 vi.mock('../../MainRoute', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('../../Settings/SwitchChainModal', () => ({ SwitchChainModal: () => null }));
 vi.mock('./SidePanelExpand', () => ({ SidePanelExpand: () => null }));
-vi.mock('./components/BalanceCard', () => ({ BalanceCard: () => null }));
+vi.mock('./components/BalanceCard', async () => {
+  const React = await import('react');
+  return { BalanceCard: () => React.createElement('div', { 'data-testid': 'balance-card' }) };
+});
 vi.mock('./components/HomeTips', () => ({ HomeTips: () => null }));
+vi.mock('./components/QbitSendPlanResumeCard', async () => {
+  const React = await import('react');
+  return { QbitSendPlanResumeCard: () => React.createElement('div', { 'data-testid': 'send-plan-resume-card' }) };
+});
 vi.mock('./components/WalletActions', async () => {
   const React = await import('react');
   return {
@@ -243,6 +250,18 @@ describe('WalletTabScreen recovery acceptance', () => {
   afterEach(() => {
     cleanup();
     localStorage.clear();
+  });
+
+  it('puts the send plan card after the recovery banner and before the balance and actions (#188)', async () => {
+    render(<WalletTabScreen />);
+    await screen.findByTestId('recovery-status');
+
+    const order = ['recovery-status', 'send-plan-resume-card', 'balance-card', 'wallet-actions'].map((testId) =>
+      screen.getByTestId(testId)
+    );
+    order.slice(1).forEach((element, index) => {
+      expect(order[index]?.compareDocumentPosition(element) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
   });
 
   it('keeps explicit acceptance across display refreshes and resets it for a lifecycle change', async () => {

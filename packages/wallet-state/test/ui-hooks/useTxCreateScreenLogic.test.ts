@@ -271,7 +271,7 @@ describe('TxCreateScreen state hooks', () => {
     })
   })
 
-  it('blocks qbit sends that fit balance but cannot cover P2MR fees', async () => {
+  it('blocks qbit sends that fit balance but cannot cover P2MR fees, and says so (#188)', async () => {
     const account = p2mrAccount()
     const { wrapper, store, wallet } = createSendHarness()
     const utxos = [
@@ -316,17 +316,21 @@ describe('TxCreateScreen state hooks', () => {
       result.current.onAmountInputChange('0.00009500')
     })
 
+    // The balance covers the amount, not its fee: the screen says so and
+    // offers what can be sent instead.
     await waitFor(() => {
-      expect(result.current.error).toBe('amount_exceeds_your_available_balance')
+      expect(result.current.sendPlanRefusal?.message).toBe('send_plan_short_of_fees')
       expect(result.current.disabled).toBe(true)
     })
+    expect(result.current.error).toBe('')
+    expect(result.current.sendPlanRefusal?.offerButtonText).toBe('send_plan_use_max_sendable')
 
     act(() => {
       result.current.onAmountInputChange('0.00008000')
     })
 
     await waitFor(() => {
-      expect(result.current.error).toBe('amount_exceeds_your_available_balance')
+      expect(result.current.sendPlanRefusal?.message).toBe('send_plan_short_of_fees')
       expect(result.current.disabled).toBe(true)
     })
 
@@ -2161,10 +2165,10 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.consolidationNote).toBe('consolidation_send_note')
     })
 
-    it('names the largest standard send when an amount needs more than 106 inputs', async () => {
+    it('plans an amount that needs more than 106 inputs instead of refusing it (#188)', async () => {
       const account = p2mrAccount()
       const harness = createSendHarness()
-      const { t, wrapper } = withRecordingI18n(harness.wrapper)
+      const { wrapper } = withRecordingI18n(harness.wrapper)
       loadAccount(harness, account, manyOutputs(account, Array(150).fill(10_000)))
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
@@ -2175,12 +2179,12 @@ describe('TxCreateScreen state hooks', () => {
       })
 
       await waitFor(() => {
-        expect(result.current.error).toBe('send_exceeds_standard_size')
-        expect(result.current.disabled).toBe(true)
+        expect(result.current.sendPlanNotice).toBeDefined()
+        expect(result.current.disabled).toBe(false)
       })
-      // 106 inputs of 10,000 less the exact 398,827-bit fee.
-      expect(t).toHaveBeenCalledWith('send_exceeds_standard_size', ['106', '0.00661173', 'QBT'])
+      expect(result.current.error).toBe('')
 
+      // One transaction of it is never built.
       const { result: prepare } = renderHook(() => usePrepareSendQBTCallback(), { wrapper })
       await expect(
         prepare.current({
@@ -2188,7 +2192,7 @@ describe('TxCreateScreen state hooks', () => {
           toAmount: 700_000,
           feeRate: 1,
         })
-      ).rejects.toThrow('send_exceeds_standard_size')
+      ).rejects.toThrow('send_plan_outputs_changed')
       expect(harness.wallet.createSendQbitPsbt).not.toHaveBeenCalled()
     })
 
@@ -2265,14 +2269,15 @@ describe('TxCreateScreen state hooks', () => {
       expect(preflight(100_000)).toMatchObject({ canCover: true, exceedsAncestorSize: true })
     })
 
-    it('discloses the outputs Max leaves behind past the standard size', async () => {
+    it('discloses the outputs Max leaves behind past the standard size when combining them gains nothing', async () => {
       const account = p2mrAccount()
       const harness = createSendHarness()
       const { t, wrapper } = withRecordingI18n(harness.wrapper)
+      // Outputs worth less than their own fee: a send plan would not spend them.
       loadAccount(
         harness,
         account,
-        manyOutputs(account, [...Array(44).fill(4_000), ...Array(106).fill(20_000)])
+        manyOutputs(account, [...Array(44).fill(3_000), ...Array(106).fill(20_000)])
       )
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
@@ -2288,12 +2293,13 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.feeDetail).toMatchObject({
         inputCount: 106,
         leftBehindInputCount: 44,
-        leftBehindSats: 176_000,
+        leftBehindSats: 132_000,
       })
+      expect(result.current.sendPlanNotice).toBeUndefined()
       expect(result.current.leftBehindNote).toBe('send_all_leaves_outputs_behind')
       expect(t).toHaveBeenCalledWith('send_all_leaves_outputs_behind', [
         '106',
-        '0.00176000',
+        '0.00132000',
         'QBT',
         '44',
       ])

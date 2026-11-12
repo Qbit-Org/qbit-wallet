@@ -100,6 +100,14 @@ export function createWalletMock() {
     createSendAllQbitPsbt: vi.fn(),
     createSendQbitPsbt: vi.fn(),
     createSendQbitOffsetPsbt: vi.fn(),
+    // Send plans (#188): the account has none unless a test says so.
+    prepareQbitSendPlan: vi.fn(),
+    startQbitSendPlan: vi.fn(),
+    getQbitSendPlan: vi.fn().mockResolvedValue(null),
+    continueQbitSendPlan: vi.fn(),
+    cancelQbitSendPlan: vi.fn(),
+    dismissQbitSendPlan: vi.fn().mockResolvedValue(undefined),
+    confirmQbitRestoredFloorSigning: vi.fn().mockResolvedValue(undefined),
   }
 }
 

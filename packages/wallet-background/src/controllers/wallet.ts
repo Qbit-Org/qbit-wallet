@@ -113,6 +113,10 @@ import {
   type QbitBroadcastStatusCheck,
   type QbitRestoreFloorSource,
   type QbitRestoreFloorSourceRecord,
+  type QbitSendPlanPrepareParams,
+  type QbitSendPlanPrepareResult,
+  type QbitSendPlanStartResult,
+  type QbitSendPlanView,
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
   PublicKeyUserToSignInput,
@@ -146,7 +150,6 @@ import {
   isQbitStandardTxSize,
   isWalletColorKey,
   normalizeChainType,
-  qbitMaximumTotalFee,
   qbitBroadcastErrorMessage,
   qbitP2mrInputFee,
   qbitP2mrInputsDominateFee,
@@ -244,6 +247,7 @@ import {
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
   qbitReadOutput,
+  qbitTxSpendersFromOutspends,
   readQbitAddressUtxos,
   type QbitAccountHistoryRevision,
   type QbitAddressOutputScan,
@@ -274,6 +278,7 @@ import {
   QbitExplorerSpendCheckTimeoutError,
   assertNoExplorerSpendConflict,
 } from '../utils/qbit-fee-bump-recheck'
+import { qbitReplacementFeeAllowed } from '../utils/qbit-replacement-fee'
 import {
   assertQbitExplorerSpendCheck,
   qbitExplorerSpendCheckIsNeeded,
@@ -310,14 +315,30 @@ import type { RegtestFetch } from '../utils/regtest-service-verification'
 import type { RegtestAccessStatus } from '@qbit/wallet-shared'
 import { ContactBookItem } from '../services/contactBook'
 import {
+  QBIT_PROVIDER_SIGNING,
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
   QbitSendBroadcastClaimInactiveError,
+  type QbitNoOverlapOperation,
   type QbitExternalSigningLockIdentity,
   type QbitOutpoint,
   type QbitProviderSendRequest,
   type QbitSendClaimOwner,
   type QbitSendClaimVerdict,
+  type QbitSendPlanHold,
+  type QbitSendPlanReplacement,
 } from '../services/qbitSendGuards'
+// Imported by module path, as regtestAccess is, so services mocks that do
+// not know the plan store or engine are unaffected.
+import {
+  QbitSendPlanEngine,
+  type QbitSendPlanEngineHost,
+  type QbitSendPlanKeyring,
+  type QbitSendPlanTimers,
+} from '../services/qbitSendPlanEngine'
+import qbitSendPlanStore, {
+  QbitSendPlanStoreError,
+  type QbitSendPlanStore,
+} from '../services/qbitSendPlanStore'
 import BaseController from './base'
 
 /**
@@ -407,6 +428,8 @@ type QbitPsbtReviewContext = {
 
 export interface WalletControllerOptions {
   now?: () => number
+  /** The timer the send plan engine advances plans with; the global one by default. */
+  qbitSendPlanTimers?: QbitSendPlanTimers
 }
 
 type QbitReceiveIntentLedger = {
@@ -569,12 +592,29 @@ const QBIT_SIGNING_PROGRESS_ID = /^[A-Za-z0-9_-]{1,64}$/
  * A local signing call under way, or the broadcast that follows one; see
  * `WalletController.beginLocalSigning`.
  */
+/**
+ * What a wallet holds on every Qbit network, as its send plans name it, and
+ * the networks where its accounts could not be derived.
+ */
+interface QbitSendPlanAccountsRead {
+  accounts: { chain: ChainType; address: string }[]
+  underived: ChainType[]
+}
+
 interface LocalSigning {
   page: QbitSendClaimOwner | undefined
   /** Aborted when the page closes: the keyring then stops before its next input. */
   stop: AbortController
   /** `lockRequests` when the call started, to tell a lock during it. */
   locksBefore: number
+  /**
+   * Set for a send plan's signing, which belongs to no page and holds the
+   * auto-lock all the same, for at most this long past the deadline instead
+   * of AUTO_LOCK_SIGNING_GRACE_MS; see `holdAutoLockForQbitSendPlan`.
+   */
+  planGraceMs?: number
+  /** Whether this plan signing's ceiling already moved the hold's end; see `holdAutoLockForSigning`. */
+  planCeilingApplied?: boolean
 }
 const QBIT_RECENT_SPEND_PROBE_WAIT_MS = 2_000
 const QBIT_HISTORY_SNAPSHOT_TTL_MS = 5 * 60_000
@@ -1115,7 +1155,20 @@ export class WalletController extends BaseController {
   constructor(options: WalletControllerOptions = {}) {
     super()
     this.now = options.now ?? Date.now
+    this.qbitSendPlans = new QbitSendPlanEngine({
+      host: this.qbitSendPlanHost(),
+      store: (): QbitSendPlanStore => qbitSendPlanStore,
+      guard: (): typeof qbitSendGuardService => qbitSendGuardService,
+      keyring: (): QbitSendPlanKeyring => keyringService,
+      now: this.now,
+      ...(options.qbitSendPlanTimers ? { timers: options.qbitSendPlanTimers } : {}),
+      log: (message, error): void =>
+        log.warn(`[WalletController] ${message}`, summarizeError(error)),
+    })
   }
+
+  /** The send plans of every account (#188); see `QbitSendPlanEngine`. */
+  private readonly qbitSendPlans: QbitSendPlanEngine
 
   private backgroundInited = false
   private backgroundStartupFailure: 'stored-settings-unreadable' | 'unknown' | undefined
@@ -1298,7 +1351,7 @@ export class WalletController extends BaseController {
   private runWithNoQbitInputConflict<T>(
     chain: ChainType,
     outpoints: readonly QbitOutpoint[],
-    operation: () => Promise<T>,
+    operation: QbitNoOverlapOperation<T>,
     txid?: string
   ): Promise<T> {
     if (txid === undefined) {
@@ -1863,6 +1916,8 @@ export class WalletController extends BaseController {
 
     this._resetTimeout()
     this.kickPendingQbitRestoreFloorScan()
+    // A send plan a lock paused in this session goes on.
+    this.qbitSendPlans.onUnlock()
   }
 
   /**
@@ -1896,6 +1951,13 @@ export class WalletController extends BaseController {
 
   /** Locks requested through lockWallet; see `unlock`. */
   private lockRequests = 0
+  /**
+   * lockWallet calls waiting for the keyring service: each told the send
+   * plans of its lock itself, before it waited (see `listenForKeyringLocks`).
+   */
+  private qbitSendPlanLocksTold = 0
+  /** Whether this controller listens to the keyring service's `lock` event. */
+  private keyringLocksHeard = false
   /** An unlock that a lock ended switched the account without announcing it. */
   private accountChangeUnannounced = false
 
@@ -1913,7 +1975,16 @@ export class WalletController extends BaseController {
     // once, before it waits, so nothing is kept after this clear: not from
     // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
     this.qbitLatestUtxoReads.clear()
-    await keyringService.setLocked()
+    // A send plan stops signing before its next signature, and its drafts
+    // go: told before the keyring's lock, which may wait for its mutex, and
+    // not again by that lock's event (see `listenForKeyringLocks`).
+    this.qbitSendPlans.onLock()
+    this.qbitSendPlanLocksTold += 1
+    try {
+      await keyringService.setLocked()
+    } finally {
+      this.qbitSendPlanLocksTold -= 1
+    }
     this.announceLock()
   }
 
@@ -2334,13 +2405,33 @@ export class WalletController extends BaseController {
     // only after its writes, so a read that completes during them is kept
     // until the second clear; nothing is kept after that, nor while locked.
     this.qbitLatestUtxoReads.clear()
+    // The send plans stop before anything else is reset, and stay stopped
+    // until the reset is over: nothing of a plan is signed, broadcast,
+    // written or held meanwhile, so no payment leaves for a wallet being
+    // wiped, and the guard and the store are reset with nothing of a plan
+    // under way to hold or write again after them.
+    await this.qbitSendPlans.halt()
     try {
-      await keyringService.resetAllData()
+      try {
+        await keyringService.resetAllData()
+      } finally {
+        this.qbitLatestUtxoReads.clear()
+      }
+      await preferenceService.resetAllData()
+      await qbitSendGuardService.resetAllData()
+      try {
+        await qbitSendPlanStore.resetAllData()
+      } catch (error) {
+        // A worker whose plan store never loaded stored no plan to erase.
+        if (!(error instanceof QbitSendPlanStoreError && error.code === 'not_initialized')) {
+          throw error
+        }
+      }
     } finally {
-      this.qbitLatestUtxoReads.clear()
+      // The plans go on from what is stored: none after the reset, and those
+      // a failed reset left, as after a restart.
+      await this.qbitSendPlans.resume()
     }
-    await preferenceService.resetAllData()
-    await qbitSendGuardService.resetAllData()
     await permissionService.resetAllData()
     await contactBookService.resetAllData()
 
@@ -5007,6 +5098,130 @@ export class WalletController extends BaseController {
     return reasons
   }
 
+  /**
+   * The accounts whose send plans removing `target` ends, as the plans name
+   * them (network and address): those that belong to it alone. A plan
+   * belongs to a wallet that signs for its account itself, as a plan's
+   * account must (`AccountSignMethod.Local`): a watch-only, readonly or cold
+   * wallet holds no plan, whatever address it lists, so removing one ends
+   * none. And an account that another wallet of `keyrings` still holds and
+   * signs for keeps its plans. A wallet that stays holds one of the removed
+   * wallet's accounts only when it holds one of its keys: on the active
+   * network's path a key it lists, and on the other a key derived from the
+   * same phrase, which lists the same key on the active path too. So only a
+   * wallet listing one of the removed wallet's keys has its accounts read,
+   * as `qbitSendPlanAccountsHeldBy` reads them: a removal costs a temporary
+   * keyring on the other derivation path for the removed wallet, and one
+   * more for each such wallet. `underived` names the networks where either's
+   * accounts could not be derived: there the removal cannot tell which
+   * plans are the removed wallet's alone (see `performRemoveKeyring`).
+   */
+  private qbitSendPlanAccountsOf = async (
+    target: WalletKeyring,
+    keyrings: readonly WalletKeyringWithStatus[]
+  ): Promise<QbitSendPlanAccountsRead> => {
+    if (!this.signsQbitSendPlans(target)) return { accounts: [], underived: [] }
+    const own = await this.qbitSendPlanAccountsHeldBy(target)
+    if (own.accounts.length === 0) return own
+    const underived = new Set(own.underived)
+    const keys = new Set(target.accounts.map(account => account.pubkey).filter(key => key !== ''))
+    const kept = new Set<string>()
+    for (const other of keyrings) {
+      if (
+        other.index === target.index ||
+        !this.isUsableKeyring(other) ||
+        !this.signsQbitSendPlans(other) ||
+        !this.isKeyringSlotInUse(other.index, other.type) ||
+        !other.accounts.some(account => keys.has(account.pubkey))
+      ) {
+        continue
+      }
+      const held = await this.qbitSendPlanAccountsHeldBy(other)
+      for (const { chain, address } of held.accounts) kept.add(`${chain}:${address}`)
+      for (const chain of held.underived) underived.add(chain)
+    }
+    return {
+      accounts: own.accounts.filter(({ chain, address }) => !kept.has(`${chain}:${address}`)),
+      underived: [...underived],
+    }
+  }
+
+  /** Whether `wallet` signs for its accounts itself, as a send plan's account must. */
+  private signsQbitSendPlans = (wallet: Pick<WalletKeyring, 'type'>): boolean =>
+    getAccountCapabilities({ type: wallet.type }).signMethod === AccountSignMethod.Local
+
+  /**
+   * Every account `target` holds on each Qbit network, as its send plans
+   * name it (network and address). On the networks sharing the active
+   * network's derivation path these are its listed accounts' keys, at each
+   * network's address; on the others the wallet's keys differ, and are
+   * derived from its keyring, which is still there, whatever is stored for
+   * them: a plan's work on such a network may have stored nothing yet (a
+   * start awaiting its first write, a prepare, a draft), and the removal
+   * ends and waits for the work of the accounts named here only. That costs
+   * a temporary keyring on the other path, deriving one key per active
+   * account. Never throws: the networks whose accounts cannot be derived
+   * are logged and named in `underived`.
+   */
+  private qbitSendPlanAccountsHeldBy = async (
+    target: WalletKeyring
+  ): Promise<QbitSendPlanAccountsRead> => {
+    const accounts: { chain: ChainType; address: string }[] = []
+    const underived: ChainType[] = []
+    const add = (chain: ChainType, address: string | undefined): void => {
+      if (address) accounts.push({ chain, address })
+    }
+    const active = this.getChainType()
+    const activePath = getQbitHdPathForChainType(active)
+    const others: ChainType[] = []
+    for (const chain of QBIT_CHAIN_TYPES) {
+      if (getQbitHdPathForChainType(chain) !== activePath) {
+        others.push(chain)
+        continue
+      }
+      for (const account of target.accounts) {
+        add(chain, account.p2mr?.addresses?.[chainTypeToQbitNetworkName(chain)])
+        if (chain === active) add(chain, account.address)
+      }
+    }
+    const raw = keyringService.keyrings[target.index] as
+      | (Keyring & {
+          mnemonic?: string
+          xpriv?: string
+          passphrase?: string
+          activeIndexes?: number[]
+        })
+      | undefined
+    if (others.length === 0 || raw?.type !== KeyringType.QbitHdKeyring)
+      return { accounts, underived }
+    for (const hdPath of new Set(others.map(chain => getQbitHdPathForChainType(chain)))) {
+      try {
+        const tmpKeyring = keyringService.createTmpKeyring(KeyringType.QbitHdKeyring, {
+          ...(raw.mnemonic
+            ? { mnemonic: raw.mnemonic, passphrase: raw.passphrase }
+            : { xpriv: raw.xpriv }),
+          activeIndexes: [...(raw.activeIndexes ?? [])],
+          hdPath,
+        }) as Keyring & {
+          getQbitAccounts(): Promise<{ addresses?: Record<string, string> }[]>
+        }
+        const derived = await tmpKeyring.getQbitAccounts()
+        for (const chain of others) {
+          if (getQbitHdPathForChainType(chain) !== hdPath) continue
+          for (const account of derived) {
+            add(chain, account.addresses?.[chainTypeToQbitNetworkName(chain)])
+          }
+        }
+      } catch (error) {
+        log.warn('[WalletController] Could not derive a wallet’s send plan accounts', error)
+        for (const chain of others) {
+          if (getQbitHdPathForChainType(chain) === hdPath) underived.push(chain)
+        }
+      }
+    }
+    return { accounts, underived }
+  }
+
   // The risk lines the confirmation popover renders, at its granularity: one
   // line per source status or non-source role, plus one shared in-flight
   // line. The acknowledgement covers exactly these lines, so a confirmed
@@ -5084,6 +5299,28 @@ export class WalletController extends BaseController {
     // saved finds the target's slot empty, and is answered once the removal
     // has selected and announced the wallet current after it, or has failed
     // and put the target back.
+    // The accounts the wallet holds on every Qbit network and alone signs
+    // for, read while its keyring is still there: their send plans end once
+    // it is removed. Where they could not be derived, the removal cannot
+    // tell which plans are the wallet's alone, and ends none from a guess:
+    // it goes on only while nothing of a plan is on those networks, under
+    // any account, and the engine lets none begin there until it is over;
+    // otherwise it is refused, nothing removed and nothing ended, for the
+    // user to try again (`holdNetworksIfIdle`, checked and held in one step
+    // after the last read here).
+    const { accounts: sendPlanAccounts, underived } = await this.qbitSendPlanAccountsOf(
+      target,
+      currentKeyrings
+    )
+    let releaseNetworks: (() => void) | undefined
+    if (underived.length > 0) {
+      releaseNetworks = this.qbitSendPlans.holdNetworksIfIdle(underived)
+      if (!releaseNetworks) {
+        throw new Error(
+          'The wallet cannot be removed now: the accounts of its send plans could not be derived. Try again.'
+        )
+      }
+    }
     let settle!: () => void
     this.removalUnderWay = new Promise<void>(resolve => {
       settle = resolve
@@ -5113,8 +5350,20 @@ export class WalletController extends BaseController {
       preferenceService.removeKeyringColor(target.key)
       // Nor are the removed accounts' outputs kept; the others are read again.
       this.qbitLatestUtxoReads.clear()
+      // Nor do their send plans go on: each ends as a cancel ends it, and
+      // nothing more is signed or broadcast for an account no wallet that
+      // stays signs for.
+      // One whose payment may already be in the network cannot be un-sent;
+      // its record and holds go all the same.
+      const { mayHaveBeenSent } = await this.qbitSendPlans.endPlansOf(sendPlanAccounts)
+      if (mayHaveBeenSent.length > 0) {
+        log.warn(
+          `[WalletController] ${mayHaveBeenSent.length} send plan(s) of the removed wallet may have paid already`
+        )
+      }
       return await this.keepOrSelectCurrentAfterRemoval(target, canStay)
     } finally {
+      releaseNetworks?.()
       this.removalUnderWay = undefined
       settle()
     }
@@ -5437,7 +5686,8 @@ export class WalletController extends BaseController {
     } catch (error) {
       // A change the keyring service cannot roll back locks the wallet on
       // its own, without `lockWallet`: it keeps no account's outputs then
-      // either, and the pages and the UI are told it locked.
+      // either, and the pages and the UI are told it locked. The send plans
+      // heard of it from the keyring's lock event (`listenForKeyringLocks`).
       if (!this.isUnlocked()) {
         this.qbitLatestUtxoReads.clear()
         this.announceLock()
@@ -5912,7 +6162,18 @@ export class WalletController extends BaseController {
     if (claim) {
       return qbitSendGuardService.runWithBroadcastClaim(claim, signWithClaim(claim), uiPort)
     }
-    return this.runWithNoQbitInputConflict(chain, qbitPsbtOutpoints(psbt), sign, qbitPsbtTxid(psbt))
+    // A dapp's signing request hands it bytes it may broadcast at any time:
+    // the guard records the signing with its inputs in the same step as its
+    // overlap check, so no send plan takes them in between.
+    const operation = toSignData.providerContext
+      ? Object.assign(async () => sign(), { [QBIT_PROVIDER_SIGNING]: true as const })
+      : sign
+    return this.runWithNoQbitInputConflict(
+      chain,
+      qbitPsbtOutpoints(psbt),
+      operation,
+      qbitPsbtTxid(psbt)
+    )
   }
 
   signMessage = async (params: ToSignMessage): Promise<SignedMessage> => {
@@ -6903,6 +7164,10 @@ export class WalletController extends BaseController {
     // are answered. The explorer, below, catches a spend made elsewhere.
     await this.settleQbitRecentSpends(chain, account.address)
     const dependentSpend = await qbitSendGuardService.hasDependentSpend(chain, originalTxid)
+    // The replacement spends the original's inputs again, and the guard
+    // refuses its claim while a send plan holds one of them (see below);
+    // asked here, before the deadline starts, as the question above is.
+    const planHeld = await qbitSendGuardService.getPlanHeldOutpointKeys(chain)
     operation.start()
 
     const client = this.getQbitApiClient(chain)
@@ -7064,6 +7329,14 @@ export class WalletController extends BaseController {
     if (dependentSpend) {
       return { eligible: false, reason: 'has_descendants' }
     }
+    // A send plan holds an input of the original: a completed plan holds
+    // its payment's until the payment confirms or the plan is dismissed, so
+    // that nothing outside the plan spends them while the payment it names
+    // is unconfirmed, a replacement included. The guard refuses the bump's
+    // claim for it, so it is not offered; once the plan lets go, it is.
+    if ([...seenOutpoints].some(key => planHeld.has(key))) {
+      return { eligible: false, reason: 'held_by_send_plan' }
+    }
     let spenders: (string | undefined)[]
     try {
       spenders = await getQbitTxSpenders(
@@ -7157,12 +7430,10 @@ export class WalletController extends BaseController {
     const feeDelta = replacementFee - originalFee
     const replacementFeeRate = replacementFee / replacementVsize
     if (
-      !Number.isSafeInteger(replacementFee) ||
-      replacementFee > qbitMaximumTotalFee(replacementVsize) ||
-      // 1 bit per vbyte, four times the node's incremental relay fee: see targetFeeRate.
-      feeDelta < replacementVsize ||
-      replacementFee <= originalFee ||
-      replacementFeeRate <= originalFeeRate
+      !qbitReplacementFeeAllowed(
+        { fee: originalFee, vsize: raw.size },
+        { fee: replacementFee, vsize: replacementVsize }
+      )
     ) {
       return { eligible: false, reason: 'insufficient_change' }
     }
@@ -8693,7 +8964,12 @@ export class WalletController extends BaseController {
     expectedTxid?: string | null,
     uiPort?: QbitSendClaimOwner,
     providerPush = false,
-    retryOfUnknownOutcome = false
+    retryOfUnknownOutcome = false,
+    // A send plan's step goes out under the plan's hold, the authority to
+    // spend what the plan holds (see `QbitSendGuardService.broadcastIfAllowed`),
+    // and a step replacing an earlier version of itself names that version.
+    planHold?: QbitSendPlanHold,
+    planReplacement?: QbitSendPlanReplacement
   ): Promise<QbitBroadcastResult> => {
     const chain = this.getChainType()
     // Every refusal below happens before dispatch, so nothing was sent and
@@ -8874,7 +9150,17 @@ export class WalletController extends BaseController {
       deadlineRefused = false
       checkFailureReason = undefined
       try {
-        if (claim) {
+        if (planHold) {
+          await qbitSendGuardService.broadcastIfAllowed(
+            chain,
+            txid,
+            outpoints,
+            broadcast,
+            claim,
+            planHold,
+            planReplacement
+          )
+        } else if (claim) {
           await qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, broadcast, claim)
         } else {
           await qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, broadcast)
@@ -9318,6 +9604,172 @@ export class WalletController extends BaseController {
     if (input.detail !== undefined) failure.detail = input.detail
     return failure
   }
+
+  /* send plans (#188) */
+
+  /**
+   * Price a send plan for the selected account on the active network: the
+   * merges that combine its outputs, then the one payment to `to`. Keeps it
+   * as a draft for `startQbitSendPlan`; a draft reserves nothing. Expected
+   * refusals are results, not errors.
+   */
+  prepareQbitSendPlan = (params: QbitSendPlanPrepareParams): Promise<QbitSendPlanPrepareResult> =>
+    this.qbitSendPlans.prepare(params)
+
+  /** Start the reviewed plan: hold its outputs, store it and start signing. */
+  startQbitSendPlan = (draftId: string): Promise<QbitSendPlanStartResult> =>
+    this.qbitSendPlans.start(draftId)
+
+  /** The selected account's plan on the active network, if any; also advances it. */
+  getQbitSendPlan = (): Promise<QbitSendPlanView | null> => this.qbitSendPlans.view()
+
+  /** Re-authorise the plan's signing for this session and carry it on. */
+  continueQbitSendPlan = (planId: string): Promise<QbitSendPlanView> =>
+    this.qbitSendPlans.continue(planId)
+
+  /** Cancel the plan; null once nothing is left of it. */
+  cancelQbitSendPlan = (planId: string): Promise<QbitSendPlanView | null> =>
+    this.qbitSendPlans.cancel(planId)
+
+  /** Remove a completed plan. */
+  dismissQbitSendPlan = (planId: string): Promise<void> => this.qbitSendPlans.dismiss(planId)
+
+  /**
+   * Hold again what the stored send plans held, once the plan store has
+   * loaded at start-up and before anything can spend.
+   */
+  restoreQbitSendPlans = (): Promise<void> => this.qbitSendPlans.restore()
+
+  /** Start advancing the stored send plans, once start-up is over. */
+  startQbitSendPlanEngine = (): void => {
+    this.listenForKeyringLocks()
+    this.qbitSendPlans.startAdvancing()
+  }
+
+  /**
+   * Every lock reaches the send plans once: their drafts go, and a signing
+   * stops before its next signature (`QbitSendPlanEngine.onLock`). Every
+   * lock but a wallet reset, which halts the plans itself, goes through the
+   * keyring service's `setLocked`, which emits `lock`: the lock button, the
+   * auto-lock and a computer lock or the last window closing through
+   * `lockWallet`, and the keyring's own lock after an address-type change it
+   * cannot roll back, or any other, without it. `lockWallet` tells the plans
+   * first, before it waits for the keyring, and the event tells them of
+   * every other lock; so a new way to lock reaches them without a call of
+   * its own.
+   */
+  private listenForKeyringLocks = (): void => {
+    if (this.keyringLocksHeard) return
+    this.keyringLocksHeard = true
+    keyringService.on('lock', () => {
+      if (this.qbitSendPlanLocksTold === 0) this.qbitSendPlans.onLock()
+    })
+  }
+
+  /**
+   * Hold an auto-lock that falls due while a send plan signs, as a page's
+   * signing holds it (see `beginLocalSigning`), for the plan's whole signing
+   * and for no page: closing the popup does not stop it. Its ceiling past
+   * the deadline is AUTO_LOCK_SIGNING_GRACE_MS plus twice the time the
+   * plan's remaining signatures are expected to take
+   * (`estimateQbitSendPlanSigningSeconds`), so a slow machine still
+   * finishes and a stalled one locks in the end. The lock button, the
+   * computer locking and the last window closing lock at once all the same.
+   * Returns the function that ends the hold.
+   */
+  private holdAutoLockForQbitSendPlan = (estimatedSigningMs: number): (() => void) => {
+    const signing: LocalSigning = {
+      page: undefined,
+      stop: new AbortController(),
+      locksBefore: this.lockRequests,
+      planGraceMs: AUTO_LOCK_SIGNING_GRACE_MS + 2 * Math.max(0, estimatedSigningMs),
+    }
+    this.localSignings.add(signing)
+    // An auto-lock already held past its deadline, for a page's signing or
+    // the minute after one, is held for the plan's ceiling from now on.
+    if (this.autoLockOverdue() && this.autoLockHeld()) this.holdAutoLockForSigning()
+    let ended = false
+    return () => {
+      if (ended) return
+      ended = true
+      this.endLocalSigning(signing, false)
+    }
+  }
+
+  /** What the send plan engine uses of this controller; see `QbitSendPlanEngineHost`. */
+  private qbitSendPlanHost = (): QbitSendPlanEngineHost => ({
+    activeChain: () => this.getChainType(),
+    currentAccount: () => preferenceService.getCurrentAccount(),
+    isUnlocked: () => this.isUnlocked(),
+    lockCount: () => this.lockRequests,
+    recipientScript: (chain, to): Uint8Array => {
+      const networkType = CHAINS_MAP[chain]?.networkType
+      if (
+        networkType === undefined ||
+        !isValidAddress(to, networkType) ||
+        getAddressType(to, networkType) !== AddressType.P2MR
+      ) {
+        throw new Error('Invalid address.')
+      }
+      return addressToScriptPk(to, networkType)
+    },
+    memoOutputs: (memo, memos): P2mrTransactionOutput[] => qbitMemoOutputs(memo, memos),
+    spendableOutputs: async (chain, account, exceptPlanId): Promise<UnspentOutput[]> => {
+      const outputs = await this.qbitSendInputsOn(chain, account, undefined, undefined, undefined)
+      await this.settleQbitRecentSpends(chain, account.address)
+      // What the plan's own hold would refuse, a dapp's signed inputs
+      // included, not only what an ordinary send treats as reserved.
+      const unavailable = await qbitSendGuardService.getPlanUnavailableOutpointKeys(
+        chain,
+        account.address,
+        exceptPlanId
+      )
+      return outputs.filter(utxo => !unavailable.has(`${utxo.txid.toLowerCase()}:${utxo.vout}`))
+    },
+    txidOf: (psbt, chain) => qbitBroadcastIdentityOf(psbt, chain).txid,
+    lifecycle: async (chain, txid): Promise<'confirmed' | 'pending' | 'gone'> =>
+      (await this.qbitTxLifecycleStatusOn(chain, txid)).state,
+    spenders: async (chain, txid): Promise<(string | undefined)[]> => {
+      const outspends: unknown = await this.getQbitApiClient(chain).getTxOutspends(txid)
+      const count = Array.isArray(outspends) ? outspends.length : 0
+      if (count === 0) throw new Error('invalid qbit outspends')
+      return qbitTxSpendersFromOutspends(outspends, txid, count)
+    },
+    transaction: async (
+      chain,
+      txid
+    ): Promise<{ outputs: { script: string; value: number }[]; fee: number }> => {
+      const transaction = await this.getQbitApiClient(chain).getTx(txid)
+      if (transaction.txid.toLowerCase() !== txid) throw new Error('invalid qbit transaction')
+      return {
+        outputs: transaction.vout.map(output => ({
+          script: output.scriptpubkey.toLowerCase(),
+          value: output.value,
+        })),
+        fee: transaction.fee,
+      }
+    },
+    broadcast: ({ chain, rawtx, txid, hold, replaces }) =>
+      this.attemptQbitBroadcast(
+        rawtx,
+        undefined,
+        chain,
+        txid,
+        undefined,
+        false,
+        false,
+        hold,
+        replaces
+      ),
+    holdAutoLock: estimatedSigningMs => this.holdAutoLockForQbitSendPlan(estimatedSigningMs),
+    announce: (planId, revision): void => {
+      bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+        method: BUS_METHODS.QBIT_SEND_PLAN_CHANGED,
+        params: { planId, revision },
+      })
+    },
+    afterSigning: address => this.refreshDisplayedQbitAccountAfterSigning(address),
+  })
 
   getAccounts = async () => {
     const keyrings = await this.getKeyrings()
@@ -10556,6 +11008,18 @@ export class WalletController extends BaseController {
    */
   private autoLockHoldTimer: ReturnType<typeof setTimeout> | undefined
   private autoLockHoldExpired = false
+  /** When `autoLockHoldTimer` runs out, by the wall clock when it was armed. */
+  private autoLockHoldExpiresAt: number | undefined
+
+  /**
+   * The timer of the ordinary signing's limit, AUTO_LOCK_SIGNING_GRACE_MS
+   * past the deadline, armed with the hold and never moved by a send plan's
+   * ceiling, and whether it ran out: from then on only a plan's signing
+   * holds the auto-lock, and once none does what is left locks, whatever
+   * the wall clock did. See `holdAutoLockForSigning` and `endLocalSigning`.
+   */
+  private autoLockGraceTimer: ReturnType<typeof setTimeout> | undefined
+  private autoLockGraceExpired = false
 
   /**
    * Marks the deadline passed (`autoLockHeldPastDeadline`) when it comes while
@@ -10626,7 +11090,20 @@ export class WalletController extends BaseController {
     ) {
       this.autoLockHoldPages.set(signing.page, now + AUTO_LOCK_SIGNING_HANDOFF_MS)
     }
-    if (this.signingsHoldingAutoLock() > 0) return
+    if (this.signingsHoldingAutoLock() > 0) {
+      // A send plan's ceiling held an overdue auto-lock; what still holds it
+      // is held as its own signings are, an ordinary one no longer than
+      // AUTO_LOCK_SIGNING_GRACE_MS past the deadline.
+      if (
+        signing.planGraceMs !== undefined &&
+        this.autoLockHoldEndsAt !== undefined &&
+        this.autoLockOverdue() &&
+        !this.holdAutoLockForSigning()
+      ) {
+        this.autoLockNow()
+      }
+      return
+    }
     // Bookkeeping only: it must never turn the signing's own outcome into a
     // failure. If it fails, the auto-lock timer armed before stays.
     try {
@@ -10636,9 +11113,10 @@ export class WalletController extends BaseController {
     }
   }
 
-  /** Whether `signing` holds the auto-lock: its page still waits for it. */
+  /** Whether `signing` holds the auto-lock: its page still waits for it, or it is a send plan's. */
   private signingHoldsAutoLock = (signing: LocalSigning): boolean =>
-    signing.page !== undefined && !signing.stop.signal.aborted
+    (signing.page !== undefined || signing.planGraceMs !== undefined) &&
+    !signing.stop.signal.aborted
 
   private signingsHoldingAutoLock = (): number =>
     [...this.localSignings].filter(this.signingHoldsAutoLock).length
@@ -10713,11 +11191,53 @@ export class WalletController extends BaseController {
 
   private armAutoLockHoldExpiry = (ms: number): void => {
     if (this.autoLockHoldTimer !== undefined) return
+    this.autoLockHoldExpiresAt = this.now() + ms
     this.autoLockHoldTimer = setTimeout(() => {
       this.autoLockHoldTimer = undefined
+      this.autoLockHoldExpiresAt = undefined
       this.autoLockHoldExpired = true
       this.autoLockNow()
     }, ms)
+  }
+
+  /**
+   * Arm the timer of the ordinary signing's limit, `ms` from now, unless one
+   * is armed already (see `autoLockGraceTimer`); at once when that is not
+   * ahead. When it runs out with no send plan's signing holding, the
+   * auto-lock locks.
+   */
+  private armAutoLockGraceExpiry = (ms: number): void => {
+    if (this.autoLockGraceTimer !== undefined || this.autoLockGraceExpired) return
+    if (ms <= 0) {
+      this.autoLockGraceExpired = true
+      return
+    }
+    this.autoLockGraceTimer = setTimeout(() => {
+      this.autoLockGraceTimer = undefined
+      this.autoLockGraceExpired = true
+      if (!this.planSigningHoldsAutoLock()) this.autoLockNow()
+    }, ms)
+  }
+
+  /** Whether a send plan's signing holds the auto-lock. */
+  private planSigningHoldsAutoLock = (): boolean =>
+    [...this.localSignings].some(
+      signing => signing.planGraceMs !== undefined && this.signingHoldsAutoLock(signing)
+    )
+
+  /**
+   * Move the end of the hold, armed already, to `ms` from now when that is
+   * later. Only a send plan's ceiling does, once for each of its signings
+   * (see `holdAutoLockForSigning`).
+   */
+  private extendAutoLockHoldExpiry = (ms: number): void => {
+    if (this.autoLockHoldTimer === undefined) return
+    if (this.autoLockHoldExpiresAt !== undefined && this.now() + ms <= this.autoLockHoldExpiresAt) {
+      return
+    }
+    clearTimeout(this.autoLockHoldTimer)
+    this.autoLockHoldTimer = undefined
+    this.armAutoLockHoldExpiry(ms)
   }
 
   /** Run the auto-lock now, logging rather than throwing a failure. */
@@ -10732,7 +11252,11 @@ export class WalletController extends BaseController {
     this.autoLockHeldPastDeadline = false
     clearTimeout(this.autoLockHoldTimer)
     this.autoLockHoldTimer = undefined
+    this.autoLockHoldExpiresAt = undefined
     this.autoLockHoldExpired = false
+    clearTimeout(this.autoLockGraceTimer)
+    this.autoLockGraceTimer = undefined
+    this.autoLockGraceExpired = false
     clearTimeout(this.autoLockDeadlineTimer)
     this.autoLockDeadlineTimer = undefined
     this.autoLockHoldPages.clear()
@@ -10764,15 +11288,39 @@ export class WalletController extends BaseController {
     if (dueAt === undefined || this.signingsHoldingAutoLock() === 0) return false
     // The hold lasts until AUTO_LOCK_SIGNING_GRACE_MS past the deadline by
     // the wall clock, and ends for good when the timer its first start armed
-    // runs out, so moving the clock back cannot stretch it.
+    // runs out, so moving the clock back cannot stretch it. A send plan's
+    // signing holds it for the plan's own ceiling instead, when that is longer.
     if (this.autoLockHoldExpired) return false
     const now = this.now()
-    const remaining = Math.min(dueAt + AUTO_LOCK_SIGNING_GRACE_MS - now, AUTO_LOCK_SIGNING_GRACE_MS)
+    const holding = [...this.localSignings].filter(this.signingHoldsAutoLock)
+    // The ordinary limit, by a timer armed with the hold: once it ran out,
+    // only a plan's signing holds.
+    this.armAutoLockGraceExpiry(
+      Math.min(dueAt + AUTO_LOCK_SIGNING_GRACE_MS - now, AUTO_LOCK_SIGNING_GRACE_MS)
+    )
+    const planHolds = holding.some(signing => signing.planGraceMs !== undefined)
+    if (this.autoLockGraceExpired && !planHolds) return false
+    const grace = Math.max(
+      AUTO_LOCK_SIGNING_GRACE_MS,
+      ...holding.map(signing => signing.planGraceMs ?? AUTO_LOCK_SIGNING_GRACE_MS)
+    )
+    const remaining = Math.min(dueAt + grace - now, grace)
     if (remaining <= 0) return false
     this.autoLockHoldEndsAt = now + remaining
     this.autoLockHeldPastDeadline = true
     this.armAutoLockTimer(remaining)
     this.armAutoLockHoldExpiry(remaining)
+    // An end armed earlier, for an ordinary signing, a page's minute or a
+    // screen action in it, comes no sooner than a plan's ceiling while the
+    // plan signs: the later of the two, never past the ceiling. Each plan
+    // signing moves it once, so moving the clock back cannot stretch it.
+    const plans = holding.filter(
+      signing => signing.planGraceMs !== undefined && signing.planCeilingApplied !== true
+    )
+    if (plans.length > 0) {
+      for (const signing of plans) signing.planCeilingApplied = true
+      this.extendAutoLockHoldExpiry(remaining)
+    }
     return true
   }
 

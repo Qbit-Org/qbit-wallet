@@ -293,7 +293,7 @@ interface QbitPqcSignatureBatch {
   evictable: boolean
 }
 
-const QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS = 5 * 60 * 1000
+export const QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS = 5 * 60 * 1000
 const QBIT_RESTORED_FLOOR_CHALLENGE_CAPACITY = 128
 // A website request's batch is dropped when the request settles, a
 // migration's when its review ends, and a local batch only by a lock. Past

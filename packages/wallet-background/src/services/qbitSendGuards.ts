@@ -59,6 +59,170 @@ export type QbitSendClaimOwner = string
 export type QbitProviderSendRequest = string
 
 /**
+ * Marks an operation handed to `QbitSendGuardService.runWithNoOverlap` as
+ * the signing of transaction `txid` for a dapp (provider signPsbt and
+ * signPsbts), whose signed bytes the dapp may broadcast at any time. The
+ * guard records that signing with its inputs (see `recordProviderSigning`)
+ * in the same step as the overlap check, before the operation makes a
+ * signature, so a send plan can never hold the inputs in between: either
+ * the plan holds them first and the signing is refused, or the record is
+ * there first and the plan's hold is refused. An operation that fails
+ * handed the dapp nothing, and the record goes back to what it was.
+ */
+export const QBIT_PROVIDER_SIGNING: unique symbol = Symbol('qbitProviderSigning')
+
+/** An operation `runWithNoOverlap` may run, marked or not with `QBIT_PROVIDER_SIGNING`. */
+export type QbitNoOverlapOperation<T> = (() => Promise<T>) & {
+  [QBIT_PROVIDER_SIGNING]?: true
+}
+
+/**
+ * What one send plan holds: outpoints of one account on one network, owned
+ * by the plan's id. They are the plan's inputs and the outputs its merges
+ * will create, which need not exist yet. See
+ * `QbitSendGuardService.holdOutpointsForPlan`.
+ */
+export interface QbitSendPlanOutpoints {
+  /** The plan's id: 32 lower-case hex characters. */
+  planId: string
+  chain: ChainType
+  address: string
+  outpoints: readonly QbitOutpoint[]
+}
+
+/**
+ * The authority to spend what one send plan holds. The guard mints one when
+ * it takes or restores a plan's hold, and admits a spend of held outpoints
+ * only for that very object while the hold lasts. Nothing that crossed a UI
+ * or provider port is that object, and neither is one built elsewhere for
+ * the same plan id, so a hold is lifted neither by leaving it out nor by a
+ * string a page supplies.
+ */
+export class QbitSendPlanHold {
+  /** Never set: it only makes the type nominal, so a look-alike object is no hold. */
+  declare private readonly nominal: never
+
+  constructor(readonly planId: string) {
+    Object.freeze(this)
+  }
+}
+
+/**
+ * A step of a send plan that replaces an earlier version of itself still in
+ * the network (a merge whose fee the plan raised): the transaction it
+ * replaces, and how many outputs that one has. The guard admits it only
+ * under the plan's own hold, and only when that plan holds every output of
+ * the transaction it replaces: a plan replaces nothing but its own merge,
+ * and nothing replaces a plan's merge but its plan.
+ */
+export interface QbitSendPlanReplacement {
+  /** The txid of the version being replaced. */
+  replaces: string
+  outputCount: number
+}
+
+/** `value` as a plan replacement, or nothing when it is not one. */
+function normalizePlanReplacement(value: unknown): QbitSendPlanReplacement | undefined {
+  if (!value || typeof value !== 'object') return
+  const { replaces, outputCount } = value as Partial<QbitSendPlanReplacement>
+  if (
+    !isTxid(replaces) ||
+    typeof outputCount !== 'number' ||
+    !Number.isSafeInteger(outputCount) ||
+    outputCount < 1
+  ) {
+    return
+  }
+  return { replaces, outputCount }
+}
+
+/** What a send plan's hold met on one of its outpoints; see `QbitSendPlanHoldConflictError`. */
+export type QbitSendPlanHoldConflictKind =
+  | 'broadcast_claim'
+  | 'external_signing_lock'
+  | 'recent_spend'
+  | 'provider_send_request'
+  | 'provider_signing'
+  | 'plan_hold'
+
+export interface QbitSendPlanHoldConflict {
+  /** `txid:vout`. */
+  outpoint: string
+  kind: QbitSendPlanHoldConflictKind
+  /** With `plan_hold`: the other plan holding the outpoint. */
+  planId?: string
+  /**
+   * With `recent_spend`: the transaction a broadcast recorded as spending
+   * the outpoint, which may be one of the plan's own (see
+   * `restorePlanHolds`).
+   */
+  spender?: string
+}
+
+/**
+ * Thrown when a plan's hold cannot be taken or replaced because something
+ * else holds one of its outpoints. The call changed nothing: a plan that
+ * held nothing still holds nothing, and one that held outpoints keeps
+ * exactly those.
+ */
+export class QbitSendPlanHoldConflictError extends Error {
+  constructor(
+    readonly planId: string,
+    readonly conflicts: readonly QbitSendPlanHoldConflict[]
+  ) {
+    super('Qbit send plan outputs are held by another send')
+    this.name = 'QbitSendPlanHoldConflictError'
+  }
+}
+
+/**
+ * Why a guard entry point refused a spend over outpoints a send plan holds:
+ * `held`, a plan the caller did not present holds one of them; `not_held`,
+ * the plan the caller presented does not hold every one of them;
+ * `inactive`, the presented hold is not one this guard holds now (it was
+ * released, or never minted here).
+ */
+export type QbitSendPlanHeldReason = 'held' | 'not_held' | 'inactive'
+
+const QBIT_SEND_PLAN_HELD_MESSAGES: Record<QbitSendPlanHeldReason, string> = {
+  held: 'Qbit transaction spends an input held by an open send plan',
+  not_held: 'Qbit transaction spends an input its send plan does not hold',
+  inactive: 'Qbit send plan hold is not active',
+}
+
+/**
+ * The code a `QbitSendPlanHeldError` carries: errors cross a UI port as
+ * plain objects that keep a `code`, never their class.
+ */
+export const QBIT_SEND_PLAN_HELD_CODE = 'QBIT_SEND_PLAN_HELD'
+
+/** A spend refused over outpoints a send plan holds; see `QbitSendPlanHeldReason`. */
+export class QbitSendPlanHeldError extends Error {
+  readonly code = QBIT_SEND_PLAN_HELD_CODE
+
+  constructor(readonly reason: QbitSendPlanHeldReason) {
+    super(QBIT_SEND_PLAN_HELD_MESSAGES[reason])
+    this.name = 'QbitSendPlanHeldError'
+  }
+}
+
+/** What `QbitSendGuardService.restorePlanHolds` did with the records it was handed. */
+export interface QbitSendPlanHoldRestoration {
+  /** The hold of every plan restored, conflicting ones included, by plan id. */
+  holds: Map<string, QbitSendPlanHold>
+  /**
+   * The restored plans whose outpoints something else holds too, and what.
+   * Such a plan is held in full all the same, so no outpoint of it becomes
+   * spendable, and the shared outpoints stay unspendable, for it and for the
+   * other holder alike, until one of them lets go. A conflict between two
+   * plans is listed under each of them.
+   */
+  conflicts: { planId: string; conflicts: QbitSendPlanHoldConflict[] }[]
+  /** The records not restored, being malformed, by position in the input. */
+  invalid: { index: number; planId?: string }[]
+}
+
+/**
  * What a broadcast attempt concluded about a claim's transaction, as far as
  * the claim's fate is concerned. `accepted` means the guard already consumed
  * the claim. `proven_absent` is a dispatched broadcast the node rejected
@@ -395,6 +559,57 @@ function assertValidOutpoints(outpoints: readonly QbitOutpoint[]): void {
   }
 }
 
+/** A send plan's id, as its stored record names it. */
+const QBIT_SEND_PLAN_ID = /^[0-9a-f]{32}$/
+
+/** One plan's hold, keyed in `QbitSendGuardService.planHolds` by the plan's id. */
+interface QbitPlanHoldRecord {
+  /** The authority minted for it; only this object lifts the hold. */
+  hold: QbitSendPlanHold
+  chain: ChainType
+  address: string
+  /** Outpoint keys (`txid:vout`). */
+  outpoints: Set<string>
+}
+
+/** A transaction the user approved signing for a dapp; see `QbitSendGuardService.providerSignings`. */
+interface QbitProviderSigning {
+  chain: ChainType
+  /** Outpoint keys of its inputs, when the caller recorded them. */
+  outpoints: readonly string[] | undefined
+}
+
+/**
+ * `value` copied as a plan's hold, or nothing when it is not one: a plan id,
+ * a Qbit network, an address and at least one outpoint, none twice.
+ */
+function normalizePlanOutpoints(value: unknown): QbitSendPlanOutpoints | undefined {
+  if (!value || typeof value !== 'object') return
+  const entry = value as Partial<QbitSendPlanOutpoints>
+  if (
+    typeof entry.planId !== 'string' ||
+    !QBIT_SEND_PLAN_ID.test(entry.planId) ||
+    !QBIT_CHAINS.has(entry.chain as ChainType) ||
+    typeof entry.address !== 'string' ||
+    entry.address.length === 0 ||
+    !Array.isArray(entry.outpoints)
+  ) {
+    return
+  }
+  const listed: readonly unknown[] = entry.outpoints
+  const outpoints = listed
+    .map(normalizeOutpoint)
+    .filter((outpoint): outpoint is QbitOutpoint => Boolean(outpoint))
+  if (outpoints.length === 0 || outpoints.length !== listed.length) return
+  if (new Set(outpoints.map(outpointKey)).size !== outpoints.length) return
+  return {
+    planId: entry.planId,
+    chain: entry.chain as ChainType,
+    address: entry.address,
+    outpoints,
+  }
+}
+
 export class QbitSendGuardService {
   private broadcastClaims: QbitSendBroadcastClaim[] = []
   private externalSigningLocks: QbitExternalSigningLock[] = []
@@ -455,10 +670,18 @@ export class QbitSendGuardService {
    * Transactions the user approved signing for a dapp (provider signPsbt and
    * signPsbts), keyed like the claims, oldest first. A dapp's own broadcast
    * of one through the wallet that ends without a verdict keeps its inputs
-   * reserved (see `recordInconclusiveProviderPush`). Memory only, like the
-   * claims, and bounded by `QBIT_PROVIDER_SIGNING_LIMIT`.
+   * reserved (see `recordInconclusiveProviderPush`), and a send plan cannot
+   * hold the inputs recorded for one (see `holdOutpointsForPlan`). Memory
+   * only, like the claims, and bounded by `QBIT_PROVIDER_SIGNING_LIMIT`.
    */
-  private providerSignings = new Set<string>()
+  private providerSignings = new Map<string, QbitProviderSigning>()
+  /**
+   * The open send plans' holds, by plan id (see `holdOutpointsForPlan`).
+   * Memory only, like the claims: the plan store keeps the plans, and the
+   * holds are restored from it when the background starts
+   * (`restorePlanHolds`).
+   */
+  private planHolds = new Map<string, QbitPlanHoldRecord>()
   /**
    * Transactions whose dispatched broadcast ended without a verdict, or
    * whose claim was restored for a retry of an unknown outcome, keyed like
@@ -484,42 +707,301 @@ export class QbitSendGuardService {
     this.providerClaimRequests.clear()
     this.providerSignings.clear()
     this.unknownBroadcasts.clear()
+    this.planHolds.clear()
   }
 
   /**
    * Every input of `address` on `chain` that a send must not select: the
-   * ones held by a claim or an external signing lock, and the ones a recent
-   * broadcast spent (including claim-less ones, whose account is unknown).
+   * ones held by a claim, an external signing lock or a send plan, and the
+   * ones a recent broadcast spent (including claim-less ones, whose account
+   * is unknown). With `exceptPlanId`, what that plan holds is left out, and
+   * only that: a replan reads which of its plan's own outputs it may spend
+   * again, and everything else still reserves them. It is a read, so a plan
+   * id grants nothing here.
    */
-  getReservedOutpointKeys(chain: ChainType, address: string): Promise<Set<string>> {
+  getReservedOutpointKeys(
+    chain: ChainType,
+    address: string,
+    exceptPlanId?: string
+  ): Promise<Set<string>> {
+    return this.enqueue(async () => this.reservedOutpointKeysNow(chain, address, exceptPlanId))
+  }
+
+  /**
+   * Every outpoint a send plan of `address` on `chain` must not spend:
+   * what `getReservedOutpointKeys` lists for the account, and every
+   * outpoint a hold of that plan would be refused on (see
+   * `holdOutpointsForPlan`), an input of a transaction the user signed for
+   * a dapp and an open provider send request's included, on any account of
+   * the network. A plan prepared from what is left is never refused its own
+   * hold, as a plan prepared over a dapp's signed bytes, which the signing's
+   * record keeps from it with no expiry, would be at every start. With
+   * `exceptPlanId`, what that plan holds is left out, and only that, as for
+   * `getReservedOutpointKeys`. It is a read, so a plan id grants nothing
+   * here.
+   */
+  getPlanUnavailableOutpointKeys(
+    chain: ChainType,
+    address: string,
+    exceptPlanId?: string
+  ): Promise<Set<string>> {
     return this.enqueue(async () => {
-      this.pruneRecentSpendsNow(Date.now())
-      const claims = this.broadcastClaims.filter(
-        claim => claim.chain === chain && claim.address === address
+      const keys = this.reservedOutpointKeysNow(chain, address, exceptPlanId)
+      const blockers = this.planHoldBlockersNow(chain, exceptPlanId)
+      for (const held of [
+        blockers.claimed,
+        blockers.locked,
+        blockers.spent,
+        blockers.requested,
+        blockers.signed,
+        ...blockers.plans.values(),
+      ]) {
+        for (const key of held) keys.add(key)
+      }
+      return keys
+    })
+  }
+
+  /** `getReservedOutpointKeys` in the queue. */
+  private reservedOutpointKeysNow(
+    chain: ChainType,
+    address: string,
+    exceptPlanId: string | undefined
+  ): Set<string> {
+    this.pruneRecentSpendsNow(Date.now())
+    const claims = this.broadcastClaims.filter(
+      claim => claim.chain === chain && claim.address === address
+    )
+    const externalLocks = this.externalSigningLocks.filter(
+      lock => lock.chain === chain && lock.address === address
+    )
+    const recentSpends = [...this.recentSpends.values()].filter(
+      spend => spend.chain === chain && (spend.address === undefined || spend.address === address)
+    )
+    const planHolds = [...this.planHolds]
+      .filter(
+        ([planId, hold]) =>
+          planId !== exceptPlanId && hold.chain === chain && hold.address === address
       )
-      const externalLocks = this.externalSigningLocks.filter(
-        lock => lock.chain === chain && lock.address === address
-      )
-      const recentSpends = [...this.recentSpends.values()].filter(
-        spend => spend.chain === chain && (spend.address === undefined || spend.address === address)
-      )
-      return new Set([
-        ...claims.flatMap(item => item.outpoints.map(outpointKey)),
-        ...externalLocks.flatMap(lock =>
-          lock.entries.flatMap(entry => entry.outpoints.map(outpointKey))
-        ),
-        ...recentSpends.map(spend => spend.outpoint),
-      ])
+      .map(([, hold]) => hold)
+    return new Set([
+      ...claims.flatMap(item => item.outpoints.map(outpointKey)),
+      ...externalLocks.flatMap(lock =>
+        lock.entries.flatMap(entry => entry.outpoints.map(outpointKey))
+      ),
+      ...recentSpends.map(spend => spend.outpoint),
+      ...planHolds.flatMap(hold => [...hold.outpoints]),
+    ])
+  }
+
+  /**
+   * Take a hold on `outpoints` of `address` on `chain` for send plan
+   * `planId`: the plan's inputs and the outputs its merges will create. While
+   * the hold lasts, every entry point that admits a spend refuses one over a
+   * held outpoint unless the caller presents the returned hold (see
+   * `QbitSendPlanHold`); `getReservedOutpointKeys` lists them, and
+   * `hasDependentSpend` counts them.
+   *
+   * All or nothing: the hold is refused with a
+   * `QbitSendPlanHoldConflictError`, and nothing is held, when any outpoint
+   * is held by a broadcast claim, an external signing lock, an open provider
+   * send request or another plan, was spent by a recent broadcast, or is an
+   * input of a transaction the user signed for a dapp (as far as
+   * `recordProviderSigning` was told its inputs). Taking the same hold again
+   * (same plan, account and outpoints) changes nothing and returns the hold
+   * already minted; a plan that holds anything else changes what it holds
+   * with `replacePlanOutpoints`.
+   */
+  holdOutpointsForPlan(entry: QbitSendPlanOutpoints): Promise<QbitSendPlanHold> {
+    const normalized = normalizePlanOutpoints(entry)
+    if (!normalized) return Promise.reject(new Error('invalid Qbit send plan hold'))
+    return this.enqueue(async () => {
+      const { planId, chain, address } = normalized
+      const keys = normalized.outpoints.map(outpointKey)
+      const current = this.planHolds.get(planId)
+      if (current) {
+        if (
+          current.chain === chain &&
+          current.address === address &&
+          current.outpoints.size === keys.length &&
+          keys.every(key => current.outpoints.has(key))
+        ) {
+          return current.hold
+        }
+        throw new Error('Qbit send plan already holds other outputs')
+      }
+      const conflicts = this.planHoldConflictsNow(chain, keys, planId)
+      if (conflicts.length > 0) throw new QbitSendPlanHoldConflictError(planId, conflicts)
+      const hold = new QbitSendPlanHold(planId)
+      this.planHolds.set(planId, { hold, chain, address, outpoints: new Set(keys) })
+      return hold
     })
   }
 
   /**
-   * Whether a claim, an external signing lock or a recent broadcast on
-   * `chain`, under any account, spends an output of `txid`. Replacing `txid`
-   * would evict that later transaction.
+   * Swap what plan `planId` holds for `outpoints`, in one step: a revised
+   * plan (a replaced merge, a re-priced payment) holds its new outpoints from
+   * the moment it lets go of the old ones. An outpoint the plan holds already
+   * passes as it is; every other one is refused exactly as
+   * `holdOutpointsForPlan` refuses it, and on refusal the plan keeps what it
+   * held. The account is the one the hold was taken for, and the plan keeps
+   * the same `QbitSendPlanHold`. A plan holding nothing has nothing to
+   * replace (`QbitSendPlanHeldError`, `inactive`).
+   */
+  replacePlanOutpoints(entry: QbitSendPlanOutpoints): Promise<QbitSendPlanHold> {
+    const normalized = normalizePlanOutpoints(entry)
+    if (!normalized) return Promise.reject(new Error('invalid Qbit send plan hold'))
+    return this.enqueue(async () => {
+      const { planId, chain, address } = normalized
+      const current = this.planHolds.get(planId)
+      if (!current) throw new QbitSendPlanHeldError('inactive')
+      if (current.chain !== chain || current.address !== address) {
+        throw new Error('Qbit send plan holds outputs of another account')
+      }
+      const keys = normalized.outpoints.map(outpointKey)
+      const conflicts = this.planHoldConflictsNow(
+        chain,
+        keys.filter(key => !current.outpoints.has(key)),
+        planId
+      )
+      if (conflicts.length > 0) throw new QbitSendPlanHoldConflictError(planId, conflicts)
+      current.outpoints = new Set(keys)
+      return current.hold
+    })
+  }
+
+  /**
+   * Let go of what plan `planId` holds: everything, or only `outpoints` (a
+   * cancelled plan lets go of what is safe at once and keeps the inputs of a
+   * merge whose broadcast outcome is unknown until that resolves). A plan
+   * left holding nothing has no hold any more, and its `QbitSendPlanHold`
+   * lifts nothing. Outpoints the plan does not hold, and a plan id that
+   * holds nothing, are ignored. Resolves to whether anything was let go of.
+   * Inputs a broadcast spent stay reserved as recently spent all the same.
+   */
+  releasePlanOutpoints(planId: string, outpoints?: readonly QbitOutpoint[]): Promise<boolean> {
+    let keys: string[] | undefined
+    if (outpoints !== undefined) {
+      if (!Array.isArray(outpoints)) return Promise.reject(new Error('invalid Qbit send plan hold'))
+      keys = []
+      for (const value of outpoints as readonly unknown[]) {
+        const outpoint = normalizeOutpoint(value)
+        if (!outpoint) return Promise.reject(new Error('invalid Qbit send plan hold'))
+        keys.push(outpointKey(outpoint))
+      }
+    }
+    return this.enqueue(async () => {
+      const current = this.planHolds.get(planId)
+      if (!current) return false
+      if (!keys) {
+        this.planHolds.delete(planId)
+        return true
+      }
+      let released = false
+      for (const key of keys) {
+        if (current.outpoints.delete(key)) released = true
+      }
+      if (current.outpoints.size === 0) this.planHolds.delete(planId)
+      return released
+    })
+  }
+
+  /**
+   * Hold again what the stored plans held before the background restarted
+   * (see the plan store's holds). Each record is taken as it is: one never
+   * fails because another overlaps it, and nothing is dropped to resolve an
+   * overlap. A plan is held in full even over outpoints something else
+   * holds; each such overlap is reported (see
+   * `QbitSendPlanHoldRestoration.conflicts`), so the caller can pause the
+   * plans concerned. A recent spend names the transaction recorded as its
+   * spender, which may be one of the plan's own: a guard that outlived the
+   * plans' sessions (a reset that failed) still has what their broadcasts
+   * recorded, and the caller tells those apart. A malformed record is reported and left out. A plan
+   * holding outpoints already keeps them and holds the record's as well,
+   * under the hold already minted; one held for another account is
+   * reported as malformed.
+   */
+  restorePlanHolds(
+    entries: readonly QbitSendPlanOutpoints[]
+  ): Promise<QbitSendPlanHoldRestoration> {
+    const listed: readonly unknown[] = Array.isArray(entries) ? entries : []
+    const normalized = listed.map(normalizePlanOutpoints)
+    return this.enqueue(async () => {
+      const holds = new Map<string, QbitSendPlanHold>()
+      const conflicts = new Map<string, QbitSendPlanHoldConflict[]>()
+      const invalid: QbitSendPlanHoldRestoration['invalid'] = []
+      const report = (planId: string, conflict: QbitSendPlanHoldConflict): void => {
+        const list = conflicts.get(planId)
+        if (list) list.push(conflict)
+        else conflicts.set(planId, [conflict])
+      }
+      normalized.forEach((entry, index) => {
+        const current = entry ? this.planHolds.get(entry.planId) : undefined
+        if (
+          !entry ||
+          (current && (current.chain !== entry.chain || current.address !== entry.address))
+        ) {
+          const planId = (listed[index] as Partial<QbitSendPlanOutpoints> | undefined)?.planId
+          invalid.push(typeof planId === 'string' ? { index, planId } : { index })
+          return
+        }
+        const keys = entry.outpoints.map(outpointKey)
+        const added = current ? keys.filter(key => !current.outpoints.has(key)) : keys
+        for (const conflict of this.planHoldConflictsNow(entry.chain, added, entry.planId)) {
+          report(entry.planId, conflict)
+          if (conflict.kind === 'plan_hold' && conflict.planId !== undefined) {
+            report(conflict.planId, {
+              outpoint: conflict.outpoint,
+              kind: 'plan_hold',
+              planId: entry.planId,
+            })
+          }
+        }
+        if (current) {
+          for (const key of added) current.outpoints.add(key)
+          holds.set(entry.planId, current.hold)
+          return
+        }
+        const hold = new QbitSendPlanHold(entry.planId)
+        this.planHolds.set(entry.planId, {
+          hold,
+          chain: entry.chain,
+          address: entry.address,
+          outpoints: new Set(keys),
+        })
+        holds.set(entry.planId, hold)
+      })
+      return {
+        holds,
+        conflicts: [...conflicts].map(([planId, list]) => ({ planId, conflicts: list })),
+        invalid,
+      }
+    })
+  }
+
+  /**
+   * Whether a claim, an external signing lock, a send plan's hold or a
+   * recent broadcast on `chain`, under any account, spends (or will spend)
+   * an output of `txid`. Replacing `txid` would evict that later
+   * transaction; a plan holding an output of its merge spends it with its
+   * payment.
    */
   hasDependentSpend(chain: ChainType, txid: string): Promise<boolean> {
     return this.enqueue(async () => this.hasDependentSpendNow(chain, txid.toLowerCase()))
+  }
+
+  /**
+   * The outpoints send plans hold on `chain`, under any account, as
+   * `txid:vout` keys: a spend of one is refused unless it presents that
+   * plan's hold (`assertPlanHoldsAllowNow`), whatever it is. A fee bump
+   * presents none: its claim over the inputs of the transaction it
+   * replaces is refused while a plan holds one of them, as a completed
+   * plan holds its payment's until the payment confirms or the plan is
+   * dismissed. A fee bump's assessment reads them, so that it never
+   * offers a bump whose claim would be refused for it.
+   */
+  getPlanHeldOutpointKeys(chain: ChainType): Promise<Set<string>> {
+    return this.enqueue(async () => this.planHeldKeysNow(chain))
   }
 
   /**
@@ -714,8 +1196,8 @@ export class QbitSendGuardService {
    * already recorded, and a released one was abandoned. It does record a
    * claim the instance never saw, which is what a background restart leaves
    * behind, since the earlier broadcast may have gone out; but only for
-   * inputs no other transaction is recorded as spending and no claim or
-   * external signing lock holds. A dispatched
+   * inputs no other transaction is recorded as spending and no claim,
+   * external signing lock or send plan holds. A dispatched
    * broadcast passed the guard's conflict check, so it may take an input
    * over (a fee bump); an undispatched one proves nothing and must not hide
    * the spender that is on record.
@@ -755,6 +1237,9 @@ export class QbitSendGuardService {
         ...this.externalSigningLocks
           .filter(lock => lock.chain === chain)
           .flatMap(lock => lock.entries.flatMap(entry => entry.outpoints.map(outpointKey))),
+        ...[...this.planHolds.values()]
+          .filter(hold => hold.chain === chain)
+          .flatMap(hold => [...hold.outpoints]),
       ])
       this.recordSpendNow(
         chain,
@@ -807,22 +1292,50 @@ export class QbitSendGuardService {
    * The user approved signing `txid` on `chain` for a dapp, which now holds
    * bytes it can broadcast. Remembered so that the dapp's broadcast of that
    * transaction through the wallet keeps its inputs reserved when it ends
-   * without a verdict (`recordInconclusiveProviderPush`). Recording the same
-   * transaction again makes it the newest.
+   * without a verdict (`recordInconclusiveProviderPush`). With `outpoints`,
+   * the transaction's inputs, no send plan can take a hold on them while
+   * the signing is remembered: the dapp may broadcast the bytes at any time.
+   * Recording the same transaction again makes it the newest, and keeps the
+   * inputs recorded for it before when it names none.
    */
-  recordProviderSigning(chain: ChainType, txid: string): Promise<void> {
+  recordProviderSigning(
+    chain: ChainType,
+    txid: string,
+    outpoints?: readonly QbitOutpoint[]
+  ): Promise<void> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
       return Promise.reject(new Error('invalid Qbit transaction'))
     }
-    return this.enqueue(async () => {
-      const key = claimKey({ chain, txid })
-      this.providerSignings.delete(key)
-      this.providerSignings.add(key)
-      for (const oldest of this.providerSignings) {
-        if (this.providerSignings.size <= QBIT_PROVIDER_SIGNING_LIMIT) return
-        this.providerSignings.delete(oldest)
+    if (outpoints !== undefined) {
+      try {
+        assertValidOutpoints(outpoints)
+      } catch (error) {
+        return Promise.reject(error)
       }
+    }
+    const inputs = outpoints?.map(outpointKey)
+    return this.enqueue(async () => {
+      this.recordProviderSigningNow(chain, txid, inputs)
     })
+  }
+
+  /**
+   * `recordProviderSigning` in the queue: the newest record of `txid`, with
+   * `inputs` or else the ones recorded for it before, within the limit.
+   */
+  private recordProviderSigningNow(
+    chain: ChainType,
+    txid: string,
+    inputs: readonly string[] | undefined
+  ): void {
+    const key = claimKey({ chain, txid })
+    const previous = this.providerSignings.get(key)
+    this.providerSignings.delete(key)
+    this.providerSignings.set(key, { chain, outpoints: inputs ?? previous?.outpoints })
+    for (const oldest of this.providerSignings.keys()) {
+      if (this.providerSignings.size <= QBIT_PROVIDER_SIGNING_LIMIT) return
+      this.providerSignings.delete(oldest)
+    }
   }
 
   /**
@@ -937,32 +1450,87 @@ export class QbitSendGuardService {
     })
   }
 
+  /**
+   * `runWithNoOverlap` with nothing to run: whether the inputs could be
+   * signed now. `planHold` and `planReplacement` as there.
+   */
   assertNoOverlap(
     chain: ChainType,
     outpoints: readonly QbitOutpoint[],
-    txid?: string
+    txid?: string,
+    planHold?: QbitSendPlanHold,
+    planReplacement?: QbitSendPlanReplacement
   ): Promise<void> {
-    return this.runWithNoOverlap(chain, outpoints, async () => undefined, txid)
+    return this.runWithNoOverlap(
+      chain,
+      outpoints,
+      async () => undefined,
+      txid,
+      planHold,
+      planReplacement
+    )
   }
 
   /**
    * Run `operation` (signing without a send claim) unless the inputs are
-   * claimed, externally locked, or spent by a recent broadcast of another
-   * transaction. Signed bytes leave the wallet and can be broadcast anywhere,
-   * so a signature over a recently spent input could replace the payment
-   * that spent it; `txid` names the transaction being signed, which may
-   * itself be the recorded spender. Without it, any recorded spend refuses.
+   * claimed, externally locked, held by a send plan, or spent by a recent
+   * broadcast of another transaction. Signed bytes leave the wallet and can
+   * be broadcast anywhere, so a signature over a recently spent input could
+   * replace the payment that spent it; `txid` names the transaction being
+   * signed, which may itself be the recorded spender. Without it, any
+   * recorded spend refuses.
+   *
+   * `planHold` is the hold of the send plan the transaction is a step of:
+   * with it, every input must be held by that plan (and by no other); see
+   * `QbitSendPlanHold`. With it, `planReplacement` names the earlier version
+   * of the step that `txid` replaces (see `QbitSendPlanReplacement`), whose
+   * inputs a recent broadcast of that version spent. An operation marked
+   * `QBIT_PROVIDER_SIGNING` signs `txid` for a dapp, and is recorded as such
+   * in the same step; when it fails, the remembered signings are left
+   * exactly as they were before it.
    */
   runWithNoOverlap<T>(
     chain: ChainType,
     outpoints: readonly QbitOutpoint[],
-    operation: () => Promise<T>,
-    txid?: string
+    operation: QbitNoOverlapOperation<T>,
+    txid?: string,
+    planHold?: QbitSendPlanHold,
+    planReplacement?: QbitSendPlanReplacement
   ): Promise<T> {
+    let replacement: QbitSendPlanReplacement | undefined
+    try {
+      replacement = this.readPlanReplacement(planReplacement, planHold, txid)
+    } catch (error) {
+      return Promise.reject(error)
+    }
     return this.enqueue(async () => {
-      this.assertNoOverlapNow(chain, outpoints)
-      this.assertNoRecentSpendConflictNow(chain, txid, outpoints)
-      return operation()
+      this.assertNoOverlapNow(chain, outpoints, undefined, planHold)
+      const replaces = this.planReplacementNow(chain, planHold, replacement)
+      this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replaces)
+      if (operation[QBIT_PROVIDER_SIGNING] !== true) return operation()
+      if (txid === undefined || !isTxid(txid) || !QBIT_CHAINS.has(chain)) {
+        throw new Error('invalid Qbit transaction')
+      }
+      const key = claimKey({ chain, txid })
+      // A signing that fails leaves the remembered signings as they were,
+      // in their order: its own record goes, an earlier record of the same
+      // transaction keeps its place, and the oldest one its record pushed
+      // out at the limit is remembered again.
+      const remembered = [...this.providerSignings]
+      this.recordProviderSigningNow(chain, txid, outpoints.map(outpointKey))
+      const recorded = this.providerSignings.get(key)
+      try {
+        return await operation()
+      } catch (error) {
+        // Unless the guard was reset meanwhile, which forgot them all.
+        if (recorded !== undefined && this.providerSignings.get(key) === recorded) {
+          this.providerSignings.clear()
+          for (const [entryKey, signing] of remembered) {
+            this.providerSignings.set(entryKey, signing)
+          }
+        }
+        throw error
+      }
     })
   }
 
@@ -977,16 +1545,24 @@ export class QbitSendGuardService {
    * A claim may not spend an input a recent broadcast of another
    * transaction spent, unless it is a wallet-owned claim that `replaces`
    * exactly that transaction: a fee bump, built from the live original.
+   *
+   * A claim may not spend an input a send plan holds, unless `planHold` is
+   * that plan's hold and the plan holds every input (see `runWithNoOverlap`);
+   * a fee bump presenting it may then replace a transaction whose outputs
+   * only that plan holds.
    */
   runWithBroadcastClaim<T>(
     claim: QbitSendBroadcastClaim,
     operation: () => Promise<T>,
-    owner?: QbitSendClaimOwner
+    owner?: QbitSendClaimOwner,
+    planHold?: QbitSendPlanHold
   ): Promise<T> {
     return this.enqueue(async () => {
-      const normalized = this.normalizeAvailableBroadcastClaim(claim)
+      const normalized = this.normalizeAvailableBroadcastClaim(claim, planHold)
       const replacedTxid = replacedTxidOf(normalized)
-      if (replacedTxid) this.assertNoDependentSpendNow(normalized.chain as ChainType, replacedTxid)
+      if (replacedTxid) {
+        this.assertNoDependentSpendNow(normalized.chain as ChainType, replacedTxid, planHold)
+      }
       this.assertNoRecentSpendConflictNow(
         normalized.chain as ChainType,
         normalized.txid,
@@ -1006,7 +1582,8 @@ export class QbitSendGuardService {
    * signer's lock may register exactly that claim, filed under this
    * request. Only one open request may carry a given transaction, so the
    * settlement that decides a claim is never in doubt; a second one is
-   * refused.
+   * refused. So is a request over an input a send plan holds: a website's
+   * request never spends what a plan holds.
    */
   openProviderSendRequest(claim: QbitSendBroadcastClaim): Promise<QbitProviderSendRequest> {
     return this.enqueue(async () => {
@@ -1014,6 +1591,7 @@ export class QbitSendGuardService {
       if (!normalized || normalized.origin === QBIT_WALLET_SEND_CLAIM_ORIGIN) {
         throw new Error('invalid Qbit send broadcast claim')
       }
+      this.assertPlanHoldsAllowNow(normalized.chain as ChainType, normalized.outpoints, undefined)
       const key = claimKey(normalized)
       if ([...this.providerSendRequests.values()].some(carried => claimKey(carried) === key)) {
         throw new Error('Another Qbit provider request is already sending this transaction')
@@ -1278,18 +1856,41 @@ export class QbitSendGuardService {
    * `restoreBroadcastClaim`) hands it `restored` as well, whatever it
    * replaces: nothing but `txid`, or the transaction the claim replaces, may
    * spend any of `outpoints`. Any other broadcast is handed nothing to check.
+   *
+   * A transaction over an input a send plan holds goes out only with
+   * `planHold`, that plan's hold, and only when the plan holds every input
+   * (see `runWithNoOverlap`); a fee bump's claim presenting it may replace a
+   * transaction whose outputs only that plan holds. A plan's own step that
+   * replaces an earlier version of itself goes out with `planReplacement`,
+   * under that hold and without a claim, checked as a fee bump's claim is:
+   * nothing but the plan may spend an output of the version it replaces, by
+   * the guard's records and on the explorer, and it takes over the inputs
+   * that version's broadcast recorded. Once `broadcast` resolves, the inputs
+   * are recorded as recently spent as for any other broadcast, so they stay
+   * reserved after the plan lets go of them.
    */
   broadcastIfAllowed<T>(
     chain: ChainType,
     txid: string,
     outpoints: readonly QbitOutpoint[],
     broadcast: (spendCheck: QbitExplorerSpendCheck) => Promise<T>,
-    claim?: QbitSendBroadcastClaim
+    claim?: QbitSendBroadcastClaim,
+    planHold?: QbitSendPlanHold,
+    planReplacement?: QbitSendPlanReplacement
   ): Promise<T> {
     if (!QBIT_CHAINS.has(chain) || !isTxid(txid)) {
       return Promise.reject(new Error('invalid Qbit transaction broadcast'))
     }
     assertValidOutpoints(outpoints)
+    let replacement: QbitSendPlanReplacement | undefined
+    try {
+      replacement = this.readPlanReplacement(planReplacement, planHold, txid)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    if (replacement && claim) {
+      return Promise.reject(new Error('A send plan step goes out under its plan, not a claim'))
+    }
     const normalizedClaim = claim ? normalizeBroadcastClaim(claim) : undefined
     if (
       claim &&
@@ -1305,6 +1906,7 @@ export class QbitSendGuardService {
     }
 
     return this.enqueue(async () => {
+      const presentedHold = this.presentedPlanHoldNow(planHold)
       const transactionOutpoints = new Set(outpoints.map(outpointKey))
       const overlappingClaims = this.broadcastClaims.filter(
         item =>
@@ -1330,8 +1932,10 @@ export class QbitSendGuardService {
       if (overlappingExternalLocks.length > 0) {
         throw new Error('Qbit transaction spends an input locked by an external signing approval')
       }
-      const replacedTxid = exactClaim ? replacedTxidOf(exactClaim) : undefined
-      if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid)
+      this.assertPlanHoldsAllowNow(chain, outpoints, presentedHold)
+      const planReplaces = this.planReplacementNow(chain, planHold, replacement)
+      const replacedTxid = exactClaim ? replacedTxidOf(exactClaim) : planReplaces
+      if (replacedTxid) this.assertNoDependentSpendNow(chain, replacedTxid, planHold)
       this.assertNoRecentSpendConflictNow(chain, txid, outpoints, replacedTxid)
 
       const restoredFromPage =
@@ -1341,13 +1945,16 @@ export class QbitSendGuardService {
           txid,
           outpoints,
           replaces: replacedTxid,
-          replacedOutputCount: exactClaim?.replacedOutputCount,
+          replacedOutputCount: exactClaim
+            ? exactClaim.replacedOutputCount
+            : replacement?.outputCount,
           restoredFromPage,
         })
       )
       // The claim is consumed, but its inputs stay reserved as recently
-      // spent: the explorer may keep listing them for a while yet.
-      this.recordSpendNow(chain, txid, outpoints, exactClaim?.address)
+      // spent: the explorer may keep listing them for a while yet. A plan's
+      // step is the account's own send, filed under the plan's account.
+      this.recordSpendNow(chain, txid, outpoints, exactClaim?.address ?? presentedHold?.address)
       this.forgetUnknownBroadcastNow(chain, txid)
       if (exactClaim) {
         this.replaceBroadcastClaims(
@@ -1366,6 +1973,7 @@ export class QbitSendGuardService {
       this.providerSendRequests.clear()
       this.providerSignings.clear()
       this.unknownBroadcasts.clear()
+      this.planHolds.clear()
     })
   }
 
@@ -1593,9 +2201,19 @@ export class QbitSendGuardService {
     }
   }
 
-  private hasDependentSpendNow(chain: ChainType, txid: string): boolean {
+  /**
+   * `hasDependentSpend`, in the queue. The holds of the plan `planHold`
+   * belongs to do not count: that plan is the one replacing `txid`, and
+   * re-signs whatever of its own spends `txid`'s outputs.
+   */
+  private hasDependentSpendNow(
+    chain: ChainType,
+    txid: string,
+    planHold?: QbitSendPlanHold
+  ): boolean {
     this.pruneRecentSpendsNow(Date.now())
-    const spendsOutputOfTxid = (outpoint: QbitOutpoint) => outpoint.txid === txid
+    const spendsOutputOfTxid = (outpoint: QbitOutpoint): boolean => outpoint.txid === txid
+    const outputPrefix = `${txid}:`
     return (
       this.broadcastClaims.some(
         claim => claim.chain === chain && claim.outpoints.some(spendsOutputOfTxid)
@@ -1606,7 +2224,13 @@ export class QbitSendGuardService {
           lock.entries.some(entry => entry.outpoints.some(spendsOutputOfTxid))
       ) ||
       [...this.recentSpends.values()].some(
-        spend => spend.chain === chain && spend.outpoint.startsWith(`${txid}:`)
+        spend => spend.chain === chain && spend.outpoint.startsWith(outputPrefix)
+      ) ||
+      [...this.planHolds.values()].some(
+        hold =>
+          hold.chain === chain &&
+          hold.hold !== planHold &&
+          [...hold.outpoints].some(key => key.startsWith(outputPrefix))
       )
     )
   }
@@ -1617,12 +2241,206 @@ export class QbitSendGuardService {
    * the bump waits to be signed or broadcast. Admitting its claim (before a
    * local key signs it, after an external signer has, or when a restart
    * left only the page's copy) and broadcasting it check again, in the same
-   * step that admits the claim or the broadcast.
+   * step that admits the claim or the broadcast. `planHold` as in
+   * `hasDependentSpendNow`, once the caller has checked it is active.
    */
-  private assertNoDependentSpendNow(chain: ChainType, replaces: string): void {
-    if (this.hasDependentSpendNow(chain, replaces)) {
+  private assertNoDependentSpendNow(
+    chain: ChainType,
+    replaces: string,
+    planHold?: QbitSendPlanHold
+  ): void {
+    if (this.hasDependentSpendNow(chain, replaces, planHold)) {
       throw new Error('A later payment depends on the transaction this fee bump replaces')
     }
+  }
+
+  /**
+   * Every conflict a hold of plan `planId` on outpoint keys `keys` on
+   * `chain` would meet (see `holdOutpointsForPlan`), in the order of `keys`.
+   */
+  private planHoldConflictsNow(
+    chain: ChainType,
+    keys: readonly string[],
+    planId: string
+  ): QbitSendPlanHoldConflict[] {
+    if (keys.length === 0) return []
+    const { claimed, locked, spent, spenders, requested, signed, plans } = this.planHoldBlockersNow(
+      chain,
+      planId
+    )
+    const conflicts: QbitSendPlanHoldConflict[] = []
+    for (const outpoint of keys) {
+      if (claimed.has(outpoint)) conflicts.push({ outpoint, kind: 'broadcast_claim' })
+      if (locked.has(outpoint)) conflicts.push({ outpoint, kind: 'external_signing_lock' })
+      if (spent.has(outpoint)) {
+        const spender = spenders.get(outpoint)
+        conflicts.push({ outpoint, kind: 'recent_spend', ...(spender ? { spender } : {}) })
+      }
+      if (requested.has(outpoint)) conflicts.push({ outpoint, kind: 'provider_send_request' })
+      if (signed.has(outpoint)) conflicts.push({ outpoint, kind: 'provider_signing' })
+      for (const [otherPlanId, held] of plans) {
+        if (held.has(outpoint)) conflicts.push({ outpoint, kind: 'plan_hold', planId: otherPlanId })
+      }
+    }
+    return conflicts
+  }
+
+  /**
+   * Everything on `chain` a hold of plan `planId` would be refused on, by
+   * kind, as outpoint keys: what claims, external signing locks, recent
+   * broadcasts, open provider send requests, dapp signings recorded with
+   * their inputs and the other plans' holds take, under any account. One
+   * reading for the hold's check (`planHoldConflictsNow`) and for what a
+   * plan may be prepared from (`getPlanUnavailableOutpointKeys`), so the two
+   * never disagree.
+   */
+  private planHoldBlockersNow(
+    chain: ChainType,
+    planId: string | undefined
+  ): {
+    claimed: Set<string>
+    locked: Set<string>
+    spent: Set<string>
+    /** For each outpoint in `spent`, the transaction recorded as spending it. */
+    spenders: Map<string, string>
+    requested: Set<string>
+    signed: Set<string>
+    plans: Map<string, Set<string>>
+  } {
+    this.pruneRecentSpendsNow(Date.now())
+    const plans = new Map<string, Set<string>>()
+    for (const [otherPlanId, hold] of this.planHolds) {
+      if (otherPlanId !== planId && hold.chain === chain) plans.set(otherPlanId, hold.outpoints)
+    }
+    const spenders = new Map<string, string>()
+    for (const spend of this.recentSpends.values()) {
+      if (spend.chain === chain) spenders.set(spend.outpoint, spend.spender)
+    }
+    return {
+      claimed: new Set(
+        this.broadcastClaims
+          .filter(claim => claim.chain === chain)
+          .flatMap(claim => claim.outpoints.map(outpointKey))
+      ),
+      locked: new Set(
+        this.externalSigningLocks
+          .filter(lock => lock.chain === chain)
+          .flatMap(lock => lock.entries.flatMap(entry => entry.outpoints.map(outpointKey)))
+      ),
+      spent: new Set(
+        [...this.recentSpends.values()]
+          .filter(spend => spend.chain === chain)
+          .map(spend => spend.outpoint)
+      ),
+      spenders,
+      requested: new Set(
+        [...this.providerSendRequests.values()]
+          .filter(claim => claim.chain === chain)
+          .flatMap(claim => claim.outpoints.map(outpointKey))
+      ),
+      signed: new Set(
+        [...this.providerSignings.values()]
+          .filter(signing => signing.chain === chain)
+          .flatMap(signing => signing.outpoints ?? [])
+      ),
+      plans,
+    }
+  }
+
+  /**
+   * `planReplacement` checked before it is queued: well-formed, presented
+   * with a plan's hold, and replacing another transaction than `txid`.
+   * Nothing when none is given.
+   */
+  private readPlanReplacement(
+    planReplacement: QbitSendPlanReplacement | undefined,
+    planHold: QbitSendPlanHold | undefined,
+    txid: string | undefined
+  ): QbitSendPlanReplacement | undefined {
+    if (planReplacement === undefined) return undefined
+    const replacement = normalizePlanReplacement(planReplacement)
+    if (!replacement) throw new Error('invalid Qbit send plan replacement')
+    if (planHold == null) {
+      throw new Error('A send plan step replaces an earlier version only under its plan')
+    }
+    if (replacement.replaces === txid) {
+      throw new Error('invalid Qbit send plan replacement')
+    }
+    return replacement
+  }
+
+  /**
+   * The txid a plan's step replaces, once `planHold` is checked to be the
+   * active hold of a plan that holds every output of that transaction:
+   * that plan's own merge. Nothing without `replacement`.
+   */
+  private planReplacementNow(
+    chain: ChainType,
+    planHold: QbitSendPlanHold | undefined,
+    replacement: QbitSendPlanReplacement | undefined
+  ): string | undefined {
+    if (!replacement) return undefined
+    const presented = this.presentedPlanHoldNow(planHold)
+    if (!presented) {
+      throw new Error('A send plan step replaces an earlier version only under its plan')
+    }
+    for (let vout = 0; vout < replacement.outputCount; vout++) {
+      const key = outpointKey({ txid: replacement.replaces, vout })
+      if (presented.chain !== chain || !presented.outpoints.has(key)) {
+        throw new QbitSendPlanHeldError('not_held')
+      }
+    }
+    return replacement.replaces
+  }
+
+  /**
+   * The hold record of `planHold` when a caller presents one, which must be
+   * the very object this guard minted for a plan that still holds
+   * outpoints; nothing when none is presented.
+   */
+  private presentedPlanHoldNow(
+    planHold: QbitSendPlanHold | undefined
+  ): QbitPlanHoldRecord | undefined {
+    if (planHold == null) return
+    const planId: unknown = (planHold as Partial<QbitSendPlanHold>).planId
+    const record = typeof planId === 'string' ? this.planHolds.get(planId) : undefined
+    if (!record || record.hold !== planHold) throw new QbitSendPlanHeldError('inactive')
+    return record
+  }
+
+  /**
+   * Refuse a spend of `outpoints` on `chain` over anything a send plan
+   * holds, unless `presented` (see `presentedPlanHoldNow`) is the hold of
+   * the one plan that holds it. A caller presenting a plan's hold spends
+   * only what that plan holds: every outpoint must be held by it.
+   */
+  private assertPlanHoldsAllowNow(
+    chain: ChainType,
+    outpoints: readonly QbitOutpoint[],
+    presented: QbitPlanHoldRecord | undefined
+  ): void {
+    const heldElsewhere = this.planHeldKeysNow(chain, presented)
+    for (const outpoint of outpoints) {
+      const key = outpointKey(outpoint)
+      if (heldElsewhere.has(key)) throw new QbitSendPlanHeldError('held')
+      if (presented && (presented.chain !== chain || !presented.outpoints.has(key))) {
+        throw new QbitSendPlanHeldError('not_held')
+      }
+    }
+  }
+
+  /**
+   * The outpoint keys that send plans other than `presented`'s hold on
+   * `chain`: what `assertPlanHoldsAllowNow` refuses a spend of, and what
+   * `getPlanHeldOutpointKeys` lists.
+   */
+  private planHeldKeysNow(chain: ChainType, presented?: QbitPlanHoldRecord): Set<string> {
+    const keys = new Set<string>()
+    for (const hold of this.planHolds.values()) {
+      if (hold === presented || hold.chain !== chain) continue
+      for (const key of hold.outpoints) keys.add(key)
+    }
+    return keys
   }
 
   /**
@@ -1718,12 +2536,19 @@ export class QbitSendGuardService {
     return result
   }
 
+  /**
+   * Refuse `outpoints` on `chain` when a claim, an external signing lock
+   * other than `ignoredExternalSigningLockId`, or a send plan holds one of
+   * them; `planHold` lifts its own plan's hold (see `assertPlanHoldsAllowNow`).
+   */
   private assertNoOverlapNow(
     chain: ChainType,
     outpoints: readonly QbitOutpoint[],
-    ignoredExternalSigningLockId?: string
+    ignoredExternalSigningLockId?: string,
+    planHold?: QbitSendPlanHold
   ): void {
     assertValidOutpoints(outpoints)
+    const presentedHold = this.presentedPlanHoldNow(planHold)
     const claimed = new Set(
       this.broadcastClaims
         .filter(claim => claim.chain === chain)
@@ -1740,6 +2565,7 @@ export class QbitSendGuardService {
     if (outpoints.some(outpoint => externallyLocked.has(outpointKey(outpoint)))) {
       throw new Error('Qbit transaction spends an input locked by an external signing approval')
     }
+    this.assertPlanHoldsAllowNow(chain, outpoints, presentedHold)
   }
 
   private activeExternalSigningLock(
@@ -1755,17 +2581,17 @@ export class QbitSendGuardService {
     return active
   }
 
-  private sameOutpoints(
-    left: readonly QbitOutpoint[],
-    right: readonly QbitOutpoint[]
-  ): boolean {
+  private sameOutpoints(left: readonly QbitOutpoint[], right: readonly QbitOutpoint[]): boolean {
     return (
       left.length === right.length &&
       left.every((outpoint, index) => outpointKey(outpoint) === outpointKey(right[index]!))
     )
   }
 
-  private normalizeAvailableBroadcastClaim(claim: QbitSendBroadcastClaim): QbitSendBroadcastClaim {
+  private normalizeAvailableBroadcastClaim(
+    claim: QbitSendBroadcastClaim,
+    planHold?: QbitSendPlanHold
+  ): QbitSendBroadcastClaim {
     const normalized = normalizeBroadcastClaim(claim)
     if (!normalized) throw new Error('invalid Qbit send broadcast claim')
     if (
@@ -1775,7 +2601,12 @@ export class QbitSendGuardService {
     ) {
       throw new Error('Qbit send broadcast claim already exists')
     }
-    this.assertNoOverlapNow(normalized.chain as ChainType, normalized.outpoints)
+    this.assertNoOverlapNow(
+      normalized.chain as ChainType,
+      normalized.outpoints,
+      undefined,
+      planHold
+    )
     return normalized
   }
 }

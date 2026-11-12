@@ -25,6 +25,7 @@ export {
   phishingDetectService,
   preferenceService,
   qbitSendGuardService,
+  qbitSendPlanStore,
   regtestAccessService,
   sessionService,
   type RegtestAccessAckStore,
