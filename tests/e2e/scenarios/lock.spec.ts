@@ -1,4 +1,4 @@
-import { ReceivePage, SettingsPage, WalletHomePage } from '../pages'
+import { OnboardingPage, ReceivePage, SendPage, SettingsPage, WalletHomePage } from '../pages'
 import { expect, test } from '../fixtures/test'
 import {
   E2E_PASSWORD,
@@ -203,4 +203,88 @@ test('G3 lock: locks when the last normal browser window closes', async ({ exten
   await settings.waitForUnlock()
   await settings.unlock(E2E_PASSWORD)
   await new WalletHomePage(reopened).waitUntilReady()
+})
+
+const AUTO_LOCKED_METHOD = 'walletAutoLocked'
+
+test('G3 lock: sends pages opened before the wallet existed to the unlock screen', async ({
+  extension,
+}) => {
+  test.setTimeout(240_000)
+  // Pages that loaded before the wallet existed, as the page that creates it
+  // does, must go to the unlock screen when it locks, like any other wallet
+  // page (#198). Each must still be that document when the wallet locks: a
+  // reload, such as provisioning's or a language change's, starts the page
+  // afresh and would hide the failure. The marks, read before each lock, show
+  // it.
+  const untouchedPage = await extension.openWallet('/welcome')
+  const creatingPage = await extension.openWallet('/welcome')
+  const untouchedMark = await extension.markDocument(untouchedPage)
+  const creatingMark = await extension.markDocument(creatingPage)
+
+  await new OnboardingPage(creatingPage).createNewWallet(E2E_PASSWORD)
+  const home = new WalletHomePage(creatingPage)
+  await home.waitUntilReady()
+  await home.switchToRegtest()
+
+  // Control: a page opened once the wallet exists, on the screen of the
+  // first lock below. It shows the lock reaches the wallet pages.
+  const laterPage = await extension.openWallet('/main')
+  const laterHome = new WalletHomePage(laterPage)
+  await laterHome.waitUntilReady()
+  await laterHome.openReceive()
+  await new ReceivePage(laterPage).waitUntilReady()
+
+  // Lock from the background, over a port of the test's own: the lock
+  // button goes to the unlock screen by itself.
+  const lockFromBackground = async () => {
+    expect(await extension.documentMark(creatingPage)).toBe(creatingMark)
+    await extension.requestWalletController<void>(creatingPage, 'lockWallet')
+    expect(await extension.requestWalletController<boolean>(creatingPage, 'isUnlocked')).toBe(false)
+  }
+  const creatingUnlock = new SettingsPage(creatingPage)
+  const unlockToHome = async () => {
+    await creatingUnlock.unlock(E2E_PASSWORD)
+    await home.waitUntilReady()
+  }
+
+  await home.openReceive()
+  await new ReceivePage(creatingPage).waitUntilReady()
+  expect(await extension.documentMark(untouchedPage)).toBe(untouchedMark)
+  await lockFromBackground()
+  await new SettingsPage(laterPage).waitForUnlock()
+  await creatingUnlock.waitForUnlock()
+  await new SettingsPage(untouchedPage).waitForUnlock()
+  await unlockToHome()
+
+  await home.openSettings()
+  await creatingUnlock.waitUntilReady()
+  await lockFromBackground()
+  await creatingUnlock.waitForUnlock()
+  await unlockToHome()
+
+  // The send form locks through the real 30-second auto-lock, as reported. A
+  // focus or visibility change on another wallet page is a screen action
+  // that starts the time over (see the P2 auto-lock test), so this page is
+  // left alone in the browser first. After the tap on Send nothing here is a
+  // screen action: controller calls and the broadcast capture are not.
+  for (const page of extension.context.pages()) {
+    if (page !== creatingPage) await page.close()
+  }
+  await extension.captureWalletBroadcasts(creatingPage)
+  await extension.requestWalletController<void>(creatingPage, 'setAutoLockTimeId', [0])
+  await home.openSend()
+  await new SendPage(creatingPage).waitForCreate()
+  expect(await extension.documentMark(creatingPage)).toBe(creatingMark)
+  // The capture is kept on this document's window, so finding the lock in it
+  // also shows the page was not reloaded while it waited.
+  await expect
+    .poll(() => extension.walletBroadcastMethods(creatingPage), {
+      timeout: 90_000,
+      intervals: [1_000],
+    })
+    .toContain(LOCKED_METHOD)
+  expect(await extension.walletBroadcastMethods(creatingPage)).toContain(AUTO_LOCKED_METHOD)
+  await creatingUnlock.waitForUnlock()
+  await unlockToHome()
 })

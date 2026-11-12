@@ -214,6 +214,26 @@ export class ExtensionSession {
     )
   }
 
+  /**
+   * Marks the page's document and returns the mark. A reload, or any other
+   * navigation to a new document, drops it, while a hash change keeps it, so
+   * comparing `documentMark` with it tells whether the page is still the
+   * document it was when marked.
+   */
+  async markDocument(page: Page): Promise<string> {
+    return page.evaluate(() => {
+      const mark = crypto.randomUUID()
+      ;(window as typeof window & { __qbitE2eDocumentMark?: string }).__qbitE2eDocumentMark = mark
+      return mark
+    })
+  }
+
+  async documentMark(page: Page): Promise<string | undefined> {
+    return page.evaluate(
+      () => (window as typeof window & { __qbitE2eDocumentMark?: string }).__qbitE2eDocumentMark
+    )
+  }
+
   async wipeStorage(page: Page): Promise<void> {
     await page.evaluate(() => chrome.storage.local.clear())
     await this.restart()

@@ -131,6 +131,12 @@ repository.
   lock the wallet at once. A signing that a lock stops now says "The wallet
   locked before signing finished, so nothing was sent. Unlock it and sign
   again."
+- The page a first wallet was created or restored in now goes to the unlock
+  screen when the wallet locks, like every other wallet page, and so does a
+  page that was open before the wallet existed. Before, such a page kept
+  showing the send form, the receive screen, the settings and the other
+  wallet screens while the wallet was locked; only Home went to the unlock
+  screen.
 
 ### Websites and approvals
 
@@ -225,6 +231,16 @@ repository.
   is shown again.
 - Removing a wallet shown as Invalid removes it on every network, even when
   it is invalid only on the current one. Back up its recovery phrase first.
+- A lock closes the report shown after a wallet is restored, and a lock while
+  the restore is still scanning keeps it from showing at all; it is not shown
+  after the unlock. Its notices go with it: that the signature counters were
+  rebuilt from on-chain history and are minimums, with the advice to move
+  funds to a fresh wallet if the phrase was used in another wallet; the note
+  that some counters were rebuilt from the explorer's address totals; the
+  warning that address discovery stopped at its scan limit; and the network
+  and the number of addresses restored. The warning that another copy of the
+  phrase may be in use is still shown on Receive. A signature-counter
+  reconstruction that did not finish is retried after the unlock.
 - Some errors on the consolidation screen are shown as the wallet received
   them, in English and with the explorer's address.
 - Upgrade safety (#30) is still only partly done: the upgrade test starts
