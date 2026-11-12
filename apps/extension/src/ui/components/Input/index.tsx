@@ -31,6 +31,8 @@ export interface InputProps {
   onAddressInputChange?: (params: { address: string }) => void;
   onAmountInputChange?: (amount: string) => void;
   disabled?: boolean;
+  /** Takes no typing yet keeps its value and the focus, unlike `disabled`. */
+  readOnly?: boolean;
   disableDecimal?: boolean;
   decimalPlaces?: number;
   enableMax?: boolean;

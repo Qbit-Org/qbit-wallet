@@ -26,7 +26,10 @@ export function tabbableElements(container: HTMLElement): HTMLElement[] {
 
 /**
  * Keeps Tab and Shift+Tab inside `container`, wrapping from the last element
- * to the first and back. Call it from the container's keydown handler.
+ * to the first and back. Focus on an element of the container that Tab
+ * cannot reach, such as a button that left the tab order while it is busy,
+ * goes on to the next (or previous) element Tab can reach, wrapping too.
+ * Call it from the container's keydown handler.
  */
 export function keepTabInside(event: React.KeyboardEvent<HTMLElement>, container: HTMLElement | null) {
   if (event.key !== 'Tab' || !container) return;
@@ -39,6 +42,21 @@ export function keepTabInside(event: React.KeyboardEvent<HTMLElement>, container
   const first = elements[0];
   const last = elements[elements.length - 1];
   const active = document.activeElement;
+  if (
+    active instanceof HTMLElement &&
+    active !== container &&
+    container.contains(active) &&
+    !elements.includes(active)
+  ) {
+    event.preventDefault();
+    const follows = (element: HTMLElement) =>
+      (active.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    const next = event.shiftKey
+      ? elements.filter((element) => !follows(element)).pop()
+      : elements.find((element) => follows(element));
+    (next ?? (event.shiftKey ? last : first)).focus();
+    return;
+  }
   if (event.shiftKey && (active === first || active === container || !container.contains(active))) {
     event.preventDefault();
     last.focus();

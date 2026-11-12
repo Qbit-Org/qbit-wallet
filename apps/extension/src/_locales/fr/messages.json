@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "Créez un mot de passe"
   },
-  "create_an_account": {
-    "message": "Créer un Compte"
-  },
   "hardware_wallet_not_supported": {
     "message": "Les portefeuilles matériels ne prennent pas encore en charge les signatures post-quantiques de Qbit. Suivez l'avancement dans la documentation du projet sur les portefeuilles matériels."
   },
@@ -2246,6 +2243,12 @@
   "account_switcher_wallet_unavailable": {
     "message": "Le portefeuille sélectionné n'est plus disponible"
   },
+  "account_created": {
+    "message": "Compte créé"
+  },
+  "create": {
+    "message": "Créer"
+  },
   "wallet_menu_add_account": {
     "message": "Ajouter un Compte"
   },
@@ -2254,6 +2257,9 @@
   },
   "wallet_menu_change_color": {
     "message": "Changer la Couleur"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "Sauvegarder/Afficher la Phrase de Récupération"
   },
   "wallet_tag_read_only": {
     "message": "Lecture seule"

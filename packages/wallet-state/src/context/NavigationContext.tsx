@@ -58,9 +58,6 @@ export type RouteParamList = {
   ImportHDWalletScreen: {
     comeFrom?: string
   }
-  CreateAccountScreen: {
-    keyringKey?: string
-  }
   KeyringDetailScreen: {
     keyringKey?: string
   }

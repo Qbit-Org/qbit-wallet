@@ -147,17 +147,17 @@ async function currentKeyring(page: Page): Promise<WalletKeyringProbe> {
 /**
  * Where the build lists wallets and accounts. Builds with the account
  * switcher list them in one sheet that the home screen's account card opens,
- * and the card names the wallet. Releases up to 1.0.8 list them on two
+ * and the card shows the wallet tile. Releases up to 1.0.8 list them on two
  * pages: the wallets behind the header's wallet chip, and the current
  * wallet's accounts behind the card.
  */
 type AccountLists = 'switcher' | 'pages'
 
 async function accountLists(page: Page): Promise<AccountLists> {
-  const cardWalletName = page.getByTestId('account-select-wallet-name')
+  const cardWalletTile = page.getByTestId('account-select-wallet-tile')
   const walletChip = page.getByTestId('wallet-management-entry')
-  await expect(cardWalletName.or(walletChip).first()).toBeVisible()
-  return (await cardWalletName.count()) > 0 ? 'switcher' : 'pages'
+  await expect(cardWalletTile.or(walletChip).first()).toBeVisible()
+  return (await cardWalletTile.count()) > 0 ? 'switcher' : 'pages'
 }
 
 test('captures the storage a released build writes', async () => {
@@ -212,7 +212,10 @@ test('captures the storage a released build writes', async () => {
     await home.waitUntilReady()
     await expect(page.getByTestId('switch-network-bar')).toContainText('Testnet')
 
-    // 3. A second, named account.
+    // 3. A second, named account. Releases up to 1.0.8 ask its name on a
+    // screen of its own, reached from the accounts page; from 1.0.9 a dialog
+    // over the account switcher asks it, which leaves the home screen's route
+    // as it is. Either goes once the account exists.
     const lists = await accountLists(page)
     if (lists === 'switcher') {
       const switcher = await home.openAccountSwitcher()
@@ -221,8 +224,10 @@ test('captures the storage a released build writes', async () => {
       await goTo(page, extensionId, '/account/switch-account')
       await page.getByTestId('new-account-button').click()
     }
-    await page.getByTestId('create-account-name-input').fill(SECOND_ACCOUNT_NAME)
+    const accountName = page.getByTestId('create-account-name-input')
+    await accountName.fill(SECOND_ACCOUNT_NAME)
     await page.getByTestId('create-account-confirm-button').click()
+    await expect(accountName).toHaveCount(0)
     await home.waitUntilReady()
     const hdWallet = await currentKeyring(page)
     expect(hdWallet.accounts).toHaveLength(2)

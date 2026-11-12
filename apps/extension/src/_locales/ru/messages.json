@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "Создайте пароль"
   },
-  "create_an_account": {
-    "message": "Создать аккаунт"
-  },
   "hardware_wallet_not_supported": {
     "message": "Аппаратные кошельки пока не поддерживают постквантовые подписи Qbit. Следите за прогрессом в документации проекта по аппаратным кошелькам."
   },
@@ -2246,6 +2243,12 @@
   "account_switcher_wallet_unavailable": {
     "message": "Выбранный кошелёк больше недоступен"
   },
+  "account_created": {
+    "message": "Аккаунт создан"
+  },
+  "create": {
+    "message": "Создать"
+  },
   "wallet_menu_add_account": {
     "message": "Добавить аккаунт"
   },
@@ -2254,6 +2257,9 @@
   },
   "wallet_menu_change_color": {
     "message": "Изменить цвет"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "Сохранить/показать сид-фразу"
   },
   "wallet_tag_read_only": {
     "message": "Только чтение"

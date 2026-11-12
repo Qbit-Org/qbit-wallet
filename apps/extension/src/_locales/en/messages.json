@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "Create a password"
   },
-  "create_an_account": {
-    "message": "Create an Account"
-  },
   "hardware_wallet_not_supported": {
     "message": "Hardware wallets don't support Qbit's post-quantum signatures yet. Track progress in the project's hardware-wallet documentation."
   },
@@ -2246,6 +2243,12 @@
   "account_switcher_wallet_unavailable": {
     "message": "The selected wallet is no longer available"
   },
+  "account_created": {
+    "message": "Account created"
+  },
+  "create": {
+    "message": "Create"
+  },
   "wallet_menu_add_account": {
     "message": "Add Account"
   },
@@ -2254,6 +2257,9 @@
   },
   "wallet_menu_change_color": {
     "message": "Change Color"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "Backup/Show Seed Phrase"
   },
   "wallet_tag_read_only": {
     "message": "Read Only"

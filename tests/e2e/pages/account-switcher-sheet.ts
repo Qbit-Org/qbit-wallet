@@ -54,6 +54,35 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
     return this.byTestId('wallet-color-picker')
   }
 
+  /** The New account dialog "+" and Add Account open over the sheet. */
+  get newAccountDialog(): Locator {
+    return this.byTestId('new-account-dialog')
+  }
+
+  get newAccountWalletName(): Locator {
+    return this.byTestId('create-account-wallet-name')
+  }
+
+  get newAccountWalletTile(): Locator {
+    return this.byTestId('create-account-wallet-tile')
+  }
+
+  get newAccountNameInput(): Locator {
+    return this.byTestId('create-account-name-input')
+  }
+
+  get newAccountCreateButton(): Locator {
+    return this.byTestId('create-account-confirm-button')
+  }
+
+  get newAccountCancelButton(): Locator {
+    return this.byTestId('create-account-cancel-button')
+  }
+
+  get newAccountCloseButton(): Locator {
+    return this.byTestId('create-account-close-button')
+  }
+
   walletGroup(keyringKey: string): Locator {
     return this.byTestId(`wallet-group-${keyringKey}`)
   }
@@ -200,10 +229,21 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
     await expect(this.walletTile(keyringKey)).toHaveAttribute('data-color', color)
   }
 
-  /** The "+" on a wallet's group, which opens the new account screen for that wallet. */
+  /**
+   * The "+" on a wallet's group, which opens the New account dialog for that
+   * wallet over the sheet: ready once its name field shows, the field the
+   * release storage capture fills in.
+   */
   async addAccount(keyringKey: string): Promise<void> {
     await this.addAccountButton(keyringKey).click()
-    await this.waitForHashRoute('/account/create')
+    await expect(this.newAccountNameInput).toBeVisible()
+  }
+
+  /** The New account dialog is open over the sheet, which stays open under it. */
+  async expectNewAccountDialogOverSheet(): Promise<void> {
+    await expect(this.newAccountDialog).toBeVisible()
+    await expect(this.root).toBeVisible()
+    await expect(this.newAccountNameInput).toBeFocused()
   }
 
   /** Remove Wallet, confirmed in the removal popover; the wallet's group leaves the open sheet. */

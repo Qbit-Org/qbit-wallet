@@ -395,9 +395,6 @@
   "create_a_password": {
     "message": "パスワードを作成"
   },
-  "create_an_account": {
-    "message": "アカウントを作成"
-  },
   "hardware_wallet_not_supported": {
     "message": "ハードウェアウォレットはまだQbitのポスト量子署名に対応していません。進捗はプロジェクトのハードウェアウォレットに関するドキュメントをご確認ください。"
   },
@@ -2246,6 +2243,12 @@
   "account_switcher_wallet_unavailable": {
     "message": "選択したウォレットは利用できなくなりました"
   },
+  "account_created": {
+    "message": "アカウントを作成しました"
+  },
+  "create": {
+    "message": "作成"
+  },
   "wallet_menu_add_account": {
     "message": "アカウントを追加"
   },
@@ -2254,6 +2257,9 @@
   },
   "wallet_menu_change_color": {
     "message": "色を変更"
+  },
+  "wallet_menu_backup_seed_phrase": {
+    "message": "シードフレーズをバックアップ/表示"
   },
   "wallet_tag_read_only": {
     "message": "読み取り専用"

@@ -8,8 +8,9 @@ import { useI18n } from '@qbit/wallet-state';
 import './index.less';
 
 /**
- * A square in the wallet's color with the wallet glyph. It only repeats the
- * wallet name next to it, so it is hidden from assistive technology.
+ * A square in the wallet's color with the wallet glyph, hidden from assistive
+ * technology: the wallet's name is beside it, or the control it sits in names
+ * the wallet, as the home card's open button does.
  */
 export function WalletAvatar({
   keyring,
@@ -78,7 +79,11 @@ const TAG_LABEL_KEYS: Record<WalletTag, string> = {
   cold: 'linked_to_cold_wallet'
 };
 
-/** The wallet's tags, as small labels that never shrink. */
+/**
+ * The wallet's tags, as small labels that keep their width beside a name,
+ * unless their line lets them shrink: the home card cuts a tag wider than its
+ * line with an ellipsis.
+ */
 export function WalletTags({ tags, testIdFor }: { tags: WalletTag[]; testIdFor: (tag: WalletTag) => string }) {
   const { t } = useI18n();
   if (tags.length === 0) return null;

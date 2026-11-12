@@ -17,7 +17,6 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ApprovalProvider } from '../providers/ApprovalProvider';
 import { NavigationProvider } from '../providers/NavigationProvider';
 import AddKeyringScreen from './Account/AddKeyringScreen';
-import CreateAccountScreen from './Account/CreateAccountScreen';
 import CreateHDWalletScreen from './Account/CreateHDWalletScreen';
 import CreatePasswordScreen from './Account/CreatePasswordScreen';
 import CreateReadonlyWalletScreen from './Account/CreateReadonlyWalletScreen';
@@ -93,9 +92,11 @@ export const routes = {
     path: '/account/create-hd-wallet',
     element: <CreateHDWalletScreen />
   },
-  CreateAccountScreen: {
+  // The New account screen became a dialog over the account switcher (#177);
+  // a URL kept from a build that had the screen opens the home screen.
+  CreateAccountScreenRedirect: {
     path: '/account/create',
-    element: <CreateAccountScreen />
+    element: <Navigate to="/main" replace />
   },
   CreatePasswordScreen: {
     path: '/account/create-password',
