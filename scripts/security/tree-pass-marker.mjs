@@ -52,10 +52,20 @@ const MARKER_PREFIX =
   /^tree-pass-v1-[a-z0-9]+(?:-[a-z0-9]+)*-salt(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})-(?:[0-9a-f]{40}|[0-9a-f]{64})-pr[1-9][0-9]{0,9}-$/
 const RUN_SUFFIX = /^([1-9][0-9]{0,14})-([1-9][0-9]{0,4})$/
 const API_TIMEOUT_MS = 15_000
+// Every request `decide` makes shares this budget, so a slow API ends the
+// decision as "run everything" well inside the job's 10 minutes, after
+// checkout, the key and the 3-minute lookup.
+const DECIDE_BUDGET_MS = 4 * 60_000
 // GitHub's largest page. A listing is complete only when a page holds fewer
 // entries and names no next page.
 const PAGE_SIZE = 100
-const TIMELINE_PAGES = 30
+// A pull request's timeline and its issue events, 3,000 entries each at most.
+const EVENT_PAGES = 30
+// A filtered listing of workflow runs stops at 1,000 runs, so ten pages hold
+// every run GitHub will list.
+const RUN_PAGES = 10
+// GitHub's timestamps, exactly: seconds, UTC.
+const GITHUB_TIME = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/
 // Timeline events about the base a pull request merges into. GitHub's REST
 // reference says the timeline does not return base_ref_changed or
 // automatic_base_change_*, though it does, and does not list
@@ -66,6 +76,46 @@ const TIMELINE_PAGES = 30
 // base_ref_deleted. automatic_base_change_failed is a retarget GitHub could
 // not make.
 const BASE_CHANGE_EVENT = /^(?:base_ref_|automatic_base_change_)/
+// Events that mean this pull request's head branch was deleted, and perhaps
+// created again, while it existed: a run of another pull request from that
+// branch, created after this one, may have the head this one has now. Exact
+// names: head_ref_force_pushed is routine and does not count.
+const HEAD_BRANCH_EVENTS = new Set(['head_ref_deleted', 'head_ref_restored'])
+
+// The rules that bind the run a marker names to this pull request. Each
+// refusal starts with its rule's name, so the step's log says which refused.
+export const RULES = {
+  onePull: 'one pull request per head branch',
+  base: 'base unchanged',
+  headBranch: 'head branch kept',
+  created: 'run after the pull request',
+  later: 'no later failure',
+  attempts: 'both attempts',
+}
+
+function refusedBy(rule, detail) {
+  return `[${rule}] ${detail}`
+}
+
+// A failed or incomplete read names the rule it was for.
+async function readFor(rule, read) {
+  try {
+    return await read()
+  } catch (error) {
+    throw new Error(refusedBy(rule, error.message))
+  }
+}
+
+// A GitHub timestamp as milliseconds, or null for anything else: another
+// format, a date that does not exist, or not a string.
+export function githubTime(value) {
+  if (typeof value !== 'string' || !GITHUB_TIME.test(value)) return null
+  const time = Date.parse(value)
+  // Date.parse rolls 30 February over into March; GitHub never writes one.
+  return Number.isFinite(time) && new Date(time).toISOString() === `${value.slice(0, -1)}.000Z`
+    ? time
+    : null
+}
 
 export class TreePassConfigError extends Error {
   constructor(message) {
@@ -243,25 +293,55 @@ async function githubGet({
   token,
   fetchImpl = globalThis.fetch,
   timeoutMs = API_TIMEOUT_MS,
+  deadline,
 }) {
   requireMatch('GITHUB_API_URL', apiUrl, HTTPS_URL, 'an https URL')
   if (typeof token !== 'string' || token.length === 0) {
     throw new TreePassConfigError('GH_TOKEN is missing or empty')
   }
-  const response = await fetchImpl(`${apiUrl.replace(/\/+$/, '')}${path}`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'User-Agent': 'tree-pass-marker',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    signal: AbortSignal.timeout(timeoutMs),
+  // A shared deadline shortens each request's own timeout, and once it has
+  // passed nothing more is asked.
+  const remaining = deadline === undefined ? timeoutMs : Math.min(timeoutMs, deadline - Date.now())
+  if (!(remaining > 0))
+    throw new Error(`GET ${path} was not sent: the time for the decision ran out`)
+  // The timeout is a timer of this request's own, not AbortSignal.timeout(),
+  // whose timer does not keep the event loop alive: a request left waiting on
+  // nothing else would let the loop drain first, and Node would end the step
+  // with exit 13 and no answer. This timer keeps the loop alive until the
+  // request settles or the time is up, and the race settles it then even if
+  // fetch ignores the signal.
+  const controller = new AbortController()
+  const timedOut = new Promise((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(controller.signal.reason), {
+      once: true,
+    })
   })
-  if (!response.ok) throw new Error(`GET ${path} returned HTTP ${response.status}`)
-  if (typeof response.headers?.get !== 'function') {
-    throw new Error(`GET ${path} returned no readable headers`)
+  const timer = setTimeout(() => {
+    controller.abort(
+      new DOMException(`GET ${path} timed out after ${remaining} ms`, 'TimeoutError')
+    )
+  }, remaining)
+  const request = async () => {
+    const response = await fetchImpl(`${apiUrl.replace(/\/+$/, '')}${path}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'User-Agent': 'tree-pass-marker',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error(`GET ${path} returned HTTP ${response.status}`)
+    if (typeof response.headers?.get !== 'function') {
+      throw new Error(`GET ${path} returned no readable headers`)
+    }
+    return { body: await response.json(), link: response.headers.get('link') ?? '' }
   }
-  return { body: await response.json(), link: response.headers.get('link') ?? '' }
+  try {
+    return await Promise.race([request(), timedOut])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function githubJson(request) {
@@ -271,20 +351,33 @@ export async function githubJson(request) {
 // Every entry of a paginated listing, page by page. A page that is not a
 // list, holds too many entries, or is short but names a next page, a failed
 // page, and more than `maxPages` pages all throw: an incomplete listing is
-// never read as a complete one.
-export async function githubList({ path, maxPages, ...request }) {
+// never read as a complete one. With `field`, each page is an object whose
+// `field` holds the entries and whose `total_count` counts them all; that
+// count must be the same on every page and match the entries read.
+export async function githubList({ path, maxPages, field, ...request }) {
   const entries = []
+  let total
   const separator = path.includes('?') ? '&' : '?'
   for (let page = 1; page <= maxPages; page += 1) {
     const pagePath = `${path}${separator}per_page=${PAGE_SIZE}&page=${page}`
     const { body, link } = await githubGet({ ...request, path: pagePath })
-    if (!Array.isArray(body) || body.length > PAGE_SIZE) {
+    const list = field === undefined ? body : body?.[field]
+    if (!Array.isArray(list) || list.length > PAGE_SIZE) {
       throw new Error(`GET ${pagePath} did not return a list of at most ${PAGE_SIZE} entries`)
     }
-    entries.push(...body)
-    if (body.length < PAGE_SIZE) {
+    if (field !== undefined) {
+      if (!Number.isSafeInteger(body.total_count) || (page > 1 && body.total_count !== total)) {
+        throw new Error(`GET ${pagePath} returned total_count ${body.total_count}, not ${total}`)
+      }
+      total = body.total_count
+    }
+    entries.push(...list)
+    if (list.length < PAGE_SIZE) {
       if (/\brel="next"/.test(link)) {
         throw new Error(`GET ${pagePath} returned a short page that names a next page`)
+      }
+      if (field !== undefined && entries.length !== total) {
+        throw new Error(`GET ${path} listed ${entries.length} of ${total} entries`)
       }
       return entries
     }
@@ -338,7 +431,6 @@ export function runRecordProblem(run, expected) {
   }
   const checks = [
     ['ID', run.id, Number(expected.runId)],
-    ['latest attempt', run.run_attempt, Number(expected.runAttempt)],
     ['repository', run.repository?.full_name, expected.repository],
     ['workflow', run.path, expected.workflowPath],
     ['event', run.event, 'pull_request'],
@@ -351,6 +443,15 @@ export function runRecordProblem(run, expected) {
     if (typeof observed !== typeof wanted || observed !== wanted) {
       return `run ${expected.runId}: ${mismatch(what, observed, wanted)}`
     }
+  }
+  // Both attempts: the saving attempt must be the latest one, so the jobs
+  // that jobsProblem reads in it are the latest attempt's too. A later
+  // attempt refuses even if it passed.
+  if (typeof run.run_attempt !== 'number' || run.run_attempt !== Number(expected.runAttempt)) {
+    return refusedBy(
+      RULES.attempts,
+      `run ${expected.runId}: ${mismatch('latest attempt', run.run_attempt, Number(expected.runAttempt))}`
+    )
   }
   return null
 }
@@ -463,14 +564,23 @@ export function runContext(env) {
       'a full lowercase git object ID'
     ),
     jobNames: [...jobNames, SAVE_JOB_NAME],
+    currentRunId: requireMatch('GITHUB_RUN_ID', env.GITHUB_RUN_ID, DATABASE_ID, 'a run ID'),
+    currentRunAttempt: requireMatch(
+      'GITHUB_RUN_ATTEMPT',
+      env.GITHUB_RUN_ATTEMPT,
+      RUN_ATTEMPT,
+      'a run attempt'
+    ),
   }
 }
 
 // GET /repos/{repo}/pulls?head=<owner>:<branch>&state=all&per_page=2: the
-// pull requests ever opened from the head branch, open, closed or merged. One
-// page of two is enough: it must hold exactly this one. A `pull_request` run takes its workflow from its merge commit, so a
-// run of another pull request from the same branch, into a base its author
-// chose, could have run a different workflow on the same head.
+// pull requests ever opened from the head branch, open, closed or merged; a
+// branch deleted and created again still lists the closed ones. One page of
+// two is enough: it must hold exactly this one. A `pull_request` run takes its
+// workflow from its merge commit, so a run of another pull request from the
+// same branch, into a base its author chose, could have run a different
+// workflow on the same head.
 export function headPullsProblem(pulls, { pullRequest, headBranch, headRepositoryId }) {
   if (!Array.isArray(pulls)) return 'the pull requests from the head branch are unreadable'
   if (pulls.length !== 1) {
@@ -486,50 +596,203 @@ export function headPullsProblem(pulls, { pullRequest, headBranch, headRepositor
   return null
 }
 
-// GET /repos/{repo}/issues/{n}/timeline: no event about this pull request's
-// base, so it was not retargeted, by hand or by GitHub, and its base branch
-// was not force-pushed or deleted while GitHub recorded it. Ordinary pushes to
-// the base leave no event, so this does not show that the base's content
-// never changed.
-export function timelineProblem(events, { pullRequest }) {
-  if (!Array.isArray(events)) return `pull request #${pullRequest}'s timeline is unreadable`
+// The run record's created_at, which stays the run's first creation through
+// every re-run, must be strictly after this pull request's: a run created
+// before the pull request existed, or in the same second, cannot be its run.
+export function creationProblem(run, pull, { runId, pullRequest }) {
+  const runCreated = githubTime(run?.created_at)
+  if (runCreated === null) {
+    return refusedBy(
+      RULES.created,
+      `run ${runId} has no readable created_at (${JSON.stringify(run?.created_at ?? null)})`
+    )
+  }
+  const pullCreated = githubTime(pull?.created_at)
+  if (pullCreated === null) {
+    return refusedBy(
+      RULES.created,
+      `pull request #${pullRequest} has no readable created_at (${JSON.stringify(pull?.created_at ?? null)})`
+    )
+  }
+  if (runCreated <= pullCreated) {
+    return refusedBy(
+      RULES.created,
+      `run ${runId} was created at ${run.created_at}, not after pull request #${pullRequest} (${pull.created_at})`
+    )
+  }
+  return null
+}
+
+function describeEvent(entry) {
+  return Number.isSafeInteger(entry.id) ? `${entry.event} (event ${entry.id})` : entry.event
+}
+
+// GET /repos/{repo}/issues/{n}/timeline and GET /repos/{repo}/issues/{n}/events:
+// no event about this pull request's base, so it was not retargeted, by hand
+// or by GitHub, and its base branch was not force-pushed or deleted while
+// GitHub recorded it; and no deletion or restoring of its head branch.
+// Ordinary pushes to the base leave no event, so this does not show that the
+// base's content never changed.
+export function eventsProblem(events, { pullRequest }, listing = 'timeline') {
+  const rules = `${RULES.base}, ${RULES.headBranch}`
+  const where = `pull request #${pullRequest}'s ${listing}`
+  if (!Array.isArray(events)) return refusedBy(rules, `${where} cannot be read`)
   for (const entry of events) {
     if (!entry || typeof entry !== 'object' || typeof entry.event !== 'string') {
-      return `pull request #${pullRequest}'s timeline has an entry without an event name`
+      return refusedBy(rules, `an entry in ${where} has no event name`)
     }
     if (BASE_CHANGE_EVENT.test(entry.event)) {
-      return `pull request #${pullRequest}'s base changed (${entry.event})`
+      return refusedBy(RULES.base, `${describeEvent(entry)} is in ${where}`)
+    }
+    if (HEAD_BRANCH_EVENTS.has(entry.event)) {
+      return refusedBy(RULES.headBranch, `${describeEvent(entry)} is in ${where}`)
     }
   }
+  return null
+}
+
+// A re-run of this run never skips: its earlier attempts ran this tree after
+// the run a marker names, and their results are not read.
+export function rerunProblem({ currentRunId, currentRunAttempt }) {
+  if (currentRunAttempt !== '1') {
+    return refusedBy(
+      RULES.later,
+      `this is attempt ${currentRunAttempt} of run ${currentRunId}, whose earlier attempts are not read`
+    )
+  }
+  return null
+}
+
+// GET /repos/{repo}/actions/workflows/{file}/runs?event=pull_request&branch=…:
+// since the run a marker names was created, no run of this workflow on this
+// head branch whose head has this head's tree failed, was cancelled or ended
+// any way but success, and none, at any time, is still going. A re-run moves
+// a run's run_started_at, so a run created earlier but re-run since counts.
+// The listing shows each run's latest attempt only, so a later run whose
+// first attempt failed and whose re-run passed counts as a pass. The run a
+// marker names must be listed, for this head tree, still at the attempt the
+// marker names: its record was read at the start of the decision, and a
+// re-run started since shows here at a later attempt. Its status and
+// conclusion are not judged: its jobs were (both attempts), and the one job
+// outside them, Dependency policy, runs again in this run. This run is still
+// going.
+export function laterRunsProblem(runs, { runId, runAttempt, since, context }) {
+  const rule = RULES.later
+  if (!Array.isArray(runs)) return refusedBy(rule, 'the runs of this workflow are unreadable')
+  const { currentRunId, headBranch, headTree, workflowPath } = context
+  let vouchingListed = false
+  for (const run of runs) {
+    if (!run || typeof run !== 'object' || !Number.isSafeInteger(run.id)) {
+      return refusedBy(rule, 'the run listing has an entry without a run ID')
+    }
+    if (
+      run.event !== 'pull_request' ||
+      run.head_branch !== headBranch ||
+      run.path !== workflowPath
+    ) {
+      return refusedBy(
+        rule,
+        `the run listing holds run ${run.id}, which is not a pull_request run of ${workflowPath} on this head branch`
+      )
+    }
+    const tree = run.head_commit?.tree_id
+    if (typeof tree !== 'string' || !OBJECT_ID.test(tree)) {
+      return refusedBy(rule, `run ${run.id} has no readable head tree`)
+    }
+    if (run.id === Number(runId)) {
+      if (tree !== headTree) {
+        return refusedBy(rule, `run ${runId} is listed with head tree ${tree}, not ${headTree}`)
+      }
+      if (run.run_attempt !== Number(runAttempt)) {
+        return refusedBy(
+          rule,
+          `run ${runId} is listed at attempt ${JSON.stringify(run.run_attempt ?? null)}, not attempt ${runAttempt}: it was re-run after its record was read`
+        )
+      }
+      vouchingListed = true
+      continue
+    }
+    if (tree !== headTree || run.id === Number(currentRunId)) continue
+    if (run.status !== 'completed') {
+      return refusedBy(
+        rule,
+        `run ${run.id} of this tree is ${JSON.stringify(run.status ?? null)}, not completed`
+      )
+    }
+    if (run.conclusion === 'success') continue
+    const created = githubTime(run.created_at)
+    const started = githubTime(run.run_started_at)
+    if (created === null || started === null) {
+      return refusedBy(
+        rule,
+        `run ${run.id} of this tree ended ${JSON.stringify(run.conclusion ?? null)} at a time that is unreadable`
+      )
+    }
+    if (created >= since || started >= since) {
+      return refusedBy(
+        rule,
+        `run ${run.id} of this tree ended ${JSON.stringify(run.conclusion ?? null)} in an attempt started at ${run.run_started_at}, after run ${runId} was created`
+      )
+    }
+  }
+  if (!vouchingListed) return refusedBy(rule, `the run listing does not show run ${runId}`)
   return null
 }
 
 // The checks of the run a marker names, in order, then of this pull request.
 // Returns the first problem, or null when GitHub vouches for the run.
 export async function markerRunProblem({ runId, runAttempt, key, context, fetchJson, fetchList }) {
-  const base = `/repos/${context.repository}/actions/runs/${runId}`
+  const repo = `/repos/${context.repository}`
+  const base = `${repo}/actions/runs/${runId}`
   const run = await fetchJson(base)
   const runProblem = runRecordProblem(run, { ...context, runId, runAttempt })
   if (runProblem) return runProblem
-  const jobs = await fetchJson(`${base}/attempts/${runAttempt}/jobs?per_page=100`)
+  const jobs = await readFor(RULES.attempts, () =>
+    fetchJson(`${base}/attempts/${runAttempt}/jobs?per_page=100`)
+  )
   const jobProblem = jobsProblem(jobs, { runId, runAttempt, jobNames: context.jobNames })
-  if (jobProblem) return jobProblem
+  if (jobProblem) return refusedBy(RULES.attempts, jobProblem)
   const name = artifactName(key)
   const artifacts = await fetchJson(`${base}/artifacts?name=${name}&per_page=100`)
   const artifactIssue = artifactProblem(artifacts, { runId, name })
   if (artifactIssue) return artifactIssue
   const [owner] = context.repository.split('/')
   const head = encodeURIComponent(`${owner}:${context.headBranch}`)
-  const pulls = await fetchJson(
-    `/repos/${context.repository}/pulls?state=all&sort=created&direction=asc&head=${head}&per_page=2`
+  const pulls = await readFor(RULES.onePull, () =>
+    fetchJson(`${repo}/pulls?state=all&sort=created&direction=asc&head=${head}&per_page=2`)
   )
   const pullsIssue = headPullsProblem(pulls, context)
-  if (pullsIssue) return pullsIssue
-  const timeline = await fetchList(
-    `/repos/${context.repository}/issues/${context.pullRequest}/timeline`,
-    TIMELINE_PAGES
+  if (pullsIssue) return refusedBy(RULES.onePull, pullsIssue)
+  const createdIssue = creationProblem(run, pulls[0], { runId, pullRequest: context.pullRequest })
+  if (createdIssue) return createdIssue
+  const eventRules = `${RULES.base}, ${RULES.headBranch}`
+  for (const listing of ['timeline', 'events']) {
+    const events = await readFor(eventRules, () =>
+      fetchList(`${repo}/issues/${context.pullRequest}/${listing}`, EVENT_PAGES)
+    )
+    const eventIssue = eventsProblem(
+      events,
+      context,
+      listing === 'events' ? 'issue events' : listing
+    )
+    if (eventIssue) return eventIssue
+  }
+  const rerunIssue = rerunProblem(context)
+  if (rerunIssue) return rerunIssue
+  const workflowFile = context.workflowPath.slice(context.workflowPath.lastIndexOf('/') + 1)
+  const runs = await readFor(RULES.later, () =>
+    fetchList(
+      `${repo}/actions/workflows/${workflowFile}/runs?event=pull_request&branch=${encodeURIComponent(context.headBranch)}`,
+      RUN_PAGES,
+      'workflow_runs'
+    )
   )
-  return timelineProblem(timeline, context)
+  return laterRunsProblem(runs, {
+    runId,
+    runAttempt,
+    since: githubTime(run.created_at),
+    context,
+  })
 }
 
 // Only a marker for exactly this prefix, from a lookup that itself succeeded,
@@ -700,7 +963,11 @@ export async function runKey(env, { cwd = process.cwd(), fetchImpl, log = consol
   return { ...verdict, prefix, headTree }
 }
 
-export async function runDecide(env, { fetchImpl, log = console } = {}) {
+export async function runDecide(
+  env,
+  { fetchImpl, log = console, budgetMs = DECIDE_BUDGET_MS } = {}
+) {
+  const deadline = Date.now() + budgetMs
   const verdict = await decide({
     eligible: env.TREE_PASS_ELIGIBLE,
     prefix: env.TREE_PASS_PREFIX,
@@ -712,14 +979,22 @@ export async function runDecide(env, { fetchImpl, log = console } = {}) {
         ...named,
         context: runContext(env),
         fetchJson: path =>
-          githubJson({ apiUrl: env.GITHUB_API_URL, path, token: env.GH_TOKEN, fetchImpl }),
-        fetchList: (path, maxPages) =>
+          githubJson({
+            apiUrl: env.GITHUB_API_URL,
+            path,
+            token: env.GH_TOKEN,
+            fetchImpl,
+            deadline,
+          }),
+        fetchList: (path, maxPages, field) =>
           githubList({
             apiUrl: env.GITHUB_API_URL,
             path,
             maxPages,
+            field,
             token: env.GH_TOKEN,
             fetchImpl,
+            deadline,
           }),
       }),
   })
