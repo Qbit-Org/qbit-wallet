@@ -116,7 +116,6 @@ function createBackground() {
     getKeyrings: vi.fn(async () => [keyring()]),
     getCurrentKeyring: vi.fn(async () => keyring()),
     getWalletConfig: vi.fn(async () => ({})),
-    getAddressSummary: vi.fn(async () => ({})),
     getAddressBalanceV2: vi.fn(async () => ({
       chainType: state.chainType,
       availableBalance: 10_000_000,

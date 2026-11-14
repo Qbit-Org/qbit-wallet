@@ -103,7 +103,6 @@ export const UI_CONTROLLER_METHODS = [
   'getAddressBalance',
   'getAddressBalanceV2',
   'getAddressHistory',
-  'getAddressSummary',
   'getAllAddresses',
   'getApproval',
   'getAutoLockTimeId',

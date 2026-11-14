@@ -130,6 +130,7 @@ const slice: Slice<AccountsState> = createSlice({
             immatureBalance,
             pendingBalance,
             utxoLimitExceeded,
+            utxoReadIncomplete,
             chainType,
           },
           address,
@@ -164,6 +165,7 @@ const slice: Slice<AccountsState> = createSlice({
       state.balanceV2Map[address].immatureBalance = immatureBalance
       state.balanceV2Map[address].pendingBalance = pendingBalance
       state.balanceV2Map[address].utxoLimitExceeded = utxoLimitExceeded
+      state.balanceV2Map[address].utxoReadIncomplete = utxoReadIncomplete
       state.balanceV2Map[address].chainType = chainType
     },
     setBalanceError(state, action: { payload: { address: string; requestId: number } }) {

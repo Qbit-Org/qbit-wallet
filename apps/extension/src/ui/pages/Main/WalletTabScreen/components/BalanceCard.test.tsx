@@ -5,6 +5,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { colors } from '@/ui/theme/colors';
 import { useBalanceCardLogic } from '@qbit/wallet-state';
 
+import en from '../../../../../_locales/en/messages.json';
+import es from '../../../../../_locales/es/messages.json';
+import fr from '../../../../../_locales/fr/messages.json';
+import ja from '../../../../../_locales/ja/messages.json';
+import ru from '../../../../../_locales/ru/messages.json';
+import zhTW from '../../../../../_locales/zh_TW/messages.json';
 import { BalanceCard } from './BalanceCard';
 
 vi.mock('@/ui/components', async () => {
@@ -87,6 +93,9 @@ function renderCard(state: Partial<ReturnType<typeof useBalanceCardLogic>>) {
     utxoLimitExceededText: 'utxo_limit_exceeded_balance',
     balanceSplitUnknown: false,
     balanceSplitUnknownText: 'utxo_limit_exceeded_balance_detail',
+    utxoReadIncomplete: false,
+    utxoReadIncompleteText: 'balance_outputs_incomplete',
+    utxoReadIncompleteDetailText: 'balance_outputs_incomplete_detail',
     balanceLoading: false,
     balanceLoadFailed: false,
     balanceErrorText: undefined,
@@ -112,6 +121,19 @@ const overLimit = {
   balanceSplitUnknown: true
 };
 
+// The outputs are not all read yet: the total is measured, the split is not.
+const outputsIncomplete = {
+  availableAmount: '--',
+  unavailableAmount: '--',
+  balanceValue: '0.91000000',
+  utxoReadIncomplete: true
+};
+
+const expectNoIncompleteNotes = () => {
+  expect(screen.queryByTestId('balance-outputs-incomplete-note')).toBeNull();
+  expect(screen.queryByTestId('balance-outputs-incomplete-detail')).toBeNull();
+};
+
 describe('BalanceCard', () => {
   afterEach(() => {
     cleanup();
@@ -129,6 +151,45 @@ describe('BalanceCard', () => {
     expect(screen.getByTestId('balance-split-unknown-note').textContent).toBe('utxo_limit_exceeded_balance_detail');
     // The tooltip explaining a measured Unavailable is not offered for an unknown one.
     expect(screen.queryByTestId('tooltip:rich')).toBeNull();
+    expectNoIncompleteNotes();
+  });
+
+  it('shows the total with a note, and the split as unknown with a line saying why, while the outputs are still being read', () => {
+    renderCard({ ...outputsIncomplete, isDetailExpanded: true });
+
+    const card = screen.getByTestId('wallet-balance-card');
+    expect(screen.getByTestId('balance-amount').textContent).toBe('0.91000000');
+    expect(card.textContent).toContain('available--');
+    expect(card.textContent).toContain('unavailable--');
+    expect(screen.getByTestId('balance-outputs-incomplete-note').textContent).toBe('balance_outputs_incomplete');
+    expect(screen.getByTestId('balance-outputs-incomplete-detail').textContent).toBe(
+      'balance_outputs_incomplete_detail'
+    );
+    // The detail line takes the place of the tooltip explaining a measured Unavailable.
+    expect(screen.queryByTestId('tooltip:rich')).toBeNull();
+    // Neither the explorer's limit nor an error, and no spinner: the total is loaded.
+    expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
+    expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
+    expect(screen.queryByTestId('balance-error')).toBeNull();
+    expect(screen.queryByTestId('balance-loading')).toBeNull();
+    expect(card.dataset.background).toBe(colors.accent);
+  });
+
+  it('shows the outputs line only in the expanded rows', () => {
+    renderCard({ ...outputsIncomplete, isDetailExpanded: false });
+
+    expect(screen.getByTestId('balance-outputs-incomplete-note')).toBeTruthy();
+    expect(screen.queryByTestId('balance-outputs-incomplete-detail')).toBeNull();
+  });
+
+  it('keeps the total and the outputs note next to the refresh error', () => {
+    renderCard({ ...outputsIncomplete, isDetailExpanded: true, balanceErrorText: 'balance_refresh_error' });
+
+    expect(screen.getByTestId('balance-amount').textContent).toBe('0.91000000');
+    expect(screen.getByTestId('balance-error-note').textContent).toBe('balance_refresh_error');
+    expect(screen.getByTestId('balance-outputs-incomplete-note')).toBeTruthy();
+    expect(screen.getByTestId('balance-outputs-incomplete-detail')).toBeTruthy();
+    expect(screen.getByTestId('wallet-balance-card').dataset.background).toBe(colors.accent);
   });
 
   it('labels the balance visibility toggle and the refresh button', () => {
@@ -169,6 +230,7 @@ describe('BalanceCard', () => {
     );
     expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
     expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
+    expectNoIncompleteNotes();
   });
 
   it('shows the load error and a retry instead of a zero balance', () => {
@@ -189,6 +251,7 @@ describe('BalanceCard', () => {
     fireEvent.click(screen.getByTestId('balance-retry-button'));
     expect(logic.retryBalance).toHaveBeenCalledTimes(1);
     expect(logic.handleExpandToggle).not.toHaveBeenCalled();
+    expectNoIncompleteNotes();
   });
 
   it('keeps the last balance next to the refresh error', () => {
@@ -256,6 +319,8 @@ describe('BalanceCard', () => {
     expect(screen.queryByTestId('balance-utxo-limit-note')).toBeNull();
     expect(screen.queryByTestId('balance-split-unknown-note')).toBeNull();
     expect(screen.queryByTestId('balance-error')).toBeNull();
+    // Nor the line for outputs still being read: that is another unknown split.
+    expectNoIncompleteNotes();
   });
 
   it('shows no error without a failed refresh', () => {
@@ -275,5 +340,38 @@ describe('BalanceCard', () => {
     // No breakdown, or chevron to open one, until a balance loads.
     expect(screen.queryByText('available')).toBeNull();
     expect(document.querySelector('[data-icon="down"], [data-icon="up"]')).toBeNull();
+  });
+});
+
+type Catalog = Record<string, { message: string } | undefined>;
+const LOCALES: [string, Catalog][] = [
+  ['en', en],
+  ['es', es],
+  ['fr', fr],
+  ['ja', ja],
+  ['ru', ru],
+  ['zh_TW', zhTW]
+];
+const OUTPUTS_INCOMPLETE_KEYS = ['balance_outputs_incomplete', 'balance_outputs_incomplete_detail'];
+
+describe('BalanceCard copy for outputs still being read', () => {
+  it('says why only the total is shown, without blaming the explorer', () => {
+    expect(en.balance_outputs_incomplete.message).toBe(
+      'The wallet could not finish reading this account\u0027s outputs, so only the total is shown. It will try again.'
+    );
+    expect(en.balance_outputs_incomplete_detail.message).toBe(
+      'Available and unavailable amounts are unknown until the wallet finishes reading this account\u0027s outputs.'
+    );
+  });
+
+  it.each(LOCALES)('has both lines in %s, translated and without placeholders', (locale, messages) => {
+    for (const key of OUTPUTS_INCOMPLETE_KEYS) {
+      const message = messages[key]?.message ?? '';
+      expect(message.trim(), `${locale} ${key}`).not.toBe('');
+      expect(message, `${locale} ${key}`).not.toMatch(/\$/);
+      if (locale !== 'en') {
+        expect(message, `${locale} ${key}`).not.toBe((en as Catalog)[key]?.message);
+      }
+    }
   });
 });

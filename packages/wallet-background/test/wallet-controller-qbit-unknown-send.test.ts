@@ -46,6 +46,8 @@ vi.mock('../src/services', async () => {
       keyrings: [],
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
+      // The wallet reads unlocked, as the funding-transaction reads check.
+      memStore: { getState: () => ({ isUnlocked: true }) },
     },
     preferenceService: {
       getCurrentAccount: vi.fn(),

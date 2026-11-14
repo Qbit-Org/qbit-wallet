@@ -33,7 +33,6 @@ function walletWithBroadcast() {
     broadcastQbitTx: vi.fn(),
     releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
     abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
-    getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
     getAddressBalanceV2: vi.fn().mockResolvedValue({
       availableBalance: 1,
       unavailableBalance: 0,
@@ -208,7 +207,7 @@ describe('useTxConfirmScreenLogic', () => {
     expect(navigation.navigate).not.toHaveBeenCalled()
     expect(navigation.goBack).not.toHaveBeenCalled()
     expect(wallet.signPsbtV2).not.toHaveBeenCalled()
-    expect(wallet.getAddressSummary).not.toHaveBeenCalled()
+    expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
   })
 
   it("hands a consolidation batch's context to the failure screen, for the success a retry or status check ends on (#170)", async () => {

@@ -1963,16 +1963,31 @@ describe('qbit Esplora wallet adapters', () => {
       })
     })
 
+    // An ordinary failure of the listing or of a lookup leaves the outputs
+    // unread: the statistics still give the total, and the split is unknown.
+    // The read failed rather than ran out of time, which a poll backs off from.
+    const incomplete = (total: number) => ({
+      availableBalance: null,
+      unavailableBalance: total,
+      totalBalance: total,
+      immatureBalance: null,
+      pendingBalance: null,
+      utxoReadIncomplete: true,
+      utxoReadFailed: true,
+    })
+
     it('keeps a 500 for an address within the limit an ordinary failure', async () => {
-      await expect(getQbitSpendableBalanceV2(clientFor(500) as any, address)).rejects.toBe(
-        listingRefused
+      await expect(getQbitSpendableBalanceV2(clientFor(500) as any, address)).resolves.toEqual(
+        incomplete(500_000)
       )
     })
 
-    it('keeps the listing failure when the statistics fail as well', async () => {
+    it('keeps the listing failure an ordinary one when the statistics fail as well', async () => {
       const client = clientFor(501)
       client.getAddressStats.mockRejectedValue(new Error('stats unavailable'))
-      await expect(getQbitSpendableBalanceV2(client as any, address)).rejects.toBe(listingRefused)
+      await expect(getQbitSpendableBalanceV2(client as any, address)).resolves.toEqual(
+        incomplete(501_000)
+      )
     })
 
     it('does not treat a 500 from a per-output lookup as the limit', async () => {
@@ -1982,7 +1997,9 @@ describe('qbit Esplora wallet adapters', () => {
         url: `https://explorer.test/api/tx/${'ab'.repeat(32)}`,
       })
       client.getAddressUtxos.mockRejectedValue(lookupFailure)
-      await expect(getQbitSpendableBalanceV2(client as any, address)).rejects.toBe(lookupFailure)
+      await expect(getQbitSpendableBalanceV2(client as any, address)).resolves.toEqual(
+        incomplete(501_000)
+      )
       expect(client.getAddressStats).not.toHaveBeenCalled()
     })
 
@@ -1990,7 +2007,9 @@ describe('qbit Esplora wallet adapters', () => {
       const client = clientFor(501)
       const timeout = new QbitApiError('timeout', 'request timed out')
       client.getAddressUtxos.mockRejectedValue(timeout)
-      await expect(getQbitSpendableBalanceV2(client as any, address)).rejects.toBe(timeout)
+      await expect(getQbitSpendableBalanceV2(client as any, address)).resolves.toEqual(
+        incomplete(501_000)
+      )
       expect(client.getAddressStats).not.toHaveBeenCalled()
     })
 
@@ -2118,10 +2137,13 @@ describe('qbit Esplora wallet adapters', () => {
         const statsFailure = new Error('stats unavailable')
         client.getAddressStats.mockRejectedValue(statsFailure)
         await expect(getQbitSpendableBalanceV2(client as any, address)).rejects.toBe(statsFailure)
-        // A bare 500 keeps its own meaning, as before.
+        // A bare 500 keeps its own meaning, as before: an ordinary failure,
+        // whose split is unknown.
         const bare = clientFor(501)
         bare.getAddressStats.mockRejectedValue(statsFailure)
-        await expect(getQbitSpendableBalanceV2(bare as any, address)).rejects.toBe(listingRefused)
+        await expect(getQbitSpendableBalanceV2(bare as any, address)).resolves.toEqual(
+          incomplete(501_000)
+        )
       })
     })
 
