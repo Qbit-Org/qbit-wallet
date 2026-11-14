@@ -118,6 +118,54 @@ describe('accounts reducer', () => {
         pendingBalance: 10000,
       })
     })
+
+    it('stores an incomplete outputs read, and clears it with the next balance that is not', () => {
+      const address = 'qbit-many-outputs'
+      let state = accountsReducer(
+        initialState,
+        accountActions.setBalanceV2({
+          address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 91_000_000,
+            totalBalance: 91_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoReadIncomplete: true,
+            chainType: 'QBIT_MAINNET',
+          },
+          requestId: 1,
+        })
+      )
+
+      expect(state.balanceV2Map[address]).toMatchObject({
+        availableBalance: null,
+        unavailableBalance: 91_000_000,
+        totalBalance: 91_000_000,
+        utxoReadIncomplete: true,
+      })
+
+      // As the next read arrives over the UI port: JSON leaves out an unset flag.
+      const fullRead = JSON.parse(
+        JSON.stringify({
+          availableBalance: 60_000_000,
+          unavailableBalance: 31_000_000,
+          totalBalance: 91_000_000,
+          immatureBalance: 0,
+          pendingBalance: 31_000_000,
+          utxoReadIncomplete: undefined,
+          chainType: 'QBIT_MAINNET',
+        })
+      )
+      state = accountsReducer(
+        state,
+        accountActions.setBalanceV2({ address, balance: fullRead, requestId: 2 })
+      )
+
+      expect(state.balanceV2Map[address].utxoReadIncomplete).toBeUndefined()
+      expect(state.balanceV2Map[address].availableBalance).toBe(60_000_000)
+      expect(state.balanceV2Map[address].unavailableBalance).toBe(31_000_000)
+    })
   })
 
   describe('balance refresh status', () => {
@@ -240,9 +288,19 @@ describe('accounts reducer', () => {
         accountActions.setBalanceV2({ address, balance: balance(5000), requestId: 2 })
       )
       state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 3 }))
+      // An older read that could not finish the outputs: its flag stays out too.
       state = accountsReducer(
         state,
-        accountActions.setBalanceV2({ address, balance: balance(9000), requestId: 1 })
+        accountActions.setBalanceV2({
+          address,
+          balance: {
+            ...balance(9000),
+            availableBalance: null,
+            unavailableBalance: 9000,
+            utxoReadIncomplete: true,
+          },
+          requestId: 1,
+        })
       )
 
       expect(state.balanceStatusMap[address]).toEqual({
@@ -251,6 +309,8 @@ describe('accounts reducer', () => {
         balanceRequestId: 2,
       })
       expect(state.balanceV2Map[address].totalBalance).toBe(5000)
+      expect(state.balanceV2Map[address].availableBalance).toBe(5000)
+      expect(state.balanceV2Map[address].utxoReadIncomplete).toBeUndefined()
     })
   })
 

@@ -175,7 +175,6 @@ function createBackground() {
     getAutoLockTimeId: vi.fn(async () => 0),
     getDeveloperMode: vi.fn(async () => false),
     getWalletConfig: vi.fn(async () => ({})),
-    getAddressSummary: vi.fn(async () => ({})),
     getAddressBalanceV2: vi.fn(async () => ({
       chainType: state.chainType,
       availableBalance: 0,

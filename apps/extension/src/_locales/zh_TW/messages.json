@@ -2252,6 +2252,12 @@
   "balance_refresh_error": {
     "message": "無法更新餘額，顯示的餘額可能不是最新的。"
   },
+  "balance_outputs_incomplete": {
+    "message": "錢包無法讀完此帳戶的所有輸出，因此僅顯示總額。錢包會再試一次。"
+  },
+  "balance_outputs_incomplete_detail": {
+    "message": "在錢包讀完此帳戶的輸出之前，可用與不可用金額未知。"
+  },
   "utxo_limit_exceeded_send": {
     "message": "瀏覽器不會列出此帳戶的輸出，錢包也無法從其歷史記錄讀取全部輸出，因此目前無法從此帳戶傳送。請重新開啟「傳送」再試一次。"
   },

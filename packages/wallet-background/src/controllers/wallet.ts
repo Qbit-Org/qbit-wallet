@@ -294,6 +294,7 @@ import {
   QbitReplaceableReads,
   type QbitReadVersionOrder,
 } from '../utils/qbit-shared-reads'
+import { QbitFundingTxReads } from '../utils/qbit-funding-tx-reads'
 
 import { paramsUtils } from '@qbit/base-utils'
 import {
@@ -1970,11 +1971,13 @@ export class WalletController extends BaseController {
     this.timer = null
     this.autoLockDueAt = undefined
     this.clearAutoLockHold()
-    // A locked wallet keeps no account's outputs in memory, not even while
-    // the lock waits or if it fails. setLocked marks the wallet locked at
-    // once, before it waits, so nothing is kept after this clear: not from
-    // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
+    // A locked wallet keeps no account's outputs in memory, nor what it read
+    // of their funding transactions, not even while the lock waits or if it
+    // fails. setLocked marks the wallet locked at once, before it waits, so
+    // nothing is kept after these clears: not from a read that started
+    // before them, nor while locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
     this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
     // A send plan stops signing before its next signature, and its drafts
     // go: told before the keyring's lock, which may wait for its mutex, and
     // not again by that lock's event (see `listenForKeyringLocks`).
@@ -2034,6 +2037,15 @@ export class WalletController extends BaseController {
     // Past the explorer's limit the outputs come from the latest output read
     // for this address on this network (see `getQbitUtxoSnapshot`), and only
     // while the statistics still read as they did for it.
+    //
+    // The read has one deadline (`QBIT_BALANCE_READ_DEADLINE_MS`), and its
+    // reads of funding transactions go through `qbitFundingTxReads`, so an
+    // address with thousands of outputs is read across polls, each one
+    // starting where the last stopped, and a confirmed output once read is
+    // not read again. Its answer is only totals, so after one wrong
+    // `is_coinbase` answer it can count a reward younger than 1,000 blocks as
+    // Available until a read of outputs or a clear replaces the kept fact; no
+    // send can select it.
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
@@ -2065,13 +2077,16 @@ export class WalletController extends BaseController {
         reservedUnknown = true
         return new Set<string>()
       },
-      readOutputs
+      readOutputs,
+      { fundingTxReads: this.qbitFundingTxReads }
     )
     if (reservedUnknown) {
       // Shown as `--`, as past the explorer's UTXO limit: the total is
       // measured, and nothing counts as available until a read has the
       // reservations again. An address past the limit keeps
-      // `utxoLimitExceeded`, as its total comes from the statistics.
+      // `utxoLimitExceeded`, as its total comes from the statistics, and one
+      // whose outputs were not read in full keeps `utxoReadIncomplete`, and
+      // `utxoReadFailed` when that read failed.
       return {
         availableBalance: null,
         unavailableBalance: Math.max(0, data.totalBalance),
@@ -2079,6 +2094,8 @@ export class WalletController extends BaseController {
         immatureBalance: null,
         pendingBalance: null,
         ...(data.utxoLimitExceeded ? { utxoLimitExceeded: true } : {}),
+        ...(data.utxoReadIncomplete ? { utxoReadIncomplete: true } : {}),
+        ...(data.utxoReadFailed ? { utxoReadFailed: true } : {}),
         chainType,
       }
     }
@@ -2400,11 +2417,13 @@ export class WalletController extends BaseController {
   /* keyrings */
 
   resetAllData = async () => {
-    // A reset wallet keeps no account's outputs, not even while the reset
-    // writes or when it fails. The keyring service marks the wallet locked
-    // only after its writes, so a read that completes during them is kept
-    // until the second clear; nothing is kept after that, nor while locked.
+    // A reset wallet keeps no account's outputs, nor what it read of their
+    // funding transactions, not even while the reset writes or when it
+    // fails. The keyring service marks the wallet locked only after its
+    // writes, so a read that completes during them is kept until the second
+    // clears; nothing is kept after those, nor while locked.
     this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
     // The send plans stop before anything else is reset, and stay stopped
     // until the reset is over: nothing of a plan is signed, broadcast,
     // written or held meanwhile, so no payment leaves for a wallet being
@@ -2416,6 +2435,7 @@ export class WalletController extends BaseController {
         await keyringService.resetAllData()
       } finally {
         this.qbitLatestUtxoReads.clear()
+        this.qbitFundingTxReads.clear()
       }
       await preferenceService.resetAllData()
       await qbitSendGuardService.resetAllData()
@@ -3441,7 +3461,9 @@ export class WalletController extends BaseController {
     { deferIncompleteHistory }: { deferIncompleteHistory: boolean }
   ): Promise<QbitClassifiedUtxos | QbitRecoveryDeferredSource> => {
     try {
-      return await getQbitAddressUtxosClassifiedPastLimit(client, address)
+      return await getQbitAddressUtxosClassifiedPastLimit(client, address, {
+        fundingTxReads: this.qbitFundingTxReads,
+      })
     } catch (error) {
       if (error instanceof QbitUtxoHistoryTooLargeError) {
         return { address, reason: 'history_too_large', maxTransactions: error.maxTransactions }
@@ -5348,8 +5370,10 @@ export class WalletController extends BaseController {
       // wallets in use and no later wallet can ever pick them up.
       preferenceService.removeKeyringAlianName(target.key)
       preferenceService.removeKeyringColor(target.key)
-      // Nor are the removed accounts' outputs kept; the others are read again.
+      // Nor are the removed accounts' outputs kept, nor what was read of
+      // their funding transactions; the others are read again.
       this.qbitLatestUtxoReads.clear()
+      this.qbitFundingTxReads.clear()
       // Nor do their send plans go on: each ends as a cancel ends it, and
       // nothing more is signed or broadcast for an account no wallet that
       // stays signs for.
@@ -5686,10 +5710,12 @@ export class WalletController extends BaseController {
     } catch (error) {
       // A change the keyring service cannot roll back locks the wallet on
       // its own, without `lockWallet`: it keeps no account's outputs then
-      // either, and the pages and the UI are told it locked. The send plans
-      // heard of it from the keyring's lock event (`listenForKeyringLocks`).
+      // either, nor their funding transactions, and the pages and the UI
+      // are told it locked. The send plans heard of it from the keyring's
+      // lock event (`listenForKeyringLocks`).
       if (!this.isUnlocked()) {
         this.qbitLatestUtxoReads.clear()
+        this.qbitFundingTxReads.clear()
         this.announceLock()
       }
       throw error
@@ -6586,6 +6612,10 @@ export class WalletController extends BaseController {
       return
     }
 
+    // What was read of the previous network's funding transactions is of no
+    // more use (see `qbitFundingTxReads`).
+    this.qbitFundingTxReads.clear()
+
     // Restored seeds have unscanned floors on the newly active network; either
     // HD-path sync or the explicit same-path re-arm closed their signing gate.
     this.kickPendingQbitRestoreFloorScan()
@@ -6802,13 +6832,17 @@ export class WalletController extends BaseController {
     })
   }
 
-  /** Forget cached clients bound to the loopback endpoint. */
+  /**
+   * Forget cached clients bound to the loopback endpoint, and what was read
+   * through them: the wallet leaves regtest whenever it drops them.
+   */
   private dropRegtestApiClients(): void {
     for (const key of [...this.qbitApiClients.keys()]) {
       if (key.startsWith(`${ChainType.QBIT_REGTEST}:`)) {
         this.qbitApiClients.delete(key)
       }
     }
+    this.qbitFundingTxReads.clear()
   }
 
   /** The current account's spendable outputs, always read afresh; see `getQbitUtxoSnapshot`. */
@@ -6993,6 +7027,35 @@ export class WalletController extends BaseController {
   }>(QBIT_LATEST_UTXO_READS_PER_CLIENT)
 
   /**
+   * The reads behind classifying any address's outputs, shared by the
+   * balance (`getAddressBalanceV2`) and every read of outputs
+   * (`qbitAccountUtxosOn`, `getAddressUtxo`, the recovery sources): one
+   * limiter per API client, so the wallet keeps at most
+   * `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` of them in flight to one explorer,
+   * and what funding transactions said of their outputs, so a balance poll of
+   * an address whose outputs did not change reads none of them again. It
+   * keeps the facts of at most `QBIT_FUNDING_FACTS_MAX_OUTPOINTS` (65,536)
+   * outputs, so the balance of an address whose listing names more reads none
+   * of them one by one: it answers with the total alone, the split unknown,
+   * and backs off (`getQbitSpendableBalanceV2`). Every
+   * read of outputs a send, sweep or plan may spend (`qbitAccountUtxosOn`,
+   * `getAddressUtxo`, the recovery sources) still reads afresh an output that
+   * is not a coinbase output and is younger than a coinbase must be to
+   * mature, and its answer replaces the kept one; so after one wrong
+   * `is_coinbase` answer the balance can count a reward younger than 1,000
+   * blocks as Available until such a read or a clear, while no send can
+   * select it (see `QbitFundingTxReads`). In memory only. Nothing is served from it or kept
+   * in it while the wallet reads locked, and it is forgotten wherever
+   * `qbitLatestUtxoReads` is (whenever the wallet locks, when its data is
+   * reset, when a keyring is removed), when the network changes
+   * (`performSetChainType`) and when the regtest clients are dropped
+   * (`dropRegtestApiClients`); a read that began before then keeps nothing.
+   */
+  private readonly qbitFundingTxReads = new QbitFundingTxReads({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
    * The outputs a send is built from: the ones the caller loaded, or the
    * account's outputs on `chain` when it loaded none. Outputs a caller
    * loaded must name the network they were loaded on, and it must be
@@ -7067,7 +7130,7 @@ export class WalletController extends BaseController {
     const { utxos, historyStats, matureAt, matureFrom } = await readQbitAddressUtxos(
       client,
       account.address,
-      signal ? { signal } : {}
+      { ...(signal ? { signal } : {}), fundingTxReads: this.qbitFundingTxReads }
     )
     const outputs = utxos.map(v => ({
       txid: v.txid,
@@ -10203,7 +10266,9 @@ export class WalletController extends BaseController {
   }
 
   getAddressUtxo = async (address: string) => {
-    return getQbitAddressUtxos(this.getQbitApiClient(), address)
+    return getQbitAddressUtxos(this.getQbitApiClient(), address, {
+      fundingTxReads: this.qbitFundingTxReads,
+    })
   }
 
   getConnectedSites = (): ConnectedSite[] => {

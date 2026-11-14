@@ -163,7 +163,7 @@ describe('the vault after a create or restore', () => {
       },
       // The account reload and balance fetch the updater starts stay in flight.
       getKeyrings: () => new Promise<never>(() => undefined),
-      getAddressSummary: () => new Promise<never>(() => undefined),
+      getAddressBalanceV2: () => new Promise<never>(() => undefined),
     }
     const harness = createHookTestHarness({ wallet: wallet as any })
     harness.store.dispatch(globalActions.update({ isUnlocked: toldUnlocked, isBooted: false }))

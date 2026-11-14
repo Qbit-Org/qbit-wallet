@@ -2252,6 +2252,12 @@
   "balance_refresh_error": {
     "message": "Balance could not be refreshed and may be out of date."
   },
+  "balance_outputs_incomplete": {
+    "message": "The wallet could not finish reading this account's outputs, so only the total is shown. It will try again."
+  },
+  "balance_outputs_incomplete_detail": {
+    "message": "Available and unavailable amounts are unknown until the wallet finishes reading this account's outputs."
+  },
   "utxo_limit_exceeded_send": {
     "message": "The explorer does not list this account's outputs, and the wallet could not read them all from its history, so it cannot send from this account now. Reopen Send to try again."
   },

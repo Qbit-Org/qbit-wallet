@@ -1706,10 +1706,6 @@ describe('TxCreateScreen state hooks', () => {
         txid: 'qbit-txid',
         via: 'broadcast',
       }),
-      getAddressSummary: vi.fn().mockResolvedValue({
-        totalSatoshis: 90_000,
-        spendableSatoshis: 90_000,
-      }),
       getAddressBalanceV2: vi.fn().mockResolvedValue({
         availableBalance: 80_000,
         unavailableBalance: 10_000,
@@ -1741,16 +1737,14 @@ describe('TxCreateScreen state hooks', () => {
       undefined,
       undefined
     )
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(1)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
-    expect(wallet.getAddressSummary).toHaveBeenCalledWith(account.address)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith(account.address)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000)
       await Promise.resolve()
     })
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(2)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
 
     await act(async () => {
@@ -1758,7 +1752,6 @@ describe('TxCreateScreen state hooks', () => {
       await Promise.resolve()
     })
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(3)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
   })
 
@@ -1773,7 +1766,6 @@ describe('TxCreateScreen state hooks', () => {
         reason: 'network',
         lookup: 'gone',
       }),
-      getAddressSummary: vi.fn(),
       getAddressBalanceV2: vi.fn(),
     }
     const { wrapper } = createSendHarness({ wallet: wallet as any })
@@ -1785,7 +1777,6 @@ describe('TxCreateScreen state hooks', () => {
     })
 
     expect(response).toMatchObject({ success: false, outcome: 'unknown', reason: 'network' })
-    expect(wallet.getAddressSummary).not.toHaveBeenCalled()
     expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
   })
 
@@ -2127,6 +2118,86 @@ describe('TxCreateScreen state hooks', () => {
       await waitFor(() => expect(result.current.inputAmount).toBe('0.01'))
       expect(result.current.error).toBe('')
       expect(result.current.disabled).toBe(true)
+    })
+
+    describe('while the balance read has not finished reading the outputs', () => {
+      // The background read the address statistics but not every output yet:
+      // the total is measured, Available is not.
+      const incompleteBalance = {
+        availableBalance: null,
+        unavailableBalance: 6_000_000,
+        totalBalance: 6_000_000,
+        immatureBalance: null,
+        pendingBalance: null,
+        utxoReadIncomplete: true,
+        chainType: ChainType.QBIT_MAINNET,
+      }
+
+      function renderIncomplete(snapshot: Promise<unknown>) {
+        const account = p2mrAccount()
+        const harness = createSendHarness()
+        harness.wallet.getQbitUtxoSnapshot.mockReturnValue(snapshot)
+        harness.store.dispatch(accountActions.setCurrent(account))
+        harness.store.dispatch(
+          accountActions.setBalanceV2({ address: account.address, balance: incompleteBalance })
+        )
+        const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+        return { result, harness, account }
+      }
+
+      it('shows Available as unknown, fills nothing on Max and keeps Next disabled, and takes the overlay down when its own read fails', async () => {
+        let fail!: (error: Error) => void
+        const { result, harness } = renderIncomplete(
+          new Promise((_resolve, reject) => {
+            fail = reject
+          })
+        )
+        expect(harness.tools.showLoading).toHaveBeenLastCalledWith(true)
+        await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+        expect(result.current.unavailableAmount).toBe('--')
+        act(() => {
+          result.current.onAmountMaxClick()
+        })
+        expect(result.current.inputAmount).toBeFalsy()
+        act(() => {
+          result.current.onAddressInputChange({
+            address: p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet'),
+            domain: '',
+          })
+          result.current.onAmountInputChange('0.01')
+        })
+        await waitFor(() => expect(result.current.inputAmount).toBe('0.01'))
+        expect(result.current.disabled).toBe(true)
+
+        // The screen's own read of the outputs fails too: the overlay comes
+        // down, Available stays unknown, and the explorer's limit is not blamed.
+        await act(async () => {
+          fail(new Error('HTTP 500'))
+        })
+        expect(harness.tools.showLoading).toHaveBeenLastCalledWith(false)
+        expect(result.current.availableAmount).toBe('--')
+        expect(result.current.error).toBe('')
+        expect(result.current.disabled).toBe(true)
+      })
+
+      it('shows the Available its own read of the outputs measures, and takes the overlay down', async () => {
+        const account = p2mrAccount()
+        const { result, harness } = renderIncomplete(
+          Promise.resolve({
+            address: account.address,
+            chain: ChainType.QBIT_MAINNET,
+            utxos: manyOutputs(account, [40_000, 20_000]),
+          })
+        )
+
+        await waitFor(() => expect(result.current.availableAmount).toBe('0.00060000'))
+        expect(result.current.unavailableAmount).toBe('0.05940000')
+        expect(harness.tools.showLoading).toHaveBeenLastCalledWith(false)
+        act(() => {
+          result.current.onAmountMaxClick()
+        })
+        expect(result.current.inputAmount).toBe('0.00060000')
+      })
     })
 
     it('sends from the outputs read from history while still offering consolidation (#277)', async () => {

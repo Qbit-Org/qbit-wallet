@@ -1703,7 +1703,6 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
       }),
       releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
       abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
-      getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
       getAddressBalanceV2: vi.fn().mockResolvedValue({
         availableBalance: 1,
         unavailableBalance: 0,
@@ -1772,7 +1771,6 @@ describe('useQbitConsolidationScreenLogic batch size (#170)', () => {
       checkQbitBroadcastStatus: vi.fn().mockResolvedValue({ found: true, txid, state: 'pending' }),
       releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
       abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
-      getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
       getAddressBalanceV2: vi.fn().mockResolvedValue({
         availableBalance: 1,
         unavailableBalance: 0,
