@@ -46,7 +46,7 @@ function renderPage({
       }),
     // The account reload and balance fetch the updater starts stay in flight.
     getKeyrings: () => new Promise<never>(() => undefined),
-    getAddressSummary: () => new Promise<never>(() => undefined),
+    getAddressBalanceV2: () => new Promise<never>(() => undefined),
   }
   const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
   store.dispatch(globalActions.update({ isUnlocked: true, isBooted: knowsVault }))

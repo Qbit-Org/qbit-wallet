@@ -54,6 +54,11 @@ export default function TxCreateScreen() {
     qbitUnit,
     t,
 
+    outputsLoading,
+    outputsLoadingText,
+    outputsLoadFailed,
+    outputsLoadFailedText,
+
     error,
     disabled,
     showConsolidate,
@@ -237,6 +242,13 @@ export default function TxCreateScreen() {
                 </Row>
               ) : null}
             </Column>
+            {/* Under Available, which shows the balance's figure until the
+                outputs are read: why Next waits, or why it cannot be used. */}
+            {outputsLoading ? (
+              <Text text={outputsLoadingText} size="xs" color="textDim" data-testid="send-outputs-loading-note" />
+            ) : outputsLoadFailed ? (
+              <Text text={outputsLoadFailedText} size="xs" color="error" data-testid="send-outputs-failed-note" />
+            ) : null}
           </Column>
 
           <Column mt="lg">

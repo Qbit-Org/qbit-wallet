@@ -249,6 +249,7 @@ import {
   qbitReadOutput,
   qbitTxSpendersFromOutspends,
   readQbitAddressUtxos,
+  readQbitAddressUtxosRidingOut,
   type QbitAccountHistoryRevision,
   type QbitAddressOutputScan,
   type QbitClassifiedUtxos,
@@ -294,6 +295,11 @@ import {
   QbitReplaceableReads,
   type QbitReadVersionOrder,
 } from '../utils/qbit-shared-reads'
+import {
+  QbitFundingTxReads,
+  isQbitRideOutFailure,
+  type QbitFundingFactsView,
+} from '../utils/qbit-funding-tx-reads'
 
 import { paramsUtils } from '@qbit/base-utils'
 import {
@@ -1970,11 +1976,13 @@ export class WalletController extends BaseController {
     this.timer = null
     this.autoLockDueAt = undefined
     this.clearAutoLockHold()
-    // A locked wallet keeps no account's outputs in memory, not even while
-    // the lock waits or if it fails. setLocked marks the wallet locked at
-    // once, before it waits, so nothing is kept after this clear: not from
-    // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
+    // A locked wallet keeps no account's outputs in memory, nor what it read
+    // of their funding transactions, not even while the lock waits or if it
+    // fails. setLocked marks the wallet locked at once, before it waits, so
+    // nothing is kept after these clears: not from a read that started
+    // before them, nor while locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
     this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
     // A send plan stops signing before its next signature, and its drafts
     // go: told before the keyring's lock, which may wait for its mutex, and
     // not again by that lock's event (see `listenForKeyringLocks`).
@@ -2034,6 +2042,15 @@ export class WalletController extends BaseController {
     // Past the explorer's limit the outputs come from the latest output read
     // for this address on this network (see `getQbitUtxoSnapshot`), and only
     // while the statistics still read as they did for it.
+    //
+    // The read has one deadline (`QBIT_BALANCE_READ_DEADLINE_MS`), and its
+    // reads of funding transactions go through `qbitFundingTxReads`, so an
+    // address with thousands of outputs is read across polls, each one
+    // starting where the last stopped, and a confirmed output once read is
+    // not read again; one a coinbase maturity deep is not read at all. Its
+    // answer is only totals, so after one wrong `is_coinbase` answer it can
+    // count a reward younger than 1,000 blocks as Available until a read of
+    // outputs or a clear replaces the kept fact; no send can select it.
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
@@ -2065,13 +2082,16 @@ export class WalletController extends BaseController {
         reservedUnknown = true
         return new Set<string>()
       },
-      readOutputs
+      readOutputs,
+      { fundingTxReads: this.qbitFundingTxReads }
     )
     if (reservedUnknown) {
       // Shown as `--`, as past the explorer's UTXO limit: the total is
       // measured, and nothing counts as available until a read has the
       // reservations again. An address past the limit keeps
-      // `utxoLimitExceeded`, as its total comes from the statistics.
+      // `utxoLimitExceeded`, as its total comes from the statistics, and one
+      // whose outputs were not read in full keeps `utxoReadIncomplete`, and
+      // `utxoReadFailed` when that read failed.
       return {
         availableBalance: null,
         unavailableBalance: Math.max(0, data.totalBalance),
@@ -2079,6 +2099,8 @@ export class WalletController extends BaseController {
         immatureBalance: null,
         pendingBalance: null,
         ...(data.utxoLimitExceeded ? { utxoLimitExceeded: true } : {}),
+        ...(data.utxoReadIncomplete ? { utxoReadIncomplete: true } : {}),
+        ...(data.utxoReadFailed ? { utxoReadFailed: true } : {}),
         chainType,
       }
     }
@@ -2400,11 +2422,13 @@ export class WalletController extends BaseController {
   /* keyrings */
 
   resetAllData = async () => {
-    // A reset wallet keeps no account's outputs, not even while the reset
-    // writes or when it fails. The keyring service marks the wallet locked
-    // only after its writes, so a read that completes during them is kept
-    // until the second clear; nothing is kept after that, nor while locked.
+    // A reset wallet keeps no account's outputs, nor what it read of their
+    // funding transactions, not even while the reset writes or when it
+    // fails. The keyring service marks the wallet locked only after its
+    // writes, so a read that completes during them is kept until the second
+    // clears; nothing is kept after those, nor while locked.
     this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
     // The send plans stop before anything else is reset, and stay stopped
     // until the reset is over: nothing of a plan is signed, broadcast,
     // written or held meanwhile, so no payment leaves for a wallet being
@@ -2416,6 +2440,7 @@ export class WalletController extends BaseController {
         await keyringService.resetAllData()
       } finally {
         this.qbitLatestUtxoReads.clear()
+        this.qbitFundingTxReads.clear()
       }
       await preferenceService.resetAllData()
       await qbitSendGuardService.resetAllData()
@@ -3438,10 +3463,20 @@ export class WalletController extends BaseController {
   private readQbitRecoverySourceUtxos = async (
     client: QbitWalletApiClient,
     address: string,
-    { deferIncompleteHistory }: { deferIncompleteHistory: boolean }
+    {
+      deferIncompleteHistory,
+      facts,
+    }: {
+      deferIncompleteHistory: boolean
+      /** The pass's place among the clears (`beginQbitOutputsRead`), taken when it was asked for. */
+      facts?: QbitFundingFactsView
+    }
   ): Promise<QbitClassifiedUtxos | QbitRecoveryDeferredSource> => {
     try {
-      return await getQbitAddressUtxosClassifiedPastLimit(client, address)
+      return await getQbitAddressUtxosClassifiedPastLimit(client, address, {
+        fundingTxReads: this.qbitFundingTxReads,
+        ...(facts ? { facts } : {}),
+      })
     } catch (error) {
       if (error instanceof QbitUtxoHistoryTooLargeError) {
         return { address, reason: 'history_too_large', maxTransactions: error.maxTransactions }
@@ -3601,6 +3636,10 @@ export class WalletController extends BaseController {
     feeRate?: number,
     sourceAnchorPubkey?: string
   ): Promise<QbitRecoveryMigrationPreparation> => {
+    // The pass's place among the clears of what was read of funding
+    // transactions, taken before its first await: a lock or a keyring
+    // removal during it leaves its later reads of sources keeping nothing.
+    const facts = this.beginQbitOutputsRead()
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -3763,7 +3802,7 @@ export class WalletController extends BaseController {
       const classifiedUtxos = await this.readQbitRecoverySourceUtxos(
         this.getQbitApiClient(utxoChain),
         account.address,
-        { deferIncompleteHistory: true }
+        { deferIncompleteHistory: true, facts }
       )
       if ('reason' in classifiedUtxos) {
         // Its outputs are unknown, so none of them is planned and the
@@ -4134,6 +4173,8 @@ export class WalletController extends BaseController {
     requestedSourceIndex: number,
     sourceAnchorPubkey?: string
   ): Promise<QbitRecoveryState> => {
+    // As for `performPrepareQbitRecoveryMigration`.
+    const facts = this.beginQbitOutputsRead()
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -4156,6 +4197,7 @@ export class WalletController extends BaseController {
           // reopens.
           const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
             deferIncompleteHistory: false,
+            facts,
           })
           if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
@@ -4322,6 +4364,7 @@ export class WalletController extends BaseController {
           const client = this.getQbitApiClient(this.getChainType())
           const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
             deferIncompleteHistory: true,
+            facts,
           })
           // A source whose outputs it cannot read is not swept yet;
           // preparation reports it.
@@ -5348,8 +5391,10 @@ export class WalletController extends BaseController {
       // wallets in use and no later wallet can ever pick them up.
       preferenceService.removeKeyringAlianName(target.key)
       preferenceService.removeKeyringColor(target.key)
-      // Nor are the removed accounts' outputs kept; the others are read again.
+      // Nor are the removed accounts' outputs kept, nor what was read of
+      // their funding transactions; the others are read again.
       this.qbitLatestUtxoReads.clear()
+      this.qbitFundingTxReads.clear()
       // Nor do their send plans go on: each ends as a cancel ends it, and
       // nothing more is signed or broadcast for an account no wallet that
       // stays signs for.
@@ -5686,10 +5731,12 @@ export class WalletController extends BaseController {
     } catch (error) {
       // A change the keyring service cannot roll back locks the wallet on
       // its own, without `lockWallet`: it keeps no account's outputs then
-      // either, and the pages and the UI are told it locked. The send plans
-      // heard of it from the keyring's lock event (`listenForKeyringLocks`).
+      // either, nor their funding transactions, and the pages and the UI
+      // are told it locked. The send plans heard of it from the keyring's
+      // lock event (`listenForKeyringLocks`).
       if (!this.isUnlocked()) {
         this.qbitLatestUtxoReads.clear()
+        this.qbitFundingTxReads.clear()
         this.announceLock()
       }
       throw error
@@ -6586,6 +6633,10 @@ export class WalletController extends BaseController {
       return
     }
 
+    // What was read of the previous network's funding transactions is of no
+    // more use (see `qbitFundingTxReads`).
+    this.qbitFundingTxReads.clear()
+
     // Restored seeds have unscanned floors on the newly active network; either
     // HD-path sync or the explicit same-path re-arm closed their signing gate.
     this.kickPendingQbitRestoreFloorScan()
@@ -6802,13 +6853,17 @@ export class WalletController extends BaseController {
     })
   }
 
-  /** Forget cached clients bound to the loopback endpoint. */
+  /**
+   * Forget cached clients bound to the loopback endpoint, and what was read
+   * through them: the wallet leaves regtest whenever it drops them.
+   */
   private dropRegtestApiClients(): void {
     for (const key of [...this.qbitApiClients.keys()]) {
       if (key.startsWith(`${ChainType.QBIT_REGTEST}:`)) {
         this.qbitApiClients.delete(key)
       }
     }
+    this.qbitFundingTxReads.clear()
   }
 
   /** The current account's spendable outputs, always read afresh; see `getQbitUtxoSnapshot`. */
@@ -6850,6 +6905,25 @@ export class WalletController extends BaseController {
    * left; so does every read of a page whose UI port disconnects. A walk
    * nothing waits for any more stops reading.
    *
+   * It rides out the explorer's server errors
+   * (`readQbitAddressUtxosRidingOut`) only when its caller asks, with
+   * `rideOut` the boolean `true`, for a read it can abandon, under a usable
+   * `readId`. The arguments cross a JSON port, so anything else, `'true'`
+   * and `1` included, is no. The send screen asks for its own reads, the
+   * one it opens with and each one it makes again while open (its account
+   * or network changed, or the account's plan changed what it holds): it
+   * covers the form for the first only, briefly, shows why Next waits
+   * meanwhile, and abandons the read when the screen is left, when its
+   * account or network changes, or when its page goes away.
+   * Its other reads, behind its loading overlay, to prepare a send with no
+   * outputs loaded or to send in one transaction, pass a `readId`, so that
+   * the page going away abandons them, and do not ask: each reads as every
+   * other read does, `getQbitUtxos` and the send builders among them, and
+   * fails on a server error as fast as the explorer client alone, as 1.0.9
+   * did, unless it joins a read of the screen's that rides them out, whose
+   * ride-out it then shares, failing only once that gives up. How reads
+   * share one is `sharedQbitAccountUtxos`'s.
+   *
    * A read from history that completes leaves its outputs, before any
    * reservation, behind as the account's latest on that network, with the
    * address statistics its walk verified: past the explorer's limit
@@ -6858,11 +6932,18 @@ export class WalletController extends BaseController {
    * it found less history, and a read that fails or stops leaves nothing.
    * Locking the wallet or removing a keyring forgets them.
    */
-  getQbitUtxoSnapshot = async (readId?: string | null): Promise<QbitUtxoSnapshot> => {
+  getQbitUtxoSnapshot = async (
+    readId?: string | null,
+    rideOut?: boolean
+  ): Promise<QbitUtxoSnapshot> => {
     // Before the first await: the page this read is tied to.
     const waiter = this.openQbitUtxoSnapshotWaiter(readId)
     try {
-      return await this.readQbitUtxoSnapshot(true, waiter?.signal)
+      return await this.readQbitUtxoSnapshot(
+        true,
+        waiter?.signal,
+        waiter !== undefined && rideOut === true
+      )
     } finally {
       waiter?.close()
     }
@@ -6925,13 +7006,17 @@ export class WalletController extends BaseController {
 
   private readQbitUtxoSnapshot = async (
     shareRead: boolean,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    rideOut = false
   ): Promise<QbitUtxoSnapshot> => {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
 
     const chain = this.getChainType()
     const client = this.getQbitApiClient(chain)
+    // Before the statistics below are read: a clear while they are in
+    // flight leaves the read of the outputs keeping nothing.
+    const facts = this.qbitFundingTxReads.begin(client)
     const activity = shareRead
       ? await Promise.resolve()
           .then(() => client.getAddressStats(account.address, signal ? { signal } : undefined))
@@ -6941,13 +7026,15 @@ export class WalletController extends BaseController {
     if (signal?.aborted) throw signal.reason
     const qbitUtxos =
       activity === undefined
-        ? await this.qbitAccountUtxosOn(chain, account, client, signal)
-        : await this.qbitUtxoSnapshotReads.run(
+        ? await this.qbitAccountUtxosOn(chain, account, client, signal, facts, rideOut)
+        : await this.sharedQbitAccountUtxos(
+            chain,
+            account,
             client,
-            account.address,
             activity,
-            readSignal => this.qbitAccountUtxosOn(chain, account, client, readSignal),
-            signal
+            signal,
+            facts,
+            rideOut
           )
     return {
       address: account.address,
@@ -6955,6 +7042,70 @@ export class WalletController extends BaseController {
       utxos: await this.excludeGuardedQbitUtxos(chain, account.address, qbitUtxos),
     }
   }
+
+  /**
+   * The account's outputs through the shared snapshot reads
+   * (`qbitUtxoSnapshotReads`), joined as they describe, whichever caller
+   * started the read, whether or not it asked to ride out server errors.
+   *
+   * A caller that did not ask, and joins a read that rides them out, shares
+   * the ride-out: it gets that read's outputs, or its failure once the
+   * ride-out gives up, as late as that is, not the quick failure a read of
+   * its own would have met as in 1.0.9. It joins only a read already
+   * running for the same account at the same state of its history, which
+   * its own would repeat; on the send screen it can do so only from a form
+   * its cached outputs serve, past the explorer's output limit or while the
+   * screen reads them again after the account's plan changed what it holds.
+   *
+   * A caller that asked may have joined a read that does not ride them out,
+   * or been moved to one as a later caller's replacement. When that read
+   * fails as a ride-out would not have let it (`isQbitRideOutFailure`), it
+   * reads the outputs again on its own, riding them out; any other failure,
+   * one a ride-out meets the same way, it takes as the answer, as it does a
+   * failure of a read that rode them out itself. Its own read runs outside
+   * the shared reads: a caller arriving meanwhile starts or joins another,
+   * which past the limit is a second walk of the history.
+   */
+  private async sharedQbitAccountUtxos(
+    chain: ChainType,
+    account: Account,
+    client: QbitWalletApiClient,
+    activity: QbitHistoryState,
+    signal: AbortSignal | undefined,
+    facts: QbitFundingFactsView,
+    rideOut: boolean
+  ): Promise<UnspentOutput[]> {
+    try {
+      return await this.qbitUtxoSnapshotReads.run(
+        client,
+        account.address,
+        activity,
+        readSignal =>
+          this.qbitAccountUtxosOn(chain, account, client, readSignal, facts, rideOut).catch(
+            (error: unknown) => {
+              if (rideOut && typeof error === 'object' && error !== null) {
+                this.qbitRiddenOutFailures.add(error)
+              }
+              throw error
+            }
+          ),
+        signal
+      )
+    } catch (error) {
+      if (
+        !rideOut ||
+        signal?.aborted === true ||
+        !isQbitRideOutFailure(error) ||
+        this.qbitRiddenOutFailures.has(error as object)
+      ) {
+        throw error
+      }
+      return this.qbitAccountUtxosOn(chain, account, client, signal, facts, true)
+    }
+  }
+
+  /** Failures of shared reads that rode out server errors: those are not read again. */
+  private readonly qbitRiddenOutFailures = new WeakSet<object>()
 
   /**
    * The shared snapshot reads in flight, per API client and address, each
@@ -6993,6 +7144,38 @@ export class WalletController extends BaseController {
   }>(QBIT_LATEST_UTXO_READS_PER_CLIENT)
 
   /**
+   * The reads behind classifying any address's outputs, shared by the
+   * balance (`getAddressBalanceV2`) and every read of outputs
+   * (`qbitAccountUtxosOn`, `getAddressUtxo`, the recovery sources): one
+   * limiter per API client, so the wallet keeps at most
+   * `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` of them in flight to one explorer,
+   * and what funding transactions said of their outputs, so a balance poll of
+   * an address whose outputs did not change reads none of them again. The
+   * balance reads no transaction at all for an output a coinbase maturity
+   * deep, and keeps nothing of it, so the send screen's first read reads
+   * those. It keeps the facts of at most `QBIT_FUNDING_FACTS_MAX_OUTPOINTS`
+   * (65,536) outputs, so the balance of an address with more outputs younger
+   * than that or unconfirmed reads none of them one by one: it answers with
+   * the total alone, the split unknown, and backs off
+   * (`getQbitSpendableBalanceV2`). Every
+   * read of outputs a send, sweep or plan may spend (`qbitAccountUtxosOn`,
+   * `getAddressUtxo`, the recovery sources) still reads afresh an output that
+   * is not a coinbase output and is younger than a coinbase must be to
+   * mature, and its answer replaces the kept one; so after one wrong
+   * `is_coinbase` answer the balance can count a reward younger than 1,000
+   * blocks as Available until such a read or a clear, while no send can
+   * select it (see `QbitFundingTxReads`). In memory only. Nothing is served from it or kept
+   * in it while the wallet reads locked, and it is forgotten wherever
+   * `qbitLatestUtxoReads` is (whenever the wallet locks, when its data is
+   * reset, when a keyring is removed), when the network changes
+   * (`performSetChainType`) and when the regtest clients are dropped
+   * (`dropRegtestApiClients`); a read that began before then keeps nothing.
+   */
+  private readonly qbitFundingTxReads = new QbitFundingTxReads({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
    * The outputs a send is built from: the ones the caller loaded, or the
    * account's outputs on `chain` when it loaded none. Outputs a caller
    * loaded must name the network they were loaded on, and it must be
@@ -7008,10 +7191,14 @@ export class WalletController extends BaseController {
     account: Account,
     providedUtxos: UnspentOutput[] | undefined,
     providedUtxoChain: ChainType | undefined,
-    providedUtxoAddress: string | undefined
+    providedUtxoAddress: string | undefined,
+    facts?: QbitFundingFactsView
   ): Promise<UnspentOutput[]> {
     if (providedUtxos === undefined) {
-      return this.assertQbitAccountOutputs(account, await this.qbitAccountUtxosOn(chain, account))
+      return this.assertQbitAccountOutputs(
+        account,
+        await this.qbitAccountUtxosOn(chain, account, undefined, undefined, facts)
+      )
     }
     if (providedUtxoChain === undefined) {
       throw new Error('Qbit inputs must name the network they were loaded on')
@@ -7049,26 +7236,46 @@ export class WalletController extends BaseController {
   }
 
   /**
+   * The place of a read of outputs among the clears of `qbitFundingTxReads`
+   * (`QbitClassifyOptions.facts`), taken by a caller when it is asked for
+   * the outputs, before awaits of its own, so that a lock, a reset, a keyring
+   * removal or a network switch while it waits leaves the read keeping and
+   * served nothing.
+   */
+  private beginQbitOutputsRead(chain: ChainType = this.getChainType()): QbitFundingFactsView {
+    return this.qbitFundingTxReads.begin(this.getQbitApiClient(chain))
+  }
+
+  /**
    * The account's unspent outputs on `chain`, before any reservation is
    * applied. The read, an over-limit walk included, stops once `signal`
    * aborts. A read from history that completes is kept as the account's
    * latest on `chain` (`qbitLatestUtxoReads`), in the order reads started,
    * under the address statistics its walk verified, not ones read before
    * it, which may have moved since; one that fails or stops leaves nothing,
-   * and so does any read while the wallet is locked.
+   * and so does any read while the wallet is locked. `facts` is the place
+   * among the clears of `qbitFundingTxReads` its caller took when it was
+   * asked for the outputs, before awaits of its own (`beginQbitOutputsRead`).
+   * With `rideOut`, which only a snapshot read its caller can abandon asks
+   * for (`getQbitUtxoSnapshot`), the read rides out the explorer's server
+   * errors (`readQbitAddressUtxosRidingOut`); without it, it fails on one as
+   * fast as the explorer client alone.
    */
   private async qbitAccountUtxosOn(
     chain: ChainType,
     account: Account,
     client: QbitWalletApiClient = this.getQbitApiClient(chain),
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    facts?: QbitFundingFactsView,
+    rideOut = false
   ): Promise<UnspentOutput[]> {
     const order = this.qbitLatestUtxoReads.start()
-    const { utxos, historyStats, matureAt, matureFrom } = await readQbitAddressUtxos(
-      client,
-      account.address,
-      signal ? { signal } : {}
-    )
+    const read = rideOut ? readQbitAddressUtxosRidingOut : readQbitAddressUtxos
+    const { utxos, historyStats, matureAt, matureFrom } = await read(client, account.address, {
+      ...(signal ? { signal } : {}),
+      fundingTxReads: this.qbitFundingTxReads,
+      ...(facts ? { facts } : {}),
+    })
     const outputs = utxos.map(v => ({
       txid: v.txid,
       vout: v.vout,
@@ -7668,6 +7875,9 @@ export class WalletController extends BaseController {
     // carries that network from here on; a switch in another window while
     // the quote or the inputs are in flight cannot rebind it.
     const chain = this.getChainType()
+    // Before the fee quote: a clear while it is in flight leaves the read of
+    // the outputs keeping nothing.
+    const facts = this.beginQbitOutputsRead(chain)
     let resolvedFeeRate = feeRate
     if (resolvedFeeRate === undefined) {
       const feeSummary = await this.getFeeSummary(chain)
@@ -7683,7 +7893,8 @@ export class WalletController extends BaseController {
       account,
       providedUtxos,
       providedUtxoChain,
-      providedUtxoAddress
+      providedUtxoAddress,
+      facts
     )
     const spendableUtxos = await this.excludeGuardedQbitUtxos(chain, account.address, inputs)
     if (spendableUtxos.length === 0) {
@@ -7881,6 +8092,8 @@ export class WalletController extends BaseController {
     // carries that network from here on; a switch in another window while
     // the quote or the inputs are in flight cannot rebind it.
     const chain = this.getChainType()
+    // As in `createSendQbitPsbt`.
+    const facts = this.beginQbitOutputsRead(chain)
     if (feeRate === undefined) {
       const feeSummary = await this.getFeeSummary(chain)
       // The normal rate, which is QBIT_FALLBACK_FEE_RATE without an estimate.
@@ -7893,7 +8106,8 @@ export class WalletController extends BaseController {
       account,
       providedUtxos,
       providedUtxoChain,
-      providedUtxoAddress
+      providedUtxoAddress,
+      facts
     )
     // Each one the account's own, as `qbitSendInputsOn` checked.
     const spendableUtxos = reservationsAlreadyFiltered
@@ -9714,8 +9928,16 @@ export class WalletController extends BaseController {
       return addressToScriptPk(to, networkType)
     },
     memoOutputs: (memo, memos): P2mrTransactionOutput[] => qbitMemoOutputs(memo, memos),
-    spendableOutputs: async (chain, account, exceptPlanId): Promise<UnspentOutput[]> => {
-      const outputs = await this.qbitSendInputsOn(chain, account, undefined, undefined, undefined)
+    beginOutputsRead: (): QbitFundingFactsView => this.beginQbitOutputsRead(),
+    spendableOutputs: async (chain, account, exceptPlanId, since): Promise<UnspentOutput[]> => {
+      const outputs = await this.qbitSendInputsOn(
+        chain,
+        account,
+        undefined,
+        undefined,
+        undefined,
+        since as QbitFundingFactsView | undefined
+      )
       await this.settleQbitRecentSpends(chain, account.address)
       // What the plan's own hold would refuse, a dapp's signed inputs
       // included, not only what an ordinary send treats as reserved.
@@ -10203,7 +10425,9 @@ export class WalletController extends BaseController {
   }
 
   getAddressUtxo = async (address: string) => {
-    return getQbitAddressUtxos(this.getQbitApiClient(), address)
+    return getQbitAddressUtxos(this.getQbitApiClient(), address, {
+      fundingTxReads: this.qbitFundingTxReads,
+    })
   }
 
   getConnectedSites = (): ConnectedSite[] => {

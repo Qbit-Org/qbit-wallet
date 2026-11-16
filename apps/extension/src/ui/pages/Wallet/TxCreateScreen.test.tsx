@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useI18n, useTxCreateScreenLogic } from '@qbit/wallet-state';
 
+import en from '../../../_locales/en/messages.json';
+import es from '../../../_locales/es/messages.json';
+import fr from '../../../_locales/fr/messages.json';
+import ja from '../../../_locales/ja/messages.json';
+import ru from '../../../_locales/ru/messages.json';
+import zhTW from '../../../_locales/zh_TW/messages.json';
 import TxCreateScreen from './TxCreateScreen';
 
 vi.mock('@qbit/wallet-state', () => ({
@@ -385,5 +391,127 @@ describe('TxCreateScreen fee details', () => {
     expect(screen.getByTestId('tx-fee-recommendation-unavailable').textContent).toBe(
       'fee_warning_recommendation_unavailable'
     );
+  });
+});
+
+describe('TxCreateScreen while the outputs are read', () => {
+  const follows = (earlier: Element, later: Element) =>
+    Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  beforeEach(() => {
+    vi.mocked(useI18n).mockReturnValue({ locale: 'en' } as ReturnType<typeof useI18n>);
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      headerTitle: 'Send QBT',
+      chain: { icon: 'qbitMainnet', enum: 'QBIT_MAINNET' },
+      toInfo: { address: '', domain: '' },
+      onAddressInputChange: vi.fn(),
+      inputAmount: '',
+      onAmountInputChange: vi.fn(),
+      onAmountMaxClick: vi.fn(),
+      enableRBF: true,
+      onRBFChange: vi.fn(),
+      memo: '',
+      onMemoChange: vi.fn(),
+      feeDetail: undefined,
+      feeEstimatePending: false,
+      showUnavailable: false,
+      availableAmount: '0.00100000',
+      unavailableAmount: '0',
+      showImmature: false,
+      immatureAmount: '0',
+      showPending: false,
+      pendingAmount: '0',
+      unavailableTipText: '',
+      qbitUnit: 'QBT',
+      t: (key: string) => key,
+      outputsLoading: false,
+      outputsLoadingText: 'send_outputs_loading',
+      outputsLoadFailed: false,
+      outputsLoadFailedText: 'send_outputs_load_failed',
+      error: '',
+      disabled: true,
+      onClickNext: vi.fn()
+    } as unknown as ReturnType<typeof useTxCreateScreenLogic>);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('says under Available why Next waits while the outputs are still being read, and only then', () => {
+    const { rerender } = render(<TxCreateScreen />);
+    expect(screen.queryByTestId('send-outputs-loading-note')).toBeNull();
+    expect(screen.queryByTestId('send-outputs-failed-note')).toBeNull();
+
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      outputsLoading: true
+    });
+    rerender(<TxCreateScreen />);
+
+    const note = screen.getByTestId('send-outputs-loading-note');
+    expect(note.textContent).toBe('send_outputs_loading');
+    expect(screen.queryByTestId('send-outputs-failed-note')).toBeNull();
+    // Next to Available and the amount, above the fee and Next.
+    expect(follows(screen.getByText('available'), note)).toBe(true);
+    expect(follows(screen.getByTestId('transfer-amount-input'), note)).toBe(true);
+    expect(follows(note, screen.getByText('fee-rate-bar'))).toBe(true);
+    expect(follows(note, screen.getByTestId('tx-next-button'))).toBe(true);
+  });
+
+  it('says the account cannot send now when its outputs could not be read, until they are', () => {
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      outputsLoadFailed: true
+    });
+    const { rerender } = render(<TxCreateScreen />);
+
+    const note = screen.getByTestId('send-outputs-failed-note');
+    expect(note.textContent).toBe('send_outputs_load_failed');
+    expect(screen.queryByTestId('send-outputs-loading-note')).toBeNull();
+    expect(follows(screen.getByText('available'), note)).toBe(true);
+    expect(follows(note, screen.getByTestId('tx-next-button'))).toBe(true);
+
+    // Once the outputs are read, neither note.
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      outputsLoadFailed: false
+    });
+    rerender(<TxCreateScreen />);
+    expect(screen.queryByTestId('send-outputs-failed-note')).toBeNull();
+    expect(screen.queryByTestId('send-outputs-loading-note')).toBeNull();
+  });
+});
+
+type Catalog = Record<string, { message: string } | undefined>;
+const LOCALES: [string, Catalog][] = [
+  ['en', en],
+  ['es', es],
+  ['fr', fr],
+  ['ja', ja],
+  ['ru', ru],
+  ['zh_TW', zhTW]
+];
+const OUTPUTS_NOTE_KEYS = ['send_outputs_loading', 'send_outputs_load_failed'];
+
+describe('TxCreateScreen copy for outputs being read', () => {
+  it('says the form can be filled in while Next waits, and that a failed read needs Send reopened', () => {
+    expect(en.send_outputs_loading.message).toBe(
+      'Reading this account\u0027s outputs. You can fill in the form meanwhile; Next and MAX become available once they are read.'
+    );
+    expect(en.send_outputs_load_failed.message).toBe(
+      'The wallet could not read this account\u0027s outputs, so it cannot send from this account now. Reopen Send to try again.'
+    );
+  });
+
+  it.each(LOCALES)('has both notes in %s, translated and without placeholders', (locale, messages) => {
+    for (const key of OUTPUTS_NOTE_KEYS) {
+      const message = messages[key]?.message ?? '';
+      expect(message.trim(), `${locale} ${key}`).not.toBe('');
+      expect(message, `${locale} ${key}`).not.toMatch(/\$/);
+      if (locale !== 'en') {
+        expect(message, `${locale} ${key}`).not.toBe((en as Catalog)[key]?.message);
+      }
+    }
   });
 });

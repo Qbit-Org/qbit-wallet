@@ -27,7 +27,10 @@ import {
 import { accountActions } from '../../src/reducers/accounts'
 import { transactionsActions } from '../../src/reducers/transactions'
 import { uiActions } from '../../src/reducers/ui'
-import { useTxCreateScreenLogic } from '../../src/ui-hooks/useTxCreateScreenLogic'
+import {
+  SEND_OUTPUTS_OVERLAY_MAX_MS,
+  useTxCreateScreenLogic,
+} from '../../src/ui-hooks/useTxCreateScreenLogic'
 import { uiEventBus } from '../../src/utils/eventBus'
 import { deferred, planReview, planView, unreadablePlanView } from './sendPlanFixtures'
 import { createHookTestHarness } from './testHelpers'
@@ -161,6 +164,9 @@ async function enter(
   amount?: string
 ) {
   await waitFor(() => expect(result.current.availableAmount).not.toBe('--'))
+  // The screen's own read of the outputs lands first, as it does behind the
+  // loading overlay: until then MAX fills nothing.
+  await settle()
   act(() => {
     result.current.onAddressInputChange({ address: RECIPIENT, domain: '' })
     if (amount === undefined) result.current.onAmountMaxClick()
@@ -388,6 +394,10 @@ describe('the send screen with a payment one transaction cannot carry (#188)', (
         feeRate: 1,
         qbitUtxos: fresh,
       })
+      // The screen's own read asked to ride out server errors; the read for
+      // the one transaction, behind the loading overlay, passed its id and no ask.
+      expect(wallet.getQbitUtxoSnapshot.mock.calls[0]).toEqual([expect.any(String), true])
+      expect(wallet.getQbitUtxoSnapshot.mock.lastCall).toEqual([expect.stringMatching(/^\d+$/)])
       expect(wallet.createSendQbitPsbt).not.toHaveBeenCalled()
     })
   })
@@ -807,7 +817,10 @@ describe('the send screen while another payment of the account is in progress (#
   })
 
   it.each<[string, Partial<QbitSendPlanView>]>([
-    ['paused', { phase: 'paused', pause: { reason: 'merge_refused' }, actions: ['replan', 'cancel'] }],
+    [
+      'paused',
+      { phase: 'paused', pause: { reason: 'merge_refused' }, actions: ['replan', 'cancel'] },
+    ],
     ['cancelling', { phase: 'cancelling', actions: [] }],
   ])('counts a plan %s as in progress', async (_label, overrides) => {
     const account = p2mrAccount()
@@ -999,14 +1012,71 @@ describe('the send screen while another payment of the account is in progress (#
       openPlan(account, {
         revision: 3,
         steps: [
-          { kind: 'merge', txid: 'cc'.repeat(32), inputCount: 106, fee: 398_827, status: 'planned' },
-          { kind: 'payment', txid: 'dd'.repeat(32), inputCount: 50, fee: 190_000, status: 'planned' },
+          {
+            kind: 'merge',
+            txid: 'cc'.repeat(32),
+            inputCount: 106,
+            fee: 398_827,
+            status: 'planned',
+          },
+          {
+            kind: 'payment',
+            txid: 'dd'.repeat(32),
+            inputCount: 50,
+            fee: 190_000,
+            status: 'planned',
+          },
         ],
         paymentTxid: 'dd'.repeat(32),
       })
     )
     await planChanged('plan-1', 3)
     await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps the form on the outputs it read, with no overlay and no note, while a plan has them read again slowly', async () => {
+    vi.useFakeTimers()
+    try {
+      const after = async (ms: number) => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(ms)
+        })
+      }
+      const account = p2mrAccount()
+      const { result, wallet, tools } = renderSend(free(account), account)
+      // The read the screen opens with lands under the overlay.
+      await after(0)
+      expect(result.current.availableAmount).toBe('0.01500000')
+      act(() => {
+        result.current.onAddressInputChange({ address: RECIPIENT, domain: '' })
+        result.current.onAmountInputChange('0.00300000')
+      })
+      expect(result.current.disabled).toBe(false)
+
+      // A plan started in another window changes what it holds: the outputs
+      // are read again, and this read takes long.
+      const reread = deferred<unknown>()
+      wallet.getQbitUtxoSnapshot.mockReturnValueOnce(reread.promise)
+      wallet.getQbitSendPlan.mockResolvedValue(openPlan(account))
+      await planChanged('plan-1', 1)
+      await after(0)
+      expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(2)
+      await after(2 * SEND_OUTPUTS_OVERLAY_MAX_MS)
+
+      const overlays = vi.mocked(tools.showLoading).mock.calls.map(([shown]) => shown)
+      expect(overlays).toEqual([true, false])
+      expect(result.current.outputsLoading).toBe(false)
+      expect(result.current.outputsLoadFailed).toBe(false)
+      expect(result.current.availableAmount).toBe('0.01500000')
+      expect(result.current.error).toBe('')
+      expect(result.current.disabled).toBe(false)
+      act(() => {
+        result.current.onAmountMaxClick()
+      })
+      expect(result.current.inputAmount).toBe('0.01500000')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps the outputs of the later read when an earlier one lands after it', async () => {
@@ -1031,8 +1101,20 @@ describe('the send screen while another payment of the account is in progress (#
       openPlan(account, {
         revision: 2,
         steps: [
-          { kind: 'merge', txid: 'cc'.repeat(32), inputCount: 106, fee: 398_827, status: 'planned' },
-          { kind: 'payment', txid: 'dd'.repeat(32), inputCount: 50, fee: 190_000, status: 'planned' },
+          {
+            kind: 'merge',
+            txid: 'cc'.repeat(32),
+            inputCount: 106,
+            fee: 398_827,
+            status: 'planned',
+          },
+          {
+            kind: 'payment',
+            txid: 'dd'.repeat(32),
+            inputCount: 50,
+            fee: 190_000,
+            status: 'planned',
+          },
         ],
         paymentTxid: 'dd'.repeat(32),
       })

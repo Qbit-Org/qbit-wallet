@@ -17,7 +17,9 @@ export interface BalanceRefreshStatus {
   error: boolean
   /**
    * The refresh whose balance balanceV2Map holds, once one is stored. Only a
-   * newer balance replaces it; a newer failure does not.
+   * newer balance replaces it, and a newer failure does not; an older one
+   * does only to put a split in place of an answer that could not read every
+   * output (see `setBalanceV2`).
    */
   balanceRequestId?: number
 }
@@ -25,6 +27,51 @@ export interface BalanceRefreshStatus {
 function isStaleBalanceRequest(state: AccountsState, address: string, requestId?: number): boolean {
   const latest = state.balanceStatusMap[address]
   return requestId !== undefined && latest !== undefined && requestId < latest.requestId
+}
+
+/**
+ * Records that the refresh `requestId` failed, unless a newer refresh has
+ * already settled. The last known-good balance, if any, stays in
+ * balanceV2Map.
+ */
+function recordBalanceFailure(state: AccountsState, address: string, requestId: number): void {
+  if (isStaleBalanceRequest(state, address, requestId)) return
+  state.balanceStatusMap[address] = {
+    ...state.balanceStatusMap[address],
+    requestId,
+    error: true,
+  }
+}
+
+/**
+ * Whether `balance` has a split: its Available is known, and it is not an
+ * answer that could not read every output. A total alone (past the
+ * explorer's limit with no split, or while the send guard held) has none.
+ */
+function hasBalanceSplit(balance: QbitBalanceSummary | undefined): boolean {
+  return typeof balance?.availableBalance === 'number' && balance.utxoReadIncomplete !== true
+}
+
+/**
+ * Whether the balance stored for `address` has a split a read measured on
+ * `chainType`: a read for that network stored it, and it has a split.
+ */
+function hasKnownBalanceSplit(state: AccountsState, address: string, chainType: string): boolean {
+  return (
+    hasAccountBalanceRead(state, address, chainType) && hasBalanceSplit(state.balanceV2Map[address])
+  )
+}
+
+/**
+ * Whether the balance stored for `address` is an answer read on `chainType`
+ * that could not read every output: stored for its total, as no split for
+ * that network was known when it arrived.
+ */
+function hasIncompleteBalance(state: AccountsState, address: string, chainType: string): boolean {
+  return (
+    hasAccountBalanceRead(state, address, chainType) &&
+    state.balanceV2Map[address]?.utxoReadIncomplete === true
+  )
 }
 
 export interface AccountsState {
@@ -40,7 +87,9 @@ export interface AccountsState {
    * orders refreshes so a slower, older response cannot replace the outcome
    * of a newer one, or a newer balance. An older balance that arrives after a
    * newer refresh failed is still the newest balance read: it is stored, and
-   * the failure stays the outcome.
+   * the failure stays the outcome. An answer that could not read every
+   * output is such a failure wherever a split for its network was read,
+   * before or after it (see `setBalanceV2`).
    */
   balanceStatusMap: {
     [key: string]: BalanceRefreshStatus
@@ -130,6 +179,7 @@ const slice: Slice<AccountsState> = createSlice({
             immatureBalance,
             pendingBalance,
             utxoLimitExceeded,
+            utxoReadIncomplete,
             chainType,
           },
           address,
@@ -137,11 +187,36 @@ const slice: Slice<AccountsState> = createSlice({
         },
       } = action
       const latest = state.balanceStatusMap[address]
-      const storedRequestId = latest?.balanceRequestId
-      if (requestId !== undefined && storedRequestId !== undefined && requestId < storedRequestId) {
+      if (
+        requestId !== undefined &&
+        latest?.balanceRequestId !== undefined &&
+        requestId < latest.balanceRequestId
+      ) {
+        // Older than the balance stored, it replaces nothing, except where
+        // the stored balance is an answer that could not read every output
+        // and this one has the split for its network. Then it is the newest
+        // split read, and lands as an older balance does after a newer
+        // failure: it is stored, and the newer read stays the outcome, now
+        // as a failed refresh. The store ends as it would have had the two
+        // arrived in order.
+        if (
+          !hasBalanceSplit(action.payload.balance) ||
+          !hasIncompleteBalance(state, address, chainType)
+        ) {
+          return
+        }
+        latest.balanceRequestId = requestId
+        latest.error = true
+      } else if (utxoReadIncomplete === true && hasKnownBalanceSplit(state, address, chainType)) {
+        // An answer that could not read every output, where a split is
+        // already stored for this account on this network, replaces nothing:
+        // it is recorded as a refresh that failed, under the same ordering,
+        // so the split stays, marked out of date, and nothing of the answer
+        // is kept. Only where no split is known (the first read, or a total
+        // alone) is it stored, for its total, until a split arrives.
+        recordBalanceFailure(state, address, requestId ?? latest?.requestId ?? 0)
         return
-      }
-      if (latest !== undefined && isStaleBalanceRequest(state, address, requestId)) {
+      } else if (latest !== undefined && isStaleBalanceRequest(state, address, requestId)) {
         // A newer refresh failed first: keep its failure as the outcome.
         latest.balanceRequestId = requestId
       } else {
@@ -164,17 +239,12 @@ const slice: Slice<AccountsState> = createSlice({
       state.balanceV2Map[address].immatureBalance = immatureBalance
       state.balanceV2Map[address].pendingBalance = pendingBalance
       state.balanceV2Map[address].utxoLimitExceeded = utxoLimitExceeded
+      state.balanceV2Map[address].utxoReadIncomplete = utxoReadIncomplete
       state.balanceV2Map[address].chainType = chainType
     },
     setBalanceError(state, action: { payload: { address: string; requestId: number } }) {
       const { address, requestId } = action.payload
-      if (isStaleBalanceRequest(state, address, requestId)) return
-      // The last known-good balance, if any, stays in balanceV2Map.
-      state.balanceStatusMap[address] = {
-        ...state.balanceStatusMap[address],
-        requestId,
-        error: true,
-      }
+      recordBalanceFailure(state, address, requestId)
     },
     setAddressSummary(state, action: { payload: any }) {
       state.addressSummary = action.payload

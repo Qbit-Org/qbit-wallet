@@ -60,7 +60,7 @@ export interface VersionDetail {
  * measured, which is never the same as 0.
  */
 export interface QbitBalanceSummary {
-  /** `null` when unknown: past the explorer's limit while no output read from the address's history applies (see `utxoLimitExceeded`), or when the balance read stopped waiting for the send guard. */
+  /** `null` when unknown: past the explorer's limit while no output read from the address's history applies (see `utxoLimitExceeded`), when the wallet could not finish reading the outputs the explorer lists (see `utxoReadIncomplete`), or when the balance read stopped waiting for the send guard. */
   availableBalance: number | null
   unavailableBalance: number
   totalBalance: number
@@ -81,5 +81,27 @@ export interface QbitBalanceSummary {
    * `unavailableBalance` stays `totalBalance`.
    */
   utxoLimitExceeded?: boolean
+  /**
+   * Qbit: the address statistics were read, but the wallet could not finish
+   * reading the address's outputs: the listing or a transaction lookup
+   * failed, or the read ran out of time (an account with thousands of
+   * outputs takes several reads to work through). `totalBalance` comes from
+   * the address statistics. The split is unknown, never 0: `availableBalance`,
+   * `immatureBalance` and `pendingBalance` are `null` and
+   * `unavailableBalance` stays `totalBalance`. Never set together with
+   * `utxoLimitExceeded`, which is the explorer refusing to list the outputs
+   * at all. The next read tries again.
+   */
+  utxoReadIncomplete?: boolean
+  /**
+   * Qbit, only together with `utxoReadIncomplete`: the read of the outputs
+   * got no further. It stopped on a failure (the listing or a transaction
+   * lookup failed, or the explorer answered something the wallet could not
+   * use), or it ran out of time without reading anything the next read can
+   * build on. Both show the same as any incomplete read; a poll treats this
+   * one as a failed read and backs off, while a read that ran out of time
+   * part of the way through the outputs is read again at the normal pace.
+   */
+  utxoReadFailed?: boolean
   chainType: ChainType
 }

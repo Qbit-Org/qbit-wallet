@@ -83,8 +83,12 @@ export class SendPage extends ExtensionPageObject {
     // MAX sits beside the amount input in the same field and has no test ID of its own.
     const max = this.amountInput.locator('xpath=..').getByText('MAX', { exact: true })
     await expect(max).toBeVisible()
-    await max.click()
-    await expect(this.amountInput).not.toHaveValue('')
+    // MAX fills nothing until the screen has read the account's outputs, and
+    // that read can outlast the loading overlay: press until it does.
+    await expect(async () => {
+      await max.click()
+      await expect(this.amountInput).not.toHaveValue('', { timeout: 1_000 })
+    }).toPass({ timeout: 60_000 })
   }
 
   async chooseFeeRateOption(index: number): Promise<string> {

@@ -147,6 +147,8 @@ vi.mock('@qbit-oss/pqc', () => ({
 vi.mock('../src/services', () => ({
   keyringService: {
     keyrings: [],
+    // The wallet reads unlocked, as the funding-transaction reads check.
+    memStore: { getState: () => ({ isUnlocked: true }) },
     getAllDisplayedKeyrings: vi.fn(async () => []),
     signMessage: vi.fn(),
     preflightP2mrMessageSigning: vi.fn(),

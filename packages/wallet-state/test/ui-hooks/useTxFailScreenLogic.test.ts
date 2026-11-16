@@ -56,7 +56,6 @@ function walletWithBroadcast() {
     checkQbitBroadcastStatus: vi.fn(),
     releaseQbitSendBroadcastClaim: vi.fn().mockResolvedValue(true),
     abandonQbitSendBroadcastClaim: vi.fn().mockResolvedValue(undefined),
-    getAddressSummary: vi.fn().mockResolvedValue({ totalSatoshis: 1, spendableSatoshis: 1 }),
     getAddressBalanceV2: vi.fn().mockResolvedValue({
       availableBalance: 1,
       unavailableBalance: 0,
@@ -800,7 +799,7 @@ describe('useTxFailScreenLogic', () => {
     expect(navigation.navigate).not.toHaveBeenCalled()
     expect(navigation.goBack).not.toHaveBeenCalled()
     expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(1)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
     expect(result.current.busy).toBeNull()
   })
 
@@ -918,7 +917,7 @@ describe('useTxFailScreenLogic', () => {
     expect(navigation.navigate).not.toHaveBeenCalled()
     expect(navigation.goBack).not.toHaveBeenCalled()
     expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(1)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -940,7 +939,7 @@ describe('useTxFailScreenLogic', () => {
       expect(result.current.canCheckStatus).toBe(true)
       expect(navigation.navigate).not.toHaveBeenCalled()
       expect(navigation.replace).not.toHaveBeenCalled()
-      expect(wallet.getAddressSummary).not.toHaveBeenCalled()
+      expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
     }
   )
 
