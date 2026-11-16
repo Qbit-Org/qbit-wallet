@@ -86,7 +86,9 @@ require `signed-landing` from GitHub Actions and a pull request, and forbid
 creating, deleting and force-pushing it, as `required-checks.json` and
 `main-protection.json` do. `main` then gains commits only through pull
 requests the check passed, and can't be made, or made again, at another
-commit. If one of those rules is missing on GitHub, the check says which, and
+commit. The check can't see who may bypass a ruleset, so keep every bypass on
+`main`'s rulesets limited to merging a pull request, as it is now. If one of
+those rules is missing on GitHub, the check says which, and
 judges `main`'s head commit as it judges a release branch's, which usually
 fails because GitHub made it. A fork's branch never merges as it is. The check
 is required by a ruleset with no bypass actors,
