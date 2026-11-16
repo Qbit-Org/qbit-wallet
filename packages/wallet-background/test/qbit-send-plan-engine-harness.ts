@@ -698,6 +698,22 @@ export class World {
     return view
   }
 
+  /**
+   * What a continue of plan `planId` names (`continueQbitSendPlan`) from a
+   * page showing the plan as stored now: its view's terms digest
+   * (`QbitSendPlanView.termsDigest`), read without advancing anything. When
+   * nothing readable is stored under `planId`, or the plan states no terms,
+   * a digest of the same form that names no plan's terms, so the caller
+   * meets the engine's other refusals.
+   */
+  shownTerms(planId: string): string {
+    const record = qbitSendPlanStore.get(planId)
+    const engine = this.engine as unknown as {
+      termsDigestOf(record: unknown): string | undefined
+    }
+    return (record ? engine.termsDigestOf(record) : undefined) ?? '0'.repeat(64)
+  }
+
   /** The transaction the explorer holds as `txid`, or throws. */
   tx(txid: string) {
     const tx = this.explorer.txs.get(txid)
@@ -845,7 +861,9 @@ export function watchPlanAnnouncements(current: () => World): void {
       event === BUS_EVENTS.broadcastToUI &&
       message.method === BUS_METHODS.QBIT_SEND_PLAN_CHANGED
     ) {
-      current().events.push(message.params!)
+      // The plan and its revision, as recorded before announcements named
+      // the background's run too (`backgroundId`).
+      current().events.push({ planId: message.params!.planId, revision: message.params!.revision })
     }
     return true
   }) as never)

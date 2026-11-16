@@ -150,6 +150,84 @@ export function priceQbitSendPlanPayment(
   }
 }
 
+/**
+ * Whether `priced`, a payment priced again over the inputs of the versions
+ * of a payment so far, raises its fee: it pays strictly more than
+ * `highestFee`, the most any of them paid. Every version spends the same
+ * inputs for the same target, so only one that pays more is a different
+ * transaction from each: a payment for an amount without change pays as fee
+ * all its inputs hold above the amount, whatever the rate, and priced again
+ * it is the very transaction it was.
+ */
+export function qbitSendPlanPaymentRaises(
+  priced: QbitSendPlanPaymentPrice,
+  highestFee: number
+): boolean {
+  return priced.ok && priced.fee > highestFee
+}
+
+/**
+ * The precision a page sends a fee rate in, as steps per bit/vB: hundredths.
+ * The fee bar's Custom rate input takes two decimals (`FeeRateBar`), and
+ * every quoted tier is rounded up to hundredths
+ * (`ceilQbitFeeRateToHundredths`), so no page sends a rate between two
+ * hundredths, and a raise exists only at a rate in hundredths.
+ */
+const PAGE_FEE_RATE_STEPS = 100
+
+/**
+ * The lowest fee rate a page can send (`PAGE_FEE_RATE_STEPS`), above
+ * `planRate`, at which a payment over these inputs priced again
+ * (`priceQbitSendPlanPayment`) raises the fee past `highestFee`
+ * (`qbitSendPlanPaymentRaises`): what a raise of the payment's fee asks at
+ * least. Undefined when no such rate within the wallet's policy does: for an
+ * amount whose payment returns no change; and for a payment that cannot be
+ * priced at any of those rates that would pay more (inputs that no longer
+ * cover the amount and that fee, or everything leaving less than dust), as
+ * a large payment whose change is just above dust: a hundredth more is
+ * about 4,000 bits on 106 inputs, more than its change and the remainder
+ * can give, and only a rate between two hundredths, which no page sends,
+ * would raise its fee.
+ *
+ * `highestFee` is at least what the payment pays at `planRate`: the version
+ * a raise replaces is one of those it compares with. Where some rate then
+ * pays more, the payment can be priced at every rate up to some rate, and at
+ * none above it, and its fee never falls as the rate rises (a higher rate
+ * takes more of the change, then all of what is left as fee; or more of what
+ * everything sends): so the first rate that either cannot be priced or
+ * raises the fee is found by halving, and it is the answer when it raises
+ * the fee.
+ */
+export function lowestQbitSendPlanPaymentRaiseRate(
+  shape: QbitSendPlanRevisionShape,
+  inputTotal: number,
+  inputCount: number,
+  target: { kind: 'amount'; amount: number } | { kind: 'everything' },
+  planRate: number,
+  highestFee: number
+): number | undefined {
+  // In whole steps, so no rate is read back rounded.
+  const ceiling = QBIT_MAX_FEE_RATE * PAGE_FEE_RATE_STEPS
+  const raises = (steps: number): boolean | undefined => {
+    const priced = priceQbitSendPlanPayment(
+      shape,
+      inputTotal,
+      inputCount,
+      target,
+      steps / PAGE_FEE_RATE_STEPS
+    )
+    return priced.ok ? qbitSendPlanPaymentRaises(priced, highestFee) : undefined
+  }
+  let low = Math.floor(planRate * PAGE_FEE_RATE_STEPS + 1e-6) + 1
+  let high = ceiling + 1
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (raises(middle) === false) low = middle + 1
+    else high = middle
+  }
+  return low <= ceiling && raises(low) === true ? low / PAGE_FEE_RATE_STEPS : undefined
+}
+
 /** A transaction of a send plan, as `qbitSendPlanFeeProblem` checks its fee. */
 export interface QbitSendPlanPricedTransaction {
   kind: 'merge' | 'payment'

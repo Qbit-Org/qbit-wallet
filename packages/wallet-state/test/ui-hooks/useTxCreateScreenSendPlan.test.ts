@@ -586,6 +586,9 @@ describe('the send screen with a payment one transaction cannot carry (#188)', (
       maxSendable: 0,
       unconfirmedSatoshis: 0,
     })
+    // While the plan read that answer asks for is on its way; what follows
+    // once it lands is in useTxCreateScreenPlanOpen.test.ts (#206).
+    wallet.getQbitSendPlan.mockReturnValueOnce(deferred<QbitSendPlanView | null>().promise)
 
     await act(async () => result.current.onClickNext())
     expect(result.current.sendPlanOpenText).toBe('send_plan_already_open')

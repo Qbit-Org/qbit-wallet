@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import {
   FeeRateType,
+  QBIT_SEND_PLAN_NOT_AS_SHOWN_CODE,
   QBIT_SEND_PLAN_SECONDS_PER_TRANSACTION,
   estimateQbitSendPlanSigningSeconds,
   isQbitFeeRateWithinPolicy,
@@ -129,7 +130,9 @@ export interface QbitSendPlanScreenReady {
    * every state of a readable plan, so they are in view before Continue or
    * any other action that leads to a signature. After a restart signing
    * waits for Continue, and that is where a stored plan that is not what
-   * the user confirmed can be noticed.
+   * the user confirmed can be noticed. Continue names these terms
+   * (`QbitSendPlanView.termsDigest`): the background refuses it when the
+   * plan it stores states others, and the screen then shows those.
    */
   fee: string
   /** None for a stored plan the background cannot read. */
@@ -251,7 +254,10 @@ function nextSigningPace(
  * opened for a plan that has moved on since, to another plan or to a state
  * without that action, closes without acting. A call that fails, whatever
  * it may have done, is followed by a read of the plan, which shows where it
- * stands.
+ * stands. Continue names the terms the screen shows; when the background
+ * refuses it because the plan it stores states others, the screen says so
+ * and the read shows what is stored, and nothing goes on until the user
+ * presses Continue again.
  */
 export function useQbitSendPlanScreenLogic(): QbitSendPlanScreenLogic {
   const { t, locale } = useI18n()
@@ -344,7 +350,18 @@ export function useQbitSendPlanScreenLogic(): QbitSendPlanScreenLogic {
     try {
       await work()
     } catch (error) {
-      if (mountedRef.current) setActionError(qbitSendPlanErrorMessage(error, t('unknown_error')))
+      if (mountedRef.current) {
+        // A Continue refused because the plan stored is not the one shown
+        // (its code crosses the UI port with the message): the read below
+        // shows what is stored, for the user to check before continuing.
+        const notAsShown =
+          (error as { code?: unknown } | null)?.code === QBIT_SEND_PLAN_NOT_AS_SHOWN_CODE
+        setActionError(
+          notAsShown
+            ? t('send_plan_not_as_shown')
+            : qbitSendPlanErrorMessage(error, t('unknown_error'))
+        )
+      }
       // The call may have changed the plan before it failed.
       refresh()
     } finally {
@@ -409,14 +426,18 @@ export function useQbitSendPlanScreenLogic(): QbitSendPlanScreenLogic {
     if (!current || busyRef.current || !current.actions.includes(action)) return
     const planId = current.id
     switch (action) {
-      case 'continue':
+      case 'continue': {
+        // Names the terms this screen shows: the background refuses the
+        // Continue unless the plan it stores states exactly these.
+        const termsDigest = current.termsDigest
         void run(action, planId, async () => {
           await apply(
-            () => wallet.continueQbitSendPlan(planId),
+            () => wallet.continueQbitSendPlan(planId, termsDigest),
             view => view
           )
         })
         return
+      }
       case 'replan':
         // The same outputs at the same rate make the same transactions, which
         // may meet the same refusal: the rate is chosen first, starting from

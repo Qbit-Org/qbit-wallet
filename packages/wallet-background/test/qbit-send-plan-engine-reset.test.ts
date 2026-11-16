@@ -44,6 +44,8 @@ vi.mock('../src/services', async () => {
       keyrings: [],
       memStore: { getState: () => lockState },
       hasVault: vi.fn(() => true),
+      // A keyring reset that fails here fails before it stores anything.
+      hasPersistedVault: vi.fn(async () => true),
       setLocked: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
       openP2mrPsbtSigningBatch: vi.fn(),

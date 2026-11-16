@@ -242,7 +242,7 @@ describe('the plan left once the entry it conflicted with is cancelled', () => {
     expect(world.keyring.signed).toHaveLength(signed)
     expect(world.keyring.counter).toBe(counter)
 
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     world.mine()
     await world.tick()

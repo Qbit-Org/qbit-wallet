@@ -50,10 +50,14 @@ interface Gate {
  * network changed since its read started, or when it names another.
  *
  * Answers can land out of order. Of one plan, a view with a lower revision
- * than the one shown is stale and dropped. Otherwise an answer is dropped
- * when a read or call that started later has already been shown, so an
- * earlier read can never bring back a plan a later one found gone. One read
- * runs at a time; reads asked for meanwhile become one more read after it.
+ * than the one shown from the same run of the background (`backgroundId`)
+ * is stale and dropped. Otherwise an answer is dropped when a read or call
+ * that started later has already been shown, so an earlier read can never
+ * bring back a plan a later one found gone; a view from another run counts
+ * as another plan's, since what the background stores may have been
+ * replaced, at any revision, before it started again, and a change it
+ * announces is read. One read runs at a time; reads asked for meanwhile
+ * become one more read after it.
  */
 export function useQbitSendPlan(): QbitSendPlanState {
   const wallet = useWallet()
@@ -88,7 +92,10 @@ export function useQbitSendPlan(): QbitSendPlanState {
     }
     if (view && `${view.chain}:${view.address}` !== answerScope) return
     const shown = gate.shown
-    if (view && shown && shown.id === view.id) {
+    // Revisions order the views of one plan within one run of the
+    // background only: a new run reads what is stored, which may have been
+    // replaced at any revision, so its view is ordered as another plan's.
+    if (view && shown && shown.id === view.id && shown.backgroundId === view.backgroundId) {
       if (view.revision < shown.revision) return
       if (view.revision === shown.revision && sequence < gate.published) return
     } else if (sequence < gate.published) {
@@ -149,12 +156,18 @@ export function useQbitSendPlan(): QbitSendPlanState {
   }, [])
 
   useEffect(() => {
-    const onPlanChanged = (params?: { planId?: unknown; revision?: unknown }): void => {
+    const onPlanChanged = (params?: {
+      planId?: unknown
+      revision?: unknown
+      backgroundId?: unknown
+    }): void => {
       const shown = gateRef.current.shown
-      // A change this page already shows needs no read.
+      // A change this page already shows needs no read: of the plan shown,
+      // from the run of the background that made it.
       if (
         shown &&
         params?.planId === shown.id &&
+        params.backgroundId === shown.backgroundId &&
         typeof params.revision === 'number' &&
         params.revision <= shown.revision
       ) {

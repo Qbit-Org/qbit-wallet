@@ -328,7 +328,21 @@ Controls and evidence:
   store answers from memory, so a record changed on disk takes effect only
   after the service worker restarts, and after a restart nothing is signed
   until the user presses Continue on the progress screen, which shows the
-  recipient, the amount and the total fee with its rate. Continue is offered
+  recipient, the amount and the total fee with its rate. Continue names
+  what that screen shows: the page sends back the digest the background
+  made of the terms of the view it shows (the plan, its account and network,
+  the recipient, the target, the amount, the change, the fee rate, the total
+  fee, the signatures and every transaction with its id, input count and
+  fee), and the background refuses the Continue, before anything is
+  authorised, written, held or signed, unless the record stored then states
+  exactly those terms; the page then reads the plan again and shows the
+  record stored, for the user to decide. Revisions order a page's views only
+  within one run of the background, which every view and every change it
+  announces names, so after a restart a page shows what is stored whatever
+  revision it was stored at, and a record replaced at whatever revision
+  that states other terms is never approved by a Continue of the view
+  shown before it; one that states exactly the terms shown, the same
+  transactions and figures, is continued as shown. Continue is offered
   and accepted only while the wallet is unlocked: the UI port carries no
   proof of the password, so a page left open on a locked wallet, or any
   other caller, cannot approve a changed record for the next unlock to sign
@@ -365,6 +379,28 @@ Controls and evidence:
   Cancel and a new plan come back once an input of the payment is spent by
   a transaction that is no version of it; removing or resetting the wallet
   ends such a plan all the same;
+- Reset Wallet stops every plan before it locks the wallet and erases the
+  keys. Once the keys begin to be erased the plans stay stopped for the rest
+  of that run of the background unless every step of the clearing succeeds:
+  the stored plans and what they hold are erased as one of those steps, and
+  a clearing left incomplete is finished by the next Reset Wallet, the next
+  start of the background or the next wallet set-up, before a wallet can be
+  set up again. At start-up, stored plans found without a vault are erased
+  before anything of them is held. The controller's older `resetAllData`,
+  which no page can call and nothing in the wallet calls, keeps the same
+  bound for any caller: once the keyring's reset erased the keys no stored
+  plan goes on until the store holds none, with the erase tried again every
+  15 seconds, and after a keyring reset that threw, whether the keys are
+  gone is read from storage, as a restart reads it, the plans staying
+  stopped while that cannot be read.
+  Removing a wallet ends each of its plans as a cancel does; a write that
+  storage refuses on the way stops none of the others, and what could not
+  be ended is held back, nothing of it signed, broadcast or advanced, and
+  ended again every 15 seconds. That holding back is kept in memory only:
+  if storage refuses the write and the service worker restarts before a
+  later attempt succeeds, the plan left is restored like any other, and its
+  stored signed payment, the one the user confirmed, can still be sent once
+  its merges confirm;
 - while a plan is open, the send guard holds every input of its
   transactions and the outputs of its merges, restored from the store at
   start-up before anything can spend. Sends, website requests,

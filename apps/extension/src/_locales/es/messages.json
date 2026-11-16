@@ -2114,6 +2114,9 @@
   "send_plan_read_failed": {
     "message": "La billetera no pudo leer el progreso de este pago. Lo intentará de nuevo en breve."
   },
+  "send_plan_not_as_shown": {
+    "message": "Este pago cambió desde que esta pantalla lo mostró. Revisa el destinatario, el importe y la tarifa, y continúa solo si son correctos."
+  },
   "send_plan_paused_locked": {
     "message": "La billetera se bloqueó antes de terminar la firma"
   },
@@ -2143,6 +2146,12 @@
   },
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "La red pide una tarifa más alta para aceptar el pago. Sube la tarifa para enviarlo."
+  },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "La red pide una tarifa más alta para aceptar el pago, y los fondos que usa no pueden pagar una más alta. Continúa para volver a enviar el mismo pago más tarde, o cancélalo."
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "La red pide una tarifa más alta para aceptar el pago, y su tarifa ya se ha subido tantas veces como permite la billetera. Continúa para volver a enviar el mismo pago más tarde, o cancélalo."
   },
   "send_plan_paused_payment_refused": {
     "message": "La red rechazó el pago"
@@ -2242,6 +2251,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "Esta tasa de tarifa es demasiado baja para reemplazar la transacción ya enviada. Usa al menos $1 bits/vB."
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "No se puede subir la tarifa de este pago: los fondos que usa no pueden pagar una más alta."
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "No se puede volver a subir la tarifa de este pago: ya se ha subido tantas veces como permite la billetera. Continúa para volver a enviar el mismo pago, o cancélalo."
   },
   "send_plan_home_sending": {
     "message": "Enviando $1 $2"

@@ -7,6 +7,52 @@ repository.
 
 ## 1.0.10
 
+### Sending and fees
+
+These are six fixes to the payment that combines an account's funds before it
+pays (#188), found in its review (#206).
+
+- Continue in the progress view of such a payment now approves exactly the
+  payment that view shows. If the payment the wallet has stored is another
+  one (another recipient, amount, fee or fee rate, or other transactions),
+  Continue signs nothing, the view says "This payment changed since this
+  screen showed it. Check the recipient, the amount and the fee, and continue
+  only if they are right." and it shows the stored payment. Before, Continue
+  approved whatever was stored. Someone able to change the extension's stored
+  data could replace the payment there and, once the wallet's background had
+  restarted, have an open wallet window go on showing the earlier one while
+  Continue approved theirs. After such a restart an open window now shows the
+  stored payment at once.
+- "Raise the fee" is no longer offered when no fee rate can make the payment
+  pay more. This is the case for an exact amount that returns no change: its
+  fee is already everything its funds hold above the amount. Before, the
+  raise was offered, built the same transaction again and failed, and the
+  payment paused offering the same raise. The view now says "The network
+  asks for a higher fee to accept the payment, and the funds it uses cannot
+  pay a higher one. Continue to send the same payment again later, or cancel
+  it." A payment of the whole balance still raises its fee by lowering the
+  amount. The raise is also no longer offered once a payment's fee has been
+  raised 16 times, the most the wallet allows; before, it was offered and
+  its review failed.
+- The send screen no longer stays on "A payment from this account is already
+  in progress." with Next disabled when no payment is in progress after
+  all, which happened when another wallet window's start of one ended
+  without it. Next works again without an edit, and so does Confirm on the
+  review.
+- A payment that another transaction completed, by paying the recipient the
+  same amount from the same funds, now shows the wallet's own transaction and
+  its fee when that is the one that confirms. Before, it went on showing the
+  other one.
+- Removing a wallet ends each of its unfinished payments also when the
+  browser's storage refuses a write on the way. Before, a refused write
+  ended none of them, and a payment already signed could still be sent after
+  the wallet was removed. What could not be ended is now held back, nothing
+  of it signed or sent, and ended again every 15 seconds.
+- A wallet whose keys have been erased keeps no unfinished payment. Reset
+  Wallet stops such payments before it erases the keys and erases them with
+  the wallet, and one found at start-up without the wallet's keys is erased,
+  not sent.
+
 ### Accounts with many outputs
 
 - The balance of an account with thousands of outputs loads again (#36,
@@ -122,6 +168,13 @@ repository.
   while that read is still running, which Send allows only when it already
   shows outputs read earlier, waits for that read too. Every other read
   gives up on such errors as quickly as 1.0.9 did.
+- If the browser's storage refuses the write that ends a removed wallet's
+  unfinished payment, and the browser or the extension restarts before the
+  wallet can end it, that payment goes on as before the removal: a payment
+  already signed, the one you confirmed, can still be sent once its funds
+  are combined.
+- A completed payment whose transaction was replaced by one made outside
+  this wallet goes on showing the earlier transaction.
 
 ## 1.0.9
 

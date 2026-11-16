@@ -444,7 +444,12 @@ describe('useQbitSendPlanScreenLogic', () => {
           },
         ],
         sent: status !== 'planned',
-        actions: ['continue', 'cancel'],
+        // A payment refused for its fee is offered the raise its copy names
+        // when the funds it uses can pay a higher fee.
+        actions:
+          reason === 'payment_fee_too_low'
+            ? ['raise_payment_fee', 'continue', 'cancel']
+            : ['continue', 'cancel'],
         signing: undefined,
       })
     )
@@ -681,7 +686,7 @@ describe('useQbitSendPlanScreenLogic', () => {
       clickAction(result.current, 'continue')
     })
     expect(wallet.continueQbitSendPlan).toHaveBeenCalledTimes(1)
-    expect(wallet.continueQbitSendPlan).toHaveBeenCalledWith('plan-1')
+    expect(wallet.continueQbitSendPlan).toHaveBeenCalledWith('plan-1', planView().termsDigest)
     expect(ready(result.current).busy).toBe('continue')
 
     await act(async () => answer.resolve(planView({ phase: 'signing', revision: 2 })))
