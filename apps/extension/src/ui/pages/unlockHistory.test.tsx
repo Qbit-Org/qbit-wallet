@@ -176,6 +176,8 @@ vi.mock('@/ui/components/Logo', async () => {
 vi.mock('@/ui/components/Text', () => ({ Text: () => null }));
 vi.mock('../components/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: ReactNode }) => children }));
 vi.mock('../web/tabs', () => ({ openExtensionInTab: vi.fn() }));
+// What the start-up error screen's Retry would call; nothing here does.
+vi.mock('@/background/webapi/browser', () => ({ browserRuntimeReload: vi.fn() }));
 
 vi.mock('./Main/WalletTabScreen', async () => {
   const React = await import('react');
@@ -244,7 +246,7 @@ vi.mock('./Phishing/PhishingScreen', () => ({ default: () => null }));
 vi.mock('./Settings/AboutUsScreen', () => ({ default: () => null }));
 vi.mock('./Settings/AddressTypeScreen', () => ({ default: () => null }));
 vi.mock('./Settings/AdvancedScreen', () => ({ default: () => null }));
-vi.mock('./Settings/AdvancedScreen/LockTimePage', () => ({ LockTimePage: () => null }));
+vi.mock('./Settings/SecurityScreen/LockTimePage', () => ({ LockTimePage: () => null }));
 vi.mock('./Settings/AdvancedScreen/RegtestAccessScreen', () => ({ RegtestAccessScreen: () => null }));
 vi.mock('./Settings/ChangePasswordScreen', () => ({ default: () => null }));
 vi.mock('./Settings/ContactsScreen', () => ({ default: () => null }));

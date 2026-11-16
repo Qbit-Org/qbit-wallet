@@ -1,72 +1,8 @@
-import type { Page } from '@playwright/test'
-
-import { ApprovalsPage, SettingsPage } from '../pages'
+import { SettingsPage } from '../pages'
 import { expect, test } from '../fixtures/test'
+import { connectRecordingSite, readAccounts, recordedEvents } from '../support/dapp-provider'
 import { DappServer } from '../support/dapp-server'
 import { E2E_PASSWORD, provisionDeterministicRegtestWallet } from '../support/wallet-setup'
-
-type ProviderEvent = [string, unknown]
-
-interface BrowserQbitProvider {
-  requestAccounts(): Promise<string[]>
-  getAccounts(): Promise<string[]>
-  on(event: string, handler: (data: unknown) => void): void
-}
-
-interface WindowWithQbit extends Window {
-  qbit?: BrowserQbitProvider
-  qbitE2eEvents?: ProviderEvent[]
-}
-
-const PROVIDER_EVENTS = ['accountsChanged', 'networkChanged', 'chainChanged', 'disconnect']
-
-async function connectRecordingSite(
-  extension: Parameters<typeof provisionDeterministicRegtestWallet>[0],
-  origin: string
-): Promise<Page> {
-  const page = await extension.context.newPage()
-  await page.goto(origin, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => Boolean((window as WindowWithQbit).qbit))
-  await page.evaluate(events => {
-    const target = window as WindowWithQbit
-    const provider = target.qbit
-    if (!provider) throw new Error('window.qbit is unavailable')
-    target.qbitE2eEvents = []
-    for (const event of events) {
-      provider.on(event, data => target.qbitE2eEvents?.push([event, data]))
-    }
-  }, PROVIDER_EVENTS)
-
-  const connectResult = page.evaluate(() => {
-    const provider = (window as WindowWithQbit).qbit
-    if (!provider) throw new Error('window.qbit is unavailable')
-    return provider.requestAccounts()
-  })
-  const approval = await ApprovalsPage.waitForNext(extension.context)
-  expect(await approval.contextText()).toContain(origin)
-  await approval.approveConnection()
-  const [address] = await connectResult
-  // requestAccounts announces the account to its own page; start from a clean log.
-  await expect
-    .poll(() => recordedEvents(page))
-    .toContainEqual(['accountsChanged', [address]])
-  await page.evaluate(() => {
-    ;(window as WindowWithQbit).qbitE2eEvents = []
-  })
-  return page
-}
-
-function recordedEvents(page: Page): Promise<ProviderEvent[]> {
-  return page.evaluate(() => (window as WindowWithQbit).qbitE2eEvents ?? [])
-}
-
-function readAccounts(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const provider = (window as WindowWithQbit).qbit
-    if (!provider) throw new Error('window.qbit is unavailable')
-    return provider.getAccounts()
-  })
-}
 
 test('G3 dapp events: a site setting, a lock and a revocation reach only the sites they concern', async ({
   extension,

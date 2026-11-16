@@ -2322,7 +2322,11 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
 
   it('defers a port disconnect during the restored attempt to its verdict', async () => {
     const wallet = newController()
-    const signedData = await wallet.runForUiPort('popup:1', () => signWalletSend(wallet))
+    const signedData = await wallet.runForUiPort(
+      'popup:1',
+      () => signWalletSend(wallet),
+      'signPsbtV2'
+    )
     const claim = signedData.qbitSendBroadcastClaim!
     restartBackground()
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(buildingAccount as any)
@@ -2335,8 +2339,10 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     probeGone()
     let reject: (error: unknown) => void = () => undefined
     broadcastTxMock.mockReturnValueOnce(new Promise<string>((_, fail) => (reject = fail)))
-    const attempt = wallet.runForUiPort('tab:2', () =>
-      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    const attempt = wallet.runForUiPort(
+      'tab:2',
+      () => wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     await waitForDispatch()
     const disconnected = wallet.onUiPortDisconnected('tab:2')
@@ -2355,8 +2361,10 @@ describe('WalletController.broadcastQbitTx after a background restart', () => {
     // presenting it is probed, and nothing goes back on the wire.
     probeGone()
     await expect(
-      wallet.runForUiPort('tab:3', () =>
-        wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+      wallet.runForUiPort(
+        'tab:3',
+        () => wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid),
+        'broadcastQbitTx'
       )
     ).resolves.toMatchObject({ success: false, outcome: 'unknown', lookup: 'gone' })
     expect(broadcastTxMock).toHaveBeenCalledTimes(1)
@@ -3123,7 +3131,11 @@ describe('WalletController send claims owned by a UI port', () => {
     // The popup asks for the signature and closes before the answer lands:
     // the bytes exist nowhere, but the claim minted at signing reserves the
     // input until something releases it.
-    const signedData = await wallet.runForUiPort('popup:1', () => signWalletSend(wallet))
+    const signedData = await wallet.runForUiPort(
+      'popup:1',
+      () => signWalletSend(wallet),
+      'signPsbtV2'
+    )
     expect(signedData.qbitSendBroadcastClaim).toMatchObject({ origin: QBIT_WALLET_SEND_CLAIM_ORIGIN })
     await expect(reservedKeys()).resolves.toEqual(reserved)
 
@@ -3141,7 +3153,11 @@ describe('WalletController send claims owned by a UI port', () => {
   it('releases an externally signed send the same way once its signer page is gone', async () => {
     const wallet = newController()
 
-    await wallet.runForUiPort('tab:3', () => reserveExternalWalletSend(wallet))
+    await wallet.runForUiPort(
+      'tab:3',
+      () => reserveExternalWalletSend(wallet),
+      'reserveExternallySignedQbitSend'
+    )
     await expect(reservedKeys()).resolves.toEqual(reserved)
 
     await wallet.onUiPortDisconnected('tab:3')
@@ -3158,7 +3174,11 @@ describe('WalletController send claims owned by a UI port', () => {
 
   it('lets an in-flight broadcast decide when its page closes mid-flight', async () => {
     const wallet = newController()
-    const signedData = await wallet.runForUiPort('popup:1', () => signWalletSend(wallet))
+    const signedData = await wallet.runForUiPort(
+      'popup:1',
+      () => signWalletSend(wallet),
+      'signPsbtV2'
+    )
     const claim = signedData.qbitSendBroadcastClaim!
 
     // The node accepts, but the popup is gone before the answer: the claim
@@ -3167,8 +3187,10 @@ describe('WalletController send claims owned by a UI port', () => {
     // broadcast, so the disconnect is observed only once the node answers.
     let deliver: (value: string) => void = () => undefined
     broadcastTxMock.mockReturnValueOnce(new Promise<string>(resolve => (deliver = resolve)))
-    const accepted = wallet.runForUiPort('popup:1', () =>
-      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    const accepted = wallet.runForUiPort(
+      'popup:1',
+      () => wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     const disconnected = wallet.onUiPortDisconnected('popup:1')
     deliver(fixture.txid)
@@ -3180,7 +3202,11 @@ describe('WalletController send claims owned by a UI port', () => {
 
   it('releases after a proven rejection that lands on a page that already closed', async () => {
     const wallet = newController()
-    const signedData = await wallet.runForUiPort('popup:1', () => signWalletSend(wallet))
+    const signedData = await wallet.runForUiPort(
+      'popup:1',
+      () => signWalletSend(wallet),
+      'signPsbtV2'
+    )
     const claim = signedData.qbitSendBroadcastClaim!
 
     let reject: (error: unknown) => void = () => undefined
@@ -3191,8 +3217,10 @@ describe('WalletController send claims owned by a UI port', () => {
     let probe: () => void = () => undefined
     getTxStatusMock.mockReturnValueOnce(new Promise((_, fail) => (probe = () => fail(notFound()))))
     for (let index = 1; index < QBIT_BROADCAST_ABSENCE_PROBES; index += 1) probeGone()
-    const attempt = wallet.runForUiPort('popup:1', () =>
-      wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+    const attempt = wallet.runForUiPort(
+      'popup:1',
+      () => wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     const disconnected = wallet.onUiPortDisconnected('popup:1')
     reject(
@@ -3212,14 +3240,20 @@ describe('WalletController send claims owned by a UI port', () => {
 
   it('keeps a claim reserved when the page closes on an inconclusive broadcast', async () => {
     const wallet = newController()
-    const signedData = await wallet.runForUiPort('popup:1', () => signWalletSend(wallet))
+    const signedData = await wallet.runForUiPort(
+      'popup:1',
+      () => signWalletSend(wallet),
+      'signPsbtV2'
+    )
     const claim = signedData.qbitSendBroadcastClaim!
 
     broadcastTxMock.mockRejectedValueOnce(networkError())
     probeGone()
     await expect(
-      wallet.runForUiPort('popup:1', () =>
-        wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+      wallet.runForUiPort(
+        'popup:1',
+        () => wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid),
+        'broadcastQbitTx'
       )
     ).resolves.toMatchObject({ success: false, outcome: 'unknown' })
 
@@ -3239,7 +3273,11 @@ describe('WalletController send claims owned by a UI port', () => {
 
   it('keeps a claim while its page is open after a proven rejection, for the retry it may still make', async () => {
     const wallet = newController()
-    const signedData = await wallet.runForUiPort('popup:1', () => signWalletSend(wallet))
+    const signedData = await wallet.runForUiPort(
+      'popup:1',
+      () => signWalletSend(wallet),
+      'signPsbtV2'
+    )
     const claim = signedData.qbitSendBroadcastClaim!
 
     broadcastTxMock.mockRejectedValueOnce(
@@ -3249,8 +3287,10 @@ describe('WalletController send claims owned by a UI port', () => {
     )
     for (let probe = 0; probe < QBIT_BROADCAST_ABSENCE_PROBES; probe += 1) probeGone()
     await expect(
-      wallet.runForUiPort('popup:1', () =>
-        wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid)
+      wallet.runForUiPort(
+        'popup:1',
+        () => wallet.broadcastQbitTx(signedData.psbtHex!, claim, claim.chain, claim.txid),
+        'broadcastQbitTx'
       )
     ).resolves.toMatchObject({ success: false, outcome: 'not_sent' })
     await expect(reservedKeys()).resolves.toEqual(reserved)
@@ -3267,14 +3307,20 @@ describe('WalletController send claims owned by a UI port', () => {
     const failure = new Error('boom')
 
     expect(
-      wallet.runForUiPort('popup:1', () =>
-        wallet.runForUiPort('tab:2', () => (wallet as any).callingUiPort)
+      wallet.runForUiPort(
+        'popup:1',
+        () => wallet.runForUiPort('tab:2', () => (wallet as any).callingUiPort, 'signPsbtV2'),
+        'signPsbtV2'
       )
     ).toBe('tab:2')
     expect(() =>
-      wallet.runForUiPort('popup:1', () => {
-        throw failure
-      })
+      wallet.runForUiPort(
+        'popup:1',
+        () => {
+          throw failure
+        },
+        'signPsbtV2'
+      )
     ).toThrow(failure)
     expect((wallet as any).callingUiPort).toBeUndefined()
   })

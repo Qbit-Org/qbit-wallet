@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Button, Card, Column, Row, Text } from '@/ui/components';
+import { Button, Card, Column, Icon, Row, Text } from '@/ui/components';
+import { colors } from '@/ui/theme/colors';
+import { fontSizes } from '@/ui/theme/font';
+import { spacing } from '@/ui/theme/spacing';
 import type { PhishingProtectionReason } from '@qbit/wallet-shared';
 import { useI18n } from '@qbit/wallet-state';
 
@@ -56,9 +59,10 @@ interface RetryFailure {
 }
 
 /**
- * Advanced-settings row for phishing protection: whether the browser holds the
- * block rule for the bundled denylist and protection is full, as the
- * background reports it, with Retry now while it is not.
+ * The Security screen's card for phishing protection: whether the browser
+ * holds the block rule for the bundled denylist and protection is full, as
+ * the background reports it, with Retry now while it is not. Its first line
+ * has the look of the screen's rows, and what it reports follows below.
  */
 export function PhishingProtectionCard() {
   const { t } = useI18n();
@@ -154,8 +158,8 @@ export function PhishingProtectionCard() {
       due === null
         ? t('phishing_protection_attempts', [String(networkRules.attempts)])
         : due === 'due'
-        ? t('phishing_protection_next_attempt_due', [String(networkRules.attempts)])
-        : t('phishing_protection_next_attempt_in', [String(networkRules.attempts), String(due)])
+          ? t('phishing_protection_next_attempt_due', [String(networkRules.attempts)])
+          : t('phishing_protection_next_attempt_in', [String(networkRules.attempts), String(due)])
     );
   }
   if (networkRules?.error && state !== 'protected' && state !== 'unsupported') {
@@ -174,20 +178,34 @@ export function PhishingProtectionCard() {
       ? retryFailure.timedOut
         ? t('phishing_protection_retry_no_answer')
         : retryFailure.error
-        ? t('phishing_protection_retry_failed_with', [retryFailure.error])
-        : t('phishing_protection_retry_failed')
+          ? t('phishing_protection_retry_failed_with', [retryFailure.error])
+          : t('phishing_protection_retry_failed')
       : null;
 
   return (
-    <Card style={{ borderRadius: 0 }} data-testid="phishing-protection-card">
+    <Card
+      style={{
+        flexShrink: 0,
+        borderRadius: 0,
+        background: colors.surface,
+        borderColor: colors.border,
+        padding: '10px 16px 14px',
+        margin: 0
+      }}
+      data-testid="phishing-protection-card"
+    >
       <Column fullX>
-        <Row justifyBetween>
-          <Text text={t('phishing_protection')} preset="bold" size="sm" />
+        <Row justifyBetween style={{ minHeight: '44px', alignItems: 'center' }}>
+          <Row style={{ minWidth: 0, alignItems: 'center' }}>
+            <Icon icon="phishingProtection" size={fontSizes.iconMiddle} color="textDim" />
+            <Text text={t('phishing_protection')} preset="regular" size="sm" style={{ marginLeft: spacing.tiny }} />
+          </Row>
           {state && (
             <Text
               text={t(STATE_LABELS[state])}
               color={STATE_COLORS[state]}
               size="sm"
+              style={{ flexShrink: 0 }}
               data-testid="phishing-protection-state"
             />
           )}

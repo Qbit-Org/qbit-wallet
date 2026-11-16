@@ -60,6 +60,7 @@ const background = vi.hoisted(() => {
     qbitSendGuardService: { init: vi.fn() },
     qbitSendPlanStore: { init: vi.fn(reads('qbitSendPlans')) },
     walletController: {
+      finishPendingWalletReset: vi.fn(),
       initRegtestAccess: vi.fn(),
       prepareStartupChainType: vi.fn(),
       restoreQbitSendPlans: vi.fn(),
@@ -266,6 +267,40 @@ describe('restoreAppState', () => {
     expect(background.walletController.prepareStartupChainType).not.toHaveBeenCalled();
     expect(background.preferenceService.setChainType).toHaveBeenCalledExactlyOnceWith(ChainType.QBIT_MAINNET);
     expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
+  });
+
+  it('finishes a pending wallet reset once every service it clears has started, before the background is ready', async () => {
+    const { isAppStateRestored } = await startWorker();
+
+    const finish = background.walletController.finishPendingWalletReset;
+    expect(finish).toHaveBeenCalledOnce();
+    const [finishedAt = 0] = finish.mock.invocationCallOrder;
+    for (const init of [
+      background.keyringService.init,
+      background.preferenceService.init,
+      background.biometricUnlockService.init,
+      background.qbitSendGuardService.init,
+      background.walletController.initRegtestAccess,
+      background.permissionService.init,
+      background.contactBookService.init,
+      background.phishingDetectService.init
+    ]) {
+      expect(init.mock.invocationCallOrder[0]).toBeLessThan(finishedAt);
+    }
+    expect(background.walletController.setBackgroundInited.mock.invocationCallOrder[0]).toBeGreaterThan(finishedAt);
+    expect(isAppStateRestored()).toBe(true);
+  });
+
+  it('starts the rest of the background when the pending wallet reset still cannot be finished', async () => {
+    background.walletController.finishPendingWalletReset.mockRejectedValueOnce(
+      Object.assign(new Error('wallet_reset_incomplete'), { code: -19 })
+    );
+
+    const { isAppStateRestored } = await startWorker();
+
+    expect(background.walletController.setBackgroundInited).toHaveBeenCalledWith(true);
+    expect(background.walletController.setBackgroundStartupFailed).not.toHaveBeenCalled();
+    expect(isAppStateRestored()).toBe(true);
   });
 
   it('holds a caller that asks during start-up until the background is restored', async () => {

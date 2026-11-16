@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ArrowUp,
   BookUser,
   Check,
@@ -13,22 +14,30 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Fingerprint,
   Fuel,
   Globe,
   History,
   Info,
+  KeyRound,
   Link2,
   Lock,
   LucideIcon,
   MapPin,
+  Monitor,
   Network,
   Palette,
   Pickaxe,
   QrCode,
   Rabbit,
+  RectangleEllipsis,
+  RotateCcw,
   Send,
   Settings,
+  ShieldBan,
+  ShieldCheck,
   SlidersHorizontal,
+  Timer,
   TriangleAlert,
   Turtle,
   User,
@@ -120,6 +129,15 @@ type LucideIconName =
   | 'addressType'
   | 'appearance'
   | 'advance'
+  | 'security'
+  | 'changePassword'
+  | 'recoveryPhrase'
+  | 'touchId'
+  | 'lockTime'
+  | 'computerLock'
+  | 'windowsClose'
+  | 'phishingProtection'
+  | 'reset'
   | 'aboutUsLogo'
   | 'network'
   | 'gas'
@@ -185,6 +203,15 @@ const lucideRegistry: Partial<Record<IconTypes, LucideIcon>> = {
   addressType: MapPin,
   appearance: Palette,
   advance: SlidersHorizontal,
+  security: ShieldCheck,
+  changePassword: RectangleEllipsis,
+  recoveryPhrase: KeyRound,
+  touchId: Fingerprint,
+  lockTime: Timer,
+  computerLock: Monitor,
+  windowsClose: AppWindow,
+  phishingProtection: ShieldBan,
+  reset: RotateCcw,
   aboutUsLogo: Info,
   network: Network,
 

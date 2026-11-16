@@ -5,9 +5,11 @@ import { createPortal } from 'react-dom';
 import { BottomModal, useBottomModal } from '@/ui/components/BottomModal';
 import { Button } from '@/ui/components/Button';
 import { RemoveWalletPopover } from '@/ui/components/RemoveWalletPopover';
+import { ResetWalletPopover } from '@/ui/components/ResetWalletPopover';
 import { WalletAvatar, WalletTags, walletTagsFor } from '@/ui/components/WalletIdentity';
 import { shortAddress, walletErrorMessage } from '@/ui/utils';
 import { activateOnKey, keepTabInside } from '@/ui/utils/keyboard';
+import { hasRecoveryPhrase } from '@/ui/utils/recoveryPhrase';
 import { Account, KeyringType, WalletColorKey, WalletKeyring } from '@qbit/wallet-shared';
 import {
   accountActions,
@@ -29,8 +31,6 @@ import './index.less';
 
 /** Wallets that can derive another account: the ones with a recovery phrase. */
 const ACCOUNT_CREATABLE_KEYRING_TYPES: string[] = [KeyringType.HdKeyring, KeyringType.QbitHdKeyring];
-/** Wallets whose recovery phrase can be shown. */
-const MNEMONIC_BACKED_KEYRING_TYPES: string[] = [KeyringType.HdKeyring, KeyringType.QbitHdKeyring];
 /** Accounts whose private key can be exported. */
 const PRIVATE_KEY_EXPORTABLE_ACCOUNT_TYPES: string[] = [KeyringType.HdKeyring, KeyringType.SimpleKeyring];
 
@@ -51,6 +51,11 @@ function isCorruptedWallet(keyring: WalletKeyring): boolean {
   return (keyring as WalletKeyring & { isCorrupted?: boolean }).isCorrupted === true || keyring.accounts.length === 0;
 }
 
+/** Whether removing the wallet `keyringKey` from `keyrings` would leave no usable wallet. */
+function leavesNoUsableWallet(keyrings: WalletKeyring[], keyringKey: string): boolean {
+  return !keyrings.some((other) => other.key !== keyringKey && !isCorruptedWallet(other));
+}
+
 type MenuTarget = { kind: 'wallet'; keyringKey: string } | { kind: 'account'; keyringKey: string; accountKey: string };
 type MenuState = MenuTarget & { anchor: HTMLElement };
 
@@ -59,7 +64,11 @@ type DialogState =
   | { kind: 'rename-account'; keyringKey: string; accountKey: string }
   | { kind: 'color'; keyringKey: string }
   | { kind: 'remove'; keyringKey: string }
-  | { kind: 'new-account'; keyringKey: string };
+  | { kind: 'new-account'; keyringKey: string }
+  // Removing the last wallet resets the extension instead: every wallet goes,
+  // so the dialog does not close with the wallet it was opened for, only once
+  // removing that wallet would leave another usable one.
+  | { kind: 'reset'; keyringKey: string };
 
 interface WalletGroup {
   keyring: WalletKeyring;
@@ -101,6 +110,9 @@ function AccountSwitcherContent() {
 
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // The menu as last rendered, for a removal that settles later.
+  const menuRef = useRef<MenuState | null>(null);
+  menuRef.current = menu;
   const [dialog, setDialogState] = useState<DialogState | null>(null);
   const [pendingAccountKey, setPendingAccountKey] = useState<string | null>(null);
   const [lockedHeight, setLockedHeight] = useState(0);
@@ -122,6 +134,9 @@ function AccountSwitcherContent() {
     setDialogState(next);
   }, []);
   const scrolledToCurrentRef = useRef(false);
+  // The Remove Wallet press being judged. A press on what the list says is the
+  // last usable wallet reads the wallets again first; a newer press drops it.
+  const removalCheckRef = useRef(0);
 
   // Reads the wallets and shows them, unless a newer read or a change made
   // here overtook this read, or the sheet began to close meanwhile. Resolves
@@ -303,7 +318,7 @@ function AccountSwitcherContent() {
         focusInSheet(menu.anchor);
       }
     }
-    if (!dialog) return;
+    if (!dialog || dialog.kind === 'reset') return;
     const gone =
       dialog.kind === 'rename-account'
         ? !findAccount(dialog.keyringKey, dialog.accountKey)
@@ -414,14 +429,41 @@ function AccountSwitcherContent() {
     if (created) close();
   };
 
-  const removeWallet = (keyring: WalletKeyring) => {
+  const removeWallet = async (keyring: WalletKeyring) => {
     // A usable wallet must stay, as the background requires: a corrupted one
-    // cannot be opened, so it does not count. The background checks again,
-    // against the wallets as they are when the removal runs.
-    if (!keyrings.some((other) => other.key !== keyring.key && !isCorruptedWallet(other))) {
+    // cannot be opened, so it does not count. Removing the last one is a
+    // reset instead, which asks for the password and its own confirmation;
+    // nothing is sent until then. The background checks the removal again,
+    // against the wallets as they are when it runs, and refuses it for the
+    // last wallet: a refused removal never turns into a reset.
+    const check = ++removalCheckRef.current;
+    if (leavesNoUsableWallet(keyrings, keyring.key)) {
+      // The list can be out of date: another window may have added a wallet
+      // since the sheet read them. Read them again before offering to erase
+      // them all. A failed read leaves the list as it is; the background
+      // checks the wallet again inside the reset either way (lastWalletKey).
+      const anchor = menu?.anchor ?? null;
       closeMenu();
-      tools.toastError(t('removing_the_last_wallet_is_not_allowed'));
-      return;
+      const fresh = await readKeyrings();
+      if (
+        check !== removalCheckRef.current ||
+        !mountedRef.current ||
+        closingRef.current ||
+        dialogRef.current ||
+        menuRef.current
+      ) {
+        return;
+      }
+      const listed = fresh ?? keyrings;
+      if (!listed.some((candidate) => candidate.key === keyring.key)) {
+        // Gone meanwhile: there is nothing to remove.
+        focusInSheet(anchor);
+        return;
+      }
+      if (leavesNoUsableWallet(listed, keyring.key)) {
+        openDialog({ kind: 'reset', keyringKey: keyring.key });
+        return;
+      }
     }
     dropPendingKeyringsRead();
     openDialog({ kind: 'remove', keyringKey: keyring.key });
@@ -454,7 +496,7 @@ function AccountSwitcherContent() {
     }
     // Corrupted wallets included: their phrase is still in the vault, and the
     // "Invalid" note asks for removal, so it must stay reachable for a backup.
-    if (MNEMONIC_BACKED_KEYRING_TYPES.includes(keyring.type)) {
+    if (hasRecoveryPhrase(keyring)) {
       items.push({
         label: t('wallet_menu_backup_seed_phrase'),
         icon: <KeyRound size={14} />,
@@ -469,7 +511,7 @@ function AccountSwitcherContent() {
       label: t('remove_wallet'),
       icon: <Trash2 size={14} />,
       danger: true,
-      onSelect: () => removeWallet(keyring),
+      onSelect: () => void removeWallet(keyring),
       'data-testid': 'wallet-menu-remove'
     });
     return items;
@@ -530,9 +572,20 @@ function AccountSwitcherContent() {
     refreshKeyrings();
   };
 
-  const saveAccountName = async (account: Account, name: string) => {
+  // Refused as a wallet's rename is, as when the wallet no longer lists the
+  // account: the same explanation, and the wallets read again. The dialog
+  // closes: it finds its account again only by keys, which another account
+  // may hold now, so a second save could name that one.
+  const saveAccountName = async (keyring: WalletKeyring, account: Account, name: string) => {
     const started = dialogRef.current;
-    const renamed = await wallet.setAccountAlianName(account, name);
+    let renamed: Account;
+    try {
+      renamed = await wallet.setAccountAlianName(account, name);
+    } catch (error) {
+      const explained = await explainRefusal(keyring, error);
+      closeDialogIfOpen(started);
+      throw explained;
+    }
     dropPendingKeyringsRead();
     dispatch(keyringsActions.updateAccountName(renamed));
     dispatch(accountActions.updateAccountName(renamed));
@@ -797,11 +850,11 @@ function AccountSwitcherContent() {
           onDismiss={closeDialog}
         />
       )}
-      {dialog?.kind === 'rename-account' && dialogAccount && (
+      {dialog?.kind === 'rename-account' && dialogKeyring && dialogAccount && (
         <NameEditDialog
           title={t('change_account_name')}
           initialName={dialogAccount.alianName ?? ''}
-          onSave={(name) => saveAccountName(dialogAccount, name)}
+          onSave={(name) => saveAccountName(dialogKeyring, dialogAccount, name)}
           onDismiss={closeDialog}
         />
       )}
@@ -824,6 +877,21 @@ function AccountSwitcherContent() {
         createPortal(
           <RemoveWalletPopover
             keyring={dialogKeyring}
+            onClose={() => {
+              closeDialog();
+              refreshKeyrings();
+            }}
+          />,
+          document.body
+        )}
+      {dialog?.kind === 'reset' &&
+        createPortal(
+          // Another usable wallet listed since (another window added one): the
+          // removal no longer resets, so the dialog closes, and Remove Wallet
+          // opens the removal dialog again.
+          <ResetWalletPopover
+            lastWalletKey={dialog.keyringKey}
+            outdated={!leavesNoUsableWallet(keyrings, dialog.keyringKey)}
             onClose={() => {
               closeDialog();
               refreshKeyrings();

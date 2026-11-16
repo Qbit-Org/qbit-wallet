@@ -126,8 +126,21 @@ vi.mock('./utils/platformFixes', () => ({ applyExternalMonitorFix: () => undefin
 vi.mock('./web/ui-messaging', () => ({
   createPortMessageChannel: () => ({}),
   createWalletProxy: () => page.wallet,
-  setupEventBusListeners: () => undefined
+  setupEventBusListeners: () => undefined,
+  watchPortReconnects: () => () => undefined
 }));
+// The reset handling and the checks of the id of the wallet a page shows,
+// left out here: this suite is about counting the opening.
+vi.mock('./utils/walletReset', () => ({
+  createReconnectReconcile: () => () => undefined,
+  createUnlockGate: () => ({ beforeUnlockedBroadcast: async () => true, afterUnlock: async () => undefined }),
+  getShownWalletId: () => undefined,
+  installPageWalletResetHandler: () => () => undefined,
+  noteWalletDataOwnerAtLoad: () => undefined,
+  RECONNECT_STARTUP_WAIT_MS: 0,
+  reopenOutOfDatePage: () => undefined
+}));
+vi.mock('./components/WalletResetNotice', () => ({ WalletResetNotice: () => null }));
 
 // Load the entry module as a fresh page at `pathname`, and let it run until it
 // waits on a timer.

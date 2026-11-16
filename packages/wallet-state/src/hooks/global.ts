@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 
-import { QbitRestoreReport } from '@qbit/wallet-shared'
+import { QbitResetWalletOptions, QbitRestoreReport } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 
 import { AppState, useNavigation } from '..'
@@ -353,5 +353,18 @@ export function useCreateColdWalletCallback() {
       dispatch(globalActions.update({ isUnlocked: true }))
     },
     [dispatch, wallet]
+  )
+}
+
+/**
+ * Asks the background for the guarded reset. The password and the recovery
+ * acknowledgement are checked there; see WalletController.resetWallet for
+ * what each rejection means.
+ */
+export function useResetWallet() {
+  const wallet = useWallet()
+  return useCallback(
+    (password: string, options?: QbitResetWalletOptions) => wallet.resetWallet(password, options),
+    [wallet]
   )
 }

@@ -154,8 +154,10 @@ describe('WalletController local signing progress (#171)', () => {
   })
 
   it('sends each input to the page that asked for it, tagged with its id', async () => {
-    const signed = await wallet.runForUiPort('popup:3', () =>
-      wallet.signPsbtV2(twoInputSend(), { progressId: 'signing-1' })
+    const signed = await wallet.runForUiPort(
+      'popup:3',
+      () => wallet.signPsbtV2(twoInputSend(), { progressId: 'signing-1' }),
+      'signPsbtV2'
     )
 
     expect(signed.psbtHex).toBeTruthy()
@@ -180,12 +182,15 @@ describe('WalletController local signing progress (#171)', () => {
       items: [{ parseError: false, risks: [] }],
     })
 
-    await wallet.runForUiPort('tab:5', () =>
-      wallet.signLocalBatchPsbt(
-        toSignData,
-        { account: address, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] },
-        { progressId: 'batch-entry-0' }
-      )
+    await wallet.runForUiPort(
+      'tab:5',
+      () =>
+        wallet.signLocalBatchPsbt(
+          toSignData,
+          { account: address, chain: ChainType.QBIT_REGTEST, confirmedRisks: [] },
+          { progressId: 'batch-entry-0' }
+        ),
+      'signLocalBatchPsbt'
     )
 
     expect(pageMessages.map(message => message.port)).toEqual(['tab:5', 'tab:5', 'tab:5'])
@@ -203,8 +208,10 @@ describe('WalletController local signing progress (#171)', () => {
     ['for an id over 64 characters', 'x'.repeat(65)],
     ['for an id that is not text', 7],
   ])('reports nothing %s', async (_, progressId) => {
-    await wallet.runForUiPort('popup:3', () =>
-      wallet.signPsbtV2(twoInputSend(), { progressId } as any)
+    await wallet.runForUiPort(
+      'popup:3',
+      () => wallet.signPsbtV2(twoInputSend(), { progressId } as any),
+      'signPsbtV2'
     )
 
     expect(signer().mock.calls[0]![4]?.onProgress).toBeUndefined()
@@ -228,7 +235,11 @@ describe('WalletController local signing progress (#171)', () => {
       throw new Error('stopped')
     })
 
-    const signing = wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()))
+    const signing = wallet.runForUiPort(
+      'popup:3',
+      () => wallet.signPsbtV2(twoInputSend()),
+      'signPsbtV2'
+    )
     await vi.waitFor(() => expect(signer()).toHaveBeenCalledTimes(1))
     // Fired, as the messaging layer does: each release waits in the send
     // guard's queue behind the signing, but the stop itself is immediate.
@@ -249,7 +260,7 @@ describe('WalletController local signing progress (#171)', () => {
     await wallet.onUiPortDisconnected('popup:7')
 
     await expect(
-      wallet.runForUiPort('popup:7', () => wallet.signPsbtV2(twoInputSend()))
+      wallet.runForUiPort('popup:7', () => wallet.signPsbtV2(twoInputSend()), 'signPsbtV2')
     ).rejects.toMatchObject({ code: 'QBIT_SIGNING_ABORTED' })
 
     expect(signer()).not.toHaveBeenCalled()
@@ -282,7 +293,11 @@ describe('WalletController local signing progress (#171)', () => {
     it('holds the auto-lock from the start of the call, and stops holding when its page closes', async () => {
       const { spy, finishCheck } = holdTheCheck()
 
-      const signing = wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(consolidationBatch()))
+      const signing = wallet.runForUiPort(
+        'popup:3',
+        () => wallet.signPsbtV2(consolidationBatch()),
+        'signPsbtV2'
+      )
       await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
       // Registered from the start of the call, before any signature.
       expect((wallet as any).signingsHoldingAutoLock()).toBe(1)
@@ -299,7 +314,7 @@ describe('WalletController local signing progress (#171)', () => {
       await wallet.onUiPortDisconnected('popup:3')
 
       await expect(
-        wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(consolidationBatch()))
+        wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(consolidationBatch()), 'signPsbtV2')
       ).rejects.toMatchObject({ code: 'QBIT_SIGNING_ABORTED' })
       expect(spy).not.toHaveBeenCalled()
       expect(signer()).not.toHaveBeenCalled()
@@ -307,7 +322,11 @@ describe('WalletController local signing progress (#171)', () => {
 
     it('does not join the queue when its page closes during them', async () => {
       const { spy, finishCheck } = holdTheCheck()
-      const signing = wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(consolidationBatch()))
+      const signing = wallet.runForUiPort(
+        'popup:3',
+        () => wallet.signPsbtV2(consolidationBatch()),
+        'signPsbtV2'
+      )
       await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
 
       void wallet.onUiPortDisconnected('popup:3')
@@ -326,7 +345,7 @@ describe('WalletController local signing progress (#171)', () => {
       )
 
       await expect(
-        wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(consolidationBatch()))
+        wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(consolidationBatch()), 'signPsbtV2')
       ).rejects.toMatchObject({ code: ErrorCodes.WALLET_LOCKED_DURING_SIGNING })
       expect(signer()).not.toHaveBeenCalled()
     })
@@ -340,12 +359,15 @@ describe('WalletController local signing progress (#171)', () => {
     })
 
     await expect(
-      wallet.runForUiPort('tab:5', () =>
-        wallet.signLocalBatchPsbt(twoInputSend(), {
-          account: address,
-          chain: ChainType.QBIT_REGTEST,
-          confirmedRisks: [],
-        })
+      wallet.runForUiPort(
+        'tab:5',
+        () =>
+          wallet.signLocalBatchPsbt(twoInputSend(), {
+            account: address,
+            chain: ChainType.QBIT_REGTEST,
+            confirmedRisks: [],
+          }),
+        'signLocalBatchPsbt'
       )
     ).rejects.toThrow('read failed')
     expect(holdingDuringRead).toBe(1)
@@ -359,12 +381,15 @@ describe('WalletController local signing progress (#171)', () => {
     })
 
     await expect(
-      wallet.runForUiPort('tab:5', () =>
-        wallet.signLocalBatchPsbt(twoInputSend(), {
-          account: address,
-          chain: ChainType.QBIT_REGTEST,
-          confirmedRisks: [],
-        })
+      wallet.runForUiPort(
+        'tab:5',
+        () =>
+          wallet.signLocalBatchPsbt(twoInputSend(), {
+            account: address,
+            chain: ChainType.QBIT_REGTEST,
+            confirmedRisks: [],
+          }),
+        'signLocalBatchPsbt'
       )
     ).rejects.toMatchObject({ code: ErrorCodes.WALLET_LOCKED_DURING_SIGNING })
   })
@@ -385,7 +410,7 @@ describe('WalletController local signing progress (#171)', () => {
       return dummySigner(...args)
     })
 
-    await wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()))
+    await wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()), 'signPsbtV2')
 
     expect(running).toEqual([1])
     expect((wallet as any).localSignings.size).toBe(0)
@@ -399,7 +424,7 @@ describe('WalletController local signing progress (#171)', () => {
     })
 
     await expect(
-      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()))
+      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()), 'signPsbtV2')
     ).rejects.toMatchObject({ code: ErrorCodes.WALLET_LOCKED_DURING_SIGNING })
     expect((wallet as any).localSignings.size).toBe(0)
   })
@@ -413,7 +438,7 @@ describe('WalletController local signing progress (#171)', () => {
     })
 
     await expect(
-      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()))
+      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()), 'signPsbtV2')
     ).rejects.toMatchObject({ code: 'QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED' })
   })
 
@@ -423,7 +448,7 @@ describe('WalletController local signing progress (#171)', () => {
     signer().mockRejectedValue(new Error('The wallet is locked'))
 
     await expect(
-      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()))
+      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()), 'signPsbtV2')
     ).rejects.toThrow('The wallet is locked')
   })
 
@@ -431,7 +456,7 @@ describe('WalletController local signing progress (#171)', () => {
     signer().mockRejectedValue(new Error('forced signer failure'))
 
     await expect(
-      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()))
+      wallet.runForUiPort('popup:3', () => wallet.signPsbtV2(twoInputSend()), 'signPsbtV2')
     ).rejects.toThrow('forced signer failure')
   })
 })

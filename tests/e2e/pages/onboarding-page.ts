@@ -21,9 +21,19 @@ export class OnboardingPage extends ExtensionPageObject {
     return this.byTestId('passphrase-input')
   }
 
+  get createWalletButton(): Locator {
+    return this.byTestId('create-new-wallet-button')
+  }
+
+  get restoreWalletButton(): Locator {
+    return this.byTestId('import-wallet-button')
+  }
+
+  /** The Welcome screen, in any language. */
   async waitForWelcome(): Promise<void> {
     await this.waitForHashRoute('/welcome')
-    await expect(this.page.getByText('Create new wallet', { exact: true })).toBeVisible()
+    await expect(this.createWalletButton).toBeVisible()
+    await expect(this.restoreWalletButton).toBeVisible()
   }
 
   async chooseCreateWallet(): Promise<void> {
@@ -93,10 +103,13 @@ export class OnboardingPage extends ExtensionPageObject {
     await expect(this.byTestId('address-type-title')).toBeVisible()
   }
 
+  /** The step that asks for words of the phrase back, in any language. */
   async openGeneratedMnemonicVerification(): Promise<void> {
     await this.byTestId('mnemonic-saved-checkbox-input').check()
     await this.clickTestId('mnemonic-continue-button')
-    await expect(this.page.getByText('Verify Recovery Phrase', { exact: true })).toBeVisible()
+    await expect(
+      this.byTestId(`mnemonic-confirm-word-${CREATE_CONFIRMATION_INDEXES[0]}`)
+    ).toBeVisible()
   }
 
   async returnToGeneratedMnemonic(): Promise<void> {

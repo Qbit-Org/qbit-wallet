@@ -585,7 +585,11 @@ describe('the auto-lock during a local signing (#171)', () => {
       resolve => (answer = () => resolve({ success: true, txid: 'ab'.repeat(32) }))
     )
     ;(wallet as any).attemptQbitBroadcast = () => verdict
-    const broadcast = wallet.runForUiPort(page, () => wallet.broadcastQbitTx('00'))
+    const broadcast = wallet.runForUiPort(
+      page,
+      () => wallet.broadcastQbitTx('00'),
+      'broadcastQbitTx'
+    )
     return {
       answer: async () => {
         answer()

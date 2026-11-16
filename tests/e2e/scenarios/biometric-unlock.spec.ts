@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { OnboardingPage, SettingsPage, WalletHomePage } from '../pages'
+import { OnboardingPage, SecurityPage, SettingsPage, WalletHomePage } from '../pages'
 import { expect, test } from '../fixtures/test'
 import { attachVirtualTouchId } from '../support/webauthn'
 import { E2E_PASSWORD } from '../support/wallet-setup'
@@ -30,9 +30,13 @@ async function closeAutoOpenedTabs(
   await keep.bringToFront()
 }
 
-async function openAdvancedSettings(page: Page): Promise<void> {
-  await gotoHashRoute(page, '/settings/advanced')
-  await expect(page.getByText('Change Password', { exact: true })).toBeVisible()
+/** Settings → Security, which lists Touch ID Unlock where the browser can do Touch ID. */
+async function openSecuritySettings(page: Page): Promise<SecurityPage> {
+  await gotoHashRoute(page, '/settings/security')
+  const security = new SecurityPage(page)
+  await security.waitUntilReady()
+  await expect(security.item('touchId')).toBeVisible()
+  return security
 }
 
 test('B1 biometric: onboarding enrollment, TouchID unlock, and password-change re-wrap', async ({
@@ -52,9 +56,22 @@ test('B1 biometric: onboarding enrollment, TouchID unlock, and password-change r
   await home.waitUntilReady()
   await home.switchToRegtest()
 
-  // Settings → Security reflects the enrollment made during onboarding.
-  await openAdvancedSettings(page)
-  await expect(page.getByTestId('touch-id-settings-row')).toContainText('On')
+  // Security reflects the enrollment made during onboarding. With Touch ID
+  // available it lists every entry it has, in this order.
+  const security = await openSecuritySettings(page)
+  await expect(security.item('touchId')).toContainText('On')
+  await expect
+    .poll(() => security.items())
+    .toEqual([
+      'changePassword',
+      'touchId',
+      'showSeedPhrase',
+      'autoLockTime',
+      'lockOnComputerLock',
+      'lockOnWindowsClosed',
+      'phishingProtection',
+      'resetWallet',
+    ])
 
   // Manual lock must not auto-prompt (navToLock passes autoUnlockByFace:
   // false), but the TouchID button is offered.
@@ -131,15 +148,19 @@ test('B2 biometric: settings enrollment with step-up, persistence across restart
   await home.switchToRegtest()
 
   // Enroll from Settings → Security with the wallet password as step-up.
-  await openAdvancedSettings(page)
-  const settingsRow = page.getByTestId('touch-id-settings-row')
-  await expect(settingsRow).toContainText('Off')
-  await settingsRow.click()
+  const security = await openSecuritySettings(page)
+  await expect(security.item('touchId')).toContainText('Off')
+  await security.openTouchId()
   await expect(page.getByTestId('touch-id-password-input')).toBeVisible()
   await page.getByTestId('touch-id-password-input').fill(E2E_PASSWORD)
   await page.bringToFront()
   await page.getByTestId('enable-touch-id-button').click()
   await expect(page.getByTestId('touch-id-status')).toHaveText('On')
+
+  // Back returns to Security, whose row now says On.
+  await page.getByTestId('header-back-button').click()
+  await security.waitUntilReady()
+  await expect(security.item('touchId')).toContainText('On')
 
   // The wrapped record survives a full browser restart. The virtual
   // authenticator (and its credential) does not, so the auto-prompt fails
@@ -163,13 +184,13 @@ test('B2 biometric: settings enrollment with step-up, persistence across restart
   await restartedHome.waitUntilReady()
 
   // Disable from settings; the unlock screen stops offering TouchID.
-  await openAdvancedSettings(restartedPage)
-  await expect(restartedPage.getByTestId('touch-id-settings-row')).toContainText('On')
-  await restartedPage.getByTestId('touch-id-settings-row').click()
+  let restartedSecurity = await openSecuritySettings(restartedPage)
+  await expect(restartedSecurity.item('touchId')).toContainText('On')
+  await restartedSecurity.openTouchId()
   await restartedPage.getByTestId('disable-touch-id-button').click()
   await expect(restartedPage.getByTestId('touch-id-password-input')).toBeVisible()
-  await openAdvancedSettings(restartedPage)
-  await expect(restartedPage.getByTestId('touch-id-settings-row')).toContainText('Off')
+  restartedSecurity = await openSecuritySettings(restartedPage)
+  await expect(restartedSecurity.item('touchId')).toContainText('Off')
 
   await gotoHashRoute(restartedPage, '/main')
   await restartedHome.waitUntilReady()

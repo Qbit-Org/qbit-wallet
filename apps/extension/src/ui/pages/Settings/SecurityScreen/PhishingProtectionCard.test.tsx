@@ -31,7 +31,7 @@ vi.mock('@/ui/components', async () => {
     'data-testid'?: string;
   }) =>
     React.createElement('button', { onClick, 'data-disabled': String(!!disabled), 'data-testid': dataTestId }, text);
-  return { Button, Card: Container, Column: Container, Row: Container, Text };
+  return { Button, Card: Container, Column: Container, Icon: Container, Row: Container, Text };
 });
 
 vi.mock('@qbit/wallet-state', () => ({

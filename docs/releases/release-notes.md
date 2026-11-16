@@ -57,6 +57,38 @@ repository.
   without a word, and outputs remembered from an earlier visit are no longer
   used after such a failure.
 
+### Security settings and Reset Wallet
+
+- Settings has a new Security screen, above Appearance. From top to bottom
+  it holds Change Password, Touch ID Unlock, Show Secret Recovery Phrase for
+  the current wallet, Automatic Lock Time, the two lock switches (lock
+  when the computer locks, and when all windows close), the state of phishing
+  protection with its Retry, and Reset Wallet last. Change Password, Touch ID
+  Unlock, Automatic Lock Time, the lock switches and phishing protection
+  moved there from Advanced Settings, and work as before.
+- Address Type moved from the Settings tab into Advanced Settings, which now
+  holds Language, Address Type and Local Regtest. It works as before.
+- Reset Wallet erases the wallet from this browser. Before, only removing the
+  extension did that. It asks for the current password first. A reset erases
+  every wallet and its keys, the password, Touch ID unlock, connected sites,
+  wallet and account names and colors, the address book and the settings; it
+  keeps the language and the theme. Afterwards the wallet shows its Welcome
+  screen, and a new wallet starts with a new password.
+- Removing the last usable wallet in Switch Account now opens Reset Wallet,
+  with the same password check. Before, it said "Removing the last wallet is
+  not allowed".
+- A wallet that is part of a recovery migration shows the same warnings
+  before a reset as before a removal, and they are confirmed by typing
+  CONFIRM.
+- A reset tells connected websites that the account is gone and disconnects
+  them. Every other open wallet window returns to the Welcome screen, and
+  what was entered on its Send screen, which only that window kept, is gone.
+- A reset stops a send that is still paying in several transactions (#188).
+  Nothing more of it is signed or broadcast, and what the wallet saved about
+  it is erased with the rest.
+- If a reset erases the wallets but cannot clear some other saved data, the
+  wallet says so and clears the rest before a new wallet can be created.
+
 ### Known limitations
 
 - The wallet forgets what it read of an account's outputs when it locks, when

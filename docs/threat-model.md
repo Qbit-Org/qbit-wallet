@@ -561,7 +561,7 @@ Controls and evidence:
   without host access, with no attempt scheduled or queued, starts its
   removal once its answer reaches a request still waiting for it; it
   neither clears a recorded failure nor supersedes a queued retry. The
-  wallet's Advanced settings screen shows the block rule's state, or the
+  wallet's Security settings screen shows the block rule's state, or the
   overall state once that rule is installed, with the overall reasons and
   the block rule's health, and Retry now; it does not show the redirect
   rule's own state;
@@ -735,7 +735,7 @@ Residual risk:
   `block-rule-not-installed`, or `block-rule-outdated` while a block rule
   from an earlier install still blocks some domains, and
   `site-access-withheld`, or `site-access-unknown` when the browser cannot
-  say, and the wallet's Advanced settings screen shows those reasons;
+  say, and the wallet's Security settings screen shows those reasons;
 - an enterprise policy that blocks the wallet on a denylisted host
   (`runtime_blocked_hosts`) was not tested. If Chrome still reports host
   access there through `permissions.contains`, the redirect rule stays in

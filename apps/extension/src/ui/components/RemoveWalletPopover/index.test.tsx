@@ -64,7 +64,22 @@ vi.mock('../Row', () => mockContainer('Row'));
 vi.mock('../Text', async () => {
   const React = await import('react');
   return {
-    Text: ({ text }: { text?: string }) => React.createElement('span', null, text)
+    Text: ({
+      text,
+      preset,
+      color,
+      textCenter
+    }: {
+      text?: string;
+      preset?: string;
+      color?: string;
+      textCenter?: boolean;
+    }) =>
+      React.createElement(
+        'span',
+        { 'data-preset': preset ?? '', 'data-color': color ?? '', 'data-text-center': String(!!textCenter) },
+        text
+      )
   };
 });
 
@@ -174,6 +189,18 @@ describe('RemoveWalletPopover remove action', () => {
     vi.mocked(useTools).mockReturnValue({ toastError } as any);
     // The wallet being removed is the current one, unless a test says otherwise.
     vi.mocked(useCurrentAccount).mockReturnValue(account as unknown as CurrentAccount);
+  });
+
+  // The reset dialog centers and bolds its own copy of this line; the
+  // removal dialog keeps it as it was.
+  it('shows "not reversible" in red, in the regular weight and not centered', () => {
+    vi.mocked(useWallet).mockReturnValue({ removeKeyring: vi.fn(), getKeyrings: vi.fn() } as unknown as Wallet);
+    render(<RemoveWalletPopover keyring={keyring as unknown as WalletKeyring} onClose={onClose} />);
+
+    const line = screen.getByText('this_action_is_not_reversible');
+    expect(line.getAttribute('data-preset')).toBe('');
+    expect(line.getAttribute('data-color')).toBe('red_dark');
+    expect(line.getAttribute('data-text-center')).toBe('false');
   });
 
   it('surfaces a background refusal instead of silently doing nothing', async () => {

@@ -1,12 +1,6 @@
-import { KeyringType } from '@qbit/keyring-service/types'
-import {
-  ADDRESS_TYPES,
-  AccountSignMethod,
-  getAccountCapabilities,
-} from '@qbit/wallet-shared'
 import { useMemo, useState } from 'react'
 import { useI18n, useNavigation, useTools, useWallet } from 'src/context'
-import { useChain, useCurrentAccount, useCurrentKeyring, useVersionInfo } from 'src/hooks'
+import { useChain, useVersionInfo } from 'src/hooks'
 
 export interface SettingsItemType {
   key: string
@@ -20,10 +14,12 @@ export interface SettingsItemType {
   onClick?: () => void
 }
 
+/**
+ * The rows of the Settings tab. Address Type is not one of them: it is an
+ * entry of Advanced Settings (`useAddressTypeSettingLogic`).
+ */
 export function useSettingsTabScreenLogic() {
   const nav = useNavigation()
-  const currentKeyring = useCurrentKeyring()
-  const currentAccount = useCurrentAccount()
   const chain = useChain()
   const wallet = useWallet()
   const tools = useTools()
@@ -32,17 +28,6 @@ export function useSettingsTabScreenLogic() {
   const hasUpdate =
     versionInfo.latestVersion && versionInfo.latestVersion !== versionInfo.currentVesion
   const { t } = useI18n()
-
-  const isCustomHdPath = useMemo(() => {
-    const item = ADDRESS_TYPES.find(v => v.value === currentKeyring.addressType)
-    if (!item) return false
-    return currentKeyring.hdPath !== '' && item.hdPath !== currentKeyring.hdPath
-  }, [currentKeyring])
-
-  const currentKeyringCapabilities = useMemo(
-    () => getAccountCapabilities({ type: currentKeyring.type }),
-    [currentKeyring.type]
-  )
 
   const settings_connectedSites: SettingsItemType = useMemo(() => {
     const value = connected ? t('connected') : t('not_connected')
@@ -87,40 +72,20 @@ export function useSettingsTabScreenLogic() {
       },
     }
   }, [t])
-  const settings_addressType: SettingsItemType = useMemo(() => {
-    let value = ''
-    const item =
-      ADDRESS_TYPES.find(v => v.value === currentKeyring.addressType) || ADDRESS_TYPES[0]!
-    const hdPath = currentKeyring.hdPath || item.hdPath
-    if (
-      currentKeyring.type === KeyringType.SimpleKeyring ||
-      currentKeyringCapabilities.signMethod === AccountSignMethod.External ||
-      !currentKeyringCapabilities.canChangeAddressType
-    ) {
-      value = `${item.name}`
-    } else {
-      value = `${item.name} (${hdPath}/${currentAccount.index})`
-    }
+
+  const settings_security: SettingsItemType = useMemo(() => {
     return {
-      key: 'settings_addressType',
-      label: t('address_type'),
-      value,
+      key: 'settings_security',
+      label: t('security'),
+      value: '',
       desc: '',
       right: true,
-      icon: 'addressType',
-      onClick: () => {
-        if (isCustomHdPath) {
-          tools.showTip(
-            t(
-              'the_wallet_currently_uses_a_custom_hd_path_and_does_not_support_switching_address_types'
-            )
-          )
-          return
-        }
-        nav.navigate('AddressTypeScreen')
+      icon: 'security',
+      onClick: (): void => {
+        nav.navigate('SecurityScreen')
       },
     }
-  }, [t, isCustomHdPath, currentKeyring, currentAccount.index, currentKeyringCapabilities])
+  }, [t, nav])
 
   const settings_appearance: SettingsItemType = useMemo(() => {
     return {
@@ -196,7 +161,7 @@ export function useSettingsTabScreenLogic() {
     settings_connectedSites,
     settings_switchNetwork,
     settings_addressBook,
-    settings_addressType,
+    settings_security,
     settings_appearance,
     settings_advanced,
     settings_aboutus,
