@@ -2114,6 +2114,9 @@
   "send_plan_read_failed": {
     "message": "The wallet could not read this payment's progress. It will try again shortly."
   },
+  "send_plan_not_as_shown": {
+    "message": "This payment changed since this screen showed it. Check the recipient, the amount and the fee, and continue only if they are right."
+  },
   "send_plan_paused_locked": {
     "message": "The wallet locked before signing finished"
   },
@@ -2143,6 +2146,12 @@
   },
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "The network asks for a higher fee to accept the payment. Raise the fee to send it."
+  },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "The network asks for a higher fee to accept the payment, and the funds it uses cannot pay a higher one. Continue to send the same payment again later, or cancel it."
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "The network asks for a higher fee to accept the payment, and its fee has already been raised as many times as the wallet allows. Continue to send the same payment again later, or cancel it."
   },
   "send_plan_paused_payment_refused": {
     "message": "The network refused the payment"
@@ -2242,6 +2251,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "This fee rate is too low to replace the transaction already sent. Use at least $1 bits/vB."
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "This payment's fee cannot be raised: the funds it uses cannot pay a higher one."
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "This payment's fee cannot be raised again: it has already been raised as many times as the wallet allows. Continue to send the same payment again, or cancel it."
   },
   "send_plan_home_sending": {
     "message": "Sending $1 $2"

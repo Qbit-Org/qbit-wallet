@@ -2114,6 +2114,9 @@
   "send_plan_read_failed": {
     "message": "この支払いの進捗を読み取れませんでした。まもなく再試行します。"
   },
+  "send_plan_not_as_shown": {
+    "message": "この画面に表示した後で、この支払いは変更されました。受信者、金額、手数料を確認し、正しい場合にのみ続行してください。"
+  },
   "send_plan_paused_locked": {
     "message": "署名が終わる前にウォレットがロックされました"
   },
@@ -2143,6 +2146,12 @@
   },
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要です。送るには手数料を上げてください。"
+  },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要ですが、この支払いが使う資金ではそれ以上の手数料を払えません。後で続行して同じ支払いをもう一度送るか、キャンセルしてください。"
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要ですが、この支払いの手数料はすでにウォレットが許す回数まで上げられています。後で続行して同じ支払いをもう一度送るか、キャンセルしてください。"
   },
   "send_plan_paused_payment_refused": {
     "message": "ネットワークが支払いを拒否しました"
@@ -2242,6 +2251,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "この手数料率は低すぎて、送信済みのトランザクションを置き換えられません。$1 bit/vB 以上にしてください。"
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "この支払いの手数料は上げられません：この支払いが使う資金ではそれ以上の手数料を払えません。"
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "この支払いの手数料はこれ以上上げられません：すでにウォレットが許す回数まで上げられています。続行して同じ支払いをもう一度送るか、キャンセルしてください。"
   },
   "send_plan_home_sending": {
     "message": "$1 $2 を送金中"

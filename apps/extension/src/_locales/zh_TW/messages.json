@@ -2114,6 +2114,9 @@
   "send_plan_read_failed": {
     "message": "錢包無法讀取這筆付款的進度，稍後會再試一次。"
   },
+  "send_plan_not_as_shown": {
+    "message": "這筆付款在此畫面顯示後已變更。請檢查收款人、金額和手續費，確認無誤後再繼續。"
+  },
   "send_plan_paused_locked": {
     "message": "錢包在簽署完成前已鎖定"
   },
@@ -2143,6 +2146,12 @@
   },
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "網路需要更高的手續費才會接受這筆付款。請提高手續費以傳送付款。"
+  },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "網路需要更高的手續費才會接受這筆付款，但這筆付款使用的資金無法支付更高的手續費。請稍後繼續以再次傳送同一筆付款，或取消付款。"
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "網路需要更高的手續費才會接受這筆付款，但這筆付款的手續費已提高到錢包允許的次數上限。請稍後繼續以再次傳送同一筆付款，或取消付款。"
   },
   "send_plan_paused_payment_refused": {
     "message": "網路拒絕了這筆付款"
@@ -2242,6 +2251,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "此費率過低，無法取代已送出的交易。請至少使用 $1 bit/vB。"
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "無法提高這筆付款的手續費：它使用的資金無法支付更高的手續費。"
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "無法再提高這筆付款的手續費：它已提高到錢包允許的次數上限。請繼續以再次傳送同一筆付款，或取消付款。"
   },
   "send_plan_home_sending": {
     "message": "正在傳送 $1 $2"

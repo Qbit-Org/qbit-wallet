@@ -619,6 +619,19 @@ export class KeyringService extends EventEmitter {
   }
 
   /**
+   * Whether storage holds a vault: what the next start reads, where
+   * `hasVault` answers from memory. A reset stores the erased state before
+   * it changes memory, so one that fails between the two leaves memory
+   * holding a vault that storage no longer holds. Read after the writes of
+   * the stored state queued before it; rejects when storage cannot be read.
+   */
+  hasPersistedVault = (): Promise<boolean> =>
+    this.storePersistenceMutex.lock(async () => {
+      const state: unknown = await this.storage.get(this.storageKey)
+      return !!(state as { vault?: unknown } | null | undefined)?.vault
+    })
+
+  /**
    * Get current memory store state
    */
   getMemStore(): MemStoreState {

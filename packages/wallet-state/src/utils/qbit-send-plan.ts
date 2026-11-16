@@ -1,5 +1,6 @@
 import { numUtils } from '@qbit/base-utils'
 import {
+  QBIT_SEND_PLAN_TERMS_DIGEST_PATTERN,
   qbitBroadcastErrorMessage,
   type QbitSendPlanAction,
   type QbitSendPlanPauseReason,
@@ -135,7 +136,7 @@ function isUnreadableStandIn(v: Unchecked<QbitSendPlanView>): boolean {
 
 /**
  * `plan`, paused `unreadable`, as every screen shows it: its id, account,
- * network, times and revision (which order its views), its pause, and
+ * network, times, revision and run (which order its views), its pause, and
  * whether anything of it was sent (`sent`, the background's to say). Every
  * figure is the stand-in's empty one (`isUnreadableStandIn`), so a figure
  * of a plan that failed the background's check is never shown as if it
@@ -163,6 +164,7 @@ function withoutFigures(plan: QbitSendPlanView): QbitSendPlanView {
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
     revision: plan.revision,
+    ...(plan.backgroundId !== undefined ? { backgroundId: plan.backgroundId } : {}),
   }
 }
 
@@ -253,6 +255,20 @@ export function readQbitSendPlanView(value: unknown): QbitSendPlanView | null | 
   }
   if (v.slowMerge === true) view.slowMerge = true
   if (v.paymentMayConfirm === true) view.paymentMayConfirm = true
+  // Why no raise of the payment's fee is offered, as the background says
+  // it: read only as `true`. Without it, a payment paused on its fee with no
+  // raise reads as one its funds cannot raise (`qbitSendPlanPauseCopy`).
+  if (v.paymentFeeRaiseLimitReached === true) view.paymentFeeRaiseLimitReached = true
+  // The background's run, which orders views (`useQbitSendPlan`), and the
+  // digest of the terms shown, which Continue carries back; each only in
+  // the form the background makes, and left out otherwise.
+  if (isText(v.backgroundId)) view.backgroundId = v.backgroundId
+  if (
+    typeof v.termsDigest === 'string' &&
+    QBIT_SEND_PLAN_TERMS_DIGEST_PATTERN.test(v.termsDigest)
+  ) {
+    view.termsDigest = v.termsDigest
+  }
   return unreadable ? withoutFigures(view) : view
 }
 
@@ -585,14 +601,21 @@ function isUnexplainedPaymentRefusal(plan: Pick<QbitSendPlanView, 'pause' | 'act
 /**
  * The title and the explanation of `plan`'s pause (`qbitSendPlanPauseText`).
  * A payment refused without a reason says that a fee too low is the usual
- * cause, and that raising the fee sends it. Whatever the plan paused for,
- * while a version of its payment may still go through
- * (`qbitSendPlanPaymentMayConfirm`) it says that instead: a pause's own copy
- * may say that the payment was not sent, or offer a review again or a
- * cancel, which the plan does not offer then.
+ * cause, and that raising the fee sends it. A payment refused for its fee
+ * that the background offers no raise for says why, and that it can be sent
+ * again or cancelled: its fee has been raised as many times as a plan
+ * allows (`paymentFeeRaiseLimitReached`), or else the funds it uses cannot
+ * pay a higher fee at any rate the wallet can set.
+ * Whatever the plan paused for, while a version of its payment may still go
+ * through (`qbitSendPlanPaymentMayConfirm`) it says that instead: a pause's
+ * own copy may say that the payment was not sent, or offer a review again
+ * or a cancel, which the plan does not offer then.
  */
 export function qbitSendPlanPauseCopy(
-  plan: Pick<QbitSendPlanView, 'pause' | 'actions' | 'paymentMayConfirm' | 'phase'>,
+  plan: Pick<
+    QbitSendPlanView,
+    'pause' | 'actions' | 'paymentMayConfirm' | 'phase' | 'paymentFeeRaiseLimitReached'
+  >,
   t: Translate
 ): { title: string; body: string } {
   if (qbitSendPlanPaymentMayConfirm(plan)) {
@@ -602,6 +625,16 @@ export function qbitSendPlanPauseCopy(
     return {
       title: t('send_plan_paused_payment_refused_unexplained'),
       body: t('send_plan_paused_payment_refused_unexplained_body'),
+    }
+  }
+  if (plan.pause?.reason === 'payment_fee_too_low' && !plan.actions.includes('raise_payment_fee')) {
+    return {
+      title: t('send_plan_paused_payment_fee_too_low'),
+      body: t(
+        plan.paymentFeeRaiseLimitReached
+          ? 'send_plan_paused_payment_fee_too_low_raise_limit_body'
+          : 'send_plan_paused_payment_fee_too_low_not_raisable_body'
+      ),
     }
   }
   return qbitSendPlanPauseText(plan.pause?.reason, t)
@@ -674,6 +707,10 @@ export function qbitSendPlanRefusalText(reason: QbitSendPlanPrepareRefusal, t: T
       return t('send_plan_already_open')
     case 'outputs_unavailable':
       return t('send_plan_outputs_unavailable')
+    case 'fee_not_raisable':
+      return t('send_plan_fee_not_raisable')
+    case 'fee_raise_limit_reached':
+      return t('send_plan_fee_raise_limit_reached')
     default:
       return ''
   }

@@ -127,13 +127,54 @@ export interface QbitSendPlanView {
   signaturesTotal: number
   /** A merge has stayed unconfirmed for a long time; `raise_merge_fee` is offered. */
   slowMerge?: boolean
+  /**
+   * The plan paused on its payment's fee, and that fee has been raised as
+   * many times as a plan allows: `raise_payment_fee` is not offered, and a
+   * raise asked for anyway is refused (`fee_raise_limit_reached`). The same
+   * payment can still be sent again (`continue`), or the plan cancelled.
+   */
+  paymentFeeRaiseLimitReached?: true
   /** The payment's transaction id, fixed when the plan was confirmed. */
   paymentTxid: string
   createdAt: number
   updatedAt: number
-  /** Grows with every change; a view with a lower number than one already shown is stale. */
+  /**
+   * Grows with every change while the background that made the view runs
+   * (`backgroundId`); a view with a lower number than one already shown
+   * from that run is stale.
+   */
   revision: number
+  /**
+   * Names the run of the background that made this view, new each time the
+   * background starts and reads the stored plans again. `revision` orders
+   * views of one run only: a view of another run replaces the one shown,
+   * whatever its revision, since what is stored may have changed between
+   * the runs.
+   */
+  backgroundId?: string
+  /**
+   * The background's digest of the terms this view states
+   * (`QBIT_SEND_PLAN_TERMS_DIGEST_PATTERN`): the plan, its account and
+   * network, the recipient, the target, the amount, the change, the fee
+   * rate, the total fee, the signatures and every transaction (its kind, id,
+   * input count and fee) with the payment's id; never its progress. Continue
+   * carries it back (`continueQbitSendPlan`), and is refused unless the plan
+   * stored then states exactly these terms
+   * (`QBIT_SEND_PLAN_NOT_AS_SHOWN_CODE`). Absent from the view of a plan
+   * paused `unreadable`, which states none.
+   */
+  termsDigest?: string
 }
+
+/** The form of `QbitSendPlanView.termsDigest`: 64 lower-case hex characters. */
+export const QBIT_SEND_PLAN_TERMS_DIGEST_PATTERN = /^[0-9a-f]{64}$/
+
+/**
+ * The `code` of the error a Continue is refused with when the plan stored
+ * does not state the terms of the view it names: the page reads the plan
+ * again, shows what is stored, and the user decides.
+ */
+export const QBIT_SEND_PLAN_NOT_AS_SHOWN_CODE = 'QBIT_SEND_PLAN_NOT_AS_SHOWN'
 
 /** A change to an open plan, reviewed and confirmed like a new plan. */
 export interface QbitSendPlanRevision {
@@ -198,6 +239,20 @@ export type QbitSendPlanPrepareRefusal =
   | 'outputs_unavailable'
   /** A revision's fee rate is not high enough to replace what is already in the network. */
   | 'fee_rate_too_low'
+  /**
+   * A raise of the payment's fee cannot pay more than it does over the funds
+   * it spends, at any rate the wallet can set (hundredths of a bit/vB): for
+   * an amount without change, its fee is already everything they hold above
+   * the amount.
+   */
+  | 'fee_not_raisable'
+  /**
+   * The payment's fee has been raised as many times as a plan allows: a
+   * plan keeps every earlier version of its payment, and no more than it
+   * can. Refused at any rate; the same payment can still be sent again, or
+   * the plan cancelled.
+   */
+  | 'fee_raise_limit_reached'
 
 export type QbitSendPlanPrepareResult =
   | { ok: true; review: QbitSendPlanReview }

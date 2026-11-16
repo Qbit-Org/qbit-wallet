@@ -32,6 +32,9 @@ export function planView(overrides: Partial<QbitSendPlanView> = {}): QbitSendPla
     createdAt: 1_000,
     updatedAt: 1_000,
     revision: 1,
+    // The digest of its terms that a Continue names; no run is named, so
+    // every view of it is of one run.
+    termsDigest: 'cd'.repeat(32),
     ...overrides,
   }
 }

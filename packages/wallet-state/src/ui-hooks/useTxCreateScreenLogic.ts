@@ -109,7 +109,11 @@ type SendPlanPrepareOutcome =
       offer: number
       unconfirmedSatoshis: number
     }
-  | { kind: 'plan_open' }
+  | {
+      kind: 'plan_open'
+      /** The plan read this answer asked for, as `planOpenReads` counts them. */
+      read: number
+    }
 
 /** The send screen's card for a send plan: what will happen, priced in full. */
 export interface TxCreateSendPlanNotice {
@@ -224,6 +228,10 @@ export function useTxCreateScreenLogic() {
   const [prepareOutcome, setPrepareOutcome] = useState<SendPlanPrepareOutcome | undefined>(
     undefined
   )
+  // The plan reads that Next's `plan_open` answers asked for, counted, and
+  // the latest of them that landed for the account and network still shown.
+  const planOpenReads = useRef(0)
+  const [planOpenReadLanded, setPlanOpenReadLanded] = useState(0)
   const [planPreparing, setPlanPreparing] = useState(false)
   const planPreparingRef = useRef(false)
   const mountedRef = useRef(true)
@@ -250,7 +258,7 @@ export function useTxCreateScreenLogic() {
   // (#188). One that has not completed is in progress: the background
   // starts no other plan for the account until it ends (`plan_open`). A
   // completed one waiting to be dismissed is not; a new plan starts beside it.
-  const { plan: accountSendPlan, refresh: refreshSendPlan } = useQbitSendPlan()
+  const { plan: accountSendPlan, apply: applySendPlan } = useQbitSendPlan()
   const sendPlanInProgress =
     accountSendPlan !== undefined &&
     accountSendPlan !== null &&
@@ -775,6 +783,17 @@ export function useTxCreateScreenLogic() {
     t,
   ])
 
+  // Next's `plan_open` holds only until the plan read it asked for lands
+  // (#206). The page then shows the account's plan as that read, or a later
+  // one, found it: a plan in progress keeps an amount only a plan can pay
+  // waiting for it, through the checks above, which run again as it shows;
+  // with none, Next works again on the form as it is.
+  useEffect(() => {
+    if (prepareOutcome?.kind === 'plan_open' && planOpenReadLanded >= prepareOutcome.read) {
+      setPrepareOutcome(undefined)
+    }
+  }, [prepareOutcome, planOpenReadLanded])
+
   const unavailableTipText = useMemo(() => t('unavailable_tooltip'), [t])
 
   // Until the fee bar has chosen the selected tier's rate from this screen's
@@ -960,6 +979,9 @@ export function useTxCreateScreenLogic() {
   ].join('|')
   const formScopeRef = useRef(formScope)
   formScopeRef.current = formScope
+  // The account and network alone: what a read of the account's plan is for.
+  const accountScopeRef = useRef(utxoReadKey)
+  accountScopeRef.current = utxoReadKey
 
   /**
    * The background found the payment fits one transaction after all (it read
@@ -1029,12 +1051,35 @@ export function useTxCreateScreenLogic() {
         case 'not_needed':
           await sendInOneTransaction(preview, scope)
           return
-        case 'plan_open':
-          // A plan this page has not read yet: it reads it now, and once the
-          // plan shows, prices this send beside it.
-          setPrepareOutcome({ kind: 'plan_open' })
-          refreshSendPlan()
+        case 'plan_open': {
+          // The account has a plan this page has not read yet, or another
+          // page's start of one is under way. A plan that start stores is
+          // announced, and read then; an ending without one (outputs_changed,
+          // draft_expired, locked) is announced to no page. So Next waits
+          // while the page reads the plan, and only until that read lands
+          // (the effect on `planOpenReadLanded`). A read that fails tells
+          // nothing either way and lets Next work again too: the background
+          // answers Next afresh each time.
+          const read = ++planOpenReads.current
+          const accountScope = accountScopeRef.current
+          setPrepareOutcome({ kind: 'plan_open', read })
+          // The wait and its read are about the account on its network, not
+          // the rest of the form: an edit the checks above watch ends the
+          // wait at once, and one they do not (replace-by-fee) leaves it to
+          // the read.
+          const landed = (): void => {
+            if (!mountedRef.current || accountScopeRef.current !== accountScope) return
+            setPlanOpenReadLanded(latest => Math.max(latest, read))
+          }
+          // What it finds is shown under the rules of the page's other reads
+          // of the plan (`useQbitSendPlan`): an earlier read never brings
+          // back a plan a later one found gone.
+          void applySendPlan(
+            () => wallet.getQbitSendPlan(),
+            answer => answer
+          ).then(landed, landed)
           return
+        }
         case 'outputs_unavailable':
           setError(t('send_plan_outputs_unavailable'))
           return

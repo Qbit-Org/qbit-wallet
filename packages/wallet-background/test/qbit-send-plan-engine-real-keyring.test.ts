@@ -226,7 +226,7 @@ describe('a send plan signed by the real keyring', () => {
       },
       actions: ['continue', 'cancel'],
     })
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     expect(await counter(owner)).toBe(41 + 2 + 111)

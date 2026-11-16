@@ -513,7 +513,7 @@ describe('a wallet removed while work for its account is under way', () => {
     const signedBefore = world.keyring.signed.length
     const pushedBefore = world.pushed.length
     const write = holdNextWrite()
-    const continuing = world.wallet.continueQbitSendPlan(plan.id)
+    const continuing = world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await write.reached
     const ending = world.engine.endPlansOf(REMOVED)
     write.release()

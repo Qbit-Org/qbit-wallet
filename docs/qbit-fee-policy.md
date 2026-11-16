@@ -241,7 +241,13 @@ once, like a new plan:
 - When the network refuses the payment for its fee, or refuses it without
   giving a reason, as the production explorer relays a refusal, the plan
   pauses and offers to raise the payment's fee. The payment is built again
-  over the same inputs at the higher rate and signed again.
+  over the same inputs at the higher rate and signed again. The raise is
+  offered only when it can be sent: not when the payment's inputs cannot pay
+  a higher fee at any rate the wallet can set (an exact amount whose
+  remainder below dust already went to the fee), and not once its fee has
+  been raised 16 times, the most earlier versions of its payment a plan
+  keeps. The plan then offers to send the same payment again, or to cancel
+  it, and a raise asked for from an older view is refused with the reason.
 
 For an exact amount the amount never changes: the extra fees come out of the
 change, and when the change cannot cover them the raise is refused and the

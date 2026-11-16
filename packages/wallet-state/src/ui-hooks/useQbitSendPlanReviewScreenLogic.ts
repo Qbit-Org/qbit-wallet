@@ -80,8 +80,11 @@ export type QbitSendPlanReviewScreenLogic = QbitSendPlanReviewUnavailable | Qbit
  * plan has started the screen replaces itself with the progress screen, so
  * Back cannot confirm it again. With the restored-floor warning, the user's
  * acknowledgement is required and confirmed with the background before the
- * plan starts, as the single-send confirm screen does; that acknowledgement
- * covers the whole plan, so continuing it later asks for none. A start that
+ * plan starts, once for its challenge, as the single-send confirm screen
+ * does; that acknowledgement covers the whole plan, so continuing it later
+ * asks for none. A start answered `plan_open` reads the plan once: a plan of
+ * the account in progress keeps Confirm locked, with a link to it, and with
+ * none, or a failed read, Confirm works again on this review. A start that
  * fails may still have started the plan, its answer lost on the way, so
  * the plan is read before Confirm is offered again, and the screen goes to
  * it only when it is the plan this review started
@@ -132,6 +135,12 @@ export function useQbitSendPlanReviewScreenLogic(): QbitSendPlanReviewScreenLogi
   const confirmingRef = useRef(false)
   const [error, setError] = useState('')
   const [planOpen, setPlanOpen] = useState(false)
+  // The restored-floor challenge this screen confirmed with the background.
+  // It stays confirmed until a signature uses it or it goes with its draft
+  // (a lock, another review, its expiry), so a later Confirm of the same
+  // review does not confirm it again, which would be refused once it went:
+  // the start's answer says what became of the draft (#206).
+  const confirmedChallengeRef = useRef<string | undefined>(undefined)
   const mountedRef = useRef(true)
   useEffect(() => {
     return (): void => {
@@ -158,7 +167,10 @@ export function useQbitSendPlanReviewScreenLogic(): QbitSendPlanReviewScreenLogi
     let started = false
     let startAsked = false
     try {
-      if (risk) await wallet.confirmQbitRestoredFloorSigning(risk.challengeId)
+      if (risk && confirmedChallengeRef.current !== risk.challengeId) {
+        await wallet.confirmQbitRestoredFloorSigning(risk.challengeId)
+        confirmedChallengeRef.current = risk.challengeId
+      }
       startAsked = true
       const result = await wallet.startQbitSendPlan(review.draftId)
       if (!mountedRef.current) return
@@ -180,9 +192,26 @@ export function useQbitSendPlanReviewScreenLogic(): QbitSendPlanReviewScreenLogi
         case 'locked':
           nav.navToLock({ autoUnlockByFace: false })
           return
-        case 'plan_open':
-          setPlanOpen(true)
+        case 'plan_open': {
+          // The account has a plan in progress, or a stored plan the
+          // background cannot read, and the draft stays. That plan can end
+          // before this screen knows of it, and nothing tells the screen: the
+          // plan is read once, now. One of this account in progress keeps the
+          // text, its link and Confirm locked; with none, or when the read
+          // fails, Confirm works again on this review.
+          const answer: unknown = await wallet.getQbitSendPlan().catch(() => undefined)
+          if (!mountedRef.current) return
+          const view = readQbitSendPlanView(answer)
+          if (
+            view &&
+            view.phase !== 'completed' &&
+            view.chain === review.chain &&
+            view.address === review.address
+          ) {
+            setPlanOpen(true)
+          }
           return
+        }
         default:
           setError(t('unknown_error'))
       }

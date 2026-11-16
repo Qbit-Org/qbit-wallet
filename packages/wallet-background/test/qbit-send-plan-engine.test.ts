@@ -705,7 +705,7 @@ describe('failure rules', () => {
     expect(view!.steps.at(-1)!.status).toBe('signed')
     world.assertRecipientGuarantees(undefined)
 
-    view = await world.wallet.continueQbitSendPlan(plan.id)
+    view = await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'completed' })
     expect(world.keyring.signed.filter(txid => txid === plan.paymentTxid)).toHaveLength(1)
@@ -746,7 +746,7 @@ describe('failure rules', () => {
             : undefined
         )
       )
-      await world.wallet.continueQbitSendPlan(plan.id)
+      await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
       await world.settle()
       expect(await world.plan()).toMatchObject({ phase: 'waiting' })
       expect(world.storedStatuses()).toEqual(['unknown', 'signed'])
@@ -910,7 +910,7 @@ describe('restart', () => {
 
     world.keyring.unlock()
     expect((await world.plan())!.actions).toEqual(['continue', 'cancel'])
-    view = await world.wallet.continueQbitSendPlan(view!.id)
+    view = await world.wallet.continueQbitSendPlan(view!.id, world.shownTerms(view!.id))
     await world.settle()
     view = await world.plan()
     expect(view).toMatchObject({ phase: 'waiting' })
@@ -943,7 +943,7 @@ describe('restart', () => {
         void world.wallet.lockWallet()
       }
     }
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     await world.settle()
     world.keyring.beforeInput = undefined
     expect(await world.plan()).toMatchObject({ pause: { reason: 'locked' } })
@@ -970,7 +970,7 @@ describe('restart', () => {
     world.keyring.unlock()
     const plan = (await world.plan())!
     expect(plan.steps.map(step => step.status)).toEqual(['unknown', 'planned', 'planned'])
-    await world.wallet.continueQbitSendPlan(plan.id)
+    await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await world.settle()
     expect(world.storedStatuses()).toEqual(['unknown', 'broadcast', 'signed'])
     // Missed for the grace period: absent, signed again and sent. The
@@ -1000,7 +1000,7 @@ describe('restart', () => {
 
     world.keyring.unlock()
     const plan = (await world.plan())!
-    await world.wallet.continueQbitSendPlan(plan.id)
+    await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await world.settle()
     expect(world.storedStatuses()).toEqual(['unknown', 'broadcast', 'signed'])
     // The first miss, then the wallet locks; the misses go on for the
@@ -1041,7 +1041,7 @@ describe('restart', () => {
 
     world.keyring.unlock()
     const plan = (await world.plan())!
-    await world.wallet.continueQbitSendPlan(plan.id)
+    await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await world.settle()
     await world.tick()
     expect(world.storedStatuses()).toEqual(['broadcast', 'broadcast', 'signed'])
@@ -1290,7 +1290,7 @@ describe('lock', () => {
     expect(world.keyring.counter).toBe(31)
 
     // Continue approves the figures as they are now.
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     expect(world.keyring.counter).toBe(review.signatureCount + 31)
@@ -1470,9 +1470,9 @@ describe('lock', () => {
       const released = vi.mocked(keyringService.releaseP2mrPsbtSigningBatches).mock.calls.length
       const signed = world.keyring.signed.length
       const pushed = world.pushed.length
-      await expect(world.wallet.continueQbitSendPlan(planId)).rejects.toThrow(
-        'cannot continue while the wallet is locked'
-      )
+      await expect(
+        world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
+      ).rejects.toThrow('cannot continue while the wallet is locked')
       await world.settle()
       expect(qbitSendPlanStore.get(planId)!.revision).toBe(revision)
       expect(vi.mocked(keyringService.releaseP2mrPsbtSigningBatches).mock.calls).toHaveLength(released)
@@ -1487,7 +1487,7 @@ describe('lock', () => {
       expect(world.pushed).toHaveLength(pushed)
 
       // A continue made while unlocked carries the plan on, to the payment.
-      await world.wallet.continueQbitSendPlan(planId)
+      await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
       await world.settle()
       for (let block = 0; block < 4 && (await world.plan())?.phase !== 'completed'; block++) {
         world.mine()
@@ -1514,7 +1514,7 @@ describe('lock', () => {
     expect(view).toMatchObject({ pause: { reason: 'interrupted' } })
     // The wallet locks right after the continue is written, before its
     // next advance reads the figures it approved.
-    const continued = world.wallet.continueQbitSendPlan(view.id)
+    const continued = world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.wallet.lockWallet()
     await continued
     await world.settle()
@@ -1834,7 +1834,7 @@ describe('cancel', () => {
     // The continue's figures are read before anything is signed, and the
     // first preflight of that read waits while the user cancels.
     const preflight = gateNextPreflight()
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     await preflight.reached
     // The advance under way, which goes on after the cancel forgets the
     // plan, and which the engine's idle no longer waits for.
@@ -2156,7 +2156,7 @@ describe('state: one advance at a time, the newest state wins, revisions only gr
       await world.settle()
       return written
     })
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     world.mine()
@@ -2184,13 +2184,15 @@ describe('state: one advance at a time, the newest state wins, revisions only gr
     let second: Promise<unknown> | undefined
     vi.spyOn(qbitSendPlanStore, 'put').mockImplementationOnce(async (record, revision) => {
       const written = await put(record, revision)
-      second = world.wallet.continueQbitSendPlan(paused.id).catch(error => error)
+      second = world.wallet
+        .continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
+        .catch(error => error)
       await second
       await world.wallet.getQbitSendPlan()
       await world.settle()
       return written
     })
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     expect(await second).toMatchObject({ message: 'The Qbit send plan cannot continue now' })
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
@@ -2212,7 +2214,7 @@ describe('state: one advance at a time, the newest state wins, revisions only gr
     world.keyring.unlock()
     const plan = (await world.plan())!
     const outcomes = await Promise.allSettled([
-      world.wallet.continueQbitSendPlan(plan.id),
+      world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id)),
       world.wallet.cancelQbitSendPlan(plan.id),
     ])
     await world.settle()
@@ -2776,7 +2778,7 @@ describe('replan', () => {
           ? { status: 400, body: 'lookup refused' }
           : undefined
     )
-    await world.wallet.continueQbitSendPlan(plan.id)
+    await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await world.settle()
     expect(world.storedStatuses().at(-1)).toBe('unknown')
     // Whatever pauses the plan then, a replan would stop tracking that payment.
@@ -3182,7 +3184,7 @@ describe('restored-floor keys', () => {
     expect(world.keyring.confirmations).toHaveLength(confirmed)
     expect(world.keyring.signed).toHaveLength(signed)
 
-    await world.wallet.continueQbitSendPlan(plan.id)
+    await world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     expect(world.keyring.confirmations.length).toBe(confirmed + 2)
@@ -4179,7 +4181,7 @@ describe('networks', () => {
       actions: ['continue', 'cancel'],
     })
     expect(world.keyring.counter).toBe(32)
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     expect(world.keyring.counter).toBe(32 + review.signatureCount)

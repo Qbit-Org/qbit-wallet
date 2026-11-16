@@ -2114,6 +2114,9 @@
   "send_plan_read_failed": {
     "message": "Le portefeuille n’a pas pu lire la progression de ce paiement. Il réessaiera sous peu."
   },
+  "send_plan_not_as_shown": {
+    "message": "Ce paiement a changé depuis que cet écran l’a affiché. Vérifiez le destinataire, le montant et les frais, et continuez seulement s’ils sont corrects."
+  },
   "send_plan_paused_locked": {
     "message": "Le portefeuille s’est verrouillé avant la fin de la signature"
   },
@@ -2143,6 +2146,12 @@
   },
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "Le réseau demande des frais plus élevés pour accepter le paiement. Augmentez les frais pour l’envoyer."
+  },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "Le réseau demande des frais plus élevés pour accepter le paiement, et les fonds qu’il utilise ne peuvent pas en payer davantage. Continuez pour renvoyer le même paiement plus tard, ou annulez-le."
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "Le réseau demande des frais plus élevés pour accepter le paiement, et ses frais ont déjà été augmentés autant de fois que le portefeuille le permet. Continuez pour renvoyer le même paiement plus tard, ou annulez-le."
   },
   "send_plan_paused_payment_refused": {
     "message": "Le réseau a refusé le paiement"
@@ -2242,6 +2251,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "Ce taux de frais est trop bas pour remplacer la transaction déjà envoyée. Utilisez au moins $1 bit/vB."
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "Les frais de ce paiement ne peuvent pas être augmentés : les fonds qu’il utilise ne peuvent pas en payer davantage."
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "Les frais de ce paiement ne peuvent plus être augmentés : ils l’ont déjà été autant de fois que le portefeuille le permet. Continuez pour renvoyer le même paiement, ou annulez-le."
   },
   "send_plan_home_sending": {
     "message": "Envoi de $1 $2"

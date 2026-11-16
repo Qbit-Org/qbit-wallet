@@ -339,6 +339,8 @@ import {
 // not know the plan store or engine are unaffected.
 import {
   QbitSendPlanEngine,
+  qbitSendPlansMayHavePaidNote,
+  qbitSendPlansNotEndedNote,
   type QbitSendPlanEngineHost,
   type QbitSendPlanKeyring,
   type QbitSendPlanTimers,
@@ -2788,11 +2790,21 @@ export class WalletController extends BaseController {
     try {
       try {
         await keyringService.resetAllData()
+      } catch (error) {
+        // It stores the erased vault before it changes memory: whether the
+        // keys are gone is what storage holds, as for a restart
+        // (QbitSendPlanEngine.keyringResetFailed).
+        this.qbitSendPlans.keyringResetFailed()
+        throw error
       } finally {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
       }
-      await preferenceService.resetAllData()
+      // The keys are gone, and a stored signed payment needs none to go out:
+      // from here no stored plan goes on again, whichever step fails next
+      // (QbitSendPlanEngine.keysErased). The plans and what they hold are
+      // erased first.
+      this.qbitSendPlans.keysErased()
       await qbitSendGuardService.resetAllData()
       try {
         await qbitSendPlanStore.resetAllData()
@@ -2802,9 +2814,11 @@ export class WalletController extends BaseController {
           throw error
         }
       }
+      await preferenceService.resetAllData()
     } finally {
       // The plans go on from what is stored: none after the reset, and those
-      // a failed reset left, as after a restart.
+      // a failed keyring reset left, as after a restart. Once the keys are
+      // gone, only over a store known to hold no plan.
       await this.qbitSendPlans.resume()
     }
     await permissionService.resetAllData()
@@ -6507,12 +6521,16 @@ export class WalletController extends BaseController {
       // stays signs for.
       // One whose payment may already be in the network cannot be un-sent;
       // its record and holds go all the same.
-      const { mayHaveBeenSent } = await this.qbitSendPlans.endPlansOf(sendPlanAccounts)
+      const { mayHaveBeenSent, notEnded } = await this.qbitSendPlans.endPlansOf(sendPlanAccounts)
       if (mayHaveBeenSent.length > 0) {
-        log.warn(
-          `[WalletController] ${mayHaveBeenSent.length} send plan(s) of the removed wallet may have paid already`
-        )
+        log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
       }
+      // What a write storage refused left stored, the removal still stands:
+      // a confirmed removal never hard blocks, and the wallet is gone. The
+      // engine holds it back, nothing of it signed, broadcast or advanced,
+      // and tries again at every tick, for as long as the background runs:
+      // a restart forgets it (see `endPlansOf`).
+      if (notEnded) log.warn(`[WalletController] ${qbitSendPlansNotEndedNote(notEnded)}`)
       return await this.keepOrSelectCurrentAfterRemoval(target, canStay)
     } finally {
       releaseNetworks?.()
@@ -10977,9 +10995,14 @@ export class WalletController extends BaseController {
   /** The selected account's plan on the active network, if any; also advances it. */
   getQbitSendPlan = (): Promise<QbitSendPlanView | null> => this.qbitSendPlans.view()
 
-  /** Re-authorise the plan's signing for this session and carry it on. */
-  continueQbitSendPlan = (planId: string): Promise<QbitSendPlanView> =>
-    this.qbitSendPlans.continue(planId)
+  /**
+   * Re-authorise the plan's signing for this session and carry it on, once
+   * the plan stored states the terms of the view the page shows:
+   * `termsDigest` is that view's (`QbitSendPlanView.termsDigest`), and a
+   * continue of anything else is refused (`QbitSendPlanEngine.continue`).
+   */
+  continueQbitSendPlan = (planId: string, termsDigest: string): Promise<QbitSendPlanView> =>
+    this.qbitSendPlans.continue(planId, termsDigest)
 
   /** Cancel the plan; null once nothing is left of it. */
   cancelQbitSendPlan = (planId: string): Promise<QbitSendPlanView | null> =>
@@ -11125,9 +11148,11 @@ export class WalletController extends BaseController {
       ),
     holdAutoLock: estimatedSigningMs => this.holdAutoLockForQbitSendPlan(estimatedSigningMs),
     announce: (planId, revision): void => {
+      // The engine's run names what the revision is of: a page orders the
+      // views of one run by revision, and reads a change of another run.
       bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
         method: BUS_METHODS.QBIT_SEND_PLAN_CHANGED,
-        params: { planId, revision },
+        params: { planId, revision, backgroundId: this.qbitSendPlans.backgroundId },
       })
     },
     afterSigning: address => this.refreshDisplayedQbitAccountAfterSigning(address),

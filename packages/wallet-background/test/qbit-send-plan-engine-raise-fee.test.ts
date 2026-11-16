@@ -685,7 +685,7 @@ describe('raising a slow merge’s fee', () => {
     const paused = (await world.plan())!
     expect(paused).toMatchObject({ phase: 'paused', pause: { reason: 'interrupted' } })
     expect(paused.actions).toEqual(['continue', 'cancel'])
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     await world.settle()
     expect(stored().steps.map(step => step.status)).toEqual(['broadcast', 'signed'])
     await confirmUntilCompleted()
@@ -727,7 +727,7 @@ describe('raising a slow merge’s fee', () => {
     expect(stored().steps[0]).toMatchObject({ txid: replacement.txid, status: 'broadcast' })
     world.keyring.unlock()
     const paused = (await world.plan())!
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     await world.settle()
     await world.tick()
     expect(stored().steps.map(step => step.status)).toEqual(['broadcast', 'signed'])
@@ -1242,7 +1242,7 @@ describe('a revision and a signing under way', () => {
       }
     }
     const counter = world.keyring.counter
-    await world.wallet.continueQbitSendPlan(paused.id)
+    await world.wallet.continueQbitSendPlan(paused.id, world.shownTerms(paused.id))
     await signing
     // The raise reviewed before the continue is refused on the revision it
     // read, before it touches the signing; and no revision is offered while
@@ -1303,7 +1303,9 @@ describe('a revision and a signing under way', () => {
     let continued: Promise<unknown> | undefined
     world.storage.set = async (key, value) => {
       if (!continued) {
-        continued = world.wallet.continueQbitSendPlan(view.id).catch(error => error)
+        continued = world.wallet
+          .continueQbitSendPlan(view.id, world.shownTerms(view.id))
+          .catch(error => error)
       }
       return set(key, value)
     }

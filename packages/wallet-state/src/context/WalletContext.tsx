@@ -373,8 +373,13 @@ export interface WalletController {
   startQbitSendPlan(draftId: string): Promise<QbitSendPlanStartResult>
   /** The current account's open plan on the active network, or null. */
   getQbitSendPlan(): Promise<QbitSendPlanView | null>
-  /** Carry on with the plan as confirmed: sign what is left, or send again. */
-  continueQbitSendPlan(planId: string): Promise<QbitSendPlanView>
+  /**
+   * Carry on with the plan as confirmed: sign what is left, or send again.
+   * `termsDigest` is the shown view's (`QbitSendPlanView.termsDigest`); a
+   * plan stored with other terms is refused with
+   * `QBIT_SEND_PLAN_NOT_AS_SHOWN_CODE`.
+   */
+  continueQbitSendPlan(planId: string, termsDigest: string | undefined): Promise<QbitSendPlanView>
   /** Cancel the plan; null once nothing of it is left to settle. */
   cancelQbitSendPlan(planId: string): Promise<QbitSendPlanView | null>
   /** Remove a finished plan from the home screen. */
