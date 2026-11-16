@@ -5,6 +5,10 @@ import {
   PQC_SIGNATURE_BYTES,
   PSBT_IN_FINAL_SCRIPTWITNESS,
   QbitProtocolError,
+  SIGHASH_ALL,
+  SIGHASH_DEFAULT,
+  SIGHASH_OUTPUT_MASK,
+  SIGHASH_SINGLE,
   buildControlBlock,
   bytesToHex as qbitBytesToHex,
   createP2mrMessageProof,
@@ -35,7 +39,9 @@ import {
 import {
   PQC_WARNING_SIGNATURE_THRESHOLD,
   QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+  P2MR_PARTIAL_SIGHASH_TYPES,
   QbitSigningAbortedError,
+  p2mrSigningOptionsFor,
   type QbitSigningProgressListener,
 } from '@qbit/keyring-service'
 import type {
@@ -179,7 +185,7 @@ import {
 import { getChainInfo } from '../shared/utils'
 import { bgEventBus } from '../utils/eventBus'
 import { decodeOpReturnScript } from '../utils/decode-op-return'
-import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
+import { summarizeQbitPsbtSpend, walletOwnedLocks } from '../utils/qbit-psbt-spend-summary'
 import { assertQbitP2mrSigningLeafRecord } from '../utils/qbit-p2mr-signing-leaf'
 import {
   QBIT_FALLBACK_FEE_RATE,
@@ -1003,6 +1009,7 @@ function qbitProviderPsbtAutoFinalized(
     const { psbt: signed } = signP2mrPsbt({
       psbt,
       keys,
+      ...p2mrSigningOptionsFor(keys),
       sign: () => new Uint8Array(PQC_SIGNATURE_BYTES),
     })
     extractP2mrTransaction(finalizeP2mrPsbt(signed))
@@ -1033,6 +1040,133 @@ function assertQbitProviderAnchorValue(outputs: readonly P2mrTransactionOutput[]
         `at most ${QBIT_P2A_MAX_VALUE} sats is allowed`
     )
   }
+}
+
+/**
+ * The sighash type to sign a provider PSBT's input with: the type the PSBT
+ * names for it, or `SIGHASH_DEFAULT` when it names none. A type outside
+ * `P2MR_PARTIAL_SIGHASH_TYPES` (0x81 and 0x83) is refused, as is a
+ * `SIGHASH_SINGLE` input with no output at its own index, which commits to
+ * nothing.
+ *
+ * A partial type is also refused unless the input spends the account's own
+ * output (`spendsAccountOutput`). A website can put the account's leaf in a
+ * tree of its own, at an outpoint that need not exist, and the account can
+ * sign such an input. The spend summary already gives its lock no credit
+ * (`walletOwnedLocks`), but the approval would still list the output it
+ * "locks in", a payment nothing stands behind, beside a signature that gives
+ * the wallet's own input away.
+ */
+function qbitProviderPsbtHashType(
+  sighashType: number | undefined,
+  inputIndex: number,
+  outputCount: number,
+  spendsAccountOutput: boolean
+): number {
+  if (sighashType === undefined || sighashType === SIGHASH_DEFAULT) return SIGHASH_DEFAULT
+  if (!P2MR_PARTIAL_SIGHASH_TYPES.has(sighashType)) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `input ${inputIndex} asks for sighash type 0x${sighashType.toString(16)}; ` +
+        'this wallet signs only the default type, 0x81 and 0x83'
+    )
+  }
+  if (!spendsAccountOutput) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `input ${inputIndex} asks for sighash type 0x${sighashType.toString(16)}, ` +
+        "but does not spend this account's own output; " +
+        'only the default type signs an input held under another script'
+    )
+  }
+  if ((sighashType & SIGHASH_OUTPUT_MASK) === SIGHASH_SINGLE && inputIndex >= outputCount) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `input ${inputIndex} is signed with SIGHASH_SINGLE, but the transaction has no output ${inputIndex}`
+    )
+  }
+  return sighashType
+}
+
+/**
+ * The outputs the account's `SIGHASH_SINGLE` signatures lock in, each with the
+ * value of the input that signs it: the output at the signed input's own
+ * index. The approval credits the wallet no more than that for an output, and
+ * nothing for any other, which whoever holds the signatures can replace.
+ */
+function qbitLockedOutputs(
+  signed: readonly { inputIndex: number; hashType: number; value: number }[]
+): Map<number, number> {
+  return new Map(
+    signed
+      .filter(input => (input.hashType & SIGHASH_OUTPUT_MASK) === SIGHASH_SINGLE)
+      .map((input): [number, number] => [input.inputIndex, input.value])
+  )
+}
+
+/**
+ * What the approval shows when an input is signed with less than the whole
+ * transaction: each such input and, for `SIGHASH_SINGLE`, the one output the
+ * signature locks in, since that is what the signer is paid. The protocol
+ * library requires an approval to surface any sighash type but the default.
+ */
+function qbitPartialSignatureDetails(
+  keys: readonly QbitP2mrSigningKeyInput[],
+  outputs: readonly P2mrTransactionOutput[],
+  networkType: NetworkType
+): NonNullable<PsbtActionInfo['details']> {
+  const details: NonNullable<PsbtActionInfo['details']> = []
+  for (const key of keys) {
+    if (key.hashType === undefined) continue
+    details.push({
+      label: t('qbit_partial_signature_inputs'),
+      value: `#${key.inputIndex}`,
+      type: PsbtActionDetailType.TEXT,
+      warning: true,
+    })
+    if ((key.hashType & SIGHASH_OUTPUT_MASK) !== SIGHASH_SINGLE) {
+      // 0x81 locks every output, and the approval says so: it is what tells
+      // it from 0x83, whose other outputs anyone holding the signature can change.
+      details.push({
+        label: t('qbit_partial_signature_all_outputs'),
+        value: String(outputs.length),
+        type: PsbtActionDetailType.TEXT,
+        warning: true,
+      })
+      continue
+    }
+    const output = outputs[key.inputIndex]!
+    // A script with no address, such as a data output, is shown as its bytes,
+    // all of them: they are the one output the signature commits to.
+    // Either is the website's, so its row is flagged `warning`, which also
+    // keeps an address from counting as a recipient the wallet named.
+    const scriptPubKeyHex = qbitBytesToHex(output.scriptPubKey)
+    const address = scriptPkToAddress(scriptPubKeyHex, networkType)
+    details.push(
+      {
+        label: t('qbit_partial_signature_locked_output'),
+        value: `#${key.inputIndex}`,
+        type: PsbtActionDetailType.TEXT,
+        warning: true,
+      },
+      address === ''
+        ? {
+            label: t('to'),
+            value: scriptPubKeyHex,
+            type: PsbtActionDetailType.TEXT,
+            warning: true,
+            full: true,
+          }
+        : {
+            label: t('to'),
+            value: address,
+            type: PsbtActionDetailType.ADDRESS,
+            warning: true,
+          },
+      { label: t('amount'), value: Number(output.value), type: PsbtActionDetailType.SATOSHIS }
+    )
+  }
+  return details
 }
 
 function isHexBytesText(value: string): boolean {
@@ -8611,6 +8745,7 @@ export class WalletController extends BaseController {
     const summary = decodeQbitPsbt(psbt)
     assertQbitProviderAnchorValue(summary.outputs)
     const accountLeafScript = account.p2mr.leafScript.toLowerCase()
+    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
     const publicKey = account.p2mr.pubkey.toLowerCase()
     if (account.pubkey.toLowerCase() !== publicKey) {
       throw new Error('P2MR account public key metadata mismatch')
@@ -8624,7 +8759,22 @@ export class WalletController extends BaseController {
         // Refuses a leaf listed twice, so each leaf is planned once, and one
         // whose control block does not commit, before any counter moves.
         assertQbitP2mrSigningLeafRecord(input, inputIndex, leafHash)
-        qbitP2mrSigningKeys.push({ inputIndex, publicKey, leafHash })
+        // The input's own `PSBT_IN_SIGHASH_TYPE`, which the protocol library
+        // requires the plan to match. An input that names none signs with the
+        // default type, exactly as before.
+        const hashType = qbitProviderPsbtHashType(
+          input.sighashType,
+          inputIndex,
+          summary.outputs.length,
+          input.witnessUtxo !== undefined &&
+            qbitBytesToHex(input.witnessUtxo.scriptPubKey) === accountScriptPubKey
+        )
+        qbitP2mrSigningKeys.push({
+          inputIndex,
+          publicKey,
+          leafHash,
+          ...(hashType === SIGHASH_DEFAULT ? {} : { hashType }),
+        })
       })
     })
 
@@ -8633,7 +8783,7 @@ export class WalletController extends BaseController {
     }
 
     const signingKeys = qbitSigningKeysFromSerializable(qbitP2mrSigningKeys)
-    validateP2mrSigningPlans({ psbt, keys: signingKeys })
+    validateP2mrSigningPlans({ psbt, keys: signingKeys, ...p2mrSigningOptionsFor(signingKeys) })
     // Decided before the budget preflight, which can issue a restored-floor
     // challenge, so a refusal leaves none for this PSBT; the request's
     // failure cleanup releases those of earlier signPsbts entries.
@@ -8647,6 +8797,15 @@ export class WalletController extends BaseController {
             new Set(qbitP2mrSigningKeys.map(key => key.inputIndex))
           )
         : 0
+    // A recovery migration's reviewed movements must be signed over the whole
+    // transaction: a partial signature could be lifted into one that moves
+    // the ordinary funds the migration check exists to protect.
+    if (protectedAssetCount > 0 && qbitP2mrSigningKeys.some(key => key.hashType !== undefined)) {
+      throw new WalletError(
+        ErrorCodes.INVALID_PARAMS,
+        'a recovery migration signs only under the default sighash type'
+      )
+    }
     const signingInput = { psbt, keys: signingKeys }
     const signatureBudget =
       getAccountCapabilities(account).signMethod === AccountSignMethod.Local
@@ -8668,6 +8827,11 @@ export class WalletController extends BaseController {
 
     const toSignInputs = [...new Set(qbitP2mrSigningKeys.map(key => key.inputIndex))].map(
       index => ({ index, publicKey })
+    )
+    const partialDetails = qbitPartialSignatureDetails(
+      qbitP2mrSigningKeys,
+      summary.outputs,
+      this.getNetworkType()
     )
     return {
       psbtHex: qbitPsbtToHex(psbt),
@@ -8691,11 +8855,18 @@ export class WalletController extends BaseController {
               ],
               type: PsbtActionType.CUSTOM,
             }
-          : {
-              name: '',
-              description: '',
-              type: PsbtActionType.DEFAULT,
-            },
+          : partialDetails.length > 0
+            ? {
+                name: t('sign_transaction'),
+                description: t('qbit_partial_signature_description'),
+                details: partialDetails,
+                type: PsbtActionType.CUSTOM,
+              }
+            : {
+                name: '',
+                description: '',
+                type: PsbtActionType.DEFAULT,
+              },
     }
   }
 
@@ -10572,6 +10743,38 @@ export class WalletController extends BaseController {
     })
     const feeRate = finalTxVBytes > 0 ? fee / finalTxVBytes : 0
     const isCompleted = summary.fee !== undefined
+    // The inputs the account signs are those that carry its leaf, as
+    // `prepareQbitProviderPsbt` plans them. A `SIGHASH_SINGLE` signature locks
+    // in one output; the rest, and any excess over its input, cannot count as
+    // the wallet's.
+    const accountLeafScript = account.p2mr?.leafScript.toLowerCase()
+    const namedInputs = summary.inputs.flatMap((input, inputIndex) =>
+      input.sighashType !== undefined &&
+      accountLeafScript !== undefined &&
+      input.leafScripts.some(leaf => qbitBytesToHex(leaf.script) === accountLeafScript)
+        ? [
+            {
+              inputIndex,
+              hashType: input.sighashType,
+              value: Number(input.witnessUtxo?.value ?? 0n),
+            },
+          ]
+        : []
+    )
+    const lockedOutputs = qbitLockedOutputs(namedInputs)
+    // A signature under 0x81 fixes every output but not the other inputs, so
+    // another approval of the same outputs can fund them with a second input
+    // of the wallet's: an output counts as coming back only if a
+    // `SIGHASH_SINGLE` signature of this request locks it in. The same holds
+    // for a `SIGHASH_NONE` type, which fixes no output, though this wallet
+    // signs none. The default type and `SIGHASH_ALL` cover the whole
+    // transaction.
+    const anyoneCanPayAll = namedInputs.some(
+      input =>
+        input.hashType !== SIGHASH_DEFAULT &&
+        input.hashType !== SIGHASH_ALL &&
+        (input.hashType & SIGHASH_OUTPUT_MASK) !== SIGHASH_SINGLE
+    )
     const { spendSummary, risks, recommendedFeeRate } = summarizeQbitPsbtSpend({
       inputs: inputInfos,
       outputs: outputInfos,
@@ -10583,6 +10786,8 @@ export class WalletController extends BaseController {
       statedRecipients,
       feeSummary,
       checkFeeShareWithoutSize: suppliedByWebsite,
+      lockedOutputs,
+      anyoneCanPayAll,
     })
     // The wallet's outputs are known only from the scripts and addresses it
     // derives for its accounts, as their 'wallet' role is: the PSBT's own
@@ -10602,10 +10807,19 @@ export class WalletController extends BaseController {
     const namedRecipients = new Set(
       (statedRecipients ?? []).filter(address => address !== '').map(address => address.toLowerCase())
     )
+    const ownedLocks = walletOwnedLocks(inputInfos, wallet, lockedOutputs)
     const outputOwners = outputInfos.map((output, index): PsbtOutputOwner => {
       if (spendSummary.outputRoles[index] !== 'wallet') return 'none'
       if (!qbitWalletOwns(signingAccount, output)) return 'other_account'
-      return walletFundsEveryInput && !namedRecipients.has(output.address.toLowerCase())
+      // Change only if the wallet is sure to get it back: not when a
+      // signature that locks in other outputs leaves this one open, nor when
+      // one under 0x81 lets another approval's input pay for it.
+      const guaranteed =
+        (ownedLocks.size === 0 && !anyoneCanPayAll) ||
+        (ownedLocks.get(index) ?? 0) >= output.value
+      return walletFundsEveryInput &&
+        guaranteed &&
+        !namedRecipients.has(output.address.toLowerCase())
         ? 'change'
         : 'this_account'
     })

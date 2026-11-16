@@ -1109,6 +1109,18 @@
   "sighash_none_detected": {
     "message": "SIGHASH_NONE détecté. Signature annulée pour des raisons de sécurité."
   },
+  "qbit_partial_signature_description": {
+    "message": "Votre signature ne verrouille qu'une partie de cette transaction. Quiconque la détient peut modifier tout ce qu'elle ne couvre pas, ce qui peut inclure d'autres entrées et sorties, avant sa diffusion."
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "Entrées signées séparément"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "Sortie verrouillée par cette signature"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "Cette signature verrouille toutes les sorties"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE est un type de signature spécial qui permet de modifier la transaction après signature. Cela peut entraîner une perte potentielle de fonds si la transaction est altérée malicieusement. Veuillez vous assurer de faire confiance à la source de cette transaction avant de continuer."
   },

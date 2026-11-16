@@ -25,7 +25,7 @@ vi.mock('@/ui/components', async () => {
 vi.mock('@/ui/components/AddressText', () => ({ AddressText: () => null }));
 vi.mock('@/shared/constant', () => ({ IMAGE_SOURCE_MAP: {} }));
 vi.mock('@/ui/theme/colors', () => ({ colors: { border: '' } }));
-vi.mock('@/ui/utils', () => ({ shortAddress: (value: string) => value }));
+vi.mock('@/ui/utils', () => ({ shortAddress: (value: string) => `short:${value}` }));
 vi.mock('@qbit/base-utils', () => ({
   numUtils: { satoshisToAmount: (value: number) => (value / 100_000_000).toFixed(8) }
 }));
@@ -46,6 +46,36 @@ function renderWithSpend(spend: unknown) {
   } as any);
   return render(<ActionOverviewSection action={{} as any} decodedPsbt={{} as any} />);
 }
+
+describe('ActionOverviewSection details', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+  });
+
+  it('shows a text value flagged full whole, and shortens any other', () => {
+    // A data output's script, as the approval names an output with no address.
+    const script = `6a4c50${'ab'.repeat(80)}`;
+    vi.mocked(useActionOverviewSectionLogic).mockReturnValue({
+      action: {
+        name: 'sign_transaction',
+        description: '',
+        details: [
+          { label: 'to', value: script, type: 'TEXT', full: true },
+          { label: 'memo', value: script, type: 'TEXT' }
+        ]
+      },
+      chain: { icon: 'qbit', iconLabel: 'Qbit' },
+      spend: undefined
+    } as any);
+    render(<ActionOverviewSection action={{} as any} decodedPsbt={{} as any} />);
+
+    const rows = screen.getAllByTestId('psbt-action-detail');
+    expect(rows.map((row) => row.textContent)).toEqual([`to${script}`, `memoshort:${script}`]);
+  });
+});
 
 describe('ActionOverviewSection spend summary (#271)', () => {
   beforeEach(() => {

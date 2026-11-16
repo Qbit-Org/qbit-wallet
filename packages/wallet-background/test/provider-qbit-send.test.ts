@@ -18,6 +18,8 @@ import {
   p2mrBranchHash,
   p2mrLeafHash,
   p2mrScriptPubKey,
+  p2mrSighash,
+  psbtUnsignedTransaction,
   serializePsbt,
   signP2mrPsbt,
   singleKeyLeafScript,
@@ -673,6 +675,84 @@ describe('ProviderController qbit send', () => {
       }
     }
   })
+
+  it.each([
+    ['finalized', true],
+    ['left for the other signers', false],
+  ] as const)(
+    'checks a signature against the sighash type its approval planned, %s (#211)',
+    async (_name, autoFinalized) => {
+      const SINGLE_ANYONECANPAY = 0x83
+      const provider = (await import('../src/controllers/provider/controller')).default
+      const pubkey = hexToBytes('66'.repeat(32))
+      const leafScript = singleKeyLeafScript(pubkey)
+      const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
+      const witnessUtxo = { value: 50_000n, scriptPubKey: p2mrScriptPubKey(leafHash) }
+      // One input, which the signature completes, or two, the second another signer's.
+      const inputCount = autoFinalized ? 1 : 2
+      const source = createP2mrPsbt({
+        inputs: Array.from({ length: inputCount }, (_value, vout) => ({
+          prevout: { txid: hexToBytes('ab'.repeat(32)), vout },
+          witnessUtxo,
+          leafScript,
+          controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+        })),
+        outputs: Array.from({ length: inputCount }, () => ({ ...witnessUtxo, value: 40_000n })),
+      })
+      const signature = new Uint8Array(PQC_SIGNATURE_BYTES).fill(6)
+      const signed = signP2mrPsbt({
+        psbt: source,
+        keys: [{ inputIndex: 0, pubkey, leafHash, hashType: SINGLE_ANYONECANPAY }],
+        allowNonDefaultSighash: true,
+        sign: () => signature,
+      }).psbt
+      const approved = bytesToHex(serializePsbt(autoFinalized ? finalizeP2mrPsbt(signed) : signed))
+      const signPsbt = (hashType: number | undefined) =>
+        provider.signPsbt({
+          data: {
+            params: {
+              toSignDatas: [
+                {
+                  psbtHex: bytesToHex(serializePsbt(source)),
+                  toSignInputs: [],
+                  autoFinalized,
+                  qbitP2mrSigningKeys: [
+                    {
+                      inputIndex: 0,
+                      publicKey: bytesToHex(pubkey),
+                      leafHash: bytesToHex(leafHash),
+                      ...(hashType === undefined ? {} : { hashType }),
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          approvalRes: [{ psbtHex: approved }],
+        } as any)
+
+      await expect(signPsbt(SINGLE_ANYONECANPAY)).resolves.toBe(approved)
+      // Verified over the digest of the planned type: the input and the
+      // output at its index, not the whole transaction.
+      expect(verifyPqcMock).toHaveBeenCalledWith(
+        pubkey,
+        p2mrSighash({
+          tx: psbtUnsignedTransaction(source),
+          inputIndex: 0,
+          spentOutputs: Array.from({ length: inputCount }, () => witnessUtxo),
+          leafHash,
+          hashType: SINGLE_ANYONECANPAY,
+        }),
+        signature
+      )
+      // A plan for the default type, or for the other partial type, does not accept it.
+      for (const planned of [undefined, 0x81]) {
+        await expect(signPsbt(planned)).rejects.toThrow(
+          'signed PSBT changed the approved sighash type'
+        )
+      }
+    }
+  )
 
   it('checks a signed PSBT against the one leaf record finalize reveals (#352)', async () => {
     const provider = (await import('../src/controllers/provider/controller')).default

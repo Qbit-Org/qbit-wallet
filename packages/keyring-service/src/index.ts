@@ -6,6 +6,8 @@ export {
   QBIT_SIGNING_ABORTED_CODE,
   QBIT_RESTORED_FLOOR_CHALLENGE_TTL_MS,
   QbitSigningAbortedError,
+  P2MR_PARTIAL_SIGHASH_TYPES,
+  p2mrSigningOptionsFor,
   type PasswordLifecycleEvent,
   type QbitP2mrSigningOptions,
   type QbitSigningProgressListener,

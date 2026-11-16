@@ -1109,6 +1109,18 @@
   "sighash_none_detected": {
     "message": "SIGHASH_NONE detectado. Firma cancelada por seguridad."
   },
+  "qbit_partial_signature_description": {
+    "message": "Tu firma fija solo una parte de esta transacción. Quien la tenga puede cambiar todo lo que no cubre, lo que puede incluir otras entradas y salidas, antes de que se difunda."
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "Entradas firmadas por separado"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "Salida que fija esta firma"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "Esta firma fija todas las salidas"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE es un tipo de firma especial que permite modificar la transacción después de firmarla. Esto puede llevar a una pérdida potencial de fondos si la transacción es alterada maliciosamente. Por favor asegúrese de confiar en la fuente de esta transacción antes de proceder."
   },

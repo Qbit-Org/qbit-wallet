@@ -307,6 +307,7 @@ export interface PsbtActionDetail {
   type?: PsbtActionDetailType
   highlight?: boolean // whether to highlight
   warning?: boolean // whether to show warning style
+  full?: boolean // show a text value whole, wrapped, never shortened
 }
 
 export interface PsbtActionInfo {
