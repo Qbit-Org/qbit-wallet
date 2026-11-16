@@ -9,7 +9,7 @@ repository admin applies it with `gh` from the repository root.
 | `signed-commits.json` | A verified signature on every commit added to `main` and `release/*`. No bypass actors. |
 | `required-checks.json` | `main`: the `Typecheck, test, and build`, `Playwright G3 scenarios` and `signed-landing` checks must pass. No bypass actors. |
 | `required-checks-release.json` | `release/*`, except reconcile branches such as `release/1.0.8-reconcile-main`: pull requests only, with no approval required, squash merges and merge commits only, and the `signed-landing` check must pass. No bypass actors. Not enforced when the branch is created. |
-| `main-protection.json` | `main`: pull requests with one approval and a code owner's review, squash merges and merge commits only; no deletion or force push. Organization admins and repository admins can bypass it when merging a pull request. |
+| `main-protection.json` | `main`: pull requests with one approval and a code owner's review, squash merges and merge commits only; no creation, deletion or force push. Organization admins and repository admins can bypass it when merging a pull request. |
 | `release-tags.json` | `v*` tags can't be moved or deleted. No bypass actors. |
 
 A release branch takes changes through pull requests only, with no approval
@@ -41,7 +41,17 @@ side of this.
 A release pull request, from `release/x.y.z` into `main`, and a back-merge,
 from `main` into a release branch, are the exceptions. Their head is a shared
 branch that must not be rewritten, so they merge as they are, with a merge
-commit, and every commit in them must already be verified.
+commit, and every commit in them must already be verified. `signed-landing`
+passes a release pull request only when a person signed its head commit
+(below), and the tip of a release branch is usually the commit GitHub made
+when it merged the branch's last pull request. In that case open the release
+pull request from a `backmerge/x.y.z` branch instead: cut it from
+`release/x.y.z`, merge `main` into it locally and sign the merge
+(`git merge -S origin/main`; if it stops on conflicts, finish it with
+`git commit -S`), never with GitHub's "Update branch" button or its web
+conflict editor. If `main` has nothing the branch lacks, `git merge` makes no
+commit and the tip is still GitHub's, so put an empty commit you sign on top
+(`git commit -S --allow-empty`): the check judges the head commit.
 
 The release workflow's "version packages" pull request lands like any other,
 because the workflow makes its commit, which has no signature. Merge it soon
@@ -62,11 +72,24 @@ open pull request usually means it hasn't been squashed and signed yet. If its
 message says it could not check, do what the message says, which is usually to
 re-run it. GitHub's signature rule can't tell that by itself, because it
 accepts any verified signature, GitHub's own included, such as on a web edit
-or an "Update branch" merge. A pull request from a `release/*` branch or from
-`main` merges as it is, and passes without being judged. That goes by the name
-alone, and only for a branch in this repository: whoever can create a branch
-with such a name can open a pull request that isn't judged, so keep those
-names for that use. The check is required by a ruleset with no bypass actors,
+or an "Update branch" merge. A pull request from a `release/*` or
+`backmerge/*` branch of this repository (`AS_IS_HEADS` in the workflow) merges
+as it is, with any number of commits, and the check judges its head commit
+instead: it passes when a person signed that commit with an OpenPGP key that
+is on their own GitHub account. The signature covers the commit's tree and its
+parents, so whoever signed the head answers for everything the pull request
+brings. A head commit that GitHub made fails: a squash merge's commit, an
+"Update branch" merge, a web edit or a web conflict resolution. A pull request
+from `main` (`AS_IS_LINES` in the workflow) merges as it is too, and the check
+passes it without reading its head commit when GitHub's rules for `main`
+require `signed-landing` from GitHub Actions and a pull request, and forbid
+creating, deleting and force-pushing it, as `required-checks.json` and
+`main-protection.json` do. `main` then gains commits only through pull
+requests the check passed, and can't be made, or made again, at another
+commit. If one of those rules is missing on GitHub, the check says which, and
+judges `main`'s head commit as it judges a release branch's, which usually
+fails because GitHub made it. A fork's branch never merges as it is. The check
+is required by a ruleset with no bypass actors,
 so the merge button works only once it is green. It always runs from the
 default branch's copy of the workflow, `main`'s, whatever branch the pull
 request targets, so a pull request can't change the rule it is judged by. Its
@@ -105,9 +128,9 @@ General → Pull Requests). An ordinary pull request is squash-merged. GitHub
 signs the commit its squash merge makes, so GitHub's own signature satisfies
 the signature rule on the branch, and what requires a person's signature is
 the `signed-landing` check, which a ruleset nobody can bypass requires. A pull
-request from a `release/*` branch or from `main` lands as it is, with a merge
-commit, because squashing it would lose its history. GitHub's rebase merge
-makes commits with no signature, which the rule refuses.
+request from a `release/*` or `backmerge/*` branch, or from `main`, lands as
+it is, with a merge commit, because squashing it would lose its history.
+GitHub's rebase merge makes commits with no signature, which the rule refuses.
 
 ## Apply a change
 
@@ -130,6 +153,11 @@ apply() {
 Don't apply a file that requires `signed-landing` until `signed-landing.yml`
 is on `main` and the Actions policy allows it: until then nothing reports the
 check, and no pull request into a branch that requires it can merge.
+
+Until `required-checks.json` and `main-protection.json` are applied as they
+are here, GitHub's rules for `main` lack some of the rules `signed-landing`
+reads, so a back-merge from `main` is judged on its head commit and usually
+fails. Apply both as soon as the pull request that changes them merges.
 
 Then run `apply` once for each ruleset file that changed. It updates the
 ruleset of that name, or creates it when GitHub has none. For example:

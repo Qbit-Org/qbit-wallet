@@ -107,7 +107,10 @@ commit and no merge commit.
 A release pull request, from `release/x.y.z` into `main`, and a back-merge,
 from `main` into a release branch, are the exceptions. They merge as they
 are, with a merge commit, and every commit in them must already carry a
-verified signature.
+verified signature. Unless a person signed the tip of `release/x.y.z`, the
+release pull request comes from a `backmerge/x.y.z` branch cut from it, with
+`main` merged in by a merge a maintainer signs
+([`.github/rulesets/README.md`](.github/rulesets/README.md) says why).
 
 ### Changesets
 
