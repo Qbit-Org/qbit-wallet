@@ -5,6 +5,92 @@ the project's earlier, private tracker, not to issues or pull requests in this
 repository. From 1.0.8, issue numbers such as #30 refer to issues in this
 repository.
 
+## 1.0.10
+
+### Accounts with many outputs
+
+- The balance of an account with thousands of outputs loads again (#36,
+  #124). Since the explorer began listing up to 50,000 outputs for an address
+  (#169), the wallet read one transaction for each listed output, all at
+  once, every 10 seconds. For an account with several thousand outputs, such
+  as an address that mining payouts go to, those reads timed out and the
+  balance card showed "Balance could not be loaded. The explorer may be
+  temporarily unavailable." although the explorer was working. The wallet now
+  reads up to 256 transactions at a time, the rate 1.0.9 was measured
+  reading at, for the first 4,096 of a read, and 32 at a time after that. It
+  remembers what it read while it stays unlocked on the same network, so
+  refreshing an account whose outputs have not changed reads none of them
+  again. For the balance it no longer reads the transaction of a payment
+  1,000 blocks deep or more, unless the current block height reaches it
+  later than the list of outputs: such a payment can be spent whatever that
+  transaction says.
+- When the wallet cannot finish reading an account's outputs and no balance
+  is shown for it yet, the balance card shows the total with the note "The
+  wallet could not finish reading this account's outputs, so only the total
+  is shown. It will try again." Available and Unavailable show "--" until a
+  read finishes. A card that already shows a balance keeps it, with "Balance
+  could not be refreshed and may be out of date." and Try again, as before.
+  A balance read now takes at most 20 seconds, and the next one carries on
+  where it stopped.
+  In a test browser an account with about 21,000 outputs, about 420 of them
+  younger than 1,000 blocks, showed its full balance on the first read, in
+  half a second to a second and a half, and every refresh after that took a
+  fraction of a second.
+  "Balance could not be loaded" now shows only when the total itself cannot
+  be read.
+- The balance card refreshes more carefully. It does not start an automatic
+  refresh while the previous one is still running, unless that one has been
+  running for a minute, and it pauses while the wallet's window or tab is
+  hidden. After a failed refresh, including one that got no further with
+  the account's outputs or that it gave up on after a minute, it waits 10,
+  20, 40 seconds and so on, at most 2 minutes, until one succeeds. "Try
+  again" still reads at once. Each refresh asks for the current block
+  height with the list of outputs, instead of an address summary the wallet
+  never used.
+- The Send screen can be filled in while the wallet is still reading an
+  account's outputs. Its loading screen now lasts at most a second and a
+  half; after that the form shows, with the note "Reading this account's
+  outputs. You can fill in the form meanwhile; Next and MAX become available
+  once they are read." If they cannot be read, the screen says so ("The
+  wallet could not read this account's outputs, so it cannot send from this
+  account now. Reopen Send to try again.") instead of leaving Next disabled
+  without a word, and outputs remembered from an earlier visit are no longer
+  used after such a failure.
+
+### Known limitations
+
+- The wallet forgets what it read of an account's outputs when it locks, when
+  you switch networks and when the browser stops the extension's background
+  worker, which browsers do after the wallet's windows have been closed for a
+  while. The first balance after that reads the account's payments younger
+  than 1,000 blocks again, and for an account with tens of thousands of
+  those it can show only the total for a few refreshes. Older payments are
+  not read.
+- If an account has more than 65,536 outputs that are younger than 1,000
+  blocks or unconfirmed, the balance card shows only its total, with the
+  note, and Available and Unavailable stay "--"; it reads the balance again
+  every 2 minutes. Older outputs do not count. Today's explorer lists at
+  most 50,000 outputs for an address.
+- The first time Send is opened in a session, it reads the transaction of
+  every output of the account before Next and MAX can be used, as the
+  balance no longer reads those of payments 1,000 blocks deep or more. The
+  form can be filled in meanwhile. In a test browser this took 34 to 43
+  seconds for an account with about 21,700 outputs (#210). Each time after
+  that, Send reads again only the payments received in the last 1,000
+  blocks that are not mining rewards.
+- When the explorer answers Send's own read of an account's outputs, the
+  one it opens with or one it makes again while open, after the account,
+  the network or a payment in several transactions changes, with temporary
+  server errors, the wallet asks again after half a second, then
+  1.5, 4 and 8 seconds, starting no new attempt once 20 seconds have passed,
+  before the screen says the outputs could not be read; reopening Send then
+  carries on from what was read. While it waits, the wallet's other reads
+  from the explorer, the balance among them, can wait behind it: one balance
+  refresh took 13.9 seconds in a test. A payment sent as one transaction
+  while that read is still running, which Send allows only when it already
+  shows outputs read earlier, waits for that read too. Every other read
+  gives up on such errors as quickly as 1.0.9 did.
+
 ## 1.0.9
 
 ### Sending and fees

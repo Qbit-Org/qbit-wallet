@@ -392,9 +392,12 @@ export interface WalletController {
   getQbitUtxos(): Promise<UnspentOutput[]>
   /**
    * The spendable outputs together with the network they were loaded on.
-   * With `readId`, `abandonQbitUtxoSnapshot(readId)` stops waiting for it.
+   * With `readId`, `abandonQbitUtxoSnapshot(readId)` stops waiting for it,
+   * and with `rideOut` too the read rides out the explorer's server errors,
+   * where without it the read fails on one as fast as 1.0.9's did: only a
+   * caller that abandons the read when it stops waiting should ask.
    */
-  getQbitUtxoSnapshot(readId?: string): Promise<QbitUtxoSnapshot>
+  getQbitUtxoSnapshot(readId?: string, rideOut?: true): Promise<QbitUtxoSnapshot>
   /** Stop waiting for that read; a walk nothing waits for any more stops. */
   abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
@@ -458,8 +461,6 @@ export interface WalletController {
   checkWebsite(website: string): Promise<WebsiteSafetyResult>
 
   formatOptionsToSignInputs(psbtHex: string, options?: SignPsbtOptions): Promise<ToSignInput[]>
-
-  getAddressSummary(address: string): Promise<AddressSummary>
 
   getShowSafeNotice(): Promise<boolean>
   setShowSafeNotice(show: boolean): Promise<void>

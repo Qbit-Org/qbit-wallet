@@ -681,7 +681,13 @@ function utxoReadAborted(signal: AbortSignal): Error {
  * moved on to, nor a newer read's.
  *
  * The caller's abort reaches the background too: the read is abandoned
- * there, and a walk nothing else waits for stops reading.
+ * there, and a walk nothing else waits for stops reading. Only a caller that
+ * can abandon it so, with a signal, as the send screen's own read does, asks
+ * the background to ride out the explorer's server errors
+ * (`getQbitUtxoSnapshot(readId, true)`); without one the read fails on such
+ * an error as fast as 1.0.9's did, as the send screen's prepare and send in
+ * one transaction, behind its loading overlay, need. Every read passes its
+ * id, so that the page going away abandons it either way.
  *
  * The caller gets the answer whether or not it was cached, unless it
  * aborted. An answer for an account or network other than the ones this
@@ -704,7 +710,9 @@ export function useFetchUtxosCallback() {
       signal?.addEventListener('abort', abandon, { once: true })
       let snapshot: QbitUtxoSnapshot
       try {
-        snapshot = await wallet.getQbitUtxoSnapshot(readId)
+        snapshot = await (signal
+          ? wallet.getQbitUtxoSnapshot(readId, true)
+          : wallet.getQbitUtxoSnapshot(readId))
       } finally {
         signal?.removeEventListener('abort', abandon)
       }

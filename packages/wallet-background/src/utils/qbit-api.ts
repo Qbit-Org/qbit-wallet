@@ -20,7 +20,7 @@ import type {
   MempoolRecommendedFees,
   RequestOptions,
 } from '@qbit-oss/api'
-import { QBIT_COINBASE_MATURITY } from '@qbit-oss/protocol'
+import { QBIT_COINBASE_MATURITY, addressToScriptPubKey, bytesToHex } from '@qbit-oss/protocol'
 import { PQC_WARNING_SIGNATURE_THRESHOLD } from '@qbit/keyring-service'
 import { transactionCore } from '@qbit/wallet-core'
 import {
@@ -51,6 +51,15 @@ import {
   qbitExplorerFreshReadPath,
   type QbitExplorerOperation,
 } from './qbit-explorer-fetch'
+import {
+  QbitClassificationReads,
+  QBIT_LISTING_RETRY_STATUSES,
+  QBIT_TIP_RETRY_STATUSES,
+  withQbitReadRetries,
+  type QbitFundingFactsView,
+  type QbitFundingOutputFacts,
+  type QbitFundingTxReads,
+} from './qbit-funding-tx-reads'
 
 const SATS_PER_QBIT = 100_000_000n
 const DEFAULT_MAX_COUNTER_HISTORY_PAGES = 256
@@ -919,54 +928,261 @@ export function qbitReadOutput(utxo: QbitReadOutput): QbitReadOutput {
 }
 
 /**
+ * How long a balance read (`getQbitSpendableBalanceV2`) may take, every read
+ * it makes included: the statistics, the listing, the funding transactions
+ * and ancestors, the tip and a statistics read again past the listing limit.
+ * The balance card polls every 10 s; an address with thousands of outputs not
+ * read before takes several polls to work through, each leaving what it read
+ * for the next (see `QbitFundingTxReads`).
+ */
+export const QBIT_BALANCE_READ_DEADLINE_MS = 20_000
+
+/** `getQbitSpendableBalanceV2`'s options. */
+export interface QbitBalanceReadOptions extends QbitClassifyOptions {
+  /** The whole read's deadline, in ms: `QBIT_BALANCE_READ_DEADLINE_MS` by default. */
+  deadlineMs?: number
+}
+
+/**
+ * One balance read's deadline and cancellation. Its `signal`, which every
+ * read of it runs under, aborts once the deadline passes, with
+ * `timeoutError`, or once the caller's signal aborts, with that reason.
+ * `close` clears the timer and lets go of the caller's signal.
+ */
+class QbitBalanceReadOperation {
+  readonly signal: AbortSignal
+  readonly timeoutError: QbitApiError
+  private readonly controller = new AbortController()
+  private expired = false
+  private readonly release: () => void
+
+  constructor(
+    deadlineMs: number,
+    private readonly callerSignal: AbortSignal | undefined
+  ) {
+    if (!Number.isFinite(deadlineMs) || deadlineMs <= 0 || deadlineMs > 0x7fff_ffff) {
+      throw new Error('deadlineMs must be a positive number of milliseconds')
+    }
+    this.signal = this.controller.signal
+    this.timeoutError = new QbitApiError(
+      'timeout',
+      `qbit balance read exceeded its ${deadlineMs}ms deadline`
+    )
+    const onCallerAbort = (): void => this.controller.abort(callerSignal?.reason)
+    if (callerSignal?.aborted) onCallerAbort()
+    else callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+    const timer = setTimeout(() => {
+      this.expired = true
+      this.controller.abort(this.timeoutError)
+    }, deadlineMs)
+    this.release = (): void => {
+      clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
+    }
+  }
+
+  /** Reject with the caller's reason once the caller has given up: that outcome comes first. */
+  throwIfCancelled(): void {
+    if (this.callerSignal?.aborted) throw this.callerSignal.reason
+  }
+
+  /** Whether the deadline passed (and the caller had not given up before). */
+  get timedOut(): boolean {
+    return this.expired && this.signal.reason === this.timeoutError
+  }
+
+  /** Stop every read still running: the read has nothing more to wait for. */
+  stop(reason: unknown): void {
+    this.controller.abort(reason)
+  }
+
+  /** Settle with `promise`, a wait no read of this operation bounds, or reject once `signal` aborts. */
+  within<T>(promise: Promise<T>): Promise<T> {
+    const { signal } = this
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = (): void => reject(signal.reason)
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+      promise.then(
+        value => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(value)
+        },
+        error => {
+          signal.removeEventListener('abort', onAbort)
+          reject(error)
+        }
+      )
+    })
+  }
+
+  close(): void {
+    this.release()
+  }
+}
+
+/**
  * The address's balance split the way a send sees it. `readReserved`, when
- * given, is read once the outputs are listed and names the outputs
+ * given, is read once the outputs are classified and names the outputs
  * (`txid:vout`) a send must not select (see `QbitSendGuardService`); they
  * count as unavailable rather than available.
  *
+ * The whole read has one deadline (`options.deadlineMs`, by default
+ * `QBIT_BALANCE_READ_DEADLINE_MS`) and stops once `options.signal` aborts,
+ * rejecting with its reason. The total comes from the address statistics, and
+ * without them the read rejects: when they fail, or have not answered by the
+ * deadline, with a `timeout` `QbitApiError`. Once they are read, an output
+ * read that fails or has not finished by the deadline leaves the split
+ * unknown (`utxoReadIncomplete`), never 0 and never counted from part of the
+ * outputs; what it read is kept for the next read with
+ * `options.fundingTxReads`. One that failed also says so (`utxoReadFailed`),
+ * so a poll can back off, and so does one that ran out of time without
+ * keeping anything the next read is served: not one fact it newly kept of
+ * an output the listing reports confirmed is kept still when it answers, as
+ * another address's read through the same reader may have pushed them out
+ * (without `options.fundingTxReads` nothing is kept). One that ran out of
+ * time part of the way through the outputs does not. Nor does a send guard
+ * that has not answered by the deadline hold the read: the split is then
+ * unknown too.
+ *
+ * An output confirmed at least a coinbase maturity (1,000 blocks) deep is
+ * spendable and mature whatever its transaction says, so for one the read
+ * reads no transaction and believes the listing alone: nothing checks the
+ * explorer's transaction against it (txid, output index, value, P2MR
+ * script), and Available stays bounded by the statistics. Depth is judged
+ * from the listing's newest block, and from the tip, asked for once, with
+ * the listing, for outputs that block cannot show deep; when the tip cannot
+ * be read, or has not answered once nothing else is left to read, those are
+ * read as before, so only a coinbase output's maturity ever waits for the
+ * tip. Only younger confirmed outputs and unconfirmed ones are read one by
+ * one (see `classifyQbitUtxos`), so a cold read of an old account reads few
+ * transactions. Reads of outputs for a send, sweep or plan still read every
+ * one. Every read of an address whose script is known asks for the tip, one
+ * request beside the statistics and the listing, even with no output listed.
+ *
+ * With a shared reader, an address with more outputs to read one by one,
+ * those its listing, and the tip if it has answered by then, cannot show
+ * deep, than it keeps facts of (`QbitFundingTxReads.maxOutpoints`, 65,536
+ * for the controller's) is not read output by output at all, as each poll
+ * would evict what the next needs: no transaction is read, the tip is not
+ * waited for, and the answer, at once, is the total with the split unknown,
+ * `utxoReadIncomplete` and `utxoReadFailed`, so a poll backs off.
+ *
+ * Its answer is only totals, so it serves kept "not a coinbase" facts at any
+ * confirmed depth (`balanceOnly`, see `classifyQbitUtxos`): after one wrong
+ * `is_coinbase` answer it can count a reward younger than 1,000 blocks as
+ * Available until a read of outputs or a clear replaces the kept fact. No
+ * send can select that reward.
+ *
  * Past the explorer's UTXO limit the outputs cannot be listed, and the split
- * is unknown unless `readOutputs` has the outputs a read of the address's
- * history found when the address statistics (`qbitStatsSnapshot`) read as
- * they do now; see `getQbitPastLimitSplit`.
+ * is unknown (`utxoLimitExceeded`) unless `readOutputs` has the outputs a read
+ * of the address's history found when the address statistics
+ * (`qbitStatsSnapshot`) read as they do now; see `getQbitPastLimitSplit`.
  */
 export async function getQbitSpendableBalanceV2(
   client: QbitEsploraClient,
   address: string,
   p2mrScriptPubKey?: string,
   readReserved?: () => Promise<ReadonlySet<string>>,
-  readOutputs?: (stats: string) => QbitOutputRead | undefined
+  readOutputs?: (stats: string) => QbitOutputRead | undefined,
+  options: QbitBalanceReadOptions = {}
 ): Promise<QbitBalanceSummaryPayload> {
-  const [balanceResult, classifiedResult] = await Promise.allSettled([
-    client.getAddressBalance(address),
-    getQbitAddressUtxosClassified(client, address),
-  ])
-  if (balanceResult.status === 'rejected') throw balanceResult.reason
-  const balance = balanceResult.value
+  const operation = new QbitBalanceReadOperation(
+    options.deadlineMs ?? QBIT_BALANCE_READ_DEADLINE_MS,
+    options.signal
+  )
+  try {
+    const summary = await readQbitSpendableBalance(
+      client,
+      address,
+      p2mrScriptPubKey,
+      readReserved,
+      readOutputs,
+      operation,
+      options.fundingTxReads
+    )
+    operation.throwIfCancelled()
+    return summary
+  } finally {
+    operation.close()
+  }
+}
+
+async function readQbitSpendableBalance(
+  client: QbitEsploraClient,
+  address: string,
+  p2mrScriptPubKey: string | undefined,
+  readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
+  readOutputs: ((stats: string) => QbitOutputRead | undefined) | undefined,
+  operation: QbitBalanceReadOperation,
+  fundingTxReads: QbitFundingTxReads | undefined
+): Promise<QbitBalanceSummaryPayload> {
+  operation.throwIfCancelled()
+  const { signal } = operation
+  const balanceRead = client.getAddressBalance(address, { signal })
+  // What it keeps for the next read, noted as the facts are kept.
+  const progress: QbitClassifyProgress = { kept: [] }
+  // Its answer is a few totals, which no send takes inputs from (see
+  // `classifyQbitUtxos`).
+  const classifying = listAndClassifyQbitUtxos(client, address, {
+    signal,
+    balanceOnly: true,
+    progress,
+    ...(fundingTxReads ? { fundingTxReads } : {}),
+  })
+  // Settled below, or left once the statistics fail.
+  classifying.catch(() => undefined)
+  let balance: AddressBalance
+  try {
+    balance = await balanceRead
+  } catch (error) {
+    // Nothing can be reported without the total, so the outputs are not
+    // read on.
+    operation.stop(error)
+    operation.throwIfCancelled()
+    throw operation.timedOut ? operation.timeoutError : error
+  }
   const aggregateBalance = qbitBalanceToSummary(balance)
-  if (classifiedResult.status === 'rejected') {
-    const stats = await qbitUtxoListOverExplorerLimitStats(client, address, classifiedResult.reason)
-    if (!stats) throw classifiedResult.reason
-    // The split takes the statistics this check read: one read, so the two
-    // can never disagree.
-    const split = readOutputs
-      ? await getQbitPastLimitSplit(client, stats, p2mrScriptPubKey, readReserved, readOutputs)
-      : undefined
-    if (split) return split
-    // The statistics still give the total. With no output list none of it
-    // can be classified, so the split is unknown rather than 0, and none of
-    // it can be selected until a send reads the outputs from history.
-    const totalBalance = Math.max(0, aggregateBalance.totalBalance)
-    return {
-      availableBalance: null,
-      unavailableBalance: totalBalance,
-      totalBalance,
-      immatureBalance: null,
-      pendingBalance: null,
-      utxoLimitExceeded: true,
+  let classified: QbitClassifiedUtxos
+  try {
+    classified = await classifying
+  } catch (error) {
+    operation.throwIfCancelled()
+    // Cut off by the deadline, it rejects with the deadline's own error;
+    // anything else is a failure, even one noticed after the deadline. Cut
+    // off with nothing new kept still for the next read, it got no further.
+    if (error === operation.timeoutError) {
+      const keptStill = progress.kept.some(([txid, vout]) => progress.facts?.has(txid, vout))
+      return qbitIncompleteSplit(aggregateBalance, !keptStill)
+    }
+    // More outputs than the wallet keeps facts of: none read, nothing to build on.
+    if (error instanceof QbitOutputsPastFactsCapError) {
+      return qbitIncompleteSplit(aggregateBalance, true)
+    }
+    return qbitSplitPastFailedListing(
+      client,
+      address,
+      error,
+      aggregateBalance,
+      p2mrScriptPubKey,
+      readReserved,
+      readOutputs,
+      operation
+    )
+  }
+  let reserved: ReadonlySet<string> | undefined
+  if (readReserved) {
+    try {
+      reserved = await operation.within(readReserved())
+    } catch (error) {
+      operation.throwIfCancelled()
+      // The send guard has not answered by the deadline: without the
+      // reservations nothing can count as available, as when the controller
+      // stops waiting for it.
+      if (operation.timedOut) return qbitUnknownSplit(aggregateBalance)
+      throw error
     }
   }
-  const classified = classifiedResult.value
-  const reserved = readReserved ? await readReserved() : undefined
   const unconfirmedSpendableSats = qbitAccountSats(
     classified.unconfirmedSpendable,
     p2mrScriptPubKey
@@ -997,6 +1213,87 @@ export async function getQbitSpendableBalanceV2(
 }
 
 /**
+ * The split once the listing or the classification of the outputs failed
+ * with `error`, not the deadline: past the explorer's UTXO limit, as
+ * `getQbitPastLimitSplit` finds it or unknown (`utxoLimitExceeded`); after
+ * any other failure, unknown and failed (`utxoReadIncomplete` and
+ * `utxoReadFailed`), a bare 500 whose statistics could not be read again in
+ * time included. A refusal the explorer states needs the statistics read
+ * again (`qbitUtxoListOverExplorerLimitStats`), so their failure, or their
+ * not answering by the deadline, fails the read.
+ */
+async function qbitSplitPastFailedListing(
+  client: QbitEsploraClient,
+  address: string,
+  error: unknown,
+  aggregateBalance: QbitBalanceSummaryPayload & { availableBalance: number },
+  p2mrScriptPubKey: string | undefined,
+  readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
+  readOutputs: ((stats: string) => QbitOutputRead | undefined) | undefined,
+  operation: QbitBalanceReadOperation
+): Promise<QbitBalanceSummaryPayload> {
+  let stats: EsploraAddressStats | undefined
+  try {
+    stats = await qbitUtxoListOverExplorerLimitStats(client, address, error, {
+      signal: operation.signal,
+    })
+  } catch (statsFailure) {
+    operation.throwIfCancelled()
+    if (!operation.timedOut) throw statsFailure
+    // A bare 500 whose statistics did not answer stays an ordinary failure.
+    if (qbitUtxoListRefusal(error)?.stated) throw operation.timeoutError
+    return qbitIncompleteSplit(aggregateBalance, true)
+  }
+  if (!stats) return qbitIncompleteSplit(aggregateBalance, true)
+  // The split takes the statistics this check read: one read, so the two
+  // can never disagree.
+  const split = readOutputs
+    ? await getQbitPastLimitSplit(
+        client,
+        stats,
+        p2mrScriptPubKey,
+        readReserved,
+        readOutputs,
+        operation
+      )
+    : undefined
+  if (split) return split
+  // The statistics still give the total. With no output list none of it
+  // can be classified, so the split is unknown rather than 0, and none of
+  // it can be selected until a send reads the outputs from history.
+  return { ...qbitUnknownSplit(aggregateBalance), utxoLimitExceeded: true }
+}
+
+/** The total with its split unknown: none of it counts as available. */
+function qbitUnknownSplit(aggregateBalance: QbitBalanceSummaryPayload): QbitBalanceSummaryPayload {
+  const totalBalance = Math.max(0, aggregateBalance.totalBalance)
+  return {
+    availableBalance: null,
+    unavailableBalance: totalBalance,
+    totalBalance,
+    immatureBalance: null,
+    pendingBalance: null,
+  }
+}
+
+/**
+ * The total with its split unknown, as the outputs were not read in full
+ * (`utxoReadIncomplete`): `failed` when the read got no further
+ * (`utxoReadFailed`), as it stopped on a failure or ran out of time with
+ * nothing new kept for the next read.
+ */
+function qbitIncompleteSplit(
+  aggregateBalance: QbitBalanceSummaryPayload,
+  failed: boolean
+): QbitBalanceSummaryPayload {
+  return {
+    ...qbitUnknownSplit(aggregateBalance),
+    utxoReadIncomplete: true,
+    ...(failed ? { utxoReadFailed: true } : {}),
+  }
+}
+
+/**
  * The split of an address over the explorer's UTXO limit from the outputs a
  * read of its history found, or `undefined` (unknown) without a read made
  * against `stats`, the statistics as they read now: any new transaction for
@@ -1006,14 +1303,16 @@ export async function getQbitSpendableBalanceV2(
  * those same statistics, and Available is bounded by them as on the listing
  * path (`qbitAvailableSats`), less the outputs `readReserved` names;
  * Unavailable is the rest. The read leaves immature and pending outputs
- * out, so those stay unknown.
+ * out, so those stay unknown. The tip and the send guard are read within
+ * `operation`'s deadline; past it the split is unknown too.
  */
 async function getQbitPastLimitSplit(
   client: QbitEsploraClient,
   stats: EsploraAddressStats,
   p2mrScriptPubKey: string | undefined,
   readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
-  readOutputs: (stats: string) => QbitOutputRead | undefined
+  readOutputs: (stats: string) => QbitOutputRead | undefined,
+  operation: QbitBalanceReadOperation
 ): Promise<QbitBalanceSummaryPayload | undefined> {
   let balance: AddressBalance
   try {
@@ -1030,8 +1329,9 @@ async function getQbitPastLimitSplit(
   if (read.matureAt !== undefined || read.matureFrom !== undefined) {
     let tipHeight: number
     try {
-      tipHeight = await client.getTipHeight()
+      tipHeight = await client.getTipHeight({ signal: operation.signal })
     } catch {
+      operation.throwIfCancelled()
       return undefined
     }
     if (
@@ -1043,7 +1343,16 @@ async function getQbitPastLimitSplit(
     }
   }
   const { outputs } = read
-  const reserved = readReserved ? await readReserved() : undefined
+  let reserved: ReadonlySet<string> | undefined
+  if (readReserved) {
+    try {
+      reserved = await operation.within(readReserved())
+    } catch (error) {
+      operation.throwIfCancelled()
+      if (operation.timedOut) return undefined
+      throw error
+    }
+  }
   // One pass over what may be tens of thousands of outputs, on every poll.
   let confirmedSelectableSats = 0
   let ownChangeSelectableSats = 0
@@ -1944,17 +2253,160 @@ export interface QbitClassifiedUtxos {
  */
 export type QbitReadCancellation = Pick<RequestOptions, 'signal'>
 
+/**
+ * A classification of an address's outputs that its caller can cancel, and
+ * the shared reader its reads go through, when given (see
+ * `QbitFundingTxReads`): the read limiter of every classification through
+ * the same client, and the facts of funding transactions read before, which
+ * spare a read of each confirmed output already classified. Without one its
+ * reads still go through a limiter of its own, and nothing is kept.
+ */
+export interface QbitClassifyOptions extends QbitReadCancellation {
+  fundingTxReads?: QbitFundingTxReads
+  /**
+   * A view of `fundingTxReads` the caller began (`QbitFundingTxReads.begin`)
+   * when it was asked for these outputs, before awaits of its own: the read
+   * takes its place among the reader's clears from it, so a clear since then
+   * (a lock, a keyring removal) leaves it keeping and served nothing. It sets
+   * that place alone: what may be served or kept stays the classifier's rule,
+   * and a view another reader began is refused.
+   */
+  facts?: QbitFundingFactsView
+}
+
 /** Throw the abort reason once `options.signal` has aborted: a failure then is the cancellation. */
 function throwIfQbitReadCancelled(options: QbitReadCancellation): void {
   if (options.signal?.aborted) throw options.signal.reason
 }
 
+/** Only the cancellation of `options`, as a request takes it. */
+function qbitReadOptions(options: QbitReadCancellation): QbitReadCancellation {
+  return options.signal ? { signal: options.signal } : {}
+}
+
+/**
+ * `options` with the view of the shared reader of a read beginning now, made
+ * before its first request, so that a clear while it lists the outputs, reads
+ * the statistics or walks the history, not only while it classifies them,
+ * leaves it keeping and served nothing (`QbitFundingTxReads.clear`). A view
+ * begun earlier (`options.facts`) keeps its place, through `client`.
+ */
+function qbitClassifyStarted<T extends QbitClassifyOptions>(
+  client: QbitEsploraClient,
+  options: T
+): T {
+  if (options.fundingTxReads === undefined) return options
+  return { ...options, facts: options.fundingTxReads.begin(client, options.facts) }
+}
+
+/**
+ * The address's listed outputs, classified (see `QbitClassifiedUtxos`) from
+ * each one's funding transaction, which must agree with the listing: the
+ * txid, the output's value, a P2MR script. See `classifyQbitUtxos` for how
+ * the reads behind it are bounded, shared and kept; this read of outputs,
+ * like every other, keeps the strict rule for kept "not a coinbase" facts.
+ * Once `options.signal` aborts it rejects with its reason.
+ */
 export async function getQbitAddressUtxosClassified(
   client: QbitEsploraClient,
   address: string,
-  options: QbitReadCancellation = {}
+  options: QbitClassifyOptions = {}
 ): Promise<QbitClassifiedUtxos> {
-  const utxos = await client.getAddressUtxos(address, options)
+  return listAndClassifyQbitUtxos(client, address, {
+    ...qbitReadOptions(options),
+    ...(options.fundingTxReads ? { fundingTxReads: options.fundingTxReads } : {}),
+    ...(options.facts ? { facts: options.facts } : {}),
+  })
+}
+
+/**
+ * What a classification kept for the next one, noted as it keeps facts: the
+ * outputs the listing reports confirmed whose facts were not kept already,
+ * which a later balance read is served while they stay kept. Facts kept
+ * again, and those of unconfirmed outputs, which are read afresh every time,
+ * are not noted. Another address's read through the same reader can push
+ * them out before this one answers, so whether any is kept still is asked of
+ * `facts`, the view the classification kept them through.
+ */
+interface QbitClassifyProgress {
+  readonly kept: [txid: string, vout: number][]
+  facts?: QbitFundingFactsView | undefined
+}
+
+/**
+ * What no exported read takes from its caller: `balanceOnly` and `progress`,
+ * which only the balance read sets (see `classifyQbitUtxos`), and
+ * `rideOutServerErrors`, which only `readQbitAddressUtxosRidingOut` sets:
+ * its lookups, listing and tip ride out the explorer's server errors
+ * (`withQbitReadRetries`), where every other read fails on one at once.
+ */
+interface QbitClassifyInternals {
+  balanceOnly?: true
+  progress?: QbitClassifyProgress
+  rideOutServerErrors?: true
+}
+
+/**
+ * `getQbitAddressUtxosClassified`, and the balance read's classification,
+ * which alone sets `balanceOnly` and `progress` (see `QbitClassifyInternals`).
+ */
+async function listAndClassifyQbitUtxos(
+  client: QbitEsploraClient,
+  address: string,
+  begun: QbitClassifyOptions & QbitClassifyInternals
+): Promise<QbitClassifiedUtxos> {
+  const options = qbitClassifyStarted(client, begun)
+  const addressScript = qbitAddressScript(address)
+  // Asked for with the listing, as one small request, when the
+  // classification may judge outputs by it (the balance read's deep outputs,
+  // or kept facts with a shared reader), so that it has usually answered
+  // before any output needs it (see `classifyQbitOutputs`). Without the
+  // address's script neither applies: it is asked for only once a coinbase
+  // output's maturity needs it, as before.
+  const judgesByTip = options.balanceOnly === true || options.fundingTxReads !== undefined
+  const tip =
+    addressScript !== undefined && judgesByTip
+      ? new QbitTipRead(client, options.signal, options.rideOutServerErrors === true)
+      : undefined
+  tip?.start()
+  let utxos: EsploraUtxo[]
+  try {
+    utxos = await listQbitUtxos(client, address, options)
+  } catch (error) {
+    // Nothing is classified: the tip is not read on.
+    tip?.close()
+    throw error
+  }
+  return classifyQbitUtxos(client, utxos, {
+    ...options,
+    ...(addressScript !== undefined ? { addressScript } : {}),
+    ...(tip ? { tip } : {}),
+  })
+}
+
+/**
+ * The address's listed outputs, each checked, and none listed twice. A
+ * listing whose body could not be read is asked for again, and with
+ * `rideOutServerErrors` one the explorer answered with a 502, 503 or 504
+ * (`withQbitReadRetries`); any other failure, a bare 500 and a refusal the
+ * explorer states included, is the caller's to judge as before.
+ */
+async function listQbitUtxos(
+  client: QbitEsploraClient,
+  address: string,
+  options: QbitReadCancellation & Pick<QbitClassifyInternals, 'rideOutServerErrors'>
+): Promise<EsploraUtxo[]> {
+  let utxos: EsploraUtxo[]
+  try {
+    utxos = await withQbitReadRetries(
+      () => client.getAddressUtxos(address, qbitReadOptions(options)),
+      options.signal,
+      options.rideOutServerErrors ? QBIT_LISTING_RETRY_STATUSES : undefined
+    )
+  } catch (error) {
+    throwIfQbitReadCancelled(options)
+    throw error
+  }
   if (!Array.isArray(utxos)) {
     throw new Error(`invalid qbit UTXO response for ${address}`)
   }
@@ -1967,35 +2419,544 @@ export async function getQbitAddressUtxosClassified(
     }
     seenOutpoints.add(outpoint)
   })
-  return classifyQbitUtxos(client, utxos, txid => client.getTx(txid, options), options)
+  return utxos
+}
+
+/**
+ * The chain tip, asked for at most once for one classification
+ * (`classifyQbitOutputs`), under its own signal: that aborts with `signal`,
+ * the caller's, and once `close` is called, when the classification has
+ * ended or its listing failed, as nothing waits for a tip that has not
+ * answered by then. `settled` once it has answered or failed, its further
+ * attempts included; `height`, its answer, when that is a height.
+ */
+class QbitTipRead {
+  settled = false
+  height: number | undefined
+  private read: Promise<number> | undefined
+  private readonly controller = new AbortController()
+  private readonly release: () => void
+
+  constructor(
+    private readonly client: QbitEsploraClient,
+    signal: AbortSignal | undefined,
+    private readonly rideOut = false
+  ) {
+    const onAbort = (): void => this.controller.abort(signal?.reason)
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
+    this.release = (): void => signal?.removeEventListener('abort', onAbort)
+  }
+
+  /**
+   * The tip, asked for on the first call: one request, so not held to the
+   * limiter, made again as a lookup is after a body lost, and with `rideOut`
+   * after a 502, 503 or 504 (`withQbitReadRetries`), under its own signal, so
+   * that `close` ends a pause at once.
+   */
+  start(): Promise<number> {
+    if (!this.read) {
+      // Asked for at once, so it is in flight before the listing it goes with.
+      const { signal } = this.controller
+      const read = withQbitReadRetries(
+        () => this.client.getTipHeight({ signal }),
+        signal,
+        this.rideOut ? QBIT_TIP_RETRY_STATUSES : undefined
+      )
+      read.then(
+        height => {
+          if (Number.isSafeInteger(height) && height >= 0) this.height = height
+          this.settled = true
+        },
+        () => {
+          this.settled = true
+        }
+      )
+      this.read = read
+    }
+    return this.read
+  }
+
+  /** Abort it unless it has answered, and let go of the caller's signal. */
+  close(): void {
+    this.release()
+    this.controller.abort(new QbitApiError('aborted', 'qbit tip read no longer needed'))
+  }
+}
+
+/**
+ * A balance read has more outputs to read one by one, those its listing, and
+ * the tip if it has answered, cannot show a coinbase maturity deep, than its
+ * shared reader keeps facts of (`QbitFundingTxReads.maxOutpoints`), so it
+ * reads none of them (see `getQbitSpendableBalanceV2`).
+ */
+class QbitOutputsPastFactsCapError extends Error {
+  constructor(outputs: number, maxOutpoints: number) {
+    super(`${outputs} outputs to read, more than the ${maxOutpoints} the wallet keeps facts of`)
+    this.name = 'QbitOutputsPastFactsCapError'
+  }
+}
+
+/**
+ * The class of a listed output the listing reports confirmed at least a
+ * coinbase maturity deep, from the listing alone (the balance read's
+ * shortcut, see `classifyQbitUtxos`): spendable and mature whether or not its
+ * transaction is a coinbase, with the listed value and `script`, the script
+ * of the address read.
+ */
+function qbitDeepOutputClass(utxo: EsploraUtxo, script: string): QbitOutputClass {
+  return {
+    confirmed: true,
+    immature: false,
+    ownAncestry: undefined,
+    utxo: {
+      txid: utxo.txid,
+      vout: utxo.vout,
+      satoshis: utxo.value,
+      scriptPk: script,
+      addressType: AddressType.P2MR,
+    },
+  }
+}
+
+/**
+ * The script paying `address`, in lower-case hex, as every output its
+ * listing names pays it; undefined for an address that is not a P2MR address
+ * of a qbit network, for which nothing is kept or served (see
+ * `classifyQbitUtxos`).
+ */
+function qbitAddressScript(address: string): string | undefined {
+  try {
+    return bytesToHex(addressToScriptPubKey(address)).toLowerCase()
+  } catch {
+    return undefined
+  }
+}
+
+/** A listed output, with its place in the listing. */
+interface QbitListedOutput {
+  index: number
+  vout: number
+  utxo: EsploraUtxo
+}
+
+/** What the classification makes of one listed output (`classifyQbitOutput`). */
+interface QbitOutputClass {
+  utxo: UTXO
+  confirmed: boolean
+  immature: boolean
+  /** A coinbase output's: the lowest tip height at which it is mature. */
+  matureAt?: number
+  ownAncestry: Map<string, number> | undefined
 }
 
 /**
  * Classify listed outputs as `getQbitAddressUtxosClassified` describes.
- * `getFundingTx` supplies each output's transaction, checked against the
- * output before it is classified.
+ * Each funding transaction is read once, however many of its outputs are
+ * listed, and checked against each of them before it is classified;
+ * `historyTxs`, from a read of the address's history, supplies the
+ * confirmed ones instead.
+ *
+ * Every read goes through a limiter (`QbitClassificationReads`): at most
+ * `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` in flight, funding transactions and
+ * ancestors together, shared with every other classification through the
+ * same client when `options.fundingTxReads` is given. Outputs are taken in
+ * turn by that many workers, each starting its next read only once its last
+ * one has ended, so a long read never queues thousands ahead of another's;
+ * once a classification has started `QBIT_CLASSIFY_BURST_LOOKUPS` lookups,
+ * it holds its own reads to `QBIT_CLASSIFY_SUSTAINED_READS_IN_FLIGHT` in
+ * flight, its other workers waiting for their turn with no slot held.
+ * A read whose reply's body could not be read, as when the connection is
+ * lost in the middle of it, is made again twice at most, and with
+ * `rideOutServerErrors` a read of a transaction for its own outputs that the
+ * explorer answered with a server error four times over about 14 s, in the
+ * slot it holds (`withQbitReadRetries`); only then does it count as failed.
+ * The first failure, or the caller's signal, stops it: no read starts any
+ * more, those in flight are cancelled, and it rejects with that failure or
+ * `signal.reason`.
+ *
+ * With a shared reader, an output the listing reports confirmed is
+ * classified from the facts an earlier read of its transaction left
+ * (`QbitFundingOutputFacts`), checked against the listing as the read was;
+ * the facts of each output read are kept as soon as they are checked, so
+ * reads that complete stay useful whatever happens to the rest. Kept facts
+ * that say a transaction is a coinbase always serve, its maturity judged
+ * from the fresh listing and tip. Kept facts that say it is not serve a
+ * read of outputs (anything a send, sweep or plan may spend) only for an
+ * output the fresh listing puts at least as deep as a coinbase output must
+ * be to mature (`qbitKeptFactsServe`): until then one wrong answer would let
+ * a send spend an immature reward, so the transaction is read afresh. Depth
+ * is measured from the highest block the listing itself puts an output in,
+ * which the tip has reached, and from the tip, read once a classification,
+ * only for outputs that block cannot show deep: those are judged by it once
+ * it has answered, and set aside until then. A worker left with nothing else
+ * to take before it has answered reads them afresh at once, as when the tip
+ * cannot be read, so nothing but a coinbase output's maturity ever waits for
+ * the tip, and the tip is not read on once the classification has ended. A
+ * read of outputs that may judge outputs by the tip, a balance read or one
+ * with a shared reader of an address whose script is known, asks for it with
+ * the listing (`options.tip`), so it has usually answered before any output
+ * needs it; others ask for it once one does. An unconfirmed output's
+ * transaction is always read afresh too: its ownership walk reads the
+ * transaction's inputs and size, which its txid does not fix, and whether an
+ * ancestor is confirmed is never kept. A transaction another classification
+ * is reading for its facts is taken last, by when it is usually kept.
+ *
+ * Facts are kept, and served, only with the script of the address read
+ * (`addressScript`): every output its listing names pays that script, so an
+ * answer giving another is wrong for this read, used for it alone as any
+ * fresh answer is, and not kept; the next read reads the transaction again.
+ * Without `addressScript` (an address that cannot be decoded) nothing is
+ * kept or served.
+ *
+ * `balanceOnly`, which only the balance read sets (`getQbitSpendableBalanceV2`),
+ * lets kept "not a coinbase" facts serve at any confirmed depth, so a poll of
+ * an unchanged address reads no transaction: its answer is a few totals,
+ * which no send, sweep or plan takes inputs from. The residual: after one
+ * wrong `is_coinbase` answer the balance can count a reward younger than
+ * 1,000 blocks as Available until a read of outputs or a clear replaces the
+ * kept fact. No send can select it, as every read of outputs keeps the rule
+ * above, and its fresh answer replaces the kept one.
+ *
+ * With `balanceOnly` and `addressScript`, an output the listing reports
+ * confirmed at least a coinbase maturity (1,000 blocks) deep is classified
+ * from the fresh listing alone, as spendable and mature with the listed value
+ * and the address's script: a coinbase or not, it is mature. Its transaction
+ * is not read, and no facts are served, kept, counted or marked used for it.
+ * So for such an output nothing checks the explorer's transaction against
+ * its listing (txid, output index, value, P2MR script): the listing alone is
+ * believed, and Available stays bounded by the address statistics
+ * (`qbitAvailableSats`). Its coinbase standing is unknown, so it adds nothing
+ * to `matureFrom`, which the balance does not use. Depth is judged as for
+ * kept facts: from the listing's newest block, then from the tip for outputs
+ * that block cannot show deep and no kept facts serve, which are set aside
+ * while the tip is read and read as before when it cannot be read, or has
+ * not answered by the time a worker has nothing else left to take. Younger
+ * and unconfirmed outputs are classified as before. Past `maxOutpoints`
+ * outputs still to read one by one, those the listing, and the tip if it has
+ * answered by then, cannot show deep, it rejects with
+ * `QbitOutputsPastFactsCapError` before reading any, without waiting for the
+ * tip: no output may be read before that is settled, so the workers would
+ * have nothing to do while waiting for it. No read of outputs a send, sweep
+ * or plan may spend takes this path: each still reads and checks every
+ * funding transaction.
  */
 async function classifyQbitUtxos(
   client: QbitEsploraClient,
   utxos: readonly EsploraUtxo[],
-  getFundingTx: (txid: string) => Promise<EsploraTx>,
-  options: QbitReadCancellation = {}
+  options: QbitClassifyOptions &
+    QbitClassifyInternals & {
+      historyTxs?: ReadonlyMap<string, EsploraTx>
+      addressScript?: string
+      /** The tip, asked for with the listing; otherwise asked for once an output needs it. */
+      tip?: QbitTipRead
+    } = {}
 ): Promise<QbitClassifiedUtxos> {
-  let tipHeightPromise: Promise<number> | undefined
-  const getTipHeightOnce = (): Promise<number> =>
-    (tipHeightPromise ??= client.getTipHeight(options))
+  const rideOut = options.rideOutServerErrors === true
+  const tip = options.tip ?? new QbitTipRead(client, options.signal, rideOut)
+  let reads: QbitClassificationReads | undefined
+  try {
+    reads = new QbitClassificationReads(
+      client,
+      options.fundingTxReads,
+      options.signal,
+      options.facts,
+      rideOut
+    )
+    return qbitClassifiedFrom(
+      await classifyQbitOutputs(
+        utxos,
+        reads,
+        tip,
+        options.historyTxs,
+        options.balanceOnly === true,
+        options.progress,
+        options.addressScript,
+        options.balanceOnly ? options.fundingTxReads?.maxOutpoints : undefined
+      )
+    )
+  } finally {
+    reads?.close()
+    tip.close()
+  }
+}
+
+/** Each listed output's class, in listing order (`classifyQbitUtxos`). */
+async function classifyQbitOutputs(
+  utxos: readonly EsploraUtxo[],
+  reads: QbitClassificationReads,
+  tip: QbitTipRead,
+  historyTxs: ReadonlyMap<string, EsploraTx> | undefined,
+  balanceOnly: boolean,
+  progress: QbitClassifyProgress | undefined,
+  addressScript: string | undefined,
+  maxOutpoints: number | undefined
+): Promise<(QbitOutputClass | undefined)[]> {
+  // The listed outputs of each funding transaction, with their place in the listing.
+  const groups = new Map<string, QbitListedOutput[]>()
+  utxos.forEach((utxo, index) => {
+    const txid = utxo.txid.toLowerCase()
+    const group = groups.get(txid)
+    if (group) group.push({ index, vout: utxo.vout, utxo })
+    else groups.set(txid, [{ index, vout: utxo.vout, utxo }])
+  })
+  const classes = new Array<QbitOutputClass | undefined>(utxos.length)
+  // The coinbase maturity check waits for the tip, and for nothing else.
+  const getTipHeightOnce = (): Promise<number> => tip.start()
+  // The tip is at least as high as the highest block the fresh listing puts
+  // a confirmed output in, so that block alone shows most kept outputs deep
+  // enough to serve (`qbitKeptFactsServe`).
+  const listedTipFloor = utxos.reduce(
+    (highest, { status }) =>
+      status.confirmed && status.block_height !== undefined
+        ? Math.max(highest, status.block_height)
+        : highest,
+    -1
+  )
+  // The height the tip is known to have reached: the listing's, or the
+  // tip's own once it has answered.
+  const tipFloor = (): number =>
+    tip.height === undefined ? listedTipFloor : Math.max(listedTipFloor, tip.height)
+  // The tip itself, for outputs that floor cannot show deep, asked for if
+  // it was not with the listing: whether it has answered, and the floor it
+  // shows. When it cannot be read, or has not answered once nothing else is
+  // left to do, those outputs are read afresh rather than failing, or
+  // holding up, a classification that may need no tip. Nothing waits for it
+  // but the coinbase maturity check, which takes the tip alone
+  // (`getTipHeightOnce`), never a floor.
+  const readFactsTipOnce = (): { settled: boolean; floor: number } => {
+    tip.start()
+    return { settled: tip.settled, floor: tipFloor() }
+  }
+  // The balance read's shortcut (see `classifyQbitUtxos`): with the script of
+  // the address read, an output confirmed at least a coinbase maturity deep
+  // is classified from the listing alone, and its transaction is not read.
+  const deepScript = balanceOnly && !historyTxs ? addressScript : undefined
+  const deepBelow = (listed: readonly QbitListedOutput[], tipFloor: number): boolean =>
+    listed.every(
+      ({ utxo: { status } }) =>
+        status.confirmed &&
+        status.block_height !== undefined &&
+        isQbitCoinbaseMature(status.block_height, tipFloor)
+    )
+  const classifyDeep = (listed: readonly QbitListedOutput[], script: string): void => {
+    for (const { index, utxo } of listed) classes[index] = qbitDeepOutputClass(utxo, script)
+  }
+  if (deepScript !== undefined) {
+    for (const [txid, listed] of groups) {
+      if (!deepBelow(listed, listedTipFloor)) continue
+      classifyDeep(listed, deepScript)
+      groups.delete(txid)
+    }
+    // Only the outputs still to read one by one need facts kept: past what
+    // the shared reader keeps, each poll would push out what the next needs
+    // and never finish, so none is read. Those only the tip could show deep
+    // count too unless it has answered by now, as it usually has, asked for
+    // with the listing: it is not waited for, as no output may be read before
+    // this is settled, so the workers would have nothing to do meanwhile,
+    // and were the tip not to answer they would read those at once.
+    if (maxOutpoints !== undefined) {
+      const floor = tipFloor()
+      let count = 0
+      for (const listed of groups.values()) {
+        if (!deepBelow(listed, floor)) count += listed.length
+      }
+      if (count > maxOutpoints) throw new QbitOutputsPastFactsCapError(count, maxOutpoints)
+    }
+  }
+  // Every kept output of the listing counts as used before any is read
+  // afresh, so what this read keeps pushes out other addresses' facts first,
+  // never those of its own it has yet to come to: otherwise, after a switch
+  // between accounts that fit only one at a time, each output read afresh
+  // would push out one further along, and the whole listing would be read.
+  // The outputs classified from the listing alone use no facts.
+  for (const txid of groups.keys()) reads.facts?.touch(txid)
+  if (progress) progress.facts = reads.facts
+  // Transactions this classification found confirmed: an ownership walk that
+  // reaches one needs no read of it.
+  const confirmed = new Set<string>(historyTxs?.keys())
   const ancestors = new Map<string, Promise<EsploraTx | undefined>>()
-  const getAncestorOnce = (txid: string) => {
+  const getAncestorOnce = (txid: string): Promise<EsploraTx | undefined> => {
     let ancestor = ancestors.get(txid)
     if (!ancestor) {
-      ancestor = getQbitAncestorTx(client, txid, options)
+      ancestor = confirmed.has(txid)
+        ? Promise.resolve(qbitConfirmedAncestor(txid))
+        : getQbitAncestorTx(reads, txid)
       ancestors.set(txid, ancestor)
     }
     return ancestor
   }
-  const walletUtxos = await Promise.all(
-    utxos.map(utxo => qbitUtxoToWalletUtxo(getFundingTx, utxo, getTipHeightOnce, getAncestorOnce))
+  // Groups only the tip can show deep enough, set aside while it is being
+  // read so that no worker waits for it.
+  const awaitingTip: [string, QbitListedOutput[]][] = []
+  /**
+   * Classify a group. One only the tip can show deep enough is set aside
+   * while the tip is being read, unless taken `last`, from those set aside:
+   * then it is judged by the tip once that has answered, and read afresh at
+   * once if it has not, rather than waiting for it.
+   */
+  const classifyGroup = async (
+    txid: string,
+    listed: QbitListedOutput[],
+    last: boolean
+  ): Promise<void> => {
+    const historyTx = historyTxs?.get(txid)
+    // Only facts with the script of the address read serve it.
+    const found =
+      addressScript !== undefined && !historyTx && listed.every(({ utxo }) => utxo.status.confirmed)
+        ? reads.facts?.get(txid, listed)
+        : undefined
+    const kept = found?.every(({ facts }) => facts.script.toLowerCase() === addressScript)
+      ? found
+      : undefined
+    // Kept "not a coinbase" answers skip the maturity check, so one wrong
+    // answer would let a send spend an immature reward for as long as it is
+    // kept. For a read of outputs they serve only an output buried as deep as
+    // a coinbase must be to mature, where the answer no longer matters; a
+    // younger one is read afresh, as every read was before facts were kept.
+    // The balance read, which nothing spends from, takes them at any depth.
+    let known = kept && (balanceOnly || qbitKeptFactsServe(kept, listedTipFloor)) ? kept : undefined
+    if (kept && !known) {
+      const tip = readFactsTipOnce()
+      if (!tip.settled && !last) {
+        awaitingTip.push([txid, listed])
+        return
+      }
+      if (tip.settled && qbitKeptFactsServe(kept, tip.floor)) known = kept
+    }
+    // A confirmed output of the balance read that its listing cannot show
+    // deep, and no kept facts serve: the tip may, and otherwise it is read.
+    if (!known && deepScript !== undefined && listed.every(({ utxo }) => utxo.status.confirmed)) {
+      const tip = readFactsTipOnce()
+      if (!tip.settled && !last) {
+        awaitingTip.push([txid, listed])
+        return
+      }
+      if (tip.settled && deepBelow(listed, tip.floor)) {
+        classifyDeep(listed, deepScript)
+        return
+      }
+    }
+    if (known) {
+      confirmed.add(txid)
+      for (const {
+        output: { index, utxo },
+        facts,
+      } of known) {
+        if (facts.value !== utxo.value) {
+          // Not served, and not kept: the next read of it reads it afresh.
+          reads.facts?.forget(txid)
+          throw qbitUtxoValueMismatchError(utxo)
+        }
+        classes[index] = await classifyQbitOutput(
+          utxo,
+          facts,
+          undefined,
+          getTipHeightOnce,
+          getAncestorOnce
+        )
+      }
+      return
+    }
+    // An unconfirmed funding transaction is read whole every time, as the
+    // ownership walk behind its change reads every prevout.
+    const tx = historyTx ?? (await reads.tx(txid, true))
+    for (const { index, utxo } of listed) {
+      const facts = qbitFundingOutputFacts(tx, utxo)
+      // An answer with another script is used for this read alone.
+      if (
+        !historyTx &&
+        facts.script.toLowerCase() === addressScript &&
+        reads.facts?.keep(txid, utxo.vout, facts) &&
+        utxo.status.confirmed
+      ) {
+        progress?.kept.push([txid, utxo.vout])
+      }
+      classes[index] = await classifyQbitOutput(utxo, facts, tx, getTipHeightOnce, getAncestorOnce)
+    }
+    if (!historyTx && tx.status?.confirmed === true) {
+      // Nothing more reads it but a walk reaching it, which needs no more
+      // than that it is confirmed.
+      confirmed.add(txid)
+      reads.forget(txid)
+    }
+  }
+
+  const pending = groups.entries()
+  const deferred: [string, QbitListedOutput[]][] = []
+  let nextDeferred = 0
+  let nextAwaitingTip = 0
+  // The groups in turn: those another classification is reading come after
+  // the rest, and those set aside for the tip as soon as it has answered, or
+  // last of all, when only they are left: then each is read at once if the
+  // tip has still not answered, as it was before facts were kept, rather
+  // than leave the worker waiting for a tip that may hang. Were they taken
+  // only last, a balance's outputs judged by the tip would wait behind every
+  // unconfirmed one, read afresh each time, and a read cut off by its
+  // deadline would keep none of them.
+  const nextGroup = (): { group: [string, QbitListedOutput[]]; last: boolean } | undefined => {
+    const ready = tip.settled ? awaitingTip[nextAwaitingTip] : undefined
+    if (ready) {
+      nextAwaitingTip += 1
+      return { group: ready, last: true }
+    }
+    for (let next = pending.next(); !next.done; next = pending.next()) {
+      const [txid, listed] = next.value
+      if (
+        !historyTxs?.has(txid) &&
+        reads.facts?.fetchingElsewhere(txid) &&
+        listed.every(({ utxo }) => utxo.status.confirmed)
+      ) {
+        deferred.push(next.value)
+        continue
+      }
+      return { group: next.value, last: false }
+    }
+    const later = deferred[nextDeferred++]
+    if (later) return { group: later, last: false }
+    const waiting = awaitingTip[nextAwaitingTip++]
+    return waiting ? { group: waiting, last: true } : undefined
+  }
+  // As many workers as the bound allows in flight, as 1.0.9 read: past its
+  // burst the classification holds its lookups to the sustained rate itself
+  // (`QbitClassificationReads`), where 256 and then 96 held for as long met
+  // bursts of the explorer's 502s. Groups its kept facts serve cost no
+  // request, so a worker takes the next one at once.
+  const workers = Math.min(reads.limiter.maxInFlight, groups.size)
+  await reads.run(workers, async () => {
+    for (let next = nextGroup(); next && !reads.stopped; next = nextGroup()) {
+      await classifyGroup(next.group[0], next.group[1], next.last)
+    }
+  })
+  return classes
+}
+
+/**
+ * Whether kept facts may stand in for a read of their transaction in a read
+ * of outputs, given `tipFloor`, a height the tip is known to have reached
+ * (the listing's highest block, or the tip itself; -1 when nothing is
+ * known). Kept coinbase answers always may: the maturity of a coinbase output
+ * is judged afterwards from the tip alone, never from this floor. Every
+ * output a kept "not a coinbase" answer covers must be, by the fresh listing,
+ * at least as far below `tipFloor` as a coinbase output must be to mature,
+ * where the answer no longer matters.
+ */
+function qbitKeptFactsServe(
+  kept: readonly { output: QbitListedOutput; facts: QbitFundingOutputFacts }[],
+  tipFloor: number
+): boolean {
+  return kept.every(
+    ({ output: { utxo }, facts }) =>
+      facts.coinbase ||
+      (utxo.status.block_height !== undefined &&
+        isQbitCoinbaseMature(utxo.status.block_height, tipFloor))
   )
+}
+
+/** The classes of listed outputs (`classifyQbitOutputs`), bucketed as `QbitClassifiedUtxos`. */
+function qbitClassifiedFrom(
+  classes: readonly (QbitOutputClass | undefined)[]
+): QbitClassifiedUtxos {
   const spendable: UTXO[] = []
   const confirmedSpendable: UTXO[] = []
   const unconfirmedSpendable: UTXO[] = []
@@ -2008,7 +2969,7 @@ async function classifyQbitUtxos(
   let ownChangeAncestors = new Set<string>()
   let matureAt: number | undefined
   let matureFrom: number | undefined
-  for (const entry of walletUtxos) {
+  for (const entry of classes) {
     if (!entry) continue
     if (entry.immature) {
       immature.push(entry.utxo)
@@ -2092,15 +3053,34 @@ export class QbitUtxoHistoryTooLargeError extends Error {
  * not reconcile is read again a bounded number of times, then throws. A
  * history longer than `maxTransactions` throws
  * `QbitUtxoHistoryTooLargeError` before any page is read, and so does one
- * the client's page ceiling cuts short.
+ * the client's page ceiling cuts short. The transactions the walk does not
+ * hold whole (an unconfirmed output's, the ancestors of the account's own
+ * change) are read as `classifyQbitUtxos` reads them, through
+ * `options.fundingTxReads` when given.
  */
 export async function getQbitAddressUtxosClassifiedFromHistory(
   client: QbitEsploraClient,
   address: string,
   options: QbitSnapshotStabilityRetryOptions & {
     maxTransactions?: number
-  } & QbitReadCancellation = {}
+  } & QbitClassifyOptions = {}
 ): Promise<QbitClassifiedUtxos> {
+  return classifyQbitUtxosFromHistory(client, address, options, false)
+}
+
+/**
+ * `getQbitAddressUtxosClassifiedFromHistory`, for a read that may have begun
+ * its view already, its lookups riding out server errors with `rideOut`.
+ */
+async function classifyQbitUtxosFromHistory(
+  client: QbitEsploraClient,
+  address: string,
+  begun: QbitSnapshotStabilityRetryOptions & {
+    maxTransactions?: number
+  } & QbitClassifyOptions,
+  rideOut: boolean
+): Promise<QbitClassifiedUtxos> {
+  const options = qbitClassifyStarted(client, begun)
   const maxTransactions = options.maxTransactions ?? QBIT_UTXO_HISTORY_MAX_TRANSACTIONS
   if (!Number.isSafeInteger(maxTransactions) || maxTransactions < 1) {
     throw new Error('maxTransactions must be a positive integer')
@@ -2110,6 +3090,7 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     retryBaseDelayMs: options.retryBaseDelayMs ?? QBIT_UTXO_HISTORY_RETRY_BASE_DELAY_MS,
   })
   const read: QbitReadCancellation = options.signal ? { signal: options.signal } : {}
+  const addressScript = qbitAddressScript(address)
   const { stats, unspent } = await loadQbitSnapshotWithStabilityRetries(
     retry,
     () => readQbitUnspentOutputsFromHistory(client, address, maxTransactions, read),
@@ -2131,11 +3112,14 @@ export async function getQbitAddressUtxosClassifiedFromHistory(
     // An unconfirmed funding transaction is fetched whole, as for a listed
     // output: the ownership walk behind its change reads every prevout,
     // which a history row may omit.
-    txid => {
-      const tx = confirmedTxs.get(txid.toLowerCase())
-      return tx ? Promise.resolve(tx) : client.getTx(txid, read)
-    },
-    read
+    {
+      ...read,
+      ...(options.fundingTxReads ? { fundingTxReads: options.fundingTxReads } : {}),
+      ...(options.facts ? { facts: options.facts } : {}),
+      ...(addressScript !== undefined ? { addressScript } : {}),
+      ...(rideOut ? { rideOutServerErrors: true as const } : {}),
+      historyTxs: confirmedTxs,
+    }
   )
   return { ...classified, historyStats: stats }
 }
@@ -2245,15 +3229,38 @@ export function isQbitHistoryOverReadLimit(stats: EsploraAddressStats): boolean 
 export async function getQbitAddressUtxosClassifiedPastLimit(
   client: QbitEsploraClient,
   address: string,
-  options: QbitReadCancellation = {}
+  options: QbitClassifyOptions = {}
 ): Promise<QbitClassifiedUtxos> {
+  return classifyQbitUtxosPastLimit(client, address, options, false)
+}
+
+/** `getQbitAddressUtxosClassifiedPastLimit`, riding out server errors with `rideOut`. */
+async function classifyQbitUtxosPastLimit(
+  client: QbitEsploraClient,
+  address: string,
+  options: QbitClassifyOptions,
+  rideOut: boolean
+): Promise<QbitClassifiedUtxos> {
+  // One view for the listing, the statistics and the walk alike.
+  const begun = qbitClassifyStarted(client, {
+    ...qbitReadOptions(options),
+    ...(options.fundingTxReads ? { fundingTxReads: options.fundingTxReads } : {}),
+    ...(options.facts ? { facts: options.facts } : {}),
+  })
   try {
-    return await getQbitAddressUtxosClassified(client, address, options)
+    return await listAndClassifyQbitUtxos(client, address, {
+      ...begun,
+      ...(rideOut ? { rideOutServerErrors: true as const } : {}),
+    })
   } catch (error) {
     throwIfQbitReadCancelled(options)
-    if (!(await isQbitUtxoListOverExplorerLimit(client, address, error, options))) throw error
+    if (
+      !(await isQbitUtxoListOverExplorerLimit(client, address, error, qbitReadOptions(options)))
+    ) {
+      throw error
+    }
   }
-  return getQbitAddressUtxosClassifiedFromHistory(client, address, options)
+  return classifyQbitUtxosFromHistory(client, address, begun, rideOut)
 }
 
 /**
@@ -2264,14 +3271,24 @@ export async function getQbitAddressUtxosClassifiedPastLimit(
  * confirms. qbit Core is full-RBF, so its payer can replace it at any time,
  * and that evicts every send built on top of it. An address over the
  * explorer's UTXO limit is read from its history, and that walk stops once
- * `options.signal` aborts.
+ * `options.signal` aborts. The outputs need every funding transaction, so a
+ * failed read fails the call; with `options.fundingTxReads` its reads are
+ * bounded and kept as for the balance (see `classifyQbitUtxos`).
  */
 export async function getQbitAddressUtxos(
   client: QbitEsploraClient,
   address: string,
-  options: QbitReadCancellation = {}
+  options: QbitClassifyOptions = {}
 ): Promise<UTXO[]> {
   return (await readQbitAddressUtxos(client, address, options)).utxos
+}
+
+/** What `readQbitAddressUtxos` answers. */
+export interface QbitAddressUtxosRead {
+  utxos: UTXO[]
+  historyStats?: EsploraAddressStats
+  matureAt?: number
+  matureFrom?: number
 }
 
 /**
@@ -2283,15 +3300,46 @@ export async function getQbitAddressUtxos(
 export async function readQbitAddressUtxos(
   client: QbitEsploraClient,
   address: string,
-  options: QbitReadCancellation = {}
-): Promise<{
-  utxos: UTXO[]
-  historyStats?: EsploraAddressStats
-  matureAt?: number
-  matureFrom?: number
-}> {
+  options: QbitClassifyOptions = {}
+): Promise<QbitAddressUtxosRead> {
+  return qbitAddressUtxosRead(client, address, options, false)
+}
+
+/**
+ * `readQbitAddressUtxos` for a read that can wait out the explorer's server
+ * errors and that its caller can give up on meanwhile, as the Send screen's
+ * read of outputs is, which shows a usable form with a note while it runs.
+ * Its transaction lookups ride out a 500, 502, 503 or 504, and its listing
+ * and tip a 502, 503 or 504 (`withQbitReadRetries`, after
+ * `QBIT_SERVER_ERROR_RETRY_PAUSES_MS` and within
+ * `QBIT_SERVER_ERROR_RIDE_OUT_MS`), where every other read fails on one as
+ * fast as the client alone. An ancestor of the account's own change is
+ * read as every other read reads it, once the client has made its own
+ * attempts: its walk takes a failure as the output not being own change.
+ * Its lookups pause inside their slots of the limiter, so in a burst of
+ * 502s every other read through the same client waits behind it while it
+ * holds as many as 256 slots in its own burst: each for about 14 s to
+ * 18.5 s when the explorer answers at once with no `Retry-After` the client
+ * follows, and for up to two client calls where the client waits on one or
+ * the replies are slow, 36.5 s and 38.3 s as measured. A known limit,
+ * described at `QBIT_SERVER_ERROR_RETRY_PAUSES_MS`.
+ */
+export async function readQbitAddressUtxosRidingOut(
+  client: QbitEsploraClient,
+  address: string,
+  options: QbitClassifyOptions = {}
+): Promise<QbitAddressUtxosRead> {
+  return qbitAddressUtxosRead(client, address, options, true)
+}
+
+async function qbitAddressUtxosRead(
+  client: QbitEsploraClient,
+  address: string,
+  options: QbitClassifyOptions,
+  rideOut: boolean
+): Promise<QbitAddressUtxosRead> {
   const { confirmedSpendable, unconfirmedOwnChange, historyStats, matureAt, matureFrom } =
-    await getQbitAddressUtxosClassifiedPastLimit(client, address, options)
+    await classifyQbitUtxosPastLimit(client, address, options, rideOut)
   return {
     utxos: [
       ...confirmedSpendable,
@@ -3013,23 +4061,14 @@ export async function classifyQbitProtectedAssetCoverage(
   return { assetCount: 0, protectedOutpoints: new Set() }
 }
 
-async function qbitUtxoToWalletUtxo(
-  getFundingTx: (txid: string) => Promise<EsploraTx>,
-  utxo: EsploraUtxo,
-  getTipHeight: () => Promise<number>,
-  getAncestor: (txid: string) => Promise<EsploraTx | undefined>
-): Promise<
-  | {
-      utxo: UTXO
-      confirmed: boolean
-      immature: boolean
-      /** A coinbase output's: the lowest tip height at which it is mature. */
-      matureAt?: number
-      ownAncestry: Map<string, number> | undefined
-    }
-  | undefined
-> {
-  const tx = await getFundingTx(utxo.txid)
+/**
+ * What `tx`, read as the funding transaction of the listed output `utxo`,
+ * says of that output once checked against the listing: the txid, an input
+ * list whose every input says whether it is a coinbase, the output itself,
+ * with the listed value and a P2MR script. Throws on any mismatch, before
+ * anything of it is classified or kept.
+ */
+function qbitFundingOutputFacts(tx: EsploraTx, utxo: EsploraUtxo): QbitFundingOutputFacts {
   if (
     !tx ||
     !QBIT_TXID_PATTERN.test(tx.txid) ||
@@ -3050,7 +4089,7 @@ async function qbitUtxoToWalletUtxo(
     throw new Error(`qbit UTXO missing output ${utxo.txid}:${utxo.vout}`)
   }
   if (!Number.isSafeInteger(output.value) || output.value < 0 || output.value !== utxo.value) {
-    throw new Error(`qbit UTXO output value mismatch for ${utxo.txid}:${utxo.vout}`)
+    throw qbitUtxoValueMismatchError(utxo)
   }
   if (
     typeof output.scriptpubkey !== 'string' ||
@@ -3058,11 +4097,35 @@ async function qbitUtxoToWalletUtxo(
   ) {
     throw new Error(`qbit UTXO has invalid P2MR output script for ${utxo.txid}:${utxo.vout}`)
   }
+  return {
+    coinbase: tx.vin.some(input => input.is_coinbase),
+    value: output.value,
+    script: output.scriptpubkey,
+  }
+}
 
-  const isCoinbase = tx.vin.some(input => input.is_coinbase)
+function qbitUtxoValueMismatchError(utxo: EsploraUtxo): Error {
+  return new Error(`qbit UTXO output value mismatch for ${utxo.txid}:${utxo.vout}`)
+}
+
+/**
+ * Classify the listed output `utxo` from its funding transaction's checked
+ * `facts`; whether it is confirmed, and at what height, comes from the
+ * listing. `tx`, the transaction read afresh, is needed only for an
+ * unconfirmed output (the ownership walk of its change), whose transaction
+ * is always read so. Undefined for a coinbase output the listing does not
+ * report confirmed, which no send may select.
+ */
+async function classifyQbitOutput(
+  utxo: EsploraUtxo,
+  facts: QbitFundingOutputFacts,
+  tx: EsploraTx | undefined,
+  getTipHeight: () => Promise<number>,
+  getAncestor: (txid: string) => Promise<EsploraTx | undefined>
+): Promise<QbitOutputClass | undefined> {
   let immature = false
   let matureAt: number | undefined
-  if (isCoinbase) {
+  if (facts.coinbase) {
     const blockHeight = utxo.status.block_height
     if (!utxo.status.confirmed || blockHeight === undefined) {
       return undefined
@@ -3082,8 +4145,8 @@ async function qbitUtxoToWalletUtxo(
   }
 
   const ownAncestry =
-    !utxo.status.confirmed && !isCoinbase
-      ? await qbitOwnUnconfirmedAncestry(tx, output.scriptpubkey, getAncestor)
+    !utxo.status.confirmed && !facts.coinbase && tx
+      ? await qbitOwnUnconfirmedAncestry(tx, facts.script, getAncestor)
       : undefined
 
   return {
@@ -3095,7 +4158,7 @@ async function qbitUtxoToWalletUtxo(
       txid: utxo.txid,
       vout: utxo.vout,
       satoshis: utxo.value,
-      scriptPk: output.scriptpubkey,
+      scriptPk: facts.script,
       addressType: AddressType.P2MR,
     },
   }
@@ -3165,21 +4228,28 @@ function qbitTxVsize(tx: EsploraTx): number | undefined {
 }
 
 /**
- * An ancestor of an unconfirmed output, or undefined when the explorer cannot
- * produce it in a shape the ownership walk can read. The output then counts
- * as someone else's for this read: it is left out of what a send may select,
- * and the confirmed outputs stay readable.
+ * An ancestor of an unconfirmed output, read afresh through the
+ * classification's `reads`, or undefined when the explorer cannot produce it
+ * in a shape the ownership walk can read. The output then counts as someone
+ * else's for this read: it is left out of what a send may select, and the
+ * confirmed outputs stay readable. Only a stopped classification turns a
+ * failed read into a failure of its own. Nor is a failed read kept: when the
+ * ancestor is listed too, the read for its own outputs reads it afresh
+ * rather than failing with this one, whether it asks after this read failed
+ * or had joined it before (the walks share this outcome through
+ * `getAncestorOnce`).
  */
 async function getQbitAncestorTx(
-  client: Pick<QbitEsploraClient, 'getTx'>,
-  txid: string,
-  options: QbitReadCancellation = {}
+  reads: QbitClassificationReads,
+  txid: string
 ): Promise<EsploraTx | undefined> {
+  const read = reads.tx(txid)
   let tx: EsploraTx
   try {
-    tx = await client.getTx(txid, options)
+    tx = await read
   } catch {
-    throwIfQbitReadCancelled(options)
+    throwIfQbitReadCancelled(reads)
+    reads.forget(txid, read)
     return undefined
   }
   if (
@@ -3193,6 +4263,14 @@ async function getQbitAncestorTx(
     return undefined
   }
   return tx
+}
+
+/**
+ * An ancestor the classification already found confirmed, with what the
+ * ownership walk reads of a confirmed one: that it is.
+ */
+function qbitConfirmedAncestor(txid: string): EsploraTx {
+  return { txid, vin: [], vout: [], status: { confirmed: true } } as unknown as EsploraTx
 }
 
 function assertValidQbitUtxo(utxo: EsploraUtxo, index: number): void {

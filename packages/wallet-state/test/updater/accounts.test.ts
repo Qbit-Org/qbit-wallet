@@ -11,13 +11,12 @@ function renderUpdaterWithSlowExplorer() {
   const wallet = {
     ...createWalletMock(),
     // Every balance fetch stays in flight until the test fails it.
-    getAddressSummary: vi.fn(
+    getAddressBalanceV2: vi.fn(
       () =>
         new Promise<never>((_resolve, reject) => {
           failFetch.push(() => reject(new Error('explorer down')))
         })
     ),
-    getAddressBalanceV2: vi.fn(),
     // reloadAccounts runs on account changes; keep it from replacing the test's account.
     getKeyrings: vi.fn(() => new Promise<never>(() => undefined)),
   }
@@ -44,12 +43,12 @@ function renderUpdaterWithSlowExplorer() {
 describe('AccountUpdater', () => {
   it('fetches a newly selected account while the previous account is still loading', () => {
     const { wallet, selectAccount } = renderUpdaterWithSlowExplorer()
-    expect(wallet.getAddressSummary).toHaveBeenCalledWith('qb1ztestaccount')
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith('qb1ztestaccount')
 
     selectAccount('qb1zotheraccount', 'account-2')
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(2)
-    expect(wallet.getAddressSummary).toHaveBeenLastCalledWith('qb1zotheraccount')
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
+    expect(wallet.getAddressBalanceV2).toHaveBeenLastCalledWith('qb1zotheraccount')
   })
 
   it('does not fetch the same account again while its fetch is in flight', () => {
@@ -57,14 +56,14 @@ describe('AccountUpdater', () => {
 
     lockAndUnlock()
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(1)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
   })
 
   it('keeps an account marked as loading when an older fetch for it settles', async () => {
     const { wallet, failFetch, selectAccount, lockAndUnlock } = renderUpdaterWithSlowExplorer()
     selectAccount('qb1zotheraccount', 'account-2')
     selectAccount('qb1ztestaccount', 'account-1')
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(3)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
 
     // The account's first fetch fails while its second is still in flight.
     await act(async () => {
@@ -72,6 +71,6 @@ describe('AccountUpdater', () => {
     })
     lockAndUnlock()
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(3)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
   })
 })

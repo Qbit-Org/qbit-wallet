@@ -242,15 +242,24 @@ export interface QbitSendPlanEngineHost {
   /** The memo outputs the ordinary send builds; throws for memos it refuses. */
   memoOutputs(memo: string | undefined, memos: string[] | undefined): P2mrTransactionOutput[]
   /**
+   * The place among the clears of what the wallet read of funding
+   * transactions that a read of outputs asked for now takes, handed back to
+   * `spendableOutputs` as `since`: a lock or a wallet's removal after it
+   * leaves that read keeping nothing. Opaque to the engine.
+   */
+  beginOutputsRead?(): unknown
+  /**
    * `account`'s outputs on `chain` as the ordinary send reads them, less
    * every one a plan's hold would be refused on
    * (`QbitSendGuardService.getPlanUnavailableOutpointKeys`), the holds of
    * plan `exceptPlanId` left out of that. Throws when they cannot be read.
+   * `since` is what `beginOutputsRead` gave when the request began.
    */
   spendableOutputs(
     chain: ChainType,
     account: Account,
-    exceptPlanId?: string
+    exceptPlanId?: string,
+    since?: unknown
   ): Promise<QbitSendPlanCoin[]>
   /** The id of `psbt`'s transaction on `chain` (`qbitBroadcastIdentityOf`). */
   txidOf(psbt: Psbt, chain: ChainType): string
@@ -1570,6 +1579,9 @@ export class QbitSendPlanEngine {
    * as a draft, which reserves nothing; see `QbitSendPlanPrepareResult`.
    */
   async prepare(params: unknown): Promise<QbitSendPlanPrepareResult> {
+    // Before any await: a lock or a wallet's removal while a revision is
+    // settled below leaves the read of the outputs keeping nothing.
+    const since = this.host.beginOutputsRead?.()
     const request = readQbitSendPlanRequest(params)
     const chain = this.host.activeChain()
     if (!QBIT_CHAINS.has(chain)) throw new Error('Qbit send plans need a Qbit network')
@@ -1669,12 +1681,13 @@ export class QbitSendPlanEngine {
         enableRBF,
         revised,
         refusal,
+        since,
       })
     }
 
     let coins: QbitSendPlanCoin[]
     try {
-      coins = await this.host.spendableOutputs(chain, account, revised?.id)
+      coins = await this.host.spendableOutputs(chain, account, revised?.id, since)
     } catch (error) {
       this.log('Qbit send plan could not read the account outputs', error)
       return refusal('outputs_unavailable')
@@ -1981,6 +1994,8 @@ export class QbitSendPlanEngine {
       maxSendable?: number,
       unconfirmedSatoshis?: number
     ) => QbitSendPlanPrepareResult
+    /** What `host.beginOutputsRead` gave when the request began. */
+    since: unknown
   }): Promise<QbitSendPlanPrepareResult> {
     const { request, kind, chain, account, keys, recipientScript, memoOutputs, revised, refusal } =
       context
@@ -2023,7 +2038,7 @@ export class QbitSendPlanEngine {
 
     let coins: QbitSendPlanCoin[]
     try {
-      coins = await this.host.spendableOutputs(chain, account, revised.id)
+      coins = await this.host.spendableOutputs(chain, account, revised.id, context.since)
     } catch (error) {
       this.log('Qbit send plan could not read the account outputs', error)
       return refusal('outputs_unavailable')

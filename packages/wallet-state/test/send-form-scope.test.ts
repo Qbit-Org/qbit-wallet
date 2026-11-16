@@ -135,7 +135,6 @@ function background(selection: { account: ReturnType<typeof account>; chainType:
     getAccounts: vi.fn(async () => [selection.account]),
     getCurrentAccount: vi.fn(async () => selection.account),
     getWalletConfig: vi.fn(async () => ({})),
-    getAddressSummary: vi.fn(async () => ({})),
     getAddressBalanceV2: vi.fn(async () => ({
       availableBalance: 0,
       unavailableBalance: 0,

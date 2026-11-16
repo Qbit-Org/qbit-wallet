@@ -10,11 +10,14 @@ import {
   p2mrScriptPubKey,
   singleKeyLeafScript,
 } from '@qbit-oss/protocol'
-import { KeyringType, assessQbitFee } from '@qbit/wallet-shared'
+import { BUS_METHODS, KeyringType, assessQbitFee } from '@qbit/wallet-shared'
 import * as walletShared from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 
-import { useTxCreateScreenLogic } from '../../src/ui-hooks/useTxCreateScreenLogic'
+import {
+  SEND_OUTPUTS_OVERLAY_MAX_MS,
+  useTxCreateScreenLogic,
+} from '../../src/ui-hooks/useTxCreateScreenLogic'
 import { useFeeRateBarLogic } from '../../src/ui-hooks/useFeeRateBarLogic'
 import {
   estimateQbitP2mrSendAllPreflight,
@@ -30,6 +33,8 @@ import { settingsActions } from '../../src/reducers/settings'
 import { uiActions } from '../../src/reducers/ui'
 import { keyringsActions } from '../../src/reducers/keyrings'
 import { I18nContext } from '../../src/context/I18nContext'
+import { uiEventBus } from '../../src/utils/eventBus'
+import { planView } from './sendPlanFixtures'
 
 /**
  * The hook harness at a Custom rate of 1 bit/vB, the store's default rate.
@@ -42,6 +47,17 @@ function createSendHarness(options?: Parameters<typeof createHookTestHarness>[0]
     (uiActions as any).updateFeeRateBar({ feeRate: 1, feeRateInputVal: '1', feeOptionIndex: 3 })
   )
   return harness
+}
+
+/**
+ * Lets the send screen's own read of the outputs land, as it does behind the
+ * loading overlay before the form is shown: the mocks answer at once. Until
+ * it lands, outputs the page cached earlier do not serve the form.
+ */
+async function outputsRead(): Promise<void> {
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
 }
 
 function p2mrAccount(pubkeyHex = '11'.repeat(32)) {
@@ -1275,6 +1291,7 @@ describe('TxCreateScreen state hooks', () => {
       })
     )
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await outputsRead()
 
     expect(result.current.availableAmount).toBe('0.00010000')
     expect(result.current.showUnavailable).toBe(false)
@@ -1486,6 +1503,7 @@ describe('TxCreateScreen state hooks', () => {
     )
     const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
     const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+    await outputsRead()
 
     expect(result.current.availableAmount).toBe('0.00050000')
     expect(result.current.showUnavailable).toBe(true)
@@ -1628,6 +1646,9 @@ describe('TxCreateScreen state hooks', () => {
       })
     })
     expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+    // With its id, which the page going away abandons it by, and no ask to
+    // ride out server errors: it gives up on one as 1.0.9 did.
+    expect(wallet.getQbitUtxoSnapshot.mock.calls[0]).toEqual([expect.stringMatching(/^\d+$/)])
     expect(wallet.createSendQbitPsbt).toHaveBeenLastCalledWith(
       expect.objectContaining({
         qbitUtxos: [utxo('ef'.repeat(32))],
@@ -1706,10 +1727,6 @@ describe('TxCreateScreen state hooks', () => {
         txid: 'qbit-txid',
         via: 'broadcast',
       }),
-      getAddressSummary: vi.fn().mockResolvedValue({
-        totalSatoshis: 90_000,
-        spendableSatoshis: 90_000,
-      }),
       getAddressBalanceV2: vi.fn().mockResolvedValue({
         availableBalance: 80_000,
         unavailableBalance: 10_000,
@@ -1741,16 +1758,14 @@ describe('TxCreateScreen state hooks', () => {
       undefined,
       undefined
     )
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(1)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
-    expect(wallet.getAddressSummary).toHaveBeenCalledWith(account.address)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith(account.address)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000)
       await Promise.resolve()
     })
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(2)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
 
     await act(async () => {
@@ -1758,7 +1773,6 @@ describe('TxCreateScreen state hooks', () => {
       await Promise.resolve()
     })
 
-    expect(wallet.getAddressSummary).toHaveBeenCalledTimes(3)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
   })
 
@@ -1773,7 +1787,6 @@ describe('TxCreateScreen state hooks', () => {
         reason: 'network',
         lookup: 'gone',
       }),
-      getAddressSummary: vi.fn(),
       getAddressBalanceV2: vi.fn(),
     }
     const { wrapper } = createSendHarness({ wallet: wallet as any })
@@ -1785,7 +1798,6 @@ describe('TxCreateScreen state hooks', () => {
     })
 
     expect(response).toMatchObject({ success: false, outcome: 'unknown', reason: 'network' })
-    expect(wallet.getAddressSummary).not.toHaveBeenCalled()
     expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
   })
 
@@ -2129,6 +2141,86 @@ describe('TxCreateScreen state hooks', () => {
       expect(result.current.disabled).toBe(true)
     })
 
+    describe('while the balance read has not finished reading the outputs', () => {
+      // The background read the address statistics but not every output yet:
+      // the total is measured, Available is not.
+      const incompleteBalance = {
+        availableBalance: null,
+        unavailableBalance: 6_000_000,
+        totalBalance: 6_000_000,
+        immatureBalance: null,
+        pendingBalance: null,
+        utxoReadIncomplete: true,
+        chainType: ChainType.QBIT_MAINNET,
+      }
+
+      function renderIncomplete(snapshot: Promise<unknown>) {
+        const account = p2mrAccount()
+        const harness = createSendHarness()
+        harness.wallet.getQbitUtxoSnapshot.mockReturnValue(snapshot)
+        harness.store.dispatch(accountActions.setCurrent(account))
+        harness.store.dispatch(
+          accountActions.setBalanceV2({ address: account.address, balance: incompleteBalance })
+        )
+        const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+        return { result, harness, account }
+      }
+
+      it('shows Available as unknown, fills nothing on Max and keeps Next disabled, and takes the overlay down when its own read fails', async () => {
+        let fail!: (error: Error) => void
+        const { result, harness } = renderIncomplete(
+          new Promise((_resolve, reject) => {
+            fail = reject
+          })
+        )
+        expect(harness.tools.showLoading).toHaveBeenLastCalledWith(true)
+        await waitFor(() => expect(result.current.availableAmount).toBe('--'))
+        expect(result.current.unavailableAmount).toBe('--')
+        act(() => {
+          result.current.onAmountMaxClick()
+        })
+        expect(result.current.inputAmount).toBeFalsy()
+        act(() => {
+          result.current.onAddressInputChange({
+            address: p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet'),
+            domain: '',
+          })
+          result.current.onAmountInputChange('0.01')
+        })
+        await waitFor(() => expect(result.current.inputAmount).toBe('0.01'))
+        expect(result.current.disabled).toBe(true)
+
+        // The screen's own read of the outputs fails too: the overlay comes
+        // down, Available stays unknown, and the explorer's limit is not blamed.
+        await act(async () => {
+          fail(new Error('HTTP 500'))
+        })
+        expect(harness.tools.showLoading).toHaveBeenLastCalledWith(false)
+        expect(result.current.availableAmount).toBe('--')
+        expect(result.current.error).toBe('')
+        expect(result.current.disabled).toBe(true)
+      })
+
+      it('shows the Available its own read of the outputs measures, and takes the overlay down', async () => {
+        const account = p2mrAccount()
+        const { result, harness } = renderIncomplete(
+          Promise.resolve({
+            address: account.address,
+            chain: ChainType.QBIT_MAINNET,
+            utxos: manyOutputs(account, [40_000, 20_000]),
+          })
+        )
+
+        await waitFor(() => expect(result.current.availableAmount).toBe('0.00060000'))
+        expect(result.current.unavailableAmount).toBe('0.05940000')
+        expect(harness.tools.showLoading).toHaveBeenLastCalledWith(false)
+        act(() => {
+          result.current.onAmountMaxClick()
+        })
+        expect(result.current.inputAmount).toBe('0.00060000')
+      })
+    })
+
     it('sends from the outputs read from history while still offering consolidation (#277)', async () => {
       const account = p2mrAccount()
       const harness = createSendHarness()
@@ -2281,6 +2373,7 @@ describe('TxCreateScreen state hooks', () => {
       )
       const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
       const { result } = renderHook(() => useTxCreateScreenLogic(), { wrapper })
+      await outputsRead()
 
       act(() => {
         result.current.onAddressInputChange({ address: recipient, domain: '' })
@@ -2473,6 +2566,8 @@ describe('UTXO cache across accounts (#342)', () => {
     await waitFor(() => expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(1))
     const [readId] = wallet.getQbitUtxoSnapshot.mock.calls[0]!
     expect(readId).toEqual(expect.any(String))
+    // The read it can abandon, which alone asks to ride out server errors.
+    expect(wallet.getQbitUtxoSnapshot.mock.calls[0]).toEqual([readId, true])
     expect(wallet.abandonQbitUtxoSnapshot).not.toHaveBeenCalled()
 
     // Leaving the screen tells the background, which stops the walk once
@@ -2880,6 +2975,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
 
   it('counts the whole selection, fee included, for a send-all', async () => {
     const { result } = renderSend({ feeRate: 1, quote: LIVE_QUOTE })
+    await outputsRead()
     act(() => {
       result.current.onAmountMaxClick()
     })
@@ -3306,6 +3402,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     )
     const quoteRead = pendingQuoteRead(wallet)
     const { result } = renderSendRecorded(store, wrapper)
+    await outputsRead()
     act(() => {
       result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
       result.current.screen.onAmountInputChange('0.00950000')
@@ -3849,6 +3946,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
     // Normal, which the bar opens at.
     store.dispatch((uiActions as any).updateFeeRateBar({ feeOptionIndex: 1 }))
     const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+    await outputsRead()
     act(() => {
       result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
     })
@@ -3908,6 +4006,7 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
         })
       )
       const { result } = renderHook(useSendScreenWithFeeBar, { wrapper })
+      await outputsRead()
       act(() => {
         result.current.screen.onAddressInputChange({ address: recipient, domain: '' })
       })
@@ -3935,4 +4034,371 @@ describe('TxCreateScreen spend total and fee warning (#271)', () => {
       expect(result.current.screen.disabled).toBe(false)
     }
   )
+})
+
+describe('the send screen while its first read of the outputs runs', () => {
+  const recipient = p2mrAddressFromPubkey(hexToBytes('33'.repeat(32)), 'mainnet')
+  const accountB = { ...p2mrAccount('22'.repeat(32)), key: 'qbit-account-2' }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function outputsOf(account: ReturnType<typeof p2mrAccount>, values: number[]) {
+    return values.map(
+      (satoshis, index) =>
+        ({
+          txid: (index + 1).toString(16).padStart(64, '0'),
+          vout: 0,
+          satoshis,
+          scriptPk: account.p2mr.scriptPubKey,
+          pubkey: account.pubkey,
+          addressType: AddressType.P2MR,
+        }) as any
+    )
+  }
+
+  function snapshotOf(
+    account: ReturnType<typeof p2mrAccount>,
+    utxos: any[],
+    chain = ChainType.QBIT_MAINNET
+  ) {
+    return { address: account.address, chain, utxos }
+  }
+
+  /** Advances the fake clock by `ms`, letting every answer due by then land. */
+  async function after(ms: number): Promise<void> {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+  }
+
+  /**
+   * The send screen, under fake timers, for a P2MR account whose balance read
+   * shows `balance` (100,000 available by default), opened while the read of
+   * its outputs is still running: the test answers it with `read`. `cached`
+   * are outputs the page cached for the account before the screen opened.
+   */
+  function openSend({
+    balance = {
+      availableBalance: 100_000,
+      unavailableBalance: 0,
+      totalBalance: 100_000,
+    } as Record<string, unknown>,
+    cached,
+  }: { balance?: Record<string, unknown>; cached?: any[] } = {}) {
+    vi.useFakeTimers()
+    const account = p2mrAccount()
+    const harness = createSendHarness()
+    let resolve!: (snapshot: unknown) => void
+    let reject!: (error: unknown) => void
+    harness.wallet.getQbitUtxoSnapshot.mockReturnValueOnce(
+      new Promise((settle, fail) => {
+        resolve = settle
+        reject = fail
+      })
+    )
+    harness.store.dispatch(accountActions.setCurrent(account))
+    harness.store.dispatch(
+      accountActions.setBalanceV2({
+        address: account.address,
+        balance: { ...balance, chainType: ChainType.QBIT_MAINNET } as any,
+      })
+    )
+    if (cached) harness.store.dispatch(transactionsActions.setUtxos(snapshotOf(account, cached)))
+    const rendered = renderHook(() => useTxCreateScreenLogic(), { wrapper: harness.wrapper })
+    const [readId] = harness.wallet.getQbitUtxoSnapshot.mock.calls[0]!
+    const read = {
+      answer: async (utxos: any[]) => {
+        await act(async () => {
+          resolve(snapshotOf(account, utxos))
+        })
+        await after(0)
+      },
+      fail: async (error: Error) => {
+        await act(async () => {
+          reject(error)
+        })
+        await after(0)
+      },
+    }
+    const overlays = () => vi.mocked(harness.tools.showLoading).mock.calls.map(([shown]) => shown)
+    return { ...harness, ...rendered, account, read, readId, overlays }
+  }
+
+  it('covers the screen as before while a read lands within 1.5 s, and never shows the note', async () => {
+    const { result, read, account, overlays } = openSend()
+    expect(overlays()).toEqual([true])
+
+    await after(SEND_OUTPUTS_OVERLAY_MAX_MS - 1)
+    expect(overlays()).toEqual([true])
+    expect(result.current.outputsLoading).toBe(false)
+
+    await read.answer(outputsOf(account, [60_000]))
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.outputsLoadFailed).toBe(false)
+    expect(result.current.availableAmount).toBe('0.00060000')
+    // Nothing is left to fire: the overlay's bound went with the read.
+    expect(vi.getTimerCount()).toBe(0)
+    await after(2 * SEND_OUTPUTS_OVERLAY_MAX_MS)
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.outputsLoading).toBe(false)
+  })
+
+  it('uncovers the form at 1.5 s while the read runs on: the fields work, Next waits and MAX fills nothing, then the read checks what was typed', async () => {
+    const { result, read, account, overlays } = openSend()
+
+    await after(SEND_OUTPUTS_OVERLAY_MAX_MS - 1)
+    expect(overlays()).toEqual([true])
+    await after(1)
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.outputsLoading).toBe(true)
+    expect(result.current.outputsLoadingText).toBe('send_outputs_loading')
+    expect(result.current.outputsLoadFailed).toBe(false)
+    // Available and Unavailable as before: the balance read's figures.
+    expect(result.current.availableAmount).toBe('0.00100000')
+    expect(result.current.showUnavailable).toBe(false)
+
+    // Below dust: today's error, while Next waits.
+    act(() => {
+      result.current.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.onAmountInputChange('0.00002854')
+    })
+    expect(result.current.error).toContain('amount_must_be_at_least')
+    expect(result.current.disabled).toBe(true)
+    // A valid amount, a memo and the replace-by-fee choice are taken; Next still waits.
+    act(() => {
+      result.current.onAmountInputChange('0.00050000')
+      result.current.onMemoChange('rent')
+      result.current.onRBFChange(true)
+    })
+    expect(result.current.toInfo.address).toBe(recipient)
+    expect(result.current.inputAmount).toBe('0.00050000')
+    expect(result.current.memo).toBe('rent')
+    expect(result.current.enableRBF).toBe(true)
+    expect(result.current.error).toBe('')
+    expect(result.current.disabled).toBe(true)
+    // MAX fills nothing the read has not confirmed, though Available shows a figure.
+    act(() => {
+      result.current.onAmountMaxClick()
+    })
+    expect(result.current.inputAmount).toBe('0.00050000')
+    await after(10_000)
+    expect(result.current.outputsLoading).toBe(true)
+    expect(result.current.disabled).toBe(true)
+
+    // The read lands: the note goes, and the form is checked against the outputs.
+    await read.answer(outputsOf(account, [60_000]))
+    expect(result.current.outputsLoading).toBe(false)
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.availableAmount).toBe('0.00060000')
+    expect(result.current.error).toBe('')
+    expect(result.current.disabled).toBe(false)
+    // More than the outputs hold: today's error.
+    act(() => {
+      result.current.onAmountInputChange('0.00070000')
+    })
+    expect(result.current.error).toBe('amount_exceeds_your_available_balance')
+    expect(result.current.disabled).toBe(true)
+    // And MAX fills what Available shows.
+    act(() => {
+      result.current.onAmountMaxClick()
+    })
+    expect(result.current.inputAmount).toBe('0.00060000')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('waits for its own read, not outputs the page cached before the screen opened', async () => {
+    // The same account's, cached by an earlier screen before a send spent
+    // some of them, say.
+    const { result, read, account } = openSend({
+      cached: outputsOf(p2mrAccount(), [90_000, 9_000]),
+    })
+    await after(SEND_OUTPUTS_OVERLAY_MAX_MS)
+
+    expect(result.current.outputsLoading).toBe(true)
+    expect(result.current.availableAmount).toBe('0.00100000')
+    act(() => {
+      result.current.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.onAmountInputChange('0.00050000')
+    })
+    expect(result.current.disabled).toBe(true)
+    act(() => {
+      result.current.onAmountMaxClick()
+    })
+    expect(result.current.inputAmount).toBe('0.00050000')
+
+    await read.answer(outputsOf(account, [60_000]))
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.availableAmount).toBe('0.00060000')
+    expect(result.current.disabled).toBe(false)
+  })
+
+  it.each([
+    ['after the overlay came down', SEND_OUTPUTS_OVERLAY_MAX_MS + 500],
+    ['while the overlay covered the screen', 500],
+  ])('says the account cannot send now when the read fails %s', async (_when, failAt) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { result, read, overlays } = openSend()
+    await after(failAt)
+
+    await read.fail(new Error('HTTP 503 from /tx'))
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.outputsLoadFailed).toBe(true)
+    expect(result.current.outputsLoadFailedText).toBe('send_outputs_load_failed')
+    act(() => {
+      result.current.onAddressInputChange({ address: recipient, domain: '' })
+      result.current.onAmountInputChange('0.00050000')
+    })
+    expect(result.current.error).toBe('')
+    expect(result.current.disabled).toBe(true)
+    act(() => {
+      result.current.onAmountMaxClick()
+    })
+    expect(result.current.inputAmount).toBe('0.00050000')
+    expect(vi.getTimerCount()).toBe(0)
+    await after(2 * SEND_OUTPUTS_OVERLAY_MAX_MS)
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.outputsLoadFailed).toBe(true)
+    log.mockRestore()
+  })
+
+  it.each([
+    ['during the overlay', 500],
+    ['during the note', SEND_OUTPUTS_OVERLAY_MAX_MS + 500],
+  ])('leaves no timer, overlay or note behind when the screen is left %s', async (_when, at) => {
+    const { result, wallet, readId, overlays, unmount } = openSend()
+    await after(at)
+    expect(result.current.outputsLoading).toBe(at > SEND_OUTPUTS_OVERLAY_MAX_MS)
+
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(overlays()).toEqual([true, false])
+    // The read's signal aborted: the background was told to abandon it.
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledTimes(1)
+    expect(wallet.abandonQbitUtxoSnapshot).toHaveBeenCalledWith(readId)
+  })
+
+  it.each([
+    ['during the overlay', 500],
+    ['during the note', SEND_OUTPUTS_OVERLAY_MAX_MS + 500],
+  ])(
+    'leaves no timer, overlay or note of the earlier read when the account or network changes %s',
+    async (_when, at) => {
+      for (const change of ['account', 'network'] as const) {
+        const { result, wallet, store, account, read, readId, overlays, unmount } = openSend()
+        await after(at)
+        // The new read answers at once: any timer left would be the earlier read's.
+        if (change === 'account') {
+          wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(
+            snapshotOf(accountB, outputsOf(accountB, [50_000]))
+          )
+          act(() => {
+            store.dispatch(accountActions.setCurrent(accountB))
+          })
+        } else {
+          wallet.getQbitUtxoSnapshot.mockResolvedValueOnce(
+            snapshotOf(account, outputsOf(account, [50_000]), ChainType.QBIT_TESTNET4)
+          )
+          act(() => {
+            store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
+          })
+        }
+        await after(0)
+
+        expect(wallet.getQbitUtxoSnapshot, change).toHaveBeenCalledTimes(2)
+        expect(wallet.abandonQbitUtxoSnapshot, change).toHaveBeenCalledWith(readId)
+        expect(vi.getTimerCount(), change).toBe(0)
+        // Only the read the screen opened with covered it, and the cover is down.
+        expect(overlays(), change).toEqual([true, false])
+        expect(result.current.outputsLoading, change).toBe(false)
+        expect(result.current.outputsLoadFailed, change).toBe(false)
+        expect(result.current.availableAmount, change).not.toBe('0.00060000')
+
+        // The abandoned read's answer, arriving late, changes nothing.
+        await read.answer(outputsOf(account, [60_000]))
+        expect(result.current.outputsLoading, change).toBe(false)
+        expect(result.current.availableAmount, change).not.toBe('0.00060000')
+        expect(vi.getTimerCount(), change).toBe(0)
+        unmount()
+        vi.useRealTimers()
+      }
+    }
+  )
+
+  it('keeps the note up when a plan has its slow read of the outputs started again', async () => {
+    const { result, wallet, account, overlays } = openSend()
+    await after(SEND_OUTPUTS_OVERLAY_MAX_MS)
+    expect(result.current.outputsLoading).toBe(true)
+
+    // A plan started in another window holds outputs: the screen reads them
+    // again, and this read takes long too.
+    wallet.getQbitUtxoSnapshot.mockReturnValueOnce(new Promise(() => undefined))
+    wallet.getQbitSendPlan.mockResolvedValue(planView({ address: account.address }))
+    await act(async () => {
+      uiEventBus.emit(BUS_METHODS.QBIT_SEND_PLAN_CHANGED, { planId: 'plan-1', revision: 1 })
+    })
+    await after(0)
+    expect(wallet.getQbitUtxoSnapshot).toHaveBeenCalledTimes(2)
+    expect(result.current.outputsLoading).toBe(true)
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.disabled).toBe(true)
+  })
+
+  it('keeps the over-limit path: no overlay, no new note, its own texts', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { result, read, overlays } = openSend({
+      balance: {
+        availableBalance: null,
+        unavailableBalance: 6_000_000,
+        totalBalance: 6_000_000,
+        immatureBalance: null,
+        pendingBalance: null,
+        utxoLimitExceeded: true,
+      },
+    })
+    expect(overlays()).toEqual([])
+    await after(2 * SEND_OUTPUTS_OVERLAY_MAX_MS)
+    expect(overlays()).toEqual([])
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.outputsLoadFailed).toBe(false)
+    expect(result.current.availableAmount).toBe('--')
+    expect(result.current.error).toBe('')
+    expect(result.current.consolidationNote).toBe('consolidation_send_note')
+
+    await read.fail(new Error('history too large'))
+    expect(result.current.error).toBe('utxo_limit_exceeded_send')
+    expect(result.current.consolidationNote).toBe('')
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.outputsLoadFailed).toBe(false)
+    log.mockRestore()
+  })
+
+  it('shows no note for an account the balance shows over the limit only once the read runs', async () => {
+    const { result, store, account, overlays } = openSend()
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceV2({
+          address: account.address,
+          balance: {
+            availableBalance: null,
+            unavailableBalance: 6_000_000,
+            totalBalance: 6_000_000,
+            immatureBalance: null,
+            pendingBalance: null,
+            utxoLimitExceeded: true,
+            chainType: ChainType.QBIT_MAINNET,
+          },
+        })
+      )
+    })
+    expect(overlays()).toEqual([true, false])
+    await after(2 * SEND_OUTPUTS_OVERLAY_MAX_MS)
+    expect(overlays()).toEqual([true, false])
+    expect(result.current.outputsLoading).toBe(false)
+    expect(result.current.consolidationNote).toBe('consolidation_send_note')
+  })
 })
