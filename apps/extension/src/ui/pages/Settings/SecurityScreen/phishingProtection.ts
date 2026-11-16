@@ -7,7 +7,7 @@ import {
   type PhishingProtectionStatus
 } from '@qbit/wallet-shared';
 
-/** What the Advanced settings row says about phishing protection. */
+/** What the Security screen's card says about phishing protection. */
 export type PhishingProtectionState =
   | 'protected'
   | 'starting'

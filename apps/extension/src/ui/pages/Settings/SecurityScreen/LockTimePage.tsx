@@ -1,32 +1,18 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-
 import { Column, Content, Header, Icon, Layout, Loading, OptionListCard, Row, Text } from '@/ui/components';
-import { getAutoLockTimes } from '@qbit/wallet-shared';
-import {
-  settingsActions,
-  useAppDispatch,
-  useAutoLockTimeId,
-  useI18n,
-  useLockTimePageLogic,
-  useNavigation,
-  useTools,
-  useWallet
-} from '@qbit/wallet-state';
+import { useBackToSettingsParent } from '@/ui/utils/settingsBack';
+import { useI18n, useLockTimePageLogic } from '@qbit/wallet-state';
 
+/** Settings → Security → Automatic Lock Time. */
 export function LockTimePage() {
-  const nav = useNavigation();
   const { t } = useI18n();
+  // The Security screen lists this entry, so Back with nothing behind this
+  // screen lands there.
+  const goBack = useBackToSettingsParent('/settings/security');
   const { autoLockTimeId, autoLockTimes, loading, handleSelectOption } = useLockTimePageLogic();
 
   return (
     <Layout>
-      <Header
-        onBack={() => {
-          nav.goBack();
-        }}
-        title={t('automatic_lock_time')}
-      />
+      <Header onBack={goBack} title={t('automatic_lock_time')} />
       <Content>
         <Column
           style={{

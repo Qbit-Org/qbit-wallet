@@ -315,6 +315,45 @@ describe('PhishingService', () => {
     )
   })
 
+  it('forgets every navigation bypass, and stores none for the next start', async () => {
+    const { service, adapter } = await setup(
+      createAdapter({ phishing_user_whitelist: [`www.${BLOCKED_DOMAIN}`] })
+    )
+    service.addToWhitelist(`api.${BLOCKED_DOMAIN}`)
+    expect(service.checkPhishing(`www.${BLOCKED_DOMAIN}`).reason).toBe('Permanent whitelist')
+    expect(service.checkPhishing(`api.${BLOCKED_DOMAIN}`).reason).toBe('Temporary whitelist')
+
+    await service.clearWhitelist()
+
+    expect(service.checkPhishing(`www.${BLOCKED_DOMAIN}`).isPhishing).toBe(true)
+    expect(service.checkPhishing(`api.${BLOCKED_DOMAIN}`).isPhishing).toBe(true)
+    expect(service.getStats()).toMatchObject({ whitelistSize: 0, temporaryWhitelistSize: 0 })
+    expect(adapter.values.get('phishing_user_whitelist')).toEqual([])
+    const { service: restarted } = await setup(adapter)
+    expect(restarted.getConfig().whitelist).toEqual([])
+    expect(restarted.checkPhishing(`www.${BLOCKED_DOMAIN}`).isPhishing).toBe(true)
+  })
+
+  it('rejects a clearing of the bypasses that cannot be stored', async () => {
+    const { service, adapter } = await setup(
+      createAdapter({ phishing_user_whitelist: [`www.${BLOCKED_DOMAIN}`] })
+    )
+    adapter.set.mockRejectedValueOnce(new Error('disk full'))
+
+    await expect(service.clearWhitelist()).rejects.toThrow('disk full')
+    // Memory holds no bypass, and the next attempt stores the empty list.
+    expect(service.checkPhishing(`www.${BLOCKED_DOMAIN}`).isPhishing).toBe(true)
+    await service.clearWhitelist()
+    expect(adapter.values.get('phishing_user_whitelist')).toEqual([])
+  })
+
+  it('rejects a clearing of the bypasses before it has storage', async () => {
+    const service = new PhishingService()
+    services.push(service)
+
+    await expect(service.clearWhitelist()).rejects.toThrow('not initialized')
+  })
+
   it('keeps the bundled detector active when storage migration fails', async () => {
     const storageError = new Error('storage unavailable')
     const adapter = createAdapter()

@@ -40,6 +40,30 @@ export enum ErrorCodes {
   // for signing ran out). Signing stopped at the next input, so nothing was
   // signed for broadcast and nothing was sent.
   WALLET_LOCKED_DURING_SIGNING = -18,
+  // WalletController.resetWallet erased the wallets and the password, but
+  // could not clear some of the other stored wallet data. The reset stays
+  // pending and is finished before a new wallet can be created. Apart from
+  // this code and WALLET_RESET_OUTCOME_UNKNOWN, an error from resetWallet
+  // means nothing was erased.
+  WALLET_RESET_INCOMPLETE = -19,
+  // WalletController.resetWallet was asked for as the removal of the last
+  // usable wallet (`lastWalletKey`), and that wallet is gone or another
+  // usable wallet exists by now. Nothing was erased.
+  WALLET_RESET_NOT_LAST_WALLET = -20,
+  // WalletController.resetWallet could not tell whether the wallets were
+  // erased: storage failed while the keys were being erased, and trying again
+  // did not settle it. The wallet is left locked. Stored and loaded state can
+  // disagree until the background starts again, which finishes the reset if
+  // the keys are gone from storage. Until then the background also answers
+  // with this code a wallet page's call that waited for that reset, and an
+  // unlock, a password change or a boot, which could save the loaded wallet
+  // back, and a further reset.
+  WALLET_RESET_OUTCOME_UNKNOWN = -21,
+  // A wallet page sent the id of the wallet it shows with its request, and
+  // that is not the wallet set up now: a reset the page missed erased it, and
+  // none or another one is set up. The request did not run. The page drops
+  // what it shows and reopens.
+  WALLET_PAGE_OUT_OF_DATE = -22,
   // A provider sendQbit, pushTx or pushPsbt broadcast ended without a
   // verdict: the transaction named in the error data may be in the mempool,
   // so the dapp must check it before retrying. A sendQbit's inputs stay
@@ -76,6 +100,10 @@ export const ErrorMessages: {
   [ErrorCodes.WALLET_LOCKED_DURING_UNLOCK]: 'wallet_locked_during_unlock',
   [ErrorCodes.QBIT_RECOVERY_REVIEW_INTERRUPTED]: 'qbit_recovery_review_interrupted',
   [ErrorCodes.WALLET_LOCKED_DURING_SIGNING]: 'wallet_locked_during_signing',
+  [ErrorCodes.WALLET_RESET_INCOMPLETE]: 'wallet_reset_incomplete',
+  [ErrorCodes.WALLET_RESET_NOT_LAST_WALLET]: 'wallet_reset_not_last_wallet',
+  [ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN]: 'wallet_reset_outcome_unknown',
+  [ErrorCodes.WALLET_PAGE_OUT_OF_DATE]: 'wallet_page_out_of_date',
   [ErrorCodes.METHOD_NOT_FOUND]: 'code_method_not_found',
   [ErrorCodes.INVALID_PARAMS]: 'Invalid provider request parameters',
   [ErrorCodes.UserCancel]: 'user_rejected_the_request',

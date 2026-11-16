@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 import { ExtensionPageObject } from './base-page'
+import { ResetWalletDialog } from './reset-wallet-dialog'
 
 /** The tags a wallet can show next to its name, as their test IDs spell them. */
 export type WalletTag = 'read-only' | 'recovered' | 'archived' | 'cold'
@@ -253,6 +254,27 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
     await expect(confirm).toBeVisible()
     await confirm.click()
     await expect(this.walletGroup(keyringKey)).toHaveCount(0, { timeout: 30_000 })
+    await expect(this.removalDialog).toHaveCount(0)
+  }
+
+  /**
+   * Remove Wallet on the last wallet: the removal would leave no wallet, so
+   * the menu opens the Reset Wallet dialog, which says so, in place of the
+   * removal popover. Nothing is erased before that dialog is confirmed.
+   */
+  async chooseRemoveOnLastWallet(keyringKey: string): Promise<ResetWalletDialog> {
+    await this.chooseWalletMenuItem(keyringKey, 'remove')
+    const dialog = new ResetWalletDialog(this.page)
+    await dialog.waitUntilOpen()
+    await expect(dialog.lastWalletNote).toBeVisible()
+    await expect(this.removalDialog).toHaveCount(0)
+    await expect(this.menu).toHaveCount(0)
+    return dialog
+  }
+
+  /** Cancel in the removal popover, which removes nothing. */
+  async cancelRemoval(): Promise<void> {
+    await this.removalDialog.getByText('Cancel', { exact: true }).click()
     await expect(this.removalDialog).toHaveCount(0)
   }
 

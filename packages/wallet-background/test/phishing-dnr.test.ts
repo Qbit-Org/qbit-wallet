@@ -421,6 +421,93 @@ describe('PhishingController DNR enforcement', () => {
     expect(browser.state.sessionRules.map(rule => rule.id)).toEqual([4, 5])
   })
 
+  it('takes back every Proceed, one from before a restart included, so none outlives the next start', async () => {
+    const browser = createBrowser({ sessionRules: [proceedRule(4, BLOCKED_HOST)] })
+    let finishRestore!: () => void
+    browser.declarativeNetRequest.getSessionRules.mockImplementationOnce(
+      () =>
+        new Promise<Rule[]>(resolve => {
+          finishRestore = () => resolve(structuredClone(browser.state.sessionRules))
+        })
+    )
+    const service = new PhishingService()
+    await service.init({ adapter: { get: async () => undefined, set: async () => undefined } })
+    const controller = await startController(browser, service)
+
+    // Asked for while the bypass from before the restart is still being
+    // restored: it waits for it, and takes it back too.
+    const cleared = controller.clearSessionBypasses()
+    finishRestore()
+    await cleared
+    await service.clearWhitelist()
+
+    expect(browser.state.sessionRules).toEqual([])
+    await expect(checkHost(browser, BLOCKED_HOST)).resolves.toMatchObject({ isPhishing: true })
+
+    // A Proceed after it works as before, and is taken back the same way.
+    await expect(proceed(browser, OTHER_BLOCKED_HOST)).resolves.toEqual({ success: true })
+    expect(browser.state.sessionRules).toEqual([proceedRule(1, OTHER_BLOCKED_HOST)])
+    await controller.clearSessionBypasses()
+    await service.clearWhitelist()
+    expect(browser.state.sessionRules).toEqual([])
+
+    const restarted = new PhishingService()
+    await startController(browser, restarted)
+    await expect(checkHost(browser, OTHER_BLOCKED_HOST)).resolves.toMatchObject({
+      isPhishing: true,
+    })
+  })
+
+  it('takes back a Proceed that the restore at start hands over only after the take-back was asked for', async () => {
+    const browser = createBrowser({ sessionRules: [proceedRule(4, BLOCKED_HOST)] })
+    // The restore at start reads the rules at once, and hands them over later.
+    let finishRestore!: () => void
+    browser.declarativeNetRequest.getSessionRules.mockImplementationOnce(() => {
+      const read = structuredClone(browser.state.sessionRules)
+      return new Promise<Rule[]>(resolve => {
+        finishRestore = () => resolve(read)
+      })
+    })
+    const service = new PhishingService()
+    await service.init({ adapter: { get: async () => undefined, set: async () => undefined } })
+    const controller = await startController(browser, service)
+
+    // As a reset does: the session rules, then the service's own bypasses.
+    const cleared = controller.clearSessionBypasses().then(() => service.clearWhitelist())
+    await new Promise(resolve => setTimeout(resolve, 20))
+    finishRestore()
+    await cleared
+
+    expect(browser.state.sessionRules).toEqual([])
+    await expect(checkHost(browser, BLOCKED_HOST)).resolves.toMatchObject({ isPhishing: true })
+  })
+
+  it('keeps the warning redirect when it takes back every Proceed', async () => {
+    const browser = createBrowser({
+      hostAccess: true,
+      sessionRules: [proceedRule(9, BLOCKED_HOST)],
+    })
+    const controller = await startController(browser)
+    await vi.waitFor(() =>
+      expect(browser.state.sessionRules.some(rule => rule.action.type === 'redirect')).toBe(true)
+    )
+
+    await controller.clearSessionBypasses()
+
+    expect(browser.state.sessionRules.map(rule => rule.action.type)).toEqual(['redirect'])
+  })
+
+  it('rejects a taking back of the Proceeds that the browser refuses, and lets the next one through', async () => {
+    const browser = createBrowser({ sessionRules: [proceedRule(4, BLOCKED_HOST)] })
+    const controller = await startController(browser)
+    browser.declarativeNetRequest.updateSessionRules.mockRejectedValueOnce(new Error('quota'))
+
+    await expect(controller.clearSessionBypasses()).rejects.toThrow('quota')
+    expect(browser.state.sessionRules).toEqual([proceedRule(4, BLOCKED_HOST)])
+    await controller.clearSessionBypasses()
+    expect(browser.state.sessionRules).toEqual([])
+  })
+
   it('carries the blocked URL to the warning page from the content-script check', async () => {
     const browser = createBrowser()
     await startController(browser)

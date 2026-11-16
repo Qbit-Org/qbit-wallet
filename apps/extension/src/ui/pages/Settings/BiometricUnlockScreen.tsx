@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Button, Column, Content, Header, Input, Layout, Text } from '@/ui/components';
+import { useBackToSettingsParent } from '@/ui/utils/settingsBack';
 import {
   BiometricCeremonyCancelledError,
   BiometricEnrollmentIncompleteError,
@@ -10,8 +11,6 @@ import {
   useI18n,
   useTools
 } from '@qbit/wallet-state';
-
-import { useNavigate as useRouterNavigate } from 'react-router-dom';
 
 /**
  * Settings → Security → Touch ID Unlock. Enrollment requires the wallet
@@ -23,28 +22,12 @@ import { useNavigate as useRouterNavigate } from 'react-router-dom';
 export default function BiometricUnlockScreen() {
   const { t } = useI18n();
   const tools = useTools();
-  const routerNavigate = useRouterNavigate();
+  // The Security screen lists this entry, so Back with nothing behind this
+  // screen lands there.
+  const goBack = useBackToSettingsParent('/settings/security');
   const { ready, supported, enrolled, enroll, disable } = useBiometricUnlock();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const goBack = () => {
-    // When this screen loads as the first history entry (e.g. opened
-    // directly by URL) there is nothing behind it (react-router marks the
-    // first entry with idx 0).
-    // Rebuild the natural chain instead of pushing: replace this entry with
-    // Settings, then push Advanced — so this back lands on Advanced and
-    // Advanced's own history-back lands on Settings, exactly like the
-    // in-app path. Pushing Advanced here would make its back arrow return
-    // to this screen in a loop.
-    const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-    if (historyIndex > 0) {
-      window.history.go(-1);
-    } else {
-      routerNavigate('/settings', { replace: true });
-      routerNavigate('/settings/advanced');
-    }
-  };
 
   const onEnable = async () => {
     if (loading || !password) {

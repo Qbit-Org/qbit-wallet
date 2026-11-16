@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction, SliceCaseReducers } from '@reduxjs/toolkit'
 
-import { updateVersion } from '../actions/global'
+import { resetWalletState, updateVersion } from '../actions/global'
 import { TabOption } from '../types'
 
 export interface GlobalState {
@@ -108,6 +108,9 @@ const slice = createSlice({
     builder.addCase(updateVersion, state => {
       // todo
     })
+    // No wallet and no password are left: not booted, not unlocked. The app
+    // stays mounted (isReady) while the page goes to the first-run screen.
+    builder.addCase(resetWalletState, state => ({ ...initialState, isReady: state.isReady }))
   },
 })
 

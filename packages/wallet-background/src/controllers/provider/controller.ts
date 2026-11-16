@@ -570,9 +570,12 @@ class ProviderController extends BaseController {
 
   @Reflect.metadata('SAFE', true)
   getBalance = async () => {
+    // Read before the account is chosen: a reset that erases the wallets
+    // after that keeps the account's balance out of the cleared preferences.
+    const generation = wallet.walletResetGeneration
     const account = await wallet.getCurrentAccount()
     if (!account) return null
-    const balance = await wallet.getAddressBalance(account.address)
+    const balance = await wallet.getAddressBalanceSince(account.address, generation)
     return {
       confirmed: amountToSatoshis(balance.confirm_amount),
       unconfirmed: amountToSatoshis(balance.pending_amount),

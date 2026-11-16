@@ -71,10 +71,24 @@ export class EmptyRegtestExplorer {
    * offline. Without a proxy, the resolver rules decide where every request goes.
    */
   get browserArgs(): string[] {
+    return this.browserArgsReaching([])
+  }
+
+  /**
+   * The same switches, except that the browser also reaches each of
+   * `origins`, such as a loopback dapp page, where it is. Each origin is
+   * mapped onto itself: the first rule that matches a host decides, and an
+   * EXCLUDE rule would also cancel the regtest mapping on 127.0.0.1.
+   */
+  browserArgsReaching(origins: readonly string[]): string[] {
     const regtest = new URL(QBIT_REGTEST_ORIGIN)
+    const reachable = origins.map(origin => {
+      const { host } = new URL(origin)
+      return `MAP ${host} ${host}`
+    })
     return [
       '--no-proxy-server',
-      `--host-resolver-rules=MAP ${regtest.host} 127.0.0.1:${this.port}, MAP * ~NOTFOUND`,
+      `--host-resolver-rules=${[`MAP ${regtest.host} 127.0.0.1:${this.port}`, ...reachable, 'MAP * ~NOTFOUND'].join(', ')}`,
     ]
   }
 

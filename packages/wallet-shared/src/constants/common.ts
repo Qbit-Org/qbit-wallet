@@ -401,6 +401,9 @@ export const BUS_METHODS = {
   SIGN_FINISHED: 'signFinished',
   LOCALE_CHANGED: 'localeChanged',
   REGTEST_ACCESS_CHANGED: 'regtestAccessChanged',
+  // WalletController.resetWallet erased every wallet and the password: each
+  // open wallet page drops what it holds and returns to the first-run screen.
+  WALLET_RESET: 'walletReset',
   // A local signing's progress (QbitSigningProgress), sent only to the page
   // that asked for it with BUS_EVENTS.toUIPort.
   QBIT_SIGNING_PROGRESS: 'qbitSigningProgress',

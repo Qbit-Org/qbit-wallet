@@ -8,7 +8,7 @@ import { useI18n } from '@qbit/wallet-state';
 /**
  * Advanced-settings entry for the optional local regtest connection: the
  * label, its On/Off state and a chevron into the Local Regtest screen, in the
- * Touch ID Unlock row style. Only rendered in builds that gate the loopback
+ * Language row's look. Only rendered in builds that gate the loopback
  * origin behind the optional host permission; required-permission builds
  * (E2E, local dev) have nothing to enable or disable.
  */

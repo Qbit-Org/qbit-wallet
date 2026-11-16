@@ -23,6 +23,14 @@ function isPortGone(error: unknown): boolean {
 }
 
 class PortMessage extends Message {
+  /**
+   * Emitted each time a channel opened with connect() connects a new port in
+   * place of one it lost (the other end went away), as it sends the message
+   * that needed it. Not emitted for connect() itself, nor by a PortMessage
+   * made around a given port, which never reconnects.
+   */
+  static readonly RECONNECTED = 'reconnected';
+
   port: any | null = null;
   listenCallback: any;
   private canReconnect = false;
@@ -94,7 +102,13 @@ class PortMessage extends Message {
         // The replacement port is already active; stale-port cleanup is best effort.
       }
     }
-    return !!this.port;
+    if (!this.port) return false;
+    try {
+      this.emit(PortMessage.RECONNECTED);
+    } catch {
+      // A listener's failure must not stop the message that reconnected.
+    }
+    return true;
   };
 
   send = (type, data) => {

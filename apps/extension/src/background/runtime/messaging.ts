@@ -105,8 +105,14 @@ export function initMessaging() {
               throw new Error('Invalid wallet request params');
             }
             // Run on behalf of this port so a send claim minted or
-            // broadcast by the call is tied to the page holding its bytes.
-            return walletController.runForUiPort(uiPortId, () => method(...data.params));
+            // broadcast by the call is tied to the page holding its bytes;
+            // a call made while a reset runs waits for it there. The id of
+            // the wallet the page shows goes along only when the page sent
+            // one, and the controller judges it, its type included.
+            const call = () => method(...data.params);
+            return Object.prototype.hasOwnProperty.call(data, 'walletId')
+              ? walletController.runForUiPort(uiPortId, call, data.method, data.walletId)
+              : walletController.runForUiPort(uiPortId, call, data.method);
           }
           default:
             throw new Error(`Unsupported UI message type: ${data.type}`);

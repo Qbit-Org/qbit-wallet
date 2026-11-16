@@ -18,6 +18,16 @@ const settingsLogicSource = fs.readFileSync(
   path.join(extensionDir, '../../packages/wallet-state/src/ui-hooks/useSettingsTabScreenLogic.ts'),
   'utf8'
 );
+const mainRouteSource = fs.readFileSync(path.join(extensionDir, 'src/ui/pages/MainRoute.tsx'), 'utf8');
+const advancedDir = path.join(extensionDir, 'src/ui/pages/Settings/AdvancedScreen');
+const securityDir = path.join(extensionDir, 'src/ui/pages/Settings/SecurityScreen');
+const advancedSource = fs.readFileSync(path.join(advancedDir, 'index.tsx'), 'utf8');
+const addressTypeSettingSource = fs.readFileSync(path.join(advancedDir, 'AddressTypeSetting.tsx'), 'utf8');
+const addressTypeSettingLogicSource = fs.readFileSync(
+  path.join(extensionDir, '../../packages/wallet-state/src/ui-hooks/useAddressTypeSettingLogic.ts'),
+  'utf8'
+);
+const securitySource = fs.readFileSync(path.join(securityDir, 'index.tsx'), 'utf8');
 const sharedConstantsSource = fs.readFileSync(
   path.join(extensionDir, '../../packages/wallet-shared/src/constants/common.ts'),
   'utf8'
@@ -55,9 +65,62 @@ test('settings navigation rows use one even vertical gap', () => {
   assert.match(settingsSource, /<Column fullX style=\{\{ gap: spacing\.extraSmall \}\}>/);
   assert.match(
     settingsSource,
-    /renderGroup\(\[\s*settings_connectedSites,\s*settings_switchNetwork,\s*settings_addressBook,\s*settings_addressType,\s*settings_appearance,\s*settings_advanced,\s*settings_lockwallet,\s*settings_aboutus\s*\]\)/
+    /renderGroup\(\[\s*settings_connectedSites,\s*settings_switchNetwork,\s*settings_addressBook,\s*settings_security,\s*settings_appearance,\s*settings_advanced,\s*settings_lockwallet,\s*settings_aboutus\s*\]\)/
   );
   assert.doesNotMatch(settingsSource, /<Divider|function Divider/);
+});
+
+test('Address Type is an entry of Advanced Settings, not a row of the Settings tab', () => {
+  assert.doesNotMatch(settingsSource, /addressType|AddressType/);
+  assert.doesNotMatch(settingsLogicSource, /settings_addressType|AddressTypeScreen/);
+
+  // Advanced Settings: Language, Address Type, Local Regtest, and nothing else.
+  assert.match(
+    advancedSource,
+    /<Content>\s*<LanguageCard \/>\s*<AddressTypeSettingCard \/>\s*<RegtestAccessCard \/>\s*<\/Content>/
+  );
+  assert.match(addressTypeSettingSource, /useAddressTypeSettingLogic\(\)/);
+  assert.match(addressTypeSettingLogicSource, /nav\.navigate\(['"]AddressTypeScreen['"]\)/);
+  assert.match(
+    mainRouteSource,
+    /AddressTypeScreen: \{\s*path: ['"]\/settings\/address-type['"],\s*element: <AddressTypeScreen \/>/
+  );
+});
+
+test('the lock settings and phishing protection are on the Security screen, above Reset Wallet', () => {
+  assert.doesNotMatch(advancedSource, /SecurityCard|PhishingProtectionCard|LockTimePage/);
+  // Change Password, Touch ID directly under it, the recovery phrase, the lock
+  // settings, phishing protection, and Reset Wallet last.
+  assert.match(
+    securitySource,
+    /<SettingsItemRow item=\{changePasswordItem\} \/>\s*<TouchIdUnlockRow \/>\s*\{showPhraseItem && <SettingsItemRow item=\{showPhraseItem\} \/>\}\s*<SecurityCard \/>\s*<PhishingProtectionCard \/>[\s\S]*?<SettingsItemRow item=\{resetItem\} \/>\s*<\/Column>/
+  );
+  // The files live beside the screen.
+  for (const file of ['SecurityCard.tsx', 'PhishingProtectionCard.tsx', 'phishingProtection.ts', 'LockTimePage.tsx']) {
+    assert.ok(fs.existsSync(path.join(securityDir, file)), file);
+    assert.ok(!fs.existsSync(path.join(advancedDir, file)), `AdvancedScreen/${file}`);
+  }
+  assert.match(mainRouteSource, /import \{ LockTimePage \} from ['"]\.\/Settings\/SecurityScreen\/LockTimePage['"]/);
+  assert.match(mainRouteSource, /LockTimePage: \{\s*path: ['"]\/settings\/lock-time['"],\s*element: <LockTimePage \/>/);
+  assert.match(
+    mainRouteSource,
+    /BiometricUnlockScreen: \{\s*path: ['"]\/settings\/biometric['"],\s*element: <BiometricUnlockScreen \/>/
+  );
+});
+
+test('Security sits directly above Appearance and opens the Security screen', () => {
+  assert.match(settingsSource, /settings_security,\s*settings_appearance,/);
+  const securityItemSource = settingsLogicSource.slice(
+    settingsLogicSource.indexOf('const settings_security'),
+    settingsLogicSource.indexOf('const settings_appearance')
+  );
+
+  assert.match(securityItemSource, /key: ['"]settings_security['"]/);
+  assert.match(securityItemSource, /label: t\(['"]security['"]\)/);
+  assert.match(securityItemSource, /icon: ['"]security['"]/);
+  assert.match(securityItemSource, /nav\.navigate\(['"]SecurityScreen['"]\)/);
+  assert.match(iconSource, /security: Shield\w*,/);
+  assert.match(mainRouteSource, /SecurityScreen: \{\s*path: ['"]\/settings\/security['"],\s*element: <SecurityScreen \/>/);
 });
 
 test('settings no longer exposes the Expand View action', () => {

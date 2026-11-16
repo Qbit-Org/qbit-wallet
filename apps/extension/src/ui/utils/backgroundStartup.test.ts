@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BackgroundStartupStatus, waitForBackgroundStartup } from './backgroundStartup';
+import { BackgroundStartupStatus, waitForBackgroundReady, waitForBackgroundStartup } from './backgroundStartup';
 
 type Answer = BackgroundStartupStatus | Error | undefined;
 
@@ -105,5 +105,58 @@ describe('waitForBackgroundStartup', () => {
     await vi.advanceTimersByTimeAsync(1 + 100 + 200);
     expect(waiting.result).toEqual(failed);
     expect(wallet.getBackgroundStartupStatus).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('waitForBackgroundReady', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is true once start-up finishes within the time, asked as the start-up wait asks', async () => {
+    const wallet = background(new Error('Receiving end does not exist.'), starting, { state: 'ready' });
+    const waiting = settled(waitForBackgroundReady(wallet, 30_000));
+
+    await vi.advanceTimersByTimeAsync(150);
+    expect(waiting.result).toBe(true);
+    expect(wallet.getBackgroundStartupStatus).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('is false once start-up failed', async () => {
+    const wallet = background(failed);
+    const waiting = settled(waitForBackgroundReady(wallet, 30_000));
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(waiting.result).toBe(false);
+  });
+
+  it('gives up when start-up is still running at the end of the time, and asks no more', async () => {
+    const wallet = background(starting);
+    const waiting = settled(waitForBackgroundReady(wallet, 1_000));
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(waiting.result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(waiting.result).toBe(false);
+    const asked = wallet.getBackgroundStartupStatus.mock.calls.length;
+
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(wallet.getBackgroundStartupStatus).toHaveBeenCalledTimes(asked);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('gives up on a question that is never answered', async () => {
+    const wallet = { getBackgroundStartupStatus: vi.fn(() => new Promise<BackgroundStartupStatus>(() => undefined)) };
+    const waiting = settled(waitForBackgroundReady(wallet, 1_000));
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(waiting.result).toBe(false);
+    expect(wallet.getBackgroundStartupStatus).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

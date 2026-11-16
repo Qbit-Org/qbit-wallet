@@ -1,20 +1,19 @@
 import { Column, Content, Header, Layout } from '@/ui/components';
 import { AddressTypeCard } from '@/ui/components/AddressTypeCard';
-import { useAddressTypeScreenLogic, useI18n, useNavigation } from '@qbit/wallet-state';
+import { useBackToSettingsParent } from '@/ui/utils/settingsBack';
+import { useAddressTypeScreenLogic, useI18n } from '@qbit/wallet-state';
 
+/** Settings → Advanced Settings → Address Type. */
 export default function AddressTypeScreen() {
   const { t } = useI18n();
-  const nav = useNavigation();
+  // Advanced Settings lists this entry, so Back with nothing behind this
+  // screen lands there.
+  const goBack = useBackToSettingsParent('/settings/advanced');
   const { currentKeyring, items, onClickItem } = useAddressTypeScreenLogic();
 
   return (
     <Layout>
-      <Header
-        onBack={() => {
-          nav.goBack();
-        }}
-        title={t('address_type')}
-      />
+      <Header onBack={goBack} title={t('address_type')} />
       <Content>
         <Column>
           {items.map((item, index) => {
