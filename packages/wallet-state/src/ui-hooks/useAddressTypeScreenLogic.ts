@@ -42,42 +42,50 @@ export function useAddressTypeScreenLogic() {
     [key: string]: { totalAmount: string; satoshis: number }
   }>({})
 
-  const selfRef = useRef<{
-    addressAssets: {
-      [key: string]: { totalAmount: string; satoshis: number }
-    }
-  }>({
-    addressAssets: {},
-  })
-  const self = selfRef.current
-
   const tools = useTools()
+  // The read asked for last: an earlier one that answers late shows nothing.
+  const latestReadRef = useRef(0)
   const loadAddresses = async () => {
+    const read = ++latestReadRef.current
+    // Nothing read for the wallet or account before stays beside this one's
+    // paths, also when this read fails.
+    setAddresses([])
+    setAddressAssets({})
     try {
       tools.showLoading(true)
       const _res = await wallet.getAllAddresses(currentKeyring, account.index || 0)
+      if (read !== latestReadRef.current) return
       setAddresses(_res)
       const balances = await wallet.getMultiAddressSummaries(_res.join(','))
+      if (read !== latestReadRef.current) return
+      // A new object for each read: handed the same one again, the state
+      // would not change and a later read's balances would never show.
+      const assets: { [key: string]: { totalAmount: string; satoshis: number } } = {}
       for (let i = 0; i < _res.length; i++) {
         const address = _res[i]
         const balance = balances[i]
         const satoshis = balance.totalSatoshis
-        self.addressAssets[address] = {
+        assets[address] = {
           totalAmount: numUtils.satoshisToAmount(balance.totalSatoshis),
           satoshis,
         }
       }
-      setAddressAssets(self.addressAssets)
+      setAddressAssets(assets)
     } catch (e) {
       console.error(e)
     } finally {
-      tools.showLoading(false)
+      if (read === latestReadRef.current) tools.showLoading(false)
     }
   }
 
+  // A page opened on this screen (by its address, or reloaded) has no wallet
+  // in its store yet: the read waits for the wallet, and is made again for
+  // another wallet or account, instead of asking once for a wallet with no
+  // key, which the background refuses.
   useEffect(() => {
+    if (!currentKeyring.key) return
     loadAddresses()
-  }, [])
+  }, [currentKeyring.key, account.index])
 
   const addressTypes = useMemo(() => {
     // Wallets backed by a fixed address do not allow switching address types.
@@ -146,7 +154,14 @@ export function useAddressTypeScreenLogic() {
         value: v.value,
       }
     })
-  }, [addressTypes])
+  }, [
+    addressTypes,
+    addresses,
+    addressAssets,
+    account.index,
+    currentKeyring.type,
+    currentKeyring.accountIndexDerivation,
+  ])
 
   const onClickItem = async (item: AddressTypeItem) => {
     if (item.value == currentKeyring.addressType) {
