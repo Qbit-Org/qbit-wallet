@@ -9,7 +9,8 @@ result in CI.
 
 - Node.js 22 and the repository-pinned pnpm 11.28.9 (`packageManager` in
   `package.json`) through Corepack.
-- Docker with `docker compose`.
+- Docker Engine 25 or later with `docker compose` (the `qbitd` healthcheck uses
+  `start_interval`).
 - The repository-local Playwright Chromium installation.
 
 Do not install global npm packages or add fixed delays to make a row pass.

@@ -51,6 +51,14 @@ services:
           "qbit-cli -regtest -rpcconnect=127.0.0.1 -rpcport=18452 -rpcuser=$${QBIT_RPC_USER:-qbit} -rpcpassword=$${QBIT_RPC_PASSWORD:-qbit} getblockchaininfo >/dev/null 2>&1"
         ]
       interval: 5s
+      # Probe every 250ms until the first success or the end of the 15s start
+      # period, so electrs-qbit (which waits for service_healthy) starts about
+      # 1s after qbitd instead of 5s. After either, Docker probes at `interval`.
+      # Failures inside the start period do not count towards `retries`;
+      # failures after it do. start_interval needs Docker Engine 25+; Compose
+      # refuses to start on an older engine.
+      start_period: 15s
+      start_interval: 250ms
       timeout: 5s
       retries: 30
 

@@ -25,7 +25,8 @@ Requirements:
   the pnpm it downloads against the pin's sha512 hash. A pnpm installed
   another way, such as `npm install -g pnpm` or `pnpm/action-setup`, is not
   checked.
-- Docker, if you want to run the regtest harness or end-to-end tests
+- Docker Engine 25 or later, if you want to run the regtest harness or
+  end-to-end tests (the `qbitd` healthcheck uses `start_interval`)
 
 Clone the repository and install:
 
