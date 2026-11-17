@@ -14,16 +14,24 @@ with its tests next to it. The workflows only wire it together.
 
 ## What it covers
 
-| Workflow                      | Jobs the marker covers                                                                 | On a marker hit                                                                                           | Never covered       |
-| ----------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------- |
-| `ci.yml`                      | `Typecheck, test, and build`, `Lint`                                                   | `Typecheck, test, and build` runs and skips its steps; `Lint` is skipped                                  | `Dependency policy` |
-| `playwright-release-gate.yml` | `Playwright G3 scenarios`, `Playwright G3 shard 1 of 5` … `Playwright G3 shard 5 of 5` | each shard runs and skips its steps; `Playwright G3 scenarios` runs, checks the shards and skips the rest | none                |
+| Workflow                      | Jobs the marker covers                                                                                                                                                                                      | On a marker hit                                                                                                               | Never covered       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `ci.yml`                      | `Typecheck, test, and build` and its lanes `Unit tests: qbit-extension`, `Unit tests: wallet-background`, `Typecheck, security checks and other unit tests` and `Build and reproduce the extension`; `Lint` | each lane runs and skips its steps; `Typecheck, test, and build` runs, checks the lanes and skips the rest; `Lint` is skipped | `Dependency policy` |
+| `playwright-release-gate.yml` | `Playwright G3 scenarios`, `Playwright G3 shard 1 of 5` … `Playwright G3 shard 5 of 5`                                                                                                                      | each shard runs and skips its steps; `Playwright G3 scenarios` runs, checks the shards and skips the rest                     | none                |
 
 `Dependency policy` always runs: its `pnpm audit` asks the registry for current
 advisories and its risk exceptions expire by date, so the same tree can pass
 one day and fail the next. It takes about a minute. `release.yml`,
 `build-regtest-images.yml`, `pqc.yml` and `qbit-conformance.yml` do not use the
 marker.
+
+A pull request that changes only documentation that no skipped step reads
+skips the steps of three of the four lanes, the G3 shards and each required
+job's last step, without a marker, and saves none. `Lint` still runs, and so
+does the lane `verify-workspace`, whose security tooling tests read every
+tracked file. See
+[Docs-only changes](ci-docs-only.md). `Tree pass marker` decides that too, in
+its last step.
 
 A skip carries an earlier result forward; it does not show that the tree
 would pass again today. The covered jobs are not all a function of the tree
@@ -45,8 +53,8 @@ on a commit whose tree already passed. Use `ci:full-run` (below) to check a
 tree against today's inputs.
 
 A skipped run also produces none of the covered jobs' artifacts: no
-`chrome-mv3-extension` build and no Playwright reports for the commit that
-lands. They are in the passing run that the gate step's summary links to,
+`chrome-mv3-extension` build (from `Build and reproduce the extension`) and no
+Playwright reports for the commit that lands. They are in the passing run that the gate step's summary links to,
 which keeps them for 14 days. If a release or the reproducible-build check
 (docs/reproducible-builds.md) needs that run's URL or artifacts, take them
 from there, or force a full run.
@@ -102,7 +110,8 @@ without waiting for it.
      covered job and `Record tree pass` completed with `success`, once each,
      by name; each leg of the G3 shard matrix is its own job there, named
      `Playwright G3 shard <n> of 5`, so every shard is checked, not only
-     `Playwright G3 scenarios`. A run that tested nothing, or that a marker
+     `Playwright G3 scenarios`, and so is each lane of
+     `Typecheck, test, and build`. A run that tested nothing, or that a marker
      skipped, fails this, because `Record tree pass` and `Lint` report skipped
      there. With the check above, this is the rule **both attempts**: the
      covered jobs and the save job are green in the attempt that saved the
@@ -202,11 +211,13 @@ without waiting for it.
 
 5. **Covered jobs.** A required job always runs. Its first step checks the
    decision, and every other step is skipped only when `Tree pass marker`
-   succeeded and said "skip". That step's summary names the passing run
+   succeeded and said "skip", or said that the change is docs-only
+   ([Docs-only changes](ci-docs-only.md)), which `verify-workspace` ignores.
+   On a marker hit, that step's summary names the passing run
    (`…/actions/runs/<id>/attempts/<n>`), so a skipped run still leaves the URL
-   of the run that tested the tree. If `Tree pass marker` fails or is skipped,
-   every step runs. A covered job that is not required, `Lint`, is skipped
-   whole under the same condition.
+   of the run that tested the tree. If `Tree pass marker` fails or is
+   skipped, every step runs. A covered job that is not required, `Lint`, is
+   skipped whole on a marker hit, and runs on a docs-only change.
 
    The browser release gate runs its suite in five shards (see
    [Sharded G3 scenarios](#sharded-g3-scenarios)). Each shard is a leg of a
@@ -216,13 +227,18 @@ without waiting for it.
    run included: it runs its gate and then checks the shards, a marker hit
    included.
 
+   `Typecheck, test, and build` works the same way over four lanes, each a
+   job of its own (see
+   [Lanes of Typecheck, test, and build](#lanes-of-typecheck-test-and-build)).
+
 6. **Save.** `Record tree pass` runs only when the decision asked for a save,
-   which happens only for an eligible run that did not skip. It needs every
-   covered job except the G3 shards, which reach it through
-   `Playwright G3 scenarios`. GitHub's implicit `success()` also requires every
-   job it needs to have succeeded. Its record step then checks again: every
-   job it needs must report `success` and the output `tested=true`, which only
-   its last step sets after all its steps ran; for `Playwright G3 scenarios`
+   which happens only for an eligible run that did not skip, and the change is
+   not docs-only. It needs every covered job, each lane of
+   `Typecheck, test, and build` included, except the G3 shards, which reach it
+   through `Playwright G3 scenarios`. GitHub's implicit `success()` also
+   requires every job it needs to have succeeded. Its record step then checks
+   again: every job it needs must report `success` and the output
+   `tested=true`, which only its last step sets after all its steps ran; for `Playwright G3 scenarios`
    that means every shard passed and set its own `tested-<n>` (see
    [Sharded G3 scenarios](#sharded-g3-scenarios)). A failure there means the
    wiring is wrong, and the step fails. Then, with a warning and no marker but
@@ -240,7 +256,75 @@ without waiting for it.
    so a later full pass of the same tree adds a newer marker.
 
 A run the marker skipped never saves, because its decision says "no save" and
-its covered jobs never report `tested=true`.
+its covered jobs never report `tested=true`. A docs-only run never saves
+either: `Record tree pass` does not run, and its covered jobs never report
+`tested=true`.
+
+### Lanes of `Typecheck, test, and build`
+
+`ci.yml` runs the work of `Typecheck, test, and build` in four lanes at once,
+each on its own `blacksmith-2vcpu-ubuntu-2404` runner:
+
+| Lane (job ID)                                                          | What it runs after checkout, install and the two prepare steps                                                                                                                                                        |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Unit tests: qbit-extension` (`verify-extension-tests`)                | `pnpm --filter qbit-extension run test`: its `node --test ./scripts/*.test.js`, then its vitest suite                                                                                                                 |
+| `Unit tests: wallet-background` (`verify-wallet-background-tests`)     | `pnpm --filter @qbit/wallet-background run test`                                                                                                                                                                      |
+| `Typecheck, security checks and other unit tests` (`verify-workspace`) | `release:readiness -- --report-only` (before the prepare steps), `test:security-tooling` and `sdk:packages:check`, `typecheck`, every other workspace package's tests, `test:pqc-golden` and `test:protocol-vectors`  |
+| `Build and reproduce the extension` (`verify-package`)                 | `build:repro:extension -- --skip-prepare`, which builds the Chrome MV3 package twice from a clean state and fails unless the two builds are byte-identical, and the `chrome-mv3-extension` upload of the second build |
+
+The two prepare steps, "Prepare workspace declarations" and "Build wallet
+background package", build the packages' `lib/`, which the tests, the
+typecheck and the extension build read, so every lane runs them. The third
+lane picks its packages with exclusion filters only
+(`--filter '!qbit-extension' --filter '!@qbit/wallet-background'`), so a new
+workspace package's tests run there without a workflow change. No lane needs
+another lane's output or the order in which `pnpm -r` runs packages.
+
+- **Each lane** needs `Tree pass marker` with `if: ${{ !cancelled() }}`, has
+  the gate, and sets `tested=true` in its last step. It has 30 minutes, about
+  four times the longest lane's measured time. The lanes are separate jobs,
+  not legs of a matrix: they run different steps, and each reports its own
+  result, so `Typecheck, test, and build` can name the lane that failed and
+  how, and each lane sets the plain `tested` that `Record tree pass` reads.
+- **`Typecheck, test, and build`** (job `verify`) is the required check. It
+  is not a matrix job, needs `Tree pass marker` and the four lanes with
+  `if: ${{ always() }}`, runs on Blacksmith like the lanes, and has
+  `permissions: {}`: it reads only `needs`. After the same gate, its check
+  step requires each lane's result to be `success` on every run, a marker hit
+  included. Unless the gate said "skip", it also requires each lane's
+  `tested` to be `true`. Otherwise it fails, and an error annotation and a
+  line of its step summary name each lane that failed and why. Its last step,
+  gated as usual, sets `tested=true`. On a marker hit its gate's summary says
+  the lanes skipped their steps; on a docs-only change, that every lane but
+  `verify-workspace` did.
+- **`Record tree pass`** needs `Lint`, each lane and
+  `Typecheck, test, and build`, and its record step checks each one's
+  `tested`; `decide` checks each lane by name in the run a marker names.
+
+`Typecheck, test, and build` ends as `Playwright G3 scenarios` does in the
+tables under [Sharded G3 scenarios](#sharded-g3-scenarios), with lanes in
+place of shards, and the same holds for a cancelled run, a lane that hits its
+timeout and "Re-run failed jobs". One difference: each lane reports its own
+result, so a lane that was skipped fails the check on a marker hit too. The
+wiring tests check every one of those cases for the lanes.
+
+Measured on the 2-vCPU runner in run 44101553297, before the split, the work
+that moved into the lanes took about 186 s (`qbit-extension` tests), 203 s
+(`wallet-background` tests), 313 s (readiness, the adversarial suite at about
+88 s, typecheck, about 206 s of other packages' tests, and the PQC and
+protocol vectors) and 307 s (a package build at about 112 s, two more clean
+builds at about 193 s, and the upload), plus about 26 s of prepare steps in
+each lane. Since then `verify-workspace` runs the security tooling tests and
+the SDK pin check in place of the adversarial suite (whose test files run in
+their packages' lanes), and `verify-package` builds twice, in its
+reproducibility step alone, in place of three times. With about a minute of
+setup per lane, the longest lane takes about 5 to 5.5 minutes, and the
+required check reports a few seconds after it, where the single job took 14
+to 22 minutes. A full run takes about 4 to 5 runner-minutes more than the single
+job did: three more setups and prepare steps, and a few seconds for
+`Typecheck, test, and build`. On a marker hit, all four lanes still start,
+each only to run its gate; on a docs-only change, three do, and
+`verify-workspace` runs in full.
 
 ### Sharded G3 scenarios
 
@@ -291,6 +375,7 @@ How `Playwright G3 scenarios` ends:
 | skipped (not a pull request) | success, `tested=true`        | failure        | failure                            | failure                   |
 | failed                       | success, `tested=true`        | failure        | failure                            | failure                   |
 | hit                          | success, steps skipped        | failure        | failure                            | failure                   |
+| docs-only, no hit            | success, steps skipped        | failure        | failure                            | failure                   |
 | miss                         | success, `tested=true`, saved | failure        | failure                            | failure                   |
 
 And when the run is cancelled, in any of those rows:
@@ -391,33 +476,34 @@ The `main-protection` ruleset requires two checks:
 require none.
 
 - Both jobs keep running on a marker hit, with every step after the gate
-  skipped (`Playwright G3 scenarios` also checks its shards), so each check
-  reports **success**, not "skipped".
-- Neither is a matrix job, so their check names never change. The G3 shards
-  are a matrix job, whose legs GitHub names `Playwright G3 shard <n> of 5`;
-  none of them is a required check, and `Playwright G3 scenarios` reports
-  their combined result.
-- `Typecheck, test, and build` waits for `Tree pass marker` with
-  `if: ${{ !cancelled() }}`, and `Playwright G3 scenarios` waits for it and
-  the shards with `if: ${{ always() }}`, so both run in full when the marker
-  job fails or is skipped (every event but `pull_request`). GitHub's default
+  skipped (each also checks its lanes or shards), so each check reports
+  **success**, not "skipped".
+- Neither is a matrix job, so their check names never change. The lanes of
+  `Typecheck, test, and build` are jobs of their own, and the G3 shards are a
+  matrix job, whose legs GitHub names `Playwright G3 shard <n> of 5`; none of
+  them is a required check, and each required job reports the combined
+  result of its lanes or shards.
+- The lanes and the shards wait for `Tree pass marker` with
+  `if: ${{ !cancelled() }}`, and `Typecheck, test, and build` and
+  `Playwright G3 scenarios` wait for it and their lanes or shards with
+  `if: ${{ always() }}`, so all of them run in full when the marker job
+  fails or is skipped (every event but `pull_request`). GitHub's default
   `success()` would skip them instead, and [GitHub reports a job skipped by
   a failed dependency as passing a required
   check](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#handling-skipped-but-required-checks).
-- When a run is cancelled while `Tree pass marker` is queued or running,
-  `Typecheck, test, and build` reports `cancelled`, not `skipped`, and
-  GitHub counts only `success`, `skipped` and `neutral` as passing, so a
-  cancelled run never satisfies that check. This was observed in
-  Qbit-Org/qbit-mining-bootstrap run 39335241123 and four other runs, for
-  jobs with `needs` and `if: ${{ !cancelled() && … }}`. A `Tree pass marker`
-  that hits its 10-minute timeout also ends cancelled, but a timed-out job
-  does not make `cancelled()` true for the jobs that need it
-  (Qbit-Org/qbit-mining-bootstrap runs 36902925573 and 36904674276), so
-  both required jobs then run in full. `Playwright G3 scenarios` runs even
-  in a cancelled run: it fails unless every shard passed, shows the shards'
-  real result when the cancellation came after they all passed, and may
-  show cancelled when the cancellation lands before it can start (see
-  [Sharded G3 scenarios](#sharded-g3-scenarios)).
+- When a run is cancelled while `Tree pass marker` is queued or running, the
+  lanes and shards report `cancelled`, not `skipped`, as observed in
+  Qbit-Org/qbit-mining-bootstrap run 39335241123 and four other runs for jobs
+  with `needs` and `if: ${{ !cancelled() && … }}`. GitHub counts only
+  `success`, `skipped` and `neutral` as passing. Both required jobs run even
+  in a cancelled run: each fails unless every lane or shard passed, shows
+  their real result when the cancellation came after they all passed, and
+  may show cancelled when the cancellation lands before it can start (see
+  [Sharded G3 scenarios](#sharded-g3-scenarios)), which does not pass
+  either. A `Tree pass marker` that hits its 10-minute timeout also ends
+  cancelled, but a timed-out job does not make `cancelled()` true for the
+  jobs that need it (Qbit-Org/qbit-mining-bootstrap runs 36902925573 and
+  36904674276), so every covered job then runs in full.
 - No workflow or script in this repository polls these checks.
 
 ## Landing a pull request
@@ -677,12 +763,20 @@ the artifact it recorded, or why it declined.
   exactly `1` to `n` or anything else uses another total, if
   `TREE_PASS_COVERED_JOBS` misses a leg, or if `Playwright G3 scenarios`
   loses `if: ${{ always() }}` or `permissions: {}`, becomes a matrix job, or
-  stops checking a shard. No covered job, nor any of its steps, may carry
+  stops checking a shard. For the lanes of `Typecheck, test, and build`
+  they fail if a lane loses its gate or its `tested`, if the save job or
+  `TREE_PASS_COVERED_JOBS` misses a lane, or if `Typecheck, test, and build`
+  loses `if: ${{ always() }}` or `permissions: {}`, becomes a matrix job,
+  stops needing or checking a lane, or names a lane other than by its job's
+  name. No covered job, nor any of its steps, may carry
   `continue-on-error`. They run each leg's suite command through a stand-in
-  `xvfb-run`, and the check step for every state of `Tree pass marker`
-  crossed with shards that passed, failed, were cancelled or skipped, and
-  with the run cancelled before, while or after the shards run, to the
-  tables in [Sharded G3 scenarios](#sharded-g3-scenarios).
+  `xvfb-run`, and each check step for every state of `Tree pass marker`
+  crossed with shards or lanes that passed, failed, were cancelled or
+  skipped, or lost their outputs, and with the run cancelled before, while
+  or after they run, to the tables in
+  [Sharded G3 scenarios](#sharded-g3-scenarios). They also pin the docs-only
+  step, its output, each gate's `DOCS_ONLY` input and the save job's
+  condition ([Docs-only changes](ci-docs-only.md#changing-it)).
 - The dependency policy (`scripts/security/dependency-policy.mjs`) accepts
   those two sub-actions only in `ci.yml` and `playwright-release-gate.yml`,
   never in a local action or another workflow, and
@@ -703,3 +797,10 @@ the artifact it recorded, or why it declined.
   `TREE_PASS_COVERED_JOBS`; the wiring tests name whichever was missed. A
   covered matrix job other than the shards goes in `MARKED_WORKFLOWS` under
   `sharded`, with the job that aggregates it.
+- To add, remove or rebalance a lane of `Typecheck, test, and build`, change
+  the lane jobs and, to match, the needs, the check step's environment and
+  list in `Typecheck, test, and build`, the save job's needs,
+  `TREE_PASS_COVERED_JOBS`, and `stepGated` and `lanes` in the test's
+  `MARKED_WORKFLOWS`; the wiring tests name whichever was missed. A package
+  given a lane of its own must also be excluded from the third lane's
+  `--filter` list, or its tests run twice.

@@ -18,12 +18,20 @@ concurrency:
   cancel-in-progress: true
 
 # Tree pass marker (docs/ci-tree-pass-marker.md): on a pull request whose tree
-# under test already passed `Lint` and `Typecheck, test, and build` in an
-# earlier run that GitHub confirms, those two skip their work. Bump
+# under test already passed `Lint`, `Typecheck, test, and build` and its lanes
+# in an earlier run that GitHub confirms, those jobs skip their work. Bump
 # TREE_PASS_WORKFLOW_SALT to invalidate this workflow's markers; the
 # TREE_PASS_SALT repository variable invalidates every workflow's markers
 # without a commit. The TREE_PASS_FORCE_LABEL label on a pull request makes it
 # run in full.
+#
+# Docs-only changes (docs/ci-docs-only.md): on a pull request that changes only
+# documentation that no skipped step reads, `Typecheck, test, and build` and
+# its lanes skip their steps the same way, with no marker involved, and
+# nothing is saved. `Lint` still runs, and so does the lane
+# `Typecheck, security checks and other unit tests`, whose security tooling
+# tests read every tracked file. The same label makes such a pull request run
+# in full too.
 env:
   TREE_PASS_WORKFLOW: ci
   TREE_PASS_WORKFLOW_SALT: '1'
@@ -56,6 +64,7 @@ jobs:
       skip: ${{ steps.decide.outputs.skip }}
       save: ${{ steps.decide.outputs.save }}
       run-url: ${{ steps.decide.outputs.run-url }}
+      docs-only: ${{ steps.docs-only.outputs.docs-only }}
 
     steps:
       - name: Checkout
@@ -105,15 +114,29 @@ jobs:
           TREE_PASS_HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
           TREE_PASS_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
           # The names of the jobs the marker covers, which must have passed in
-          # the run a marker names.
-          TREE_PASS_COVERED_JOBS: '["Lint", "Typecheck, test, and build"]'
+          # the run a marker names: Lint, the required job and each of its
+          # lanes.
+          TREE_PASS_COVERED_JOBS: '["Lint", "Typecheck, test, and build", "Unit tests: qbit-extension", "Unit tests: wallet-background", "Typecheck, security checks and other unit tests", "Build and reproduce the extension"]'
         run: node scripts/security/tree-pass-marker.mjs decide
+
+      # Whether the pull request changes only documentation that no skipped
+      # step reads, judged from the merge under test against its base and the
+      # labels read now. It never touches the marker. Any doubt or error there
+      # sets false, a full run, and leaves the step green; a wiring error fails
+      # it, and with it this job, which also means a full run.
+      - name: Check for a docs-only change
+        id: docs-only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TREE_PASS_PR_NUMBER: ${{ github.event.pull_request.number }}
+          TREE_PASS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/security/docs-only-change.mjs
 
   lint:
     name: Lint
     needs: tree-pass
     # Lint is not a required check, so a marker hit skips the whole job. A
-    # failed marker job never skips it.
+    # failed marker job never skips it, and neither does a docs-only change.
     if: ${{ !cancelled() && !(needs.tree-pass.result == 'success' && needs.tree-pass.outputs.skip == 'true') }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
@@ -214,19 +237,203 @@ jobs:
       - name: Enforce dependency and license policy
         run: corepack pnpm security:dependencies
 
-  verify:
-    name: Typecheck, test, and build
+  # The work of `Typecheck, test, and build` runs in four lanes at once: the
+  # two longest test suites each on their own, the remaining checks and
+  # tests, and the extension build. Each lane is a job of its own, not a leg
+  # of a matrix, because the lanes run different steps, and so that the job
+  # below sees each lane's own result and names the one that failed. A lane
+  # is not a required check. It runs unless the run is cancelled: on a marker
+  # hit, or a docs-only change for every lane but verify-workspace, only its
+  # steps are skipped, and a failed or skipped marker job runs everything. Its
+  # 30 minutes are about four times the longest lane's measured time; a hang
+  # holds a runner, and the required check waits for the slowest lane. Each
+  # lane prepares the workspace itself, since the tests and the build read
+  # the packages' built lib/.
+  verify-extension-tests:
+    name: 'Unit tests: qbit-extension'
     needs: tree-pass
-    # A required check. The job always runs, so its check reports success or
-    # failure, never "skipped"; on a marker hit only its steps are skipped. A
-    # failed marker job runs everything.
     if: ${{ !cancelled() }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
-    timeout-minutes: 60
+    timeout-minutes: 30
     outputs:
       tested: ${{ steps.tested.outputs.tested }}
 
     steps:
+      - name: Check for a tree pass marker
+        id: gate
+        env:
+          MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
+          MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
+          MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+          DOCS_ONLY: ${{ needs.tree-pass.outputs.docs-only }}
+        run: |
+          if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This pull request changes only documentation that no skipped step reads, so its steps are skipped. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Run pnpm through Corepack
+        if: steps.gate.outputs.skip != 'true'
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        if: steps.gate.outputs.skip != 'true'
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Prepare workspace declarations
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
+
+      - name: Build wallet background package
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm --filter @qbit/wallet-background run build
+
+      - name: Run qbit-extension unit tests
+        if: steps.gate.outputs.skip != 'true'
+        # Its node --test scripts, then its vitest suite.
+        run: corepack pnpm --filter qbit-extension run test
+
+      - name: Record that this job ran
+        id: tested
+        if: steps.gate.outputs.skip != 'true'
+        run: echo 'tested=true' >> "$GITHUB_OUTPUT"
+
+  verify-wallet-background-tests:
+    name: 'Unit tests: wallet-background'
+    needs: tree-pass
+    if: ${{ !cancelled() }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
+
+    steps:
+      - name: Check for a tree pass marker
+        id: gate
+        env:
+          MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
+          MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
+          MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+          DOCS_ONLY: ${{ needs.tree-pass.outputs.docs-only }}
+        run: |
+          if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This pull request changes only documentation that no skipped step reads, so its steps are skipped. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Run pnpm through Corepack
+        if: steps.gate.outputs.skip != 'true'
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        if: steps.gate.outputs.skip != 'true'
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Prepare workspace declarations
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
+
+      - name: Build wallet background package
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm --filter @qbit/wallet-background run build
+
+      - name: Run wallet-background unit tests
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm --filter @qbit/wallet-background run test
+
+      - name: Record that this job ran
+        id: tested
+        if: steps.gate.outputs.skip != 'true'
+        run: echo 'tested=true' >> "$GITHUB_OUTPUT"
+
+  verify-workspace:
+    name: Typecheck, security checks and other unit tests
+    needs: tree-pass
+    if: ${{ !cancelled() }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
+
+    steps:
+      # Only a marker hit skips this lane; a docs-only change does not. Its
+      # security tooling tests read every tracked file, documentation
+      # included (former-owner.test.mjs reads their contents), and this lane
+      # is the one that runs them for a required check.
       - name: Check for a tree pass marker
         id: gate
         env:
@@ -295,38 +502,124 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm --filter @qbit/wallet-background run build
 
-      - name: Run adversarial security suite
+      # The adversarial suite's test files run in the unit test lanes, under
+      # their packages' own test scripts, which adversarial-tests.test.mjs
+      # holds them to, so only the suite's other checks run here. Dependency policy runs the security tooling too, but
+      # it is not a required check; the PQC workflow runs the SDK package
+      # check only when its paths change.
+      - name: Run security tooling tests and check SDK package pins
         if: steps.gate.outputs.skip != 'true'
-        run: corepack pnpm run test:security-adversarial
+        run: |
+          corepack pnpm run test:security-tooling
+          corepack pnpm run sdk:packages:check
 
       - name: Typecheck packages
         if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm -r --if-present run typecheck
 
-      - name: Run unit tests
+      # Every workspace package's tests but the two that have lanes of their
+      # own, so a new package's tests run here without a change to this file.
+      - name: Run the other unit tests
         if: steps.gate.outputs.skip != 'true'
         run: |
-          corepack pnpm -r --if-present test
+          corepack pnpm -r --if-present --filter '!qbit-extension' --filter '!@qbit/wallet-background' test
           corepack pnpm run test:pqc-golden
           corepack pnpm run test:protocol-vectors
 
-      - name: Resolve extension artifact version
-        id: extension-version
+      - name: Record that this job ran
+        id: tested
+        if: steps.gate.outputs.skip != 'true'
+        run: echo 'tested=true' >> "$GITHUB_OUTPUT"
+
+  verify-package:
+    name: Build and reproduce the extension
+    needs: tree-pass
+    if: ${{ !cancelled() }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
+
+    steps:
+      - name: Check for a tree pass marker
+        id: gate
+        env:
+          MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
+          MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
+          MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+          DOCS_ONLY: ${{ needs.tree-pass.outputs.docs-only }}
+        run: |
+          if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This pull request changes only documentation that no skipped step reads, so its steps are skipped. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Run pnpm through Corepack
+        if: steps.gate.outputs.skip != 'true'
+        # Corepack installs the pnpm that package.json's packageManager pins and
+        # checks it against the pin's sha512 hash. No earlier step runs pnpm.
+        # Its shim must come first on PATH, so package scripts that call `pnpm`
+        # run the checked pnpm too.
+        run: |
+          corepack enable
+          test "$(dirname "$(command -v pnpm)")" = "$(dirname "$(command -v node)")"
+
+      - name: Locate the pnpm store
+        id: pnpm-store
         if: steps.gate.outputs.skip != 'true'
         run: |
-          artifact_version="$(node -p "require('./apps/extension/package.json').version.split('-beta')[0]")"
-          echo "artifact_version=${artifact_version}" >> "$GITHUB_OUTPUT"
+          store_path="$(corepack pnpm store path --silent)"
+          echo "path=${store_path}" >> "$GITHUB_OUTPUT"
 
-      - name: Build Chrome MV3 extension
+      - name: Cache the pnpm store
         if: steps.gate.outputs.skip != 'true'
-        env:
-          ARTIFACT_VERSION: ${{ steps.extension-version.outputs.artifact_version }}
-        run: corepack pnpm --filter qbit-extension run package:test -- --artifact-version "$ARTIFACT_VERSION"
+        # The checked pnpm above names the store, and the key is the runner OS
+        # and the lockfile.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
-      - name: Verify two clean extension builds are byte-identical
+      - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm install --frozen-lockfile
+
+      # build:repro:extension's --skip-prepare reads the packages' built lib/.
+      - name: Prepare workspace declarations
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm -r --if-present --filter './packages/**' --filter '!@qbit/wallet-background' run build
+
+      - name: Build wallet background package
+        if: steps.gate.outputs.skip != 'true'
+        run: corepack pnpm --filter @qbit/wallet-background run build
+
+      # This is the job's only extension build. The script builds twice from a
+      # clean state, with the artifact version it reads from
+      # apps/extension/package.json, and fails unless the two builds are
+      # byte-identical. A separate build before it would be thrown away,
+      # because the script deletes the ZIP and its output before each build.
+      - name: Build Chrome MV3 extension twice and verify the builds are byte-identical
         if: steps.gate.outputs.skip != 'true'
         run: corepack pnpm run build:repro:extension -- --skip-prepare
 
+      # The script leaves the second build's ZIP and sidecars in dist, and has
+      # checked them byte for byte against the first build, so the artifact
+      # is exactly what the step above compared.
       - name: Upload Chrome MV3 extension artifact
         if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -341,13 +634,110 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: echo 'tested=true' >> "$GITHUB_OUTPUT"
 
+  verify:
+    name: Typecheck, test, and build
+    needs:
+      - tree-pass
+      - verify-extension-tests
+      - verify-wallet-background-tests
+      - verify-workspace
+      - verify-package
+    # A required check, which reports the lanes' combined result, never
+    # "skipped": its check step fails unless every lane's result is success.
+    # It runs even in a cancelled run, so the check does not depend on how
+    # GitHub reports a job that never started there. A cancellation that
+    # leaves a lane without success, such as a newer push while the lanes
+    # run, shows failure on the older commit; one after every lane passed
+    # shows the lanes' real result. One that lands before this job can start
+    # may still show cancelled, which does not pass either. It is a few shell
+    # lines, so that it cannot be cancelled costs nothing. On a marker hit or a
+    # docs-only change only its last step is skipped, and a failed marker job
+    # runs everything.
+    if: ${{ always() }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    # It reads only `needs`: no checkout, no token.
+    permissions: {}
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
+
+    steps:
+      - name: Check for a tree pass marker
+        id: gate
+        env:
+          MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
+          MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
+          MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+          DOCS_ONLY: ${{ needs.tree-pass.outputs.docs-only }}
+        run: |
+          if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This tree already passed this job in $MARKER_RUN_URL, so the lanes skipped their steps; this job still checks that every lane succeeded." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This pull request changes only documentation that no skipped step reads, so the lanes skipped their steps, except 'Typecheck, security checks and other unit tests', which ran in full because its security tooling tests read every tracked file; this job still checks that every lane succeeded. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Runs on a marker hit or a docs-only change too, when the gate said
+      # skip (MARKER_HIT): every lane must have succeeded, having skipped its
+      # steps by the same decision. Otherwise each lane must also have run all
+      # its steps. A failed, cancelled, timed-out or skipped lane, or one that
+      # recorded nothing, fails this job, and its error and summary name the
+      # lane.
+      - name: Check every lane ran and passed
+        env:
+          MARKER_HIT: ${{ steps.gate.outputs.skip }}
+          VERIFY_EXTENSION_TESTS_RESULT: ${{ needs.verify-extension-tests.result }}
+          VERIFY_EXTENSION_TESTS_TESTED: ${{ needs.verify-extension-tests.outputs.tested }}
+          VERIFY_WALLET_BACKGROUND_TESTS_RESULT: ${{ needs.verify-wallet-background-tests.result }}
+          VERIFY_WALLET_BACKGROUND_TESTS_TESTED: ${{ needs.verify-wallet-background-tests.outputs.tested }}
+          VERIFY_WORKSPACE_RESULT: ${{ needs.verify-workspace.result }}
+          VERIFY_WORKSPACE_TESTED: ${{ needs.verify-workspace.outputs.tested }}
+          VERIFY_PACKAGE_RESULT: ${{ needs.verify-package.result }}
+          VERIFY_PACKAGE_TESTED: ${{ needs.verify-package.outputs.tested }}
+        run: |
+          status=0
+          fail() {
+            echo "::error::$1"
+            echo "- $1" >> "$GITHUB_STEP_SUMMARY"
+            status=1
+          }
+          check_lane() {
+            if [ "$2" != success ]; then
+              fail "Lane \"$1\": its result is \"$2\", not success; see its job."
+            elif [ "$MARKER_HIT" != true ] && [ "$3" != true ]; then
+              fail "Lane \"$1\" did not run all its steps."
+            fi
+          }
+          check_lane 'Unit tests: qbit-extension' "$VERIFY_EXTENSION_TESTS_RESULT" "$VERIFY_EXTENSION_TESTS_TESTED"
+          check_lane 'Unit tests: wallet-background' "$VERIFY_WALLET_BACKGROUND_TESTS_RESULT" "$VERIFY_WALLET_BACKGROUND_TESTS_TESTED"
+          check_lane 'Typecheck, security checks and other unit tests' "$VERIFY_WORKSPACE_RESULT" "$VERIFY_WORKSPACE_TESTED"
+          check_lane 'Build and reproduce the extension' "$VERIFY_PACKAGE_RESULT" "$VERIFY_PACKAGE_TESTED"
+          exit "$status"
+
+      - name: Record that every lane ran
+        id: tested
+        if: steps.gate.outputs.skip != 'true'
+        run: echo 'tested=true' >> "$GITHUB_OUTPUT"
+
   tree-pass-save:
     name: Record tree pass
-    # Every job the marker stands for. The implicit success() also requires
-    # each of them, and tree-pass, to have succeeded; the record step checks
-    # them again.
-    needs: [tree-pass, lint, verify]
-    if: needs.tree-pass.outputs.save == 'true'
+    # Every job the marker stands for: Lint, each lane, and
+    # `Typecheck, test, and build`, which needs the lanes. Each lane is a job
+    # of its own with its own `tested`, so the record step reads each one
+    # directly. The implicit success() also requires each of them, and
+    # tree-pass, to have succeeded; the record step checks them again.
+    needs:
+      - tree-pass
+      - lint
+      - verify-extension-tests
+      - verify-wallet-background-tests
+      - verify-workspace
+      - verify-package
+      - verify
+    # A docs-only run skipped the covered jobs' steps, so it has no pass to
+    # record.
+    if: needs.tree-pass.outputs.save == 'true' && needs.tree-pass.outputs.docs-only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # This job only writes the marker; it never restores one.

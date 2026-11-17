@@ -25,6 +25,11 @@ concurrency:
 # TREE_PASS_SALT repository variable invalidates every workflow's markers
 # without a commit. The TREE_PASS_FORCE_LABEL label on a pull request makes it
 # run in full.
+#
+# Docs-only changes (docs/ci-docs-only.md): on a pull request that changes only
+# documentation that no skipped step reads, the same jobs skip their steps the
+# same way, with no marker involved, and nothing is saved. The same label makes
+# such a pull request run in full too.
 env:
   TREE_PASS_WORKFLOW: browser-release-gate
   TREE_PASS_WORKFLOW_SALT: '1'
@@ -57,6 +62,7 @@ jobs:
       skip: ${{ steps.decide.outputs.skip }}
       save: ${{ steps.decide.outputs.save }}
       run-url: ${{ steps.decide.outputs.run-url }}
+      docs-only: ${{ steps.docs-only.outputs.docs-only }}
 
     steps:
       - name: Checkout
@@ -110,6 +116,19 @@ jobs:
           # name GitHub gives each leg of the shard matrix.
           TREE_PASS_COVERED_JOBS: '["Playwright G3 scenarios", "Playwright G3 shard 1 of 5", "Playwright G3 shard 2 of 5", "Playwright G3 shard 3 of 5", "Playwright G3 shard 4 of 5", "Playwright G3 shard 5 of 5"]'
         run: node scripts/security/tree-pass-marker.mjs decide
+
+      # Whether the pull request changes only documentation that no skipped
+      # step reads, judged from the merge under test against its base and the
+      # labels read now. It never touches the marker. Any doubt or error there
+      # sets false, a full run, and leaves the step green; a wiring error fails
+      # it, and with it this job, which also means a full run.
+      - name: Check for a docs-only change
+        id: docs-only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TREE_PASS_PR_NUMBER: ${{ github.event.pull_request.number }}
+          TREE_PASS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/security/docs-only-change.mjs
 
   playwright-g3-shard:
     name: Playwright G3 shard ${{ matrix.shard }} of 5
@@ -166,10 +185,14 @@ jobs:
           MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
           MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
           MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+          DOCS_ONLY: ${{ needs.tree-pass.outputs.docs-only }}
         run: |
           if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
             echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This pull request changes only documentation that no skipped step reads, so its steps are skipped. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Checkout
@@ -280,8 +303,9 @@ jobs:
     # run, shows failure on the older commit; one after every shard passed
     # shows the shards' real result. One that lands before this job can start
     # may still show cancelled, which does not pass either. It is a few shell
-    # lines, so that it cannot be cancelled costs nothing. On a marker hit
-    # only its last step is skipped, and a failed marker job runs everything.
+    # lines, so that it cannot be cancelled costs nothing. On a marker hit or a
+    # docs-only change only its last step is skipped, and a failed marker job
+    # runs everything.
     if: ${{ always() }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
@@ -297,16 +321,21 @@ jobs:
           MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
           MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
           MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+          DOCS_ONLY: ${{ needs.tree-pass.outputs.docs-only }}
         run: |
           if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
             echo "This tree already passed this job in $MARKER_RUN_URL, so the shards skipped their steps; this job still checks that every shard succeeded." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This pull request changes only documentation that no skipped step reads, so the shards skipped their steps; this job still checks that every shard succeeded. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Runs on a marker hit too: every shard must have succeeded, having
-      # skipped its steps by the same decision. Otherwise each shard must also
-      # have run all its steps. A failed, cancelled, timed-out or skipped
-      # shard, or one that recorded nothing, fails this job.
+      # Runs on a marker hit or a docs-only change too, when the gate said
+      # skip (MARKER_HIT): every shard must have succeeded, having skipped its
+      # steps by the same decision. Otherwise each shard must also have run all
+      # its steps. A failed, cancelled, timed-out or skipped shard, or one that
+      # recorded nothing, fails this job.
       - name: Check every shard ran and passed
         env:
           SHARDS_RESULT: ${{ needs.playwright-g3-shard.result }}
@@ -346,7 +375,9 @@ jobs:
     # implicit success() also requires it, and tree-pass, to have succeeded;
     # the record step checks them again.
     needs: [tree-pass, playwright-release-gate]
-    if: needs.tree-pass.outputs.save == 'true'
+    # A docs-only run skipped the covered jobs' steps, so it has no pass to
+    # record.
+    if: needs.tree-pass.outputs.save == 'true' && needs.tree-pass.outputs.docs-only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # This job only writes the marker; it never restores one.

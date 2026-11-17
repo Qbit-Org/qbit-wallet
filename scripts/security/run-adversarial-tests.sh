@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The focused adversarial checks, for a local run or an audit. CI does not run
+# this script: its test files run under their packages' own test scripts,
+# which adversarial-tests.test.mjs holds them to by reading this file, and
+# ci.yml's verify-workspace lane runs the security tooling and the SDK package
+# check itself. Keep each command in the form that test reads.
+
 corepack pnpm run test:security-tooling
 
 corepack pnpm --filter @qbit/keyring-service exec vitest run \
