@@ -8,7 +8,7 @@ repository admin applies it with `gh` from the repository root.
 | --- | --- |
 | `signed-commits.json` | A verified signature on every commit added to `main` and `release/*`. No bypass actors. |
 | `required-checks.json` | `main`: the `Typecheck, test, and build`, `Playwright G3 scenarios` and `signed-landing` checks must pass. No bypass actors. |
-| `required-checks-release.json` | `release/*`, except reconcile branches such as `release/1.0.8-reconcile-main`: pull requests only, with no approval required, squash merges and merge commits only, and the `signed-landing` check must pass. No bypass actors. Not enforced when the branch is created. |
+| `required-checks-release.json` | `release/*`, except reconcile branches such as `release/1.0.8-reconcile-main`: pull requests only, with no approval required, squash merges and merge commits only, and the `Playwright G3 scenarios` and `signed-landing` checks must pass. No bypass actors. Not enforced when the branch is created. |
 | `main-protection.json` | `main`: pull requests with one approval and a code owner's review, squash merges and merge commits only; no creation, deletion or force push. Organization admins and repository admins can bypass it when merging a pull request. |
 | `release-tags.json` | `v*` tags can't be moved or deleted. No bypass actors. |
 
@@ -155,6 +155,14 @@ apply() {
 Don't apply a file that requires `signed-landing` until `signed-landing.yml`
 is on `main` and the Actions policy allows it: until then nothing reports the
 check, and no pull request into a branch that requires it can merge.
+
+`Playwright G3 scenarios` comes from
+[`../workflows/playwright-release-gate.yml`](../workflows/playwright-release-gate.yml),
+and a pull request is judged by the copy on the branch it targets, merged with
+its own changes. Before applying `required-checks-release.json`, check that
+every `release/*` branch with an open pull request has a copy that runs on
+pull requests into `release/**`. A branch without one never reports the check,
+and no pull request into it can merge.
 
 Until `required-checks.json` and `main-protection.json` are applied as they
 are here, GitHub's rules for `main` lack some of the rules `signed-landing`
