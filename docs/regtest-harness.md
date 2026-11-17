@@ -4,7 +4,8 @@ This harness is the local backend for wallet and conformance tests. It runs qbit
 
 ## Requirements
 
-- Docker with `docker compose`.
+- Docker Engine 25 or later with `docker compose` (the `qbitd` healthcheck uses
+  `start_interval`).
 - For `qbitd`: nothing extra — the image installs verified release binaries from
   the public `Qbit-Org/qbit` GitHub release.
 - For `electrs-qbit`: a source build of `Qbit-Org/qbit-electrs` (Rust toolchain

@@ -67,7 +67,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),
@@ -242,7 +242,7 @@ describe('the plan left once the entry it conflicted with is cancelled', () => {
     expect(world.keyring.signed).toHaveLength(signed)
     expect(world.keyring.counter).toBe(counter)
 
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     world.mine()
     await world.tick()

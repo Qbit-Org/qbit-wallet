@@ -61,7 +61,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),
@@ -261,7 +261,7 @@ async function restartAndContinue(planId: string): Promise<void> {
   await world.restart()
   await world.unlock()
   await world.plan()
-  await world.wallet.continueQbitSendPlan(planId).catch(() => undefined)
+  await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId)).catch(() => undefined)
   await world.settle()
   world.mine()
   await world.tick()
@@ -333,7 +333,9 @@ describe('a stored plan whose fees are not the wallet’s own', () => {
       sent: false,
     })
     expect((await world.planHeld()).size).toBe(0)
-    await expect(world.wallet.continueQbitSendPlan(planId)).rejects.toThrow('not open')
+    await expect(
+      world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
+    ).rejects.toThrow('not open')
     world.mine()
     await world.tick()
     world.mine()

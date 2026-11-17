@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 import { ExtensionPageObject } from './base-page'
+import { ResetWalletDialog } from './reset-wallet-dialog'
 
 /** The tags a wallet can show next to its name, as their test IDs spell them. */
 export type WalletTag = 'read-only' | 'recovered' | 'archived' | 'cold'
@@ -10,6 +11,17 @@ export const WALLET_TAGS: readonly WalletTag[] = ['read-only', 'recovered', 'arc
 export type WalletMenuItem = 'add-account' | 'rename' | 'change-color' | 'show-phrase' | 'remove'
 
 export type AccountMenuItem = 'edit-name' | 'copy-address' | 'export-key'
+
+/**
+ * A total as the switcher shows it in every locale: `sats` in whole coins,
+ * without the fraction's trailing zeros, then `unit` ("12.5 QBT", "0 QBT").
+ */
+export function switcherAmount(sats: number | bigint, unit: string): string {
+  const value = BigInt(sats)
+  const whole = value / 100_000_000n
+  const fraction = (value % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '')
+  return `${whole}${fraction ? `.${fraction}` : ''} ${unit}`
+}
 
 /** The short address the switcher shows for an account. */
 export function shortAddress(address: string): string {
@@ -113,6 +125,64 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
 
   accountMenuButton(address: string): Locator {
     return this.byTestId(`account-menu-${address}`)
+  }
+
+  /**
+   * The total at the end of an account's row: an amount in the network's
+   * unit, `****` while balances are hidden, `--` when it is unknown, or an
+   * empty placeholder (`data-pending="true"`) while it is on its way.
+   */
+  accountBalance(address: string): Locator {
+    return this.byTestId(`account-balance-${address}`)
+  }
+
+  /** The wallet's total after the account count in its group header, shown as an account's is. */
+  walletTotal(keyringKey: string): Locator {
+    return this.byTestId(`wallet-total-${keyringKey}`)
+  }
+
+  /** A wallet group's header: its tile, name line, count line and buttons. */
+  walletHeader(keyringKey: string): Locator {
+    return this.walletGroup(keyringKey).locator('.switcher-group__header')
+  }
+
+  /** The account name on an account's row. */
+  accountName(address: string): Locator {
+    return this.accountRow(address).locator('.switcher-row__name')
+  }
+
+  /**
+   * Every total the sheet shows, on the rows and in the wallet headers, but
+   * not the note a stale wallet total carries for screen readers.
+   */
+  get totals(): Locator {
+    return this.root.locator(
+      '[data-testid^="account-balance-"], [data-testid^="wallet-total-"]:not([data-testid^="wallet-total-stale-"])'
+    )
+  }
+
+  /** The note, for screen readers only, that a wallet's total may be out of date. */
+  walletTotalStaleNote(keyringKey: string): Locator {
+    return this.byTestId(`wallet-total-stale-${keyringKey}`)
+  }
+
+  /** The totals still on their way. */
+  get pendingTotals(): Locator {
+    return this.root.locator('[data-pending="true"]')
+  }
+
+  /**
+   * The text of every total the sheet shows, by its test ID; a placeholder
+   * still on its way shows as "".
+   */
+  async totalTexts(): Promise<Record<string, string>> {
+    const entries = await this.totals.evaluateAll(elements =>
+      elements.map(element => [
+        element.getAttribute('data-testid') ?? '',
+        (element.textContent ?? '').trim(),
+      ])
+    )
+    return Object.fromEntries(entries)
   }
 
   /** The highlighted row of the current account. */
@@ -253,6 +323,27 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
     await expect(confirm).toBeVisible()
     await confirm.click()
     await expect(this.walletGroup(keyringKey)).toHaveCount(0, { timeout: 30_000 })
+    await expect(this.removalDialog).toHaveCount(0)
+  }
+
+  /**
+   * Remove Wallet on the last wallet: the removal would leave no wallet, so
+   * the menu opens the Reset Wallet dialog, which says so, in place of the
+   * removal popover. Nothing is erased before that dialog is confirmed.
+   */
+  async chooseRemoveOnLastWallet(keyringKey: string): Promise<ResetWalletDialog> {
+    await this.chooseWalletMenuItem(keyringKey, 'remove')
+    const dialog = new ResetWalletDialog(this.page)
+    await dialog.waitUntilOpen()
+    await expect(dialog.lastWalletNote).toBeVisible()
+    await expect(this.removalDialog).toHaveCount(0)
+    await expect(this.menu).toHaveCount(0)
+    return dialog
+  }
+
+  /** Cancel in the removal popover, which removes nothing. */
+  async cancelRemoval(): Promise<void> {
+    await this.removalDialog.getByText('Cancel', { exact: true }).click()
     await expect(this.removalDialog).toHaveCount(0)
   }
 

@@ -24,6 +24,7 @@ import {
   noteRedirectToUnlock,
   SEND_FORM_RETURN_FALLBACK_MS
 } from '@/ui/utils/sendFormReturn';
+import { createWalletResetHandler, installWalletResetHandler, ShownWalletGoneError } from '@/ui/utils/walletReset';
 import { unhandledRejectionsDuring } from '../../../../../../../tests/support/unhandledRejections';
 import { useNavigate } from '../../MainRoute';
 import UnlockScreen from './index';
@@ -118,6 +119,8 @@ describe('UnlockScreen after the wallet unlocks', () => {
   const navToRootHome = vi.fn();
   const getApproval = vi.fn();
   const unlock = vi.fn();
+  // Whether the background still has a wallet set up.
+  const isBooted = vi.fn();
   let isUnlocked = false;
 
   function setUi(isNotification: boolean) {
@@ -180,8 +183,10 @@ describe('UnlockScreen after the wallet unlocks', () => {
     } as unknown as ReturnType<typeof useBiometricUnlock>);
     vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as unknown as ReturnType<typeof useI18n>);
     vi.mocked(useTools).mockReturnValue({ toastError: vi.fn() } as unknown as ReturnType<typeof useTools>);
+    isBooted.mockReset().mockResolvedValue(true);
     vi.mocked(useWallet).mockReturnValue({
-      hasVault: vi.fn().mockResolvedValue(true)
+      hasVault: vi.fn().mockResolvedValue(true),
+      isBooted
     } as unknown as ReturnType<typeof useWallet>);
     getApproval.mockResolvedValue(CONNECT_APPROVAL);
     unlock.mockResolvedValue(undefined);
@@ -310,6 +315,205 @@ describe('UnlockScreen after the wallet unlocks', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('wallet_locked_during_unlock'));
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByTestId('unlock-password-input')).toBeTruthy();
+  });
+
+  // A reset that could not tell whether it erased the wallets leaves the
+  // wallet locked, and the background refuses every unlock until the browser
+  // restarts: the right password must not be called wrong.
+  const OUTCOME_UNKNOWN = {
+    code: ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN,
+    message: 'The reset could not be finished. Restart your browser, then open Qbit Wallet to check.'
+  };
+
+  async function unlockWithPassword(password: string) {
+    fireEvent.change(screen.getByTestId('unlock-password-input'), { target: { value: password } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('unlock-button'));
+    });
+  }
+
+  it.each([
+    ['on the lock screen', false],
+    ['in the approval window of a website request', true]
+  ])('shows why a reset of unknown outcome refuses the unlock, %s', async (_where, isNotification) => {
+    setUi(isNotification);
+    getApproval.mockResolvedValue({ id: 'unlock-approval-id', data: { lock: true } });
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    unlock.mockRejectedValue(OUTCOME_UNKNOWN);
+    renderScreen();
+
+    await unlockWithPassword('correct horse');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(OUTCOME_UNKNOWN.message));
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalledWith('password_error');
+    // Not handled as a wrong password: the password stays, and nothing moves.
+    expect((screen.getByTestId('unlock-button') as HTMLButtonElement).disabled).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(navToRootHome).not.toHaveBeenCalled();
+  });
+
+  it('falls back to its own text for a reset of unknown outcome without a message', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    unlock.mockRejectedValue({ code: ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN });
+    renderScreen();
+
+    await unlockWithPassword('correct horse');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('wallet_reset_outcome_unknown'));
+  });
+
+  it('shows the same through Touch ID', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    vi.mocked(useBiometricUnlock).mockReturnValue({
+      ready: true,
+      supported: true,
+      enrolled: true,
+      unlockWithBiometric: vi.fn().mockRejectedValue(OUTCOME_UNKNOWN)
+    } as unknown as ReturnType<typeof useBiometricUnlock>);
+    renderScreen();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('unlock-touch-id-button'));
+    });
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(OUTCOME_UNKNOWN.message));
+    expect(toastError).not.toHaveBeenCalledWith('password_error');
+  });
+
+  it('still says a wrong password is wrong', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    unlock.mockRejectedValue({ message: 'Password is incorrect' });
+    renderScreen();
+
+    await unlockWithPassword('wrong');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('password_error'));
+    // Asked first whether a wallet is still set up: it is.
+    expect(isBooted).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  // The page shows a wallet the background no longer holds, and it was not
+  // reopened in time: the unlock ends refused, and the screen says why.
+  it('says the page is out of date rather than calling the password wrong', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    // The gate's refusal, in the -22 words (the entry translates them).
+    unlock.mockRejectedValue(new ShownWalletGoneError('This page was showing a wallet that is no longer set up here.'));
+    renderScreen();
+
+    await unlockWithPassword('the new wallet password');
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('This page was showing a wallet that is no longer set up here.')
+    );
+    expect(toastError).not.toHaveBeenCalledWith('password_error');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  // The background refused the unlock of a page showing a wallet that is no
+  // longer set up (-22); the page is reopening.
+  it('shows why the background refused the unlock of a page that is out of date', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    unlock.mockRejectedValue({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE, message: 'This page is out of date.' });
+    renderScreen();
+
+    await unlockWithPassword('the new wallet password');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('This page is out of date.'));
+    expect(toastError).not.toHaveBeenCalledWith('password_error');
+    expect(isBooted).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('falls back to its own text for a refusal of a page out of date without a message', async () => {
+    setUi(false);
+    const toastError = vi.fn();
+    vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+    unlock.mockRejectedValue({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE });
+    renderScreen();
+
+    await unlockWithPassword('the new wallet password');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('wallet_page_out_of_date'));
+    expect(toastError).not.toHaveBeenCalledWith('password_error');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing back when the wallet locked while unlocking', async () => {
+    setUi(false);
+    unlock.mockRejectedValue({ code: ErrorCodes.WALLET_LOCKED_DURING_UNLOCK });
+    renderScreen();
+
+    await unlockWithPassword('correct horse');
+
+    expect(isBooted).not.toHaveBeenCalled();
+  });
+
+  // The background started again and finished a reset this page did not
+  // hear of: the unlock fails because no wallet is left, not for the password.
+  describe('when no wallet is left', () => {
+    const reload = vi.fn();
+    let uninstall: () => void;
+
+    beforeEach(() => {
+      reload.mockReset();
+      isBooted.mockResolvedValue(false);
+      uninstall = installWalletResetHandler(createWalletResetHandler({ clearMemory: vi.fn(), reload }), {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      });
+    });
+
+    afterEach(() => {
+      uninstall();
+    });
+
+    it('reopens on Welcome instead of calling the password wrong', async () => {
+      setUi(false);
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+      unlock.mockRejectedValue({ message: 'Cannot unlock without a previous vault' });
+      renderScreen();
+
+      await unlockWithPassword('correct horse');
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(toastError).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('reopens on Welcome instead of calling the Touch ID record stale', async () => {
+      setUi(true);
+      const toastError = vi.fn();
+      vi.mocked(useTools).mockReturnValue({ toastError } as unknown as ReturnType<typeof useTools>);
+      const { BiometricRecordStaleError } = await import('@qbit/wallet-state');
+      vi.mocked(useBiometricUnlock).mockReturnValue({
+        ready: true,
+        supported: true,
+        enrolled: true,
+        unlockWithBiometric: vi.fn().mockRejectedValue(new BiometricRecordStaleError())
+      } as unknown as ReturnType<typeof useBiometricUnlock>);
+      renderScreen();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('unlock-touch-id-button'));
+      });
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(toastError).not.toHaveBeenCalled();
+    });
   });
 
   it('still opens MainScreen outside an approval window', async () => {

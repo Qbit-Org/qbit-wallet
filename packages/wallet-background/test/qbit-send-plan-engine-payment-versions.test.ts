@@ -69,7 +69,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),
@@ -290,7 +290,7 @@ describe('earlier versions of the payment', () => {
       outputs: [{ address: PAYER, script: PAYER_SCRIPT, value: direct.satoshis - 10_000 }],
       height: world.explorer.tipHeight + 1,
     })
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     const spent = (await world.plan())!
     expect(spent).toMatchObject({
@@ -312,7 +312,7 @@ describe('earlier versions of the payment', () => {
     delete world.tx(merge.txid).height
     // Past the tick in which the merge was last read confirmed.
     await world.tick()
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     expect(world.storedStatuses()).toEqual(['broadcast', 'signed'])
     await world.tick(31 * 60_000)
@@ -508,7 +508,7 @@ describe('a plan a version of whose payment may still confirm', () => {
       outputs: [{ address: PAYER, script: PAYER_SCRIPT, value: input.satoshis - 10_000 }],
       height: world.explorer.tipHeight + 1,
     })
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     // Missed for the whole grace, the merge is proven absent and must be
     // signed again: the continue approved no signature of a merge that had
@@ -521,7 +521,7 @@ describe('a plan a version of whose payment may still confirm', () => {
       actions: ['continue'],
       paymentMayConfirm: true,
     })
-    await world.wallet.continueQbitSendPlan(view.id)
+    await world.wallet.continueQbitSendPlan(view.id, world.shownTerms(view.id))
     await world.settle()
     await world.tick()
     await world.tick()

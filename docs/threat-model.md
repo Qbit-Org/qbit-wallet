@@ -127,12 +127,23 @@ Controls and evidence:
   the PQC WASM tests also inspect scratch zeroization on failure; and
 - the signing-source guard prevents transitive `elliptic`/Bitcore ECDSA from
   replacing the reviewed `tiny-secp256k1` wallet-signing route;
-- the auto-lock (30 seconds to 4 hours, 3 minutes by default) runs on a timer
+- the auto-lock (5 minutes to 6 hours, 30 minutes by default) runs on a timer
   and on a wall-clock deadline: a timer does not count the time the computer
   sleeps, so a screen action after the deadline, or any change of the
   computer's idle state such as waking, locks instead of extending the
   session. Any lock ends the auto-lock time, so an old timer cannot lock a
   later unlock;
+- the auto-lock time is stored as the id of an offered time. A time that
+  1.0.10 no longer offers is stored again at start-up as the time that
+  replaced it (30 seconds, 1 minute and 3 minutes became 5 minutes,
+  10 minutes became 15 minutes, 4 hours became 3 hours), and a value that is
+  no id at all (anything but a whole number of zero or more) as the
+  shortest, 5 minutes. An id this build does not know, which a later build
+  may have stored, stays on disk, so going back to this build and updating
+  again keeps that choice, and is used as 5 minutes meanwhile: an unreadable
+  setting never locks later than the user may have chosen. The background
+  refuses to save a time it does not offer, and the setting and the running
+  time then stay as they were;
 - an auto-lock that falls due while the wallet signs a transaction, from the
   signing call's first check to its last input, waits for that signing,
   because a lock detaches the keyring and the signing would fail at its next
@@ -197,7 +208,8 @@ Residual risk:
   only the auto-lock. Chrome on macOS and Windows also reports a running
   screen saver as locked, so the wallet locks then too. With both settings
   off, or with a long auto-lock and the computer left unlocked, the wallet
-  stays unlocked until the auto-lock time.
+  stays unlocked until the auto-lock time: 30 minutes after the last screen
+  action by default, and up to 6 hours.
 - A local signing, and the broadcast that follows it, keep an overdue
   auto-lock waiting, with the signing's page open, for up to ten minutes. With the computer-lock setting off, a wallet
   left unlocked during a large signing can therefore stay unlocked up to ten
@@ -328,7 +340,21 @@ Controls and evidence:
   store answers from memory, so a record changed on disk takes effect only
   after the service worker restarts, and after a restart nothing is signed
   until the user presses Continue on the progress screen, which shows the
-  recipient, the amount and the total fee with its rate. Continue is offered
+  recipient, the amount and the total fee with its rate. Continue names
+  what that screen shows: the page sends back the digest the background
+  made of the terms of the view it shows (the plan, its account and network,
+  the recipient, the target, the amount, the change, the fee rate, the total
+  fee, the signatures and every transaction with its id, input count and
+  fee), and the background refuses the Continue, before anything is
+  authorised, written, held or signed, unless the record stored then states
+  exactly those terms; the page then reads the plan again and shows the
+  record stored, for the user to decide. Revisions order a page's views only
+  within one run of the background, which every view and every change it
+  announces names, so after a restart a page shows what is stored whatever
+  revision it was stored at, and a record replaced at whatever revision
+  that states other terms is never approved by a Continue of the view
+  shown before it; one that states exactly the terms shown, the same
+  transactions and figures, is continued as shown. Continue is offered
   and accepted only while the wallet is unlocked: the UI port carries no
   proof of the password, so a page left open on a locked wallet, or any
   other caller, cannot approve a changed record for the next unlock to sign
@@ -365,6 +391,79 @@ Controls and evidence:
   Cancel and a new plan come back once an input of the payment is spent by
   a transaction that is no version of it; removing or resetting the wallet
   ends such a plan all the same;
+- a completed plan is watched until the transaction it names has confirmed
+  (#217), by the same 15-second timer, with every page closed and the
+  wallet locked, for as long as its record is kept: leaving its success
+  screen, starting another plan for the account or Remove from home deletes
+  it, as before, and nothing watches it then. Nothing about it changes on one explorer answer: the named
+  transaction must be missed for the ten-minute grace within one run of the
+  background, and every transaction the payment spends from must have been
+  read since, each at most once in 15 seconds whatever reads the plan. Then
+  what spends the payment's inputs decides. A version of the payment, or a
+  transaction paying the recipient the amount, found pending or confirmed,
+  is named, with its fee, and watched in turn. With nothing spending them,
+  the plan reopens paused, saying the payment may still go through and
+  offering only to send the same payment again, which spends the same
+  inputs as every version, so at most one confirms. With an input spent
+  elsewhere, it reopens for a new review or a cancel. A reopening signs and
+  sends nothing; a plan whose transaction confirmed is final;
+- a plan that a transaction made elsewhere with the same key ever
+  completed, by paying the recipient in the payment's place, remembers that
+  (`paidBy` while it names that transaction, otherwise the last such
+  transaction's id, amount and fee in `extra.lastPaidBy` of the plan's
+  record: no new record key and no key material) until the transaction the
+  plan names has confirmed. From then on it offers a new plan, a cancel or a
+  merge fee raise again only once every input of its payment is spent by a
+  transaction found confirmed. Every transaction that paid
+  in the payment's place spends at least one input of the payment, so none
+  of them can confirm after that; a spender that is only pending proves
+  nothing, since it can be dropped and the first sent again. Until then the
+  plan shows the payment as made by that transaction, with Dismiss, or,
+  with every input unspent, offers the same payment again, which conflicts
+  with it. An entry that is stored but cannot be read counts as one, and
+  names nothing: once such a plan's own payment cannot go it is paused with
+  nothing offered until that rule is met, which may never be (the plan
+  holds its own inputs, and an input the explorer cannot answer for decides
+  nothing), so in practice removing or resetting the wallet ends it;
+- Reset Wallet stops every plan before it locks the wallet and erases the
+  keys. Once the keys begin to be erased the plans stay stopped for the rest
+  of that run of the background unless every step of the clearing succeeds:
+  the stored plans and what they hold are erased as one of those steps, and
+  a clearing left incomplete is finished by the next Reset Wallet, the next
+  start of the background or the next wallet set-up, before a wallet can be
+  set up again. At start-up, stored plans found without a vault are erased
+  before anything of them is held. The controller's older `resetAllData`,
+  which no page can call and nothing in the wallet calls, keeps the same
+  bound for any caller: once the keyring's reset erased the keys no stored
+  plan goes on until the store holds none, with the erase tried again every
+  15 seconds, and after a keyring reset that threw, whether the keys are
+  gone is read from storage, as a restart reads it, the plans staying
+  stopped while that cannot be read.
+  Removing a wallet ends each of its plans as a cancel does; a write that
+  storage refuses on the way stops none of the others, and what could not
+  be ended is held back, nothing of it signed, broadcast or advanced, and
+  ended again every 15 seconds. The holding back outlives a restart (#216):
+  before it removes anything, a removal stores a record with the preferences
+  (`qbitSendPlanRemovals`: the wallet's slot and keyring type, and the
+  accounts whose plans end, as network and address; no key material), and is
+  refused, nothing removed, when storage refuses that record. Until the
+  record is forgotten on disk, nothing of those accounts' plans is signed,
+  broadcast or advanced and no plan begins for them, in the run of the
+  removal and from the start of every later one, before any plan advances.
+  A record found at start-up is judged from the keyring at the first unlock,
+  since a locked keyring names no wallet: the slot empty, the plans are
+  ended and the record forgotten once nothing of them is left; the wallet
+  still there (a removal that failed), the record is forgotten and the plans
+  go on untouched. For those accounts this outranks the rule that a stored
+  signed payment may go out while locked. A removal that fails once its
+  last check passed may or may not have reached storage: it is settled in
+  the same run by a vault write from memory that is known to have landed,
+  tried at the failure, at every unlock and on a spaced timer, and its
+  accounts stay held back until then. As no plan begins for an account
+  while a record names it, ending what a record covers never ends a plan of
+  a wallet added since, the same phrase added again included. When a
+  removal leaves something, every open wallet page is told once, with two
+  counts and a flag and nothing of the plans; a page opened later is not;
 - while a plan is open, the send guard holds every input of its
   transactions and the outputs of its merges, restored from the store at
   start-up before anything can spend. Sends, website requests,
@@ -399,7 +498,45 @@ Residual risk:
   spends. It can only pay the recipient what the user confirmed;
 - with the computer-lock setting off, a plan of 216 signatures keeps an
   overdue auto-lock waiting for up to about 19 minutes (ten minutes plus
-  twice its 279-second estimate); and
+  twice its 279-second estimate);
+- someone who can write the extension's storage can add a removal record
+  that holds any account's plans back, or one naming a live account with an
+  empty slot, so that its plans are ended at the next unlock as a cancel
+  ends them, or delete a record, which leaves that removal as it was before
+  #216. None of these signs anything or moves funds. An earlier version of
+  the wallet keeps such records and ignores them, and reads a plan reopened
+  beside another transaction that paid as one whose payment never left; a
+  plan made there for an account a record names is ended at the first
+  unlock after the upgrade, when the record's slot is empty;
+- the plan's own payment and its versions count as unable to confirm once
+  another transaction the explorer holds spends one of their inputs, also
+  one that is only pending, as every transaction the engine sends does. If
+  that transaction is dropped later and someone relays the forgotten
+  version again, it can confirm beside a new plan the user reviewed
+  meanwhile. This needs a second signer with the account's key and is
+  unchanged by #217, which applies the stricter rule only to a plan that a
+  transaction made elsewhere completed. A reorganisation that removes a
+  confirmed spender the stricter rule relied on leaves the same exposure;
+- the engine believes its explorer on what spends an input of a plan's
+  payment. It holds the explorer's answers against each other: a
+  transaction named as spending an input counts, on every path that
+  identifies one, only when the explorer's own read of that transaction
+  lists the input. It checks no signature of such a transaction, and
+  whether it is confirmed is the explorer's word. An allowed indexer that
+  hides a payment it relayed and serves a transaction it made up, spending
+  one of that payment's inputs and paying someone else, is therefore
+  believed: the plan offers a new plan, as it always has before the plan
+  completed and, since #217, also after it completed while its payment is
+  not yet found confirmed. If the user reviews and confirms that new plan
+  while the hidden payment confirms, the recipient is paid twice. One path
+  reads no such transaction at all, as before #217: when a merge the plan
+  sends again is refused for its inputs, or with no reason, the explorer's
+  word that one of the merge's inputs is spent is enough to pause the plan
+  with a new plan offered. The stricter rule for a plan that a transaction
+  made elsewhere completed rests on the same word: one made-up transaction
+  that lists every input of the payment and is called confirmed meets it.
+  Checking the spender's signature over the account's own output would
+  close the made-up case and is separate work; and
 - if the browser stops the service worker anyway, the plan advances the next
   time the extension runs.
 
@@ -561,7 +698,7 @@ Controls and evidence:
   without host access, with no attempt scheduled or queued, starts its
   removal once its answer reaches a request still waiting for it; it
   neither clears a recorded failure nor supersedes a queued retry. The
-  wallet's Advanced settings screen shows the block rule's state, or the
+  wallet's Security settings screen shows the block rule's state, or the
   overall state once that rule is installed, with the overall reasons and
   the block rule's health, and Retry now; it does not show the redirect
   rule's own state;
@@ -735,7 +872,7 @@ Residual risk:
   `block-rule-not-installed`, or `block-rule-outdated` while a block rule
   from an earlier install still blocks some domains, and
   `site-access-withheld`, or `site-access-unknown` when the browser cannot
-  say, and the wallet's Advanced settings screen shows those reasons;
+  say, and the wallet's Security settings screen shows those reasons;
 - an enterprise policy that blocks the wallet on a denylisted host
   (`runtime_blocked_hosts`) was not tested. If Chrome still reports host
   access there through `permissions.contains`, the redirect rule stays in
@@ -820,6 +957,11 @@ Residual risk:
   address. The wallet then reads the outputs from the address's history,
   which fails closed, or consolidates them in batches it verifies unspent. See
   [Explorer UTXO listing limit](./explorer-utxo-limit.md).
+- an allowed indexer can hide a send plan's payment it relayed and show a
+  made-up transaction spending one of that payment's inputs, or, for a merge
+  it refuses, only say that one of the merge's inputs is spent. The plan
+  then offers a new plan, and if the user confirms it the recipient can be
+  paid twice. See the residual risks under [Send plans](#send-plans).
 - network endpoints learn queried wallet addresses. This review does not claim
   network-level privacy.
 

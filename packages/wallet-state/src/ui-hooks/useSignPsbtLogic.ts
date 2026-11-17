@@ -28,6 +28,7 @@ import {
   useSetCurrentAccountCallback,
 } from 'src/hooks/accounts'
 import { useSigningProgress } from 'src/hooks/signing'
+import { walletErrorMessage } from 'src/utils/wallet-error-message'
 import { useWebsiteSafetyCheck } from './useConnectWebsiteCheck'
 
 type AsyncStatus = 'idle' | 'loading' | 'success' | 'error'
@@ -701,7 +702,9 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
 
         signedStates[i] = SignState.FAILED
         setSignedStates([...signedStates])
-        tools.toastError(`Signing failed for PSBT ${i}: ${e.message}`)
+        tools.toastError(
+          `Signing failed for PSBT ${i}: ${walletErrorMessage(e, t('unknown_error'))}`
+        )
         // A locked wallet signs none of the rest; they stay to sign after
         // the unlock.
         if (e?.code === ErrorCodes.WALLET_LOCKED_DURING_SIGNING) return
@@ -759,7 +762,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         signingWebsiteGuardVersion === websiteGuardVersionRef.current &&
         !websiteBlockedRef.current
       ) {
-        tools.toastError(e.message)
+        tools.toastError(walletErrorMessage(e, t('unknown_error')))
       }
     } finally {
       batchSignInFlight.current = false
@@ -840,10 +843,11 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
       }
 
       logger.error('Local signing failed:', e)
-      if (e.message.includes('Can not sign for input')) {
+      const message = walletErrorMessage(e, t('unknown_error'))
+      if (message.includes('Can not sign for input')) {
         tools.toastError(t('sign_psbt_input_error'))
       } else {
-        tools.toastError(e.message)
+        tools.toastError(message)
       }
       signedStates[signingTxIndex] = SignState.FAILED
       setSignedStates([...signedStates])
@@ -891,7 +895,7 @@ export function useSignPsbtLogic(props: SignPsbtProps) {
         qbitSendBroadcastClaim: reserved.qbitSendBroadcastClaim,
       }
     } catch (e) {
-      tools.toastError(e.message)
+      tools.toastError(walletErrorMessage(e, t('unknown_error')))
       return undefined
     }
   }

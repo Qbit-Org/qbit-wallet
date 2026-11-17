@@ -125,6 +125,34 @@ describe.each(RELEASES)('preferences stored by %s', release => {
     expect(saved['keyringColors']).toEqual({})
   })
 
+  // The release stored 1 hour, which 1.0.10 still offers. Each time it
+  // retired, stored in the same preferences, is saved as the one it became
+  // at start-up, with everything else the release saved kept.
+  it.each([
+    [0, 3],
+    [1, 3],
+    [2, 3],
+    [4, 8],
+    [7, 9],
+  ])('save the retired auto-lock time %s as %s at start-up', async (retired, current) => {
+    const dump = readReleaseStorage(release)
+    const preference = dump.storage['preference'] as Record<string, unknown>
+    expect(preference['autoLockTimeId']).toBe(6)
+    preference['autoLockTimeId'] = retired
+    const before = structuredClone(preference)
+
+    const { service, storage } = await loadPreferences(dump)
+
+    expect(service.getAutoLockTimeId()).toBe(current)
+    const saved = storage.values['preference'] as Record<string, unknown>
+    expect(saved['autoLockTimeId']).toBe(current)
+    for (const [key, value] of Object.entries(before)) {
+      if (key !== 'autoLockTimeId' && !DROPPED_KEYS.includes(key)) {
+        expect(saved[key], key).toEqual(value)
+      }
+    }
+  })
+
   it('saves those settings back unchanged', async () => {
     const dump = readReleaseStorage(release)
     const before = structuredClone(dump.storage['preference']) as Record<string, unknown>

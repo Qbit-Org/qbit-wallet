@@ -160,6 +160,11 @@ describe('useQbitSendPlanReviewScreenLogic', () => {
       navigation: createNavigationMock({ review: planReview() }),
     })
     harness.wallet.startQbitSendPlan.mockResolvedValue({ ok: false, reason: 'plan_open' })
+    // The plan in progress, as the screen reads it then; one that is gone by
+    // then is in useQbitSendPlanReviewScreenPlanOpen.test.ts (#206).
+    harness.wallet.getQbitSendPlan.mockResolvedValue(
+      planView({ id: 'plan-0', paymentTxid: 'cc'.repeat(32) })
+    )
     const { result, navigation, wallet } = renderReview(undefined, harness)
 
     await act(async () => ready(result.current).onClickConfirm())

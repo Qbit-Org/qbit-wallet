@@ -109,7 +109,11 @@ type SendPlanPrepareOutcome =
       offer: number
       unconfirmedSatoshis: number
     }
-  | { kind: 'plan_open' }
+  | {
+      kind: 'plan_open'
+      /** The plan read this answer asked for, as `planOpenReads` counts them. */
+      read: number
+    }
 
 /** The send screen's card for a send plan: what will happen, priced in full. */
 export interface TxCreateSendPlanNotice {
@@ -162,6 +166,14 @@ function formKeyOf(scope: SendFormScope | null): string {
   }
   return key
 }
+
+/**
+ * The longest the loading overlay covers the send screen while the screen's
+ * first read of the account's outputs runs. A read that lands sooner shows
+ * only the overlay; one still running then goes on behind the form, which can
+ * be filled in meanwhile: Next waits for the outputs, and a note says so.
+ */
+export const SEND_OUTPUTS_OVERLAY_MAX_MS = 1_500
 
 export function useTxCreateScreenLogic() {
   const { t, locale } = useI18n()
@@ -216,6 +228,10 @@ export function useTxCreateScreenLogic() {
   const [prepareOutcome, setPrepareOutcome] = useState<SendPlanPrepareOutcome | undefined>(
     undefined
   )
+  // The plan reads that Next's `plan_open` answers asked for, counted, and
+  // the latest of them that landed for the account and network still shown.
+  const planOpenReads = useRef(0)
+  const [planOpenReadLanded, setPlanOpenReadLanded] = useState(0)
   const [planPreparing, setPlanPreparing] = useState(false)
   const planPreparingRef = useRef(false)
   const mountedRef = useRef(true)
@@ -242,7 +258,7 @@ export function useTxCreateScreenLogic() {
   // (#188). One that has not completed is in progress: the background
   // starts no other plan for the account until it ends (`plan_open`). A
   // completed one waiting to be dismissed is not; a new plan starts beside it.
-  const { plan: accountSendPlan, refresh: refreshSendPlan } = useQbitSendPlan()
+  const { plan: accountSendPlan, apply: applySendPlan } = useQbitSendPlan()
   const sendPlanInProgress =
     accountSendPlan !== undefined &&
     accountSendPlan !== null &&
@@ -283,10 +299,21 @@ export function useTxCreateScreenLogic() {
   // empty cache may be from an earlier read, or no read at all; `failed`
   // tells a failed read from one still running.
   const [utxoRead, setUtxoRead] = useState<{ key: string; failed: boolean } | undefined>(undefined)
+  // The account and network a read of this screen has landed for. Outputs
+  // the page cached for them before then, as when Send opens again after a
+  // send, may have been spent since; a read again for them, after the
+  // account's plan changed what it holds, keeps the form on the outputs this
+  // screen read.
+  const [readUtxoKey, setReadUtxoKey] = useState<string | undefined>(undefined)
+  // The key a read of this screen has run longer than
+  // `SEND_OUTPUTS_OVERLAY_MAX_MS` for: a read of it again, after the
+  // account's plan changed what it holds, keeps the note up meanwhile.
+  const [slowUtxoRead, setSlowUtxoRead] = useState<string | undefined>(undefined)
   // Past the explorer's limit the read walks the account's history, which
   // can take a while; it runs without covering the screen, so Consolidate
   // stays in reach, and Available shows unknown until it lands. The overlay
-  // also comes down if the balance shows the limit only once the read runs.
+  // also comes down if the balance shows the limit only once the read runs,
+  // and once the read has run for `SEND_OUTPUTS_OVERLAY_MAX_MS`.
   const loadingOverlayRef = useRef(false)
   // Only the read the screen opens with covers it. A read again under the
   // open screen, after an account or network change, runs before that
@@ -313,22 +340,35 @@ export function useTxCreateScreenLogic() {
     // opens again for the same account, whose statistics have not moved,
     // joins a walk another page still waits for rather than repeating it.
     const read = new AbortController()
+    // A read still running by then, such as the first of an account with
+    // tens of thousands of outputs, uncovers the form; the screen says why
+    // Next waits (`outputsLoading`).
+    const slow = setTimeout(() => {
+      if (read.signal.aborted) return
+      hideLoadingOverlay()
+      setSlowUtxoRead(utxoReadKey)
+    }, SEND_OUTPUTS_OVERLAY_MAX_MS)
     fetchUtxos({ signal: read.signal })
       .then(() => {
-        if (!read.signal.aborted) setUtxoRead({ key: utxoReadKey, failed: false })
+        if (read.signal.aborted) return
+        setUtxoRead({ key: utxoReadKey, failed: false })
+        setReadUtxoKey(utxoReadKey)
       })
       .catch(e => {
         if (read.signal.aborted) return
         // An account over the explorer's UTXO limit is explained below; any
-        // other failure keeps Next disabled until the outputs load.
+        // other failure keeps Next disabled until the outputs load, and the
+        // screen says so (`outputsLoadFailed`).
         setUtxoRead({ key: utxoReadKey, failed: true })
         console.log(e)
       })
       .finally(() => {
+        clearTimeout(slow)
         if (!read.signal.aborted) hideLoadingOverlay()
       })
     return () => {
       read.abort()
+      clearTimeout(slow)
       hideLoadingOverlay()
     }
   }, [utxoReadKey, sendPlanHoldsChanges])
@@ -393,9 +433,19 @@ export function useTxCreateScreenLogic() {
   // This screen's own read of the account's outputs landed on this network.
   const ownUtxosLoaded = utxoRead?.key === utxoReadKey && !utxoRead.failed && utxosLoaded
   const utxosFetchFailed = utxoRead?.key === utxoReadKey && utxoRead.failed
+  // Its read for `utxoReadKey` has neither landed nor failed yet.
+  const utxoReadRunning = utxoRead?.key !== utxoReadKey
+  const overExplorerLimit = isQbitP2mrSend && accountBalance.utxoLimitExceeded === true
+  // Cached outputs serve the form only once a read of this screen has landed
+  // for the account and network; a read of them again, as the account's plan
+  // has it make, then keeps the form on them. Until then the form waits for
+  // this screen's own read, as it did behind the loading overlay, and a read
+  // that fails leaves it without outputs. Past the explorer's limit, whose
+  // read never covered the screen, they serve as they always have.
+  const cachedUtxosServe = utxos.length > 0 && (readUtxoKey === utxoReadKey || overExplorerLimit)
   // Loaded with none left (a pending send holds them all) counts as loaded:
   // Available is then 0, not the balance's figure.
-  const hasQbitUtxoPreflight = isQbitP2mrSend && (utxos.length > 0 || ownUtxosLoaded)
+  const hasQbitUtxoPreflight = isQbitP2mrSend && (ownUtxosLoaded || cachedUtxosServe)
   const qbitSpendableSatoshis = useMemo(
     () => qbitSpendableUtxos.reduce((sum, utxo) => sum + utxo.satoshis, 0),
     [qbitSpendableUtxos]
@@ -416,9 +466,19 @@ export function useTxCreateScreenLogic() {
   // none left, the account's outputs are known and simply all held. While
   // the read (a long history walk past the limit) runs they are unknown, and
   // only once it fails is that explained.
-  const overExplorerLimit = isQbitP2mrSend && accountBalance.utxoLimitExceeded === true
   const ownUtxosUnknown = overExplorerLimit && qbitSpendableUtxos.length === 0 && !ownUtxosLoaded
   const utxoLimitExceeded = ownUtxosUnknown && utxosFetchFailed
+  // The form without outputs to send from, under an account the screen
+  // reads them for; past the explorer's limit the screen says what it says
+  // there instead. While the read runs longer than the overlay covers the
+  // screen, the form is in use and Next waits for it; once it has failed,
+  // the account cannot send until Send is opened again, which reads them
+  // afresh and takes up what the failed read fetched.
+  const outputsUnknown = isQbitP2mrSend && !overExplorerLimit && !hasQbitUtxoPreflight
+  const outputsLoading = outputsUnknown && utxoReadRunning && slowUtxoRead === utxoReadKey
+  const outputsLoadFailed = outputsUnknown && utxosFetchFailed
+  const outputsLoadingText = useMemo(() => t('send_outputs_loading'), [t])
+  const outputsLoadFailedText = useMemo(() => t('send_outputs_load_failed'), [t])
 
   // The Available row shows the amount the preflight checks against and Max
   // fills, so the two can never disagree; Unavailable is the rest of the
@@ -723,6 +783,17 @@ export function useTxCreateScreenLogic() {
     t,
   ])
 
+  // Next's `plan_open` holds only until the plan read it asked for lands
+  // (#206). The page then shows the account's plan as that read, or a later
+  // one, found it: a plan in progress keeps an amount only a plan can pay
+  // waiting for it, through the checks above, which run again as it shows;
+  // with none, Next works again on the form as it is.
+  useEffect(() => {
+    if (prepareOutcome?.kind === 'plan_open' && planOpenReadLanded >= prepareOutcome.read) {
+      setPrepareOutcome(undefined)
+    }
+  }, [prepareOutcome, planOpenReadLanded])
+
   const unavailableTipText = useMemo(() => t('unavailable_tooltip'), [t])
 
   // Until the fee bar has chosen the selected tier's rate from this screen's
@@ -856,8 +927,10 @@ export function useTxCreateScreenLogic() {
   }
 
   const onAmountMaxClick = () => {
-    // Nothing to fill while Available is unknown.
-    if (splitUnknown) return
+    // Nothing to fill while Available is unknown, nor, for an account the
+    // screen reads the outputs of, until they are read: Available is then the
+    // balance's figure, which no read of the outputs has confirmed.
+    if (splitUnknown || (isQbitP2mrSend && !hasQbitUtxoPreflight)) return
     setAutoAdjust(true)
     // Fill from the same spendable total that validation and the send use
     // (availableSatoshis), not accountBalance.availableBalance — otherwise Max
@@ -906,6 +979,9 @@ export function useTxCreateScreenLogic() {
   ].join('|')
   const formScopeRef = useRef(formScope)
   formScopeRef.current = formScope
+  // The account and network alone: what a read of the account's plan is for.
+  const accountScopeRef = useRef(utxoReadKey)
+  accountScopeRef.current = utxoReadKey
 
   /**
    * The background found the payment fits one transaction after all (it read
@@ -975,12 +1051,35 @@ export function useTxCreateScreenLogic() {
         case 'not_needed':
           await sendInOneTransaction(preview, scope)
           return
-        case 'plan_open':
-          // A plan this page has not read yet: it reads it now, and once the
-          // plan shows, prices this send beside it.
-          setPrepareOutcome({ kind: 'plan_open' })
-          refreshSendPlan()
+        case 'plan_open': {
+          // The account has a plan this page has not read yet, or another
+          // page's start of one is under way. A plan that start stores is
+          // announced, and read then; an ending without one (outputs_changed,
+          // draft_expired, locked) is announced to no page. So Next waits
+          // while the page reads the plan, and only until that read lands
+          // (the effect on `planOpenReadLanded`). A read that fails tells
+          // nothing either way and lets Next work again too: the background
+          // answers Next afresh each time.
+          const read = ++planOpenReads.current
+          const accountScope = accountScopeRef.current
+          setPrepareOutcome({ kind: 'plan_open', read })
+          // The wait and its read are about the account on its network, not
+          // the rest of the form: an edit the checks above watch ends the
+          // wait at once, and one they do not (replace-by-fee) leaves it to
+          // the read.
+          const landed = (): void => {
+            if (!mountedRef.current || accountScopeRef.current !== accountScope) return
+            setPlanOpenReadLanded(latest => Math.max(latest, read))
+          }
+          // What it finds is shown under the rules of the page's other reads
+          // of the plan (`useQbitSendPlan`): an earlier read never brings
+          // back a plan a later one found gone.
+          void applySendPlan(
+            () => wallet.getQbitSendPlan(),
+            answer => answer
+          ).then(landed, landed)
           return
+        }
         case 'outputs_unavailable':
           setError(t('send_plan_outputs_unavailable'))
           return
@@ -1087,6 +1186,15 @@ export function useTxCreateScreenLogic() {
     unavailableTipText,
     qbitUnit,
     t,
+
+    // The account's outputs are still being read, after the overlay has
+    // come down: the form can be filled in, and Next waits for them.
+    outputsLoading,
+    outputsLoadingText,
+    // The screen's read of them failed: the account cannot send until Send
+    // is opened again.
+    outputsLoadFailed,
+    outputsLoadFailedText,
 
     // Checks of the fee made at a rate not yet settled say nothing of the settled one.
     error: error || (feeRateHeld ? '' : feeCheckError),

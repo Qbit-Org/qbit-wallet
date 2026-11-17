@@ -43,6 +43,7 @@ import {
   TreePassConfigError,
   workflowPathFromRef,
 } from './tree-pass-marker.mjs'
+import { runSignedHeadGate } from './signed-head-gate.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const script = join(repoRoot, 'scripts/security/tree-pass-marker.mjs')
@@ -2530,30 +2531,273 @@ test('the command line runs each mode and fails closed', t => {
 
 const MARKER_PATH = '${{ runner.temp }}/tree-pass-marker'
 const SKIP_STEP = "steps.gate.outputs.skip != 'true'"
-const GATE_RUN = `if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+// The gate step, whose summary says what a hit, or a docs-only change
+// (docs-only-change.mjs), does to its job: a gated job skips its steps; a job
+// that aggregates shards or lanes still checks them. `docsConsequence` is
+// null for a job that a docs-only change does not skip, whose gate has no
+// docs-only branch.
+// `waitSummary` is null for every gate but that of a job that reports while
+// the run waits for a signed head; that gate's last branch sets `wait`, never
+// `skip`, and says how to run G3.
+const gateRun = (
+  consequence,
+  docsConsequence = consequence,
+  waitSummary = null
+) => `if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
   echo 'skip=true' >> "$GITHUB_OUTPUT"
-  echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
-fi
+  echo "This tree already passed this job in $MARKER_RUN_URL, ${consequence}" >> "$GITHUB_STEP_SUMMARY"
+${
+  docsConsequence === null
+    ? ''
+    : `elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+  echo 'skip=true' >> "$GITHUB_OUTPUT"
+  echo "This pull request changes only documentation that no skipped step reads, ${docsConsequence} Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
 `
+}${
+  waitSummary === null
+    ? ''
+    : `elif [ "$MARKER_JOB_RESULT" = success ] && [ "$SIGNED_HEAD_WAIT" = true ]; then
+  echo 'wait=true' >> "$GITHUB_OUTPUT"
+  echo "${waitSummary}" >> "$GITHUB_STEP_SUMMARY"
+`
+}fi
+`
+const GATE_RUN = gateRun('so its steps are skipped.')
+// A job in `runsOnDocsOnly`: only a marker hit skips it.
+const MARKER_ONLY_GATE_RUN = gateRun('so its steps are skipped.', null)
+const AGGREGATE_GATE_RUN = gateRun(
+  'so the shards skipped their steps; this job still checks that every shard succeeded.'
+)
+// How to get G3 while the run waits for a signed head, as the step summaries
+// and the check step's notice say it.
+const HOW_TO_RUN_G3 =
+  'To run G3, sign the head commit and push it, or add the $TREE_PASS_FORCE_LABEL label and re-run all jobs.'
+// The gate of `Playwright G3 scenarios`, which also tells a run that waits for
+// a signed head.
+const SIGNED_AGGREGATE_GATE_RUN = gateRun(
+  'so the shards skipped their steps; this job still checks that every shard succeeded.',
+  undefined,
+  "GitHub has not verified the signature of this pull request's head commit, so G3 waits for " +
+    `a signed head and no shard started; this job checks that none did. ${HOW_TO_RUN_G3}`
+)
+const LANE_AGGREGATE_GATE_RUN = gateRun(
+  'so the lanes skipped their steps; this job still checks that every lane succeeded.',
+  "so the lanes skipped their steps, except 'Typecheck, security checks and other unit tests', " +
+    'which ran in full because its security tooling tests read every tracked file; ' +
+    'this job still checks that every lane succeeded.'
+)
+// The command whose tests read every tracked file, documentation included:
+// former-owner.test.mjs reads their contents and codeowners.test.mjs their
+// names. No allowlist can name a reader that reads everything.
+const SECURITY_TOOLING_RUN = /^corepack pnpm run test:security-tooling$/m
 const MARKED_WORKFLOWS = {
   '.github/workflows/ci.yml': {
     id: 'ci',
-    // Required checks keep running and skip their steps.
-    stepGated: ['verify'],
+    // Required checks, and the lanes below, keep running and skip their steps.
+    stepGated: [
+      'verify-extension-tests',
+      'verify-wallet-background-tests',
+      'verify-workspace',
+      'verify-package',
+      'verify',
+    ],
     // Other covered jobs are skipped whole.
     jobGated: ['lint'],
+    // Matrix jobs that each run one shard of a suite, keyed to the step-gated
+    // job that needs them and reports their combined result.
+    sharded: {},
+    // Step-gated jobs that each run one part of a required job's work, keyed
+    // to that job, which needs them and reports their combined result. Each
+    // is a job of its own with its own `tested`, so the save job needs it
+    // directly too.
+    lanes: {
+      'verify-extension-tests': 'verify',
+      'verify-wallet-background-tests': 'verify',
+      'verify-workspace': 'verify',
+      'verify-package': 'verify',
+    },
+    // Step-gated jobs that only a marker hit skips, not a docs-only change:
+    // the lane that runs the security tooling tests, which read every tracked
+    // file, documentation included, so that a required check still runs them
+    // on a docs-only change. `Dependency policy` runs them too, but it is not
+    // required. The wiring test ties this list to the jobs that run them.
+    runsOnDocsOnly: ['verify-workspace'],
     // Never covered: they run on every event.
     uncovered: ['dependency-policy'],
+    // ci.yml never waits for a signed head.
+    signedHead: null,
   },
   '.github/workflows/playwright-release-gate.yml': {
     id: 'browser-release-gate',
     stepGated: ['playwright-release-gate'],
     jobGated: [],
+    sharded: { 'playwright-g3-shard': 'playwright-release-gate' },
+    lanes: {},
+    runsOnDocsOnly: [],
     uncovered: [],
+    // G3 waits for a signed head (signed-head-gate.mjs): the sharded job is
+    // skipped whole, and the job that aggregates it reports under another
+    // name. These, and the save job, are the only places where its wiring
+    // differs from ci.yml's; the wiring test names each one.
+    signedHead: { sharded: 'playwright-g3-shard', aggregate: 'playwright-release-gate' },
   },
+}
+// The run waits for a signed head: the marker job succeeded and said so.
+const SIGNED_HEAD_WAIT =
+  "needs.tree-pass.result == 'success' && needs.tree-pass.outputs.signed-head-wait == 'true'"
+const REQUIRED_G3 = 'Playwright G3 scenarios'
+const WAITING_G3 = 'Playwright G3 scenarios (waits for a signed head)'
+// The sharded job's condition: not in a cancelled run, and not while the run
+// waits for a signed head, when the whole matrix is skipped.
+const SIGNED_SHARD_IF = `\${{ !cancelled() && !(${SIGNED_HEAD_WAIT}) }}`
+// The aggregating job's name: the required check's, except while waiting.
+const SIGNED_AGGREGATE_NAME = `\${{ ${SIGNED_HEAD_WAIT} && '${WAITING_G3}' || '${REQUIRED_G3}' }}`
+const SAVE_IF =
+  "needs.tree-pass.outputs.save == 'true' && needs.tree-pass.outputs.docs-only != 'true'"
+const SIGNED_SAVE_IF = `${SAVE_IF} && needs.tree-pass.outputs.signed-head-wait != 'true'`
+// The aggregating job records nothing while waiting.
+const SIGNED_TESTED_IF = `${SKIP_STEP} && steps.gate.outputs.wait != 'true'`
+// A shard leg's matrix value, its one run of the suite, and its own output.
+const SHARD_MATRIX_VALUE = '${{ matrix.shard }}'
+const SHARD_SUITE_RUN = total =>
+  `xvfb-run --auto-servernum corepack pnpm exec playwright test --shard="$G3_SHARD/${total}"`
+const SHARD_TESTED_RUN = `echo "tested-$G3_SHARD=true" >> "$GITHUB_OUTPUT"`
+const SHARD_ARTIFACT =
+  'playwright-release-gate-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}'
+// The aggregating job's check of its shards, after its gate.
+const SHARD_CHECK_NAME = 'Check every shard ran and passed'
+const SHARD_CHECK_RUN = total => `status=0
+if [ "$SHARDS_RESULT" != success ]; then
+  echo "::error::The shards' result is \\"$SHARDS_RESULT\\", not success; see each shard's job."
+  status=1
+fi
+if [ "$MARKER_HIT" != true ]; then
+  for shard in ${shardRange(total).join(' ')}; do
+    tested="SHARD_\${shard}_TESTED"
+    if [ "\${!tested}" != true ]; then
+      echo "::error::Shard $shard of ${total} did not run all its steps."
+      status=1
+    fi
+  done
+fi
+exit "$status"
+`
+// The same check where the run can wait for a signed head: then the shards'
+// result must be skipped and no shard may have recorded anything. Otherwise
+// it is the check above, unchanged.
+const SIGNED_SHARD_CHECK_RUN = total => `status=0
+if [ "$SIGNED_HEAD_WAIT" = true ]; then
+  if [ "$SHARDS_RESULT" != skipped ]; then
+    echo "::error::This run waits for a signed head, so the shards should have been skipped, but their result is \\"$SHARDS_RESULT\\"."
+    status=1
+  fi
+  for shard in ${shardRange(total).join(' ')}; do
+    tested="SHARD_\${shard}_TESTED"
+    if [ -n "\${!tested}" ]; then
+      echo "::error::Shard $shard of ${total} recorded that it ran, though this run waits for a signed head."
+      status=1
+    fi
+  done
+  if [ "$status" = 0 ]; then
+    echo "::notice::G3 waits for a signed head. ${HOW_TO_RUN_G3}"
+  fi
+  exit "$status"
+fi
+${SHARD_CHECK_RUN(total).slice('status=0\n'.length)}`
+
+function shardRange(total) {
+  return Array.from({ length: total }, (_, index) => index + 1)
+}
+
+// The shards of a sharded job: its matrix is exactly `shard: [1, …, n]` with
+// fail-fast off, and n is the total that every other place must use.
+function shardsOf(entry, at) {
+  assert.deepEqual(Object.keys(entry.strategy ?? {}).sort(), ['fail-fast', 'matrix'], at)
+  assert.equal(entry.strategy['fail-fast'], false, `${at}: every shard must finish`)
+  assert.deepEqual(Object.keys(entry.strategy.matrix ?? {}), ['shard'], at)
+  const shards = entry.strategy.matrix.shard
+  assert.ok(Array.isArray(shards) && shards.length >= 2, `${at}: at least two shards`)
+  assert.deepEqual(
+    shards,
+    shardRange(shards.length),
+    `${at}: the shards must be 1 to ${shards.length}`
+  )
+  return shards
+}
+
+// The name GitHub gives each leg of a sharded job, which decide looks for.
+function shardJobNames(entry) {
+  const shards = entry.strategy?.matrix?.shard ?? []
+  return shards.map(shard => entry.name.replaceAll(SHARD_MATRIX_VALUE, String(shard)))
+}
+
+function shardedJobsOf(expected, aggregate) {
+  return Object.entries(expected.sharded)
+    .filter(([, name]) => name === aggregate)
+    .map(([name]) => name)
+}
+
+function laneJobsOf(expected, aggregate) {
+  return Object.entries(expected.lanes)
+    .filter(([, name]) => name === aggregate)
+    .map(([name]) => name)
+}
+
+// The jobs whose combined result a step-gated job reports: its shards or its
+// lanes.
+function partsOf(expected, aggregate) {
+  return [...shardedJobsOf(expected, aggregate), ...laneJobsOf(expected, aggregate)]
+}
+
+// The aggregating job's check of its lanes, after its gate. It names each
+// lane as GitHub names the lane's job, and reads the lane's result and
+// `tested` from variables named for its job ID.
+const LANE_CHECK_NAME = 'Check every lane ran and passed'
+const laneVariable = id => id.toUpperCase().replaceAll('-', '_')
+const LANE_CHECK_RUN = lanes => `status=0
+fail() {
+  echo "::error::$1"
+  echo "- $1" >> "$GITHUB_STEP_SUMMARY"
+  status=1
+}
+check_lane() {
+  if [ "$2" != success ]; then
+    fail "Lane \\"$1\\": its result is \\"$2\\", not success; see its job."
+  elif [ "$MARKER_HIT" != true ] && [ "$3" != true ]; then
+    fail "Lane \\"$1\\" did not run all its steps."
+  fi
+}
+${lanes
+  .map(
+    ({ id, name }) =>
+      `check_lane '${name}' "$${laneVariable(id)}_RESULT" "$${laneVariable(id)}_TESTED"`
+  )
+  .join('\n')}
+exit "$status"
+`
+
+// The job-level condition of a job that always reports a result. A required
+// job that waits only for the marker job runs unless the run is cancelled,
+// and GitHub then reports it cancelled, not skipped (the doc cites the runs).
+// One that aggregates shards or lanes runs even in a cancelled run, so the
+// check does not depend on how GitHub reports a job that never started there:
+// its check step fails unless every shard or lane succeeded. A leg or lane
+// that hits its timeout ends cancelled without making `cancelled()` true for
+// the jobs that need it, so that case alone would not need `always()`.
+function requiredJobIf(expected, name) {
+  return partsOf(expected, name).length > 0 ? '${{ always() }}' : '${{ !cancelled() }}'
 }
 // Ruleset main-protection (26062908) requires these contexts on main.
 const REQUIRED_CONTEXTS = ['Typecheck, test, and build', 'Playwright G3 scenarios']
+// The signed-head step's settings, each read by signed-head-gate.mjs; the
+// force label comes from the workflow's env, the rest from the runner.
+const SIGNED_HEAD_STEP_ENV = {
+  GH_TOKEN: '${{ github.token }}',
+  TREE_PASS_PR_NUMBER: '${{ github.event.pull_request.number }}',
+  TREE_PASS_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+  TREE_PASS_MARKER_SKIP: '${{ steps.decide.outputs.skip }}',
+  TREE_PASS_DOCS_ONLY: '${{ steps.docs-only.outputs.docs-only }}',
+}
 
 function readWorkflow(file) {
   return YAML.parse(readFileSync(join(repoRoot, file), 'utf8'))
@@ -2628,6 +2872,7 @@ test('each marked workflow wires the lookup, the gates and the save the same way
 
     const jobs = workflow.jobs
     const covered = [...expected.stepGated, ...expected.jobGated]
+    const sharded = Object.keys(expected.sharded)
     const lookup = jobs[DECIDE_JOB]
     assert.equal(lookup.if, "github.event_name == 'pull_request'", where)
     assert.equal(lookup['runs-on'], 'ubuntu-24.04', `${where}: the lookup must use GitHub's cache`)
@@ -2639,15 +2884,19 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       where
     )
     assert.equal(lookup.needs, undefined, where)
+    const signedHead = expected.signedHead
     assert.deepEqual(lookup.outputs, {
       prefix: '${{ steps.key.outputs.prefix }}',
       skip: '${{ steps.decide.outputs.skip }}',
       save: '${{ steps.decide.outputs.save }}',
       'run-url': '${{ steps.decide.outputs.run-url }}',
+      'docs-only': '${{ steps.docs-only.outputs.docs-only }}',
+      // G3 only: whether the run waits for a signed head.
+      ...(signedHead ? { 'signed-head-wait': '${{ steps.signed-head.outputs.wait }}' } : {}),
     })
-    // No setup-node: the script runs on the runner image's Node.
-    const [checkout, keyStep, lookupStep, decideStep] = lookup.steps
-    assert.equal(lookup.steps.length, 4, where)
+    // No setup-node: the scripts run on the runner image's Node.
+    const [checkout, keyStep, lookupStep, decideStep, docsOnlyStep, signedHeadStep] = lookup.steps
+    assert.equal(lookup.steps.length, signedHead ? 6 : 5, where)
     assert.match(checkout.uses, /^actions\/checkout@/)
     // The event's commit (no ref), and its parents for the head tree.
     assert.deepEqual(checkout.with, { 'persist-credentials': false, 'fetch-depth': 2 }, where)
@@ -2686,17 +2935,53 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       TREE_PASS_HEAD_REPOSITORY_ID: '${{ github.event.pull_request.head.repo.id }}',
       TREE_PASS_HEAD_BRANCH: '${{ github.event.pull_request.head.ref }}',
     })
-    // decide checks, in the run a marker names, exactly the covered jobs.
+    // The docs-only check comes last, so it cannot keep the marker's steps
+    // from running, and sets the output every gate reads next to skip.
+    assert.equal(docsOnlyStep.id, 'docs-only', where)
+    assert.equal(docsOnlyStep.if, undefined, where)
+    assert.equal(docsOnlyStep['continue-on-error'], undefined, where)
+    assert.equal(docsOnlyStep.run, 'node scripts/security/docs-only-change.mjs', where)
+    assert.deepEqual(docsOnlyStep.env, {
+      GH_TOKEN: '${{ github.token }}',
+      TREE_PASS_PR_NUMBER: '${{ github.event.pull_request.number }}',
+      TREE_PASS_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+    })
+    // G3 only: the signed-head check comes after the docs-only check, last,
+    // reads both verdicts and sets the output its gates read.
+    if (signedHead) {
+      assert.equal(signedHeadStep, lookup.steps.at(-1), where)
+      assert.equal(signedHeadStep.id, 'signed-head', where)
+      assert.equal(signedHeadStep.if, undefined, where)
+      assert.equal(signedHeadStep['continue-on-error'], undefined, where)
+      assert.equal(signedHeadStep['timeout-minutes'], undefined, where)
+      assert.equal(signedHeadStep.run, 'node scripts/security/signed-head-gate.mjs', where)
+      assert.deepEqual(signedHeadStep.env, SIGNED_HEAD_STEP_ENV, where)
+    } else {
+      assert.equal(signedHeadStep, undefined, where)
+      assert.doesNotMatch(JSON.stringify(workflow), /signed-head/i, where)
+    }
+    // decide checks, in the run a marker names, exactly the covered jobs and
+    // every leg of each sharded job, by the name GitHub gives the leg; for a
+    // job whose name is computed, the name it has in a run that tests.
     assert.deepEqual(
       JSON.parse(coveredJobs).sort(),
-      covered.map(name => jobs[name].name).sort(),
+      [
+        ...covered.map(name => testingNameOf(jobs[name])),
+        ...sharded.flatMap(name => shardJobNames(jobs[name])),
+      ].sort(),
       where
     )
 
+    // The save job needs every covered job. A sharded job reaches it through
+    // the job that aggregates it, which is covered, needs it and is the only
+    // job that does: the save job's record step reads one `tested` output per
+    // job it needs, and a matrix job's legs each set their own.
     const save = jobs[SAVE_JOB]
     assert.equal(save.name, SAVE_JOB_NAME, where)
     assert.deepEqual([...save.needs].sort(), [DECIDE_JOB, ...covered].sort(), where)
-    assert.equal(save.if, "needs.tree-pass.outputs.save == 'true'", where)
+    // A docs-only run skipped the covered jobs' steps: nothing to record. In
+    // G3 only, neither has a run that waits for a signed head.
+    assert.equal(save.if, signedHead ? SIGNED_SAVE_IF : SAVE_IF, where)
     assert.equal(save['runs-on'], 'ubuntu-24.04', where)
     assert.equal(save['timeout-minutes'], 10, where)
     assert.equal(save['cache-mode'], 'write-only', where)
@@ -2743,21 +3028,41 @@ test('each marked workflow wires the lookup, the gates and the save the same way
     assert.equal(subActionSteps.length, 2, where)
     assert.ok(subActionSteps.includes(lookupStep) && subActionSteps.includes(saveStep), where)
 
-    // Every job that waits on the lookup is covered, and the save waits on all of them.
+    // Every job that waits on the lookup is covered or sharded, and the save
+    // waits on all of them.
     const dependents = Object.entries(jobs)
       .filter(([name, entry]) => name !== SAVE_JOB && [entry.needs].flat().includes(DECIDE_JOB))
       .map(([name]) => name)
-    assert.deepEqual(dependents.sort(), [...covered].sort(), where)
+    assert.deepEqual(dependents.sort(), [...covered, ...sharded].sort(), where)
     assert.deepEqual(
       Object.keys(jobs).sort(),
-      [DECIDE_JOB, SAVE_JOB, ...covered, ...expected.uncovered].sort(),
+      [DECIDE_JOB, SAVE_JOB, ...covered, ...sharded, ...expected.uncovered].sort(),
       where
     )
+
+    // No covered job, sharded ones included, and none of their steps may
+    // carry on after a failure: a suite step that did would let a failing
+    // shard set its output, and a marker be recorded.
+    for (const name of [...covered, ...sharded]) {
+      const entry = jobs[name]
+      const at = `${where} job ${name}`
+      assert.ok(!Object.hasOwn(entry, 'continue-on-error'), `${at}: continue-on-error`)
+      for (const step of entry.steps) {
+        assert.ok(
+          !Object.hasOwn(step, 'continue-on-error'),
+          `${at} step ${step.name}: continue-on-error`
+        )
+      }
+    }
 
     for (const name of covered) {
       const entry = jobs[name]
       const at = `${where} job ${name}`
-      assert.equal(entry.needs, DECIDE_JOB, at)
+      assert.deepEqual(
+        [entry.needs].flat().sort(),
+        [DECIDE_JOB, ...partsOf(expected, name)].sort(),
+        at
+      )
       assert.equal(
         entry.strategy,
         undefined,
@@ -2768,28 +3073,254 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       assert.equal(last.id, 'tested', at)
       assert.equal(last.run, `echo 'tested=true' >> "$GITHUB_OUTPUT"`, at)
       // Never always(): a step that failed before it must leave tested unset.
-      assert.equal(last.if, expected.stepGated.includes(name) ? SKIP_STEP : undefined, at)
+      // In G3 only, the aggregating job also records nothing while the run
+      // waits for a signed head.
+      assert.equal(
+        last.if,
+        signedHead?.aggregate === name
+          ? SIGNED_TESTED_IF
+          : expected.stepGated.includes(name)
+            ? SKIP_STEP
+            : undefined,
+        at
+      )
     }
 
-    for (const name of expected.stepGated) {
+    // Step-gated jobs, lanes included, and every leg of a sharded job run
+    // unless the run is cancelled, and only the gate skips their steps. A job
+    // that aggregates shards or lanes runs even then (see requiredJobIf).
+    // Each job a docs-only change does not skip is a lane, whose result the
+    // required check needs, and ci.yml must have one: the security tooling
+    // tests run in a required check on every pull request.
+    for (const name of expected.runsOnDocsOnly) {
+      assert.ok(Object.hasOwn(expected.lanes, name), `${where} job ${name} must be a lane`)
+    }
+    assert.ok(
+      file !== '.github/workflows/ci.yml' || expected.runsOnDocsOnly.length > 0,
+      `${where}: a required check must run the security tooling tests on a docs-only change`
+    )
+    for (const name of [...expected.stepGated, ...sharded]) {
       const entry = jobs[name]
       const at = `${where} job ${name}`
-      assert.equal(entry.if, '${{ !cancelled() }}', at)
+      // In G3 only, the sharded job is skipped whole while the run waits for
+      // a signed head; the job that aggregates it still always runs.
+      assert.equal(
+        entry.if,
+        signedHead?.sharded === name ? SIGNED_SHARD_IF : requiredJobIf(expected, name),
+        at
+      )
       const [gate, ...rest] = entry.steps
       assert.equal(gate.id, 'gate', at)
       assert.equal(gate.if, undefined, at)
+      // A job that runs the security tooling tests reads every tracked file,
+      // so a docs-only change must not skip it: its gate has no docs-only
+      // input or branch. Every other gate has both.
+      const runsTooling = entry.steps.some(step => SECURITY_TOOLING_RUN.test(step.run ?? ''))
+      const marksOnly = expected.runsOnDocsOnly.includes(name)
+      assert.equal(
+        marksOnly,
+        runsTooling,
+        `${at}: runsOnDocsOnly must list exactly the jobs that run the security tooling tests`
+      )
+      // In G3 only, the aggregating job's gate also reads whether the run
+      // waits for a signed head; the legs' gates do not, as the legs never
+      // start then.
+      const waits = signedHead?.aggregate === name
       assert.deepEqual(gate.env, {
         MARKER_JOB_RESULT: '${{ needs.tree-pass.result }}',
         MARKER_SKIP: '${{ needs.tree-pass.outputs.skip }}',
         MARKER_RUN_URL: '${{ needs.tree-pass.outputs.run-url }}',
+        ...(marksOnly ? {} : { DOCS_ONLY: '${{ needs.tree-pass.outputs.docs-only }}' }),
+        ...(waits ? { SIGNED_HEAD_WAIT: '${{ needs.tree-pass.outputs.signed-head-wait }}' } : {}),
       })
-      assert.equal(gate.run, GATE_RUN, at)
+      // An aggregating job checks its shards or lanes on a marker hit too;
+      // that step is checked below, and its gate's summary says so.
+      const shardAggregate = shardedJobsOf(expected, name).length > 0
+      const laneAggregate = laneJobsOf(expected, name).length > 0
+      assert.equal(
+        gate.run,
+        waits
+          ? SIGNED_AGGREGATE_GATE_RUN
+          : shardAggregate
+            ? AGGREGATE_GATE_RUN
+            : laneAggregate
+              ? LANE_AGGREGATE_GATE_RUN
+              : marksOnly
+                ? MARKER_ONLY_GATE_RUN
+                : GATE_RUN,
+        at
+      )
       for (const step of rest) {
+        if (shardAggregate && step.name === SHARD_CHECK_NAME) continue
+        if (laneAggregate && step.name === LANE_CHECK_NAME) continue
+        if (waits && step.id === 'tested') continue
         assert.ok(
           step.if === SKIP_STEP || step.if === `always() && ${SKIP_STEP}`,
           `${at}: step ${step.name} must be skipped only by the gate, found ${JSON.stringify(step.if)}`
         )
       }
+    }
+
+    for (const [name, aggregate] of Object.entries(expected.sharded)) {
+      const entry = jobs[name]
+      const at = `${where} job ${name}`
+      // The one source of the shard list and total: the matrix. The leg's
+      // name, its output, its run of the suite and the aggregating job's
+      // check all follow it.
+      const shards = shardsOf(entry, at)
+      const total = shards.length
+      assert.equal(entry.needs, DECIDE_JOB, at)
+      const nameMatch = /^[^$]+ \$\{\{ matrix\.shard \}\} of ([0-9]+)$/.exec(entry.name)
+      assert.ok(nameMatch, `${at}: the name must be "<name> ${SHARD_MATRIX_VALUE} of <total>"`)
+      assert.equal(Number(nameMatch[1]), total, `${at}: the name's total`)
+      for (const legName of shardJobNames(entry)) {
+        assert.ok(!REQUIRED_CONTEXTS.includes(legName), `${at}: ${legName} is a required check`)
+      }
+      // Each leg sets an output of its own; one name would hold only the
+      // leg that finished last.
+      assert.deepEqual(
+        entry.outputs,
+        Object.fromEntries(
+          shards.map(shard => [`tested-${shard}`, `\${{ steps.tested.outputs.tested-${shard} }}`])
+        ),
+        at
+      )
+      assert.equal(entry.env.G3_SHARD, SHARD_MATRIX_VALUE, at)
+      assert.ok(
+        entry.steps.every(step => step.env?.G3_SHARD === undefined),
+        `${at}: no step sets G3_SHARD`
+      )
+      // Playwright's default split, from the command line alone.
+      assert.doesNotMatch(JSON.stringify(workflow), /PWTEST_/, at)
+      const suiteRuns = entry.steps.filter(step => /\bplaywright\s+test\b/.test(step.run ?? ''))
+      assert.equal(suiteRuns.length, 1, `${at}: one run of the suite`)
+      assert.equal(suiteRuns[0].run, SHARD_SUITE_RUN(total), at)
+      assert.equal(suiteRuns[0].if, SKIP_STEP, at)
+      // Each leg's report under its own name, and the harness stopped, even
+      // after a failure or a cancellation.
+      const uploads = entry.steps.filter(step => /^actions\/upload-artifact@/.test(step.uses ?? ''))
+      assert.equal(uploads.length, 1, at)
+      assert.equal(uploads[0].with.name, SHARD_ARTIFACT, at)
+      assert.equal(uploads[0].if, `always() && ${SKIP_STEP}`, at)
+      const stops = entry.steps.filter(step => step.run === 'corepack pnpm regtest:down')
+      assert.equal(stops.length, 1, at)
+      assert.equal(stops[0].if, `always() && ${SKIP_STEP}`, at)
+      // Never always(): a step that failed before it must leave tested unset.
+      const last = entry.steps.at(-1)
+      assert.equal(last.id, 'tested', at)
+      assert.equal(last.if, SKIP_STEP, at)
+      assert.equal(last.run, SHARD_TESTED_RUN, at)
+
+      // The aggregating job: a required check that is not a matrix job, needs
+      // the shards and reports tested=true only after checking every one.
+      const job = jobs[aggregate]
+      const aggregateAt = `${where} job ${aggregate}`
+      const waits = signedHead?.aggregate === aggregate
+      assert.ok(expected.stepGated.includes(aggregate), `${aggregateAt} must be step-gated`)
+      // In G3 only, its name is computed: the required check's in a run that
+      // tests, another while the run waits for a signed head.
+      assert.ok(
+        REQUIRED_CONTEXTS.includes(testingNameOf(job)),
+        `${aggregateAt} must be the required check`
+      )
+      assert.equal(job.name, waits ? SIGNED_AGGREGATE_NAME : testingNameOf(job), aggregateAt)
+      assert.equal(
+        signedHead?.sharded === name,
+        waits,
+        `${aggregateAt} and its shards wait together`
+      )
+      assert.deepEqual(
+        Object.entries(jobs)
+          .filter(([, other]) => [other.needs].flat().includes(name))
+          .map(([other]) => other),
+        [aggregate],
+        `${at}: only ${aggregate} needs it`
+      )
+      // It reads only `needs`, so its token has no permissions.
+      assert.deepEqual(job.permissions, {}, aggregateAt)
+      assert.equal(job.steps.length, 3, aggregateAt)
+      const check = job.steps[1]
+      assert.equal(check.name, SHARD_CHECK_NAME, aggregateAt)
+      // It runs whatever the gate decided.
+      assert.equal(check.if, undefined, aggregateAt)
+      assert.deepEqual(
+        check.env,
+        {
+          SHARDS_RESULT: `\${{ needs.${name}.result }}`,
+          MARKER_HIT: '${{ steps.gate.outputs.skip }}',
+          ...(waits ? { SIGNED_HEAD_WAIT: '${{ steps.gate.outputs.wait }}' } : {}),
+          ...Object.fromEntries(
+            shards.map(shard => [
+              `SHARD_${shard}_TESTED`,
+              `\${{ needs.${name}.outputs.tested-${shard} }}`,
+            ])
+          ),
+        },
+        aggregateAt
+      )
+      assert.equal(
+        check.run,
+        waits ? SIGNED_SHARD_CHECK_RUN(total) : SHARD_CHECK_RUN(total),
+        aggregateAt
+      )
+    }
+
+    // Each lane runs one part of a required job's work. It is step-gated and
+    // covered, as checked above: not a matrix job, needed by the save job and
+    // named in TREE_PASS_COVERED_JOBS. Apart from the save job, only the job
+    // that aggregates it needs it.
+    for (const [name, aggregate] of Object.entries(expected.lanes)) {
+      const entry = jobs[name]
+      const at = `${where} job ${name}`
+      assert.ok(expected.stepGated.includes(name), `${at} must be step-gated`)
+      assert.ok(!REQUIRED_CONTEXTS.includes(entry.name), `${at}: ${entry.name} is a required check`)
+      // The aggregating job's check names it in single quotes.
+      assert.match(entry.name, /^[^'"$`\\]+$/, at)
+      assert.deepEqual(
+        Object.entries(jobs)
+          .filter(([other, job]) => other !== SAVE_JOB && [job.needs].flat().includes(name))
+          .map(([other]) => other),
+        [aggregate],
+        `${at}: only ${aggregate} and the save job need it`
+      )
+    }
+
+    // The job that aggregates lanes: a required check that is not a matrix
+    // job, needs the lanes (checked above) and reports tested=true only after
+    // checking every one, each by its own result and `tested`.
+    for (const aggregate of new Set(Object.values(expected.lanes))) {
+      const job = jobs[aggregate]
+      const at = `${where} job ${aggregate}`
+      const lanes = laneJobsOf(expected, aggregate)
+      assert.ok(expected.stepGated.includes(aggregate), `${at} must be step-gated`)
+      assert.ok(REQUIRED_CONTEXTS.includes(job.name), `${at} must be the required check`)
+      assert.deepEqual(shardedJobsOf(expected, aggregate), [], `${at}: shards or lanes, not both`)
+      // It reads only `needs`, so its token has no permissions.
+      assert.deepEqual(job.permissions, {}, at)
+      assert.equal(job.steps.length, 3, at)
+      const check = job.steps[1]
+      assert.equal(check.name, LANE_CHECK_NAME, at)
+      // It runs whatever the gate decided.
+      assert.equal(check.if, undefined, at)
+      assert.deepEqual(
+        check.env,
+        {
+          MARKER_HIT: '${{ steps.gate.outputs.skip }}',
+          ...Object.fromEntries(
+            lanes.flatMap(lane => [
+              [`${laneVariable(lane)}_RESULT`, `\${{ needs.${lane}.result }}`],
+              [`${laneVariable(lane)}_TESTED`, `\${{ needs.${lane}.outputs.tested }}`],
+            ])
+          ),
+        },
+        at
+      )
+      // Every lane once, by the name GitHub gives its job.
+      assert.equal(
+        check.run,
+        LANE_CHECK_RUN(lanes.map(lane => ({ id: lane, name: jobs[lane].name }))),
+        at
+      )
     }
 
     for (const name of expected.jobGated) {
@@ -2819,45 +3350,173 @@ test('each marked workflow wires the lookup, the gates and the save the same way
   )
 })
 
-// The required checks: the contexts above, and those in
-// .github/rulesets/required-checks.json once that file exists (its format is
-// not settled, so every string under a "context" key, or in a list under a key
-// naming checks or contexts, counts).
-function requiredContexts() {
+// The required checks: the contexts above, and those in each ruleset file
+// that requires status checks and exists here: required-checks.json for the
+// default branch and required-checks-release.json for release branches, which
+// reaches a release branch with a back-merge. Their format is not settled, so
+// every string under a "context" key, or in a list under a key naming checks
+// or contexts, counts.
+const REQUIRED_CHECK_FILES = [
+  '.github/rulesets/required-checks.json',
+  '.github/rulesets/required-checks-release.json',
+]
+
+function requiredContexts(root = repoRoot) {
   const contexts = new Set(REQUIRED_CONTEXTS)
-  const file = join(repoRoot, '.github/rulesets/required-checks.json')
-  if (!existsSync(file)) return contexts
-  const found = new Set()
-  const visit = (value, key) => {
-    if (Array.isArray(value)) {
-      for (const entry of value) {
-        if (typeof entry === 'string' && /check|context/i.test(key ?? '')) found.add(entry)
-        else visit(entry, key)
-      }
-    } else if (value && typeof value === 'object') {
-      for (const [name, entry] of Object.entries(value)) {
-        if (name === 'context' && typeof entry === 'string') found.add(entry)
-        else visit(entry, name)
+  for (const relative of REQUIRED_CHECK_FILES) {
+    const file = join(root, relative)
+    if (!existsSync(file)) continue
+    const found = new Set()
+    const visit = (value, key) => {
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          if (typeof entry === 'string' && /check|context/i.test(key ?? '')) found.add(entry)
+          else visit(entry, key)
+        }
+      } else if (value && typeof value === 'object') {
+        for (const [name, entry] of Object.entries(value)) {
+          if (name === 'context' && typeof entry === 'string') found.add(entry)
+          else visit(entry, name)
+        }
       }
     }
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    if (Array.isArray(parsed)) visit(parsed, 'checks')
+    else visit(parsed)
+    assert.ok(
+      found.size > 0,
+      `${file} lists no check this test can read; update requiredContexts()`
+    )
+    for (const context of found) contexts.add(context)
   }
-  const parsed = JSON.parse(readFileSync(file, 'utf8'))
-  if (Array.isArray(parsed)) visit(parsed, 'checks')
-  else visit(parsed)
-  assert.ok(found.size > 0, `${file} lists no check this test can read; update requiredContexts()`)
-  for (const context of found) contexts.add(context)
   return contexts
 }
 
+// Whether a matrix job whose legs this test does not name could still have a
+// leg named `context`. Its name's literal text must match around the
+// expressions in it; a name of expressions only could be any value in the
+// matrix. A name without expressions gets the values appended, and is
+// refused only if it is the context itself.
+function matrixNameCouldBe(entry, context) {
+  if (typeof entry.name !== 'string') return false
+  const parts = entry.name.split(/\$\{\{[\s\S]*?\}\}/)
+  if (parts.length === 1) return entry.name === context
+  if (parts.every(part => part.trim() === '')) {
+    const values = []
+    const collect = value => {
+      if (typeof value === 'string') values.push(value)
+      else if (value && typeof value === 'object') Object.values(value).forEach(collect)
+    }
+    collect(entry.strategy.matrix)
+    return values.includes(context)
+  }
+  const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  return new RegExp(`^${escaped.join('[\\s\\S]*')}$`).test(context)
+}
+
+// Every name a job that is not a matrix job can report under: its literal
+// name, its ID when it has none, or both outcomes of a computed name. A
+// computed name must be `${{ <condition> && '<A>' || '<B>' }}` with no || in
+// the condition and A not empty: GitHub's && binds tighter than ||, so the
+// name is A when the condition holds and B otherwise, and never anything
+// else.
+function namesJobCanHave(entry, id) {
+  if (entry.name === undefined) return [id]
+  assert.equal(typeof entry.name, 'string', `job ${id}: its name must be a string`)
+  if (!entry.name.includes('${{')) return [entry.name]
+  const match = /^\$\{\{ (.+) && '((?:[^']|'')+)' \|\| '((?:[^']|'')*)' \}\}$/.exec(entry.name)
+  assert.ok(match, `job ${id}: a computed name must be \${{ <condition> && '<A>' || '<B>' }}`)
+  const [, condition, whenTrue, whenFalse] = match
+  assert.doesNotMatch(condition, /\|\|/, `job ${id}: the name's condition must have no ||`)
+  return [whenTrue, whenFalse].map(value => value.replaceAll("''", "'"))
+}
+
+test('the required checks come from both ruleset files, each when it exists', t => {
+  const root = scratch(t, 'tree-pass-rulesets-')
+  mkdirSync(join(root, '.github/rulesets'), { recursive: true })
+  const ruleset = contexts => ({
+    rules: [
+      {
+        type: 'required_status_checks',
+        parameters: { required_status_checks: contexts.map(context => ({ context })) },
+      },
+    ],
+  })
+  // Neither file: the contexts this test names.
+  assert.deepEqual([...requiredContexts(root)].sort(), [...REQUIRED_CONTEXTS].sort())
+  // Only the release file, as on a release branch before a back-merge brings
+  // the default branch's, and then both.
+  writeFileSync(
+    join(root, '.github/rulesets/required-checks-release.json'),
+    JSON.stringify(ruleset(['signed-landing', WAITING_G3]))
+  )
+  assert.ok(requiredContexts(root).has(WAITING_G3))
+  assert.ok(requiredContexts(root).has('signed-landing'))
+  writeFileSync(
+    join(root, '.github/rulesets/required-checks.json'),
+    JSON.stringify(ruleset(['main-only']))
+  )
+  const both = requiredContexts(root)
+  for (const context of ['main-only', 'signed-landing', WAITING_G3, ...REQUIRED_CONTEXTS]) {
+    assert.ok(both.has(context), context)
+  }
+  // A file that names no check this test can read fails, so a format change
+  // cannot silently drop the release ruleset's checks.
+  writeFileSync(join(root, '.github/rulesets/required-checks-release.json'), '{"rules": []}')
+  assert.throws(() => requiredContexts(root), /lists no check this test can read/)
+})
+
 test('every required check comes from a job that reports a real result in the skip path', () => {
-  for (const context of requiredContexts()) {
+  const required = requiredContexts()
+  for (const context of required) {
     const producers = []
     for (const file of trackedWorkflows()) {
       for (const [name, entry] of Object.entries(readWorkflow(file).jobs)) {
-        if (entry.name === context) producers.push({ file, name, job: entry })
+        // A matrix job's legs are judged below.
+        const names = entry.strategy?.matrix ? [entry.name] : namesJobCanHave(entry, name)
+        if (names.includes(context)) producers.push({ file, name, job: entry })
       }
     }
     assert.equal(producers.length, 1, `${context} must come from exactly one job`)
+    // Any other name that job can have is no required check: the waiting
+    // name of `Playwright G3 scenarios` is the one such name.
+    const [producer] = producers
+    for (const other of namesJobCanHave(producer.job, producer.name)) {
+      if (other === context) continue
+      assert.ok(!required.has(other), `${producer.name} can also report as ${other}`)
+      assert.equal(other, WAITING_G3, `${producer.name} can report as ${other}`)
+    }
+    // Nor may a leg of a matrix job take the name: GitHub names each leg
+    // with its matrix values, in the name or after it (after the job ID when
+    // the job has no name). The legs of a one-key matrix are named here; a
+    // sharded job the marker covers must have one. Any other matrix is
+    // judged by its name alone (matrixNameCouldBe).
+    for (const file of trackedWorkflows()) {
+      for (const [name, entry] of Object.entries(readWorkflow(file).jobs)) {
+        const matrix = entry.strategy?.matrix
+        if (!matrix) continue
+        const [key, ...others] = Object.keys(matrix)
+        const oneKey = others.length === 0 && Array.isArray(matrix[key])
+        if (Object.hasOwn(MARKED_WORKFLOWS[file]?.sharded ?? {}, name)) {
+          assert.ok(oneKey, `${file} job ${name}: a sharded job has a one-key matrix`)
+        }
+        if (!oneKey) {
+          assert.ok(
+            !matrixNameCouldBe(entry, context),
+            `${file} job ${name}: a leg of this matrix job could be named "${context}", a required check; give the job a name that cannot render as it`
+          )
+          continue
+        }
+        for (const value of matrix[key]) {
+          const placeholder = `\${{ matrix.${key} }}`
+          const legName =
+            typeof entry.name === 'string' && entry.name.includes(placeholder)
+              ? entry.name.replaceAll(placeholder, String(value))
+              : `${entry.name ?? name} (${value})`
+          assert.notEqual(legName, context, `${file} job ${name}`)
+        }
+      }
+    }
     const [{ file, name, job: entry }] = producers
     assert.equal(entry.strategy, undefined, `${context} must not be a matrix job`)
     if (entry.needs !== undefined) {
@@ -2865,7 +3524,11 @@ test('every required check comes from a job that reports a real result in the sk
         MARKED_WORKFLOWS[file]?.stepGated.includes(name),
         `${context} depends on another job, so it must be a step-gated job`
       )
-      assert.equal(entry.if, '${{ !cancelled() }}', `${context} must run when its dependency fails`)
+      assert.equal(
+        entry.if,
+        requiredJobIf(MARKED_WORKFLOWS[file], name),
+        `${context} must run when its dependency fails`
+      )
     }
   }
 })
@@ -2919,16 +3582,24 @@ test('workflows and local actions outside the marker never reference it', () => 
 })
 
 // The step's script goes in on stdin, the way the runner's bash -e reads a file.
-function runGate(temp, index, { result, skip, url = '' }) {
+function runGate(
+  temp,
+  index,
+  { result, skip, url = '', docsOnly = '', wait = '' },
+  script = GATE_RUN
+) {
   const outputFile = join(temp, `output-${index}`)
   const summaryFile = join(temp, `summary-${index}`)
   const run = spawnSync('bash', ['-e', '-s'], {
-    input: GATE_RUN,
+    input: script,
     env: {
       PATH: process.env.PATH,
       MARKER_JOB_RESULT: result,
       MARKER_SKIP: skip,
       MARKER_RUN_URL: url,
+      DOCS_ONLY: docsOnly,
+      SIGNED_HEAD_WAIT: wait,
+      TREE_PASS_FORCE_LABEL: FORCE_LABEL,
       GITHUB_OUTPUT: outputFile,
       GITHUB_STEP_SUMMARY: summaryFile,
     },
@@ -2937,6 +3608,7 @@ function runGate(temp, index, { result, skip, url = '' }) {
   assert.equal(run.status, 0, run.stderr)
   return {
     skip: outputs(outputFile).skip,
+    wait: outputs(outputFile).wait,
     summary: existsSync(summaryFile) ? readFileSync(summaryFile, 'utf8') : '',
   }
 }
@@ -2955,19 +3627,79 @@ test('the gate step skips only on a successful marker job that said skip, and na
     ['skipped', '', undefined],
     ['', '', undefined],
   ]
-  for (const [index, [result, skip, expected]] of rows.entries()) {
-    const gate = runGate(temp, index, { result, skip, url })
-    assert.equal(gate.skip, expected, `${result}/${skip}`)
-    assert.equal(gate.summary.includes(url), expected === 'true', `${result}/${skip}`)
+  const rerun = `Add the ${FORCE_LABEL} label and re-run all jobs to run everything.`
+  for (const [kind, script, consequence, docsSummary] of [
+    [
+      'gated',
+      GATE_RUN,
+      'so its steps are skipped.',
+      `changes only documentation that no skipped step reads, so its steps are skipped. ${rerun}`,
+    ],
+    // A job that runs in full on a docs-only change: no docs-only summary.
+    ['marker only', MARKER_ONLY_GATE_RUN, 'so its steps are skipped.', null],
+    [
+      'aggregate',
+      AGGREGATE_GATE_RUN,
+      'this job still checks that every shard succeeded.',
+      'changes only documentation that no skipped step reads, so the shards skipped their steps; ' +
+        `this job still checks that every shard succeeded. ${rerun}`,
+    ],
+    [
+      'lane aggregate',
+      LANE_AGGREGATE_GATE_RUN,
+      'this job still checks that every lane succeeded.',
+      'changes only documentation that no skipped step reads, so the lanes skipped their steps, ' +
+        "except 'Typecheck, security checks and other unit tests', which ran in full because its " +
+        `security tooling tests read every tracked file; this job still checks that every lane succeeded. ${rerun}`,
+    ],
+  ]) {
+    for (const [index, [result, skip, expected]] of rows.entries()) {
+      const gate = runGate(temp, `${kind}-${index}`, { result, skip, url }, script)
+      assert.equal(gate.skip, expected, `${kind} ${result}/${skip}`)
+      assert.equal(gate.summary.includes(url), expected === 'true', `${kind} ${result}/${skip}`)
+      assert.equal(gate.summary.includes(consequence), expected === 'true', kind)
+    }
+    // A docs-only change skips the same way, on a successful marker job only,
+    // and its summary says so and how to run everything. A hit names its run.
+    const docsRows = [
+      ['success', 'false', 'true', 'docs-only'],
+      ['success', '', 'true', 'docs-only'],
+      ['success', 'true', 'true', 'hit'],
+      ['success', 'false', 'TRUE', undefined],
+      ['success', 'false', 'false', undefined],
+      ['success', 'false', '', undefined],
+      ['failure', 'false', 'true', undefined],
+      ['cancelled', '', 'true', undefined],
+      ['skipped', '', 'true', undefined],
+      ['', '', 'true', undefined],
+    ]
+    for (const [index, [result, skip, docsOnly, kindOfSkip]] of docsRows.entries()) {
+      const at = `${kind} ${result}/${skip}/docs-only ${docsOnly}`
+      const gate = runGate(temp, `${kind}-docs-${index}`, { result, skip, url, docsOnly }, script)
+      // A marker-only gate ignores a docs-only change and runs everything.
+      const skips = kindOfSkip === 'hit' || (kindOfSkip === 'docs-only' && docsSummary !== null)
+      assert.equal(gate.skip, skips ? 'true' : undefined, at)
+      assert.equal(gate.summary.includes(url), kindOfSkip === 'hit', at)
+      assert.equal(gate.summary.includes(consequence), skips, at)
+      assert.equal(
+        gate.summary.includes('changes only documentation'),
+        skips && kindOfSkip !== 'hit',
+        at
+      )
+      if (docsSummary !== null) {
+        assert.equal(gate.summary.includes(docsSummary), kindOfSkip === 'docs-only', at)
+      }
+    }
+    // The URL is data, not shell: a hostile value cannot run a command.
+    const hostile = runGate(
+      temp,
+      `${kind}-hostile`,
+      { result: 'success', skip: 'true', url: '$(touch pwned) `touch pwned` ; touch pwned' },
+      script
+    )
+    assert.equal(hostile.skip, 'true', kind)
+    assert.ok(!existsSync(join(process.cwd(), 'pwned')), kind)
   }
-  // The URL is data, not shell: a hostile value cannot run a command.
-  const hostile = runGate(temp, 'hostile', {
-    result: 'success',
-    skip: 'true',
-    url: '$(touch pwned) `touch pwned` ; touch pwned',
-  })
-  assert.equal(hostile.skip, 'true')
-  assert.ok(!existsSync(join(process.cwd(), 'pwned')))
 })
 
 // --- The workflow conditions, evaluated ------------------------------------
@@ -2983,10 +3715,37 @@ function evaluateIf(expression, context) {
   const wrapped = /^\$\{\{([\s\S]*)\}\}$/.exec(text)
   if (wrapped) text = wrapped[1].trim()
   if (!/\b(?:success|failure|cancelled|always)\(\)/.test(text)) text = `success() && (${text})`
-  const tokens = text.match(
-    /&&|\|\||==|!=|!|\(|\)|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*(?:\(\))?/g
-  )
-  assert.equal(tokens.join(''), text.replace(/\s+/g, ''), `cannot evaluate ${expression}`)
+  return Boolean(evaluateExpression(text, context, expression))
+}
+
+// The name GitHub gives a job: each `${{ … }}` in it evaluated as a value, as
+// in `jobs.<job_id>.name`, which may read `needs` and `matrix`. No status
+// function and no implicit success() there.
+function renderName(entry, context) {
+  return entry.name.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, inner) => {
+    const value = evaluateExpression(inner.trim(), { status: {}, ...context }, entry.name)
+    return typeof value === 'string' ? value : String(value)
+  })
+}
+
+// The name a job has in a pull request run that tests: the marker job
+// succeeded and the run does not wait for a signed head.
+function testingNameOf(entry) {
+  return renderName(entry, {
+    needs: { [DECIDE_JOB]: { result: 'success', outputs: { 'signed-head-wait': 'false' } } },
+  })
+}
+
+// The value of an expression, as GitHub computes it: && gives its left
+// operand when that is falsy and its right one otherwise, || its left operand
+// when that is truthy and its right one otherwise, and ! and the comparisons
+// give booleans. An empty string and false are falsy, as in GitHub.
+function evaluateExpression(text, context, expression = text) {
+  const token = /&&|\|\||==|!=|!|\(|\)|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*(?:\(\))?/g
+  const tokens = text.match(token) ?? []
+  // Nothing but whitespace between the tokens; a string literal keeps its own.
+  assert.equal(text.replace(token, '').replace(/\s+/g, ''), '', `cannot evaluate ${expression}`)
+  assert.ok(tokens.length > 0, `cannot evaluate ${expression}`)
   let position = 0
   const peek = () => tokens[position]
   const take = expected => {
@@ -3038,7 +3797,7 @@ function evaluateIf(expression, context) {
     while (peek() === '&&') {
       take()
       const right = comparison()
-      value = Boolean(value) && Boolean(right)
+      value = value ? right : value
     }
     return value
   }
@@ -3047,13 +3806,13 @@ function evaluateIf(expression, context) {
     while (peek() === '||') {
       take()
       const right = and()
-      value = Boolean(value) || Boolean(right)
+      value = value ? value : right
     }
     return value
   }
   const result = or()
   assert.equal(position, tokens.length, `trailing tokens in ${expression}`)
-  return Boolean(result)
+  return result
 }
 
 function jobStatus(needs, runCancelled) {
@@ -3066,18 +3825,205 @@ function jobStatus(needs, runCancelled) {
   }
 }
 
+// Runs a step's script as runGate does (bash -e, the script on stdin; the
+// runner adds pipefail, and these scripts have no pipes) with the given
+// environment, and returns its exit status and outputs.
+function runStep(temp, label, script, env, path = process.env.PATH) {
+  const outputFile = join(temp, `step-output-${label}`)
+  const summaryFile = join(temp, `step-summary-${label}`)
+  const run = spawnSync('bash', ['-e', '-s'], {
+    input: script,
+    env: { ...env, PATH: path, GITHUB_OUTPUT: outputFile, GITHUB_STEP_SUMMARY: summaryFile },
+    encoding: 'utf8',
+  })
+  assert.equal(run.error, undefined, label)
+  return {
+    status: run.status,
+    stdout: run.stdout,
+    outputs: outputs(outputFile),
+    summary: existsSync(summaryFile) ? readFileSync(summaryFile, 'utf8') : '',
+  }
+}
+
+// Fills in the `${{ <property path> }}` templates of each value, as GitHub
+// does for the ones the simulated steps use. A missing property is '', and
+// any other template fails the test.
+function resolveTemplates(map, context) {
+  return Object.fromEntries(
+    Object.entries(map ?? {}).map(([key, value]) => {
+      const text = String(value).replace(
+        /\$\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}/g,
+        (_, path) => {
+          let found = context
+          for (const part of path.split('.')) found = found?.[part]
+          return found === undefined || found === null ? '' : String(found)
+        }
+      )
+      assert.doesNotMatch(text, /\$\{\{/, `cannot resolve ${key}: ${value}`)
+      return [key, text]
+    })
+  )
+}
+
+// A job's outputs as GitHub records them: an empty value is not recorded.
+function jobOutputs(job, steps) {
+  return Object.fromEntries(
+    Object.entries(resolveTemplates(job.outputs, { steps })).filter(([, value]) => value !== '')
+  )
+}
+
+function pick(needs, names) {
+  return Object.fromEntries([names].flat().map(name => [name, needs[name]]))
+}
+
+// A stand-in for xvfb-run that records the command it was asked to run.
+function fakeXvfb(temp) {
+  const bin = join(temp, 'bin')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'xvfb-run'), `#!/bin/sh\nprintf '%s\\n' "$@" > "$XVFB_ARGS"\n`, {
+    mode: 0o755,
+  })
+  return bin
+}
+
+// One leg of a sharded job. Its gate, its run of the suite (through the
+// stand-in xvfb-run, which records the command line) and its last step run
+// for real, with the environment the job gives the leg; the other steps
+// only by their conditions. `result` is how the leg ends: success, failure
+// (its run of the suite fails), cancelled (during that run, as on a timeout)
+// or skipped (it never starts).
+function simulateLeg(temp, bin, name, job, { shard, result, marker, github }) {
+  if (result === 'skipped') return { shard, result, steps: [], outputs: {} }
+  const label = `${name}-${shard}`
+  const argsFile = join(temp, `xvfb-args-${label}`)
+  const env = {
+    ...resolveTemplates(job.env, { matrix: { shard }, github }),
+    XVFB_ARGS: argsFile,
+  }
+  const steps = {}
+  const ran = []
+  let status = { success: true, failure: false, cancelled: false, always: true }
+  let suiteArgs
+  for (const [index, step] of job.steps.entries()) {
+    if (!evaluateIf(step.if, { github, steps, status })) continue
+    ran.push(step.name)
+    const stepEnv = { ...env, ...resolveTemplates(step.env, { needs: { [DECIDE_JOB]: marker } }) }
+    if (step.id === 'gate' || step.id === 'tested') {
+      const done = runStep(temp, `${label}-${index}`, step.run, stepEnv)
+      assert.equal(done.status, 0, `${label} ${step.name}`)
+      steps[step.id] = { outputs: done.outputs }
+    } else if (/\bplaywright\s+test\b/.test(step.run ?? '')) {
+      const done = runStep(
+        temp,
+        `${label}-${index}`,
+        step.run,
+        stepEnv,
+        `${bin}:${process.env.PATH}`
+      )
+      assert.equal(done.status, 0, `${label} ${step.name}`)
+      suiteArgs = readFileSync(argsFile, 'utf8').split('\n').slice(0, -1)
+      if (result === 'failure') status = { ...status, success: false, failure: true }
+      if (result === 'cancelled') status = { ...status, success: false, cancelled: true }
+    }
+  }
+  return {
+    shard,
+    result,
+    steps: ran,
+    total: job.steps.length,
+    outputs: jobOutputs(job, steps),
+    suiteArgs,
+  }
+}
+
+// GitHub's result for a matrix job: any failed leg makes it a failure, else
+// any cancelled leg cancelled, and legs that were all skipped skipped. A
+// skipped leg among passing ones counts as a pass here, the most lenient
+// reading, so the aggregating job must not rely on the result alone.
+function matrixResult(legs) {
+  const results = legs.map(leg => leg.result)
+  if (results.includes('failure')) return 'failure'
+  if (results.includes('cancelled')) return 'cancelled'
+  if (results.every(result => result === 'skipped')) return 'skipped'
+  return 'success'
+}
+
+// The job that aggregates a sharded job: every step runs for real, with the
+// workflow's env, and the job reports under the name GitHub renders for it. A
+// job that `always()` starts after the run was cancelled is not itself
+// cancelled, so its steps run as usual.
+function simulateAggregate(temp, name, job, { needs, github, runCancelled, workflowEnv = {} }) {
+  const jobNeeds = pick(needs, job.needs)
+  const jobName = renderName(job, { github, needs: jobNeeds })
+  if (!evaluateIf(job.if, { github, needs: jobNeeds, status: jobStatus(jobNeeds, runCancelled) })) {
+    return { ran: false, name: jobName, result: 'skipped', steps: [], outputs: {} }
+  }
+  const steps = {}
+  const ran = []
+  const errors = []
+  const notices = []
+  let summary = ''
+  let status = { success: true, failure: false, cancelled: false, always: true }
+  for (const [index, step] of job.steps.entries()) {
+    if (!evaluateIf(step.if, { github, steps, status })) continue
+    ran.push(step.name)
+    const env = { ...workflowEnv, ...resolveTemplates(step.env, { needs: jobNeeds, steps }) }
+    const done = runStep(temp, `${name}-${index}`, step.run, env)
+    errors.push(...done.stdout.split('\n').filter(line => line.startsWith('::error::')))
+    notices.push(...done.stdout.split('\n').filter(line => line.startsWith('::notice::')))
+    summary += done.summary
+    if (step.id) steps[step.id] = { outputs: done.outputs }
+    if (done.status !== 0) status = { ...status, success: false, failure: true }
+  }
+  return {
+    ran: true,
+    name: jobName,
+    notices,
+    result: status.success ? 'success' : 'failure',
+    steps: ran,
+    total: job.steps.length,
+    outputs: jobOutputs(job, steps),
+    errors,
+    summary,
+  }
+}
+
 // One run of a marked workflow, as far as the conditions decide it. The
-// tree-pass job's result and outputs are given when it runs; every other job
-// succeeds when it runs. Returns, per job, whether it ran and which steps did.
+// tree-pass job's result and outputs are given when it runs. Each leg of a
+// sharded job ends as `legs` says (success unless named), `lostOutputs` are
+// left out of the sharded job's outputs, `runCancelled` cancels the run
+// before the marker job starts, `cancelledAfterMarker` once it ended with the
+// result `treePass` gives and before any other job starts, and
+// `cancelledAfterShards` once the shards and lanes ended; the job that
+// aggregates them runs its steps for real. Each lane that runs ends as `lanes` says (success
+// unless named), and one that fails or is cancelled stops before its last
+// step; `lostLaneOutputs` names lanes whose `tested` is lost. Every other job
+// succeeds when it runs. Returns, per job, whether it ran and which steps
+// did.
 function simulate(
   t,
   file,
-  { event, treePass, record = { ok: 'true' }, upload = 'success', runCancelled = false }
+  {
+    event,
+    treePass,
+    record = { ok: 'true' },
+    upload = 'success',
+    runCancelled = false,
+    legs = {},
+    lostOutputs = [],
+    cancelledAfterMarker = false,
+    cancelledAfterShards = false,
+    lanes = {},
+    lostLaneOutputs = [],
+  }
 ) {
   const temp = scratch(t, 'tree-pass-simulate-')
-  const { jobs } = readWorkflow(file)
+  const bin = fakeXvfb(temp)
+  const { jobs, env } = readWorkflow(file)
   const expected = MARKED_WORKFLOWS[file]
-  const github = { event_name: event }
+  const github = { event_name: event, run_id: '2002', run_attempt: '1' }
+  // The workflow's env, which every step sees: the force label, for one.
+  const workflowEnv = resolveTemplates(env, {})
   const outcome = {}
 
   const lookupRuns = evaluateIf(jobs[DECIDE_JOB].if, {
@@ -3088,37 +4034,103 @@ function simulate(
   outcome[DECIDE_JOB] = { ran: lookupRuns, ...marker }
 
   const needs = { [DECIDE_JOB]: marker }
-  for (const name of [...expected.stepGated, ...expected.jobGated]) {
+  // Every job after the marker job is cancelled by a cancellation before it.
+  const afterMarkerCancelled = runCancelled || cancelledAfterMarker
+  // Sharded jobs first: the jobs that aggregate them need them.
+  for (const name of Object.keys(expected.sharded)) {
     const job = jobs[name]
-    const ran = evaluateIf(job.if, { github, needs, status: jobStatus(needs, runCancelled) })
+    const jobNeeds = pick(needs, job.needs)
+    const ran = evaluateIf(job.if, {
+      github,
+      needs: jobNeeds,
+      status: jobStatus(jobNeeds, afterMarkerCancelled),
+    })
     if (!ran) {
-      outcome[name] = { ran: false, result: 'skipped', steps: [] }
-      needs[name] = { result: 'skipped', outputs: {} }
+      // GitHub reports a job that a cancelled run never started as cancelled.
+      const result = afterMarkerCancelled ? 'cancelled' : 'skipped'
+      outcome[name] = { ran: false, result, legs: [] }
+      needs[name] = { result, outputs: {} }
+      continue
+    }
+    const legRuns = job.strategy.matrix.shard.map(shard =>
+      simulateLeg(temp, bin, name, job, { shard, result: legs[shard] ?? 'success', marker, github })
+    )
+    const merged = Object.assign({}, ...legRuns.map(leg => leg.outputs))
+    for (const key of lostOutputs) delete merged[key]
+    outcome[name] = { ran: true, result: matrixResult(legRuns), legs: legRuns }
+    needs[name] = { result: matrixResult(legRuns), outputs: merged }
+  }
+
+  const cancelled = afterMarkerCancelled || cancelledAfterShards
+  // Lanes before the jobs that aggregate them, which need them.
+  const aggregates = expected.stepGated.filter(name => partsOf(expected, name).length > 0)
+  const others = expected.stepGated.filter(name => !aggregates.includes(name))
+  for (const name of [...others, ...expected.jobGated, ...aggregates]) {
+    const job = jobs[name]
+    const lane = Object.hasOwn(expected.lanes, name)
+    // A job that needs only the marker job, such as a lane, ends before a
+    // cancellation that comes after the shards and lanes.
+    const jobCancelled = aggregates.includes(name) ? cancelled : afterMarkerCancelled
+    if (partsOf(expected, name).length > 0) {
+      const aggregate = simulateAggregate(temp, name, job, {
+        needs,
+        github,
+        runCancelled: cancelled,
+        workflowEnv,
+      })
+      outcome[name] = aggregate
+      needs[name] = { result: aggregate.result, outputs: aggregate.outputs }
+      continue
+    }
+    const jobNeeds = pick(needs, job.needs)
+    const ran = evaluateIf(job.if, {
+      github,
+      needs: jobNeeds,
+      status: jobStatus(jobNeeds, jobCancelled),
+    })
+    const ending = (lane && lanes[name]) || 'success'
+    if (!ran || ending === 'skipped') {
+      const result = jobCancelled ? 'cancelled' : 'skipped'
+      outcome[name] = { ran: false, result, steps: [] }
+      needs[name] = { result, outputs: {} }
       continue
     }
     const steps = {}
     const ranSteps = []
     for (const [index, step] of job.steps.entries()) {
       if (step.id === 'gate') {
-        const gate = runGate(temp, `${name}-${index}`, {
-          result: marker.result,
-          skip: marker.outputs.skip ?? '',
-          url: marker.outputs['run-url'] ?? '',
-        })
+        const gate = runGate(
+          temp,
+          `${name}-${index}`,
+          {
+            result: marker.result,
+            skip: marker.outputs.skip ?? '',
+            url: marker.outputs['run-url'] ?? '',
+            docsOnly: marker.outputs['docs-only'] ?? '',
+          },
+          step.run
+        )
         steps.gate = { outputs: { skip: gate.skip ?? '' } }
         ranSteps.push(step.name)
         continue
       }
-      const status = { success: true, failure: false, cancelled: runCancelled, always: true }
+      const status = { success: true, failure: false, cancelled: jobCancelled, always: true }
       if (evaluateIf(step.if, { github, steps, status })) ranSteps.push(step.name)
     }
-    const tested = ranSteps.includes(job.steps.at(-1).name)
-    outcome[name] = { ran: true, result: 'success', steps: ranSteps, total: job.steps.length }
-    needs[name] = { result: 'success', outputs: tested ? { tested: 'true' } : {} }
+    // A lane that fails or is cancelled never reaches its last step.
+    if (ending !== 'success' && ranSteps.at(-1) === job.steps.at(-1).name) ranSteps.pop()
+    const tested = ranSteps.includes(job.steps.at(-1).name) && !lostLaneOutputs.includes(name)
+    outcome[name] = { ran: true, result: ending, steps: ranSteps, total: job.steps.length }
+    needs[name] = { result: ending, outputs: tested ? { tested: 'true' } : {} }
   }
 
   const save = jobs[SAVE_JOB]
-  const saveRuns = evaluateIf(save.if, { github, needs, status: jobStatus(needs, runCancelled) })
+  const saveNeeds = pick(needs, save.needs)
+  const saveRuns = evaluateIf(save.if, {
+    github,
+    needs: saveNeeds,
+    status: jobStatus(saveNeeds, cancelled),
+  })
   const saveSteps = []
   if (saveRuns) {
     const steps = { record: { outputs: record }, upload: { outcome: upload } }
@@ -3127,8 +4139,39 @@ function simulate(
       if (evaluateIf(step.if, { github, steps, status })) saveSteps.push(step.uses ?? step.run)
     }
   }
-  outcome[SAVE_JOB] = { ran: saveRuns, steps: saveSteps, needs }
+  outcome[SAVE_JOB] = { ran: saveRuns, steps: saveSteps, needs: saveNeeds }
   return outcome
+}
+
+// Every leg of each sharded job ran all its steps, or only its gate.
+function assertLegs(run, expected, where, { full }) {
+  for (const name of Object.keys(expected.sharded)) {
+    assert.equal(run[name].ran, true, `${where}: ${name} runs`)
+    for (const leg of run[name].legs) {
+      const at = `${where}: ${name} shard ${leg.shard}`
+      if (full) assert.equal(leg.steps.length, leg.total, `${at} runs every step`)
+      else assert.deepEqual(leg.steps, ['Check for a tree pass marker'], at)
+    }
+  }
+}
+
+const FULL_RUN = {
+  result: 'success',
+  outputs: { prefix: PREFIX, skip: 'false', save: 'true', 'run-url': '' },
+}
+const SKIP_RUN = {
+  result: 'success',
+  outputs: {
+    prefix: PREFIX,
+    skip: 'true',
+    save: 'false',
+    'run-url': 'https://github.com/Qbit-Org/qbit-wallet/actions/runs/1001/attempts/1',
+  },
+}
+// A marker miss that would save, on a docs-only change.
+const DOCS_ONLY_RUN = {
+  result: 'success',
+  outputs: { ...FULL_RUN.outputs, 'docs-only': 'true' },
 }
 
 test('a skipped tree-pass runs everything and saves nothing', t => {
@@ -3149,6 +4192,7 @@ test('a skipped tree-pass runs everything and saves nothing', t => {
           `${where}: every step of ${name} runs`
         )
       }
+      assertLegs(run, expected, where, { full: true })
       assert.equal(run[SAVE_JOB].ran, false, `${where}: nothing is saved`)
       // Even if the save job ran, record refuses a skipped tree-pass.
       assert.notDeepEqual(recordErrors({ needs: run[SAVE_JOB].needs }), [], where)
@@ -3157,26 +4201,14 @@ test('a skipped tree-pass runs everything and saves nothing', t => {
 })
 
 test('the conditions run everything unless a successful marker job said skip, and save only a full pass', t => {
-  const fullRun = {
-    result: 'success',
-    outputs: { prefix: PREFIX, skip: 'false', save: 'true', 'run-url': '' },
-  }
-  const skipRun = {
-    result: 'success',
-    outputs: {
-      prefix: PREFIX,
-      skip: 'true',
-      save: 'false',
-      'run-url': 'https://github.com/Qbit-Org/qbit-wallet/actions/runs/1001/attempts/1',
-    },
-  }
   for (const [file, expected] of Object.entries(MARKED_WORKFLOWS)) {
     const covered = [...expected.stepGated, ...expected.jobGated]
 
     // A full pull request run saves, through the artifact and then the cache.
-    const full = simulate(t, file, { event: 'pull_request', treePass: fullRun })
+    const full = simulate(t, file, { event: 'pull_request', treePass: FULL_RUN })
     for (const name of covered)
       assert.equal(full[name].steps.length, full[name].total, `${file} ${name}`)
+    assertLegs(full, expected, file, { full: true })
     assert.equal(full[SAVE_JOB].ran, true, file)
     assert.equal(full[SAVE_JOB].steps.length, 4, file)
     assert.deepEqual(recordErrors({ needs: full[SAVE_JOB].needs }), [], file)
@@ -3184,33 +4216,86 @@ test('the conditions run everything unless a successful marker job said skip, an
     // record declined, or the artifact upload failed: no cache entry.
     const declined = simulate(t, file, {
       event: 'pull_request',
-      treePass: fullRun,
+      treePass: FULL_RUN,
       record: { ok: 'false' },
     })
     assert.equal(declined[SAVE_JOB].steps.length, 2, file)
     const noArtifact = simulate(t, file, {
       event: 'pull_request',
-      treePass: fullRun,
+      treePass: FULL_RUN,
       upload: 'failure',
     })
     assert.equal(noArtifact[SAVE_JOB].steps.length, 3, file)
     assert.ok(!noArtifact[SAVE_JOB].steps.some(step => /^actions\/cache\/save@/.test(step)), file)
 
-    // A skip: required jobs run only their gate, other covered jobs are
-    // skipped whole, and nothing is saved.
-    const skip = simulate(t, file, { event: 'pull_request', treePass: skipRun })
+    // A skip: required jobs and lanes run only their gate, and an
+    // aggregating job also its check of the shards or lanes; every leg of a
+    // sharded job runs only its gate; other covered jobs are skipped whole,
+    // and nothing is saved.
+    const skip = simulate(t, file, { event: 'pull_request', treePass: SKIP_RUN })
     for (const name of expected.stepGated) {
       assert.equal(skip[name].ran, true, `${file} ${name} reports a result`)
-      assert.deepEqual(skip[name].steps, ['Check for a tree pass marker'], `${file} ${name}`)
+      assert.equal(skip[name].result, 'success', `${file} ${name}`)
+      const check =
+        shardedJobsOf(expected, name).length > 0
+          ? [SHARD_CHECK_NAME]
+          : laneJobsOf(expected, name).length > 0
+            ? [LANE_CHECK_NAME]
+            : []
+      assert.deepEqual(
+        skip[name].steps,
+        ['Check for a tree pass marker', ...check],
+        `${file} ${name}`
+      )
     }
+    assertLegs(skip, expected, file, { full: false })
     for (const name of expected.jobGated) assert.equal(skip[name].ran, false, `${file} ${name}`)
     assert.equal(skip[SAVE_JOB].ran, false, file)
 
-    // A failed or cancelled marker job runs everything and saves nothing.
+    // A docs-only change: required jobs, the lanes and the legs run only
+    // their gates, and an aggregating job also its check, as on a skip; but
+    // other covered jobs, and the lanes in runsOnDocsOnly, run in full, and
+    // nothing is saved. With a marker hit as well, it is a skip.
+    for (const treePass of [
+      DOCS_ONLY_RUN,
+      { ...SKIP_RUN, outputs: { ...SKIP_RUN.outputs, 'docs-only': 'true' } },
+    ]) {
+      const docs = simulate(t, file, { event: 'pull_request', treePass })
+      const where = `${file} docs-only, marker skip ${treePass.outputs.skip}`
+      for (const name of expected.stepGated) {
+        assert.equal(docs[name].ran, true, `${where}: ${name} reports a result`)
+        assert.equal(docs[name].result, 'success', `${where}: ${name}`)
+        if (expected.runsOnDocsOnly.includes(name) && treePass.outputs.skip !== 'true') {
+          assert.equal(docs[name].steps.length, docs[name].total, `${where}: ${name} runs in full`)
+          continue
+        }
+        const check =
+          shardedJobsOf(expected, name).length > 0
+            ? [SHARD_CHECK_NAME]
+            : laneJobsOf(expected, name).length > 0
+              ? [LANE_CHECK_NAME]
+              : []
+        assert.deepEqual(
+          docs[name].steps,
+          ['Check for a tree pass marker', ...check],
+          `${where}: ${name}`
+        )
+      }
+      assertLegs(docs, expected, where, { full: false })
+      for (const name of expected.jobGated) {
+        const skipped = treePass.outputs.skip === 'true'
+        assert.equal(docs[name].ran, !skipped, `${where}: ${name}`)
+        if (!skipped) assert.equal(docs[name].steps.length, docs[name].total, `${where}: ${name}`)
+      }
+      assert.equal(docs[SAVE_JOB].ran, false, where)
+    }
+
+    // A failed or cancelled marker job runs everything and saves nothing,
+    // whatever it said about a skip or a docs-only change.
     for (const result of ['failure', 'cancelled']) {
       const broken = simulate(t, file, {
         event: 'pull_request',
-        treePass: { result, outputs: { ...skipRun.outputs, save: 'true' } },
+        treePass: { result, outputs: { ...SKIP_RUN.outputs, save: 'true', 'docs-only': 'true' } },
       })
       for (const name of covered) {
         assert.equal(
@@ -3219,17 +4304,870 @@ test('the conditions run everything unless a successful marker job said skip, an
           `${file} ${name} after ${result}`
         )
       }
+      assertLegs(broken, expected, `${file} after ${result}`, { full: true })
       assert.equal(broken[SAVE_JOB].ran, false, `${file} after ${result}`)
     }
 
-    // A cancelled run: no covered job starts.
+    // A cancelled run: no covered job starts, except a job that aggregates
+    // shards or lanes, which runs and fails because its parts did not pass.
     const cancelled = simulate(t, file, {
       event: 'pull_request',
-      treePass: fullRun,
+      treePass: FULL_RUN,
       runCancelled: true,
     })
-    for (const name of covered) assert.equal(cancelled[name].ran, false, `${file} ${name}`)
+    for (const name of [...covered, ...Object.keys(expected.sharded)]) {
+      const aggregates = partsOf(expected, name).length > 0
+      assert.equal(cancelled[name].ran, aggregates, `${file} ${name}`)
+      if (aggregates) assert.equal(cancelled[name].result, 'failure', `${file} ${name}`)
+    }
     assert.equal(cancelled[SAVE_JOB].ran, false, file)
+  }
+})
+
+// --- The shards of the browser release gate --------------------------------
+
+const SHARDED_FILE = '.github/workflows/playwright-release-gate.yml'
+
+test('each shard runs the suite on its own part of the total, and together they run every part once', t => {
+  const expected = MARKED_WORKFLOWS[SHARDED_FILE]
+  const { jobs } = readWorkflow(SHARDED_FILE)
+  for (const [name] of Object.entries(expected.sharded)) {
+    const total = jobs[name].strategy.matrix.shard.length
+    for (const [label, options] of [
+      ['a full run', { event: 'pull_request', treePass: FULL_RUN }],
+      ['a push', { event: 'push', treePass: FULL_RUN }],
+    ]) {
+      const run = simulate(t, SHARDED_FILE, options)
+      const args = run[name].legs.map(leg => leg.suiteArgs)
+      // What the runner hands Playwright, read from the command line the
+      // step actually ran: one --shard per leg, 1 to the total, each once.
+      assert.deepEqual(
+        args,
+        shardRange(total).map(shard => [
+          '--auto-servernum',
+          'corepack',
+          'pnpm',
+          'exec',
+          'playwright',
+          'test',
+          `--shard=${shard}/${total}`,
+        ]),
+        `${name} in ${label}`
+      )
+      // And each leg reports its own output, which no other leg sets.
+      assert.deepEqual(
+        run[name].legs.map(leg => leg.outputs),
+        shardRange(total).map(shard => ({ [`tested-${shard}`]: 'true' })),
+        `${name} in ${label}`
+      )
+    }
+  }
+})
+
+// The aggregating job's result, whether it reports tested=true, whether the
+// save job runs and whether its record step accepts, for each state of the
+// marker job and each way the shards can end.
+test('Playwright G3 scenarios passes only when every shard passed, and a marker needs every shard tested', t => {
+  const expected = MARKED_WORKFLOWS[SHARDED_FILE]
+  const [[shardJob, aggregate]] = Object.entries(expected.sharded)
+  const { jobs } = readWorkflow(SHARDED_FILE)
+  const total = jobs[shardJob].strategy.matrix.shard.length
+  // Every leg ending one way, and the legs after shard `failed` reused.
+  const allLegs = result => Object.fromEntries(shardRange(total).map(shard => [shard, result]))
+  const reusedOutputs = failed =>
+    shardRange(total)
+      .filter(shard => shard !== failed)
+      .map(shard => `tested-${shard}`)
+  const markers = {
+    'skipped (no pull request)': { event: 'push', treePass: FULL_RUN },
+    failed: {
+      event: 'pull_request',
+      treePass: { result: 'failure', outputs: { ...SKIP_RUN.outputs, save: 'true' } },
+    },
+    hit: { event: 'pull_request', treePass: SKIP_RUN },
+    miss: { event: 'pull_request', treePass: FULL_RUN },
+    // A miss that would save, on a docs-only change: it ends as a hit does,
+    // and saves nothing.
+    'docs-only': { event: 'pull_request', treePass: DOCS_ONLY_RUN },
+  }
+  const shards = {
+    'all passed': {},
+    'one failed': { legs: { 3: 'failure' } },
+    'one cancelled': { legs: { 2: 'cancelled' } },
+    // GitHub decides a matrix job's `if` once for every leg, so one leg is
+    // never skipped alone; were it, and counted as a pass, only a hit,
+    // where no leg runs its steps, would still pass.
+    'one skipped': { legs: { [total]: 'skipped' } },
+    'all skipped': { legs: allLegs('skipped') },
+    // "Re-run failed jobs" after a shard failed: the passing legs are reused.
+    // If GitHub did not carry their outputs into the new attempt, the check
+    // fails and nothing is recorded.
+    'rerun without reused outputs': { lostOutputs: reusedOutputs(3) },
+    // The run cancelled, by a newer push or by hand: before the shards
+    // started (they never run, and GitHub reports them cancelled), while
+    // they run (each leg is cancelled), or after they ended. The required
+    // job runs in each case; a cancellation that lands before it can start
+    // may report it cancelled instead, which does not pass either.
+    'run cancelled before the shards': { runCancelled: true },
+    'run cancelled while the shards run': {
+      legs: allLegs('cancelled'),
+      cancelledAfterShards: true,
+    },
+    'run cancelled after one failed': { legs: { 3: 'failure' }, cancelledAfterShards: true },
+    'run cancelled after all passed': { cancelledAfterShards: true },
+  }
+  // [aggregate result, its tested output, save job runs, record accepts]. The
+  // record step also refuses a skipped or failed tree-pass, should the save
+  // job run without it.
+  const pass = ['success', 'true', false, false]
+  const hitPass = ['success', undefined, false, false]
+  const fail = ['failure', undefined, false, false]
+  const table = {
+    'skipped (no pull request)': {
+      'all passed': pass,
+      'one failed': fail,
+      'one cancelled': fail,
+      'one skipped': fail,
+      'all skipped': fail,
+      'rerun without reused outputs': fail,
+      'run cancelled before the shards': fail,
+      'run cancelled while the shards run': fail,
+      'run cancelled after one failed': fail,
+      'run cancelled after all passed': pass,
+    },
+    failed: {
+      'all passed': pass,
+      'one failed': fail,
+      'one cancelled': fail,
+      'one skipped': fail,
+      'all skipped': fail,
+      'rerun without reused outputs': fail,
+      'run cancelled before the shards': fail,
+      'run cancelled while the shards run': fail,
+      'run cancelled after one failed': fail,
+      'run cancelled after all passed': pass,
+    },
+    hit: {
+      'all passed': hitPass,
+      'one failed': fail,
+      'one cancelled': fail,
+      'one skipped': hitPass,
+      'all skipped': fail,
+      'rerun without reused outputs': hitPass,
+      'run cancelled before the shards': fail,
+      'run cancelled while the shards run': fail,
+      'run cancelled after one failed': fail,
+      'run cancelled after all passed': hitPass,
+    },
+    miss: {
+      'all passed': ['success', 'true', true, true],
+      'one failed': fail,
+      'one cancelled': fail,
+      'one skipped': fail,
+      'all skipped': fail,
+      'rerun without reused outputs': fail,
+      'run cancelled before the shards': fail,
+      'run cancelled while the shards run': fail,
+      'run cancelled after one failed': fail,
+      // The shards passed, so the check does; a cancelled run saves nothing.
+      'run cancelled after all passed': ['success', 'true', false, true],
+    },
+  }
+  table['docs-only'] = table.hit
+  for (const [markerState, markerRun] of Object.entries(markers)) {
+    for (const [shardState, shardRun] of Object.entries(shards)) {
+      const where = `marker ${markerState}, shards ${shardState}`
+      const run = simulate(t, SHARDED_FILE, { ...markerRun, ...shardRun })
+      const [result, tested, saves, records] = table[markerState][shardState]
+      const job = run[aggregate]
+      assert.equal(job.ran, true, `${where}: ${aggregate} always reports a result`)
+      // None of these runs waits for a signed head: the real name.
+      assert.equal(job.name, REQUIRED_G3, where)
+      assert.equal(job.result, result, where)
+      assert.equal(job.outputs.tested, tested, where)
+      if (result === 'failure') assert.notDeepEqual(job.errors, [], `${where}: it says why`)
+      assert.equal(run[SAVE_JOB].ran, saves, where)
+      assert.equal(recordErrors({ needs: run[SAVE_JOB].needs }).length === 0, records, where)
+      // A failed or cancelled leg still uploads its report and stops its
+      // harness, and records nothing.
+      for (const leg of run[shardJob].legs) {
+        if (
+          !['failure', 'cancelled'].includes(leg.result) ||
+          ['hit', 'docs-only'].includes(markerState)
+        )
+          continue
+        assert.ok(leg.steps.includes('Upload Playwright release-gate artifacts'), where)
+        assert.ok(leg.steps.includes('Stop qbit regtest harness'), where)
+        assert.deepEqual(leg.outputs, {}, where)
+      }
+    }
+  }
+
+  // Each shard on its own: a leg that recorded nothing fails the check, which
+  // names it, even if GitHub counted the shard job as passed.
+  for (const shard of shardRange(total)) {
+    const run = simulate(t, SHARDED_FILE, { ...markers.miss, legs: { [shard]: 'skipped' } })
+    assert.equal(run[shardJob].result, 'success', `shard ${shard}`)
+    assert.equal(run[aggregate].result, 'failure', `shard ${shard}`)
+    assert.deepEqual(
+      run[aggregate].errors,
+      [`::error::Shard ${shard} of ${total} did not run all its steps.`],
+      `shard ${shard}`
+    )
+    assert.equal(run[SAVE_JOB].ran, false, `shard ${shard}`)
+  }
+})
+
+// --- G3 waits for a signed head ----------------------------------------------
+
+const SIGNED_HEAD_SHA = 'f'.repeat(40)
+
+// The signed-head step's environment as a pull request run gives it: what
+// the runner sets for every step, the workflow's env, then the step's own,
+// which wins, each resolved from the workflow file. `markerSkip` and
+// `docsOnly` are what the decide and docs-only steps wrote.
+function signedHeadStepEnvironment({ markerSkip = 'false', docsOnly = 'false', output, summary }) {
+  const { env, jobs } = readWorkflow(SHARDED_FILE)
+  const step = jobs[DECIDE_JOB].steps.find(entry => entry.id === 'signed-head')
+  const context = {
+    github: {
+      token: 'token-value',
+      event: { pull_request: { number: 42, head: { sha: SIGNED_HEAD_SHA } } },
+    },
+    steps: {
+      decide: { outputs: { skip: markerSkip } },
+      'docs-only': { outputs: { 'docs-only': docsOnly } },
+    },
+    vars: {},
+  }
+  return {
+    GITHUB_EVENT_NAME: 'pull_request',
+    GITHUB_API_URL: API,
+    GITHUB_REPOSITORY: REPOSITORY,
+    GITHUB_OUTPUT: output,
+    ...(summary ? { GITHUB_STEP_SUMMARY: summary } : {}),
+    ...resolveTemplates(env, context),
+    ...resolveTemplates(step.env, context),
+  }
+}
+
+// GitHub as the signed-head step reads it: the pull request's labels and the
+// head commit's verification. Records each URL asked for.
+function signedHeadGitHub({ labels = [], verification = { verified: false, reason: 'unsigned' } }) {
+  const asked = []
+  const fetchImpl = async (url, options) => {
+    asked.push(url)
+    assert.equal(options.headers.Authorization, 'Bearer token-value')
+    if (url === `${API}/repos/${REPOSITORY}/pulls/42`) {
+      return fakeResponse(200, { labels: labels.map(name => ({ name })) })
+    }
+    if (url === `${API}/repos/${REPOSITORY}/commits/${SIGNED_HEAD_SHA}`) {
+      return fakeResponse(200, { sha: SIGNED_HEAD_SHA, commit: { verification } })
+    }
+    return assert.fail(`unexpected request ${url}`)
+  }
+  return { fetchImpl, asked }
+}
+
+// What the signed-head step writes as `wait`, run for real with the
+// workflow's settings against `signedHeadGitHub`.
+async function signedHeadWait(t, { markerSkip, docsOnly, ...github } = {}) {
+  const output = join(scratch(t, 'signed-head-wait-'), 'output')
+  const { fetchImpl, asked } = signedHeadGitHub(github)
+  await runSignedHeadGate(signedHeadStepEnvironment({ markerSkip, docsOnly, output }), {
+    fetchImpl,
+    log: { log() {} },
+  })
+  return { wait: outputs(output).wait, asked }
+}
+
+test('Playwright G3 scenarios has its real name in every state but a wait for a signed head', () => {
+  const expected = MARKED_WORKFLOWS[SHARDED_FILE]
+  const { jobs } = readWorkflow(SHARDED_FILE)
+  const job = jobs[expected.signedHead.aggregate]
+  assert.equal(job.name, SIGNED_AGGREGATE_NAME)
+  // It can have only these two names, and only the real one is a required
+  // check, whatever the required checks are.
+  assert.deepEqual(namesJobCanHave(job, expected.signedHead.aggregate), [WAITING_G3, REQUIRED_G3])
+  assert.ok(!requiredContexts().has(WAITING_G3))
+  assert.ok(REQUIRED_CONTEXTS.includes(REQUIRED_G3))
+  const nameFor = (marker, extra = {}) =>
+    renderName(job, {
+      github: { event_name: 'pull_request' },
+      needs: {
+        [DECIDE_JOB]: marker,
+        [expected.signedHead.sharded]: { result: 'skipped', outputs: {} },
+      },
+      ...extra,
+    })
+  for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+    for (const wait of ['true', 'TRUE', 'false', '', undefined, 'yes', ' true', 'true ']) {
+      const marker = { result, outputs: wait === undefined ? {} : { 'signed-head-wait': wait } }
+      // GitHub's == ignores case, so TRUE waits too; signed-head-gate.mjs
+      // writes only true or false.
+      const waits = result === 'success' && wait?.toLowerCase() === 'true'
+      const name = nameFor(marker)
+      assert.equal(name, waits ? WAITING_G3 : REQUIRED_G3, `${result}/${JSON.stringify(wait)}`)
+      assert.ok(namesJobCanHave(job, 'aggregate').includes(name))
+    }
+  }
+  // A push or a dispatch: no marker job, so no outputs.
+  assert.equal(nameFor({ result: 'skipped', outputs: {} }), REQUIRED_G3)
+  assert.equal(renderName(job, { needs: {} }), REQUIRED_G3)
+  // A marker job that hit or found a docs-only change but also said wait,
+  // which the script never writes, still renders by the wait alone.
+  assert.equal(
+    nameFor({ result: 'success', outputs: { skip: 'true', 'signed-head-wait': 'false' } }),
+    REQUIRED_G3
+  )
+  // The name decide looks for in a run that tested is the real one.
+  assert.equal(testingNameOf(job), REQUIRED_G3)
+})
+
+test('the gate of Playwright G3 scenarios tells a wait for a signed head after a hit and a docs-only change', t => {
+  const temp = scratch(t, 'signed-head-gate-')
+  const { jobs } = readWorkflow(SHARDED_FILE)
+  const gate = jobs[MARKED_WORKFLOWS[SHARDED_FILE].signedHead.aggregate].steps[0]
+  assert.equal(gate.run, SIGNED_AGGREGATE_GATE_RUN)
+  const url = 'https://github.com/Qbit-Org/qbit-wallet/actions/runs/1001/attempts/1'
+  const howTo = HOW_TO_RUN_G3.replace('$TREE_PASS_FORCE_LABEL', FORCE_LABEL)
+  // [marker job result, skip, docs-only, wait, gate's skip, gate's wait]
+  const rows = [
+    ['success', 'false', 'false', 'true', undefined, 'true'],
+    ['success', '', '', 'true', undefined, 'true'],
+    // A hit and a docs-only change come first, and wait never sets skip.
+    ['success', 'true', 'false', 'true', 'true', undefined],
+    ['success', 'false', 'true', 'true', 'true', undefined],
+    ['success', 'true', 'true', 'true', 'true', undefined],
+    ['success', 'false', 'false', 'TRUE', undefined, undefined],
+    ['success', 'false', 'false', 'false', undefined, undefined],
+    ['success', 'false', 'false', '', undefined, undefined],
+    ['failure', 'false', 'false', 'true', undefined, undefined],
+    ['cancelled', 'false', 'false', 'true', undefined, undefined],
+    ['skipped', '', '', 'true', undefined, undefined],
+    ['', '', '', 'true', undefined, undefined],
+  ]
+  for (const [index, [result, skip, docsOnly, wait, gateSkip, gateWait]] of rows.entries()) {
+    const at = `${result}/${skip}/${docsOnly}/${wait}`
+    const run = runGate(temp, `signed-${index}`, { result, skip, url, docsOnly, wait }, gate.run)
+    assert.equal(run.skip, gateSkip, at)
+    assert.equal(run.wait, gateWait, at)
+    assert.equal(run.summary.includes(howTo), gateWait === 'true', at)
+    assert.equal(run.summary.includes('waits for a signed head'), gateWait === 'true', at)
+  }
+})
+
+test('G3 waits for a signed head only when a successful marker job says so, and then never passes', async t => {
+  const expected = MARKED_WORKFLOWS[SHARDED_FILE]
+  const { sharded: shardJob, aggregate } = expected.signedHead
+  const { jobs } = readWorkflow(SHARDED_FILE)
+  const total = jobs[shardJob].strategy.matrix.shard.length
+  const allLegs = result => Object.fromEntries(shardRange(total).map(shard => [shard, result]))
+
+  // What the step writes, from GitHub's answers: an unsigned head waits; the
+  // label, a marker hit, a docs-only change, a verified head and a head
+  // GitHub could not check do not. The commit is read only when none of the
+  // label, a marker hit and a docs-only change decided, and a marker hit or
+  // a docs-only change sends no request.
+  const commit = `${API}/repos/${REPOSITORY}/commits/${SIGNED_HEAD_SHA}`
+  const unsigned = await signedHeadWait(t)
+  assert.deepEqual(unsigned, {
+    wait: 'true',
+    asked: [`${API}/repos/${REPOSITORY}/pulls/42`, commit],
+  })
+  const labelled = await signedHeadWait(t, { labels: [FORCE_LABEL] })
+  const hit = await signedHeadWait(t, { markerSkip: 'true' })
+  const docs = await signedHeadWait(t, { docsOnly: 'true' })
+  for (const decided of [labelled, hit, docs]) assert.equal(decided.wait, 'false')
+  assert.deepEqual(labelled.asked, [`${API}/repos/${REPOSITORY}/pulls/42`])
+  assert.deepEqual(hit.asked, [])
+  assert.deepEqual(docs.asked, [])
+  const signed = await signedHeadWait(t, { verification: { verified: true, reason: 'valid' } })
+  const unchecked = await signedHeadWait(t, {
+    verification: { verified: false, reason: 'gpgverify_unavailable' },
+  })
+  assert.equal(signed.wait, 'false')
+  assert.equal(unchecked.wait, 'false')
+  // Nor does a reason outside GitHub's definite ones, such as S/MIME's.
+  for (const reason of ['ocsp_pending', 'some_future_reason']) {
+    const doubt = await signedHeadWait(t, { verification: { verified: false, reason } })
+    assert.equal(doubt.wait, 'false', reason)
+  }
+
+  const withWait = (marker, wait) => ({
+    result: marker.result,
+    outputs: { ...marker.outputs, 'signed-head-wait': wait },
+  })
+  // With the label on, the key step uses no marker: decide neither skips
+  // nor saves.
+  const LABELLED_RUN = {
+    result: 'success',
+    outputs: { prefix: PREFIX, skip: 'false', save: 'false', 'run-url': '' },
+  }
+  const scenarios = [
+    // [label, simulate options, shards, name, result, tested, saves]
+    [
+      'unsigned',
+      { treePass: withWait(FULL_RUN, unsigned.wait) },
+      'skipped',
+      WAITING_G3,
+      'success',
+      undefined,
+      false,
+    ],
+    [
+      'unsigned with the label',
+      { treePass: withWait(LABELLED_RUN, labelled.wait) },
+      'full',
+      REQUIRED_G3,
+      'success',
+      'true',
+      false,
+    ],
+    [
+      'unsigned with a marker hit',
+      { treePass: withWait(SKIP_RUN, hit.wait) },
+      'gate',
+      REQUIRED_G3,
+      'success',
+      undefined,
+      false,
+    ],
+    [
+      'unsigned and docs-only',
+      { treePass: withWait(DOCS_ONLY_RUN, docs.wait) },
+      'gate',
+      REQUIRED_G3,
+      'success',
+      undefined,
+      false,
+    ],
+    [
+      'signed',
+      { treePass: withWait(FULL_RUN, signed.wait) },
+      'full',
+      REQUIRED_G3,
+      'success',
+      'true',
+      true,
+    ],
+    [
+      'not checked by GitHub',
+      { treePass: withWait(FULL_RUN, unchecked.wait) },
+      'full',
+      REQUIRED_G3,
+      'success',
+      'true',
+      true,
+    ],
+    // A marker job that did not succeed runs everything under the real name,
+    // whatever its outputs say, and saves nothing.
+    ...['failure', 'cancelled', 'skipped'].map(result => [
+      `the marker job ${result}, saying wait`,
+      { treePass: { result, outputs: { ...FULL_RUN.outputs, 'signed-head-wait': 'true' } } },
+      'full',
+      REQUIRED_G3,
+      'success',
+      'true',
+      false,
+    ]),
+    // A wait the gate does not read as one (GitHub's == ignores case, the
+    // shell does not): no shard runs and the check fails, under the waiting
+    // name. The script never writes it.
+    [
+      'wait in upper case',
+      { treePass: withWait(FULL_RUN, 'TRUE') },
+      'skipped',
+      WAITING_G3,
+      'failure',
+      undefined,
+      false,
+    ],
+    // Cancelled runs, waiting and not.
+    [
+      'unsigned, run cancelled before the shards',
+      { treePass: withWait(FULL_RUN, 'true'), cancelledAfterMarker: true },
+      'cancelled',
+      WAITING_G3,
+      'failure',
+      undefined,
+      false,
+    ],
+    [
+      'run cancelled before the marker job',
+      { treePass: withWait(FULL_RUN, 'true'), runCancelled: true },
+      'cancelled',
+      REQUIRED_G3,
+      'failure',
+      undefined,
+      false,
+    ],
+    [
+      'unsigned, run cancelled after the shards were skipped',
+      { treePass: withWait(FULL_RUN, 'true'), cancelledAfterShards: true },
+      'skipped',
+      WAITING_G3,
+      'success',
+      undefined,
+      false,
+    ],
+    [
+      'signed, run cancelled before the shards',
+      { treePass: withWait(FULL_RUN, 'false'), cancelledAfterMarker: true },
+      'cancelled',
+      REQUIRED_G3,
+      'failure',
+      undefined,
+      false,
+    ],
+    [
+      'signed, run cancelled while the shards run',
+      {
+        treePass: withWait(FULL_RUN, 'false'),
+        legs: allLegs('cancelled'),
+        cancelledAfterShards: true,
+      },
+      'cancelled legs',
+      REQUIRED_G3,
+      'failure',
+      undefined,
+      false,
+    ],
+    [
+      'the marker job cancelled by the run, saying wait',
+      {
+        treePass: {
+          result: 'cancelled',
+          outputs: { ...FULL_RUN.outputs, 'signed-head-wait': 'true' },
+        },
+        cancelledAfterMarker: true,
+      },
+      'cancelled',
+      REQUIRED_G3,
+      'failure',
+      undefined,
+      false,
+    ],
+  ]
+  for (const [label, options, shards, name, result, tested, saves] of scenarios) {
+    const run = simulate(t, SHARDED_FILE, { event: 'pull_request', ...options })
+    const job = run[aggregate]
+    if (shards === 'skipped' || shards === 'cancelled') {
+      // The matrix is skipped whole: no leg starts, so no runner is taken.
+      assert.equal(run[shardJob].ran, false, `${label}: no shard starts`)
+      assert.deepEqual(run[shardJob].legs, [], label)
+      assert.equal(run[shardJob].result, shards, label)
+    } else if (shards === 'cancelled legs') {
+      assert.equal(run[shardJob].result, 'cancelled', label)
+    } else {
+      assertLegs(run, expected, label, { full: shards === 'full' })
+    }
+    assert.equal(job.ran, true, `${label}: ${aggregate} always reports a result`)
+    assert.equal(job.name, name, label)
+    assert.equal(job.result, result, label)
+    assert.equal(job.outputs.tested, tested, label)
+    assert.equal(run[SAVE_JOB].ran, saves, label)
+    if (result === 'failure') assert.notDeepEqual(job.errors, [], `${label}: it says why`)
+    // A wait never gives a passing check under the required name.
+    if (name === WAITING_G3) assert.notEqual(job.name, REQUIRED_G3, label)
+    // While waiting, the check says how to get G3, and the gate's summary too.
+    if (label === 'unsigned') {
+      const howTo = HOW_TO_RUN_G3.replace('$TREE_PASS_FORCE_LABEL', FORCE_LABEL)
+      assert.deepEqual(job.steps, ['Check for a tree pass marker', SHARD_CHECK_NAME], label)
+      assert.deepEqual(job.notices, [`::notice::G3 waits for a signed head. ${howTo}`], label)
+      assert.ok(job.summary.includes(howTo), label)
+      assert.deepEqual(job.errors, [], label)
+      // Even if the save job ran, record refuses: nothing was tested.
+      assert.notDeepEqual(
+        recordErrors({
+          needs: {
+            [DECIDE_JOB]: options.treePass,
+            [aggregate]: { result: job.result, outputs: job.outputs },
+          },
+        }),
+        [],
+        label
+      )
+    }
+  }
+
+  // While waiting, the check passes only when the shards' result is skipped
+  // and no shard recorded anything; anything else fails it, and records
+  // nothing.
+  const waiting = withWait(FULL_RUN, 'true')
+  const everyTested = Object.fromEntries(
+    shardRange(total).map(shard => [`tested-${shard}`, 'true'])
+  )
+  const checks = [
+    ['skipped', {}, 'success'],
+    ['skipped', { 'tested-2': 'true' }, 'failure'],
+    ['skipped', { 'tested-5': 'false' }, 'failure'],
+    ['success', {}, 'failure'],
+    ['success', everyTested, 'failure'],
+    ['failure', {}, 'failure'],
+    ['cancelled', {}, 'failure'],
+    ['', {}, 'failure'],
+  ]
+  for (const [index, [shardsResult, shardOutputs, result]] of checks.entries()) {
+    const at = `waiting, shards ${shardsResult || '(none)'} ${JSON.stringify(shardOutputs)}`
+    const job = simulateAggregate(
+      scratch(t, `signed-head-check-${index}-`),
+      aggregate,
+      jobs[aggregate],
+      {
+        needs: {
+          [DECIDE_JOB]: waiting,
+          [shardJob]: { result: shardsResult, outputs: shardOutputs },
+        },
+        github: { event_name: 'pull_request' },
+        runCancelled: false,
+        workflowEnv: { TREE_PASS_FORCE_LABEL: FORCE_LABEL },
+      }
+    )
+    assert.equal(job.name, WAITING_G3, at)
+    assert.equal(job.result, result, at)
+    assert.equal(job.outputs.tested, undefined, at)
+    if (result === 'failure') assert.notDeepEqual(job.errors, [], at)
+  }
+})
+
+test('the signed-head step passes every setting the script reads, by the names the workflow gives them', async t => {
+  const { env: workflowEnv, jobs } = readWorkflow(SHARDED_FILE)
+  const lookup = jobs[DECIDE_JOB]
+  const step = lookup.steps.find(entry => entry.id === 'signed-head')
+  const temp = scratch(t, 'signed-head-settings-')
+  const output = join(temp, 'output')
+  const env = signedHeadStepEnvironment({ output, summary: join(temp, 'summary') })
+  // Every read the script makes, on the path that reads the most: a wait.
+  const reads = new Set()
+  const recorded = new Proxy(env, {
+    get(target, key) {
+      if (typeof key === 'string') reads.add(key)
+      return target[key]
+    },
+  })
+  const github = signedHeadGitHub({})
+  await runSignedHeadGate(recorded, { fetchImpl: github.fetchImpl, log: { log() {} } })
+  assert.equal(readFileSync(output, 'utf8'), 'wait=true\n')
+
+  // What the runner sets for every step; the rest must come from the
+  // workflow's env or the step's.
+  const runner = [
+    'GITHUB_EVENT_NAME',
+    'GITHUB_API_URL',
+    'GITHUB_REPOSITORY',
+    'GITHUB_OUTPUT',
+    'GITHUB_STEP_SUMMARY',
+  ]
+  const fromWorkflow = Object.keys(workflowEnv)
+  const fromStep = Object.keys(step.env)
+  for (const name of reads) {
+    assert.ok(
+      runner.includes(name) || fromStep.includes(name) || fromWorkflow.includes(name),
+      `the script reads ${name}, which neither the runner nor the workflow sets`
+    )
+  }
+  for (const name of fromStep) {
+    assert.ok(reads.has(name), `the step passes ${name}, which the script never reads`)
+  }
+  // The force label is the workflow's, which the step does not override, and
+  // no setting shadows a runner variable.
+  assert.ok(reads.has('TREE_PASS_FORCE_LABEL'))
+  assert.equal(workflowEnv.TREE_PASS_FORCE_LABEL, FORCE_LABEL)
+  assert.ok(!fromStep.includes('TREE_PASS_FORCE_LABEL'))
+  for (const name of [...fromStep, ...fromWorkflow]) assert.doesNotMatch(name, /^GITHUB_/)
+
+  // Each value reaches the reader: the pull request number names the label
+  // read, the head SHA the commit read, and the earlier steps' outputs, read
+  // through the names the job also exposes, decide.
+  assert.deepEqual(github.asked, [
+    `${API}/repos/${REPOSITORY}/pulls/42`,
+    `${API}/repos/${REPOSITORY}/commits/${SIGNED_HEAD_SHA}`,
+  ])
+  assert.equal(lookup.outputs.skip, '${{ steps.decide.outputs.skip }}')
+  assert.equal(lookup.outputs['docs-only'], '${{ steps.docs-only.outputs.docs-only }}')
+  assert.equal(lookup.outputs['signed-head-wait'], '${{ steps.signed-head.outputs.wait }}')
+  const ids = lookup.steps.map(entry => entry.id)
+  assert.ok(ids.indexOf('decide') < ids.indexOf('signed-head'))
+  assert.ok(ids.indexOf('docs-only') < ids.indexOf('signed-head'))
+  for (const [settings, reason] of [
+    [{ markerSkip: 'true' }, /marker already vouches/],
+    [{ docsOnly: 'true' }, /changes only documentation/],
+  ]) {
+    const quiet = join(scratch(t, 'signed-head-settings-'), 'output')
+    const other = signedHeadGitHub({})
+    const verdict = await runSignedHeadGate(
+      signedHeadStepEnvironment({ ...settings, output: quiet }),
+      { fetchImpl: other.fetchImpl, log: { log() {} } }
+    )
+    assert.match(verdict.reason, reason)
+    assert.equal(readFileSync(quiet, 'utf8'), 'wait=false\n')
+    // The earlier steps' verdicts settle it before any request.
+    assert.deepEqual(other.asked, [])
+  }
+})
+
+// --- The lanes of Typecheck, test, and build -------------------------------
+
+const LANED_FILE = '.github/workflows/ci.yml'
+
+// The aggregating job's result, whether it reports tested=true, whether the
+// save job runs and whether its record step accepts, for each state of the
+// marker job and each way the lanes can end. Each lane is a job of its own
+// and reports its own result, unlike a leg of a matrix job.
+test('Typecheck, test, and build passes only when every lane passed, and a marker needs every lane tested', t => {
+  const expected = MARKED_WORKFLOWS[LANED_FILE]
+  const { jobs } = readWorkflow(LANED_FILE)
+  const lanes = Object.keys(expected.lanes)
+  const [aggregate, ...otherAggregates] = new Set(Object.values(expected.lanes))
+  assert.deepEqual(otherAggregates, [])
+  assert.ok(lanes.length >= 2, 'at least two lanes')
+  const [firstLane, secondLane] = lanes
+  const lastLane = lanes.at(-1)
+  const allLanes = result => Object.fromEntries(lanes.map(lane => [lane, result]))
+  const markers = {
+    'skipped (no pull request)': { event: 'push', treePass: FULL_RUN },
+    failed: {
+      event: 'pull_request',
+      treePass: { result: 'failure', outputs: { ...SKIP_RUN.outputs, save: 'true' } },
+    },
+    hit: { event: 'pull_request', treePass: SKIP_RUN },
+    miss: { event: 'pull_request', treePass: FULL_RUN },
+    // A miss that would save, on a docs-only change: it ends as a hit does,
+    // and saves nothing.
+    'docs-only': { event: 'pull_request', treePass: DOCS_ONLY_RUN },
+  }
+  const states = {
+    'all passed': {},
+    'one failed': { lanes: { [secondLane]: 'failure' } },
+    // A lane that hits its timeout ends cancelled.
+    'one cancelled': { lanes: { [lastLane]: 'cancelled' } },
+    // GitHub skips a lane only in a cancelled run, and then reports it
+    // cancelled; were one skipped, its own result would still show it.
+    'one skipped': { lanes: { [firstLane]: 'skipped' } },
+    'all skipped': { lanes: allLanes('skipped') },
+    // "Re-run failed jobs" after a lane failed: the passing lanes are
+    // reused. If GitHub did not carry their outputs into the new attempt,
+    // the check fails and nothing is recorded.
+    'rerun without reused outputs': {
+      lostLaneOutputs: lanes.filter(lane => lane !== secondLane),
+    },
+    // The run cancelled before the lanes started (they never run, and
+    // GitHub reports them cancelled), while they run (each is cancelled), or
+    // after they ended.
+    'run cancelled before the lanes': { runCancelled: true },
+    'run cancelled while the lanes run': {
+      lanes: allLanes('cancelled'),
+      cancelledAfterShards: true,
+    },
+    'run cancelled after one failed': {
+      lanes: { [secondLane]: 'failure' },
+      cancelledAfterShards: true,
+    },
+    'run cancelled after all passed': { cancelledAfterShards: true },
+  }
+  // [aggregate result, its tested output, save job runs, record accepts]. The
+  // record step also refuses a skipped or failed tree-pass, should the save
+  // job run without it.
+  const pass = ['success', 'true', false, false]
+  const hitPass = ['success', undefined, false, false]
+  const fail = ['failure', undefined, false, false]
+  const onlyFullPasses = {
+    'all passed': pass,
+    'one failed': fail,
+    'one cancelled': fail,
+    'one skipped': fail,
+    'all skipped': fail,
+    'rerun without reused outputs': fail,
+    'run cancelled before the lanes': fail,
+    'run cancelled while the lanes run': fail,
+    'run cancelled after one failed': fail,
+    'run cancelled after all passed': pass,
+  }
+  const table = {
+    'skipped (no pull request)': onlyFullPasses,
+    failed: onlyFullPasses,
+    hit: {
+      ...onlyFullPasses,
+      'all passed': hitPass,
+      'rerun without reused outputs': hitPass,
+      'run cancelled after all passed': hitPass,
+    },
+    miss: {
+      ...onlyFullPasses,
+      'all passed': ['success', 'true', true, true],
+      // The lanes passed, so the check does; a cancelled run saves nothing.
+      'run cancelled after all passed': ['success', 'true', false, true],
+    },
+  }
+  table['docs-only'] = table.hit
+  for (const [markerState, markerRun] of Object.entries(markers)) {
+    for (const [laneState, laneRun] of Object.entries(states)) {
+      const where = `marker ${markerState}, lanes ${laneState}`
+      const run = simulate(t, LANED_FILE, { ...markerRun, ...laneRun })
+      const [result, tested, saves, records] = table[markerState][laneState]
+      const job = run[aggregate]
+      assert.equal(job.ran, true, `${where}: ${aggregate} always reports a result`)
+      assert.equal(job.result, result, where)
+      assert.equal(job.outputs.tested, tested, where)
+      if (result === 'failure') {
+        assert.notDeepEqual(job.errors, [], `${where}: it says why`)
+        // Each error names a lane, and the summary repeats it.
+        for (const error of job.errors) {
+          const message = error.slice('::error::'.length)
+          assert.ok(
+            lanes.some(lane => message.startsWith(`Lane "${jobs[lane].name}"`)),
+            `${where}: ${error}`
+          )
+          assert.ok(job.summary.includes(`- ${message}\n`), `${where}: ${error}`)
+        }
+      } else {
+        assert.deepEqual(job.errors, [], where)
+      }
+      // A run cancelled before the marker job started has no marker hit and
+      // no docs-only verdict.
+      assert.equal(
+        job.summary.includes('so the lanes skipped their steps'),
+        ['hit', 'docs-only'].includes(markerState) && run[DECIDE_JOB].ran,
+        where
+      )
+      assert.equal(
+        job.summary.includes('changes only documentation that no skipped step reads'),
+        markerState === 'docs-only' && run[DECIDE_JOB].ran,
+        where
+      )
+      assert.equal(run[SAVE_JOB].ran, saves, where)
+      assert.equal(recordErrors({ needs: run[SAVE_JOB].needs }).length === 0, records, where)
+    }
+  }
+
+  // Each lane on its own: a lane that failed, was cancelled or skipped, or
+  // recorded nothing fails the check, which names that lane alone, even when
+  // every other lane passed.
+  for (const lane of lanes) {
+    const name = jobs[lane].name
+    for (const [ending, error] of [
+      ['failure', `Lane "${name}": its result is "failure", not success; see its job.`],
+      ['cancelled', `Lane "${name}": its result is "cancelled", not success; see its job.`],
+      ['skipped', `Lane "${name}": its result is "skipped", not success; see its job.`],
+      ['lost', `Lane "${name}" did not run all its steps.`],
+    ]) {
+      const options =
+        ending === 'lost' ? { lostLaneOutputs: [lane] } : { lanes: { [lane]: ending } }
+      for (const markerState of ['miss', 'hit', 'docs-only']) {
+        const run = simulate(t, LANED_FILE, { ...markers[markerState], ...options })
+        const where = `${lane} ${ending} on a ${markerState}`
+        // A hit or a docs-only change needs no lane's `tested`, only its
+        // success.
+        if (ending === 'lost' && markerState !== 'miss') {
+          assert.equal(run[aggregate].result, 'success', where)
+          continue
+        }
+        assert.equal(run[aggregate].result, 'failure', where)
+        assert.deepEqual(run[aggregate].errors, [`::error::${error}`], where)
+        assert.equal(run[SAVE_JOB].ran, false, where)
+      }
+    }
   }
 })
 
@@ -3246,4 +5184,19 @@ test('the condition evaluator follows GitHub for the forms the workflows use', (
   assert.equal(evaluateIf('true', { status: { ...status, success: false } }), false)
   assert.equal(evaluateIf('always() && true', { status: { ...status, success: false } }), true)
   assert.throws(() => evaluateIf("contains('a', 'b')", { status }))
+  // As a value, && and || give an operand, as in a computed job name.
+  assert.equal(evaluateExpression("true && 'a' || 'b'", { status }), 'a')
+  assert.equal(evaluateExpression("false && 'a' || 'b'", { status }), 'b')
+  assert.equal(evaluateExpression("'' || 'b'", { status }), 'b')
+  assert.equal(evaluateExpression("'x' && ''", { status }), '')
+  assert.equal(evaluateExpression("'it''s (here)'", { status }), "it's (here)")
+  assert.equal(
+    evaluateExpression("needs.tree-pass.outputs.skip == 'true' && 'hit' || 'miss'", { needs }),
+    'hit'
+  )
+  assert.equal(
+    renderName({ name: 'Shard ${{ matrix.shard }} of 5' }, { matrix: { shard: 3 } }),
+    'Shard 3 of 5'
+  )
+  assert.throws(() => renderName({ name: "${{ always() && 'a' }}" }, {}))
 })

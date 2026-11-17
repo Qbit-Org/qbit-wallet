@@ -6,6 +6,7 @@ import {
   AddressSummary,
   BiometricUnlockRecord,
   BiometricUnlockStatus,
+  QbitAccountTotal,
   QbitBalance,
   QbitBalanceSummary,
   QbitBroadcastResult,
@@ -24,6 +25,7 @@ import {
   QbitRecoveryDeferredSource,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
+  QbitResetWalletOptions,
   QbitSigningOptions,
   QbitRestoreFloorScanSummary,
   QbitReceiveState,
@@ -106,6 +108,13 @@ export interface WalletController {
   >
 
   getDesc: () => string
+  /**
+   * Sets the password when no wallet is set up yet. Rejects with
+   * WALLET_RESET_INCOMPLETE, setting no password, when a reset that erased
+   * the keys still owes the clearing of the rest and that fails again, and
+   * with WALLET_RESET_OUTCOME_UNKNOWN after a reset of unknown outcome, until
+   * the background starts again.
+   */
   boot(password: string): Promise<void>
   isBooted(): Promise<boolean>
 
@@ -128,8 +137,17 @@ export interface WalletController {
   hasVault(): Promise<boolean>
 
   verifyPassword(password: string): Promise<boolean>
+  /**
+   * Rejects with WALLET_RESET_OUTCOME_UNKNOWN after a reset of unknown
+   * outcome, until the background starts again; the password stays as it is.
+   */
   changePassword: (password: string, newPassword: string) => Promise<void>
 
+  /**
+   * Rejects with WALLET_LOCKED_DURING_UNLOCK when a lock comes in while it
+   * runs, and with WALLET_RESET_OUTCOME_UNKNOWN, whatever the password, after
+   * a reset of unknown outcome, until the background starts again.
+   */
   unlock(password: string): Promise<void>
   isUnlocked(): Promise<boolean>
 
@@ -141,6 +159,20 @@ export interface WalletController {
   updateIsFirstOpen(): Promise<void>
 
   getAddressBalanceV2(address: string): Promise<QbitBalanceSummary>
+  /**
+   * What the background has kept of each address's total, one answer per
+   * address in the order given. Reads nothing from the explorer. An address
+   * with no kept total, or one that is no account of a listed wallet on the
+   * active network, answers with `totalBalance: null`.
+   */
+  getQbitAccountTotals(addresses: string[]): Promise<QbitAccountTotal[]>
+  /**
+   * The address's total: the kept one while it is fresh, otherwise read from
+   * the explorer. Resolves with `error: true` when that read failed, with the
+   * last total measured if there is one. Rejects only for an argument it
+   * refuses.
+   */
+  readQbitAccountTotal(address: string): Promise<QbitAccountTotal>
   getAddressBalance(address: string): Promise<QbitBalance>
   getAddressCacheBalance(address: string): Promise<QbitBalance>
   getMultiAddressSummaries(addresses: string): Promise<AddressSummary[]>
@@ -356,8 +388,13 @@ export interface WalletController {
   startQbitSendPlan(draftId: string): Promise<QbitSendPlanStartResult>
   /** The current account's open plan on the active network, or null. */
   getQbitSendPlan(): Promise<QbitSendPlanView | null>
-  /** Carry on with the plan as confirmed: sign what is left, or send again. */
-  continueQbitSendPlan(planId: string): Promise<QbitSendPlanView>
+  /**
+   * Carry on with the plan as confirmed: sign what is left, or send again.
+   * `termsDigest` is the shown view's (`QbitSendPlanView.termsDigest`); a
+   * plan stored with other terms is refused with
+   * `QBIT_SEND_PLAN_NOT_AS_SHOWN_CODE`.
+   */
+  continueQbitSendPlan(planId: string, termsDigest: string | undefined): Promise<QbitSendPlanView>
   /** Cancel the plan; null once nothing of it is left to settle. */
   cancelQbitSendPlan(planId: string): Promise<QbitSendPlanView | null>
   /** Remove a finished plan from the home screen. */
@@ -392,9 +429,12 @@ export interface WalletController {
   getQbitUtxos(): Promise<UnspentOutput[]>
   /**
    * The spendable outputs together with the network they were loaded on.
-   * With `readId`, `abandonQbitUtxoSnapshot(readId)` stops waiting for it.
+   * With `readId`, `abandonQbitUtxoSnapshot(readId)` stops waiting for it,
+   * and with `rideOut` too the read rides out the explorer's server errors,
+   * where without it the read fails on one as fast as 1.0.9's did: only a
+   * caller that abandons the read when it stops waiting should ask.
    */
-  getQbitUtxoSnapshot(readId?: string): Promise<QbitUtxoSnapshot>
+  getQbitUtxoSnapshot(readId?: string, rideOut?: true): Promise<QbitUtxoSnapshot>
   /** Stop waiting for that read; a walk nothing waits for any more stops. */
   abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
@@ -459,8 +499,6 @@ export interface WalletController {
 
   formatOptionsToSignInputs(psbtHex: string, options?: SignPsbtOptions): Promise<ToSignInput[]>
 
-  getAddressSummary(address: string): Promise<AddressSummary>
-
   getShowSafeNotice(): Promise<boolean>
   setShowSafeNotice(show: boolean): Promise<void>
 
@@ -510,7 +548,31 @@ export interface WalletController {
   getOpenInSidePanel(): Promise<boolean>
   setOpenInSidePanel(openInSidePanel: boolean): Promise<void>
 
-  resetAllData(): Promise<void>
+  /**
+   * Erases every wallet, the password and the stored wallet data, after the
+   * background has checked `password`. Rejects with
+   * QBIT_RECOVERY_REMOVAL_ACK_REQUIRED (reasons in `data.reasons`) until the
+   * recovery risks are acknowledged in `options`, with
+   * WALLET_RESET_NOT_LAST_WALLET when `options.lastWalletKey` no longer names
+   * the last usable wallet, with WALLET_RESET_INCOMPLETE when the wallets are
+   * gone but other stored data is still to be cleared, and with
+   * WALLET_RESET_OUTCOME_UNKNOWN when storage failed while the keys were
+   * being erased. Any other rejection from the background means nothing was
+   * erased; a request that never reached it, or whose answer was lost, says
+   * nothing either way. Every open wallet page is told of a reset with
+   * BUS_METHODS.WALLET_RESET.
+   */
+  resetWallet(password: string, options?: QbitResetWalletOptions): Promise<void>
+
+  /**
+   * The identity of what is set up in this browser: an opaque random string
+   * that stays the same through locks, unlocks, password changes, additions,
+   * removals and background restarts, and is different after a reset. Null
+   * while nothing is booted. Readable while locked. A page compares it after
+   * its connection to the background comes back, to learn whether what it
+   * shows is still what the background holds.
+   */
+  getWalletId(): Promise<string | null>
 
   getGuideReaded(): Promise<boolean>
   setGuideReaded(): Promise<void>

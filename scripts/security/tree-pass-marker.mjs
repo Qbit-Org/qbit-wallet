@@ -51,7 +51,7 @@ const WORKFLOW_PATH = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/
 const MARKER_PREFIX =
   /^tree-pass-v1-[a-z0-9]+(?:-[a-z0-9]+)*-salt(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})-(?:[0-9a-f]{40}|[0-9a-f]{64})-pr[1-9][0-9]{0,9}-$/
 const RUN_SUFFIX = /^([1-9][0-9]{0,14})-([1-9][0-9]{0,4})$/
-const API_TIMEOUT_MS = 15_000
+export const API_TIMEOUT_MS = 15_000
 // Every request `decide` makes shares this budget, so a slow API ends the
 // decision as "run everything" well inside the job's 10 minutes, after
 // checkout, the key and the 3-minute lookup.

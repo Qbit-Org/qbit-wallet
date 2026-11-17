@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1時間"
   },
-  "n_minute": {
-    "message": "$1分"
+  "n_hours_many": {
+    "message": "$1時間"
   },
   "n_minutes": {
     "message": "$1分"
-  },
-  "n_seconds": {
-    "message": "$1秒"
   },
   "no_connected_sites": {
     "message": "接続済みのサイトはありません"
@@ -1108,6 +1105,18 @@
   },
   "sighash_none_detected": {
     "message": "SIGHASH_NONEが検出されました。セキュリティのため署名を中止しました。"
+  },
+  "qbit_partial_signature_description": {
+    "message": "この署名が確定するのはトランザクションの一部だけです。署名を持つ人は、ブロードキャスト前に、署名が対象としない部分（他のインプットやアウトプットを含む場合があります）を変更できます。"
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "単独で署名するインプット"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "この署名が固定するアウトプット"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "この署名はすべてのアウトプットを固定します"
   },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONEは署名後にトランザクションの変更を許可する特別な署名タイプです。トランザクションが悪意を持って変更された場合、資金を失う可能性があります。続行する前に、このトランザクションの送信元を信頼していることを確認してください。"
@@ -1417,6 +1426,54 @@
   },
   "wallet_locked_during_signing": {
     "message": "署名が終わる前にウォレットがロックされたため、何も送信されていません。ロックを解除して、もう一度署名してください。"
+  },
+  "wallet_reset_incomplete": {
+    "message": "ウォレットは消去されましたが、保存されていた一部のデータを消去できませんでした。新しいウォレットを作成する前に消去されます。"
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "このウォレットは使用できる唯一のウォレットではなくなったため、何も消去されませんでした。代わりにこのウォレットを削除できます。"
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "リセットを完了できませんでした。ウォレットが消去されたかどうかは確認できていません。ブラウザを再起動してから Qbit Wallet を開いて確認してください。"
+  },
+  "wallet_page_out_of_date": {
+    "message": "このページには、ここに設定されなくなったウォレットが表示されていたため、リクエストは実行されませんでした。ページを再読み込みします。"
+  },
+  "wallet_page_id_unreadable": {
+    "message": "このページは表示しているウォレットを読み取れなかったため、リクエストは実行されませんでした。ページを再読み込みするか、Qbit Wallet を開き直してから、もう一度お試しください。"
+  },
+  "security": {
+    "message": "セキュリティ"
+  },
+  "reset_wallet": {
+    "message": "ウォレットをリセット"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "使えるウォレットが他に残らないため、このウォレットを削除すると Qbit Wallet がリセットされます。"
+  },
+  "reset_wallet_erases": {
+    "message": "このブラウザから、すべてのウォレットとその鍵、パスワード、接続済みサイト、アドレス帳、設定が消去されます。"
+  },
+  "reset_wallet_restore_warning": {
+    "message": "ウォレットはシードフレーズまたは秘密鍵からしか復元できません。続ける前に、それらがお手元にあることを確認してください。"
+  },
+  "reset_wallet_recovery_title": {
+    "message": "消去するウォレットの中に、Qbit 復旧移行の一部であるものがあります"
+  },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "リセットすると、消去する復元済みウォレットの進行中の復旧記録が消去されます。移行は再開できなくなり、まだ移し終えていない資金は旧アドレスに残ったままとなり、後で回収するにはそのシードフレーズを再度インポートして復旧を最初からやり直す必要があります。"
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "リセットすると、消去する復元済みウォレットの完了した復旧記録が消去されます。そのシードフレーズを使う他のネットワークでは復旧が完了していない可能性があり、再開するにはそのシードフレーズを再度インポートする必要があります。"
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "復旧した資金は、消去するウォレットの一つに送金済み（または送金中）です。そのシードフレーズをバックアップしていない場合、リセットするとその資金は永久に回収できなくなります。また、中断した復旧はそのウォレットを再度インポートするまで再開できません。"
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "復旧の送金がまだ処理中です。リセット後は追跡されなくなり、届いた資金は宛先ウォレットを復元して再スキャンするまで表示されない場合があります。"
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "消去するウォレットの一つを、進行中の復旧移行と照合できませんでした。それが復旧資金を受け取るウォレットである可能性があり、シードフレーズのバックアップなしにリセットすると、その資金は永久に回収できなくなるおそれがあります。"
   },
   "use_at_your_own_risk": {
     "message": "自己責任で使用してください"
@@ -2084,6 +2141,9 @@
   "send_plan_read_failed": {
     "message": "この支払いの進捗を読み取れませんでした。まもなく再試行します。"
   },
+  "send_plan_not_as_shown": {
+    "message": "この画面に表示した後で、この支払いは変更されました。受信者、金額、手数料を確認し、正しい場合にのみ続行してください。"
+  },
   "send_plan_paused_locked": {
     "message": "署名が終わる前にウォレットがロックされました"
   },
@@ -2114,6 +2174,12 @@
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要です。送るには手数料を上げてください。"
   },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要ですが、この支払いが使う資金ではそれ以上の手数料を払えません。後で続行して同じ支払いをもう一度送るか、キャンセルしてください。"
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "ネットワークが支払いを受け付けるには、より高い手数料が必要ですが、この支払いの手数料はすでにウォレットが許す回数まで上げられています。後で続行して同じ支払いをもう一度送るか、キャンセルしてください。"
+  },
   "send_plan_paused_payment_refused": {
     "message": "ネットワークが支払いを拒否しました"
   },
@@ -2131,6 +2197,30 @@
   },
   "send_plan_paused_unreadable_body": {
     "message": "このバージョンのウォレットは保存された支払いを読み取れないため、続けることができません。"
+  },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "アウトプットがエクスプローラーと一致しません"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "この支払いで使うアウトプットが、エクスプローラー上でそれを作ったトランザクションと一致しないため、ウォレットは署名の前に停止しました。続行してもう一度確認するか、支払いをキャンセルしてください。"
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "まだ使えないアウトプットがあります"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "この支払いで使うアウトプットは、未成熟のマイニング報酬、他者からの未確認の支払い、または前に未確認のトランザクションが多すぎるおつりのため、まだ使えません。ウォレットは署名の前に停止しました。後で続行してもう一度確認するか、支払いをもう一度確認して現在のアカウントのアウトプットを使うか、キャンセルしてください。"
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "アウトプットのトランザクションが見つかりません"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "この支払いで使うアウトプットを作ったトランザクションがエクスプローラーにもうないため、ウォレットは署名の前に停止しました。支払いをもう一度確認して現在のアカウントのアウトプットを使うか、続行してもう一度確認するか、キャンセルしてください。"
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "アウトプットを確認できませんでした"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "この支払いで使うアウトプットをエクスプローラーで確認できなかったため、ウォレットは署名の前に停止しました。続行してもう一度お試しください。"
   },
   "send_plan_paused_other": {
     "message": "支払いは一時停止中です"
@@ -2195,6 +2285,9 @@
   "send_plan_cancel_keep": {
     "message": "支払いを続ける"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "ウォレットは削除されましたが、そのウォレットからの進行中の支払いをまだキャンセルできていません。この支払いについてこれ以上署名や送信は行われず、ウォレットはキャンセルを試み続けます。"
+  },
   "send_plan_raise_title": {
     "message": "手数料を上げる"
   },
@@ -2212,6 +2305,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "この手数料率は低すぎて、送信済みのトランザクションを置き換えられません。$1 bit/vB 以上にしてください。"
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "この支払いの手数料は上げられません：この支払いが使う資金ではそれ以上の手数料を払えません。"
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "この支払いの手数料はこれ以上上げられません：すでにウォレットが許す回数まで上げられています。続行して同じ支払いをもう一度送るか、キャンセルしてください。"
   },
   "send_plan_home_sending": {
     "message": "$1 $2 を送金中"
@@ -2252,8 +2351,32 @@
   "balance_refresh_error": {
     "message": "残高を更新できませんでした。最新ではない可能性があります。"
   },
+  "balance_outputs_incomplete": {
+    "message": "ウォレットはこのアカウントのアウトプットを最後まで読み取れなかったため、合計のみを表示しています。もう一度読み取りを試みます。"
+  },
+  "balance_outputs_incomplete_detail": {
+    "message": "ウォレットがこのアカウントのアウトプットを最後まで読み取るまで、利用可能額と利用不可額は不明です。"
+  },
   "utxo_limit_exceeded_send": {
     "message": "エクスプローラーはこのアカウントのアウトプットを一覧表示せず、ウォレットも履歴からすべてを読み取れなかったため、現在このアカウントからは送金できません。もう一度試すには、送金を開き直してください。"
+  },
+  "send_outputs_loading": {
+    "message": "このアカウントのアウトプットを読み取っています。その間にフォームを入力できます。読み取りが終わると「次へ」と「最大」を使えるようになります。"
+  },
+  "send_outputs_load_failed": {
+    "message": "ウォレットはこのアカウントのアウトプットを読み取れなかったため、現在このアカウントからは送金できません。もう一度試すには、送金を開き直してください。"
+  },
+  "send_input_check_mismatch": {
+    "message": "このトランザクションで使うアウトプットが、エクスプローラー上でそれを作ったトランザクションと一致しないため、ウォレットは署名の前に停止しました。"
+  },
+  "send_input_check_not_spendable": {
+    "message": "このトランザクションで使うアウトプットは、未成熟のマイニング報酬、他者からの未確認の支払い、または前に未確認のトランザクションが多すぎるおつりのため、まだ使えません。ウォレットは署名の前に停止しました。"
+  },
+  "send_input_check_not_found": {
+    "message": "このトランザクションで使うアウトプットを作ったトランザクションがエクスプローラーにもうないため、ウォレットは署名の前に停止しました。"
+  },
+  "send_input_check_unchecked": {
+    "message": "このトランザクションで使うアウトプットをエクスプローラーで確認できなかったため、ウォレットは署名の前に停止しました。しばらくしてからもう一度お試しください。"
   },
   "consolidate_outputs": {
     "message": "アウトプットを統合"
@@ -2557,6 +2680,15 @@
   },
   "account_switcher_account_label": {
     "message": "$2 の $1、$3"
+  },
+  "account_switcher_account_balance_label": {
+    "message": "$2 の $1、$3、残高 $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$2 の $1、$3、残高 $4（最新ではない可能性があります）"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "残高は最新ではない可能性があります"
   },
   "account_switcher_wallet_unavailable": {
     "message": "選択したウォレットは利用できなくなりました"

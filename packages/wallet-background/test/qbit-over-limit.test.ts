@@ -17,6 +17,8 @@ import {
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
 } from '../src/utils/qbit-api'
+import { QbitFundingTxReads } from '../src/utils/qbit-funding-tx-reads'
+import { ACCOUNT_ADDRESS, ACCOUNT_SCRIPT } from './qbit-classify-reads-fake'
 import { FakeQbitExplorer, fakeTxid, type FakeTx } from './qbit-fake-explorer'
 
 const address = 'qbrt1zoverlimit'
@@ -983,6 +985,92 @@ describe('outputs read from history past whole pages of mempool rows on qbit-ele
         stabilityRetries: 0,
       })
     ).rejects.toMatchObject({ kind: 'invalid_cursor' })
+  })
+})
+
+describe('a read from history that a clear comes in the middle of (#169)', () => {
+  /** An address the classifier can decode, paid 30 times in blocks and twice in the mempool. */
+  function decodableExplorer() {
+    const explorer = new FakeQbitExplorer('esplora')
+    explorer.registerAddress(ACCOUNT_ADDRESS, ACCOUNT_SCRIPT)
+    for (let index = 0; index < 30; index += 1) {
+      explorer.addTx({
+        txid: fakeTxid(index, 11_000_000),
+        inputs: [{ txid: fakeTxid(index, 12_000_000), vout: 0 }],
+        outputs: [{ address: ACCOUNT_ADDRESS, script: ACCOUNT_SCRIPT, value: 10_000 + index }],
+        height: 100 + index,
+      })
+    }
+    // Their facts are kept as any read of an unconfirmed output keeps them.
+    for (let index = 0; index < 2; index += 1) {
+      explorer.addTx({
+        txid: fakeTxid(index, 13_000_000),
+        inputs: [{ txid: fakeTxid(index, 14_000_000), vout: 0 }],
+        outputs: [{ address: ACCOUNT_ADDRESS, script: ACCOUNT_SCRIPT, value: 20_000 + index }],
+      })
+    }
+    return explorer
+  }
+
+  /** A client of `explorer` whose first request `holds` matches waits for `release`. */
+  function clientHolding(explorer: FakeQbitExplorer, holds: (url: string) => boolean) {
+    let release: () => void = () => undefined
+    const released = new Promise<void>(resolve => (release = resolve))
+    let arrive: () => void = () => undefined
+    const arrived = new Promise<void>(resolve => (arrive = resolve))
+    let held = false
+    const fetchFn = async (input: string | URL | Request, init?: RequestInit) => {
+      if (!held && holds(String(input))) {
+        held = true
+        arrive()
+        await released
+      }
+      return explorer.fetch(input, init)
+    }
+    const client = new QbitWalletEsploraClient({
+      baseUrl: BASE,
+      fetchFn: fetchFn as typeof fetch,
+      retryBaseDelayMs: 0,
+    })
+    return { client, arrived, release }
+  }
+
+  it('keeps nothing when the clear comes during the walk, and still reads every output', async () => {
+    const explorer = decodableExplorer()
+    const expected = await getQbitAddressUtxosClassifiedFromHistory(
+      clientFor(explorer),
+      ACCOUNT_ADDRESS
+    )
+    expect(expected.unconfirmedSpendable).toHaveLength(2)
+    const fundingTxReads = new QbitFundingTxReads()
+    const { client, arrived, release } = clientHolding(explorer, url => url.includes('/txs'))
+
+    const running = getQbitAddressUtxosClassifiedFromHistory(client, ACCOUNT_ADDRESS, {
+      fundingTxReads,
+    })
+    await arrived
+    fundingTxReads.clear()
+    release()
+
+    await expect(running).resolves.toEqual(expected)
+    expect(fundingTxReads.size).toBe(0)
+  })
+
+  it('keeps nothing when the clear comes while the refused listing is in flight', async () => {
+    const explorer = decodableExplorer()
+    explorer.utxoRefusedAddresses.add(ACCOUNT_ADDRESS)
+    const expected = await getQbitAddressUtxos(clientFor(explorer), ACCOUNT_ADDRESS)
+    expect(expected).toHaveLength(30)
+    const fundingTxReads = new QbitFundingTxReads()
+    const { client, arrived, release } = clientHolding(explorer, url => url.endsWith('/utxo'))
+
+    const running = getQbitAddressUtxos(client, ACCOUNT_ADDRESS, { fundingTxReads })
+    await arrived
+    fundingTxReads.clear()
+    release()
+
+    await expect(running).resolves.toEqual(expected)
+    expect(fundingTxReads.size).toBe(0)
   })
 })
 

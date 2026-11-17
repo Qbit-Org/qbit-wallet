@@ -4,11 +4,15 @@ import { Content, Header, Layout } from '@/ui/components';
 import LoadingPage from '@/ui/components/LoadingPage';
 import { useI18n } from '@qbit/wallet-state';
 
+import { AddressTypeSettingCard } from './AddressTypeSetting';
 import { LanguageCard } from './Language';
-import { PhishingProtectionCard } from './PhishingProtectionCard';
 import { RegtestAccessCard } from './RegtestAccessCard';
-import { SecurityCard } from './SecurityCard';
 
+/**
+ * Settings → Advanced Settings: Language, Address Type and, in builds that
+ * gate it, Local Regtest. The lock settings and the state of phishing
+ * protection are on the Security screen.
+ */
 export default function AdvancedScreen() {
   const { t } = useI18n();
 
@@ -34,9 +38,7 @@ export default function AdvancedScreen() {
       <Content>
         <LanguageCard />
 
-        <SecurityCard />
-
-        <PhishingProtectionCard />
+        <AddressTypeSettingCard />
 
         <RegtestAccessCard />
       </Content>

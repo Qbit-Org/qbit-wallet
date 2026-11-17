@@ -76,6 +76,25 @@ describe('StartupErrorScreen', () => {
     expect(browser.storage.local.clear).not.toHaveBeenCalled();
   });
 
+  it('runs the Retry a page passes instead of restarting the wallet, without the restart hint', async () => {
+    const onRetry = vi.fn();
+    render(<StartupErrorScreen reason="unknown" onRetry={onRetry} />);
+    expect(await screen.findByText('Qbit Wallet could not start')).toBeTruthy();
+    expect(screen.queryByText(STARTUP_ERROR_ENGLISH_TEXT.startup_error_retry_hint)).toBeNull();
+
+    fireEvent.click(screen.getByText('Retry'));
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(browserRuntimeReload).not.toHaveBeenCalled();
+    expect(browser.runtime.reload).not.toHaveBeenCalled();
+  });
+
+  it('still says that Retry restarts the wallet after a failure of its start-up', async () => {
+    render(<StartupErrorScreen reason="unknown" />);
+
+    expect(await screen.findByText(STARTUP_ERROR_ENGLISH_TEXT.startup_error_retry_hint)).toBeTruthy();
+  });
+
   it('does not blame the stored settings for another start-up failure', async () => {
     render(<StartupErrorScreen reason="unknown" />);
 

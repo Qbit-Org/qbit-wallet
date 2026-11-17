@@ -46,6 +46,8 @@ vi.mock('../src/services', async () => {
       keyrings: [],
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
+      // The wallet reads unlocked, as the funding-transaction reads check.
+      memStore: { getState: () => ({ isUnlocked: true }) },
     },
     preferenceService: {
       getCurrentAccount: vi.fn(),
@@ -235,11 +237,17 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       amount: 10_000,
       feeRate: 1,
     })
-    const signed = await wallet.runForUiPort(uiPort, () => wallet.signPsbtV2(toSignData))
+    const signed = await wallet.runForUiPort(
+      uiPort,
+      () => wallet.signPsbtV2(toSignData),
+      'signPsbtV2'
+    )
     const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
     expect(claim.outpoints).toEqual([{ txid: SPENT.txid, vout: SPENT.vout }])
-    const result = await wallet.runForUiPort(uiPort, () =>
-      wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid)
+    const result = await wallet.runForUiPort(
+      uiPort,
+      () => wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     return { claim, result, psbtHex: signed.psbtHex! }
   }
@@ -303,7 +311,7 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
     ).rejects.toThrow('recent broadcast already spent')
     await expect(
-      wallet.runForUiPort('popup:1', () => wallet.signPsbtV2(feeBumpOf(claim.txid)))
+      wallet.runForUiPort('popup:1', () => wallet.signPsbtV2(feeBumpOf(claim.txid)), 'signPsbtV2')
     ).resolves.toMatchObject({ qbitSendBroadcastClaim: { origin: 'qbit-wallet' } })
   })
 
@@ -321,7 +329,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     })
 
     // The user leaves the recovery screen; the popup, and its port, stay open.
-    await wallet.runForUiPort('popup:1', () => wallet.abandonQbitSendBroadcastClaim(claim))
+    await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.abandonQbitSendBroadcastClaim(claim),
+      'abandonQbitSendBroadcastClaim'
+    )
 
     // The home screen polls the balance. A probe inside the grace period is
     // slow to answer, and one past it answers first: the transaction is
@@ -365,19 +377,27 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
 
     // The recovery screen stays open in the popup, holding the claim.
     const bump = feeBumpOf(claim.txid)
-    await expect(wallet.runForUiPort('tab:2', () => wallet.signPsbtV2(bump))).rejects.toThrow(
-      'claimed by an approved send'
-    )
+    await expect(
+      wallet.runForUiPort('tab:2', () => wallet.signPsbtV2(bump), 'signPsbtV2')
+    ).rejects.toThrow('claimed by an approved send')
 
     // In a tab, the home screen's balance poll probes the transaction past
     // the grace period; that answer is slow. The next poll's probe finds it
     // pending, which consumes its claim into a recent spend.
     advance(QBIT_RECENT_SPEND_GONE_GRACE_MS)
     const slow = holdNextProbe(wallet)
-    await wallet.runForUiPort('tab:2', () => wallet.getAddressBalanceV2(address))
+    await wallet.runForUiPort(
+      'tab:2',
+      () => wallet.getAddressBalanceV2(address),
+      'getAddressBalanceV2'
+    )
     slow.restoreWait()
     advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
-    await wallet.runForUiPort('tab:2', () => wallet.getAddressBalanceV2(address))
+    await wallet.runForUiPort(
+      'tab:2',
+      () => wallet.getAddressBalanceV2(address),
+      'getAddressBalanceV2'
+    )
 
     // The slow probe's miss, from while the explorer still lagged, lands
     // last and frees nothing: the transaction was found pending since.
@@ -389,7 +409,7 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     // Speed up signs: only a replacement of that very transaction may.
     vi.mocked(keyringService.signP2mrPsbtWithCounter).mockClear()
     await expect(
-      wallet.runForUiPort('tab:2', () => wallet.signPsbtV2(bump))
+      wallet.runForUiPort('tab:2', () => wallet.signPsbtV2(bump), 'signPsbtV2')
     ).resolves.toMatchObject({
       qbitSendBroadcastClaim: { txid: bump.qbitBroadcastIdentity!.txid },
     })
@@ -470,7 +490,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       amount: 10_000,
       feeRate: 1,
     })
-    const signed = await wallet.runForUiPort('popup:1', () => wallet.signPsbtV2(toSignData))
+    const signed = await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.signPsbtV2(toSignData),
+      'signPsbtV2'
+    )
     const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
     explorer.confirmMempool()
     advance(QBIT_RECENT_SPEND_PROBE_INTERVAL_MS)
@@ -489,8 +513,10 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       }
       return explorer.fetch(input, init)
     })
-    const sending = wallet.runForUiPort('popup:1', () =>
-      wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid)
+    const sending = wallet.runForUiPort(
+      'popup:1',
+      () => wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     await postArrived
 
@@ -533,8 +559,10 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     })
     const posts = explorer.requests.filter(isBroadcast).length
     const lookups = explorer.requests.filter(isStatusLookup).length
-    const retry = await wallet.runForUiPort('popup:1', () =>
-      wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid)
+    const retry = await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid),
+      'broadcastQbitTx'
     )
     expect(retry).toEqual({
       success: false,
@@ -562,7 +590,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
 
     // Leaving the screen on that verdict hands the claim back; the input
     // stays reserved until a probe settles the transaction.
-    await wallet.runForUiPort('popup:1', () => wallet.abandonQbitSendBroadcastClaim(claim))
+    await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.abandonQbitSendBroadcastClaim(claim),
+      'abandonQbitSendBroadcastClaim'
+    )
     await expect(
       qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
     ).rejects.toThrow('recent broadcast already spent')
@@ -615,7 +647,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
 
     // The recovery screen is left, and a probe past the grace period finds
     // the transaction gone: the input comes back for both views.
-    await wallet.runForUiPort('popup:1', () => wallet.abandonQbitSendBroadcastClaim(claim))
+    await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.abandonQbitSendBroadcastClaim(claim),
+      'abandonQbitSendBroadcastClaim'
+    )
     advance(QBIT_RECENT_SPEND_GONE_GRACE_MS)
     await expect(available(wallet)).resolves.toEqual({
       balanceCard: SPENT.value + KEPT.value,
@@ -662,7 +698,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       await expect(
         qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
       ).rejects.toThrow('claimed by an approved send')
-      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitSendBroadcastClaim(claim))
+      await wallet.runForUiPort(
+        'popup:1',
+        () => wallet.abandonQbitSendBroadcastClaim(claim),
+        'abandonQbitSendBroadcastClaim'
+      )
       await expect(
         qbitSendGuardService.assertNoOverlap(ChainType.QBIT_REGTEST, claim.outpoints)
       ).rejects.toThrow('recent broadcast already spent')
@@ -699,8 +739,10 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
 
       // Check status on the recovery screen ends within its own deadline too.
       const check = await settle(
-        wallet.runForUiPort('popup:1', () =>
-          wallet.checkQbitBroadcastStatus(claim.txid, claim.chain, claim)
+        wallet.runForUiPort(
+          'popup:1',
+          () => wallet.checkQbitBroadcastStatus(claim.txid, claim.chain, claim),
+          'checkQbitBroadcastStatus'
         )
       )
       expect(check.value).toMatchObject({ found: false, txid: claim.txid, state: 'unavailable' })
@@ -770,8 +812,10 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
         { match: isStatusLookup, chunkBytes: 1, intervalMs: 1_400 }
       )
       const check = await settle(
-        wallet.runForUiPort('popup:1', () =>
-          wallet.checkQbitBroadcastStatus(claim.txid, claim.chain, claim)
+        wallet.runForUiPort(
+          'popup:1',
+          () => wallet.checkQbitBroadcastStatus(claim.txid, claim.chain, claim),
+          'checkQbitBroadcastStatus'
         )
       )
       expect(check.value).toMatchObject({ found: false, txid: claim.txid, state: 'unavailable' })
@@ -787,7 +831,11 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
         amount: 10_000,
         feeRate: 1,
       })
-      const signed = await wallet.runForUiPort(uiPort, () => wallet.signPsbtV2(toSignData))
+      const signed = await wallet.runForUiPort(
+        uiPort,
+        () => wallet.signPsbtV2(toSignData),
+        'signPsbtV2'
+      )
       return {
         claim: signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim,
         psbtHex: signed.psbtHex!,
@@ -811,8 +859,10 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       const held = holdGuard(holdMs)
 
       const { value: result, elapsedMs } = await settle(
-        wallet.runForUiPort('popup:1', () =>
-          wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid)
+        wallet.runForUiPort(
+          'popup:1',
+          () => wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid),
+          'broadcastQbitTx'
         )
       )
       await held
@@ -846,8 +896,17 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
             intervalMs: 1,
             stallHeaders: true,
           })
-          const call = wallet.runForUiPort('popup:1', () =>
-            wallet.broadcastQbitTx(psbtHex, claim, claim.chain, claim.txid, retryOfUnknownOutcome)
+          const call = wallet.runForUiPort(
+            'popup:1',
+            () =>
+              wallet.broadcastQbitTx(
+                psbtHex,
+                claim,
+                claim.chain,
+                claim.txid,
+                retryOfUnknownOutcome
+              ),
+            'broadcastQbitTx'
           )
           await vi.advanceTimersByTimeAsync(1_000)
           const held = holdGuard(holdUntilMs - 1_000)
@@ -885,14 +944,18 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
       const isOriginalHex = ({ path }: { path: string }) => path === `/tx/${original.txid}/hex`
       explorer.slowResponses.push({ match: isOriginalHex, chunkBytes: 64, intervalMs: 1_000 })
 
-      const signed = await wallet.runForUiPort('popup:1', () =>
-        wallet.signPsbtV2(feeBumpOf(original.txid))
+      const signed = await wallet.runForUiPort(
+        'popup:1',
+        () => wallet.signPsbtV2(feeBumpOf(original.txid)),
+        'signPsbtV2'
       )
       const claim = signed.qbitSendBroadcastClaim as QbitSendBroadcastClaim
       expect(claim).toMatchObject({ replaces: original.txid, replacedOutputCount: 2 })
       const { value: result } = await settle(
-        wallet.runForUiPort('popup:1', () =>
-          wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid)
+        wallet.runForUiPort(
+          'popup:1',
+          () => wallet.broadcastQbitTx(signed.psbtHex!, claim, claim.chain, claim.txid),
+          'broadcastQbitTx'
         )
       )
 
@@ -916,9 +979,13 @@ describe('WalletController wallet send whose broadcast outcome is unknown (#339)
     const { claim, result } = await send(wallet, 'popup:1')
     expect(result).toMatchObject({ success: false, outcome: 'unknown', lookup: 'gone' })
 
-    await wallet.runForUiPort('popup:1', () => wallet.abandonQbitSendBroadcastClaim(claim))
+    await wallet.runForUiPort(
+      'popup:1',
+      () => wallet.abandonQbitSendBroadcastClaim(claim),
+      'abandonQbitSendBroadcastClaim'
+    )
     await expect(
-      wallet.runForUiPort('popup:1', () => wallet.signPsbtV2(feeBumpOf(claim.txid)))
+      wallet.runForUiPort('popup:1', () => wallet.signPsbtV2(feeBumpOf(claim.txid)), 'signPsbtV2')
     ).resolves.toMatchObject({ qbitSendBroadcastClaim: { origin: 'qbit-wallet' } })
   })
 })

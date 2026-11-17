@@ -2,7 +2,7 @@ import { Account, WalletKeyring, walletColorForSlot } from '@qbit/wallet-shared'
 import { AddressType } from '@qbit/wallet-types'
 import { createSlice, Slice } from '@reduxjs/toolkit'
 
-import { updateVersion } from '../actions/global'
+import { resetWalletState, updateVersion } from '../actions/global'
 
 export interface KeyringsState {
   keyrings: WalletKeyring[]
@@ -89,6 +89,7 @@ const slice: Slice<KeyringsState> = createSlice({
     builder.addCase(updateVersion, state => {
       // todo
     })
+    builder.addCase(resetWalletState, () => initialState)
   },
 })
 

@@ -269,13 +269,18 @@ export class RegtestAccessService extends EventEmitter<RegtestAccessEvents> {
    * permission. The grant is re-read from the browser first: a caller-supplied
    * "granted" flag never reaches this method, so a spoofed UI cannot unlock
    * anything, and consent is only stored once the permission truly exists.
+   * Consent withdrawn while this waits (a wallet reset clears it, and so does
+   * a removal of the permission) is not given back by it: once the
+   * generation has moved, it is refused with REGTEST_ACCESS_LOCKED.
    */
   async acknowledge(): Promise<RegtestAccessStatus> {
     const adapter = this.adapter
     if (!adapter || !this.ackStore) {
       throw new WalletError(ErrorCodes.REGTEST_ACCESS_LOCKED)
     }
+    const generation = this.generation
     const permission = await adapter.containsPermission()
+    this.assertGeneration(generation)
     if (!permission) {
       this.lastVerification = undefined
       this.setStatus({
@@ -290,8 +295,17 @@ export class RegtestAccessService extends EventEmitter<RegtestAccessEvents> {
     }
     if (this.status.gated) {
       await this.ackStore.set(REGTEST_ACCESS_ACK_VERSION)
+      // A clear that began during the write lands after it, and wins.
+      this.assertGeneration(generation)
     }
     return this.refresh({ verify: true })
+  }
+
+  /** Refuse a call that consent or permission was withdrawn under (`generation` moved). */
+  private assertGeneration(generation: number): void {
+    if (generation !== this.generation) {
+      throw new WalletError(ErrorCodes.REGTEST_ACCESS_LOCKED)
+    }
   }
 
   /** Drop the acknowledgement; any in-flight verification result is discarded. */

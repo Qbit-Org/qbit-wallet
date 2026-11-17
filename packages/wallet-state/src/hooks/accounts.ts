@@ -288,18 +288,23 @@ export function useHistoryAutoRefresh(intervalMs = 60_000) {
 // refreshes) so the reducer can order their overlapping responses.
 let lastBalanceRequestId = 0
 
+/**
+ * Read the selected account's balance into the store. Resolves with the
+ * answer, for a caller that paces its reads by how they went (the balance
+ * card's poll), and rejects as the read does. It resolves with the answer
+ * also when the store records it as a failed refresh: an answer that could
+ * not read every output, where a split is already shown (see the reducer's
+ * `setBalanceV2`), so the poll still sees `utxoReadFailed`.
+ */
 export function useFetchBalanceCallback() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
   const currentAccount = useCurrentAccount()
   const { address } = currentAccount
   return useCallback(async () => {
-    if (!address) return
+    if (!address) return undefined
     const requestId = ++lastBalanceRequestId
     try {
-      const summary = await wallet.getAddressSummary(address)
-      dispatch(accountActions['setAddressSummary']!({ ...summary, address }))
-
       const balanceV2 = await wallet.getAddressBalanceV2(address)
       dispatch(
         accountActions['setBalanceV2']!({
@@ -309,6 +314,7 @@ export function useFetchBalanceCallback() {
           requestId,
         })
       )
+      return balanceV2
     } catch (error) {
       dispatch(accountActions['setBalanceError']!({ address, requestId }))
       throw error

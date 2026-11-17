@@ -343,6 +343,29 @@ class PhishingController {
     return update
   }
 
+  /**
+   * Takes back every Proceed: removes each session rule that lets a host
+   * through, after the ones this worker restores at start are back, so none
+   * outlives this. Rejects when the browser refuses. The service's in-memory
+   * bypasses are its own to clear (`clearWhitelist`), after this.
+   */
+  public clearSessionBypasses(): Promise<void> {
+    if (typeof chrome === 'undefined' || !this.hasDeclarativeNetRequest()) {
+      return Promise.resolve()
+    }
+    const update = this.sessionRuleUpdates.then(async () => {
+      await this.sessionBypassesRestored
+      const rules = await chrome.declarativeNetRequest.getSessionRules()
+      const removeRuleIds = rules
+        .filter(rule => proceedRuleHostname(rule) !== undefined)
+        .map(rule => rule.id)
+      if (removeRuleIds.length === 0) return
+      await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds })
+    })
+    this.sessionRuleUpdates = update.catch(() => undefined)
+    return update
+  }
+
   private async addProceedRule(hostname: string): Promise<void> {
     const rules = await chrome.declarativeNetRequest.getSessionRules()
     if (rules.some(rule => proceedRuleHostname(rule) === hostname)) return

@@ -29,6 +29,8 @@ export interface FakeTx {
   coinbase: boolean
   /** Undefined while in the mempool. */
   height?: number
+  /** The fee the explorer reports for it; 0 when unset. */
+  fee?: number
   /** Insertion order; ties within a block sort by it, newest first. */
   order: number
 }
@@ -304,7 +306,7 @@ export class FakeQbitExplorer {
       vout: tx.outputs.map(output => this.esploraOutput(output)),
       size: 100 + tx.inputs.length * 3_762,
       weight: 100 + tx.inputs.length * 3_762,
-      fee: 0,
+      fee: tx.fee ?? 0,
       status:
         tx.height === undefined
           ? { confirmed: false }

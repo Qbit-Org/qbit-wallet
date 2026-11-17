@@ -2,7 +2,7 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { ToolsContext, ToolsContextType, useI18n } from '@qbit/wallet-state';
+import { ToastOptions, ToolsContext, ToolsContextType, useI18n } from '@qbit/wallet-state';
 import { Loading } from '../components/ActionComponent/Loading';
 import { Tip } from '../components/ActionComponent/Tip';
 import { Toast, ToastPresets, ToastProps } from '../components/ActionComponent/Toast';
@@ -57,7 +57,7 @@ function ToastContainer({ handler }: { handler: ToolsContextType }) {
   });
   const self = selfRef.current;
   const basicToast = useCallback(
-    (content: string, preset?: ToastPresets) => {
+    (content: string, preset?: ToastPresets, options?: ToastOptions) => {
       const resolvedPreset: ToastPresets = preset || 'info';
       const key = 'Toast_' + Math.random();
       const toast = {
@@ -65,6 +65,7 @@ function ToastContainer({ handler }: { handler: ToolsContextType }) {
         props: {
           preset: resolvedPreset,
           content,
+          lasting: options?.lasting === true,
           onClose: () => {
             self.toasts = self.toasts.filter((v) => v.key !== key);
             setToasts(self.toasts.map((v) => v));
@@ -102,8 +103,8 @@ function ToastContainer({ handler }: { handler: ToolsContextType }) {
   );
 
   handler.toastWarning = useCallback(
-    (content: string) => {
-      basicToast(content, 'warning');
+    (content: string, options?: ToastOptions) => {
+      basicToast(content, 'warning', options);
     },
     [basicToast]
   );

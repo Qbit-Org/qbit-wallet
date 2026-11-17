@@ -44,6 +44,8 @@ vi.mock('../src/services', async () => {
       keyrings: [],
       memStore: { getState: () => lockState },
       hasVault: vi.fn(() => true),
+      // A keyring reset that fails here fails before it stores anything.
+      hasPersistedVault: vi.fn(async () => true),
       setLocked: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
       openP2mrPsbtSigningBatch: vi.fn(),
@@ -60,7 +62,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),

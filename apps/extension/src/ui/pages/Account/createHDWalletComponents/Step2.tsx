@@ -1,13 +1,12 @@
-import { LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Button, Card, Column, Icon, Input, Row, Text } from '@/ui/components';
+import { Button, Card, Column, Input, Row, Text } from '@/ui/components';
 import { AddressTypeCard2 } from '@/ui/components/AddressTypeCard';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
+import { Spin } from '@/ui/components/Spin';
 import { ContextData, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { useNavigate } from '@/ui/pages/MainRoute';
-import { fontSizes } from '@/ui/theme/font';
-import { satoshisToAmount } from '@/ui/utils';
+import { satoshisToAmount, walletErrorMessage } from '@/ui/utils';
 import {
   ADDRESS_TYPES,
   QbitRestoreReport,
@@ -136,10 +135,13 @@ export function Step2({
         if (generation !== previewGeneration.current) {
           return;
         }
-        setError((e as any).message);
+        setError(walletErrorMessage(e, t('unknown_error')));
         return;
       }
     }
+    // A preview that succeeds takes back the refusal an earlier one showed,
+    // so Continue is not held for a passphrase that has been corrected.
+    setError('');
     setPreviewAddresses(addresses);
   };
 
@@ -234,7 +236,7 @@ export function Step2({
       navigate('MainScreen');
     } catch (e) {
       restoreInProgress.current = false;
-      tools.toastError((e as any).message);
+      tools.toastError(walletErrorMessage(e, t('unknown_error')));
       setPhase('form');
     }
   };
@@ -278,7 +280,7 @@ export function Step2({
         floorScan: summary
       });
     } catch (e) {
-      const floorError = String((e as any)?.message ?? e);
+      const floorError = walletErrorMessage(e, t('unknown_error'));
       // The failure card shows why the latest attempt failed, which can
       // differ from the restore's; the toast alone closes after a few seconds.
       setReport({
@@ -300,9 +302,7 @@ export function Step2({
   if (phase === 'scanning') {
     return (
       <Column full itemsCenter justifyCenter gap="xl" data-testid="restore-scanning">
-        <Icon size={fontSizes.icon * 3} data-testid="restore-scanning-spinner">
-          <LoaderCircle className="icon-spin" size="1em" />
-        </Icon>
+        <Spin size="large" data-testid="restore-scanning-spinner" />
         <Text text={t('qbit_restore_scanning')} preset="sub" textCenter />
       </Column>
     );
@@ -467,11 +467,7 @@ export function Step2({
         />
       </FooterButtonContainer>
 
-      {loading && (
-        <Icon>
-          <LoaderCircle className="icon-spin" size="1em" />
-        </Icon>
-      )}
+      {loading && <Spin />}
     </Column>
   );
 }

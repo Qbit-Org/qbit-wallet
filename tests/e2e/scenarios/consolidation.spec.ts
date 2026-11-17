@@ -25,7 +25,7 @@ const EXPLORER_REFUSAL_BODY = `Too many unspent transaction outputs (>${EXPLORER
  * The auto-lock time of one hour (`getAutoLockTimes`, @qbit/wallet-shared).
  * An auto-lock that falls due during a signing waits for it, then locks a
  * minute after it ends, whatever the screen does meanwhile: a batch signing
- * for longer than the 3-minute default on a slow runner would lock the
+ * for longer than the 30-minute default on a slow runner would lock the
  * wallet during the next batch. An hour outlasts each plan's budget.
  */
 const AUTO_LOCK_ONE_HOUR_ID = 6

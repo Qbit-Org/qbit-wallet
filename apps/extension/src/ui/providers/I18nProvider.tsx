@@ -2,6 +2,7 @@ import log from 'loglevel';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { i18nService } from '@/shared/utils/i18n';
+import { WaitingPage } from '@/ui/components/WaitingPage';
 import { colors } from '@/ui/theme/colors';
 import {
   BROWSER_TO_APP_LOCALE_MAP,
@@ -130,32 +131,8 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [t, locale, changeLocale, isSpecialLocale]
   );
 
-  // If not yet initialized, show loading
   if (!isInitialized) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100vw',
-          height: '100vh',
-          overflowY: 'auto',
-          overflowX: 'hidden'
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            flex: 1,
-            flexDirection: 'column',
-            justifyItems: 'center',
-            alignItems: 'center'
-          }}
-        >
-          <div />
-        </div>
-      </div>
-    );
+    return <WaitingPage />;
   }
 
   // If there is an error, show error message in development environment

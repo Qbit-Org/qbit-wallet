@@ -1,9 +1,9 @@
-import { LoaderCircle } from 'lucide-react';
 import { CSSProperties, ReactNode, useState } from 'react';
 
 import { Button, Card, Column, Content, Footer, Header, Icon, Layout, Progress, Row, Text } from '@/ui/components';
 import { FeeRateBar } from '@/ui/components/FeeRateBar';
 import { Popover } from '@/ui/components/Popover';
+import { Spin } from '@/ui/components/Spin';
 import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { shortAddress } from '@/ui/utils';
@@ -31,13 +31,7 @@ const $compactTextStyle: CSSProperties = { fontSize: fontSizes.xs };
 
 function StageIcon({ state }: { state: QbitSendPlanStage['state'] }) {
   if (state === 'done') return <Icon icon="circle-check" size={fontSizes.md} color="green" />;
-  if (state === 'active') {
-    return (
-      <Icon size={fontSizes.md} color="gold">
-        <LoaderCircle className="icon-spin" size="1em" />
-      </Icon>
-    );
-  }
+  if (state === 'active') return <Spin size="small" />;
   return <Icon icon="circle" size={fontSizes.md} color="textDim" />;
 }
 
@@ -133,9 +127,7 @@ export default function QbitSendPlanScreen() {
           {logic.readFailedText ? (
             <Text text={logic.readFailedText} color="textDim" textCenter data-testid="qbit-send-plan-read-failed" />
           ) : (
-            <Icon size={fontSizes.xxxl} color="gold" data-testid="qbit-send-plan-loading">
-              <LoaderCircle className="icon-spin" size="1em" />
-            </Icon>
+            <Spin size="large" data-testid="qbit-send-plan-loading" />
           )}
         </Content>
       </Layout>

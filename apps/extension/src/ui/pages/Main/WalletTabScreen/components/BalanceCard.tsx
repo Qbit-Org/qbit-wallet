@@ -20,6 +20,9 @@ export function BalanceCard() {
     utxoLimitExceededText,
     balanceSplitUnknown,
     balanceSplitUnknownText,
+    utxoReadIncomplete,
+    utxoReadIncompleteText,
+    utxoReadIncompleteDetailText,
     balanceLoading,
     balanceLoadFailed,
     balanceErrorText,
@@ -134,6 +137,14 @@ export function BalanceCard() {
             data-testid="balance-utxo-limit-note"
           />
         ) : null}
+        {utxoReadIncomplete ? (
+          <Text
+            size="xs"
+            text={utxoReadIncompleteText}
+            style={{ color: colors.onPrimary }}
+            data-testid="balance-outputs-incomplete-note"
+          />
+        ) : null}
       </Column>
 
       {isDetailExpanded && isCurrentChainBalance && !balanceLoading && !balanceLoadFailed && (
@@ -170,7 +181,7 @@ export function BalanceCard() {
               <Row itemsCenter gap="sm" style={{ minHeight: 20 }}>
                 <Text color={'onPrimary'} size="xs" text={t('unavailable')} style={{ fontWeight: 500 }}></Text>
                 {/* The tooltip explains a measured Unavailable; an unknown split has the line below. */}
-                {balanceSplitUnknown ? null : (
+                {balanceSplitUnknown || utxoReadIncomplete ? null : (
                   <Tooltip
                     title={<BulletedTip text={unavailableTipText} />}
                     overlayStyle={{
@@ -190,6 +201,13 @@ export function BalanceCard() {
               text={balanceSplitUnknownText}
               style={{ color: colors.onPrimary }}
               data-testid="balance-split-unknown-note"
+            />
+          ) : utxoReadIncomplete ? (
+            <Text
+              size="xs"
+              text={utxoReadIncompleteDetailText}
+              style={{ color: colors.onPrimary }}
+              data-testid="balance-outputs-incomplete-detail"
             />
           ) : null}
         </Column>

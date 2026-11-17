@@ -2,7 +2,7 @@ import { DEFAULT_LOCKTIME_ID, DEFAULT_THEME_MODE, ThemeMode, WalletConfig } from
 import { ChainType, NetworkType } from '@qbit/wallet-types'
 import { createSlice, Slice } from '@reduxjs/toolkit'
 
-import { updateVersion } from '../actions/global'
+import { resetWalletState, updateVersion } from '../actions/global'
 
 export interface SettingsState {
   locale: string
@@ -65,6 +65,13 @@ const slice: Slice<SettingsState> = createSlice({
         state.networkType = NetworkType.MAINNET
       }
     })
+    // The background keeps the language and the theme through a reset and
+    // returns every other preference to its default.
+    builder.addCase(resetWalletState, state => ({
+      ...initialState,
+      locale: state.locale,
+      themeMode: state.themeMode,
+    }))
   },
 })
 

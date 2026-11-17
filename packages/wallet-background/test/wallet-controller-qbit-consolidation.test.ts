@@ -663,6 +663,32 @@ describe('WalletController consolidation of an account over the explorer UTXO li
     })
   })
 
+  it('reads every input of a batch before its first signature, and signs none that fails (#210)', async () => {
+    const fixture = overLimitAccount()
+    explorer = fixture.explorer
+    const wallet = controller()
+    const lookups = () =>
+      explorer.requests.filter(({ path }) => /^\/tx\/[0-9a-f]{64}$/.test(path)).length
+    const first = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+    const before = lookups()
+    let readBeforeSigning = -1
+    const sign = vi.mocked(keyringService.signP2mrPsbtWithCounter).getMockImplementation()!
+    vi.mocked(keyringService.signP2mrPsbtWithCounter).mockImplementationOnce(async (...args) => {
+      readBeforeSigning = lookups() - before
+      return sign(...args)
+    })
+
+    await signBatch(wallet, first)
+    expect(readBeforeSigning).toBe(inputsOf(first).length)
+
+    // The next batch's first input no longer reads as its walk found it.
+    const next = await wallet.createQbitConsolidationPsbt({ feeRate: 1 })
+    explorer.txs.get(inputsOf(next)[0]!.split(':')[0]!)!.outputs[0]!.value += 1
+    vi.mocked(keyringService.signP2mrPsbtWithCounter).mockClear()
+    await expect(signBatch(wallet, next)).rejects.toMatchObject({ problem: 'mismatch' })
+    expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+  })
+
   it('resumes after a failed broadcast without spending a reserved input twice', async () => {
     const fixture = overLimitAccount()
     explorer = fixture.explorer
@@ -1306,6 +1332,44 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       expect(explorer.releasedBodies).toEqual([])
     })
 
+    it('ends the check of a batch’s inputs at the batch’s deadline, not a minute past it, and frees the account’s scan (#210)', async () => {
+      explorer = overLimitAccount().explorer
+      const wallet = controller()
+      // The walk takes all but five seconds of the batch's time.
+      const select = (wallet as any).selectQbitConsolidationInputs.bind(wallet)
+      vi.spyOn(wallet as any, 'selectQbitConsolidationInputs').mockImplementationOnce(
+        async (...args: unknown[]) => {
+          const inputs = await select(...args)
+          await new Promise(resolve =>
+            setTimeout(resolve, QBIT_CONSOLIDATION_BATCH_DEADLINE_MS - 5_000)
+          )
+          return inputs
+        }
+      )
+      // Then no lookup of a funding transaction answers until it is aborted.
+      const fetch = globalThis.fetch
+      vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          typeof input === 'string' ? input : input instanceof URL ? input : input.url
+        )
+        if (/^\/tx\/[0-9a-f]{64}$/.test(url.pathname.replace(/^\/api/, ''))) {
+          return new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), {
+              once: true,
+            })
+          })
+        }
+        return fetch(input, init)
+      })
+
+      const result = await settle(wallet.createQbitConsolidationPsbt({ feeRate: 1 }), 500)
+
+      expect(result).toMatchObject({ error: expect.objectContaining({ problem: 'unchecked' }) })
+      expect(result.elapsedMs).toBeLessThanOrEqual(QBIT_CONSOLIDATION_BATCH_DEADLINE_MS + 1_000)
+      // The account's scan is no longer held: nothing waits for the batch.
+      expect((wallet as any).qbitConsolidationQueues.size).toBe(0)
+    })
+
     it("starts a batch's deadline once it has the account's scan, not while it waits for another", async () => {
       explorer = overLimitAccount().explorer
       const wallet = controller()
@@ -1356,7 +1420,7 @@ describe('WalletController consolidation of an account over the explorer UTXO li
 
     /** The send screen of `uiPort` reads the account's outputs as read `readId`. */
     const openSend = (wallet: WalletController, uiPort: string, readId: string) =>
-      wallet.runForUiPort(uiPort, () => wallet.getQbitUtxoSnapshot(readId))
+      wallet.runForUiPort(uiPort, () => wallet.getQbitUtxoSnapshot(readId), 'getQbitUtxoSnapshot')
 
     it("stops a send screen's walk once the screen is left", async () => {
       explorer = overLimitAccount().explorer
@@ -1368,7 +1432,11 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       const pagesRead = pageRequests(explorer)
       expect(pagesRead).toBeGreaterThan(0)
 
-      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('1'))
+      await wallet.runForUiPort(
+        'popup:1',
+        () => wallet.abandonQbitUtxoSnapshot('1'),
+        'abandonQbitUtxoSnapshot'
+      )
       expect(await read).toBeInstanceOf(Error)
       await vi.advanceTimersByTimeAsync(10 * 60_000)
 
@@ -1387,7 +1455,11 @@ describe('WalletController consolidation of an account over the explorer UTXO li
       await vi.advanceTimersByTimeAsync(10_000)
 
       // The popup's screen is left; the tab's still waits, for the same walk.
-      await wallet.runForUiPort('popup:1', () => wallet.abandonQbitUtxoSnapshot('1'))
+      await wallet.runForUiPort(
+        'popup:1',
+        () => wallet.abandonQbitUtxoSnapshot('1'),
+        'abandonQbitUtxoSnapshot'
+      )
       expect(await popup).toBeInstanceOf(Error)
       const pagesRead = pageRequests(explorer)
       await vi.advanceTimersByTimeAsync(10_000)

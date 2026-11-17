@@ -176,9 +176,12 @@ export async function restoreAppState() {
     // the guard holds a plan's outputs again from its stored record. A read
     // that fails stops start-up, as for every service; a document holding
     // plans this version cannot read does not, and those plans show as
-    // unreadable to their accounts.
+    // unreadable to their accounts. The records of wallet removals, kept
+    // with the preferences, go first: the accounts they name are held back
+    // before any plan can advance.
     await startService('send plans', async () => {
       await qbitSendPlanStore.init({ storage: proxyStorage });
+      walletController.restoreQbitSendPlanRemovals();
       await walletController.restoreQbitSendPlans();
     });
 
@@ -241,6 +244,16 @@ export async function restoreAppState() {
       })
     );
     // Initialize phishing service early to ensure protection is active
+
+    // A reset that erased the wallets but not all of the rest of the wallet
+    // data is finished here, with every service it clears started. If it still
+    // cannot be, the rest of the background starts anyway: the reset stays
+    // pending, and creating a wallet finishes it first or is refused.
+    try {
+      await walletController.finishPendingWalletReset();
+    } catch (resetError) {
+      logger.error('[Background] The pending wallet reset could not be finished', resetError);
+    }
 
     appStateRestored = true;
 

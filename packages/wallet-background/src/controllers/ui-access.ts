@@ -103,7 +103,6 @@ export const UI_CONTROLLER_METHODS = [
   'getAddressBalance',
   'getAddressBalanceV2',
   'getAddressHistory',
-  'getAddressSummary',
   'getAllAddresses',
   'getApproval',
   'getAutoLockTimeId',
@@ -130,6 +129,7 @@ export const UI_CONTROLLER_METHODS = [
   'getNetworkType',
   'getNextAlianName',
   'getPrivateKey',
+  'getQbitAccountTotals',
   'getQbitConcurrentInstanceHint',
   'getQbitConsolidationStatus',
   'getQbitFeeBumpEligibility',
@@ -147,6 +147,7 @@ export const UI_CONTROLLER_METHODS = [
   'getThemeMode',
   'getVersionDetail',
   'getWalletConfig',
+  'getWalletId',
   'hasVault',
   'isBooted',
   'isReady',
@@ -155,6 +156,7 @@ export const UI_CONTROLLER_METHODS = [
   'lockWallet',
   'prepareQbitRecoveryMigration',
   'prepareQbitSendPlan',
+  'readQbitAccountTotal',
   'rejectApproval',
   'releaseQbitRestoredFloorSigningChallenges',
   'releaseQbitSendBroadcastClaim',
@@ -164,6 +166,7 @@ export const UI_CONTROLLER_METHODS = [
   'removeKeyring',
   'replaceContact',
   'reserveExternallySignedQbitSend',
+  'resetWallet',
   'resolveApproval',
   'resolveUnlockApproval',
   'restoreQbitKeyringWithFloors',
@@ -196,6 +199,23 @@ export const UI_CONTROLLER_METHODS = [
 ] as const satisfies readonly (keyof WalletController)[]
 
 const uiControllerMethods: ReadonlySet<string> = new Set(UI_CONTROLLER_METHODS)
+
+/**
+ * The UI controller methods a page's call to which runs while a reset runs,
+ * where WalletController.runForUiPort holds every other until the reset has
+ * ended: resetWallet, which queues behind the reset under way itself. Each
+ * must be one of UI_CONTROLLER_METHODS, so renaming a method keeps it here.
+ */
+export const UI_METHODS_RUN_DURING_RESET = [
+  'resetWallet',
+] as const satisfies readonly (typeof UI_CONTROLLER_METHODS)[number][]
+
+const uiMethodsRunDuringReset: ReadonlySet<string> = new Set(UI_METHODS_RUN_DURING_RESET)
+
+/** Whether a page's call to `method` runs while a reset runs; see UI_METHODS_RUN_DURING_RESET. */
+export function runsDuringWalletReset(method: string): boolean {
+  return uiMethodsRunDuringReset.has(method)
+}
 
 /**
  * Resolve a UI-port request to the controller method it names. Throws unless

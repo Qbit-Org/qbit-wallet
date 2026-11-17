@@ -3,11 +3,14 @@ import { expect, vi } from 'vitest'
 import {
   P2MR_LEAF_VERSION_V1,
   PQC_SIGNATURE_BYTES,
+  PSBT_IN_SIGHASH_TYPE,
+  buildControlBlock,
   bytesToHex,
   createP2mrPsbt,
   decodePsbt,
   hexToBytes,
   p2mrAddressFromPubkey,
+  p2mrBranchHash,
   p2mrLeafHash,
   p2mrScriptPubKey,
   signP2mrPsbt,
@@ -698,6 +701,22 @@ export class World {
     return view
   }
 
+  /**
+   * What a continue of plan `planId` names (`continueQbitSendPlan`) from a
+   * page showing the plan as stored now: its view's terms digest
+   * (`QbitSendPlanView.termsDigest`), read without advancing anything. When
+   * nothing readable is stored under `planId`, or the plan states no terms,
+   * a digest of the same form that names no plan's terms, so the caller
+   * meets the engine's other refusals.
+   */
+  shownTerms(planId: string): string {
+    const record = qbitSendPlanStore.get(planId)
+    const engine = this.engine as unknown as {
+      termsDigestOf(record: unknown): string | undefined
+    }
+    return (record ? engine.termsDigestOf(record) : undefined) ?? '0'.repeat(64)
+  }
+
   /** The transaction the explorer holds as `txid`, or throws. */
   tx(txid: string) {
     const tx = this.explorer.txs.get(txid)
@@ -845,7 +864,9 @@ export function watchPlanAnnouncements(current: () => World): void {
       event === BUS_EVENTS.broadcastToUI &&
       message.method === BUS_METHODS.QBIT_SEND_PLAN_CHANGED
     ) {
-      current().events.push(message.params!)
+      // The plan and its revision, as recorded before announcements named
+      // the background's run too (`backgroundId`).
+      current().events.push({ planId: message.params!.planId, revision: message.params!.revision })
     }
     return true
   }) as never)
@@ -975,6 +996,98 @@ export function dappPsbtHex(outpoints: readonly string[], value: number): string
     outputs: [
       { value: BigInt(value * outpoints.length - 20_000), scriptPubKey: hexToBytes(PAYER_SCRIPT) },
     ],
+  })
+  return qbitSendPlanPsbtHex(psbt)
+}
+
+/** `psbtHex` with `PSBT_IN_SIGHASH_TYPE` set on one input, as a website names the type to sign it with. */
+export function withInputSighashType(
+  psbtHex: string,
+  inputIndex: number,
+  hashType: number
+): string {
+  const psbt = qbitSendPlanPsbtFromHex(psbtHex)
+  const value = new Uint8Array(4)
+  new DataView(value.buffer).setUint32(0, hashType, true)
+  psbt.inputs[inputIndex]!.push({ key: Uint8Array.of(PSBT_IN_SIGHASH_TYPE), value })
+  return qbitSendPlanPsbtHex(psbt)
+}
+
+/**
+ * An unsigned PSBT a website asks the account to sign, spending `outpoints` to
+ * exactly `outputs`. An input in `foreignLeafInputs` claims the account's
+ * output but carries another key's leaf, so the account does not sign it. One
+ * in `otherPartyInputs` is another party's altogether, output and leaf.
+ */
+export function dappPsbtWithOutputsHex(
+  outpoints: readonly string[],
+  value: number,
+  outputs: readonly { value: bigint; scriptPubKey: Uint8Array }[],
+  foreignLeafInputs: readonly number[] = [],
+  otherPartyInputs: readonly number[] = []
+): string {
+  const keys = qbitSendPlanAccountKeys(account.p2mr.pubkey)
+  const foreign = qbitSendPlanAccountKeys('33'.repeat(32))
+  const psbt = createP2mrPsbt({
+    inputs: outpoints.map((key, index) => {
+      const [txid, vout] = key.split(':')
+      const theirs = otherPartyInputs.includes(index)
+      const leaf = theirs || foreignLeafInputs.includes(index) ? foreign : keys
+      return {
+        prevout: { txid: hexToBytes(txid!).reverse(), vout: Number(vout) },
+        witnessUtxo: {
+          value: BigInt(value),
+          scriptPubKey: theirs ? foreign.scriptPubKey : keys.scriptPubKey,
+        },
+        leafScript: leaf.leafScript,
+        controlBlock: leaf.controlBlock,
+        merkleRoot: leaf.leafHash,
+      }
+    }),
+    outputs: outputs.map(output => ({ ...output })),
+  })
+  return qbitSendPlanPsbtHex(psbt)
+}
+
+/**
+ * An unsigned PSBT whose input 0 spends an output of a tree that holds the
+ * account's leaf beside another key's, claiming `sharedValue` for it, and whose
+ * other inputs spend `outpoints`, the account's own coins of `ownValue` each.
+ * The account can sign input 0, but the output is not the wallet's.
+ */
+export function dappPsbtWithSharedInputHex(
+  outpoints: readonly string[],
+  ownValue: number,
+  sharedValue: number,
+  outputs: readonly { value: bigint; scriptPubKey: Uint8Array }[]
+): string {
+  const keys = qbitSendPlanAccountKeys(account.p2mr.pubkey)
+  const otherLeafHash = p2mrLeafHash(
+    P2MR_LEAF_VERSION_V1,
+    singleKeyLeafScript(hexToBytes('33'.repeat(32)))
+  )
+  const root = p2mrBranchHash(keys.leafHash, otherLeafHash)
+  const psbt = createP2mrPsbt({
+    inputs: [
+      {
+        prevout: { txid: hexToBytes('ab'.repeat(32)), vout: 0 },
+        witnessUtxo: { value: BigInt(sharedValue), scriptPubKey: p2mrScriptPubKey(root) },
+        leafScript: keys.leafScript,
+        controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, [otherLeafHash]),
+        merkleRoot: root,
+      },
+      ...outpoints.map(key => {
+        const [txid, vout] = key.split(':')
+        return {
+          prevout: { txid: hexToBytes(txid!).reverse(), vout: Number(vout) },
+          witnessUtxo: { value: BigInt(ownValue), scriptPubKey: keys.scriptPubKey },
+          leafScript: keys.leafScript,
+          controlBlock: keys.controlBlock,
+          merkleRoot: keys.leafHash,
+        }
+      }),
+    ],
+    outputs: outputs.map(output => ({ ...output })),
   })
   return qbitSendPlanPsbtHex(psbt)
 }

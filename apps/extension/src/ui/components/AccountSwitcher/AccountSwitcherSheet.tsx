@@ -5,18 +5,23 @@ import { createPortal } from 'react-dom';
 import { BottomModal, useBottomModal } from '@/ui/components/BottomModal';
 import { Button } from '@/ui/components/Button';
 import { RemoveWalletPopover } from '@/ui/components/RemoveWalletPopover';
+import { ResetWalletPopover } from '@/ui/components/ResetWalletPopover';
 import { WalletAvatar, WalletTags, walletTagsFor } from '@/ui/components/WalletIdentity';
 import { shortAddress, walletErrorMessage } from '@/ui/utils';
 import { activateOnKey, keepTabInside } from '@/ui/utils/keyboard';
+import { hasRecoveryPhrase } from '@/ui/utils/recoveryPhrase';
 import { Account, KeyringType, WalletColorKey, WalletKeyring } from '@qbit/wallet-shared';
 import {
   accountActions,
   keyringsActions,
+  useAccountSwitcherTotals,
   useAppDispatch,
   useCurrentAccount,
+  useCurrentAccountBalanceTotal,
   useI18n,
   useKeyrings,
   useNavigation,
+  useQbitUnit,
   useReloadAccounts,
   useTools,
   useWallet
@@ -25,12 +30,11 @@ import {
 import { ActionMenu, ActionMenuItem } from './ActionMenu';
 import { NameEditDialog, NewAccountDialog, WalletColorPicker } from './SwitcherDialogs';
 import { accountCountLabel } from './accountCount';
+import { TotalDisplay, accountTotalDisplay, formatTotal, walletTotalDisplay } from './accountTotals';
 import './index.less';
 
 /** Wallets that can derive another account: the ones with a recovery phrase. */
 const ACCOUNT_CREATABLE_KEYRING_TYPES: string[] = [KeyringType.HdKeyring, KeyringType.QbitHdKeyring];
-/** Wallets whose recovery phrase can be shown. */
-const MNEMONIC_BACKED_KEYRING_TYPES: string[] = [KeyringType.HdKeyring, KeyringType.QbitHdKeyring];
 /** Accounts whose private key can be exported. */
 const PRIVATE_KEY_EXPORTABLE_ACCOUNT_TYPES: string[] = [KeyringType.HdKeyring, KeyringType.SimpleKeyring];
 
@@ -51,6 +55,11 @@ function isCorruptedWallet(keyring: WalletKeyring): boolean {
   return (keyring as WalletKeyring & { isCorrupted?: boolean }).isCorrupted === true || keyring.accounts.length === 0;
 }
 
+/** Whether removing the wallet `keyringKey` from `keyrings` would leave no usable wallet. */
+function leavesNoUsableWallet(keyrings: WalletKeyring[], keyringKey: string): boolean {
+  return !keyrings.some((other) => other.key !== keyringKey && !isCorruptedWallet(other));
+}
+
 type MenuTarget = { kind: 'wallet'; keyringKey: string } | { kind: 'account'; keyringKey: string; accountKey: string };
 type MenuState = MenuTarget & { anchor: HTMLElement };
 
@@ -59,13 +68,53 @@ type DialogState =
   | { kind: 'rename-account'; keyringKey: string; accountKey: string }
   | { kind: 'color'; keyringKey: string }
   | { kind: 'remove'; keyringKey: string }
-  | { kind: 'new-account'; keyringKey: string };
+  | { kind: 'new-account'; keyringKey: string }
+  // Removing the last wallet resets the extension instead: every wallet goes,
+  // so the dialog does not close with the wallet it was opened for, only once
+  // removing that wallet would leave another usable one.
+  | { kind: 'reset'; keyringKey: string };
 
 interface WalletGroup {
   keyring: WalletKeyring;
   corrupted: boolean;
   /** The accounts the search leaves, all of them without a search. */
   accounts: Account[];
+}
+
+/**
+ * A total in its place on a row or a wallet header: the amount, `****` while
+ * balances are hidden, `--` when it is unknown, or a quiet bar of fixed width
+ * while it is on its way. An amount that may be out of date (its latest
+ * read failed, or it may be from before a transaction the wallet submitted)
+ * is muted.
+ */
+function TotalAmount({
+  display,
+  unit,
+  className,
+  testId
+}: {
+  display: TotalDisplay;
+  unit: string;
+  className: string;
+  testId: string;
+}) {
+  if (display.kind === 'pending') {
+    return (
+      <span
+        className={`${className} ${className}--pending`}
+        aria-hidden="true"
+        data-pending="true"
+        data-testid={testId}
+      />
+    );
+  }
+  const stale = display.kind === 'amount' && display.stale;
+  return (
+    <span className={className} data-stale={stale ? 'true' : undefined} data-testid={testId}>
+      {display.kind === 'hidden' ? '****' : display.kind === 'unknown' ? '--' : formatTotal(display.sats, unit)}
+    </span>
+  );
 }
 
 /**
@@ -90,6 +139,16 @@ function AccountSwitcherContent() {
   const { t, locale } = useI18n();
   const keyrings = useKeyrings();
   const currentAccount = useCurrentAccount();
+  const qbitUnit = useQbitUnit();
+  const { hidden: balancesHidden, totals } = useAccountSwitcherTotals(keyrings);
+  const homeTotal = useCurrentAccountBalanceTotal();
+
+  // The current account shows the home screen's figure once that is loaded,
+  // so the two never disagree; every other account, its own total.
+  const totalOf = (account: Account): TotalDisplay =>
+    !balancesHidden && homeTotal && account.address === homeTotal.address
+      ? { kind: 'amount', sats: homeTotal.totalBalance, stale: homeTotal.stale }
+      : accountTotalDisplay(balancesHidden, totals[account.address]);
 
   const titleId = useId();
   const listId = useId();
@@ -101,6 +160,9 @@ function AccountSwitcherContent() {
 
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // The menu as last rendered, for a removal that settles later.
+  const menuRef = useRef<MenuState | null>(null);
+  menuRef.current = menu;
   const [dialog, setDialogState] = useState<DialogState | null>(null);
   const [pendingAccountKey, setPendingAccountKey] = useState<string | null>(null);
   const [lockedHeight, setLockedHeight] = useState(0);
@@ -122,6 +184,9 @@ function AccountSwitcherContent() {
     setDialogState(next);
   }, []);
   const scrolledToCurrentRef = useRef(false);
+  // The Remove Wallet press being judged. A press on what the list says is the
+  // last usable wallet reads the wallets again first; a newer press drops it.
+  const removalCheckRef = useRef(0);
 
   // Reads the wallets and shows them, unless a newer read or a change made
   // here overtook this read, or the sheet began to close meanwhile. Resolves
@@ -303,7 +368,7 @@ function AccountSwitcherContent() {
         focusInSheet(menu.anchor);
       }
     }
-    if (!dialog) return;
+    if (!dialog || dialog.kind === 'reset') return;
     const gone =
       dialog.kind === 'rename-account'
         ? !findAccount(dialog.keyringKey, dialog.accountKey)
@@ -414,14 +479,41 @@ function AccountSwitcherContent() {
     if (created) close();
   };
 
-  const removeWallet = (keyring: WalletKeyring) => {
+  const removeWallet = async (keyring: WalletKeyring) => {
     // A usable wallet must stay, as the background requires: a corrupted one
-    // cannot be opened, so it does not count. The background checks again,
-    // against the wallets as they are when the removal runs.
-    if (!keyrings.some((other) => other.key !== keyring.key && !isCorruptedWallet(other))) {
+    // cannot be opened, so it does not count. Removing the last one is a
+    // reset instead, which asks for the password and its own confirmation;
+    // nothing is sent until then. The background checks the removal again,
+    // against the wallets as they are when it runs, and refuses it for the
+    // last wallet: a refused removal never turns into a reset.
+    const check = ++removalCheckRef.current;
+    if (leavesNoUsableWallet(keyrings, keyring.key)) {
+      // The list can be out of date: another window may have added a wallet
+      // since the sheet read them. Read them again before offering to erase
+      // them all. A failed read leaves the list as it is; the background
+      // checks the wallet again inside the reset either way (lastWalletKey).
+      const anchor = menu?.anchor ?? null;
       closeMenu();
-      tools.toastError(t('removing_the_last_wallet_is_not_allowed'));
-      return;
+      const fresh = await readKeyrings();
+      if (
+        check !== removalCheckRef.current ||
+        !mountedRef.current ||
+        closingRef.current ||
+        dialogRef.current ||
+        menuRef.current
+      ) {
+        return;
+      }
+      const listed = fresh ?? keyrings;
+      if (!listed.some((candidate) => candidate.key === keyring.key)) {
+        // Gone meanwhile: there is nothing to remove.
+        focusInSheet(anchor);
+        return;
+      }
+      if (leavesNoUsableWallet(listed, keyring.key)) {
+        openDialog({ kind: 'reset', keyringKey: keyring.key });
+        return;
+      }
     }
     dropPendingKeyringsRead();
     openDialog({ kind: 'remove', keyringKey: keyring.key });
@@ -454,7 +546,7 @@ function AccountSwitcherContent() {
     }
     // Corrupted wallets included: their phrase is still in the vault, and the
     // "Invalid" note asks for removal, so it must stay reachable for a backup.
-    if (MNEMONIC_BACKED_KEYRING_TYPES.includes(keyring.type)) {
+    if (hasRecoveryPhrase(keyring)) {
       items.push({
         label: t('wallet_menu_backup_seed_phrase'),
         icon: <KeyRound size={14} />,
@@ -469,7 +561,7 @@ function AccountSwitcherContent() {
       label: t('remove_wallet'),
       icon: <Trash2 size={14} />,
       danger: true,
-      onSelect: () => removeWallet(keyring),
+      onSelect: () => void removeWallet(keyring),
       'data-testid': 'wallet-menu-remove'
     });
     return items;
@@ -530,9 +622,20 @@ function AccountSwitcherContent() {
     refreshKeyrings();
   };
 
-  const saveAccountName = async (account: Account, name: string) => {
+  // Refused as a wallet's rename is, as when the wallet no longer lists the
+  // account: the same explanation, and the wallets read again. The dialog
+  // closes: it finds its account again only by keys, which another account
+  // may hold now, so a second save could name that one.
+  const saveAccountName = async (keyring: WalletKeyring, account: Account, name: string) => {
     const started = dialogRef.current;
-    const renamed = await wallet.setAccountAlianName(account, name);
+    let renamed: Account;
+    try {
+      renamed = await wallet.setAccountAlianName(account, name);
+    } catch (error) {
+      const explained = await explainRefusal(keyring, error);
+      closeDialogIfOpen(started);
+      throw explained;
+    }
     dropPendingKeyringsRead();
     dispatch(keyringsActions.updateAccountName(renamed));
     dispatch(accountActions.updateAccountName(renamed));
@@ -624,6 +727,8 @@ function AccountSwitcherContent() {
           const tags = walletTagsFor(keyring);
           const canAddAccount = !corrupted && ACCOUNT_CREATABLE_KEYRING_TYPES.includes(keyring.type);
           const walletMenuOpen = menu?.kind === 'wallet' && menu.keyringKey === keyring.key;
+          // Every account of the wallet, the ones a search hides too.
+          const walletTotal = walletTotalDisplay(balancesHidden, keyring.accounts.map(totalOf));
           return (
             <div
               key={keyring.key}
@@ -647,8 +752,25 @@ function AccountSwitcherContent() {
                     <WalletTags tags={tags} testIdFor={(tag) => `wallet-tag-${tag}-${keyring.key}`} />
                   </div>
                   {!corrupted && (
-                    <span className="switcher-group__count">
-                      {accountCountLabel(t, locale, keyring.accounts.length)}
+                    <span className="switcher-group__count-line">
+                      <span className="switcher-group__count">
+                        {accountCountLabel(t, locale, keyring.accounts.length)}
+                      </span>
+                      <span className="switcher-group__total-separator" aria-hidden="true">
+                        ·
+                      </span>
+                      <TotalAmount
+                        display={walletTotal}
+                        unit={qbitUnit}
+                        className="switcher-group__total"
+                        testId={`wallet-total-${keyring.key}`}
+                      />
+                      {walletTotal.kind === 'amount' && walletTotal.stale && (
+                        // Muted on screen; said in words for a screen reader.
+                        <span className="switcher-visually-hidden" data-testid={`wallet-total-stale-${keyring.key}`}>
+                          {t('account_switcher_total_stale_note')}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -695,6 +817,17 @@ function AccountSwitcherContent() {
                     const accountName = account.alianName ?? '';
                     const address = shortAddress(account.address);
                     const accountMenuOpen = menu?.kind === 'account' && menu.accountKey === account.key;
+                    const total = totalOf(account);
+                    // A stale amount is muted on screen; its name says so in words.
+                    const rowLabel =
+                      total.kind === 'amount'
+                        ? t(
+                            total.stale
+                              ? 'account_switcher_account_balance_stale_label'
+                              : 'account_switcher_account_balance_label',
+                            [accountName, keyring.alianName, address, formatTotal(total.sats, qbitUnit)]
+                          )
+                        : t('account_switcher_account_label', [accountName, keyring.alianName, address]);
                     const rowClass = [
                       'switcher-row',
                       current ? 'switcher-row--current' : '',
@@ -708,7 +841,7 @@ function AccountSwitcherContent() {
                           type="button"
                           className="switcher-row__select"
                           aria-current={current ? 'true' : undefined}
-                          aria-label={t('account_switcher_account_label', [accountName, keyring.alianName, address])}
+                          aria-label={rowLabel}
                           onClick={() => void selectAccount(keyring, account)}
                           data-testid={`account-row-${account.address}`}
                         >
@@ -721,6 +854,12 @@ function AccountSwitcherContent() {
                             </span>
                             <span className="switcher-row__address">{address}</span>
                           </span>
+                          <TotalAmount
+                            display={total}
+                            unit={qbitUnit}
+                            className="switcher-row__amount"
+                            testId={`account-balance-${account.address}`}
+                          />
                         </button>
                         <button
                           type="button"
@@ -797,11 +936,11 @@ function AccountSwitcherContent() {
           onDismiss={closeDialog}
         />
       )}
-      {dialog?.kind === 'rename-account' && dialogAccount && (
+      {dialog?.kind === 'rename-account' && dialogKeyring && dialogAccount && (
         <NameEditDialog
           title={t('change_account_name')}
           initialName={dialogAccount.alianName ?? ''}
-          onSave={(name) => saveAccountName(dialogAccount, name)}
+          onSave={(name) => saveAccountName(dialogKeyring, dialogAccount, name)}
           onDismiss={closeDialog}
         />
       )}
@@ -824,6 +963,21 @@ function AccountSwitcherContent() {
         createPortal(
           <RemoveWalletPopover
             keyring={dialogKeyring}
+            onClose={() => {
+              closeDialog();
+              refreshKeyrings();
+            }}
+          />,
+          document.body
+        )}
+      {dialog?.kind === 'reset' &&
+        createPortal(
+          // Another usable wallet listed since (another window added one): the
+          // removal no longer resets, so the dialog closes, and Remove Wallet
+          // opens the removal dialog again.
+          <ResetWalletPopover
+            lastWalletKey={dialog.keyringKey}
+            outdated={!leavesNoUsableWallet(keyrings, dialog.keyringKey)}
             onClose={() => {
               closeDialog();
               refreshKeyrings();

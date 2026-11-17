@@ -2784,3 +2784,151 @@ describe('useSignPsbtLogic signing state and progress (#171)', () => {
     ])
   })
 })
+
+// Rejections reach the page as plain objects `{ code?, message?, data? }`, not
+// Errors: each toast of a refused signing shows the message, or unknown_error
+// for one without, and never "[object Object]", "undefined" or nothing.
+describe('useSignPsbtLogic toasts of a refusal', () => {
+  const BATCH: ToSignData[] = [
+    { psbtHex: 'first-psbt', toSignInputs: [] },
+    { psbtHex: 'second-psbt', toSignInputs: [] },
+  ]
+
+  beforeEach(() => {
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  const toasts = (tools: { toastError: unknown }) =>
+    vi.mocked(tools.toastError as (text: string) => void).mock.calls.map(([text]) => text)
+  const neverRaw = (tools: { toastError: unknown }) => {
+    for (const text of toasts(tools)) {
+      expect(typeof text).toBe('string')
+      expect(text).not.toMatch(/\[object Object\]|undefined/)
+    }
+  }
+
+  describe.each([
+    [
+      'a plain rejection with a message',
+      { code: -32603, message: 'The signer refused the request' },
+      'The signer refused the request',
+    ],
+    ['a plain rejection without a message', { code: -32603 }, 'unknown_error'],
+  ])('%s', (_name, rejection, shown) => {
+    it('shows it when a local signing is refused', async () => {
+      const wallet = createSignPsbtWallet()
+      wallet.signPsbtV2.mockRejectedValueOnce(rejection)
+      const { approval, tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+      const { result } = renderHook(
+        () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+        { wrapper }
+      )
+      await waitFor(() => expect(result.current.showLoading).toBe(false))
+
+      let outcome: boolean | undefined
+      await act(async () => {
+        outcome = await result.current.onClickSign()
+      })
+
+      expect(outcome).toBe(false)
+      expect(toasts(tools)).toEqual([shown])
+      neverRaw(tools)
+      expect(approval.resolveApproval).not.toHaveBeenCalled()
+    })
+
+    it('shows it, naming the PSBT, when an entry of a quick-signed batch is refused', async () => {
+      const wallet = createSignPsbtWallet()
+      wallet.signLocalBatchPsbt
+        .mockResolvedValueOnce({ psbtHex: 'signed-first-psbt' })
+        .mockRejectedValueOnce(rejection)
+      const { approval, tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+      const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+      await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+
+      await act(async () => {
+        await result.current.onQuickMultiSign()
+      })
+
+      expect(toasts(tools)).toEqual([`Signing failed for PSBT 1: ${shown}`])
+      neverRaw(tools)
+      expect(result.current.signedCount).toBe(1)
+      expect(approval.resolveApproval).not.toHaveBeenCalled()
+    })
+
+    it('shows it when the analysis a quick-sign makes is refused', async () => {
+      const wallet = createSignPsbtWallet()
+      wallet.analyzeLocalPsbts
+        .mockImplementationOnce(() => new Promise<LocalPsbtSummary>(() => undefined))
+        .mockRejectedValueOnce(rejection)
+      const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+      const { result } = renderHook(() => useSignPsbtLogic(createProps(BATCH)), { wrapper })
+      await waitFor(() => expect(wallet.analyzeLocalPsbts).toHaveBeenCalledTimes(1))
+
+      await act(async () => {
+        await result.current.onQuickMultiSign()
+      })
+
+      expect(toasts(tools)).toEqual([shown])
+      neverRaw(tools)
+      expect(wallet.signLocalBatchPsbt).not.toHaveBeenCalled()
+    })
+
+    it('shows it when the wallet refuses to reserve an externally signed send', async () => {
+      const wallet = createSignPsbtWallet()
+      const handleConfirm = vi.fn()
+      const { store, tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+      store.dispatch(
+        accountActions.setCurrent({
+          ...store.getState().accounts.current,
+          type: KeyringType.ReadonlyKeyring,
+        })
+      )
+      wallet.reserveExternallySignedQbitSend.mockRejectedValueOnce(rejection)
+      const { result } = renderHook(
+        () =>
+          useSignPsbtLogic(
+            createSendProps(
+              { psbtHex: 'unsigned-send', toSignInputs: [], qbitBroadcastIdentity: SEND_IDENTITY },
+              handleConfirm
+            )
+          ),
+        { wrapper }
+      )
+
+      act(() => {
+        result.current.setReadonlySignedPsbtHex('externally-signed-send')
+      })
+      let outcome: boolean | undefined
+      await act(async () => {
+        outcome = await result.current.onClickSign()
+      })
+
+      expect(outcome).toBe(false)
+      expect(toasts(tools)).toEqual([shown])
+      neverRaw(tools)
+      expect(handleConfirm).not.toHaveBeenCalled()
+    })
+  })
+
+  it('still names an input it cannot sign for in the words of the wallet', async () => {
+    const wallet = createSignPsbtWallet()
+    wallet.signPsbtV2.mockRejectedValueOnce({ code: -32603, message: 'Can not sign for input #0' })
+    const { tools, wrapper } = createHookTestHarness({ wallet: wallet as any })
+    const { result } = renderHook(
+      () => useSignPsbtLogic(createProps([{ psbtHex: 'single-psbt', toSignInputs: [] }])),
+      { wrapper }
+    )
+    await waitFor(() => expect(result.current.showLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.onClickSign()
+    })
+
+    expect(toasts(tools)).toEqual(['sign_psbt_input_error'])
+  })
+})

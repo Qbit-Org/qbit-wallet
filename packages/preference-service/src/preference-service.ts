@@ -16,12 +16,110 @@ import {
   WalletError,
   isWalletColorKey,
   normalizeAvailableChainType,
+  repairStoredAutoLockTimeId,
+  resolveAutoLockTimeId,
 } from '@qbit/wallet-shared'
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
 import { EventEmitter } from 'eventemitter3'
 import cloneDeep from 'lodash/cloneDeep.js'
-import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents } from './types'
+import {
+  BasePreferenceStore,
+  PreferenceServiceConfig,
+  PreferenceServiceEvents,
+  QbitSendPlanRemovalAccount,
+  QbitSendPlanRemovalRecord,
+  QbitSendPlanRemovals,
+} from './types'
+
+/** Whether `value` is a wallet identity as createWalletId makes one. */
+function isWalletId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value)
+}
+
+/** The version of the wallet removal records this version writes and reads. */
+const QBIT_SEND_PLAN_REMOVAL_VERSION = 1
+
+/**
+ * The networks a send plan can be on, as a removal record may name them:
+ * the same as the wallet controller derives a removed wallet's accounts on
+ * and the send plan engine plans on, which a test pins.
+ */
+export const QBIT_SEND_PLAN_CHAINS: ReadonlySet<unknown> = new Set([
+  ChainType.QBIT_MAINNET,
+  ChainType.QBIT_TESTNET4,
+  ChainType.QBIT_REGTEST,
+])
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** `value` as an account a removal record names, or nothing when it is not one. */
+function readQbitSendPlanRemovalAccount(value: unknown): QbitSendPlanRemovalAccount | undefined {
+  if (!isPlainRecord(value)) return undefined
+  const { chain, address } = value
+  if (!QBIT_SEND_PLAN_CHAINS.has(chain) || typeof address !== 'string' || address.length === 0) {
+    return undefined
+  }
+  return { chain: chain as ChainType, address }
+}
+
+/**
+ * `value` as a version-1 removal record, copied, or nothing when it is not
+ * one: of another version, or with an id, a wallet or an account this
+ * version would not write. Fields it does not know are left out of the copy.
+ */
+function readQbitSendPlanRemoval(value: unknown): QbitSendPlanRemovalRecord | undefined {
+  if (!isPlainRecord(value) || value['version'] !== QBIT_SEND_PLAN_REMOVAL_VERSION) return undefined
+  const { id, wallet, accounts } = value
+  if (!isWalletId(id) || !isPlainRecord(wallet) || !Array.isArray(accounts)) return undefined
+  const { index, type } = wallet
+  if (!Number.isSafeInteger(index) || (index as number) < 0) return undefined
+  if (typeof type !== 'string' || type.length === 0) return undefined
+  const read = accounts.map(readQbitSendPlanRemovalAccount)
+  if (read.some(account => account === undefined)) return undefined
+  return {
+    version: QBIT_SEND_PLAN_REMOVAL_VERSION,
+    id,
+    wallet: { index: index as number, type },
+    accounts: read as QbitSendPlanRemovalAccount[],
+  }
+}
+
+/**
+ * The entries of a stored `qbitSendPlanRemovals`: none when it is absent,
+ * and a value that is not a list, which no version writes, as the one entry
+ * it is, so that it is kept as it is.
+ */
+function qbitSendPlanRemovalEntries(value: unknown): readonly unknown[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
+/** The accounts an entry this version cannot read names in `accounts`, those that read as accounts. */
+function accountsNamedBy(entry: unknown): QbitSendPlanRemovalAccount[] {
+  const accounts = isPlainRecord(entry) ? entry['accounts'] : undefined
+  if (!Array.isArray(accounts)) return []
+  return accounts
+    .map(readQbitSendPlanRemovalAccount)
+    .filter((account): account is QbitSendPlanRemovalAccount => account !== undefined)
+}
+
+/** A new wallet identity: 16 bytes from the platform's random source, in hex. */
+function newWalletId(): string {
+  const webCrypto = (
+    globalThis as unknown as {
+      crypto?: { getRandomValues<T extends Uint8Array>(values: T): T }
+    }
+  ).crypto
+  if (!webCrypto) {
+    throw new Error('Secure random values are unavailable')
+  }
+  const bytes = webCrypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 const SUPPORTED_LOCALES = ['en', 'zh_TW', 'fr', 'es', 'ru', 'ja']
 const RESTORE_SAVE_ATTEMPTS = 3
 const RESTORE_SAVE_RETRY_DELAY_MS = 100
@@ -144,11 +242,25 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     }
   }
 
-  resetAllData = async () => {
+  /**
+   * Replace every preference with its default, saved before this resolves.
+   * Rejects, keeping the current preferences, when that write fails. The
+   * preferences `keep` names keep their current values instead, in the same
+   * write, so no moment on disk has them at their defaults (a wallet reset
+   * keeps the language and the theme).
+   */
+  resetAllData = async (options: { keep?: readonly (keyof BasePreferenceStore)[] } = {}) => {
+    const kept: Partial<Record<keyof BasePreferenceStore, unknown>> = {}
+    for (const key of options.keep ?? []) {
+      if (this.store && key in this.store) {
+        kept[key] = this.store[key]
+      }
+    }
     const finalTemplate = cloneDeep({
       ...this.template,
       ...this.platformDefaults,
       locale: this.defaultLang,
+      ...kept,
     }) as BasePreferenceStore
 
     this.pendingResets++
@@ -187,38 +299,64 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     key: K,
     value: BasePreferenceStore[K]
   ): Promise<void> {
+    const request = this.nextPersistRequest(key)
+    return this.inPersistOrder(() => this.applyAndPersist(key, value, request))
+  }
+
+  /** The number of a change of `key` asked for now; see saveRestoredValue. */
+  private nextPersistRequest(key: keyof BasePreferenceStore): number {
     const request = (this.persistRequests.get(key) ?? 0) + 1
     this.persistRequests.set(key, request)
-    const run = this.pendingPersist.then(async () => {
-      const store = this.store
-      const hadValue = key in store
-      const previous = store[key]
-      store[key] = value
-      const applied = store[key]
-      try {
-        await this.persist()
-      } catch (error) {
-        if (this.store === store && store[key] === applied) {
-          if (hadValue) {
-            store[key] = previous
-          } else {
-            delete store[key]
-          }
-          const restore = await this.saveRestoredValue(store, key, request)
-          if (restore) {
-            const failure = new WalletError(
-              ErrorCodes.PREFERENCE_NOT_RESTORED,
-              `Failed to save ${String(key)}, and its previous value could not be saved again`
-            )
-            ;(failure as { cause?: unknown }).cause = restore.error
-            throw failure
-          }
-        }
-        throw error
-      }
-    })
-    this.pendingPersist = run.catch(() => undefined)
+    return request
+  }
+
+  /** Run `change` once every change asked for before it has ended. */
+  private inPersistOrder<T>(change: () => Promise<T>): Promise<T> {
+    const run = this.pendingPersist.then(change)
+    this.pendingPersist = run.then(
+      () => undefined,
+      () => undefined
+    )
     return run
+  }
+
+  /**
+   * setAndPersist's change, run in its turn (inPersistOrder). With
+   * `saveRestored` false, a failed write puts the previous value back in
+   * memory and does not save it again (see forgetQbitSendPlanRemoval).
+   */
+  private async applyAndPersist<K extends keyof BasePreferenceStore>(
+    key: K,
+    value: BasePreferenceStore[K],
+    request: number,
+    saveRestored = true
+  ): Promise<void> {
+    const store = this.store
+    const hadValue = key in store
+    const previous = store[key]
+    store[key] = value
+    const applied = store[key]
+    try {
+      await this.persist()
+    } catch (error) {
+      if (this.store === store && store[key] === applied) {
+        if (hadValue) {
+          store[key] = previous
+        } else {
+          delete store[key]
+        }
+        const restore = saveRestored ? await this.saveRestoredValue(store, key, request) : undefined
+        if (restore) {
+          const failure = new WalletError(
+            ErrorCodes.PREFERENCE_NOT_RESTORED,
+            `Failed to save ${String(key)}, and its previous value could not be saved again`
+          )
+          ;(failure as { cause?: unknown }).cause = restore.error
+          throw failure
+        }
+      }
+      throw error
+    }
   }
 
   /**
@@ -285,6 +423,9 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     if (typeof this.store.regtestAccessAck !== 'string') {
       delete this.store.regtestAccessAck
     }
+    if ('walletId' in this.store && !isWalletId(this.store.walletId)) {
+      delete this.store.walletId
+    }
 
     if (typeof this.store.externalLinkAck !== 'boolean') {
       this.store.externalLinkAck = false
@@ -307,6 +448,21 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
     if (typeof this.store.lockOnWindowsClosed !== 'boolean') {
       this.store.lockOnWindowsClosed = true
+    }
+
+    // The auto-lock times changed in 1.0.10: store the id of the time each
+    // retired one became, and the shortest time for a value that is no id at
+    // all. An id this build does not know, which a later build may have
+    // stored, stays on disk (repairStoredAutoLockTimeId). This is saved at
+    // once rather than after the store's debounce; getAutoLockTimeId reads
+    // every value with resolveAutoLockTimeId, so the old one read again after
+    // a quit before the save means the same time.
+    const storedAutoLockTimeId = this.store.autoLockTimeId
+    const repairedAutoLockTimeId = repairStoredAutoLockTimeId(storedAutoLockTimeId)
+    const autoLockTimeIdChanged =
+      repairedAutoLockTimeId !== undefined && repairedAutoLockTimeId !== storedAutoLockTimeId
+    if (autoLockTimeIdChanged) {
+      this.store.autoLockTimeId = repairedAutoLockTimeId
     }
 
     if (!this.store.balanceMap) {
@@ -369,6 +525,15 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
         hasRated: false,
         ratePromptDismissedAt: null,
         hasShownSecondPrompt: false,
+      }
+    }
+
+    if (autoLockTimeIdChanged) {
+      try {
+        await this.persist()
+      } catch (error) {
+        // The store's debounced save is still queued with the change.
+        this.logger?.error?.('[PreferenceService] Failed to save the auto-lock time', error)
       }
     }
   }
@@ -688,7 +853,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    * Auto lock time management (Extension-specific)
    */
   getAutoLockTimeId(): number {
-    return this.store.autoLockTimeId ?? DEFAULT_LOCKTIME_ID
+    return resolveAutoLockTimeId(this.store.autoLockTimeId)
   }
 
   setAutoLockTimeId(id: number): Promise<void> {
@@ -753,6 +918,219 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     } else {
       delete this.store.regtestAccessAck
     }
+  }
+
+  /**
+   * Whether a wallet reset still owes the clearing of the wallet data (see
+   * `walletResetPending`). Throws while the preferences are not loaded, as
+   * whether one is pending is unknown then.
+   */
+  getWalletResetPending(): boolean {
+    return this.store.walletResetPending === true
+  }
+
+  /**
+   * Record that a wallet reset is pending, resolving once that is on disk.
+   * Rejects when it cannot be saved, and then reads as not pending, though
+   * the disk may keep it when the old value cannot be saved again either
+   * (see setAndPersist). resetAllData clears it.
+   */
+  setWalletResetPending(): Promise<void> {
+    return this.setAndPersist('walletResetPending', true)
+  }
+
+  /**
+   * Forget a pending wallet reset recorded by setWalletResetPending, for a
+   * reset that then erased nothing, resolving once that is on disk. Rejects
+   * when it cannot be saved; the mark then stays, which counts only once
+   * nothing is booted.
+   */
+  clearWalletResetPending(): Promise<void> {
+    return this.setAndPersist('walletResetPending', undefined)
+  }
+
+  /**
+   * The wallet removal records (`qbitSendPlanRemovals`), as this version
+   * reads them; a store saved before them reads as none. An entry that does
+   * not read as a version-1 record, being of another version or damaged, and
+   * an entry under an id read already, is counted in `unreadable` with every
+   * account it names that reads as one, and stays as it is stored: no change
+   * made here writes over it or drops it. Throws only while the preferences
+   * are not loaded.
+   */
+  getQbitSendPlanRemovals(): QbitSendPlanRemovals {
+    const records: QbitSendPlanRemovalRecord[] = []
+    const unreadable: QbitSendPlanRemovals['unreadable'] = { count: 0, accounts: [] }
+    const ids = new Set<string>()
+    for (const entry of qbitSendPlanRemovalEntries(this.store.qbitSendPlanRemovals)) {
+      const record = readQbitSendPlanRemoval(entry)
+      if (record && !ids.has(record.id)) {
+        ids.add(record.id)
+        records.push(record)
+        continue
+      }
+      unreadable.count += 1
+      unreadable.accounts.push(...accountsNamedBy(entry))
+    }
+    return { records, unreadable }
+  }
+
+  /**
+   * Record, before anything of it is changed, that the wallet in slot
+   * `wallet.index`, of keyring type `wallet.type`, is being removed, and that
+   * its removal ends the send plans of `accounts`; resolves with the record,
+   * under a new random id, once it is on disk. Rejects when it cannot be
+   * saved, or names no slot, type or Qbit account; the record is then not
+   * stored, unless the disk keeps it when the list before cannot be saved
+   * again either (see setAndPersist), and every entry stored before stays.
+   * The list is read when this change's turn comes among the saved changes,
+   * so changes asked for at once each keep the others' (changeAndPersist).
+   */
+  addQbitSendPlanRemoval(
+    wallet: { index: number; type: string },
+    accounts: readonly QbitSendPlanRemovalAccount[]
+  ): Promise<QbitSendPlanRemovalRecord> {
+    // The same 16 random bytes in hex a wallet identity is made of.
+    const record = readQbitSendPlanRemoval({
+      version: QBIT_SEND_PLAN_REMOVAL_VERSION,
+      id: newWalletId(),
+      wallet: { index: wallet.index, type: wallet.type },
+      accounts: accounts.map(account => ({ chain: account.chain, address: account.address })),
+    })
+    if (!record) {
+      return Promise.reject(
+        new Error('A wallet removal record names a wallet slot, its type and Qbit accounts')
+      )
+    }
+    return this.changeAndPersist('qbitSendPlanRemovals', current => [
+      ...qbitSendPlanRemovalEntries(current),
+      record,
+    ]).then(() => cloneDeep(record))
+  }
+
+  /**
+   * Forget the wallet removal record `id`, resolving once that is on disk,
+   * at once when none is stored under it. Rejects when it cannot be saved;
+   * the record then stays in memory, and the list is not saved again: the
+   * disk holds it still, or, a write that reported a failure having landed,
+   * holds it no more, either of which is safe for a record that was to go.
+   * So a refused forget makes one write of its own and logs nothing itself.
+   * As after any change to the preferences, the storage adapter then saves
+   * the whole store on its own, about a second later (its deferred save,
+   * which the refused write and the record put back in memory queue
+   * again), and logs an error when that write fails too. A caller trying
+   * again spaces its tries. Entries this version cannot read stay as they
+   * are, and the setting goes once it holds nothing.
+   */
+  forgetQbitSendPlanRemoval(id: string): Promise<void> {
+    return this.changeAndPersist(
+      'qbitSendPlanRemovals',
+      current => {
+        const entries = qbitSendPlanRemovalEntries(current)
+        const index = entries.findIndex(entry => readQbitSendPlanRemoval(entry)?.id === id)
+        if (index === -1) return current
+        const left = entries.filter((_, other) => other !== index)
+        return left.length > 0 ? left : undefined
+      },
+      { saveRestored: false }
+    )
+  }
+
+  /**
+   * Change setting `key` to what `change` makes of its value when this
+   * change's turn comes among the saved changes (inPersistOrder), and save it
+   * as setAndPersist saves a value; with `saveRestored` false, a write that
+   * fails puts the value back in memory only (applyAndPersist). Changes
+   * asked for at once so each apply to the value the one before left.
+   * Nothing is written when `change` returns the value it was given.
+   */
+  private changeAndPersist<K extends keyof BasePreferenceStore>(
+    key: K,
+    change: (current: BasePreferenceStore[K]) => BasePreferenceStore[K],
+    { saveRestored = true }: { saveRestored?: boolean } = {}
+  ): Promise<void> {
+    const request = this.nextPersistRequest(key)
+    return this.inPersistOrder(async () => {
+      const current = this.store[key]
+      const next = change(current)
+      if (next === current) return
+      await this.applyAndPersist(key, next, request, saveRestored)
+    })
+  }
+
+  /** Whether init has loaded the preferences: until then none can be read or written. */
+  isInitialized(): boolean {
+    return this.initialized
+  }
+
+  /**
+   * The identity of the wallet set up in this browser (`walletId`), if one
+   * was made, as memory holds it: while createWalletId saves a new one, that
+   * is the value being saved. What a caller hands out goes through
+   * readWalletId instead.
+   */
+  getWalletId(): string | undefined {
+    const id = this.store.walletId
+    return isWalletId(id) ? id : undefined
+  }
+
+  /** The creation of a walletId under way (createWalletId), which readWalletId waits for. */
+  private walletIdCreation: Promise<string | undefined> | undefined
+
+  /** The walletId createWalletId is saving now, in memory before it is on disk. */
+  private walletIdUnsaved: string | undefined
+
+  /**
+   * The walletId as it is on disk, read at once: none while the first one is
+   * still being saved, as no caller has been handed it yet (readWalletId).
+   */
+  getSavedWalletId(): string | undefined {
+    const id = this.getWalletId()
+    return id !== undefined && id === this.walletIdUnsaved ? undefined : id
+  }
+
+  /**
+   * The walletId as it is on disk. While one is being made and saved, the
+   * read waits for that save and answers what it saved, or fails with it:
+   * an id whose save fails is put back to none, and must never have been
+   * handed out.
+   */
+  readWalletId(): Promise<string | undefined> {
+    const creation = this.walletIdCreation
+    if (!creation) return Promise.resolve(this.getWalletId())
+    return creation.then(() => this.getWalletId())
+  }
+
+  /**
+   * The wallet's identity (`walletId`), made the first time and saved before
+   * this resolves: 16 bytes from the platform's random source, in hex, tied
+   * to nothing else. It runs in turn with the other saved changes, so calls
+   * at once make one id and all resolve with it. `wanted` is asked right
+   * before an id is made: when it answers false, none is made or saved and
+   * this resolves undefined. Rejects when it cannot be saved, and the id then
+   * reads as absent, as setAndPersist leaves a value it could not save.
+   */
+  createWalletId(wanted: () => boolean = (): boolean => true): Promise<string | undefined> {
+    const request = this.nextPersistRequest('walletId')
+    const creation = this.inPersistOrder(async () => {
+      const existing = this.getWalletId()
+      if (existing !== undefined) return existing
+      if (!wanted()) return undefined
+      const id = newWalletId()
+      this.walletIdUnsaved = id
+      try {
+        await this.applyAndPersist('walletId', id, request)
+      } finally {
+        this.walletIdUnsaved = undefined
+      }
+      return id
+    })
+    this.walletIdCreation = creation
+    const settled = (): void => {
+      if (this.walletIdCreation === creation) this.walletIdCreation = undefined
+    }
+    creation.then(settled, settled)
+    return creation
   }
 
   /**

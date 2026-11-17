@@ -1,24 +1,11 @@
-import { LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import {
-  Button,
-  Card,
-  Checkbox,
-  Column,
-  Content,
-  Footer,
-  Header,
-  Icon,
-  Input,
-  Layout,
-  Row,
-  Text
-} from '@/ui/components';
+import { Button, Card, Checkbox, Column, Content, Footer, Header, Input, Layout, Row, Text } from '@/ui/components';
 import { ColdWalletSignMessage } from '@/ui/components/ColdWallet';
 import { walletErrorMessage } from '@/ui/utils';
 import { PhishingDetection } from '@/ui/components/PhishingDetection';
 import { QbitRestoredFloorWarning } from '@/ui/components/QbitRestoredFloorWarning';
+import { Spin } from '@/ui/components/Spin';
 import WebsiteBar from '@/ui/components/WebsiteBar';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
@@ -232,9 +219,7 @@ export default function SignMessage(props: SignMessageProps) {
         {header}
         <Content itemsCenter justifyCenter>
           <Column itemsCenter>
-            <Icon size={fontSizes.xxxl} color="gold">
-              <LoaderCircle className="icon-spin" size="1em" />
-            </Icon>
+            <Spin size="large" />
             <Text text={t('checking_website_safety')} textCenter mt="md" />
           </Column>
         </Content>

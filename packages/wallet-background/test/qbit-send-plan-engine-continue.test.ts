@@ -59,7 +59,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),
@@ -163,7 +163,7 @@ async function pausedWithMergeInTheNetwork(): Promise<{ planId: string; merge: s
 async function continueThenLockWhileRead(planId: string): Promise<void> {
   world.keyring.unlock()
   const preflight = gateNextPreflight()
-  await world.wallet.continueQbitSendPlan(planId)
+  await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
   await preflight.reached
   await world.wallet.lockWallet()
   preflight.release()
@@ -229,7 +229,7 @@ describe('what a continue approves', () => {
     world.explorer.removeTx(merge)
 
     world.keyring.unlock()
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     // The payment waits for its merge.
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
@@ -249,7 +249,7 @@ describe('what a continue approves', () => {
     })
 
     // The user's continue approves what is left as it stands now.
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     expect(world.keyring.signed.slice(signed)).toEqual([merge])
     await completes(planId)
@@ -263,7 +263,7 @@ describe('what a continue approves', () => {
     world.refuse.clear()
     world.explorer.removeTx(merge)
     world.keyring.unlock()
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     const signed = world.keyring.signed.length
 
@@ -276,7 +276,7 @@ describe('what a continue approves', () => {
       phase: 'paused',
       pause: { reason: 'interrupted', detail: NOT_APPROVED },
     })
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     expect(world.keyring.signed).toHaveLength(signed + 1)
     await completes(planId)
@@ -285,7 +285,7 @@ describe('what a continue approves', () => {
   it('checks a merge signed again after a continue into waiting against the figures the continue approved: another request’s signature waits for continue', async () => {
     const { planId, merge } = await pausedWithMergeInTheNetwork()
     world.keyring.unlock()
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     const signed = world.keyring.signed.length
@@ -299,7 +299,7 @@ describe('what a continue approves', () => {
       actions: ['continue', 'cancel'],
     })
 
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     expect(world.keyring.signed).toHaveLength(signed + 1)
     await completes(planId)
@@ -308,7 +308,7 @@ describe('what a continue approves', () => {
   it('signs a merge again by itself after a continue into waiting when only the plan’s own signatures moved the counter', async () => {
     const { planId, merge } = await pausedWithMergeInTheNetwork()
     world.keyring.unlock()
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     const signed = world.keyring.signed.length
 
@@ -323,9 +323,9 @@ describe('what a continue approves', () => {
     const { planId, merge } = await pausedWithMergeInTheNetwork()
     expect(lockState.isUnlocked).toBe(false)
     // A continue while locked is refused, and authorises nothing.
-    await expect(world.wallet.continueQbitSendPlan(planId)).rejects.toThrow(
-      'cannot continue while the wallet is locked'
-    )
+    await expect(
+      world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
+    ).rejects.toThrow('cannot continue while the wallet is locked')
     await continueThenLockWhileRead(planId)
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     const signed = world.keyring.signed.length
@@ -376,7 +376,7 @@ describe('what a continue approves', () => {
     vi.mocked(keyringService.preflightP2mrPsbtSigning).mockImplementationOnce(async () => {
       throw new Error('The counter could not be read')
     })
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     expect(await world.plan()).toMatchObject({ phase: 'waiting' })
     const signed = world.keyring.signed.length
@@ -387,7 +387,7 @@ describe('what a continue approves', () => {
       phase: 'paused',
       pause: { reason: 'interrupted', detail: NOT_APPROVED },
     })
-    await world.wallet.continueQbitSendPlan(planId)
+    await world.wallet.continueQbitSendPlan(planId, world.shownTerms(planId))
     await world.settle()
     expect(world.keyring.signed).toHaveLength(signed + 1)
     await completes(planId)

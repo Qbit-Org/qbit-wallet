@@ -401,12 +401,19 @@ export const BUS_METHODS = {
   SIGN_FINISHED: 'signFinished',
   LOCALE_CHANGED: 'localeChanged',
   REGTEST_ACCESS_CHANGED: 'regtestAccessChanged',
+  // WalletController.resetWallet erased every wallet and the password: each
+  // open wallet page drops what it holds and returns to the first-run screen.
+  WALLET_RESET: 'walletReset',
   // A local signing's progress (QbitSigningProgress), sent only to the page
   // that asked for it with BUS_EVENTS.toUIPort.
   QBIT_SIGNING_PROGRESS: 'qbitSigningProgress',
   // An open send plan changed: `{ planId, revision }`, sent to every wallet
   // page. It carries no plan content; pages read the plan again.
   QBIT_SEND_PLAN_CHANGED: 'qbitSendPlanChanged',
+  // A wallet removal completed and could not end all of the removed
+  // wallet's send plans: `{ plans, unreadable, storeUnavailable }`, two
+  // counts and a flag, sent to every wallet page once for that removal.
+  QBIT_SEND_PLANS_NOT_ENDED: 'qbitSendPlansNotEnded',
 
   USER_UI_INTERACT: 'USER_UI_INTERACT', // used to notify background script that user has interacted with the UI
 }
@@ -520,29 +527,91 @@ export const TERMS_OF_SERVICE_URL = 'https://qbit.org'
 export const PRIVACY_POLICY_URL = 'https://qbit.org'
 export const UNCONFIRMED_HEIGHT = 4194303
 
+// The auto-lock times offered, shortest first. The preference stores the id
+// (`autoLockTimeId`), so an id keeps its meaning for good. Ids 0, 1, 2, 4 and
+// 7 (30 seconds, 1 minute, 3 minutes, 10 minutes and 4 hours, offered up to
+// 1.0.9) are retired: never give one of them, or any other id used before,
+// a new meaning. RETIRED_AUTO_LOCK_TIME_IDS says what each became.
 // Labels use $1-substitution keys so each locale controls the spacing
-// between the number and the unit (e.g. "30 Seconds" vs "30秒").
-export const getAutoLockTimes = (t: any) => [
-  { id: 0, time: 30000, label: t('n_seconds', '30') },
-  { id: 1, time: 60000, label: t('n_minute', '1') },
-  { id: 2, time: 180000, label: t('n_minutes', '3') },
-  { id: 3, time: 300000, label: t('n_minutes', '5') },
-  { id: 4, time: 600000, label: t('n_minutes', '10') },
-  { id: 5, time: 1800000, label: t('n_minutes', '30') },
-  { id: 6, time: 3600000, label: t('n_hour', '1') },
-  { id: 7, time: 14400000, label: t('n_hours', '4') },
-]
+// between the number and the unit (e.g. "5 Minutes" vs "5分").
+const AUTO_LOCK_TIMES = [
+  { id: 3, time: 5 * 60_000, label: ['n_minutes', '5'] },
+  { id: 8, time: 15 * 60_000, label: ['n_minutes', '15'] },
+  { id: 5, time: 30 * 60_000, label: ['n_minutes', '30'] },
+  { id: 6, time: 60 * 60_000, label: ['n_hour', '1'] },
+  { id: 9, time: 3 * 60 * 60_000, label: ['n_hours', '3'] },
+  { id: 10, time: 6 * 60 * 60_000, label: ['n_hours_many', '6'] },
+] as const
 
-export const getLockTimeInfo = (id: number, t?: any) => {
-  const AUTO_LOCK_TIMES = getAutoLockTimes(t || ((s: string) => s))
-  const item = AUTO_LOCK_TIMES.find(v => v.id === id)
-  if (item) {
-    return item
-  }
-  return AUTO_LOCK_TIMES.find(v => v.id === DEFAULT_LOCKTIME_ID)!
+/** 30 minutes, for a new install and after Reset Wallet. */
+export const DEFAULT_LOCKTIME_ID = 5
+
+/** The shortest auto-lock time: 5 minutes. */
+export const SHORTEST_LOCKTIME_ID = 3
+
+/**
+ * The id each retired auto-lock time became: 30 seconds, 1 minute and
+ * 3 minutes became 5 minutes, 10 minutes became 15 minutes, and 4 hours
+ * became 3 hours.
+ */
+export const RETIRED_AUTO_LOCK_TIME_IDS: ReadonlyMap<number, number> = new Map([
+  [0, 3],
+  [1, 3],
+  [2, 3],
+  [4, 8],
+  [7, 9],
+])
+
+export const getAutoLockTimes = (t: any) =>
+  AUTO_LOCK_TIMES.map(({ id, time, label: [key, count] }) => ({ id, time, label: t(key, count) }))
+
+/** Whether `value` is the id of an auto-lock time offered now. */
+export const isAutoLockTimeId = (value: unknown): value is number =>
+  AUTO_LOCK_TIMES.some(option => option.id === value)
+
+/**
+ * The auto-lock time id to use for a stored `autoLockTimeId`: an id offered
+ * now stays, a retired id becomes the one it was replaced with, and nothing
+ * stored means the default. Anything else (an id unknown to this build, such
+ * as one a later build stored, or a value that is no id at all) means the
+ * shortest time, so an unreadable setting never locks later than the user
+ * may have chosen.
+ */
+export const resolveAutoLockTimeId = (stored: unknown): number => {
+  if (stored === undefined) return DEFAULT_LOCKTIME_ID
+  if (isAutoLockTimeId(stored)) return stored
+  const replacement =
+    typeof stored === 'number' ? RETIRED_AUTO_LOCK_TIME_IDS.get(stored) : undefined
+  return replacement ?? SHORTEST_LOCKTIME_ID
 }
 
-export const DEFAULT_LOCKTIME_ID = 2
+/**
+ * What start-up stores again for a stored `autoLockTimeId`, which an earlier
+ * or a later build may have written: a retired id becomes the one it was
+ * replaced with, and a value that is no id any build can have stored (not a
+ * whole number of zero or more: null, a string, 2.5, NaN, -1) becomes the
+ * shortest time. An id offered now and nothing stored stay as they are, and
+ * so does a whole number that is neither offered now nor retired, which a
+ * later build may have offered: going back to this build must not erase that
+ * choice. resolveAutoLockTimeId reads each of them as the same time before
+ * and after.
+ */
+export const repairStoredAutoLockTimeId = (stored: unknown): number | undefined => {
+  if (stored === undefined) return undefined
+  if (typeof stored === 'number') {
+    if (isAutoLockTimeId(stored)) return stored
+    const replacement = RETIRED_AUTO_LOCK_TIME_IDS.get(stored)
+    if (replacement !== undefined) return replacement
+    if (Number.isSafeInteger(stored) && stored >= 0) return stored
+  }
+  return SHORTEST_LOCKTIME_ID
+}
+
+/** The auto-lock time a stored `autoLockTimeId` stands for; see resolveAutoLockTimeId. */
+export const getLockTimeInfo = (id: unknown, t?: any) => {
+  const current = resolveAutoLockTimeId(id)
+  return getAutoLockTimes(t || ((s: string) => s)).find(v => v.id === current)!
+}
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 

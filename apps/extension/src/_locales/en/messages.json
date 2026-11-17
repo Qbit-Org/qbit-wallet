@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1 Hours"
   },
-  "n_minute": {
-    "message": "$1 Minute"
+  "n_hours_many": {
+    "message": "$1 Hours"
   },
   "n_minutes": {
     "message": "$1 Minutes"
-  },
-  "n_seconds": {
-    "message": "$1 Seconds"
   },
   "no_connected_sites": {
     "message": "No Connected Sites"
@@ -1108,6 +1105,18 @@
   },
   "sighash_none_detected": {
     "message": "SIGHASH_NONE detected. Signing aborted for security."
+  },
+  "qbit_partial_signature_description": {
+    "message": "Your signature locks in only part of this transaction. Whoever holds it can change anything it does not cover, which can include other inputs and outputs, before it is broadcast."
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "Inputs signed on their own"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "Output this signature locks in"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "Every output is locked in by this signature"
   },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE is a special signature type that allows the transaction to be modified after signing. This can lead to potential loss of funds if the transaction is altered maliciously. Please ensure you trust the source of this transaction before proceeding."
@@ -1417,6 +1426,54 @@
   },
   "wallet_locked_during_signing": {
     "message": "The wallet locked before signing finished, so nothing was sent. Unlock it and sign again."
+  },
+  "wallet_reset_incomplete": {
+    "message": "Your wallets were erased, but some saved data could not be cleared. It will be cleared before a new wallet is created."
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "This is no longer your only usable wallet, so nothing was erased. You can remove it instead."
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "The reset could not be finished, and your wallets may or may not have been erased. Restart your browser, then open Qbit Wallet to check."
+  },
+  "wallet_page_out_of_date": {
+    "message": "This page was showing a wallet that is no longer set up here, so the request was not carried out. The page will reload."
+  },
+  "wallet_page_id_unreadable": {
+    "message": "This page could not read which wallet it is showing, so the request was not carried out. Reload this page or open Qbit Wallet again, then try once more."
+  },
+  "security": {
+    "message": "Security"
+  },
+  "reset_wallet": {
+    "message": "Reset Wallet"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "No other wallet you can use would remain, so removing this one resets Qbit Wallet."
+  },
+  "reset_wallet_erases": {
+    "message": "This erases from this browser every wallet and its keys, your password, connected sites, address book and your settings."
+  },
+  "reset_wallet_restore_warning": {
+    "message": "Your wallets can be restored only from their seed phrases or private keys. Make sure you have them before you continue."
+  },
+  "reset_wallet_recovery_title": {
+    "message": "A wallet you are erasing is part of a Qbit recovery migration"
+  },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "Resetting deletes the in-progress recovery record of a restored wallet you are erasing. The migration cannot be resumed, any funds not yet swept stay on the old addresses, and recovering them later requires importing its seed phrase again and starting recovery over."
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "Resetting deletes the completed recovery record of a restored wallet you are erasing. Other networks using its seed phrase may not have finished their own recovery, and resuming them would require importing that seed phrase again."
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "Recovered funds were sent (or are being sent) to a wallet you are erasing. If you have not backed up its seed phrase, resetting makes those funds permanently unrecoverable, and an interrupted recovery can only resume after that wallet is imported again."
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "A recovery transfer is still in flight. After the reset it will no longer be tracked, and the funds it delivers may not be visible until the destination wallet is restored and rescanned."
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "A wallet you are erasing could not be verified against the active recovery migration. It may be the wallet receiving the recovered funds; resetting without a seed phrase backup could make those funds permanently unrecoverable."
   },
   "use_at_your_own_risk": {
     "message": "Use at your own risk"
@@ -2084,6 +2141,9 @@
   "send_plan_read_failed": {
     "message": "The wallet could not read this payment's progress. It will try again shortly."
   },
+  "send_plan_not_as_shown": {
+    "message": "This payment changed since this screen showed it. Check the recipient, the amount and the fee, and continue only if they are right."
+  },
   "send_plan_paused_locked": {
     "message": "The wallet locked before signing finished"
   },
@@ -2114,6 +2174,12 @@
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "The network asks for a higher fee to accept the payment. Raise the fee to send it."
   },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "The network asks for a higher fee to accept the payment, and the funds it uses cannot pay a higher one. Continue to send the same payment again later, or cancel it."
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "The network asks for a higher fee to accept the payment, and its fee has already been raised as many times as the wallet allows. Continue to send the same payment again later, or cancel it."
+  },
   "send_plan_paused_payment_refused": {
     "message": "The network refused the payment"
   },
@@ -2131,6 +2197,30 @@
   },
   "send_plan_paused_unreadable_body": {
     "message": "This version of the wallet cannot read the saved payment, so it cannot go on with it."
+  },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "An output does not match the explorer"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "An output this payment spends does not match the transaction that created it at the explorer, so the wallet stopped before signing. Continue to check it again, or cancel the payment."
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "An output cannot be spent yet"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "An output this payment spends cannot be spent yet: a mining reward that has not matured, an unconfirmed payment from someone else, or change with too many unconfirmed transactions before it. The wallet stopped before signing. Continue later to check it again, review the payment again to use the account's outputs as they are now, or cancel it."
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "An output’s transaction is missing"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "The explorer no longer has the transaction that created an output this payment spends, so the wallet stopped before signing. Review the payment again to use the account's outputs as they are now, continue to check it again, or cancel the payment."
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "An output could not be checked"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "The wallet could not check an output this payment spends with the explorer, so it stopped before signing. Continue to try again."
   },
   "send_plan_paused_other": {
     "message": "The payment is paused"
@@ -2195,6 +2285,9 @@
   "send_plan_cancel_keep": {
     "message": "Keep the payment"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "The wallet was removed, but a payment in progress from it could not be cancelled yet. Nothing more of it will be signed or sent, and the wallet keeps trying to cancel it."
+  },
   "send_plan_raise_title": {
     "message": "Raise the fee"
   },
@@ -2212,6 +2305,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "This fee rate is too low to replace the transaction already sent. Use at least $1 bits/vB."
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "This payment's fee cannot be raised: the funds it uses cannot pay a higher one."
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "This payment's fee cannot be raised again: it has already been raised as many times as the wallet allows. Continue to send the same payment again, or cancel it."
   },
   "send_plan_home_sending": {
     "message": "Sending $1 $2"
@@ -2252,8 +2351,32 @@
   "balance_refresh_error": {
     "message": "Balance could not be refreshed and may be out of date."
   },
+  "balance_outputs_incomplete": {
+    "message": "The wallet could not finish reading this account's outputs, so only the total is shown. It will try again."
+  },
+  "balance_outputs_incomplete_detail": {
+    "message": "Available and unavailable amounts are unknown until the wallet finishes reading this account's outputs."
+  },
   "utxo_limit_exceeded_send": {
     "message": "The explorer does not list this account's outputs, and the wallet could not read them all from its history, so it cannot send from this account now. Reopen Send to try again."
+  },
+  "send_outputs_loading": {
+    "message": "Reading this account's outputs. You can fill in the form meanwhile; Next and MAX become available once they are read."
+  },
+  "send_outputs_load_failed": {
+    "message": "The wallet could not read this account's outputs, so it cannot send from this account now. Reopen Send to try again."
+  },
+  "send_input_check_mismatch": {
+    "message": "An output this transaction would spend does not match the transaction that created it at the explorer, so the wallet stopped before signing."
+  },
+  "send_input_check_not_spendable": {
+    "message": "An output this transaction would spend cannot be spent yet: a mining reward that has not matured, an unconfirmed payment from someone else, or change with too many unconfirmed transactions before it. The wallet stopped before signing."
+  },
+  "send_input_check_not_found": {
+    "message": "The explorer no longer has the transaction that created an output this transaction would spend, so the wallet stopped before signing."
+  },
+  "send_input_check_unchecked": {
+    "message": "The wallet could not check an output this transaction would spend with the explorer, so it stopped before signing. Try again in a moment."
   },
   "consolidate_outputs": {
     "message": "Consolidate outputs"
@@ -2557,6 +2680,15 @@
   },
   "account_switcher_account_label": {
     "message": "$1 in $2, $3"
+  },
+  "account_switcher_account_balance_label": {
+    "message": "$1 in $2, $3, balance $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$1 in $2, $3, balance $4, may be out of date"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "Balance may be out of date"
   },
   "account_switcher_wallet_unavailable": {
     "message": "The selected wallet is no longer available"

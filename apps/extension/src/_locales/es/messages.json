@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1 Horas"
   },
-  "n_minute": {
-    "message": "$1 Minuto"
+  "n_hours_many": {
+    "message": "$1 Horas"
   },
   "n_minutes": {
     "message": "$1 Minutos"
-  },
-  "n_seconds": {
-    "message": "$1 Segundos"
   },
   "no_connected_sites": {
     "message": "No hay sitios conectados"
@@ -1108,6 +1105,18 @@
   },
   "sighash_none_detected": {
     "message": "SIGHASH_NONE detectado. Firma cancelada por seguridad."
+  },
+  "qbit_partial_signature_description": {
+    "message": "Tu firma fija solo una parte de esta transacción. Quien la tenga puede cambiar todo lo que no cubre, lo que puede incluir otras entradas y salidas, antes de que se difunda."
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "Entradas firmadas por separado"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "Salida que fija esta firma"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "Esta firma fija todas las salidas"
   },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE es un tipo de firma especial que permite modificar la transacción después de firmarla. Esto puede llevar a una pérdida potencial de fondos si la transacción es alterada maliciosamente. Por favor asegúrese de confiar en la fuente de esta transacción antes de proceder."
@@ -1417,6 +1426,54 @@
   },
   "wallet_locked_during_signing": {
     "message": "La billetera se bloqueó antes de terminar la firma, así que no se envió nada. Desbloquéala y vuelve a firmar."
+  },
+  "wallet_reset_incomplete": {
+    "message": "Tus billeteras se borraron, pero no se pudieron borrar algunos datos guardados. Se borrarán antes de crear una billetera nueva."
+  },
+  "wallet_reset_not_last_wallet": {
+    "message": "Esta ya no es tu única billetera utilizable, así que no se borró nada. Puedes eliminarla en su lugar."
+  },
+  "wallet_reset_outcome_unknown": {
+    "message": "No se pudo completar el restablecimiento, y tus billeteras pueden haberse borrado o no. Reinicia el navegador y abre Qbit Wallet para comprobarlo."
+  },
+  "wallet_page_out_of_date": {
+    "message": "Esta página mostraba una billetera que ya no está configurada aquí, así que la solicitud no se realizó. La página se volverá a cargar."
+  },
+  "wallet_page_id_unreadable": {
+    "message": "Esta página no pudo leer qué billetera muestra, así que la solicitud no se realizó. Recarga la página o vuelve a abrir Qbit Wallet, y luego inténtalo de nuevo."
+  },
+  "security": {
+    "message": "Seguridad"
+  },
+  "reset_wallet": {
+    "message": "Restablecer Billetera"
+  },
+  "reset_wallet_last_wallet": {
+    "message": "No quedaría ninguna otra billetera que puedas usar, así que eliminar esta restablece Qbit Wallet."
+  },
+  "reset_wallet_erases": {
+    "message": "Esto borra de este navegador todas las billeteras y sus claves, tu contraseña, los sitios conectados, la libreta de direcciones y tus ajustes."
+  },
+  "reset_wallet_restore_warning": {
+    "message": "Tus billeteras solo podrán restaurarse con sus frases semilla o claves privadas. Asegúrate de tenerlas antes de continuar."
+  },
+  "reset_wallet_recovery_title": {
+    "message": "Una billetera que vas a borrar forma parte de una migración de recuperación de Qbit"
+  },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "El restablecimiento elimina el registro de recuperación en curso de una billetera restaurada que vas a borrar. La migración no podrá reanudarse, los fondos aún no barridos permanecerán en las direcciones antiguas y recuperarlos más adelante exigirá importar de nuevo su frase semilla y empezar la recuperación desde cero."
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "El restablecimiento elimina el registro de recuperación completado de una billetera restaurada que vas a borrar. Otras redes que usan su frase semilla pueden no haber terminado su propia recuperación, y reanudarlas exigiría importar de nuevo esa frase semilla."
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "Los fondos recuperados se enviaron (o se están enviando) a una billetera que vas a borrar. Si no has hecho copia de seguridad de su frase semilla, el restablecimiento hará que esos fondos sean irrecuperables de forma permanente, y una recuperación interrumpida solo podrá reanudarse tras importar esa billetera de nuevo."
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "Una transferencia de recuperación sigue en curso. Tras el restablecimiento dejará de seguirse, y los fondos que entregue pueden no ser visibles hasta que la billetera de destino se restaure y se vuelva a escanear."
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "No se pudo verificar una billetera que vas a borrar frente a la migración de recuperación activa. Puede ser la billetera que recibe los fondos recuperados; restablecer sin una copia de seguridad de la frase semilla podría hacer que esos fondos sean irrecuperables de forma permanente."
   },
   "use_at_your_own_risk": {
     "message": "Úsalo bajo tu propio riesgo"
@@ -2084,6 +2141,9 @@
   "send_plan_read_failed": {
     "message": "La billetera no pudo leer el progreso de este pago. Lo intentará de nuevo en breve."
   },
+  "send_plan_not_as_shown": {
+    "message": "Este pago cambió desde que esta pantalla lo mostró. Revisa el destinatario, el importe y la tarifa, y continúa solo si son correctos."
+  },
   "send_plan_paused_locked": {
     "message": "La billetera se bloqueó antes de terminar la firma"
   },
@@ -2114,6 +2174,12 @@
   "send_plan_paused_payment_fee_too_low_body": {
     "message": "La red pide una tarifa más alta para aceptar el pago. Sube la tarifa para enviarlo."
   },
+  "send_plan_paused_payment_fee_too_low_not_raisable_body": {
+    "message": "La red pide una tarifa más alta para aceptar el pago, y los fondos que usa no pueden pagar una más alta. Continúa para volver a enviar el mismo pago más tarde, o cancélalo."
+  },
+  "send_plan_paused_payment_fee_too_low_raise_limit_body": {
+    "message": "La red pide una tarifa más alta para aceptar el pago, y su tarifa ya se ha subido tantas veces como permite la billetera. Continúa para volver a enviar el mismo pago más tarde, o cancélalo."
+  },
   "send_plan_paused_payment_refused": {
     "message": "La red rechazó el pago"
   },
@@ -2131,6 +2197,30 @@
   },
   "send_plan_paused_unreadable_body": {
     "message": "Esta versión de la billetera no puede leer el pago guardado, así que no puede continuarlo."
+  },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "Una salida no coincide con el explorador"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "Una salida que gasta este pago no coincide con la transacción que la creó en el explorador, así que la billetera se detuvo antes de firmar. Continúa para comprobarla de nuevo o cancela el pago."
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "Una salida aún no se puede gastar"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "Una salida que gasta este pago aún no se puede gastar: una recompensa de minería que no ha madurado, un pago sin confirmar de otra persona o un cambio con demasiadas transacciones sin confirmar antes. La billetera se detuvo antes de firmar. Continúa más tarde para comprobarla de nuevo, revisa el pago de nuevo para usar las salidas de la cuenta tal como están ahora o cancélalo."
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "Falta la transacción de una salida"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "El explorador ya no tiene la transacción que creó una salida que gasta este pago, así que la billetera se detuvo antes de firmar. Revisa el pago de nuevo para usar las salidas de la cuenta tal como están ahora, continúa para comprobarla de nuevo o cancela el pago."
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "No se pudo comprobar una salida"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "La billetera no pudo comprobar con el explorador una salida que gasta este pago, así que se detuvo antes de firmar. Continúa para intentarlo de nuevo."
   },
   "send_plan_paused_other": {
     "message": "El pago está en pausa"
@@ -2195,6 +2285,9 @@
   "send_plan_cancel_keep": {
     "message": "Mantener el pago"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "La billetera se eliminó, pero un pago en curso desde ella aún no se pudo cancelar. No se firmará ni se enviará nada más de ese pago, y la billetera sigue intentando cancelarlo."
+  },
   "send_plan_raise_title": {
     "message": "Subir la tarifa"
   },
@@ -2212,6 +2305,12 @@
   },
   "send_plan_fee_rate_too_low": {
     "message": "Esta tasa de tarifa es demasiado baja para reemplazar la transacción ya enviada. Usa al menos $1 bits/vB."
+  },
+  "send_plan_fee_not_raisable": {
+    "message": "No se puede subir la tarifa de este pago: los fondos que usa no pueden pagar una más alta."
+  },
+  "send_plan_fee_raise_limit_reached": {
+    "message": "No se puede volver a subir la tarifa de este pago: ya se ha subido tantas veces como permite la billetera. Continúa para volver a enviar el mismo pago, o cancélalo."
   },
   "send_plan_home_sending": {
     "message": "Enviando $1 $2"
@@ -2252,8 +2351,32 @@
   "balance_refresh_error": {
     "message": "No se pudo actualizar el saldo; puede que no esté al día."
   },
+  "balance_outputs_incomplete": {
+    "message": "La billetera no pudo terminar de leer las salidas de esta cuenta, así que solo se muestra el total. Lo volverá a intentar."
+  },
+  "balance_outputs_incomplete_detail": {
+    "message": "Los importes disponible y no disponible se desconocen hasta que la billetera termine de leer las salidas de esta cuenta."
+  },
   "utxo_limit_exceeded_send": {
     "message": "El explorador no lista las salidas de esta cuenta y la billetera no pudo leerlas todas de su historial, así que ahora no puede enviar desde esta cuenta. Vuelve a abrir Enviar para intentarlo de nuevo."
+  },
+  "send_outputs_loading": {
+    "message": "Leyendo las salidas de esta cuenta. Mientras tanto puedes rellenar el formulario; Siguiente y MÁX estarán disponibles en cuanto se hayan leído."
+  },
+  "send_outputs_load_failed": {
+    "message": "La billetera no pudo leer las salidas de esta cuenta, así que ahora no puede enviar desde esta cuenta. Vuelve a abrir Enviar para intentarlo de nuevo."
+  },
+  "send_input_check_mismatch": {
+    "message": "Una salida que gastaría esta transacción no coincide con la transacción que la creó en el explorador, así que la billetera se detuvo antes de firmar."
+  },
+  "send_input_check_not_spendable": {
+    "message": "Una salida que gastaría esta transacción aún no se puede gastar: una recompensa de minería que no ha madurado, un pago sin confirmar de otra persona o un cambio con demasiadas transacciones sin confirmar antes. La billetera se detuvo antes de firmar."
+  },
+  "send_input_check_not_found": {
+    "message": "El explorador ya no tiene la transacción que creó una salida que gastaría esta transacción, así que la billetera se detuvo antes de firmar."
+  },
+  "send_input_check_unchecked": {
+    "message": "La billetera no pudo comprobar con el explorador una salida que gastaría esta transacción, así que se detuvo antes de firmar. Inténtalo de nuevo en un momento."
   },
   "consolidate_outputs": {
     "message": "Consolidar salidas"
@@ -2557,6 +2680,15 @@
   },
   "account_switcher_account_label": {
     "message": "$1 en $2, $3"
+  },
+  "account_switcher_account_balance_label": {
+    "message": "$1 en $2, $3, saldo $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$1 en $2, $3, saldo $4, puede que no esté al día"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "Puede que el saldo no esté al día"
   },
   "account_switcher_wallet_unavailable": {
     "message": "La billetera seleccionada ya no está disponible"

@@ -11,7 +11,11 @@ export function LanguageCard() {
   const currentLanguageName = LOCALE_NAMES[locale];
 
   return (
-    <Card style={{ borderRadius: 0, cursor: 'pointer' }} onClick={() => navigate('/settings/language')}>
+    <Card
+      style={{ borderRadius: 0, cursor: 'pointer' }}
+      onClick={() => navigate('/settings/language')}
+      data-testid="advanced-language-row"
+    >
       <Row full justifyBetween>
         <Text text={t('language')} preset="bold" size="sm" />
         <Row itemsCenter gap="xs">

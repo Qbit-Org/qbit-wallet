@@ -81,10 +81,12 @@ class DiskAdapter {
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 const SECONDS = 1000
 const MINUTES = 60 * SECONDS
-// The default auto-lock time, and the 30-second one.
-const DEFAULT_LOCK_MS = 3 * MINUTES
-const SHORTEST_LOCK_ID = 0
-const SHORTEST_LOCK_MS = 30 * SECONDS
+// The default auto-lock time, and the shortest one.
+const DEFAULT_LOCK_MS = 30 * MINUTES
+const SHORTEST_LOCK_ID = 3
+const SHORTEST_LOCK_MS = 5 * MINUTES
+// 6 hours.
+const LONGEST_LOCK_ID = 10
 // How often useWalletKeepalive refreshes the session.
 const KEEPALIVE_INTERVAL_MS = 10 * SECONDS
 
@@ -160,7 +162,7 @@ describe('the auto-lock', () => {
     await wallet.setLastActiveTime()
     await vi.advanceTimersByTimeAsync(1 * MINUTES)
     // The computer sleeps past the deadline; the timer has not run.
-    sleep(10 * MINUTES)
+    sleep(DEFAULT_LOCK_MS)
     expect(wallet.isUnlocked()).toBe(true)
 
     // The first click after waking.
@@ -273,6 +275,62 @@ describe('the auto-lock', () => {
     sleep(SHORTEST_LOCK_MS)
     await wallet.setLastActiveTime()
     expect(wallet.isUnlocked()).toBe(false)
+  })
+
+  it.each([
+    [3, 5 * MINUTES],
+    [8, 15 * MINUTES],
+    [5, 30 * MINUTES],
+    [6, 60 * MINUTES],
+    [9, 3 * 60 * MINUTES],
+    [10, 6 * 60 * MINUTES],
+  ])('takes the offered time %s, saves it and locks after it', async (id, ms) => {
+    await wallet.setLastActiveTime()
+    await wallet.setAutoLockTimeId(id)
+
+    await expect(wallet.getAutoLockTimeId()).resolves.toBe(id)
+    expect(JSON.parse(adapter.disk.get('preference')!).autoLockTimeId).toBe(id)
+    await vi.advanceTimersByTimeAsync(ms - 1)
+    expect(wallet.isUnlocked()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(wallet.isUnlocked()).toBe(false)
+  })
+
+  // The page sends an id over a JSON port, where NaN and Infinity arrive as null.
+  it.each([
+    ['the retired 30 seconds', 0],
+    ['the retired 1 minute', 1],
+    ['the retired 3 minutes', 2],
+    ['the retired 10 minutes', 4],
+    ['the retired 4 hours', 7],
+    ['an id no build offered', 11],
+    ['a negative id', -1],
+    ['a fractional id', 2.5],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['null', null],
+    ['undefined', undefined],
+    ['a string', '5'],
+  ])('refuses %s and keeps the stored time and the running timer', async (_name, value) => {
+    await wallet.setAutoLockTimeId(SHORTEST_LOCK_ID)
+    await wallet.setLastActiveTime()
+    await vi.advanceTimersByTimeAsync(2 * MINUTES)
+    const stored = adapter.disk.get('preference')
+    const timers = vi.getTimerCount()
+
+    await expect(wallet.setAutoLockTimeId(value as number)).rejects.toThrow(
+      'Unknown auto-lock time'
+    )
+
+    expect(adapter.disk.get('preference')).toBe(stored)
+    await expect(wallet.getAutoLockTimeId()).resolves.toBe(SHORTEST_LOCK_ID)
+    expect(vi.getTimerCount()).toBe(timers)
+    // The deadline is still five minutes from the last screen action.
+    await vi.advanceTimersByTimeAsync(SHORTEST_LOCK_MS - 2 * MINUTES - 1)
+    expect(wallet.isUnlocked()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(wallet.isUnlocked()).toBe(false)
+    expect(broadcasts).toContain(BUS_METHODS.AUTO_LOCKED)
   })
 })
 
@@ -515,7 +573,7 @@ describe('the auto-lock during a local signing (#171)', () => {
     const signing = startSigning()
     await vi.advanceTimersByTimeAsync(DEFAULT_LOCK_MS + MINUTES)
 
-    await wallet.setAutoLockTimeId(7)
+    await wallet.setAutoLockTimeId(LONGEST_LOCK_ID)
     await signing.finish()
 
     await vi.advanceTimersByTimeAsync(HANDOFF_MS)
@@ -585,7 +643,11 @@ describe('the auto-lock during a local signing (#171)', () => {
       resolve => (answer = () => resolve({ success: true, txid: 'ab'.repeat(32) }))
     )
     ;(wallet as any).attemptQbitBroadcast = () => verdict
-    const broadcast = wallet.runForUiPort(page, () => wallet.broadcastQbitTx('00'))
+    const broadcast = wallet.runForUiPort(
+      page,
+      () => wallet.broadcastQbitTx('00'),
+      'broadcastQbitTx'
+    )
     return {
       answer: async () => {
         answer()
@@ -713,11 +775,14 @@ describe('the auto-lock during a local signing (#171)', () => {
   })
 
   it('keeps an owed minute when a screen action sets a sooner deadline', async () => {
-    await wallet.setAutoLockTimeId(SHORTEST_LOCK_ID)
+    // Every time offered is longer than the minute; a 30-second auto-lock
+    // time, as offered up to 1.0.9, stands in for one that is not.
+    const SHORT_LOCK_MS = 30 * SECONDS
+    vi.spyOn(wallet as any, 'autoLockTimeMs').mockReturnValue(SHORT_LOCK_MS)
     await wallet.setLastActiveTime()
     const signing = startSigning()
     // The signing ends 20 s before the 30 s deadline: its page is owed a minute.
-    await vi.advanceTimersByTimeAsync(SHORTEST_LOCK_MS - 20 * SECONDS)
+    await vi.advanceTimersByTimeAsync(SHORT_LOCK_MS - 20 * SECONDS)
     await signing.finish()
 
     // A click 5 s later, before the deadline: its 30 s would end before the minute.
@@ -983,7 +1048,7 @@ describe('the onboarding and recovery keepalive', () => {
 
   it('holds the shortest auto-lock off while it refreshes', async () => {
     const stop = keepalive()
-    await vi.advanceTimersByTimeAsync(5 * MINUTES)
+    await vi.advanceTimersByTimeAsync(3 * SHORTEST_LOCK_MS)
     expect(wallet.isUnlocked()).toBe(true)
     stop()
     await vi.advanceTimersByTimeAsync(SHORTEST_LOCK_MS)
@@ -1014,7 +1079,7 @@ describe('the onboarding and recovery keepalive', () => {
   it('locks on its first refresh after the computer slept past the auto-lock time', async () => {
     const stop = keepalive()
     await vi.advanceTimersByTimeAsync(1 * MINUTES)
-    sleep(2 * MINUTES)
+    sleep(SHORTEST_LOCK_MS + 1 * MINUTES)
     expect(wallet.isUnlocked()).toBe(true)
 
     await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS)

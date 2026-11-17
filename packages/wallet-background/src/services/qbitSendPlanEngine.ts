@@ -56,12 +56,21 @@ import {
   type QbitSendPlanAccountKeys,
 } from '../utils/qbit-send-plan-psbt'
 import {
+  lowestQbitSendPlanPaymentRaiseRate,
   lowestQbitSendPlanRaiseRate,
   priceQbitSendPlanMerge,
   priceQbitSendPlanPayment,
   qbitSendPlanMergeReplaceable,
+  qbitSendPlanPaymentRaises,
   type QbitSendPlanRevisionShape,
 } from '../utils/qbit-send-plan-revision'
+import {
+  QbitSendPlanNotAsShownError,
+  qbitSendPlanTermsDigest,
+  readQbitSendPlanTermsDigest,
+} from '../utils/qbit-send-plan-terms'
+// The causes alone: the engine reads nothing through the API module itself.
+import type { QbitSpendInputProblem } from '../utils/qbit-api'
 import {
   QBIT_RECENT_SPEND_GONE_GRACE_MS,
   QBIT_RECENT_SPEND_TTL_MS,
@@ -143,13 +152,37 @@ const QBIT_SEND_PLAN_MAX_ITERATIONS = 1_000
 const QBIT_SEND_PLAN_MUTATE_ATTEMPTS = 16
 /** Why a plan cannot be prepared for the selected account, or no longer can be. */
 const QBIT_SEND_PLAN_ACCOUNT_REQUIRED = 'Qbit send plans need an account this wallet signs for'
+/**
+ * Why no plan can be prepared for the selected account while a wallet
+ * removal's record names it (`QbitSendPlanEngine.removalRecorded`), true in
+ * every such case: the removal is under way or of unknown outcome; it
+ * removed the wallet and something of its plans is left to end, or its
+ * record waits for an entry the store cannot attribute to go; it was
+ * refused and its record is not forgotten yet; or the record is one this
+ * version cannot read. The same phrase added again signs for the account
+ * all the same. A payment in one transaction does not need a plan.
+ */
+const QBIT_SEND_PLAN_REMOVAL_UNDER_WAY =
+  'A wallet removal that involves this account has not finished, so a payment in several transactions cannot start yet.'
 
 const PLAN_ID = /^[0-9a-f]{32}$/
-const QBIT_CHAINS = new Set<unknown>([
+/** The networks a plan can be on; pinned against the controller's and the preferences' lists. */
+export const QBIT_CHAINS = new Set<unknown>([
   ChainType.QBIT_MAINNET,
   ChainType.QBIT_TESTNET4,
   ChainType.QBIT_REGTEST,
 ])
+/**
+ * The pause of a plan whose inputs failed their check, for each cause there
+ * is: a cause added to `QbitSpendInputProblem` does not compile until it has
+ * its own pause here.
+ */
+const INPUT_CHECK_PAUSES: Record<QbitSpendInputProblem, QbitSendPlanPauseReason> = {
+  mismatch: 'input_check_mismatch',
+  not_spendable: 'input_check_not_spendable',
+  not_found: 'input_check_not_found',
+  unchecked: 'input_check_unchecked',
+}
 const PAUSE_REASONS = new Set<string>([
   'locked',
   'interrupted',
@@ -158,13 +191,28 @@ const PAUSE_REASONS = new Set<string>([
   'payment_fee_too_low',
   'payment_refused',
   'unreadable',
+  ...Object.values(INPUT_CHECK_PAUSES),
 ])
-const REPLANNABLE = new Set<string>(['merge_refused', 'outputs_spent', 'payment_refused'])
+const REPLANNABLE = new Set<string>([
+  'merge_refused',
+  'outputs_spent',
+  'payment_refused',
+  // An input whose funding transaction is gone (replaced or dropped while
+  // unconfirmed) never comes back, so Continue alone would pause again; and
+  // one that is not spendable may only become so in time (a reward
+  // maturing, ancestors confirming) or never (someone else's unconfirmed
+  // payment). A replan is the user's own choice, read from the outputs as
+  // they are now, and its new inputs are checked before it signs anything.
+  'input_check_not_found',
+  'input_check_not_spendable',
+])
 const CONTINUABLE = new Set<string>([
   'locked',
   'interrupted',
   'payment_refused',
   'payment_fee_too_low',
+  // Continue checks the inputs again, and signs only if they pass.
+  ...Object.values(INPUT_CHECK_PAUSES),
 ])
 
 /** The node's reasons for refusing a transaction whose inputs are spent or missing. */
@@ -223,6 +271,13 @@ export interface QbitSendPlanKeyring {
   ): Promise<{ psbt: Psbt; counterResults: readonly { cached: boolean }[] }>
   confirmQbitRestoredFloorSigning(challengeId: string): Promise<void>
   releaseQbitRestoredFloorSigningChallenges(challengeIds: readonly string[]): void
+  /** Whether the wallet keeps its keys: none once a reset erased them. */
+  hasVault(): boolean
+  /**
+   * Whether storage holds the vault, as the next start reads it, where
+   * `hasVault` answers from memory; rejects when storage cannot be read.
+   */
+  hasPersistedVault(): Promise<boolean>
 }
 
 /** What the engine needs from the wallet controller. */
@@ -242,15 +297,24 @@ export interface QbitSendPlanEngineHost {
   /** The memo outputs the ordinary send builds; throws for memos it refuses. */
   memoOutputs(memo: string | undefined, memos: string[] | undefined): P2mrTransactionOutput[]
   /**
+   * The place among the clears of what the wallet read of funding
+   * transactions that a read of outputs asked for now takes, handed back to
+   * `spendableOutputs` as `since`: a lock or a wallet's removal after it
+   * leaves that read keeping nothing. Opaque to the engine.
+   */
+  beginOutputsRead(): unknown
+  /**
    * `account`'s outputs on `chain` as the ordinary send reads them, less
    * every one a plan's hold would be refused on
    * (`QbitSendGuardService.getPlanUnavailableOutpointKeys`), the holds of
    * plan `exceptPlanId` left out of that. Throws when they cannot be read.
+   * `since` is what `beginOutputsRead` gave when the request began.
    */
   spendableOutputs(
     chain: ChainType,
     account: Account,
-    exceptPlanId?: string
+    exceptPlanId: string | undefined,
+    since: unknown
   ): Promise<QbitSendPlanCoin[]>
   /** The id of `psbt`'s transaction on `chain` (`qbitBroadcastIdentityOf`). */
   txidOf(psbt: Psbt, chain: ChainType): string
@@ -259,14 +323,34 @@ export interface QbitSendPlanEngineHost {
   /** What spends each output of `txid` on `chain`, in output order; throws without an answer. */
   spenders(chain: ChainType, txid: string): Promise<(string | undefined)[]>
   /**
-   * The outputs of transaction `txid` on `chain`, in output order, each
-   * script as lower-case hex, and its fee, as the explorer reports them;
-   * throws without an answer.
+   * Transaction `txid` on `chain` as the explorer reports it: the outpoint
+   * each of its inputs spends, its txid lower-case; its outputs, in output
+   * order, each script as lower-case hex; and its fee. Throws without an
+   * answer, or when the answer names another transaction. Of the rest only
+   * the inputs and the fee are checked, each input's txid 64 hex digits and
+   * output index a safe integer, and the fee a non-negative safe integer
+   * (the store refuses any other in `paidBy`), or it throws; the outputs'
+   * values and scripts are taken as the explorer gives them.
    */
-  transaction(
+  transaction(chain: ChainType, txid: string): Promise<QbitSendPlanSpenderRead>
+  /**
+   * Read and check the funding transaction of every one of `inputs`, inputs
+   * the plan is about to sign for `address` on `chain`, riding out the
+   * explorer's server errors, until `signal` aborts or its deadline passes,
+   * which grows with the funding transactions it looks up
+   * (`qbitSpendCheckDeadlineMs`) (`checkQbitSpendInputs`). An input spending
+   * an output of one of `ownTransactions`, the plan's own merges by txid
+   * with their outputs in order, is checked against it with no lookup.
+   * Rejects with an error whose `problem` names the cause when an input
+   * fails, and with `signal`'s reason once it aborts.
+   */
+  checkSpendInputs(
     chain: ChainType,
-    txid: string
-  ): Promise<{ outputs: { script: string; value: number }[]; fee: number }>
+    address: string,
+    inputs: readonly { txid: string; vout: number; satoshis: number; scriptPk: string }[],
+    ownTransactions: ReadonlyMap<string, readonly { value: number; script: string }[]>,
+    signal: AbortSignal
+  ): Promise<void>
   /**
    * The wallet's broadcast of raw transaction `rawtx`, `txid` on `chain`,
    * under `hold` when the plan holds every input it spends, and, with
@@ -287,10 +371,25 @@ export interface QbitSendPlanEngineHost {
    * the function that ends the hold.
    */
   holdAutoLock(estimatedSigningMs: number): () => void
-  /** Tell every wallet page that plan `planId` changed (`BUS_METHODS.QBIT_SEND_PLAN_CHANGED`). */
+  /**
+   * Tell every wallet page that plan `planId` changed
+   * (`BUS_METHODS.QBIT_SEND_PLAN_CHANGED`), naming the engine's run
+   * (`QbitSendPlanEngine.backgroundId`), which `revision` is of.
+   */
   announce(planId: string, revision: number): void
   /** After a signing: refresh the account's signature counter on display. */
   afterSigning(address: string): Promise<void>
+  /**
+   * What the wallet named by wallet removal record `id` is now, judged from
+   * the keyring as storage holds it (see `QbitSendPlanEngine.endPlansOf`):
+   * `removed`, its wallet gone for good; `stays`, its wallet still there;
+   * `forgotten`, no record stored under `id` any more; or nothing while
+   * that cannot be told, the wallet locked, or the record's removal under
+   * way or of an outcome storage may not show yet.
+   */
+  judgeRemoval(id: string): 'removed' | 'stays' | 'forgotten' | undefined
+  /** Forget wallet removal record `id` on disk; rejects when storage refuses, the record staying. */
+  forgetRemoval(id: string): Promise<void>
 }
 
 export interface QbitSendPlanTimers {
@@ -494,12 +593,23 @@ interface PlanSession {
   lookups: Map<string, { at: number; state: 'confirmed' | 'pending' | 'gone' | undefined }>
   /** By txid: the last outspends read of it, as `lookups` keeps lifecycle reads. */
   outspends: Map<string, { at: number; spenders: (string | undefined)[] | undefined }>
+  /**
+   * By txid: what the last read of a transaction found spending an input of
+   * the payment gave (`identifySpender`), and when: its inputs, its outputs
+   * and its fee, which never change, or `undefined` when it had no answer or
+   * did not list an input the transaction was found spending, which is read
+   * again a tick later at the earliest, or at once with `fresh`.
+   */
+  spenderReads: Map<string, { at: number; read: QbitSendPlanSpenderRead | undefined }>
   /** By merge txid: sends proven not sent so far, and when the next may go. */
   notSent: Map<string, { attempts: number; nextAt: number }>
   /** Round-robin positions of the throttled reads of a waiting plan. */
   outspendsCursor: number
   confirmedCursor: number
-  /** Round-robin position of a paused plan's reads of what spends its payment's inputs. */
+  /**
+   * Round-robin position of the reads of what spends the payment's inputs,
+   * by a paused plan or a completed one whose named transaction is gone.
+   */
   paymentInputsCursor: number
   /**
    * When a round of afresh reads of the merges the payment spends, made
@@ -508,6 +618,17 @@ interface PlanSession {
    * cannot read them keeps no read loop going.
    */
   mergesUnreadAt: number | undefined
+  /**
+   * The inputs (outpoint keys) of the plan's steps that this session has
+   * checked in one pass before it signed anything of them (see
+   * `checkPlanInputs`): the inputs of every step at its first signature,
+   * and those a revision or a restart brings in, at the first signature
+   * after it. Each step's own check before its signature is made anyway; an
+   * input that fails one leaves the set as its plan pauses, with every other
+   * input of the same funding transaction (`forgetCheckedInputs`), so the
+   * pass reads them again before anything more is signed.
+   */
+  checkedInputs: Set<string>
   /**
    * Settled when the first signing of a start passed its checks (true),
    * the advance ended before that (false), or the keyring refused the
@@ -598,6 +719,102 @@ interface WorkTicket {
   endings: number
 }
 
+/** What `QbitSendPlanEngine.endPlansOf` did with the plans of a removed wallet's accounts. */
+export interface QbitSendPlanEnding {
+  /** The plans ended, as a cancel ends one: gone, or cancelling until a merge's outcome is known. */
+  ended: string[]
+  /** Those of them whose payment may already be in the network: their record and holds went all the same. */
+  mayHaveBeenSent: string[]
+  /**
+   * Only when something of the accounts is left stored, a storage write
+   * having been refused: the plans not ended, and the entries the store
+   * cannot read that were not dropped, by id (`QBIT_SEND_PLAN_UNREADABLE_ID`
+   * for an entry without a readable one); or, with `storeUnavailable`,
+   * neither, the store answering nothing. What is left is held back until a
+   * later attempt ends it (see `QbitSendPlanEngine.endPlansOf`).
+   */
+  notEnded?: { plans: string[]; unreadable: string[]; storeUnavailable?: true }
+}
+
+/**
+ * What a wallet removal's ending left (`QbitSendPlanEnding.notEnded`), as
+ * every wallet page is told of it once the removal completes
+ * (BUS_METHODS.QBIT_SEND_PLANS_NOT_ENDED): how many plans and entries the
+ * store cannot read, and whether the store answered nothing. Numbers and a
+ * flag only, which cross the JSON port as they are.
+ */
+export interface QbitSendPlansNotEndedNotice {
+  plans: number
+  unreadable: number
+  storeUnavailable: boolean
+}
+
+/** `notEnded` as a wallet page is told of it (`QbitSendPlansNotEndedNotice`). */
+export function qbitSendPlansNotEndedNotice(
+  notEnded: QbitSendPlanEnding['notEnded']
+): QbitSendPlansNotEndedNotice {
+  return {
+    plans: notEnded?.plans.length ?? 0,
+    unreadable: notEnded?.unreadable.length ?? 0,
+    storeUnavailable: notEnded?.storeUnavailable === true,
+  }
+}
+
+/** The warning that `count` plans of a removed wallet were ended though their payment may be in the network. */
+export function qbitSendPlansMayHavePaidNote(count: number): string {
+  return `${count} send plan(s) of the removed wallet may have paid already`
+}
+
+/**
+ * The warning naming what an ending left (`QbitSendPlanEnding.notEnded`),
+ * which is held back until it is ended, after a restart too (see
+ * `QbitSendPlanEngine.endPlansOf`).
+ */
+export function qbitSendPlansNotEndedNote(
+  notEnded: NonNullable<QbitSendPlanEnding['notEnded']>
+): string {
+  const left = notEnded.storeUnavailable
+    ? 'the plan store cannot be read'
+    : `${notEnded.plans.length} plan(s), ${notEnded.unreadable.length} entr(ies) the store cannot read`
+  return `Send plans of the removed wallet not ended yet (${left}): held back until they are ended`
+}
+
+/** The warning that a wallet removal's record could not be forgotten: its accounts stay held back. */
+export const QBIT_SEND_PLAN_REMOVAL_KEPT_NOTE =
+  'A wallet removal’s record of its send plans could not be forgotten: its accounts stay held back, and it is tried again'
+
+/**
+ * How long after the `refusals`th refusal in a row a write is tried again:
+ * `QBIT_SEND_PLAN_TICK_MS` times 2 to the power `refusals - 1`, at most 32
+ * times it (8 minutes). So the tries come 15, 45, 105, 225 and 465 seconds
+ * after the first refusal, then every 8 minutes. For the forgetting of a
+ * removal record whose wallet is gone (`QbitSendPlanEngine.settleRemovals`)
+ * and for the wallet's settling of a removal of unknown outcome.
+ */
+export function qbitSendPlanRetrySpacing(refusals: number): number {
+  return QBIT_SEND_PLAN_TICK_MS * 2 ** Math.min(Math.max(refusals, 1) - 1, 5)
+}
+
+/**
+ * A wallet removal's record, as the engine follows it (see
+ * `QbitSendPlanEngine.endPlansOf`): the accounts whose plans the removal
+ * ends, by `accountKeyOf`, and what became of its wallet once that is known.
+ */
+interface RemovalRecord {
+  accounts: ReadonlySet<string>
+  /**
+   * `removed`: the wallet is gone, and the plans of the accounts are ended,
+   * then the record forgotten once nothing of them is left. `stays`: the
+   * wallet is there still, and the record is forgotten, nothing ended.
+   * Unset while that is not known: nothing is ended or forgotten.
+   */
+  wallet?: 'removed' | 'stays'
+}
+
+/** The warning that nothing an ending left is left any more. */
+export const QBIT_SEND_PLANS_ENDED_NOW_NOTE =
+  'Send plans of the removed wallet that were not ended are ended now'
+
 /** A reviewed plan waiting for start; memory only. */
 interface PlanDraft {
   draftId: string
@@ -633,6 +850,29 @@ interface PlanDraft {
 /** The outcome of one unit of an advance: more to do now, or nothing until something changes. */
 type StepOutcome = 'again' | 'idle'
 
+/** A transaction as the explorer reports it (see `QbitSendPlanEngineHost.transaction`). */
+export interface QbitSendPlanSpenderRead {
+  inputs: QbitOutpoint[]
+  outputs: { script: string; value: number }[]
+  fee: number
+}
+
+/**
+ * A transaction the explorer shows spending an input of a plan's payment:
+ * `spender`, and `outpoint`, the input as `outpointKey` writes it.
+ */
+interface PaymentInputSpend {
+  spender: string
+  outpoint: string
+}
+
+/** What a transaction spending an input of a plan's payment is to the plan (see `identifySpender`). */
+type SpenderIdentity =
+  | { kind: 'payment' }
+  | { kind: 'version'; version: QbitSendPlanPaymentVersion }
+  | { kind: 'recipient'; paidBy: QbitSendPlanPaidBy }
+  | { kind: 'elsewhere' }
+
 /**
  * The key a plan of `account` signs with, lower-case: its P2MR key, or the
  * account's own when that is empty, as the ordinary send reads it. Prepare
@@ -656,6 +896,49 @@ function chainOfAccountKey(account: string): ChainType {
   return account.slice(0, account.indexOf(':')) as ChainType
 }
 
+/** The address of an account named by `accountKeyOf`. */
+function addressOfAccountKey(account: string): string {
+  return account.slice(account.indexOf(':') + 1)
+}
+
+/**
+ * Whether `entry`, which the store cannot read, could be the plan of the
+ * account of `address` on `chain`: what it names of an account, its network,
+ * its address, both or neither, is that account's. Plans are filed by network
+ * and address (`QbitSendPlanStore`), and an address belongs to one of the
+ * three plan networks only (`QBIT_CHAINS`: mainnet's P2MR addresses begin
+ * `qb1`, testnet4's `tq1`, regtest's `qbrt1`), so an entry naming another
+ * network or another address is no plan of the account.
+ */
+function couldBePlanOf(entry: QbitSendPlanUnreadable, chain: ChainType, address: string): boolean {
+  return (
+    (entry.chain === undefined || entry.chain === chain) &&
+    (entry.address === undefined || entry.address === address)
+  )
+}
+
+/**
+ * The one of `accounts` whose entry `entry` is, which the store cannot read:
+ * the account it is filed under, by network and address, or the account of
+ * the address it names without a network, which it can be the plan of alone
+ * (`couldBePlanOf`). Nothing for an entry naming no address, which may be
+ * the plan of any account of its network or of any network.
+ */
+function accountOfEntry(
+  entry: QbitSendPlanUnreadable,
+  accounts: ReadonlySet<string>
+): string | undefined {
+  if (entry.address === undefined) return undefined
+  if (entry.chain !== undefined) {
+    const account = accountKeyOf(entry.chain, entry.address)
+    return accounts.has(account) ? account : undefined
+  }
+  for (const account of accounts) {
+    if (addressOfAccountKey(account) === entry.address) return account
+  }
+  return undefined
+}
+
 /** `items[index]`, which the caller knows is there; a broken invariant throws. */
 function at<T>(items: readonly T[], index: number): T {
   const item = items[index]
@@ -665,6 +948,66 @@ function at<T>(items: readonly T[], index: number): T {
 
 function outpointKey(outpoint: QbitOutpoint): string {
   return `${outpoint.txid}:${outpoint.vout}`
+}
+
+/**
+ * The outputs of `record`'s own merges, by txid, as its record holds them:
+ * each pays its one output, of `outputValue`, to the account's own script.
+ * A merge's stored bytes are bound to that record before the merge is
+ * signed (`checkQbitSendPlanStepPsbt`), and the payment, the one step that
+ * spends merges, is signed after them, so an input spending one is checked
+ * against what was signed, with no lookup and no decoding of stored PSBTs.
+ */
+function qbitSendPlanOwnOutputs(
+  record: QbitSendPlanRecord,
+  keys: { scriptPubKey: Uint8Array }
+): Map<string, { value: number; script: string }[]> {
+  const script = bytesToHex(keys.scriptPubKey)
+  const own = new Map<string, { value: number; script: string }[]>()
+  for (const step of record.steps) {
+    if (step.kind === 'merge' && step.outputValue !== undefined) {
+      own.set(step.txid.toLowerCase(), [{ value: step.outputValue, script }])
+    }
+  }
+  return own
+}
+
+/** The pause of an error that is a failed check of inputs, by its cause; none otherwise. */
+function inputCheckPauseOf(error: unknown): QbitSendPlanPauseReason | undefined {
+  const problem =
+    error !== null && typeof error === 'object'
+      ? (error as { problem?: unknown }).problem
+      : undefined
+  return typeof problem === 'string' &&
+    Object.prototype.hasOwnProperty.call(INPUT_CHECK_PAUSES, problem)
+    ? INPUT_CHECK_PAUSES[problem as QbitSpendInputProblem]
+    : undefined
+}
+
+/**
+ * Take every input of the funding transaction a failed check of inputs names
+ * (`QbitSpendInputCheckError`: its `txid`) out of what `session` has checked
+ * in one pass (`PlanSession.checkedInputs`), so the next pass reads them
+ * again: a failure of the whole transaction (it is gone, cannot be read, or
+ * the answer is another transaction's) names only its first output there,
+ * and no other output of it is any better known.
+ */
+function forgetCheckedInputs(session: PlanSession, failure: unknown): void {
+  const named =
+    failure !== null && typeof failure === 'object' ? (failure as { txid?: unknown }) : undefined
+  const txid = named?.txid
+  if (typeof txid !== 'string' || txid === '') return
+  const spent = `${txid.toLowerCase()}:`
+  for (const key of session.checkedInputs) {
+    if (key.toLowerCase().startsWith(spent)) session.checkedInputs.delete(key)
+  }
+}
+
+/** The error behind `error` (`Error.cause`), or `error` itself. */
+function errorCause(error: unknown): unknown {
+  const cause =
+    error !== null && typeof error === 'object' ? (error as { cause?: unknown }).cause : undefined
+  return cause ?? error
 }
 
 function randomHex(bytes: number): string {
@@ -750,8 +1093,10 @@ function replacementOf(merge: QbitSendPlanStepRecord): QbitSendPlanReplacement |
  * version too, the outputs the payment spends directly, and the inputs of
  * every carried merge; for a void replacement, only the output of the
  * version that confirmed instead. Once completed: the payment's inputs
- * until the payment is seen confirmed, or the plan is dismissed. While
- * cancelling: only the inputs of merges whose outcome is unknown.
+ * until the transaction the plan names is seen confirmed (its payment step
+ * `confirmed`, see `stepCompleted`), the plan is dismissed, or it reopens
+ * and holds what it holds then. While cancelling: only the inputs of merges
+ * whose outcome is unknown.
  */
 function desiredHolds(record: QbitSendPlanRecord): Set<string> {
   const held = new Set<string>()
@@ -889,12 +1234,100 @@ function cancellable(record: QbitSendPlanRecord): boolean {
  * and `sendMerge`); then no version can confirm. Removing the wallet or
  * resetting it ends such a plan all the same (see `endPlansOf`). Until the
  * plan completes, its view says so (`QbitSendPlanView.paymentMayConfirm`).
+ *
+ * A plan that a transaction made elsewhere ever completed (one that paid
+ * the recipient the amount in the payment's place and is no version of it,
+ * `paidBy`) counts that the same way, for good (`paidElsewhereSeen`): no
+ * replan and no cancel until every input of its payment is spent by a
+ * transaction found confirmed (see `QbitSendPlanEngine.reopenCompleted`).
+ * Sending the same payment again (`dispatchedVersionMayConfirm`) is what
+ * Continue offers only while the payment's own inputs are not known spent
+ * elsewhere.
  */
 function paymentVersionMayConfirm(record: QbitSendPlanRecord): boolean {
+  return dispatchedVersionMayConfirm(record) || paidElsewhereSeen(record)
+}
+
+/**
+ * Whether a version of `record`'s payment whose bytes left the wallet may
+ * still confirm, its dispatch `unknown` (see `paymentVersionMayConfirm`).
+ */
+function dispatchedVersionMayConfirm(record: QbitSendPlanRecord): boolean {
   return (
     paymentOf(record).dispatch === 'unknown' ||
     (record.earlierPayments ?? []).some(version => version.dispatch === 'unknown')
   )
+}
+
+/**
+ * Whether a plan paused for `reason` can no longer send its own payment
+ * without a revision: an input of it is spent elsewhere (`outputs_spent`),
+ * or a merge it spends was refused, or confirmed in its earlier version
+ * instead (`merge_refused`, see `QbitSendPlanEngine.supersede`).
+ */
+function paymentCannotGo(reason: string | undefined): boolean {
+  return reason === 'outputs_spent' || reason === 'merge_refused'
+}
+
+/**
+ * The key under `extra` of the last transaction made elsewhere that paid
+ * the recipient in the payment's place (see `paidElsewhereSeen`).
+ */
+const LAST_PAID_BY = 'lastPaidBy'
+
+/**
+ * Whether a transaction made elsewhere ever paid the recipient the amount
+ * in `record`'s payment's place: the plan names one (`paidBy`), or keeps
+ * the last one under `extra` (`lastPaidBy`), which it writes whenever it
+ * names one and keeps while it names its own payment or a version, and
+ * while it is paused. Only the rule lets it go: the transaction the plan
+ * names found confirmed, a reopening `outputs_spent` once every input of
+ * the payment is spent by a transaction found confirmed, or the record's
+ * end (see `QbitSendPlanEngine.reopenCompleted`). An entry that cannot be
+ * read counts all the same: storage damage fails safe.
+ */
+function paidElsewhereSeen(record: QbitSendPlanRecord): boolean {
+  return record.paidBy !== undefined || (record.extra !== undefined && LAST_PAID_BY in record.extra)
+}
+
+/**
+ * The last transaction made elsewhere that paid the recipient in `record`'s
+ * payment's place, as `extra` keeps it: what the plan needs to name it
+ * again, read as the store checks `paidBy` (a txid of 64 lower-case hex
+ * digits that is no version of the payment, an amount of at least 1, a fee
+ * of at least 0). Undefined when there is none, or when the entry cannot be
+ * read so, never a throw: a plan names no transaction from such an entry,
+ * and keeps the state all the same (`paidElsewhereSeen`).
+ */
+function lastPaidByOf(record: QbitSendPlanRecord): QbitSendPlanPaidBy | undefined {
+  const value: unknown = record.extra?.[LAST_PAID_BY]
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const { txid, amount, fee } = value as { txid?: unknown; amount?: unknown; fee?: unknown }
+  const count = (item: unknown, min: number): item is number =>
+    typeof item === 'number' && Number.isSafeInteger(item) && item >= min
+  if (typeof txid !== 'string' || !/^[0-9a-f]{64}$/.test(txid)) return undefined
+  const versions = [
+    paymentOf(record).txid,
+    ...(record.earlierPayments ?? []).map(item => item.txid),
+  ]
+  if (versions.includes(txid) || !count(amount, 1) || !count(fee, 0)) return undefined
+  return { txid, amount, fee }
+}
+
+/**
+ * `record` keeping `paidBy` as the last transaction made elsewhere that
+ * paid in its payment's place (see `paidElsewhereSeen`); none lets that go.
+ */
+function withLastPaidBy(
+  record: QbitSendPlanRecordInput,
+  paidBy: QbitSendPlanPaidBy | undefined
+): QbitSendPlanRecordInput {
+  const extra: Record<string, unknown> = { ...(record.extra ?? {}) }
+  if (paidBy === undefined) delete extra[LAST_PAID_BY]
+  else extra[LAST_PAID_BY] = { txid: paidBy.txid, amount: paidBy.amount, fee: paidBy.fee }
+  const next: QbitSendPlanRecordInput = { ...record, extra }
+  if (Object.keys(extra).length === 0) delete next.extra
+  return next
 }
 
 /** Whether the bytes of a version of `record`'s payment ever left the wallet. */
@@ -957,12 +1390,10 @@ function actionsOf(
   // confirms or can no longer confirm: no replan, no cancel.
   const versionMayConfirm = paymentVersionMayConfirm(record)
   // A payment refused without a readable reason may have been refused for
-  // its fee: a raise is offered as for one refused for its fee.
-  if (
-    revisable &&
-    (reason === 'payment_fee_too_low' ||
-      (reason === 'payment_refused' && record.pause?.unexplained === true))
-  ) {
+  // its fee: a raise is offered as for one refused for its fee, and only
+  // when the plan can keep one more version of its payment and a rate a
+  // page can send builds another payment, paying more (see `paymentRaiseOf`).
+  if (paymentFeeRaiseAsked(record) && paymentRaiseOf(record).ok) {
     actions.push('raise_payment_fee')
   }
   // While a version of the payment may still confirm, whatever the plan
@@ -970,10 +1401,13 @@ function actionsOf(
   // merges and the same payment, sent again. Continue authorises signing,
   // which only the user at an unlocked wallet gives: never while it is
   // locked, whatever the plan paused for (see `QbitSendPlanEngine.continue`).
+  // Only a version whose own inputs are not known spent elsewhere can go
+  // again: one the plan forgot, while another transaction that paid the
+  // recipient may still confirm, is not offered (`paymentVersionMayConfirm`).
   if (
     unlocked &&
     reason !== undefined &&
-    (CONTINUABLE.has(reason) || (revisable && versionMayConfirm))
+    (CONTINUABLE.has(reason) || (revisable && dispatchedVersionMayConfirm(record)))
   ) {
     actions.push('continue')
   }
@@ -992,14 +1426,132 @@ function actionsOf(
   // Once the payment's bytes left the wallet its inputs never change, so
   // every version of it spends the same ones and at most one confirms: a
   // merge's fee is no longer raised, which would build the payment on the
-  // replacement's output.
-  if (revisable && slow && settled && mergeFeeRaisable(record) && !paymentDispatched(record)) {
+  // replacement's output. So too once a transaction made elsewhere paid
+  // the recipient in the payment's place (`paidElsewhereSeen`): the payment
+  // conflicts with it on an input they both spend.
+  if (
+    revisable &&
+    slow &&
+    settled &&
+    mergeFeeRaisable(record) &&
+    !paymentDispatched(record) &&
+    !paidElsewhereSeen(record)
+  ) {
     actions.push('raise_merge_fee')
   }
   // A cancel would stop tracking a version of the payment that may still
   // confirm, and free its inputs for a second payment (see `cancellable`).
   if (revisable && !versionMayConfirm) actions.push('cancel')
   return actions
+}
+
+/**
+ * Whether `record` paused on its payment's fee, with nothing that stands
+ * against a revision (see `actionsOf`): the network refused the payment for
+ * its fee, or without a readable reason, which may be for it. A raise of
+ * the payment's fee is offered then only when one can be made
+ * (`paymentRaiseOf`); one asked for when it cannot is refused with the
+ * reason (see `QbitSendPlanEngine.prepareFeeRaise`).
+ */
+function paymentFeeRaiseAsked(record: QbitSendPlanRecord): boolean {
+  const reason = pauseReasonOf(record)
+  return (
+    !paymentMayBeSent(record) &&
+    record.phase !== 'cancelling' &&
+    (reason === 'payment_fee_too_low' ||
+      (reason === 'payment_refused' && record.pause?.unexplained === true))
+  )
+}
+
+/**
+ * Whether a raise of `record`'s payment's fee can be made, and from what
+ * rate: the lowest a page can send at which it builds another payment that
+ * pays more (`paymentRaiseRate`), or why none can. `actionsOf` offers the
+ * raise, and `QbitSendPlanEngine.prepareFeeRaise` prices one, only on a
+ * rate, so neither goes where the other cannot. A plan that keeps as many
+ * earlier versions of its payment as it can takes no raise more, whatever
+ * its funds (`fee_raise_limit_reached`, see `paymentRaiseLimitReached`);
+ * otherwise none is made when no rate a page can send makes the payment pay
+ * more (`fee_not_raisable`).
+ */
+function paymentRaiseOf(
+  record: QbitSendPlanRecord
+):
+  | { ok: true; rate: number }
+  | { ok: false; reason: 'fee_raise_limit_reached' | 'fee_not_raisable' } {
+  if (paymentRaiseLimitReached(record)) return { ok: false, reason: 'fee_raise_limit_reached' }
+  const rate = paymentRaiseRate(record)
+  return rate === undefined ? { ok: false, reason: 'fee_not_raisable' } : { ok: true, rate }
+}
+
+/**
+ * The earlier versions of `record`'s payment that a raise of its fee keeps:
+ * those the plan keeps now, then the payment itself once its bytes left the
+ * wallet, since whichever version confirms is the payment.
+ */
+function earlierPaymentsAfterRaise(record: QbitSendPlanRecord): QbitSendPlanPaymentVersion[] {
+  const replaced = paymentVersionOf(record)
+  return [...(record.earlierPayments ?? []), ...(replaced ? [replaced] : [])]
+}
+
+/**
+ * Whether a raise of `record`'s payment's fee would keep more earlier
+ * versions of its payment than a plan can (`QBIT_SEND_PLAN_MAX_EARLIER_PAYMENTS`,
+ * past which the store refuses the plan): its fee has been raised as many
+ * times as a plan allows. The same payment can still be sent again, or the
+ * plan cancelled, as `actionsOf` offers.
+ */
+function paymentRaiseLimitReached(record: QbitSendPlanRecord): boolean {
+  return earlierPaymentsAfterRaise(record).length > QBIT_SEND_PLAN_MAX_EARLIER_PAYMENTS
+}
+
+/** The most any version of `record`'s payment pays as fee: the payment's own, or an earlier version's. */
+function highestPaymentFee(record: QbitSendPlanRecord): number {
+  return Math.max(
+    paymentOf(record).fee,
+    ...(record.earlierPayments ?? []).map(version => version.fee)
+  )
+}
+
+/**
+ * The lowest rate a page can send, in hundredths of a bit/vB, at which a
+ * raise of `record`'s payment's fee builds another payment that pays more
+ * than every version of it so far (`lowestQbitSendPlanPaymentRaiseRate`,
+ * over the payment's own inputs, for its target and its outputs, as
+ * `QbitSendPlanEngine.prepareFeeRaise` prices it). Undefined when none can:
+ * a payment for an amount without change already pays as fee everything its
+ * inputs hold above the amount, whatever the rate, and priced again is the
+ * very transaction it was; a large payment whose change is just above dust
+ * cannot pay the fee of any higher rate in hundredths; and so too when the
+ * payment's transaction cannot be read, as no raise could build on it.
+ */
+function paymentRaiseRate(record: QbitSendPlanRecord): number | undefined {
+  const payment = paymentOf(record)
+  try {
+    const keys = qbitSendPlanAccountKeys(record.account.pubkey)
+    const { memoOutputs } = qbitSendPlanPaymentTerms(payment.unsignedPsbtHex, record.change)
+    const shape: QbitSendPlanRevisionShape = {
+      paymentOutputScriptLengths: [
+        qbitSendPlanAddressScript(record.chain, record.recipient).length,
+        ...memoOutputs.map(output => output.scriptPubKey.length),
+      ],
+      accountScriptLength: keys.scriptPubKey.length,
+      leafScriptLength: keys.leafScript.length,
+      controlBlockLength: keys.controlBlock.length,
+    }
+    return lowestQbitSendPlanPaymentRaiseRate(
+      shape,
+      payment.inputs.reduce((total, input) => total + input.satoshis, 0),
+      payment.inputs.length,
+      record.target === 'everything'
+        ? { kind: 'everything' }
+        : { kind: 'amount', amount: record.amount },
+      record.feeRate,
+      highestPaymentFee(record)
+    )
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -1184,11 +1736,13 @@ function newSession(): PlanSession {
     missed: new Map(),
     lookups: new Map(),
     outspends: new Map(),
+    spenderReads: new Map(),
     notSent: new Map(),
     outspendsCursor: 0,
     confirmedCursor: 0,
     paymentInputsCursor: 0,
     mergesUnreadAt: undefined,
+    checkedInputs: new Set(),
     firstSigning: undefined,
     pageChallengeGone: false,
     undoing: false,
@@ -1243,6 +1797,35 @@ export class QbitSendPlanEngine {
    * (`endPlansOf`), and how many endings of them are under way.
    */
   private readonly endings = new Map<string, { count: number; underWay: number }>()
+  /**
+   * The accounts an ending left something of, a storage write having been
+   * refused (`endPlansOf`): each keeps one ending more under way, so nothing
+   * of it is signed, broadcast or advanced and no work begins for it, until
+   * an attempt at a later kick finds nothing of it left (`endLeftOver`).
+   */
+  private readonly endingsLeft = new Set<string>()
+  /**
+   * The records of wallet removals not forgotten yet, by id
+   * (`removalRecorded`, `restoreRemovals`): each holds its accounts back
+   * until it is forgotten on disk (see `endPlansOf`).
+   */
+  private readonly removals = new Map<string, RemovalRecord>()
+  /** The accounts that stored removal records this version cannot read name: held back for good. */
+  private removalsUnreadable = new Set<string>()
+  /**
+   * The accounts the removal records hold back (`holdForRemovals`), each
+   * keeping one ending more under way, as `endingsLeft` does.
+   */
+  private readonly removalHeld = new Set<string>()
+  /**
+   * The removal records storage refused to forget, by id: how many times in
+   * a row, and when the next try is due (`settleRemovals`).
+   */
+  private readonly removalsRefused = new Map<string, { refusals: number; retryAt: number }>()
+  /** The attempt under way to end what endings left, if one is (`endLeftOver`). */
+  private endingLeftOver: Promise<void> | undefined = undefined
+  /** What endings left, as last reported or logged (`leftKey`): an attempt logs only a change. */
+  private endingsLeftNoted = ''
   /** By network: how many wallet removals hold it (see `holdNetworksIfIdle`). */
   private readonly networkHolds = new Map<ChainType, number>()
   private timer: unknown = undefined
@@ -1251,10 +1834,32 @@ export class QbitSendPlanEngine {
   private restored = false
   /** How many resets are under way (`halt` to `resume`): while any is, nothing of a plan runs. */
   private halts = 0
+  /**
+   * Whether the store may still hold orphaned plans, those of a wallet whose
+   * keys are gone (see `keysErased`): until it is known to hold none,
+   * nothing of a plan runs, whatever `resume` is called, and their erase is
+   * tried again.
+   */
+  private keysGone = false
+  /**
+   * Whether a keyring reset threw (`keyringResetFailed`) and what storage
+   * holds of the vault, and so whether the keys are gone, has not been read
+   * yet: until it is, nothing of a plan runs, and it is read again.
+   */
+  private keysUnknown = false
+  /** The timer of the next attempt to settle the stopped plans (`settleLater`). */
+  private eraseTimer: unknown = undefined
   /** Plans a discard made readable, being held again (`takeUpMadeReadable`): a reset waits for them. */
   private readonly takingUp = new Set<Promise<void>>()
   /** Moves on with every reset: a loop of an earlier generation stops at its next step. */
   private generation = 0
+  /**
+   * Names this run of the background in every view and every announcement
+   * (`QbitSendPlanView.backgroundId`): random, and new with every engine,
+   * which a start of the service worker makes as it reads the stored plans
+   * again. A page orders views by revision within one run only.
+   */
+  readonly backgroundId = randomHex(16)
 
   constructor(options: QbitSendPlanEngineOptions) {
     this.host = options.host
@@ -1291,8 +1896,21 @@ export class QbitSendPlanEngine {
    * guard still has what the plan's own broadcasts recorded (the inputs of
    * a merge that confirmed, which its hold had let go of), while a spend
    * recorded for any other transaction still pauses it.
+   *
+   * A wallet that keeps no keys has no plans: what the store holds then was
+   * left by a reset that erased the keys and not the plans, and a signed
+   * payment among them needs no key to go out. Those are erased here, never
+   * held, and stay stopped until the erase succeeds (see `keysErased`).
    */
   async restore(): Promise<void> {
+    if (this.orphanedPlansStored()) {
+      this.restored = true
+      await this.eraseOrphanedPlans()
+      if (this.orphanedPlansStored()) {
+        this.settleLater()
+        return
+      }
+    }
     const restoration = await this.guard.restorePlanHolds(this.store.planHolds())
     this.restored = true
     this.keepRestoration(restoration)
@@ -1353,10 +1971,14 @@ export class QbitSendPlanEngine {
    * are read before it does anything else (`readApproval`). A plan of
    * another network is not advanced now, and the key may sign there before
    * it is: such a continue of it approves no figures, and its next
-   * signature waits for another continue.
+   * signature waits for another continue. Each removal record storage
+   * refused to forget is tried again now (`settleRemovals`).
    */
   onUnlock(): void {
     if (!this.started) return
+    // Every removal record storage refused to forget is tried at this kick,
+    // whenever its next try was due (`settleRemovals`).
+    for (const refused of this.removalsRefused.values()) refused.retryAt = this.now()
     const chain = this.host.activeChain()
     for (const [planId, session] of this.sessions) {
       if (session.approvalDue && this.storedChainOf(planId) !== chain) session.approvalDue = false
@@ -1397,7 +2019,7 @@ export class QbitSendPlanEngine {
 
   /**
    * Forget everything in memory: drafts go, signing stops, and sessions and
-   * the timer go; an advance of an earlier generation stops at its next
+   * the timers go; an advance of an earlier generation stops at its next
    * step. `halt` starts with this when the wallet is reset.
    */
   reset(): void {
@@ -1412,6 +2034,8 @@ export class QbitSendPlanEngine {
     this.sessions.clear()
     if (this.timer !== undefined) this.timers.clearTimeout(this.timer)
     this.timer = undefined
+    if (this.eraseTimer !== undefined) this.timers.clearTimeout(this.eraseTimer)
+    this.eraseTimer = undefined
   }
 
   /**
@@ -1433,9 +2057,37 @@ export class QbitSendPlanEngine {
       ...[...this.starts.values()].map(start => start.result),
       ...[...this.continues.values()].flatMap(continues => [...continues]),
       ...this.takingUp,
+      this.endingLeftOver,
     ].filter((work): work is Promise<unknown> => work !== undefined)
     this.reset()
     await Promise.allSettled(underWay)
+  }
+
+  /**
+   * The reset `halt` stopped the plans for has erased the wallet's keys,
+   * and a stored signed payment needs none to go out: from here no stored
+   * plan goes on again, whichever step of the reset fails next. Until the
+   * store is known to hold no plan, nothing of one runs, whatever `resume`
+   * is called, and the erase the reset makes next is tried again: at every
+   * tick, by the next reset and at the next start (`restore`). Once the
+   * store holds none, the engine goes on, for a wallet set up since too.
+   */
+  keysErased(): void {
+    this.keysGone = true
+    this.keysUnknown = false
+  }
+
+  /**
+   * The keyring reset of the reset `halt` stopped the plans for threw. The
+   * keyring service stores the erased vault before it changes memory, so
+   * the keys may be gone from storage while memory still holds them, and a
+   * restart would read storage: whether they are gone is read from there
+   * when the reset resumes (`plansStayStopped`). While it cannot be read,
+   * the stored plans stay stopped, and it is read again at every tick, or
+   * settled by the next reset.
+   */
+  keyringResetFailed(): void {
+    this.keysUnknown = true
   }
 
   /**
@@ -1443,11 +2095,23 @@ export class QbitSendPlanEngine {
    * other reset is under way, the engine goes on from what is stored, as
    * at start-up (`restore`, then advancing, if it had): nothing after a
    * reset, and the plans as they are after one that failed, whose signing
-   * waits for the user's continue.
+   * waits for the user's continue. While the stored plans stay stopped
+   * (`plansStayStopped`), it does not go on, and they are settled at the
+   * next tick (`settleLater`).
    */
   async resume(): Promise<void> {
     this.halts = Math.max(0, this.halts - 1)
-    if (this.halted()) return
+    if (this.halts > 0) return
+    const generation = this.generation
+    const stopped = await this.plansStayStopped()
+    // A reset begun meanwhile decides at its own `resume`.
+    if (this.generation !== generation || this.halts > 0) return
+    if (stopped) this.settleLater()
+    else await this.goOn()
+  }
+
+  /** Go on from what is stored, as at start-up: see `resume`. */
+  private async goOn(): Promise<void> {
     // What work under way made of the sessions while halted is forgotten,
     // with whatever they took.
     for (const planId of [...this.sessions.keys()]) this.dropSession(planId)
@@ -1462,15 +2126,147 @@ export class QbitSendPlanEngine {
   }
 
   private halted(): boolean {
-    return this.halts > 0
+    return this.halts > 0 || this.keysGone || this.keysUnknown
   }
 
-  /** Resolves once no advance runs, for a caller that must see the engine settle. */
+  /**
+   * Whether the stored plans stay stopped: the store holds some, and their
+   * keys are gone (`orphanedPlansStored`) or, after a keyring reset that
+   * threw, whether they are cannot be read yet. That is read from storage,
+   * as a restart reads it, never from memory alone, and an answer that
+   * cannot be read is no answer: the plans stay stopped. Keeps `keysGone`
+   * and `keysUnknown` so.
+   */
+  private async plansStayStopped(): Promise<boolean> {
+    if (this.storeHoldsNothing()) {
+      this.keysGone = false
+      this.keysUnknown = false
+      return false
+    }
+    if (this.keysUnknown) {
+      const generation = this.generation
+      let stored: boolean
+      try {
+        stored = await this.keyring.hasPersistedVault()
+      } catch (error) {
+        this.log('Whether a failed wallet reset erased the keys could not be read', error)
+        return true
+      }
+      // A reset begun meanwhile reads it again at its own `resume`.
+      if (this.generation !== generation) return true
+      this.keysUnknown = false
+      if (!stored) this.keysGone = true
+    }
+    return this.orphanedPlansStored()
+  }
+
+  /**
+   * Whether the store may hold orphaned plans, which never go on: the keys
+   * were erased (`keysErased`), or the wallet keeps none, and the store is
+   * not known to hold no plan. Keeps `keysGone` so.
+   */
+  private orphanedPlansStored(): boolean {
+    this.keysGone = !this.storeHoldsNothing() && (this.keysGone || !this.keysKept())
+    return this.keysGone
+  }
+
+  /**
+   * Whether the store is known to hold no plan, readable or not. One that
+   * never loaded holds none this worker can read or advance: its plans are
+   * judged once it loads, at the next start (`restore`).
+   */
+  private storeHoldsNothing(): boolean {
+    try {
+      const unreadable = this.store.unreadable()
+      return (
+        unreadable.document === undefined &&
+        unreadable.plans.length === 0 &&
+        this.store.list().length === 0
+      )
+    } catch (error) {
+      return error instanceof QbitSendPlanStoreError && error.code === 'not_initialized'
+    }
+  }
+
+  /**
+   * Whether the wallet keeps its keys. A keyring that cannot tell is taken
+   * to keep them: no plan is erased on a guess.
+   */
+  private keysKept(): boolean {
+    try {
+      return this.keyring.hasVault()
+    } catch {
+      return true
+    }
+  }
+
+  /**
+   * Erase every stored plan, readable or not, and, once the store is known
+   * to hold none, let go of what each held: the orphaned plans (`keysGone`).
+   * A failed erase is logged.
+   */
+  private async eraseOrphanedPlans(): Promise<void> {
+    let held: string[] = []
+    try {
+      held = this.store.planHolds().map(entry => entry.planId)
+    } catch {
+      // A store that cannot be read names no hold.
+    }
+    try {
+      await this.store.resetAllData()
+    } catch (error) {
+      if (!(error instanceof QbitSendPlanStoreError && error.code === 'not_initialized')) {
+        this.log('Orphaned Qbit send plans could not be erased', error)
+      }
+    }
+    if (!this.storeHoldsNothing()) return
+    await Promise.allSettled(held.map(planId => this.guard.releasePlanOutpoints(planId)))
+  }
+
+  /**
+   * Settle the stopped plans at the next tick (`settleStopped`). Never while
+   * a reset is under way: its `resume` decides, and calls this again if they
+   * stay stopped, so that the engine goes on once.
+   */
+  private settleLater(): void {
+    if (this.eraseTimer !== undefined || this.halts > 0) return
+    this.eraseTimer = this.timers.setTimeout(() => {
+      this.eraseTimer = undefined
+      this.settleStopped().catch(error =>
+        this.log('Stopped Qbit send plans could not be settled', error)
+      )
+    }, QBIT_SEND_PLAN_TICK_MS)
+  }
+
+  /**
+   * At a tick while the stored plans stay stopped: read whether their keys
+   * are gone if that is not known, erase them if they are, and go on once
+   * nothing keeps them stopped, or try again at the next tick.
+   */
+  private async settleStopped(): Promise<void> {
+    if (!(this.keysGone || this.keysUnknown)) return
+    const generation = this.generation
+    let stopped = await this.plansStayStopped()
+    if (stopped && this.keysGone && this.generation === generation) {
+      await this.eraseOrphanedPlans()
+      stopped = await this.plansStayStopped()
+    }
+    // A reset begun meanwhile decides at its own `resume`.
+    if (this.generation !== generation || this.halts > 0) return
+    if (stopped) this.settleLater()
+    else await this.goOn()
+  }
+
+  /**
+   * Resolves once no advance runs, nor an attempt to end what endings left
+   * (`endLeftOver`), for a caller that must see the engine settle.
+   */
   async idle(): Promise<void> {
     for (;;) {
-      const running = [...this.sessions.values()]
-        .map(session => session.running)
-        .filter((promise): promise is Promise<void> => promise !== undefined)
+      const running = [
+        ...[...this.sessions.values()].map(session => session.running),
+        this.endingLeftOver,
+      ].filter((promise): promise is Promise<void> => promise !== undefined)
       if (running.length === 0) return
       await Promise.allSettled(running)
     }
@@ -1510,9 +2306,7 @@ export class QbitSendPlanEngine {
       const unreadable = this.store.unreadable()
       // A document that cannot be read may hold a plan on any network.
       if (unreadable.document !== undefined) return true
-      if (unreadable.plans.some(plan => plan.chain === undefined || chains.has(plan.chain))) {
-        return true
-      }
+      if (unreadable.plans.some(plan => this.unreadableOn(plan, chains))) return true
     } catch (error) {
       // A store that never loaded holds no plan; one that cannot be read may hold any.
       if (!(error instanceof QbitSendPlanStoreError && error.code === 'not_initialized'))
@@ -1524,9 +2318,35 @@ export class QbitSendPlanEngine {
   }
 
   /**
+   * Whether `entry`, which the store cannot read, may be a plan on one of
+   * `chains`: on the network it names; with no network, on every network
+   * when it names no address either, else on the networks its address is a
+   * P2MR address of, as the host checks a recipient's address
+   * (`QbitSendPlanEngineHost.recipientScript`). Only an account of such a
+   * network has that address: a readable plan's account address is the
+   * address of the account's key on the plan's network, which the store
+   * checks (`qbitSendPlanRecordKeys`), decoding it as a P2MR address the
+   * same way.
+   */
+  private unreadableOn(entry: QbitSendPlanUnreadable, chains: ReadonlySet<ChainType>): boolean {
+    if (entry.chain !== undefined) return chains.has(entry.chain)
+    const address = entry.address
+    if (address === undefined) return true
+    return [...chains].some(chain => {
+      try {
+        this.host.recipientScript(chain, address)
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
+  /**
    * A ticket for work on the account of `address` on `chain` beginning now,
-   * or nothing while its plans are being ended (`endPlansOf`): no work
-   * begins for an account whose wallet is being removed.
+   * or nothing while its plans are being ended (`endPlansOf`) or a wallet
+   * removal's record names it (`removalRecorded`): no work begins for an
+   * account whose wallet is being removed.
    */
   private ticketFor(chain: ChainType, address: string): WorkTicket | undefined {
     if (this.halted() || this.networkHolds.has(chain)) return undefined
@@ -1538,13 +2358,18 @@ export class QbitSendPlanEngine {
 
   /**
    * Whether work begun under `ticket` has lost: the engine was reset since,
-   * or the account's plans were ended since or are being ended now.
+   * or the account's plans were ended since or are being ended now. A wallet
+   * removal's record that names the account (`removalHeld`) does not make
+   * it lose: work begun before the record goes on, held back with the
+   * account's plans, until the removal ends them or the record goes.
    */
   private lost(ticket: WorkTicket): boolean {
     if (ticket.generation !== this.generation || this.halted()) return true
     if (this.networkHolds.has(chainOfAccountKey(ticket.account))) return true
     const ending = this.endings.get(ticket.account)
-    return ending !== undefined && (ending.underWay > 0 || ending.count !== ticket.endings)
+    if (ending === undefined) return false
+    const recorded = this.removalHeld.has(ticket.account) ? 1 : 0
+    return ending.underWay - recorded > 0 || ending.count !== ticket.endings
   }
 
   /** Count `work`, a continue of `account`'s plan, as under way until it settles. */
@@ -1570,6 +2395,9 @@ export class QbitSendPlanEngine {
    * as a draft, which reserves nothing; see `QbitSendPlanPrepareResult`.
    */
   async prepare(params: unknown): Promise<QbitSendPlanPrepareResult> {
+    // Before any await: a lock or a wallet's removal while a revision is
+    // settled below leaves the read of the outputs keeping nothing.
+    const since = this.host.beginOutputsRead()
     const request = readQbitSendPlanRequest(params)
     const chain = this.host.activeChain()
     if (!QBIT_CHAINS.has(chain)) throw new Error('Qbit send plans need a Qbit network')
@@ -1589,9 +2417,14 @@ export class QbitSendPlanEngine {
     ): QbitSendPlanPrepareResult => ({ ok: false, reason, maxSendable, unconfirmedSatoshis })
 
     // No plan is prepared for an account whose plans are being ended: its
-    // wallet is being removed.
+    // wallet is being removed. While a removal's record names it, the
+    // refusal says what holds it back.
     const ticket = this.ticketFor(chain, address)
-    if (!ticket) throw new Error(QBIT_SEND_PLAN_ACCOUNT_REQUIRED)
+    if (!ticket) {
+      const recorded =
+        !this.halted() && !this.networkHolds.has(chain) && this.removalHeld.has(draftKey)
+      throw new Error(recorded ? QBIT_SEND_PLAN_REMOVAL_UNDER_WAY : QBIT_SEND_PLAN_ACCOUNT_REQUIRED)
+    }
     // A plan is being started for the account: the draft being started
     // stays, and this prepare is refused.
     if (this.starts.has(draftKey)) return refusal('plan_open')
@@ -1669,12 +2502,13 @@ export class QbitSendPlanEngine {
         enableRBF,
         revised,
         refusal,
+        since,
       })
     }
 
     let coins: QbitSendPlanCoin[]
     try {
-      coins = await this.host.spendableOutputs(chain, account, revised?.id)
+      coins = await this.host.spendableOutputs(chain, account, revised?.id, since)
     } catch (error) {
       this.log('Qbit send plan could not read the account outputs', error)
       return refusal('outputs_unavailable')
@@ -1876,11 +2710,18 @@ export class QbitSendPlanEngine {
   /**
    * The background decides what may be done with a plan, and a page only
    * offers that (`QbitSendPlanView.actions`): a revision the plan does not
-   * offer now is a request no page should make, and throws.
+   * offer now is a request no page should make, and throws. But a page
+   * showing an earlier view may still ask to raise the fee of a payment
+   * paused on its fee that no raise can make pay more, or whose fee has been
+   * raised as many times as a plan allows: that one goes on to be refused
+   * with a reason the page shows (see `prepareFeeRaise`).
    */
   private assertOffered(record: QbitSendPlanRecord, kind: QbitSendPlanRevision['kind']): void {
     const offered = actionsOf(record, this.host.isUnlocked(), slowMergeOf(record, this.now()))
-    if (!offered.includes(kind)) {
+    if (
+      !offered.includes(kind) &&
+      !(kind === 'raise_payment_fee' && paymentFeeRaiseAsked(record))
+    ) {
       throw new Error('The Qbit send plan does not offer this revision now')
     }
   }
@@ -1961,6 +2802,16 @@ export class QbitSendPlanEngine {
    * (`fee_rate_too_low`, with the lowest rate that does).
    * `raise_payment_fee` builds the payment again over the same inputs at
    * the new rate, which must be above the plan's, and keeps every merge.
+   * The payment it builds must pay more than every version of it so far,
+   * which only a different transaction does: when no rate a page can send
+   * makes it (`paymentRaiseRate`: an amount whose payment returns no change
+   * already pays as fee everything its inputs hold above the amount) the
+   * raise is refused at any rate (`fee_not_raisable`), and a rate too low to
+   * raise the fee is refused naming the lowest that does (`fee_rate_too_low`).
+   * The payment it replaces is kept as an earlier version of it, and a plan
+   * keeping as many as it can is refused any raise more, at any rate
+   * (`fee_raise_limit_reached`), before anything else is asked (see
+   * `paymentRaiseOf`, which `actionsOf` offers the raise by).
    * Either is refused, as an error, for a plan a replan alone can carry on:
    * one whose raised merge's earlier version confirmed instead.
    */
@@ -1981,6 +2832,8 @@ export class QbitSendPlanEngine {
       maxSendable?: number,
       unconfirmedSatoshis?: number
     ) => QbitSendPlanPrepareResult
+    /** What `host.beginOutputsRead` gave when the request began. */
+    since: unknown
   }): Promise<QbitSendPlanPrepareResult> {
     const { request, kind, chain, account, keys, recipientScript, memoOutputs, revised, refusal } =
       context
@@ -2008,22 +2861,29 @@ export class QbitSendPlanEngine {
         throw new Error('The Qbit send plan has no merge waiting for confirmation')
       }
     }
+    // The lowest rate a page can send at which the payment's fee rises,
+    // which `actionsOf` offers the raise on; without one, no raise starts,
+    // and the refusal says why.
+    const paymentRaiseFound = raisesMerges ? undefined : paymentRaiseOf(revised)
+    if (paymentRaiseFound && !paymentRaiseFound.ok) return refusal(paymentRaiseFound.reason)
+    const paymentRaise = paymentRaiseFound?.rate
+    const tooLow = (): QbitSendPlanPrepareResult => ({
+      ok: false,
+      reason: 'fee_rate_too_low',
+      maxSendable: 0,
+      unconfirmedSatoshis: 0,
+      minimumFeeRate: paymentRaise ?? lowestQbitSendPlanRaiseRate(shape, sent, revised.feeRate),
+    })
     if (
       !(feeRate > revised.feeRate) ||
       sent.some(merge => !qbitSendPlanMergeReplaceable(shape, merge, feeRate))
     ) {
-      return {
-        ok: false,
-        reason: 'fee_rate_too_low',
-        maxSendable: 0,
-        unconfirmedSatoshis: 0,
-        minimumFeeRate: lowestQbitSendPlanRaiseRate(shape, sent, revised.feeRate),
-      }
+      return tooLow()
     }
 
     let coins: QbitSendPlanCoin[]
     try {
-      coins = await this.host.spendableOutputs(chain, account, revised.id)
+      coins = await this.host.spendableOutputs(chain, account, revised.id, context.since)
     } catch (error) {
       this.log('Qbit send plan could not read the account outputs', error)
       return refusal('outputs_unavailable')
@@ -2064,6 +2924,12 @@ export class QbitSendPlanEngine {
         request.target.kind === 'everything' ? 'nothing_to_send' : 'insufficient_balance',
         priced.maxSendable
       )
+    }
+    // A rate above the plan's whose fee rounds to no more than a version of
+    // the payment paid raises nothing: at the same fee it builds the very
+    // payment that version is, which the plan cannot list twice.
+    if (!raisesMerges && !qbitSendPlanPaymentRaises(priced, highestPaymentFee(revised))) {
+      return tooLow()
     }
 
     const plan: QbitSendPlan<QbitSelectableCoin> = {
@@ -2158,11 +3024,10 @@ export class QbitSendPlanEngine {
       merges.reduce((total, merge) => total + (merge.status === 'confirmed' ? merge.fee : 0), 0)
     // Every version of the payment whose bytes left the wallet is kept: the
     // new one spends the same inputs, so whichever confirms is the payment.
-    const replacedPayment = paymentVersionOf(revised)
-    const earlierPayments = [
-      ...(revised.earlierPayments ?? []),
-      ...(replacedPayment ? [replacedPayment] : []),
-    ]
+    // Never more than a plan keeps: a raise of the payment's fee past them
+    // was refused above (`paymentRaiseOf`), and a merge's fee is raised only
+    // while no version of the payment left the wallet (`actionsOf`).
+    const earlierPayments = earlierPaymentsAfterRaise(revised)
     if (earlierPayments.length > QBIT_SEND_PLAN_MAX_EARLIER_PAYMENTS) {
       throw new Error('Too many earlier versions of this Qbit send plan’s payment')
     }
@@ -2222,6 +3087,13 @@ export class QbitSendPlanEngine {
       extra: {
         mergeBroadcastAt: keptTimes(mergeBroadcastTimes(revised)),
         mergeConfirmedAt: keptTimes(mergeConfirmedTimes(revised)),
+        // The payment keeps its inputs: what paid in its place elsewhere is
+        // remembered, as it is stored (see `paidElsewhereSeen`).
+        ...(kind === 'raise_payment_fee' &&
+        revised.extra !== undefined &&
+        LAST_PAID_BY in revised.extra
+          ? { [LAST_PAID_BY]: revised.extra[LAST_PAID_BY] }
+          : {}),
       },
       revise: { planId: revised.id, revision: revised.revision },
       batch: opened.batch,
@@ -2248,11 +3120,21 @@ export class QbitSendPlanEngine {
    * was last read. Resolves to the record as it is then. A lookup without
    * an answer, or one that misses, leaves the merge as it was.
    *
-   * Then what spends the payment's inputs is identified, afresh: a version
-   * of the payment found in the network, or a transaction paying the
-   * recipient the amount, completes the plan, and the revision is refused;
-   * a spend elsewhere means no version of the payment can confirm any more,
-   * and the plan pauses `outputs_spent` (see `settlePaymentInputSpender`).
+   * Then the first transaction found spending an input of the payment,
+   * other than the payment itself (`inputsSpentElsewhere`, which reads the
+   * outspends afresh and stops at the first input spent so), is identified
+   * and looked up with no stale answer used (`settlePaymentInputSpender`
+   * with `fresh`): a version of the payment found in the network, or a
+   * transaction paying the recipient the amount, completes the plan, and
+   * the revision is refused; a spend elsewhere means no version of the
+   * payment can confirm any more, and the plan pauses `outputs_spent`.
+   * What this does not do: an answer the explorer cannot give now does not
+   * stop the revision. When that transaction cannot be read now, or pays
+   * the recipient but its lookup misses it or goes without an answer now,
+   * or when the outspends of a transaction the payment spends from go
+   * without an answer (hiding what spends its outputs), the plan is left
+   * as it is and the revision is planned all the same; and a transaction
+   * spending another input than the first found is not looked at.
    */
   private async settleBeforeRevision(record: QbitSendPlanRecord): Promise<QbitSendPlanRecord> {
     const session = this.session(record.id)
@@ -2279,10 +3161,11 @@ export class QbitSendPlanEngine {
     if (await this.reconcilePaymentVersions(settled, session, { fresh: true })) {
       return this.store.get(record.id) ?? settled
     }
-    const spender = await this.inputsSpentElsewhere(settled, session, paymentOf(settled))
+    const spend = await this.inputsSpentElsewhere(settled, session, paymentOf(settled))
     if (
-      spender !== undefined &&
-      (await this.settlePaymentInputSpender(settled, session, spender)) === 'elsewhere'
+      spend !== undefined &&
+      (await this.settlePaymentInputSpender(settled, session, spend, { fresh: true })) ===
+        'elsewhere'
     ) {
       await this.pause(record.id, 'outputs_spent')
     }
@@ -2521,14 +3404,16 @@ export class QbitSendPlanEngine {
    * the keyring's coded error (`QBIT_RESTORED_FLOOR_CONFIRMATION_REQUIRED`)
    * when they refuse it. It waits no longer than the plan's first advance:
    * a plan that stops before that signature with the challenge still held
-   * (it pauses, the plan is cancelled, or the wallet is on another network)
-   * is started all the same, and resolves as it is then, its holds those of
-   * the stored record; one whose challenge went before that signature could
-   * check it (a lock, the draft's expiry) is undone (`draft_expired`, see
-   * `begin`). An advance that only made way for a continue writing the plan
-   * (another page's, which then finds nothing to continue) is not that
-   * advance: the continue's end advances the plan again. A plan of an
-   * ordinary key starts whatever happens to its draft meanwhile.
+   * (it pauses, the plan is cancelled, the wallet is on another network, or
+   * a wallet removal's record came to name the account and holds the plan
+   * back) is started all the same, and resolves as it is then, its holds
+   * those of the stored record; one whose challenge went before that
+   * signature could check it (a lock, the draft's expiry) is undone
+   * (`draft_expired`, see `begin`). An advance that only made way for a
+   * continue writing the plan (another page's, which then finds nothing to
+   * continue) is not that advance: the continue's end advances the plan
+   * again. A plan of an ordinary key starts whatever happens to its draft
+   * meanwhile.
    *
    * One start runs at a time for an account (a double click, two wallet
    * pages): a second start of the same draft while the first runs gets the
@@ -2558,7 +3443,14 @@ export class QbitSendPlanEngine {
   }
 
   private async startDraft(draft: PlanDraft | undefined): Promise<QbitSendPlanStartResult> {
-    if (!draft || this.now() > draft.expiresAt || this.lost(draft.ticket)) {
+    // No plan begins for an account a wallet removal's record names, a
+    // draft made before the record included (`removalRecorded`).
+    if (
+      !draft ||
+      this.now() > draft.expiresAt ||
+      this.lost(draft.ticket) ||
+      this.removalHeld.has(accountKeyOf(draft.chain, draft.account.address))
+    ) {
       if (draft) this.dropDraft(draft)
       return { ok: false, reason: 'draft_expired' }
     }
@@ -2878,9 +3770,12 @@ export class QbitSendPlanEngine {
    * undone, nothing of it signed or sent, and answers `draft_expired`; the
    * page reviews again and confirms the new review's challenge. A first
    * advance that ends with the challenge still held (another network, a
-   * pause) leaves the plan started, its first signature still to be made
-   * under that challenge. An undo writes back, or removes, only the very
-   * record the start wrote: when anything else changed the plan since
+   * pause, or a wallet removal's record that came to name the account
+   * while the start held its outpoints, for which `run` returns at once,
+   * the plan waiting until the record goes: `removalRecorded`) leaves the
+   * plan started, its first signature still to be made under that
+   * challenge. An undo writes back, or removes, only the very record the
+   * start wrote: when anything else changed the plan since
    * (another page's cancel, during the first signature), that stands,
    * nothing of the session is restored, and the start answers
    * `draft_expired` (see `undoRevision` and `undoStart`).
@@ -3287,36 +4182,56 @@ export class QbitSendPlanEngine {
    * or written, whatever the plan paused for, and none is offered then
    * (`actionsOf`). A continue made while unlocked whose figures a lock kept
    * from being read has them read after the unlock (`readApproval`).
+   *
+   * The continue approves the plan the page shows, never only the one
+   * stored: `termsDigest` is the digest of the terms of the view the page
+   * shows (`QbitSendPlanView.termsDigest`), and anything but a digest is
+   * refused before anything is read (`readQbitSendPlanTermsDigest`). The
+   * store is plain extension storage, so after a restart it may hold
+   * another record under the plan's id, at any revision, while a page
+   * still shows the plan as it was. Unless the plan stored states exactly
+   * the terms shown (`termsDigestOf`), when the call arrives and again in
+   * the write that resumes it, the continue is refused
+   * (`QbitSendPlanNotAsShownError`) before anything is authorised, written,
+   * held or signed, and the page reads the plan again.
    */
-  async continue(planId: unknown): Promise<QbitSendPlanView> {
+  async continue(planId: unknown, termsDigest: unknown): Promise<QbitSendPlanView> {
+    const shown = readQbitSendPlanTermsDigest(termsDigest)
     const record = this.ownPlan(planId)
     if (!this.host.isUnlocked()) {
       throw new Error('The Qbit send plan cannot continue while the wallet is locked')
     }
+    if (this.termsDigestOf(record) !== shown) throw new QbitSendPlanNotAsShownError()
     const ticket = this.ticketFor(record.chain, record.account.address)
     if (!ticket) throw new Error('The Qbit send plan is not open')
-    const work = this.continuePlan(record, ticket)
+    const work = this.continuePlan(record, ticket, shown)
     this.trackContinue(ticket.account, work)
     return work
   }
 
   private async continuePlan(
     record: QbitSendPlanRecord,
-    ticket: WorkTicket
+    ticket: WorkTicket,
+    shown: string
   ): Promise<QbitSendPlanView> {
     const session = this.session(record.id)
     if (!session.adopted) await this.adopt(record.id)
     if (this.lost(ticket)) throw new Error('The Qbit send plan is not open')
     let resumed = false
     let lost = false
+    let notAsShown = false
     let outcome: Awaited<ReturnType<QbitSendPlanEngine['mutate']>>
     session.continuing += 1
     try {
       outcome = await this.mutate(record.id, current => {
         resumed = false
+        notAsShown = false
         // Offered only while the wallet is unlocked: a lock since the call
         // refuses it, as a continue while locked is.
         if (!actionsOf(current, this.host.isUnlocked()).includes('continue')) return undefined
+        // What the page shows is what is resumed, or nothing is.
+        notAsShown = this.termsDigestOf(current) !== shown
+        if (notAsShown) return undefined
         resumed = true
         const reason = pauseReasonOf(current)
         const next: QbitSendPlanRecordInput = { ...current, phase: resumedPhase(current) }
@@ -3352,6 +4267,7 @@ export class QbitSendPlanEngine {
       if (session.continuing === 0) void this.advance(record.id)
     }
     if (lost) throw new Error('The Qbit send plan is not open')
+    if (notAsShown) throw new QbitSendPlanNotAsShownError()
     if (!resumed) throw new Error('The Qbit send plan cannot continue now')
     this.ensureTimer()
     const current = outcome.record ?? this.store.get(record.id)
@@ -3374,11 +4290,14 @@ export class QbitSendPlanEngine {
    * included; but one that failed the checks of what its transactions are
    * is, whatever its payment's state, under the same rules, since nothing
    * else ends it (`cancellable`). An unreadable stored
-   * plan is dropped from storage, the one entry its account was shown (a
-   * document of another version, shown to every account, goes whole): what
-   * it held cannot be read, so it held nothing. An entry that only the one
-   * dropped made unreadable reads as its plan again, and is taken up as a
-   * restart takes up a stored plan (`takeUpMadeReadable`).
+   * plan is dropped from storage, the one entry its account was shown (an
+   * entry naming only part of an account is shown to every account it could
+   * be the plan of, with no plan of its own, and goes alone; a document of
+   * another version, shown to every account, goes whole): what it held
+   * cannot be read, so it held nothing.
+   * An entry that only the one dropped made unreadable reads as its plan
+   * again, and is taken up as a restart takes up a stored plan
+   * (`takeUpMadeReadable`).
    */
   async cancel(planId: unknown): Promise<QbitSendPlanView | null> {
     if (this.halted()) throw new Error('The Qbit send plan is not open')
@@ -3388,8 +4307,9 @@ export class QbitSendPlanEngine {
     if (unreadable && account) {
       const view = this.unreadableView(unreadable, chain, account.address)
       if (planId === view.id) {
-        // The entry shown to this account and nothing else; a document of
-        // another version is shown to every account, and goes whole.
+        // The entry shown to this account and nothing else, an entry naming
+        // only part of an account included; a document of another version is
+        // shown to every account, and goes whole.
         await this.discardUnreadable(
           'key' in unreadable ? { key: unreadable.key } : { document: true }
         )
@@ -3446,12 +4366,53 @@ export class QbitSendPlanEngine {
    * still confirm (`paymentVersionMayConfirm`), or that completed, cannot be
    * un-sent: its record and its holds go all the same, there being no
    * wallet left to follow it for, and it is named in `mayHaveBeenSent`. An
-   * entry the store cannot read, filed under one of the accounts, goes too
-   * (a document of another version, which may hold any account's plan,
-   * stays); an entry that only such an entry made unreadable reads as its
-   * plan again, and is ended here when it is one of the accounts', and goes
-   * on, held again, when it is not (`takeUpMadeReadable`). Never throws: a
-   * plan that cannot be ended now is logged and left as it was.
+   * entry the store cannot read, filed under one of the accounts or naming
+   * only an address that is one of theirs (`accountOfEntry`), goes too (a
+   * document of another version, which may hold any account's plan, stays,
+   * and so does an entry naming no address); an entry that only such an
+   * entry made unreadable reads as its plan again, and is ended here when it
+   * is one of the accounts', and goes on, held again, when it is not
+   * (`takeUpMadeReadable`).
+   *
+   * Never throws, and a storage write refused on the way stops none of it:
+   * an entry that cannot be dropped, or a plan whose ending cannot be
+   * written, is logged and left as it was, and every other entry and plan
+   * is ended all the same. What is left is named in `notEnded`
+   * (`QbitSendPlanEnding`) and held back: the accounts it is of stay being
+   * ended, so nothing of it is signed, broadcast or advanced, no work
+   * begins for them, and an entry of theirs made readable is held again but
+   * goes no further. It is ended again, by these rules, at every kick of
+   * the engine (each tick, the timer running while anything is left; each
+   * unlock; the end of a reset), until nothing of the accounts is left, its
+   * holds going with it (`endLeftOver`); what is left is logged again only
+   * when it changes, and a plan such an attempt ends whose payment may be
+   * in the network is logged as the removal logs one. What the removal left
+   * is told to every wallet page once, by the wallet as the removal
+   * completes (`QbitSendPlansNotEndedNotice`).
+   *
+   * The holding back outlives a restart through the removal's record, which
+   * the wallet writes to disk before it removes anything, naming the
+   * accounts it ends (`removalRecorded`), and hands back to the engine as it
+   * starts (`restoreRemovals`). Until the record is forgotten on disk, the
+   * accounts it names are held back as left-overs are, whatever the store
+   * holds: nothing of their plans is signed, broadcast or advanced, and no
+   * work begins for them. With `removal`, the id of the record of the
+   * removal that has removed the wallet, the record is forgotten once
+   * nothing of its accounts is left, nor anything the store cannot tell the
+   * account of that may be one of theirs (which an account it may be the
+   * plan of, with no plan of its own, is shown, for the user to drop:
+   * `unreadableFor`), here when nothing is, else by the attempt that ends
+   * the last of it; one storage refuses to forget is tried again at later
+   * kicks, spaced out, its accounts held back meanwhile (`settleRemovals`).
+   * A record read as the background starts is judged
+   * from the keyring (`QbitSendPlanEngineHost.judgeRemoval`) once it can
+   * be: its wallet gone, its accounts' plans are ended by these rules, and
+   * the record then forgotten; its wallet still there, the record is
+   * forgotten, nothing ended. Until then nothing of them is ended. As no
+   * work begins for an account while a record names it, a plan stored under
+   * such an account was made before that record was written, by the wallet
+   * removed or by work begun before; ending it never ends a plan of a
+   * wallet added since, the same wallet added again included.
    *
    * Work under way for the accounts settles first, and none begins until
    * this resolves (see `lost`): a prepare keeps no draft; a start answers
@@ -3461,11 +4422,14 @@ export class QbitSendPlanEngine {
    * others, and an advance broadcasts nothing more for them (`mayBroadcast`).
    * So when this resolves, no plan of the accounts is stored, held,
    * authorised or about to be written, beyond what a cancel keeps: the
-   * inputs of a merge of unknown outcome, until it is found or proven absent.
+   * inputs of a merge of unknown outcome, until it is found or proven
+   * absent; and beyond what a refused write left, held back as above.
    */
   async endPlansOf(
-    accounts: readonly { chain: ChainType; address: string }[]
-  ): Promise<{ ended: string[]; mayHaveBeenSent: string[] }> {
+    accounts: readonly { chain: ChainType; address: string }[],
+    removal?: string
+  ): Promise<QbitSendPlanEnding> {
+    const record = removal === undefined ? undefined : this.removals.get(removal)
     const owned = new Set(accounts.map(item => accountKeyOf(item.chain, item.address)))
     for (const account of owned) {
       const ending = this.endings.get(account) ?? { count: 0, underWay: 0 }
@@ -3473,6 +4437,8 @@ export class QbitSendPlanEngine {
       ending.underWay += 1
       this.endings.set(account, ending)
     }
+    let outcome: { ended: string[]; mayHaveBeenSent: string[] } = { ended: [], mayHaveBeenSent: [] }
+    let notEnded: QbitSendPlanEnding['notEnded']
     try {
       for (const draft of [...this.drafts.values()]) {
         if (owned.has(accountKeyOf(draft.chain, draft.account.address))) this.dropDraft(draft)
@@ -3480,13 +4446,43 @@ export class QbitSendPlanEngine {
       // Nothing of the accounts signs any more, whatever it awaits now.
       this.stopSigningOf(owned)
       await this.settleWorkOf(owned)
-      return await this.endStoredPlansOf(owned)
+      outcome = await this.endStoredPlansOf(owned)
     } finally {
+      // What is left is read and held back with nothing awaited between,
+      // so no account is let go of while something of it is stored.
+      const left = this.leftOf(owned)
+      notEnded = left.notEnded
       for (const account of owned) {
         const ending = this.endings.get(account)
         if (ending) ending.underWay -= 1
+        this.holdBack(account, left.accounts.has(account))
       }
+      // What is left now is what the removal reports (`notEnded`): a later
+      // attempt logs only a change of it.
+      this.endingsLeftNoted = this.leftKey(this.leftOf(this.endingsLeft).notEnded)
+      // The wallet is gone: from here its record's accounts are ended with
+      // what endings left, until nothing of them is (`endLeftOver`).
+      if (record) record.wallet = 'removed'
     }
+    // Its record is forgotten at once when nothing of its accounts is left;
+    // otherwise, or when storage refuses, at a later kick.
+    if (removal !== undefined && record) {
+      await this.settleRemovals([[removal, record]])
+      this.ensureTimer()
+    }
+    return notEnded ? { ...outcome, notEnded } : outcome
+  }
+
+  /**
+   * What is left now of the plans of `accounts` that an ending did not end,
+   * as `endPlansOf` reports it (`QbitSendPlanEnding.notEnded`); undefined
+   * when nothing is.
+   */
+  notEndedOf(
+    accounts: readonly { chain: ChainType; address: string }[]
+  ): QbitSendPlanEnding['notEnded'] {
+    return this.leftOf(new Set(accounts.map(item => accountKeyOf(item.chain, item.address))))
+      .notEnded
   }
 
   /** Stop the signing of every stored plan of the `owned` accounts, and authorise none. */
@@ -3526,40 +4522,42 @@ export class QbitSendPlanEngine {
 
   /**
    * End every stored plan of the `owned` accounts, as `endPlansOf` says.
-   * The entries the store cannot read go first, the store read again after
-   * each: dropping one can make another readable, and one of the accounts
-   * made readable so is among the plans read once none of their entries is
-   * left unreadable, and is ended with them.
+   * Their entries the store cannot read (`accountOfEntry`) go first, the
+   * store read again after each: dropping one can make another readable,
+   * and one of the accounts made readable so is among the plans read once
+   * none of their entries is left unreadable, and is ended with them. An
+   * entry that cannot be dropped, or a plan that cannot be ended, is logged
+   * to `log` and stops nothing: what is left is read afterwards (`leftOf`).
    */
   private async endStoredPlansOf(
-    owned: ReadonlySet<string>
+    owned: ReadonlySet<string>,
+    log: (message: string, error?: unknown) => void = this.log
   ): Promise<{ ended: string[]; mayHaveBeenSent: string[] }> {
     const ended: string[] = []
     const mayHaveBeenSent: string[] = []
     let records: QbitSendPlanRecord[]
     try {
-      const discarded = new Set<string>()
+      const tried = new Set<string>()
       for (;;) {
         const entry = this.store
           .unreadable()
-          .plans.find(
-            item =>
-              item.chain !== undefined &&
-              item.address !== undefined &&
-              owned.has(accountKeyOf(item.chain, item.address)) &&
-              !discarded.has(item.key)
-          )
+          .plans.find(item => accountOfEntry(item, owned) !== undefined && !tried.has(item.key))
         if (!entry) break
-        discarded.add(entry.key)
-        await this.discardUnreadable({ key: entry.key })
-        this.host.announce(
-          entry.id ?? QBIT_SEND_PLAN_UNREADABLE_ID,
-          QBIT_SEND_PLAN_VIEW_REVISION_STRIDE
-        )
+        tried.add(entry.key)
+        try {
+          await this.discardUnreadable({ key: entry.key })
+          this.host.announce(
+            entry.id ?? QBIT_SEND_PLAN_UNREADABLE_ID,
+            QBIT_SEND_PLAN_VIEW_REVISION_STRIDE
+          )
+        } catch (error) {
+          // It stays as it was: unreadable, holding nothing.
+          log('An entry of a removed wallet the store cannot read could not be dropped', error)
+        }
       }
       records = this.store.list()
     } catch (error) {
-      this.log('Qbit send plans of a removed wallet could not be read', error)
+      log('Qbit send plans of a removed wallet could not be read', error)
       return { ended, mayHaveBeenSent }
     }
     for (const record of records) {
@@ -3597,10 +4595,351 @@ export class QbitSendPlanEngine {
           this.ensureTimer()
         }
       } catch (error) {
-        this.log('A Qbit send plan of a removed wallet could not be ended', error)
+        log('A Qbit send plan of a removed wallet could not be ended', error)
       }
     }
     return { ended, mayHaveBeenSent }
+  }
+
+  /**
+   * What an ending leaves of the plans of `accounts` now: each readable
+   * plan of theirs that is not cancelling (one cancelling is ended, waiting
+   * only for a merge's outcome), and each entry the store cannot read that
+   * is one of theirs, filed under it or naming only its address
+   * (`accountOfEntry`); all of them, when the store cannot be read.
+   */
+  private leftOf(accounts: ReadonlySet<string>): {
+    accounts: Set<string>
+    notEnded?: QbitSendPlanEnding['notEnded']
+  } {
+    const left = new Set<string>()
+    if (accounts.size === 0) return { accounts: left }
+    const plans: string[] = []
+    const unreadable: string[] = []
+    try {
+      for (const record of this.store.list()) {
+        const account = accountKeyOf(record.chain, record.account.address)
+        if (record.phase === 'cancelling' || !accounts.has(account)) continue
+        left.add(account)
+        plans.push(record.id)
+      }
+      for (const entry of this.store.unreadable().plans) {
+        const account = accountOfEntry(entry, accounts)
+        if (account === undefined) continue
+        left.add(account)
+        unreadable.push(entry.id ?? QBIT_SEND_PLAN_UNREADABLE_ID)
+      }
+    } catch {
+      return {
+        accounts: new Set(accounts),
+        notEnded: { plans: [], unreadable: [], storeUnavailable: true },
+      }
+    }
+    return left.size === 0
+      ? { accounts: left }
+      : { accounts: left, notEnded: { plans, unreadable } }
+  }
+
+  /**
+   * Whether the store may hold a plan of one of `accounts` that it cannot
+   * tell the account of: a document this version cannot read, which may
+   * hold any account's plan; an entry naming no address, of no network or
+   * of a network one of them is on (what `couldBePlanOf` asks of an entry
+   * with no address), which only the user can drop, from the page of such
+   * an account (`unreadableFor`); or the
+   * store cannot be read. An entry naming an address is one account's at
+   * most (`accountOfEntry`): one of theirs is ended with their plans and
+   * counted as left until it goes (`leftOf`), and another account's is not
+   * theirs. A removal's record outlives what counts (`settleRemovals`).
+   */
+  private unattributableFor(accounts: ReadonlySet<string>): boolean {
+    try {
+      const unreadable = this.store.unreadable()
+      if (unreadable.document !== undefined) return true
+      const chains = new Set([...accounts].map(chainOfAccountKey))
+      return unreadable.plans.some(
+        entry =>
+          entry.address === undefined && (entry.chain === undefined || chains.has(entry.chain))
+      )
+    } catch {
+      return true
+    }
+  }
+
+  /**
+   * Hold `account`'s ending under way for what an ending `left` of it, or,
+   * once nothing of it is left, let go of that hold (see `endingsLeft`).
+   */
+  private holdBack(account: string, left: boolean): void {
+    const ending = this.endings.get(account)
+    if (!ending) return
+    if (left && !this.endingsLeft.has(account)) {
+      this.endingsLeft.add(account)
+      ending.underWay += 1
+      this.ensureTimer()
+    } else if (!left && this.endingsLeft.delete(account)) {
+      ending.underWay -= 1
+    }
+  }
+
+  /** `notEnded` as a key that tells two of them apart, or '' when nothing is left. */
+  private leftKey(notEnded: QbitSendPlanEnding['notEnded']): string {
+    if (!notEnded) return ''
+    return JSON.stringify([
+      [...notEnded.plans].sort(),
+      [...notEnded.unreadable].sort(),
+      notEnded.storeUnavailable === true,
+    ])
+  }
+
+  /**
+   * End again what endings left (`endPlansOf`), as they end it, unless an
+   * attempt is under way or the wallet is being reset; run at every kick
+   * (`kickAll`), and a reset waits for it (`halt`). The removal records not
+   * judged yet are judged first, when they can be (`judgeRemovals`), and
+   * the accounts of each whose wallet is gone are ended with the left-overs.
+   * An account found with nothing left is let go of; one with something
+   * left stays held back for the next kick, the timer running. Then each
+   * record whose wallet is known is forgotten when it can be
+   * (`settleRemovals`). A refusal is not logged on its own: what is left is
+   * logged when it changes, with a refusal of this attempt, and so is the
+   * end of it; and a plan ended whose payment may be in the network is
+   * logged as the removal logs one.
+   */
+  private endLeftOver(): void {
+    if (this.endingLeftOver !== undefined || this.halted()) return
+    this.judgeRemovals()
+    const accounts = new Set(this.endingsLeft)
+    for (const record of this.removals.values()) {
+      if (record.wallet === 'removed') for (const account of record.accounts) accounts.add(account)
+    }
+    if (accounts.size === 0 && !this.removalsToSettle()) return
+    let refusal: unknown
+    this.endingLeftOver = (async (): Promise<void> => {
+      if (accounts.size > 0) {
+        const { mayHaveBeenSent } = await this.endStoredPlansOf(accounts, (_message, error) => {
+          refusal ??= error
+        })
+        const left = this.leftOf(accounts)
+        for (const account of accounts) this.holdBack(account, left.accounts.has(account))
+        if (mayHaveBeenSent.length > 0) {
+          this.log(qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length))
+        }
+        const now = this.leftOf(this.endingsLeft).notEnded
+        const key = this.leftKey(now)
+        if (key !== this.endingsLeftNoted) {
+          this.endingsLeftNoted = key
+          if (now) this.log(qbitSendPlansNotEndedNote(now), refusal)
+          else this.log(QBIT_SEND_PLANS_ENDED_NOW_NOTE)
+        }
+      }
+      await this.settleRemovals([...this.removals])
+    })()
+      .catch((error: unknown) => {
+        this.log('What a removed wallet left of its Qbit send plans could not be ended', error)
+      })
+      .finally(() => {
+        this.endingLeftOver = undefined
+        this.ensureTimer()
+      })
+  }
+
+  /**
+   * A wallet removal has stored its record on disk, under `id`, naming
+   * `accounts`, the accounts whose plans it ends, before it removes
+   * anything: from here until the record is forgotten on disk, they are
+   * held back as endings' left-overs are, and no work begins for them (see
+   * `endPlansOf`): no prepare, start or continue. Work begun before goes on
+   * and is answered as it ends (a start, a revision or a continue under
+   * way), its plan held back with the others, until the removal ends them
+   * (`endPlansOf`, which work still under way then loses to) or the record
+   * goes and they advance again (`lost`).
+   * What became of the wallet is told by `endPlansOf` with `id` (removed)
+   * or by `removalUndone` (it stays); until then nothing of the accounts is
+   * ended, and the record is judged only as the host allows
+   * (`QbitSendPlanEngineHost.judgeRemoval`).
+   */
+  removalRecorded(id: string, accounts: readonly { chain: ChainType; address: string }[]): void {
+    const record: RemovalRecord = {
+      accounts: new Set(accounts.map(item => accountKeyOf(item.chain, item.address))),
+    }
+    this.removals.set(id, record)
+    for (const account of record.accounts) this.holdForRemovals(account)
+  }
+
+  /**
+   * The removal that stored record `id` failed before it removed anything:
+   * its wallet stays, and the record is forgotten, nothing of its accounts
+   * ended. They stay held back until storage took that, tried now, and
+   * again at every kick while storage refuses. Never rejects.
+   */
+  async removalUndone(id: string): Promise<void> {
+    const record = this.removals.get(id)
+    if (!record) return
+    record.wallet = 'stays'
+    await this.settleRemovals([[id, record]])
+    this.ensureTimer()
+  }
+
+  /**
+   * The wallet removal records the background found stored as it started,
+   * each by its id and the accounts it names, and every account that a
+   * stored record this version cannot read names (`unreadable`), handed to
+   * the engine before anything of a plan advances: each account is held
+   * back until the record naming it is forgotten on disk. A record is
+   * judged and settled as `endPlansOf` says. The accounts a record this
+   * version cannot read names stay held back while the background runs, and
+   * nothing of them is ended: what that record means is not known here.
+   * What the engine kept of earlier records goes.
+   */
+  restoreRemovals(stored: {
+    records: readonly {
+      id: string
+      accounts: readonly { chain: ChainType; address: string }[]
+    }[]
+    unreadable: readonly { chain: ChainType; address: string }[]
+  }): void {
+    const touched = new Set([...this.removalHeld])
+    this.removals.clear()
+    this.removalsRefused.clear()
+    this.removalsUnreadable = new Set(
+      stored.unreadable.map(item => accountKeyOf(item.chain, item.address))
+    )
+    for (const record of stored.records) {
+      this.removals.set(record.id, {
+        accounts: new Set(record.accounts.map(item => accountKeyOf(item.chain, item.address))),
+      })
+    }
+    for (const record of this.removals.values()) {
+      for (const account of record.accounts) touched.add(account)
+    }
+    for (const account of this.removalsUnreadable) touched.add(account)
+    for (const account of touched) this.holdForRemovals(account)
+  }
+
+  /**
+   * Judge each removal record whose wallet is not known yet, as the host
+   * judges it from the keyring now (`QbitSendPlanEngineHost.judgeRemoval`):
+   * its wallet gone, or there still; one no longer stored goes, its
+   * accounts let go of. One the host cannot judge now waits.
+   */
+  private judgeRemovals(): void {
+    const released = new Set<string>()
+    for (const [id, record] of [...this.removals]) {
+      if (record.wallet !== undefined) continue
+      const verdict = this.host.judgeRemoval(id)
+      if (verdict === 'removed' || verdict === 'stays') {
+        record.wallet = verdict
+      } else if (verdict === 'forgotten') {
+        this.removals.delete(id)
+        for (const account of record.accounts) {
+          this.holdForRemovals(account)
+          if (!this.removalHeld.has(account)) released.add(account)
+        }
+      }
+    }
+    this.advanceAccounts(released)
+  }
+
+  /**
+   * Forget on disk each of the removal records `entries` names whose
+   * wallet is known: one whose wallet stays at once, and one whose wallet is
+   * gone once nothing of its accounts is left (`leftOf`) and the store holds
+   * nothing it cannot tell the account of that may be the plan of one of
+   * them (`unattributableFor`). Once storage has taken it, its accounts are
+   * let go of, unless another record names them, and their plans advance
+   * again. One storage refuses to forget stays, holding its accounts back,
+   * and is tried again at a later kick: one whose wallet stays, which holds
+   * back a wallet in use, at every kick (each tick, each unlock); one whose
+   * wallet is gone at the kick its next try is due, the tries spaced out
+   * (`qbitSendPlanRetrySpacing`: 15 seconds after its first refusal, then
+   * twice as long each time, every 8 minutes at most), and at each unlock
+   * (`onUnlock`). A try is one write of the forget's own, after which the
+   * preferences' storage adapter saves the whole store once more on its own
+   * (see `PreferenceService.forgetQbitSendPlanRemoval`); only the first
+   * refusal in a row of each is logged here. Never rejects.
+   */
+  private async settleRemovals(
+    entries: readonly (readonly [string, RemovalRecord])[]
+  ): Promise<void> {
+    const released = new Set<string>()
+    for (const [id, record] of entries) {
+      if (record.wallet === undefined || this.removals.get(id) !== record) continue
+      if (
+        record.wallet === 'removed' &&
+        (this.leftOf(record.accounts).accounts.size > 0 || this.unattributableFor(record.accounts))
+      ) {
+        continue
+      }
+      const refused = this.removalsRefused.get(id)
+      if (refused && this.now() < refused.retryAt) continue
+      try {
+        await this.host.forgetRemoval(id)
+      } catch (error) {
+        const refusals = (refused?.refusals ?? 0) + 1
+        const spacing = record.wallet === 'stays' ? 0 : qbitSendPlanRetrySpacing(refusals)
+        this.removalsRefused.set(id, { refusals, retryAt: this.now() + spacing })
+        if (refusals === 1) this.log(QBIT_SEND_PLAN_REMOVAL_KEPT_NOTE, error)
+        continue
+      }
+      this.removalsRefused.delete(id)
+      // Another settling, or a judgement that found it no longer stored,
+      // let go of it meanwhile.
+      if (this.removals.get(id) !== record) continue
+      this.removals.delete(id)
+      for (const account of record.accounts) {
+        this.holdForRemovals(account)
+        if (!this.removalHeld.has(account)) released.add(account)
+      }
+    }
+    this.advanceAccounts(released)
+  }
+
+  /**
+   * Hold `account` back while a removal record names it, one ending more
+   * under way, as `holdBack` holds an ending's left-overs; once none does,
+   * let go of that hold (see `removalHeld`).
+   */
+  private holdForRemovals(account: string): void {
+    const named =
+      this.removalsUnreadable.has(account) ||
+      [...this.removals.values()].some(record => record.accounts.has(account))
+    if (named && !this.removalHeld.has(account)) {
+      const ending = this.endings.get(account) ?? { count: 0, underWay: 0 }
+      ending.underWay += 1
+      this.endings.set(account, ending)
+      this.removalHeld.add(account)
+    } else if (!named && this.removalHeld.delete(account)) {
+      const ending = this.endings.get(account)
+      if (ending) ending.underWay -= 1
+    }
+  }
+
+  /**
+   * Whether a removal record whose wallet is known waits to be settled
+   * (`settleRemovals`): the timer runs while one does (`ensureTimer`).
+   */
+  private removalsToSettle(): boolean {
+    return [...this.removals.values()].some(record => record.wallet !== undefined)
+  }
+
+  /** Advance the stored plans of `accounts` on the active network, which a hold let go of. */
+  private advanceAccounts(accounts: ReadonlySet<string>): void {
+    if (accounts.size === 0 || !this.started || this.halted()) return
+    let plans: QbitSendPlanRecord[]
+    try {
+      plans = this.store.list()
+    } catch {
+      return
+    }
+    const chain = this.host.activeChain()
+    for (const record of plans) {
+      if (record.chain !== chain) continue
+      if (accounts.has(accountKeyOf(record.chain, record.account.address))) {
+        void this.advance(record.id)
+      }
+    }
+    this.ensureTimer()
   }
 
   /** Remove a completed plan. */
@@ -3616,6 +4955,9 @@ export class QbitSendPlanEngine {
       }
       return 'delete'
     })
+    // A dismissed plan keeps the timer running no longer; one reopened
+    // meanwhile is refused, as it is (see `reopenCompleted`).
+    this.ensureTimer()
     if (refused) throw new Error('Only a completed Qbit send plan can be dismissed')
   }
 
@@ -3719,8 +5061,17 @@ export class QbitSendPlanEngine {
 
   /**
    * What the store cannot read for `address` on `chain`: an entry filed
-   * under that account, or the whole document (another version), which
-   * every account is shown, since it may hold any account's plan.
+   * under that account; else what may be the account's plan though it does
+   * not name the account: the whole document (another version), which may
+   * hold any account's plan, or an entry naming only part of an account that
+   * could be this one (`couldBePlanOf`: naming nothing of an account, only
+   * this network, or only this address). An account with a readable plan of
+   * its own is shown such an entry only once that plan is gone (`findOpen`:
+   * a completed one once dismissed), its plan shown meanwhile. The account
+   * is shown it in place of a plan, and its cancel drops it (`cancel`);
+   * until then no plan is prepared or started for the account
+   * (`plan_open`). A wallet removal's record waits for it to go when it
+   * could be the plan of one of the record's accounts (`unattributableFor`).
    */
   private unreadableFor(
     chain: ChainType,
@@ -3728,13 +5079,18 @@ export class QbitSendPlanEngine {
   ): QbitSendPlanUnreadable | { document: true } | undefined {
     const unreadable = this.store.unreadable()
     if (unreadable.document) return { document: true }
-    return unreadable.plans.find(plan => plan.chain === chain && plan.address === address)
+    const own = unreadable.plans.find(plan => plan.chain === chain && plan.address === address)
+    if (own) return own
+    if (this.store.findOpen(chain, address)) return undefined
+    return unreadable.plans.find(plan => couldBePlanOf(plan, chain, address))
   }
 
   /**
    * A stored plan this version cannot read, as its account is shown it:
    * paused `unreadable`, with only `cancel`, which drops it from storage.
-   * Its outputs are not held, since what it would hold cannot be read.
+   * Its outputs are not held, since what it would hold cannot be read. It
+   * names this run of the background, as every view does, and states no
+   * terms (`QbitSendPlanView.termsDigest`).
    */
   private unreadableView(
     unreadable: QbitSendPlanUnreadable | { document: true },
@@ -3763,6 +5119,7 @@ export class QbitSendPlanEngine {
       createdAt: 0,
       updatedAt: 0,
       revision: 1,
+      backgroundId: this.backgroundId,
     }
   }
 
@@ -3804,6 +5161,7 @@ export class QbitSendPlanEngine {
 
   private kickAll(): void {
     if (this.halted()) return
+    this.endLeftOver()
     let plans: QbitSendPlanRecord[]
     try {
       plans = this.store.list()
@@ -3826,7 +5184,15 @@ export class QbitSendPlanEngine {
    * a page's read does, so with every page closed it completes once a
    * version is found, or forgets the versions once none can confirm. A plan
    * that failed the checks of what its transactions are keeps no timer for
-   * its versions: nothing completes it from its record.
+   * its versions: nothing completes it from its record. A completed plan
+   * whose named transaction has not confirmed (its payment step is not
+   * `confirmed`) keeps the timer running too, as a waiting plan does: a
+   * page's read, an unlock or another plan's tick is not enough, since with
+   * every page closed it must still name what replaced that transaction, or
+   * reopen when nothing pays the recipient (see `stepCompleted`); once that
+   * transaction has confirmed, or the plan is dismissed, it keeps the timer
+   * no longer. It runs as well while an ending left something
+   * (`endLeftOver`).
    */
   private ensureTimer(): void {
     if (!this.started || this.halted()) return
@@ -3839,12 +5205,13 @@ export class QbitSendPlanEngine {
             ['signing', 'waiting', 'sending', 'cancelling'].includes(record.phase) ||
             (record.phase === 'paused' &&
               (paymentMayBeSent(record) ||
-                (paymentVersionMayConfirm(record) && !failedItsChecks(record))))
+                (paymentVersionMayConfirm(record) && !failedItsChecks(record)))) ||
+            (record.phase === 'completed' && paymentOf(record).status !== 'confirmed')
         )
     } catch {
       return
     }
-    if (!active) {
+    if (!active && this.endingsLeft.size === 0 && !this.removalsToSettle()) {
       if (this.timer !== undefined) this.timers.clearTimeout(this.timer)
       this.timer = undefined
       return
@@ -3866,6 +5233,10 @@ export class QbitSendPlanEngine {
       if (this.generation !== generation) return false
       const record = this.store.get(planId)
       if (!record) return false
+      // Held back until the ending that left it ends it (`endingsLeft`), and
+      // while a wallet removal's record names its account (`removalHeld`).
+      const account = accountKeyOf(record.chain, record.account.address)
+      if (this.endingsLeft.has(account) || this.removalHeld.has(account)) return false
       if (record.chain !== this.host.activeChain()) {
         // A continue's figures are read on the plan's network only: the key
         // may sign on another before the plan is back (see `onUnlock`).
@@ -4167,6 +5538,35 @@ export class QbitSendPlanEngine {
     // The keyring's last report of this signing: what it took so far.
     let progress: { signed: number; cached: number } | undefined
     try {
+      // A signing that cannot go on (a cancel, a lock, a revision's swap, a
+      // reset, another network) reads nothing: refused here, before any
+      // lookup, as after every await below.
+      this.assertSigningStands(record, session, step, stop, locksBefore)
+      const own = qbitSendPlanOwnOutputs(record, keys)
+      // Before the plan's first signature, and the first after a revision or
+      // a restart: every input still to be signed that this session has not
+      // checked, in one pass (`checkPlanInputs`).
+      if (await this.checkPlanInputs(record, session, stop, keys, own)) {
+        this.assertSigningStands(record, session, step, stop, locksBefore)
+      }
+      // Every input it spends, read and checked against its funding
+      // transaction first (`host.checkSpendInputs`); an output of one of this
+      // plan's own merges against that merge as the record holds it, never
+      // read. The overlap check, the batch and the keyring, which takes a
+      // unit only after that, come after it, and so does
+      // `assertSigningStands`. The inputs are checked as outputs of the
+      // account the plan was started for (`record.account`), which it signs
+      // for whichever account is selected, as it always has: unlike a send
+      // signed from a page, it does not stop when another account is
+      // selected.
+      await this.host.checkSpendInputs(
+        record.chain,
+        address,
+        step.inputs.map(input => ({ ...input, scriptPk: bytesToHex(keys.scriptPubKey) })),
+        own,
+        stop.signal
+      )
+      this.assertSigningStands(record, session, step, stop, locksBefore)
       const held = desiredHolds(record)
       const presented = step.inputs.every(input => held.has(outpointKey(input)))
         ? session.hold
@@ -4280,13 +5680,73 @@ export class QbitSendPlanEngine {
       if (locked || errorCode(error) === ErrorCodes.WALLET_LOCKED_DURING_SIGNING) {
         await this.pause(record.id, 'locked')
       } else {
-        await this.pause(record.id, 'interrupted', errorDetail(error))
+        // An input that failed its check pauses the plan with that cause,
+        // which the plan's screen names in full; the technical detail is the
+        // check's own account of it.
+        const inputCheck = inputCheckPauseOf(error)
+        if (inputCheck) {
+          // The inputs of the transaction it failed on are checked again by
+          // the next pass, should a continue or a replan sign one of them:
+          // what passed the pass and then failed its step's own check is not
+          // taken as checked.
+          forgetCheckedInputs(session, errorCause(error))
+          await this.pause(record.id, inputCheck, errorDetail(errorCause(error)))
+        } else {
+          await this.pause(record.id, 'interrupted', errorDetail(error))
+        }
       }
       return undefined
     } finally {
       if (session.stop === stop) session.stop = undefined
       this.refreshView(record.id)
     }
+  }
+
+  /**
+   * One pass, before the plan signs any of them, over the inputs it has not
+   * checked in this session: every input of every step still to be signed
+   * (a void merge never is) that spends no output of the plan's own merges
+   * (`own`), read and
+   * checked (`host.checkSpendInputs`) under the signing's stop signal,
+   * riding out the explorer's server errors as each step's check does. So
+   * an input that fails pauses the plan, naming its cause, before its first
+   * signature, and before the first of a revision (a replan or a fee raise)
+   * or after a restart for the inputs those bring in, instead of after the
+   * merges before it were signed and sent. Done in the first step's signing
+   * rather than when the plan is prepared: a review can be prepared again
+   * and again before one is started, the pass needs the plan's stop signal
+   * (a cancel, a lock or a reset ends it), and it runs once for what the
+   * plan will sign. Its deadline grows with the lookups it may make (see
+   * `QbitSendPlanEngineHost.checkSpendInputs`). Resolves to whether it read
+   * anything; rejects as the check does.
+   */
+  private async checkPlanInputs(
+    record: QbitSendPlanRecord,
+    session: PlanSession,
+    stop: AbortController,
+    keys: { scriptPubKey: Uint8Array },
+    own: ReadonlyMap<string, readonly { value: number; script: string }[]>
+  ): Promise<boolean> {
+    const scriptPk = bytesToHex(keys.scriptPubKey)
+    const pending = new Map<
+      string,
+      { txid: string; vout: number; satoshis: number; scriptPk: string }
+    >()
+    for (const item of record.steps) {
+      // Only what will be signed: a void merge (its replaced version
+      // confirmed instead) is never signed (`assertSigningStands`).
+      if (item.status !== 'planned' || isVoid(item)) continue
+      for (const input of item.inputs) {
+        const key = outpointKey(input)
+        if (own.has(input.txid.toLowerCase()) || session.checkedInputs.has(key)) continue
+        pending.set(key, { ...input, scriptPk })
+      }
+    }
+    if (pending.size === 0) return false
+    const inputs = [...pending.values()]
+    await this.host.checkSpendInputs(record.chain, record.account.address, inputs, own, stop.signal)
+    for (const key of pending.keys()) session.checkedInputs.add(key)
+    return true
   }
 
   /**
@@ -4575,7 +6035,7 @@ export class QbitSendPlanEngine {
           if (
             record &&
             step &&
-            paymentVersionMayConfirm(record) &&
+            dispatchedVersionMayConfirm(record) &&
             (await this.inputsSpentElsewhere(record, session, step))
           ) {
             await this.forgetPaymentVersions(planId)
@@ -4738,7 +6198,17 @@ export class QbitSendPlanEngine {
       if (!step || isVoid(step)) return undefined
       const status = state === 'confirmed' ? 'confirmed' : 'broadcast'
       if (step.kind === 'payment') {
-        if (step.status === status && record.phase === 'completed') return undefined
+        // Completed, a payment found as it stands changes nothing, and one
+        // confirmed is the payment for good, as every other writer has it
+        // (`completeWithFound`, `completeWithVersion`, `completeWithPaidBy`):
+        // a late answer `pending` (a prepare's lookup can answer after a
+        // tick found it confirmed) does not take it back.
+        if (
+          record.phase === 'completed' &&
+          (step.status === status || step.status === 'confirmed')
+        ) {
+          return undefined
+        }
         if (record.phase === 'cancelling') return undefined
         const next: QbitSendPlanRecordInput = withStep(record, txid, item => {
           const sent: QbitSendPlanStepRecord = { ...item, status }
@@ -4747,7 +6217,16 @@ export class QbitSendPlanEngine {
         })
         next.phase = 'completed'
         delete next.pause
-        return next
+        if (status !== 'confirmed') return next
+        // Confirmed, it is the payment for good, as `completeWithFound` has
+        // it: no other version can confirm, so none is kept; what paid in its
+        // place elsewhere is let go of (see `paidElsewhereSeen`) and named no
+        // more. A plan completed with such a transaction meanwhile (a
+        // prepare's lookup can answer after a tick named one) would otherwise
+        // show it as the payment that confirmed.
+        delete next.earlierPayments
+        delete next.paidBy
+        return withLastPaidBy(next, undefined)
       }
       if (step.status === status) return undefined
       let next = withStep(record, txid, item => {
@@ -4828,8 +6307,9 @@ export class QbitSendPlanEngine {
    * page's read, an unlock): a read within that time of the last one is
    * answered with what that one found, which the plan has already acted
    * on. Pages read every few seconds, and every page reads, so this is what
-   * bounds the explorer's load. A lifecycle read takes at most two requests
-   * and an outspends read one (see `spendersOf`). Of a plan of n merges, r
+   * bounds the explorer's load. A lifecycle read takes at most two requests,
+   * an outspends read one (see `spendersOf`) and a spender's read one (see
+   * `readSpender`), each made at most once a tick too. Of a plan of n merges, r
    * of them replacing an earlier version, c carried merges and e earlier
    * versions of its payment, each of the n + r + 1 + c + e transactions is
    * read at most once and each merge's outspends at most once. Besides, a
@@ -4841,7 +6321,9 @@ export class QbitSendPlanEngine {
    * transaction whose outputs it spends read once more, afresh, at most
    * 106; and a
    * transaction found spending an input of the payment that the plan does
-   * not list is read once and looked up once afresh (`identifySpender`).
+   * not list, the first found, is read at most once a tick and not again
+   * once a read answered listing that input (`identifySpender`), and looked
+   * up at most once a tick (`settlePaymentInputSpender`).
    * Paused while a version of its payment may still confirm, a plan reads
    * the outspends of the payment's other parents too, each at most once
    * (`paymentInputSpender`), at most 106 - n; and immediately before each
@@ -4851,10 +6333,28 @@ export class QbitSendPlanEngine {
    * requests in any 15 s however often it is read, one dispatch of the
    * payment included: 249 for four merges, and 1,537 (about 102 a second)
    * for the largest plan, 106 merges replacing 106, carrying 212 and keeping
-   * 16 earlier versions of its payment. A
+   * 16 earlier versions of its payment. Paused `outputs_spent` after a
+   * transaction made elsewhere paid in the payment's place, its own payment
+   * unable to go, a plan whose entry of that transaction cannot be read
+   * (`lastPaidByOf`) reads what spends its payment's inputs as a completed
+   * plan does (`readPaymentInputs`, below): at most 106 + 318 more. A
    * revision's prepare asks afresh too, for the merges it settles, the
    * versions of the payment and what spends the payment's inputs: the
    * user's request, once per review.
+   *
+   * A completed plan whose named transaction has not confirmed (see
+   * `stepCompleted`), which the timer advances as well, looks up the
+   * transaction it names, its own payment beside a `paidBy`, and each of the
+   * e earlier versions of its payment it keeps, each at most once: 2(2 + e)
+   * requests. While the named one is proven absent (`settleCompleted`), it
+   * reads the outspends of each transaction whose outputs the payment
+   * spends, at most once each and at most 8 per advance, 106 at most, and
+   * reads and looks up each spender found, at most once each, one per input
+   * at most: 3 · 106. It reads nothing of what spends its merges' inputs.
+   * So it makes at most 2(2 + e) + 106 + 318 requests in any 15 s however
+   * often it is read: 428 without earlier versions, and 460 (about 31 a
+   * second) with 16 earlier versions; and none once that transaction has
+   * confirmed. Reopened, it is a paused plan, and the bound above holds.
    */
   private async lookup(
     record: QbitSendPlanRecord,
@@ -4995,11 +6495,11 @@ export class QbitSendPlanEngine {
     }
     if (await this.reconcileCarried(record, session)) changed = true
     if (changed) return 'again'
-    const spender = await this.outputsSpentElsewhere(record, session)
-    if (spender !== undefined) {
+    const spend = await this.outputsSpentElsewhere(record, session)
+    if (spend !== undefined) {
       // A merge's output is an input of the payment: what spends it is
       // identified before the plan pauses (`settlePaymentInputSpender`).
-      const settled = await this.settlePaymentInputSpender(record, session, spender)
+      const settled = await this.settlePaymentInputSpender(record, session, spend)
       if (settled === undefined) return 'idle'
       if (settled === 'elsewhere') await this.pause(record.id, 'outputs_spent')
       return 'again'
@@ -5062,7 +6562,7 @@ export class QbitSendPlanEngine {
   private async paymentInputSpender(
     record: QbitSendPlanRecord,
     session: PlanSession
-  ): Promise<string | undefined> {
+  ): Promise<PaymentInputSpend | undefined> {
     const payment = paymentOf(record)
     const vouts = new Map<string, number[]>()
     for (const input of payment.inputs) {
@@ -5076,7 +6576,9 @@ export class QbitSendPlanEngine {
       if (spenders === undefined) continue
       for (const vout of vouts.get(parent) ?? []) {
         const spender = spenders[vout]
-        if (spender !== undefined && spender !== payment.txid) return spender
+        if (spender !== undefined && spender !== payment.txid) {
+          return { spender, outpoint: outpointKey({ txid: parent, vout }) }
+        }
       }
     }
     session.paymentInputsCursor += count
@@ -5087,7 +6589,7 @@ export class QbitSendPlanEngine {
   private async outputsSpentElsewhere(
     record: QbitSendPlanRecord,
     session: PlanSession
-  ): Promise<string | undefined> {
+  ): Promise<PaymentInputSpend | undefined> {
     const sent = mergesOf(record).filter(
       merge => merge.status === 'broadcast' || merge.status === 'confirmed'
     )
@@ -5096,7 +6598,9 @@ export class QbitSendPlanEngine {
     for (let index = 0; index < count; index++) {
       const merge = at(sent, (session.outspendsCursor + index) % sent.length)
       const spender = (await this.spendersOf(record, session, merge.txid))?.[0]
-      if (spender !== undefined && spender !== payment) return spender
+      if (spender !== undefined && spender !== payment) {
+        return { spender, outpoint: outpointKey(mergeOutput(merge)) }
+      }
     }
     session.outspendsCursor += count
     return undefined
@@ -5241,26 +6745,27 @@ export class QbitSendPlanEngine {
     // What spends an input is identified: the payment going through by any
     // version of it completes the plan, and a spend the explorer cannot
     // tell yet is decided on a later send.
-    const spender = await this.inputsSpentElsewhere(record, session, paymentOf(record))
-    if (spender === undefined) return 'payment_refused'
-    const settled = await this.settlePaymentInputSpender(record, session, spender)
+    const spend = await this.inputsSpentElsewhere(record, session, paymentOf(record))
+    if (spend === undefined) return 'payment_refused'
+    const settled = await this.settlePaymentInputSpender(record, session, spend)
     if (settled === 'completed') return 'completed'
     return settled === 'elsewhere' ? 'outputs_spent' : 'waiting'
   }
 
   /**
    * What the explorer shows spending an input of `step` other than the step
-   * itself (or, for a raised merge, the version it replaces), or nothing when
-   * no input is spent so: the outspends of each transaction whose outputs it
-   * spends, read once, stopping at the first input spent elsewhere. Each
-   * read is made afresh, after the refusal it explains: one made before (the
-   * waiting plan reads its merges' outspends) cannot show a spend since.
+   * itself (or, for a raised merge, the version it replaces), and that
+   * input, or nothing when no input is spent so: the outspends of each
+   * transaction whose outputs it spends, read once, stopping at the first
+   * input spent elsewhere. Each read is made afresh, after the refusal it
+   * explains: one made before (the waiting plan reads its merges' outspends)
+   * cannot show a spend since.
    */
   private async inputsSpentElsewhere(
     record: QbitSendPlanRecord,
     session: PlanSession,
     step: QbitSendPlanStepRecord
-  ): Promise<string | undefined> {
+  ): Promise<PaymentInputSpend | undefined> {
     const own = new Set([step.txid, ...(step.replaces ? [step.replaces.txid] : [])])
     const vouts = new Map<string, number[]>()
     for (const input of step.inputs) {
@@ -5271,36 +6776,50 @@ export class QbitSendPlanEngine {
       if (spenders === undefined) continue
       for (const vout of spent) {
         const spender = spenders[vout]
-        if (spender !== undefined && !own.has(spender)) return spender
+        if (spender !== undefined && !own.has(spender)) {
+          return { spender, outpoint: outpointKey({ txid, vout }) }
+        }
       }
     }
     return undefined
   }
 
   /**
-   * What `spender`, a transaction spending an input of `record`'s payment,
-   * is to the plan: a version of its payment (the payment itself, or an
-   * earlier version), a transaction paying the recipient the amount of the
-   * payment or of an earlier version (the payment sent by other means), or
-   * a spend elsewhere. Nothing when the explorer cannot tell.
+   * What `spender`, a transaction the explorer shows spending the inputs of
+   * `record`'s payment in `spent` (each as `outpointKey` writes it), is to
+   * the plan: a version of its payment (the payment itself, or an earlier
+   * version), a transaction paying the recipient the amount of the payment
+   * or of an earlier version (the payment sent by other means), or a spend
+   * elsewhere. Nothing when the explorer cannot tell. A spender is read at
+   * most once a tick, whatever asks for it, and not again once a read
+   * answered (`readSpender`), unless that read is forgotten (below); with
+   * `fresh`, again now when the last read went without an answer.
+   *
+   * The read must list every input in `spent` among the spender's inputs:
+   * one that does not contradicts the outspends that named it, and tells
+   * nothing, as a read without an answer, and it is forgotten as one: the
+   * spender is read again a tick later, and at once with `fresh`. That is a
+   * check of the explorer's answers against each other, at no extra
+   * request, not a proof: no signature of a spender is checked, so an
+   * explorer that serves a whole transaction it made up, spending those
+   * inputs, is believed, as is its word on whether that transaction is
+   * confirmed.
    */
   private async identifySpender(
     record: QbitSendPlanRecord,
-    spender: string
-  ): Promise<
-    | { kind: 'payment' }
-    | { kind: 'version'; version: QbitSendPlanPaymentVersion }
-    | { kind: 'recipient'; paidBy: QbitSendPlanPaidBy }
-    | { kind: 'elsewhere' }
-    | undefined
-  > {
+    session: PlanSession,
+    spender: string,
+    spent: readonly string[],
+    { fresh = false }: { fresh?: boolean } = {}
+  ): Promise<SpenderIdentity | undefined> {
     if (spender === paymentOf(record).txid) return { kind: 'payment' }
     const version = (record.earlierPayments ?? []).find(item => item.txid === spender)
     if (version) return { kind: 'version', version }
-    let read: Awaited<ReturnType<QbitSendPlanEngineHost['transaction']>>
-    try {
-      read = await this.host.transaction(record.chain, spender)
-    } catch {
+    const read = await this.readSpender(record, session, spender, { fresh })
+    if (read === undefined) return undefined
+    const inputs = new Set(read.inputs.map(outpointKey))
+    if (!spent.every(key => inputs.has(key))) {
+      session.spenderReads.set(spender, { at: this.now(), read: undefined })
       return undefined
     }
     const recipient = bytesToHex(qbitSendPlanAddressScript(record.chain, record.recipient))
@@ -5317,6 +6836,39 @@ export class QbitSendPlanEngine {
   }
 
   /**
+   * The inputs, the outputs and the fee of `spender` as the explorer reports
+   * them, or nothing without an answer. Read at most once every
+   * `QBIT_SEND_PLAN_TICK_MS`, as `lookup` reads; a read that answered is
+   * kept for the session, since what a transaction spends and pays never
+   * changes, unless it does not list an input the spender was found
+   * spending (`identifySpender` forgets it then, as a read without an
+   * answer). With `fresh`, one that went without an answer is not reused.
+   */
+  private async readSpender(
+    record: QbitSendPlanRecord,
+    session: PlanSession,
+    spender: string,
+    { fresh = false }: { fresh?: boolean } = {}
+  ): Promise<QbitSendPlanSpenderRead | undefined> {
+    const known = session.spenderReads.get(spender)
+    if (
+      known &&
+      (known.read !== undefined || (!fresh && this.now() - known.at < QBIT_SEND_PLAN_TICK_MS))
+    ) {
+      return known.read
+    }
+    const at = this.now()
+    let read: QbitSendPlanSpenderRead | undefined
+    try {
+      read = await this.host.transaction(record.chain, spender)
+    } catch {
+      read = undefined
+    }
+    session.spenderReads.set(spender, { at, read })
+    return read
+  }
+
+  /**
    * Settle a spend of an input of `record`'s payment by `spender`, which the
    * explorer shows: identified before the plan pauses `outputs_spent`, and
    * before a revision is planned. A version of the payment, or a transaction
@@ -5324,27 +6876,70 @@ export class QbitSendPlanEngine {
    * through: once the explorer finds it, the plan completes with it, and
    * nothing is revised. Anything else spends an input every version of the
    * payment spends, so none of them can confirm any more: the plan forgets
-   * them (`forgetPaymentVersions`), and a replan may be offered. Resolves to
-   * `completed`, `elsewhere`, or nothing when the explorer cannot tell yet.
+   * them (`forgetPaymentVersions`), and a replan may be offered, unless a
+   * transaction made elsewhere ever paid in the payment's place (see
+   * `paymentVersionMayConfirm`). Resolves to `completed`, `elsewhere`, or
+   * nothing when the explorer cannot tell yet. The spender is identified
+   * (`identifySpender`) and looked up (`lookup`) at most once a tick each,
+   * however often a page reads the plan. With `fresh`, the user's request
+   * before a revision (`settleBeforeRevision`), no stale answer is used:
+   * the lookup is asked now, and so is the read unless one already
+   * answered (what a transaction pays never changes), so a miss, or a read
+   * or lookup without an answer, from up to a tick before decides nothing.
+   * That is all `fresh` does: an answer the explorer cannot give now still
+   * resolves to nothing, which does not stop the revision. A spender that
+   * cannot be read now, or that pays the recipient but is missed or not
+   * answered by its lookup now, leaves the plan as it is, and the revision
+   * goes ahead beside it. The plan it completes with is watched as every
+   * completed plan is, so one found pending that disappears is settled
+   * again (see `stepCompleted`).
+   *
+   * `spend` names the spender and the input the explorer showed it
+   * spending: a read of the spender that does not list that input tells
+   * nothing (see `identifySpender`).
    */
   private async settlePaymentInputSpender(
     record: QbitSendPlanRecord,
     session: PlanSession,
-    spender: string
+    { spender, outpoint }: PaymentInputSpend,
+    { fresh = false }: { fresh?: boolean } = {}
   ): Promise<'completed' | 'elsewhere' | undefined> {
-    const identity = await this.identifySpender(record, spender)
+    const identity = await this.identifySpender(record, session, spender, [outpoint], { fresh })
     if (!identity) return undefined
     if (identity.kind === 'elsewhere') {
       await this.forgetPaymentVersions(record.id)
       return 'elsewhere'
     }
-    const state = await this.lookup(record, session, spender, { fresh: true })
+    const state = await this.lookup(record, session, spender, { fresh })
     if (state !== 'pending' && state !== 'confirmed') return undefined
-    if (identity.kind === 'payment') await this.recordFound(record.id, spender, state)
-    else if (identity.kind === 'version') {
-      await this.completeWithVersion(record.id, identity.version, state)
-    } else await this.completeWithPaidBy(record.id, identity.paidBy, state)
+    await this.completeWithSpender(record.id, spender, identity, state)
     return 'completed'
+  }
+
+  /**
+   * Complete plan `planId` with `spender`, found `state`, which spends an
+   * input of its payment and is `identity` to it: the payment itself, a
+   * version of it, or a transaction made elsewhere that pays the recipient
+   * the amount. With `from`, as a completed plan naming `from` switches to
+   * it (see `settleCompleted`). Resolves to whether the plan was written.
+   */
+  private async completeWithSpender(
+    planId: string,
+    spender: string,
+    identity: Exclude<SpenderIdentity, { kind: 'elsewhere' }>,
+    state: 'pending' | 'confirmed',
+    from?: string
+  ): Promise<boolean> {
+    if (identity.kind === 'version') {
+      return this.completeWithVersion(planId, identity.version, state, from)
+    }
+    if (identity.kind === 'recipient') {
+      return this.completeWithPaidBy(planId, identity.paidBy, state, from)
+    }
+    if (from !== undefined) return this.completeWithFound(planId, spender, state, from)
+    const before = this.store.get(planId)?.revision
+    await this.recordFound(planId, spender, state)
+    return this.store.get(planId)?.revision !== before
   }
 
   /**
@@ -5384,16 +6979,30 @@ export class QbitSendPlanEngine {
    * rate, amount and change), and every other version whose bytes left the
    * wallet is kept, the replaced payment included, until the one found has
    * confirmed: they spend the same inputs, and one of them may confirm
-   * instead (see `stepCompleted`).
+   * instead (see `stepCompleted`). A payment found confirmed is the payment
+   * for good: nothing switches it. With `from`, the transaction a completed
+   * plan named when this was decided (`completedNameOf`), the plan switches
+   * only while it is completed and names that still. Resolves to whether
+   * the plan was written.
    */
   private async completeWithVersion(
     planId: string,
     version: QbitSendPlanPaymentVersion,
-    state: 'pending' | 'confirmed'
-  ): Promise<void> {
-    await this.mutate(planId, current => {
+    state: 'pending' | 'confirmed',
+    from?: string
+  ): Promise<boolean> {
+    const outcome = await this.mutate(planId, current => {
       const listed = (current.earlierPayments ?? []).some(item => item.txid === version.txid)
       if (!listed) return undefined
+      if (current.phase === 'completed' && paymentOf(current).status === 'confirmed') {
+        return undefined
+      }
+      if (
+        from !== undefined &&
+        (current.phase !== 'completed' || this.completedNameOf(current) !== from)
+      ) {
+        return undefined
+      }
       const replaced = paymentVersionOf(current)
       const others = [
         ...(current.earlierPayments ?? []).filter(item => item.txid !== version.txid),
@@ -5424,23 +7033,51 @@ export class QbitSendPlanEngine {
       else next.earlierPayments = others
       delete next.pause
       delete next.paidBy
-      return next
+      // Confirmed, it is the payment for good, and what paid in its place
+      // elsewhere is let go of. Found pending, it can be evicted and free
+      // its inputs again: what paid in its place elsewhere, the plan names
+      // no longer but remembers (see `paidElsewhereSeen`).
+      if (state === 'confirmed') return withLastPaidBy(next, undefined)
+      return current.paidBy !== undefined ? withLastPaidBy(next, current.paidBy) : next
     })
+    return outcome.record !== undefined
   }
 
   /**
    * A transaction that is no version of the payment spends its inputs and
    * pays the recipient the amount (`paidBy`): the plan is complete with it,
-   * nothing more is sent, and the stored signed payment goes.
+   * nothing more is sent, and the stored signed payment goes. The payment
+   * stays the plan's payment, listed once: once its bytes left the wallet it
+   * may still confirm instead, and the plan looks it up, with the earlier
+   * versions it keeps, until one of them has confirmed (see `stepCompleted`).
+   * A payment found confirmed is the payment for good: a completion that
+   * comes after that changes nothing. With `from`, as for
+   * `completeWithVersion`, a completed plan switches to `paidBy` only while
+   * it names `from` still. Resolves to whether the plan was written.
+   *
+   * Found pending, it is remembered as the last transaction made elsewhere
+   * that paid in the payment's place, whatever the plan names later (see
+   * `paidElsewhereSeen`); confirmed, it is the payment for good, and that
+   * is let go of.
    */
   private async completeWithPaidBy(
     planId: string,
     paidBy: QbitSendPlanPaidBy,
-    state: 'pending' | 'confirmed'
-  ): Promise<void> {
-    await this.mutate(planId, current => {
+    state: 'pending' | 'confirmed',
+    from?: string
+  ): Promise<boolean> {
+    const outcome = await this.mutate(planId, current => {
       if (current.phase === 'cancelling') return undefined
+      if (current.phase === 'completed' && paymentOf(current).status === 'confirmed') {
+        return undefined
+      }
       if (current.phase === 'completed' && current.paidBy?.txid === paidBy.txid) return undefined
+      if (
+        from !== undefined &&
+        (current.phase !== 'completed' || this.completedNameOf(current) !== from)
+      ) {
+        return undefined
+      }
       const next = withStep(current, paymentOf(current).txid, item => {
         const sent: QbitSendPlanStepRecord = {
           ...item,
@@ -5453,13 +7090,17 @@ export class QbitSendPlanEngine {
       next.paidBy = { ...paidBy }
       if (state === 'confirmed') delete next.earlierPayments
       delete next.pause
-      return next
+      return withLastPaidBy(next, state === 'confirmed' ? undefined : paidBy)
     })
+    return outcome.record !== undefined
   }
 
   /**
    * An input every version of the payment spends is spent elsewhere, so
-   * none of them can confirm: the plan stops counting them.
+   * none of them can confirm: the plan stops counting them. A completed
+   * plan is not changed here: one whose named transaction is gone settles
+   * what spends its payment's inputs itself (`settleCompleted`), and
+   * forgets the versions as it reopens.
    */
   private async forgetPaymentVersions(planId: string): Promise<void> {
     await this.mutate(planId, current => {
@@ -5526,18 +7167,41 @@ export class QbitSendPlanEngine {
     // A version of the payment that may be in the network, though the plan
     // does not count it as sent, completes the plan once it is found.
     if (await this.reconcilePaymentVersions(record, session)) return 'again'
+    // Its own payment unable to go any more (`paymentCannotGo`), after a
+    // transaction made elsewhere paid in the payment's place, the plan is
+    // completed naming the last such transaction again: the state those
+    // facts have, which offers no second payment, can be dismissed, and from
+    // which the rule decides (see `reopenCompleted`). With an entry it cannot
+    // read, it names nothing, and reads what spends the payment's inputs
+    // itself.
+    if (
+      paymentCannotGo(reason) &&
+      paidElsewhereSeen(record) &&
+      !dispatchedVersionMayConfirm(record) &&
+      !paymentMayBeSent(record) &&
+      !failedItsChecks(record)
+    ) {
+      if (lastPaidByOf(record) !== undefined) {
+        if (await this.completeWithLastPaidBy(record.id)) return 'again'
+      } else if (await this.letGoOnceEveryInputIsSpent(record, session)) return 'again'
+    }
     // While one may still confirm, what spends an input of the payment is
     // identified, as for a waiting plan's merges: a version, or a
     // transaction paying the recipient the amount, completes the plan;
     // anything else means no version can confirm any more, and the plan
     // forgets them and pauses `outputs_spent`, offering a replan and a
-    // cancel again (`settlePaymentInputSpender`).
+    // cancel again (`settlePaymentInputSpender`), unless a transaction made
+    // elsewhere ever paid in the payment's place (see
+    // `paymentVersionMayConfirm`). It goes round again only on a change: a
+    // spend it cannot judge yet is read again at a later advance.
     if (paymentVersionMayConfirm(record) && !paymentMayBeSent(record) && !failedItsChecks(record)) {
-      const spender = await this.paymentInputSpender(record, session)
-      if (spender !== undefined) {
-        const settled = await this.settlePaymentInputSpender(record, session, spender)
+      const spend = await this.paymentInputSpender(record, session)
+      if (spend !== undefined) {
+        const settled = await this.settlePaymentInputSpender(record, session, spend)
         if (settled === 'elsewhere') await this.pause(record.id, 'outputs_spent')
-        if (settled !== undefined) return 'again'
+        if (settled !== undefined && this.store.get(record.id)?.revision !== record.revision) {
+          return 'again'
+        }
       }
     }
     // The steps keep their state current while the plan waits for the user,
@@ -5676,6 +7340,40 @@ export class QbitSendPlanEngine {
     return changed ? 'again' : 'idle'
   }
 
+  /**
+   * A completed plan is watched until the transaction it names has
+   * confirmed, and makes no request once it has (its payment step is
+   * `confirmed`). Until then `ensureTimer` keeps the timer running for it,
+   * and it looks up the transaction it names (`completedNameOf`: `paidBy`'s,
+   * or else its payment's), its own payment too when it names another and
+   * the payment's bytes left the wallet, and the earlier versions of the
+   * payment it keeps, each at most once a tick (`lookup`). Every version
+   * spends the same inputs, and whatever paid the recipient in their place
+   * spent one of them, so the one found confirmed is named, for good, with
+   * its fee, and the plan then holds nothing (`desiredHolds`).
+   *
+   * Nothing about the plan changes, and no outspends are read for it,
+   * while the transaction it names is found pending, a lookup of it has no
+   * answer, or it is reported gone and not proven absent (`provenAbsent`:
+   * the grace counts from the first miss of a run, a transaction found again
+   * ends its run, and runs are this session's, so after a restart one miss
+   * proves nothing again). Once it is proven absent:
+   * - a version of the payment found pending is named in its place: the
+   *   plan's own payment, when the plan names a transaction that is no
+   *   version of it (`paidBy`), or an earlier version. That is the one rule
+   *   for the plan's own payment beside such a transaction: it is named once
+   *   found confirmed, or once found pending with that transaction proven
+   *   absent, and never while that transaction is found pending or is not
+   *   proven absent;
+   * - otherwise what spends the payment's inputs decides
+   *   (`settleCompleted`): a transaction paying the recipient is named, with
+   *   its fee, and when nothing that pays the recipient spends them, the plan
+   *   reopens as paused (`reopenCompleted`).
+   *
+   * Nothing found pending is named for good: whatever the plan names next is
+   * watched by these same rules, and if it disappears in turn, the plan
+   * settles again.
+   */
   private async stepCompleted(
     record: QbitSendPlanRecord,
     session: PlanSession
@@ -5684,29 +7382,486 @@ export class QbitSendPlanEngine {
     session.authorised = false
     const payment = paymentOf(record)
     if (payment.status !== 'broadcast') return 'idle'
-    const paying = record.paidBy?.txid ?? payment.txid
-    if ((await this.lookup(record, session, paying)) === 'confirmed') {
-      await this.mutate(record.id, current => {
-        if (current.phase !== 'completed' || paymentOf(current).status !== 'broadcast') {
-          return undefined
-        }
-        if ((current.paidBy?.txid ?? paymentOf(current).txid) !== paying) return undefined
-        const next = withStep(current, payment.txid, item => ({ ...item, status: 'confirmed' }))
-        // Confirmed, it is the payment for good: no other version can be.
-        delete next.earlierPayments
-        return next
-      })
-      return 'again'
+    const named = this.completedNameOf(record)
+    const own = record.paidBy && payment.dispatch !== undefined ? payment.txid : undefined
+    const namedState = await this.lookup(record, session, named)
+    if (namedState === 'confirmed') {
+      return (await this.completeWithFound(record.id, named, 'confirmed')) ? 'again' : 'idle'
+    }
+    const ownState = own === undefined ? undefined : await this.lookup(record, session, own)
+    if (own !== undefined && ownState === 'confirmed') {
+      return (await this.completeWithFound(record.id, own, 'confirmed')) ? 'again' : 'idle'
     }
     // Every version spends the same inputs: one that confirms instead of the
     // one the plan completed with is the payment.
+    const versions: { version: QbitSendPlanPaymentVersion; state: string | undefined }[] = []
     for (const version of record.earlierPayments ?? []) {
-      if ((await this.lookup(record, session, version.txid)) === 'confirmed') {
-        await this.completeWithVersion(record.id, version, 'confirmed')
-        return 'again'
+      const state = await this.lookup(record, session, version.txid)
+      if (state === 'confirmed') {
+        return (await this.completeWithVersion(record.id, version, 'confirmed')) ? 'again' : 'idle'
+      }
+      versions.push({ version, state })
+    }
+    if (namedState !== 'gone' || !this.provenAbsent(session, named)) return 'idle'
+    if (own !== undefined && ownState === 'pending') {
+      return (await this.completeWithFound(record.id, own, 'pending', named)) ? 'again' : 'idle'
+    }
+    for (const { version, state } of versions) {
+      if (state !== 'pending') continue
+      return (await this.completeWithVersion(record.id, version, 'pending', named))
+        ? 'again'
+        : 'idle'
+    }
+    return this.settleCompleted(record, session, named)
+  }
+
+  /** What completed plan `record` names as having paid the recipient: `paidBy`, or else its payment. */
+  private completedNameOf(record: QbitSendPlanRecord): string {
+    return record.paidBy?.txid ?? paymentOf(record).txid
+  }
+
+  /**
+   * Transaction `txid` of completed plan `planId`, the one it names or its
+   * own payment beside a `paidBy`, was found `state`. Confirmed, it is named
+   * for good: the payment step is `confirmed`, no other version can be
+   * (`earlierPayments` go), and the plan holds nothing. Its own payment
+   * found pending is named in place of a `paidBy` proven absent (see
+   * `stepCompleted`). With `from`, the transaction the plan named when this
+   * was decided, only while it names that still. Resolves to whether the
+   * plan was written.
+   */
+  private async completeWithFound(
+    planId: string,
+    txid: string,
+    state: 'pending' | 'confirmed',
+    from?: string
+  ): Promise<boolean> {
+    const outcome = await this.mutate(planId, current => {
+      if (current.phase !== 'completed' || paymentOf(current).status !== 'broadcast') {
+        return undefined
+      }
+      if (from !== undefined && this.completedNameOf(current) !== from) return undefined
+      const isPaidBy = current.paidBy?.txid === txid
+      if (!isPaidBy && paymentOf(current).txid !== txid) return undefined
+      // Found pending, what the plan names already stays as it is.
+      if (state === 'pending' && this.completedNameOf(current) === txid) return undefined
+      const next = withStep(current, paymentOf(current).txid, item => ({
+        ...item,
+        status: state === 'confirmed' ? 'confirmed' : 'broadcast',
+      }))
+      // Confirmed, it is the payment for good: no other version can be.
+      if (state === 'confirmed') delete next.earlierPayments
+      if (!isPaidBy) delete next.paidBy
+      // Confirmed, nothing is watched any more, and what paid in its place
+      // elsewhere is let go of. Its own payment found only pending can be
+      // evicted: what paid in its place elsewhere, the plan names no longer
+      // but remembers (see `paidElsewhereSeen`).
+      if (state === 'confirmed') return withLastPaidBy(next, undefined)
+      return !isPaidBy && current.paidBy !== undefined ? withLastPaidBy(next, current.paidBy) : next
+    })
+    return outcome.record !== undefined
+  }
+
+  /**
+   * Completed plan `record` names `named`, which is proven absent, and no
+   * version of its payment was found pending: what spends the payment's
+   * inputs decides, as read in the current run of misses of `named`
+   * (`readPaymentInputs`): a read from before it may predate what replaced
+   * `named`.
+   *
+   * - A spender found pending or confirmed that is a version of the payment,
+   *   or that pays the recipient the amount, is named, with its fee.
+   * - A plan that no transaction made elsewhere ever completed
+   *   (`paidElsewhereSeen`) reopens paused: `outputs_spent` once an input is
+   *   spent by a transaction paying someone else, found pending or confirmed
+   *   (the engine's standard for the versions it sent), and with its inputs
+   *   unspent otherwise (see `reopenCompleted`).
+   * - One that such a transaction ever completed reopens with its inputs
+   *   unspent when nothing spends any, keeping that; reopens `outputs_spent`
+   *   and lets it go only once every input is spent by a transaction found
+   *   confirmed (the rule, see `reopenCompleted`); and otherwise stays
+   *   completed, named by
+   *   the last such transaction (renamed to it from its own payment or a
+   *   version, `completeWithLastPaidBy`), which offers no second payment and
+   *   can be dismissed.
+   * - Anything the explorer cannot tell (a read without an answer, a parent
+   *   not read yet in this run, a spender not identified or not found pending
+   *   or confirmed) changes nothing yet; the next advance goes on. So does
+   *   the output of one of its merges the explorer no longer holds, until
+   *   the explorer answers for it again: the known limit stated at
+   *   `readPaymentInputs`.
+   */
+  private async settleCompleted(
+    record: QbitSendPlanRecord,
+    session: PlanSession,
+    named: string
+  ): Promise<StepOutcome> {
+    const run = session.missed.get(named)
+    if (run === undefined) return 'idle'
+    const read = await this.readPaymentInputs(record, session, run.since)
+    if (read === undefined) return 'idle'
+    if ('found' in read) {
+      const { spender, identity, state } = read.found
+      const written = await this.completeWithSpender(record.id, spender, identity, state, named)
+      return written ? 'again' : 'idle'
+    }
+    const reason = read.elsewhere.size > 0 ? 'outputs_spent' : 'interrupted'
+    if (
+      reason === 'outputs_spent' &&
+      paidElsewhereSeen(record) &&
+      read.confirmed.size < paymentOf(record).inputs.length
+    ) {
+      if (record.paidBy !== undefined) return 'idle'
+      return (await this.completeWithLastPaidBy(record.id, named)) ? 'again' : 'idle'
+    }
+    return (await this.reopenCompleted(record, named, reason)) ? 'again' : 'idle'
+  }
+
+  /**
+   * What spends `record`'s payment's inputs, read as a completed plan whose
+   * named transaction is gone reads it: per advance, the outspends of at
+   * most `QBIT_SEND_PLAN_OUTSPENDS_PER_ADVANCE` of the transactions whose
+   * outputs the payment spends, in turn, each at most once a tick
+   * (`spendersOf`), and each spender found identified (`identifySpender`)
+   * and looked up (`lookup`) at most once a tick. Only a read with an answer
+   * made from `since` counts, and only for an input whose output it has an
+   * entry for: a shorter answer leaves that input undecided.
+   *
+   * Known limit: an input that is the output of one of the plan's own
+   * merges the record does not show confirmed, which the explorer no longer
+   * holds, goes without an answer until the explorer answers for it again
+   * (the merge relayed again), and stays undecided meanwhile, as any input
+   * the explorer cannot read: the plan changes nothing. A plan completed
+   * while a merge it spends from was unconfirmed therefore stays completed,
+   * naming what it names, with dismiss, while that merge is dropped, even
+   * once it can never confirm; and a paused plan whose entry of what paid
+   * in the payment's place cannot be read stays paused meanwhile
+   * (`letGoOnceEveryInputIsSpent`). Once the explorer answers, the plan
+   * settles as for any input. Deciding that a dropped merge can never
+   * confirm needs every transaction spending its inputs identified, pending
+   * ones too, and a rule for this wallet's own later sends, which may spend
+   * those inputs: not judged here.
+   *
+   * Resolves to the first spender found pending or confirmed that is a
+   * version of the payment or pays the recipient the amount (`found`); or,
+   * once every input is read so and every spender identified and found
+   * pending or confirmed, the inputs spent by transactions paying someone
+   * else (`elsewhere`) and those of them spent by ones found confirmed
+   * (`confirmed`); or nothing while the explorer cannot tell.
+   */
+  private async readPaymentInputs(
+    record: QbitSendPlanRecord,
+    session: PlanSession,
+    since: number
+  ): Promise<
+    | {
+        found: {
+          spender: string
+          identity: Exclude<SpenderIdentity, { kind: 'elsewhere' }>
+          state: 'pending' | 'confirmed'
+        }
+      }
+    | { elsewhere: Set<string>; confirmed: Set<string> }
+    | undefined
+  > {
+    const payment = paymentOf(record)
+    const parents = [...new Set(payment.inputs.map(input => input.txid))]
+    const count = Math.min(QBIT_SEND_PLAN_OUTSPENDS_PER_ADVANCE, parents.length)
+    for (let index = 0; index < count; index++) {
+      const parent = at(parents, (session.paymentInputsCursor + index) % parents.length)
+      await this.spendersOf(record, session, parent)
+    }
+    session.paymentInputsCursor += count
+    // By spender, the payment's inputs it spends, as the latest read of each
+    // shows them.
+    let undecided = false
+    const spent = new Map<string, Set<string>>()
+    const elsewhere = new Set<string>()
+    const confirmed = new Set<string>()
+    for (const input of payment.inputs) {
+      const known = session.outspends.get(input.txid)
+      // Not answered since `since`, or answered without an entry for its
+      // output: what spends it is not known, whatever the transaction it
+      // comes from, one of the plan's own merges the explorer no longer
+      // holds included (see above).
+      if (
+        known?.spenders === undefined ||
+        known.at < since ||
+        input.vout >= known.spenders.length
+      ) {
+        undecided = true
+        continue
+      }
+      const spender = known.spenders[input.vout]
+      if (spender === undefined) continue
+      const inputs = spent.get(spender) ?? new Set<string>()
+      inputs.add(outpointKey(input))
+      spent.set(spender, inputs)
+    }
+    for (const [spender, inputs] of spent) {
+      const identity = await this.identifySpender(record, session, spender, [...inputs])
+      const state = identity ? await this.lookup(record, session, spender) : undefined
+      if (!identity || (state !== 'pending' && state !== 'confirmed')) {
+        undecided = true
+        continue
+      }
+      if (identity.kind !== 'elsewhere') return { found: { spender, identity, state } }
+      for (const key of inputs) {
+        elsewhere.add(key)
+        if (state === 'confirmed') confirmed.add(key)
       }
     }
-    return 'idle'
+    return undecided ? undefined : { elsewhere, confirmed }
+  }
+
+  /**
+   * Paused plan `record`, its own payment unable to go any more, keeps that
+   * a transaction made elsewhere paid in the payment's place, but no entry
+   * of it that it can read (`lastPaidByOf`): it names nothing from it, and
+   * reads what spends the payment's inputs as a completed plan does
+   * (`readPaymentInputs`), every answered read counting. A version or a
+   * transaction paying the recipient found there is named; once every input
+   * is spent by a transaction found confirmed, the rule lets the state go,
+   * and the plan offers a replan and a cancel again (see `reopenCompleted`).
+   * An input it cannot read, the output of one of its merges the explorer no
+   * longer holds included, keeps it paused until the explorer answers for
+   * it again (the known limit stated at `readPaymentInputs`). Resolves to
+   * whether the plan was written.
+   */
+  private async letGoOnceEveryInputIsSpent(
+    record: QbitSendPlanRecord,
+    session: PlanSession
+  ): Promise<boolean> {
+    const read = await this.readPaymentInputs(record, session, 0)
+    if (read === undefined) return false
+    if ('found' in read) {
+      const { spender, identity, state } = read.found
+      return this.completeWithSpender(record.id, spender, identity, state)
+    }
+    if (read.confirmed.size < paymentOf(record).inputs.length) return false
+    const outcome = await this.mutate(record.id, current =>
+      current.phase === 'paused' &&
+      paymentCannotGo(pauseReasonOf(current)) &&
+      current.extra !== undefined &&
+      LAST_PAID_BY in current.extra &&
+      lastPaidByOf(current) === undefined
+        ? withLastPaidBy(current, undefined)
+        : undefined
+    )
+    return outcome.record !== undefined
+  }
+
+  /**
+   * Name the last transaction made elsewhere that paid the recipient in the
+   * payment's place (`lastPaidByOf`) as what paid it: the plan is completed
+   * with it (`paidBy`), its payment's bytes going, and holds what a
+   * completed plan holds (`desiredHolds`). Made when the plan's own payment
+   * can no longer confirm, so that the plan offers no second payment and can
+   * be dismissed:
+   * - with `from`, from a completed plan naming `from`, its own payment or a
+   *   version, proven absent, the same reads having found an input spent
+   *   elsewhere (see `settleCompleted`);
+   * - without, from a plan paused because its own payment cannot go any more
+   *   (`paymentCannotGo`), that payment forgotten or void, so that it cannot
+   *   be sent again (see `stepPaused`).
+   * The name starts a new grace (`renamed`): leaving the state again needs
+   * that transaction missed for the whole grace and every input read anew.
+   * Resolves to whether the plan was written.
+   */
+  private async completeWithLastPaidBy(planId: string, from?: string): Promise<boolean> {
+    const outcome = await this.mutate(planId, current => {
+      if (from !== undefined) {
+        if (current.phase !== 'completed' || paymentOf(current).status !== 'broadcast') {
+          return undefined
+        }
+        if (current.paidBy !== undefined || this.completedNameOf(current) !== from) return undefined
+      } else if (
+        current.phase !== 'paused' ||
+        !paymentCannotGo(pauseReasonOf(current)) ||
+        failedItsChecks(current) ||
+        paymentMayBeSent(current) ||
+        dispatchedVersionMayConfirm(current)
+      ) {
+        return undefined
+      }
+      const last = lastPaidByOf(current)
+      if (last === undefined) return undefined
+      const next = withStep(current, paymentOf(current).txid, item => {
+        const named: QbitSendPlanStepRecord = { ...item, status: 'broadcast' }
+        delete named.signedPsbtHex
+        return named
+      })
+      next.phase = 'completed'
+      next.paidBy = last
+      delete next.pause
+      return next
+    })
+    const named = outcome.record?.paidBy?.txid
+    if (named === undefined) return false
+    this.renamed(this.session(planId), named)
+    return true
+  }
+
+  /**
+   * `txid` is named anew by a plan that did not find it: misses read before
+   * now prove nothing of it, and its grace starts again (see `provenAbsent`).
+   */
+  private renamed(session: PlanSession, txid: string): void {
+    session.missed.delete(txid)
+    session.seen.set(txid, this.now())
+  }
+
+  /**
+   * Reopen completed plan `record` as paused: the transaction it names,
+   * `named`, is proven absent, and nothing that spends the payment's inputs
+   * pays the recipient (see `settleCompleted`). It reopens in a paused
+   * state the plan screen already shows, its payment `planned` again (its
+   * signed bytes went at completion) and no `paidBy`:
+   * - `outputs_spent`, when a transaction paying someone else spends an
+   *   input: every version of the payment spends that input too, so none
+   *   can confirm, and they are forgotten (no `dispatch`, no
+   *   `earlierPayments`), as `forgetPaymentVersions` forgets them; a replan
+   *   and a cancel are offered (`actionsOf`).
+   * - `interrupted`, when nothing spends any input: the transaction it named
+   *   was accepted by the network once, so a node may still hold it and it
+   *   may still confirm (guarantee 7: proven absent from the explorer is not
+   *   proven never to confirm). The plan's own payment it named is recorded
+   *   so, its `dispatch` `unknown`; a transaction made elsewhere that it
+   *   named is remembered (`paidElsewhereSeen`); the earlier versions stay.
+   *   Either way the plan counts it as one that may still confirm
+   *   (`paymentVersionMayConfirm`): it says that the payment may still go
+   *   through, and offers only Continue, which signs and sends its own
+   *   payment again (`actionsOf`).
+   * Nothing is signed or sent by the reopening: the session is not
+   * authorised (`stepCompleted`), a paused plan sends nothing by itself
+   * (`stepPaused`), and the next signature or broadcast waits for the user's
+   * Continue, or a replan they review.
+   *
+   * The recipient is paid by exactly one transaction across it (guarantee
+   * 1). Reopened with its inputs unspent, the plan sends only its own
+   * payment again, whose inputs every version spends; every transaction
+   * that paid in the payment's place spends one of them too; so at most one
+   * of all of them confirms, and while one may, neither a replan nor a
+   * cancel is offered, and the inputs stay held.
+   *
+   * A plan that a transaction made elsewhere ever completed
+   * (`paidElsewhereSeen`) offers a replan or a cancel again only once every
+   * input of its payment is spent by a transaction found confirmed: every
+   * transaction that paid in the payment's place spends at least one input
+   * of the payment, so once each input is spent by a confirmed transaction
+   * none of them can confirm, and a confirmed one among those spenders that
+   * pays the recipient is named before anything is judged. Until then such
+   * a plan is completed, naming the last transaction made elsewhere, with
+   * dismiss, or paused with Continue only, or naming its own payment or a
+   * version found pending; it remembers that across a restart, a raise of
+   * the payment's fee, every reopening with the inputs unspent and every
+   * naming. A spender found only pending can be evicted, and whoever signed
+   * a transaction made elsewhere can send it again: so only a confirmed one
+   * counts here. An input that is the output of one of its merges the
+   * explorer no longer holds is not read so until the explorer answers for
+   * it again, and keeps the plan as it is meanwhile (the known limit stated
+   * at `readPaymentInputs`).
+   *
+   * What that costs the user: a plan completed naming a transaction made
+   * elsewhere that can no longer confirm (undone by a confirmed spend of
+   * some, not all, of the payment's inputs) says the payment is made, and
+   * holds the payment's inputs, so the rule can then be met only by spends
+   * made elsewhere: it stays so until the user dismisses it. Meanwhile the
+   * timer keeps reading for it, about ten requests a tick (see `lookup`).
+   *
+   * A plan that none ever completed judges its own payment and versions by
+   * the engine's standard for what it sent (`inputsSpentElsewhere`,
+   * `forgetPaymentVersions`): one of their inputs spent by another
+   * transaction, found pending or confirmed. Its residual, the engine's for
+   * everything it sends: a version forgotten on a spender only pending comes
+   * back if that spender is evicted and a node that still holds its bytes
+   * relays it again; the wallet never sends a forgotten version again, but a
+   * replan the user made meanwhile, from other outputs, would pay as well.
+   *
+   * The write is made only while the plan is completed, names `named`, and
+   * the transaction it names has not confirmed: a dismiss, a removal's
+   * ending, or a switch made since wins, and the plan stays as that left
+   * it. What the paused plan holds that the completed one let go of (the
+   * inputs of a merge or of a carried merge that has not confirmed) is held
+   * again before the write, as a restart holds a stored plan
+   * (`restorePlanHolds`, whose conflicts pause the plan `outputs_spent` at
+   * its next advance); a write that is not made takes the holds back to what
+   * is stored (`holdOnlyWhatIsStored`). Resolves to whether it reopened.
+   */
+  private async reopenCompleted(
+    record: QbitSendPlanRecord,
+    named: string,
+    reason: 'outputs_spent' | 'interrupted'
+  ): Promise<boolean> {
+    const reopened = (current: QbitSendPlanRecord): QbitSendPlanRecordInput | undefined => {
+      if (current.phase !== 'completed' || paymentOf(current).status !== 'broadcast') {
+        return undefined
+      }
+      if (this.completedNameOf(current) !== named) return undefined
+      const next = withStep(current, paymentOf(current).txid, item => {
+        const step = stepWithStatus(item, 'planned')
+        if (reason === 'outputs_spent') delete step.dispatch
+        else if (current.paidBy === undefined) step.dispatch = 'unknown'
+        return step
+      })
+      next.phase = 'paused'
+      next.pause = { reason, at: this.now() }
+      delete next.paidBy
+      // Forgotten in the very write, so that no view of the reopened plan
+      // offers to send a version again that cannot confirm.
+      if (reason === 'outputs_spent') delete next.earlierPayments
+      // Reopened with its inputs unspent, a plan that a transaction made
+      // elsewhere completed remembers it (written from what it named, as for
+      // a plan completed before that was kept); reopened `outputs_spent`, the
+      // rule has let it go (see `settleCompleted`).
+      if (reason === 'outputs_spent') return withLastPaidBy(next, undefined)
+      return current.paidBy !== undefined ? withLastPaidBy(next, current.paidBy) : next
+    }
+    const candidate = reopened(record)
+    if (!candidate) return false
+    const regained = await this.holdForReopening(record, candidate)
+    let written = false
+    try {
+      written = (await this.mutate(record.id, reopened)).record !== undefined
+    } finally {
+      // Whatever became of the write, a refused one included, the holds go
+      // back to what is stored.
+      if (!written && regained) await this.holdOnlyWhatIsStored(record.id)
+    }
+    return written
+  }
+
+  /**
+   * Hold what completed plan `record`, about to reopen as `reopened`, needs
+   * held then and holds no longer (see `reopenCompleted`), through the
+   * guard's restore of a plan's hold, which adds to the hold the plan has.
+   * A plan holding nothing takes its hold at its first advance once paused
+   * (`ensureHold`). Resolves to whether anything was asked for.
+   */
+  private async holdForReopening(
+    record: QbitSendPlanRecord,
+    reopened: QbitSendPlanRecordInput
+  ): Promise<boolean> {
+    const session = this.session(record.id)
+    const desired = desiredHolds(reopened as QbitSendPlanRecord)
+    const held = desiredHolds(record)
+    if (session.hold === undefined || [...desired].every(key => held.has(key))) return false
+    try {
+      const restoration = await this.guard.restorePlanHolds([
+        {
+          planId: record.id,
+          chain: record.chain,
+          address: record.account.address,
+          outpoints: qbitSendPlanOutpoints(reopened).filter(outpoint =>
+            desired.has(outpointKey(outpoint))
+          ),
+        },
+      ])
+      this.keepRestoration(restoration)
+    } catch (error) {
+      this.log('Qbit send plan could not hold again what it reopens with', error)
+    }
+    return true
   }
 
   // -- state ----------------------------------------------------------------
@@ -5911,7 +8066,11 @@ export class QbitSendPlanEngine {
    * since that revision was written, so it grows with every visible change,
    * signing progress included, and never goes down: each write passes every
    * view shown before it, and a restart, which forgets the changes shown,
-   * writes every plan once before showing it (see `adopt`).
+   * writes every plan once before showing it (see `adopt`). That holds
+   * within one run of the background, which every view names
+   * (`backgroundId`): a record replaced on disk is read by the next run at
+   * whatever revision it was stored. The view of a plan whose terms it
+   * shows carries their digest (`termsDigestOf`), which a continue names.
    */
   viewOf(record: QbitSendPlanRecord): QbitSendPlanView {
     const session = this.session(record.id)
@@ -5920,6 +8079,38 @@ export class QbitSendPlanEngine {
       session.ticks = 0
       session.lastViewKey = undefined
     }
+    const shown = this.shownOf(record, session)
+    const key = JSON.stringify(shown)
+    if (session.lastViewKey !== undefined && session.lastViewKey !== key) session.ticks += 1
+    session.lastViewKey = key
+    return {
+      ...shown,
+      backgroundId: this.backgroundId,
+      ...(failedItsChecks(record) ? {} : { termsDigest: qbitSendPlanTermsDigest(shown) }),
+      revision: record.revision * QBIT_SEND_PLAN_VIEW_REVISION_STRIDE + session.ticks,
+    }
+  }
+
+  /**
+   * The digest of the terms `record`'s view states (`QbitSendPlanView.termsDigest`),
+   * computed as `viewOf` computes it, keeping nothing; none for a plan
+   * whose view states none (`failedItsChecks`). The terms never depend on
+   * the session.
+   */
+  private termsDigestOf(record: QbitSendPlanRecord): string | undefined {
+    if (failedItsChecks(record)) return undefined
+    const session = this.sessions.get(record.id) ?? newSession()
+    return qbitSendPlanTermsDigest(this.shownOf(record, session))
+  }
+
+  /**
+   * What `viewOf` shows of `record`, but for its revision and the marks it
+   * adds: computed from the record and `session`, keeping nothing.
+   */
+  private shownOf(
+    record: QbitSendPlanRecord,
+    session: PlanSession
+  ): Omit<QbitSendPlanView, 'revision'> {
     const now = this.now()
     // A void replacement is shown as the earlier version that confirmed
     // instead: that is the transaction in the chain.
@@ -5963,6 +8154,9 @@ export class QbitSendPlanEngine {
     const actions = actionsOf(record, this.host.isUnlocked(), slowMergeOf(record, now))
     // Said only with the raise it invites (`QbitSendPlanView.slowMerge`).
     const slowMerge = actions.includes('raise_merge_fee')
+    // Said only while the payment paused on its fee, of the raise that is not
+    // offered for it then (`QbitSendPlanView.paymentFeeRaiseLimitReached`).
+    const raiseLimitReached = paymentFeeRaiseAsked(record) && paymentRaiseLimitReached(record)
     const reason = pauseReasonOf(record)
     const detail = record.pause?.detail
     // Said while a version of the payment may still confirm, which is why
@@ -5989,6 +8183,7 @@ export class QbitSendPlanEngine {
       signaturesDone,
       signaturesTotal,
       ...(slowMerge ? { slowMerge: true } : {}),
+      ...(raiseLimitReached ? { paymentFeeRaiseLimitReached: true } : {}),
       paymentTxid: paidBy ? paidBy.txid : payment.txid,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -5997,13 +8192,6 @@ export class QbitSendPlanEngine {
     // of what it states, while it is paused and while it cancels: it is shown
     // as a plan the store cannot read is (`unreadableView`), cancel the only
     // thing offered before it cancels, and nothing while it does.
-    const shown = failedItsChecks(record) ? this.standInOf(record, actions) : body
-    const key = JSON.stringify(shown)
-    if (session.lastViewKey !== undefined && session.lastViewKey !== key) session.ticks += 1
-    session.lastViewKey = key
-    return {
-      ...shown,
-      revision: record.revision * QBIT_SEND_PLAN_VIEW_REVISION_STRIDE + session.ticks,
-    }
+    return failedItsChecks(record) ? this.standInOf(record, actions) : body
   }
 }

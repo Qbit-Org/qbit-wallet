@@ -4752,25 +4752,36 @@ export function auditVulnerabilityReport(
   }
 
   const advisories = normalizeAuditAdvisories(report)
-  const observedBlockingOccurrences = new Map(
-    [...BLOCKING_SEVERITIES].map(severity => [severity, 0])
-  )
+  // pnpm 11 adds one to metadata.vulnerabilities[severity] for each advisory
+  // record it emits, after dropping any record with no findings
+  // (bulkResponseToAuditReport in pnpm's audit library). A record lists each
+  // vulnerable installed version as one finding, so the count is a number of
+  // records, not of findings. `--json` then removes records ignored through
+  // auditConfig.ignoreGhsas or below the audit level without lowering the
+  // count, so a record hidden that way leaves a count no record accounts for.
+  const observedBlockingRecords = new Map([...BLOCKING_SEVERITIES].map(severity => [severity, 0]))
   for (const advisory of Object.values(report.advisories)) {
     if (!BLOCKING_SEVERITIES.has(advisory?.severity)) continue
     if (!Array.isArray(advisory.findings)) {
       errors.push(`pnpm audit ${advisory.severity} advisory is missing its findings array`)
       continue
     }
-    observedBlockingOccurrences.set(
+    // pnpm never emits a record without findings, so such a record is
+    // malformed input: it fails the audit and is not counted.
+    if (advisory.findings.length === 0) {
+      errors.push(`pnpm audit ${advisory.severity} advisory has an empty findings array`)
+      continue
+    }
+    observedBlockingRecords.set(
       advisory.severity,
-      observedBlockingOccurrences.get(advisory.severity) + advisory.findings.length
+      observedBlockingRecords.get(advisory.severity) + 1
     )
   }
   for (const [severity, declaredCount] of declaredBlockingOccurrences) {
-    const observedCount = observedBlockingOccurrences.get(severity)
+    const observedCount = observedBlockingRecords.get(severity)
     if (declaredCount !== observedCount) {
       errors.push(
-        `pnpm audit ${severity} metadata reports ${declaredCount} occurrences but advisory findings report ${observedCount}`
+        `pnpm audit ${severity} metadata reports ${declaredCount} occurrences but the report lists ${observedCount} ${severity} advisory records`
       )
     }
   }

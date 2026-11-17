@@ -145,6 +145,7 @@ export type AppStore = ReturnType<typeof createAppStore>
 export type AppState = ReturnType<AppStore['getState']>
 export type AppDispatch = AppStore['dispatch']
 
+export { resetWalletState } from './actions/global'
 export * from './biometric'
 export * from './context'
 export * from './hooks'
@@ -155,3 +156,4 @@ export * from './ui-hooks'
 export { uiEventBus } from './utils/eventBus'
 export { formatFeeRate } from './utils/fee-rate-text'
 export { useAsyncEffect } from './utils/ui-utils'
+export { walletErrorMessage } from './utils/wallet-error-message'

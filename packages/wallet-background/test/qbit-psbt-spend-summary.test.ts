@@ -564,3 +564,108 @@ describe('qbit PSBT spend summary', () => {
     ).toEqual(['unrecognised', 'wallet'])
   })
 })
+
+describe('outputs a SIGHASH_SINGLE signature locks in (#211)', () => {
+  // The account signs input 0, a shared output that is not the wallet's, under
+  // 0x83: the signature locks in output 0, to a stranger, and nothing else.
+  const outputs = [
+    output(STRANGER_SCRIPT, 900_000, 'qbrt1zstranger'),
+    output(OWN_SCRIPT, 50_000, 'qbrt1zown'),
+  ]
+  const lockedOutputs = new Map([[0, 1_000_000]])
+
+  it('credits no wallet output when the only lock is on an input the wallet does not own', () => {
+    const { spendSummary } = summarizeQbitPsbtSpend(
+      params({ inputs: [input(STRANGER_SCRIPT, 1_000_000)], outputs, fee: 50_000, lockedOutputs })
+    )
+
+    // Output 1 can be dropped by whoever holds the signature: it is no receipt.
+    expect(spendSummary.walletOutputValue).toBe(0)
+    expect(spendSummary.netSpend).toBe(0)
+  })
+
+  it('nor when the wallet’s one input is another account’s, which the approval does not sign', () => {
+    const { spendSummary } = summarizeQbitPsbtSpend(
+      params({
+        inputs: [
+          input(STRANGER_SCRIPT, 1_000_000),
+          input(OTHER_ACCOUNT_SCRIPT, 200_000, 'qbrt1zother'),
+        ],
+        outputs,
+        fee: 250_000,
+        lockedOutputs,
+      })
+    )
+
+    expect(spendSummary.walletInputValue).toBe(200_000)
+    expect(spendSummary.walletOutputValue).toBe(0)
+    expect(spendSummary.netSpend).toBe(200_000)
+  })
+
+  it('credits every wallet output when no input is signed that way', () => {
+    const { spendSummary } = summarizeQbitPsbtSpend(
+      params({ inputs: [input(STRANGER_SCRIPT, 1_000_000)], outputs, fee: 50_000 })
+    )
+
+    expect(spendSummary.walletOutputValue).toBe(50_000)
+    expect(spendSummary.netSpend).toBe(-50_000)
+  })
+})
+
+describe('an input signed under SIGHASH_ALL|ANYONECANPAY (#211)', () => {
+  it('credits no wallet output, which another approval’s input can pay for', () => {
+    const { spendSummary } = summarizeQbitPsbtSpend(params({ anyoneCanPayAll: true }))
+
+    expect(spendSummary.walletOutputValue).toBe(0)
+    expect(spendSummary.netSpend).toBe(1_000_000)
+    // The uncredited output counts as paid to others: the worst case.
+    expect(spendSummary.externalOutputValue).toBe(996_140)
+    expect(spendSummary.outputRoles).toEqual(['recipient', 'wallet'])
+  })
+
+  it('judges the fee of a website PSBT with another party’s input as it would without the flag', () => {
+    // 53,860 in fees against the 13,860 that leaves the wallet when every
+    // output is paid as written, not against the 1,000,000 the headline shows.
+    const website = {
+      inputs: [input(OWN_SCRIPT, 1_000_000, 'qbrt1zown'), input(STRANGER_SCRIPT, 100_000)],
+      outputs: [
+        output(MERCHANT_SCRIPT, 60_000, 'qbrt1zmerchant'),
+        output(OWN_SCRIPT, 986_140, 'qbrt1zown'),
+      ],
+      fee: 53_860,
+      checkFeeShareWithoutSize: true,
+    }
+    const whole = summarizeQbitPsbtSpend(params(website)).spendSummary
+    const partial = summarizeQbitPsbtSpend(
+      params({ ...website, anyoneCanPayAll: true })
+    ).spendSummary
+
+    expect(whole.feeAssessment?.reasons).toContain('large_share_of_amount')
+    expect(partial.feeAssessment?.reasons).toEqual(whole.feeAssessment?.reasons)
+    expect(partial.netSpend).toBe(1_000_000)
+  })
+
+  it('refuses a flag that is not a boolean, rather than credit every output', () => {
+    expect(() => summarizeQbitPsbtSpend(params({ anyoneCanPayAll: null as never }))).toThrow(
+      'anyoneCanPayAll must be a boolean'
+    )
+  })
+
+  it('still credits what a SIGHASH_SINGLE signature of the same request locks in', () => {
+    const { spendSummary } = summarizeQbitPsbtSpend(
+      params({
+        inputs: [input(OWN_SCRIPT, 600_000, 'qbrt1zown'), input(OWN_SCRIPT, 400_000, 'qbrt1zown')],
+        outputs: [
+          output(OWN_SCRIPT, 500_000, 'qbrt1zown'),
+          output(OWN_SCRIPT, 450_000, 'qbrt1zown'),
+        ],
+        fee: 50_000,
+        lockedOutputs: new Map([[0, 600_000]]),
+        anyoneCanPayAll: true,
+      })
+    )
+
+    expect(spendSummary.walletOutputValue).toBe(500_000)
+    expect(spendSummary.netSpend).toBe(500_000)
+  })
+})

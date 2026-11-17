@@ -131,6 +131,13 @@ For an already prepared workspace, the CI-equivalent command is:
 corepack pnpm build:repro:extension -- --skip-prepare
 ```
 
+This is CI's only extension build. Without `--artifact-version=<VERSION>`,
+the version is the one in `apps/extension/package.json` without its `-beta`
+suffix. The second build's ZIP and both sidecars stay in
+`apps/extension/dist/`, and CI uploads them as the `chrome-mv3-extension`
+artifact, so that artifact holds the bytes the run compared. Its `.zip.sha256`
+and the `SHA-256:` line in the log give the same hash.
+
 A local diagnostic under a different Node patch may use
 `--allow-toolchain-mismatch`, but that result is explicitly non-canonical and
 cannot satisfy the release gate.

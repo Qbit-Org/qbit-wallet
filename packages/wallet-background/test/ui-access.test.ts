@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   UI_CONTROLLER_METHODS,
+  UI_METHODS_RUN_DURING_RESET,
   getUiControllerMethod,
   isExtensionPageSender,
+  runsDuringWalletReset,
 } from '../src/controllers/ui-access'
 import { WalletController } from '../src/controllers/wallet'
 
@@ -360,5 +362,23 @@ describe('UI_CONTROLLER_METHODS', () => {
 
   it('has no duplicates', () => {
     expect(new Set(UI_CONTROLLER_METHODS).size).toBe(UI_CONTROLLER_METHODS.length)
+  })
+})
+
+describe('UI_METHODS_RUN_DURING_RESET', () => {
+  it('lets only resetWallet run while a reset runs, by its exact name', () => {
+    expect(UI_METHODS_RUN_DURING_RESET).toEqual(['resetWallet'])
+    expect(runsDuringWalletReset('resetWallet')).toBe(true)
+    for (const method of ['resetAllData', 'resetwallet', 'resetWallet ', 'changePassword', '']) {
+      expect(runsDuringWalletReset(method), method).toBe(false)
+    }
+  })
+
+  it('names only allowlisted controller methods', () => {
+    const controller = new WalletController()
+    for (const method of UI_METHODS_RUN_DURING_RESET) {
+      expect(UI_CONTROLLER_METHODS).toContain(method)
+      expect(typeof getUiControllerMethod(controller, method)).toBe('function')
+    }
   })
 })

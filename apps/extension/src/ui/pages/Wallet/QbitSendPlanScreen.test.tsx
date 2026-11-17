@@ -10,6 +10,8 @@ import type {
 } from '@qbit/wallet-shared';
 import { useQbitSendPlanScreenLogic } from '@qbit/wallet-state';
 
+import enMessages from '../../../_locales/en/messages.json';
+
 import QbitSendPlanScreen from './QbitSendPlanScreen';
 
 vi.mock('@qbit/wallet-state', () => ({ useQbitSendPlanScreenLogic: vi.fn() }));
@@ -291,6 +293,49 @@ describe('QbitSendPlanScreen (#188)', () => {
       expect(screen.getByTestId('qbit-send-plan-details').textContent).toBe('detail of the refusal');
     }
   );
+
+  // A plan stops before a signature when an input fails the check of its
+  // funding transaction (#210): the card names the cause in full, in the
+  // user's language, and Continue, which checks again, comes first.
+  it.each<[QbitSendPlanPauseReason, QbitSendPlanAction[], QbitSendPlanAction[]]>([
+    ['input_check_mismatch', ['continue', 'cancel'], ['continue', 'cancel']],
+    ['input_check_not_spendable', ['continue', 'replan', 'cancel'], ['continue', 'replan', 'cancel']],
+    ['input_check_not_found', ['continue', 'replan', 'cancel'], ['replan', 'continue', 'cancel']],
+    ['input_check_unchecked', ['continue', 'cancel'], ['continue', 'cancel']]
+  ])('shows the %s pause in full, as the English locale says it, its actions in order', (reason, actions, shown) => {
+    const english = (key: string) => (enMessages as Record<string, { message: string }>)[key]?.message ?? key;
+    const view = plan({
+      phase: 'paused',
+      pause: { reason, detail: 'qbit input check detail' },
+      actions
+    });
+    show(
+      logic(view, {
+        t: english,
+        pause: {
+          ...copy.qbitSendPlanPauseCopy(view, english),
+          next: copy.qbitSendPlanMayConfirmNext(view, english),
+          funds: copy.qbitSendPlanFundsText(view, english),
+          detail: view.pause?.detail ?? ''
+        },
+        buttons: copy.qbitSendPlanActionLayout(view).actions.map((action, index) => ({
+          action,
+          text: `action:${action}`,
+          primary: index === 0,
+          onClick: vi.fn()
+        }))
+      })
+    );
+
+    const title = english(`send_plan_paused_${reason}`);
+    const body = english(`send_plan_paused_${reason}_body`);
+    expect(title).not.toBe(`send_plan_paused_${reason}`);
+    expect(body).not.toBe(`send_plan_paused_${reason}_body`);
+    expect(screen.getByTestId('qbit-send-plan-paused-title').textContent).toBe(title);
+    expect(screen.getByTestId('qbit-send-plan-paused-body').textContent).toBe(body);
+    expect(body).not.toMatch(/Reopen Send|would spend next/);
+    expect(actionButtons()).toEqual(shown.map((action) => `qbit-send-plan-action-${action}`));
+  });
 
   it('shows the recipient, the amount and the total fee before Continue, ahead of the pause and the stages (#188)', () => {
     // After a restart signing waits for Continue: the terms the user

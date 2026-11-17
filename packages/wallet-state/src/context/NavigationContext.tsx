@@ -82,6 +82,7 @@ export type RouteParamList = {
   AboutUsScreen: undefined
   LanguageScreen: undefined
   AppearanceScreen: undefined
+  SecurityScreen: undefined
   ChangePasswordScreen: undefined
   ModuleAssets: undefined
 

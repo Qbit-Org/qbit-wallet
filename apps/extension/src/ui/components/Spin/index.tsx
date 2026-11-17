@@ -11,8 +11,12 @@ export interface SpinProps {
   /** Arc and ring colors; the defaults are for light surfaces. */
   color?: string;
   trackColor?: string;
+  'data-testid'?: string;
 }
 
+// The wallet's one loading indicator. `size` is the ring's outer diameter
+// (border included), and the ring turns through the global `.icon-spin`
+// animation (styles/global.less), the same one Button's inline spinner uses.
 export function Spin({
   size = 'default',
   spinning = true,
@@ -20,7 +24,8 @@ export function Spin({
   style,
   className,
   color = colors.accent,
-  trackColor = colors.line
+  trackColor = colors.line,
+  'data-testid': dataTestId
 }: SpinProps) {
   // Size configurations
   const sizeConfig = {
@@ -35,40 +40,23 @@ export function Spin({
     return <>{children}</>;
   }
 
-  const spinnerElement = (
+  const ring = (
     <div
-      className={className}
+      className="icon-spin"
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        ...style
+        boxSizing: 'border-box',
+        width: `${config.size}px`,
+        height: `${config.size}px`,
+        border: `${config.strokeWidth}px solid ${trackColor}`,
+        borderTopColor: color,
+        borderRadius: '50%'
       }}
-    >
-      <div
-        style={{
-          width: `${config.size}px`,
-          height: `${config.size}px`,
-          border: `${config.strokeWidth}px solid ${trackColor}`,
-          borderTopColor: color,
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite'
-        }}
-      />
-      <style>
-        {`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}
-      </style>
-    </div>
+    />
   );
 
   if (children) {
     return (
-      <div style={{ position: 'relative', ...style }}>
+      <div className={className} style={{ position: 'relative', ...style }} data-testid={dataTestId}>
         <div style={{ opacity: spinning ? 0.5 : 1 }}>{children}</div>
         {spinning && (
           <div
@@ -80,21 +68,25 @@ export function Spin({
               zIndex: 1000
             }}
           >
-            <div
-              style={{
-                width: `${config.size}px`,
-                height: `${config.size}px`,
-                border: `${config.strokeWidth}px solid ${trackColor}`,
-                borderTopColor: color,
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }}
-            />
+            {ring}
           </div>
         )}
       </div>
     );
   }
 
-  return spinnerElement;
+  return (
+    <div
+      className={className}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...style
+      }}
+      data-testid={dataTestId}
+    >
+      {ring}
+    </div>
+  );
 }

@@ -5,6 +5,10 @@ import {
   PQC_SIGNATURE_BYTES,
   PSBT_IN_FINAL_SCRIPTWITNESS,
   QbitProtocolError,
+  SIGHASH_ALL,
+  SIGHASH_DEFAULT,
+  SIGHASH_OUTPUT_MASK,
+  SIGHASH_SINGLE,
   buildControlBlock,
   bytesToHex as qbitBytesToHex,
   createP2mrMessageProof,
@@ -35,7 +39,9 @@ import {
 import {
   PQC_WARNING_SIGNATURE_THRESHOLD,
   QBIT_SIGNATURE_BATCH_INTERRUPTED_CODE,
+  P2MR_PARTIAL_SIGHASH_TYPES,
   QbitSigningAbortedError,
+  p2mrSigningOptionsFor,
   type QbitSigningProgressListener,
 } from '@qbit/keyring-service'
 import type {
@@ -67,6 +73,7 @@ import {
   BUS_METHODS,
   type BiometricUnlockRecord,
   type BiometricUnlockStatus,
+  type QbitAccountTotal,
   QbitBalance,
   CHAINS_MAP,
   ConnectedSite,
@@ -98,6 +105,7 @@ import {
   QbitRecoveryRemovalReason,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
+  QbitResetWalletOptions,
   QbitP2mrSigningKeyInput,
   QbitSignatureBudgetImpact,
   type QbitSigningOptions,
@@ -145,6 +153,7 @@ import {
   getAccountCapabilities,
   getLockTimeInfo,
   getQbitHdPathForChainType,
+  isAutoLockTimeId,
   isQbitAccountOutput,
   isQbitFeeRateWithinPolicy,
   isQbitStandardTxSize,
@@ -179,7 +188,7 @@ import {
 import { getChainInfo } from '../shared/utils'
 import { bgEventBus } from '../utils/eventBus'
 import { decodeOpReturnScript } from '../utils/decode-op-return'
-import { summarizeQbitPsbtSpend } from '../utils/qbit-psbt-spend-summary'
+import { summarizeQbitPsbtSpend, walletOwnedLocks } from '../utils/qbit-psbt-spend-summary'
 import { assertQbitP2mrSigningLeafRecord } from '../utils/qbit-p2mr-signing-leaf'
 import {
   QBIT_FALLBACK_FEE_RATE,
@@ -190,6 +199,7 @@ import {
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
   type PsbtOutputOwner,
+  type QbitSelectableCoin,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
 import { psbtFromString } from '../utils/psbt-utils'
@@ -211,6 +221,7 @@ import {
 } from '../utils/qbit-broadcast'
 import {
   assertQbitStatsFloorBelowWarningThreshold,
+  checkQbitSpendInputs,
   classifyQbitProtectedAssetCoverage,
   continueQbitAddressOutputScan,
   createQbitAddressOutputScan,
@@ -229,9 +240,11 @@ import {
   getQbitTxSpenders,
   getQbitUtxoListLimit,
   isQbitChainType,
+  isQbitCheckedSpend,
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
   isQbitSnapshotUnstableError,
+  normalizeQbitTxid,
   observeQbitPqcSignatureActivity,
   observeQbitPqcSpentOutpoints,
   probeQbitAccountHistoryRevision,
@@ -243,12 +256,16 @@ import {
   qbitStatsSnapshot,
   qbitStatsToAddressSummary,
   qbitUnavailableFeeSummary,
+  QBIT_SPEND_CHECK_DEADLINE_MS,
+  qbitSpendCheckDeadlineMs,
+  QbitSpendInputCheckError,
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
   qbitReadOutput,
   qbitTxSpendersFromOutspends,
   readQbitAddressUtxos,
+  readQbitAddressUtxosRidingOut,
   type QbitAccountHistoryRevision,
   type QbitAddressOutputScan,
   type QbitClassifiedUtxos,
@@ -258,6 +275,9 @@ import {
   type QbitPqcSignatureActivity,
   type QbitProtectedAssetCoverage,
   type QbitRestoreDiscovery,
+  type QbitCheckedSpend,
+  type QbitSpendInput,
+  type QbitSpendInputProblem,
   type QbitWalletApiClient,
 } from '../utils/qbit-api'
 import {
@@ -294,6 +314,19 @@ import {
   QbitReplaceableReads,
   type QbitReadVersionOrder,
 } from '../utils/qbit-shared-reads'
+import {
+  QbitFundingTxReads,
+  isQbitRideOutFailure,
+  type QbitFundingFactsView,
+} from '../utils/qbit-funding-tx-reads'
+import { QbitBalanceReuse } from '../utils/qbit-balance-reuse'
+import {
+  QbitAccountTotals,
+  type QbitAccountTotalsClearKind,
+  assertQbitAccountTotalAddress,
+  assertQbitAccountTotalAddresses,
+  qbitNoAccountTotal,
+} from '../utils/qbit-account-totals'
 
 import { paramsUtils } from '@qbit/base-utils'
 import {
@@ -303,6 +336,7 @@ import {
   KEYRING_TYPES,
   NETWORK_TYPES,
 } from '@qbit/wallet-shared'
+import { isPlainObject } from 'lodash'
 import log from 'loglevel'
 import approvalService from 'src/services/approval'
 // Imported by module path rather than through '../services' so the capability
@@ -318,6 +352,7 @@ import {
   QBIT_PROVIDER_SIGNING,
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
   QbitSendBroadcastClaimInactiveError,
+  normalizeBroadcastClaim,
   type QbitNoOverlapOperation,
   type QbitExternalSigningLockIdentity,
   type QbitOutpoint,
@@ -331,8 +366,14 @@ import {
 // not know the plan store or engine are unaffected.
 import {
   QbitSendPlanEngine,
+  qbitSendPlanRetrySpacing,
+  qbitSendPlansMayHavePaidNote,
+  qbitSendPlansNotEndedNote,
+  qbitSendPlansNotEndedNotice,
+  type QbitSendPlanEnding,
   type QbitSendPlanEngineHost,
   type QbitSendPlanKeyring,
+  type QbitSendPlanSpenderRead,
   type QbitSendPlanTimers,
 } from '../services/qbitSendPlanEngine'
 import qbitSendPlanStore, {
@@ -340,6 +381,8 @@ import qbitSendPlanStore, {
   type QbitSendPlanStore,
 } from '../services/qbitSendPlanStore'
 import BaseController from './base'
+import phishingController from './phishing'
+import { runsDuringWalletReset } from './ui-access'
 
 /**
  * Exact finalized vsize of a single-key P2MR PSBT (every input spends the
@@ -428,7 +471,11 @@ type QbitPsbtReviewContext = {
 
 export interface WalletControllerOptions {
   now?: () => number
-  /** The timer the send plan engine advances plans with; the global one by default. */
+  /**
+   * The timer the send plan engine advances plans with, and the wallet tries
+   * again the settling of a wallet removal of unknown outcome with; the
+   * global one by default.
+   */
   qbitSendPlanTimers?: QbitSendPlanTimers
 }
 
@@ -474,6 +521,19 @@ type QbitHistorySnapshot = QbitHistoryScope & {
 
 export type WalletKeyringWithStatus = WalletKeyring | CorruptedWalletKeyring
 
+/** What a resetWallet call's arguments ask for; see `resetWalletRequest`. */
+interface WalletResetRequest {
+  acknowledgedRisks: Set<string> | undefined
+  lastWalletKey: string | undefined
+}
+
+/**
+ * Where a reset left the wallets' keys, which the wallet pages' calls it held
+ * go by (see runForUiPort): erased ('gone'), erased or not ('unknown': their
+ * erase began and could not be confirmed), or not erased ('kept').
+ */
+type WalletResetKeys = 'gone' | 'unknown' | 'kept'
+
 export type AccountAsset = {
   name: string
   symbol: string
@@ -502,7 +562,8 @@ function chainTypeToQbitNetworkName(chainType: ChainType): 'mainnet' | 'testnet4
   return 'testnet4'
 }
 
-const QBIT_CHAIN_TYPES = [
+/** The Qbit networks; pinned against the lists of the send plans and their removal records. */
+export const QBIT_CHAIN_TYPES = [
   ChainType.QBIT_MAINNET,
   ChainType.QBIT_TESTNET4,
   ChainType.QBIT_REGTEST,
@@ -905,6 +966,140 @@ function qbitBroadcastIdentityOf(psbt: QbitPsbt, chain: ChainType): QbitBroadcas
   return { chain, txid: qbitPsbtTxid(psbt) }
 }
 
+/** The SHA-256 of `psbt`'s serialization, in hex: one PSBT's bytes and no other's. */
+function qbitPsbtKey(psbt: QbitPsbt): string {
+  return Buffer.from(
+    transactionCore.crypto.sha256(Buffer.from(qbitPsbtToHex(psbt), 'hex'))
+  ).toString('hex')
+}
+
+/**
+ * The most website PSBTs whose approval may be open at once
+ * (`qbitWebsitePsbts`): more are refused, never pushed out.
+ */
+const QBIT_WEBSITE_PSBTS_KEPT = 64
+
+/**
+ * Every input `psbt` spends, as its signatures commit to them
+ * (`checkQbitSpendInputs`). An input that names no output it spends, or a
+ * value past what a number holds exactly, is handed on as no output can be
+ * (a negative value, or one that is no safe integer), so the check refuses
+ * it as a mismatch before any read.
+ */
+function qbitPsbtSpendInputs(psbt: QbitPsbt): QbitSpendInput[] {
+  return decodeQbitPsbt(psbt).inputs.map(input => ({
+    txid: qbitInternalBytesToTxid(input.prevout.txid),
+    vout: input.prevout.vout,
+    satoshis: input.witnessUtxo ? Number(input.witnessUtxo.value) : -1,
+    scriptPk: input.witnessUtxo ? qbitBytesToHex(input.witnessUtxo.scriptPubKey) : '',
+  }))
+}
+
+/** The inputs a builder selected, as a transaction spending them commits to them. */
+function qbitSpendInputsOf(utxos: readonly UnspentOutput[]): QbitSpendInput[] {
+  return utxos.map(utxo => ({
+    txid: utxo.txid,
+    vout: utxo.vout,
+    satoshis: utxo.satoshis,
+    scriptPk: utxo.scriptPk,
+  }))
+}
+
+/** The message of each cause an input fails its check for (`QbitSpendInputProblem`). */
+const QBIT_SPEND_CHECK_MESSAGE_KEYS: Record<QbitSpendInputProblem, string> = {
+  mismatch: 'send_input_check_mismatch',
+  not_spendable: 'send_input_check_not_spendable',
+  not_found: 'send_input_check_not_found',
+  unchecked: 'send_input_check_unchecked',
+}
+
+/**
+ * A failed check as the user reads it: its message is its cause's, in the
+ * user's language. The cause stays on it (`problem`) for the background code
+ * that tells causes apart (a send plan pauses with it, see
+ * `QbitSendPlanEngine`); a page never sees `problem`, since an error crosses
+ * the UI port as `{ message, stack }` alone, and reads the message.
+ */
+function qbitSpendCheckFailure(
+  error: QbitSpendInputCheckError
+): Error & { problem: QbitSpendInputProblem } {
+  return Object.assign(new Error(t(QBIT_SPEND_CHECK_MESSAGE_KEYS[error.problem])), {
+    problem: error.problem,
+    cause: error,
+  })
+}
+
+/**
+ * The cause a failed check of inputs gives, read off the check's own error,
+ * which its failure carries as its `cause` (`qbitSpendCheckFailure`); for
+ * any other error, whatever it carries, undefined: it is no verdict.
+ */
+function qbitSpendCheckProblemOf(error: unknown): QbitSpendInputProblem | undefined {
+  const cause =
+    error !== null && typeof error === 'object' ? (error as { cause?: unknown }).cause : undefined
+  return cause instanceof QbitSpendInputCheckError ? cause.problem : undefined
+}
+
+/**
+ * The inputs of a send's PSBT, made from `checked` alone: the inputs the
+ * builder `selected`, in their order, each exactly as `checkQbitSpendInputs`
+ * read and checked it, which alone makes a `QbitCheckedSpend`. An input the
+ * selection took for unconfirmed change carries the ancestors the selection
+ * counted against qbit Core's ancestor limits; the check's own walk must find
+ * no more of them, nor any larger, and an input the selection took for
+ * confirmed must be confirmed, or the build fails as a mismatch.
+ */
+function qbitCheckedP2mrInputs(
+  checked: QbitCheckedSpend,
+  selected: readonly QbitSelectableCoin[],
+  spend: {
+    sequence: number
+    leafScript: Uint8Array
+    controlBlock: Uint8Array
+    merkleRoot: Uint8Array
+  }
+): Parameters<typeof createP2mrPsbt>[0]['inputs'] {
+  if (!isQbitCheckedSpend(checked) || checked.inputs.length !== selected.length) {
+    throw new Error('Qbit inputs must be checked before they are built')
+  }
+  return checked.inputs.map((input, index) => {
+    const utxo = selected[index]
+    if (
+      !utxo ||
+      input.txid !== utxo.txid.toLowerCase() ||
+      input.vout !== utxo.vout ||
+      input.satoshis !== utxo.satoshis
+    ) {
+      throw new Error('Qbit inputs must be checked before they are built')
+    }
+    const found = checked.unconfirmedAncestors.get(`${input.txid}:${input.vout}`)
+    const counted = new Map(
+      (utxo.unconfirmed ? (utxo.unconfirmedAncestors ?? []) : []).map(ancestor => [
+        ancestor.txid.toLowerCase(),
+        ancestor.vsize,
+      ])
+    )
+    if (found?.some(({ txid, vsize }) => !(vsize <= (counted.get(txid) ?? -1)))) {
+      throw qbitSpendCheckFailure(
+        new QbitSpendInputCheckError(
+          'mismatch',
+          input.txid,
+          input.vout,
+          'more unconfirmed ancestors than its listing'
+        )
+      )
+    }
+    return {
+      prevout: { txid: qbitTxidToInternalBytes(input.txid), vout: input.vout },
+      sequence: spend.sequence,
+      witnessUtxo: { value: BigInt(input.satoshis), scriptPubKey: qbitHexToBytes(input.scriptPk) },
+      leafScript: spend.leafScript,
+      controlBlock: spend.controlBlock,
+      merkleRoot: spend.merkleRoot,
+    }
+  })
+}
+
 /**
  * What a signer hands back, a finalized PSBT or a raw transaction, parsed
  * into the bytes a broadcast sends and the txid and inputs they commit to.
@@ -1003,6 +1198,7 @@ function qbitProviderPsbtAutoFinalized(
     const { psbt: signed } = signP2mrPsbt({
       psbt,
       keys,
+      ...p2mrSigningOptionsFor(keys),
       sign: () => new Uint8Array(PQC_SIGNATURE_BYTES),
     })
     extractP2mrTransaction(finalizeP2mrPsbt(signed))
@@ -1033,6 +1229,133 @@ function assertQbitProviderAnchorValue(outputs: readonly P2mrTransactionOutput[]
         `at most ${QBIT_P2A_MAX_VALUE} sats is allowed`
     )
   }
+}
+
+/**
+ * The sighash type to sign a provider PSBT's input with: the type the PSBT
+ * names for it, or `SIGHASH_DEFAULT` when it names none. A type outside
+ * `P2MR_PARTIAL_SIGHASH_TYPES` (0x81 and 0x83) is refused, as is a
+ * `SIGHASH_SINGLE` input with no output at its own index, which commits to
+ * nothing.
+ *
+ * A partial type is also refused unless the input spends the account's own
+ * output (`spendsAccountOutput`). A website can put the account's leaf in a
+ * tree of its own, at an outpoint that need not exist, and the account can
+ * sign such an input. The spend summary already gives its lock no credit
+ * (`walletOwnedLocks`), but the approval would still list the output it
+ * "locks in", a payment nothing stands behind, beside a signature that gives
+ * the wallet's own input away.
+ */
+function qbitProviderPsbtHashType(
+  sighashType: number | undefined,
+  inputIndex: number,
+  outputCount: number,
+  spendsAccountOutput: boolean
+): number {
+  if (sighashType === undefined || sighashType === SIGHASH_DEFAULT) return SIGHASH_DEFAULT
+  if (!P2MR_PARTIAL_SIGHASH_TYPES.has(sighashType)) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `input ${inputIndex} asks for sighash type 0x${sighashType.toString(16)}; ` +
+        'this wallet signs only the default type, 0x81 and 0x83'
+    )
+  }
+  if (!spendsAccountOutput) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `input ${inputIndex} asks for sighash type 0x${sighashType.toString(16)}, ` +
+        "but does not spend this account's own output; " +
+        'only the default type signs an input held under another script'
+    )
+  }
+  if ((sighashType & SIGHASH_OUTPUT_MASK) === SIGHASH_SINGLE && inputIndex >= outputCount) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `input ${inputIndex} is signed with SIGHASH_SINGLE, but the transaction has no output ${inputIndex}`
+    )
+  }
+  return sighashType
+}
+
+/**
+ * The outputs the account's `SIGHASH_SINGLE` signatures lock in, each with the
+ * value of the input that signs it: the output at the signed input's own
+ * index. The approval credits the wallet no more than that for an output, and
+ * nothing for any other, which whoever holds the signatures can replace.
+ */
+function qbitLockedOutputs(
+  signed: readonly { inputIndex: number; hashType: number; value: number }[]
+): Map<number, number> {
+  return new Map(
+    signed
+      .filter(input => (input.hashType & SIGHASH_OUTPUT_MASK) === SIGHASH_SINGLE)
+      .map((input): [number, number] => [input.inputIndex, input.value])
+  )
+}
+
+/**
+ * What the approval shows when an input is signed with less than the whole
+ * transaction: each such input and, for `SIGHASH_SINGLE`, the one output the
+ * signature locks in, since that is what the signer is paid. The protocol
+ * library requires an approval to surface any sighash type but the default.
+ */
+function qbitPartialSignatureDetails(
+  keys: readonly QbitP2mrSigningKeyInput[],
+  outputs: readonly P2mrTransactionOutput[],
+  networkType: NetworkType
+): NonNullable<PsbtActionInfo['details']> {
+  const details: NonNullable<PsbtActionInfo['details']> = []
+  for (const key of keys) {
+    if (key.hashType === undefined) continue
+    details.push({
+      label: t('qbit_partial_signature_inputs'),
+      value: `#${key.inputIndex}`,
+      type: PsbtActionDetailType.TEXT,
+      warning: true,
+    })
+    if ((key.hashType & SIGHASH_OUTPUT_MASK) !== SIGHASH_SINGLE) {
+      // 0x81 locks every output, and the approval says so: it is what tells
+      // it from 0x83, whose other outputs anyone holding the signature can change.
+      details.push({
+        label: t('qbit_partial_signature_all_outputs'),
+        value: String(outputs.length),
+        type: PsbtActionDetailType.TEXT,
+        warning: true,
+      })
+      continue
+    }
+    const output = outputs[key.inputIndex]!
+    // A script with no address, such as a data output, is shown as its bytes,
+    // all of them: they are the one output the signature commits to.
+    // Either is the website's, so its row is flagged `warning`, which also
+    // keeps an address from counting as a recipient the wallet named.
+    const scriptPubKeyHex = qbitBytesToHex(output.scriptPubKey)
+    const address = scriptPkToAddress(scriptPubKeyHex, networkType)
+    details.push(
+      {
+        label: t('qbit_partial_signature_locked_output'),
+        value: `#${key.inputIndex}`,
+        type: PsbtActionDetailType.TEXT,
+        warning: true,
+      },
+      address === ''
+        ? {
+            label: t('to'),
+            value: scriptPubKeyHex,
+            type: PsbtActionDetailType.TEXT,
+            warning: true,
+            full: true,
+          }
+        : {
+            label: t('to'),
+            value: address,
+            type: PsbtActionDetailType.ADDRESS,
+            warning: true,
+          },
+      { label: t('amount'), value: Number(output.value), type: PsbtActionDetailType.SATOSHIS }
+    )
+  }
+  return details
 }
 
 function isHexBytesText(value: string): boolean {
@@ -1127,6 +1450,58 @@ function isQbitRecoverySweepInput(account: Account, utxo: UnspentOutput): boolea
   )
 }
 
+/**
+ * Whether `value` is a QbitRecoveryRemovalReason as a page hands one back: an
+ * object with a known role, and the other fields absent or of their types.
+ * JSON drops a field whose value is undefined, so absent is undefined here.
+ */
+function isQbitRecoveryRemovalReason(value: unknown): value is QbitRecoveryRemovalReason {
+  if (!isPlainObject(value)) return false
+  const { role, network, status, hasInflightPlans } = value as Record<string, unknown>
+  return (
+    (role === 'source' || role === 'destination' || role === 'unverified') &&
+    (network === undefined || typeof network === 'string') &&
+    (status === undefined || status === 'migrating' || status === 'migrated') &&
+    (hasInflightPlans === undefined || typeof hasInflightPlans === 'boolean')
+  )
+}
+
+/**
+ * Whether a keyring of `type` derives its keys from its own phrase, as the
+ * keyring service then reads a slot's public keys from the keyring in it
+ * rather than from a page's copy (see readAllAddresses).
+ */
+function isPhraseWalletType(type: string): boolean {
+  return type === KeyringType.HdKeyring || type === KeyringType.QbitHdKeyring
+}
+
+/**
+ * The preferences a wallet reset keeps: the language and the theme. The
+ * background's own message language (`i18nextLng`) and the page's copies are
+ * not preferences and stay too, so all of them still agree after a reset.
+ */
+const WALLET_RESET_PREFERENCES_KEPT = ['locale', 'themeMode'] as const
+
+/** The error a website's pending approval ends with when the wallet is reset. */
+const WALLET_RESET_APPROVAL_REJECTION = 'Qbit Wallet was reset'
+
+/** The error of a wallet page's call that waited out a reset which erased the wallet. */
+const WALLET_RESET_CALL_REFUSED = 'Qbit Wallet was reset before this request ran, so it did not run'
+
+/** The error of a call that began before a reset erased the wallets, refused before it wrote. */
+const WALLET_RESET_DURING_CALL = 'Qbit Wallet was reset while this request ran, so it saved nothing'
+
+/** The error of a wallet page's call whose page closed while it waited out a reset. */
+const CLOSED_PAGE_CALL_REFUSED =
+  'The page that asked for this closed before it ran, so it did not run'
+
+/**
+ * How many times a reset tries keyringService.resetAllData, and the pause
+ * before each try after the first, times the number of tries made.
+ */
+const WALLET_RESET_KEYRING_ATTEMPTS = 3
+const WALLET_RESET_KEYRING_RETRY_DELAY_MS = 100
+
 export class WalletController extends BaseController {
   timer: any = null
   private readonly qbitApiClients = new Map<string, QbitWalletApiClient>()
@@ -1148,6 +1523,8 @@ export class WalletController extends BaseController {
   private readonly qbitFeeQuoteCache = new Map<string, QbitFeeQuoteCacheEntry>()
   private readonly qbitFeeQuoteRefreshes = new Map<string, Promise<FeeSummary>>()
   private readonly now: () => number
+  /** See WalletControllerOptions.qbitSendPlanTimers. */
+  private readonly qbitSendPlanTimers: QbitSendPlanTimers
   private readonly qbitHistorySnapshots = new Map<string, QbitHistorySnapshot>()
   private qbitHistorySnapshotSequence = 0
   private chainStateChangeTail: Promise<void> = Promise.resolve()
@@ -1155,6 +1532,10 @@ export class WalletController extends BaseController {
   constructor(options: WalletControllerOptions = {}) {
     super()
     this.now = options.now ?? Date.now
+    this.qbitSendPlanTimers = options.qbitSendPlanTimers ?? {
+      setTimeout: (callback, ms): unknown => setTimeout(callback, ms),
+      clearTimeout: (handle): void => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    }
     this.qbitSendPlans = new QbitSendPlanEngine({
       host: this.qbitSendPlanHost(),
       store: (): QbitSendPlanStore => qbitSendPlanStore,
@@ -1577,8 +1958,38 @@ export class WalletController extends BaseController {
       txid: qbitPsbtTxid(psbt),
       outpoints: qbitPsbtOutpoints(psbt),
     }
-    return this.validatedQbitSendBroadcastClaim(psbt, claim, providerContext, account?.address)
+    const minted = this.validatedQbitSendBroadcastClaim(
+      psbt,
+      claim,
+      providerContext,
+      account?.address
+    )
+    // The bytes this claim was minted from, background-side: the provider
+    // request it opens records them, and only they skip the check when
+    // signed (`qbitProviderSigningOf`).
+    this.qbitMintedClaimBytes.set(minted, qbitPsbtKey(psbt))
+    return minted
   }
+
+  /**
+   * By the claim object `createQbitSendBroadcastClaim` returned, the key of
+   * the bytes it minted it from (`qbitPsbtKey`). Held weakly: a claim whose
+   * request never opens leaves nothing behind.
+   */
+  private readonly qbitMintedClaimBytes = new WeakMap<QbitSendBroadcastClaim, string>()
+
+  /**
+   * By open provider send request, the claim its approval carries and the
+   * key of the bytes the background built and checked for it: recorded when
+   * the request opens (`openQbitProviderSendRequest`) from a claim the
+   * background minted, removed when it settles or by a reset. A local
+   * signing skips the check of its inputs as a provider send only for these
+   * bytes under this claim (`qbitProviderSigningOf`).
+   */
+  private readonly qbitProviderSendBytes = new Map<
+    QbitProviderSendRequest,
+    { key: string; chain: string; address: string; origin: string; txid: string }
+  >()
 
   acquireExternalQbitSigningLock = async (
     toSignDatas: readonly ToSignData[],
@@ -1672,10 +2083,27 @@ export class WalletController extends BaseController {
    * Open the provider sendQbit request whose approval carries `claim`,
    * before the approval is shown. Signing that approval registers the claim
    * under this request, and only while it is open; see
-   * `settleQbitProviderSendRequest`.
+   * `settleQbitProviderSendRequest`. A claim the background minted
+   * (`createQbitSendBroadcastClaim`) records the bytes it was minted from
+   * under the request, for as long as the request is open; any other claim
+   * opens the request and records nothing, so its signing is checked.
    */
-  openQbitProviderSendRequest = (claim: QbitSendBroadcastClaim): Promise<QbitProviderSendRequest> =>
-    qbitSendGuardService.openProviderSendRequest(claim)
+  openQbitProviderSendRequest = async (
+    claim: QbitSendBroadcastClaim
+  ): Promise<QbitProviderSendRequest> => {
+    const request = await qbitSendGuardService.openProviderSendRequest(claim)
+    const key = this.qbitMintedClaimBytes.get(claim)
+    if (key !== undefined) {
+      this.qbitProviderSendBytes.set(request, {
+        key,
+        chain: claim.chain,
+        address: claim.address,
+        origin: claim.origin,
+        txid: claim.txid,
+      })
+    }
+    return request
+  }
 
   /**
    * Close a provider sendQbit request, successful or not, and decide the
@@ -1692,7 +2120,11 @@ export class WalletController extends BaseController {
   settleQbitProviderSendRequest = (
     request: QbitProviderSendRequest,
     spent: boolean
-  ): Promise<void> => qbitSendGuardService.settleProviderSendRequest(request, spent)
+  ): Promise<void> => {
+    // Its bytes skip no check from here on, whatever the guard decides.
+    this.qbitProviderSendBytes.delete(request)
+    return qbitSendGuardService.settleProviderSendRequest(request, spent)
+  }
 
   /**
    * The UI port the call now executing arrived on, for that call's
@@ -1706,17 +2138,161 @@ export class WalletController extends BaseController {
   private callingUiPort: QbitSendClaimOwner | undefined
 
   /**
-   * Run one UI request on behalf of the port it arrived on. The messaging
-   * layer wraps every controller call from a popup, tab, side panel or
-   * notification page in this; see `callingUiPort`.
+   * The request of the wallet page whose call is now executing, when it was
+   * judged on arrival (runForUiPort): one that named the wallet the page
+   * shows, and a resetWallet whether it named one or not. Its method and the
+   * wallet's id it named (undefined for a resetWallet that named none), for
+   * the call's synchronous prefix only, as `callingUiPort`. Undefined for any
+   * other request that named none, and for calls that come through no page.
+   * A job the call queues is judged by it again when the job starts
+   * (judgedWhenItStarts).
    */
-  runForUiPort = <T>(uiPort: QbitSendClaimOwner, call: () => T): T => {
+  private callingPageRequest: { method: string; walletId: string | undefined } | undefined
+
+  /**
+   * Run one wallet page's call on behalf of the port it arrived on: the
+   * messaging layer's dispatch of every controller call from a popup, tab,
+   * side panel or notification page, naming the controller `method` it
+   * calls. See `callingUiPort`.
+   *
+   * A page's call that comes in while a reset, or the completion of one,
+   * clears wallet data (walletResetUnderWay) waits for it, so that nothing it
+   * clears is written again under it.
+   * It was made against the wallets as they were, so it runs only if the
+   * reset erased nothing: once the keys are gone it is refused without
+   * running, and while whether they are gone is unknown it is refused with
+   * WALLET_RESET_OUTCOME_UNKNOWN (a password change would write the vault
+   * memory still holds back to storage). Nor does it run once its page closed
+   * while it waited: nothing would receive what it returns, and what it would
+   * leave for that page, a send claim say, was released as the page closed
+   * and would then stay. Only the methods in UI_METHODS_RUN_DURING_RESET are
+   * let through, and the reset waits for no call this holds. A signing
+   * already under way for a page continues through signBatchEntryForUiPort.
+   *
+   * Before all of that, a request that names the wallet its page shows
+   * (`shownWalletId`, the id getWalletId gave the page) is judged against the
+   * wallet set up now (assertPageShowsWalletSetUp): a page that missed a reset
+   * is refused, whatever it asks, rather than held. A request without it is
+   * not judged this way, resetWallet's aside: a page that shows no wallet
+   * sends its calls without an id, and its reset must not erase a wallet set
+   * up in another window, so a resetWallet is judged whether it names a
+   * wallet or not.
+   */
+  runForUiPort = <T>(
+    uiPort: QbitSendClaimOwner,
+    call: () => T,
+    method: string,
+    shownWalletId?: unknown
+  ): T | Promise<Awaited<T>> => {
+    const judged =
+      shownWalletId !== undefined || method === ('resetWallet' satisfies keyof WalletController)
+    if (judged) this.assertPageShowsWalletSetUp(shownWalletId, method)
+    const reset = this.walletResetUnderWay
+    if (reset && !runsDuringWalletReset(method)) {
+      return reset.then(keys => {
+        if (keys === 'gone') throw new Error(WALLET_RESET_CALL_REFUSED)
+        if (keys === 'unknown') throw new WalletError(ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN)
+        if (this.closedUiPorts.has(uiPort)) throw new Error(CLOSED_PAGE_CALL_REFUSED)
+        return this.runForUiPort(uiPort, call, method, shownWalletId)
+      }) as Promise<Awaited<T>>
+    }
+    return this.withCallingUiPort(
+      uiPort,
+      call,
+      judged
+        ? { method, walletId: typeof shownWalletId === 'string' ? shownWalletId : undefined }
+        : undefined
+    )
+  }
+
+  /**
+   * Refuse a wallet page's request that names a wallet other than the one
+   * set up now, with WALLET_PAGE_OUT_OF_DATE: the request does not run,
+   * whatever it asks. The wallet set up now is the one getWalletId would
+   * answer without making an id: its saved id while a wallet is booted
+   * (getSavedWalletId; an id still being saved for the first time has not
+   * been handed to any page), none while nothing is booted. So a page whose
+   * wallet a reset erased, which it missed, is told so when nothing or
+   * another wallet is set up; during a reset of unknown outcome the wallet
+   * is still loaded, with its id, and its pages are not out of date. A value
+   * that is not a non-empty string is refused as malformed; left out
+   * (undefined), it names no wallet, which only a resetWallet is judged by
+   * (runForUiPort): such a request shows none, so while a wallet is booted
+   * it is out of date, whether that wallet's id was saved yet or not.
+   *
+   * Not judged, and let go on as before this judgement existed, while the
+   * background starts and has not loaded the keyring or the preferences yet:
+   * which wallet is set up is not known then. Nothing of an erased wallet
+   * can land meanwhile: the stores a page's data goes to (the preferences,
+   * the contacts, the grants) load later still, so a write to them fails,
+   * and the keyring takes no change without the password of the wallet it
+   * holds. From their load on, every request that names a wallet is judged.
+   * Nor is a resetWallet judged here while nothing is booted, whatever wallet
+   * it names, if any: it erases no keys then, and only finishes a reset that
+   * left the clearing pending, or does nothing, so the page of the wallet
+   * that reset erased may still ask for it, as resetWallet's doc says. Its
+   * queued job is judged again where it runs, as a boot queued ahead may
+   * have set up a wallet by then (judgedWhenItStarts).
+   */
+  private assertPageShowsWalletSetUp = (shownWalletId: unknown, method: string): void => {
+    if (
+      shownWalletId !== undefined &&
+      (typeof shownWalletId !== 'string' || shownWalletId.length === 0)
+    ) {
+      throw new Error('Invalid wallet request wallet id')
+    }
+    if (!keyringService.store || !preferenceService.isInitialized()) return
+    const booted = keyringService.isBooted()
+    if (!booted && method === ('resetWallet' satisfies keyof WalletController)) return
+    const setUp = booted ? preferenceService.getSavedWalletId() : undefined
+    if (shownWalletId === undefined || shownWalletId !== setUp) {
+      throw new WalletError(ErrorCodes.WALLET_PAGE_OUT_OF_DATE)
+    }
+  }
+
+  /**
+   * Run `call` with `uiPort` as the calling port, and `pageRequest` as its
+   * page's request, for its synchronous prefix; see `callingUiPort` and
+   * `callingPageRequest`.
+   */
+  private withCallingUiPort = <T>(
+    uiPort: QbitSendClaimOwner,
+    call: () => T,
+    pageRequest?: { method: string; walletId: string | undefined }
+  ): T => {
     const previous = this.callingUiPort
+    const previousRequest = this.callingPageRequest
     this.callingUiPort = uiPort
+    this.callingPageRequest = pageRequest
     try {
       return call()
     } finally {
       this.callingUiPort = previous
+      this.callingPageRequest = previousRequest
+    }
+  }
+
+  /**
+   * `job`, judged again when it starts if the page's call now executing
+   * queued it after being judged on arrival (callingPageRequest): a job
+   * waits behind others, a reset or a boot among them, and the wallet the
+   * request was judged against on arrival may be gone by its turn, or one
+   * may have been set up where there was none. So, as on arrival, the wallet
+   * it names must still be the one set up, or the job is refused with
+   * WALLET_PAGE_OUT_OF_DATE and changes nothing (assertPageShowsWalletSetUp,
+   * resetWallet's rules included: a resetWallet that named no wallet is
+   * refused once a wallet is booted). Every queue a page's call can wait on
+   * in this controller goes through this when the job is queued
+   * (enqueueChainStateChange, enqueueWalletLabelChange), so a queued method
+   * added later is covered. A request that named no wallet, resetWallet
+   * aside, and a job the background queues for itself, are not judged.
+   */
+  private judgedWhenItStarts = <T>(job: () => Promise<T>): (() => Promise<T>) => {
+    const page = this.callingPageRequest
+    if (!page) return job
+    return () => {
+      this.assertPageShowsWalletSetUp(page.walletId, page.method)
+      return job()
     }
   }
 
@@ -1776,8 +2352,62 @@ export class WalletController extends BaseController {
   }
 
   /* wallet */
-  boot = (password: string) => keyringService.boot(password)
+  /**
+   * Set the password of a new wallet, on the chain-state queue: after a reset
+   * queued before it, never inside one. A reset that erased the keys but still
+   * owes the clearing of the rest of the wallet data is finished first, so the
+   * new wallet inherits none of it; when that fails again, boot is refused with
+   * WALLET_RESET_INCOMPLETE and sets no password. It first waits for the
+   * pages' wallet additions under way, so none resumes into the new vault.
+   * While a reset's outcome is unknown it is refused with
+   * WALLET_RESET_OUTCOME_UNKNOWN (walletResetOutcomeUnknown).
+   */
+  boot = (password: string): Promise<void> =>
+    this.enqueueChainStateChange(async () => {
+      // It writes the keyring's stored state when memory holds no vault.
+      this.assertWalletResetOutcomeKnown()
+      // A page's wallet addition still under way, as a stale page can submit
+      // while nothing is booted, would resume inside the keyring once the new
+      // password is set and save its wallet in the new vault: it ends first,
+      // refused for want of a password. Additions never wait for this queue
+      // (trackWalletAddition), and on a first run none is under way.
+      await this.walletAdditionsSettled()
+      // Announced to nobody: the page asking is the first-run screen.
+      await this.performFinishPendingWalletReset({ announce: false })
+      await keyringService.boot(password)
+    })
   isBooted = async () => keyringService.isBooted()
+
+  /**
+   * The identity of the wallet set up in this browser, by which a page that
+   * missed a reset can tell, when it connects again, that the background now
+   * holds another wallet. Null while nothing is booted: no wallet, or a
+   * reset whose keys are gone, pending or not. Otherwise an opaque random
+   * value kept with the preferences (createWalletId), made the first time it
+   * is asked for and saved before it is returned, and derived from nothing:
+   * no key, address or password. It stays the same through lock and unlock,
+   * a password change, wallets and accounts added, removed or switched,
+   * network changes and restarts, and changes exactly when the wallets are
+   * erased: the reset's preference reset drops it, and the next wallet gets
+   * another. During a reset of unknown outcome the wallet is still loaded,
+   * and so is its id. Readable while locked; calls at once on a wallet with
+   * no id yet make one and all answer it. No id is answered before it is on
+   * disk: a call made while one is being saved waits for that save, and
+   * fails with it if it fails (readWalletId), so an id whose save failed is
+   * never handed out and later replaced. A call that a reset overtook, which
+   * began erasing the wallets after it was asked, makes and saves none, and
+   * answers null (walletResetSince).
+   */
+  getWalletId = async (): Promise<string | null> => {
+    if (!keyringService.isBooted()) return null
+    const generation = this.walletResetGeneration
+    const saved = await preferenceService.readWalletId()
+    if (saved !== undefined) return saved
+    const id = await preferenceService.createWalletId(
+      () => !this.walletResetSince(generation) && keyringService.isBooted()
+    )
+    return id ?? null
+  }
 
   /** The pending approval's data and the id a window passes back to settle it. */
   getApproval = async () => {
@@ -1803,8 +2433,79 @@ export class WalletController extends BaseController {
 
   hasVault = () => keyringService.hasVault()
   verifyPassword = (password: string) => keyringService.verifyPassword(password)
-  changePassword = (password: string, newPassword: string) =>
-    keyringService.changePassword(password, newPassword)
+  /**
+   * A password change saves the vault again from what is stored, without the
+   * live keyrings, so the lock a reset makes does not stop it. Only wallet
+   * pages ask for one, and runForUiPort holds a page's call while a reset
+   * runs; one already under way when a reset begins holds the keyring's
+   * unlock mutex, which the reset's lock waits for. While a reset's outcome
+   * is unknown it is refused with WALLET_RESET_OUTCOME_UNKNOWN
+   * (walletResetOutcomeUnknown).
+   */
+  changePassword = async (password: string, newPassword: string): Promise<void> => {
+    this.assertWalletResetOutcomeKnown()
+    return keyringService.changePassword(password, newPassword)
+  }
+
+  /**
+   * Set while a run clears wallet data, resetWallet's or the completion of a
+   * reset (performFinishPendingWalletReset, wherever it was started), and
+   * settled when it ends with where it left the wallets' keys: gone (a reset
+   * erased them, or a completion found them gone), unknown, or kept. A wallet
+   * page's call waits for it (runForUiPort). Calls under way when a reset
+   * begins are not held: a password change holds the keyring's unlock mutex,
+   * which the reset's lock waits for; an enrollment checks the password again
+   * after its write and clears its record once it no longer verifies
+   * (BiometricUnlockService.saveRecord); reads of addresses by type and
+   * additions of a wallet are waited for (addressReadsUnderWay,
+   * walletAdditionsUnderWay); and what a read writes once a reset has
+   * erased the wallets is dropped (walletResetSince).
+   */
+  private walletResetUnderWay: Promise<WalletResetKeys> | undefined
+
+  /**
+   * Moves each time a reset begins to erase the keys, and each time a reset
+   * whose keys were gone already finishes clearing the wallet data: what was
+   * read or approved before it is out of date. A website request checks it
+   * before it acts on an approval (rpcFlow's assertRequestContext). It moves
+   * before the erase is known to have happened, so a request approved across
+   * an erase whose outcome is unknown is refused too.
+   */
+  walletResetGeneration = 0
+
+  /**
+   * Set once a reset ends as of unknown outcome (WALLET_RESET_OUTCOME_UNKNOWN):
+   * storage may hold no keys while memory still holds the wallet. Kept in
+   * memory only, until the background starts again or, before that, the keys
+   * are known to be gone (performFinishPendingWalletReset ran). Until then
+   * nothing may write the keyring's stored state from what memory holds, so
+   * that start decides from storage alone (finishPendingWalletReset): keys
+   * gone, it finishes the reset and tells everyone; keys there, the wallet is
+   * intact, and the mark is forgotten. Its erase apart, the keyring writes its
+   * stored state only under a password, which the reset's lock took away and
+   * only an unlock or a boot sets again, or in a password change, which works
+   * while locked: those three are refused meanwhile, and another reset too,
+   * since its refusal for the lock would point to an unlock that is refused
+   * (assertWalletResetOutcomeKnown).
+   */
+  private walletResetOutcomeUnknown = false
+
+  /**
+   * Whether a wallet reset halted the send plans (haltQbitSendPlansForReset):
+   * from the moment a reset goes ahead to erase, or a completion of one
+   * begins, until every step of the clearing succeeded, the erasing of the
+   * stored plans included. Once the keys begin to be erased only such a
+   * clearing lets them go on: after a partial one they stay halted, nothing
+   * of a plan running, until the completion the pending mark guarantees
+   * clears the rest.
+   */
+  private qbitSendPlansHaltedForReset = false
+
+  /** The reads of addresses by type under way; see getAllAddresses. */
+  private addressReadsUnderWay = new Set<Promise<unknown>>()
+
+  /** The additions of a wallet under way; see trackWalletAddition. */
+  private walletAdditionsUnderWay = new Set<Promise<unknown>>()
 
   initAlianNames = async () => {
     preferenceService.changeInitAlianNameStatus()
@@ -1815,7 +2516,7 @@ export class WalletController extends BaseController {
   }
 
   private enqueueChainStateChange = <T>(operation: () => Promise<T>): Promise<T> => {
-    const queuedOperation = this.chainStateChangeTail.then(operation)
+    const queuedOperation = this.chainStateChangeTail.then(this.judgedWhenItStarts(operation))
     this.chainStateChangeTail = queuedOperation.then(
       () => undefined,
       () => undefined
@@ -1828,7 +2529,10 @@ export class WalletController extends BaseController {
    * lock that comes in from the call on wins, even while the unlock waits its
    * turn (behind a restore floor scan, say), when the keyring service's own
    * pending-lock check no longer sees it: the unlock then ends locked and
-   * rejects with WALLET_LOCKED_DURING_UNLOCK.
+   * rejects with WALLET_LOCKED_DURING_UNLOCK. After a reset whose outcome is
+   * unknown it is refused with WALLET_RESET_OUTCOME_UNKNOWN, a biometric
+   * unlock too, which ends here once its page has unwrapped the password
+   * (walletResetOutcomeUnknown).
    */
   unlock = (password: string): Promise<void> => {
     const locksAtCall = this.lockRequests
@@ -1836,6 +2540,9 @@ export class WalletController extends BaseController {
   }
 
   private performUnlock = async (password: string, locksAtCall: number): Promise<void> => {
+    // An unlock loads the vault memory holds, which the next save writes
+    // back to storage, and may upgrade its encryption there at once.
+    this.assertWalletResetOutcomeKnown()
     const assertNotLockedSinceCall = () => {
       if (this.lockRequests !== locksAtCall) {
         throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_UNLOCK)
@@ -1918,6 +2625,9 @@ export class WalletController extends BaseController {
     this.kickPendingQbitRestoreFloorScan()
     // A send plan a lock paused in this session goes on.
     this.qbitSendPlans.onUnlock()
+    // A wallet removal of unknown outcome is settled now that the vault can
+    // be written (settleQbitSendPlanRemovalsOfUnknownOutcome).
+    void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
   }
 
   /**
@@ -1962,6 +2672,16 @@ export class WalletController extends BaseController {
   private accountChangeUnannounced = false
 
   lockWallet = async () => {
+    await this.lockKeyring()
+    this.announceLock()
+  }
+
+  /**
+   * lockWallet without telling anyone: a reset locks the wallet it is about to
+   * erase, and announces the lock only if it erases nothing. Like lockWallet,
+   * it marks the wallet locked before its first await.
+   */
+  private lockKeyring = async (): Promise<void> => {
     this.lockRequests += 1
     // The lock ends the session the auto-lock was counting down, so its timer
     // cannot lock a later unlock (the automatic biometric prompt, say) or
@@ -1970,11 +2690,16 @@ export class WalletController extends BaseController {
     this.timer = null
     this.autoLockDueAt = undefined
     this.clearAutoLockHold()
-    // A locked wallet keeps no account's outputs in memory, not even while
-    // the lock waits or if it fails. setLocked marks the wallet locked at
-    // once, before it waits, so nothing is kept after this clear: not from
-    // a read that started before it, nor while locked (`qbitAccountUtxosOn`).
+    // A locked wallet keeps no account's outputs in memory, nor what it read
+    // of their funding transactions, not even while the lock waits or if it
+    // fails. setLocked marks the wallet locked at once, before it waits, so
+    // nothing is kept after these clears: not from a read asked for before
+    // them, however late it starts, even after a new unlock, nor while
+    // locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
     this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
+    this.forgetQbitAccountTotals()
     // A send plan stops signing before its next signature, and its drafts
     // go: told before the keyring's lock, which may wait for its mutex, and
     // not again by that lock's event (see `listenForKeyringLocks`).
@@ -1985,7 +2710,6 @@ export class WalletController extends BaseController {
     } finally {
       this.qbitSendPlanLocksTold -= 1
     }
-    this.announceLock()
   }
 
   /**
@@ -2006,16 +2730,30 @@ export class WalletController extends BaseController {
     preferenceService.setPopupOpen(isOpen)
   }
 
-  getAddressBalance = async (address: string) => {
+  getAddressBalance = (address: string): Promise<QbitBalance> =>
+    this.getAddressBalanceSince(address, this.walletResetGeneration)
+
+  /**
+   * getAddressBalance for `address` as chosen from what was read at
+   * `generation`, walletResetGeneration then: the balance is kept only while
+   * no reset has erased the wallets since (walletResetSince). A caller that
+   * picks the address after an await, as a site's getBalance picks the
+   * current account, passes the generation it read before that. Not for the
+   * UI port.
+   */
+  getAddressBalanceSince = async (address: string, generation: number): Promise<QbitBalance> => {
     const data = qbitBalanceToWalletBalance(
       await this.getQbitApiClient().getAddressBalance(address)
     )
-    preferenceService.updateAddressBalance(address, data)
+    if (!this.walletResetSince(generation)) preferenceService.updateAddressBalance(address, data)
     return data
   }
 
   getAddressBalanceV2 = async (address: string) => {
     const chainType = this.getChainType()
+    // Its total feeds the account switcher's (`qbitAccountTotals`), ranked
+    // and dated by when this read began.
+    const totalsSince = this.qbitAccountTotals.begin()
     const currentAccount = preferenceService.getCurrentAccount()
     const p2mrScriptPubKey =
       currentAccount?.address === address ? currentAccount.p2mr?.scriptPubKey : undefined
@@ -2034,6 +2772,21 @@ export class WalletController extends BaseController {
     // Past the explorer's limit the outputs come from the latest output read
     // for this address on this network (see `getQbitUtxoSnapshot`), and only
     // while the statistics still read as they did for it.
+    //
+    // The read has one deadline (`QBIT_BALANCE_READ_DEADLINE_MS`), and its
+    // reads of funding transactions go through `qbitFundingTxReads`, so an
+    // address with thousands of outputs is read across polls, each one
+    // starting where the last stopped, and a confirmed output once read is
+    // not read again; one a coinbase maturity deep is not read at all. Its
+    // answer is only totals, so after one wrong `is_coinbase` answer it can
+    // count a reward younger than 1,000 blocks as Available until a read of
+    // outputs or a clear replaces the kept fact; no send can select it.
+    //
+    // A large account's complete answer is kept for reuse
+    // (`qbitBalanceReuse`): this read takes its place among those clears now,
+    // before any await, so that one made since leaves it keeping and reusing
+    // nothing.
+    const reuse = this.qbitBalanceReuse.begin()
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
@@ -2061,17 +2814,22 @@ export class WalletController extends BaseController {
           qbitSendGuardService.getReservedOutpointKeys(chainType, address),
           this.qbitBalanceGuardWaitMs
         )
-        if (reserved !== undefined) return reserved
-        reservedUnknown = true
-        return new Set<string>()
+        // The poll's last read decides: a reuse given up after reading them
+        // reads them again after the listing.
+        reservedUnknown = reserved === undefined
+        return reserved ?? new Set<string>()
       },
-      readOutputs
+      readOutputs,
+      { fundingTxReads: this.qbitFundingTxReads, reuse }
     )
+    this.qbitAccountTotals.measured(client, address, data.totalBalance, totalsSince)
     if (reservedUnknown) {
       // Shown as `--`, as past the explorer's UTXO limit: the total is
       // measured, and nothing counts as available until a read has the
       // reservations again. An address past the limit keeps
-      // `utxoLimitExceeded`, as its total comes from the statistics.
+      // `utxoLimitExceeded`, as its total comes from the statistics, and one
+      // whose outputs were not read in full keeps `utxoReadIncomplete`, and
+      // `utxoReadFailed` when that read failed.
       return {
         availableBalance: null,
         unavailableBalance: Math.max(0, data.totalBalance),
@@ -2079,10 +2837,190 @@ export class WalletController extends BaseController {
         immatureBalance: null,
         pendingBalance: null,
         ...(data.utxoLimitExceeded ? { utxoLimitExceeded: true } : {}),
+        ...(data.utxoReadIncomplete ? { utxoReadIncomplete: true } : {}),
+        ...(data.utxoReadFailed ? { utxoReadFailed: true } : {}),
         chainType,
       }
     }
     return { ...data, chainType }
+  }
+
+  /**
+   * What is kept of each address's total, for the account switcher: one
+   * answer per entry, in order, duplicates included, `fresh` as of now.
+   * Reads nothing from the explorer and starts nothing. An address that is
+   * no account of a listed wallet, or any address while the wallet reads
+   * locked, answers with no total, and so does every address when the
+   * answer cannot be made. Rejects only for anything but an array of at most
+   * `QBIT_ACCOUNT_TOTALS_MAX_ADDRESSES` non-empty strings.
+   */
+  getQbitAccountTotals = async (addresses: string[]): Promise<QbitAccountTotal[]> => {
+    assertQbitAccountTotalAddresses(addresses)
+    const chainType = this.getChainType()
+    if (addresses.length === 0) return []
+    try {
+      const own = await this.qbitOwnAccountAddresses(chainType)
+      const client = own ? this.getQbitApiClient(chainType) : undefined
+      return addresses.map(address =>
+        client && own?.has(address)
+          ? this.qbitAccountTotals.peek(client, address, chainType)
+          : qbitNoAccountTotal(address, chainType)
+      )
+    } catch (error) {
+      log.warn('[WalletController] Qbit account totals not answered', summarizeError(error))
+      return addresses.map(address => qbitNoAccountTotal(address, chainType))
+    }
+  }
+
+  /**
+   * The address's total, for the account switcher: the kept one while it is
+   * fresh, otherwise one read of its statistics on the network active when
+   * the call began (see `qbitAccountTotals`). An address that is no account
+   * of a listed wallet, or any address while the wallet reads locked,
+   * answers with no total and is not read. Rejects only for an address that
+   * is not a non-empty string; a failed read resolves with `error: true`.
+   *
+   * A call that a clear overtakes answers with no total, except after a
+   * wallet's removal or the regtest access turned off while on another
+   * network (`forgetQbitAccountTotals('may-read-again')`): the wallets that
+   * stay are the same wallets, on the same network, and a switcher left
+   * open would show `--` for every one of them, so the call reads once
+   * more, under a new place, if the wallet still reads unlocked, the
+   * network is still the one it began on and the address is still an own
+   * account's.
+   */
+  readQbitAccountTotal = async (address: string): Promise<QbitAccountTotal> => {
+    assertQbitAccountTotalAddress(address)
+    const chainType = this.getChainType()
+    let since = this.qbitAccountTotals.begin()
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        const own = await this.qbitOwnAccountAddresses(chainType)
+        if (!own?.has(address)) return qbitNoAccountTotal(address, chainType)
+        const total = await this.qbitAccountTotals.read(
+          this.getQbitApiClient(chainType),
+          address,
+          chainType,
+          since
+        )
+        if (attempt > 0 || !this.qbitAccountTotals.mayReadAgain(since)) return total
+        since = this.qbitAccountTotals.begin()
+      }
+    } catch (error) {
+      log.warn('[WalletController] Qbit account total not read', summarizeError(error))
+      return { ...qbitNoAccountTotal(address, chainType), error: true }
+    }
+  }
+
+  /**
+   * The addresses of every account of the wallets listed now (`getKeyrings`),
+   * as shown on `chainType`, that are addresses of that Qbit network, as a
+   * send checks its recipient: a developer-mode read-only wallet, a watched
+   * address or a cold wallet shows Bitcoin-style addresses (`bc1…`, `tb1…`),
+   * which the Qbit explorer is never asked about. `undefined` while the
+   * wallet reads locked, or once the network is no longer `chainType`.
+   */
+  private qbitOwnAccountAddresses = async (
+    chainType: ChainType
+  ): Promise<ReadonlySet<string> | undefined> => {
+    if (!this.isUnlocked()) return undefined
+    const forgotten = this.qbitOwnAddressesForgotten
+    const displayed = await this.readShownKeyrings()
+    if (!this.isUnlocked() || this.getChainType() !== chainType) return undefined
+    const derived = this.qbitOwnAddressesDerived
+    if (derived?.displayed === displayed && derived.chainType === chainType) {
+      return derived.addresses
+    }
+    const networkType = CHAINS_MAP[chainType]?.networkType
+    const addresses = new Set<string>()
+    if (networkType !== undefined) {
+      for (const keyring of this.walletKeyringsOf(displayed)) {
+        for (const { address } of keyring.accounts) {
+          if (
+            isValidAddress(address, networkType) &&
+            getAddressType(address, networkType) === AddressType.P2MR
+          ) {
+            addresses.add(address)
+          }
+        }
+      }
+    }
+    // Not kept from a list read before the totals were forgotten.
+    if (forgotten === this.qbitOwnAddressesForgotten) {
+      this.qbitOwnAddressesDerived = { displayed, chainType, addresses }
+    }
+    return addresses
+  }
+
+  /**
+   * What `qbitOwnAccountAddresses` last derived, and from which list and
+   * network: the keyring service hands back the same list object until the
+   * keyrings change (a wallet or an account added or removed, an address
+   * type or HD path changed, a lock or an unlock) or its display network
+   * does, and a wallet's addresses depend on nothing else, so an unchanged
+   * list on an unchanged network has the same addresses and costs no
+   * derivation. Holds no key material, and is forgotten with the totals
+   * (`forgetQbitAccountTotals`), so nothing of a wallet locked away, reset
+   * or removed stays here.
+   */
+  private qbitOwnAddressesDerived:
+    | { displayed: DisplayedKeyring[]; chainType: ChainType; addresses: ReadonlySet<string> }
+    | undefined = undefined
+
+  /** Counts `forgetQbitAccountTotals`: a derivation begun before one keeps nothing. */
+  private qbitOwnAddressesForgotten = 0
+
+  /** The keyring service's list read under way for `readShownKeyrings`. */
+  private qbitShownRead: Promise<DisplayedKeyring[]> | undefined = undefined
+
+  /** The read that follows it, shared by every call that came while it was under way. */
+  private qbitShownNextRead: Promise<DisplayedKeyring[]> | undefined = undefined
+
+  /**
+   * The wallets as the keyring service lists them, from a read begun no
+   * earlier than this call: the service shares no build of the list under
+   * way, so a burst of calls on a list it must build again would each build
+   * every wallet. The first starts a read; every call that comes while it
+   * is under way, begun before them and so perhaps from before a change,
+   * waits for it and then shares one read that starts once it settled.
+   * After a build the service keeps its list, so that read costs nothing
+   * unless the keyrings changed meanwhile, and then it is one build for all.
+   */
+  private readShownKeyrings = (): Promise<DisplayedKeyring[]> => {
+    if (this.qbitShownNextRead) return this.qbitShownNextRead
+    const underWay = this.qbitShownRead
+    if (!underWay) return this.startShownRead()
+    const settled = (): void => undefined
+    const next = underWay.then(settled, settled).then(() => {
+      if (this.qbitShownNextRead === next) this.qbitShownNextRead = undefined
+      return this.startShownRead()
+    })
+    this.qbitShownNextRead = next
+    return next
+  }
+
+  private startShownRead = (): Promise<DisplayedKeyring[]> => {
+    const read = keyringService.getAllDisplayedKeyrings()
+    this.qbitShownRead = read
+    const settled = (): void => {
+      if (this.qbitShownRead === read) this.qbitShownRead = undefined
+    }
+    read.then(settled, settled)
+    return read
+  }
+
+  /**
+   * Forget the account totals (`qbitAccountTotals.clear`) and what the
+   * own-address check keeps of the wallets: wherever `qbitFundingTxReads` is
+   * cleared. `'may-read-again'` only where the wallets that stay are the
+   * same wallets, on the same network (a wallet's removal, and the regtest
+   * access turned off while on another network, `dropRegtestApiClients`):
+   * a call it overtakes reads once more (see `readQbitAccountTotal`).
+   */
+  private forgetQbitAccountTotals = (kind?: QbitAccountTotalsClearKind): void => {
+    this.qbitAccountTotals.clear(kind)
+    this.qbitOwnAddressesDerived = undefined
+    this.qbitOwnAddressesForgotten += 1
   }
 
   getMultiAddressSummaries = async (addresses: string) => {
@@ -2185,6 +3123,7 @@ export class WalletController extends BaseController {
     snapshotId?: string
     refreshSnapshotId?: string
   }) => {
+    const generation = this.walletResetGeneration
     if (
       !Number.isSafeInteger(params.start) ||
       params.start < 0 ||
@@ -2290,6 +3229,8 @@ export class WalletController extends BaseController {
         }
       }
 
+      // Read for wallets a reset has erased since: kept nowhere.
+      this.assertNoWalletResetSince(generation)
       this.qbitHistorySnapshots.set(snapshot.id, snapshot)
       this.pruneQbitHistorySnapshots(snapshot.createdAt)
       preferenceService.updateAddressHistory(
@@ -2400,11 +3341,19 @@ export class WalletController extends BaseController {
   /* keyrings */
 
   resetAllData = async () => {
-    // A reset wallet keeps no account's outputs, not even while the reset
-    // writes or when it fails. The keyring service marks the wallet locked
-    // only after its writes, so a read that completes during them is kept
-    // until the second clear; nothing is kept after that, nor while locked.
+    // A reset wallet keeps no account's outputs, nor what it read of their
+    // funding transactions, not even while the reset writes or when it
+    // fails. The keyring service marks the wallet locked only after its
+    // writes, so a read that completes during them is kept until the second
+    // clears; nothing is kept after those, nor while locked.
     this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
+    // No website PSBT, nor any provider send, skips the check of its inputs
+    // past a reset, which also ends every open provider request in the guard.
+    this.forgetQbitWebsitePsbts()
+    this.qbitProviderSendBytes.clear()
+    this.forgetQbitAccountTotals()
     // The send plans stop before anything else is reset, and stay stopped
     // until the reset is over: nothing of a plan is signed, broadcast,
     // written or held meanwhile, so no payment leaves for a wallet being
@@ -2414,10 +3363,23 @@ export class WalletController extends BaseController {
     try {
       try {
         await keyringService.resetAllData()
+      } catch (error) {
+        // It stores the erased vault before it changes memory: whether the
+        // keys are gone is what storage holds, as for a restart
+        // (QbitSendPlanEngine.keyringResetFailed).
+        this.qbitSendPlans.keyringResetFailed()
+        throw error
       } finally {
         this.qbitLatestUtxoReads.clear()
+        this.qbitFundingTxReads.clear()
+        this.qbitBalanceReuse.clear()
+        this.forgetQbitAccountTotals()
       }
-      await preferenceService.resetAllData()
+      // The keys are gone, and a stored signed payment needs none to go out:
+      // from here no stored plan goes on again, whichever step fails next
+      // (QbitSendPlanEngine.keysErased). The plans and what they hold are
+      // erased first.
+      this.qbitSendPlans.keysErased()
       await qbitSendGuardService.resetAllData()
       try {
         await qbitSendPlanStore.resetAllData()
@@ -2427,15 +3389,735 @@ export class WalletController extends BaseController {
           throw error
         }
       }
+      await preferenceService.resetAllData()
     } finally {
       // The plans go on from what is stored: none after the reset, and those
-      // a failed reset left, as after a restart.
+      // a failed keyring reset left, as after a restart. Once the keys are
+      // gone, only over a store known to hold no plan.
       await this.qbitSendPlans.resume()
     }
     await permissionService.resetAllData()
     await contactBookService.resetAllData()
 
     this._resetTimeout()
+  }
+
+  /**
+   * The reset a wallet page asks for, to start again from the first-run
+   * screen. It erases every wallet and key, the password, the biometric
+   * unlock, every site's grant, the wallets' and accounts' names and colors,
+   * the current wallet, the contacts, the send records, the send plans, the
+   * phishing bypasses, the local regtest consent and the pending approval, and
+   * returns every other preference to its default; the language and the theme
+   * stay. The send plans are halted as it goes ahead to erase, before the
+   * lock: a plan's work under way ends first, and nothing of a plan is
+   * broadcast from then on; they go on only once the clearing is complete,
+   * none being left, or after a reset that erased nothing.
+   *
+   * Nothing is erased unless `password` is the wallet's, checked here, in the
+   * background, while the wallet is unlocked, and unless the recovery risks of
+   * every wallet were acknowledged in `options` as removeKeyring's are
+   * (QBIT_RECOVERY_REMOVAL_ACK_REQUIRED with the reasons in `data.reasons`
+   * otherwise). A reset a page offers as the removal of the last usable
+   * wallet names that wallet in `options.lastWalletKey`, and goes ahead only
+   * while removing it would still leave no usable wallet, as judged on the
+   * wallets as they are now (WALLET_RESET_NOT_LAST_WALLET otherwise): the
+   * page's list may be out of date. The whole reset is one change on the
+   * chain-state queue, so no unlock, removal, derivation or boot runs inside
+   * it, and what it checks is read there.
+   *
+   * The keys go first, and their erase is tried again a few times. Should it
+   * keep failing, or memory still hold the wallet after it, whether storage
+   * holds the keys is unknown: it rejects with WALLET_RESET_OUTCOME_UNKNOWN,
+   * the wallet left locked (and that lock announced) and the reset pending,
+   * which the next start of the background finishes if storage holds no keys;
+   * until then the wallet cannot be unlocked, booted, given a new password or
+   * reset again: each is refused with WALLET_RESET_OUTCOME_UNKNOWN
+   * (walletResetOutcomeUnknown). Should a step after the keys fail, it
+   * rejects with WALLET_RESET_INCOMPLETE, and the reset stays pending until
+   * the next resetWallet, the next start of the background or the next boot
+   * finishes it (see finishPendingWalletReset). Any other rejection erased
+   * nothing; an attempt that locked the wallet then announces the lock, and
+   * one that recorded the reset as pending takes back the mark it set. Once
+   * the keys are erased, failure or not, each site that was connected is
+   * told it lost its accounts and was disconnected, and every wallet page is
+   * told once, with BUS_METHODS.WALLET_RESET. A reset with nothing booted and
+   * nothing pending resolves and does nothing.
+   *
+   * A wallet page's request is judged by the wallet it names, on arrival and
+   * again where the reset runs (runForUiPort, assertPageShowsWalletSetUp):
+   * while a wallet is booted it must name that one, and one that names none,
+   * as a page that shows no wallet sends it, is refused with
+   * WALLET_PAGE_OUT_OF_DATE, erasing, locking, halting and announcing
+   * nothing; so too while an earlier reset still holds the wallet in memory,
+   * under way or of unknown outcome, where it is refused on arrival. While
+   * nothing is booted it goes ahead, whatever it names.
+   */
+  resetWallet = async (
+    password: string,
+    options?: QbitResetWalletOptions | null
+  ): Promise<void> => {
+    // Arguments that cross the UI port as JSON, refused before the reset is
+    // queued: none of this reads the wallet. A page's request, whether it
+    // named the wallet it shows or none, is judged again when the job
+    // starts, where the reset runs (judgedWhenItStarts): a wallet a boot
+    // queued ahead set up since is not the page's, and is left alone.
+    const request = this.resetWalletRequest(password, options)
+    return this.enqueueChainStateChange(() => this.performResetWallet(password, request))
+  }
+
+  /**
+   * Finish a reset that erased the keys and still owes the clearing of the
+   * rest of the wallet data, on the chain-state queue. The background calls it
+   * when it starts; boot and resetWallet do the same themselves. It never
+   * erases a wallet: it clears anything only while nothing is booted and no
+   * vault is kept, and a reset is recorded as pending. Resolves with whether it
+   * finished one; rejects with WALLET_RESET_INCOMPLETE when it still cannot.
+   * Not for the UI port.
+   *
+   * The reset it finishes may never have told anyone, its outcome unknown or
+   * the worker gone before it could: so each site that still holds a grant is
+   * told it lost its accounts and was disconnected, and every wallet page that
+   * stayed open is told once, with BUS_METHODS.WALLET_RESET.
+   *
+   * As the background starts, memory is what storage holds: a mark found
+   * beside a booted wallet or a kept vault is known to be stale, left by a
+   * reset whose erase never reached storage, and is forgotten, erasing
+   * nothing. Should that write fail, the mark stays and is ignored, as
+   * before. Only this start does so: boot and a reset judge memory, which
+   * after a reset of unknown outcome is not what storage holds.
+   */
+  finishPendingWalletReset = (): Promise<boolean> =>
+    this.enqueueChainStateChange(async () => {
+      if (keyringService.isBooted() || keyringService.hasVault()) {
+        // Never after a reset of unknown outcome in this run of the
+        // background, when memory is not what storage holds.
+        if (!this.walletResetOutcomeUnknown && preferenceService.getWalletResetPending()) {
+          await this.forgetWalletResetMark('A stale pending reset mark could not be forgotten')
+        }
+        return false
+      }
+      return this.performFinishPendingWalletReset({ announce: true })
+    })
+
+  /**
+   * What a reset's arguments ask for: the risk lines its `options`
+   * acknowledge, as removeKeyring makes them from the same fields
+   * (qbitRecoveryRemovalRiskKeys), undefined when it acknowledges none; and
+   * the wallet whose removal it stands for, undefined when it was asked for
+   * as such. A `password` that is not a non-empty string is refused as a
+   * wrong one. `options` may be left out, which the UI port delivers as null,
+   * or be a plain object: its acknowledgement counts only when
+   * `acknowledgedQbitRecoveryRisks` is true, its reasons must be
+   * QbitRecoveryRemovalReasons, and `lastWalletKey`, when it is not left out
+   * (or null), must be a non-empty string. Anything else is refused.
+   */
+  private resetWalletRequest = (password: unknown, options: unknown): WalletResetRequest => {
+    if (typeof password !== 'string' || password.length === 0) {
+      throw new Error(t('password_error'))
+    }
+    if (options === undefined || options === null) {
+      return { acknowledgedRisks: undefined, lastWalletKey: undefined }
+    }
+    if (!isPlainObject(options)) {
+      throw new Error('Wallet reset options must be an object')
+    }
+    const {
+      acknowledgedQbitRecoveryRisks: acknowledged,
+      acknowledgedQbitRecoveryReasons: reasons,
+      lastWalletKey,
+    } = options as Record<string, unknown>
+    if (acknowledged !== undefined && acknowledged !== null && typeof acknowledged !== 'boolean') {
+      throw new Error('Wallet reset acknowledgement must be true or false')
+    }
+    if (
+      reasons !== undefined &&
+      reasons !== null &&
+      (!Array.isArray(reasons) || !reasons.every(isQbitRecoveryRemovalReason))
+    ) {
+      throw new Error('Wallet reset acknowledged reasons must be recovery removal reasons')
+    }
+    if (
+      lastWalletKey !== undefined &&
+      lastWalletKey !== null &&
+      (typeof lastWalletKey !== 'string' || lastWalletKey.length === 0)
+    ) {
+      throw new Error('Wallet reset last wallet key must be a non-empty string')
+    }
+    return {
+      acknowledgedRisks:
+        acknowledged === true
+          ? this.qbitRecoveryRemovalRiskKeys((reasons ?? []) as QbitRecoveryRemovalReason[])
+          : undefined,
+      lastWalletKey: typeof lastWalletKey === 'string' ? lastWalletKey : undefined,
+    }
+  }
+
+  private performResetWallet = async (
+    password: string,
+    request: WalletResetRequest
+  ): Promise<void> => {
+    if (!keyringService.isBooted() && !keyringService.hasVault()) {
+      // No wallet is left to erase: finish a reset that erased the keys
+      // already, which needs no password, or do nothing at all. A last
+      // wallet named in the request is gone with the others, and ignored.
+      // The reset that erased the keys told everyone, the page asking too.
+      await this.performFinishPendingWalletReset({ announce: false })
+      return
+    }
+    await this.holdingPageCalls(outcome => this.eraseWallet(password, request, outcome))
+  }
+
+  /**
+   * Run `clear`, a run that clears wallet data (a reset, or the completion of
+   * one), holding wallet pages' calls until it ends (walletResetUnderWay):
+   * they then go by `outcome.keys`, where `clear` left the wallets' keys.
+   * Every such run is one change on the chain-state queue, so no two of
+   * these overlap; and none waits for a call it holds.
+   */
+  private holdingPageCalls = async (
+    clear: (outcome: { keys: WalletResetKeys }) => Promise<void>
+  ): Promise<void> => {
+    const outcome: { keys: WalletResetKeys } = { keys: 'kept' }
+    let settle!: (keys: WalletResetKeys) => void
+    this.walletResetUnderWay = new Promise<WalletResetKeys>(resolve => {
+      settle = resolve
+    })
+    try {
+      await clear(outcome)
+    } finally {
+      this.walletResetUnderWay = undefined
+      settle(outcome.keys)
+    }
+  }
+
+  /**
+   * The reset of a wallet that still exists: see resetWallet. Sets
+   * `outcome.keys` to 'unknown' as the keys begin to be erased, and to 'gone'
+   * once they are known to be.
+   */
+  private eraseWallet = async (
+    password: string,
+    { acknowledgedRisks, lastWalletKey }: WalletResetRequest,
+    outcome: { keys: WalletResetKeys }
+  ): Promise<void> => {
+    // While an earlier reset's outcome is unknown, every unlock is refused,
+    // so this one is refused for that, not for the lock: only a start of the
+    // background settles it.
+    this.assertWalletResetOutcomeKnown()
+    // A mark found set here was left by an earlier reset that erased nothing
+    // and could not take its mark back; or by one of unknown outcome, whose
+    // erase may have reached storage, should its wallet have been unlocked
+    // from memory since, which the check above and the refusal of every
+    // unlock rule out in this run of the background. Should this reset erase
+    // nothing, it leaves that mark as it is; once it erases the keys, it
+    // clears the mark with the preferences. A completion acts on the mark
+    // only while memory holds no wallet, and the start of the background
+    // forgets it beside an intact one (finishPendingWalletReset).
+    if (!this.isUnlocked()) {
+      throw new Error(t('you_need_to_unlock_wallet_first'))
+    }
+    if (!(await keyringService.verifyPassword(password))) {
+      throw new Error(t('password_error'))
+    }
+    // Wallet additions do not run on the chain-state queue, so one another
+    // window began before this reset may still be adding its wallet. Inside
+    // the keyring it appends the wallet to whatever live list it finds when
+    // it resumes, and saves it under that list's password: past a reset and
+    // the next boot, the erased wallet would land in the next one. So every
+    // reset first waits for those under way, and none can begin while it
+    // runs (runForUiPort holds a page's call, and only pages add wallets off
+    // the queue). A wallet added meanwhile is erased with the others.
+    await this.walletAdditionsSettled()
+    // Offered as the removal of the last usable wallet: judged before any
+    // risk is asked about, on the wallets as they are, additions included.
+    let slotsJudged: ReadonlySet<number> | undefined
+    if (lastWalletKey !== undefined) {
+      slotsJudged = await this.assertResetRemovesLastWallet(lastWalletKey)
+    }
+    // The risks of every wallet together, read from the live wallets, which a
+    // lock while they are read would take away.
+    const reasons = await this.collectQbitRecoveryResetReasons()
+    if (!this.isUnlocked()) {
+      throw new Error(t('you_need_to_unlock_wallet_first'))
+    }
+    this.assertQbitRecoveryRisksAcknowledged(reasons, acknowledgedRisks)
+    if (slotsJudged) this.assertNoWalletAddedSince(slotsJudged)
+
+    // Read right before it is set: only a mark this reset set is its own.
+    const markedBefore = preferenceService.getWalletResetPending()
+    // On disk before anything is erased, and nothing is erased if it fails.
+    await preferenceService.setWalletResetPending()
+    // Until the keys begin to be erased, a failure erased nothing, and the
+    // mark is taken back if this reset set it.
+    let erasing = false
+    let origins = new Set<string>()
+    let plansHaltedHere = false
+    try {
+      // The send plans stop first, before the lock and the erase: a plan's
+      // transactions signed ahead of their broadcast, such as a payment
+      // waiting for its merges, need no key to go out, so a plan left
+      // running could send one during the reset, or after it from what is
+      // stored. The halt waits for the plan work under way, a broadcast in
+      // flight included, none of which waits for the chain-state queue this
+      // reset runs on; from then on nothing of a plan is signed, broadcast,
+      // written or held (clearWalletData erases the stored plans).
+      plansHaltedHere = await this.haltQbitSendPlansForReset()
+      // The last wait before the lock: the premise is judged again, and
+      // nothing is awaited from here until the lock has taken the password
+      // away, so no wallet can be added and saved before the keys are erased.
+      if (slotsJudged) this.assertNoWalletAddedSince(slotsJudged)
+      origins = new Set(this.connectedOrigins())
+
+      // From here no vault write can start (the lock takes the password
+      // away), the ones under way end before the keys are erased, and no
+      // signing is waited for: each stops before its next input.
+      for (const signing of this.localSignings) signing.stop.abort()
+      await this.lockKeyring()
+      await this.settleVaultWrites()
+      // A read of addresses by type saves the keyring's public key cache once
+      // more: one already under way ends before the cache is erased with the
+      // keys. A read asked for from now on waits for the reset.
+      await Promise.allSettled([...this.addressReadsUnderWay])
+      erasing = true
+      outcome.keys = 'unknown'
+      this.walletResetGeneration += 1
+      await this.eraseKeys()
+      if (keyringService.isBooted() || keyringService.hasVault()) {
+        throw new Error('The wallet was not erased')
+      }
+      outcome.keys = 'gone'
+    } catch (error) {
+      // The wallet stays locked: other pages and sites learn of the lock this
+      // attempt made as of any other.
+      if (!this.isUnlocked()) this.announceLock()
+      if (!erasing) {
+        // The mark was not set before this reset, and every erase of the keys
+        // records it first, so storage holds the keys exactly as memory does.
+        if (!markedBefore) {
+          await this.forgetWalletResetMark(
+            'A reset that erased nothing could not take back its pending mark'
+          )
+        }
+        // Nothing was erased: the plans go on as they were.
+        if (plansHaltedHere) await this.resumeQbitSendPlansAfterReset()
+        throw error
+      }
+      // The keys were being erased: storage may still hold the wallet or not,
+      // whatever memory holds. The pending mark stays, and nothing writes the
+      // keyring's stored state from memory until the background starts again
+      // (walletResetOutcomeUnknown), which then finishes the reset if storage
+      // holds no keys, and tells everyone, or finds the wallet intact and
+      // forgets the mark.
+      this.walletResetOutcomeUnknown = true
+      log.error(
+        '[WalletController] A reset could not tell whether the keys were erased',
+        summarizeError(error)
+      )
+      throw new WalletError(ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN)
+    }
+
+    try {
+      await this.clearWalletData(origins)
+    } finally {
+      // The lock above was never announced: the wallet is gone instead.
+      this.announceWalletReset(origins)
+    }
+  }
+
+  /**
+   * Whether a reset erased the wallets after `generation` was read from
+   * walletResetGeneration. What a call that began before it read or made
+   * belongs to the erased wallets, and must not reach a store the reset
+   * cleared: the balance and history caches, the current wallet and
+   * account.
+   */
+  private walletResetSince = (generation: number): boolean =>
+    this.walletResetGeneration !== generation
+
+  /** Refuse, before it writes, a call a reset overtook (walletResetSince). */
+  private assertNoWalletResetSince = (generation: number): void => {
+    if (this.walletResetSince(generation)) throw new Error(WALLET_RESET_DURING_CALL)
+  }
+
+  /** Refuse with WALLET_RESET_OUTCOME_UNKNOWN while walletResetOutcomeUnknown is set. */
+  private assertWalletResetOutcomeKnown = (): void => {
+    if (this.walletResetOutcomeUnknown) {
+      throw new WalletError(ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN)
+    }
+  }
+
+  /**
+   * Forget the pending mark beside a wallet that storage still holds, best
+   * effort: a failed write is logged as `failure` and leaves the mark, which
+   * erases nothing, as a completion runs only while memory holds no wallet,
+   * and the next start of the background, where memory is what storage
+   * holds, finds the wallet and forgets the mark (finishPendingWalletReset).
+   */
+  private forgetWalletResetMark = async (failure: string): Promise<void> => {
+    try {
+      await preferenceService.clearWalletResetPending()
+    } catch (error) {
+      log.warn(`[WalletController] ${failure}`, summarizeError(error))
+    }
+  }
+
+  /**
+   * keyringService.resetAllData, tried again a few times when it fails. It
+   * writes the erased store, then the public key cache, and updates memory
+   * only after both writes, so a failure can leave storage erased and memory
+   * not; every try writes the same, so trying again is safe.
+   */
+  private eraseKeys = async (): Promise<void> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await keyringService.resetAllData()
+        return
+      } catch (error) {
+        if (attempt >= WALLET_RESET_KEYRING_ATTEMPTS) throw error
+        log.warn('[WalletController] Erasing the keys failed; trying again', summarizeError(error))
+        await new Promise(resolve =>
+          setTimeout(resolve, WALLET_RESET_KEYRING_RETRY_DELAY_MS * attempt)
+        )
+      }
+    }
+  }
+
+  /**
+   * Tell each of `origins` that it lost its accounts and was disconnected, and
+   * every wallet page, once, that the wallets are gone.
+   */
+  private announceWalletReset = (origins: Iterable<string>): void => {
+    for (const origin of origins) this.announceRevocation(origin)
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.WALLET_RESET,
+      params: {},
+    })
+  }
+
+  /**
+   * A reset offered as the removal of the wallet keyed `lastWalletKey`, which
+   * the page took for the last usable one, goes ahead only while it still is:
+   * on the wallets read afresh, that wallet is in use and no other wallet can
+   * stay, the very condition a removal refuses on (walletThatCanStay).
+   * Otherwise it refuses with WALLET_RESET_NOT_LAST_WALLET, having changed
+   * nothing. Resolves with the slots in use as read.
+   */
+  private assertResetRemovesLastWallet = async (
+    lastWalletKey: string
+  ): Promise<ReadonlySet<number>> => {
+    const currentKeyrings = await this.readKeyringsAfresh()
+    // A lock while the wallets were read empties every slot: that is a lock,
+    // and no other wallet.
+    if (!this.isUnlocked()) {
+      throw new Error(t('you_need_to_unlock_wallet_first'))
+    }
+    const target = currentKeyrings.find(candidate => candidate.key === lastWalletKey)
+    if (
+      !target ||
+      !this.isKeyringSlotInUse(target.index, target.type) ||
+      currentKeyrings.some(this.walletThatCanStay(target))
+    ) {
+      throw new WalletError(ErrorCodes.WALLET_RESET_NOT_LAST_WALLET)
+    }
+    return new Set(
+      currentKeyrings
+        .filter(candidate => this.isKeyringSlotInUse(candidate.index, candidate.type))
+        .map(candidate => candidate.index)
+    )
+  }
+
+  /**
+   * Refuse with WALLET_RESET_NOT_LAST_WALLET when a wallet was added, or is
+   * being added, since the premise of a last-wallet reset was judged on the
+   * slots `slotsJudged` (see assertResetRemovesLastWallet). Synchronous, so a
+   * caller can check it with nothing awaited before the lock.
+   */
+  private assertNoWalletAddedSince = (slotsJudged: ReadonlySet<number>): void => {
+    if (
+      this.walletAdditionsUnderWay.size > 0 ||
+      keyringService.keyrings.some(
+        (_, index) => this.isKeyringSlotInUse(index) && !slotsJudged.has(index)
+      )
+    ) {
+      throw new WalletError(ErrorCodes.WALLET_RESET_NOT_LAST_WALLET)
+    }
+  }
+
+  /** Settles once no wallet addition is under way (walletAdditionsUnderWay). */
+  private walletAdditionsSettled = async (): Promise<void> => {
+    while (this.walletAdditionsUnderWay.size > 0) {
+      await Promise.allSettled([...this.walletAdditionsUnderWay])
+    }
+  }
+
+  /**
+   * Run `add`, the addition of a wallet by a page, as one under way, which
+   * every reset waits out before it erases (see eraseWallet), and boot before
+   * it sets the new password. Only for additions that do not run on the
+   * chain-state queue: one that does never runs inside a reset, and one
+   * queued behind a reset or a boot would wait for it while it waited for
+   * that one.
+   */
+  private trackWalletAddition = <T>(add: () => Promise<T>): Promise<T> => {
+    const adding = add()
+    this.walletAdditionsUnderWay.add(adding)
+    const settled = (): void => {
+      this.walletAdditionsUnderWay.delete(adding)
+    }
+    adding.then(settled, settled)
+    return adding
+  }
+
+  /**
+   * See finishPendingWalletReset. With `announce`, the sites whose grants it
+   * clears are told, and every wallet page, once, also when a step fails.
+   * While it clears, wallet pages' calls are held as during a reset, and
+   * refused once it ends, the keys being gone (holdingPageCalls): wherever it
+   * was started, at the background's start, in boot or in a resetWallet, so
+   * that nothing a page writes then outlives it. The call that started it is
+   * not held: boot's own call from the first-run page is under way already,
+   * and runs on once the completion ends.
+   */
+  private performFinishPendingWalletReset = async ({
+    announce,
+  }: {
+    announce: boolean
+  }): Promise<boolean> => {
+    if (keyringService.isBooted() || keyringService.hasVault()) return false
+    if (!preferenceService.getWalletResetPending()) return false
+    // Nothing is booted and no vault is kept: the keys are known to be gone.
+    this.walletResetOutcomeUnknown = false
+    await this.holdingPageCalls(async outcome => {
+      outcome.keys = 'gone'
+      this.walletResetGeneration += 1
+      // The erased wallets' plans do nothing meanwhile: at the background's
+      // start the store gave them back before this runs, and the engine
+      // advances nothing until start-up is over (startQbitSendPlanEngine).
+      await this.haltQbitSendPlansForReset()
+      const origins = new Set<string>()
+      try {
+        await this.clearWalletData(origins, { finishKeyringErase: true })
+      } finally {
+        if (announce) this.announceWalletReset(origins)
+      }
+    })
+    return true
+  }
+
+  /**
+   * The keyring's own erase, made again when a reset is finished after the
+   * keys were gone. keyringService.resetAllData writes the erased store, then
+   * an empty public key cache: a reset whose write of the cache kept failing
+   * left that cache, kept by slot, for the next wallet in the slot to be
+   * shown. It cannot erase a wallet: it runs only while nothing is booted and
+   * no vault is kept, checked right before the call with nothing awaited in
+   * between, so there are no keys and no password for it to erase, and it
+   * writes nothing but an erased store and an empty cache.
+   */
+  private finishKeyringErase = (): Promise<void> => {
+    if (keyringService.isBooted() || keyringService.hasVault()) {
+      return Promise.reject(new Error('A wallet is kept again, so its keys were left alone'))
+    }
+    return keyringService.resetAllData()
+  }
+
+  /**
+   * Resolves once no vault write is under way, with the wallet locked: a write
+   * that reaches the keyring's persistence queue from the lock on finds no
+   * password and fails, and so does the one queued here, once every write
+   * queued before it has ended. Throws if it saved the vault, which only a
+   * wallet unlocked again meanwhile could do; nothing is erased then.
+   */
+  private settleVaultWrites = async (): Promise<void> => {
+    let saved = false
+    try {
+      saved = await keyringService.persistAllKeyrings([])
+    } catch {
+      // Refused for want of a password, as the lock means it to be.
+    }
+    if (saved) {
+      throw new Error('The wallet was unlocked while it was being reset; nothing was erased')
+    }
+  }
+
+  /**
+   * The steps of a reset after the keys, each safe to run again, run even
+   * when one before it failed: with `finishKeyringErase`, for a reset finished
+   * after the keys were gone, the keyring's own erase (finishKeyringErase);
+   * the biometric unlock (the keyring's reset hook
+   * clears it too, but swallows a failure), the sites' grants (`origins`
+   * gains those it takes away), the contacts, the send records, the send
+   * plans, the phishing bypasses, the regtest consent, the pending approval
+   * and what the
+   * controller keeps of the wallets. The preferences go last, in one write
+   * that keeps the language and the theme, and only once every other step
+   * succeeded: they hold the pending mark, which a failure leaves for the next
+   * attempt. Rejects with WALLET_RESET_INCOMPLETE when a step failed.
+   */
+  private clearWalletData = async (
+    origins: Set<string>,
+    { finishKeyringErase = false }: { finishKeyringErase?: boolean } = {}
+  ): Promise<void> => {
+    let failed = false
+    const step = async (name: string, clear: () => Promise<unknown> | void): Promise<void> => {
+      try {
+        await clear()
+      } catch (error) {
+        failed = true
+        log.error(`[WalletController] Reset could not clear ${name}`, summarizeError(error))
+      }
+    }
+    if (finishKeyringErase) {
+      await step("the keyring's public key cache", () => this.finishKeyringErase())
+    }
+    await step('the biometric unlock', () => biometricUnlockService.clearRecord())
+    await step('the connected sites', () => {
+      for (const origin of this.connectedOrigins()) origins.add(origin)
+      return permissionService.resetAllData()
+    })
+    await step('the contacts', () => contactBookService.resetAllData())
+    // Queued behind a signing under way, which stops before its next input.
+    await step('the send records', () => qbitSendGuardService.resetAllData())
+    // Every stored send plan, readable or not; the plans are halted.
+    await step('the send plans', () => this.eraseQbitSendPlans())
+    await step('the phishing bypasses', async () => {
+      await phishingController.clearSessionBypasses()
+      await phishingDetectService.clearWhitelist()
+    })
+    await step('the local regtest access', async () => {
+      await regtestAccessService.clearAcknowledgement()
+      this.dropRegtestApiClients()
+    })
+    await step('the pending approval', () => this.rejectApprovalForReset())
+    this.dropWalletCaches()
+    if (!failed) {
+      await step('the preferences', () =>
+        preferenceService.resetAllData({ keep: WALLET_RESET_PREFERENCES_KEPT })
+      )
+    }
+    if (failed) {
+      throw new WalletError(ErrorCodes.WALLET_RESET_INCOMPLETE)
+    }
+    // The wallet removals' records went with the preferences, the wallets
+    // and their plans with them: the plans hold back only what the
+    // preferences still store, which is none (records this version cannot
+    // read included), and no removal of this run is left to settle.
+    this.qbitSendPlanRemovalsUnsettled.clear()
+    this.qbitSendPlanRemovalsUnknown.clear()
+    this.stopQbitSendPlanRemovalSettleRetry()
+    this.restoreQbitSendPlanRemovals()
+    // Only now, with no plan stored, do the plans go on; after a partial
+    // clearing they stay halted (qbitSendPlansHaltedForReset).
+    await this.resumeQbitSendPlansAfterReset()
+    this.applySidePanelPreference(preferenceService.getOpenInSidePanel())
+  }
+
+  /**
+   * Halt the send plans for a reset (QbitSendPlanEngine.halt), unless a reset
+   * left them halted already (qbitSendPlansHaltedForReset). Resolves, with
+   * whether this call halted them, once no plan work is under way.
+   */
+  private haltQbitSendPlansForReset = async (): Promise<boolean> => {
+    if (this.qbitSendPlansHaltedForReset) return false
+    this.qbitSendPlansHaltedForReset = true
+    await this.qbitSendPlans.halt()
+    return true
+  }
+
+  /**
+   * Let the send plans a reset halted go on from what is stored: once every
+   * step of the clearing succeeded, or when the reset that halted them erased
+   * nothing.
+   */
+  private resumeQbitSendPlansAfterReset = async (): Promise<void> => {
+    if (!this.qbitSendPlansHaltedForReset) return
+    this.qbitSendPlansHaltedForReset = false
+    try {
+      await this.qbitSendPlans.resume()
+    } catch (error) {
+      log.warn(
+        '[WalletController] The send plans did not go on after a reset',
+        summarizeError(error)
+      )
+    }
+  }
+
+  /** Erase every stored send plan. A worker whose plan store never loaded stored none. */
+  private eraseQbitSendPlans = async (): Promise<void> => {
+    try {
+      await qbitSendPlanStore.resetAllData()
+    } catch (error) {
+      if (!(error instanceof QbitSendPlanStoreError && error.code === 'not_initialized')) {
+        throw error
+      }
+    }
+  }
+
+  /** The origins that hold a grant now. */
+  private connectedOrigins = (): string[] => {
+    try {
+      return permissionService.getConnectedSites().map(site => site.origin)
+    } catch (error) {
+      log.warn('[WalletController] Failed to read the connected sites', summarizeError(error))
+      return []
+    }
+  }
+
+  /**
+   * Reject the approval pending now, closing its window: no wallet is left to
+   * answer it. Settled before its window closes, it counts as rejected when
+   * only the window would not close.
+   */
+  private rejectApprovalForReset = async (): Promise<void> => {
+    const pending = approvalService.getApproval()
+    if (!pending) return
+    try {
+      await approvalService.rejectApproval(pending.id, WALLET_RESET_APPROVAL_REJECTION)
+    } catch (error) {
+      if (approvalService.getApproval()?.id === pending.id) throw error
+      log.warn(
+        '[WalletController] The approval window did not close after the reset',
+        summarizeError(error)
+      )
+    }
+  }
+
+  /**
+   * Forget what the controller keeps of the wallets a reset erased: their
+   * outputs and what was read of their funding transactions (the lock already
+   * dropped both, and nothing is kept while locked; a completion run reaches
+   * here without that lock), histories and consolidation walks, the snapshot
+   * reads pages wait for, the account derivations asked for, the local
+   * signings (stopped) and the auto-lock, which nothing arms until a wallet is
+   * unlocked again; and every website PSBT admitted and provider send
+   * recorded to skip the check of its inputs, whether or not an approval
+   * the reset rejected let it go first. No removal can be under way: removals
+   * run on the chain-state queue too.
+   */
+  private dropWalletCaches = (): void => {
+    this.qbitLatestUtxoReads.clear()
+    this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
+    this.forgetQbitWebsitePsbts()
+    this.qbitProviderSendBytes.clear()
+    this.forgetQbitAccountTotals()
+    this.qbitHistorySnapshots.clear()
+    this.qbitConsolidationScans.clear()
+    this.qbitConsolidationQueues.clear()
+    this.qbitConsolidationBatches.clear()
+    for (const waiters of this.qbitUtxoSnapshotWaiters.values()) {
+      for (const waiter of waiters.values()) waiter.abort(new Error('Qbit output read abandoned'))
+    }
+    this.qbitUtxoSnapshotWaiters.clear()
+    this.pendingAccountDerivations.clear()
+    for (const signing of this.localSignings) signing.stop.abort()
+    this.localSignings.clear()
+    this.accountChangeUnannounced = false
+    clearTimeout(this.timer)
+    this.timer = null
+    this.autoLockDueAt = undefined
+    this.clearAutoLockHold()
   }
 
   getPrivateKey = async (password: string, { pubkey, type }: { pubkey: string; type: string }) => {
@@ -2545,7 +4227,13 @@ export class WalletController extends BaseController {
     return await keyringService.generatePreMnemonic(strength)
   }
   removePreMnemonics = () => keyringService.removePreMnemonics()
-  createKeyringWithMnemonics = async (
+  /** Tracked as a wallet addition under way (see trackWalletAddition). */
+  createKeyringWithMnemonics = (
+    ...args: Parameters<WalletController['performCreateKeyringWithMnemonics']>
+  ): Promise<void> =>
+    this.trackWalletAddition(() => this.performCreateKeyringWithMnemonics(...args))
+
+  private performCreateKeyringWithMnemonics = async (
     mnemonic: string,
     hdPath: string,
     passphrase: string,
@@ -2553,7 +4241,7 @@ export class WalletController extends BaseController {
     accountCount: number,
     accountIndexDerivation = false,
     options?: { pqcFloorsPending?: boolean }
-  ) => {
+  ): Promise<void> => {
     hdPath = resolveHdPathForAddressType(addressType, hdPath, this.getChainType())
     const originKeyring = await keyringService.createKeyringWithMnemonics(
       mnemonic,
@@ -2565,18 +4253,29 @@ export class WalletController extends BaseController {
       options
     )
     keyringService.removePreMnemonics()
+    await this.completeWalletAddition(originKeyring, addressType)
+  }
 
+  /**
+   * The rest of a page's wallet addition once the keyring holds the wallet:
+   * its name and color, its selection and the safety notice. No reset can
+   * overtake it: every reset waits for the additions under way
+   * (trackWalletAddition) before it erases.
+   */
+  private completeWalletAddition = async (
+    originKeyring: Keyring,
+    addressType: AddressType,
+    alianName?: string
+  ): Promise<void> => {
     const keyringIndex = this.addedKeyringIndex(originKeyring)
-    this.assignNewKeyringIdentity(keyringIndex)
+    this.assignNewKeyringIdentity(keyringIndex, alianName)
     const displayedKeyring = await keyringService.displayForKeyring(
       originKeyring,
       addressType,
       keyringIndex
     )
     const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
-
     await this.selectKeyring(keyring)
-
     preferenceService.setShowSafeNotice(true)
   }
 
@@ -3438,10 +5137,20 @@ export class WalletController extends BaseController {
   private readQbitRecoverySourceUtxos = async (
     client: QbitWalletApiClient,
     address: string,
-    { deferIncompleteHistory }: { deferIncompleteHistory: boolean }
+    {
+      deferIncompleteHistory,
+      facts,
+    }: {
+      deferIncompleteHistory: boolean
+      /** The pass's place among the clears (`beginQbitOutputsRead`), taken when it was asked for. */
+      facts?: QbitFundingFactsView
+    }
   ): Promise<QbitClassifiedUtxos | QbitRecoveryDeferredSource> => {
     try {
-      return await getQbitAddressUtxosClassifiedPastLimit(client, address)
+      return await getQbitAddressUtxosClassifiedPastLimit(client, address, {
+        fundingTxReads: this.qbitFundingTxReads,
+        ...(facts ? { facts } : {}),
+      })
     } catch (error) {
       if (error instanceof QbitUtxoHistoryTooLargeError) {
         return { address, reason: 'history_too_large', maxTransactions: error.maxTransactions }
@@ -3601,6 +5310,10 @@ export class WalletController extends BaseController {
     feeRate?: number,
     sourceAnchorPubkey?: string
   ): Promise<QbitRecoveryMigrationPreparation> => {
+    // The pass's place among the clears of what was read of funding
+    // transactions, taken before its first await: a lock or a keyring
+    // removal during it leaves its later reads of sources keeping nothing.
+    const facts = this.beginQbitOutputsRead()
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -3763,7 +5476,7 @@ export class WalletController extends BaseController {
       const classifiedUtxos = await this.readQbitRecoverySourceUtxos(
         this.getQbitApiClient(utxoChain),
         account.address,
-        { deferIncompleteHistory: true }
+        { deferIncompleteHistory: true, facts }
       )
       if ('reason' in classifiedUtxos) {
         // Its outputs are unknown, so none of them is planned and the
@@ -4134,6 +5847,8 @@ export class WalletController extends BaseController {
     requestedSourceIndex: number,
     sourceAnchorPubkey?: string
   ): Promise<QbitRecoveryState> => {
+    // As for `performPrepareQbitRecoveryMigration`.
+    const facts = this.beginQbitOutputsRead()
     const sourceKeyringIndex = await this.resolveQbitRecoverySourceIndex(
       requestedSourceIndex,
       sourceAnchorPubkey
@@ -4156,6 +5871,7 @@ export class WalletController extends BaseController {
           // reopens.
           const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
             deferIncompleteHistory: false,
+            facts,
           })
           if ('reason' in classifiedUtxos) {
             return { account, unreadable: true as const }
@@ -4322,6 +6038,7 @@ export class WalletController extends BaseController {
           const client = this.getQbitApiClient(this.getChainType())
           const classifiedUtxos = await this.readQbitRecoverySourceUtxos(client, account.address, {
             deferIncompleteHistory: true,
+            facts,
           })
           // A source whose outputs it cannot read is not swept yet;
           // preparation reports it.
@@ -5238,6 +6955,68 @@ export class WalletController extends BaseController {
     return keys
   }
 
+  /**
+   * Refuse, with QBIT_RECOVERY_REMOVAL_ACK_REQUIRED and the fresh `reasons` in
+   * its data, unless each of their risk lines is among `acknowledgedKeys`,
+   * the lines the user confirmed (undefined when none was), or there is none.
+   * A removal and a reset judge their acknowledgement here.
+   */
+  private assertQbitRecoveryRisksAcknowledged = (
+    reasons: QbitRecoveryRemovalReason[],
+    acknowledgedKeys: ReadonlySet<string> | undefined
+  ): void => {
+    const blocked =
+      acknowledgedKeys === undefined
+        ? reasons.length > 0
+        : [...this.qbitRecoveryRemovalRiskKeys(reasons)].some(key => !acknowledgedKeys.has(key))
+    if (blocked) {
+      const error = new WalletError(
+        ErrorCodes.QBIT_RECOVERY_REMOVAL_ACK_REQUIRED,
+        t('qbit_recovery_wallets_retained')
+      ) as WalletError & { data?: { reasons: QbitRecoveryRemovalReason[] } }
+      error.data = { reasons }
+      throw error
+    }
+  }
+
+  /**
+   * What a reset, which removes every wallet, would touch of the recovery
+   * migrations: the reasons a removal of each wallet in use would give, read
+   * from the live wallets, each reason once.
+   */
+  private collectQbitRecoveryResetReasons = async (): Promise<QbitRecoveryRemovalReason[]> => {
+    const currentKeyrings = await this.readKeyringsAfresh()
+    const reasons = new Map<string, QbitRecoveryRemovalReason>()
+    for (const target of currentKeyrings) {
+      for (const reason of await this.collectQbitRecoveryRemovalReasons(target, currentKeyrings)) {
+        const key = JSON.stringify([
+          reason.role,
+          reason.network ?? null,
+          reason.status ?? null,
+          reason.hasInflightPlans === true,
+        ])
+        if (!reasons.has(key)) reasons.set(key, reason)
+      }
+    }
+    return [...reasons.values()]
+  }
+
+  /**
+   * Whether a listed wallet can be the one current once `target` is gone:
+   * another wallet, usable, and still in its slot. A lock can land while the
+   * wallets are read, and empties every slot, so a wallet counts only while
+   * its slot holds it. A usable wallet lists an account: one that lists none
+   * is listed as corrupted, cannot be opened, and does not count. A removal
+   * is refused when no listed wallet can stay; a reset offered as the removal
+   * of the last wallet goes ahead only then (assertResetRemovesLastWallet).
+   */
+  private walletThatCanStay =
+    (target: WalletKeyring) =>
+    (candidate: WalletKeyringWithStatus): boolean =>
+      candidate.index !== target.index &&
+      this.isUsableKeyring(candidate) &&
+      this.isKeyringSlotInUse(candidate.index, candidate.type)
+
   private performRemoveKeyring = async (
     keyring: WalletKeyring,
     options?: QbitRemoveKeyringOptions
@@ -5253,14 +7032,8 @@ export class WalletController extends BaseController {
     // as they are when it runs.
     const currentKeyrings = await this.readKeyringsAfresh()
     const target = this.resolveQueuedRemovalTarget(currentKeyrings, keyring)
-    // Whether a listed wallet can be current once the target is gone. A lock
-    // can land while the wallets are read, and empties every slot, so a
-    // wallet counts only while its slot holds it. A usable wallet lists an
-    // account: one that lists none is listed as corrupted.
-    const canStay = (candidate: WalletKeyringWithStatus): boolean =>
-      candidate.index !== target.index &&
-      this.isUsableKeyring(candidate) &&
-      this.isKeyringSlotInUse(candidate.index, candidate.type)
+    // Whether a listed wallet can be current once the target is gone.
+    const canStay = this.walletThatCanStay(target)
     // A usable wallet always stays: a corrupted one cannot be opened, so it
     // does not count, and with none usable nothing is removed. Checked here,
     // in the queue, so two windows removing the last two cannot both pass,
@@ -5281,18 +7054,7 @@ export class WalletController extends BaseController {
     const acknowledgedKeys = options?.acknowledgedQbitRecoveryRisks
       ? this.qbitRecoveryRemovalRiskKeys(options.acknowledgedQbitRecoveryReasons ?? [])
       : undefined
-    const blocked =
-      acknowledgedKeys === undefined
-        ? reasons.length > 0
-        : [...this.qbitRecoveryRemovalRiskKeys(reasons)].some(key => !acknowledgedKeys.has(key))
-    if (blocked) {
-      const error = new WalletError(
-        ErrorCodes.QBIT_RECOVERY_REMOVAL_ACK_REQUIRED,
-        t('qbit_recovery_wallets_retained')
-      ) as WalletError & { data?: { reasons: QbitRecoveryRemovalReason[] } }
-      error.data = { reasons }
-      throw error
-    }
+    this.assertQbitRecoveryRisksAcknowledged(reasons, acknowledgedKeys)
     // From here until the removal has settled which wallet is current, a read
     // that cannot use the wallet stored as current waits for it (see
     // removalUnderWay): a site reading its account while the removal is
@@ -5321,10 +7083,26 @@ export class WalletController extends BaseController {
         )
       }
     }
+    // On disk before the removal changes anything, and nothing is removed if
+    // it fails: the wallet, by its slot and type, and the accounts whose
+    // plans end. Until it is forgotten, which needs nothing of them left, or
+    // the wallet found there still, those accounts are held back, after a
+    // restart too (QbitSendPlanEngine.endPlansOf).
+    let removal: string | undefined
+    try {
+      removal = await this.recordQbitSendPlanRemoval(target, sendPlanAccounts)
+    } catch (error) {
+      releaseNetworks?.()
+      throw error
+    }
     let settle!: () => void
     this.removalUnderWay = new Promise<void>(resolve => {
       settle = resolve
     })
+    // Whether beforeRemove passed: from there the slot is emptied and the
+    // vault written, and a failure may have reached storage or not.
+    let slotEmptying = false
+    let removed = false
     try {
       await keyringService.removeKeyring(target.index, {
         // Checked where no wallet can be added or removed before the slot is
@@ -5341,28 +7119,90 @@ export class WalletController extends BaseController {
           if (!(await this.readKeyringsAfresh()).some(canStay)) {
             throw new Error(t('removing_the_last_wallet_is_not_allowed'))
           }
+          slotEmptying = true
         },
       })
+      removed = true
       // The removed wallet's slot stays empty for good, so nothing reads its
       // name or color again: forget both, so the stored names are those of the
       // wallets in use and no later wallet can ever pick them up.
       preferenceService.removeKeyringAlianName(target.key)
       preferenceService.removeKeyringColor(target.key)
-      // Nor are the removed accounts' outputs kept; the others are read again.
+      // Nor are the removed accounts' outputs kept, nor what was read of
+      // their funding transactions; the others are read again. Until the
+      // removal has settled which wallet is current, the removed one may
+      // still be stored as current, and a read asked for meanwhile reads its
+      // outputs: what that read keeps lasts only until both are cleared again
+      // as the removal ends (below), and a read asked for before then keeps
+      // nothing after it, however late it ends. (A website PSBT admitted for
+      // an approval still open stays admitted, as across a lock: its
+      // approval's settling ends it, and a reset; bytes prepared for an
+      // account only the removed wallet held are refused by the keyring
+      // anyway.)
       this.qbitLatestUtxoReads.clear()
+      this.qbitFundingTxReads.clear()
+      this.qbitBalanceReuse.clear()
+      // The wallets that stay are read again for a switcher left open.
+      this.forgetQbitAccountTotals('may-read-again')
       // Nor do their send plans go on: each ends as a cancel ends it, and
       // nothing more is signed or broadcast for an account no wallet that
       // stays signs for.
       // One whose payment may already be in the network cannot be un-sent;
       // its record and holds go all the same.
-      const { mayHaveBeenSent } = await this.qbitSendPlans.endPlansOf(sendPlanAccounts)
+      let ending: QbitSendPlanEnding
+      let settledWith: readonly { chain: ChainType; address: string }[] = []
+      try {
+        ending = await this.qbitSendPlans.endPlansOf(sendPlanAccounts, removal)
+      } finally {
+        // The engine knows the wallet is gone (judgeQbitSendPlanRemoval).
+        if (removal !== undefined) this.qbitSendPlanRemovalsUnsettled.delete(removal)
+        // An earlier removal of this wallet whose outcome is unknown is
+        // settled with this one (settleQbitSendPlanRemovalsOfSlot).
+        settledWith = await this.settleQbitSendPlanRemovalsOfSlot(target.index)
+        // An earlier removal of unknown outcome is settled next, the slots
+        // as storage now holds them (settleQbitSendPlanRemovalsOfUnknownOutcome).
+        void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
+      }
+      const { mayHaveBeenSent } = ending
+      // What is left of this removal's accounts, and of those of an earlier
+      // removal of the wallet settled with it, read once both have ended:
+      // the user removed the wallet once, and hears of what is left once.
+      const notEnded =
+        settledWith.length === 0
+          ? ending.notEnded
+          : this.qbitSendPlans.notEndedOf([...sendPlanAccounts, ...settledWith])
       if (mayHaveBeenSent.length > 0) {
-        log.warn(
-          `[WalletController] ${mayHaveBeenSent.length} send plan(s) of the removed wallet may have paid already`
-        )
+        log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
+      }
+      // What a write storage refused left stored, the removal still stands:
+      // a confirmed removal never hard blocks, and the wallet is gone. The
+      // engine holds it back, nothing of it signed, broadcast or advanced,
+      // and tries again at every tick; the removal's record holds it back
+      // after a restart too (`endPlansOf`). Every page is told, once.
+      if (notEnded) {
+        log.warn(`[WalletController] ${qbitSendPlansNotEndedNote(notEnded)}`)
+        this.announceQbitSendPlansNotEnded(notEnded)
       }
       return await this.keepOrSelectCurrentAfterRemoval(target, canStay)
     } finally {
+      // A removal that failed settles its record (best effort, never throws).
+      if (!removed && removal !== undefined) {
+        await this.settleFailedQbitSendPlanRemoval(removal, slotEmptying, target, sendPlanAccounts)
+      }
+      // The removed wallet is no longer current, or the removal failed, when
+      // the keyring may be gone all the same: the keyring service can fail
+      // after it saved the emptied slot. Either way the reads made while the
+      // removed wallet could be current are forgotten, as a reset forgets
+      // those made while it writes; a removal the keyring service refused
+      // before removing anything costs only a clear it did not need.
+      this.qbitLatestUtxoReads.clear()
+      this.qbitFundingTxReads.clear()
+      // Until the removal has settled which wallet is current, the removed
+      // one may still be stored as current, and a balance poll of it keeps
+      // its answer: forgotten again as the removal ends, or fails, whether
+      // or not the keyring went (the keyring service can fail after it
+      // saved the emptied slot).
+      this.qbitBalanceReuse.clear()
       releaseNetworks?.()
       this.removalUnderWay = undefined
       settle()
@@ -5654,6 +7494,39 @@ export class WalletController extends BaseController {
   }
 
   getAllAddresses = async (keyring: WalletKeyring, index: number) => {
+    // The keyring service caches these public keys by slot, and saves its
+    // cache again on each read; a reset empties it, and the first wallet
+    // after a reset takes slot 0 again. Only wallet pages ask for a read, and
+    // runForUiPort holds a page's call while a reset runs; a reset waits for
+    // the reads under way when it erases the keys; and a page's copy of a
+    // wallet that is no longer the one in its slot, as a page that missed a
+    // reset still holds, is refused before anything is read (readAllAddresses).
+    // So no read saves the erased wallet's keys back for that slot.
+    const read = this.readAllAddresses(keyring, index)
+    this.addressReadsUnderWay.add(read)
+    try {
+      return await read
+    } finally {
+      this.addressReadsUnderWay.delete(read)
+    }
+  }
+
+  private readAllAddresses = async (keyring: WalletKeyring, index: number): Promise<string[]> => {
+    // The keyring service caches what it reads under the slot the page names.
+    // For a phrase wallet it derives the keys from the wallet in that slot,
+    // so the page's copy brings only the slot and the account index: it is
+    // read by slot once a phrase wallet of the copy's type holds that slot,
+    // even a copy read before the wallet's accounts were derived again in
+    // another window. For any other wallet it takes the public key from the
+    // page's own copy: such a copy is read only while it still names the
+    // wallet in its slot, as a rename judges it (walletInUse), with nothing
+    // awaited between that check and the read.
+    const live = this.isWalletArgument(keyring) ? keyringService.keyrings[keyring.index] : undefined
+    if (live && isPhraseWalletType(live.type) && keyring.type === live.type) {
+      this.assertWalletInUse(keyring)
+    } else {
+      this.assertSlotHolds(keyring.index, await this.walletInUse(keyring))
+    }
     const networkType = this.getNetworkType()
     const pubkeys = await keyringService.getAllPubkeysByDerivedIndex(keyring, index)
     const addresses = pubkeys.map(v => {
@@ -5686,10 +7559,14 @@ export class WalletController extends BaseController {
     } catch (error) {
       // A change the keyring service cannot roll back locks the wallet on
       // its own, without `lockWallet`: it keeps no account's outputs then
-      // either, and the pages and the UI are told it locked. The send plans
-      // heard of it from the keyring's lock event (`listenForKeyringLocks`).
+      // either, nor their funding transactions, and the pages and the UI
+      // are told it locked. The send plans heard of it from the keyring's
+      // lock event (`listenForKeyringLocks`).
       if (!this.isUnlocked()) {
         this.qbitLatestUtxoReads.clear()
+        this.qbitFundingTxReads.clear()
+        this.qbitBalanceReuse.clear()
+        this.forgetQbitAccountTotals()
         this.announceLock()
       }
       throw error
@@ -6042,6 +7919,105 @@ export class WalletController extends BaseController {
     )
   }
 
+  /**
+   * Whether a local signing of the exact bytes `psbt` is provider signing,
+   * the one kind of signing whose inputs are not checked when it is signed,
+   * decided here and nowhere else (`signQbitP2mrLocally`). Every input of
+   * every transaction the wallet builds or signs is read and checked
+   * against its funding transaction (`checkQbitSpendInputs`), save for these
+   * declared exceptions, which are all there are:
+   * - A website's PSBT: only the exact bytes of an entry a website's request
+   *   admitted, while its approval is open (`admitQbitWebsitePsbts`), signed
+   *   with that website's provider context. Its inputs can be anyone's (a
+   *   swap's counterparty's among them), and the approval shows what it
+   *   spends.
+   * - A provider send: only the exact bytes the wallet built, and checked as
+   *   it built them (`createSendQbitPsbt`), for an open provider sendQbit
+   *   request, signed under the claim the background minted from those
+   *   bytes (`createQbitSendBroadcastClaim`) while that request is open
+   *   (`openQbitProviderSendRequest`). Other bytes under that claim (another
+   *   spent amount or script keeps the txid), a claim the background did not
+   *   mint, or one whose request has settled, are checked. The bytes are
+   *   recorded background-side, never taken from the claim, which crosses
+   *   the page.
+   * - A send plan's input that spends an output of one of the plan's own
+   *   steps: checked against that step as the plan's record holds it, which
+   *   `checkQbitSendPlanStepPsbt` binds to the bytes the plan stored for it,
+   *   and never read, as it may not be in the network yet (see
+   *   `QbitSendPlanEngine.signStep`).
+   * - An account whose signer is elsewhere (an external or cold-wallet
+   *   signer): its inputs are checked when the wallet builds the
+   *   transaction, the only check, as its counter unit is taken on that
+   *   signer.
+   * A fee bump is no exception: its inputs, exactly those of the
+   * transaction it replaces, are checked when its eligibility is assessed,
+   * which every build of one does (`assessQbitFeeBump`), and again when the
+   * wallet signs it, as any other; an External signer's bump, signed
+   * elsewhere, is checked at eligibility and at build only.
+   * Either kind of provider signing is decided here for the exact bytes
+   * signed, and must still hold as the keyring is called: `stands` tests it
+   * again then, for the bytes as they are then (the website's admission of
+   * them for that origin, or their record under that claim for an open
+   * request), and a signing for which it no longer holds is refused there
+   * (see `signQbitP2mrLocally`).
+   * An exception is decided for the exact bytes, and a sighash type the
+   * bytes do not name is not part of them: the type an input is signed
+   * under is chosen as for every other signing, not by this decision.
+   * A claim that is present (`null`, `false`, `0` and `''` included) but not
+   * a well-formed claim refuses the signing before anything is read; a
+   * well-formed one is validated against these bytes. Returns the claim the
+   * signing runs under, if any, whether it skips the check, and `stands`.
+   */
+  private qbitProviderSigningOf(
+    toSignData: ToSignData,
+    psbt: QbitPsbt,
+    address: string
+  ): {
+    claim: QbitSendBroadcastClaim | undefined
+    skipsCheck: boolean
+    stands: () => boolean
+  } {
+    const given: unknown = toSignData.qbitSendBroadcastClaim
+    if (given !== undefined) {
+      const wellFormed = normalizeBroadcastClaim(given)
+      if (!wellFormed || wellFormed.origin === QBIT_WALLET_SEND_CLAIM_ORIGIN) {
+        throw new Error('invalid Qbit send broadcast claim')
+      }
+      const claim = this.validatedQbitSendBroadcastClaim(
+        psbt,
+        wellFormed,
+        toSignData.providerContext,
+        address
+      )
+      // These bytes, as they are now, are those the wallet built for an open
+      // provider request under this claim.
+      const stands = (): boolean => {
+        const key = qbitPsbtKey(psbt)
+        return [...this.qbitProviderSendBytes.values()].some(
+          sent =>
+            sent.key === key &&
+            sent.chain === claim.chain &&
+            sent.address === claim.address &&
+            sent.origin === claim.origin &&
+            sent.txid === claim.txid
+        )
+      }
+      return { claim, skipsCheck: stands(), stands }
+    }
+    const origin = toSignData.providerContext?.origin
+    // These bytes, as they are now, are admitted for this website while an
+    // approval of them is open.
+    const stands = (): boolean => {
+      const admitted = this.qbitWebsitePsbts.get(qbitPsbtKey(psbt))
+      return (
+        typeof origin === 'string' &&
+        admitted !== undefined &&
+        [...admitted.values()].includes(origin)
+      )
+    }
+    return { claim: undefined, skipsCheck: stands(), stands }
+  }
+
   /** The local P2MR signing of `signPsbtV2`, stopped before its next input by `signal`. */
   private signQbitP2mrLocally = async (
     toSignData: ToSignData,
@@ -6051,6 +8027,9 @@ export class WalletController extends BaseController {
   ): Promise<SignedData> => {
     // A call whose page already closed does none of its checks or reads.
     if (signal.aborted) throw new QbitSigningAbortedError()
+    // Before the first await: a lock from here on stops the signing.
+    const locksBefore = this.lockRequests
+    const unlockedBefore = !this.readsLocked()
     const migrationContext = toSignData.qbitRecoveryMigration
       ? await this.validateQbitRecoveryMigrationSigning(
           toSignData.qbitRecoveryMigration,
@@ -6069,6 +8048,12 @@ export class WalletController extends BaseController {
       toSignData.qbitBroadcastIdentity
     )
     const chain = qbitBroadcastIdentity.chain
+    // Whether this is provider signing, the one signing whose inputs are not
+    // checked here, decided once, for these exact bytes; see
+    // `qbitProviderSigningOf` for every exception there is. A claim that is
+    // not a well-formed claim refuses the signing here, before anything is
+    // read, the consolidation's reads below included.
+    const provider = this.qbitProviderSigningOf(toSignData, psbt, account.address)
     const consolidationOutputCounts =
       this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
       toSignData.qbitConsolidation?.fundingOutputCounts
@@ -6077,10 +8062,83 @@ export class WalletController extends BaseController {
     }
     // Its page closed during those reads: it does not join the send guard's queue.
     if (signal.aborted) throw new QbitSigningAbortedError()
+    if (!provider.skipsCheck) {
+      // Every input is read and checked against its funding transaction
+      // here, immediately before the first signature, whatever the page or a
+      // build before said of it (`checkQbitSpendInputs`): a send, a send of
+      // everything, a consolidation batch, a fee bump, a recovery sweep, and
+      // anything a page hands back as one of them. Whatever the lock state:
+      // the memory store can read locked while the keyrings are live (an
+      // unlock loads them before it marks the wallet unlocked, and a lock
+      // marks it locked before it waits for the keyring's mutex to drop
+      // them), so a signing asked while the wallet reads locked is checked as
+      // any other, and reaches the keyring only checked. One asked while a
+      // lock still waits for that mutex is checked (before the check existed
+      // it was signed unchecked), and whether the keyrings are live is
+      // decided when the keyring is called, after the send guard's queue, not
+      // when the check ends: if the lock drops them before that call, the
+      // keyring refuses it, unless the wallet is unlocked again first, when it
+      // is signed, checked. One asked once the keyrings are dropped is refused
+      // by the keyring, as it was before, but now after the check's reads; if
+      // the wallet is unlocked meanwhile, it is signed, checked. One whose
+      // check fails is refused with the check's cause, where the keyring's own
+      // error came before.
+      // The keyring takes the first signature counter unit of this signing
+      // in `signP2mrPsbtWithCounter` below, only after the check has
+      // returned.
+      await this.checkQbitSpendOn(chain, account.address, qbitPsbtSpendInputs(psbt), {
+        signal,
+      }).catch((error: unknown) => {
+        // Its page closed while the check read: it stops as any signing does.
+        if (signal.aborted) throw new QbitSigningAbortedError()
+        throw error
+      })
+      // What allowed this signing before the check's reads must hold still:
+      // its page waits, no lock came, the network and the account are those
+      // it was built for, and a migration's plan still signs. The send
+      // guard's claim or overlap check is taken below, after this.
+      const migrationAgain = toSignData.qbitRecoveryMigration
+        ? await this.validateQbitRecoveryMigrationSigning(
+            toSignData.qbitRecoveryMigration,
+            toSignData
+          )
+        : undefined
+      if (signal.aborted) throw new QbitSigningAbortedError()
+      // A lock asked for since the call began, or one that came over a
+      // wallet that read unlocked then, refuses it. One begun while the
+      // wallet read locked goes on, checked, to the keyring, which signs it
+      // if its keyrings are live by then and refuses it otherwise (see above).
+      if (this.lockRequests !== locksBefore || (unlockedBefore && this.readsLocked())) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_SIGNING)
+      }
+      if (this.getChainType() !== chain) {
+        throw new Error('Qbit network changed since the transaction was created')
+      }
+      // Another account selected meanwhile; with none selected, the
+      // keyring refuses an account it no longer holds.
+      const accountNow = migrationAgain?.account ?? preferenceService.getCurrentAccount()
+      if (accountNow && accountNow.address !== account.address) {
+        throw new Error('Qbit account changed since the transaction was created')
+      }
+    }
     const onProgress = this.qbitSigningProgressReporter(uiPort, options?.progressId)
     const sign = async (): Promise<SignedData> => {
       // Its page closed while it waited in the send guard's queue.
       if (signal.aborted) throw new QbitSigningAbortedError()
+      // A signing that skipped the check did so only for what held when it
+      // was decided, before the consolidation's reads and the wait in the
+      // send guard's queue: it must hold still, here, as the keyring is
+      // called, or the signing is refused. It stops holding only once its
+      // approval or provider request has settled, when nothing waits for
+      // this signature any more; and a check run here would read the
+      // explorer inside the guard's queue, which every other send waits on.
+      if (provider.skipsCheck && !provider.stands()) {
+        throw new Error(
+          provider.claim
+            ? 'Qbit provider send request is no longer pending'
+            : 'Qbit website signing request is no longer pending'
+        )
+      }
       const signed = await keyringService
         .signP2mrPsbtWithCounter(
           account.address,
@@ -6141,16 +8199,10 @@ export class WalletController extends BaseController {
     // claim is refused before a signature is spent. Only a claim the
     // wallet mints for its own send is owned by the UI port that receives
     // the signed bytes.
-    if (toSignData.qbitSendBroadcastClaim) {
-      const providerClaim = this.validatedQbitSendBroadcastClaim(
-        psbt,
-        toSignData.qbitSendBroadcastClaim,
-        toSignData.providerContext,
-        account.address
-      )
+    if (provider.claim) {
       return qbitSendGuardService.runWithProviderBroadcastClaim(
-        providerClaim,
-        signWithClaim(providerClaim)
+        provider.claim,
+        signWithClaim(provider.claim)
       )
     }
     const claim = this.walletQbitSendBroadcastClaim(
@@ -6586,6 +8638,12 @@ export class WalletController extends BaseController {
       return
     }
 
+    // What was read of the previous network's funding transactions is of no
+    // more use (see `qbitFundingTxReads`).
+    this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
+    this.forgetQbitAccountTotals()
+
     // Restored seeds have unscanned floors on the newly active network; either
     // HD-path sync or the explicit same-path re-arm closed their signing gate.
     this.kickPendingQbitRestoreFloorScan()
@@ -6716,7 +8774,8 @@ export class WalletController extends BaseController {
     this.enqueueChainStateChange(async () => {
       await this.leaveRegtestFailClosed('disable')
       await regtestAccessService.clearAcknowledgement()
-      this.dropRegtestApiClients()
+      // Off regtest by now: a switcher open on another network reads again.
+      this.dropRegtestApiClients('may-read-again')
       return regtestAccessService.refresh({ verify: false })
     })
 
@@ -6802,13 +8861,22 @@ export class WalletController extends BaseController {
     })
   }
 
-  /** Forget cached clients bound to the loopback endpoint. */
-  private dropRegtestApiClients(): void {
+  /**
+   * Forget cached clients bound to the loopback endpoint, and what was read
+   * through them: the wallet leaves regtest whenever it drops them. `totals`
+   * is what the account totals' calls it overtakes answer (see
+   * `forgetQbitAccountTotals`): `'may-read-again'` only once the wallet is
+   * off regtest already and stays on its network, its wallets unchanged.
+   */
+  private dropRegtestApiClients(totals?: QbitAccountTotalsClearKind): void {
     for (const key of [...this.qbitApiClients.keys()]) {
       if (key.startsWith(`${ChainType.QBIT_REGTEST}:`)) {
         this.qbitApiClients.delete(key)
       }
     }
+    this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
+    this.forgetQbitAccountTotals(totals)
   }
 
   /** The current account's spendable outputs, always read afresh; see `getQbitUtxoSnapshot`. */
@@ -6850,19 +8918,46 @@ export class WalletController extends BaseController {
    * left; so does every read of a page whose UI port disconnects. A walk
    * nothing waits for any more stops reading.
    *
+   * It rides out the explorer's server errors
+   * (`readQbitAddressUtxosRidingOut`) only when its caller asks, with
+   * `rideOut` the boolean `true`, for a read it can abandon, under a usable
+   * `readId`. The arguments cross a JSON port, so anything else, `'true'`
+   * and `1` included, is no. The send screen asks for its own reads, the
+   * one it opens with and each one it makes again while open (its account
+   * or network changed, or the account's plan changed what it holds): it
+   * covers the form for the first only, briefly, shows why Next waits
+   * meanwhile, and abandons the read when the screen is left, when its
+   * account or network changes, or when its page goes away.
+   * Its other reads, behind its loading overlay, to prepare a send with no
+   * outputs loaded or to send in one transaction, pass a `readId`, so that
+   * the page going away abandons them, and do not ask: each reads as every
+   * other read does, `getQbitUtxos` and the send builders among them, and
+   * fails on a server error as fast as the explorer client alone, as 1.0.9
+   * did, unless it joins a read of the screen's that rides them out, whose
+   * ride-out it then shares, failing only once that gives up. How reads
+   * share one is `sharedQbitAccountUtxos`'s.
+   *
    * A read from history that completes leaves its outputs, before any
    * reservation, behind as the account's latest on that network, with the
    * address statistics its walk verified: past the explorer's limit
    * `getAddressBalanceV2` takes its split from them while the statistics
    * still read the same. A read that started later replaces them, even when
    * it found less history, and a read that fails or stops leaves nothing.
-   * Locking the wallet or removing a keyring forgets them.
+   * Locking the wallet or removing a keyring forgets them, and a read asked
+   * for before then leaves nothing either.
    */
-  getQbitUtxoSnapshot = async (readId?: string | null): Promise<QbitUtxoSnapshot> => {
+  getQbitUtxoSnapshot = async (
+    readId?: string | null,
+    rideOut?: boolean
+  ): Promise<QbitUtxoSnapshot> => {
     // Before the first await: the page this read is tied to.
     const waiter = this.openQbitUtxoSnapshotWaiter(readId)
     try {
-      return await this.readQbitUtxoSnapshot(true, waiter?.signal)
+      return await this.readQbitUtxoSnapshot(
+        true,
+        waiter?.signal,
+        waiter !== undefined && rideOut === true
+      )
     } finally {
       waiter?.close()
     }
@@ -6925,13 +9020,17 @@ export class WalletController extends BaseController {
 
   private readQbitUtxoSnapshot = async (
     shareRead: boolean,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    rideOut = false
   ): Promise<QbitUtxoSnapshot> => {
     const account = preferenceService.getCurrentAccount()
     if (!account) throw new Error('no current account')
 
     const chain = this.getChainType()
     const client = this.getQbitApiClient(chain)
+    // Before the statistics below are read: a clear while they are in
+    // flight leaves the read of the outputs keeping nothing.
+    const facts = this.beginQbitOutputsRead(chain, client)
     const activity = shareRead
       ? await Promise.resolve()
           .then(() => client.getAddressStats(account.address, signal ? { signal } : undefined))
@@ -6941,13 +9040,15 @@ export class WalletController extends BaseController {
     if (signal?.aborted) throw signal.reason
     const qbitUtxos =
       activity === undefined
-        ? await this.qbitAccountUtxosOn(chain, account, client, signal)
-        : await this.qbitUtxoSnapshotReads.run(
+        ? await this.qbitAccountUtxosOn(chain, account, client, signal, facts, rideOut)
+        : await this.sharedQbitAccountUtxos(
+            chain,
+            account,
             client,
-            account.address,
             activity,
-            readSignal => this.qbitAccountUtxosOn(chain, account, client, readSignal),
-            signal
+            signal,
+            facts,
+            rideOut
           )
     return {
       address: account.address,
@@ -6955,6 +9056,73 @@ export class WalletController extends BaseController {
       utxos: await this.excludeGuardedQbitUtxos(chain, account.address, qbitUtxos),
     }
   }
+
+  /**
+   * The account's outputs through the shared snapshot reads
+   * (`qbitUtxoSnapshotReads`), joined as they describe, whichever caller
+   * started the read, whether or not it asked to ride out server errors.
+   *
+   * A caller that did not ask, and joins a read that rides them out, shares
+   * the ride-out: it gets that read's outputs, or its failure once the
+   * ride-out gives up, as late as that is, not the quick failure a read of
+   * its own would have met as in 1.0.9. It joins only a read already
+   * running for the same account at the same state of its history, which
+   * its own would repeat; on the send screen it can do so only from a form
+   * its cached outputs serve, past the explorer's output limit or while the
+   * screen reads them again after the account's plan changed what it holds.
+   *
+   * A caller that asked may have joined a read that does not ride them out,
+   * or been moved to one as a later caller's replacement. When that read
+   * fails as a ride-out would not have let it (`isQbitRideOutFailure`), it
+   * reads the outputs again on its own, riding them out; any other failure,
+   * one a ride-out meets the same way, it takes as the answer, as it does a
+   * failure of a read that rode them out itself. Its own read runs outside
+   * the shared reads: a caller arriving meanwhile starts or joins another,
+   * which past the limit is a second walk of the history. That read keeps
+   * the caller's place among the clears (`facts`), so a clear since the
+   * caller was asked leaves it keeping nothing, and ranks among the reads
+   * as it starts.
+   */
+  private async sharedQbitAccountUtxos(
+    chain: ChainType,
+    account: Account,
+    client: QbitWalletApiClient,
+    activity: QbitHistoryState,
+    signal: AbortSignal | undefined,
+    facts: QbitFundingFactsView,
+    rideOut: boolean
+  ): Promise<UnspentOutput[]> {
+    try {
+      return await this.qbitUtxoSnapshotReads.run(
+        client,
+        account.address,
+        activity,
+        readSignal =>
+          this.qbitAccountUtxosOn(chain, account, client, readSignal, facts, rideOut).catch(
+            (error: unknown) => {
+              if (rideOut && typeof error === 'object' && error !== null) {
+                this.qbitRiddenOutFailures.add(error)
+              }
+              throw error
+            }
+          ),
+        signal
+      )
+    } catch (error) {
+      if (
+        !rideOut ||
+        signal?.aborted === true ||
+        !isQbitRideOutFailure(error) ||
+        this.qbitRiddenOutFailures.has(error as object)
+      ) {
+        throw error
+      }
+      return this.qbitAccountUtxosOn(chain, account, client, signal, facts, true)
+    }
+  }
+
+  /** Failures of shared reads that rode out server errors: those are not read again. */
+  private readonly qbitRiddenOutFailures = new WeakSet<object>()
 
   /**
    * The shared snapshot reads in flight, per API client and address, each
@@ -6980,8 +9148,9 @@ export class WalletController extends BaseController {
    * timer uses too, and the keyring service's own lock after an address-type
    * change it cannot roll back, in `changeAddressType`), when its data is
    * reset (`resetAllData`) or when a keyring is removed; none counts while
-   * the wallet reads locked. See `qbitAccountUtxosOn` and
-   * `getAddressBalanceV2`.
+   * the wallet reads locked, and a read asked for before one of these keeps
+   * nothing, whenever it starts (`beginQbitOutputsRead`). See
+   * `qbitAccountUtxosOn` and `getAddressBalanceV2`.
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
     stats: string
@@ -6991,6 +9160,84 @@ export class WalletController extends BaseController {
     /** The lowest tip height at which every coinbase output the read took in is mature. */
     matureFrom?: number
   }>(QBIT_LATEST_UTXO_READS_PER_CLIENT)
+
+  /**
+   * The reads behind classifying any address's outputs, shared by the
+   * balance (`getAddressBalanceV2`) and every read of outputs
+   * (`qbitAccountUtxosOn`, `getAddressUtxo`, the recovery sources): one
+   * limiter per API client, so the wallet keeps at most
+   * `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` of them in flight to one explorer,
+   * and what funding transactions said of their outputs, so a balance poll of
+   * an address whose outputs did not change reads none of them again. The
+   * balance reads no transaction at all for an output a coinbase maturity
+   * deep, and keeps nothing of it, nor does the send screen's read
+   * (`qbitAccountUtxosOn`), which lists those as candidates: a transaction
+   * reads and checks each input it spends before its first signature
+   * (`checkQbitSpendOn`), and keeps what it reads here. It keeps the facts of
+   * at most `QBIT_FUNDING_FACTS_MAX_OUTPOINTS`
+   * (65,536) outputs, so the balance of an address with more outputs younger
+   * than that or unconfirmed reads none of them one by one: it answers with
+   * the total alone, the split unknown, and backs off
+   * (`getQbitSpendableBalanceV2`). Every
+   * read of outputs a send, sweep or plan may spend (`qbitAccountUtxosOn`,
+   * `getAddressUtxo`, the recovery sources) still reads afresh an output that
+   * is not a coinbase output and is younger than a coinbase must be to
+   * mature, and its answer replaces the kept one; so after one wrong
+   * `is_coinbase` answer the balance can count a reward younger than 1,000
+   * blocks as Available until such a read or a clear, while no send can
+   * select it (see `QbitFundingTxReads`). In memory only. Nothing is served from it or kept
+   * in it while the wallet reads locked, and it is forgotten wherever
+   * `qbitLatestUtxoReads` is (whenever the wallet locks, when its data is
+   * reset, when a keyring is removed), when the network changes
+   * (`performSetChainType`) and when the regtest clients are dropped
+   * (`dropRegtestApiClients`); a read that began before then keeps nothing.
+   */
+  private readonly qbitFundingTxReads = new QbitFundingTxReads({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
+   * The balance answers of accounts with at least
+   * `QBIT_BALANCE_REUSE_MIN_OUTPUTS` outputs kept for reuse
+   * (`getAddressBalanceV2`), so that a poll of such an account that has not
+   * changed reads its statistics and the tip, and no listing. In memory
+   * only. Nothing is reused or kept while the wallet reads locked, and they
+   * are forgotten wherever `qbitFundingTxReads` is, and again as a keyring
+   * removal ends; a read that began before then keeps nothing. An answer is
+   * reused only while no fact `qbitFundingTxReads` keeps has changed or gone
+   * since its read began (`QbitFundingTxReads.factChanges`), as when a read
+   * of outputs for a send replaces one the explorer answered wrongly before,
+   * or facts are pushed out: the next poll then lists the outputs again with
+   * the facts kept then.
+   */
+  private readonly qbitBalanceReuse = new QbitBalanceReuse({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
+   * The account switcher's totals (`getQbitAccountTotals`,
+   * `readQbitAccountTotal`): each account's total from one small read of
+   * its statistics, per API client and address, fresh for
+   * `QBIT_ACCOUNT_TOTAL_FRESH_MS` (60 s) and fed by every balance read
+   * (`getAddressBalanceV2`), so the current account rarely needs a read of
+   * its own. Its reads are fresh reads, each a request of its own, and
+   * have a limiter of their own, `QBIT_ACCOUNT_TOTALS_MAX_READS_IN_FLIGHT`
+   * per client. Every submission of a transaction to an explorer
+   * (`submitQbitTx`) leaves that client's totals in place but no longer
+   * fresh, and those read soon after fresh for less long, or not kept when
+   * a balance read fed them. In memory only, never persisted.
+   * Nothing is served from it or kept in it while the wallet reads locked,
+   * and it is forgotten wherever `qbitFundingTxReads` is
+   * (`forgetQbitAccountTotals`: whenever the wallet locks, when its data is
+   * reset, when a keyring is removed, when the network changes and when the
+   * regtest clients are dropped); a read that began before then keeps
+   * nothing, and one still waiting or in flight is cancelled, its caller
+   * reading once more only after a wallet's removal or the regtest access
+   * turned off while on another network. See `QbitAccountTotals`.
+   */
+  private readonly qbitAccountTotals = new QbitAccountTotals({
+    usable: (): boolean => this.isUnlocked(),
+  })
 
   /**
    * The outputs a send is built from: the ones the caller loaded, or the
@@ -7008,10 +9255,14 @@ export class WalletController extends BaseController {
     account: Account,
     providedUtxos: UnspentOutput[] | undefined,
     providedUtxoChain: ChainType | undefined,
-    providedUtxoAddress: string | undefined
+    providedUtxoAddress: string | undefined,
+    facts: QbitFundingFactsView
   ): Promise<UnspentOutput[]> {
     if (providedUtxos === undefined) {
-      return this.assertQbitAccountOutputs(account, await this.qbitAccountUtxosOn(chain, account))
+      return this.assertQbitAccountOutputs(
+        account,
+        await this.qbitAccountUtxosOn(chain, account, undefined, undefined, facts)
+      )
     }
     if (providedUtxoChain === undefined) {
       throw new Error('Qbit inputs must name the network they were loaded on')
@@ -7049,26 +9300,69 @@ export class WalletController extends BaseController {
   }
 
   /**
+   * The place of a read of outputs among the clears of `qbitFundingTxReads`
+   * (`QbitClassifyOptions.facts`), taken by a caller when it is asked for
+   * the outputs, before awaits of its own, so that a lock, a reset, a keyring
+   * removal or a network switch while it waits leaves the read keeping and
+   * served nothing. Its place among the clears of `qbitLatestUtxoReads` is
+   * taken with it (`qbitOutputsReadPlaces`), so a lock, a reset or a keyring
+   * removal meanwhile leaves it keeping no read of the history either, even
+   * after a new unlock, through whichever caller it comes.
+   */
+  private beginQbitOutputsRead(
+    chain: ChainType = this.getChainType(),
+    client: QbitWalletApiClient = this.getQbitApiClient(chain)
+  ): QbitFundingFactsView {
+    const facts = this.qbitFundingTxReads.begin(client)
+    this.qbitOutputsReadPlaces.set(facts, this.qbitLatestUtxoReads.start())
+    return facts
+  }
+
+  /**
+   * The place among the clears of `qbitLatestUtxoReads` that the caller of
+   * each read of outputs took when it was asked for them, by the view of
+   * `qbitFundingTxReads` it took with it (`beginQbitOutputsRead`), which it
+   * hands the read (`qbitAccountUtxosOn`).
+   */
+  private readonly qbitOutputsReadPlaces = new WeakMap<QbitFundingFactsView, number>()
+
+  /**
    * The account's unspent outputs on `chain`, before any reservation is
    * applied. The read, an over-limit walk included, stops once `signal`
    * aborts. A read from history that completes is kept as the account's
    * latest on `chain` (`qbitLatestUtxoReads`), in the order reads started,
    * under the address statistics its walk verified, not ones read before
    * it, which may have moved since; one that fails or stops leaves nothing,
-   * and so does any read while the wallet is locked.
+   * and so does any read while the wallet is locked. `facts` is the place
+   * among the clears of `qbitFundingTxReads` and of `qbitLatestUtxoReads`
+   * its caller took when it was asked for the outputs, before awaits of its
+   * own (`beginQbitOutputsRead`): a clear since then leaves the read keeping
+   * nothing, however late it starts. Every caller takes it so; a view begun
+   * anywhere else is refused.
+   * With `rideOut`, which only a snapshot read its caller can abandon asks
+   * for (`getQbitUtxoSnapshot`), the read rides out the explorer's server
+   * errors (`readQbitAddressUtxosRidingOut`); without it, it fails on one as
+   * fast as the explorer client alone.
    */
   private async qbitAccountUtxosOn(
     chain: ChainType,
     account: Account,
     client: QbitWalletApiClient = this.getQbitApiClient(chain),
-    signal?: AbortSignal
+    signal: AbortSignal | undefined,
+    facts: QbitFundingFactsView,
+    rideOut = false
   ): Promise<UnspentOutput[]> {
+    // Ranked among the reads as it starts reading; placed among the clears
+    // where its caller was asked.
     const order = this.qbitLatestUtxoReads.start()
-    const { utxos, historyStats, matureAt, matureFrom } = await readQbitAddressUtxos(
-      client,
-      account.address,
-      signal ? { signal } : {}
-    )
+    const since = this.qbitOutputsReadPlaces.get(facts)
+    if (since === undefined) throw new Error('A read of outputs its caller did not begin')
+    const read = rideOut ? readQbitAddressUtxosRidingOut : readQbitAddressUtxos
+    const { utxos, historyStats, matureAt, matureFrom } = await read(client, account.address, {
+      ...(signal ? { signal } : {}),
+      fundingTxReads: this.qbitFundingTxReads,
+      facts,
+    })
     const outputs = utxos.map(v => ({
       txid: v.txid,
       vout: v.vout,
@@ -7079,12 +9373,18 @@ export class WalletController extends BaseController {
       ...(v.unconfirmed ? { unconfirmed: true, unconfirmedAncestors: v.unconfirmedAncestors } : {}),
     }))
     if (historyStats && this.isUnlocked()) {
-      this.qbitLatestUtxoReads.keep(client, account.address, order, {
-        stats: qbitStatsSnapshot(historyStats),
-        utxos: utxos.map(qbitReadOutput),
-        ...(matureAt !== undefined ? { matureAt } : {}),
-        ...(matureFrom !== undefined ? { matureFrom } : {}),
-      })
+      this.qbitLatestUtxoReads.keep(
+        client,
+        account.address,
+        order,
+        {
+          stats: qbitStatsSnapshot(historyStats),
+          utxos: utxos.map(qbitReadOutput),
+          ...(matureAt !== undefined ? { matureAt } : {}),
+          ...(matureFrom !== undefined ? { matureFrom } : {}),
+        },
+        since
+      )
     }
     return outputs
   }
@@ -7103,11 +9403,13 @@ export class WalletController extends BaseController {
    * neither redirect the original's outputs nor present a send the account
    * never signed.
    *
-   * Every explorer read here shares one deadline,
-   * `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`, and these are the slow reads of
-   * a bump: they all happen before the user signs. It starts once the
-   * assessment has been through the send guard's queue, which a broadcast
-   * can hold for as long as its own deadline: the wait spends none of it.
+   * The explorer reads of the original, its JSON, its raw bytes and what
+   * spends it, share one deadline, `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`,
+   * and these are the slow reads of a bump: they all happen before the user
+   * signs. It starts once the assessment has been through the send guard's
+   * queue, which a broadcast can hold for as long as its own deadline: the
+   * wait spends none of it. The check of the original's inputs, last, has a
+   * deadline of its own after those reads (see there).
    * The original's output count goes with the plan, so its broadcast only
    * asks what spends them.
    */
@@ -7438,6 +9740,48 @@ export class WalletController extends BaseController {
       return { eligible: false, reason: 'insufficient_change' }
     }
 
+    // The bump spends the original's inputs again, and the wallet's signing
+    // of it checks each of them against its funding transaction
+    // (`signQbitP2mrLocally`): an unconfirmed one must be the account's own
+    // change all the way down. The original's need not be: nothing above
+    // asks more of them than the account's signature, which a website's
+    // request, or other software holding the same key, can have given to a
+    // spend of anything that pays the account. The same check here, last,
+    // so that a bump offered passed, when it was assessed, the check its
+    // signing makes; an External signer's bump, signed elsewhere, has this
+    // check and the build's, and no other. It reads the tip once, at once
+    // and outside the limiter, the funding transaction of each input, and,
+    // for an unconfirmed one, every parent of each unconfirmed transaction
+    // before it, confirmed parents included: each transaction once, through
+    // the limiter. Its deadline is its own, the signing's
+    // (`QBIT_SPEND_CHECK_DEADLINE_MS`), from here, as the reads above may
+    // have spent most of theirs (see `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`),
+    // and it leaves nothing running when it settles. Only its own failure
+    // is a verdict: one that could not check an input (`unchecked`) is
+    // none, and is thrown as any other read here that fails.
+    // Each input as its signature commits to it; one these do not name (none
+    // can be missing) would be refused by the check as no output at all.
+    const inputTxids = raw.inputTxids
+    try {
+      await this.checkQbitSpendOn(
+        chain,
+        account.address,
+        original.inputs.map((input, index) => ({
+          txid: inputTxids[index] ?? '',
+          vout: input.prevout.vout,
+          satoshis: Number(spentOutputs[index]?.value ?? -1n),
+          scriptPk: accountScriptPubKey,
+        }))
+      )
+    } catch (error) {
+      const problem = qbitSpendCheckProblemOf(error)
+      if (problem === 'not_spendable') return { eligible: false, reason: 'inputs_not_spendable' }
+      if (problem === 'mismatch' || problem === 'not_found') {
+        return { eligible: false, reason: 'unverifiable' }
+      }
+      throw error
+    }
+
     return {
       eligible: true,
       plan: {
@@ -7622,6 +9966,53 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * Read and check the funding transaction of every one of `inputs`, the
+   * inputs a transaction of `address` on `chain` spends, before its first
+   * signature (`checkQbitSpendInputs`), through the shared reader and its
+   * limiter. `facts` is the place among the reader's clears its caller took
+   * when it was asked (`beginQbitOutputsRead`); `signal` stops it; with
+   * `rideOut` it rides out the explorer's server errors, as only a send
+   * plan's check does; `ownTransactions` are transactions the caller holds,
+   * keyed by txid, outputs in order. A failed input rejects with the cause in the
+   * user's language (`qbitSpendCheckFailure`); once `signal` aborts it rejects
+   * with its reason.
+   */
+  private async checkQbitSpendOn(
+    chain: ChainType,
+    address: string,
+    inputs: readonly QbitSpendInput[],
+    {
+      facts,
+      signal,
+      rideOut = false,
+      ownTransactions,
+      deadlineMs,
+    }: {
+      facts?: QbitFundingFactsView
+      signal?: AbortSignal
+      rideOut?: boolean
+      ownTransactions?: ReadonlyMap<string, readonly { value: number; script: string }[]>
+      /** Its own deadline, when not `QBIT_SPEND_CHECK_DEADLINE_MS`. */
+      deadlineMs?: number
+    } = {}
+  ): Promise<QbitCheckedSpend> {
+    try {
+      return await checkQbitSpendInputs(this.getQbitApiClient(chain), address, inputs, {
+        fundingTxReads: this.qbitFundingTxReads,
+        ...(facts ? { facts } : {}),
+        ...(signal ? { signal } : {}),
+        ...(rideOut ? { rideOutServerErrors: true as const } : {}),
+        ...(ownTransactions ? { ownTransactions } : {}),
+        ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+      })
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason
+      if (error instanceof QbitSpendInputCheckError) throw qbitSpendCheckFailure(error)
+      throw error
+    }
+  }
+
   createSendQbitPsbt = async ({
     to,
     amount,
@@ -7668,6 +10059,9 @@ export class WalletController extends BaseController {
     // carries that network from here on; a switch in another window while
     // the quote or the inputs are in flight cannot rebind it.
     const chain = this.getChainType()
+    // Before the fee quote: a clear while it is in flight leaves the read of
+    // the outputs keeping nothing.
+    const facts = this.beginQbitOutputsRead(chain)
     let resolvedFeeRate = feeRate
     if (resolvedFeeRate === undefined) {
       const feeSummary = await this.getFeeSummary(chain)
@@ -7683,7 +10077,8 @@ export class WalletController extends BaseController {
       account,
       providedUtxos,
       providedUtxoChain,
-      providedUtxoAddress
+      providedUtxoAddress,
+      facts
     )
     const spendableUtxos = await this.excludeGuardedQbitUtxos(chain, account.address, inputs)
     if (spendableUtxos.length === 0) {
@@ -7735,6 +10130,21 @@ export class WalletController extends BaseController {
     if (fee > maximumTotalFee) {
       throw new Error('Fee exceeds the wallet safety maximum.')
     }
+    // Every input the send spends, read and checked against its funding
+    // transaction before anything is built over it (`checkQbitSpendInputs`):
+    // what the listing or the page said of it is not taken for it. One that
+    // fails names its cause and fails the build, and nothing is chosen in its
+    // place, so the amount and fee shown are what is signed. A local signing
+    // checks the inputs again (`signQbitP2mrLocally`). For an account whose
+    // signer is elsewhere (an external or cold-wallet signer) this is the only
+    // check: its signature counter unit is taken on that signer, after this
+    // has returned.
+    const checked = await this.checkQbitSpendOn(
+      chain,
+      account.address,
+      qbitSpendInputsOf(selectedUtxos),
+      { facts }
+    )
 
     const outputs: P2mrTransactionOutput[] = [
       {
@@ -7751,20 +10161,12 @@ export class WalletController extends BaseController {
     }
 
     const psbt = createP2mrPsbt({
-      inputs: selectedUtxos.map(utxo => ({
-        prevout: {
-          txid: qbitTxidToInternalBytes(utxo.txid),
-          vout: utxo.vout,
-        },
+      inputs: qbitCheckedP2mrInputs(checked, selectedUtxos, {
         sequence,
-        witnessUtxo: {
-          value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
-        },
         leafScript,
         controlBlock,
         merkleRoot: leafHash,
-      })),
+      }),
       outputs,
     })
 
@@ -7847,6 +10249,12 @@ export class WalletController extends BaseController {
       reservationsAlreadyFiltered?: boolean
       /** A consolidation batch of a source no recovery migration can read. */
       migrationConsolidation?: boolean
+      /**
+       * The operation whose deadline and cancellation the check of the
+       * inputs runs under (a consolidation batch's), within its own
+       * deadline: it reads nothing once that operation is over.
+       */
+      operation?: QbitExplorerOperation
     } = {}
   ): Promise<ToSignData> => {
     const {
@@ -7881,6 +10289,8 @@ export class WalletController extends BaseController {
     // carries that network from here on; a switch in another window while
     // the quote or the inputs are in flight cannot rebind it.
     const chain = this.getChainType()
+    // As in `createSendQbitPsbt`.
+    const facts = this.beginQbitOutputsRead(chain)
     if (feeRate === undefined) {
       const feeSummary = await this.getFeeSummary(chain)
       // The normal rate, which is QBIT_FALLBACK_FEE_RATE without an estimate.
@@ -7893,7 +10303,8 @@ export class WalletController extends BaseController {
       account,
       providedUtxos,
       providedUtxoChain,
-      providedUtxoAddress
+      providedUtxoAddress,
+      facts
     )
     // Each one the account's own, as `qbitSendInputsOn` checked.
     const spendableUtxos = reservationsAlreadyFiltered
@@ -7929,22 +10340,32 @@ export class WalletController extends BaseController {
     if (selection.exceedsAncestorSize) {
       throw new Error(t('send_exceeds_ancestor_size'))
     }
+    // As in `createSendQbitPsbt`: every input read and checked before the
+    // build, and for an external or cold-wallet signer, whose unit is taken
+    // on that signer, the only check. Consolidation batches and recovery
+    // sweeps are built here too; a batch's check ends with the batch, at its
+    // deadline or its cancellation, whichever comes first.
+    const within = options.operation?.read()
+    const checked = await this.checkQbitSpendOn(
+      chain,
+      account.address,
+      qbitSpendInputsOf(selectedUtxos),
+      {
+        facts,
+        ...(within?.signal ? { signal: within.signal } : {}),
+        ...(within?.deadlineMs !== undefined
+          ? { deadlineMs: Math.min(QBIT_SPEND_CHECK_DEADLINE_MS, within.deadlineMs) }
+          : {}),
+      }
+    )
 
     const psbt = createP2mrPsbt({
-      inputs: selectedUtxos.map(utxo => ({
-        prevout: {
-          txid: qbitTxidToInternalBytes(utxo.txid),
-          vout: utxo.vout,
-        },
+      inputs: qbitCheckedP2mrInputs(checked, selectedUtxos, {
         sequence,
-        witnessUtxo: {
-          value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
-        },
         leafScript,
         controlBlock,
         merkleRoot: leafHash,
-      })),
+      }),
       outputs: [
         {
           value: BigInt(amount),
@@ -8150,7 +10571,8 @@ export class WalletController extends BaseController {
           enableRBF: request.enableRBF ?? true,
         },
         account,
-        { migrationConsolidation }
+        // The check of its inputs is one more read of the batch's.
+        { migrationConsolidation, operation }
       )
       const builtPsbt = qbitPsbtFromHex(built.psbtHex)
       const outpoints = qbitPsbtOutpoints(builtPsbt).map(
@@ -8514,6 +10936,22 @@ export class WalletController extends BaseController {
     // P2MR sighash commits spent output values, so a PSBT lying about them
     // cannot produce a broadcastable transaction.
     if (!account.p2mr) return 0
+    // That view lists a deep output with the value the explorer's listing
+    // gives (`getQbitUtxos`), and a website's PSBT skips the check when it is
+    // signed: each value is checked against its funding transaction here,
+    // before it counts, so a listing that overstates a protected output
+    // cannot widen what may leave for an external output.
+    const scriptPk = account.p2mr.scriptPubKey
+    await this.checkQbitSpendOn(
+      this.getChainType(),
+      account.address,
+      signedOutpoints.map(outpoint => ({
+        txid: outpoint.txid,
+        vout: outpoint.vout,
+        satoshis: Number(currentUtxoValues.get(`${outpoint.txid.toLowerCase()}:${outpoint.vout}`)),
+        scriptPk,
+      }))
+    )
     let totalInputValue = 0n
     let ordinaryInputValue = 0n
     for (const outpoint of signedOutpoints) {
@@ -8591,7 +11029,81 @@ export class WalletController extends BaseController {
     )
   }
 
+  /**
+   * The website PSBTs whose approval is open now, by the hash of their bytes
+   * (`qbitPsbtKey`), each with the origin of the website that asked, under
+   * the token of the request that admitted it: admitted when that request's
+   * approval is installed (`admitQbitWebsitePsbts`), so a request refused
+   * for another pending approval admits nothing and displaces nothing, and
+   * removed when the approval settles, or with every other by a reset
+   * (`forgetQbitWebsitePsbts`). Neither a lock nor a wallet's removal ends
+   * one: neither changes the bytes, and the approval stays open across
+   * either, so one left open across a lock (a swap with a counterparty's
+   * input, say) can still be signed after the unlock. A local signing of
+   * exactly one of them, for that website, while it is admitted, skips the
+   * check of its inputs (`qbitProviderSigningOf`, tested again as the
+   * keyring is called). At most `QBIT_WEBSITE_PSBTS_KEPT`; past that an
+   * admission is refused.
+   */
+  private readonly qbitWebsitePsbts = new Map<string, Map<symbol, string>>()
+
+  /** The entries `prepareQbitProviderPsbt` returned: only they may be admitted. */
+  private readonly qbitPreparedWebsitePsbts = new WeakSet<object>()
+
+  /** Prepare a website's PSBT for its approval (`prepareWebsiteQbitPsbt`). */
   prepareQbitProviderPsbt = async (
+    psbtHex: string,
+    options: QbitProviderSignPsbtOptions
+  ): Promise<ToSignData> => {
+    const prepared = await this.prepareWebsiteQbitPsbt(psbtHex, options)
+    this.qbitPreparedWebsitePsbts.add(prepared)
+    return prepared
+  }
+
+  /**
+   * Admit the website PSBTs of a provider request whose approval is being
+   * installed: each entry `prepareQbitProviderPsbt` returned for it, with
+   * the provider context the request gave it. Returns what removes them
+   * again, once the approval settles. Refused (throws) when it would hold
+   * more than `QBIT_WEBSITE_PSBTS_KEPT`; nothing is pushed out. No page can
+   * call it (`UI_CONTROLLER_METHODS`).
+   */
+  admitQbitWebsitePsbts = (toSignDatas: readonly ToSignData[]): (() => void) => {
+    const admitted = toSignDatas.flatMap(toSignData => {
+      const origin = toSignData.providerContext?.origin
+      return this.qbitPreparedWebsitePsbts.has(toSignData) && typeof origin === 'string' && origin
+        ? [{ key: qbitPsbtKey(qbitPsbtFromHex(toSignData.psbtHex)), origin }]
+        : []
+    })
+    let held = 0
+    for (const entries of this.qbitWebsitePsbts.values()) held += entries.size
+    if (held + admitted.length > QBIT_WEBSITE_PSBTS_KEPT) {
+      throw new Error('Too many website signing requests are open')
+    }
+    const token = Symbol('website PSBT request')
+    for (const { key, origin } of admitted) {
+      let entries = this.qbitWebsitePsbts.get(key)
+      if (!entries) {
+        entries = new Map()
+        this.qbitWebsitePsbts.set(key, entries)
+      }
+      entries.set(token, origin)
+    }
+    return () => {
+      for (const { key } of admitted) {
+        const entries = this.qbitWebsitePsbts.get(key)
+        entries?.delete(token)
+        if (entries?.size === 0) this.qbitWebsitePsbts.delete(key)
+      }
+    }
+  }
+
+  /** A reset, either way it runs: no website PSBT skips the check of its inputs any more. */
+  private forgetQbitWebsitePsbts = (): void => {
+    this.qbitWebsitePsbts.clear()
+  }
+
+  private prepareWebsiteQbitPsbt = async (
     psbtHex: string,
     options: QbitProviderSignPsbtOptions
   ): Promise<ToSignData> => {
@@ -8611,6 +11123,7 @@ export class WalletController extends BaseController {
     const summary = decodeQbitPsbt(psbt)
     assertQbitProviderAnchorValue(summary.outputs)
     const accountLeafScript = account.p2mr.leafScript.toLowerCase()
+    const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
     const publicKey = account.p2mr.pubkey.toLowerCase()
     if (account.pubkey.toLowerCase() !== publicKey) {
       throw new Error('P2MR account public key metadata mismatch')
@@ -8624,7 +11137,22 @@ export class WalletController extends BaseController {
         // Refuses a leaf listed twice, so each leaf is planned once, and one
         // whose control block does not commit, before any counter moves.
         assertQbitP2mrSigningLeafRecord(input, inputIndex, leafHash)
-        qbitP2mrSigningKeys.push({ inputIndex, publicKey, leafHash })
+        // The input's own `PSBT_IN_SIGHASH_TYPE`, which the protocol library
+        // requires the plan to match. An input that names none signs with the
+        // default type, exactly as before.
+        const hashType = qbitProviderPsbtHashType(
+          input.sighashType,
+          inputIndex,
+          summary.outputs.length,
+          input.witnessUtxo !== undefined &&
+            qbitBytesToHex(input.witnessUtxo.scriptPubKey) === accountScriptPubKey
+        )
+        qbitP2mrSigningKeys.push({
+          inputIndex,
+          publicKey,
+          leafHash,
+          ...(hashType === SIGHASH_DEFAULT ? {} : { hashType }),
+        })
       })
     })
 
@@ -8633,7 +11161,7 @@ export class WalletController extends BaseController {
     }
 
     const signingKeys = qbitSigningKeysFromSerializable(qbitP2mrSigningKeys)
-    validateP2mrSigningPlans({ psbt, keys: signingKeys })
+    validateP2mrSigningPlans({ psbt, keys: signingKeys, ...p2mrSigningOptionsFor(signingKeys) })
     // Decided before the budget preflight, which can issue a restored-floor
     // challenge, so a refusal leaves none for this PSBT; the request's
     // failure cleanup releases those of earlier signPsbts entries.
@@ -8647,6 +11175,15 @@ export class WalletController extends BaseController {
             new Set(qbitP2mrSigningKeys.map(key => key.inputIndex))
           )
         : 0
+    // A recovery migration's reviewed movements must be signed over the whole
+    // transaction: a partial signature could be lifted into one that moves
+    // the ordinary funds the migration check exists to protect.
+    if (protectedAssetCount > 0 && qbitP2mrSigningKeys.some(key => key.hashType !== undefined)) {
+      throw new WalletError(
+        ErrorCodes.INVALID_PARAMS,
+        'a recovery migration signs only under the default sighash type'
+      )
+    }
     const signingInput = { psbt, keys: signingKeys }
     const signatureBudget =
       getAccountCapabilities(account).signMethod === AccountSignMethod.Local
@@ -8668,6 +11205,11 @@ export class WalletController extends BaseController {
 
     const toSignInputs = [...new Set(qbitP2mrSigningKeys.map(key => key.inputIndex))].map(
       index => ({ index, publicKey })
+    )
+    const partialDetails = qbitPartialSignatureDetails(
+      qbitP2mrSigningKeys,
+      summary.outputs,
+      this.getNetworkType()
     )
     return {
       psbtHex: qbitPsbtToHex(psbt),
@@ -8691,11 +11233,18 @@ export class WalletController extends BaseController {
               ],
               type: PsbtActionType.CUSTOM,
             }
-          : {
-              name: '',
-              description: '',
-              type: PsbtActionType.DEFAULT,
-            },
+          : partialDetails.length > 0
+            ? {
+                name: t('sign_transaction'),
+                description: t('qbit_partial_signature_description'),
+                details: partialDetails,
+                type: PsbtActionType.CUSTOM,
+              }
+            : {
+                name: '',
+                description: '',
+                type: PsbtActionType.DEFAULT,
+              },
     }
   }
 
@@ -8719,6 +11268,28 @@ export class WalletController extends BaseController {
   }
 
   /**
+   * `client.broadcastTx`, which every submission of a transaction to an
+   * explorer goes through: `pushTx`, and `attemptQbitBroadcast` for the
+   * send, the send plans, fee bumps, consolidation and a dapp's push. The
+   * account totals read through `client` stop being fresh as the bytes go
+   * out and again once the submission settles, whatever its outcome, and a
+   * total read while it is under way, or soon after, counts as possibly from
+   * before it (`qbitAccountTotals.submission`). Called only once the bytes
+   * are to be sent.
+   */
+  private async submitQbitTx(
+    client: QbitWalletApiClient,
+    ...submission: Parameters<QbitWalletApiClient['broadcastTx']>
+  ): Promise<string> {
+    const settled = this.qbitAccountTotals.submission(client)
+    try {
+      return await client.broadcastTx(...submission)
+    } finally {
+      settled()
+    }
+  }
+
+  /**
    * Broadcast signed bytes and throw on failure: a recovery migration's
    * plan. An accepted broadcast records its inputs as recently spent inside
    * the guard. A failure records nothing. The provider's pushTx and pushPsbt
@@ -8729,7 +11300,7 @@ export class WalletController extends BaseController {
     const { chain, client, rawtx, txid, outpoints } = this.prepareQbitBroadcast(txData)
     if (!qbitSendBroadcastClaim) {
       return qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, () =>
-        client.broadcastTx(rawtx)
+        this.submitQbitTx(client, rawtx)
       )
     }
     return qbitSendGuardService.broadcastIfAllowed(
@@ -8739,7 +11310,7 @@ export class WalletController extends BaseController {
       async spendCheck => {
         assertQbitExplorerSpendCheck(spendCheck)
         await this.checkQbitBroadcastOnExplorer(client, spendCheck)
-        return client.broadcastTx(rawtx)
+        return this.submitQbitTx(client, rawtx)
       },
       qbitSendBroadcastClaim
     )
@@ -9127,7 +11698,7 @@ export class WalletController extends BaseController {
       const submission = operation.read()
       dispatched = true
       if (firstDispatchAt === undefined) firstDispatchAt = Date.now()
-      const response = await client.broadcastTx(rawtx, submission)
+      const response = await this.submitQbitTx(client, rawtx, submission)
       // Validate inside the guard: `broadcastIfAllowed` consumes the send
       // claim as soon as this callback resolves, so a 2xx that does not echo
       // the txid (a proxy page, an unexpected backend) must reject here to
@@ -9623,9 +12194,14 @@ export class WalletController extends BaseController {
   /** The selected account's plan on the active network, if any; also advances it. */
   getQbitSendPlan = (): Promise<QbitSendPlanView | null> => this.qbitSendPlans.view()
 
-  /** Re-authorise the plan's signing for this session and carry it on. */
-  continueQbitSendPlan = (planId: string): Promise<QbitSendPlanView> =>
-    this.qbitSendPlans.continue(planId)
+  /**
+   * Re-authorise the plan's signing for this session and carry it on, once
+   * the plan stored states the terms of the view the page shows:
+   * `termsDigest` is that view's (`QbitSendPlanView.termsDigest`), and a
+   * continue of anything else is refused (`QbitSendPlanEngine.continue`).
+   */
+  continueQbitSendPlan = (planId: string, termsDigest: string): Promise<QbitSendPlanView> =>
+    this.qbitSendPlans.continue(planId, termsDigest)
 
   /** Cancel the plan; null once nothing is left of it. */
   cancelQbitSendPlan = (planId: string): Promise<QbitSendPlanView | null> =>
@@ -9635,8 +12211,27 @@ export class WalletController extends BaseController {
   dismissQbitSendPlan = (planId: string): Promise<void> => this.qbitSendPlans.dismiss(planId)
 
   /**
+   * Hand the send plans the wallet removal records stored, as the
+   * background starts, once the preferences have loaded and before the
+   * stored plans are held again (restoreQbitSendPlans) or anything of a plan
+   * advances: each holds the accounts it names back until it is forgotten
+   * (QbitSendPlanEngine.endPlansOf). A record this version cannot read is
+   * kept as it is stored, and the accounts it names stay held back.
+   */
+  restoreQbitSendPlanRemovals = (): void => {
+    const { records, unreadable } = preferenceService.getQbitSendPlanRemovals()
+    if (unreadable.count > 0) {
+      log.warn(
+        `[WalletController] ${unreadable.count} wallet removal record(s) unreadable by this version: the accounts they name are held back`
+      )
+    }
+    this.qbitSendPlans.restoreRemovals({ records, unreadable: unreadable.accounts })
+  }
+
+  /**
    * Hold again what the stored send plans held, once the plan store has
-   * loaded at start-up and before anything can spend.
+   * loaded at start-up and before anything can spend; the wallet removal
+   * records are handed over first (restoreQbitSendPlanRemovals).
    */
   restoreQbitSendPlans = (): Promise<void> => this.qbitSendPlans.restore()
 
@@ -9714,8 +12309,16 @@ export class WalletController extends BaseController {
       return addressToScriptPk(to, networkType)
     },
     memoOutputs: (memo, memos): P2mrTransactionOutput[] => qbitMemoOutputs(memo, memos),
-    spendableOutputs: async (chain, account, exceptPlanId): Promise<UnspentOutput[]> => {
-      const outputs = await this.qbitSendInputsOn(chain, account, undefined, undefined, undefined)
+    beginOutputsRead: (): QbitFundingFactsView => this.beginQbitOutputsRead(),
+    spendableOutputs: async (chain, account, exceptPlanId, since): Promise<UnspentOutput[]> => {
+      const outputs = await this.qbitSendInputsOn(
+        chain,
+        account,
+        undefined,
+        undefined,
+        undefined,
+        since as QbitFundingFactsView
+      )
       await this.settleQbitRecentSpends(chain, account.address)
       // What the plan's own hold would refuse, a dapp's signed inputs
       // included, not only what an ordinary send treats as reserved.
@@ -9735,19 +12338,45 @@ export class WalletController extends BaseController {
       if (count === 0) throw new Error('invalid qbit outspends')
       return qbitTxSpendersFromOutspends(outspends, txid, count)
     },
-    transaction: async (
-      chain,
-      txid
-    ): Promise<{ outputs: { script: string; value: number }[]; fee: number }> => {
+    transaction: async (chain, txid): Promise<QbitSendPlanSpenderRead> => {
       const transaction = await this.getQbitApiClient(chain).getTx(txid)
       if (transaction.txid.toLowerCase() !== txid) throw new Error('invalid qbit transaction')
+      // A fee the plan store would refuse in `paidBy` is no answer.
+      if (!Number.isSafeInteger(transaction.fee) || transaction.fee < 0) {
+        throw new Error('invalid qbit transaction')
+      }
       return {
+        // The outpoints it spends, which the engine holds against the
+        // outspends that named it (see its `identifySpender`).
+        inputs: transaction.vin.map(input => {
+          if (!Number.isSafeInteger(input?.vout)) throw new Error('invalid qbit transaction')
+          return { txid: normalizeQbitTxid(input.txid), vout: input.vout }
+        }),
         outputs: transaction.vout.map(output => ({
           script: output.scriptpubkey.toLowerCase(),
           value: output.value,
         })),
         fee: transaction.fee,
       }
+    },
+    checkSpendInputs: async (chain, address, inputs, ownTransactions, signal): Promise<void> => {
+      // An input spending an output of one of the plan's own merges
+      // (`ownTransactions`, by txid, outputs in order) is checked against
+      // it, with no lookup; every other is read, riding out server errors,
+      // within a deadline that grows with the transactions looked up: a
+      // plan checks every input of its steps in one pass before it signs.
+      await this.checkQbitSpendOn(chain, address, inputs, {
+        signal,
+        rideOut: true,
+        ownTransactions,
+        deadlineMs: qbitSpendCheckDeadlineMs(
+          new Set(
+            inputs
+              .filter(input => !ownTransactions.has(input.txid.toLowerCase()))
+              .map(input => input.txid.toLowerCase())
+          ).size
+        ),
+      })
     },
     broadcast: ({ chain, rawtx, txid, hold, replaces }) =>
       this.attemptQbitBroadcast(
@@ -9763,13 +12392,327 @@ export class WalletController extends BaseController {
       ),
     holdAutoLock: estimatedSigningMs => this.holdAutoLockForQbitSendPlan(estimatedSigningMs),
     announce: (planId, revision): void => {
+      // The engine's run names what the revision is of: a page orders the
+      // views of one run by revision, and reads a change of another run.
       bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
         method: BUS_METHODS.QBIT_SEND_PLAN_CHANGED,
-        params: { planId, revision },
+        params: { planId, revision, backgroundId: this.qbitSendPlans.backgroundId },
       })
     },
     afterSigning: address => this.refreshDisplayedQbitAccountAfterSigning(address),
+    judgeRemoval: id => this.judgeQbitSendPlanRemoval(id),
+    forgetRemoval: id => preferenceService.forgetQbitSendPlanRemoval(id),
   })
+
+  /**
+   * Tell every wallet page, once, that a wallet removal that completed left
+   * `notEnded` of the removed wallet's send plans, which the plans hold back
+   * and keep trying to end; a page says so to the user. Counts only: the
+   * page reads nothing of the plans. What is left later is not told again,
+   * and a page opened later is not told.
+   */
+  private announceQbitSendPlansNotEnded = (
+    notEnded: NonNullable<QbitSendPlanEnding['notEnded']>
+  ): void => {
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.QBIT_SEND_PLANS_NOT_ENDED,
+      params: qbitSendPlansNotEndedNotice(notEnded),
+    })
+  }
+
+  /**
+   * The removal records written in this run whose removal is under way, or
+   * failed once the wallet's slot began to be emptied, by id: the slots
+   * judge them only through settleQbitSendPlanRemovalsOfUnknownOutcome,
+   * never at a kick (judgeQbitSendPlanRemoval).
+   */
+  private readonly qbitSendPlanRemovalsUnsettled = new Set<string>()
+
+  /**
+   * The removals of this run that failed once the wallet's slot began to be
+   * emptied, by the id of their record: the wallet's slot and keyring type,
+   * and the accounts whose plans the removal ends. Whether storage holds
+   * such a removal is not known until a write of the vault from memory has
+   * landed (settleQbitSendPlanRemovalsOfUnknownOutcome).
+   */
+  private readonly qbitSendPlanRemovalsUnknown = new Map<
+    string,
+    { index: number; type: string; accounts: readonly { chain: ChainType; address: string }[] }
+  >()
+
+  /** Whether a settling of the removals of unknown outcome waits on the chain-state queue. */
+  private qbitSendPlanRemovalSettleQueued = false
+
+  /**
+   * How many times in a row storage refused the write that settles the
+   * removals of unknown outcome, and the timer of its next try
+   * (retryQbitSendPlanRemovalSettle).
+   */
+  private qbitSendPlanRemovalSettleRefusals = 0
+  private qbitSendPlanRemovalSettleTimer: unknown = undefined
+
+  /**
+   * What the wallet named by removal record `id` is now
+   * (QbitSendPlanEngineHost.judgeRemoval). A removal empties the wallet's
+   * slot for good, and a wallet added later takes a new slot, the same
+   * wallet added again included: so the slot holding a wallet of the
+   * record's type means its wallet is there still, and an empty slot,
+   * another type's wallet or no such slot means it is gone. The slots tell
+   * it only while the wallet is unlocked, with its slots loaded: they are
+   * read at once and checked again after, and a lock, which empties every
+   * slot, leaves no answer. A record of this run is not judged so while its
+   * removal runs, nor after one that failed once the slot began to be
+   * emptied: storage then holds the removal or not whatever memory holds,
+   * and a kick can land while another removal of the same slot has emptied
+   * it in memory only. Such a record is settled after a write of the vault
+   * has landed (settleQbitSendPlanRemovalsOfUnknownOutcome). After a
+   * restart memory is what storage holds.
+   */
+  private judgeQbitSendPlanRemoval = (
+    id: string
+  ): 'removed' | 'stays' | 'forgotten' | undefined => {
+    const record = preferenceService.getQbitSendPlanRemovals().records.find(each => each.id === id)
+    if (!record) return 'forgotten'
+    const { index, type } = record.wallet
+    if (this.qbitSendPlanRemovalsUnsettled.has(id)) return undefined
+    if (!this.isUnlocked()) return undefined
+    const slots = keyringService.keyrings
+    if (slots.length === 0) return undefined
+    const stays = this.isKeyringSlotInUse(index, type)
+    if (!this.isUnlocked() || keyringService.keyrings !== slots) return undefined
+    return stays ? 'stays' : 'removed'
+  }
+
+  /**
+   * Store, before the removal of `target` changes anything, the record of
+   * the send plans it ends (`accounts`), and hand it to the engine, which
+   * holds those accounts back until the record is forgotten (see
+   * QbitSendPlanEngine.endPlansOf). Nothing when no account's plans end.
+   * When storage refuses it, the removal is refused, nothing removed or
+   * ended, for the user to try again.
+   */
+  private recordQbitSendPlanRemoval = async (
+    target: WalletKeyring,
+    accounts: readonly { chain: ChainType; address: string }[]
+  ): Promise<string | undefined> => {
+    if (accounts.length === 0) return undefined
+    let id: string
+    try {
+      id = (
+        await preferenceService.addQbitSendPlanRemoval(
+          { index: target.index, type: target.type },
+          accounts
+        )
+      ).id
+    } catch (error) {
+      log.warn(
+        '[WalletController] A wallet removal could not record its send plans',
+        summarizeError(error)
+      )
+      throw new Error(
+        'The wallet cannot be removed now: the record of its send plans could not be saved. Try again.'
+      )
+    }
+    this.qbitSendPlanRemovalsUnsettled.add(id)
+    this.qbitSendPlans.removalRecorded(id, accounts)
+    return id
+  }
+
+  /**
+   * The removal of `target` that stored record `id`, naming `accounts`,
+   * failed. Refused before the slot began to be emptied (`slotEmptying`
+   * false), it removed nothing: the record is taken back, best effort, and
+   * one storage refuses goes at a later kick, or once a restart finds the
+   * wallet there, its accounts held back until then
+   * (QbitSendPlanEngine.removalUndone). Failed later, its vault write may
+   * have reached storage or not, as the keyring store's own write of the
+   * new vault comes before the removal's: the record stays, its accounts
+   * held back, until a write of the vault from memory has landed, tried now
+   * and after every unlock and every removal that succeeds, and again while
+   * storage refuses it (settleQbitSendPlanRemovalsOfUnknownOutcome), or a
+   * restart judges it.
+   */
+  private settleFailedQbitSendPlanRemoval = async (
+    id: string,
+    slotEmptying: boolean,
+    target: WalletKeyring,
+    accounts: readonly { chain: ChainType; address: string }[]
+  ): Promise<void> => {
+    if (slotEmptying) {
+      log.warn(
+        '[WalletController] A wallet removal failed once it began to empty the slot: its send plans stay held back until a write of the vault tells whether it was removed'
+      )
+      this.qbitSendPlanRemovalsUnknown.set(id, { index: target.index, type: target.type, accounts })
+      void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
+      return
+    }
+    this.qbitSendPlanRemovalsUnsettled.delete(id)
+    await this.qbitSendPlans.removalUndone(id).catch((error: unknown) => {
+      log.warn(
+        '[WalletController] A refused wallet removal could not take back its record',
+        summarizeError(error)
+      )
+    })
+  }
+
+  /**
+   * Settle the removals of this run whose outcome is unknown
+   * (qbitSendPlanRemovalsUnknown), on the chain-state queue, so that no
+   * removal, reset, boot or unlock runs meanwhile; one settling waits there
+   * at a time. Only while unlocked, and never while a wallet reset's
+   * outcome is unknown, when nothing may write the keyring's stored state
+   * from memory: the vault is written from memory, with no change, and once
+   * that write has landed storage holds what memory holds. With nothing
+   * awaited from there, while still unlocked with the same slots, each is
+   * judged from its slot: a wallet of its type there, it removed nothing,
+   * and its record is taken back (QbitSendPlanEngine.removalUndone); else
+   * the wallet is gone, and its plans end as a removal ends them
+   * (QbitSendPlanEngine.endPlansOf with the record's id). A write that is
+   * refused, or a lock meanwhile, settles nothing: the outcome stays
+   * unknown, and the accounts held back. A refused write is tried again
+   * while the wallet stays unlocked (retryQbitSendPlanRemovalSettle).
+   *
+   * The write waits first for the wallet additions under way
+   * (walletAdditionsSettled), as a reset does: one may have put its wallet
+   * in the slots and not saved it yet, and if its save fails, this write
+   * would have saved it all the same. Those additions never wait on the
+   * chain-state queue (trackWalletAddition), and this settling is not one
+   * of them, so it never waits for itself. Unlike a reset, it holds no
+   * page's call, so an addition that begins once the wait is over can
+   * still put its wallet in the slots before this write reads them, which
+   * it does only once the vault writes queued before it have ended: this
+   * write then stores that wallet before the addition's own write does, as
+   * any vault write queued then would. The verdicts read only the removals'
+   * own slots, which no addition fills: it takes a new one.
+   */
+  private settleQbitSendPlanRemovalsOfUnknownOutcome = (): Promise<void> => {
+    if (this.qbitSendPlanRemovalsUnknown.size === 0) {
+      this.stopQbitSendPlanRemovalSettleRetry()
+      return Promise.resolve()
+    }
+    if (this.qbitSendPlanRemovalSettleQueued) return Promise.resolve()
+    this.qbitSendPlanRemovalSettleQueued = true
+    return this.enqueueChainStateChange(async () => {
+      this.qbitSendPlanRemovalSettleQueued = false
+      if (this.qbitSendPlanRemovalsUnknown.size === 0) {
+        this.stopQbitSendPlanRemovalSettleRetry()
+        return
+      }
+      // This is the next try, whatever began it: none other is due before it ends.
+      this.qbitSendPlanTimers.clearTimeout(this.qbitSendPlanRemovalSettleTimer)
+      this.qbitSendPlanRemovalSettleTimer = undefined
+      if (!this.isUnlocked() || this.walletResetOutcomeUnknown) return
+      await this.walletAdditionsSettled()
+      if (!this.isUnlocked() || this.walletResetOutcomeUnknown) return
+      const slots = keyringService.keyrings
+      try {
+        if (!(await keyringService.persistAllKeyrings([]))) return
+      } catch (error) {
+        this.retryQbitSendPlanRemovalSettle(error)
+        return
+      }
+      this.stopQbitSendPlanRemovalSettleRetry()
+      if (!this.isUnlocked() || keyringService.keyrings !== slots) return
+      const verdicts = [...this.qbitSendPlanRemovalsUnknown].map(([id, removal]) => ({
+        id,
+        removal,
+        stays: this.isKeyringSlotInUse(removal.index, removal.type),
+      }))
+      for (const { id, removal, stays } of verdicts) {
+        this.qbitSendPlanRemovalsUnknown.delete(id)
+        if (stays) {
+          // The engine knows the wallet stays before anything is awaited.
+          this.qbitSendPlanRemovalsUnsettled.delete(id)
+          await this.qbitSendPlans.removalUndone(id)
+          continue
+        }
+        let ending: QbitSendPlanEnding
+        try {
+          ending = await this.qbitSendPlans.endPlansOf(removal.accounts, id)
+        } finally {
+          // Only once its plans' ending ran does the engine know the wallet
+          // is gone: until then no kick judges the record from the slots
+          // (judgeQbitSendPlanRemoval), which would end them a second time.
+          this.qbitSendPlanRemovalsUnsettled.delete(id)
+        }
+        const { mayHaveBeenSent, notEnded } = ending
+        if (mayHaveBeenSent.length > 0) {
+          log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
+        }
+        // The removal completed after all: every page is told what it left.
+        if (notEnded) {
+          log.warn(`[WalletController] ${qbitSendPlansNotEndedNote(notEnded)}`)
+          this.announceQbitSendPlansNotEnded(notEnded)
+        }
+      }
+    })
+  }
+
+  /**
+   * Storage refused the write that settles the removals of unknown outcome
+   * (settleQbitSendPlanRemovalsOfUnknownOutcome): it is logged at the first
+   * refusal in a row, and tried again later, spaced as a removal record
+   * whose forgetting storage refuses is (qbitSendPlanRetrySpacing): the
+   * next try 15 seconds after the first refusal, then twice as long each
+   * time, every 8 minutes at most, one write each. A try settles nothing
+   * while the wallet is locked, and writes nothing then; an unlock tries at
+   * once. Nothing is tried once no such removal remains.
+   */
+  private retryQbitSendPlanRemovalSettle = (error: unknown): void => {
+    this.qbitSendPlanRemovalSettleRefusals += 1
+    if (this.qbitSendPlanRemovalSettleRefusals === 1) {
+      log.warn(
+        '[WalletController] The vault could not be written to settle a wallet removal: its send plans stay held back, and it is tried again',
+        summarizeError(error)
+      )
+    }
+    this.qbitSendPlanTimers.clearTimeout(this.qbitSendPlanRemovalSettleTimer)
+    this.qbitSendPlanRemovalSettleTimer = this.qbitSendPlanTimers.setTimeout(() => {
+      this.qbitSendPlanRemovalSettleTimer = undefined
+      void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
+    }, qbitSendPlanRetrySpacing(this.qbitSendPlanRemovalSettleRefusals))
+  }
+
+  /** The write that settles the removals of unknown outcome landed, or none is left: no try is due. */
+  private stopQbitSendPlanRemovalSettleRetry = (): void => {
+    this.qbitSendPlanTimers.clearTimeout(this.qbitSendPlanRemovalSettleTimer)
+    this.qbitSendPlanRemovalSettleTimer = undefined
+    this.qbitSendPlanRemovalSettleRefusals = 0
+  }
+
+  /**
+   * A removal of the wallet in slot `index` completed, its vault write
+   * landed: an earlier removal of that wallet in this run whose outcome is
+   * unknown (qbitSendPlanRemovalsUnknown) removed it or not, but storage
+   * holds no wallet in that slot now, so it is settled with this one, its
+   * wallet gone. Its accounts' plans end as that removal ends them
+   * (QbitSendPlanEngine.endPlansOf with its record's id). Resolves to the
+   * accounts of those settled: the user removed the wallet once, and the
+   * removal tells every page once what is left of its accounts and theirs
+   * together (announceQbitSendPlansNotEnded). Never rejects.
+   */
+  private settleQbitSendPlanRemovalsOfSlot = async (
+    index: number
+  ): Promise<{ chain: ChainType; address: string }[]> => {
+    const settled: { chain: ChainType; address: string }[] = []
+    for (const [id, removal] of [...this.qbitSendPlanRemovalsUnknown]) {
+      if (removal.index !== index) continue
+      this.qbitSendPlanRemovalsUnknown.delete(id)
+      settled.push(...removal.accounts)
+      let ending: QbitSendPlanEnding
+      try {
+        ending = await this.qbitSendPlans.endPlansOf(removal.accounts, id)
+      } finally {
+        // As for every settling: judged by no kick before its ending ran.
+        this.qbitSendPlanRemovalsUnsettled.delete(id)
+      }
+      const { mayHaveBeenSent } = ending
+      if (mayHaveBeenSent.length > 0) {
+        log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
+      }
+    }
+    return settled
+  }
 
   getAccounts = async () => {
     const keyrings = await this.getKeyrings()
@@ -10081,16 +13024,19 @@ export class WalletController extends BaseController {
   getCurrentKeyring = async (): Promise<WalletKeyring | null> => {
     const storedIndex = preferenceService.getCurrentKeyringIndex()
     const removalAtStart = this.removalUnderWay
+    const generation = this.walletResetGeneration
     let currentKeyringIndex = storedIndex
     const displayedKeyrings = await keyringService.getAllDisplayedKeyrings()
     // The wallets read may be out of date: another wallet was made current
-    // while they were read, as a switch or a removal does, or a removal under
+    // while they were read, as a switch or a removal does, a removal under
     // way when this read began has settled since, perhaps putting back the
-    // wallet whose slot they show empty. Answer for the wallet current now,
-    // never for one a later announcement replaced, and never store over it.
+    // wallet whose slot they show empty, or a reset erased them all. Answer
+    // for the wallet current now, never for one a later announcement
+    // replaced or a reset erased, and never store over it.
     if (
       preferenceService.getCurrentKeyringIndex() !== storedIndex ||
-      (removalAtStart !== undefined && removalAtStart !== this.removalUnderWay)
+      (removalAtStart !== undefined && removalAtStart !== this.removalUnderWay) ||
+      this.walletResetSince(generation)
     ) {
       return this.getCurrentKeyring()
     }
@@ -10203,7 +13149,9 @@ export class WalletController extends BaseController {
   }
 
   getAddressUtxo = async (address: string) => {
-    return getQbitAddressUtxos(this.getQbitApiClient(), address)
+    return getQbitAddressUtxos(this.getQbitApiClient(), address, {
+      fundingTxReads: this.qbitFundingTxReads,
+    })
   }
 
   getConnectedSites = (): ConnectedSite[] => {
@@ -10353,14 +13301,14 @@ export class WalletController extends BaseController {
     }
   }
 
-  // Renames and color changes run one at a time, in the order they came in:
-  // each reads the wallets before it writes, and that read can take longer
-  // for one change than for the next, which would then be overwritten by the
-  // change that came before it.
+  // Renames of wallets and accounts and color changes run one at a time, in
+  // the order they came in: each reads the wallets before it writes, and that
+  // read can take longer for one change than for the next, which would then
+  // be overwritten by the change that came before it.
   private walletLabelChangeTail: Promise<void> = Promise.resolve()
 
   private enqueueWalletLabelChange = <T>(change: () => Promise<T>): Promise<T> => {
-    const queuedChange = this.walletLabelChangeTail.then(change)
+    const queuedChange = this.walletLabelChangeTail.then(this.judgedWhenItStarts(change))
     this.walletLabelChangeTail = queuedChange.then(
       () => undefined,
       () => undefined
@@ -10414,10 +13362,47 @@ export class WalletController extends BaseController {
     })
   }
 
-  setAccountAlianName = (account: Account, name: string) => {
-    preferenceService.setAccountAlianName(account.key, name)
-    account.alianName = name
-    return account
+  /**
+   * Rename an account, as a page passed it in, only while the wallet in its
+   * slot still lists it (accountInUse): a page that missed a reset would
+   * otherwise name the next wallet's account under the same key. In order
+   * with the wallets' renames and color changes (enqueueWalletLabelChange),
+   * as it reads the wallets before it writes too.
+   */
+  setAccountAlianName = (account: Account, name: string): Promise<Account> =>
+    this.enqueueWalletLabelChange(async () => {
+      const { slot, live } = await this.accountInUse(account)
+      this.assertSlotHolds(slot, live)
+      preferenceService.setAccountAlianName(account.key, name)
+      account.alianName = name
+      return account
+    })
+
+  /**
+   * The slot of `account`, as a page passed it in, and the keyring in it,
+   * while the wallet listed in that slot still holds an account under the
+   * same key with the same public key, or the same address for an account
+   * without one, as changeKeyring matches the account it selects. The
+   * keyring is the one in the slot before the wallets were read: act on it
+   * only while the slot still holds it (assertSlotHolds).
+   */
+  private accountInUse = async (account: Account): Promise<{ slot: number; live: Keyring }> => {
+    if (account === null || typeof account !== 'object' || typeof account.key !== 'string') {
+      throw new Error('Unknown account')
+    }
+    const before = [...keyringService.keyrings]
+    const owner = (await this.getKeyrings()).find(candidate =>
+      candidate.accounts.some(
+        listed =>
+          listed.key === account.key &&
+          (account.pubkey ? listed.pubkey === account.pubkey : listed.address === account.address)
+      )
+    )
+    const live = owner ? before[owner.index] : undefined
+    if (!owner || !live || !this.isKeyringSlotInUse(owner.index, owner.type)) {
+      throw new Error('The selected account is no longer available')
+    }
+    return { slot: owner.index, live }
   }
 
   addAddressFlag = (account: Account, flag: AddressFlagType) => {
@@ -10572,6 +13557,38 @@ export class WalletController extends BaseController {
     })
     const feeRate = finalTxVBytes > 0 ? fee / finalTxVBytes : 0
     const isCompleted = summary.fee !== undefined
+    // The inputs the account signs are those that carry its leaf, as
+    // `prepareQbitProviderPsbt` plans them. A `SIGHASH_SINGLE` signature locks
+    // in one output; the rest, and any excess over its input, cannot count as
+    // the wallet's.
+    const accountLeafScript = account.p2mr?.leafScript.toLowerCase()
+    const namedInputs = summary.inputs.flatMap((input, inputIndex) =>
+      input.sighashType !== undefined &&
+      accountLeafScript !== undefined &&
+      input.leafScripts.some(leaf => qbitBytesToHex(leaf.script) === accountLeafScript)
+        ? [
+            {
+              inputIndex,
+              hashType: input.sighashType,
+              value: Number(input.witnessUtxo?.value ?? 0n),
+            },
+          ]
+        : []
+    )
+    const lockedOutputs = qbitLockedOutputs(namedInputs)
+    // A signature under 0x81 fixes every output but not the other inputs, so
+    // another approval of the same outputs can fund them with a second input
+    // of the wallet's: an output counts as coming back only if a
+    // `SIGHASH_SINGLE` signature of this request locks it in. The same holds
+    // for a `SIGHASH_NONE` type, which fixes no output, though this wallet
+    // signs none. The default type and `SIGHASH_ALL` cover the whole
+    // transaction.
+    const anyoneCanPayAll = namedInputs.some(
+      input =>
+        input.hashType !== SIGHASH_DEFAULT &&
+        input.hashType !== SIGHASH_ALL &&
+        (input.hashType & SIGHASH_OUTPUT_MASK) !== SIGHASH_SINGLE
+    )
     const { spendSummary, risks, recommendedFeeRate } = summarizeQbitPsbtSpend({
       inputs: inputInfos,
       outputs: outputInfos,
@@ -10583,6 +13600,8 @@ export class WalletController extends BaseController {
       statedRecipients,
       feeSummary,
       checkFeeShareWithoutSize: suppliedByWebsite,
+      lockedOutputs,
+      anyoneCanPayAll,
     })
     // The wallet's outputs are known only from the scripts and addresses it
     // derives for its accounts, as their 'wallet' role is: the PSBT's own
@@ -10602,10 +13621,19 @@ export class WalletController extends BaseController {
     const namedRecipients = new Set(
       (statedRecipients ?? []).filter(address => address !== '').map(address => address.toLowerCase())
     )
+    const ownedLocks = walletOwnedLocks(inputInfos, wallet, lockedOutputs)
     const outputOwners = outputInfos.map((output, index): PsbtOutputOwner => {
       if (spendSummary.outputRoles[index] !== 'wallet') return 'none'
       if (!qbitWalletOwns(signingAccount, output)) return 'other_account'
-      return walletFundsEveryInput && !namedRecipients.has(output.address.toLowerCase())
+      // Change only if the wallet is sure to get it back: not when a
+      // signature that locks in other outputs leaves this one open, nor when
+      // one under 0x81 lets another approval's input pay for it.
+      const guaranteed =
+        (ownedLocks.size === 0 && !anyoneCanPayAll) ||
+        (ownedLocks.get(index) ?? 0) >= output.value
+      return walletFundsEveryInput &&
+        guaranteed &&
+        !namedRecipients.has(output.address.toLowerCase())
         ? 'change'
         : 'this_account'
     })
@@ -10825,9 +13853,25 @@ export class WalletController extends BaseController {
     if (item.risks.some(risk => !review.confirmedRisks.includes(risk.type))) {
       throw new Error('The transaction has a risk that was not confirmed')
     }
-    const sign = () => this.signPsbtV2(toSignData, options)
-    return uiPort === undefined ? sign() : this.runForUiPort(uiPort, sign)
+    return uiPort === undefined
+      ? this.signPsbtV2(toSignData, options)
+      : this.signBatchEntryForUiPort(uiPort, toSignData, options)
   }
+
+  /**
+   * Sign a batch entry for the page behind `uiPort`, with that page as the
+   * calling port again, which signPsbtV2 reads: the entry's review awaited a
+   * read, and the port signLocalBatchPsbt's call set is gone by then. It is
+   * the rest of a page's call already let through, not a page's call, so a
+   * reset does not hold it; the reset's lock stops the signing instead. A
+   * page's own calls go through runForUiPort.
+   */
+  private signBatchEntryForUiPort = (
+    uiPort: QbitSendClaimOwner,
+    toSignData: ToSignData,
+    options: QbitSigningOptions | undefined
+  ): Promise<SignedData> =>
+    this.withCallingUiPort(uiPort, () => this.signPsbtV2(toSignData, options))
 
   expireUICachedData = async (address: string) => {
     return preferenceService.expireUICachedData(address)
@@ -10896,12 +13940,8 @@ export class WalletController extends BaseController {
     return biometricUnlockService.getStatus()
   }
 
-  saveBiometricUnlockRecord = async (
-    record: BiometricUnlockRecord,
-    password: string
-  ): Promise<void> => {
-    return biometricUnlockService.saveRecord(record, password)
-  }
+  saveBiometricUnlockRecord = (record: BiometricUnlockRecord, password: string): Promise<void> =>
+    biometricUnlockService.saveRecord(record, password)
 
   getBiometricUnlockRecord = async (): Promise<BiometricUnlockRecord | null> => {
     return biometricUnlockService.getRecord()
@@ -10916,6 +13956,11 @@ export class WalletController extends BaseController {
   }
 
   setAutoLockTimeId = async (timeId: number) => {
+    // Only a time offered now: a retired id, or anything else, changes
+    // neither the setting nor the running time.
+    if (!isAutoLockTimeId(timeId)) {
+      throw new Error('Unknown auto-lock time')
+    }
     await preferenceService.setAutoLockTimeId(timeId)
     // An overdue auto-lock held for a signing stays held, as on a screen
     // action: the new time applies from the next start of the time.
@@ -10961,11 +14006,26 @@ export class WalletController extends BaseController {
 
   setOpenInSidePanel = async (openInSidePanel: boolean) => {
     preferenceService.setOpenInSidePanel(openInSidePanel)
+    this.applySidePanelPreference(openInSidePanel)
+  }
 
+  /**
+   * Make the toolbar button open the side panel, or the popup, as
+   * `openInSidePanel` says. Where the browser has no side panel this does
+   * nothing; a failure is logged.
+   */
+  private applySidePanelPreference = (openInSidePanel: boolean): void => {
+    if (typeof chrome === 'undefined') return
     try {
       const chromeWithSidePanel = chrome as any
       if (chromeWithSidePanel.sidePanel) {
-        chromeWithSidePanel.sidePanel.setPanelBehavior({ openPanelOnActionClick: openInSidePanel })
+        Promise.resolve(
+          chromeWithSidePanel.sidePanel.setPanelBehavior({
+            openPanelOnActionClick: openInSidePanel,
+          })
+        ).catch((error: unknown) => {
+          console.error('Failed to update side panel behavior:', error)
+        })
       }
     } catch (error) {
       console.error('Failed to update side panel behavior:', error)
@@ -11527,11 +14587,17 @@ export class WalletController extends BaseController {
     return tmpKeyring
   }
 
-  createKeyringWithPublicKey = async (
+  /** Tracked as a wallet addition under way (see trackWalletAddition). */
+  createKeyringWithPublicKey = (
+    ...args: Parameters<WalletController['performCreateKeyringWithPublicKey']>
+  ): Promise<void> =>
+    this.trackWalletAddition(() => this.performCreateKeyringWithPublicKey(...args))
+
+  private performCreateKeyringWithPublicKey = async (
     data: string,
     addressType: AddressType,
     alianName?: string
-  ) => {
+  ): Promise<void> => {
     let originKeyring: Keyring
     const networkType = this.getNetworkType()
     if (!canDeriveAddressFromPublicKey(data, addressType, networkType)) {
@@ -11544,17 +14610,7 @@ export class WalletController extends BaseController {
       throw e
     }
 
-    const keyringIndex = this.addedKeyringIndex(originKeyring)
-    this.assignNewKeyringIdentity(keyringIndex, alianName)
-    const displayedKeyring = await keyringService.displayForKeyring(
-      originKeyring,
-      addressType,
-      keyringIndex
-    )
-    const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
-    await this.selectKeyring(keyring)
-
-    preferenceService.setShowSafeNotice(true)
+    await this.completeWalletAddition(originKeyring, addressType, alianName)
   }
 
   createTmpKeyringWithAddress = async (address: string) => {
@@ -11570,24 +14626,19 @@ export class WalletController extends BaseController {
     return this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false)
   }
 
-  createKeyringWithAddress = async (address: string) => {
+  /** Tracked as a wallet addition under way (see trackWalletAddition). */
+  createKeyringWithAddress = (
+    ...args: Parameters<WalletController['performCreateKeyringWithAddress']>
+  ): Promise<void> => this.trackWalletAddition(() => this.performCreateKeyringWithAddress(...args))
+
+  private performCreateKeyringWithAddress = async (address: string): Promise<void> => {
     const networkType = this.getNetworkType()
     if (!isValidAddress(address, networkType)) {
       throw new Error('Invalid address')
     }
     const addressType = getAddressType(address, networkType)
     const originKeyring = await keyringService.importWatchAddress(address, addressType)
-    const keyringIndex = this.addedKeyringIndex(originKeyring)
-    this.assignNewKeyringIdentity(keyringIndex)
-    const displayedKeyring = await keyringService.displayForKeyring(
-      originKeyring,
-      addressType,
-      keyringIndex
-    )
-    const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
-    await this.selectKeyring(keyring)
-
-    preferenceService.setShowSafeNotice(true)
+    await this.completeWalletAddition(originKeyring, addressType)
   }
 
   createDummyPsbt = async ({

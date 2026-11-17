@@ -122,7 +122,11 @@ const navigateMock = vi.fn();
 vi.mock('@/ui/pages/MainRoute', () => ({
   useNavigate: () => navigateMock
 }));
-vi.mock('@/ui/utils', () => ({ satoshisToAmount: () => '0' }));
+vi.mock('@/ui/utils', async () => ({
+  satoshisToAmount: () => '0',
+  // The real helper: the step's toasts and errors depend on what it makes of a rejection.
+  walletErrorMessage: (await vi.importActual<typeof import('@/ui/utils')>('@/ui/utils')).walletErrorMessage
+}));
 
 vi.mock('@qbit/wallet-shared', async () => {
   const { AddressType: RealAddressType } = await import('@qbit/wallet-types');
@@ -283,7 +287,8 @@ describe('Step2 restore flow', () => {
     expect(scanning.getAttribute('data-items-center')).toBe('true');
     expect(scanning.getAttribute('data-justify-center')).toBe('true');
     expect(scanning.getAttribute('data-gap')).toBe('xl');
-    expect(screen.getByTestId('restore-scanning-spinner').getAttribute('data-size')).toBe('42');
+    const spinnerRing = screen.getByTestId('restore-scanning-spinner').querySelector<HTMLElement>('.icon-spin');
+    expect(spinnerRing?.style.width).toBe('32px');
     expect(scanning.querySelector('[data-text-center="true"]')).toBeTruthy();
 
     resolveRestore(completedReport());
@@ -711,6 +716,116 @@ describe('Step2 restore flow', () => {
     expect(updated.textContent).not.toContain('esplora unreachable');
     expect(getQbitRestoreFloorsPending).not.toHaveBeenCalled();
     expect(screen.getByTestId('restore-retry-button')).toBeTruthy();
+  });
+
+  // Rejections reach the page as plain objects, not Errors: the toast (and
+  // the failure card) show their message, or unknown_error, and never
+  // "[object Object]" or nothing.
+  describe.each([
+    [
+      'a plain rejection with a message',
+      { code: -32603, message: 'esplora refused the request' },
+      'esplora refused the request'
+    ],
+    ['a plain rejection without a message', { code: -32603 }, englishTranslations.unknown_error.message]
+  ])('a refused call, %s', (_name, rejection, shown) => {
+    const shownOnly = () => {
+      expect(toastError.mock.calls.map(([text]) => text)).toEqual([shown]);
+      expect(toastError).not.toHaveBeenCalledWith('[object Object]');
+    };
+
+    it.each([
+      ['the restore', true],
+      ['the creation', false]
+    ])('shows it when %s is refused', async (_which, isRestore) => {
+      restoreQbitWallet.mockRejectedValue(rejection);
+      createAccount.mockRejectedValue(rejection);
+      renderStep2(isRestore);
+
+      fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+
+      await waitFor(() => expect(toastError).toHaveBeenCalled());
+      shownOnly();
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it('shows it, in the toast and the failure card, when a floor-scan retry is refused', async () => {
+      restoreQbitWallet.mockResolvedValue(
+        completedReport({ floorsCompleted: false, floorScan: undefined, floorError: 'esplora unreachable' })
+      );
+      runQbitRestoreFloorScan.mockRejectedValue(rejection);
+      renderStep2(true);
+
+      fireEvent.click(await screen.findByTestId('address-type-continue-button'));
+      await screen.findByTestId('restore-report-floors-incomplete');
+      fireEvent.click(screen.getByTestId('restore-retry-button'));
+
+      await waitFor(() => expect(toastError).toHaveBeenCalled());
+      shownOnly();
+      const card = screen.getByTestId('restore-report-floors-incomplete');
+      expect(card.textContent).toContain(shown);
+      expect(card.textContent).not.toContain('[object Object]');
+    });
+  });
+
+  // The address preview shows its refusal on the step and holds Continue.
+  it.each([
+    ['a plain rejection with a message', { code: -32603, message: 'Invalid mnemonic' }, 'Invalid mnemonic'],
+    ['a plain rejection without a message', { code: -32603 }, englishTranslations.unknown_error.message],
+    [
+      'a rejection whose message is not a string',
+      { code: -32603, message: { code: 4 } },
+      englishTranslations.unknown_error.message
+    ]
+  ])('shows %s when the address preview is refused', async (_name, rejection, shown) => {
+    vi.mocked(useWallet).mockReturnValue({
+      createTmpKeyringWithMnemonics: vi.fn().mockRejectedValue(rejection),
+      getMultiAddressSummaries: vi.fn(async () => [{ totalSatoshis: 0 }]),
+      runQbitRestoreFloorScan,
+      getQbitRestoreFloorsPending,
+      getQbitConcurrentInstanceHint
+    } as unknown as ReturnType<typeof useWallet>);
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      renderStep2(true);
+
+      expect(await screen.findByText(shown)).toBeTruthy();
+      expect(screen.queryByText('[object Object]')).toBeNull();
+      expect(screen.getByTestId('address-type-continue-button').hasAttribute('disabled')).toBe(true);
+      expect(toastError).not.toHaveBeenCalled();
+    } finally {
+      consoleLog.mockRestore();
+    }
+  });
+
+  it('takes the refusal back, and lets Continue go on, once a later preview succeeds', async () => {
+    const createTmpKeyringWithMnemonics = vi
+      .fn()
+      .mockRejectedValueOnce({ code: -32603, message: 'Invalid mnemonic' })
+      .mockResolvedValue({ accounts: [{ address: 'qb1zpreviewaddress' }] });
+    vi.mocked(useWallet).mockReturnValue({
+      createTmpKeyringWithMnemonics,
+      getMultiAddressSummaries: vi.fn(async () => [{ totalSatoshis: 0 }]),
+      runQbitRestoreFloorScan,
+      getQbitRestoreFloorsPending,
+      getQbitConcurrentInstanceHint
+    } as unknown as ReturnType<typeof useWallet>);
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const view = renderStep2(true);
+      expect(await screen.findByText('Invalid mnemonic')).toBeTruthy();
+      expect(screen.getByTestId('address-type-continue-button').hasAttribute('disabled')).toBe(true);
+
+      // Another passphrase asks for the preview again, and this one is given.
+      view.rerender(
+        <Step2 contextData={{ ...contextData(true), passphrase: 'corrected' }} updateContextData={() => undefined} />
+      );
+
+      await waitFor(() => expect(screen.queryByText('Invalid mnemonic')).toBeNull());
+      expect(screen.getByTestId('address-type-continue-button').hasAttribute('disabled')).toBe(false);
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 
   it('navigates to the wallet only from the acknowledged report', async () => {

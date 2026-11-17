@@ -1,4 +1,5 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 import { test as base, expect, type Page } from '@playwright/test'
 
@@ -11,9 +12,9 @@ import {
   savedWholeUi,
   type ReleaseStorage,
 } from '../../fixtures/release-storage/release-storage'
-import { SendPage, SettingsPage, WalletHomePage } from '../pages'
+import { SecurityPage, SendPage, SettingsPage, WalletHomePage } from '../pages'
 import { ExtensionSession } from '../support/extension-session'
-import { assertRepositoryRoot } from '../support/paths'
+import { assertRepositoryRoot, extensionDist } from '../support/paths'
 import {
   OFFLINE_BROWSER_ARGS,
   readLocalStorage,
@@ -262,3 +263,50 @@ for (const release of RELEASES) {
     ).toContainEqual(expect.objectContaining({ ...contact, isContact: true }))
   })
 }
+
+/** One message of the build's copy in `locale`, by its key. */
+async function message(locale: string, key: string): Promise<string> {
+  const path = resolve(extensionDist, '_locales', locale, 'messages.json')
+  const messages = JSON.parse(await readFile(path, 'utf8')) as Record<string, { message: string }>
+  const text = messages[key]?.message
+  if (text === undefined) throw new Error(`the ${locale} copy has no message ${key}`)
+  return text
+}
+
+// Releases up to 1.0.9 stored the auto-lock time's id, and every install
+// stored its default from the first start: 3 minutes (id 2), which 1.0.10
+// retired. The captures stored 1 hour, so the release's preferences are
+// started from with the default put back, as most installs hold them.
+test('upgrade from the earlier default auto-lock time: the first start stores 5 minutes', async ({
+  extension,
+}) => {
+  test.setTimeout(3 * 60_000)
+  const release = RELEASES[RELEASES.length - 1]!
+  const dump = readReleaseStorage(release)
+  const preference = dump.storage['preference'] as Record<string, unknown>
+  expect(preference['autoLockTimeId']).toBe(dump.wallet.settings.autoLockTimeId)
+  preference['autoLockTimeId'] = 2
+  await seedReleaseStorage(extension, dump)
+
+  // Before anything is done in the wallet, the stored time is already the
+  // one that replaced 3 minutes.
+  const page = await extension.openWallet('/main')
+  const unlockScreen = new SettingsPage(page)
+  await unlockScreen.waitForUnlock()
+  expect(await extension.requestWalletController<number>(page, 'getAutoLockTimeId')).toBe(3)
+  const stored = await page.evaluate(() => chrome.storage.local.get('preference'))
+  expect(stored['preference']?.autoLockTimeId).toBe(3)
+  expect(stored['preference']?.locale).toBe(dump.wallet.settings.locale)
+
+  await unlockScreen.unlock(dump.wallet.password)
+  const home = new WalletHomePage(page)
+  await home.waitUntilReady()
+  await expectWallets(extension, page, dump)
+
+  await page.goto(`chrome-extension://${extension.extensionId}/index.html#/settings/security`)
+  const security = new SecurityPage(page)
+  await security.waitUntilReady()
+  const fiveMinutes = (await message(dump.wallet.settings.locale, 'n_minutes')).replace('$1', '5')
+  // The value element's whole text, so that "15 Minutos" does not pass.
+  await expect(security.item('autoLockTime').getByText(fiveMinutes, { exact: true })).toBeVisible()
+})

@@ -109,6 +109,9 @@ for (let index = 0; index < artifactPaths.length; index += 1) {
   }
 }
 
+// Build 2's files stay in dist, and builds[1] holds the bytes read from there,
+// so the files left in dist are the ones just compared. CI uploads them as its
+// extension artifact instead of building the extension a third time.
 const manifest = JSON.parse(readFileSync(`${artifactPath}.manifest.json`, 'utf8'))
 console.log('')
 console.log('Reproducible extension build: PASS')
@@ -116,4 +119,5 @@ console.log(`Node: ${actualNode}${actualNode === expectedNode ? ' (pinned)' : ' 
 console.log(`pnpm: ${actualPnpm} (pinned)`)
 console.log(`Artifact: ${artifactName}`)
 console.log(`SHA-256: ${manifest.artifact.sha256}`)
-console.log(`Evidence: ${evidenceRoot}`)
+console.log(`Evidence: ${evidenceRoot} (build-1 and build-2)`)
+console.log(`Output: ${dirname(artifactPath)} (build 2, byte-identical to build 1)`)

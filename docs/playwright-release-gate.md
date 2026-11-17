@@ -9,7 +9,8 @@ result in CI.
 
 - Node.js 22 and the repository-pinned pnpm 11.28.9 (`packageManager` in
   `package.json`) through Corepack.
-- Docker with `docker compose`.
+- Docker Engine 25 or later with `docker compose` (the `qbitd` healthcheck uses
+  `start_interval`).
 - The repository-local Playwright Chromium installation.
 
 Do not install global npm packages or add fixed delays to make a row pass.
@@ -24,16 +25,20 @@ The extension bundle must exist at `apps/extension/dist/chrome`. Playwright
 launches a persistent, isolated browser profile with `--load-extension` and
 `--disable-extensions-except`, then discovers the extension from its MV3
 service worker. Every spec except `phishing.spec.ts`, `provider-ready.spec.ts`,
-`switch-account.spec.ts` and `upgrade.spec.ts` resets the Docker volumes,
-starts qbitd and electrs-qbit, funds through qbit Core, and mines
-confirmations explicitly. The phishing and provider-ready scenarios need no
+`reset-wallet.spec.ts`, `switch-account.spec.ts` and `upgrade.spec.ts` resets
+the Docker volumes, starts qbitd and electrs-qbit, funds through qbit Core, and
+mines confirmations explicitly. The phishing and provider-ready scenarios need no
 regtest node and serve their pages from loopback fixture servers. The
-switch-account scenarios need no regtest node either: their wallets live on
-Regtest, whose indexer is a loopback stand-in for a chain on which no address
-has any activity. Nor does the upgrade scenario: it seeds the profile with the
-data that the 1.0.5, 1.0.6 and 1.0.7 releases stored
-(`tests/fixtures/release-storage`), and the browser reaches nothing but
-loopback. The reset removes only the
+switch-account and reset-wallet scenarios need no regtest node either: their
+wallets live on Regtest, whose indexer is a loopback stand-in for a chain on
+which no address has any activity, and the reset-wallet dapp page is a loopback
+fixture server. The switcher-totals scenario funds accounts and uses the
+regtest stack. The stand-in can also report funds in an address's
+statistics, hold or fail its statistics reads, and count them; the
+switch-account balance rows use that to see which reads reach it. Nor does
+the upgrade scenario: it seeds the profile with the data that the 1.0.5,
+1.0.6 and 1.0.7 releases stored (`tests/fixtures/release-storage`), and the
+browser reaches nothing but loopback. The reset removes only the
 volumes of the selected compose project, so set `COMPOSE_PROJECT_NAME` to run
 the gate in an isolated project when the default `qbit-wallet-regtest`
 project's data must be preserved.
@@ -59,6 +64,8 @@ corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/unlock-history.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/switch-account.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/switcher-totals.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/reset-wallet.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
 ```
 
@@ -91,13 +98,123 @@ CI runs the same command in headful Chromium through `xvfb-run`, with one
 worker and one bounded retry. `forbidOnly` and `failOnFlakyTests` are enabled in
 CI, so focused tests and retry-only passes fail the job.
 
+CI splits the suite into five shards that run in parallel, each on its own
+runner with its own extension build and regtest harness: the jobs
+`Playwright G3 shard 1 of 5` to `Playwright G3 shard 5 of 5` each run
+`playwright test --shard=<n>/5`. Playwright gives each shard whole files, in
+file order, by test count, so every test runs in exactly one shard. The
+required check, `Playwright G3 scenarios`, passes only when all five passed.
+See [Sharded G3 scenarios](ci-tree-pass-marker.md#sharded-g3-scenarios). On
+a pull request whose head commit is not signed, the shards wait for a signed
+head (see [Signed heads](#signed-heads)). To run what one shard runs:
+
+```sh
+corepack pnpm exec playwright test --list --shard=3/5
+corepack pnpm exec playwright test --shard=3/5
+```
+
+## Signed heads
+
+A pull request lands as one signed commit (see
+[CONTRIBUTING.md](../CONTRIBUTING.md)), and review rounds push unsigned
+commits that never land. From 2026-11-11, 93 of the 155 G3 runs on
+feature-branch pull requests, about 64% of G3's runner-minutes, ran on such
+heads. A full G3 run costs about 39 runner-minutes across the five shards.
+So on a pull request, CI runs G3 once the head commit is signed.
+
+On each `pull_request` run, `Tree pass marker` decides, in this order, and
+the first rule that applies settles it:
+
+1. The pull request has the `ci:full-run` label: G3 runs in full.
+2. A [tree pass marker](ci-tree-pass-marker.md) vouches for the tree: the
+   shards skip their steps, as before.
+3. The pull request changes only documentation that no skipped step reads
+   ([Docs-only changes](ci-docs-only.md)): the same.
+4. GitHub has not verified the signature of the head commit: G3 **waits for
+   a signed head**.
+5. Otherwise G3 runs in full.
+
+Pushes to `main` and manual dispatches always run in full.
+
+The last step of `Tree pass marker`,
+`Check whether the head commit is signed`, runs
+[`scripts/security/signed-head-gate.mjs`](../scripts/security/signed-head-gate.mjs).
+It looks at the marker's and the docs-only step's verdicts first: on a marker
+hit or a docs-only change it sends no request at all. Otherwise it reads the
+labels, and then, without the label, the head commit from this repository
+(`GET /repos/{repo}/commits/{head SHA}`), a fork's head included. It waits
+only when GitHub answered HTTP 200 for exactly that commit, with
+`commit.verification.verified` exactly `false` and a reason that says for
+certain that the commit is not validly signed: `unsigned`, `unknown_key`,
+`no_user`, `unverified_email`, `bad_email`, `expired_key`, `not_signing_key`,
+`malformed_signature`, `invalid` or `unknown_signature_type`, as GitHub's
+REST documentation of `verification.reason` lists them. Every doubt runs G3
+in full under its real name, never a pass and never a wait: a verified head;
+any other reason, such as `gpgverify_error`, `gpgverify_unavailable`,
+`ocsp_pending`, `ocsp_error` or one GitHub adds later; a failed request; one
+that does not answer within its 15 seconds, or within the 30 seconds both
+requests share; an answer for another commit or one it cannot read; labels it
+cannot read; and a `Tree pass marker` that did not succeed. A wiring error,
+such as a missing token or a head SHA that is not a full object ID, fails the
+step and so `Tree pass marker`, which also runs G3 in full. The settings that
+only a request needs, the token among them, are checked when the step sends
+one, so not on a marker hit or a docs-only change. The step's notice and
+summary give the decision and its reason on one line.
+
+While a run waits for a signed head:
+
+- No shard starts: the job `Playwright G3 shard <n> of 5` is skipped whole,
+  so it takes no runner.
+- The job `playwright-release-gate` runs, as it always does, under the name
+  `Playwright G3 scenarios (waits for a signed head)`. Its check step passes
+  only when the shards' result is `skipped` and no shard recorded that it
+  ran; anything else fails it. It records nothing, so `tested` stays unset.
+- The run reports no check named `Playwright G3 scenarios`.
+- `Record tree pass` does not run, so nothing is saved.
+
+The checks list then shows
+`Playwright G3 scenarios (waits for a signed head)` as passed and the shard
+job as skipped. Where `Playwright G3 scenarios` is required (see
+[`.github/rulesets/README.md`](../.github/rulesets/README.md)), it stays
+pending, neither passing nor failing, unless an earlier run on the same
+commit already reported it: a run with `ci:full-run` that passed keeps its
+pass after the label is removed and the run re-run, and a run cancelled
+before `Tree pass marker` finished keeps its failure. To run G3, sign the
+head commit and push it, or add the `ci:full-run` label and choose
+"Re-run all jobs".
+The summaries of `Tree pass marker` and of the waiting job say the same.
+
+**Naming.** The job's name is computed from the `needs` context, which
+`jobs.<job_id>.name` may read. It is
+`Playwright G3 scenarios (waits for a signed head)` when `Tree pass marker`
+succeeded and said wait, and exactly `Playwright G3 scenarios` in every
+other state: a `Tree pass marker` that failed, was cancelled or was skipped,
+empty outputs, a push to `main` and a manual dispatch. On a commit that no
+earlier run reported the required check for, this leaves it pending, not
+red. A red required check on every review push
+would read as a G3 failure, and a passing one would let an untested head
+through. The job cannot simply be skipped instead: a job skipped by its own
+`if` reports success, which satisfies a required check. The wiring tests
+evaluate the name in each state, check that it can render only these two
+names, and check that the waiting one is no required check. GitHub computes
+the check's name when the job runs, so only a live run can confirm it. The
+first run on an unsigned head did, on pull request #236: the job reported as
+`Playwright G3 scenarios (waits for a signed head)`, the shard matrix showed
+as one skipped check, and the head commit had no check named
+`Playwright G3 scenarios`.
+
+If GitHub ever stops giving the computed name, the fallback is small: keep
+the literal name `Playwright G3 scenarios`, and make the check step's waiting
+branch fail with its "To run G3" message instead of passing with it. The
+wait then shows as a red required check that names the way out.
+
 ## Scenario Matrix
 
-The complete gate is 53 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 68 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 39 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 54 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -120,7 +237,7 @@ separately with two-decimal millisecond precision.
 | Consolidation         | `scenarios/consolidation.spec.ts:145`     | Batches at 106 and a smaller size for a refused account; still refused below 500; a send reads its history | Not recorded |       — |
 | Send plan             | `scenarios/send-plan.spec.ts:117`         | 214 outputs, MAX, one review: 2 merges, then the payment; reopen mid-signing; exact amount, fee, spends    | Not recorded |       — |
 | dApp                  | `scenarios/dapp.spec.ts:37`               | Connect; message sign/verify; PSBT sign; broadcast; revoke                                                 | Pass         |  30.8 s |
-| dApp events           | `scenarios/dapp-events.spec.ts:71`        | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
+| dApp events           | `scenarios/dapp-events.spec.ts:7`         | A site setting, a lock and a revocation reach only the sites they concern                                  | Not recorded |       — |
 | Approval hierarchy    | `scenarios/approval-hierarchy.spec.ts:72` | Connect, message, provider Send PSBT at 360x600 in light and dark: warning, payload first, gate            | Pass         |  30.0 s |
 | Phishing block        | `scenarios/phishing.spec.ts:265`          | Block a direct navigation to a denylisted host before it reaches the network                               | Pass         |   2.1 s |
 | Phishing redirect     | `scenarios/phishing.spec.ts:282`          | Warn on a same-site redirect to a denylisted host; Proceed loads the site                                  | Not recorded |       — |
@@ -138,25 +255,40 @@ separately with two-decimal millisecond precision.
 | Provider ready        | `scenarios/provider-ready.spec.ts:240`    | A page that listens before the wallet loads hears it is ready, and a late listener can ask                 | Not recorded |       — |
 | Provider ready frames | `scenarios/provider-ready.spec.ts:261`    | A frame of another origin gets its own event and announcement; a sandboxed frame gets neither              | Not recorded |       — |
 | Wipe/restore          | `scenarios/recovery.spec.ts:88`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |
-| Lock                  | `scenarios/lock.spec.ts:25`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
-| Auto-lock             | `scenarios/lock.spec.ts:93`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
-| Window close          | `scenarios/lock.spec.ts:168`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
-| Lock after onboarding | `scenarios/lock.spec.ts:210`              | The creating page shows the lock screen on a lock and an auto-lock; a page left on Welcome does on a lock  | Not recorded |       — |
-| Biometric B1          | `scenarios/biometric-unlock.spec.ts:38`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
-| Biometric B2          | `scenarios/biometric-unlock.spec.ts:109`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
+| Lock                  | `scenarios/lock.spec.ts:27`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
+| Auto-lock             | `scenarios/lock.spec.ts:95`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
+| Window close          | `scenarios/lock.spec.ts:166`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
+| Lock after onboarding | `scenarios/lock.spec.ts:264`              | The creating page shows the lock screen on a lock and an auto-lock; a page left on Welcome does on a lock  | Not recorded |       — |
+| Biometric B1          | `scenarios/biometric-unlock.spec.ts:42`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
+| Biometric B2          | `scenarios/biometric-unlock.spec.ts:126`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
 | Unlock in a tab       | `scenarios/unlock-history.spec.ts:59`     | In a tab opened locked, the unlock leaves Home as the tab's one wallet entry; Back leaves the wallet       | Not recorded |       — |
 | Back from Home        | `scenarios/unlock-history.spec.ts:76`     | In a tab opened unlocked, Back from Home leaves the wallet instead of landing on Home again                | Not recorded |       — |
 | Unlock after a lock   | `scenarios/unlock-history.spec.ts:88`     | A lock from Settings and an unlock leave Settings, then Home; Back shows Settings, not the unlock screen   | Not recorded |       — |
 | Home lock button      | `scenarios/unlock-history.spec.ts:117`    | Home's lock button leaves one unlock entry in Home's place; the unlock puts Home back; Back leaves         | Not recorded |       — |
 | Lock on Home          | `scenarios/unlock-history.spec.ts:139`    | A lock from outside the page while Home shows: one unlock entry in Home's place, then Home back            | Not recorded |       — |
 | Lock on the send form | `scenarios/unlock-history.spec.ts:159`    | A lock while the send form shows: the unlock shows the form with what was typed; Back gives Home           | Not recorded |       — |
-| Switch account        | `scenarios/switch-account.spec.ts:136`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
-| Rename wallet         | `scenarios/switch-account.spec.ts:362`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
-| Remove wallet         | `scenarios/switch-account.spec.ts:432`    | Remove Wallet, new wallets named "Wallet N", and the last wallet kept                                      | Not recorded |       — |
-| Read-only wallet      | `scenarios/switch-account.spec.ts:523`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
-| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:165`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:165`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:165`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Switch account        | `scenarios/switch-account.spec.ts:145`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
+| Rename wallet         | `scenarios/switch-account.spec.ts:371`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
+| Remove wallet         | `scenarios/switch-account.spec.ts:441`    | Remove Wallet, new wallets named "Wallet N"; the last wallet opens the reset, and Cancel keeps it          | Not recorded |       — |
+| Read-only wallet      | `scenarios/switch-account.spec.ts:534`    | Read Only, no Add Account; its account and wallet total show `--` and get no statistics read               | Not recorded |       — |
+| Switcher zeros        | `scenarios/switch-account.spec.ts:655`    | On an empty chain every account row and every wallet total shows 0 with the unit                           | Not recorded |       — |
+| Switcher funded       | `scenarios/switcher-totals.spec.ts:88`    | Funded accounts show their totals, wallets the sum of theirs; the current row equals the home total        | Not recorded |       — |
+| Switcher after a send | `scenarios/switcher-totals.spec.ts:116`   | A send between two accounts: their kept totals go out of date; reopened, both rows and the sum show it     | Not recorded |       — |
+| Switcher reopen       | `scenarios/switch-account.spec.ts:672`    | Reopened within a minute, in the page and in a new one, it shows the amounts and reads no statistics       | Not recorded |       — |
+| Switcher hidden       | `scenarios/switch-account.spec.ts:738`    | With balances hidden every total shows `****` and no statistics are read; shown again, they are            | Not recorded |       — |
+| Switcher layout       | `scenarios/switch-account.spec.ts:774`    | At 357 px, 20-character names, 20,999,999.99999999: amount whole, no overlap, header 48, row ≥ 52 px       | Not recorded |       — |
+| Switcher unknown      | `scenarios/switch-account.spec.ts:847`    | Statistics reads that fail with nothing measured before: the row and the wallet total show `--`            | Not recorded |       — |
+| Switcher stale        | `scenarios/switch-account.spec.ts:874`    | Reads failing after an earlier total: it stays, dimmed, with the stale name and the wallet total note      | Not recorded |       — |
+| Reset wallet          | `scenarios/reset-wallet.spec.ts:382`      | Reset only with the password; Welcome keeps language and theme; new wallet: new password, no old data      | Not recorded |       — |
+| Reset last wallet     | `scenarios/reset-wallet.spec.ts:614`      | Remove on the last wallet opens the reset, no toast; Cancel keeps it; with two wallets it removes one      | Not recorded |       — |
+| Reset everywhere      | `scenarios/reset-wallet.spec.ts:658`      | An untouched second window opens on Welcome; a connected site is disconnected and must ask again           | Not recorded |       — |
+| Security phrase/pass  | `scenarios/reset-wallet.spec.ts:725`      | Security shows the current wallet's phrase after the password; Change Password works, Back returns         | Not recorded |       — |
+| Reset re-read         | `scenarios/reset-wallet.spec.ts:770`      | Remove Wallet reads the wallets again: one another window added makes it the ordinary removal              | Not recorded |       — |
+| Reset race            | `scenarios/reset-wallet.spec.ts:800`      | A reset asked for as the last wallet is refused once another window added one; the toast says so           | Not recorded |       — |
+| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:166`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:166`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:166`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade auto-lock     | `scenarios/upgrade.spec.ts:280`           | 1.0.7 data storing the earlier default 3 minutes starts at 5 minutes, saved before any action              | Not recorded |       — |
 
 The dApp PSBT-signing and wipe/restore rows were previously blocked (a
 `-32603: Not supported` provider rejection and a restore scan that never
@@ -174,9 +306,19 @@ the confirmation to the signed payment, 174-204 seconds (0.81-0.94 seconds
 a signature); and the payment reached the mempool 10-14 seconds after the
 block that confirmed the merges. The gate's runners sign at about 1.25
 seconds a signature, so the row should take about 6 minutes there. It sets
-the longest auto-lock first: the default 3 minutes falls due about when
-signing ends, and the lock that follows takes the progress screen to the
-unlock screen at a point that depends on the runner's pace.
+the longest auto-lock, 6 hours, first: an auto-lock that fell due in the row
+would take the progress screen to the unlock screen at a point that depends
+on the runner's pace. The default 30 minutes outlasts the row's timeout, so
+the row does not depend on the default either.
+
+The lock-after-onboarding row locks the send form through the auto-lock's
+own timer. The shortest auto-lock is 5 minutes, so the row sets 15 minutes
+and first makes the service worker's timers of 15 minutes last 30 seconds,
+from the test's side, and checks right after the tap on Send that the
+auto-lock's timer was shortened. The timer, the lock, its broadcast and the
+unlock screen are the wallet's own; only the wait is shorter. The auto-lock row
+leaves the default 30 minutes in place, so the lock it waits for is the
+onboarding keepalive's own.
 
 ### Consolidation
 
@@ -227,7 +369,9 @@ showed.
 
 Playwright writes the HTML report to `playwright-report` and per-test evidence
 to `test-results/playwright`. CI uploads both directories for 14 days, excluding
-the ephemeral Chromium profile. A failed row contains:
+the ephemeral Chromium profile, once per shard: the artifact
+`playwright-release-gate-<run ID>-<attempt>-shard-<n>` holds the report and
+evidence of the tests in shard `n` of that attempt. A failed row contains:
 
 - `test-failed-*.png`, `trace.zip`, and retained video;
 - `page-console.log` and `extension-service-worker.log` attachments;
@@ -236,11 +380,15 @@ the ephemeral Chromium profile. A failed row contains:
 - `failing-identifiers.json` with the extension, account, and transaction IDs;
 - `pqc-sign-durations.json` for the row.
 
-The phishing, provider-ready, switch-account and upgrade rows use their own
-fixtures and run without regtest, so the regtest, network-audit and PQC
-attachments above do not apply to them; a failed row of any of them attaches
-the extension service-worker log. A failed switch-account row also attaches
-`empty-regtest-explorer.log`.
+The phishing, provider-ready, reset-wallet, switch-account and upgrade rows use
+their own fixtures and run without regtest, so the regtest, network-audit and
+PQC attachments above do not apply to them; a failed row of any of them
+attaches the extension service-worker log. A failed reset-wallet or
+switch-account row also attaches `empty-regtest-explorer.log`. A reset-wallet
+row also fails when a wallet page or the service worker logs an error, or a
+wallet page shows the refusal a call that waited for a reset gets, and then
+attaches them as `wallet-errors.log`; console lines that only mention that
+refusal are attached as `reset-refusal-notes.log`.
 
 The approval-hierarchy row also attaches `connect-approval-<theme>.png`,
 `message-approval-<theme>.png`, and `psbt-approval-<theme>.png` at 360x600 for
@@ -260,7 +408,8 @@ the fold at that size, as for any send. The row also attaches
 `send-plan-timings.json` with its funding, signing and payment times.
 
 The run-level PQC canary is
-`test-results/playwright/pqc-sign-durations.jsonl`. Samples from the run above
+`test-results/playwright/pqc-sign-durations.jsonl`; in CI each shard's
+artifact holds the samples of its own tests. Samples from the run above
 were 4,463.36 ms for a one-input send, 6,977.43 ms for a three-input send,
 6,442.15 ms for its three-input RBF bump, and 1,590.42 ms for a P2MR dApp
 message signature. In passing gate runs from 2026-10-23 to 2026-10-27,

@@ -65,7 +65,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),
@@ -233,9 +233,10 @@ describe('a plan that failed its checks stays so until its cancel', () => {
     expect(await world.plan()).toMatchObject(standIn(plan.id))
     expectStoredUnreadable(plan.id)
     await world.unlock()
-    await expect(world.wallet.continueQbitSendPlan(plan.id)).rejects.toThrow(
-      'The Qbit send plan cannot continue now'
-    )
+    // It states no terms, so no continue names them.
+    await expect(
+      world.wallet.continueQbitSendPlan(plan.id, world.shownTerms(plan.id))
+    ).rejects.toThrow('The Qbit send plan changed since it was shown')
     for (const kind of ['replan', 'raise_merge_fee', 'raise_payment_fee']) {
       await expect(
         world.prepare({

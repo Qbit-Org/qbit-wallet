@@ -5,6 +5,489 @@ the project's earlier, private tracker, not to issues or pull requests in this
 repository. From 1.0.8, issue numbers such as #30 refer to issues in this
 repository.
 
+## 1.0.10
+
+### Sending and fees
+
+These are six fixes to the payment that combines an account's funds before it
+pays (#188), found in its review (#206).
+
+- Continue in the progress view of such a payment now approves exactly the
+  payment that view shows. If the payment the wallet has stored is another
+  one (another recipient, amount, fee or fee rate, or other transactions),
+  Continue signs nothing, the view says "This payment changed since this
+  screen showed it. Check the recipient, the amount and the fee, and continue
+  only if they are right." and it shows the stored payment. Before, Continue
+  approved whatever was stored. Someone able to change the extension's stored
+  data could replace the payment there and, once the wallet's background had
+  restarted, have an open wallet window go on showing the earlier one while
+  Continue approved theirs. After such a restart an open window now shows the
+  stored payment at once.
+- "Raise the fee" is no longer offered when no fee rate can make the payment
+  pay more. This is the case for an exact amount that returns no change: its
+  fee is already everything its funds hold above the amount. Before, the
+  raise was offered, built the same transaction again and failed, and the
+  payment paused offering the same raise. The view now says "The network
+  asks for a higher fee to accept the payment, and the funds it uses cannot
+  pay a higher one. Continue to send the same payment again later, or cancel
+  it." A payment of the whole balance still raises its fee by lowering the
+  amount. The raise is also no longer offered once a payment's fee has been
+  raised 16 times, the most the wallet allows; before, it was offered and
+  its review failed.
+- The send screen no longer stays on "A payment from this account is already
+  in progress." with Next disabled when no payment is in progress after
+  all, which happened when another wallet window's start of one ended
+  without it. Next works again without an edit, and so does Confirm on the
+  review.
+- A payment that another transaction completed, by paying the recipient the
+  same amount from the same funds, now shows the wallet's own transaction and
+  its fee when that is the one that confirms. Before, it went on showing the
+  other one.
+- Removing a wallet ends each of its unfinished payments also when the
+  browser's storage refuses a write on the way. Before, a refused write
+  ended none of them, and a payment already signed could still be sent after
+  the wallet was removed. What could not be ended is now held back, nothing
+  of it signed or sent, and ended again every 15 seconds.
+- A wallet whose keys have been erased keeps no unfinished payment. Reset
+  Wallet stops such payments before it erases the keys and erases them with
+  the wallet, and one found at start-up without the wallet's keys is erased,
+  not sent.
+
+Two more fixes to these payments close what the six left open (#216, #217).
+
+- A removed wallet's unfinished payment stays stopped after a restart too.
+  Before it removes anything, the wallet now saves which accounts' payments
+  the removal ends. Until they are ended, nothing more of them is signed or
+  sent, also after the browser or the extension restarts; after a restart
+  the wallet settles this the first time it is unlocked. Before, what a
+  refused write left was held back only until the next restart, and a
+  payment already signed could then still be sent. If that record cannot be
+  saved, the wallet is not removed and the removal says "The wallet cannot
+  be removed now: the record of its send plans could not be saved. Try
+  again." If a removal fails and the wallet stays, its payments go on as
+  they were.
+- When a removal cannot cancel such a payment at once, every open wallet
+  window says so for 15 seconds, with a control to close it: "The wallet was
+  removed, but a payment in progress from it could not be cancelled yet.
+  Nothing more of it will be signed or sent, and the wallet keeps trying to
+  cancel it." Before, only the background's log said so.
+- A completed payment whose transaction has not confirmed yet is now
+  followed until it confirms, for as long as the payment is kept on the home
+  screen, also with every wallet window closed. Leaving its success screen
+  removes it from home, as before, and it is followed no more. If that
+  transaction stays missing from the network for ten minutes, the wallet
+  looks at what happened to the funds it used. If another transaction paid
+  the recipient the same amount from them, the payment shows that
+  transaction and its fee. If nothing spent them, the payment is paused
+  again as "The payment may still go through", with Continue to send the
+  same payment again, which cannot pay the recipient twice. If something
+  else spent them, it is paused as "Funds this payment uses were spent",
+  with Review again and Cancel payment. Nothing is sent again without you.
+  Before, the payment went on showing as sent with the transaction it first
+  named, and kept its funds held until it was removed from home.
+- The success screen of such a payment follows it: it shows and links the
+  transaction that paid, and returns to the progress view when the payment
+  is paused again.
+- Saved payment data that the wallet cannot read and that does not name its
+  account in full is now shown as "This payment cannot be read" to an
+  account it could belong to, with Cancel payment to drop it: any account
+  when the data names neither a network nor an address, an account on the
+  network it names, or the account with the address it names. An account
+  with a payment in several transactions of its own, in progress or
+  completed and still on home, is shown that payment first. While an
+  account is shown the data, it cannot start a payment in several
+  transactions, and says "A payment from this account is already in
+  progress." Removing a wallet drops such data when it names only the
+  address of an account whose payments that removal ends. Before, such data
+  was not shown anywhere.
+
+### Accounts with many outputs
+
+- The balance of an account with thousands of outputs loads again (#36,
+  #124). Since the explorer began listing up to 50,000 outputs for an address
+  (#169), the wallet read one transaction for each listed output, all at
+  once, every 10 seconds. For an account with several thousand outputs, such
+  as an address that mining payouts go to, those reads timed out and the
+  balance card showed "Balance could not be loaded. The explorer may be
+  temporarily unavailable." although the explorer was working. The wallet now
+  reads up to 256 transactions at a time, the rate 1.0.9 was measured
+  reading at, for the first 4,096 of a read, and 32 at a time after that. It
+  remembers what it read while it stays unlocked on the same network, so
+  refreshing an account whose outputs have not changed reads none of them
+  again. For the balance it no longer reads the transaction of a payment
+  1,000 blocks deep or more, unless the current block height reaches it
+  later than the list of outputs: such a payment can be spent whatever that
+  transaction says.
+- When the wallet cannot finish reading an account's outputs and no balance
+  is shown for it yet, the balance card shows the total with the note "The
+  wallet could not finish reading this account's outputs, so only the total
+  is shown. It will try again." Available and Unavailable show "--" until a
+  read finishes. A card that already shows a balance keeps it, with "Balance
+  could not be refreshed and may be out of date." and Try again, as before.
+  A balance read now takes at most 20 seconds, and the next one carries on
+  where it stopped.
+  In a test browser an account with about 21,000 outputs, about 420 of them
+  younger than 1,000 blocks, showed its full balance on the first read, in
+  half a second to a second and a half, and every refresh after that took a
+  fraction of a second.
+  "Balance could not be loaded" now shows only when the total itself cannot
+  be read.
+- The balance card refreshes more carefully. It does not start an automatic
+  refresh while the previous one is still running, unless that one has been
+  running for a minute, and it pauses while the wallet's window or tab is
+  hidden. After a failed refresh, including one that got no further with
+  the account's outputs or that it gave up on after a minute, it waits 10,
+  20, 40 seconds and so on, at most 2 minutes, until one succeeds. "Try
+  again" still reads at once. Each refresh asks for the current block
+  height with the list of outputs, instead of an address summary the wallet
+  never used.
+- The Send screen can be filled in while the wallet is still reading an
+  account's outputs. Its loading screen now lasts at most a second and a
+  half; after that the form shows, with the note "Reading this account's
+  outputs. You can fill in the form meanwhile; Next and MAX become available
+  once they are read." If they cannot be read, the screen says so ("The
+  wallet could not read this account's outputs, so it cannot send from this
+  account now. Reopen Send to try again.") instead of leaving Next disabled
+  without a word, and outputs remembered from an earlier visit are no longer
+  used after such a failure.
+- Locking the wallet, resetting it or removing a wallet now also discards
+  the reads of an account's history that the balance uses, if they were
+  asked for before the lock, reset or removal and finish after it, as well as
+  reads made while a wallet was being removed. This matters for an account
+  with more outputs than the explorer will list, whose Available amount now
+  comes only from reads asked for after it.
+- While the wallet is open on an account with 1,000 outputs or more whose
+  balance has not changed, a 10-second refresh now asks the explorer only
+  for the account's totals and the current block height, about 300 bytes,
+  instead of downloading the whole list of outputs (about 5 MB for 20,000
+  outputs). It downloads the list again whenever the totals change, a
+  payment is pending, a mining reward matures, the wallet finds that
+  something it had read about a transaction on that network has changed or
+  has been dropped, after it locks, and at least every 5 minutes. After a
+  change it reads the list twice before it skips it again, three times if
+  the explorer's first list lags behind its totals. If the explorer takes
+  more than a second to give the current block height, refreshes download
+  the list as before, for up to 5 minutes at a time. Smaller accounts
+  refresh as before.
+- Send no longer reads the transaction behind every output of an account
+  before Next and MAX can be used. It reads only those of payments received in
+  the last 1,000 blocks and of unconfirmed ones. Then, when you press Next and
+  again when you sign, it reads and checks the transaction of each output the
+  payment spends, at most 106 for one transaction. This is so for sends, MAX,
+  consolidation and recovery. A payment sent in several transactions checks
+  every output it spends before it signs its first transaction, and each
+  transaction's outputs again when it signs that transaction. If an output
+  does not match what the explorer reports, cannot be spent yet, is no longer
+  there or cannot be checked, nothing is signed, and the wallet says which:
+  "An output this transaction would spend does not match the transaction that
+  created it at the explorer, so the wallet stopped before signing.", "An
+  output this transaction would spend cannot be spent yet: a mining reward
+  that has not matured, an unconfirmed payment from someone else, or change
+  with too many unconfirmed transactions before it. The wallet stopped before
+  signing.", "The explorer no longer has the transaction that created an
+  output this transaction would spend, so the wallet stopped before signing."
+  or "The wallet could not check an output this transaction would spend with
+  the explorer, so it stopped before signing. Try again in a moment." A
+  payment sent in several transactions pauses instead, its screen names the
+  cause in full, and Continue checks again; when an output's transaction is
+  gone, or the output cannot be spent yet, it can also be reviewed again from
+  the account's outputs as they are now. The wallet does not pick other
+  outputs by itself.
+
+### Security settings and Reset Wallet
+
+- Settings has a new Security screen, above Appearance. From top to bottom
+  it holds Change Password, Touch ID Unlock, Show Secret Recovery Phrase for
+  the current wallet, Automatic Lock Time, the two lock switches (lock
+  when the computer locks, and when all windows close), the state of phishing
+  protection with its Retry, and Reset Wallet last. Change Password, Touch ID
+  Unlock, Automatic Lock Time, the lock switches and phishing protection
+  moved there from Advanced Settings, and work as before.
+- Automatic Lock Time offers 5 minutes, 15 minutes, 30 minutes, 1 hour,
+  3 hours and 6 hours. The time is one setting for the whole extension: a
+  new install starts at 30 minutes, and so does the extension after Reset
+  Wallet; adding a wallet does not change it. Before, it offered 30 seconds,
+  1, 3, 5, 10 and 30 minutes, 1 hour and 4 hours, and started at 3 minutes.
+  A time you chose that is no longer offered changes when the wallet
+  starts: 30 seconds, 1 minute and 3 minutes become 5 minutes, 10 minutes
+  becomes 15 minutes, and 4 hours becomes 3 hours. 5 minutes, 30 minutes and
+  1 hour stay as they are. If you kept the earlier default of 3 minutes, the
+  wallet therefore locks after 5 minutes, not 30. If the stored time cannot
+  be read, the wallet uses 5 minutes. A time that a later version of the
+  wallet offers is kept, and this version uses 5 minutes for it.
+- Address Type moved from the Settings tab into Advanced Settings, which now
+  holds Language, Address Type and Local Regtest. It opens on Testnet4 and
+  Regtest too, where it used to say the wallet uses a custom HD path, and its
+  card shows the wallet's address, its balance and the path used on that
+  network. The screen reads its addresses and balances again when the network
+  changes while it is open. A card with no address offers nothing to copy.
+- Choosing an automatic lock time returns to Security once, also when that
+  screen was opened by itself.
+- The two lock switches in Security can be reached with Tab, toggled with
+  Space or Enter, show a focus ring, and are announced by screen readers with
+  their name and state.
+- A refusal from the wallet shows its message, or "Unknown error", instead of
+  "[object Object]" or an empty notice on the Receive screen, when creating,
+  restoring or importing a wallet or adding a read-only wallet, when turning
+  Touch ID off or changing the password, and when signing a PSBT. A local
+  signing refused without a message no longer leaves Sign locked.
+- Reset Wallet erases the wallet from this browser. Before, only removing the
+  extension did that. It asks for the current password first. A reset erases
+  every wallet and its keys, the password, Touch ID unlock, connected sites,
+  wallet and account names and colors, the address book and the settings; it
+  keeps the language and the theme. Afterwards the wallet shows its Welcome
+  screen, and a new wallet starts with a new password.
+- Removing the last usable wallet in Switch Account now opens Reset Wallet,
+  with the same password check. Before, it said "Removing the last wallet is
+  not allowed".
+- A wallet that is part of a recovery migration shows the same risks before
+  a reset as before a removal, worded for a reset of every wallet, and they
+  are confirmed by typing CONFIRM. That step is laid out like the password
+  step: centered, with "This action is not reversible." in bold red.
+- A reset tells connected websites that the account is gone and disconnects
+  them. Every other open wallet window returns to the Welcome screen, and
+  what was entered on its Send screen, which only that window kept, is gone.
+- A reset stops a send that is still paying in several transactions (#188).
+  Nothing more of it is signed or broadcast, and what the wallet saved about
+  it is erased with the rest.
+- If a reset erases the wallets but cannot clear some other saved data, the
+  wallet says so and clears the rest before a new wallet can be created.
+- A wallet window opened before a wallet was created in another window
+  cannot reset that wallet: Settings → Security in a window that holds no
+  wallet goes to the Welcome screen, and the wallet refuses a reset that
+  names no wallet while one is set up.
+- A wallet window that cannot read which wallet it shows (for example when
+  the wallet's id could not be saved) can still be locked and unlocked, no
+  longer reloads on your next action while it is still trying to read it,
+  and tells you to reload or reopen the wallet if it gives up. Once it has
+  read it, it shows that wallet afresh. Such a window still sends nothing
+  that writes into a wallet it cannot name.
+- A wallet window that was open before a wallet was created in another
+  window goes to the unlock screen as soon as the wallet locks, like any
+  other window of that wallet.
+
+### Switch Account balances
+
+- Switch Account shows each account's balance at the end of its row, and
+  each wallet's total after its account count, as in "3 accounts · 12.5
+  QBT". A wallet's total counts all of its accounts, also the ones a search
+  hides. The current account's row shows the same balance as the home
+  screen.
+- While a balance is on its way, a short grey bar holds its place, and a
+  wallet's total waits for all of its accounts. "--" means the balance could
+  not be read. If a new read fails after an earlier one succeeded, the
+  earlier balance stays, dimmed, and so does a balance that may be from
+  before a payment the wallet just sent; a dimmed balance stays dimmed when
+  Switch Account is opened again, until it is read again. While balances are
+  hidden on the home screen, Switch Account shows `****` and reads nothing.
+- The accounts of a read-only wallet show "--": their addresses are not Qbit
+  addresses of the network, and Switch Account does not ask the chain API
+  about them.
+- To show the balances, opening Switch Account asks the network's chain API
+  for each account's address statistics, one small request per account,
+  each past every cache, so no earlier reply answers it. The page has at
+  most four reads out at a time and sends no more once Switch Account
+  closes; the background sends at most four at a time to one explorer, so
+  over HTTP/1.1 these reads never take more than four of the six
+  connections a browser opens to one host. A balance read in the last
+  minute is not read again, so Switch Account opened again soon after shows
+  the balances at once. After a payment sent
+  from this wallet, every balance is read again at the next opening, and for
+  30 seconds a balance read is kept for 10 seconds only, so Switch Account
+  shows the payment on both of its accounts as soon as the explorer does.
+  Locking the wallet, Reset Wallet, removing a wallet and switching networks
+  stop the reads still under way; after a removal, the accounts of the
+  other wallets are read again instead of showing "--". The chain API's
+  operator sees these addresses requested together; see
+  [privacy](../privacy.md#account-switcher-balances).
+- A dimmed balance is also announced as possibly out of date by screen
+  readers, on the account's row and on its wallet's total.
+
+### Websites and approvals
+
+- A website can now have the wallet sign an input of a PSBT under
+  `SIGHASH_ALL | ANYONECANPAY` (0x81) or `SIGHASH_SINGLE | ANYONECANPAY`
+  (0x83), as a marketplace listing that a buyer completes later asks (#211).
+  Before, the wallet refused such a PSBT. Every other sighash type a PSBT
+  names is still refused, and so is 0x83 on an input with no output at its
+  own position, a partial type on an input that does not spend the account's
+  own output, and a partial type in a PSBT that moves funds an active
+  recovery migration protects. An input that names no type, or names the
+  default (0), signs as before.
+- The approval lists the inputs signed this way under "Inputs signed on their
+  own", says "Your signature locks in only part of this transaction. Whoever
+  holds it can change anything it does not cover, which can include other
+  inputs and outputs, before it is broadcast.", and shows what each
+  signature locks in: every output under 0x81, and under 0x83 the one output
+  at the same position, with its address marked as a warning.
+- The amount the approval says can leave the wallet is the most that can.
+  When the account signs an input under 0x81 or 0x83, an output paying the
+  wallet counts as coming back only if one of the account's 0x83 signatures
+  locks it in, only up to the value of that signature's input, and only if
+  that input spends the wallet's own output. A 0x81 signature makes no
+  output count: it fixes the outputs but not who pays for them, so another
+  approval could fund the same outputs with another of the wallet's inputs.
+  An output to this account that does not fully count is shown as "To this
+  account", not as "Change".
+
+### Loading indicators
+
+- The wallet's loading indicators, except the one inside a button, are now
+  the same ring, green everywhere but on the balance card. The overlay shown
+  while a transaction is broadcast, a send is prepared, a payment is
+  reviewed or outputs are consolidated, and on History, Address Type and the
+  cold wallet's address list, is now a card over the theme's dimmed
+  background in both themes, instead of a small orange spinner on black.
+- A popup, side panel, tab or approval window that takes more than a second
+  to open now shows one spinner until its first screen, instead of a blank
+  page. A normal open shows none.
+
+### Repository and release
+
+- The extension version is 1.0.10.
+- The browser release gate grows from 53 to 68 tests. The new ones cover
+  Reset Wallet and the Security screen, the balances in Switch Account on an
+  empty chain and with funded accounts, and the first start after an update
+  from 1.0.7's stored data for a wallet that kept the earlier default lock
+  time.
+- CI runs the browser release gate in five parallel shards and "Typecheck,
+  test, and build" in four parallel lanes, and skips the long steps on a
+  pull request that changes only documentation. The required checks are the
+  same. The regtest node's health check now probes every 250 ms while the
+  node starts, so each reset of the test chain is a few seconds shorter;
+  the regtest harness therefore needs Docker Engine 25 or later.
+- A pull request's repeated CI run skips its work only under stricter rules:
+  any doubt about whether the same tree passed means a full run.
+
+### Known limitations
+
+- The wallet forgets what it read of an account's outputs when it locks, when
+  you switch networks and when the browser stops the extension's background
+  worker, which browsers do after the wallet's windows have been closed for a
+  while. The first balance after that reads the account's payments younger
+  than 1,000 blocks again, and for an account with tens of thousands of
+  those it can show only the total for a few refreshes. Older payments are
+  not read.
+- If an account has more than 65,536 outputs that are younger than 1,000
+  blocks or unconfirmed, the balance card shows only its total, with the
+  note, and Available and Unavailable stay "--"; it reads the balance again
+  every 2 minutes. Older outputs do not count. Today's explorer lists at
+  most 50,000 outputs for an address.
+- When Send is opened, it still reads the transactions of the account's
+  payments received in the last 1,000 blocks and of unconfirmed ones before
+  Next and MAX can be used; the form can be filled in meanwhile. Each time
+  after the first in a session, it reads again only those of the last 1,000
+  blocks that are not mining rewards. Each send then reads the transactions of
+  the outputs it spends when you press Next and again when you sign, up to 106
+  lookups each time, plus those an unconfirmed change output comes from. A
+  payment sent in several transactions reads them once for all of its
+  transactions before it signs the first, and again for each transaction as it
+  signs it: the largest, 106 transactions spending 11,236 outputs, makes
+  22,472 such lookups while it signs, where 1.0.9 read each of those outputs
+  once when the payment was prepared. A send of many outputs takes that much
+  longer to sign, and one the explorer cannot answer is not signed.
+- When the explorer answers Send's own read of an account's outputs, the
+  one it opens with or one it makes again while open, after the account,
+  the network or a payment in several transactions changes, with temporary
+  server errors, the wallet asks again after half a second, then
+  1.5, 4 and 8 seconds, starting no new attempt once 20 seconds have passed,
+  before the screen says the outputs could not be read; reopening Send then
+  carries on from what was read. While it waits, the wallet's other reads
+  from the explorer, the balance among them, can wait behind it: one balance
+  refresh took 13.9 seconds in a test. A payment sent as one transaction
+  while that read is still running, which Send allows only when it already
+  shows outputs read earlier, waits for that read too. Every other read
+  gives up on such errors as quickly as 1.0.9 did.
+- A wallet window opened after a removal that could not cancel a payment is
+  not told so; the message is shown only in the windows open at that
+  moment. The payment stays stopped either way.
+- After a restart, a payment of an account that an unfinished or failed
+  removal names waits for the wallet to be unlocked before it goes on or is
+  ended. A payment already signed, which the wallet otherwise sends while
+  locked, waits too.
+- A wallet removal is not finished while saved payment data that the
+  wallet cannot read, and that names no address, could belong to one of the
+  removed wallet's accounts. Data that names only a network is shown, with
+  Cancel payment, only to accounts on that network, and the local test
+  network can be selected only with a local node the wallet has verified.
+  Until the data is dropped there, or the wallet is reset, the removed
+  wallet's accounts cannot start a payment in several transactions if the
+  same recovery phrase is added again.
+- A payment completed in an earlier version whose transaction never
+  confirmed and was dropped by the network, and that was never removed from
+  home, is paused again about ten minutes after the update, as "The payment
+  may still go through" or "Funds this payment uses were spent".
+- When a transaction made outside this wallet with the same keys, for
+  example by the same recovery phrase in another app, paid the recipient and
+  then goes missing, the wallet offers a new payment only once confirmed
+  transactions have spent every one of the funds the payment uses. Until
+  then it shows the payment as made, with Remove from home, or offers the
+  same payment again. So if that transaction is undone by spending some,
+  not all, of those funds, the payment keeps showing as made although
+  nothing paid, until the rest are spent or you remove it. If the explorer
+  keeps showing and hiding a spend of the payment's funds, the payment can
+  switch between paid and paused about every twelve minutes; nothing is
+  sent without you.
+- The wallet takes its own payment for unable to confirm once the explorer
+  shows another transaction spending its funds, also an unconfirmed one, as
+  in 1.0.9. If that transaction is dropped later and someone relays the
+  earlier payment again, it can still confirm beside a new payment you
+  reviewed in between. This needs someone else holding the account's keys.
+- Before the wallet offers to review a payment again because funds it uses
+  were spent, it identifies the first transaction it finds spending them,
+  and passes over a transaction whose spends the explorer does not answer
+  for, as in 1.0.9. A transaction made outside this wallet with the same
+  keys that paid the recipient from another of those funds is then not
+  seen; nor does the review wait when the explorer cannot say, at that
+  moment, what the transaction it found is. In those cases a new payment
+  you review and confirm can pay a second time.
+- When a transaction that combined a completed payment's funds is dropped
+  by the network, because it was not confirmed when the payment completed
+  or because a block reorganisation removed it then or later, the payment
+  keeps showing as paid, whatever then happens to the funds it combined,
+  until the network shows that transaction again. The wallet offers no new
+  payment for it; Remove from home removes it.
+- While a removed wallet's payment is still being cancelled, or a removal's
+  record is kept, the same recovery phrase added again cannot start a
+  payment in several transactions for that account. The send screen says "A
+  wallet removal that involves this account has not finished, so a payment
+  in several transactions cannot start yet." A payment in one transaction is
+  not held up. If the record is one this version cannot read, that lasts
+  until a version that reads it, or a wallet reset.
+- Bump fee is no longer offered for a pending transaction that spends someone
+  else's unconfirmed payment to the account, or unconfirmed change from a
+  transaction that also spent someone else's output, directly or further
+  back. Only a transaction signed without the wallet's checks spends one:
+  through a website's request, or by other software holding the same key.
+  The wallet now checks every output a transaction spends when it signs, and
+  would refuse to sign the replacement; 1.0.9 offered it and signed it. Once
+  those transactions confirm, the fee can be raised again.
+- In Switch Account, the balance of an account other than the current one
+  can be up to a minute old: a payment it received in that minute shows
+  once the minute has passed and Switch Account is opened again. After the
+  wallet locks, after a network switch and after a payment sent from this
+  wallet, every account's balance is read again at the next opening.
+- A payment sent from this wallet shows in Switch Account only once the
+  explorer shows it. If the explorer takes longer than 30 seconds to show
+  it, a balance read after those 30 seconds, while the explorer still shows
+  the earlier one, can stay as it was for up to a minute.
+- A listing of one input priced above that input's value is refused when
+  the website asks to sign it: the protocol library rejects a PSBT whose
+  outputs are worth more than its inputs. A marketplace has to add
+  placeholder inputs for now; the approval does not count inputs the
+  account does not sign.
+- When a website broadcasts a completed 0x81 or 0x83 PSBT through the
+  wallet and the broadcast ends without an answer, the wallet does not set
+  aside the output it spends, as it does for a PSBT it signed whole:
+  completing it changes the transaction, so the wallet does not recognise
+  it. A send of yours can then spend that output, which ends the listing if
+  it confirms first.
+- The approval names the inputs and the output a partial signature covers by
+  position ("#0", "#1" and so on), but its lists of inputs and outputs show
+  no positions.
+- The summary of an approval of several PSBTs at once does not name a
+  partial signature among its risks.
+
 ## 1.0.9
 
 ### Sending and fees
