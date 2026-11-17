@@ -192,7 +192,7 @@ describe('PreferenceService', () => {
       uiCachedData: {},
       skippedVersion: '',
       addressFlags: {},
-      autoLockTimeId: 2,
+      autoLockTimeId: DEFAULT_LOCKTIME_ID,
       openInSidePanel: false,
       developerMode: false,
       rateUsStatus: { hasRated: false, ratePromptDismissedAt: 0, hasShownSecondPrompt: false },
@@ -285,7 +285,7 @@ describe('PreferenceService', () => {
       uiCachedData: {},
       skippedVersion: '',
       addressFlags: {},
-      autoLockTimeId: 2,
+      autoLockTimeId: DEFAULT_LOCKTIME_ID,
       openInSidePanel: false,
       developerMode: false,
       rateUsStatus: { hasRated: false, ratePromptDismissedAt: 0, hasShownSecondPrompt: false },
@@ -328,7 +328,7 @@ describe('PreferenceService', () => {
       uiCachedData: {},
       skippedVersion: '',
       addressFlags: {},
-      autoLockTimeId: 2,
+      autoLockTimeId: DEFAULT_LOCKTIME_ID,
       openInSidePanel: false,
       developerMode: false,
       rateUsStatus: { hasRated: false, ratePromptDismissedAt: 0, hasShownSecondPrompt: false },
@@ -408,7 +408,7 @@ describe('PreferenceService', () => {
       uiCachedData: {},
       skippedVersion: '',
       addressFlags: {},
-      autoLockTimeId: 2,
+      autoLockTimeId: DEFAULT_LOCKTIME_ID,
       openInSidePanel: false,
       developerMode: false,
       rateUsStatus: { hasRated: false, ratePromptDismissedAt: 0, hasShownSecondPrompt: false },
@@ -484,14 +484,14 @@ describe('PreferenceService persistence', () => {
     const service = await load()
     expect(service.getEnableRBF()).toBe(true)
 
-    await service.setAutoLockTimeId(1)
+    await service.setAutoLockTimeId(3)
     await service.setEnableRBF(false)
     await service.setLockOnComputerLock(false)
     await service.setLockOnWindowsClosed(false)
 
     vi.advanceTimersByTime(500)
     const reloaded = await load()
-    expect(reloaded.getAutoLockTimeId()).toBe(1)
+    expect(reloaded.getAutoLockTimeId()).toBe(3)
     expect(reloaded.getEnableRBF()).toBe(false)
     expect(reloaded.getLockOnComputerLock()).toBe(false)
     expect(reloaded.getLockOnWindowsClosed()).toBe(false)
@@ -507,12 +507,12 @@ describe('PreferenceService persistence', () => {
     // What 1.0.7 stored: no lock settings at all, and a user's own choices.
     adapter.disk.set(
       'preference',
-      JSON.stringify({ autoLockTimeId: 7, enableSignData: true, locale: 'fr', currentVersion: '0' })
+      JSON.stringify({ autoLockTimeId: 6, enableSignData: true, locale: 'fr', currentVersion: '0' })
     )
     const service = await load()
     expect(service.getLockOnComputerLock()).toBe(true)
     expect(service.getLockOnWindowsClosed()).toBe(true)
-    expect(service.getAutoLockTimeId()).toBe(7)
+    expect(service.getAutoLockTimeId()).toBe(6)
     expect(service.getLocale()).toBe('fr')
 
     // Turning one off is kept, and the other stays on.
@@ -668,7 +668,7 @@ describe('PreferenceService persistence', () => {
     const writeError = new Error('write failed')
     adapter.writeErrors.push(writeError)
 
-    const failed = service.setAutoLockTimeId(1)
+    const failed = service.setAutoLockTimeId(8)
     const succeeded = service.setAutoLockTimeId(3)
 
     await expect(failed).rejects.toBe(writeError)
@@ -796,7 +796,7 @@ describe('PreferenceService persistence', () => {
     service.setDeveloperMode(true)
     service.setOpenInSidePanel(true)
     service.setChainType(ChainType.QBIT_TESTNET4)
-    await service.setAutoLockTimeId(1)
+    await service.setAutoLockTimeId(3)
     await service.setWalletResetPending()
     const writesBefore = adapter.writes
 
@@ -1020,7 +1020,7 @@ describe('PreferenceService persistence', () => {
     expect(service.getEnableRBF()).toBe(false)
     // The debounced save of the repaired store, then a setting's own write.
     await vi.advanceTimersByTimeAsync(1000)
-    await service.setAutoLockTimeId(1)
+    await service.setAutoLockTimeId(3)
 
     expect(adapter.written).toHaveLength(2)
     expect(adapter.written.filter(value => 'enableSignData' in value)).toEqual([])
@@ -1028,8 +1028,197 @@ describe('PreferenceService persistence', () => {
       locale: 'fr',
       currency: 'EUR',
       enableRBF: false,
-      autoLockTimeId: 1,
+      autoLockTimeId: 3,
     })
+  })
+})
+
+describe('PreferenceService stored auto-lock time', () => {
+  let adapter: DiskAdapter
+
+  const load = async () => {
+    const service = new PreferenceService()
+    await service.init({ storage: adapter, logger: { debug: vi.fn(), error: vi.fn() } })
+    return service
+  }
+
+  const storeAutoLockTimeId = (value: unknown) => {
+    adapter.disk.set(
+      'preference',
+      JSON.stringify({ autoLockTimeId: value, locale: 'fr', enableRBF: false, currentVersion: '0' })
+    )
+  }
+
+  const storedAutoLockTimeId = () => JSON.parse(adapter.disk.get('preference')!).autoLockTimeId
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    adapter = new DiskAdapter()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Every time stored up to 1.0.9: the retired ones are saved as the time they
+  // became before init resolves, not after the store's debounced save.
+  it.each([
+    ['30 seconds', 0, 3],
+    ['1 minute', 1, 3],
+    ['3 minutes', 2, 3],
+    ['10 minutes', 4, 8],
+    ['4 hours', 7, 9],
+  ])('saves %s (id %s) as id %s at start-up', async (_time, stored, current) => {
+    storeAutoLockTimeId(stored)
+    const writesBefore = adapter.writes
+
+    const service = await load()
+
+    expect(service.getAutoLockTimeId()).toBe(current)
+    expect(adapter.writes - writesBefore).toBe(1)
+    expect(storedAutoLockTimeId()).toBe(current)
+    // Nothing else the user chose changes.
+    expect(JSON.parse(adapter.disk.get('preference')!)).toMatchObject({
+      locale: 'fr',
+      enableRBF: false,
+    })
+
+    // The save replaced the store's debounced one.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(adapter.writes - writesBefore).toBe(1)
+
+    // A second start-up has nothing to rewrite, and saves nothing for it.
+    const writesAfter = adapter.writes
+    const reloaded = await load()
+    expect(reloaded.getAutoLockTimeId()).toBe(current)
+    expect(adapter.writes).toBe(writesAfter)
+    expect(storedAutoLockTimeId()).toBe(current)
+  })
+
+  it.each([
+    ['5 minutes', 3],
+    ['30 minutes', 5],
+    ['1 hour', 6],
+    ['15 minutes', 8],
+    ['3 hours', 9],
+    ['6 hours', 10],
+  ])('keeps %s (id %s), with no save of its own at start-up', async (_time, id) => {
+    storeAutoLockTimeId(id)
+    const writesBefore = adapter.writes
+
+    const service = await load()
+
+    expect(service.getAutoLockTimeId()).toBe(id)
+    expect(adapter.writes).toBe(writesBefore)
+    // The store's debounced save of the other repairs keeps the id as well.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(storedAutoLockTimeId()).toBe(id)
+  })
+
+  it.each([
+    ['a negative whole number', -1],
+    ['a fractional number', 2.5],
+    ['null, as JSON stores NaN', null],
+    ['a string', '5'],
+    ['an object', { id: 5 }],
+  ])('saves %s as the shortest time, 5 minutes', async (_name, stored) => {
+    storeAutoLockTimeId(stored)
+
+    const service = await load()
+
+    expect(service.getAutoLockTimeId()).toBe(3)
+    expect(storedAutoLockTimeId()).toBe(3)
+  })
+
+  // Going back to this build from a later one that offered more times must
+  // not erase the user's choice there: the id stays on disk for the next
+  // update, and reads as the shortest time meanwhile.
+  it.each([11, 12, 1_000])(
+    'keeps %s, an id a later build may have stored, on disk and reads it as 5 minutes',
+    async id => {
+      storeAutoLockTimeId(id)
+      const writesBefore = adapter.writes
+
+      const service = await load()
+
+      expect(service.getAutoLockTimeId()).toBe(3)
+      expect(adapter.writes).toBe(writesBefore)
+      // The store's debounced save of the other repairs keeps it as well.
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(storedAutoLockTimeId()).toBe(id)
+      expect((await load()).getAutoLockTimeId()).toBe(3)
+      expect(storedAutoLockTimeId()).toBe(id)
+    }
+  )
+
+  it('replaces an id a later build stored once a time is chosen here', async () => {
+    storeAutoLockTimeId(11)
+    const service = await load()
+
+    await service.setAutoLockTimeId(6)
+
+    expect(service.getAutoLockTimeId()).toBe(6)
+    expect(storedAutoLockTimeId()).toBe(6)
+    expect((await load()).getAutoLockTimeId()).toBe(6)
+  })
+
+  it('reads a store with no auto-lock time as the default, 30 minutes, with no save of its own', async () => {
+    adapter.disk.set('preference', JSON.stringify({ locale: 'fr', currentVersion: '0' }))
+    const writesBefore = adapter.writes
+
+    const service = await load()
+
+    expect(service.getAutoLockTimeId()).toBe(DEFAULT_LOCKTIME_ID)
+    expect(DEFAULT_LOCKTIME_ID).toBe(5)
+    expect(adapter.writes).toBe(writesBefore)
+  })
+
+  it('starts a new install at 30 minutes', async () => {
+    const service = await load()
+    expect(service.getAutoLockTimeId()).toBe(5)
+    expect(storedAutoLockTimeId()).toBe(5)
+  })
+
+  it('starts when the rewrite cannot be saved, reads the current id, and its own debounced save lands it', async () => {
+    storeAutoLockTimeId(4)
+    adapter.writeErrors.push(new Error('QUOTA_BYTES quota exceeded'))
+    const writesBefore = adapter.writes
+
+    const service = await load()
+
+    expect(service.getAutoLockTimeId()).toBe(8)
+    expect(adapter.writes - writesBefore).toBe(1)
+    expect(storedAutoLockTimeId()).toBe(4)
+
+    // The failed save left the store's debounced save queued with the change,
+    // and nothing else writes meanwhile.
+    await vi.advanceTimersByTimeAsync(999)
+    expect(storedAutoLockTimeId()).toBe(4)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(adapter.writes - writesBefore).toBe(2)
+    expect(storedAutoLockTimeId()).toBe(8)
+  })
+
+  it('reads a retired id left on disk by a quit before its rewrite was saved as the same time', async () => {
+    storeAutoLockTimeId(4)
+    adapter.writeErrors.push(new Error('QUOTA_BYTES quota exceeded'))
+    const service = await load()
+    expect(service.getAutoLockTimeId()).toBe(8)
+    expect(storedAutoLockTimeId()).toBe(4)
+
+    // The browser quits before the debounced save: the next start-up finds
+    // the retired id and rewrites it the same way.
+    const restarted = await load()
+    expect(restarted.getAutoLockTimeId()).toBe(8)
+    expect(storedAutoLockTimeId()).toBe(8)
+  })
+
+  it('reads a retired id that is in memory but not on disk as its replacement', async () => {
+    const service = await load()
+    ;(service as unknown as { store: { autoLockTimeId: unknown } }).store.autoLockTimeId = 7
+    expect(service.getAutoLockTimeId()).toBe(9)
+    ;(service as unknown as { store: { autoLockTimeId: unknown } }).store.autoLockTimeId = 'x'
+    expect(service.getAutoLockTimeId()).toBe(3)
   })
 })
 

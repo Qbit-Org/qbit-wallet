@@ -127,12 +127,23 @@ Controls and evidence:
   the PQC WASM tests also inspect scratch zeroization on failure; and
 - the signing-source guard prevents transitive `elliptic`/Bitcore ECDSA from
   replacing the reviewed `tiny-secp256k1` wallet-signing route;
-- the auto-lock (30 seconds to 4 hours, 3 minutes by default) runs on a timer
+- the auto-lock (5 minutes to 6 hours, 30 minutes by default) runs on a timer
   and on a wall-clock deadline: a timer does not count the time the computer
   sleeps, so a screen action after the deadline, or any change of the
   computer's idle state such as waking, locks instead of extending the
   session. Any lock ends the auto-lock time, so an old timer cannot lock a
   later unlock;
+- the auto-lock time is stored as the id of an offered time. A time that
+  1.0.10 no longer offers is stored again at start-up as the time that
+  replaced it (30 seconds, 1 minute and 3 minutes became 5 minutes,
+  10 minutes became 15 minutes, 4 hours became 3 hours), and a value that is
+  no id at all (anything but a whole number of zero or more) as the
+  shortest, 5 minutes. An id this build does not know, which a later build
+  may have stored, stays on disk, so going back to this build and updating
+  again keeps that choice, and is used as 5 minutes meanwhile: an unreadable
+  setting never locks later than the user may have chosen. The background
+  refuses to save a time it does not offer, and the setting and the running
+  time then stay as they were;
 - an auto-lock that falls due while the wallet signs a transaction, from the
   signing call's first check to its last input, waits for that signing,
   because a lock detaches the keyring and the signing would fail at its next
@@ -197,7 +208,8 @@ Residual risk:
   only the auto-lock. Chrome on macOS and Windows also reports a running
   screen saver as locked, so the wallet locks then too. With both settings
   off, or with a long auto-lock and the computer left unlocked, the wallet
-  stays unlocked until the auto-lock time.
+  stays unlocked until the auto-lock time: 30 minutes after the last screen
+  action by default, and up to 6 hours.
 - A local signing, and the broadcast that follows it, keep an overdue
   auto-lock waiting, with the signing's page open, for up to ten minutes. With the computer-lock setting off, a wallet
   left unlocked during a large signing can therefore stay unlocked up to ten

@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1 Часа"
   },
-  "n_minute": {
-    "message": "$1 Минута"
+  "n_hours_many": {
+    "message": "$1 Часов"
   },
   "n_minutes": {
     "message": "$1 Минут"
-  },
-  "n_seconds": {
-    "message": "$1 Секунд"
   },
   "no_connected_sites": {
     "message": "Нет подключенных сайтов"

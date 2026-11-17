@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1 Heures"
   },
-  "n_minute": {
-    "message": "$1 Minute"
+  "n_hours_many": {
+    "message": "$1 Heures"
   },
   "n_minutes": {
     "message": "$1 Minutes"
-  },
-  "n_seconds": {
-    "message": "$1 Secondes"
   },
   "no_connected_sites": {
     "message": "Aucun site connecté"

@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1小時"
   },
-  "n_minute": {
-    "message": "$1分鐘"
+  "n_hours_many": {
+    "message": "$1小時"
   },
   "n_minutes": {
     "message": "$1分鐘"
-  },
-  "n_seconds": {
-    "message": "$1秒"
   },
   "no_connected_sites": {
     "message": "沒有已連接的網站"

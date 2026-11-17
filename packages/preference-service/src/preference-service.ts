@@ -16,6 +16,8 @@ import {
   WalletError,
   isWalletColorKey,
   normalizeAvailableChainType,
+  repairStoredAutoLockTimeId,
+  resolveAutoLockTimeId,
 } from '@qbit/wallet-shared'
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
@@ -367,6 +369,21 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.lockOnWindowsClosed = true
     }
 
+    // The auto-lock times changed in 1.0.10: store the id of the time each
+    // retired one became, and the shortest time for a value that is no id at
+    // all. An id this build does not know, which a later build may have
+    // stored, stays on disk (repairStoredAutoLockTimeId). This is saved at
+    // once rather than after the store's debounce; getAutoLockTimeId reads
+    // every value with resolveAutoLockTimeId, so the old one read again after
+    // a quit before the save means the same time.
+    const storedAutoLockTimeId = this.store.autoLockTimeId
+    const repairedAutoLockTimeId = repairStoredAutoLockTimeId(storedAutoLockTimeId)
+    const autoLockTimeIdChanged =
+      repairedAutoLockTimeId !== undefined && repairedAutoLockTimeId !== storedAutoLockTimeId
+    if (autoLockTimeIdChanged) {
+      this.store.autoLockTimeId = repairedAutoLockTimeId
+    }
+
     if (!this.store.balanceMap) {
       this.store.balanceMap = {}
     }
@@ -427,6 +444,15 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
         hasRated: false,
         ratePromptDismissedAt: null,
         hasShownSecondPrompt: false,
+      }
+    }
+
+    if (autoLockTimeIdChanged) {
+      try {
+        await this.persist()
+      } catch (error) {
+        // The store's debounced save is still queued with the change.
+        this.logger?.error?.('[PreferenceService] Failed to save the auto-lock time', error)
       }
     }
   }
@@ -746,7 +772,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    * Auto lock time management (Extension-specific)
    */
   getAutoLockTimeId(): number {
-    return this.store.autoLockTimeId ?? DEFAULT_LOCKTIME_ID
+    return resolveAutoLockTimeId(this.store.autoLockTimeId)
   }
 
   setAutoLockTimeId(id: number): Promise<void> {

@@ -83,7 +83,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 0),
+      getAutoLockTimeId: vi.fn(() => 3),
       getInitAlianNameStatus: vi.fn(() => true),
       getLockOnComputerLock: vi.fn(() => true),
       getLockOnWindowsClosed: vi.fn(() => true),

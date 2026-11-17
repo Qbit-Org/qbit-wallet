@@ -140,10 +140,10 @@ separately with two-decimal millisecond precision.
 | Provider ready        | `scenarios/provider-ready.spec.ts:240`    | A page that listens before the wallet loads hears it is ready, and a late listener can ask                 | Not recorded |       — |
 | Provider ready frames | `scenarios/provider-ready.spec.ts:261`    | A frame of another origin gets its own event and announcement; a sandboxed frame gets neither              | Not recorded |       — |
 | Wipe/restore          | `scenarios/recovery.spec.ts:88`           | Passphrase separation; exact addresses, balances, floors, and warnings after restore                       | Pass         | 126.0 s |
-| Lock                  | `scenarios/lock.spec.ts:25`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
-| Auto-lock             | `scenarios/lock.spec.ts:93`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
-| Window close          | `scenarios/lock.spec.ts:168`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
-| Lock after onboarding | `scenarios/lock.spec.ts:210`              | The creating page shows the lock screen on a lock and an auto-lock; a page left on Welcome does on a lock  | Not recorded |       — |
+| Lock                  | `scenarios/lock.spec.ts:27`               | Wrong password, unlock, persisted state, and browser restart                                               | Pass         |  33.4 s |
+| Auto-lock             | `scenarios/lock.spec.ts:95`               | Onboarding keepalive stays bounded across an MV3 service-worker restart                                    | Pass         |  56.1 s |
+| Window close          | `scenarios/lock.spec.ts:166`              | Closing the last normal window locks the wallet; a wallet popup and a reopened window show the lock screen | Not recorded |       — |
+| Lock after onboarding | `scenarios/lock.spec.ts:264`              | The creating page shows the lock screen on a lock and an auto-lock; a page left on Welcome does on a lock  | Not recorded |       — |
 | Biometric B1          | `scenarios/biometric-unlock.spec.ts:42`   | Onboarding enrollment, TouchID unlock, and password-change re-wrap                                         | Pass         |  16.8 s |
 | Biometric B2          | `scenarios/biometric-unlock.spec.ts:126`  | Settings enrollment with step-up, persistence across restart, and disable                                  | Pass         |  19.8 s |
 | Unlock in a tab       | `scenarios/unlock-history.spec.ts:59`     | In a tab opened locked, the unlock leaves Home as the tab's one wallet entry; Back leaves the wallet       | Not recorded |       — |
@@ -162,9 +162,10 @@ separately with two-decimal millisecond precision.
 | Security phrase/pass  | `scenarios/reset-wallet.spec.ts:676`      | Security shows the current wallet's phrase after the password; Change Password works, Back returns         | Not recorded |       — |
 | Reset re-read         | `scenarios/reset-wallet.spec.ts:721`      | Remove Wallet reads the wallets again: one another window added makes it the ordinary removal              | Not recorded |       — |
 | Reset race            | `scenarios/reset-wallet.spec.ts:751`      | A reset asked for as the last wallet is refused once another window added one; the toast says so           | Not recorded |       — |
-| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:165`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:165`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
-| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:165`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:166`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:166`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:166`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
+| Upgrade auto-lock     | `scenarios/upgrade.spec.ts:280`           | 1.0.7 data storing the earlier default 3 minutes starts at 5 minutes, saved before any action              | Not recorded |       — |
 
 The dApp PSBT-signing and wipe/restore rows were previously blocked (a
 `-32603: Not supported` provider rejection and a restore scan that never
@@ -182,9 +183,19 @@ the confirmation to the signed payment, 174-204 seconds (0.81-0.94 seconds
 a signature); and the payment reached the mempool 10-14 seconds after the
 block that confirmed the merges. The gate's runners sign at about 1.25
 seconds a signature, so the row should take about 6 minutes there. It sets
-the longest auto-lock first: the default 3 minutes falls due about when
-signing ends, and the lock that follows takes the progress screen to the
-unlock screen at a point that depends on the runner's pace.
+the longest auto-lock, 6 hours, first: an auto-lock that fell due in the row
+would take the progress screen to the unlock screen at a point that depends
+on the runner's pace. The default 30 minutes outlasts the row's timeout, so
+the row does not depend on the default either.
+
+The lock-after-onboarding row locks the send form through the auto-lock's
+own timer. The shortest auto-lock is 5 minutes, so the row sets 15 minutes
+and first makes the service worker's timers of 15 minutes last 30 seconds,
+from the test's side, and checks right after the tap on Send that the
+auto-lock's timer was shortened. The timer, the lock, its broadcast and the
+unlock screen are the wallet's own; only the wait is shorter. The auto-lock row
+leaves the default 30 minutes in place, so the lock it waits for is the
+onboarding keepalive's own.
 
 ### Consolidation
 

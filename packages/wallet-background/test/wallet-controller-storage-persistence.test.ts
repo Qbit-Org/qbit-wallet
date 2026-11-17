@@ -53,11 +53,11 @@ describe('WalletController storage persistence', () => {
   })
 
   it('has security settings on disk when the setter resolves, before the debounced save', async () => {
-    await walletController.setAutoLockTimeId(1)
+    await walletController.setAutoLockTimeId(3)
     await walletController.setEnableRBF(false)
 
     const reloaded = await reloadPreferences()
-    expect(reloaded.getAutoLockTimeId()).toBe(1)
+    expect(reloaded.getAutoLockTimeId()).toBe(3)
     expect(reloaded.getEnableRBF()).toBe(false)
 
     await walletController.setEnableRBF(true)

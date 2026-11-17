@@ -60,7 +60,7 @@ vi.mock('@qbit/wallet-state', () => ({
   useAddressTypeSettingLogic: () => harness.addressType,
   useI18n: () => ({ t: (key: string) => key, locale: 'fr' }),
   // What the lock settings read; see the note on the building blocks above.
-  useAutoLockTimeId: () => 2,
+  useAutoLockTimeId: () => 5,
   useBiometricUnlock: () => ({ ready: true, supported: true, enrolled: false }),
   useSecurityCardLogic: () => ({
     lockOnComputerLock: true,

@@ -1,5 +1,6 @@
 import { OnboardingPage, ReceivePage, SendPage, SettingsPage, WalletHomePage } from '../pages'
 import { expect, test } from '../fixtures/test'
+import type { ExtensionSession } from '../support/extension-session'
 import {
   E2E_PASSWORD,
   E2E_WRONG_PASSWORD,
@@ -20,6 +21,7 @@ interface WalletKeyringProbe {
 }
 
 const LOCKED_METHOD = 'walletLocked'
+const AUTO_LOCKED_METHOD = 'walletAutoLocked'
 const ONBOARDING_GRACE_PERIOD_MS = 10 * 60 * 1000
 
 test('G3 lock: rejects a wrong password and survives unlock plus browser restart', async ({
@@ -106,11 +108,8 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   await expect(setup.page.getByTestId('mnemonic-import-word-0')).toBeVisible()
 
   // Provisioning leaves the browser's initial about:blank page and the
-  // onboarding page open. A focus or visibility flip on any wallet page fires
-  // IdleTimerProvider onAction -> setLastActiveTime, which restarts the
-  // background lock timer, so stray window focus ping-pong between those
-  // pages can hold the 30-second auto-lock off past any poll budget. Close
-  // everything but this test's page before arming the timer.
+  // onboarding page open. Close everything but this test's page, so the only
+  // keepalive left is the one on this page.
   for (const page of extension.context.pages()) {
     if (page !== setup.page) {
       await page.close()
@@ -118,9 +117,11 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
   }
 
   await extension.captureWalletBroadcasts(setup.page)
-  // Advance only the UI's monotonic elapsed-time reading. The background's
-  // 30-second auto-lock timer remains real, so this avoids a ten-minute test
-  // without weakening or adding a test switch to production behavior.
+  // Advance only the UI's monotonic elapsed-time reading, so the keepalive
+  // reaches its ten-minute bound now: this avoids a ten-minute test without
+  // weakening or adding a test switch to production behavior. The auto-lock
+  // stays at its default 30 minutes, far past this test's budget, so the
+  // lock awaited below can only be the keepalive's own.
   await setup.page.evaluate(gracePeriodMs => {
     const monotonicNow = performance.now.bind(performance)
     Object.defineProperty(performance, 'now', {
@@ -128,19 +129,16 @@ test('P2 auto-lock: bounds onboarding keepalive across an MV3 restart', async ({
       value: () => monotonicNow() + gracePeriodMs,
     })
   }, ONBOARDING_GRACE_PERIOD_MS)
-  await extension.requestWalletController<void>(setup.page, 'setAutoLockTimeId', [0])
 
   // Past its grace period the keepalive stops refreshing and locks on its
-  // next tick, unless the 30-second auto-lock comes first. A lock clears the
-  // auto-lock timer, so after the keepalive's lock no auto-lock follows: wait
-  // for the lock itself. The budget leaves room for a trailing activity burst
-  // from the clicks above.
+  // next tick, ten seconds at most; the budget leaves room for a slow one.
   await expect
     .poll(() => extension.walletBroadcastMethods(setup.page), {
       timeout: 120_000,
       intervals: [250, 500, 1_000],
     })
     .toContain(LOCKED_METHOD)
+  expect(await extension.walletBroadcastMethods(setup.page)).not.toContain(AUTO_LOCKED_METHOD)
   await setup.page.evaluate(() => {
     delete (performance as unknown as { now?: () => number }).now
   })
@@ -205,7 +203,63 @@ test('G3 lock: locks when the last normal browser window closes', async ({ exten
   await new WalletHomePage(reopened).waitUntilReady()
 })
 
-const AUTO_LOCKED_METHOD = 'walletAutoLocked'
+// The send form's auto-lock time: 15 minutes (`getAutoLockTimes`,
+// @qbit/wallet-shared), a delay the background arms no other timer for.
+const SEND_FORM_AUTO_LOCK_ID = 8
+const SEND_FORM_AUTO_LOCK_MS = 15 * 60 * 1000
+// How long the background's timer of that length lasts in that test.
+const SEND_FORM_AUTO_LOCK_WAIT_MS = 30 * 1000
+
+/**
+ * Make the service worker's timers of `fromMs` last `toMs` instead, from the
+ * test's side: the wallet has no test switch for its auto-lock time. Resolves
+ * to `shortened`, which reads how many timers were shortened so far, and
+ * `restore`, which puts the worker's own setTimeout back and resolves to that
+ * number.
+ */
+async function shortenServiceWorkerTimers(
+  extension: ExtensionSession,
+  fromMs: number,
+  toMs: number
+): Promise<{ shortened: () => Promise<number>; restore: () => Promise<number> }> {
+  const worker = await extension.serviceWorker()
+  await worker.evaluate(
+    ({ fromMs, toMs }) => {
+      type SetTimeout = (handler: unknown, ms?: number, ...args: unknown[]) => unknown
+      const scope = globalThis as unknown as {
+        setTimeout: SetTimeout
+        qbitE2eShortenedTimers?: { setTimeout: SetTimeout; shortened: number }
+      }
+      const ownSetTimeout = scope.setTimeout
+      const state = { setTimeout: ownSetTimeout, shortened: 0 }
+      scope.qbitE2eShortenedTimers = state
+      scope.setTimeout = (handler, ms, ...args) => {
+        if (ms !== fromMs) return ownSetTimeout(handler, ms, ...args)
+        state.shortened++
+        return ownSetTimeout(handler, toMs, ...args)
+      }
+    },
+    { fromMs, toMs }
+  )
+  return {
+    shortened: () =>
+      worker.evaluate(() => {
+        const scope = globalThis as unknown as { qbitE2eShortenedTimers?: { shortened: number } }
+        return scope.qbitE2eShortenedTimers?.shortened ?? 0
+      }),
+    restore: () =>
+      worker.evaluate(() => {
+        const scope = globalThis as unknown as {
+          setTimeout: unknown
+          qbitE2eShortenedTimers?: { setTimeout: unknown; shortened: number }
+        }
+        const state = scope.qbitE2eShortenedTimers!
+        scope.setTimeout = state.setTimeout
+        delete scope.qbitE2eShortenedTimers
+        return state.shortened
+      }),
+  }
+}
 
 test('G3 lock: sends pages opened before the wallet existed to the unlock screen', async ({
   extension,
@@ -263,17 +317,31 @@ test('G3 lock: sends pages opened before the wallet existed to the unlock screen
   await creatingUnlock.waitForUnlock()
   await unlockToHome()
 
-  // The send form locks through the real 30-second auto-lock, as reported. A
-  // focus or visibility change on another wallet page is a screen action
-  // that starts the time over (see the P2 auto-lock test), so this page is
-  // left alone in the browser first. After the tap on Send nothing here is a
-  // screen action: controller calls and the broadcast capture are not.
+  // The send form locks through the background's auto-lock timer, as
+  // reported: the timer runs out, the background locks and broadcasts the
+  // auto-lock, and the page goes to the unlock screen. Only the wait is
+  // shorter: the worker's timers of the 15-minute auto-lock time last 30
+  // seconds, set up before the time is armed. A focus or visibility change
+  // on another wallet page is a screen action that starts the time over, so
+  // this page is left alone in the browser first. After the tap on Send
+  // nothing here is a screen action: controller calls and the broadcast
+  // capture are not.
   for (const page of extension.context.pages()) {
     if (page !== creatingPage) await page.close()
   }
   await extension.captureWalletBroadcasts(creatingPage)
-  await extension.requestWalletController<void>(creatingPage, 'setAutoLockTimeId', [0])
+  const timers = await shortenServiceWorkerTimers(
+    extension,
+    SEND_FORM_AUTO_LOCK_MS,
+    SEND_FORM_AUTO_LOCK_WAIT_MS
+  )
+  await extension.requestWalletController<void>(creatingPage, 'setAutoLockTimeId', [
+    SEND_FORM_AUTO_LOCK_ID,
+  ])
   await home.openSend()
+  // The setting and the tap each armed the auto-lock's timer: the patch
+  // applies before the wait below, which would otherwise last 15 minutes.
+  expect(await timers.shortened()).toBeGreaterThanOrEqual(1)
   const send = new SendPage(creatingPage)
   await send.waitForCreate()
   expect(await extension.documentMark(creatingPage)).toBe(creatingMark)
@@ -286,6 +354,7 @@ test('G3 lock: sends pages opened before the wallet existed to the unlock screen
     })
     .toContain(LOCKED_METHOD)
   expect(await extension.walletBroadcastMethods(creatingPage)).toContain(AUTO_LOCKED_METHOD)
+  expect(await timers.restore()).toBeGreaterThanOrEqual(1)
   await creatingUnlock.waitForUnlock()
   // The lock took this page from the send form it showed unlocked. With the
   // account and network unchanged, the unlock brings the form back, and its

@@ -818,14 +818,11 @@
   "n_hours": {
     "message": "$1時間"
   },
-  "n_minute": {
-    "message": "$1分"
+  "n_hours_many": {
+    "message": "$1時間"
   },
   "n_minutes": {
     "message": "$1分"
-  },
-  "n_seconds": {
-    "message": "$1秒"
   },
   "no_connected_sites": {
     "message": "接続済みのサイトはありません"

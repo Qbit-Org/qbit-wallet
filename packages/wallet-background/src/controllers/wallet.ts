@@ -146,6 +146,7 @@ import {
   getAccountCapabilities,
   getLockTimeInfo,
   getQbitHdPathForChainType,
+  isAutoLockTimeId,
   isQbitAccountOutput,
   isQbitFeeRateWithinPolicy,
   isQbitStandardTxSize,
@@ -12357,6 +12358,11 @@ export class WalletController extends BaseController {
   }
 
   setAutoLockTimeId = async (timeId: number) => {
+    // Only a time offered now: a retired id, or anything else, changes
+    // neither the setting nor the running time.
+    if (!isAutoLockTimeId(timeId)) {
+      throw new Error('Unknown auto-lock time')
+    }
     await preferenceService.setAutoLockTimeId(timeId)
     // An overdue auto-lock held for a signing stays held, as on a screen
     // action: the new time applies from the next start of the time.
