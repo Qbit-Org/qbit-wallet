@@ -162,6 +162,43 @@ pays (#188), found in its review (#206).
 - If a reset erases the wallets but cannot clear some other saved data, the
   wallet says so and clears the rest before a new wallet can be created.
 
+### Switch Account balances
+
+- Switch Account shows each account's balance at the end of its row, and
+  each wallet's total after its account count, as in "3 accounts · 12.5
+  QBT". A wallet's total counts all of its accounts, also the ones a search
+  hides. The current account's row shows the same balance as the home
+  screen.
+- While a balance is on its way, a short grey bar holds its place, and a
+  wallet's total waits for all of its accounts. "--" means the balance could
+  not be read. If a new read fails after an earlier one succeeded, the
+  earlier balance stays, dimmed, and so does a balance that may be from
+  before a payment the wallet just sent; a dimmed balance stays dimmed when
+  Switch Account is opened again, until it is read again. While balances are
+  hidden on the home screen, Switch Account shows `****` and reads nothing.
+- The accounts of a read-only wallet show "--": their addresses are not Qbit
+  addresses of the network, and Switch Account does not ask the chain API
+  about them.
+- To show the balances, opening Switch Account asks the network's chain API
+  for each account's address statistics, one small request per account,
+  each past every cache, so no earlier reply answers it. The page has at
+  most four reads out at a time and sends no more once Switch Account
+  closes; the background sends at most four at a time to one explorer, so
+  over HTTP/1.1 these reads never take more than four of the six
+  connections a browser opens to one host. A balance read in the last
+  minute is not read again, so Switch Account opened again soon after shows
+  the balances at once. After a payment sent
+  from this wallet, every balance is read again at the next opening, and for
+  30 seconds a balance read is kept for 10 seconds only, so Switch Account
+  shows the payment on both of its accounts as soon as the explorer does.
+  Locking the wallet, Reset Wallet, removing a wallet and switching networks
+  stop the reads still under way; after a removal, the accounts of the
+  other wallets are read again instead of showing "--". The chain API's
+  operator sees these addresses requested together; see
+  [privacy](../privacy.md#account-switcher-balances).
+- A dimmed balance is also announced as possibly out of date by screen
+  readers, on the account's row and on its wallet's total.
+
 ### Known limitations
 
 - The wallet forgets what it read of an account's outputs when it locks, when
@@ -202,6 +239,15 @@ pays (#188), found in its review (#206).
   are combined.
 - A completed payment whose transaction was replaced by one made outside
   this wallet goes on showing the earlier transaction.
+- In Switch Account, the balance of an account other than the current one
+  can be up to a minute old: a payment it received in that minute shows
+  once the minute has passed and Switch Account is opened again. After the
+  wallet locks, after a network switch and after a payment sent from this
+  wallet, every account's balance is read again at the next opening.
+- A payment sent from this wallet shows in Switch Account only once the
+  explorer shows it. If the explorer takes longer than 30 seconds to show
+  it, a balance read after those 30 seconds, while the explorer still shows
+  the earlier one, can stay as it was for up to a minute.
 
 ## 1.0.9
 

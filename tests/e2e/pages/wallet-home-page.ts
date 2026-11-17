@@ -64,6 +64,18 @@ export class WalletHomePage extends ExtensionPageObject {
     return (await this.balanceCard.innerText()).replace(/\s+/g, ' ').trim()
   }
 
+  /**
+   * The total the balance card shows, as it shows it: the amount with its
+   * eight decimals, without the unit ("0.25000000"); "" while it shows none.
+   * The card sets the whole part and the decimals apart, so they are joined.
+   */
+  async balanceAmount(): Promise<string> {
+    await expect(this.balanceCard).toBeVisible()
+    if ((await this.byTestId('balance-loading').count()) > 0) return ''
+    const text = (await this.balanceCard.innerText()).replace(/\s+/g, '')
+    return text.match(/\d+\.\d{8}/)?.[0] ?? ''
+  }
+
   /** The balance card's eye, which hides or shows the balances. */
   get balanceVisibilityToggle(): Locator {
     return this.byTestId('balance-visibility-toggle')

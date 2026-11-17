@@ -11,6 +11,8 @@ const LOCALES = ['en', 'es', 'fr', 'ja', 'ru', 'zh_TW'];
 // Copy the account switcher added or changed.
 const SWITCHER_KEYS = [
   'account_created',
+  'account_switcher_account_balance_label',
+  'account_switcher_account_balance_stale_label',
   'account_switcher_account_count_few',
   'account_switcher_account_count_many',
   'account_switcher_account_count_one',
@@ -24,6 +26,7 @@ const SWITCHER_KEYS = [
   'account_switcher_no_results_hint',
   'account_switcher_open_label',
   'account_switcher_search_placeholder',
+  'account_switcher_total_stale_note',
   'account_switcher_wallet_options_label',
   'account_switcher_wallet_unavailable',
   'create',

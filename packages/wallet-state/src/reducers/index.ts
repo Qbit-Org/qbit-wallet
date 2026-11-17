@@ -1,4 +1,4 @@
-export { accountActions } from './accounts'
+export { accountActions, isSatoshiAmount } from './accounts'
 export { globalActions } from './global'
 export { keyringsActions } from './keyrings'
 export { settingsActions } from './settings'

@@ -12,6 +12,17 @@ export type WalletMenuItem = 'add-account' | 'rename' | 'change-color' | 'show-p
 
 export type AccountMenuItem = 'edit-name' | 'copy-address' | 'export-key'
 
+/**
+ * A total as the switcher shows it in every locale: `sats` in whole coins,
+ * without the fraction's trailing zeros, then `unit` ("12.5 QBT", "0 QBT").
+ */
+export function switcherAmount(sats: number | bigint, unit: string): string {
+  const value = BigInt(sats)
+  const whole = value / 100_000_000n
+  const fraction = (value % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '')
+  return `${whole}${fraction ? `.${fraction}` : ''} ${unit}`
+}
+
 /** The short address the switcher shows for an account. */
 export function shortAddress(address: string): string {
   return address.length <= 16 ? address : `${address.slice(0, 8)}...${address.slice(-8)}`
@@ -114,6 +125,64 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
 
   accountMenuButton(address: string): Locator {
     return this.byTestId(`account-menu-${address}`)
+  }
+
+  /**
+   * The total at the end of an account's row: an amount in the network's
+   * unit, `****` while balances are hidden, `--` when it is unknown, or an
+   * empty placeholder (`data-pending="true"`) while it is on its way.
+   */
+  accountBalance(address: string): Locator {
+    return this.byTestId(`account-balance-${address}`)
+  }
+
+  /** The wallet's total after the account count in its group header, shown as an account's is. */
+  walletTotal(keyringKey: string): Locator {
+    return this.byTestId(`wallet-total-${keyringKey}`)
+  }
+
+  /** A wallet group's header: its tile, name line, count line and buttons. */
+  walletHeader(keyringKey: string): Locator {
+    return this.walletGroup(keyringKey).locator('.switcher-group__header')
+  }
+
+  /** The account name on an account's row. */
+  accountName(address: string): Locator {
+    return this.accountRow(address).locator('.switcher-row__name')
+  }
+
+  /**
+   * Every total the sheet shows, on the rows and in the wallet headers, but
+   * not the note a stale wallet total carries for screen readers.
+   */
+  get totals(): Locator {
+    return this.root.locator(
+      '[data-testid^="account-balance-"], [data-testid^="wallet-total-"]:not([data-testid^="wallet-total-stale-"])'
+    )
+  }
+
+  /** The note, for screen readers only, that a wallet's total may be out of date. */
+  walletTotalStaleNote(keyringKey: string): Locator {
+    return this.byTestId(`wallet-total-stale-${keyringKey}`)
+  }
+
+  /** The totals still on their way. */
+  get pendingTotals(): Locator {
+    return this.root.locator('[data-pending="true"]')
+  }
+
+  /**
+   * The text of every total the sheet shows, by its test ID; a placeholder
+   * still on its way shows as "".
+   */
+  async totalTexts(): Promise<Record<string, string>> {
+    const entries = await this.totals.evaluateAll(elements =>
+      elements.map(element => [
+        element.getAttribute('data-testid') ?? '',
+        (element.textContent ?? '').trim(),
+      ])
+    )
+    return Object.fromEntries(entries)
   }
 
   /** The highlighted row of the current account. */

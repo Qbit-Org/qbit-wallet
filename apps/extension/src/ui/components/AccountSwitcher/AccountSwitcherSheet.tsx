@@ -14,11 +14,14 @@ import { Account, KeyringType, WalletColorKey, WalletKeyring } from '@qbit/walle
 import {
   accountActions,
   keyringsActions,
+  useAccountSwitcherTotals,
   useAppDispatch,
   useCurrentAccount,
+  useCurrentAccountBalanceTotal,
   useI18n,
   useKeyrings,
   useNavigation,
+  useQbitUnit,
   useReloadAccounts,
   useTools,
   useWallet
@@ -27,6 +30,7 @@ import {
 import { ActionMenu, ActionMenuItem } from './ActionMenu';
 import { NameEditDialog, NewAccountDialog, WalletColorPicker } from './SwitcherDialogs';
 import { accountCountLabel } from './accountCount';
+import { TotalDisplay, accountTotalDisplay, formatTotal, walletTotalDisplay } from './accountTotals';
 import './index.less';
 
 /** Wallets that can derive another account: the ones with a recovery phrase. */
@@ -78,6 +82,42 @@ interface WalletGroup {
 }
 
 /**
+ * A total in its place on a row or a wallet header: the amount, `****` while
+ * balances are hidden, `--` when it is unknown, or a quiet bar of fixed width
+ * while it is on its way. An amount that may be out of date (its latest
+ * read failed, or it may be from before a transaction the wallet submitted)
+ * is muted.
+ */
+function TotalAmount({
+  display,
+  unit,
+  className,
+  testId
+}: {
+  display: TotalDisplay;
+  unit: string;
+  className: string;
+  testId: string;
+}) {
+  if (display.kind === 'pending') {
+    return (
+      <span
+        className={`${className} ${className}--pending`}
+        aria-hidden="true"
+        data-pending="true"
+        data-testid={testId}
+      />
+    );
+  }
+  const stale = display.kind === 'amount' && display.stale;
+  return (
+    <span className={className} data-stale={stale ? 'true' : undefined} data-testid={testId}>
+      {display.kind === 'hidden' ? '****' : display.kind === 'unknown' ? '--' : formatTotal(display.sats, unit)}
+    </span>
+  );
+}
+
+/**
  * Every account of every wallet, grouped under its wallet; one tap on an
  * account switches to its wallet and the account together.
  */
@@ -99,6 +139,16 @@ function AccountSwitcherContent() {
   const { t, locale } = useI18n();
   const keyrings = useKeyrings();
   const currentAccount = useCurrentAccount();
+  const qbitUnit = useQbitUnit();
+  const { hidden: balancesHidden, totals } = useAccountSwitcherTotals(keyrings);
+  const homeTotal = useCurrentAccountBalanceTotal();
+
+  // The current account shows the home screen's figure once that is loaded,
+  // so the two never disagree; every other account, its own total.
+  const totalOf = (account: Account): TotalDisplay =>
+    !balancesHidden && homeTotal && account.address === homeTotal.address
+      ? { kind: 'amount', sats: homeTotal.totalBalance, stale: homeTotal.stale }
+      : accountTotalDisplay(balancesHidden, totals[account.address]);
 
   const titleId = useId();
   const listId = useId();
@@ -677,6 +727,8 @@ function AccountSwitcherContent() {
           const tags = walletTagsFor(keyring);
           const canAddAccount = !corrupted && ACCOUNT_CREATABLE_KEYRING_TYPES.includes(keyring.type);
           const walletMenuOpen = menu?.kind === 'wallet' && menu.keyringKey === keyring.key;
+          // Every account of the wallet, the ones a search hides too.
+          const walletTotal = walletTotalDisplay(balancesHidden, keyring.accounts.map(totalOf));
           return (
             <div
               key={keyring.key}
@@ -700,8 +752,25 @@ function AccountSwitcherContent() {
                     <WalletTags tags={tags} testIdFor={(tag) => `wallet-tag-${tag}-${keyring.key}`} />
                   </div>
                   {!corrupted && (
-                    <span className="switcher-group__count">
-                      {accountCountLabel(t, locale, keyring.accounts.length)}
+                    <span className="switcher-group__count-line">
+                      <span className="switcher-group__count">
+                        {accountCountLabel(t, locale, keyring.accounts.length)}
+                      </span>
+                      <span className="switcher-group__total-separator" aria-hidden="true">
+                        ·
+                      </span>
+                      <TotalAmount
+                        display={walletTotal}
+                        unit={qbitUnit}
+                        className="switcher-group__total"
+                        testId={`wallet-total-${keyring.key}`}
+                      />
+                      {walletTotal.kind === 'amount' && walletTotal.stale && (
+                        // Muted on screen; said in words for a screen reader.
+                        <span className="switcher-visually-hidden" data-testid={`wallet-total-stale-${keyring.key}`}>
+                          {t('account_switcher_total_stale_note')}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -748,6 +817,17 @@ function AccountSwitcherContent() {
                     const accountName = account.alianName ?? '';
                     const address = shortAddress(account.address);
                     const accountMenuOpen = menu?.kind === 'account' && menu.accountKey === account.key;
+                    const total = totalOf(account);
+                    // A stale amount is muted on screen; its name says so in words.
+                    const rowLabel =
+                      total.kind === 'amount'
+                        ? t(
+                            total.stale
+                              ? 'account_switcher_account_balance_stale_label'
+                              : 'account_switcher_account_balance_label',
+                            [accountName, keyring.alianName, address, formatTotal(total.sats, qbitUnit)]
+                          )
+                        : t('account_switcher_account_label', [accountName, keyring.alianName, address]);
                     const rowClass = [
                       'switcher-row',
                       current ? 'switcher-row--current' : '',
@@ -761,7 +841,7 @@ function AccountSwitcherContent() {
                           type="button"
                           className="switcher-row__select"
                           aria-current={current ? 'true' : undefined}
-                          aria-label={t('account_switcher_account_label', [accountName, keyring.alianName, address])}
+                          aria-label={rowLabel}
                           onClick={() => void selectAccount(keyring, account)}
                           data-testid={`account-row-${account.address}`}
                         >
@@ -774,6 +854,12 @@ function AccountSwitcherContent() {
                             </span>
                             <span className="switcher-row__address">{address}</span>
                           </span>
+                          <TotalAmount
+                            display={total}
+                            unit={qbitUnit}
+                            className="switcher-row__amount"
+                            testId={`account-balance-${account.address}`}
+                          />
                         </button>
                         <button
                           type="button"

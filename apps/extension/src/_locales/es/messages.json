@@ -2639,6 +2639,15 @@
   "account_switcher_account_label": {
     "message": "$1 en $2, $3"
   },
+  "account_switcher_account_balance_label": {
+    "message": "$1 en $2, $3, saldo $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$1 en $2, $3, saldo $4, puede que no esté al día"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "Puede que el saldo no esté al día"
+  },
   "account_switcher_wallet_unavailable": {
     "message": "La billetera seleccionada ya no está disponible"
   },
