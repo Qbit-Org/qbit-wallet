@@ -94,6 +94,20 @@ CI runs the same command in headful Chromium through `xvfb-run`, with one
 worker and one bounded retry. `forbidOnly` and `failOnFlakyTests` are enabled in
 CI, so focused tests and retry-only passes fail the job.
 
+CI splits the suite into five shards that run in parallel, each on its own
+runner with its own extension build and regtest harness: the jobs
+`Playwright G3 shard 1 of 5` to `Playwright G3 shard 5 of 5` each run
+`playwright test --shard=<n>/5`. Playwright gives each shard whole files, in
+file order, by test count, so every test runs in exactly one shard. The
+required check, `Playwright G3 scenarios`, passes only when all five passed.
+See [Sharded G3 scenarios](ci-tree-pass-marker.md#sharded-g3-scenarios). To
+run what one shard runs:
+
+```sh
+corepack pnpm exec playwright test --list --shard=3/5
+corepack pnpm exec playwright test --shard=3/5
+```
+
 ## Scenario Matrix
 
 The complete gate is 59 tests (`corepack pnpm exec playwright test --list`).
@@ -236,7 +250,9 @@ showed.
 
 Playwright writes the HTML report to `playwright-report` and per-test evidence
 to `test-results/playwright`. CI uploads both directories for 14 days, excluding
-the ephemeral Chromium profile. A failed row contains:
+the ephemeral Chromium profile, once per shard: the artifact
+`playwright-release-gate-<run ID>-<attempt>-shard-<n>` holds the report and
+evidence of the tests in shard `n` of that attempt. A failed row contains:
 
 - `test-failed-*.png`, `trace.zip`, and retained video;
 - `page-console.log` and `extension-service-worker.log` attachments;
@@ -273,7 +289,8 @@ the fold at that size, as for any send. The row also attaches
 `send-plan-timings.json` with its funding, signing and payment times.
 
 The run-level PQC canary is
-`test-results/playwright/pqc-sign-durations.jsonl`. Samples from the run above
+`test-results/playwright/pqc-sign-durations.jsonl`; in CI each shard's
+artifact holds the samples of its own tests. Samples from the run above
 were 4,463.36 ms for a one-input send, 6,977.43 ms for a three-input send,
 6,442.15 ms for its three-input RBF bump, and 1,590.42 ms for a P2MR dApp
 message signature. In passing gate runs from 2026-10-23 to 2026-10-27,
