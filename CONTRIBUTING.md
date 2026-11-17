@@ -132,9 +132,20 @@ skip it. See [`docs/package-release.md`](docs/package-release.md).
   pushes dismiss earlier approvals.
 - A second ruleset requires three status checks:
   `Typecheck, test, and build`, `Playwright G3 scenarios` and
-  `signed-landing`. The other CI jobs, including `Lint` and
-  `Dependency policy`, are not required, so reviewers check them before
-  merging.
+  `signed-landing`. The first two each pass only when every job they
+  gather passed: the four lanes that typecheck, test and build the
+  extension in parallel, and the five G3 shards (see
+  [`docs/ci-tree-pass-marker.md`](docs/ci-tree-pass-marker.md)). The
+  other CI jobs, including `Lint` and `Dependency policy`, are not
+  required, so reviewers check them before merging.
+- A pull request that changes only documentation that no skipped step reads
+  (markdown under `docs/`, and the root `README.md`, `CONTRIBUTING.md` and
+  `SECURITY.md`) skips the steps of three of those four lanes and of the G3
+  shards, and both required checks still report success. The lane that runs
+  the security tooling tests, which read every tracked file, runs in full,
+  and `Lint` and `Dependency policy` run as usual. To run everything, add the `ci:full-run`
+  label and choose "Re-run all jobs". See
+  [`docs/ci-docs-only.md`](docs/ci-docs-only.md).
 - Every change needs a review from one of the code owners listed in
   [`.github/CODEOWNERS`](.github/CODEOWNERS). Security-sensitive paths also
   have their own rules there: key management, signing, approvals,

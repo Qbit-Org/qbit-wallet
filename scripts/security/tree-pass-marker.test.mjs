@@ -2530,28 +2530,74 @@ test('the command line runs each mode and fails closed', t => {
 
 const MARKER_PATH = '${{ runner.temp }}/tree-pass-marker'
 const SKIP_STEP = "steps.gate.outputs.skip != 'true'"
-// The gate step, whose summary says what a hit does to its job: a gated job
-// skips its steps; a job that aggregates shards still checks them.
-const gateRun =
-  consequence => `if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+// The gate step, whose summary says what a hit, or a docs-only change
+// (docs-only-change.mjs), does to its job: a gated job skips its steps; a job
+// that aggregates shards or lanes still checks them. `docsConsequence` is
+// null for a job that a docs-only change does not skip, whose gate has no
+// docs-only branch.
+const gateRun = (
+  consequence,
+  docsConsequence = consequence
+) => `if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
   echo 'skip=true' >> "$GITHUB_OUTPUT"
   echo "This tree already passed this job in $MARKER_RUN_URL, ${consequence}" >> "$GITHUB_STEP_SUMMARY"
-fi
+${
+  docsConsequence === null
+    ? ''
+    : `elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+  echo 'skip=true' >> "$GITHUB_OUTPUT"
+  echo "This pull request changes only documentation that no skipped step reads, ${docsConsequence} Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+`
+}fi
 `
 const GATE_RUN = gateRun('so its steps are skipped.')
+// A job in `runsOnDocsOnly`: only a marker hit skips it.
+const MARKER_ONLY_GATE_RUN = gateRun('so its steps are skipped.', null)
 const AGGREGATE_GATE_RUN = gateRun(
   'so the shards skipped their steps; this job still checks that every shard succeeded.'
 )
+const LANE_AGGREGATE_GATE_RUN = gateRun(
+  'so the lanes skipped their steps; this job still checks that every lane succeeded.',
+  "so the lanes skipped their steps, except 'Typecheck, security checks and other unit tests', " +
+    'which ran in full because its security tooling tests read every tracked file; ' +
+    'this job still checks that every lane succeeded.'
+)
+// The command whose tests read every tracked file, documentation included:
+// former-owner.test.mjs reads their contents and codeowners.test.mjs their
+// names. No allowlist can name a reader that reads everything.
+const SECURITY_TOOLING_RUN = /^corepack pnpm run test:security-tooling$/m
 const MARKED_WORKFLOWS = {
   '.github/workflows/ci.yml': {
     id: 'ci',
-    // Required checks keep running and skip their steps.
-    stepGated: ['verify'],
+    // Required checks, and the lanes below, keep running and skip their steps.
+    stepGated: [
+      'verify-extension-tests',
+      'verify-wallet-background-tests',
+      'verify-workspace',
+      'verify-package',
+      'verify',
+    ],
     // Other covered jobs are skipped whole.
     jobGated: ['lint'],
     // Matrix jobs that each run one shard of a suite, keyed to the step-gated
     // job that needs them and reports their combined result.
     sharded: {},
+    // Step-gated jobs that each run one part of a required job's work, keyed
+    // to that job, which needs them and reports their combined result. Each
+    // is a job of its own with its own `tested`, so the save job needs it
+    // directly too.
+    lanes: {
+      'verify-extension-tests': 'verify',
+      'verify-wallet-background-tests': 'verify',
+      'verify-workspace': 'verify',
+      'verify-package': 'verify',
+    },
+    // Step-gated jobs that only a marker hit skips, not a docs-only change:
+    // the lane that runs the security tooling tests, which read every tracked
+    // file, documentation included, so that a required check still runs them
+    // on a docs-only change. `Dependency policy` runs them too, but it is not
+    // required. The wiring test ties this list to the jobs that run them.
+    runsOnDocsOnly: ['verify-workspace'],
     // Never covered: they run on every event.
     uncovered: ['dependency-policy'],
   },
@@ -2560,6 +2606,8 @@ const MARKED_WORKFLOWS = {
     stepGated: ['playwright-release-gate'],
     jobGated: [],
     sharded: { 'playwright-g3-shard': 'playwright-release-gate' },
+    lanes: {},
+    runsOnDocsOnly: [],
     uncovered: [],
   },
 }
@@ -2621,16 +2669,55 @@ function shardedJobsOf(expected, aggregate) {
     .map(([name]) => name)
 }
 
+function laneJobsOf(expected, aggregate) {
+  return Object.entries(expected.lanes)
+    .filter(([, name]) => name === aggregate)
+    .map(([name]) => name)
+}
+
+// The jobs whose combined result a step-gated job reports: its shards or its
+// lanes.
+function partsOf(expected, aggregate) {
+  return [...shardedJobsOf(expected, aggregate), ...laneJobsOf(expected, aggregate)]
+}
+
+// The aggregating job's check of its lanes, after its gate. It names each
+// lane as GitHub names the lane's job, and reads the lane's result and
+// `tested` from variables named for its job ID.
+const LANE_CHECK_NAME = 'Check every lane ran and passed'
+const laneVariable = id => id.toUpperCase().replaceAll('-', '_')
+const LANE_CHECK_RUN = lanes => `status=0
+fail() {
+  echo "::error::$1"
+  echo "- $1" >> "$GITHUB_STEP_SUMMARY"
+  status=1
+}
+check_lane() {
+  if [ "$2" != success ]; then
+    fail "Lane \\"$1\\": its result is \\"$2\\", not success; see its job."
+  elif [ "$MARKER_HIT" != true ] && [ "$3" != true ]; then
+    fail "Lane \\"$1\\" did not run all its steps."
+  fi
+}
+${lanes
+  .map(
+    ({ id, name }) =>
+      `check_lane '${name}' "$${laneVariable(id)}_RESULT" "$${laneVariable(id)}_TESTED"`
+  )
+  .join('\n')}
+exit "$status"
+`
+
 // The job-level condition of a job that always reports a result. A required
 // job that waits only for the marker job runs unless the run is cancelled,
 // and GitHub then reports it cancelled, not skipped (the doc cites the runs).
-// One that aggregates shards runs even in a cancelled run, so the check does
-// not depend on how GitHub reports a job that never started there: its check
-// step fails unless every shard succeeded. A leg that hits its timeout ends
-// cancelled without making `cancelled()` true for the jobs that need it, so
-// that case alone would not need `always()`.
+// One that aggregates shards or lanes runs even in a cancelled run, so the
+// check does not depend on how GitHub reports a job that never started there:
+// its check step fails unless every shard or lane succeeded. A leg or lane
+// that hits its timeout ends cancelled without making `cancelled()` true for
+// the jobs that need it, so that case alone would not need `always()`.
 function requiredJobIf(expected, name) {
-  return shardedJobsOf(expected, name).length > 0 ? '${{ always() }}' : '${{ !cancelled() }}'
+  return partsOf(expected, name).length > 0 ? '${{ always() }}' : '${{ !cancelled() }}'
 }
 // Ruleset main-protection (26062908) requires these contexts on main.
 const REQUIRED_CONTEXTS = ['Typecheck, test, and build', 'Playwright G3 scenarios']
@@ -2725,10 +2812,11 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       skip: '${{ steps.decide.outputs.skip }}',
       save: '${{ steps.decide.outputs.save }}',
       'run-url': '${{ steps.decide.outputs.run-url }}',
+      'docs-only': '${{ steps.docs-only.outputs.docs-only }}',
     })
-    // No setup-node: the script runs on the runner image's Node.
-    const [checkout, keyStep, lookupStep, decideStep] = lookup.steps
-    assert.equal(lookup.steps.length, 4, where)
+    // No setup-node: the scripts run on the runner image's Node.
+    const [checkout, keyStep, lookupStep, decideStep, docsOnlyStep] = lookup.steps
+    assert.equal(lookup.steps.length, 5, where)
     assert.match(checkout.uses, /^actions\/checkout@/)
     // The event's commit (no ref), and its parents for the head tree.
     assert.deepEqual(checkout.with, { 'persist-credentials': false, 'fetch-depth': 2 }, where)
@@ -2767,6 +2855,17 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       TREE_PASS_HEAD_REPOSITORY_ID: '${{ github.event.pull_request.head.repo.id }}',
       TREE_PASS_HEAD_BRANCH: '${{ github.event.pull_request.head.ref }}',
     })
+    // The docs-only check comes last, so it cannot keep the marker's steps
+    // from running, and sets the output every gate reads next to skip.
+    assert.equal(docsOnlyStep.id, 'docs-only', where)
+    assert.equal(docsOnlyStep.if, undefined, where)
+    assert.equal(docsOnlyStep['continue-on-error'], undefined, where)
+    assert.equal(docsOnlyStep.run, 'node scripts/security/docs-only-change.mjs', where)
+    assert.deepEqual(docsOnlyStep.env, {
+      GH_TOKEN: '${{ github.token }}',
+      TREE_PASS_PR_NUMBER: '${{ github.event.pull_request.number }}',
+      TREE_PASS_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+    })
     // decide checks, in the run a marker names, exactly the covered jobs and
     // every leg of each sharded job, by the name GitHub gives the leg.
     assert.deepEqual(
@@ -2785,7 +2884,12 @@ test('each marked workflow wires the lookup, the gates and the save the same way
     const save = jobs[SAVE_JOB]
     assert.equal(save.name, SAVE_JOB_NAME, where)
     assert.deepEqual([...save.needs].sort(), [DECIDE_JOB, ...covered].sort(), where)
-    assert.equal(save.if, "needs.tree-pass.outputs.save == 'true'", where)
+    // A docs-only run skipped the covered jobs' steps: nothing to record.
+    assert.equal(
+      save.if,
+      "needs.tree-pass.outputs.save == 'true' && needs.tree-pass.outputs.docs-only != 'true'",
+      where
+    )
     assert.equal(save['runs-on'], 'ubuntu-24.04', where)
     assert.equal(save['timeout-minutes'], 10, where)
     assert.equal(save['cache-mode'], 'write-only', where)
@@ -2864,7 +2968,7 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       const at = `${where} job ${name}`
       assert.deepEqual(
         [entry.needs].flat().sort(),
-        [DECIDE_JOB, ...shardedJobsOf(expected, name)].sort(),
+        [DECIDE_JOB, ...partsOf(expected, name)].sort(),
         at
       )
       assert.equal(
@@ -2880,9 +2984,19 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       assert.equal(last.if, expected.stepGated.includes(name) ? SKIP_STEP : undefined, at)
     }
 
-    // Step-gated jobs and every leg of a sharded job run unless the run is
-    // cancelled, and only the gate skips their steps. A job that aggregates
-    // shards runs even then (see requiredJobIf).
+    // Step-gated jobs, lanes included, and every leg of a sharded job run
+    // unless the run is cancelled, and only the gate skips their steps. A job
+    // that aggregates shards or lanes runs even then (see requiredJobIf).
+    // Each job a docs-only change does not skip is a lane, whose result the
+    // required check needs, and ci.yml must have one: the security tooling
+    // tests run in a required check on every pull request.
+    for (const name of expected.runsOnDocsOnly) {
+      assert.ok(Object.hasOwn(expected.lanes, name), `${where} job ${name} must be a lane`)
+    }
+    assert.ok(
+      file !== '.github/workflows/ci.yml' || expected.runsOnDocsOnly.length > 0,
+      `${where}: a required check must run the security tooling tests on a docs-only change`
+    )
     for (const name of [...expected.stepGated, ...sharded]) {
       const entry = jobs[name]
       const at = `${where} job ${name}`
@@ -2890,17 +3004,40 @@ test('each marked workflow wires the lookup, the gates and the save the same way
       const [gate, ...rest] = entry.steps
       assert.equal(gate.id, 'gate', at)
       assert.equal(gate.if, undefined, at)
+      // A job that runs the security tooling tests reads every tracked file,
+      // so a docs-only change must not skip it: its gate has no docs-only
+      // input or branch. Every other gate has both.
+      const runsTooling = entry.steps.some(step => SECURITY_TOOLING_RUN.test(step.run ?? ''))
+      const marksOnly = expected.runsOnDocsOnly.includes(name)
+      assert.equal(
+        marksOnly,
+        runsTooling,
+        `${at}: runsOnDocsOnly must list exactly the jobs that run the security tooling tests`
+      )
       assert.deepEqual(gate.env, {
         MARKER_JOB_RESULT: '${{ needs.tree-pass.result }}',
         MARKER_SKIP: '${{ needs.tree-pass.outputs.skip }}',
         MARKER_RUN_URL: '${{ needs.tree-pass.outputs.run-url }}',
+        ...(marksOnly ? {} : { DOCS_ONLY: '${{ needs.tree-pass.outputs.docs-only }}' }),
       })
-      // An aggregating job checks its shards on a marker hit too; that step
-      // is checked below, and its gate's summary says so.
-      const aggregates = shardedJobsOf(expected, name).length > 0
-      assert.equal(gate.run, aggregates ? AGGREGATE_GATE_RUN : GATE_RUN, at)
+      // An aggregating job checks its shards or lanes on a marker hit too;
+      // that step is checked below, and its gate's summary says so.
+      const shardAggregate = shardedJobsOf(expected, name).length > 0
+      const laneAggregate = laneJobsOf(expected, name).length > 0
+      assert.equal(
+        gate.run,
+        shardAggregate
+          ? AGGREGATE_GATE_RUN
+          : laneAggregate
+            ? LANE_AGGREGATE_GATE_RUN
+            : marksOnly
+              ? MARKER_ONLY_GATE_RUN
+              : GATE_RUN,
+        at
+      )
       for (const step of rest) {
-        if (aggregates && step.name === SHARD_CHECK_NAME) continue
+        if (shardAggregate && step.name === SHARD_CHECK_NAME) continue
+        if (laneAggregate && step.name === LANE_CHECK_NAME) continue
         assert.ok(
           step.if === SKIP_STEP || step.if === `always() && ${SKIP_STEP}`,
           `${at}: step ${step.name} must be skipped only by the gate, found ${JSON.stringify(step.if)}`
@@ -2993,6 +3130,64 @@ test('each marked workflow wires the lookup, the gates and the save the same way
         aggregateAt
       )
       assert.equal(check.run, SHARD_CHECK_RUN(total), aggregateAt)
+    }
+
+    // Each lane runs one part of a required job's work. It is step-gated and
+    // covered, as checked above: not a matrix job, needed by the save job and
+    // named in TREE_PASS_COVERED_JOBS. Apart from the save job, only the job
+    // that aggregates it needs it.
+    for (const [name, aggregate] of Object.entries(expected.lanes)) {
+      const entry = jobs[name]
+      const at = `${where} job ${name}`
+      assert.ok(expected.stepGated.includes(name), `${at} must be step-gated`)
+      assert.ok(!REQUIRED_CONTEXTS.includes(entry.name), `${at}: ${entry.name} is a required check`)
+      // The aggregating job's check names it in single quotes.
+      assert.match(entry.name, /^[^'"$`\\]+$/, at)
+      assert.deepEqual(
+        Object.entries(jobs)
+          .filter(([other, job]) => other !== SAVE_JOB && [job.needs].flat().includes(name))
+          .map(([other]) => other),
+        [aggregate],
+        `${at}: only ${aggregate} and the save job need it`
+      )
+    }
+
+    // The job that aggregates lanes: a required check that is not a matrix
+    // job, needs the lanes (checked above) and reports tested=true only after
+    // checking every one, each by its own result and `tested`.
+    for (const aggregate of new Set(Object.values(expected.lanes))) {
+      const job = jobs[aggregate]
+      const at = `${where} job ${aggregate}`
+      const lanes = laneJobsOf(expected, aggregate)
+      assert.ok(expected.stepGated.includes(aggregate), `${at} must be step-gated`)
+      assert.ok(REQUIRED_CONTEXTS.includes(job.name), `${at} must be the required check`)
+      assert.deepEqual(shardedJobsOf(expected, aggregate), [], `${at}: shards or lanes, not both`)
+      // It reads only `needs`, so its token has no permissions.
+      assert.deepEqual(job.permissions, {}, at)
+      assert.equal(job.steps.length, 3, at)
+      const check = job.steps[1]
+      assert.equal(check.name, LANE_CHECK_NAME, at)
+      // It runs whatever the gate decided.
+      assert.equal(check.if, undefined, at)
+      assert.deepEqual(
+        check.env,
+        {
+          MARKER_HIT: '${{ steps.gate.outputs.skip }}',
+          ...Object.fromEntries(
+            lanes.flatMap(lane => [
+              [`${laneVariable(lane)}_RESULT`, `\${{ needs.${lane}.result }}`],
+              [`${laneVariable(lane)}_TESTED`, `\${{ needs.${lane}.outputs.tested }}`],
+            ])
+          ),
+        },
+        at
+      )
+      // Every lane once, by the name GitHub gives its job.
+      assert.equal(
+        check.run,
+        LANE_CHECK_RUN(lanes.map(lane => ({ id: lane, name: jobs[lane].name }))),
+        at
+      )
     }
 
     for (const name of expected.jobGated) {
@@ -3179,7 +3374,7 @@ test('workflows and local actions outside the marker never reference it', () => 
 })
 
 // The step's script goes in on stdin, the way the runner's bash -e reads a file.
-function runGate(temp, index, { result, skip, url = '' }, script = GATE_RUN) {
+function runGate(temp, index, { result, skip, url = '', docsOnly = '' }, script = GATE_RUN) {
   const outputFile = join(temp, `output-${index}`)
   const summaryFile = join(temp, `summary-${index}`)
   const run = spawnSync('bash', ['-e', '-s'], {
@@ -3189,6 +3384,8 @@ function runGate(temp, index, { result, skip, url = '' }, script = GATE_RUN) {
       MARKER_JOB_RESULT: result,
       MARKER_SKIP: skip,
       MARKER_RUN_URL: url,
+      DOCS_ONLY: docsOnly,
+      TREE_PASS_FORCE_LABEL: FORCE_LABEL,
       GITHUB_OUTPUT: outputFile,
       GITHUB_STEP_SUMMARY: summaryFile,
     },
@@ -3215,15 +3412,68 @@ test('the gate step skips only on a successful marker job that said skip, and na
     ['skipped', '', undefined],
     ['', '', undefined],
   ]
-  for (const [kind, script, consequence] of [
-    ['gated', GATE_RUN, 'so its steps are skipped.'],
-    ['aggregate', AGGREGATE_GATE_RUN, 'this job still checks that every shard succeeded.'],
+  const rerun = `Add the ${FORCE_LABEL} label and re-run all jobs to run everything.`
+  for (const [kind, script, consequence, docsSummary] of [
+    [
+      'gated',
+      GATE_RUN,
+      'so its steps are skipped.',
+      `changes only documentation that no skipped step reads, so its steps are skipped. ${rerun}`,
+    ],
+    // A job that runs in full on a docs-only change: no docs-only summary.
+    ['marker only', MARKER_ONLY_GATE_RUN, 'so its steps are skipped.', null],
+    [
+      'aggregate',
+      AGGREGATE_GATE_RUN,
+      'this job still checks that every shard succeeded.',
+      'changes only documentation that no skipped step reads, so the shards skipped their steps; ' +
+        `this job still checks that every shard succeeded. ${rerun}`,
+    ],
+    [
+      'lane aggregate',
+      LANE_AGGREGATE_GATE_RUN,
+      'this job still checks that every lane succeeded.',
+      'changes only documentation that no skipped step reads, so the lanes skipped their steps, ' +
+        "except 'Typecheck, security checks and other unit tests', which ran in full because its " +
+        `security tooling tests read every tracked file; this job still checks that every lane succeeded. ${rerun}`,
+    ],
   ]) {
     for (const [index, [result, skip, expected]] of rows.entries()) {
       const gate = runGate(temp, `${kind}-${index}`, { result, skip, url }, script)
       assert.equal(gate.skip, expected, `${kind} ${result}/${skip}`)
       assert.equal(gate.summary.includes(url), expected === 'true', `${kind} ${result}/${skip}`)
       assert.equal(gate.summary.includes(consequence), expected === 'true', kind)
+    }
+    // A docs-only change skips the same way, on a successful marker job only,
+    // and its summary says so and how to run everything. A hit names its run.
+    const docsRows = [
+      ['success', 'false', 'true', 'docs-only'],
+      ['success', '', 'true', 'docs-only'],
+      ['success', 'true', 'true', 'hit'],
+      ['success', 'false', 'TRUE', undefined],
+      ['success', 'false', 'false', undefined],
+      ['success', 'false', '', undefined],
+      ['failure', 'false', 'true', undefined],
+      ['cancelled', '', 'true', undefined],
+      ['skipped', '', 'true', undefined],
+      ['', '', 'true', undefined],
+    ]
+    for (const [index, [result, skip, docsOnly, kindOfSkip]] of docsRows.entries()) {
+      const at = `${kind} ${result}/${skip}/docs-only ${docsOnly}`
+      const gate = runGate(temp, `${kind}-docs-${index}`, { result, skip, url, docsOnly }, script)
+      // A marker-only gate ignores a docs-only change and runs everything.
+      const skips = kindOfSkip === 'hit' || (kindOfSkip === 'docs-only' && docsSummary !== null)
+      assert.equal(gate.skip, skips ? 'true' : undefined, at)
+      assert.equal(gate.summary.includes(url), kindOfSkip === 'hit', at)
+      assert.equal(gate.summary.includes(consequence), skips, at)
+      assert.equal(
+        gate.summary.includes('changes only documentation'),
+        skips && kindOfSkip !== 'hit',
+        at
+      )
+      if (docsSummary !== null) {
+        assert.equal(gate.summary.includes(docsSummary), kindOfSkip === 'docs-only', at)
+      }
     }
     // The URL is data, not shell: a hostile value cannot run a command.
     const hostile = runGate(
@@ -3345,7 +3595,12 @@ function runStep(temp, label, script, env, path = process.env.PATH) {
     encoding: 'utf8',
   })
   assert.equal(run.error, undefined, label)
-  return { status: run.status, stdout: run.stdout, outputs: outputs(outputFile) }
+  return {
+    status: run.status,
+    stdout: run.stdout,
+    outputs: outputs(outputFile),
+    summary: existsSync(summaryFile) ? readFileSync(summaryFile, 'utf8') : '',
+  }
 }
 
 // Fills in the `${{ <property path> }}` templates of each value, as GitHub
@@ -3462,6 +3717,7 @@ function simulateAggregate(temp, name, job, { needs, github, runCancelled }) {
   const steps = {}
   const ran = []
   const errors = []
+  let summary = ''
   let status = { success: true, failure: false, cancelled: false, always: true }
   for (const [index, step] of job.steps.entries()) {
     if (!evaluateIf(step.if, { github, steps, status })) continue
@@ -3469,6 +3725,7 @@ function simulateAggregate(temp, name, job, { needs, github, runCancelled }) {
     const env = resolveTemplates(step.env, { needs: jobNeeds, steps })
     const done = runStep(temp, `${name}-${index}`, step.run, env)
     errors.push(...done.stdout.split('\n').filter(line => line.startsWith('::error::')))
+    summary += done.summary
     if (step.id) steps[step.id] = { outputs: done.outputs }
     if (done.status !== 0) status = { ...status, success: false, failure: true }
   }
@@ -3479,6 +3736,7 @@ function simulateAggregate(temp, name, job, { needs, github, runCancelled }) {
     total: job.steps.length,
     outputs: jobOutputs(job, steps),
     errors,
+    summary,
   }
 }
 
@@ -3486,9 +3744,12 @@ function simulateAggregate(temp, name, job, { needs, github, runCancelled }) {
 // tree-pass job's result and outputs are given when it runs. Each leg of a
 // sharded job ends as `legs` says (success unless named), `lostOutputs` are
 // left out of the sharded job's outputs, and `cancelledAfterShards` cancels
-// the run once the shards ended; the job that aggregates them runs its steps
-// for real. Every other job succeeds when it runs. Returns, per job, whether
-// it ran and which steps did.
+// the run once the shards and lanes ended; the job that aggregates them runs
+// its steps for real. Each lane that runs ends as `lanes` says (success
+// unless named), and one that fails or is cancelled stops before its last
+// step; `lostLaneOutputs` names lanes whose `tested` is lost. Every other job
+// succeeds when it runs. Returns, per job, whether it ran and which steps
+// did.
 function simulate(
   t,
   file,
@@ -3501,6 +3762,8 @@ function simulate(
     legs = {},
     lostOutputs = [],
     cancelledAfterShards = false,
+    lanes = {},
+    lostLaneOutputs = [],
   }
 ) {
   const temp = scratch(t, 'tree-pass-simulate-')
@@ -3544,9 +3807,16 @@ function simulate(
   }
 
   const cancelled = runCancelled || cancelledAfterShards
-  for (const name of [...expected.stepGated, ...expected.jobGated]) {
+  // Lanes before the jobs that aggregate them, which need them.
+  const aggregates = expected.stepGated.filter(name => partsOf(expected, name).length > 0)
+  const others = expected.stepGated.filter(name => !aggregates.includes(name))
+  for (const name of [...others, ...expected.jobGated, ...aggregates]) {
     const job = jobs[name]
-    if (shardedJobsOf(expected, name).length > 0) {
+    const lane = Object.hasOwn(expected.lanes, name)
+    // A job that needs only the marker job, such as a lane, ends before a
+    // cancellation that comes after the shards and lanes.
+    const jobCancelled = aggregates.includes(name) ? cancelled : runCancelled
+    if (partsOf(expected, name).length > 0) {
       const aggregate = simulateAggregate(temp, name, job, {
         needs,
         github,
@@ -3560,10 +3830,11 @@ function simulate(
     const ran = evaluateIf(job.if, {
       github,
       needs: jobNeeds,
-      status: jobStatus(jobNeeds, cancelled),
+      status: jobStatus(jobNeeds, jobCancelled),
     })
-    if (!ran) {
-      const result = cancelled ? 'cancelled' : 'skipped'
+    const ending = (lane && lanes[name]) || 'success'
+    if (!ran || ending === 'skipped') {
+      const result = jobCancelled ? 'cancelled' : 'skipped'
       outcome[name] = { ran: false, result, steps: [] }
       needs[name] = { result, outputs: {} }
       continue
@@ -3572,21 +3843,29 @@ function simulate(
     const ranSteps = []
     for (const [index, step] of job.steps.entries()) {
       if (step.id === 'gate') {
-        const gate = runGate(temp, `${name}-${index}`, {
-          result: marker.result,
-          skip: marker.outputs.skip ?? '',
-          url: marker.outputs['run-url'] ?? '',
-        })
+        const gate = runGate(
+          temp,
+          `${name}-${index}`,
+          {
+            result: marker.result,
+            skip: marker.outputs.skip ?? '',
+            url: marker.outputs['run-url'] ?? '',
+            docsOnly: marker.outputs['docs-only'] ?? '',
+          },
+          step.run
+        )
         steps.gate = { outputs: { skip: gate.skip ?? '' } }
         ranSteps.push(step.name)
         continue
       }
-      const status = { success: true, failure: false, cancelled, always: true }
+      const status = { success: true, failure: false, cancelled: jobCancelled, always: true }
       if (evaluateIf(step.if, { github, steps, status })) ranSteps.push(step.name)
     }
-    const tested = ranSteps.includes(job.steps.at(-1).name)
-    outcome[name] = { ran: true, result: 'success', steps: ranSteps, total: job.steps.length }
-    needs[name] = { result: 'success', outputs: tested ? { tested: 'true' } : {} }
+    // A lane that fails or is cancelled never reaches its last step.
+    if (ending !== 'success' && ranSteps.at(-1) === job.steps.at(-1).name) ranSteps.pop()
+    const tested = ranSteps.includes(job.steps.at(-1).name) && !lostLaneOutputs.includes(name)
+    outcome[name] = { ran: true, result: ending, steps: ranSteps, total: job.steps.length }
+    needs[name] = { result: ending, outputs: tested ? { tested: 'true' } : {} }
   }
 
   const save = jobs[SAVE_JOB]
@@ -3632,6 +3911,11 @@ const SKIP_RUN = {
     save: 'false',
     'run-url': 'https://github.com/Qbit-Org/qbit-wallet/actions/runs/1001/attempts/1',
   },
+}
+// A marker miss that would save, on a docs-only change.
+const DOCS_ONLY_RUN = {
+  result: 'success',
+  outputs: { ...FULL_RUN.outputs, 'docs-only': 'true' },
 }
 
 test('a skipped tree-pass runs everything and saves nothing', t => {
@@ -3688,18 +3972,23 @@ test('the conditions run everything unless a successful marker job said skip, an
     assert.equal(noArtifact[SAVE_JOB].steps.length, 3, file)
     assert.ok(!noArtifact[SAVE_JOB].steps.some(step => /^actions\/cache\/save@/.test(step)), file)
 
-    // A skip: required jobs run only their gate, and an aggregating job also
-    // its check of the shards; every leg of a sharded job runs only its
-    // gate; other covered jobs are skipped whole, and nothing is saved.
+    // A skip: required jobs and lanes run only their gate, and an
+    // aggregating job also its check of the shards or lanes; every leg of a
+    // sharded job runs only its gate; other covered jobs are skipped whole,
+    // and nothing is saved.
     const skip = simulate(t, file, { event: 'pull_request', treePass: SKIP_RUN })
     for (const name of expected.stepGated) {
       assert.equal(skip[name].ran, true, `${file} ${name} reports a result`)
       assert.equal(skip[name].result, 'success', `${file} ${name}`)
+      const check =
+        shardedJobsOf(expected, name).length > 0
+          ? [SHARD_CHECK_NAME]
+          : laneJobsOf(expected, name).length > 0
+            ? [LANE_CHECK_NAME]
+            : []
       assert.deepEqual(
         skip[name].steps,
-        shardedJobsOf(expected, name).length > 0
-          ? ['Check for a tree pass marker', SHARD_CHECK_NAME]
-          : ['Check for a tree pass marker'],
+        ['Check for a tree pass marker', ...check],
         `${file} ${name}`
       )
     }
@@ -3707,11 +3996,50 @@ test('the conditions run everything unless a successful marker job said skip, an
     for (const name of expected.jobGated) assert.equal(skip[name].ran, false, `${file} ${name}`)
     assert.equal(skip[SAVE_JOB].ran, false, file)
 
-    // A failed or cancelled marker job runs everything and saves nothing.
+    // A docs-only change: required jobs, the lanes and the legs run only
+    // their gates, and an aggregating job also its check, as on a skip; but
+    // other covered jobs, and the lanes in runsOnDocsOnly, run in full, and
+    // nothing is saved. With a marker hit as well, it is a skip.
+    for (const treePass of [
+      DOCS_ONLY_RUN,
+      { ...SKIP_RUN, outputs: { ...SKIP_RUN.outputs, 'docs-only': 'true' } },
+    ]) {
+      const docs = simulate(t, file, { event: 'pull_request', treePass })
+      const where = `${file} docs-only, marker skip ${treePass.outputs.skip}`
+      for (const name of expected.stepGated) {
+        assert.equal(docs[name].ran, true, `${where}: ${name} reports a result`)
+        assert.equal(docs[name].result, 'success', `${where}: ${name}`)
+        if (expected.runsOnDocsOnly.includes(name) && treePass.outputs.skip !== 'true') {
+          assert.equal(docs[name].steps.length, docs[name].total, `${where}: ${name} runs in full`)
+          continue
+        }
+        const check =
+          shardedJobsOf(expected, name).length > 0
+            ? [SHARD_CHECK_NAME]
+            : laneJobsOf(expected, name).length > 0
+              ? [LANE_CHECK_NAME]
+              : []
+        assert.deepEqual(
+          docs[name].steps,
+          ['Check for a tree pass marker', ...check],
+          `${where}: ${name}`
+        )
+      }
+      assertLegs(docs, expected, where, { full: false })
+      for (const name of expected.jobGated) {
+        const skipped = treePass.outputs.skip === 'true'
+        assert.equal(docs[name].ran, !skipped, `${where}: ${name}`)
+        if (!skipped) assert.equal(docs[name].steps.length, docs[name].total, `${where}: ${name}`)
+      }
+      assert.equal(docs[SAVE_JOB].ran, false, where)
+    }
+
+    // A failed or cancelled marker job runs everything and saves nothing,
+    // whatever it said about a skip or a docs-only change.
     for (const result of ['failure', 'cancelled']) {
       const broken = simulate(t, file, {
         event: 'pull_request',
-        treePass: { result, outputs: { ...SKIP_RUN.outputs, save: 'true' } },
+        treePass: { result, outputs: { ...SKIP_RUN.outputs, save: 'true', 'docs-only': 'true' } },
       })
       for (const name of covered) {
         assert.equal(
@@ -3725,14 +4053,14 @@ test('the conditions run everything unless a successful marker job said skip, an
     }
 
     // A cancelled run: no covered job starts, except a job that aggregates
-    // shards, which runs and fails because its shards did not pass.
+    // shards or lanes, which runs and fails because its parts did not pass.
     const cancelled = simulate(t, file, {
       event: 'pull_request',
       treePass: FULL_RUN,
       runCancelled: true,
     })
     for (const name of [...covered, ...Object.keys(expected.sharded)]) {
-      const aggregates = shardedJobsOf(expected, name).length > 0
+      const aggregates = partsOf(expected, name).length > 0
       assert.equal(cancelled[name].ran, aggregates, `${file} ${name}`)
       if (aggregates) assert.equal(cancelled[name].result, 'failure', `${file} ${name}`)
     }
@@ -3802,6 +4130,9 @@ test('Playwright G3 scenarios passes only when every shard passed, and a marker 
     },
     hit: { event: 'pull_request', treePass: SKIP_RUN },
     miss: { event: 'pull_request', treePass: FULL_RUN },
+    // A miss that would save, on a docs-only change: it ends as a hit does,
+    // and saves nothing.
+    'docs-only': { event: 'pull_request', treePass: DOCS_ONLY_RUN },
   }
   const shards = {
     'all passed': {},
@@ -3886,6 +4217,7 @@ test('Playwright G3 scenarios passes only when every shard passed, and a marker 
       'run cancelled after all passed': ['success', 'true', false, true],
     },
   }
+  table['docs-only'] = table.hit
   for (const [markerState, markerRun] of Object.entries(markers)) {
     for (const [shardState, shardRun] of Object.entries(shards)) {
       const where = `marker ${markerState}, shards ${shardState}`
@@ -3901,7 +4233,11 @@ test('Playwright G3 scenarios passes only when every shard passed, and a marker 
       // A failed or cancelled leg still uploads its report and stops its
       // harness, and records nothing.
       for (const leg of run[shardJob].legs) {
-        if (!['failure', 'cancelled'].includes(leg.result) || markerState === 'hit') continue
+        if (
+          !['failure', 'cancelled'].includes(leg.result) ||
+          ['hit', 'docs-only'].includes(markerState)
+        )
+          continue
         assert.ok(leg.steps.includes('Upload Playwright release-gate artifacts'), where)
         assert.ok(leg.steps.includes('Stop qbit regtest harness'), where)
         assert.deepEqual(leg.outputs, {}, where)
@@ -3921,6 +4257,170 @@ test('Playwright G3 scenarios passes only when every shard passed, and a marker 
       `shard ${shard}`
     )
     assert.equal(run[SAVE_JOB].ran, false, `shard ${shard}`)
+  }
+})
+
+// --- The lanes of Typecheck, test, and build -------------------------------
+
+const LANED_FILE = '.github/workflows/ci.yml'
+
+// The aggregating job's result, whether it reports tested=true, whether the
+// save job runs and whether its record step accepts, for each state of the
+// marker job and each way the lanes can end. Each lane is a job of its own
+// and reports its own result, unlike a leg of a matrix job.
+test('Typecheck, test, and build passes only when every lane passed, and a marker needs every lane tested', t => {
+  const expected = MARKED_WORKFLOWS[LANED_FILE]
+  const { jobs } = readWorkflow(LANED_FILE)
+  const lanes = Object.keys(expected.lanes)
+  const [aggregate, ...otherAggregates] = new Set(Object.values(expected.lanes))
+  assert.deepEqual(otherAggregates, [])
+  assert.ok(lanes.length >= 2, 'at least two lanes')
+  const [firstLane, secondLane] = lanes
+  const lastLane = lanes.at(-1)
+  const allLanes = result => Object.fromEntries(lanes.map(lane => [lane, result]))
+  const markers = {
+    'skipped (no pull request)': { event: 'push', treePass: FULL_RUN },
+    failed: {
+      event: 'pull_request',
+      treePass: { result: 'failure', outputs: { ...SKIP_RUN.outputs, save: 'true' } },
+    },
+    hit: { event: 'pull_request', treePass: SKIP_RUN },
+    miss: { event: 'pull_request', treePass: FULL_RUN },
+    // A miss that would save, on a docs-only change: it ends as a hit does,
+    // and saves nothing.
+    'docs-only': { event: 'pull_request', treePass: DOCS_ONLY_RUN },
+  }
+  const states = {
+    'all passed': {},
+    'one failed': { lanes: { [secondLane]: 'failure' } },
+    // A lane that hits its timeout ends cancelled.
+    'one cancelled': { lanes: { [lastLane]: 'cancelled' } },
+    // GitHub skips a lane only in a cancelled run, and then reports it
+    // cancelled; were one skipped, its own result would still show it.
+    'one skipped': { lanes: { [firstLane]: 'skipped' } },
+    'all skipped': { lanes: allLanes('skipped') },
+    // "Re-run failed jobs" after a lane failed: the passing lanes are
+    // reused. If GitHub did not carry their outputs into the new attempt,
+    // the check fails and nothing is recorded.
+    'rerun without reused outputs': {
+      lostLaneOutputs: lanes.filter(lane => lane !== secondLane),
+    },
+    // The run cancelled before the lanes started (they never run, and
+    // GitHub reports them cancelled), while they run (each is cancelled), or
+    // after they ended.
+    'run cancelled before the lanes': { runCancelled: true },
+    'run cancelled while the lanes run': {
+      lanes: allLanes('cancelled'),
+      cancelledAfterShards: true,
+    },
+    'run cancelled after one failed': {
+      lanes: { [secondLane]: 'failure' },
+      cancelledAfterShards: true,
+    },
+    'run cancelled after all passed': { cancelledAfterShards: true },
+  }
+  // [aggregate result, its tested output, save job runs, record accepts]. The
+  // record step also refuses a skipped or failed tree-pass, should the save
+  // job run without it.
+  const pass = ['success', 'true', false, false]
+  const hitPass = ['success', undefined, false, false]
+  const fail = ['failure', undefined, false, false]
+  const onlyFullPasses = {
+    'all passed': pass,
+    'one failed': fail,
+    'one cancelled': fail,
+    'one skipped': fail,
+    'all skipped': fail,
+    'rerun without reused outputs': fail,
+    'run cancelled before the lanes': fail,
+    'run cancelled while the lanes run': fail,
+    'run cancelled after one failed': fail,
+    'run cancelled after all passed': pass,
+  }
+  const table = {
+    'skipped (no pull request)': onlyFullPasses,
+    failed: onlyFullPasses,
+    hit: {
+      ...onlyFullPasses,
+      'all passed': hitPass,
+      'rerun without reused outputs': hitPass,
+      'run cancelled after all passed': hitPass,
+    },
+    miss: {
+      ...onlyFullPasses,
+      'all passed': ['success', 'true', true, true],
+      // The lanes passed, so the check does; a cancelled run saves nothing.
+      'run cancelled after all passed': ['success', 'true', false, true],
+    },
+  }
+  table['docs-only'] = table.hit
+  for (const [markerState, markerRun] of Object.entries(markers)) {
+    for (const [laneState, laneRun] of Object.entries(states)) {
+      const where = `marker ${markerState}, lanes ${laneState}`
+      const run = simulate(t, LANED_FILE, { ...markerRun, ...laneRun })
+      const [result, tested, saves, records] = table[markerState][laneState]
+      const job = run[aggregate]
+      assert.equal(job.ran, true, `${where}: ${aggregate} always reports a result`)
+      assert.equal(job.result, result, where)
+      assert.equal(job.outputs.tested, tested, where)
+      if (result === 'failure') {
+        assert.notDeepEqual(job.errors, [], `${where}: it says why`)
+        // Each error names a lane, and the summary repeats it.
+        for (const error of job.errors) {
+          const message = error.slice('::error::'.length)
+          assert.ok(
+            lanes.some(lane => message.startsWith(`Lane "${jobs[lane].name}"`)),
+            `${where}: ${error}`
+          )
+          assert.ok(job.summary.includes(`- ${message}\n`), `${where}: ${error}`)
+        }
+      } else {
+        assert.deepEqual(job.errors, [], where)
+      }
+      // A run cancelled before the marker job started has no marker hit and
+      // no docs-only verdict.
+      assert.equal(
+        job.summary.includes('so the lanes skipped their steps'),
+        ['hit', 'docs-only'].includes(markerState) && run[DECIDE_JOB].ran,
+        where
+      )
+      assert.equal(
+        job.summary.includes('changes only documentation that no skipped step reads'),
+        markerState === 'docs-only' && run[DECIDE_JOB].ran,
+        where
+      )
+      assert.equal(run[SAVE_JOB].ran, saves, where)
+      assert.equal(recordErrors({ needs: run[SAVE_JOB].needs }).length === 0, records, where)
+    }
+  }
+
+  // Each lane on its own: a lane that failed, was cancelled or skipped, or
+  // recorded nothing fails the check, which names that lane alone, even when
+  // every other lane passed.
+  for (const lane of lanes) {
+    const name = jobs[lane].name
+    for (const [ending, error] of [
+      ['failure', `Lane "${name}": its result is "failure", not success; see its job.`],
+      ['cancelled', `Lane "${name}": its result is "cancelled", not success; see its job.`],
+      ['skipped', `Lane "${name}": its result is "skipped", not success; see its job.`],
+      ['lost', `Lane "${name}" did not run all its steps.`],
+    ]) {
+      const options =
+        ending === 'lost' ? { lostLaneOutputs: [lane] } : { lanes: { [lane]: ending } }
+      for (const markerState of ['miss', 'hit', 'docs-only']) {
+        const run = simulate(t, LANED_FILE, { ...markers[markerState], ...options })
+        const where = `${lane} ${ending} on a ${markerState}`
+        // A hit or a docs-only change needs no lane's `tested`, only its
+        // success.
+        if (ending === 'lost' && markerState !== 'miss') {
+          assert.equal(run[aggregate].result, 'success', where)
+          continue
+        }
+        assert.equal(run[aggregate].result, 'failure', where)
+        assert.deepEqual(run[aggregate].errors, [`::error::${error}`], where)
+        assert.equal(run[SAVE_JOB].ran, false, where)
+      }
+    }
   }
 })
 
