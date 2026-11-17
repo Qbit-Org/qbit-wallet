@@ -1439,6 +1439,9 @@
   "wallet_page_out_of_date": {
     "message": "This page was showing a wallet that is no longer set up here, so the request was not carried out. The page will reload."
   },
+  "wallet_page_id_unreadable": {
+    "message": "This page could not read which wallet it is showing, so the request was not carried out. Reload this page or open Qbit Wallet again, then try once more."
+  },
   "security": {
     "message": "Security"
   },

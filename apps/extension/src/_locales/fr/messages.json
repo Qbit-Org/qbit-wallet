@@ -1439,6 +1439,9 @@
   "wallet_page_out_of_date": {
     "message": "Cette page affichait un portefeuille qui n'est plus configuré ici ; la demande n'a donc pas été exécutée. La page va se recharger."
   },
+  "wallet_page_id_unreadable": {
+    "message": "Cette page n'a pas pu lire quel portefeuille elle affiche ; la demande n'a donc pas été exécutée. Rechargez la page ou rouvrez Qbit Wallet, puis réessayez."
+  },
   "security": {
     "message": "Sécurité"
   },

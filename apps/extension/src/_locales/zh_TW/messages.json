@@ -1439,6 +1439,9 @@
   "wallet_page_out_of_date": {
     "message": "此頁面顯示的錢包已不在這裡設定，因此未執行該請求。頁面將重新載入。"
   },
+  "wallet_page_id_unreadable": {
+    "message": "此頁面無法讀取所顯示的是哪個錢包，因此未執行該請求。請重新載入頁面，或重新開啟 Qbit Wallet，然後再試一次。"
+  },
   "security": {
     "message": "安全性"
   },

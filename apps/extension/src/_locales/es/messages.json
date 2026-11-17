@@ -1439,6 +1439,9 @@
   "wallet_page_out_of_date": {
     "message": "Esta página mostraba una billetera que ya no está configurada aquí, así que la solicitud no se realizó. La página se volverá a cargar."
   },
+  "wallet_page_id_unreadable": {
+    "message": "Esta página no pudo leer qué billetera muestra, así que la solicitud no se realizó. Recarga la página o vuelve a abrir Qbit Wallet, y luego inténtalo de nuevo."
+  },
   "security": {
     "message": "Seguridad"
   },

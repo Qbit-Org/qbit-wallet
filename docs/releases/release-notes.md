@@ -161,6 +161,19 @@ pays (#188), found in its review (#206).
   it is erased with the rest.
 - If a reset erases the wallets but cannot clear some other saved data, the
   wallet says so and clears the rest before a new wallet can be created.
+- A wallet window opened before a wallet was created in another window
+  cannot reset that wallet: Settings → Security in a window that holds no
+  wallet goes to the Welcome screen, and the wallet refuses a reset that
+  names no wallet while one is set up.
+- A wallet window that cannot read which wallet it shows (for example when
+  the wallet's id could not be saved) can still be locked and unlocked, no
+  longer reloads on your next action while it is still trying to read it,
+  and tells you to reload or reopen the wallet if it gives up. Once it has
+  read it, it shows that wallet afresh. Such a window still sends nothing
+  that writes into a wallet it cannot name.
+- A wallet window that was open before a wallet was created in another
+  window goes to the unlock screen as soon as the wallet locks, like any
+  other window of that wallet.
 
 ### Known limitations
 

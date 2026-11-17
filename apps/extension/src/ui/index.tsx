@@ -32,8 +32,7 @@ import {
   pageShowsWalletContent,
   RECONNECT_STARTUP_WAIT_MS,
   refuseWithoutWalletId,
-  reopenOutOfDatePage,
-  waitForShownWalletId
+  reopenOutOfDatePage
 } from './utils/walletReset';
 import { noteWalletActivity } from './utils/walletActivity';
 import { noteWalletOpened } from './utils/walletOpened';
@@ -73,15 +72,14 @@ const showsWalletContent = () => pageShowsWalletContent(store.getState());
 // Each call carries the id of the wallet this page shows, and the background
 // refuses it (-22) if another wallet, or none, is set up now: the page then
 // reopens at once. A page that shows wallet content but holds no id sends no
-// call but the exempt ones: each waits for the id read under way, or is
-// refused here, in the -22 shape.
+// call but the exempt ones: any other is refused here, in the -22 shape,
+// saying the id could not be read.
 const wallet = createWalletProxy(portMessageChannel, {
   afterUnlock: async () => unlockGate?.afterUnlock(),
   walletId: getShownWalletId,
   onOutOfDate: reopenOutOfDatePage,
   showsWalletContent,
-  waitForWalletId: () => waitForShownWalletId(),
-  refuseWithoutWalletId: () => refuseWithoutWalletId(i18nService.translate('wallet_page_out_of_date'))
+  refuseWithoutWalletId: () => refuseWithoutWalletId(i18nService.translate('wallet_page_id_unreadable'))
 });
 
 // Setup event bus listeners
