@@ -61,19 +61,34 @@ vi.mock('../src/services', async () => {
         lock.isUnlocked = false
       }),
       changeAddressType: vi.fn(),
+      syncQbitHdPath: vi.fn(async () => false),
+      rearmQbitRestoreFloors: vi.fn(async () => false),
     },
     preferenceService: {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
+      setChainType: vi.fn(),
       getCurrentKeyringIndex: vi.fn(() => 0),
       getAutoLockTimeId: vi.fn(),
       resetAllData: vi.fn(async () => undefined),
       removeKeyringAlianName: vi.fn(),
       removeKeyringColor: vi.fn(),
+      // The record a wallet removal keeps of the send plans it ends (#216).
+      getQbitSendPlanRemovals: vi.fn(() => ({
+        records: [],
+        unreadable: { count: 0, accounts: [] },
+      })),
+      addQbitSendPlanRemoval: vi.fn(async (wallet: unknown, accounts: unknown) => ({
+        version: 1,
+        id: 'a1'.repeat(16),
+        wallet,
+        accounts,
+      })),
+      forgetQbitSendPlanRemoval: vi.fn(async () => undefined),
     },
     qbitSendGuardService: guard,
-    sessionService: { broadcastEvent: vi.fn() },
+    sessionService: { broadcastEvent: vi.fn(), broadcastChainChange: vi.fn() },
     contactBookService: { resetAllData: vi.fn(async () => undefined) },
     permissionService: { resetAllData: vi.fn(async () => undefined) },
   }
@@ -249,6 +264,10 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
       outputs: [{ address, script: accountScript, value: PENDING_PAYMENT }],
     })
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
+    // A switch a test made follows the chain it asks for in that test alone,
+    // and a removal a test made fail fails in that test alone.
+    vi.mocked(preferenceService.setChainType).mockReset()
+    vi.mocked(keyringService.removeKeyring).mockReset()
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
     vi.mocked(keyringService.preflightP2mrPsbtSigning).mockResolvedValue(SIGNATURE_BUDGET)
     vi.mocked(keyringService.signP2mrPsbtWithCounter).mockImplementation(
@@ -962,5 +981,511 @@ describe("WalletController balance of an account over the explorer's UTXO limit"
     const client = (wallet as any).getQbitApiClient(ChainType.QBIT_REGTEST)
     expect((wallet as any).qbitLatestUtxoReads.latest(client, address)).toBeUndefined()
     await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+  })
+
+  describe('a read of outputs asked for before a clear', () => {
+    /** The release of everything a test holds, which ends it if the test did not. */
+    const held: (() => void)[] = []
+
+    afterEach(() => {
+      for (const release of held.splice(0)) release()
+    })
+
+    /**
+     * Hold the first request each of `holds` matches, once asked for
+     * (`arrived`), until `release`; with `answerWhenAsked`, answered as the
+     * explorer stood when it was asked. The client sends one request for
+     * the same URL at a time, which every reader of it waits for, so a read
+     * that asks for one held here waits too.
+     */
+    function holdFirst(
+      ...holds: { matches: (url: string) => boolean; answerWhenAsked?: boolean }[]
+    ): { arrived: Promise<void>; release: () => void }[] {
+      const requests = holds.map(hold => {
+        let release: () => void = () => undefined
+        const released = new Promise<void>(resolve => (release = resolve))
+        let arrive: () => void = () => undefined
+        const arrived = new Promise<void>(resolve => (arrive = resolve))
+        held.push(release)
+        return { ...hold, taken: false, arrive, arrived, released, release }
+      })
+      vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+        const hold = requests.find(
+          candidate => !candidate.taken && candidate.matches(String(input))
+        )
+        if (!hold) return explorer.fetch(input, init)
+        hold.taken = true
+        const answer = hold.answerWhenAsked ? await explorer.fetch(input, init) : undefined
+        hold.arrive()
+        await hold.released
+        return answer ?? explorer.fetch(input, init)
+      })
+      return requests.map(({ arrived, release }) => ({ arrived, release }))
+    }
+
+    /**
+     * Hold a removal where it ends the removed wallet's send plans, after it
+     * has removed the keyring and forgotten the kept reads once, and while
+     * that wallet is still the one stored as current: once asked for
+     * (`arrived`), until `release`, or `fail` with an error.
+     */
+    function holdEndingPlans(wallet: WalletController) {
+      let release: () => void = () => undefined
+      let fail: (error: Error) => void = () => undefined
+      const ended = new Promise<void>((resolve, reject) => {
+        release = resolve
+        fail = reject
+      })
+      let arrive: () => void = () => undefined
+      const arrived = new Promise<void>(resolve => (arrive = resolve))
+      held.push(release)
+      const ending = vi
+        .spyOn((wallet as any).qbitSendPlans, 'endPlansOf')
+        .mockImplementation(async () => {
+          arrive()
+          await ended
+          return { mayHaveBeenSent: [] }
+        })
+      return { arrived, release, fail, ending }
+    }
+
+    async function lockAndUnlock(wallet: WalletController): Promise<void> {
+      await wallet.lockWallet()
+      ;(keyringService as any).unlockForTest()
+    }
+
+    /** The accounts whose send plans removing the account's wallet ends, as a removal derives them. */
+    const removedPlanAccounts = [{ chain: ChainType.QBIT_REGTEST, address }]
+
+    /**
+     * Remove the account's wallet, another one staying, as a removal requires.
+     * The accounts of its send plans are derived as a removal derives them,
+     * unless `plansUnderived`: then the mocked keyring service cannot derive
+     * them, and the removal goes on only while no plan is under way.
+     */
+    async function removeAccountKeyring(
+      wallet: WalletController,
+      { plansUnderived = false }: { plansUnderived?: boolean } = {}
+    ): Promise<void> {
+      const keyring = { type: KeyringType.QbitHdKeyring, index: 0, key: 'k', accounts: [account] }
+      const remaining = {
+        type: KeyringType.QbitHdKeyring,
+        index: 1,
+        key: 'keyring_1',
+        accounts: [{ ...account, key: 'keyring_1#0' }],
+      }
+      vi.spyOn(wallet as any, 'readKeyringsAfresh')
+        .mockResolvedValueOnce([keyring, remaining])
+        .mockResolvedValueOnce([remaining])
+      vi.spyOn(wallet as any, 'resolveQueuedWalletKeyring').mockReturnValue(keyring)
+      vi.spyOn(wallet as any, 'collectQbitRecoveryRemovalReasons').mockResolvedValue([])
+      vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
+      if (!plansUnderived) {
+        vi.spyOn(wallet as any, 'qbitSendPlanAccountsOf').mockResolvedValue({
+          accounts: removedPlanAccounts,
+          underived: [],
+        })
+      }
+      const slots = (keyringService as any).keyrings
+      slots.push({ type: KeyringType.QbitHdKeyring }, { type: KeyringType.QbitHdKeyring })
+      try {
+        await wallet.removeKeyring(keyring as any)
+      } finally {
+        slots.length = 0
+      }
+      expect(keyringService.removeKeyring).toHaveBeenCalled()
+    }
+
+    /** Ask for the account's outputs as `caller` does, `clear`, and let it read them. */
+    type AskedThenRead = (wallet: WalletController, clear: () => Promise<void>) => Promise<void>
+
+    const sendScreen: AskedThenRead = async (wallet, clear) => {
+      const [statistics] = holdFirst({ matches: url => url.endsWith(`/address/${address}`) })
+      const running = wallet.getQbitUtxoSnapshot()
+      await statistics.arrived
+      await clear()
+      statistics.release()
+      expect((await running).utxos).toHaveLength(OUTPUTS)
+    }
+
+    /** A send builder, `build`, cleared during its fee quote: built or refused, it reads after. */
+    const duringFeeQuote =
+      (build: (wallet: WalletController) => Promise<unknown>): AskedThenRead =>
+      async (wallet, clear) => {
+        const [quote] = holdFirst({ matches: url => url.includes('/fee-estimates') })
+        const running = build(wallet)
+        running.catch(() => undefined)
+        await quote.arrived
+        await clear()
+        quote.release()
+        await running.catch(() => undefined)
+      }
+
+    const callers: [string, AskedThenRead][] = [
+      ["the send screen's read, cleared during its statistics read", sendScreen],
+      [
+        'a send, cleared during its fee quote',
+        duringFeeQuote(wallet => wallet.createSendQbitPsbt({ to: recipient, amount: 25_000 })),
+      ],
+      [
+        'a send of everything, cleared during its fee quote',
+        // Over the UI port an omitted rate arrives as no key at all.
+        duringFeeQuote(wallet => wallet.createSendAllQbitPsbt({ to: recipient } as any)),
+      ],
+      [
+        "a send plan's read, cleared once the plan has asked for the outputs",
+        async (wallet, clear) => {
+          const host = (wallet as any).qbitSendPlanHost()
+          const since = host.beginOutputsRead()
+          await clear()
+          await host.spendableOutputs(ChainType.QBIT_REGTEST, account, undefined, since)
+        },
+      ],
+      [
+        "the send screen's read, cleared during its statistics read, another joining it after",
+        async (wallet, clear) => {
+          const joins = vi.spyOn(wallet as any, 'sharedQbitAccountUtxos')
+          const [statistics, page] = holdFirst(
+            { matches: url => url.endsWith(`/address/${address}`) },
+            { matches: url => url.includes('/txs/chain') }
+          )
+          const first = wallet.getQbitUtxoSnapshot()
+          await statistics.arrived
+          await clear()
+          statistics.release()
+          await page.arrived
+          // Asked for after the clear, at the same state: it joins the walk
+          // the first read started, which goes on at the first read's place.
+          const joined = wallet.getQbitUtxoSnapshot()
+          await vi.waitFor(() => expect(joins).toHaveBeenCalledTimes(2))
+          page.release()
+          for (const snapshot of await Promise.all([first, joined])) {
+            expect(snapshot.utxos).toHaveLength(OUTPUTS)
+          }
+        },
+      ],
+    ]
+
+    /** One walk of the history, which read every output and kept none of them. */
+    async function expectWalkedAndKeptNothing(
+      wallet: WalletController,
+      walks: ReturnType<typeof vi.spyOn>
+    ): Promise<void> {
+      expect(walks).toHaveBeenCalledTimes(1)
+      const outputs = (await walks.mock.results[0]!.value) as { satoshis: number }[]
+      expect(outputs.reduce((sum, utxo) => sum + utxo.satoshis, 0)).toBe(SPENDABLE)
+      expect(wallet.isUnlocked()).toBe(true)
+      expect(remembersRead(wallet)).toBe(false)
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    }
+
+    for (const [caller, askedThenRead] of callers) {
+      it(`keeps no read of the history from ${caller}, a lock and an unlock between`, async () => {
+        const wallet = controller()
+        const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
+
+        await askedThenRead(wallet, () => lockAndUnlock(wallet))
+
+        await expectWalkedAndKeptNothing(wallet, walks)
+      })
+    }
+
+    // Each of the other clears, the removed account's outputs included: none
+    // stays kept under its old address once a wallet is unlocked again.
+    for (const [clear, during] of [
+      [
+        'the wallet data is reset',
+        async (wallet: WalletController) => {
+          await wallet.resetAllData()
+          clearTimeout(wallet.timer)
+          ;(keyringService as any).unlockForTest()
+        },
+      ],
+      ['a keyring is removed', removeAccountKeyring],
+      [
+        'a Reset Wallet drops the wallet caches',
+        async (wallet: WalletController) => {
+          ;(wallet as any).dropWalletCaches()
+          ;(keyringService as any).unlockForTest()
+        },
+      ],
+      [
+        'the keyring service locks the wallet on its own',
+        async (wallet: WalletController) => {
+          const lockState = (keyringService as any).memStore.getState()
+          vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
+            type: KeyringType.HdKeyring,
+            accounts: [],
+          } as any)
+          vi.mocked(keyringService.changeAddressType).mockImplementationOnce(async () => {
+            lockState.isUnlocked = false
+            throw new Error('address type not restored')
+          })
+          await expect(wallet.changeAddressType(AddressType.P2TR)).rejects.toThrow(
+            'address type not restored'
+          )
+          ;(keyringService as any).unlockForTest()
+        },
+      ],
+    ] as const) {
+      it(`keeps no read of the history from the send screen's read when ${clear} during its statistics read`, async () => {
+        const wallet = controller()
+        const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
+
+        await sendScreen(wallet, () => during(wallet))
+
+        await expectWalkedAndKeptNothing(wallet, walks)
+      })
+    }
+
+    // A pin, which passes without the place taken when asked as well: a
+    // network switch forgets only what was read of funding transactions. The
+    // kept reads are kept per API client, so one asked for before a switch
+    // is kept as one that completed before it is.
+    it('pins that a read asked for before a network switch is kept under the network it was asked on alone, not served on the new one', async () => {
+      const wallet = controller()
+      vi.spyOn(wallet, 'getCurrentKeyring').mockResolvedValue({
+        index: 0,
+        type: KeyringType.QbitHdKeyring,
+        accounts: [account],
+      } as any)
+      vi.spyOn(wallet as any, 'selectKeyring').mockResolvedValue(undefined)
+      vi.spyOn(wallet as any, 'kickPendingQbitRestoreFloorScan').mockImplementation(() => undefined)
+      vi.mocked(preferenceService.setChainType).mockImplementation((next: ChainType) => {
+        vi.mocked(preferenceService.getChainType).mockReturnValue(next)
+      })
+      const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
+
+      await sendScreen(wallet, () => wallet.setChainType(ChainType.QBIT_TESTNET4))
+
+      expect(preferenceService.getChainType()).toBe(ChainType.QBIT_TESTNET4)
+      expect(walks).toHaveBeenCalledTimes(1)
+      const reads = (wallet as any).qbitLatestUtxoReads
+      const clientOf = (chain: ChainType) => (wallet as any).getQbitApiClient(chain)
+      expect(reads.latest(clientOf(ChainType.QBIT_REGTEST), address)).toBeDefined()
+      expect(reads.latest(clientOf(ChainType.QBIT_TESTNET4), address)).toBeUndefined()
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual({
+        ...unknownSplit(),
+        chainType: ChainType.QBIT_TESTNET4,
+      })
+    })
+
+    for (const plansUnderived of [false, true]) {
+      it(`keeps nothing, once a keyring is removed, of a read of its outputs asked for and completed while the removal ran${plansUnderived ? ', the accounts of its plans not derived' : ''}`, async () => {
+        const wallet = controller()
+        // The holds the removal takes on the networks it cannot derive, and
+        // each release of one.
+        const plans = (wallet as any).qbitSendPlans
+        const hold = plans.holdNetworksIfIdle.bind(plans)
+        const released = vi.fn()
+        const networksHeld = vi
+          .spyOn(plans, 'holdNetworksIfIdle')
+          .mockImplementation((chains: unknown) => {
+            const release = hold(chains)
+            if (!release) return release
+            return () => {
+              released()
+              release()
+            }
+          })
+        const ending = holdEndingPlans(wallet)
+        const removing = removeAccountKeyring(wallet, { plansUnderived })
+        // A removal refused, a hold refused among them, fails the test at once.
+        await Promise.race([ending.arrived, removing])
+        if (plansUnderived) {
+          // The removal could not tell which plans are the wallet's alone on
+          // the network whose path differs from the active one's, and goes on
+          // only while it holds that network.
+          expect(networksHeld).toHaveBeenCalledTimes(1)
+          expect(networksHeld).toHaveBeenCalledWith([ChainType.QBIT_MAINNET])
+        } else {
+          expect(networksHeld).not.toHaveBeenCalled()
+          // With the id of the record the removal keeps of them (#216).
+          expect(ending.ending).toHaveBeenCalledWith(removedPlanAccounts, 'a1'.repeat(16))
+        }
+        expect(released).not.toHaveBeenCalled()
+
+        // The removed wallet is still the one stored as current: a read asked
+        // for now reads its outputs, and keeps them while the removal runs.
+        await wallet.getQbitUtxoSnapshot()
+        expect(remembersRead(wallet)).toBe(true)
+        ending.release()
+        await removing
+
+        // The hold, if it took one, ends with the removal.
+        expect(released).toHaveBeenCalledTimes(plansUnderived ? 1 : 0)
+        expect(remembersRead(wallet)).toBe(false)
+        await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+      })
+    }
+
+    it('keeps nothing, once a keyring is removed, of a read of its outputs asked for while the removal ran and completed after', async () => {
+      const wallet = controller()
+      const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
+      const ending = holdEndingPlans(wallet)
+      const removing = removeAccountKeyring(wallet)
+      await ending.arrived
+      const [statistics] = holdFirst({ matches: url => url.endsWith(`/address/${address}`) })
+      const running = wallet.getQbitUtxoSnapshot()
+      await statistics.arrived
+
+      ending.release()
+      await removing
+      statistics.release()
+      expect((await running).utxos).toHaveLength(OUTPUTS)
+
+      await expectWalkedAndKeptNothing(wallet, walks)
+    })
+
+    it('keeps nothing of a read of the removed wallet’s outputs made while its removal ran, when the removal fails after removing the keyring', async () => {
+      const wallet = controller()
+      const ending = holdEndingPlans(wallet)
+      const removing = removeAccountKeyring(wallet)
+      removing.catch(() => undefined)
+      await ending.arrived
+      await wallet.getQbitUtxoSnapshot()
+      expect(remembersRead(wallet)).toBe(true)
+
+      ending.fail(new Error('the send plans could not be ended'))
+      await expect(removing).rejects.toThrow('the send plans could not be ended')
+
+      expect(remembersRead(wallet)).toBe(false)
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    })
+
+    it('keeps nothing of the removed wallet’s outputs when the keyring service fails after it saved the emptied slot', async () => {
+      const wallet = controller()
+      await wallet.getQbitUtxoSnapshot()
+      expect(remembersRead(wallet)).toBe(true)
+      vi.mocked(keyringService.removeKeyring).mockImplementationOnce(async (index: number) => {
+        // The slot is emptied and saved, then updating the keyring service's
+        // memory store fails: the wallet is gone, and the removal rejects.
+        ;(keyringService as any).keyrings[index] = { type: 'Empty' }
+        throw new Error('the keyrings could not be updated')
+      })
+
+      await expect(removeAccountKeyring(wallet)).rejects.toThrow(
+        'the keyrings could not be updated'
+      )
+
+      expect(remembersRead(wallet)).toBe(false)
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    })
+
+    /**
+     * The send screen's read (`screen`), asked for while the read of a
+     * caller that did not ask to ride out server errors (`prepare`) reads the
+     * pending payment's transaction, joins that read, which then fails on that
+     * lookup as a ride-out would not have let it: the screen reads again on
+     * its own. `meanwhile` runs once the screen has joined, before that
+     * failure.
+     */
+    async function readAgainAfterJoining(
+      wallet: WalletController,
+      meanwhile: () => Promise<void>
+    ): Promise<Awaited<ReturnType<WalletController['getQbitUtxoSnapshot']>>> {
+      const joins = vi.spyOn(wallet as any, 'sharedQbitAccountUtxos')
+      const lookupPath = `/tx/${fakeTxid(1, 7_000_000)}`
+      let failing = 0
+      explorer.failures.push(({ path }) =>
+        path === lookupPath && failing-- > 0 ? { status: 502 } : undefined
+      )
+      const [lookup] = holdFirst({ matches: url => url.endsWith(lookupPath) })
+      const prepare = wallet.getQbitUtxoSnapshot('prepare')
+      prepare.catch(() => undefined)
+      await lookup.arrived
+      const screen = wallet.getQbitUtxoSnapshot('send-screen', true)
+      await vi.waitFor(() => expect(joins).toHaveBeenCalledTimes(2))
+
+      await meanwhile()
+      // The client's three attempts.
+      failing = 3
+      lookup.release()
+
+      await expect(prepare).rejects.toMatchObject({ status: 502 })
+      return screen
+    }
+
+    it('keeps nothing from the send screen reading again on its own when the wallet locked and unlocked since it was asked', async () => {
+      const wallet = controller()
+      const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
+
+      const screen = await readAgainAfterJoining(wallet, () => lockAndUnlock(wallet))
+
+      expect(screen.utxos).toHaveLength(OUTPUTS)
+      // The read it joined, then its own, riding out server errors, which
+      // started after the unlock.
+      expect(walks).toHaveBeenCalledTimes(2)
+      expect(walks.mock.calls[1]![5]).toBe(true)
+      expect(remembersRead(wallet)).toBe(false)
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(unknownSplit())
+    })
+
+    it('keeps the answer of the send screen reading again on its own over that of a read that started reading before it', async () => {
+      const wallet = controller()
+      const walks = vi.spyOn(wallet as any, 'qbitAccountUtxosOn')
+
+      const screen = await readAgainAfterJoining(wallet, async () => {
+        // A block confirms the pending payment, and another read starts
+        // reading after the screen was asked: it reads that payment from the
+        // history, not from the lookup the screen's read waits for, and
+        // completes first.
+        explorer.confirmMempool()
+        await wallet.getQbitUtxos()
+        await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(TOTAL, TOTAL))
+        // A payment arrives before the screen reads again.
+        explorer.addTx({
+          txid: fakeTxid(3, 7_000_000),
+          inputs: [{ txid: fakeTxid(4, 8_000_000), vout: 0 }],
+          outputs: [{ address, script: accountScript, value: 4_000 }],
+        })
+      })
+
+      expect(screen.utxos).toHaveLength(OUTPUTS + 1)
+      expect(walks).toHaveBeenCalledTimes(3)
+      expect(walks.mock.calls[2]![5]).toBe(true)
+      // Nothing was cleared: the read that started last, which saw the
+      // payment, is kept.
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(
+        split(TOTAL, TOTAL + 4_000)
+      )
+    })
+
+    it('keeps the read that started later when an earlier one finishes after it, though its caller was asked first', async () => {
+      const wallet = controller()
+      // The account's own pending send: classifying its change reads the
+      // whole transaction, whose answer this test holds back.
+      const ownSend = {
+        txid: fakeTxid(6, 7_000_000),
+        inputs: [{ txid: fakeTxid(0), vout: 0 }],
+        outputs: [
+          { address: payer, script: payerScript, value: 5_000 },
+          { address, script: accountScript, value: 4_000 },
+        ],
+      }
+      explorer.addTx(ownSend)
+      const [quote, ownSendRead] = holdFirst(
+        { matches: url => url.includes('/fee-estimates') },
+        { matches: url => url.endsWith(`/tx/${ownSend.txid}`), answerWhenAsked: true }
+      )
+      // A send is asked for, and waits for its fee quote before it reads.
+      const later = wallet.createSendQbitPsbt({ to: recipient, amount: 25_000 })
+      await quote.arrived
+      // Meanwhile a read starts, has verified the statistics and is classifying.
+      const earlier = wallet.getQbitUtxos()
+      await ownSendRead.arrived
+      // A block confirms the mempool, and the send's read, which starts only
+      // now, completes first.
+      explorer.confirmMempool()
+      quote.release()
+      await later
+      ownSendRead.release()
+      await earlier
+
+      // The earlier read, of the statistics before the block, does not
+      // replace the later one.
+      const total = TOTAL - OUTPUT_VALUE + 4_000
+      await expect(wallet.getAddressBalanceV2(address)).resolves.toEqual(split(total, total))
+    })
   })
 })

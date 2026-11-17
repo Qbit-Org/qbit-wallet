@@ -339,6 +339,54 @@ describe('QbitLatestAnswers', () => {
     expect(answers.latest(client, 'qb1a')).toBe('after')
   })
 
+  it('keeps nothing from a read whose caller was asked for it before a clear, however late it started', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    const asked = answers.start()
+
+    answers.clear()
+    // The read starts only now, after the clear, as a caller's read does
+    // once its own awaits are over.
+    answers.keep(client, 'qb1a', answers.start(), 'asked for before the clear', asked)
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+
+    // A caller asked after the clear keeps its read.
+    const askedSince = answers.start()
+    answers.keep(client, 'qb1a', answers.start(), 'asked for after it', askedSince)
+    expect(answers.latest(client, 'qb1a')).toBe('asked for after it')
+  })
+
+  it('keeps nothing from a read that started before a clear, whenever its caller says it was asked', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    const running = answers.start()
+
+    answers.clear()
+
+    answers.keep(client, 'qb1a', running, 'started before the clear', answers.start())
+    expect(answers.latest(client, 'qb1a')).toBeUndefined()
+  })
+
+  it('ranks a read by when it started, not by when its caller was asked for it', () => {
+    const answers = new QbitLatestAnswers<string>()
+    const client = {}
+    // One caller is asked, and awaits something of its own; another read
+    // starts meanwhile, and only then does the first caller's read start.
+    const askedEarly = answers.start()
+    const startedFirst = answers.start()
+    const startedLater = answers.start()
+
+    // The read that started later completes first, then the other.
+    answers.keep(client, 'qb1a', startedLater, 'started later, asked early', askedEarly)
+    answers.keep(client, 'qb1a', startedFirst, 'started first')
+    expect(answers.latest(client, 'qb1a')).toBe('started later, asked early')
+
+    // In the other order the read that started later replaces the other.
+    answers.keep(client, 'qb1b', startedFirst, 'started first')
+    answers.keep(client, 'qb1b', startedLater, 'started later, asked early', askedEarly)
+    expect(answers.latest(client, 'qb1b')).toBe('started later, asked early')
+  })
+
   it('keeps the slots most recently used, up to its bound', () => {
     const answers = new QbitLatestAnswers<string>(2)
     const client = {}

@@ -189,8 +189,10 @@ interface SharedRead<T, V> {
  * little, never ranks it, so after an eviction a later read that finds less
  * history still replaces an earlier one. Callers keep only answers to reads
  * that completed. `clear` forgets every answer, and a read that started
- * before it keeps nothing. Kept in memory only, for the slots most recently
- * used, and scopes are held weakly, as above.
+ * before it keeps nothing; nor does one whose caller was asked for it
+ * before it, when that caller took a place then (`keep`'s `since`). Kept in
+ * memory only, for the slots most recently used, and scopes are held weakly,
+ * as above.
  */
 export class QbitLatestAnswers<T> {
   private answers = new WeakMap<object, Map<string, { order: number; value: T }>>()
@@ -201,13 +203,23 @@ export class QbitLatestAnswers<T> {
   /** Keeps answers for at most `slotsPerScope` slots per scope, the most recently used. */
   constructor(private readonly slotsPerScope = Infinity) {}
 
-  /** The place in line of a read starting now, to `keep` its answer with. */
+  /**
+   * The place in line of a read starting now, to `keep` its answer with; or
+   * of a caller asked now for a read it starts later, after awaits of its
+   * own, to `keep` that read's answer with as `since`.
+   */
   start(): number {
     return ++this.started
   }
 
-  keep(scope: object, slot: string, order: number, value: T): void {
-    if (order <= this.cleared) return
+  /**
+   * Keep `value` as the answer of the read that started at `order`. With
+   * `since`, the place its caller took when it was asked for the read, a
+   * `clear` since then leaves it keeping nothing too, however late the read
+   * started; the answer still ranks by `order` alone.
+   */
+  keep(scope: object, slot: string, order: number, value: T, since = order): void {
+    if (Math.min(order, since) <= this.cleared) return
     let scoped = this.answers.get(scope)
     if (!scoped) {
       scoped = new Map()

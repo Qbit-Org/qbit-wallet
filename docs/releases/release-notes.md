@@ -150,6 +150,12 @@ Two more fixes to these payments close what the six left open (#216, #217).
   account now. Reopen Send to try again.") instead of leaving Next disabled
   without a word, and outputs remembered from an earlier visit are no longer
   used after such a failure.
+- Locking the wallet, resetting it or removing a wallet now also discards
+  the reads of an account's history that the balance uses, if they were
+  asked for before the lock, reset or removal and finish after it, as well as
+  reads made while a wallet was being removed. This matters for an account
+  with more outputs than the explorer will list, whose Available amount now
+  comes only from reads asked for after it.
 
 ### Security settings and Reset Wallet
 
