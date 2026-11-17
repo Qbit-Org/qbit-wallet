@@ -46,6 +46,8 @@ vi.mock('../src/services', async () => {
   return {
     keyringService: {
       keyrings: [],
+      // The wallet reads unlocked, as the check of a signing's inputs reads it.
+      memStore: { getState: () => ({ isUnlocked: true }) },
       signP2mrPsbtWithCounter: vi.fn(),
       preflightP2mrPsbtSigning: vi.fn(),
     },
@@ -65,6 +67,8 @@ vi.mock('../src/services/approval', () => ({ default: {} }))
 
 const SOURCE_TXID = fakeTxid(1)
 const SOURCE = { txid: SOURCE_TXID, vout: 0 }
+/** The transactions whose outputs the fixtures spend (`isLookup`). */
+const FUNDING_TXIDS = new Set([SOURCE_TXID, fakeTxid(3), fakeTxid(4)])
 const HTML_BODY = '<html><body>502 Bad Gateway</body></html>'
 
 const pubkeyHex = '11'.repeat(32)
@@ -137,7 +141,11 @@ describe('WalletController broadcasts through the real API client (#356)', () =>
   /** Called on every lifecycle lookup the wallet makes, before it is answered. */
   let onLookup: (() => void | Promise<void>) | undefined
 
-  const isLookup = (path: string) => /^\/tx\/[0-9a-f]{64}(?:\/status)?$/.test(path)
+  // A lookup of the transaction a broadcast sends: the check of a signing's
+  // inputs reads their funding transactions too, and those are no lifecycle
+  // lookups.
+  const isLookup = (path: string) =>
+    /^\/tx\/[0-9a-f]{64}(?:\/status)?$/.test(path) && !FUNDING_TXIDS.has(path.slice(4, 68))
   const isStatusLookup = (path: string) => /^\/tx\/[0-9a-f]{64}\/status$/.test(path)
   const statusLookups = () => explorer.requests.filter(({ path }) => isStatusLookup(path)).length
 

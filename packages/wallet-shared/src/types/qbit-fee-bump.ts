@@ -16,6 +16,21 @@ export type QbitFeeBumpUnavailableReason =
    * nothing outside the plan replaces it.
    */
   | 'held_by_send_plan'
+  /**
+   * An input spends an output the wallet's signing refuses, read and checked
+   * against its funding transaction as the wallet checks every input it
+   * signs: an unconfirmed output whose transaction, or an unconfirmed one
+   * before it, spends an output that is not the account's (someone else's
+   * unconfirmed payment to the account, or change from an unconfirmed
+   * transaction that also spent someone else's output). Only an original
+   * signed without that check spends one: through a website's request, or
+   * by other software holding the same key. Change with too many
+   * unconfirmed transactions before it, and a coinbase's immature output,
+   * are refused the same way, but an original the mempool accepted spends
+   * one only while the explorer lags or after a reorganisation. The
+   * replacement would be refused, so it is not offered.
+   */
+  | 'inputs_not_spendable'
   | 'unverifiable'
 
 export interface QbitFeeBumpDetails {

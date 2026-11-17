@@ -53,6 +53,10 @@ const PAUSE_REASONS: readonly QbitSendPlanPauseReason[] = [
   'payment_fee_too_low',
   'payment_refused',
   'unreadable',
+  'input_check_mismatch',
+  'input_check_not_spendable',
+  'input_check_not_found',
+  'input_check_unchecked',
 ]
 
 const REVISION_KINDS = ['replan', 'raise_merge_fee', 'raise_payment_fee'] as const
@@ -65,6 +69,11 @@ const RECOMMENDED_ACTIONS: Partial<Record<QbitSendPlanPauseReason, QbitSendPlanA
   outputs_spent: 'replan',
   payment_fee_too_low: 'raise_payment_fee',
   payment_refused: 'replan',
+  input_check_mismatch: 'continue',
+  input_check_not_spendable: 'continue',
+  // Its transaction is gone: a review from the outputs as they are now.
+  input_check_not_found: 'replan',
+  input_check_unchecked: 'continue',
 }
 
 /** A value read as `T` before its fields are checked: every field may be anything. */

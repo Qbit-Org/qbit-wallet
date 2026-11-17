@@ -1025,14 +1025,18 @@ export class QbitClassificationReads {
    * failure for an output that is not the account's own change, as 1.0.9
    * did after the client's own attempts, and a balance read must not wait
    * out an ancestor the explorer keeps failing. A walk that joins a read for
-   * the transaction's own outputs shares how that one is made.
+   * the transaction's own outputs shares how that one is made. Only the
+   * check of a send plan's inputs (`checkQbitSpendInputs`), for which a
+   * failed ancestor is an unknown outcome and not someone else's change,
+   * also rides them out for its walks (`rideOutWalks`, with `rideOut`).
    */
   constructor(
     private readonly client: QbitClassifyTxClient,
     shared: QbitFundingTxReads | undefined,
     callerSignal: AbortSignal | undefined,
     facts?: QbitFundingFactsView,
-    private readonly rideOut = false
+    private readonly rideOut = false,
+    private readonly rideOutWalks = false
   ) {
     this.signal = this.controller.signal
     this.signal.addEventListener(
@@ -1097,7 +1101,7 @@ export class QbitClassificationReads {
           withQbitReadRetries(
             () => this.client.getTx(txid, { signal: this.signal }),
             this.signal,
-            this.rideOut && forFacts ? QBIT_LOOKUP_RETRY_STATUSES : undefined
+            this.rideOut && (forFacts || this.rideOutWalks) ? QBIT_LOOKUP_RETRY_STATUSES : undefined
           ),
         this.signal
       )

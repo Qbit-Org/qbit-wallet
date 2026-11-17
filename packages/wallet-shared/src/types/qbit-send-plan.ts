@@ -60,6 +60,26 @@ export type QbitSendPlanPauseReason =
   | 'payment_refused'
   /** The stored plan cannot be read by this version of the wallet. */
   | 'unreadable'
+  /**
+   * An output the plan spends does not match its transaction at the
+   * explorer; nothing more was signed. Continue checks it again.
+   */
+  | 'input_check_mismatch'
+  /**
+   * An output the plan spends cannot be spent yet: a mining reward that has
+   * not matured, an unconfirmed payment from someone else, or change with too
+   * many unconfirmed transactions before it. Continue checks it again; a
+   * replan reads the account's outputs as they are now.
+   */
+  | 'input_check_not_spendable'
+  /**
+   * The explorer no longer has the transaction of an output the plan spends.
+   * A replan reads the account's outputs as they are now; Continue checks it
+   * again.
+   */
+  | 'input_check_not_found'
+  /** The wallet could not check an output the plan spends with the explorer. */
+  | 'input_check_unchecked'
 
 export interface QbitSendPlanPause {
   reason: QbitSendPlanPauseReason

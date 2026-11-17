@@ -2198,6 +2198,30 @@
   "send_plan_paused_unreadable_body": {
     "message": "Cette version du portefeuille ne peut pas lire le paiement enregistré et ne peut donc pas le poursuivre."
   },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "Une sortie ne correspond pas à l’explorateur"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "Une sortie que ce paiement dépense ne correspond pas à la transaction qui l’a créée dans l’explorateur : le portefeuille s’est donc arrêté avant de signer. Continuez pour la vérifier à nouveau, ou annulez le paiement."
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "Une sortie ne peut pas encore être dépensée"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "Une sortie que ce paiement dépense ne peut pas encore être dépensée : une récompense de minage pas encore mature, un paiement non confirmé venant de quelqu’un d’autre, ou de la monnaie précédée de trop de transactions non confirmées. Le portefeuille s’est arrêté avant de signer. Continuez plus tard pour la vérifier à nouveau, vérifiez à nouveau le paiement pour utiliser les sorties du compte telles qu’elles sont maintenant, ou annulez-le."
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "La transaction d’une sortie est introuvable"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "L’explorateur n’a plus la transaction qui a créé une sortie que ce paiement dépense : le portefeuille s’est donc arrêté avant de signer. Vérifiez à nouveau le paiement pour utiliser les sorties du compte telles qu’elles sont maintenant, continuez pour la vérifier à nouveau, ou annulez le paiement."
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "Une sortie n’a pas pu être vérifiée"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "Le portefeuille n’a pas pu vérifier auprès de l’explorateur une sortie que ce paiement dépense : il s’est donc arrêté avant de signer. Continuez pour réessayer."
+  },
   "send_plan_paused_other": {
     "message": "Le paiement est en pause"
   },
@@ -2341,6 +2365,18 @@
   },
   "send_outputs_load_failed": {
     "message": "Le portefeuille n'a pas pu lire les sorties de ce compte : il ne peut donc pas envoyer depuis ce compte pour le moment. Rouvrez Envoyer pour réessayer."
+  },
+  "send_input_check_mismatch": {
+    "message": "Une sortie que cette transaction dépenserait ne correspond pas à la transaction qui l'a créée dans l'explorateur : le portefeuille s'est donc arrêté avant de signer."
+  },
+  "send_input_check_not_spendable": {
+    "message": "Une sortie que cette transaction dépenserait ne peut pas encore être dépensée : une récompense de minage pas encore mature, un paiement non confirmé venant de quelqu'un d'autre, ou de la monnaie précédée de trop de transactions non confirmées. Le portefeuille s'est arrêté avant de signer."
+  },
+  "send_input_check_not_found": {
+    "message": "L'explorateur n'a plus la transaction qui a créé une sortie que cette transaction dépenserait : le portefeuille s'est donc arrêté avant de signer."
+  },
+  "send_input_check_unchecked": {
+    "message": "Le portefeuille n'a pas pu vérifier auprès de l'explorateur une sortie que cette transaction dépenserait : il s'est donc arrêté avant de signer. Réessayez dans un instant."
   },
   "consolidate_outputs": {
     "message": "Consolider les sorties"

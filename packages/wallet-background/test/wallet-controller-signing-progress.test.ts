@@ -26,6 +26,7 @@ import { ChainType } from '@qbit/wallet-types'
 import { WalletController } from '../src/controllers/wallet'
 import { keyringService, preferenceService } from '../src/services'
 import { bgEventBus } from '../src/utils/eventBus'
+import { FakeQbitExplorer, fakeTxid } from './qbit-fake-explorer'
 
 const keyringState = vi.hoisted(() => ({ isUnlocked: true }))
 
@@ -83,10 +84,18 @@ const account = {
 }
 
 let sendSeed = 0
+/** The explorer serving the transactions the sends spend, for the check before each signing. */
+let explorer: FakeQbitExplorer
 
 /** A two-input send to the account itself, spending outputs no other test spends. */
 function twoInputSend(): ToSignData {
   sendSeed += 1
+  explorer.addTx({
+    txid: bytesToHex(new Uint8Array(32).fill(sendSeed)),
+    inputs: [{ txid: fakeTxid(sendSeed, 5_000_000), vout: 0 }],
+    outputs: [0, 1].map(() => ({ address, script: bytesToHex(accountScript), value: 100_000 })),
+    height: 100,
+  })
   const psbt = createP2mrPsbt({
     inputs: [0, 1].map(vout => ({
       prevout: { txid: new Uint8Array(32).fill(sendSeed), vout },
@@ -136,6 +145,9 @@ describe('WalletController local signing progress (#171)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    explorer = new FakeQbitExplorer('esplora')
+    explorer.registerAddress(address, bytesToHex(accountScript))
+    vi.stubGlobal('fetch', explorer.fetch)
     keyringState.isUnlocked = true
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
     signer().mockImplementation(dummySigner as any)
@@ -148,6 +160,7 @@ describe('WalletController local signing progress (#171)', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     bgEventBus.removeEventListener(BUS_EVENTS.toUIPort, recordPageMessage)
     bgEventBus.removeEventListener(BUS_EVENTS.broadcastToUI, recordBroadcast)
     clearTimeout(wallet.timer)

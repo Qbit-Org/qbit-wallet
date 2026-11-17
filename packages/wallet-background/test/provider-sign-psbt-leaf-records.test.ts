@@ -203,7 +203,9 @@ describe('a website PSBT whose input lists the account leaf ambiguously (#352)',
       }
     )
     // The user presses Sign: the window signs the request it was shown.
-    approvalServiceMock.requestApproval.mockImplementation(async approval => {
+    approvalServiceMock.requestApproval.mockImplementation(async (approval, _window, onPending) => {
+      // As the approval service does before it installs the approval.
+      onPending?.('approval-1')
       const toSignData: ToSignData = structuredClone(approval.params.data.toSignDatas[0])
       return [await wallet.signPsbtV2(toSignData)]
     })

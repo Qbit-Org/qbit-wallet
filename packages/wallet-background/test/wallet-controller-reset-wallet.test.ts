@@ -957,6 +957,19 @@ describe('a reset while a signing runs', () => {
     },
   }
 
+  // The transaction the send spends, served for the check of its inputs
+  // before it is signed.
+  beforeEach(() => {
+    const explorer = new FakeQbitExplorer(CHAINS_MAP[ChainType.QBIT_MAINNET]!.qbitApiSurface)
+    explorer.addTx({
+      txid: bytesToHex(new Uint8Array(32).fill(9)),
+      inputs: [{ txid: fakeTxid(9, 5_000_000), vout: 0 }],
+      outputs: [0, 1].map(() => ({ address, script: bytesToHex(accountScript), value: 100_000 })),
+      height: 100,
+    })
+    vi.stubGlobal('fetch', explorer.fetch)
+  })
+
   function twoInputSend(): ToSignData {
     const psbt = createP2mrPsbt({
       inputs: [0, 1].map(vout => ({
@@ -1069,6 +1082,54 @@ describe('a reset while a signing runs', () => {
     expect(outcome).toBe('signed')
     expect(signedFor).toEqual(['tab:5'])
     expect(await resetting).toMatchObject({ message: 'password_error' })
+  })
+})
+
+describe('a reset and the signings that skip the check of their inputs (#210)', () => {
+  it('forgets every website PSBT admitted and provider send recorded, though no approval was pending for it to reject', async () => {
+    await createWallet()
+    const leafScript = singleKeyLeafScript(hexToBytes('11'.repeat(32)))
+    const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
+    const psbt = createP2mrPsbt({
+      inputs: [
+        {
+          prevout: { txid: new Uint8Array(32).fill(9), vout: 0 },
+          witnessUtxo: { value: 100_000n, scriptPubKey: p2mrScriptPubKey(leafHash) },
+          leafScript,
+          controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+          merkleRoot: leafHash,
+        },
+      ],
+      outputs: [{ value: 90_000n, scriptPubKey: p2mrScriptPubKey(leafHash) }],
+    })
+    const website = {
+      psbtHex: bytesToHex(serializePsbt(psbt)),
+      providerContext: { origin: SITE_A },
+    } as unknown as ToSignData
+    const kept = wallet as unknown as {
+      qbitPreparedWebsitePsbts: WeakSet<object>
+      qbitWebsitePsbts: Map<string, unknown>
+      qbitProviderSendBytes: Map<string, unknown>
+    }
+    // A website's PSBT, marked as prepareQbitProviderPsbt marks what it
+    // prepared and admitted as its approval opens, and the bytes of a
+    // provider send, recorded as its request opens; no approval is pending.
+    kept.qbitPreparedWebsitePsbts.add(website)
+    wallet.admitQbitWebsitePsbts([website])
+    kept.qbitProviderSendBytes.set('request', {
+      key: 'bytes',
+      chain: ChainType.QBIT_MAINNET,
+      address: 'address',
+      origin: SITE_A,
+      txid: '00'.repeat(32),
+    })
+    expect(approvalService.getApproval()).toBeUndefined()
+    expect(kept.qbitWebsitePsbts.size).toBe(1)
+
+    await expect(wallet.resetWallet(PASSWORD)).resolves.toBeUndefined()
+
+    expect(kept.qbitWebsitePsbts.size).toBe(0)
+    expect(kept.qbitProviderSendBytes.size).toBe(0)
   })
 })
 

@@ -396,7 +396,7 @@ function normalizeOutpoint(value: unknown): QbitOutpoint | undefined {
   return { txid: outpoint.txid, vout: outpoint.vout! }
 }
 
-function normalizeBroadcastClaim(value: unknown): QbitSendBroadcastClaim | undefined {
+export function normalizeBroadcastClaim(value: unknown): QbitSendBroadcastClaim | undefined {
   if (!value || typeof value !== 'object') return
   const claim = value as Partial<QbitSendBroadcastClaim>
   if (

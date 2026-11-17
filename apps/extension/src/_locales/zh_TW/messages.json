@@ -2198,6 +2198,30 @@
   "send_plan_paused_unreadable_body": {
     "message": "此版本的錢包無法讀取已儲存的付款，因此無法繼續進行。"
   },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "某個輸出與瀏覽器不符"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "這筆付款要花費的某個輸出，與瀏覽器上建立它的交易不符，因此錢包在簽署前就停止了。請繼續以再次檢查，或取消付款。"
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "某個輸出目前還不能花費"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "這筆付款要花費的某個輸出目前還不能花費：它是尚未成熟的挖礦獎勵、他人尚未確認的付款，或之前有太多未確認交易的找零。錢包在簽署前就停止了。請稍後繼續以再次檢查、重新檢查付款以使用帳戶目前的輸出，或取消付款。"
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "找不到某個輸出的交易"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "瀏覽器上已找不到建立這筆付款要花費之某個輸出的交易，因此錢包在簽署前就停止了。請重新檢查付款以使用帳戶目前的輸出、繼續以再次檢查，或取消付款。"
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "無法檢查某個輸出"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "錢包無法透過瀏覽器檢查這筆付款要花費的某個輸出，因此在簽署前就停止了。請繼續以再試一次。"
+  },
   "send_plan_paused_other": {
     "message": "付款已暫停"
   },
@@ -2341,6 +2365,18 @@
   },
   "send_outputs_load_failed": {
     "message": "錢包無法讀取此帳戶的輸出，因此目前無法從此帳戶傳送。請重新開啟「傳送」再試一次。"
+  },
+  "send_input_check_mismatch": {
+    "message": "此筆交易要花費的某個輸出，與瀏覽器上建立它的交易不符，因此錢包在簽署前就停止了。"
+  },
+  "send_input_check_not_spendable": {
+    "message": "此筆交易要花費的某個輸出目前還不能花費：它是尚未成熟的挖礦獎勵、他人尚未確認的付款，或之前有太多未確認交易的找零。錢包在簽署前就停止了。"
+  },
+  "send_input_check_not_found": {
+    "message": "瀏覽器上已找不到建立此筆交易要花費之某個輸出的交易，因此錢包在簽署前就停止了。"
+  },
+  "send_input_check_unchecked": {
+    "message": "錢包無法透過瀏覽器檢查此筆交易要花費的某個輸出，因此在簽署前就停止了。請稍後再試。"
   },
   "consolidate_outputs": {
     "message": "整合輸出"

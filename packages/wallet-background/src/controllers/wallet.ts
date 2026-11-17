@@ -199,6 +199,7 @@ import {
   type DecodePsbtOptions,
   type LocalPsbtBatchReview,
   type PsbtOutputOwner,
+  type QbitSelectableCoin,
   type QbitWalletOwnership,
 } from '@qbit/wallet-shared'
 import { psbtFromString } from '../utils/psbt-utils'
@@ -220,6 +221,7 @@ import {
 } from '../utils/qbit-broadcast'
 import {
   assertQbitStatsFloorBelowWarningThreshold,
+  checkQbitSpendInputs,
   classifyQbitProtectedAssetCoverage,
   continueQbitAddressOutputScan,
   createQbitAddressOutputScan,
@@ -238,6 +240,7 @@ import {
   getQbitTxSpenders,
   getQbitUtxoListLimit,
   isQbitChainType,
+  isQbitCheckedSpend,
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
   isQbitSnapshotUnstableError,
@@ -253,6 +256,9 @@ import {
   qbitStatsSnapshot,
   qbitStatsToAddressSummary,
   qbitUnavailableFeeSummary,
+  QBIT_SPEND_CHECK_DEADLINE_MS,
+  qbitSpendCheckDeadlineMs,
+  QbitSpendInputCheckError,
   QbitUtxoHistoryTooLargeError,
   QbitWalletEsploraClient,
   QbitWalletMempoolClient,
@@ -269,6 +275,9 @@ import {
   type QbitPqcSignatureActivity,
   type QbitProtectedAssetCoverage,
   type QbitRestoreDiscovery,
+  type QbitCheckedSpend,
+  type QbitSpendInput,
+  type QbitSpendInputProblem,
   type QbitWalletApiClient,
 } from '../utils/qbit-api'
 import {
@@ -343,6 +352,7 @@ import {
   QBIT_PROVIDER_SIGNING,
   QBIT_WALLET_SEND_CLAIM_ORIGIN,
   QbitSendBroadcastClaimInactiveError,
+  normalizeBroadcastClaim,
   type QbitNoOverlapOperation,
   type QbitExternalSigningLockIdentity,
   type QbitOutpoint,
@@ -954,6 +964,140 @@ function qbitPsbtTxid(psbt: QbitPsbt): string {
  */
 function qbitBroadcastIdentityOf(psbt: QbitPsbt, chain: ChainType): QbitBroadcastIdentity {
   return { chain, txid: qbitPsbtTxid(psbt) }
+}
+
+/** The SHA-256 of `psbt`'s serialization, in hex: one PSBT's bytes and no other's. */
+function qbitPsbtKey(psbt: QbitPsbt): string {
+  return Buffer.from(
+    transactionCore.crypto.sha256(Buffer.from(qbitPsbtToHex(psbt), 'hex'))
+  ).toString('hex')
+}
+
+/**
+ * The most website PSBTs whose approval may be open at once
+ * (`qbitWebsitePsbts`): more are refused, never pushed out.
+ */
+const QBIT_WEBSITE_PSBTS_KEPT = 64
+
+/**
+ * Every input `psbt` spends, as its signatures commit to them
+ * (`checkQbitSpendInputs`). An input that names no output it spends, or a
+ * value past what a number holds exactly, is handed on as no output can be
+ * (a negative value, or one that is no safe integer), so the check refuses
+ * it as a mismatch before any read.
+ */
+function qbitPsbtSpendInputs(psbt: QbitPsbt): QbitSpendInput[] {
+  return decodeQbitPsbt(psbt).inputs.map(input => ({
+    txid: qbitInternalBytesToTxid(input.prevout.txid),
+    vout: input.prevout.vout,
+    satoshis: input.witnessUtxo ? Number(input.witnessUtxo.value) : -1,
+    scriptPk: input.witnessUtxo ? qbitBytesToHex(input.witnessUtxo.scriptPubKey) : '',
+  }))
+}
+
+/** The inputs a builder selected, as a transaction spending them commits to them. */
+function qbitSpendInputsOf(utxos: readonly UnspentOutput[]): QbitSpendInput[] {
+  return utxos.map(utxo => ({
+    txid: utxo.txid,
+    vout: utxo.vout,
+    satoshis: utxo.satoshis,
+    scriptPk: utxo.scriptPk,
+  }))
+}
+
+/** The message of each cause an input fails its check for (`QbitSpendInputProblem`). */
+const QBIT_SPEND_CHECK_MESSAGE_KEYS: Record<QbitSpendInputProblem, string> = {
+  mismatch: 'send_input_check_mismatch',
+  not_spendable: 'send_input_check_not_spendable',
+  not_found: 'send_input_check_not_found',
+  unchecked: 'send_input_check_unchecked',
+}
+
+/**
+ * A failed check as the user reads it: its message is its cause's, in the
+ * user's language. The cause stays on it (`problem`) for the background code
+ * that tells causes apart (a send plan pauses with it, see
+ * `QbitSendPlanEngine`); a page never sees `problem`, since an error crosses
+ * the UI port as `{ message, stack }` alone, and reads the message.
+ */
+function qbitSpendCheckFailure(
+  error: QbitSpendInputCheckError
+): Error & { problem: QbitSpendInputProblem } {
+  return Object.assign(new Error(t(QBIT_SPEND_CHECK_MESSAGE_KEYS[error.problem])), {
+    problem: error.problem,
+    cause: error,
+  })
+}
+
+/**
+ * The cause a failed check of inputs gives, read off the check's own error,
+ * which its failure carries as its `cause` (`qbitSpendCheckFailure`); for
+ * any other error, whatever it carries, undefined: it is no verdict.
+ */
+function qbitSpendCheckProblemOf(error: unknown): QbitSpendInputProblem | undefined {
+  const cause =
+    error !== null && typeof error === 'object' ? (error as { cause?: unknown }).cause : undefined
+  return cause instanceof QbitSpendInputCheckError ? cause.problem : undefined
+}
+
+/**
+ * The inputs of a send's PSBT, made from `checked` alone: the inputs the
+ * builder `selected`, in their order, each exactly as `checkQbitSpendInputs`
+ * read and checked it, which alone makes a `QbitCheckedSpend`. An input the
+ * selection took for unconfirmed change carries the ancestors the selection
+ * counted against qbit Core's ancestor limits; the check's own walk must find
+ * no more of them, nor any larger, and an input the selection took for
+ * confirmed must be confirmed, or the build fails as a mismatch.
+ */
+function qbitCheckedP2mrInputs(
+  checked: QbitCheckedSpend,
+  selected: readonly QbitSelectableCoin[],
+  spend: {
+    sequence: number
+    leafScript: Uint8Array
+    controlBlock: Uint8Array
+    merkleRoot: Uint8Array
+  }
+): Parameters<typeof createP2mrPsbt>[0]['inputs'] {
+  if (!isQbitCheckedSpend(checked) || checked.inputs.length !== selected.length) {
+    throw new Error('Qbit inputs must be checked before they are built')
+  }
+  return checked.inputs.map((input, index) => {
+    const utxo = selected[index]
+    if (
+      !utxo ||
+      input.txid !== utxo.txid.toLowerCase() ||
+      input.vout !== utxo.vout ||
+      input.satoshis !== utxo.satoshis
+    ) {
+      throw new Error('Qbit inputs must be checked before they are built')
+    }
+    const found = checked.unconfirmedAncestors.get(`${input.txid}:${input.vout}`)
+    const counted = new Map(
+      (utxo.unconfirmed ? (utxo.unconfirmedAncestors ?? []) : []).map(ancestor => [
+        ancestor.txid.toLowerCase(),
+        ancestor.vsize,
+      ])
+    )
+    if (found?.some(({ txid, vsize }) => !(vsize <= (counted.get(txid) ?? -1)))) {
+      throw qbitSpendCheckFailure(
+        new QbitSpendInputCheckError(
+          'mismatch',
+          input.txid,
+          input.vout,
+          'more unconfirmed ancestors than its listing'
+        )
+      )
+    }
+    return {
+      prevout: { txid: qbitTxidToInternalBytes(input.txid), vout: input.vout },
+      sequence: spend.sequence,
+      witnessUtxo: { value: BigInt(input.satoshis), scriptPubKey: qbitHexToBytes(input.scriptPk) },
+      leafScript: spend.leafScript,
+      controlBlock: spend.controlBlock,
+      merkleRoot: spend.merkleRoot,
+    }
+  })
 }
 
 /**
@@ -1814,8 +1958,38 @@ export class WalletController extends BaseController {
       txid: qbitPsbtTxid(psbt),
       outpoints: qbitPsbtOutpoints(psbt),
     }
-    return this.validatedQbitSendBroadcastClaim(psbt, claim, providerContext, account?.address)
+    const minted = this.validatedQbitSendBroadcastClaim(
+      psbt,
+      claim,
+      providerContext,
+      account?.address
+    )
+    // The bytes this claim was minted from, background-side: the provider
+    // request it opens records them, and only they skip the check when
+    // signed (`qbitProviderSigningOf`).
+    this.qbitMintedClaimBytes.set(minted, qbitPsbtKey(psbt))
+    return minted
   }
+
+  /**
+   * By the claim object `createQbitSendBroadcastClaim` returned, the key of
+   * the bytes it minted it from (`qbitPsbtKey`). Held weakly: a claim whose
+   * request never opens leaves nothing behind.
+   */
+  private readonly qbitMintedClaimBytes = new WeakMap<QbitSendBroadcastClaim, string>()
+
+  /**
+   * By open provider send request, the claim its approval carries and the
+   * key of the bytes the background built and checked for it: recorded when
+   * the request opens (`openQbitProviderSendRequest`) from a claim the
+   * background minted, removed when it settles or by a reset. A local
+   * signing skips the check of its inputs as a provider send only for these
+   * bytes under this claim (`qbitProviderSigningOf`).
+   */
+  private readonly qbitProviderSendBytes = new Map<
+    QbitProviderSendRequest,
+    { key: string; chain: string; address: string; origin: string; txid: string }
+  >()
 
   acquireExternalQbitSigningLock = async (
     toSignDatas: readonly ToSignData[],
@@ -1909,10 +2083,27 @@ export class WalletController extends BaseController {
    * Open the provider sendQbit request whose approval carries `claim`,
    * before the approval is shown. Signing that approval registers the claim
    * under this request, and only while it is open; see
-   * `settleQbitProviderSendRequest`.
+   * `settleQbitProviderSendRequest`. A claim the background minted
+   * (`createQbitSendBroadcastClaim`) records the bytes it was minted from
+   * under the request, for as long as the request is open; any other claim
+   * opens the request and records nothing, so its signing is checked.
    */
-  openQbitProviderSendRequest = (claim: QbitSendBroadcastClaim): Promise<QbitProviderSendRequest> =>
-    qbitSendGuardService.openProviderSendRequest(claim)
+  openQbitProviderSendRequest = async (
+    claim: QbitSendBroadcastClaim
+  ): Promise<QbitProviderSendRequest> => {
+    const request = await qbitSendGuardService.openProviderSendRequest(claim)
+    const key = this.qbitMintedClaimBytes.get(claim)
+    if (key !== undefined) {
+      this.qbitProviderSendBytes.set(request, {
+        key,
+        chain: claim.chain,
+        address: claim.address,
+        origin: claim.origin,
+        txid: claim.txid,
+      })
+    }
+    return request
+  }
 
   /**
    * Close a provider sendQbit request, successful or not, and decide the
@@ -1929,7 +2120,11 @@ export class WalletController extends BaseController {
   settleQbitProviderSendRequest = (
     request: QbitProviderSendRequest,
     spent: boolean
-  ): Promise<void> => qbitSendGuardService.settleProviderSendRequest(request, spent)
+  ): Promise<void> => {
+    // Its bytes skip no check from here on, whatever the guard decides.
+    this.qbitProviderSendBytes.delete(request)
+    return qbitSendGuardService.settleProviderSendRequest(request, spent)
+  }
 
   /**
    * The UI port the call now executing arrived on, for that call's
@@ -3154,6 +3349,10 @@ export class WalletController extends BaseController {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    // No website PSBT, nor any provider send, skips the check of its inputs
+    // past a reset, which also ends every open provider request in the guard.
+    this.forgetQbitWebsitePsbts()
+    this.qbitProviderSendBytes.clear()
     this.forgetQbitAccountTotals()
     // The send plans stop before anything else is reset, and stay stopped
     // until the reset is over: nothing of a plan is signed, broadcast,
@@ -3891,13 +4090,17 @@ export class WalletController extends BaseController {
    * here without that lock), histories and consolidation walks, the snapshot
    * reads pages wait for, the account derivations asked for, the local
    * signings (stopped) and the auto-lock, which nothing arms until a wallet is
-   * unlocked again. No removal can be under way: removals run on the
-   * chain-state queue too.
+   * unlocked again; and every website PSBT admitted and provider send
+   * recorded to skip the check of its inputs, whether or not an approval
+   * the reset rejected let it go first. No removal can be under way: removals
+   * run on the chain-state queue too.
    */
   private dropWalletCaches = (): void => {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    this.forgetQbitWebsitePsbts()
+    this.qbitProviderSendBytes.clear()
     this.forgetQbitAccountTotals()
     this.qbitHistorySnapshots.clear()
     this.qbitConsolidationScans.clear()
@@ -6931,7 +7134,11 @@ export class WalletController extends BaseController {
       // still be stored as current, and a read asked for meanwhile reads its
       // outputs: what that read keeps lasts only until both are cleared again
       // as the removal ends (below), and a read asked for before then keeps
-      // nothing after it, however late it ends.
+      // nothing after it, however late it ends. (A website PSBT admitted for
+      // an approval still open stays admitted, as across a lock: its
+      // approval's settling ends it, and a reset; bytes prepared for an
+      // account only the removed wallet held are refused by the keyring
+      // anyway.)
       this.qbitLatestUtxoReads.clear()
       this.qbitFundingTxReads.clear()
       this.qbitBalanceReuse.clear()
@@ -7712,6 +7919,105 @@ export class WalletController extends BaseController {
     )
   }
 
+  /**
+   * Whether a local signing of the exact bytes `psbt` is provider signing,
+   * the one kind of signing whose inputs are not checked when it is signed,
+   * decided here and nowhere else (`signQbitP2mrLocally`). Every input of
+   * every transaction the wallet builds or signs is read and checked
+   * against its funding transaction (`checkQbitSpendInputs`), save for these
+   * declared exceptions, which are all there are:
+   * - A website's PSBT: only the exact bytes of an entry a website's request
+   *   admitted, while its approval is open (`admitQbitWebsitePsbts`), signed
+   *   with that website's provider context. Its inputs can be anyone's (a
+   *   swap's counterparty's among them), and the approval shows what it
+   *   spends.
+   * - A provider send: only the exact bytes the wallet built, and checked as
+   *   it built them (`createSendQbitPsbt`), for an open provider sendQbit
+   *   request, signed under the claim the background minted from those
+   *   bytes (`createQbitSendBroadcastClaim`) while that request is open
+   *   (`openQbitProviderSendRequest`). Other bytes under that claim (another
+   *   spent amount or script keeps the txid), a claim the background did not
+   *   mint, or one whose request has settled, are checked. The bytes are
+   *   recorded background-side, never taken from the claim, which crosses
+   *   the page.
+   * - A send plan's input that spends an output of one of the plan's own
+   *   steps: checked against that step as the plan's record holds it, which
+   *   `checkQbitSendPlanStepPsbt` binds to the bytes the plan stored for it,
+   *   and never read, as it may not be in the network yet (see
+   *   `QbitSendPlanEngine.signStep`).
+   * - An account whose signer is elsewhere (an external or cold-wallet
+   *   signer): its inputs are checked when the wallet builds the
+   *   transaction, the only check, as its counter unit is taken on that
+   *   signer.
+   * A fee bump is no exception: its inputs, exactly those of the
+   * transaction it replaces, are checked when its eligibility is assessed,
+   * which every build of one does (`assessQbitFeeBump`), and again when the
+   * wallet signs it, as any other; an External signer's bump, signed
+   * elsewhere, is checked at eligibility and at build only.
+   * Either kind of provider signing is decided here for the exact bytes
+   * signed, and must still hold as the keyring is called: `stands` tests it
+   * again then, for the bytes as they are then (the website's admission of
+   * them for that origin, or their record under that claim for an open
+   * request), and a signing for which it no longer holds is refused there
+   * (see `signQbitP2mrLocally`).
+   * An exception is decided for the exact bytes, and a sighash type the
+   * bytes do not name is not part of them: the type an input is signed
+   * under is chosen as for every other signing, not by this decision.
+   * A claim that is present (`null`, `false`, `0` and `''` included) but not
+   * a well-formed claim refuses the signing before anything is read; a
+   * well-formed one is validated against these bytes. Returns the claim the
+   * signing runs under, if any, whether it skips the check, and `stands`.
+   */
+  private qbitProviderSigningOf(
+    toSignData: ToSignData,
+    psbt: QbitPsbt,
+    address: string
+  ): {
+    claim: QbitSendBroadcastClaim | undefined
+    skipsCheck: boolean
+    stands: () => boolean
+  } {
+    const given: unknown = toSignData.qbitSendBroadcastClaim
+    if (given !== undefined) {
+      const wellFormed = normalizeBroadcastClaim(given)
+      if (!wellFormed || wellFormed.origin === QBIT_WALLET_SEND_CLAIM_ORIGIN) {
+        throw new Error('invalid Qbit send broadcast claim')
+      }
+      const claim = this.validatedQbitSendBroadcastClaim(
+        psbt,
+        wellFormed,
+        toSignData.providerContext,
+        address
+      )
+      // These bytes, as they are now, are those the wallet built for an open
+      // provider request under this claim.
+      const stands = (): boolean => {
+        const key = qbitPsbtKey(psbt)
+        return [...this.qbitProviderSendBytes.values()].some(
+          sent =>
+            sent.key === key &&
+            sent.chain === claim.chain &&
+            sent.address === claim.address &&
+            sent.origin === claim.origin &&
+            sent.txid === claim.txid
+        )
+      }
+      return { claim, skipsCheck: stands(), stands }
+    }
+    const origin = toSignData.providerContext?.origin
+    // These bytes, as they are now, are admitted for this website while an
+    // approval of them is open.
+    const stands = (): boolean => {
+      const admitted = this.qbitWebsitePsbts.get(qbitPsbtKey(psbt))
+      return (
+        typeof origin === 'string' &&
+        admitted !== undefined &&
+        [...admitted.values()].includes(origin)
+      )
+    }
+    return { claim: undefined, skipsCheck: stands(), stands }
+  }
+
   /** The local P2MR signing of `signPsbtV2`, stopped before its next input by `signal`. */
   private signQbitP2mrLocally = async (
     toSignData: ToSignData,
@@ -7721,6 +8027,9 @@ export class WalletController extends BaseController {
   ): Promise<SignedData> => {
     // A call whose page already closed does none of its checks or reads.
     if (signal.aborted) throw new QbitSigningAbortedError()
+    // Before the first await: a lock from here on stops the signing.
+    const locksBefore = this.lockRequests
+    const unlockedBefore = !this.readsLocked()
     const migrationContext = toSignData.qbitRecoveryMigration
       ? await this.validateQbitRecoveryMigrationSigning(
           toSignData.qbitRecoveryMigration,
@@ -7739,6 +8048,12 @@ export class WalletController extends BaseController {
       toSignData.qbitBroadcastIdentity
     )
     const chain = qbitBroadcastIdentity.chain
+    // Whether this is provider signing, the one signing whose inputs are not
+    // checked here, decided once, for these exact bytes; see
+    // `qbitProviderSigningOf` for every exception there is. A claim that is
+    // not a well-formed claim refuses the signing here, before anything is
+    // read, the consolidation's reads below included.
+    const provider = this.qbitProviderSigningOf(toSignData, psbt, account.address)
     const consolidationOutputCounts =
       this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
       toSignData.qbitConsolidation?.fundingOutputCounts
@@ -7747,10 +8062,83 @@ export class WalletController extends BaseController {
     }
     // Its page closed during those reads: it does not join the send guard's queue.
     if (signal.aborted) throw new QbitSigningAbortedError()
+    if (!provider.skipsCheck) {
+      // Every input is read and checked against its funding transaction
+      // here, immediately before the first signature, whatever the page or a
+      // build before said of it (`checkQbitSpendInputs`): a send, a send of
+      // everything, a consolidation batch, a fee bump, a recovery sweep, and
+      // anything a page hands back as one of them. Whatever the lock state:
+      // the memory store can read locked while the keyrings are live (an
+      // unlock loads them before it marks the wallet unlocked, and a lock
+      // marks it locked before it waits for the keyring's mutex to drop
+      // them), so a signing asked while the wallet reads locked is checked as
+      // any other, and reaches the keyring only checked. One asked while a
+      // lock still waits for that mutex is checked (before the check existed
+      // it was signed unchecked), and whether the keyrings are live is
+      // decided when the keyring is called, after the send guard's queue, not
+      // when the check ends: if the lock drops them before that call, the
+      // keyring refuses it, unless the wallet is unlocked again first, when it
+      // is signed, checked. One asked once the keyrings are dropped is refused
+      // by the keyring, as it was before, but now after the check's reads; if
+      // the wallet is unlocked meanwhile, it is signed, checked. One whose
+      // check fails is refused with the check's cause, where the keyring's own
+      // error came before.
+      // The keyring takes the first signature counter unit of this signing
+      // in `signP2mrPsbtWithCounter` below, only after the check has
+      // returned.
+      await this.checkQbitSpendOn(chain, account.address, qbitPsbtSpendInputs(psbt), {
+        signal,
+      }).catch((error: unknown) => {
+        // Its page closed while the check read: it stops as any signing does.
+        if (signal.aborted) throw new QbitSigningAbortedError()
+        throw error
+      })
+      // What allowed this signing before the check's reads must hold still:
+      // its page waits, no lock came, the network and the account are those
+      // it was built for, and a migration's plan still signs. The send
+      // guard's claim or overlap check is taken below, after this.
+      const migrationAgain = toSignData.qbitRecoveryMigration
+        ? await this.validateQbitRecoveryMigrationSigning(
+            toSignData.qbitRecoveryMigration,
+            toSignData
+          )
+        : undefined
+      if (signal.aborted) throw new QbitSigningAbortedError()
+      // A lock asked for since the call began, or one that came over a
+      // wallet that read unlocked then, refuses it. One begun while the
+      // wallet read locked goes on, checked, to the keyring, which signs it
+      // if its keyrings are live by then and refuses it otherwise (see above).
+      if (this.lockRequests !== locksBefore || (unlockedBefore && this.readsLocked())) {
+        throw new WalletError(ErrorCodes.WALLET_LOCKED_DURING_SIGNING)
+      }
+      if (this.getChainType() !== chain) {
+        throw new Error('Qbit network changed since the transaction was created')
+      }
+      // Another account selected meanwhile; with none selected, the
+      // keyring refuses an account it no longer holds.
+      const accountNow = migrationAgain?.account ?? preferenceService.getCurrentAccount()
+      if (accountNow && accountNow.address !== account.address) {
+        throw new Error('Qbit account changed since the transaction was created')
+      }
+    }
     const onProgress = this.qbitSigningProgressReporter(uiPort, options?.progressId)
     const sign = async (): Promise<SignedData> => {
       // Its page closed while it waited in the send guard's queue.
       if (signal.aborted) throw new QbitSigningAbortedError()
+      // A signing that skipped the check did so only for what held when it
+      // was decided, before the consolidation's reads and the wait in the
+      // send guard's queue: it must hold still, here, as the keyring is
+      // called, or the signing is refused. It stops holding only once its
+      // approval or provider request has settled, when nothing waits for
+      // this signature any more; and a check run here would read the
+      // explorer inside the guard's queue, which every other send waits on.
+      if (provider.skipsCheck && !provider.stands()) {
+        throw new Error(
+          provider.claim
+            ? 'Qbit provider send request is no longer pending'
+            : 'Qbit website signing request is no longer pending'
+        )
+      }
       const signed = await keyringService
         .signP2mrPsbtWithCounter(
           account.address,
@@ -7811,16 +8199,10 @@ export class WalletController extends BaseController {
     // claim is refused before a signature is spent. Only a claim the
     // wallet mints for its own send is owned by the UI port that receives
     // the signed bytes.
-    if (toSignData.qbitSendBroadcastClaim) {
-      const providerClaim = this.validatedQbitSendBroadcastClaim(
-        psbt,
-        toSignData.qbitSendBroadcastClaim,
-        toSignData.providerContext,
-        account.address
-      )
+    if (provider.claim) {
       return qbitSendGuardService.runWithProviderBroadcastClaim(
-        providerClaim,
-        signWithClaim(providerClaim)
+        provider.claim,
+        signWithClaim(provider.claim)
       )
     }
     const claim = this.walletQbitSendBroadcastClaim(
@@ -8788,8 +9170,11 @@ export class WalletController extends BaseController {
    * and what funding transactions said of their outputs, so a balance poll of
    * an address whose outputs did not change reads none of them again. The
    * balance reads no transaction at all for an output a coinbase maturity
-   * deep, and keeps nothing of it, so the send screen's first read reads
-   * those. It keeps the facts of at most `QBIT_FUNDING_FACTS_MAX_OUTPOINTS`
+   * deep, and keeps nothing of it, nor does the send screen's read
+   * (`qbitAccountUtxosOn`), which lists those as candidates: a transaction
+   * reads and checks each input it spends before its first signature
+   * (`checkQbitSpendOn`), and keeps what it reads here. It keeps the facts of
+   * at most `QBIT_FUNDING_FACTS_MAX_OUTPOINTS`
    * (65,536) outputs, so the balance of an address with more outputs younger
    * than that or unconfirmed reads none of them one by one: it answers with
    * the total alone, the split unknown, and backs off
@@ -9018,11 +9403,13 @@ export class WalletController extends BaseController {
    * neither redirect the original's outputs nor present a send the account
    * never signed.
    *
-   * Every explorer read here shares one deadline,
-   * `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`, and these are the slow reads of
-   * a bump: they all happen before the user signs. It starts once the
-   * assessment has been through the send guard's queue, which a broadcast
-   * can hold for as long as its own deadline: the wait spends none of it.
+   * The explorer reads of the original, its JSON, its raw bytes and what
+   * spends it, share one deadline, `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`,
+   * and these are the slow reads of a bump: they all happen before the user
+   * signs. It starts once the assessment has been through the send guard's
+   * queue, which a broadcast can hold for as long as its own deadline: the
+   * wait spends none of it. The check of the original's inputs, last, has a
+   * deadline of its own after those reads (see there).
    * The original's output count goes with the plan, so its broadcast only
    * asks what spends them.
    */
@@ -9353,6 +9740,48 @@ export class WalletController extends BaseController {
       return { eligible: false, reason: 'insufficient_change' }
     }
 
+    // The bump spends the original's inputs again, and the wallet's signing
+    // of it checks each of them against its funding transaction
+    // (`signQbitP2mrLocally`): an unconfirmed one must be the account's own
+    // change all the way down. The original's need not be: nothing above
+    // asks more of them than the account's signature, which a website's
+    // request, or other software holding the same key, can have given to a
+    // spend of anything that pays the account. The same check here, last,
+    // so that a bump offered passed, when it was assessed, the check its
+    // signing makes; an External signer's bump, signed elsewhere, has this
+    // check and the build's, and no other. It reads the tip once, at once
+    // and outside the limiter, the funding transaction of each input, and,
+    // for an unconfirmed one, every parent of each unconfirmed transaction
+    // before it, confirmed parents included: each transaction once, through
+    // the limiter. Its deadline is its own, the signing's
+    // (`QBIT_SPEND_CHECK_DEADLINE_MS`), from here, as the reads above may
+    // have spent most of theirs (see `QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS`),
+    // and it leaves nothing running when it settles. Only its own failure
+    // is a verdict: one that could not check an input (`unchecked`) is
+    // none, and is thrown as any other read here that fails.
+    // Each input as its signature commits to it; one these do not name (none
+    // can be missing) would be refused by the check as no output at all.
+    const inputTxids = raw.inputTxids
+    try {
+      await this.checkQbitSpendOn(
+        chain,
+        account.address,
+        original.inputs.map((input, index) => ({
+          txid: inputTxids[index] ?? '',
+          vout: input.prevout.vout,
+          satoshis: Number(spentOutputs[index]?.value ?? -1n),
+          scriptPk: accountScriptPubKey,
+        }))
+      )
+    } catch (error) {
+      const problem = qbitSpendCheckProblemOf(error)
+      if (problem === 'not_spendable') return { eligible: false, reason: 'inputs_not_spendable' }
+      if (problem === 'mismatch' || problem === 'not_found') {
+        return { eligible: false, reason: 'unverifiable' }
+      }
+      throw error
+    }
+
     return {
       eligible: true,
       plan: {
@@ -9537,6 +9966,53 @@ export class WalletController extends BaseController {
     }
   }
 
+  /**
+   * Read and check the funding transaction of every one of `inputs`, the
+   * inputs a transaction of `address` on `chain` spends, before its first
+   * signature (`checkQbitSpendInputs`), through the shared reader and its
+   * limiter. `facts` is the place among the reader's clears its caller took
+   * when it was asked (`beginQbitOutputsRead`); `signal` stops it; with
+   * `rideOut` it rides out the explorer's server errors, as only a send
+   * plan's check does; `ownTransactions` are transactions the caller holds,
+   * keyed by txid, outputs in order. A failed input rejects with the cause in the
+   * user's language (`qbitSpendCheckFailure`); once `signal` aborts it rejects
+   * with its reason.
+   */
+  private async checkQbitSpendOn(
+    chain: ChainType,
+    address: string,
+    inputs: readonly QbitSpendInput[],
+    {
+      facts,
+      signal,
+      rideOut = false,
+      ownTransactions,
+      deadlineMs,
+    }: {
+      facts?: QbitFundingFactsView
+      signal?: AbortSignal
+      rideOut?: boolean
+      ownTransactions?: ReadonlyMap<string, readonly { value: number; script: string }[]>
+      /** Its own deadline, when not `QBIT_SPEND_CHECK_DEADLINE_MS`. */
+      deadlineMs?: number
+    } = {}
+  ): Promise<QbitCheckedSpend> {
+    try {
+      return await checkQbitSpendInputs(this.getQbitApiClient(chain), address, inputs, {
+        fundingTxReads: this.qbitFundingTxReads,
+        ...(facts ? { facts } : {}),
+        ...(signal ? { signal } : {}),
+        ...(rideOut ? { rideOutServerErrors: true as const } : {}),
+        ...(ownTransactions ? { ownTransactions } : {}),
+        ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+      })
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason
+      if (error instanceof QbitSpendInputCheckError) throw qbitSpendCheckFailure(error)
+      throw error
+    }
+  }
+
   createSendQbitPsbt = async ({
     to,
     amount,
@@ -9654,6 +10130,21 @@ export class WalletController extends BaseController {
     if (fee > maximumTotalFee) {
       throw new Error('Fee exceeds the wallet safety maximum.')
     }
+    // Every input the send spends, read and checked against its funding
+    // transaction before anything is built over it (`checkQbitSpendInputs`):
+    // what the listing or the page said of it is not taken for it. One that
+    // fails names its cause and fails the build, and nothing is chosen in its
+    // place, so the amount and fee shown are what is signed. A local signing
+    // checks the inputs again (`signQbitP2mrLocally`). For an account whose
+    // signer is elsewhere (an external or cold-wallet signer) this is the only
+    // check: its signature counter unit is taken on that signer, after this
+    // has returned.
+    const checked = await this.checkQbitSpendOn(
+      chain,
+      account.address,
+      qbitSpendInputsOf(selectedUtxos),
+      { facts }
+    )
 
     const outputs: P2mrTransactionOutput[] = [
       {
@@ -9670,20 +10161,12 @@ export class WalletController extends BaseController {
     }
 
     const psbt = createP2mrPsbt({
-      inputs: selectedUtxos.map(utxo => ({
-        prevout: {
-          txid: qbitTxidToInternalBytes(utxo.txid),
-          vout: utxo.vout,
-        },
+      inputs: qbitCheckedP2mrInputs(checked, selectedUtxos, {
         sequence,
-        witnessUtxo: {
-          value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
-        },
         leafScript,
         controlBlock,
         merkleRoot: leafHash,
-      })),
+      }),
       outputs,
     })
 
@@ -9766,6 +10249,12 @@ export class WalletController extends BaseController {
       reservationsAlreadyFiltered?: boolean
       /** A consolidation batch of a source no recovery migration can read. */
       migrationConsolidation?: boolean
+      /**
+       * The operation whose deadline and cancellation the check of the
+       * inputs runs under (a consolidation batch's), within its own
+       * deadline: it reads nothing once that operation is over.
+       */
+      operation?: QbitExplorerOperation
     } = {}
   ): Promise<ToSignData> => {
     const {
@@ -9851,22 +10340,32 @@ export class WalletController extends BaseController {
     if (selection.exceedsAncestorSize) {
       throw new Error(t('send_exceeds_ancestor_size'))
     }
+    // As in `createSendQbitPsbt`: every input read and checked before the
+    // build, and for an external or cold-wallet signer, whose unit is taken
+    // on that signer, the only check. Consolidation batches and recovery
+    // sweeps are built here too; a batch's check ends with the batch, at its
+    // deadline or its cancellation, whichever comes first.
+    const within = options.operation?.read()
+    const checked = await this.checkQbitSpendOn(
+      chain,
+      account.address,
+      qbitSpendInputsOf(selectedUtxos),
+      {
+        facts,
+        ...(within?.signal ? { signal: within.signal } : {}),
+        ...(within?.deadlineMs !== undefined
+          ? { deadlineMs: Math.min(QBIT_SPEND_CHECK_DEADLINE_MS, within.deadlineMs) }
+          : {}),
+      }
+    )
 
     const psbt = createP2mrPsbt({
-      inputs: selectedUtxos.map(utxo => ({
-        prevout: {
-          txid: qbitTxidToInternalBytes(utxo.txid),
-          vout: utxo.vout,
-        },
+      inputs: qbitCheckedP2mrInputs(checked, selectedUtxos, {
         sequence,
-        witnessUtxo: {
-          value: BigInt(utxo.satoshis),
-          scriptPubKey: qbitHexToBytes(utxo.scriptPk),
-        },
         leafScript,
         controlBlock,
         merkleRoot: leafHash,
-      })),
+      }),
       outputs: [
         {
           value: BigInt(amount),
@@ -10072,7 +10571,8 @@ export class WalletController extends BaseController {
           enableRBF: request.enableRBF ?? true,
         },
         account,
-        { migrationConsolidation }
+        // The check of its inputs is one more read of the batch's.
+        { migrationConsolidation, operation }
       )
       const builtPsbt = qbitPsbtFromHex(built.psbtHex)
       const outpoints = qbitPsbtOutpoints(builtPsbt).map(
@@ -10436,6 +10936,22 @@ export class WalletController extends BaseController {
     // P2MR sighash commits spent output values, so a PSBT lying about them
     // cannot produce a broadcastable transaction.
     if (!account.p2mr) return 0
+    // That view lists a deep output with the value the explorer's listing
+    // gives (`getQbitUtxos`), and a website's PSBT skips the check when it is
+    // signed: each value is checked against its funding transaction here,
+    // before it counts, so a listing that overstates a protected output
+    // cannot widen what may leave for an external output.
+    const scriptPk = account.p2mr.scriptPubKey
+    await this.checkQbitSpendOn(
+      this.getChainType(),
+      account.address,
+      signedOutpoints.map(outpoint => ({
+        txid: outpoint.txid,
+        vout: outpoint.vout,
+        satoshis: Number(currentUtxoValues.get(`${outpoint.txid.toLowerCase()}:${outpoint.vout}`)),
+        scriptPk,
+      }))
+    )
     let totalInputValue = 0n
     let ordinaryInputValue = 0n
     for (const outpoint of signedOutpoints) {
@@ -10513,7 +11029,81 @@ export class WalletController extends BaseController {
     )
   }
 
+  /**
+   * The website PSBTs whose approval is open now, by the hash of their bytes
+   * (`qbitPsbtKey`), each with the origin of the website that asked, under
+   * the token of the request that admitted it: admitted when that request's
+   * approval is installed (`admitQbitWebsitePsbts`), so a request refused
+   * for another pending approval admits nothing and displaces nothing, and
+   * removed when the approval settles, or with every other by a reset
+   * (`forgetQbitWebsitePsbts`). Neither a lock nor a wallet's removal ends
+   * one: neither changes the bytes, and the approval stays open across
+   * either, so one left open across a lock (a swap with a counterparty's
+   * input, say) can still be signed after the unlock. A local signing of
+   * exactly one of them, for that website, while it is admitted, skips the
+   * check of its inputs (`qbitProviderSigningOf`, tested again as the
+   * keyring is called). At most `QBIT_WEBSITE_PSBTS_KEPT`; past that an
+   * admission is refused.
+   */
+  private readonly qbitWebsitePsbts = new Map<string, Map<symbol, string>>()
+
+  /** The entries `prepareQbitProviderPsbt` returned: only they may be admitted. */
+  private readonly qbitPreparedWebsitePsbts = new WeakSet<object>()
+
+  /** Prepare a website's PSBT for its approval (`prepareWebsiteQbitPsbt`). */
   prepareQbitProviderPsbt = async (
+    psbtHex: string,
+    options: QbitProviderSignPsbtOptions
+  ): Promise<ToSignData> => {
+    const prepared = await this.prepareWebsiteQbitPsbt(psbtHex, options)
+    this.qbitPreparedWebsitePsbts.add(prepared)
+    return prepared
+  }
+
+  /**
+   * Admit the website PSBTs of a provider request whose approval is being
+   * installed: each entry `prepareQbitProviderPsbt` returned for it, with
+   * the provider context the request gave it. Returns what removes them
+   * again, once the approval settles. Refused (throws) when it would hold
+   * more than `QBIT_WEBSITE_PSBTS_KEPT`; nothing is pushed out. No page can
+   * call it (`UI_CONTROLLER_METHODS`).
+   */
+  admitQbitWebsitePsbts = (toSignDatas: readonly ToSignData[]): (() => void) => {
+    const admitted = toSignDatas.flatMap(toSignData => {
+      const origin = toSignData.providerContext?.origin
+      return this.qbitPreparedWebsitePsbts.has(toSignData) && typeof origin === 'string' && origin
+        ? [{ key: qbitPsbtKey(qbitPsbtFromHex(toSignData.psbtHex)), origin }]
+        : []
+    })
+    let held = 0
+    for (const entries of this.qbitWebsitePsbts.values()) held += entries.size
+    if (held + admitted.length > QBIT_WEBSITE_PSBTS_KEPT) {
+      throw new Error('Too many website signing requests are open')
+    }
+    const token = Symbol('website PSBT request')
+    for (const { key, origin } of admitted) {
+      let entries = this.qbitWebsitePsbts.get(key)
+      if (!entries) {
+        entries = new Map()
+        this.qbitWebsitePsbts.set(key, entries)
+      }
+      entries.set(token, origin)
+    }
+    return () => {
+      for (const { key } of admitted) {
+        const entries = this.qbitWebsitePsbts.get(key)
+        entries?.delete(token)
+        if (entries?.size === 0) this.qbitWebsitePsbts.delete(key)
+      }
+    }
+  }
+
+  /** A reset, either way it runs: no website PSBT skips the check of its inputs any more. */
+  private forgetQbitWebsitePsbts = (): void => {
+    this.qbitWebsitePsbts.clear()
+  }
+
+  private prepareWebsiteQbitPsbt = async (
     psbtHex: string,
     options: QbitProviderSignPsbtOptions
   ): Promise<ToSignData> => {
@@ -11768,6 +12358,25 @@ export class WalletController extends BaseController {
         })),
         fee: transaction.fee,
       }
+    },
+    checkSpendInputs: async (chain, address, inputs, ownTransactions, signal): Promise<void> => {
+      // An input spending an output of one of the plan's own merges
+      // (`ownTransactions`, by txid, outputs in order) is checked against
+      // it, with no lookup; every other is read, riding out server errors,
+      // within a deadline that grows with the transactions looked up: a
+      // plan checks every input of its steps in one pass before it signs.
+      await this.checkQbitSpendOn(chain, address, inputs, {
+        signal,
+        rideOut: true,
+        ownTransactions,
+        deadlineMs: qbitSpendCheckDeadlineMs(
+          new Set(
+            inputs
+              .filter(input => !ownTransactions.has(input.txid.toLowerCase()))
+              .map(input => input.txid.toLowerCase())
+          ).size
+        ),
+      })
     },
     broadcast: ({ chain, rawtx, txid, hold, replaces }) =>
       this.attemptQbitBroadcast(

@@ -55,19 +55,25 @@ function whilePageConnected<T>(page: ProviderPage | undefined, promise: Promise<
 /**
  * Asks the user to approve `data` for the request in `ctx`, keeping the
  * approval's id with the request's page, and in `pending` when given, while
- * it is pending. An approval the page outlived is never acted on.
+ * it is pending. An approval the page outlived is never acted on. `admit`,
+ * when given, runs as the approval is installed, and only then (a request
+ * refused for another pending approval never runs it); what it returns runs
+ * once the approval settles. A throw from it refuses the approval.
  */
 async function requestPageApproval(
   ctx: any,
   data: ProviderApprovalData,
   winProps?: any,
-  pending?: Set<string>
+  pending?: Set<string>,
+  admit?: () => () => void
 ) {
   const page: ProviderPage | undefined = ctx.request.page
   assertPageConnected(page)
   let approvalId: string | undefined
+  let release: (() => void) | undefined
   try {
     const approvalRes = await approvalService.requestApproval(data, winProps, id => {
+      release = admit?.()
       approvalId = id
       page?.approvalIds.add(id)
       pending?.add(id)
@@ -75,6 +81,7 @@ async function requestPageApproval(
     assertPageConnected(page)
     return approvalRes
   } finally {
+    release?.()
     if (approvalId !== undefined) {
       page?.approvalIds.delete(approvalId)
       pending?.delete(approvalId)
@@ -710,7 +717,12 @@ const flowContext = flow
           origin,
         },
         { height: windowHeight },
-        signatureBatchIds.length > 0 ? signatureBatchApprovals : undefined
+        signatureBatchIds.length > 0 ? signatureBatchApprovals : undefined,
+        // A website's PSBTs skip the check of their inputs when signed only
+        // while their approval is open (`admitQbitWebsitePsbts`).
+        mapMethod === 'signPsbt' || mapMethod === 'signPsbts'
+          ? (): (() => void) => wallet.admitQbitWebsitePsbts(params?.toSignDatas ?? [])
+          : undefined
       )
       await assertRequestContext(ctx.requestContext, ctx.requirePermission, ctx.request.page)
       if (

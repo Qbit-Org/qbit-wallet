@@ -2198,6 +2198,30 @@
   "send_plan_paused_unreadable_body": {
     "message": "Esta versión de la billetera no puede leer el pago guardado, así que no puede continuarlo."
   },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "Una salida no coincide con el explorador"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "Una salida que gasta este pago no coincide con la transacción que la creó en el explorador, así que la billetera se detuvo antes de firmar. Continúa para comprobarla de nuevo o cancela el pago."
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "Una salida aún no se puede gastar"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "Una salida que gasta este pago aún no se puede gastar: una recompensa de minería que no ha madurado, un pago sin confirmar de otra persona o un cambio con demasiadas transacciones sin confirmar antes. La billetera se detuvo antes de firmar. Continúa más tarde para comprobarla de nuevo, revisa el pago de nuevo para usar las salidas de la cuenta tal como están ahora o cancélalo."
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "Falta la transacción de una salida"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "El explorador ya no tiene la transacción que creó una salida que gasta este pago, así que la billetera se detuvo antes de firmar. Revisa el pago de nuevo para usar las salidas de la cuenta tal como están ahora, continúa para comprobarla de nuevo o cancela el pago."
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "No se pudo comprobar una salida"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "La billetera no pudo comprobar con el explorador una salida que gasta este pago, así que se detuvo antes de firmar. Continúa para intentarlo de nuevo."
+  },
   "send_plan_paused_other": {
     "message": "El pago está en pausa"
   },
@@ -2341,6 +2365,18 @@
   },
   "send_outputs_load_failed": {
     "message": "La billetera no pudo leer las salidas de esta cuenta, así que ahora no puede enviar desde esta cuenta. Vuelve a abrir Enviar para intentarlo de nuevo."
+  },
+  "send_input_check_mismatch": {
+    "message": "Una salida que gastaría esta transacción no coincide con la transacción que la creó en el explorador, así que la billetera se detuvo antes de firmar."
+  },
+  "send_input_check_not_spendable": {
+    "message": "Una salida que gastaría esta transacción aún no se puede gastar: una recompensa de minería que no ha madurado, un pago sin confirmar de otra persona o un cambio con demasiadas transacciones sin confirmar antes. La billetera se detuvo antes de firmar."
+  },
+  "send_input_check_not_found": {
+    "message": "El explorador ya no tiene la transacción que creó una salida que gastaría esta transacción, así que la billetera se detuvo antes de firmar."
+  },
+  "send_input_check_unchecked": {
+    "message": "La billetera no pudo comprobar con el explorador una salida que gastaría esta transacción, así que se detuvo antes de firmar. Inténtalo de nuevo en un momento."
   },
   "consolidate_outputs": {
     "message": "Consolidar salidas"
