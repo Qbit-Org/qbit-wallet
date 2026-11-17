@@ -120,12 +120,15 @@ test('every window checks the id of the wallet it shows after a reconnection and
   assert.match(entrySource, /const showsWalletContent = \(\) => pageShowsWalletContent\(store\.getState\(\)\);/);
   assert.match(entrySource, /const checkAfterReconnect = createReconnectReconcile\(\{[\s\S]*?showsWalletContent,/);
   assert.match(entrySource, /unlockGate = createUnlockGate\(\{[\s\S]*?showsWalletContent,/);
-  // Nor does such a page send a call without the id: the proxy holds it for
-  // the id read under way, or refuses it in the -22 shape.
+  // Nor does such a page send a call without the id: the proxy refuses it,
+  // at once, in the -22 shape, saying that the page could not read which
+  // wallet it shows, not that the wallet is gone. It holds nothing for an id
+  // read later, which could not vouch for what the call was made from.
   assert.match(
     entrySource,
-    /createWalletProxy\(portMessageChannel, \{[\s\S]*?showsWalletContent,\s*waitForWalletId: \(\) => waitForShownWalletId\(\),\s*refuseWithoutWalletId: \(\) => refuseWithoutWalletId\(i18nService\.translate\('wallet_page_out_of_date'\)\)\s*\}\)/
+    /createWalletProxy\(portMessageChannel, \{[\s\S]*?showsWalletContent,\s*refuseWithoutWalletId: \(\) => refuseWithoutWalletId\(i18nService\.translate\('wallet_page_id_unreadable'\)\)\s*\}\)/
   );
+  assert.doesNotMatch(entrySource, /waitForWalletId|shownWalletContent/);
   // The id is compared, not only whether some wallet is set up.
   for (const read of ['isBooted', 'getWalletId']) {
     assert.match(entrySource, new RegExp(`${read}: \\(\\) => wallet\\.${read}\\(\\)`), read);
@@ -155,6 +158,19 @@ test('every window checks the id of the wallet it shows after a reconnection and
   assert.match(entrySource, /unlockGate = createUnlockGate\(\{[\s\S]*?onUnknown: checkAfterReconnect/);
   // Nothing sends the page to the unlock screen.
   assert.doesNotMatch(entrySource, /watchPageUnlocks|lockPage/);
+});
+
+test('a page that cannot read its wallet id says so in its own words, in every locale', () => {
+  for (const locale of ['en', 'es', 'fr', 'ja', 'ru', 'zh_TW']) {
+    const messages = JSON.parse(read(`apps/extension/src/_locales/${locale}/messages.json`));
+    const keys = Object.keys(messages);
+    // Right after the refusal of a page whose wallet is gone, which stays for that case.
+    assert.equal(keys.indexOf('wallet_page_id_unreadable'), keys.indexOf('wallet_page_out_of_date') + 1, locale);
+    const text = messages.wallet_page_id_unreadable.message;
+    assert.ok(text.length > 0 && text !== messages.wallet_page_out_of_date.message, locale);
+    assert.doesNotMatch(text, /\$/, locale);
+    if (locale === 'ja' || locale === 'zh_TW') assert.match(text, /。$/, locale);
+  }
 });
 
 test('every window notes, as its store loads, which wallet the stored keys belong to', () => {

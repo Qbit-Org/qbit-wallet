@@ -1926,14 +1926,16 @@ export class WalletController extends BaseController {
   private callingUiPort: QbitSendClaimOwner | undefined
 
   /**
-   * The request of the wallet page whose call is now executing, when it
-   * named the wallet the page shows (runForUiPort): its method and that
-   * wallet's id, for the call's synchronous prefix only, as `callingUiPort`.
-   * Undefined when the request named none, and for calls that come through
-   * no page. A job the call queues is judged by it again when the job starts
+   * The request of the wallet page whose call is now executing, when it was
+   * judged on arrival (runForUiPort): one that named the wallet the page
+   * shows, and a resetWallet whether it named one or not. Its method and the
+   * wallet's id it named (undefined for a resetWallet that named none), for
+   * the call's synchronous prefix only, as `callingUiPort`. Undefined for any
+   * other request that named none, and for calls that come through no page.
+   * A job the call queues is judged by it again when the job starts
    * (judgedWhenItStarts).
    */
-  private callingPageRequest: { method: string; walletId: string } | undefined
+  private callingPageRequest: { method: string; walletId: string | undefined } | undefined
 
   /**
    * Run one wallet page's call on behalf of the port it arrived on: the
@@ -1959,7 +1961,10 @@ export class WalletController extends BaseController {
    * (`shownWalletId`, the id getWalletId gave the page) is judged against the
    * wallet set up now (assertPageShowsWalletSetUp): a page that missed a reset
    * is refused, whatever it asks, rather than held. A request without it is
-   * not judged this way.
+   * not judged this way, resetWallet's aside: a page that shows no wallet
+   * sends its calls without an id, and its reset must not erase a wallet set
+   * up in another window, so a resetWallet is judged whether it names a
+   * wallet or not.
    */
   runForUiPort = <T>(
     uiPort: QbitSendClaimOwner,
@@ -1967,7 +1972,9 @@ export class WalletController extends BaseController {
     method: string,
     shownWalletId?: unknown
   ): T | Promise<Awaited<T>> => {
-    if (shownWalletId !== undefined) this.assertPageShowsWalletSetUp(shownWalletId, method)
+    const judged =
+      shownWalletId !== undefined || method === ('resetWallet' satisfies keyof WalletController)
+    if (judged) this.assertPageShowsWalletSetUp(shownWalletId, method)
     const reset = this.walletResetUnderWay
     if (reset && !runsDuringWalletReset(method)) {
       return reset.then(keys => {
@@ -1980,7 +1987,9 @@ export class WalletController extends BaseController {
     return this.withCallingUiPort(
       uiPort,
       call,
-      typeof shownWalletId === 'string' ? { method, walletId: shownWalletId } : undefined
+      judged
+        ? { method, walletId: typeof shownWalletId === 'string' ? shownWalletId : undefined }
+        : undefined
     )
   }
 
@@ -1994,7 +2003,10 @@ export class WalletController extends BaseController {
    * wallet a reset erased, which it missed, is told so when nothing or
    * another wallet is set up; during a reset of unknown outcome the wallet
    * is still loaded, with its id, and its pages are not out of date. A value
-   * that is not a non-empty string is refused as malformed.
+   * that is not a non-empty string is refused as malformed; left out
+   * (undefined), it names no wallet, which only a resetWallet is judged by
+   * (runForUiPort): such a request shows none, so while a wallet is booted
+   * it is out of date, whether that wallet's id was saved yet or not.
    *
    * Not judged, and let go on as before this judgement existed, while the
    * background starts and has not loaded the keyring or the preferences yet:
@@ -2003,22 +2015,25 @@ export class WalletController extends BaseController {
    * the contacts, the grants) load later still, so a write to them fails,
    * and the keyring takes no change without the password of the wallet it
    * holds. From their load on, every request that names a wallet is judged.
-   * Nor is a resetWallet judged here while nothing is booted: it erases no
-   * keys then, and only finishes a reset that left the clearing pending, or
-   * does nothing, so the page of the wallet that reset erased may still ask
-   * for it, as resetWallet's doc says. Its queued job is judged again where
-   * it runs, as a boot queued ahead may have set up a wallet by then
-   * (judgedWhenItStarts).
+   * Nor is a resetWallet judged here while nothing is booted, whatever wallet
+   * it names, if any: it erases no keys then, and only finishes a reset that
+   * left the clearing pending, or does nothing, so the page of the wallet
+   * that reset erased may still ask for it, as resetWallet's doc says. Its
+   * queued job is judged again where it runs, as a boot queued ahead may
+   * have set up a wallet by then (judgedWhenItStarts).
    */
   private assertPageShowsWalletSetUp = (shownWalletId: unknown, method: string): void => {
-    if (typeof shownWalletId !== 'string' || shownWalletId.length === 0) {
+    if (
+      shownWalletId !== undefined &&
+      (typeof shownWalletId !== 'string' || shownWalletId.length === 0)
+    ) {
       throw new Error('Invalid wallet request wallet id')
     }
     if (!keyringService.store || !preferenceService.isInitialized()) return
     const booted = keyringService.isBooted()
     if (!booted && method === ('resetWallet' satisfies keyof WalletController)) return
     const setUp = booted ? preferenceService.getSavedWalletId() : undefined
-    if (shownWalletId !== setUp) {
+    if (shownWalletId === undefined || shownWalletId !== setUp) {
       throw new WalletError(ErrorCodes.WALLET_PAGE_OUT_OF_DATE)
     }
   }
@@ -2031,7 +2046,7 @@ export class WalletController extends BaseController {
   private withCallingUiPort = <T>(
     uiPort: QbitSendClaimOwner,
     call: () => T,
-    pageRequest?: { method: string; walletId: string }
+    pageRequest?: { method: string; walletId: string | undefined }
   ): T => {
     const previous = this.callingUiPort
     const previousRequest = this.callingPageRequest
@@ -2047,16 +2062,18 @@ export class WalletController extends BaseController {
 
   /**
    * `job`, judged again when it starts if the page's call now executing
-   * queued it after naming the wallet it shows (callingPageRequest): a job
+   * queued it after being judged on arrival (callingPageRequest): a job
    * waits behind others, a reset or a boot among them, and the wallet the
-   * request was judged against on arrival may be gone by its turn. So, as on
-   * arrival, the wallet it names must still be the one set up, or the job is
-   * refused with WALLET_PAGE_OUT_OF_DATE and changes nothing
-   * (assertPageShowsWalletSetUp, resetWallet's rule included). Every queue a
-   * page's call can wait on in this controller goes through this when the
-   * job is queued (enqueueChainStateChange, enqueueWalletLabelChange), so a
-   * queued method added later is covered. A request that named no wallet, and
-   * a job the background queues for itself, are not judged.
+   * request was judged against on arrival may be gone by its turn, or one
+   * may have been set up where there was none. So, as on arrival, the wallet
+   * it names must still be the one set up, or the job is refused with
+   * WALLET_PAGE_OUT_OF_DATE and changes nothing (assertPageShowsWalletSetUp,
+   * resetWallet's rules included: a resetWallet that named no wallet is
+   * refused once a wallet is booted). Every queue a page's call can wait on
+   * in this controller goes through this when the job is queued
+   * (enqueueChainStateChange, enqueueWalletLabelChange), so a queued method
+   * added later is covered. A request that named no wallet, resetWallet
+   * aside, and a job the background queues for itself, are not judged.
    */
   private judgedWhenItStarts = <T>(job: () => Promise<T>): (() => Promise<T>) => {
     const page = this.callingPageRequest
@@ -3196,16 +3213,25 @@ export class WalletController extends BaseController {
    * told it lost its accounts and was disconnected, and every wallet page is
    * told once, with BUS_METHODS.WALLET_RESET. A reset with nothing booted and
    * nothing pending resolves and does nothing.
+   *
+   * A wallet page's request is judged by the wallet it names, on arrival and
+   * again where the reset runs (runForUiPort, assertPageShowsWalletSetUp):
+   * while a wallet is booted it must name that one, and one that names none,
+   * as a page that shows no wallet sends it, is refused with
+   * WALLET_PAGE_OUT_OF_DATE, erasing, locking, halting and announcing
+   * nothing; so too while an earlier reset still holds the wallet in memory,
+   * under way or of unknown outcome, where it is refused on arrival. While
+   * nothing is booted it goes ahead, whatever it names.
    */
   resetWallet = async (
     password: string,
     options?: QbitResetWalletOptions | null
   ): Promise<void> => {
     // Arguments that cross the UI port as JSON, refused before the reset is
-    // queued: none of this reads the wallet. A page's request that named the
-    // wallet it shows is judged again when the job starts, where the reset
-    // runs (judgedWhenItStarts): a wallet a boot queued ahead set up since is
-    // another one, and is left alone.
+    // queued: none of this reads the wallet. A page's request, whether it
+    // named the wallet it shows or none, is judged again when the job
+    // starts, where the reset runs (judgedWhenItStarts): a wallet a boot
+    // queued ahead set up since is not the page's, and is left alone.
     const request = this.resetWalletRequest(password, options)
     return this.enqueueChainStateChange(() => this.performResetWallet(password, request))
   }

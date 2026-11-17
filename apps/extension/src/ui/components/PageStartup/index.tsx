@@ -1,8 +1,11 @@
 import { LoaderCircle } from 'lucide-react';
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { useStore } from 'react-redux';
 
+import type { Account } from '@qbit/wallet-shared';
 import {
   accountActions,
+  type AppState,
   globalActions,
   keyringsActions,
   settingsActions,
@@ -11,10 +14,18 @@ import {
   useAppDispatch,
   useIsReady,
   useIsUnlocked,
+  useTools,
   useWallet
 } from '@qbit/wallet-state';
 
-import { noteWalletIdRead, recordShownWalletId, reconcileStoredWalletData } from '@/ui/utils/walletReset';
+import {
+  beginWalletIdRecovery,
+  endWalletIdRecovery,
+  onWalletIdRefusal,
+  pageShowsWalletContent,
+  recordShownWalletId,
+  reconcileStoredWalletData
+} from '@/ui/utils/walletReset';
 
 import { Content } from '../Content';
 import { Icon } from '../Icon';
@@ -35,7 +46,9 @@ export const PAGE_STARTUP_RETRY_DELAYS_MS: readonly number[] = [250, 500, 1000, 
  * The pauses before each new run of a started page whose id read failed for
  * its own reason, as when the first save of a new id fails, so that it holds
  * no id while the background recovers only for a short while; then no more.
- * Locks and unlocks start runs of their own meanwhile.
+ * Locks and unlocks start runs of their own meanwhile. Until the last of
+ * them has run, the page is recovering its id by itself: what it refuses for
+ * want of the id reopens nothing (beginWalletIdRecovery).
  */
 export const PAGE_WALLET_ID_RETRY_DELAYS_MS: readonly number[] = [2_000, 10_000, 30_000, 60_000, 120_000];
 
@@ -63,6 +76,31 @@ async function startWithRetries(
 
 type QuietSetting = 'skippedVersion' | 'autoLockTimeId' | 'developerMode';
 
+/** PageStartup's runs of its start-up routine. */
+interface Runs {
+  running: boolean;
+  again: boolean;
+  closed: boolean;
+  retriedByHand: boolean;
+  // The runs made again for an id read that failed, and the pause before the next one.
+  idRetries: number;
+  idRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  // This page noted a recovery of its id (beginWalletIdRecovery) not yet ended.
+  recovering: boolean;
+}
+
+/**
+ * Ends the page's recovery of its id (endWalletIdRecovery) once it is over:
+ * a run has recorded the id, or no retry is scheduled, or the page closed.
+ * Called once the runs have stopped, and at the close.
+ */
+function endRecoveryIfOver(startup: { walletIdRecorded: boolean }, runs: Runs): void {
+  if (!runs.recovering) return;
+  if (!startup.walletIdRecorded && !runs.closed && runs.idRetryTimer !== undefined) return;
+  runs.recovering = false;
+  endWalletIdRecovery(startup.walletIdRecorded ? 'recovered' : runs.closed ? 'closed' : 'given-up');
+}
+
 /**
  * The wallet pages, once the page's start-up reads have loaded: the id of the
  * wallet set up, the current account, the settings, and whether a wallet is
@@ -72,7 +110,14 @@ type QuietSetting = 'skippedVersion' | 'autoLockTimeId' | 'developerMode';
  * a spinner for ever, whose Retry runs this page's start-up again; once that
  * has failed too, its Retry restarts the extension, as after a failure of the
  * background's start-up. A page that has started stays as it is when a later
- * run fails, and nothing here reloads it.
+ * run fails, and nothing here reloads it. A page that opened without the id
+ * of its wallet, its read having failed, asks for it again a few times; until
+ * it holds it, a call that would carry anything of the wallet it shows is
+ * refused in the page (createWalletProxy), and this tells the user so when
+ * the page has stopped asking (onWalletIdRefusal). A run that records the id
+ * replaces the page's accounts and wallets with those the background names
+ * under it in that run, and drops its transactions; or drops them all. Its
+ * settings, its route and what its screens hold in their own state stay.
  *
  * The routine runs again whenever the lock state or isReady changes, its own
  * dispatches included; one run at a time: a change during a run asks for one
@@ -81,6 +126,9 @@ type QuietSetting = 'skippedVersion' | 'autoLockTimeId' | 'developerMode';
 export function PageStartup({ children }: { children: ReactNode }) {
   const wallet = useWallet();
   const dispatch = useAppDispatch();
+  // What the page shows as this run applies what it read, which may have
+  // changed since the run began.
+  const store = useStore<AppState>();
 
   const isReady = useIsReady();
   const isUnlocked = useIsUnlocked();
@@ -102,6 +150,16 @@ export function PageStartup({ children }: { children: ReactNode }) {
     quietReads: new Map<QuietSetting, 'reading' | 'read'>()
   });
   const self = selfRef.current;
+  // One run of the routine at a time, the latest one each time.
+  const runsRef = useRef<Runs>({
+    running: false,
+    again: false,
+    closed: false,
+    retriedByHand: false,
+    idRetries: 0,
+    idRetryTimer: undefined,
+    recovering: false
+  });
   const init = useCallback(async () => {
     // Read without holding the page back, as they always were. One that is
     // out is not asked for again meanwhile, none counts as read before it is,
@@ -124,23 +182,19 @@ export function PageStartup({ children }: { children: ReactNode }) {
 
     // A page that does not hold the id yet reads its account again in each
     // run, after the id, until it does; so does one that dropped what it
-    // showed to record the id while locked, at its next unlocked run.
-    const readAccount = !self.accountLoaded || !self.walletIdRecorded;
+    // showed, at its next unlocked run.
+    const holdsId = self.walletIdRecorded;
+    const readAccount = !self.accountLoaded || !holdsId;
     const accountShownBefore = self.accountLoaded;
 
+    // The current account and the accounts, as the background names them in
+    // this run; shown only once the run has read everything it shows with
+    // them (below).
     const loadAccountAndSettings = async () => {
+      let read: { current: Account; accounts: Account[] } | null | undefined;
       if (readAccount) {
-        const currentAccount = await wallet.getCurrentAccount();
-        if (currentAccount) {
-          dispatch(accountActions.setCurrent(currentAccount));
-
-          const accounts = await wallet.getAccounts();
-          dispatch(accountActions.setAccounts(accounts));
-
-          if (accounts.length > 0) {
-            self.accountLoaded = true;
-          }
-        }
+        const current = await wallet.getCurrentAccount();
+        read = current ? { current, accounts: await wallet.getAccounts() } : null;
       }
 
       if (!self.settingsLoaded) {
@@ -175,6 +229,7 @@ export function PageStartup({ children }: { children: ReactNode }) {
         () => wallet.getDeveloperMode(),
         (data) => dispatch(settingsActions.updateSettings({ developerMode: data }))
       );
+      return read;
     };
 
     // Whether a wallet is set up, and unlocked, read beside the rest.
@@ -187,18 +242,49 @@ export function PageStartup({ children }: { children: ReactNode }) {
       }
       self.vaultLoaded = true;
     };
+    // Whether a vault is there now, asked again by a started page that holds
+    // no id only when what it read changes what it knows of a wallet set up:
+    // it records the id of one; it reads that nothing is booted while its
+    // store says a wallet is; or the background names no account while the
+    // page shows a wallet whose vault its store does not know of, which only
+    // a vault known takes off the wallet's screens (turnLocked). What the
+    // store says is then the background's answer, read after that id: a
+    // wallet made in another window since the page found none, or none left.
+    // Undefined when not asked; a page not started yet goes by the read of
+    // its first run.
+    const readVaultAgain = async (): Promise<boolean | undefined> =>
+      isReady ? Boolean(await wallet.hasVault()) : undefined;
+    // A vault found is published. None found only on a page that shows no
+    // wallet content, so that one that keeps its content keeps the checks
+    // that go by a wallet held (holdsWallet), and only when no lock-state
+    // change came during the run (`again`), which the run after this one
+    // goes by: a run that read "none" just before a wallet was made does not
+    // undo the isBooted the create hook marks.
+    const showVault = (vault: boolean | undefined) => {
+      if (vault === true) {
+        dispatch(globalActions.update({ isBooted: true }));
+      } else if (vault === false && !runsRef.current.again && !pageShowsWalletContent(store.getState())) {
+        dispatch(globalActions.update({ isBooted: false }));
+      }
+    };
 
     // The id of the wallet set up, for the checks after a reconnection and
-    // at each unlock (recordShownWalletId). Asked first, so the account this
-    // run reads goes out after it: what the page shows is never older than
-    // the id it records, and a reset between the two leaves the account
-    // newer, which those checks answer with a reload, never with an erased
-    // wallet kept. Only for noticing a replaced wallet: an id that cannot be
-    // read for its own reason, as when saving a new one fails, does not keep
-    // the page from opening, and later runs ask again: those a lock or an
-    // unlock starts, and a few after pauses (PAGE_WALLET_ID_RETRY_DELAYS_MS).
-    // Until it holds one, a page that shows wallet content reopens at a
-    // reconnection or an unlock, once (checkShownWallet). A reset or the
+    // at each unlock (recordShownWalletId), and for every call the page
+    // makes (createWalletProxy). Asked first, so the account this run reads
+    // goes out after it: what the page shows is never older than the id it
+    // records, and a reset between the two leaves the account newer, which
+    // the background answers, for a call carrying that id, with a refusal
+    // and the page with a reload, never with an erased wallet kept.
+    // An id that cannot be read for its own reason, as when saving a new one
+    // fails, does not keep the page from opening, and later runs ask again:
+    // those a lock or an unlock starts, and a few after pauses
+    // (PAGE_WALLET_ID_RETRY_DELAYS_MS). But until it holds one, a page that
+    // shows wallet content sends nothing that carries anything of that
+    // wallet: such a call is refused in the page, without a reload while
+    // these runs may still read the id (beginWalletIdRecovery); only the
+    // reads that carry nothing of it and the lock go, and activity pings are
+    // dropped. It also reopens at a reconnection or an unlock, once
+    // (checkShownWallet). A reset or the
     // completion of one is told apart by the other reads, sent with this
     // one: it refuses every call the page makes while it runs, so the run
     // still fails through them and is retried. Null while nothing is booted:
@@ -227,57 +313,122 @@ export function PageStartup({ children }: { children: ReactNode }) {
       return id ?? undefined;
     };
 
+    // Drops the wallet content the page shows, as a locked page that cannot
+    // read it again does: its account, its wallets and their transactions,
+    // which the next unlocked run reads again (readAccount).
+    const dropShownWallet = () => {
+      const { accounts, keyrings } = store.getState();
+      if (accounts.current.address === '' && accounts.accounts.length === 0 && keyrings.keyrings.length === 0) return;
+      dispatch(accountActions.reset(undefined));
+      dispatch(keyringsActions.reset(undefined));
+      dispatch(transactionsActions.reset(undefined));
+      self.accountLoaded = false;
+      if (accountShownBefore) self.walletsDropped = true;
+    };
+    // The background named no current account. With a vault (`vault`, read
+    // in this run, or else the one the store knows of), it is locked: in one
+    // step, the page drops what it showed and turns locked, its vault
+    // marked, so that Layout takes it to the unlock screen, and no screen
+    // made from what it showed stays while the page shows no wallet content,
+    // which lets it send its calls unjudged (createWalletProxy). Without a
+    // vault known, nothing is set up yet, as on the first-run page once
+    // Create Password has booted the background; or the page cannot tell,
+    // and leaving the screens would take a guess. Nor while its lock state
+    // changed as this run read (a change asks for another run, `again`),
+    // which the run after this one goes by. Then it stays as it is: a page
+    // without its id keeps what it showed, and goes on refusing (as before
+    // the page could drop it).
+    // A limit of this step: Layout leaves for the unlock screen in an
+    // effect, and the router shows that screen a task later. For one commit
+    // after the drop, the screens that were mounted render the emptied
+    // store, and the calls their effects make then go out without an id,
+    // judged by nothing. On the send screen those are, as measured
+    // (lockWithoutWalletId.test.tsx): abandonQbitUtxoSnapshot, which
+    // abandons one of its reads by id, getQbitSendPlan, getQbitUtxoSnapshot
+    // and getApproval. None writes a wallet's data; a write added to a mount
+    // or an update effect of a wallet screen would go out the same way.
+    const turnLocked = (vault: boolean | undefined) => {
+      if (runsRef.current.again || !(vault ?? store.getState().global.isBooted)) return;
+      dropShownWallet();
+      dispatch(globalActions.update({ isUnlocked: false, isBooted: true }));
+    };
+    const showAccount = (read: { current: Account; accounts: Account[] }) => {
+      dispatch(accountActions.setCurrent(read.current));
+      dispatch(accountActions.setAccounts(read.accounts));
+      self.accountLoaded = read.accounts.length > 0;
+    };
+
     try {
-      const [id] = await Promise.all([readWalletId(), loadAccountAndSettings(), loadVault()]);
-      // Recorded together with the state it belongs to: only once the reads
-      // sent after it have succeeded. A page that showed an account without
-      // the id adopts one only with what it shows never older than the id:
-      // unlocked, it reads its wallets again after the id; locked, it cannot,
-      // since a locked wallet names no account and lists no wallets at all,
-      // so it drops what it shows, which the next unlock reads again after
-      // the id (readAccount). A page holding no id that shows wallet content
-      // is reopened at a reconnection or an unlock instead (checkShownWallet).
-      if (id !== undefined) {
-        if (accountShownBefore && !isUnlocked) {
-          dispatch(accountActions.reset(undefined));
-          dispatch(keyringsActions.reset(undefined));
-          dispatch(transactionsActions.reset(undefined));
-          self.accountLoaded = false;
-          self.walletsDropped = true;
-        } else if (accountShownBefore) {
+      const [id, read] = await Promise.all([readWalletId(), loadAccountAndSettings(), loadVault()]);
+      if (holdsId) {
+        // Judged by its id: what it reads is shown as it comes.
+        if (read) showAccount(read);
+        if (self.walletsDropped && isUnlocked && self.accountLoaded) {
+          // The wallets of the account this run read again, after the id.
           const keyrings = await wallet.getKeyrings();
           dispatch(keyringsActions.setKeyrings(keyrings));
           const currentKeyring = await wallet.getCurrentKeyring();
           dispatch(keyringsActions.setCurrent(currentKeyring));
+          self.walletsDropped = false;
         }
+      } else if (id !== undefined) {
+        // The id, recorded only with what the background answers under it in
+        // this run, read after it: the page's current account, its accounts
+        // and its wallets are replaced with those the background names now,
+        // and its transactions dropped, or all of them dropped when it names
+        // no account. Nothing in between: they go before the id is recorded,
+        // and what replaces them comes after. What else the page holds stays
+        // as it was: its settings, its route, and what its screens keep in
+        // their own state, an open form or dialog built for what it showed.
+        // A background that names no current account and has a vault is
+        // locked, whatever the page remembered: the page turns locked, which
+        // takes it to the unlock screen, whose unlock reads the account again
+        // after the id.
+        const [wallets, vault] = await Promise.all([
+          read ? Promise.all([wallet.getKeyrings(), wallet.getCurrentKeyring()]) : undefined,
+          readVaultAgain()
+        ]);
+        dropShownWallet();
         recordShownWalletId(id);
         self.walletIdRecorded = true;
-      } else if (self.walletsDropped && isUnlocked && self.accountLoaded) {
-        // The wallets of the account this run read again, after the id.
-        const keyrings = await wallet.getKeyrings();
-        dispatch(keyringsActions.setKeyrings(keyrings));
-        const currentKeyring = await wallet.getCurrentKeyring();
-        dispatch(keyringsActions.setCurrent(currentKeyring));
-        self.walletsDropped = false;
+        if (read && wallets) {
+          showAccount(read);
+          dispatch(keyringsActions.setKeyrings(wallets[0]));
+          dispatch(keyringsActions.setCurrent(wallets[1]));
+          self.walletsDropped = false;
+        } else {
+          turnLocked(vault);
+        }
+        showVault(vault);
+      } else {
+        // No id: what the background names is shown without one, and the
+        // page sends nothing that carries anything of it (createWalletProxy).
+        // A background that names no current account, locked with a vault
+        // the page knows of, takes the page to the unlock screen showing
+        // nothing (turnLocked): so it sends its unlock as a page opened
+        // locked does, and the run after it reads the id and the account
+        // together. One whose vault it does not know of is asked about it
+        // here; nothing booted, too, while the store says a wallet is.
+        const known = store.getState();
+        const nothingBooted = !self.walletIdReadFailed;
+        const askVault =
+          (nothingBooted && known.global.isBooted) ||
+          (read === null && !known.global.isBooted && pageShowsWalletContent(known));
+        const vault = askVault ? await readVaultAgain() : undefined;
+        if (read) {
+          showAccount(read);
+        } else if (read === null) {
+          turnLocked(vault);
+        }
+        showVault(vault);
       }
       dispatch(globalActions.update({ isReady: true }));
     } catch (e) {
       console.log('init error', e);
       throw e;
     }
-  }, [wallet, dispatch, isReady, isUnlocked]);
+  }, [wallet, dispatch, store, isReady, isUnlocked]);
 
-  // One run of the routine at a time, the latest one each time.
-  const runsRef = useRef({
-    running: false,
-    again: false,
-    closed: false,
-    retriedByHand: false,
-    // The runs made again for an id read that failed, and the pause before
-    // the next one.
-    idRetries: 0,
-    idRetryTimer: undefined as ReturnType<typeof setTimeout> | undefined
-  });
   const initRef = useRef(init);
   initRef.current = init;
   const startRuns = useCallback(() => {
@@ -287,7 +438,14 @@ export function PageStartup({ children }: { children: ReactNode }) {
       return;
     }
     runs.running = true;
-    const loop = (async () => {
+    // While the page holds no id, these runs read it, and so do the retries
+    // they schedule: the page recovers its id by itself meanwhile, and a call
+    // it refuses for want of the id reopens nothing (beginWalletIdRecovery).
+    if (!self.walletIdRecorded && !runs.recovering) {
+      runs.recovering = true;
+      beginWalletIdRecovery();
+    }
+    void (async () => {
       try {
         let outcome: 'started' | 'failed' | 'stopped';
         do {
@@ -297,10 +455,16 @@ export function PageStartup({ children }: { children: ReactNode }) {
         if (outcome === 'failed' && !runs.closed) {
           setStartFailed(runs.retriedByHand ? 'again' : 'page');
         }
+        // A pause still pending once a run, one a lock or an unlock started,
+        // has recorded the id is no longer wanted.
+        if (self.walletIdRecorded && runs.idRetryTimer !== undefined) {
+          clearTimeout(runs.idRetryTimer);
+          runs.idRetryTimer = undefined;
+        }
         // A page that started without the id, its read having failed for its
         // own reason, asks again a few times, quietly, less and less often.
         // Each run reads the account and the wallets again after the id, as
-        // for any late id, so what the page shows is never older than it.
+        // for any late id, so those in its store are never older than it.
         if (
           outcome === 'started' &&
           !runs.closed &&
@@ -309,31 +473,42 @@ export function PageStartup({ children }: { children: ReactNode }) {
           runs.idRetryTimer === undefined &&
           runs.idRetries < PAGE_WALLET_ID_RETRY_DELAYS_MS.length
         ) {
+          // Never runs once the page has closed: its close clears it.
           runs.idRetryTimer = setTimeout(() => {
             runs.idRetryTimer = undefined;
-            if (!runs.closed) startRuns();
+            startRuns();
           }, PAGE_WALLET_ID_RETRY_DELAYS_MS[runs.idRetries++]);
         }
       } finally {
         runs.running = false;
+        endRecoveryIfOver(self, runs);
       }
     })();
-    // While the page holds no id, these runs read it: a request the wallet
-    // proxy holds for the id waits for them (waitForShownWalletId).
-    if (!self.walletIdRecorded) noteWalletIdRead(loop);
   }, [self]);
 
   useEffect(() => {
     startRuns();
   }, [init, startRuns]);
 
+  // Once, for the page's whole life: only its close marks it closed.
   useEffect(() => {
     const runs = runsRef.current;
+    const startup = selfRef.current;
     return () => {
       runs.closed = true;
       clearTimeout(runs.idRetryTimer);
+      runs.idRetryTimer = undefined;
+      endRecoveryIfOver(startup, runs);
     };
   }, []);
+
+  // A call refused for want of the id once the page is no longer recovering
+  // it, on a page that has used its one reopen, or the calls refused during
+  // a recovery that gave up, tell the user why, whatever the screen that made
+  // them does with the error (onWalletIdRefusal): one error toast, which a
+  // later one replaces rather than stacks.
+  const tools = useTools();
+  useEffect(() => onWalletIdRefusal((message) => tools.toastError(message)), [tools]);
 
   // This page's own start-up only: the background started, so restarting the
   // extension, which closes every other wallet window, is offered only once

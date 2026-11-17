@@ -4,7 +4,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import { ChainType } from '@qbit/wallet-types';
 import { ErrorCodes } from '@qbit/wallet-shared';
-import { createAppStore, globalActions, WalletProvider } from '@qbit/wallet-state';
+import {
+  accountActions,
+  createAppStore,
+  globalActions,
+  ToolsContext,
+  transactionsActions,
+  WalletProvider
+} from '@qbit/wallet-state';
 
 // The real store and reducers, from the package build (run `pnpm build` first).
 vi.mock('@qbit/wallet-state', () => import('../../../packages/wallet-state/lib/index.mjs'));
@@ -34,9 +41,9 @@ import {
   refuseWithoutWalletId,
   WALLET_DATA_OWNER_KEY,
   WALLET_DATA_RESET_MARK,
-  WALLET_ID_MISSING_REOPEN_KEY,
-  waitForShownWalletId
+  WALLET_ID_MISSING_REOPEN_KEY
 } from '../src/ui/utils/walletReset';
+import { noteWalletActivity } from '../src/ui/utils/walletActivity';
 import { sendUnderWalletIdRule } from '../src/ui/web/ui-messaging';
 
 // How a page receives the background's refusal of a call it held while a
@@ -321,6 +328,30 @@ describe('a page starting', () => {
     expect(store.getState().accounts.current.address).toBe(account.address);
   });
 
+  // Create Password boots the background, which then has an id, unlocked,
+  // with no wallet yet: it names no account and has no vault. That is not a
+  // locked wallet.
+  it('stays unlocked on the first-run page once Create Password has booted the background, recording its id', async () => {
+    const wallet = background();
+    wallet.getWalletId.mockResolvedValue(null);
+    wallet.getCurrentAccount.mockResolvedValue(null);
+    wallet.getAccounts.mockResolvedValue([]);
+    wallet.hasVault.mockResolvedValue(false);
+    const { store } = openPage(wallet);
+    await settle();
+
+    // The boot's UNLOCKED, as AccountUpdater takes it.
+    wallet.getWalletId.mockResolvedValue('wallet-booted');
+    wallet.isUnlocked.mockResolvedValue(true);
+    act(() => {
+      store.dispatch(globalActions.update({ isUnlocked: true }));
+    });
+    await settle();
+
+    expect(getShownWalletId()).toBe('wallet-booted');
+    expect(store.getState().global).toMatchObject({ isReady: true, isBooted: false, isUnlocked: true });
+  });
+
   it('opens although a settings read keeps failing, which keeps its default and is read again later', async () => {
     const wallet = background();
     wallet.getDeveloperMode.mockRejectedValue({ message: 'The connection to Qbit Wallet closed' });
@@ -422,17 +453,24 @@ describe('a page starting', () => {
     const bus = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
     const reloadOnBoot = vi.fn();
     let uninstall: () => void;
+    // The page's words for a call refused for want of the id (index.tsx).
+    const ID_UNREADABLE = englishMessages.wallet_page_id_unreadable.message;
+    const ALL_ID_PAUSES_MS = PAGE_WALLET_ID_RETRY_DELAYS_MS.reduce((total, pause) => total + pause, 0);
 
-    function openGuardedPage<T extends Record<string, unknown>>(wallet: T) {
+    // The page as the UI entry wires its wallet proxy. `tools`: the page's
+    // toasts, none unless given.
+    function openGuardedPage<T extends Record<string, unknown>>(
+      wallet: T,
+      { tools }: { tools?: { toastError: (content: string) => void } } = {}
+    ) {
       const store = createAppStore();
       const reached: Reached[] = [];
       const refusals: unknown[] = [];
       const rule = {
         walletId: getShownWalletId,
         showsWalletContent: () => pageShowsWalletContent(store.getState()),
-        waitForWalletId: () => waitForShownWalletId(),
         refuseWithoutWalletId: () => {
-          const refusal = refuseWithoutWalletId('wallet_page_out_of_date');
+          const refusal = refuseWithoutWalletId(ID_UNREADABLE);
           refusals.push(refusal);
           return refusal;
         }
@@ -448,7 +486,7 @@ describe('a page starting', () => {
             });
         }
       }) as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
-      render(
+      const pages = (
         <Provider store={store}>
           <WalletProvider wallet={guarded as unknown as Parameters<typeof WalletProvider>[0]['wallet']}>
             <PageStartup>
@@ -457,8 +495,40 @@ describe('a page starting', () => {
           </WalletProvider>
         </Provider>
       );
-      return { store, guarded, reached, refusals };
+      const page = render(
+        tools ? (
+          <ToolsContext.Provider value={tools as unknown as Parameters<typeof ToolsContext.Provider>[0]['value']}>
+            {pages}
+          </ToolsContext.Provider>
+        ) : (
+          pages
+        )
+      );
+      return { store, guarded, reached, refusals, page };
     }
+
+    // What became of a call: still out, or how it settled.
+    function outcome(call: Promise<unknown>) {
+      const seen: { state: 'out' | 'sent' | 'refused'; value?: unknown } = { state: 'out' };
+      call.then(
+        (value) => Object.assign(seen, { state: 'sent', value }),
+        (error: unknown) => Object.assign(seen, { state: 'refused', value: error })
+      );
+      return seen;
+    }
+    const sentTo = (reached: Reached[], method: string) => reached.filter((call) => call.method === method);
+    // What the page shows of a wallet, by the accounts' names and addresses,
+    // with the id it holds.
+    const shown = (store: ReturnType<typeof createAppStore>) => {
+      const { accounts, keyrings } = store.getState();
+      const name = (each: { address: string; alianName?: string }) => `${each.alianName ?? ''}@${each.address}`;
+      return {
+        id: getShownWalletId(),
+        current: accounts.current.address === '' ? null : name(accounts.current),
+        accounts: accounts.accounts.map(name),
+        wallets: keyrings.keyrings.map((keyring) => (keyring.accounts ?? []).map(name))
+      };
+    };
 
     // A background with the calls the screens below make.
     const backgroundWithScreens = () =>
@@ -466,8 +536,39 @@ describe('a page starting', () => {
         createKeyringWithMnemonics: vi.fn(async () => undefined),
         getAddressBalanceV2: vi.fn(async () => ({ totalBalance: 0 })),
         addContact: vi.fn(async () => true),
+        setAccountAlianName: vi.fn(async () => account),
+        lockWallet: vi.fn(async () => undefined),
+        setLastActiveTime: vi.fn(async () => undefined),
         unlock: vi.fn(async () => undefined)
       });
+    type ScreensBackground = ReturnType<typeof backgroundWithScreens>;
+
+    // A page that started unlocked, showing its account, whose id read failed
+    // and keeps failing: one retry of it scheduled, none running.
+    async function contentWithoutAnId(options?: Parameters<typeof openGuardedPage>[1]) {
+      const wallet = backgroundWithScreens();
+      wallet.isUnlocked.mockResolvedValue(true);
+      wallet.getWalletId.mockRejectedValue(SAVE_FAILED);
+      const page = openGuardedPage(wallet, options);
+      await settle();
+      expect(pageShowsWalletContent(page.store.getState())).toBe(true);
+      expect(getShownWalletId()).toBeUndefined();
+      return { wallet, ...page };
+    }
+
+    // The background set up another wallet than the one the page shows: a
+    // reset this page missed erased it, and another window made `id`. The
+    // background names `current` as its account while unlocked; locked, it
+    // names none and lists none.
+    function setUpSince(wallet: ScreensBackground, id: string, current: typeof account, unlocked: boolean) {
+      const wallets = [{ key: 'keyring_0', index: 0, accounts: [current] }];
+      wallet.getWalletId.mockResolvedValue(id);
+      wallet.isUnlocked.mockResolvedValue(unlocked);
+      wallet.getCurrentAccount.mockResolvedValue(unlocked ? current : null);
+      wallet.getAccounts.mockResolvedValue(unlocked ? [current] : []);
+      wallet.getKeyrings.mockResolvedValue(unlocked ? wallets : []);
+      wallet.getCurrentKeyring.mockResolvedValue((unlocked ? wallets[0] : null) as never);
+    }
 
     beforeEach(() => {
       reloadOnBoot.mockReset();
@@ -478,7 +579,11 @@ describe('a page starting', () => {
       );
     });
 
+    // Store subscriptions a test makes, released after it whatever its outcome.
+    const cleanups: Array<() => void> = [];
+
     afterEach(() => {
+      cleanups.splice(0).forEach((release) => release());
       uninstall();
       sessionStorage.clear();
     });
@@ -504,27 +609,27 @@ describe('a page starting', () => {
       wallet.getAccounts.mockResolvedValue([account]);
       wallet.hasVault.mockResolvedValue(true);
       wallet.isUnlocked.mockResolvedValue(true);
-      // Its first screens ask for the balance as soon as the account shows,
-      // before the run that loaded it records the id.
+      // Its first screens ask for the balance as soon as the account shows.
       let balance: Promise<unknown> | undefined;
       let idWhenShown: string | undefined = 'not shown';
-      const unsubscribe = store.subscribe(() => {
-        if (balance === undefined && store.getState().accounts.current.address === account.address) {
-          idWhenShown = getShownWalletId();
-          balance = guarded.getAddressBalanceV2(account.address);
-        }
-      });
+      cleanups.push(
+        store.subscribe(() => {
+          if (balance === undefined && store.getState().accounts.current.address === account.address) {
+            idWhenShown = getShownWalletId();
+            balance = guarded.getAddressBalanceV2(account.address);
+          }
+        })
+      );
       // As the create hook marks it.
       act(() => {
         store.dispatch(globalActions.update({ isUnlocked: true, isBooted: true }));
       });
       await settle();
-      unsubscribe();
 
-      expect(idWhenShown).toBeUndefined();
+      // The account shows only together with the id read before it.
+      expect(idWhenShown).toBe('wallet-new');
       await expect(balance).resolves.toEqual({ totalBalance: 0 });
-      expect(getShownWalletId()).toBe('wallet-new');
-      expect(reached.filter((call) => call.method === 'getAddressBalanceV2')).toEqual([
+      expect(sentTo(reached, 'getAddressBalanceV2')).toEqual([
         { method: 'getAddressBalanceV2', walletId: 'wallet-new' }
       ]);
       // What left before the page showed any of a wallet, without an id.
@@ -539,51 +644,194 @@ describe('a page starting', () => {
     // The review's scenario: the id read failed, a reset this page missed
     // erased its wallet and another window made a new one.
     it('sends nothing of a page that shows a wallet without its id to the wallet set up since', async () => {
-      const wallet = backgroundWithScreens();
-      wallet.isUnlocked.mockResolvedValue(true);
-      wallet.getWalletId.mockRejectedValue(SAVE_FAILED);
-      const { store, guarded, reached } = openGuardedPage(wallet);
-      await settle();
-      expect(pageShowsWalletContent(store.getState())).toBe(true);
-      expect(getShownWalletId()).toBeUndefined();
+      const { wallet, store, guarded, reached } = await contentWithoutAnId();
+      expect(store.getState().accounts.current.address).toBe(account.address);
 
-      const adding = guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }).then(
-        () => 'sent',
-        (error: unknown) => error
-      );
+      const adding = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
       await settle();
 
-      expect(await adding).toMatchObject({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE });
+      expect(adding).toMatchObject({
+        state: 'refused',
+        value: { code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE, message: ID_UNREADABLE }
+      });
       expect(wallet.addContact).not.toHaveBeenCalled();
-      expect(reached.map((call) => call.method)).not.toContain('addContact');
+      expect(sentTo(reached, 'addContact')).toEqual([]);
+      // Refused at once, and, while the page still asks for its id, without a reload.
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+
+      // Once it has stopped asking, the next refusal reopens the page, once.
+      await settle(ALL_ID_PAUSES_MS);
+      await outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' })).value;
+      await settle();
       expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+      expect(wallet.addContact).not.toHaveBeenCalled();
     });
 
-    it('holds a call made while the retry reads the id, and sends it with the id once recorded', async () => {
-      const wallet = backgroundWithScreens();
-      wallet.isUnlocked.mockResolvedValue(true);
-      wallet.getWalletId.mockRejectedValue(SAVE_FAILED);
-      const { guarded, reached } = openGuardedPage(wallet);
-      await settle();
-      // The retry's read, held while the call comes.
+    // Sequence A (the new wallet locked) and sequence B (unlocked), with the
+    // new wallet restored from the same seed or made from another: a write
+    // made while the page shows the erased wallet, before the retry that
+    // reads the new wallet's id, never reaches the new wallet; and the
+    // page's accounts and wallets are then the new wallet's, read under its
+    // id, or none.
+    it.each([
+      ['locked', 'another seed'],
+      ['locked', 'the same seed'],
+      ['unlocked', 'another seed'],
+      ['unlocked', 'the same seed']
+    ] as const)(
+      'sends nothing to a new wallet, %s and from %s, and its accounts and wallets are then those read under its id',
+      async (lock, seed) => {
+        // The window has used its one reopen already.
+        sessionStorage.setItem(WALLET_ID_MISSING_REOPEN_KEY, '1');
+        const { wallet, store, guarded, reached } = await contentWithoutAnId();
+        expect(shown(store).current).toBe(`Account 1@${account.address}`);
+
+        // During the pause before the retry, the user acts on what the page shows.
+        const writes = [
+          outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' })),
+          outcome(guarded.setAccountAlianName({ address: account.address }, 'Rent'))
+        ];
+        await settle();
+
+        const newAccount =
+          seed === 'the same seed'
+            ? { ...account, alianName: 'Restored 1' }
+            : { ...account, alianName: 'Other 1', address: 'qb1zotherwallet', pubkey: '02other' };
+        setUpSince(wallet, 'wallet-2', newAccount, lock === 'unlocked');
+        await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+
+        for (const write of writes) {
+          expect(write).toMatchObject({ state: 'refused', value: { code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE } });
+        }
+        expect(wallet.addContact).not.toHaveBeenCalled();
+        expect(wallet.setAccountAlianName).not.toHaveBeenCalled();
+        expect(sentTo(reached, 'addContact')).toEqual([]);
+        expect(sentTo(reached, 'setAccountAlianName')).toEqual([]);
+
+        const newName = `${newAccount.alianName}@${newAccount.address}`;
+        if (lock === 'unlocked') {
+          expect(shown(store)).toEqual({ id: 'wallet-2', current: newName, accounts: [newName], wallets: [[newName]] });
+        } else {
+          // Locked, the new wallet names no account: the page shows none, and is locked.
+          expect(shown(store)).toEqual({ id: 'wallet-2', current: null, accounts: [], wallets: [] });
+          expect(store.getState().global.isUnlocked).toBe(false);
+        }
+        expect(reloadOnBoot).not.toHaveBeenCalled();
+      }
+    );
+
+    // The path older than the retries: a call made while a run that reads
+    // the id is under way, which then records another wallet's id.
+    it('refuses a call made while a run reads the id, which records another wallet: that wallet gets nothing of what the page showed', async () => {
+      const { wallet, store, guarded, reached, refusals } = await contentWithoutAnId();
+      // A reset this page missed, and a wallet made since; the retry's id
+      // read, held while the call comes.
+      const other = { ...account, alianName: 'Other 1', address: 'qb1zotherwallet', pubkey: '02other' };
+      setUpSince(wallet, 'wallet-2', other, true);
       let answerRetry: ((id: string) => void) | undefined;
       wallet.getWalletId.mockImplementation(() => new Promise<string>((resolve) => (answerRetry = resolve)));
       await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
       expect(answerRetry).toBeTypeOf('function');
+      expect(shown(store).current).toBe(`Account 1@${account.address}`);
 
-      const adding = guarded.addContact({ address: 'qb1zfriend', name: 'Friend' });
+      const adding = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
       await settle();
-      expect(wallet.addContact).not.toHaveBeenCalled();
+      expect(adding.state).toBe('refused');
+
       await act(async () => {
-        answerRetry?.('wallet-1');
+        answerRetry?.('wallet-2');
       });
       await settle();
 
-      await expect(adding).resolves.toBe(true);
-      expect(reached.filter((call) => call.method === 'addContact')).toEqual([
-        { method: 'addContact', walletId: 'wallet-1' }
-      ]);
+      expect(getShownWalletId()).toBe('wallet-2');
+      const otherName = `Other 1@${other.address}`;
+      expect(shown(store)).toEqual({
+        id: 'wallet-2',
+        current: otherName,
+        accounts: [otherName],
+        wallets: [[otherName]]
+      });
+      expect(sentTo(reached, 'addContact')).toEqual([]);
+      expect(wallet.addContact).not.toHaveBeenCalled();
+      expect(refusals).toHaveLength(1);
       expect(reloadOnBoot).not.toHaveBeenCalled();
+    });
+
+    // A read that failed once: the page recovers by itself at its next try.
+    it('recovers from a one-off failure: the first action is refused with the message, the same action then goes with the id, no reload, no toast', async () => {
+      const toastError = vi.fn();
+      const { wallet, guarded, reached } = await contentWithoutAnId({ tools: { toastError } });
+
+      // The user's action, and one of the page's own reads.
+      const adding = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+      const polling = outcome(guarded.getAddressBalanceV2(account.address));
+      await settle();
+      expect(adding).toMatchObject({ state: 'refused', value: { message: ID_UNREADABLE } });
+      expect(polling.state).toBe('refused');
+
+      wallet.getWalletId.mockResolvedValue('wallet-1');
+      await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+      expect(getShownWalletId()).toBe('wallet-1');
+
+      await expect(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' })).resolves.toBe(true);
+      await expect(guarded.getAddressBalanceV2(account.address)).resolves.toEqual({ totalBalance: 0 });
+      expect(sentTo(reached, 'addContact')).toEqual([{ method: 'addContact', walletId: 'wallet-1' }]);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+    });
+
+    it('tells the user once when its retries give up after refusing calls, then once per refusal after its one reopen', async () => {
+      // A page reopened in this window for that already.
+      sessionStorage.setItem(WALLET_ID_MISSING_REOPEN_KEY, '1');
+      const toastError = vi.fn();
+      const { guarded } = await contentWithoutAnId({ tools: { toastError } });
+
+      // The page's own reads, again and again, while it asks for its id.
+      for (let poll = 0; poll < 5; poll += 1) {
+        await outcome(guarded.getAddressBalanceV2(account.address)).value;
+        await settle(10_000);
+      }
+      expect(toastError).not.toHaveBeenCalled();
+
+      await settle(ALL_ID_PAUSES_MS);
+      expect(toastError.mock.calls).toEqual([[ID_UNREADABLE]]);
+
+      const first = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+      const second = outcome(guarded.setAccountAlianName({ address: account.address }, 'Rent'));
+      await settle();
+      expect(first).toMatchObject({ state: 'refused', value: { message: ID_UNREADABLE } });
+      expect(second).toMatchObject({ state: 'refused', value: { message: ID_UNREADABLE } });
+      expect(toastError).toHaveBeenCalledTimes(3);
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+      // Not for what it drops, nor for what it sends.
+      noteWalletActivity(guarded as unknown as Parameters<typeof noteWalletActivity>[0]);
+      await guarded.lockWallet();
+      expect(toastError).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops telling once the page has closed', async () => {
+      sessionStorage.setItem(WALLET_ID_MISSING_REOPEN_KEY, '1');
+      const toastError = vi.fn();
+      await contentWithoutAnId({ tools: { toastError } });
+      await settle(ALL_ID_PAUSES_MS);
+      refuseWithoutWalletId(ID_UNREADABLE);
+      expect(toastError).toHaveBeenCalledTimes(1);
+
+      cleanup();
+      refuseWithoutWalletId(ID_UNREADABLE);
+      expect(toastError).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves no retry behind once the page has closed, and asks no more', async () => {
+      const { wallet } = await contentWithoutAnId();
+      const reads = wallet.getWalletId.mock.calls.length;
+
+      cleanup();
+      await settle(10 * 60_000);
+
+      expect(wallet.getWalletId).toHaveBeenCalledTimes(reads);
+      expect(vi.getTimerCount()).toBe(0);
     });
 
     it.each(['/index.html', '/notification.html'])(
@@ -623,6 +871,398 @@ describe('a page starting', () => {
         cleanup();
         forgetShownWalletId();
       }
+    });
+
+    // The lock and the background's LOCKED, as the Lock button and
+    // AccountUpdater make them: the lock, and the handler's question whether
+    // a vault is there (publishVault).
+    async function lockAsTheLockButtonDoes(
+      wallet: ScreensBackground,
+      store: ReturnType<typeof createAppStore>,
+      guarded: Record<string, (...args: unknown[]) => Promise<unknown>>,
+      // How the locked background answers for the current account: none.
+      currentAccountWhileLocked: () => Promise<null> = async () => null
+    ) {
+      wallet.lockWallet.mockImplementation(async () => {
+        // Locked, the background names no account and lists none.
+        wallet.isUnlocked.mockResolvedValue(false);
+        wallet.getCurrentAccount.mockImplementation(currentAccountWhileLocked);
+        wallet.getAccounts.mockResolvedValue([]);
+      });
+      let vault: unknown;
+      await act(async () => {
+        await guarded.lockWallet();
+        store.dispatch(globalActions.update({ isUnlocked: false }));
+        vault = await guarded.hasVault();
+      });
+      return vault;
+    }
+
+    it('locks: the lock and the LOCKED handler read go out without an id, and the page ends locked, nothing refused, its reopen unused', async () => {
+      const { wallet, store, guarded, reached, refusals } = await contentWithoutAnId();
+
+      const vault = await lockAsTheLockButtonDoes(wallet, store, guarded);
+      // The run the lock starts, and the retries after it, still cannot read the id.
+      await settle(ALL_ID_PAUSES_MS);
+
+      expect(sentTo(reached, 'lockWallet')).toEqual([{ method: 'lockWallet', walletId: undefined }]);
+      expect(sentTo(reached, 'hasVault').at(-1)).toEqual({ method: 'hasVault', walletId: undefined });
+      // The first run's read and the LOCKED handler's: a run that could not
+      // read the id asks for none.
+      expect(wallet.hasVault).toHaveBeenCalledTimes(2);
+      expect(vault).toBe(true);
+      expect(getShownWalletId()).toBeUndefined();
+      // Booted and locked: Layout sends the page to the unlock screen.
+      expect(store.getState().global).toMatchObject({ isReady: true, isBooted: true, isUnlocked: false });
+      expect(showsWalletPages()).toBe(true);
+      expect(refusals).toEqual([]);
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+    });
+
+    // Locked without an id, the page drops what it showed: its unlock then
+    // goes as a page opened locked sends it, and the run after the unlock
+    // reads the id and the account together.
+    it('locks, then unlocks, without an id: nothing refused, no reload, and it ends unlocked with its id and its account read together', async () => {
+      const { wallet, store, guarded, reached, refusals } = await contentWithoutAnId();
+
+      // The run the lock starts reads whether the wallet names an account,
+      // held here while the page still shows the old one.
+      let answerAccount: (() => void) | undefined;
+      await lockAsTheLockButtonDoes(
+        wallet,
+        store,
+        guarded,
+        () => new Promise((resolve) => (answerAccount = () => resolve(null)))
+      );
+      expect(answerAccount).toBeTypeOf('function');
+      // Until then, nothing of what the page shows goes.
+      expect(shown(store).current).toBe(`Account 1@${account.address}`);
+      const early = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+      await settle();
+      expect(early.state).toBe('refused');
+      // Then the page shows none of it: the unlock screen took the place of
+      // the screens made from it (Layout), and its store holds nothing of it.
+      wallet.getCurrentAccount.mockResolvedValue(null);
+      await act(async () => {
+        answerAccount?.();
+      });
+      await settle();
+      expect(shown(store)).toEqual({ id: undefined, current: null, accounts: [], wallets: [] });
+      expect(pageShowsWalletContent(store.getState())).toBe(false);
+
+      // The background recovers meanwhile; the unlock.
+      wallet.getWalletId.mockResolvedValue('wallet-1');
+      wallet.unlock.mockImplementation(async () => {
+        wallet.isUnlocked.mockResolvedValue(true);
+        wallet.getCurrentAccount.mockResolvedValue(account);
+        wallet.getAccounts.mockResolvedValue([account]);
+      });
+      await act(async () => {
+        await guarded.unlock('its password');
+        // The background's UNLOCKED, as AccountUpdater takes it.
+        store.dispatch(globalActions.update({ isUnlocked: true }));
+      });
+      await settle();
+
+      expect(sentTo(reached, 'unlock')).toEqual([{ method: 'unlock', walletId: undefined }]);
+      const name = `Account 1@${account.address}`;
+      expect(shown(store)).toEqual({ id: 'wallet-1', current: name, accounts: [name], wallets: [[name]] });
+      expect(store.getState().global.isUnlocked).toBe(true);
+      const idRead = wallet.getWalletId.mock.invocationCallOrder.at(-1) ?? Infinity;
+      expect(wallet.getCurrentAccount.mock.invocationCallOrder.at(-1)).toBeGreaterThan(idRead);
+      expect(refusals).toHaveLength(1);
+      expect(sentTo(reached, 'addContact')).toEqual([]);
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+    });
+
+    it('drops its activity pings: nothing sent, refused or rejected, its reopen unused; held with an id, it sends them with it', async () => {
+      const { wallet, guarded, reached, refusals } = await contentWithoutAnId();
+
+      // A page that missed a reset pings as the user moves the mouse: the
+      // wallet set up since never hears of it, so it auto-locks on time.
+      noteWalletActivity(guarded as unknown as Parameters<typeof noteWalletActivity>[0]);
+      await expect(guarded.setLastActiveTime()).resolves.toBeUndefined();
+      await settle();
+
+      expect(wallet.setLastActiveTime).not.toHaveBeenCalled();
+      expect(sentTo(reached, 'setLastActiveTime')).toEqual([]);
+      expect(refusals).toEqual([]);
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+
+      wallet.getWalletId.mockResolvedValue('wallet-1');
+      await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+      expect(getShownWalletId()).toBe('wallet-1');
+      noteWalletActivity(guarded as unknown as Parameters<typeof noteWalletActivity>[0]);
+      expect(sentTo(reached, 'setLastActiveTime')).toEqual([{ method: 'setLastActiveTime', walletId: 'wallet-1' }]);
+    });
+
+    // The cross-wallet guarantee, whatever the lock and the exempt reads let
+    // through: no write of a page that shows a wallet without its id leaves.
+    it('never sends a write of a page that shows content without an id, lock or no lock', async () => {
+      const { wallet, guarded, reached } = await contentWithoutAnId();
+
+      const writes = [
+        outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' })),
+        outcome(guarded.setAccountAlianName({ address: account.address }, 'Rent'))
+      ];
+      await act(async () => {
+        await guarded.lockWallet();
+        await guarded.hasVault();
+      });
+      await settle();
+
+      for (const write of writes) {
+        expect(write).toMatchObject({ state: 'refused', value: { code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE } });
+      }
+      expect(reached.map((call) => call.method)).not.toContain('addContact');
+      expect(reached.map((call) => call.method)).not.toContain('setAccountAlianName');
+      expect(wallet.addContact).not.toHaveBeenCalled();
+      expect(wallet.setAccountAlianName).not.toHaveBeenCalled();
+      expect(sentTo(reached, 'lockWallet')).toHaveLength(1);
+    });
+
+    // What the store says of a wallet set up: the background's answer, as of
+    // the id the page records, not what the page read when it opened.
+    it('ends booted, with the id and the accounts, on a page that opened with nothing set up and learns of a wallet made in another window', async () => {
+      const wallet = backgroundWithScreens();
+      wallet.getWalletId.mockResolvedValue(null);
+      wallet.getCurrentAccount.mockResolvedValue(null);
+      wallet.getAccounts.mockResolvedValue([]);
+      wallet.hasVault.mockResolvedValue(false);
+      const { store, refusals } = openGuardedPage(wallet);
+      await settle();
+      expect(store.getState().global.isBooted).toBe(false);
+
+      // Another window makes a wallet and unlocks it: its UNLOCKED reaches this page.
+      setUpSince(wallet, 'wallet-1', account, true);
+      wallet.hasVault.mockResolvedValue(true);
+      act(() => {
+        store.dispatch(globalActions.update({ isUnlocked: true }));
+      });
+      await settle();
+
+      const name = `Account 1@${account.address}`;
+      expect(shown(store)).toEqual({ id: 'wallet-1', current: name, accounts: [name], wallets: [[name]] });
+      expect(store.getState().global.isBooted).toBe(true);
+      expect(refusals).toEqual([]);
+    });
+
+    // Nothing it could turn to takes it off the wallet's screens: no vault,
+    // so no unlock screen. Dropping what it shows would let the screens made
+    // from it send their calls unjudged (createWalletProxy); so it keeps it,
+    // and its store still says what it held, for the checks that go by it.
+    it('keeps what it showed, and refuses, once a run of a page without an id finds nothing set up; its next refusal, the retries over, reopens it', async () => {
+      const { wallet, store, guarded, reached } = await contentWithoutAnId();
+      expect(store.getState().global.isBooted).toBe(true);
+      const before = shown(store);
+
+      // A reset this page missed erased every wallet.
+      wallet.getWalletId.mockResolvedValue(null);
+      wallet.getCurrentAccount.mockResolvedValue(null);
+      wallet.getAccounts.mockResolvedValue([]);
+      wallet.hasVault.mockResolvedValue(false);
+      await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+
+      expect(shown(store)).toEqual(before);
+      expect(store.getState().global).toMatchObject({ isBooted: true, isUnlocked: true });
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+      // Nothing is booted: the id read answered, no retry is due.
+      expect(vi.getTimerCount()).toBe(0);
+      const write = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+      await settle();
+      expect(write.state).toBe('refused');
+      expect(sentTo(reached, 'addContact')).toEqual([]);
+      expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+    });
+
+    // The "none" a run read just before a wallet was made is not applied
+    // over the isBooted the create hook marks: the run after it goes by the
+    // lock-state change, and reads the vault again.
+    it('stays booted when a wallet is made while a run that read nothing booted waits for its vault read', async () => {
+      const { wallet, store, guarded } = await contentWithoutAnId();
+      await lockAsTheLockButtonDoes(wallet, store, guarded);
+      await settle();
+      expect(store.getState().global).toMatchObject({ isBooted: true, isUnlocked: false });
+      expect(pageShowsWalletContent(store.getState())).toBe(false);
+
+      // A reset this page missed erased every wallet. The run the next pause
+      // starts reads that nothing is booted, then whether a vault is there:
+      // "none", answered only once a wallet has been made since.
+      wallet.getWalletId.mockResolvedValue(null);
+      wallet.getCurrentAccount.mockResolvedValue(null);
+      wallet.getAccounts.mockResolvedValue([]);
+      let answerVault: ((vault: boolean) => void) | undefined;
+      wallet.hasVault.mockImplementationOnce(() => new Promise<boolean>((resolve) => (answerVault = resolve)));
+      await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+      expect(answerVault).toBeTypeOf('function');
+
+      // The wallet made on this page, unlocked, as the create hook marks it.
+      setUpSince(wallet, 'wallet-new', account, true);
+      const booted: boolean[] = [];
+      cleanups.push(store.subscribe(() => booted.push(store.getState().global.isBooted)));
+      act(() => {
+        store.dispatch(globalActions.update({ isUnlocked: true, isBooted: true }));
+      });
+      await act(async () => {
+        answerVault?.(false);
+      });
+      await settle();
+
+      expect(booted).not.toContain(false);
+      const name = `Account 1@${account.address}`;
+      expect(shown(store)).toEqual({ id: 'wallet-new', current: name, accounts: [name], wallets: [[name]] });
+      expect(store.getState().global).toMatchObject({ isBooted: true, isUnlocked: true });
+    });
+
+    // A lock-state change while a run reads (`again`): this run drops
+    // nothing, since it cannot turn the page locked, and the run after it
+    // goes by the change. Never content dropped while the page is not on the
+    // unlock screen, whose absence would let the screens send unjudged.
+    it('drops nothing, and goes on refusing, when its lock state changed while a run that read no account waited', async () => {
+      const { wallet, store, guarded, reached } = await contentWithoutAnId();
+      const emptied: unknown[] = [];
+      cleanups.push(
+        store.subscribe(() => {
+          if (!pageShowsWalletContent(store.getState())) emptied.push(store.getState().global);
+        })
+      );
+      // The account reads from here on, answered when the test says.
+      const accountReads: Array<(answer: typeof account | null) => void> = [];
+      wallet.getCurrentAccount.mockImplementation(() => new Promise((resolve) => accountReads.push(resolve)));
+
+      // The wallet locks, unseen; the retry after the first pause asks for the account.
+      wallet.isUnlocked.mockResolvedValue(false);
+      wallet.getAccounts.mockResolvedValue([]);
+      await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+      expect(accountReads).toHaveLength(1);
+      // Meanwhile the page hears of the lock, then of an unlock in another window.
+      act(() => {
+        store.dispatch(globalActions.update({ isUnlocked: false }));
+      });
+      await settle();
+      wallet.isUnlocked.mockResolvedValue(true);
+      wallet.getAccounts.mockResolvedValue([account]);
+      act(() => {
+        store.dispatch(globalActions.update({ isUnlocked: true }));
+      });
+      await settle();
+
+      // The waiting run reads that no account is named; the run after it asks again.
+      await act(async () => {
+        accountReads[0](null);
+      });
+      await settle();
+      expect(accountReads).toHaveLength(2);
+      expect(pageShowsWalletContent(store.getState())).toBe(true);
+      const writes = [
+        outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' })),
+        outcome(guarded.setAccountAlianName({ address: account.address }, 'Rent'))
+      ];
+      await settle();
+      expect(writes.map((write) => write.state)).toEqual(['refused', 'refused']);
+
+      // That run reads the account, unlocked.
+      await act(async () => {
+        accountReads[1](account);
+      });
+      await settle();
+
+      expect(emptied).toEqual([]);
+      expect(shown(store).current).toBe(`Account 1@${account.address}`);
+      expect(store.getState().global.isUnlocked).toBe(true);
+      expect(sentTo(reached, 'addContact')).toEqual([]);
+      expect(sentTo(reached, 'setAccountAlianName')).toEqual([]);
+      expect(wallet.addContact).not.toHaveBeenCalled();
+      expect(wallet.setAccountAlianName).not.toHaveBeenCalled();
+    });
+
+    it('drops the transactions the page held when a run records a late id and reads an account', async () => {
+      const { wallet, store } = await contentWithoutAnId();
+      act(() => {
+        store.dispatch(
+          transactionsActions.updateQbitTx({ fromAddress: account.address, toAddress: 'qb1zfriend', toSatoshis: 1_000 })
+        );
+      });
+
+      const other = { ...account, alianName: 'Other 1', address: 'qb1zotherwallet', pubkey: '02other' };
+      setUpSince(wallet, 'wallet-2', other, true);
+      await settle(PAGE_WALLET_ID_RETRY_DELAYS_MS[0]);
+
+      expect(getShownWalletId()).toBe('wallet-2');
+      expect(shown(store).current).toBe(`Other 1@${other.address}`);
+      expect(store.getState().transactions.qbitTx).toMatchObject({ fromAddress: '', toAddress: '', toSatoshis: 0 });
+    });
+
+    // A run a lock or an unlock starts after the last retry still reads the
+    // id: a call it refuses meanwhile reopens nothing, as during the retries.
+    it('reopens nothing, and tells nothing, for a call refused while a run after its last retry reads the id, which it then records', async () => {
+      const toastError = vi.fn();
+      const { wallet, store, guarded } = await contentWithoutAnId({ tools: { toastError } });
+      await settle(ALL_ID_PAUSES_MS);
+      // Its retries are over.
+      expect(vi.getTimerCount()).toBe(0);
+      expect(getShownWalletId()).toBeUndefined();
+
+      // The lock starts a run, whose id read is answered when the test says.
+      let answerId: ((id: string) => void) | undefined;
+      wallet.getWalletId.mockImplementationOnce(() => new Promise<string>((resolve) => (answerId = resolve)));
+      await lockAsTheLockButtonDoes(wallet, store, guarded);
+      expect(answerId).toBeTypeOf('function');
+      const meanwhile = outcome(guarded.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+      await settle();
+      expect(meanwhile.state).toBe('refused');
+
+      await act(async () => {
+        answerId?.('wallet-1');
+      });
+      await settle();
+
+      expect(getShownWalletId()).toBe('wallet-1');
+      expect(reloadOnBoot).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('clears the pause before its next retry once a run a lock started has recorded the id', async () => {
+      const { wallet, store, guarded } = await contentWithoutAnId();
+      expect(vi.getTimerCount()).toBe(1);
+
+      wallet.getWalletId.mockResolvedValue('wallet-1');
+      await lockAsTheLockButtonDoes(wallet, store, guarded);
+      await settle();
+
+      expect(getShownWalletId()).toBe('wallet-1');
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    // The page a first wallet is made on, its id unreadable: the background
+    // announces the new account (ACCOUNTS_CHANGED) before the create returns,
+    // and the create hook then asks whether the wallet is unlocked.
+    it('sends the question the create hook asks, whether the wallet is unlocked, from a first-run page that shows the new account without its id', async () => {
+      const wallet = backgroundWithScreens();
+      wallet.getWalletId.mockRejectedValue(SAVE_FAILED);
+      wallet.getCurrentAccount.mockResolvedValue(null);
+      wallet.getAccounts.mockResolvedValue([]);
+      wallet.hasVault.mockResolvedValue(false);
+      wallet.isUnlocked.mockResolvedValue(true);
+      const { store, guarded, reached, refusals } = openGuardedPage(wallet);
+      await settle();
+      expect(pageShowsWalletContent(store.getState())).toBe(false);
+
+      // ACCOUNTS_CHANGED, as AccountUpdater takes it.
+      act(() => {
+        store.dispatch(accountActions.setCurrent(account as never));
+      });
+      expect(pageShowsWalletContent(store.getState())).toBe(true);
+      const unlocked = outcome(guarded.isUnlocked());
+      await settle();
+
+      expect(unlocked).toEqual({ state: 'sent', value: true });
+      expect(sentTo(reached, 'isUnlocked').at(-1)).toEqual({ method: 'isUnlocked', walletId: undefined });
+      expect(refusals).toEqual([]);
+      expect(reloadOnBoot).not.toHaveBeenCalled();
     });
   });
 
@@ -747,28 +1387,58 @@ describe('a page starting', () => {
 
     // The other way to show wallet content without an id: a page that loaded
     // its account while the id read failed, then locked, the read still
-    // failing. Neither a reconnection nor an unlock takes it for up to date.
-    describe('locked, showing an account, without an id', () => {
+    // failing. Until its run reads that the wallet is locked it still shows
+    // the account, and neither a reconnection nor an unlock takes it for up
+    // to date; once it has read that, it shows nothing, as a page opened
+    // locked, and both go on.
+    describe('locked, without an id', () => {
       const bus = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
       const reloadOnBoot = vi.fn();
       let uninstall: () => void;
       const contentOf = (store: ReturnType<typeof createAppStore>) => () => pageShowsWalletContent(store.getState());
 
-      async function lockedWithoutAnId() {
+      // `holdRead`: the lock's run has not yet read whether the wallet names an account.
+      async function lockedWithoutAnId({ holdRead = false } = {}) {
         const wallet = Object.assign(background(), { isBooted: vi.fn(async () => true) });
         wallet.isUnlocked.mockResolvedValue(true);
         wallet.getWalletId.mockRejectedValue(SAVE_FAILED);
         const { store } = openPage(wallet);
         await settle();
+        // Locked, the background names no account and lists none.
+        wallet.isUnlocked.mockResolvedValue(false);
+        wallet.getAccounts.mockResolvedValue([]);
+        if (holdRead) {
+          wallet.getCurrentAccount.mockImplementation(() => new Promise(() => undefined));
+        } else {
+          wallet.getCurrentAccount.mockResolvedValue(null);
+        }
         act(() => {
           store.dispatch(globalActions.update({ isUnlocked: false }));
         });
         await settle();
         expect(getShownWalletId()).toBeUndefined();
-        expect(store.getState().accounts.current.address).toBe(account.address);
         const reads = { isBooted: () => wallet.isBooted(), getWalletId: () => wallet.getWalletId() };
         return { wallet, store, reads };
       }
+      const reconnect = (store: ReturnType<typeof createAppStore>, reads: Parameters<typeof checkShownWallet>[1]) =>
+        createReconnectReconcile({
+          holdsWallet: () => true,
+          shownWalletId: getShownWalletId,
+          showsWalletContent: contentOf(store),
+          wallet: reads,
+          waitForStartup: async () => true
+        })();
+      const unlockGate = (store: ReturnType<typeof createAppStore>, reads: Parameters<typeof checkShownWallet>[1]) =>
+        createUnlockGate({
+          holdsWallet: () => true,
+          shownWalletId: getShownWalletId,
+          showsWalletContent: contentOf(store),
+          isStarted: () => store.getState().global.isReady,
+          isUnlocked: () => store.getState().global.isUnlocked,
+          wallet: reads,
+          onUnknown: vi.fn(),
+          refusal: () => 'wallet_page_out_of_date'
+        });
 
       beforeEach(() => {
         reloadOnBoot.mockReset();
@@ -784,41 +1454,43 @@ describe('a page starting', () => {
         sessionStorage.clear();
       });
 
-      it('reopens at a reconnection', async () => {
-        const { store, reads } = await lockedWithoutAnId();
+      it('reopens at a reconnection while it still shows the account', async () => {
+        const { store, reads } = await lockedWithoutAnId({ holdRead: true });
+        expect(store.getState().accounts.current.address).toBe(account.address);
 
-        createReconnectReconcile({
-          holdsWallet: () => true,
-          shownWalletId: getShownWalletId,
-          showsWalletContent: contentOf(store),
-          wallet: reads,
-          waitForStartup: async () => true
-        })();
+        reconnect(store, reads);
         await settle();
 
         expect(reloadOnBoot).toHaveBeenCalledTimes(1);
       });
 
-      it('reopens at an unlock, which does not go on', async () => {
-        const { store, reads } = await lockedWithoutAnId();
-        const gate = createUnlockGate({
-          holdsWallet: () => true,
-          shownWalletId: getShownWalletId,
-          showsWalletContent: contentOf(store),
-          isStarted: () => store.getState().global.isReady,
-          isUnlocked: () => store.getState().global.isUnlocked,
-          wallet: reads,
-          onUnknown: vi.fn(),
-          refusal: () => 'wallet_page_out_of_date'
-        });
+      it('reopens at an unlock while it still shows the account, which does not go on', async () => {
+        const { store, reads } = await lockedWithoutAnId({ holdRead: true });
 
         let passed: boolean | undefined;
         await act(async () => {
-          passed = await gate.beforeUnlockedBroadcast();
+          passed = await unlockGate(store, reads).beforeUnlockedBroadcast();
         });
 
         expect(passed).toBe(false);
         expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+      });
+
+      it('shows nothing once its run has read that the wallet is locked: a reconnection and an unlock then go on', async () => {
+        const { store, reads } = await lockedWithoutAnId();
+        expect(contentOf(store)()).toBe(false);
+        expect(store.getState().accounts.accounts).toEqual([]);
+        expect(store.getState().keyrings.keyrings).toEqual([]);
+
+        reconnect(store, reads);
+        let passed: boolean | undefined;
+        await act(async () => {
+          passed = await unlockGate(store, reads).beforeUnlockedBroadcast();
+        });
+        await settle();
+
+        expect(passed).toBe(true);
+        expect(reloadOnBoot).not.toHaveBeenCalled();
       });
 
       it('compares nothing once it has dropped what it showed and recorded the id', async () => {
@@ -828,13 +1500,7 @@ describe('a page starting', () => {
         expect(getShownWalletId()).toBe('wallet-1');
         expect(contentOf(store)()).toBe(false);
 
-        createReconnectReconcile({
-          holdsWallet: () => true,
-          shownWalletId: getShownWalletId,
-          showsWalletContent: contentOf(store),
-          wallet: reads,
-          waitForStartup: async () => true
-        })();
+        reconnect(store, reads);
         await settle();
 
         // Judged by its id: the same wallet, nothing to do.
@@ -876,8 +1542,11 @@ describe('a page starting', () => {
       expect(getShownWalletId()).toBeUndefined();
       expect(store.getState().accounts.current.address).toBe(account.address);
 
-      // A later run, which the lock starts, can read it.
+      // A later run, which the lock starts, can read it. Locked, the
+      // background names no account and lists none.
       wallet.getWalletId.mockResolvedValue('wallet-1');
+      wallet.getCurrentAccount.mockResolvedValue(null);
+      wallet.getAccounts.mockResolvedValue([]);
       act(() => {
         store.dispatch(globalActions.update({ isUnlocked: false }));
       });
@@ -888,6 +1557,8 @@ describe('a page starting', () => {
       expect(store.getState().keyrings.keyrings).toEqual([]);
       const idRead = wallet.getWalletId.mock.invocationCallOrder.at(-1) ?? Infinity;
 
+      wallet.getCurrentAccount.mockResolvedValue(account);
+      wallet.getAccounts.mockResolvedValue([account]);
       act(() => {
         store.dispatch(globalActions.update({ isUnlocked: true }));
       });

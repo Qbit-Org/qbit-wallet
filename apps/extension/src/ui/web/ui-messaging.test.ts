@@ -8,23 +8,26 @@ import {
   createReconnectReconcile,
   createUnlockGate,
   createWalletResetHandler,
+  beginWalletIdRecovery,
+  endWalletIdRecovery,
   forgetShownWalletId,
   getShownWalletId,
   installWalletResetHandler,
-  noteWalletIdRead,
+  onWalletIdRefusal,
   recordShownWalletId,
   refuseWithoutWalletId,
   reopenOutOfDatePage,
-  WALLET_ID_MISSING_REOPEN_KEY,
-  waitForShownWalletId
+  WALLET_ID_MISSING_REOPEN_KEY
 } from '@/ui/utils/walletReset';
 import { uiEventBus } from '@qbit/wallet-state';
 
 import {
   createPortMessageChannel,
   createWalletProxy,
+  DROPPED_WITHOUT_WALLET_ID,
   setupEventBusListeners,
   UNJUDGED_CONTROLLER_METHODS,
+  WALLET_ID_EXEMPT_LOCKS,
   WALLET_ID_EXEMPT_READS,
   watchPortReconnects
 } from './ui-messaging';
@@ -833,7 +836,6 @@ describe('a page that sends the id of the wallet it shows', () => {
 describe('a page that shows wallet content, and the id of its wallet', () => {
   const OUT_OF_DATE_TEXT =
     'This page was showing a wallet that is no longer set up here, so the request was not carried out.';
-  const ID_WAIT_MS = 50;
   const reload = vi.fn();
   const reloadOnBoot = vi.fn();
   const clearMemory = vi.fn();
@@ -846,7 +848,6 @@ describe('a page that shows wallet content, and the id of its wallet', () => {
       walletId: getShownWalletId,
       onOutOfDate: reopenOutOfDatePage,
       showsWalletContent: () => content,
-      waitForWalletId: () => waitForShownWalletId(ID_WAIT_MS),
       refuseWithoutWalletId: () => refuseWithoutWalletId(OUT_OF_DATE_TEXT)
     });
   }
@@ -904,38 +905,48 @@ describe('a page that shows wallet content, and the id of its wallet', () => {
     expect(reloadOnBoot).not.toHaveBeenCalled();
   });
 
-  it('waits for the id read under way, and leaves with the id the page then holds', async () => {
-    let endRead!: () => void;
-    noteWalletIdRead(new Promise<void>((resolve) => (endRead = resolve)));
+  // A call made while the page recovers its id by itself is refused at
+  // once: no id the page records later can vouch for what it was made from.
+  it('refuses a call at once while the page recovers its id, reopening nothing and telling nothing; once it holds the id, the same call goes with it', async () => {
+    const told = vi.fn();
+    const stop = onWalletIdRefusal(told);
+    beginWalletIdRecovery();
     const wallet = openPage();
 
-    const adding = wallet.addContact({ address: 'qb1zfriend', name: 'Friend' });
-    await settle();
+    const first = await refusal(wallet.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+    expect(first).toEqual({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE, message: OUT_OF_DATE_TEXT });
     expect(port(0).sent('addContact')).toEqual([]);
 
+    // The page records the id with what it read under it, and recovers.
     recordShownWalletId('wallet-a');
-    endRead();
-    await settle();
-
-    expect(port(0).sent('addContact')).toEqual([expect.objectContaining({ walletId: 'wallet-a' })]);
-    port(0).respond('addContact', { res: true });
-    await expect(adding).resolves.toBe(true);
+    endWalletIdRecovery('recovered');
     expect(reloadOnBoot).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+    expect(told).not.toHaveBeenCalled();
+
+    void wallet.addContact({ address: 'qb1zfriend', name: 'Friend' }).catch(() => undefined);
+    expect(port(0).sent('addContact')).toEqual([expect.objectContaining({ walletId: 'wallet-a' })]);
+    stop();
   });
 
-  it('refuses once the read under way ends without an id, or stops waiting for it', async () => {
-    let endRead!: () => void;
-    noteWalletIdRead(new Promise<void>((resolve) => (endRead = resolve)));
+  it('tells once for the calls refused during a recovery that gave up, then reopens once at the next refusal', async () => {
+    const told = vi.fn();
+    const stop = onWalletIdRefusal(told);
+    beginWalletIdRecovery();
     const wallet = openPage();
-    const ended = refusal(wallet.addContact({ address: 'qb1zfriend', name: 'Friend' }));
-    endRead();
-    expect(await ended).toMatchObject({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE });
+    for (let call = 0; call < 3; call += 1) {
+      await refusal(wallet.getAddressBalanceV2('qb1zaccount'));
+    }
+    expect(told).not.toHaveBeenCalled();
 
-    noteWalletIdRead(new Promise<void>(() => undefined));
-    const stuck = refusal(wallet.addContact({ address: 'qb1zfriend', name: 'Friend' }));
-    await settle(ID_WAIT_MS + 20);
-    expect(await stuck).toMatchObject({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE });
-    expect(port(0).sent('addContact')).toEqual([]);
+    endWalletIdRecovery('given-up');
+    expect(told.mock.calls).toEqual([[OUT_OF_DATE_TEXT]]);
+    expect(reloadOnBoot).not.toHaveBeenCalled();
+
+    await refusal(wallet.addContact({ address: 'qb1zfriend', name: 'Friend' }));
+    expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+    expect(port(0).methods()).toEqual([]);
+    stop();
   });
 
   it('sends without an id from a page that shows no wallet content, as the first-run page and a page opened locked do', async () => {
@@ -953,6 +964,14 @@ describe('a page that shows wallet content, and the id of its wallet', () => {
 
   it('always sends the exempt calls, at once, the reads with the id once it holds one', async () => {
     const wallet = openPage();
+    expect(WALLET_ID_EXEMPT_READS).toEqual([
+      'getCurrentAccount',
+      'getAccounts',
+      'getKeyrings',
+      'getCurrentKeyring',
+      'hasVault',
+      'isUnlocked'
+    ]);
     const exempt = [...UNJUDGED_CONTROLLER_METHODS, ...WALLET_ID_EXEMPT_READS];
     for (const method of exempt) void wallet[method]().catch(() => undefined);
     expect(exempt.map((method) => port(0).sent(method).length)).toEqual(exempt.map(() => 1));
@@ -969,9 +988,59 @@ describe('a page that shows wallet content, and the id of its wallet', () => {
     expect(reloadOnBoot).not.toHaveBeenCalled();
   });
 
-  it('sends with the id at once from a page that holds one, without waiting', () => {
+  it('sends the lock at once without an id, and with the id once it holds one: nothing refused, nothing reopened', async () => {
+    const wallet = openPage();
+    expect(WALLET_ID_EXEMPT_LOCKS).toEqual(['lockWallet']);
+
+    const locking = wallet.lockWallet();
+    expect(port(0).sent('lockWallet')).toEqual([expect.not.objectContaining({ walletId: expect.anything() })]);
+    port(0).respond('lockWallet', { res: null });
+    await expect(locking).resolves.toBeNull();
+
     recordShownWalletId('wallet-a');
-    noteWalletIdRead(new Promise<void>(() => undefined));
+    void wallet.lockWallet().catch(() => undefined);
+    expect(port(0).sent('lockWallet')[1]).toMatchObject({ walletId: 'wallet-a' });
+    expect(reloadOnBoot).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+  });
+
+  it('drops the activity ping: it resolves, sends nothing, refuses nothing, uses no reopen; once it holds an id, sends it with it', async () => {
+    const wallet = openPage();
+    expect(DROPPED_WITHOUT_WALLET_ID).toEqual(['setLastActiveTime']);
+    // Recovering its id or not.
+    beginWalletIdRecovery();
+
+    await expect(wallet.setLastActiveTime()).resolves.toBeUndefined();
+    await settle();
+
+    expect(port(0).sent('setLastActiveTime')).toEqual([]);
+    expect(reloadOnBoot).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+
+    recordShownWalletId('wallet-a');
+    void wallet.setLastActiveTime().catch(() => undefined);
+    expect(port(0).sent('setLastActiveTime')).toEqual([expect.objectContaining({ walletId: 'wallet-a' })]);
+  });
+
+  it('never sends a write without the id, whatever the lock and the exempt reads let through', async () => {
+    const wallet = openPage();
+    void wallet.lockWallet().catch(() => undefined);
+    void wallet.hasVault().catch(() => undefined);
+
+    const writes = [
+      refusal(wallet.addContact({ address: 'qb1zfriend', name: 'Friend' })),
+      refusal(wallet.setAccountAlianName({ address: 'qb1zaccount' }, 'Rent'))
+    ];
+    for (const write of await Promise.all(writes)) {
+      expect(write).toMatchObject({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE });
+    }
+
+    expect(port(0).methods()).toEqual(['lockWallet', 'hasVault']);
+  });
+
+  it('sends with the id at once from a page that holds one, recovering or not', () => {
+    recordShownWalletId('wallet-a');
+    beginWalletIdRecovery();
     const wallet = openPage();
 
     void wallet.addContact({ address: 'qb1zfriend', name: 'Friend' }).catch(() => undefined);

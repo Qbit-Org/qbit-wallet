@@ -23,6 +23,8 @@ const harness = vi.hoisted(
         changeLockOnWindowsClosed: Mock;
       };
       readPhishingProtection: Mock;
+      // What the page's store knows: started (isReady), and a wallet booted.
+      global: { isReady: boolean; isBooted: boolean };
     }
 );
 
@@ -110,11 +112,13 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => harness.routerNavigate }
 vi.mock('@qbit/wallet-state', () => ({
   useAutoLockTimeId: () => harness.lockTimeId,
   useBiometricUnlock: () => harness.biometric,
+  useBooted: () => harness.global.isBooted,
   useCurrentKeyring: () => harness.currentKeyring,
   useI18n: () => ({
     t: (key: string, substitutions?: string | string[]) =>
       substitutions === undefined ? key : `${key}(${[substitutions].flat().join('|')})`
   }),
+  useIsReady: () => harness.global.isReady,
   useNavigation: () => ({ navigate: harness.navigate }),
   useSecurityCardLogic: () => harness.locks
 }));
@@ -160,6 +164,8 @@ describe('SecurityScreen', () => {
     harness.navigate = vi.fn();
     harness.routerNavigate = vi.fn();
     harness.currentKeyring = { key: 'keyring_0', type: KeyringType.QbitHdKeyring };
+    // A page that has started, a wallet booted.
+    harness.global = { isReady: true, isBooted: true };
     harness.biometric = { ready: true, supported: true, enrolled: false };
     // 5 minutes.
     harness.lockTimeId = 3;
@@ -486,5 +492,71 @@ describe('SecurityScreen', () => {
     expect(go).toHaveBeenCalledWith(-1);
     expect(harness.routerNavigate).toHaveBeenCalledTimes(1);
     go.mockRestore();
+  });
+
+  describe('a screen of a wallet', () => {
+    it('shows nothing where nothing is booted, and goes to Welcome in its place: no reset is offered there', async () => {
+      harness.global = { isReady: true, isBooted: false };
+      await renderScreen();
+
+      expect(screen.queryByTestId('screen-content')).toBeNull();
+      expect(screen.queryByTestId(RESET)).toBeNull();
+      expect(screen.queryByText('security')).toBeNull();
+      expect(screen.queryByTestId('reset-wallet-dialog')).toBeNull();
+      expect(harness.routerNavigate).toHaveBeenCalledTimes(1);
+      expect(harness.routerNavigate).toHaveBeenCalledWith('/welcome', { replace: true });
+      expect(harness.navigate).not.toHaveBeenCalled();
+      // Nor does it ask the background anything of its own.
+      expect(harness.readPhishingProtection).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['nothing booted', false],
+      ['a wallet booted', true]
+    ])(
+      'neither shows its rows nor goes anywhere while the page is still starting (%s so far), then goes by what it learned',
+      async (_label, isBooted) => {
+        harness.global = { isReady: false, isBooted };
+        const { rerender } = await renderScreen();
+
+        expect(screen.queryByTestId('screen-content')).toBeNull();
+        expect(screen.queryByTestId(RESET)).toBeNull();
+        expect(harness.routerNavigate).not.toHaveBeenCalled();
+
+        // Started: a wallet is booted, or none.
+        harness.global = { isReady: true, isBooted };
+        rerender(<SecurityScreen />);
+        await act(async () => undefined);
+
+        if (isBooted) {
+          expect(listed().at(-1)).toBe(RESET);
+          expect(harness.routerNavigate).not.toHaveBeenCalled();
+        } else {
+          expect(screen.queryByTestId('screen-content')).toBeNull();
+          expect(harness.routerNavigate).toHaveBeenCalledWith('/welcome', { replace: true });
+          expect(harness.routerNavigate).toHaveBeenCalledTimes(1);
+        }
+      }
+    );
+
+    it('keeps the screen and the dialog of a reset this window sent while the store forgets the wallet before its answer, and goes to Welcome once the dialog closes', async () => {
+      const { rerender } = await renderScreen();
+      fireEvent.click(screen.getByTestId(RESET));
+
+      // The background announced the reset: the store has no wallet booted.
+      harness.global = { isReady: true, isBooted: false };
+      rerender(<SecurityScreen />);
+
+      expect(screen.getByTestId('reset-wallet-dialog')).toBeTruthy();
+      expect(listed().at(-1)).toBe(RESET);
+      expect(harness.routerNavigate).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByText('close-reset'));
+
+      expect(screen.queryByTestId('reset-wallet-dialog')).toBeNull();
+      expect(screen.queryByTestId('screen-content')).toBeNull();
+      expect(harness.routerNavigate).toHaveBeenCalledWith('/welcome', { replace: true });
+      expect(harness.routerNavigate).toHaveBeenCalledTimes(1);
+    });
   });
 });

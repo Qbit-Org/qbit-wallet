@@ -258,17 +258,23 @@ describe('a page that loaded before the wallet existed', () => {
     expect(screen.getByTestId('welcome-title')).toBeTruthy();
   });
 
-  it('stays where it is when an unlock comes before the vault read answers', async () => {
+  it('goes to the unlock screen at the lock and back to the send form at an unlock that comes before the vault read answers', async () => {
     await loadPageAt('/welcome');
     await saveWallet();
     await goTo('/wallet/tx/create', 'recipient-address-input');
 
     background.state.holdVaultReads = true;
     await lock();
+    await waitFor(() => expect(window.location.hash).toBe('#/account/unlock'));
     background.state.unlocked = true;
     await announce(BUS_METHODS.UNLOCKED);
     await background.answerHeldVaultReads();
-    await vaultReadsAnswered(2);
+    // For a page that has recorded the wallet's id, a lock now goes to the
+    // unlock screen at once, like on any page of that wallet, so this sequence
+    // passes through the unlock screen and comes back. Read 2 is the run after
+    // the wallet is saved, which records the id and reads the vault; read 4 is
+    // the unlock screen's own read.
+    await vaultReadsAnswered(4);
 
     expect(window.location.hash).toBe('#/wallet/tx/create');
     expect(screen.getByTestId('recipient-address-input')).toBeTruthy();

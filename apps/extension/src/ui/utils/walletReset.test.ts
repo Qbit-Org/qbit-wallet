@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUS_METHODS, ErrorCodes, THEME_MODE_STORAGE_KEY } from '@qbit/wallet-shared';
 
 import {
+  beginWalletIdRecovery,
   checkShownWallet,
   claimReopenWithoutId,
   clearWalletLocalStorage,
   createReconnectReconcile,
   createUnlockGate,
   createWalletResetHandler,
+  endWalletIdRecovery,
   forgetShownWalletId,
   forgetWalletDataOwnerAtLoad,
   getShownWalletId,
@@ -17,12 +19,14 @@ import {
   isShownWalletGoneError,
   KEPT_LOCAL_STORAGE_KEYS,
   noteWalletDataOwnerAtLoad,
+  onWalletIdRefusal,
   reconcileStoredWalletData,
   reconcileWalletDataKeys,
   reconcileWalletReset,
   recordShownWalletId,
   reloadOnBootRoute,
   reloadOnWelcome,
+  refuseWithoutWalletId,
   reopenOutOfDatePage,
   requestWalletReset,
   takeWalletResetNotice,
@@ -1025,6 +1029,108 @@ describe('the id of the wallet a page shows', () => {
     await expect(checkShownWallet(undefined, answers(false, null))).resolves.toBe('erased');
     await expect(checkShownWallet('wallet-a', answers(true, null))).resolves.toBe('unknown');
     await expect(checkShownWallet('wallet-a', answers('yes', 'wallet-a'))).resolves.toBe('unknown');
+  });
+});
+
+describe('a request refused for want of the id', () => {
+  afterEach(() => {
+    forgetShownWalletId();
+    sessionStorage.clear();
+  });
+
+  it('reopens nothing and tells nothing while the page recovers its id, nor when it recovers or closes', () => {
+    const reloadOnBoot = vi.fn();
+    const uninstall = installWalletResetHandler(
+      createWalletResetHandler({ clearMemory: vi.fn(), reload: vi.fn(), reloadOnBoot }),
+      bus
+    );
+    const told = vi.fn();
+    const stop = onWalletIdRefusal(told);
+
+    for (const outcome of ['recovered', 'closed'] as const) {
+      beginWalletIdRecovery();
+      // A second note while one is under way changes nothing.
+      beginWalletIdRecovery();
+      expect(refuseWithoutWalletId('id unreadable')).toEqual({
+        code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE,
+        message: 'id unreadable'
+      });
+      refuseWithoutWalletId('id unreadable');
+      endWalletIdRecovery(outcome);
+    }
+
+    expect(reloadOnBoot).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WALLET_ID_MISSING_REOPEN_KEY)).toBeNull();
+    expect(told).not.toHaveBeenCalled();
+    stop();
+    uninstall();
+  });
+
+  it('tells once for a recovery that gave up after refusing, nothing for one that refused nothing, and reopens once after it', () => {
+    const reloadOnBoot = vi.fn();
+    const uninstall = installWalletResetHandler(
+      createWalletResetHandler({ clearMemory: vi.fn(), reload: vi.fn(), reloadOnBoot }),
+      bus
+    );
+    const told = vi.fn();
+    const stop = onWalletIdRefusal(told);
+
+    beginWalletIdRecovery();
+    endWalletIdRecovery('given-up');
+    expect(told).not.toHaveBeenCalled();
+
+    beginWalletIdRecovery();
+    refuseWithoutWalletId('first');
+    refuseWithoutWalletId('second');
+    endWalletIdRecovery('given-up');
+    expect(told.mock.calls).toEqual([['first']]);
+    expect(reloadOnBoot).not.toHaveBeenCalled();
+
+    refuseWithoutWalletId('after');
+    expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+    expect(told).toHaveBeenCalledTimes(1);
+    stop();
+    uninstall();
+  });
+
+  it('reopens the page the first time, and tells the user each time after', () => {
+    const reloadOnBoot = vi.fn();
+    const uninstall = installWalletResetHandler(
+      createWalletResetHandler({ clearMemory: vi.fn(), reload: vi.fn(), reloadOnBoot }),
+      bus
+    );
+    const told = vi.fn();
+    const stop = onWalletIdRefusal(told);
+
+    expect(refuseWithoutWalletId('id unreadable')).toEqual({
+      code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE,
+      message: 'id unreadable'
+    });
+    expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+    expect(told).not.toHaveBeenCalled();
+
+    refuseWithoutWalletId('id unreadable');
+    refuseWithoutWalletId('id unreadable');
+    expect(reloadOnBoot).toHaveBeenCalledTimes(1);
+    expect(told.mock.calls).toEqual([['id unreadable'], ['id unreadable']]);
+
+    stop();
+    refuseWithoutWalletId('id unreadable');
+    expect(told).toHaveBeenCalledTimes(2);
+    uninstall();
+  });
+
+  it('still refuses when telling the user fails', () => {
+    sessionStorage.setItem(WALLET_ID_MISSING_REOPEN_KEY, '1');
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const stop = onWalletIdRefusal(() => {
+      throw new Error('no toast');
+    });
+
+    expect(refuseWithoutWalletId('id unreadable')).toMatchObject({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE });
+    expect(errors).toHaveBeenCalledTimes(1);
+    stop();
+    errors.mockRestore();
   });
 });
 

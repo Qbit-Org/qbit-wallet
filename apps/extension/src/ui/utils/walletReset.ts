@@ -368,8 +368,9 @@ export function claimReopenWithoutId(storage: () => Storage = () => window.sessi
  * the checks after a reconnection and at an unlock (checkShownWallet). The
  * page's start-up routine (PageStartup) records it together with the state
  * it belongs to: once the reads that go with it, sent after it, have
- * succeeded; a page that set a wallet up itself, as the first-run page does,
- * gets one in its first run once a wallet is booted. A page that has read
+ * succeeded, dropping what the page showed before and showing what those
+ * reads answered, or nothing; a page that set a wallet up itself, as the
+ * first-run page does, gets one in its first run once a wallet is booted. A page that has read
  * everything again under another id holds that one. Null, or anything but a
  * non-empty string, records nothing. Recording one also clears this
  * window's mark of a reopen without an id (claimReopenWithoutId).
@@ -392,10 +393,10 @@ export function getShownWalletId(): string | undefined {
   return shownWalletId;
 }
 
-/** Forgets the recorded id, and any read of it under way, as a page that opens afresh has neither. */
+/** Forgets the recorded id, and any recovery of it under way, as a page that opens afresh has neither. */
 export function forgetShownWalletId(): void {
   shownWalletId = undefined;
-  walletIdRead = undefined;
+  walletIdRecovery = undefined;
 }
 
 /**
@@ -418,58 +419,83 @@ export function pageShowsWalletContent(state: {
   );
 }
 
-// The run of the page's start-up routine that reads the id, while one is
-// under way (noteWalletIdRead).
-let walletIdRead: Promise<void> | undefined;
+// The page's recovery of its id while one is under way (beginWalletIdRecovery),
+// with the message of the first call it refused meanwhile.
+let walletIdRecovery: { refused?: string } | undefined;
 
 /**
- * Notes that `run`, a run of the page's start-up routine (PageStartup) on a
- * page that holds no id, reads the id of the wallet set up, until it settles,
- * with an id recorded or not: a request held for the id waits for it
- * (waitForShownWalletId).
+ * Notes that the page's start-up routine (PageStartup), on a page that holds
+ * no id, reads the id of the wallet set up: a run is under way, or a retry of
+ * the read is scheduled. The page recovers by itself meanwhile, so a request
+ * it refuses for want of the id (refuseWithoutWalletId) reopens nothing and
+ * tells nothing at once: one that recovers reads everything it shows again,
+ * and a refused request can be made again once it holds the id. It lasts
+ * until endWalletIdRecovery; a second note meanwhile changes nothing.
  */
-export function noteWalletIdRead(run: Promise<unknown>): void {
-  const read = run.then(
-    () => undefined,
-    () => undefined
-  );
-  walletIdRead = read;
-  void read.then(() => {
-    if (walletIdRead === read) walletIdRead = undefined;
-  });
+export function beginWalletIdRecovery(): void {
+  walletIdRecovery ??= {};
 }
 
 /**
- * How long a request held for the id (createWalletProxy) waits for the read
- * under way: longer than a start-up run with its retries takes.
+ * Ends the recovery beginWalletIdRecovery noted: 'recovered' once a run has
+ * recorded the id, 'given-up' once none is under way or scheduled any more
+ * without one, 'closed' with the page. A recovery that gave up after
+ * refusing requests tells the user once (onWalletIdRefusal); the others tell
+ * nothing. Refusals after it reopen the page once per window again.
  */
-export const WALLET_ID_WAIT_MS = 10_000;
+export function endWalletIdRecovery(outcome: 'recovered' | 'given-up' | 'closed'): void {
+  const ended = walletIdRecovery;
+  walletIdRecovery = undefined;
+  if (outcome === 'given-up' && ended?.refused !== undefined) tellOfRefusal(ended.refused);
+}
+
+const walletIdRefusalListeners = new Set<(message: string) => void>();
 
 /**
- * The id this page holds, once a read of it under way has settled, waiting at
- * most `ms` for that; undefined when the page holds none then. With no read
- * under way it answers at once. Never rejects.
+ * Calls `listener` with the refusal's message when the page refuses a
+ * request for want of its wallet's id and neither reopens nor is recovering
+ * the id, and once for the requests refused during a recovery that gave up
+ * (refuseWithoutWalletId, endWalletIdRecovery), so the page can tell the
+ * user, whichever screen made the request and whatever it does with the
+ * error. Returns the way to stop.
  */
-export async function waitForShownWalletId(ms: number = WALLET_ID_WAIT_MS): Promise<string | undefined> {
-  const read = walletIdRead;
-  if (shownWalletId === undefined && read) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([read, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]);
-    clearTimeout(timer);
+export function onWalletIdRefusal(listener: (message: string) => void): () => void {
+  walletIdRefusalListeners.add(listener);
+  return () => {
+    walletIdRefusalListeners.delete(listener);
+  };
+}
+
+function tellOfRefusal(message: string): void {
+  for (const listener of [...walletIdRefusalListeners]) {
+    try {
+      listener(message);
+    } catch (error) {
+      console.error('telling of a request refused without the wallet id failed', error);
+    }
   }
-  return shownWalletId;
 }
 
 /**
  * The page's refusal of a request that shows wallet content but would leave
  * without the id of its wallet (createWalletProxy): the out-of-date error in
  * the background's shape (WALLET_PAGE_OUT_OF_DATE, `message`), so every
- * screen handles it as it handles the background's. It also reopens the page
- * on the boot route, once per window (claimReopenWithoutId); the reopened
- * page, if it still records no id, refuses such requests and stays.
+ * screen handles it as it handles the background's. `message` says that the
+ * page could not read which wallet it shows, and to reload or reopen. While
+ * the page recovers its id (beginWalletIdRecovery) that is all: the page
+ * reopens nothing and tells nothing more at once. Otherwise it also reopens
+ * the page on the boot route, once per window (claimReopenWithoutId); the
+ * reopened page, if it still records no id, refuses such requests and stays,
+ * and tells the user each time (onWalletIdRefusal).
  */
 export function refuseWithoutWalletId(message: string): { code: number; message: string } {
-  if (installed && claimReopenWithoutId()) installed.onWalletReplaced();
+  if (walletIdRecovery) {
+    walletIdRecovery.refused ??= message;
+  } else if (installed && claimReopenWithoutId()) {
+    installed.onWalletReplaced();
+  } else {
+    tellOfRefusal(message);
+  }
   return { code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE, message };
 }
 
@@ -541,8 +567,9 @@ export async function checkShownWallet(
  * holds an id sends it with that request, and the background refuses it
  * (WALLET_PAGE_OUT_OF_DATE) if another wallet, or none, is set up now, upon
  * which the page reopens at once (reopenOutOfDatePage). A page that shows
- * wallet content without an id sends no such request at all: the wallet
- * proxy holds it for the id, or refuses it (refuseWithoutWalletId). One that
+ * wallet content without an id sends no such request but the few that carry
+ * nothing of its wallet (the exempt reads and the lock): the wallet proxy
+ * refuses any other (refuseWithoutWalletId). One that
  * shows none sends it without an id, not judged, having nothing of another
  * wallet to write. An unlock is checked on its own before the page shows
  * anything (createUnlockGate).

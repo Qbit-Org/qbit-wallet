@@ -430,6 +430,20 @@ function viaPageShowing(walletId: unknown, method: string, ...params: unknown[])
   )
 }
 
+/**
+ * The id of the wallet set up, as a page that shows it reads it as it starts
+ * (getWalletId, which makes and saves it the first time it is asked for).
+ * Every request of such a page names it, its reset included: the reset is
+ * offered on pages that show the wallet (Settings → Security, the account
+ * switcher). Read before what a test then holds, fails or compares, as the
+ * page read it before it showed anything.
+ */
+async function pageWalletId(): Promise<string> {
+  const id = await viaUiPort('getWalletId')
+  expect(id).toMatch(/^[0-9a-f]{32}$/)
+  return id as string
+}
+
 /** Everything a reset could change that tests compare: disk and the services' own state. */
 async function erasableState() {
   return {
@@ -513,9 +527,10 @@ describe('a reset whose arguments are not what the page may send', () => {
     'refuses %s as the password over the UI port, and erases nothing',
     async (_label, password) => {
       await seedWalletData()
+      const shown = await pageWalletId()
       const before = await erasableState()
 
-      await expect(viaUiPort('resetWallet', password)).rejects.toThrow('password_error')
+      await expect(viaPageShowing(shown, 'resetWallet', password)).rejects.toThrow('password_error')
 
       expect(await erasableState()).toEqual(before)
       expect(uiMethods()).toEqual([])
@@ -558,9 +573,12 @@ describe('a reset whose arguments are not what the page may send', () => {
     'refuses options that are %s with the right password, and erases nothing',
     async (_label, options) => {
       await seedWalletData()
+      const shown = await pageWalletId()
       const before = await erasableState()
 
-      await expect(viaUiPort('resetWallet', PASSWORD, options)).rejects.toThrow(/Wallet reset/)
+      await expect(viaPageShowing(shown, 'resetWallet', PASSWORD, options)).rejects.toThrow(
+        /Wallet reset/
+      )
 
       expect(await erasableState()).toEqual(before)
       expect(uiMethods()).toEqual([])
@@ -569,8 +587,9 @@ describe('a reset whose arguments are not what the page may send', () => {
 
   it('takes options a page left out, which arrive as null, and resets', async () => {
     await createWallet()
+    const shown = await pageWalletId()
 
-    await expect(viaUiPort('resetWallet', PASSWORD, undefined)).resolves.toBeUndefined()
+    await expect(viaPageShowing(shown, 'resetWallet', PASSWORD, undefined)).resolves.toBeUndefined()
 
     expect(keyringService.isBooted()).toBe(false)
   })
@@ -722,10 +741,11 @@ describe('a reset offered as the removal of the last usable wallet', () => {
 
   it('erases the wallet the page named while it is still the only usable one', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const [only] = await listed()
 
     await expect(
-      viaUiPort('resetWallet', PASSWORD, { lastWalletKey: only.key })
+      viaPageShowing(shown, 'resetWallet', PASSWORD, { lastWalletKey: only.key })
     ).resolves.toBeUndefined()
 
     expect(keyringService.isBooted()).toBe(false)
@@ -735,6 +755,7 @@ describe('a reset offered as the removal of the last usable wallet', () => {
 
   it('erases, announces and records nothing when another window added a usable wallet after the page read its list', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     await permissionService.addConnectedSite(SITE_A, 'A', '', ChainType.QBIT_MAINNET)
     const [only] = await listed()
     // Another window adds a wallet while the page still lists one.
@@ -743,9 +764,9 @@ describe('a reset offered as the removal of the last usable wallet', () => {
     uiMessages.length = 0
     const before = await erasableState()
 
-    const refused = await viaUiPort('resetWallet', PASSWORD, { lastWalletKey: only.key }).catch(
-      (error: unknown) => error
-    )
+    const refused = await viaPageShowing(shown, 'resetWallet', PASSWORD, {
+      lastWalletKey: only.key,
+    }).catch((error: unknown) => error)
 
     expect(refused).toMatchObject(NOT_LAST_WALLET)
     expect(await erasableState()).toEqual(before)
@@ -759,15 +780,16 @@ describe('a reset offered as the removal of the last usable wallet', () => {
   it('refuses when the wallet the page named is gone', async () => {
     await createWallet()
     await createWallet(OTHER_MNEMONIC)
+    const shown = await pageWalletId()
     const [, second] = await listed()
     // Another window removed it; the wallet left is usable.
     await wallet.removeKeyring(second)
     const before = await erasableState()
 
     for (const lastWalletKey of [second.key, 'keyring_9']) {
-      await expect(viaUiPort('resetWallet', PASSWORD, { lastWalletKey })).rejects.toMatchObject(
-        NOT_LAST_WALLET
-      )
+      await expect(
+        viaPageShowing(shown, 'resetWallet', PASSWORD, { lastWalletKey })
+      ).rejects.toMatchObject(NOT_LAST_WALLET)
     }
 
     expect(await erasableState()).toEqual(before)
@@ -776,6 +798,7 @@ describe('a reset offered as the removal of the last usable wallet', () => {
 
   it('refuses, before anything is written, a wallet another window adds while the recovery risks are read', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const [only] = await listed()
     const read = keyringService.getAllDisplayedKeyrings.bind(keyringService)
     let reads = 0
@@ -788,7 +811,7 @@ describe('a reset offered as the removal of the last usable wallet', () => {
     const lock = vi.spyOn(keyringService, 'setLocked')
 
     await expect(
-      viaUiPort('resetWallet', PASSWORD, { lastWalletKey: only.key })
+      viaPageShowing(shown, 'resetWallet', PASSWORD, { lastWalletKey: only.key })
     ).rejects.toMatchObject(NOT_LAST_WALLET)
 
     expect(lock).not.toHaveBeenCalled()
@@ -804,13 +827,14 @@ describe('a reset offered as the removal of the last usable wallet', () => {
   it('checks the password, and that the wallet is unlocked, before the wallet the page named', async () => {
     await createWallet()
     await createWallet(OTHER_MNEMONIC)
+    const shown = await pageWalletId()
 
     await expect(
-      viaUiPort('resetWallet', 'not the password', { lastWalletKey: 'keyring_0' })
+      viaPageShowing(shown, 'resetWallet', 'not the password', { lastWalletKey: 'keyring_0' })
     ).rejects.toThrow('password_error')
     await wallet.lockWallet()
     await expect(
-      viaUiPort('resetWallet', PASSWORD, { lastWalletKey: 'keyring_0' })
+      viaPageShowing(shown, 'resetWallet', PASSWORD, { lastWalletKey: 'keyring_0' })
     ).rejects.toThrow('you_need_to_unlock_wallet_first')
     expect(keyringService.isBooted()).toBe(true)
   })
@@ -822,8 +846,9 @@ describe('a reset offered as the removal of the last usable wallet', () => {
   ])('erases every wallet, whatever their number, for a reset with %s', async (_label, options) => {
     await createWallet()
     await createWallet(OTHER_MNEMONIC)
+    const shown = await pageWalletId()
 
-    await expect(viaUiPort('resetWallet', PASSWORD, options)).resolves.toBeUndefined()
+    await expect(viaPageShowing(shown, 'resetWallet', PASSWORD, options)).resolves.toBeUndefined()
 
     expect(keyringService.isBooted()).toBe(false)
     expect(await diskHoldsAWallet()).toBe(false)
@@ -990,6 +1015,7 @@ describe('a reset while a signing runs', () => {
 
   it('lets a batch entry already let through sign for its page while a reset that erases nothing begins', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     preferenceService.setCurrentAccount(account as any)
     const chain = wallet.getChainType()
     const reading = deferred()
@@ -1025,7 +1051,9 @@ describe('a reset while a signing runs', () => {
       await answer.promise
       return verify(password)
     })
-    const resetting = viaUiPort('resetWallet', 'not the password').catch((error: unknown) => error)
+    const resetting = viaPageShowing(shown, 'resetWallet', 'not the password').catch(
+      (error: unknown) => error
+    )
     await checking.promise
     read.resolve()
 
@@ -1382,15 +1410,55 @@ describe('a reset whose keyring step fails', () => {
   it('refuses another reset with that outcome too, rather than for the lock no unlock may lift', async () => {
     await unknownOutcome()
     disk.stopFailing()
+    // A page of the wallet memory still holds, which reads it as it starts.
+    const shown = await pageWalletId()
     const writesAtOutcome = disk.writes.length
 
-    await expect(viaUiPort('resetWallet', PASSWORD)).rejects.toMatchObject({
+    await expect(viaPageShowing(shown, 'resetWallet', PASSWORD)).rejects.toMatchObject({
       code: ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN,
     })
 
     expect(disk.writes.slice(writesAtOutcome)).toEqual([])
     expect(preferenceService.getWalletResetPending()).toBe(true)
     expect(keyringService.hasVault()).toBe(true)
+  })
+
+  it('refuses as out of date a reset from a page that names no wallet id, changing nothing, while one that names the wallet still loaded gets that outcome', async () => {
+    await unknownOutcome()
+    disk.stopFailing()
+    uiMessages.length = 0
+    const reset = vi.spyOn(wallet, 'resetWallet')
+    const writesAtOutcome = disk.writes.length
+
+    // A page that shows no wallet: the wallet memory still holds is booted,
+    // whether or not a page has read its id.
+    await expect(viaUiPort('resetWallet', PASSWORD)).rejects.toMatchObject({
+      code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE,
+    })
+
+    expect(reset).not.toHaveBeenCalled()
+    expect(disk.writes.slice(writesAtOutcome)).toEqual([])
+    expect(keyringService.isBooted()).toBe(true)
+    expect(keyringService.hasVault()).toBe(true)
+    expect(wallet.isUnlocked()).toBe(false)
+    expect(preferenceService.getWalletResetPending()).toBe(true)
+    expect(uiMethods()).toEqual([])
+
+    // A page of that wallet names it, and gets the outcome as before.
+    const shown = await pageWalletId()
+    await expect(viaUiPort('resetWallet', PASSWORD)).rejects.toMatchObject({
+      code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE,
+    })
+    const writesAtId = disk.writes.length
+    await expect(viaPageShowing(shown, 'resetWallet', PASSWORD)).rejects.toMatchObject({
+      code: ErrorCodes.WALLET_RESET_OUTCOME_UNKNOWN,
+    })
+
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(disk.writes.slice(writesAtId)).toEqual([])
+    expect(preferenceService.getWalletResetPending()).toBe(true)
+    expect(keyringService.hasVault()).toBe(true)
+    expect(uiMethods()).toEqual([])
   })
 
   it('lets a wallet be set up again once a completion finds the keys gone', async () => {
@@ -1680,17 +1748,55 @@ describe("a wallet page's call made while a reset runs", () => {
 
   it('lets a second reset through, which then finds nothing left to do', async () => {
     await seedWalletData()
+    const shown = await pageWalletId()
     const erase = disk.holdNextWrite(isEraseWrite)
-    const first = viaUiPort('resetWallet', PASSWORD)
+    const first = viaPageShowing(shown, 'resetWallet', PASSWORD)
     await erase.started
 
-    const second = viaUiPort('resetWallet', PASSWORD)
+    const second = viaPageShowing(shown, 'resetWallet', PASSWORD)
     erase.release()
 
     await expect(first).resolves.toBeUndefined()
     await expect(second).resolves.toBeUndefined()
     expect(uiMethods().filter(method => method === BUS_METHODS.WALLET_RESET)).toHaveLength(1)
   })
+
+  it.each([
+    [
+      'its pending mark, the wallet unlocked',
+      ((key, value) => key === 'preference' && value?.walletResetPending === true) as WriteMatch,
+      true,
+    ],
+    ['the erase of the vault, the wallet locked', isEraseWrite, false],
+  ])(
+    'refuses on arrival, as out of date, a second reset from a page that names no wallet id while the first, held at %s, still holds the wallet in memory; the first ends and announces as alone',
+    async (_label, step, unlocked) => {
+      await seedWalletData()
+      const shown = await pageWalletId()
+      const held = disk.holdNextWrite(step)
+      const reset = vi.spyOn(wallet, 'resetWallet')
+      const first = viaPageShowing(shown, 'resetWallet', PASSWORD)
+      await held.started
+      expect(keyringService.isBooted()).toBe(true)
+      expect(wallet.isUnlocked()).toBe(unlocked)
+
+      const second = viaUiPort('resetWallet', PASSWORD).then(
+        () => 'reset',
+        (error: unknown) => error
+      )
+
+      // Refused while the first is still held: it never queued behind it.
+      const whileHeld = await Promise.race([second, sleep(50).then(() => 'still waiting')])
+      expect(whileHeld).toMatchObject({ code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE })
+      expect(reset).toHaveBeenCalledTimes(1)
+      held.release()
+      await expect(first).resolves.toBeUndefined()
+      expect(keyringService.isBooted()).toBe(false)
+      expect(await diskHoldsAWallet()).toBe(false)
+      expect(preferenceService.getWalletResetPending()).toBe(false)
+      expect(uiMethods().filter(method => method === BUS_METHODS.WALLET_RESET)).toHaveLength(1)
+    }
+  )
 })
 
 describe('a read of the addresses by type under way when a reset begins', () => {
@@ -1866,13 +1972,14 @@ describe('a last-wallet reset and a wallet addition already under way', () => {
 
   it('waits for the addition, then refuses as another usable wallet exists, erasing nothing', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const [only] = await listed()
     const addition = holdImport()
     await addition.reached
 
-    const resetting = viaUiPort('resetWallet', PASSWORD, { lastWalletKey: only.key }).catch(
-      (error: unknown) => error
-    )
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD, {
+      lastWalletKey: only.key,
+    }).catch((error: unknown) => error)
     await sleep(20)
     // The reset has judged nothing yet, and written nothing.
     expect(preferenceService.getWalletResetPending()).toBe(false)
@@ -1885,13 +1992,14 @@ describe('a last-wallet reset and a wallet addition already under way', () => {
 
   it('refuses when the addition would land while the reset records that it is pending', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const [only] = await listed()
     const marking = disk.holdNextWrite(
       (key, value) => key === 'preference' && value?.walletResetPending === true
     )
-    const resetting = viaUiPort('resetWallet', PASSWORD, { lastWalletKey: only.key }).catch(
-      (error: unknown) => error
-    )
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD, {
+      lastWalletKey: only.key,
+    }).catch((error: unknown) => error)
     await marking.started
     // The port holds a page's addition until the reset ends, so only a call
     // that does not come through it can start one now; it is held inside
@@ -1923,13 +2031,14 @@ describe('a last-wallet reset and a wallet addition already under way', () => {
 
   it('judges again right before the lock, refusing a wallet the keyring added while the mark was written', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const [only] = await listed()
     const marking = disk.holdNextWrite(
       (key, value) => key === 'preference' && value?.walletResetPending === true
     )
-    const resetting = viaUiPort('resetWallet', PASSWORD, { lastWalletKey: only.key }).catch(
-      (error: unknown) => error
-    )
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD, {
+      lastWalletKey: only.key,
+    }).catch((error: unknown) => error)
     await marking.started
     // An addition no page made, which no tracking sees, lands meanwhile.
     await keyringService.createKeyringWithMnemonics(
@@ -1950,14 +2059,15 @@ describe('a last-wallet reset and a wallet addition already under way', () => {
     expect(disk.read('preference').walletResetPending).toBeUndefined()
   })
 
-  it('makes a reset that names no wallet wait for it too, so the next vault holds nothing from before the reset', async () => {
+  it('makes a reset asked for without a last wallet to remove wait for it too, so the next vault holds nothing from before the reset', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const addition = holdImport()
     await addition.reached
 
     // A reset from Settings, then, as the first-run screen does, a new
     // password and a new wallet.
-    const resetting = viaUiPort('resetWallet', PASSWORD)
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD)
     let resetEnded = false
     resetting.then(
       () => (resetEnded = true),
@@ -2026,10 +2136,11 @@ describe('a last-wallet reset and a wallet addition already under way', () => {
 
   it('still erases every wallet, the one added meanwhile included, for a reset asked for as such', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     const addition = holdImport()
     await addition.reached
 
-    const resetting = viaUiPort('resetWallet', PASSWORD)
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD)
     await sleep(20)
     addition.release()
     await addition.importing.catch(() => undefined)
@@ -2047,9 +2158,12 @@ describe("a wallet page's call held by a reset whose outcome is unknown", () => 
    * unknown outcome once the erase, held, is released.
    */
   async function resetOfUnknownOutcome() {
+    const shown = await pageWalletId()
     disk.failWrites(isPubkeyCacheErase, 99)
     const erase = disk.holdNextWrite(isEraseWrite)
-    const resetting = viaUiPort('resetWallet', PASSWORD).catch((error: unknown) => error)
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD).catch(
+      (error: unknown) => error
+    )
     await erase.started
     return { resetting, release: erase.release }
   }
@@ -2147,6 +2261,7 @@ describe("a wallet page's call whose page closes while a reset holds it", () => 
 
   it('does not run once a reset that erased nothing ends, so it leaves no signing, hold or claim', async () => {
     await createWallet()
+    const shown = await pageWalletId()
     vi.spyOn(preferenceService, 'getCurrentAccount').mockReturnValue(externalAccount as any)
     vi.spyOn(preferenceService, 'getChainType').mockReturnValue(ChainType.QBIT_REGTEST)
     const reserve = vi.spyOn(wallet, 'reserveExternallySignedQbitSend')
@@ -2159,7 +2274,9 @@ describe("a wallet page's call whose page closes while a reset holds it", () => 
       await answer.promise
       return verify(password)
     })
-    const resetting = viaUiPort('resetWallet', 'not the password').catch((error: unknown) => error)
+    const resetting = viaPageShowing(shown, 'resetWallet', 'not the password').catch(
+      (error: unknown) => error
+    )
     await checking.promise
 
     // Window B reserves the send it signed, and closes while the call waits.
@@ -3064,6 +3181,190 @@ describe('a wallet page that names the wallet it shows', () => {
   })
 })
 
+describe('a reset from a wallet page that names no wallet', () => {
+  // A page that shows no wallet holds no id, and sends its calls without one
+  // (sendUnderWalletIdRule): a page with nothing booted, say, which can still
+  // be at Settings → Security, by Back after a reset or by its address.
+  const OUT_OF_DATE = { code: ErrorCodes.WALLET_PAGE_OUT_OF_DATE }
+
+  /** The first steps a reset that ran would take: the password check, the lock, the halt of the plans. */
+  function watchResetSteps() {
+    return {
+      checked: vi.spyOn(keyringService, 'verifyPassword'),
+      locked: vi.spyOn(keyringService, 'setLocked'),
+      halted: vi.spyOn((wallet as any).qbitSendPlans as QbitSendPlanEngine, 'halt'),
+    }
+  }
+
+  /** A reset whose clearing failed after the keys were erased: nothing booted, the reset pending. */
+  async function pendingReset() {
+    await seedWalletData()
+    disk.failWrites(isBiometricWrite, 2)
+    await expect(wallet.resetWallet(PASSWORD)).rejects.toMatchObject({
+      code: ErrorCodes.WALLET_RESET_INCOMPLETE,
+    })
+    disk.stopFailing()
+    expect(keyringService.isBooted()).toBe(false)
+    expect(preferenceService.getWalletResetPending()).toBe(true)
+    uiMessages.length = 0
+  }
+
+  it('is refused where its job starts when a boot queued ahead of it sets up a wallet, which stays booted and unlocked', async () => {
+    await createWallet()
+    await wallet.resetWallet(PASSWORD)
+    // Window A's first-run boot, held in its queued step before the password is set.
+    const keyringBoot = keyringService.boot.bind(keyringService)
+    const booting = deferred()
+    const goOn = deferred()
+    vi.spyOn(keyringService, 'boot').mockImplementationOnce(async password => {
+      booting.resolve()
+      await goOn.promise
+      return keyringBoot(password)
+    })
+    const boot = viaPort('tab:1', 'boot', PASSWORD)
+    await booting.promise
+    const steps = watchResetSteps()
+    uiMessages.length = 0
+
+    // Window B, with nothing booted, asks for a reset with the same password,
+    // naming no wallet: nothing is booted yet, so it is let through on
+    // arrival and queues behind the boot.
+    let settled = false
+    const resetting = viaUiPort('resetWallet', PASSWORD).then(
+      () => 'reset',
+      (error: unknown) => error
+    )
+    void resetting.then(() => (settled = true))
+    await sleep(10)
+    expect(settled).toBe(false)
+    goOn.resolve()
+    await boot
+
+    expect(await resetting).toMatchObject(OUT_OF_DATE)
+    expect(steps.checked).not.toHaveBeenCalled()
+    expect(steps.locked).not.toHaveBeenCalled()
+    expect(steps.halted).not.toHaveBeenCalled()
+    expect(keyringService.isBooted()).toBe(true)
+    expect(wallet.isUnlocked()).toBe(true)
+    expect(preferenceService.getWalletResetPending()).toBe(false)
+    expect(disk.read('preference')).not.toHaveProperty('walletResetPending')
+    expect(uiMethods()).not.toContain(BUS_METHODS.WALLET_RESET)
+    expect(uiMethods()).not.toContain(BUS_METHODS.LOCKED)
+    // The wallet set up goes on: window A adds its wallet, kept under its password.
+    await createWallet(OTHER_MNEMONIC)
+    expect(await diskHoldsAWallet()).toBe(true)
+    const stored = JSON.parse(disk.read('keyringState').vault)
+    expect(stored.password).toBe(PASSWORD)
+    expect(JSON.stringify(stored.data)).toContain(OTHER_MNEMONIC)
+  })
+
+  it.each([
+    ['unlocked, no page having read its id yet', async () => undefined],
+    [
+      'unlocked, its id read by another page',
+      async () => {
+        await viaUiPort('getWalletId')
+      },
+    ],
+    ['locked', () => wallet.lockWallet()],
+  ])(
+    'is refused on arrival while a wallet is booted, %s, erasing, locking, halting and announcing nothing',
+    async (_label, setUp) => {
+      await seedWalletData()
+      await setUp()
+      uiMessages.length = 0
+      const steps = watchResetSteps()
+      const reset = vi.spyOn(wallet, 'resetWallet')
+      const before = await erasableState()
+
+      await expect(viaUiPort('resetWallet', PASSWORD)).rejects.toMatchObject(OUT_OF_DATE)
+
+      expect(reset).not.toHaveBeenCalled()
+      expect(steps.checked).not.toHaveBeenCalled()
+      expect(steps.locked).not.toHaveBeenCalled()
+      expect(steps.halted).not.toHaveBeenCalled()
+      expect(await erasableState()).toEqual(before)
+      expect(preferenceService.getWalletResetPending()).toBe(false)
+      expect(uiMethods()).toEqual([])
+    }
+  )
+
+  it('finishes, with nothing booted, a reset that left the clearing pending, whatever its password', async () => {
+    await pendingReset()
+
+    await expect(viaUiPort('resetWallet', 'any password')).resolves.toBeUndefined()
+
+    expect(preferenceService.getWalletResetPending()).toBe(false)
+    expect(disk.read('preference')).not.toHaveProperty('walletResetPending')
+    expect(contactBookService.listContacts()).toEqual([])
+    expect(await biometricUnlockService.getStatus()).toEqual({ enrolled: false })
+    // The reset that erased the keys told everyone already.
+    expect(uiMethods()).toEqual([])
+  })
+
+  it('finishes the pending clearing ahead of a boot queued behind it, which then sets up the next wallet', async () => {
+    await pendingReset()
+    const atReset = { pending: true, booted: true }
+
+    const resetting = viaUiPort('resetWallet', 'any password').then(() => {
+      atReset.pending = preferenceService.getWalletResetPending()
+      atReset.booted = keyringService.isBooted()
+    })
+    const booting = viaPort('tab:1', 'boot', NEW_PASSWORD)
+
+    await expect(resetting).resolves.toBeUndefined()
+    await expect(booting).resolves.toBeUndefined()
+    // The reset ran first, with nothing booted, and finished the clearing.
+    expect(atReset).toEqual({ pending: false, booted: false })
+    expect(keyringService.isBooted()).toBe(true)
+    expect(wallet.isUnlocked()).toBe(true)
+    expect(await keyringService.verifyPassword(NEW_PASSWORD)).toBe(true)
+    expect(contactBookService.listContacts()).toEqual([])
+  })
+
+  it('resolves and changes nothing with nothing booted and nothing pending', async () => {
+    await seedWalletData()
+    await wallet.resetWallet(PASSWORD)
+    uiMessages.length = 0
+    const before = await erasableState()
+
+    await expect(viaUiPort('resetWallet', 'any password')).resolves.toBeUndefined()
+
+    expect(await erasableState()).toEqual(before)
+    expect(uiMethods()).toEqual([])
+  })
+
+  it.each([null, '', 7, { id: 'x' }])(
+    'still refuses as malformed a reset whose id is %j, a wallet booted or none',
+    async walletId => {
+      await createWallet()
+
+      await expect(viaPageShowing(walletId, 'resetWallet', PASSWORD)).rejects.toThrow(
+        'Invalid wallet request wallet id'
+      )
+      expect(keyringService.isBooted()).toBe(true)
+      expect(await diskHoldsAWallet()).toBe(true)
+      // Nothing booted, where a reset that names a wallet goes ahead whatever it names.
+      await wallet.resetWallet(PASSWORD)
+      const reset = vi.spyOn(wallet, 'resetWallet')
+      await expect(viaPageShowing(walletId, 'resetWallet', PASSWORD)).rejects.toThrow(
+        'Invalid wallet request wallet id'
+      )
+
+      expect(reset).not.toHaveBeenCalled()
+    }
+  )
+
+  it('leaves a reset that comes through no page unjudged, as before: it erases the wallet booted', async () => {
+    await createWallet()
+
+    await expect(wallet.resetWallet(PASSWORD)).resolves.toBeUndefined()
+
+    expect(keyringService.isBooted()).toBe(false)
+    expect(await diskHoldsAWallet()).toBe(false)
+  })
+})
+
 describe('an acknowledgement of local regtest access', () => {
   it('that a reset overtook while it read the browser permission stores nothing, and the next wallet stays locked', async () => {
     await createWallet()
@@ -3258,12 +3559,13 @@ describe('the send plans of the wallets a reset erases', () => {
 
   it('erases a plan whose payment is signed and not yet broadcast: nothing of it goes out after the reset, is kept, or comes back with the next wallet', async () => {
     await createQbitWallet()
+    const shown = await pageWalletId()
     const { mergeTxid, paymentTxid } = await waitingPlan()
 
     // While the keys are being erased, the merge confirms and the plans'
     // timer runs: the signed payment, which needs no key, does not go.
     const erase = disk.holdNextWrite(isEraseWrite)
-    const resetting = viaUiPort('resetWallet', PASSWORD)
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD)
     await erase.started
     await confirmAndTick()
     expect(pushed).toEqual([mergeTxid])
@@ -3287,6 +3589,7 @@ describe('the send plans of the wallets a reset erases', () => {
 
   it("waits for a plan's broadcast under way as it begins, then broadcasts nothing more of the plan", async () => {
     await createQbitWallet()
+    const shown = await pageWalletId()
     const review = await reviewPlan()
     let reached!: () => void
     const broadcasting = new Promise<void>(resolve => (reached = resolve))
@@ -3297,7 +3600,7 @@ describe('the send plans of the wallets a reset erases', () => {
     await broadcasting
     expect(pushed).toHaveLength(1)
 
-    const resetting = viaUiPort('resetWallet', PASSWORD)
+    const resetting = viaPageShowing(shown, 'resetWallet', PASSWORD)
     const before = await Promise.race([
       resetting.then(() => 'reset'),
       sleep(20).then(() => 'waiting'),
@@ -3321,12 +3624,13 @@ describe('the send plans of the wallets a reset erases', () => {
 
   it('is incomplete when its clearing fails after the keys are gone: the plans stay halted, nothing goes out, and the next start finishes the reset before any plan advances', async () => {
     await createQbitWallet()
+    const shown = await pageWalletId()
     const { mergeTxid, paymentTxid } = await waitingPlan()
     // The stored plans cannot be erased, and the biometric unlock not cleared.
     disk.failWrites(isPlanStoreWrite, 1)
     disk.failWrites(isBiometricWrite, 2)
 
-    await expect(viaUiPort('resetWallet', PASSWORD)).rejects.toMatchObject({
+    await expect(viaPageShowing(shown, 'resetWallet', PASSWORD)).rejects.toMatchObject({
       code: ErrorCodes.WALLET_RESET_INCOMPLETE,
     })
 
