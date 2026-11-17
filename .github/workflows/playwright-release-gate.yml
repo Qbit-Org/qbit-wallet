@@ -19,11 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 # Tree pass marker (docs/ci-tree-pass-marker.md): on a pull request whose tree
-# under test already passed `Playwright G3 scenarios` in an earlier run that
-# GitHub confirms, that job skips its steps. Bump TREE_PASS_WORKFLOW_SALT to
-# invalidate this workflow's markers; the TREE_PASS_SALT repository variable
-# invalidates every workflow's markers without a commit. The
-# TREE_PASS_FORCE_LABEL label on a pull request makes it run in full.
+# under test already passed `Playwright G3 scenarios` and its shards in an
+# earlier run that GitHub confirms, those jobs skip their steps. Bump
+# TREE_PASS_WORKFLOW_SALT to invalidate this workflow's markers; the
+# TREE_PASS_SALT repository variable invalidates every workflow's markers
+# without a commit. The TREE_PASS_FORCE_LABEL label on a pull request makes it
+# run in full.
 env:
   TREE_PASS_WORKFLOW: browser-release-gate
   TREE_PASS_WORKFLOW_SALT: '1'
@@ -105,21 +106,49 @@ jobs:
           TREE_PASS_HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
           TREE_PASS_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
           # The names of the jobs the marker covers, which must have passed in
-          # the run a marker names.
-          TREE_PASS_COVERED_JOBS: '["Playwright G3 scenarios"]'
+          # the run a marker names: the required job and each shard, by the
+          # name GitHub gives each leg of the shard matrix.
+          TREE_PASS_COVERED_JOBS: '["Playwright G3 scenarios", "Playwright G3 shard 1 of 5", "Playwright G3 shard 2 of 5", "Playwright G3 shard 3 of 5", "Playwright G3 shard 4 of 5", "Playwright G3 shard 5 of 5"]'
         run: node scripts/security/tree-pass-marker.mjs decide
 
-  playwright-release-gate:
-    name: Playwright G3 scenarios
+  playwright-g3-shard:
+    name: Playwright G3 shard ${{ matrix.shard }} of 5
     needs: tree-pass
-    # A required check. The job always runs, so its check reports success or
-    # failure, never "skipped"; on a marker hit only its steps are skipped. A
-    # failed marker job runs everything.
+    # Not a required check: `Playwright G3 scenarios` below is, and it passes
+    # only when every shard passed. Each shard runs unless the run is
+    # cancelled: on a marker hit only its steps are skipped, and a failed or
+    # skipped marker job runs everything. A cancelled run stops it.
     if: ${{ !cancelled() }}
+    strategy:
+      # Every shard finishes and uploads its own report, whatever the others do.
+      fail-fast: false
+      matrix:
+        # Playwright's --shard=<shard>/5 below splits the suite into 5 parts by
+        # whole files, in file order, with playwright.config.ts unchanged. The
+        # list must be exactly 1 to 5. The total in --shard and in the job
+        # name, the outputs, `Playwright G3 scenarios` and
+        # TREE_PASS_COVERED_JOBS follow it; the wiring test checks each one.
+        shard: [1, 2, 3, 4, 5]
     runs-on: blacksmith-2vcpu-ubuntu-2404
-    timeout-minutes: 90
+    # The longest shard takes about 12.5 minutes with its setup. The longest
+    # test timeout is the wipe/restore scenario's 15 minutes: that test
+    # failing at its timeout and again on its retry, with the rest of its
+    # shard and the setup, still ends by about 40 minutes. A hang outside a
+    # test's own timeout (the regtest fixture has a separate 480 s one) can
+    # run longer, and cutting such a run off is the point: a hang holds a
+    # runner, and the required check waits for the slowest shard.
+    timeout-minutes: 45
+    # One output per shard, each set only by that shard's last step. The legs
+    # of a matrix job share its outputs, and an output that two legs set holds
+    # whichever finished last, so one name would let one shard's pass stand
+    # for another's. An empty output is not recorded, so a leg leaves the
+    # others' outputs alone.
     outputs:
-      tested: ${{ steps.tested.outputs.tested }}
+      tested-1: ${{ steps.tested.outputs.tested-1 }}
+      tested-2: ${{ steps.tested.outputs.tested-2 }}
+      tested-3: ${{ steps.tested.outputs.tested-3 }}
+      tested-4: ${{ steps.tested.outputs.tested-4 }}
+      tested-5: ${{ steps.tested.outputs.tested-5 }}
     env:
       CI: 'true'
       QBIT_REGTEST_REQUIRED: '1'
@@ -127,6 +156,8 @@ jobs:
       QBITD_PULL_POLICY: never
       ELECTRS_QBIT_IMAGE: ghcr.io/qbit-org/electrs-qbit-regtest:5da0ce5f2da657dab6dd74b8108cb2b3e17da1e2@sha256:2b84bc3d4c56f700e36c9d70f8dc92c2e6d383c4251c8bf48dcb4606a5d7e6d1
       ELECTRS_QBIT_PULL_POLICY: never
+      # This leg's shard, for the steps below.
+      G3_SHARD: ${{ matrix.shard }}
 
     steps:
       - name: Check for a tree pass marker
@@ -214,13 +245,14 @@ jobs:
 
       - name: Run browser release gate
         if: steps.gate.outputs.skip != 'true'
-        run: xvfb-run --auto-servernum corepack pnpm exec playwright test
+        run: xvfb-run --auto-servernum corepack pnpm exec playwright test --shard="$G3_SHARD/5"
 
+      # Each shard's own report, under a name unique to the shard and attempt.
       - name: Upload Playwright release-gate artifacts
         if: always() && steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-release-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-release-gate-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}
           path: |
             playwright-report
             test-results/playwright
@@ -232,16 +264,87 @@ jobs:
         if: always() && steps.gate.outputs.skip != 'true'
         run: corepack pnpm regtest:down
 
-      - name: Record that this job ran
+      - name: Record that this shard ran
+        id: tested
+        if: steps.gate.outputs.skip != 'true'
+        run: echo "tested-$G3_SHARD=true" >> "$GITHUB_OUTPUT"
+
+  playwright-release-gate:
+    name: Playwright G3 scenarios
+    needs: [tree-pass, playwright-g3-shard]
+    # A required check, which reports the shards' combined result, never
+    # "skipped": its check step fails unless the shards' result is success.
+    # It runs even in a cancelled run, so the check does not depend on how
+    # GitHub reports a job that never started there. A cancellation that
+    # leaves a shard without success, such as a newer push while the shards
+    # run, shows failure on the older commit; one after every shard passed
+    # shows the shards' real result. One that lands before this job can start
+    # may still show cancelled, which does not pass either. It is a few shell
+    # lines, so that it cannot be cancelled costs nothing. On a marker hit
+    # only its last step is skipped, and a failed marker job runs everything.
+    if: ${{ always() }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    # It reads only `needs`: no checkout, no token.
+    permissions: {}
+    outputs:
+      tested: ${{ steps.tested.outputs.tested }}
+
+    steps:
+      - name: Check for a tree pass marker
+        id: gate
+        env:
+          MARKER_JOB_RESULT: ${{ needs.tree-pass.result }}
+          MARKER_SKIP: ${{ needs.tree-pass.outputs.skip }}
+          MARKER_RUN_URL: ${{ needs.tree-pass.outputs.run-url }}
+        run: |
+          if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "This tree already passed this job in $MARKER_RUN_URL, so the shards skipped their steps; this job still checks that every shard succeeded." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Runs on a marker hit too: every shard must have succeeded, having
+      # skipped its steps by the same decision. Otherwise each shard must also
+      # have run all its steps. A failed, cancelled, timed-out or skipped
+      # shard, or one that recorded nothing, fails this job.
+      - name: Check every shard ran and passed
+        env:
+          SHARDS_RESULT: ${{ needs.playwright-g3-shard.result }}
+          MARKER_HIT: ${{ steps.gate.outputs.skip }}
+          SHARD_1_TESTED: ${{ needs.playwright-g3-shard.outputs.tested-1 }}
+          SHARD_2_TESTED: ${{ needs.playwright-g3-shard.outputs.tested-2 }}
+          SHARD_3_TESTED: ${{ needs.playwright-g3-shard.outputs.tested-3 }}
+          SHARD_4_TESTED: ${{ needs.playwright-g3-shard.outputs.tested-4 }}
+          SHARD_5_TESTED: ${{ needs.playwright-g3-shard.outputs.tested-5 }}
+        run: |
+          status=0
+          if [ "$SHARDS_RESULT" != success ]; then
+            echo "::error::The shards' result is \"$SHARDS_RESULT\", not success; see each shard's job."
+            status=1
+          fi
+          if [ "$MARKER_HIT" != true ]; then
+            for shard in 1 2 3 4 5; do
+              tested="SHARD_${shard}_TESTED"
+              if [ "${!tested}" != true ]; then
+                echo "::error::Shard $shard of 5 did not run all its steps."
+                status=1
+              fi
+            done
+          fi
+          exit "$status"
+
+      - name: Record that every shard ran
         id: tested
         if: steps.gate.outputs.skip != 'true'
         run: echo 'tested=true' >> "$GITHUB_OUTPUT"
 
   tree-pass-save:
     name: Record tree pass
-    # Every job the marker stands for. The implicit success() also requires
-    # each of them, and tree-pass, to have succeeded; the record step checks
-    # them again.
+    # Every job the marker stands for: the shards through
+    # `Playwright G3 scenarios`, which needs them all and reports tested=true
+    # only when each shard passed and reported its own tested-<n>. The
+    # implicit success() also requires it, and tree-pass, to have succeeded;
+    # the record step checks them again.
     needs: [tree-pass, playwright-release-gate]
     if: needs.tree-pass.outputs.save == 'true'
     runs-on: ubuntu-24.04

@@ -14,10 +14,10 @@ with its tests next to it. The workflows only wire it together.
 
 ## What it covers
 
-| Workflow                      | Jobs the marker covers               | On a marker hit                                                          | Never covered       |
-| ----------------------------- | ------------------------------------ | ------------------------------------------------------------------------ | ------------------- |
-| `ci.yml`                      | `Typecheck, test, and build`, `Lint` | `Typecheck, test, and build` runs and skips its steps; `Lint` is skipped | `Dependency policy` |
-| `playwright-release-gate.yml` | `Playwright G3 scenarios`            | runs and skips its steps                                                 | none                |
+| Workflow                      | Jobs the marker covers                                                                 | On a marker hit                                                                                           | Never covered       |
+| ----------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------- |
+| `ci.yml`                      | `Typecheck, test, and build`, `Lint`                                                   | `Typecheck, test, and build` runs and skips its steps; `Lint` is skipped                                  | `Dependency policy` |
+| `playwright-release-gate.yml` | `Playwright G3 scenarios`, `Playwright G3 shard 1 of 5` … `Playwright G3 shard 5 of 5` | each shard runs and skips its steps; `Playwright G3 scenarios` runs, checks the shards and skips the rest | none                |
 
 `Dependency policy` always runs: its `pnpm audit` asks the registry for current
 advisories and its risk exceptions expire by date, so the same tree can pass
@@ -29,7 +29,7 @@ A skip carries an earlier result forward; it does not show that the tree
 would pass again today. The covered jobs are not all a function of the tree
 alone:
 
-- `Playwright G3 scenarios` builds the qbitd regtest image from
+- Each G3 shard builds the qbitd regtest image from
   `docker/regtest/qbitd-release.Dockerfile`, which starts from the unpinned
   `debian:bookworm-slim` image and runs `apt-get update` and `apt-get install`,
   and it runs `playwright install --with-deps chromium`, which downloads a
@@ -45,7 +45,7 @@ on a commit whose tree already passed. Use `ci:full-run` (below) to check a
 tree against today's inputs.
 
 A skipped run also produces none of the covered jobs' artifacts: no
-`chrome-mv3-extension` build and no Playwright report for the commit that
+`chrome-mv3-extension` build and no Playwright reports for the commit that
 lands. They are in the passing run that the gate step's summary links to,
 which keeps them for 14 days. If a release or the reproducible-build check
 (docs/reproducible-builds.md) needs that run's URL or artifacts, take them
@@ -99,12 +99,14 @@ without waiting for it.
      check bind the run to this pull request and refuse any recorded base
      change; nothing binds the base commit (see "What remains possible");
    - the jobs of that attempt (`GET …/runs/{id}/attempts/{n}/jobs`) show every
-     covered job and `Record tree pass` completed with `success`, once each; a
-     run that tested nothing, or that a marker skipped, fails this, because
-     `Record tree pass` and `Lint` report skipped there. With the check
-     above, this is the rule **both attempts**: the covered jobs and the save
-     job are green in the attempt that saved the marker, which must also be
-     the run's latest attempt;
+     covered job and `Record tree pass` completed with `success`, once each,
+     by name; each leg of the G3 shard matrix is its own job there, named
+     `Playwright G3 shard <n> of 5`, so every shard is checked, not only
+     `Playwright G3 scenarios`. A run that tested nothing, or that a marker
+     skipped, fails this, because `Record tree pass` and `Lint` report skipped
+     there. With the check above, this is the rule **both attempts**: the
+     covered jobs and the save job are green in the attempt that saved the
+     marker, which must also be the run's latest attempt;
    - that run holds exactly one unexpired artifact named
      `tree-pass-<SHA-256 of the full key>`
      (`GET …/runs/{id}/artifacts?name=…`). Only a job of that run can upload an
@@ -205,13 +207,26 @@ without waiting for it.
    of the run that tested the tree. If `Tree pass marker` fails or is skipped,
    every step runs. A covered job that is not required, `Lint`, is skipped
    whole under the same condition.
+
+   The browser release gate runs its suite in five shards (see
+   [Sharded G3 scenarios](#sharded-g3-scenarios)). Each shard is a leg of a
+   matrix job and is gated like a required job: it runs unless the run is
+   cancelled, and only the gate skips its steps. `Playwright G3 scenarios`,
+   the required check, needs them all and runs in every case, a cancelled
+   run included: it runs its gate and then checks the shards, a marker hit
+   included.
+
 6. **Save.** `Record tree pass` runs only when the decision asked for a save,
-   which happens only for an eligible run that did not skip. GitHub's implicit
-   `success()` also requires every job it needs to have succeeded. Its record
-   step then checks again: every covered job must report `success` and the
-   output `tested=true`, which only its last step sets after all its steps ran.
-   A failure there means the wiring is wrong, and the step fails. Then, with a
-   warning and no marker but without failing the run, it declines when:
+   which happens only for an eligible run that did not skip. It needs every
+   covered job except the G3 shards, which reach it through
+   `Playwright G3 scenarios`. GitHub's implicit `success()` also requires every
+   job it needs to have succeeded. Its record step then checks again: every
+   job it needs must report `success` and the output `tested=true`, which only
+   its last step sets after all its steps ran; for `Playwright G3 scenarios`
+   that means every shard passed and set its own `tested-<n>` (see
+   [Sharded G3 scenarios](#sharded-g3-scenarios)). A failure there means the
+   wiring is wrong, and the step fails. Then, with a warning and no marker but
+   without failing the run, it declines when:
 
    - the key recomputed from the checked-out commit and both salts differs
      (a salt changed during the run);
@@ -226,6 +241,132 @@ without waiting for it.
 
 A run the marker skipped never saves, because its decision says "no save" and
 its covered jobs never report `tested=true`.
+
+### Sharded G3 scenarios
+
+`playwright-release-gate.yml` splits the Playwright suite across five runners
+that run in parallel, with `playwright.config.ts` unchanged:
+
+- **`Playwright G3 shard <n> of 5`** (job `playwright-g3-shard`) is a matrix
+  job over `shard: [1, 2, 3, 4, 5]` with `fail-fast: false`. Each leg builds the
+  extension, starts its own regtest harness and runs
+  `playwright test --shard=<n>/5`, which takes whole files, in file order, by
+  test count, so every test runs in exactly one shard. It needs
+  `Tree pass marker` with `if: ${{ !cancelled() }}`, so a cancelled run stops
+  it, has the gate, and uploads its report as
+  `playwright-release-gate-<run ID>-<attempt>-shard-<n>`. It has 45 minutes:
+  the longest shard takes about 12.5 with its setup, and the longest test
+  timeout, the wipe/restore scenario's 15 minutes, reached on the first try
+  and again on the retry, still ends inside it. Its
+  last step sets the output `tested-<n>`: the legs of a matrix job share one
+  set of outputs, and an output that two legs set holds whichever finished
+  last, so one `tested` would let one shard's pass stand for another's.
+  GitHub does not record an empty output, so a leg leaves the others' alone.
+- **`Playwright G3 scenarios`** (job `playwright-release-gate`) is the
+  required check. It is not a matrix job, needs `Tree pass marker` and the
+  shards with `if: ${{ always() }}`, runs on Blacksmith like the shards, and
+  has `permissions: {}`: it reads only `needs`, with no checkout and no
+  token. After the same gate, its check step requires the
+  shards' combined result to be `success` on every run, a marker hit
+  included. Unless the gate said "skip", it also requires `tested-1` to
+  `tested-5` to be `true`. Otherwise it fails and names the shard. Its last
+  step, gated as usual, sets `tested=true`.
+- **`Record tree pass`** needs `Tree pass marker` and
+  `Playwright G3 scenarios`, not the shard matrix: its record step reads one
+  `tested` per job it needs, which a matrix job cannot give per leg. It
+  reaches the shards through `Playwright G3 scenarios`, whose `tested=true`
+  stands for all five, and `decide` checks each leg by name in the run a
+  marker names.
+
+The matrix is the one source of the shard list and total. The wiring tests
+fail unless it is exactly `1` to `n`, and the total in `--shard`, the job
+name, the outputs, the check step's list and `TREE_PASS_COVERED_JOBS` all use
+the same `n`. They also run each leg's command line through a stand-in
+`xvfb-run`, which must see `--shard=1/5` to `--shard=5/5`, each once.
+
+How `Playwright G3 scenarios` ends:
+
+| `Tree pass marker`           | Every shard passed            | A shard failed | A shard was cancelled or timed out | The shard job was skipped |
+| ---------------------------- | ----------------------------- | -------------- | ---------------------------------- | ------------------------- |
+| skipped (not a pull request) | success, `tested=true`        | failure        | failure                            | failure                   |
+| failed                       | success, `tested=true`        | failure        | failure                            | failure                   |
+| hit                          | success, steps skipped        | failure        | failure                            | failure                   |
+| miss                         | success, `tested=true`, saved | failure        | failure                            | failure                   |
+
+And when the run is cancelled, in any of those rows:
+
+| The run is cancelled      | `Playwright G3 scenarios`                                         |
+| ------------------------- | ----------------------------------------------------------------- |
+| before the shards start   | failure: the shards do not run, and GitHub reports them cancelled |
+| while the shards run      | failure: the shards are cancelled                                 |
+| after the shards ended    | the shards' result as above; `Record tree pass` does not run      |
+| before this job can start | possibly cancelled, with no steps run, which does not pass either |
+
+`Record tree pass` runs only in the first table's last row and first
+column. A leg that recorded nothing fails the check on every row but a hit,
+even if GitHub counted the shard job as passed. GitHub decides a matrix
+job's `if` once for all its legs, so one leg is never skipped alone; the
+shards do not run only when the run is cancelled, and GitHub then reports
+them cancelled.
+
+- **A cancelled run**, by a newer push or by hand: the shards stop and
+  report cancelled, or, if they had not started, never run and are reported
+  cancelled too, as the pending `Record tree pass` was in this workflow's
+  runs 43954849598, 43952399971 and 43633805907. `Playwright G3 scenarios`
+  has `if: ${{ always() }}`, so it runs even then, and the check does not
+  depend on how GitHub reports a job that never started in a cancelled run:
+  a cancellation that leaves a shard without success shows failure on the
+  older commit, and one after every shard passed shows the shards' real
+  result. In Qbit-Org/qbit run 43895928481, which a newer push to its pull
+  request cancelled, that repository's `always()` gate started three seconds
+  after the last of the jobs it needs ended cancelled, ran its steps and
+  failed. A cancellation that lands before the job can start may still
+  report it cancelled: in Qbit-Org/qbit run 43445632613, cancelled two
+  seconds after it was created, its `always()` gate ended cancelled with no
+  steps. That does not pass a required check either. Once it runs, the job
+  cannot be cancelled, which costs nothing for a few shell lines; the
+  shards, which are heavy, keep `!cancelled()` and stop.
+- **A shard that hits its timeout** ends cancelled, but that does not make
+  `cancelled()` true for the jobs that need it. In
+  Qbit-Org/qbit-mining-bootstrap runs 36902925573 and 36904674276 a matrix
+  leg exceeded its 30-minute `timeout-minutes` and ended cancelled; the job
+  that needs the matrix, with `if: ${{ !cancelled() }}`, started about 10
+  seconds later, ran its steps and failed, and the `always()` job after it
+  did the same. Run 39335241109 shows the same with two jobs at their
+  45-minute limit. So a timed-out shard fails `Playwright G3 scenarios`
+  through its check step.
+- **"Re-run failed jobs" after one shard failed** re-runs that leg and the
+  jobs after it, and reuses the passing legs. The new
+  `Playwright G3 scenarios` checks all five again, so a marker is recorded
+  only if each one passed, in that attempt or the one it was reused from, on
+  the same tree and the same decision. A leg that fails again fails the
+  check. This relies on GitHub carrying the reused legs' outputs into the new
+  attempt, as it carries `Tree pass marker`'s; if it did not, the check
+  would fail and record nothing, and "Re-run all jobs" runs everything
+  again.
+- **A shard that fails during setup** (checkout, install, build, Docker) never
+  sets its output, still uploads whatever report it has and stops its
+  harness, and fails `Playwright G3 scenarios`.
+
+Each shard builds the extension itself, the same steps as before the split:
+sharing one build would add a job that the marker must also vouch for, and
+it saves no time on the clock. The setup before the tests took about 4
+minutes in run 43492510862 (2.7 of them for the extension build), so a full
+run takes about 16 runner-minutes more than one job did, plus a few seconds
+for `Playwright G3 scenarios`. On a marker hit, all five legs still start,
+each only to run its gate.
+
+Playwright splits by test count in file order, not by time, so the shards'
+times drift as spec files grow: a file of many short tests counts for more
+than one long scenario. To check the balance, compare each shard's
+`Run browser release gate` step time in a recent run. Five shards were
+chosen from two measured splits, each shard's wall time including the
+harness reset before each test: 416, 96, 301, 490 and 217 s on `main`'s
+53-test suite (pull request run 43949586486 into `main`), and 471, 71, 483,
+466 and 229 s on `release/1.0.10`'s 59-test suite (pull request run
+43933512767 into `release/1.0.10`). They are a snapshot. Changing the count
+means changing the matrix and everything the wiring tests tie to it (see
+[Changing it](#changing-it)).
 
 Both marker jobs run `tree-pass-marker.mjs` on the runner image's own Node
 (Node 22 on `ubuntu-24.04`; 22.23.4 in image 20261101.360), without
@@ -250,19 +391,33 @@ The `main-protection` ruleset requires two checks:
 require none.
 
 - Both jobs keep running on a marker hit, with every step after the gate
-  skipped, so each check reports **success**, not "skipped".
-- Neither is a matrix job, so their check names never change.
-- Both wait for `Tree pass marker` with `if: ${{ !cancelled() }}`, so they run
-  in full when it fails or is skipped (every event but `pull_request`).
-  GitHub's default `success()` would skip them instead, and [GitHub reports a
-  job skipped by a failed dependency as passing a required
+  skipped (`Playwright G3 scenarios` also checks its shards), so each check
+  reports **success**, not "skipped".
+- Neither is a matrix job, so their check names never change. The G3 shards
+  are a matrix job, whose legs GitHub names `Playwright G3 shard <n> of 5`;
+  none of them is a required check, and `Playwright G3 scenarios` reports
+  their combined result.
+- `Typecheck, test, and build` waits for `Tree pass marker` with
+  `if: ${{ !cancelled() }}`, and `Playwright G3 scenarios` waits for it and
+  the shards with `if: ${{ always() }}`, so both run in full when the marker
+  job fails or is skipped (every event but `pull_request`). GitHub's default
+  `success()` would skip them instead, and [GitHub reports a job skipped by
+  a failed dependency as passing a required
   check](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#handling-skipped-but-required-checks).
-- When a run is cancelled while `Tree pass marker` is queued or running, the
-  required jobs report `cancelled`, not `skipped`, and GitHub counts only
-  `success`, `skipped` and `neutral` as passing, so a cancelled run never
-  satisfies a required check. This was observed in
-  Qbit-Org/qbit-mining-bootstrap run 39335241123 and four other runs, for jobs
-  with `needs` and `if: ${{ !cancelled() && … }}`.
+- When a run is cancelled while `Tree pass marker` is queued or running,
+  `Typecheck, test, and build` reports `cancelled`, not `skipped`, and
+  GitHub counts only `success`, `skipped` and `neutral` as passing, so a
+  cancelled run never satisfies that check. This was observed in
+  Qbit-Org/qbit-mining-bootstrap run 39335241123 and four other runs, for
+  jobs with `needs` and `if: ${{ !cancelled() && … }}`. A `Tree pass marker`
+  that hits its 10-minute timeout also ends cancelled, but a timed-out job
+  does not make `cancelled()` true for the jobs that need it
+  (Qbit-Org/qbit-mining-bootstrap runs 36902925573 and 36904674276), so
+  both required jobs then run in full. `Playwright G3 scenarios` runs even
+  in a cancelled run: it fails unless every shard passed, shows the shards'
+  real result when the cancellation came after they all passed, and may
+  show cancelled when the cancellation lands before it can start (see
+  [Sharded G3 scenarios](#sharded-g3-scenarios)).
 - No workflow or script in this repository polls these checks.
 
 ## Landing a pull request
@@ -270,9 +425,10 @@ require none.
 The skip pays off only if the run before the landing push saved its marker,
 so wait for `Record tree pass` to succeed in both `CI` and
 `Browser release gate` before pushing the landing commit, not only for the
-required checks. It needs every covered job, so it finishes after the last of
-them: about 15 seconds later in this pull request's first run, and longer
-when GitHub-hosted runners are queued.
+required checks. It needs every covered job, the G3 shards through
+`Playwright G3 scenarios`, so it finishes after the last of them: about 15
+seconds later in this pull request's first run, and longer when GitHub-hosted
+runners are queued.
 
 Both workflows cancel a running run of the same pull request when a new
 commit arrives (`concurrency` on the merge ref with `cancel-in-progress`). A
@@ -516,7 +672,17 @@ the artifact it recorded, or why it declined.
   composite action. Other workflows and every tracked `action.yml` must not
   mention the marker or those sub-actions at all. They also evaluate the
   workflows' `if` conditions for a skipped, failed, skipping and full
-  `Tree pass marker`.
+  `Tree pass marker`. For the G3 shards they fail if a leg loses its gate,
+  its own output, its upload or its harness teardown, if the matrix is not
+  exactly `1` to `n` or anything else uses another total, if
+  `TREE_PASS_COVERED_JOBS` misses a leg, or if `Playwright G3 scenarios`
+  loses `if: ${{ always() }}` or `permissions: {}`, becomes a matrix job, or
+  stops checking a shard. No covered job, nor any of its steps, may carry
+  `continue-on-error`. They run each leg's suite command through a stand-in
+  `xvfb-run`, and the check step for every state of `Tree pass marker`
+  crossed with shards that passed, failed, were cancelled or skipped, and
+  with the run cancelled before, while or after the shards run, to the
+  tables in [Sharded G3 scenarios](#sharded-g3-scenarios).
 - The dependency policy (`scripts/security/dependency-policy.mjs`) accepts
   those two sub-actions only in `ci.yml` and `playwright-release-gate.yml`,
   never in a local action or another workflow, and
@@ -531,3 +697,9 @@ the artifact it recorded, or why it declined.
   `TREE_PASS_COVERED_JOBS` in the decide step, give it the gate (or, if it is
   not a required check, the job-level `if`), the `tested` output and the last
   step, and add it to the test's `MARKED_WORKFLOWS`.
+- To change the number of G3 shards, change the matrix list and, to match,
+  the total in `--shard` and the job name, the `tested-<n>` outputs, the
+  check step's environment and list, and the leg names in
+  `TREE_PASS_COVERED_JOBS`; the wiring tests name whichever was missed. A
+  covered matrix job other than the shards goes in `MARKED_WORKFLOWS` under
+  `sharded`, with the job that aggregates it.
