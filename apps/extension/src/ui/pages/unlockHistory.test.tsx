@@ -73,7 +73,7 @@ const wallet = vi.hoisted(() => ({
   getChainType: () => page.chainType(),
   getLocale: async () => 'en',
   getSkippedVersion: async () => '',
-  getAutoLockTimeId: async () => 0,
+  getAutoLockTimeId: async () => 3,
   getDeveloperMode: async () => false,
   lockWallet: () => page.lockWallet(),
   getApproval: async () => page.approval,

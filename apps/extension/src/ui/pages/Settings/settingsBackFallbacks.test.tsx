@@ -45,7 +45,7 @@ vi.mock('@qbit/wallet-state', () => ({
   useAddressTypeScreenLogic: () => ({ currentKeyring: { addressType: 0 }, items: [], onClickItem: vi.fn() }),
   useBiometricUnlock: () => ({ ready: true, supported: true, enrolled: false, enroll: vi.fn(), disable: vi.fn() }),
   useI18n: () => ({ t: (key: string) => key }),
-  useLockTimePageLogic: () => ({ autoLockTimeId: 2, autoLockTimes: [], loading: false, handleSelectOption: vi.fn() }),
+  useLockTimePageLogic: () => ({ autoLockTimeId: 5, autoLockTimes: [], loading: false, handleSelectOption: vi.fn() }),
   useTools: () => ({ toastError: vi.fn(), toastSuccess: vi.fn() })
 }));
 

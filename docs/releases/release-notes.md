@@ -112,6 +112,18 @@ pays (#188), found in its review (#206).
   protection with its Retry, and Reset Wallet last. Change Password, Touch ID
   Unlock, Automatic Lock Time, the lock switches and phishing protection
   moved there from Advanced Settings, and work as before.
+- Automatic Lock Time offers 5 minutes, 15 minutes, 30 minutes, 1 hour,
+  3 hours and 6 hours. The time is one setting for the whole extension: a
+  new install starts at 30 minutes, and so does the extension after Reset
+  Wallet; adding a wallet does not change it. Before, it offered 30 seconds,
+  1, 3, 5, 10 and 30 minutes, 1 hour and 4 hours, and started at 3 minutes.
+  A time you chose that is no longer offered changes when the wallet
+  starts: 30 seconds, 1 minute and 3 minutes become 5 minutes, 10 minutes
+  becomes 15 minutes, and 4 hours becomes 3 hours. 5 minutes, 30 minutes and
+  1 hour stay as they are. If you kept the earlier default of 3 minutes, the
+  wallet therefore locks after 5 minutes, not 30. If the stored time cannot
+  be read, the wallet uses 5 minutes. A time that a later version of the
+  wallet offers is kept, and this version uses 5 minutes for it.
 - Address Type moved from the Settings tab into Advanced Settings, which now
   holds Language, Address Type and Local Regtest. It works as before.
 - Reset Wallet erases the wallet from this browser. Before, only removing the

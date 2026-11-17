@@ -44,7 +44,7 @@ const PREFERENCE_1_0_5 = {
   showSafeNotice: false,
   addressFlags: {},
   enableSignData: true,
-  autoLockTimeId: 5,
+  autoLockTimeId: 6,
   openInSidePanel: false,
   developerMode: false,
   themeMode: 'dark',
@@ -149,7 +149,7 @@ describe('loading the settings at start-up', () => {
     expect(browserStorage.disk.preference).toEqual(PREFERENCE_1_0_5);
     expect(service.getLocale()).toBe('fr');
     expect(service.getCurrency()).toBe('EUR');
-    expect(service.getAutoLockTimeId()).toBe(5);
+    expect(service.getAutoLockTimeId()).toBe(6);
     expect(service.getEnableRBF()).toBe(false);
     expect(service.getKeyringAlianName('keyring_0')).toBe('Savings');
     expect(service.getCurrentAccount()).toEqual(PREFERENCE_1_0_5.currentAccount);
@@ -167,6 +167,47 @@ describe('loading the settings at start-up', () => {
       lockOnWindowsClosed: true,
       keyringColors: {}
     });
+  });
+
+  it('saves the 3 minutes 1.0.5 stored by default as 5 minutes before start-up ends', async () => {
+    const stored = { ...structuredClone(PREFERENCE_1_0_5), autoLockTimeId: 2 };
+    browserStorage.disk = { ...structuredClone(WALLET_DATA), preference: structuredClone(stored) };
+
+    const { service, init } = await initPreferences();
+    await init;
+
+    expect(service.getAutoLockTimeId()).toBe(3);
+    expect(browserStorage.set).toHaveBeenCalledTimes(1);
+    expect(browserStorage.disk).toMatchObject(WALLET_DATA);
+    expect(browserStorage.disk.preference).toMatchObject({ autoLockTimeId: 3, locale: 'fr', enableRBF: false });
+
+    // That write took the place of the debounced save, and the next start
+    // has nothing to rewrite.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(browserStorage.set).toHaveBeenCalledTimes(1);
+    browserStorage.set.mockClear();
+    const restarted = await initPreferences();
+    await restarted.init;
+    expect(restarted.service.getAutoLockTimeId()).toBe(3);
+    expect(browserStorage.set).not.toHaveBeenCalled();
+  });
+
+  it('starts with the time a retired one became when its rewrite cannot be saved', async () => {
+    const stored = { ...structuredClone(PREFERENCE_1_0_5), autoLockTimeId: 4 };
+    browserStorage.disk = { ...structuredClone(WALLET_DATA), preference: structuredClone(stored) };
+    browserStorage.set.mockRejectedValueOnce(new Error('IO error'));
+
+    const { service, init } = await initPreferences();
+    await init;
+
+    // 10 minutes is now 15 minutes, saved or not; a browser quit now leaves
+    // the retired id on disk, which the next start reads the same way.
+    expect(service.getAutoLockTimeId()).toBe(8);
+    expect((browserStorage.disk.preference as { autoLockTimeId: number }).autoLockTimeId).toBe(4);
+    const restarted = await initPreferences();
+    await restarted.init;
+    expect(restarted.service.getAutoLockTimeId()).toBe(8);
+    expect((browserStorage.disk.preference as { autoLockTimeId: number }).autoLockTimeId).toBe(8);
   });
 
   it('stops and writes nothing when the stored settings cannot be read', async () => {

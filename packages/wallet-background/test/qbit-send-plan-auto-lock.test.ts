@@ -54,7 +54,7 @@ class DiskAdapter {
 
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 const MINUTES = 60_000
-const DEFAULT_LOCK_MS = 3 * MINUTES
+const DEFAULT_LOCK_MS = 30 * MINUTES
 const GRACE_MS = AUTO_LOCK_SIGNING_GRACE_MS
 /** A plan expected to sign for five minutes: its ceiling is twenty minutes past the deadline. */
 const PLAN_SIGNING_MS = 5 * MINUTES

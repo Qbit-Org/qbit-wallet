@@ -49,7 +49,7 @@ vi.mock('../src/services', async () => {
       getCurrentAccount: vi.fn(),
       getAddressFlag: vi.fn(() => 0),
       getChainType: vi.fn(() => ChainType.QBIT_REGTEST),
-      getAutoLockTimeId: vi.fn(() => 2),
+      getAutoLockTimeId: vi.fn(() => 5),
     },
     qbitSendGuardService: guard,
     sessionService: { broadcastEvent: vi.fn() },

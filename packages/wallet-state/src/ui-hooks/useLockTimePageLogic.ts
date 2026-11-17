@@ -1,4 +1,4 @@
-import { ErrorCodes, getAutoLockTimes } from '@qbit/wallet-shared'
+import { ErrorCodes, getAutoLockTimes, resolveAutoLockTimeId } from '@qbit/wallet-shared'
 import { useState } from 'react'
 import { useI18n, useNavigation, useTools, useWallet } from '../context'
 import { useAppDispatch, useAutoLockTimeId } from '../hooks'
@@ -6,7 +6,8 @@ import { settingsActions } from '../reducers'
 
 export function useLockTimePageLogic() {
   const { t } = useI18n()
-  const autoLockTimeId = useAutoLockTimeId()
+  // The option to check, also for an id a later or earlier build stored.
+  const autoLockTimeId = resolveAutoLockTimeId(useAutoLockTimeId())
   const autoLockTimes = getAutoLockTimes(t)
   const dispatch = useAppDispatch()
   const wallet = useWallet()

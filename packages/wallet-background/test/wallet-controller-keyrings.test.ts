@@ -46,7 +46,7 @@ vi.mock('../src/services', () => ({
     removeKeyringColor: vi.fn(),
     getAccountAlianName: vi.fn((_: string, defaultName: string) => defaultName),
     getAddressFlag: vi.fn(() => 0),
-    getAutoLockTimeId: vi.fn(() => 0),
+    getAutoLockTimeId: vi.fn(() => 3),
     getInitAlianNameStatus: vi.fn(() => true),
     setChainType: vi.fn(),
     persist: vi.fn(),

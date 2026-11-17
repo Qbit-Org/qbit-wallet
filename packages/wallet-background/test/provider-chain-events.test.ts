@@ -46,7 +46,7 @@ vi.mock('../src/services', async () => {
       setCurrentKeyringIndex: vi.fn(),
       setCurrentAccount: vi.fn(),
       getAddressFlag: () => 0,
-      getAutoLockTimeId: () => 0,
+      getAutoLockTimeId: () => 3,
       persist: vi.fn(async () => undefined),
     },
     sessionService,

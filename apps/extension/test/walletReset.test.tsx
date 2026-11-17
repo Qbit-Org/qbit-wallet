@@ -107,7 +107,7 @@ function windowOnTheUnlockScreen() {
   store.dispatch(uiActions.updateAddressInput({ address: DRAFT_ADDRESS }));
   store.dispatch(uiActions.setBalanceHidden(true));
   store.dispatch(
-    settingsActions.updateSettings({ locale: 'ja', themeMode: 'dark', autoLockTimeId: 5, developerMode: true })
+    settingsActions.updateSettings({ locale: 'ja', themeMode: 'dark', autoLockTimeId: 9, developerMode: true })
   );
   localStorage.setItem('ecosystem_warning_acknowledged', 'true');
   localStorage.setItem('mine_tab_seen', 'true');

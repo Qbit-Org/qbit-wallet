@@ -340,7 +340,7 @@ async function seedWalletData() {
   preferenceService.setOpenInSidePanel(true)
   preferenceService.setCurrency('EUR')
   preferenceService.setShowSafeNotice(false)
-  await preferenceService.setAutoLockTimeId(5)
+  await preferenceService.setAutoLockTimeId(9)
   await preferenceService.setEnableRBF(false)
   preferenceService.setRegtestAccessAck(REGTEST_ACCESS_ACK_VERSION)
   await preferenceService.persist()

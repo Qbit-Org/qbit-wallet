@@ -20,14 +20,14 @@ const SIGNATURES = 2 * MERGE_INPUTS + PAYMENT_INPUTS
 // photographed, at it.
 const POPUP_VIEWPORT = { width: 357, height: 600 }
 
-// The longest auto-lock (4 hours). The default 3 minutes falls due about when
-// signing the 216 signatures ends: just after it at the pace measured here,
-// during it on a slower machine, where the plan holds the auto-lock until
-// signing ends. Either way the wallet then locks, and the progress screen
-// gives way to the unlock screen at a point that depends on the machine. The
-// scenario follows the one confirmation through the progress screen, so it
+// The longest auto-lock (6 hours). An auto-lock that fell due in the scenario
+// would lock the wallet, during signing or after it (the plan holds the
+// auto-lock until signing ends), and the progress screen would give way to
+// the unlock screen at a point that depends on the machine. The default 30
+// minutes outlasts the scenario's timeout, but the scenario follows the one
+// confirmation through the progress screen whatever the default, so it
 // chooses the longest auto-lock first, as a user may.
-const LONGEST_AUTO_LOCK_ID = 7
+const LONGEST_AUTO_LOCK_ID = 10
 
 interface PlanStepView {
   kind: 'merge' | 'payment'

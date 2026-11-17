@@ -60,7 +60,7 @@ describe('SecurityCard lock switches', () => {
     logic.lockOnComputerLock = true;
     logic.lockOnWindowsClosed = false;
     vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
-    vi.mocked(useAutoLockTimeId).mockReturnValue(2);
+    vi.mocked(useAutoLockTimeId).mockReturnValue(5);
     vi.mocked(useBiometricUnlock).mockReturnValue({ ready: false, supported: false, enrolled: false } as any);
     vi.mocked(useSecurityCardLogic).mockImplementation(() => logic as ReturnType<typeof useSecurityCardLogic>);
     // An MV3 build: both APIs are there.
@@ -160,6 +160,58 @@ describe('SecurityCard lock switches', () => {
       const { container } = render(<TouchIdUnlockRow />);
       expect(container.childElementCount).toBe(0);
       cleanup();
+    }
+  });
+
+  // The time shown for each id an earlier, this or a later build stored.
+  it.each([
+    [0, '5 Minutes'],
+    [1, '5 Minutes'],
+    [2, '5 Minutes'],
+    [3, '5 Minutes'],
+    [4, '15 Minutes'],
+    [5, '30 Minutes'],
+    [6, '1 Hour'],
+    [7, '3 Hours'],
+    [8, '15 Minutes'],
+    [9, '3 Hours'],
+    [10, '6 Hours'],
+    [11, '5 Minutes']
+  ])('shows the auto-lock time stored as %s as %s', (stored, label) => {
+    const messages = en as Record<string, { message: string }>;
+    vi.mocked(useI18n).mockReturnValue({
+      t: (key: string, count?: string) => (messages[key]?.message ?? key).replace('$1', count ?? '')
+    } as ReturnType<typeof useI18n>);
+    vi.mocked(useAutoLockTimeId).mockReturnValue(stored);
+    render(<SecurityCard />);
+
+    expect(screen.getByText(label)).toBeTruthy();
+  });
+
+  // Russian needs another plural form for 6 than for 3 ("6 Часов", "3 Часа").
+  it.each([
+    [3, '5 Минут'],
+    [8, '15 Минут'],
+    [5, '30 Минут'],
+    [6, '1 Час'],
+    [9, '3 Часа'],
+    [10, '6 Часов']
+  ])('shows the auto-lock time %s in Russian as %s', (stored, label) => {
+    const messages = ru as Record<string, { message: string }>;
+    vi.mocked(useI18n).mockReturnValue({
+      t: (key: string, count?: string) => (messages[key]?.message ?? key).replace('$1', count ?? '')
+    } as ReturnType<typeof useI18n>);
+    vi.mocked(useAutoLockTimeId).mockReturnValue(stored);
+    render(<SecurityCard />);
+
+    expect(screen.getByText(label)).toBeTruthy();
+  });
+
+  it('has the auto-lock time labels in every locale', () => {
+    for (const messages of [en, es, fr, ja, ru, zhTW] as Record<string, { message: string }>[]) {
+      for (const key of ['n_minutes', 'n_hour', 'n_hours', 'n_hours_many']) {
+        expect(messages[key]?.message, key).toContain('$1');
+      }
     }
   });
 
