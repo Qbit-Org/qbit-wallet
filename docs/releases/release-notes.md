@@ -125,7 +125,21 @@ pays (#188), found in its review (#206).
   be read, the wallet uses 5 minutes. A time that a later version of the
   wallet offers is kept, and this version uses 5 minutes for it.
 - Address Type moved from the Settings tab into Advanced Settings, which now
-  holds Language, Address Type and Local Regtest. It works as before.
+  holds Language, Address Type and Local Regtest. It opens on Testnet4 and
+  Regtest too, where it used to say the wallet uses a custom HD path, and its
+  card shows the wallet's address, its balance and the path used on that
+  network. The screen reads its addresses and balances again when the network
+  changes while it is open. A card with no address offers nothing to copy.
+- Choosing an automatic lock time returns to Security once, also when that
+  screen was opened by itself.
+- The two lock switches in Security can be reached with Tab, toggled with
+  Space or Enter, show a focus ring, and are announced by screen readers with
+  their name and state.
+- A refusal from the wallet shows its message, or "Unknown error", instead of
+  "[object Object]" or an empty notice on the Receive screen, when creating,
+  restoring or importing a wallet or adding a read-only wallet, when turning
+  Touch ID off or changing the password, and when signing a PSBT. A local
+  signing refused without a message no longer leaves Sign locked.
 - Reset Wallet erases the wallet from this browser. Before, only removing the
   extension did that. It asks for the current password first. A reset erases
   every wallet and its keys, the password, Touch ID unlock, connected sites,
@@ -135,9 +149,10 @@ pays (#188), found in its review (#206).
 - Removing the last usable wallet in Switch Account now opens Reset Wallet,
   with the same password check. Before, it said "Removing the last wallet is
   not allowed".
-- A wallet that is part of a recovery migration shows the same warnings
-  before a reset as before a removal, and they are confirmed by typing
-  CONFIRM.
+- A wallet that is part of a recovery migration shows the same risks before
+  a reset as before a removal, worded for a reset of every wallet, and they
+  are confirmed by typing CONFIRM. That step is laid out like the password
+  step: centered, with "This action is not reversible." in bold red.
 - A reset tells connected websites that the account is gone and disconnects
   them. Every other open wallet window returns to the Welcome screen, and
   what was entered on its Send screen, which only that window kept, is gone.

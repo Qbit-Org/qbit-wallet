@@ -1,10 +1,11 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { KeyringType } from '@qbit/wallet-shared'
-import { AddressType } from '@qbit/wallet-types'
+import { AddressType, ChainType } from '@qbit/wallet-types'
 
 import { accountActions } from '../../src/reducers/accounts'
 import { keyringsActions } from '../../src/reducers/keyrings'
+import { settingsActions } from '../../src/reducers/settings'
 import { useAddressTypeSettingLogic } from '../../src/ui-hooks/useAddressTypeSettingLogic'
 import { createHookTestHarness } from './testHelpers'
 
@@ -17,11 +18,16 @@ interface WalletCase {
   hdPath?: string
   accountIndex?: number
   accountIndexDerivation?: boolean
+  /** The network the wallet is on: Mainnet unless given. */
+  chainType?: ChainType
 }
 
 /** The hook for the current wallet `wallet` describes, with its account selected. */
 function renderFor(wallet: WalletCase) {
   const harness = createHookTestHarness()
+  if (wallet.chainType) {
+    harness.store.dispatch(settingsActions.updateSettings({ chainType: wallet.chainType }))
+  }
   const account = {
     type: wallet.type,
     address: 'qb1ztestaccount',
@@ -179,21 +185,85 @@ describe('useAddressTypeSettingLogic', () => {
       expect(harness.tools.showTip).not.toHaveBeenCalled()
     })
 
-    // On a test network the Qbit wallet's path has that network's coin type,
-    // which is not the path its type names.
-    it('shows the tip, and opens nothing, for the Qbit wallet on a test network', () => {
+    // The Qbit wallet derives on its network's coin type: m/87'/0'/0'/0 on
+    // Mainnet, m/87'/1'/0'/0 on Testnet4 and Regtest. That is its standard
+    // path, not a custom one.
+    it.each([
+      [ChainType.QBIT_MAINNET, "m/87'/0'/0'/0"],
+      [ChainType.QBIT_TESTNET4, "m/87'/1'/0'/0"],
+      [ChainType.QBIT_REGTEST, "m/87'/1'/0'/0"],
+    ])('opens the Address Type screen for the Qbit wallet on %s, on %s', (chainType, hdPath) => {
       const { result, harness } = renderFor({
         type: KeyringType.QbitHdKeyring,
         addressType: AddressType.P2MR,
-        hdPath: "m/87'/1'/0'/0",
+        hdPath,
+        chainType,
       })
       expect(result.current.value).toBe('Post-Quantum P2MR')
 
       result.current.onClick()
 
-      expect(harness.tools.showTip).toHaveBeenCalledWith(CUSTOM_PATH_TIP)
-      expect(harness.navigation.navigate).not.toHaveBeenCalled()
+      expect(harness.navigation.navigate).toHaveBeenCalledWith('AddressTypeScreen')
+      expect(harness.navigation.navigate).toHaveBeenCalledTimes(1)
+      expect(harness.tools.showTip).not.toHaveBeenCalled()
     })
+
+    it.each([
+      // Another account segment.
+      [ChainType.QBIT_MAINNET, "m/87'/0'/5'/0"],
+      [ChainType.QBIT_TESTNET4, "m/87'/1'/5'/0"],
+      [ChainType.QBIT_REGTEST, "m/87'/1'/5'/0"],
+      // Another purpose.
+      [ChainType.QBIT_TESTNET4, "m/44'/1'/0'/0"],
+      // The coin type of another network: the background derives the Qbit
+      // wallet on the coin type of the network it is on.
+      [ChainType.QBIT_MAINNET, "m/87'/1'/0'/0"],
+      [ChainType.QBIT_TESTNET4, "m/87'/0'/0'/0"],
+      [ChainType.QBIT_REGTEST, "m/87'/0'/0'/0"],
+    ])(
+      'shows the tip, and opens nothing, for the Qbit wallet on %s on the custom path %s',
+      (chainType, hdPath) => {
+        const { result, harness } = renderFor({
+          type: KeyringType.QbitHdKeyring,
+          addressType: AddressType.P2MR,
+          hdPath,
+          chainType,
+        })
+
+        result.current.onClick()
+
+        expect(harness.tools.showTip).toHaveBeenCalledWith(CUSTOM_PATH_TIP)
+        expect(harness.tools.showTip).toHaveBeenCalledTimes(1)
+        expect(harness.navigation.navigate).not.toHaveBeenCalled()
+      }
+    )
+
+    // Only the P2MR path follows the network: an HD wallet of another type
+    // keeps the path its type names on every network.
+    it.each([ChainType.QBIT_TESTNET4, ChainType.QBIT_REGTEST])(
+      'judges an HD wallet on %s by the path its type names',
+      chainType => {
+        const standard = renderFor({
+          type: KeyringType.HdKeyring,
+          addressType: AddressType.P2TR,
+          hdPath: "m/86'/0'/0'/0",
+          chainType,
+        })
+        standard.result.current.onClick()
+        expect(standard.harness.navigation.navigate).toHaveBeenCalledWith('AddressTypeScreen')
+        expect(standard.harness.tools.showTip).not.toHaveBeenCalled()
+
+        const testCoinType = renderFor({
+          type: KeyringType.HdKeyring,
+          addressType: AddressType.P2TR,
+          hdPath: "m/86'/1'/0'/0",
+          chainType,
+        })
+        testCoinType.result.current.onClick()
+        expect(testCoinType.harness.tools.showTip).toHaveBeenCalledWith(CUSTOM_PATH_TIP)
+        expect(testCoinType.harness.navigation.navigate).not.toHaveBeenCalled()
+      }
+    )
 
     it('shows a tip, and opens nothing, for a wallet on a custom HD path', () => {
       const { result, harness } = renderFor({

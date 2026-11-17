@@ -18,8 +18,19 @@ const RESET_WALLET_KEYS = [
   'reset_wallet_restore_warning'
 ];
 
+// The risk lines of the reset dialog's recovery step: the five risks of the
+// removal dialog's lines, for a wallet among all those a reset erases.
+const RESET_RISK_KEYS = [
+  'reset_wallet_recovery_source_migrating',
+  'reset_wallet_recovery_source_migrated',
+  'reset_wallet_recovery_destination',
+  'reset_wallet_recovery_inflight',
+  'reset_wallet_recovery_unverified'
+];
+
 // Copy the flow reuses: the reset-incomplete message, the Security rows and
-// the risk step it shares with the removal dialog. The background still
+// the lines of the risk step that are not risks, which it shares with the
+// removal dialog (its risk lines are its own, above). The background still
 // refuses to remove the last wallet with its message.
 const REUSED_KEYS = [
   'wallet_reset_incomplete',
@@ -27,7 +38,6 @@ const REUSED_KEYS = [
   'show_secret_recovery_phrase',
   'current_password',
   'password_error',
-  'qbit_recovery_removal_unverified',
   'this_action_is_not_reversible',
   'enter',
   'to_proceed',
@@ -65,6 +75,48 @@ test('every reset wallet string is translated in every locale with the English p
       }
     }
   }
+});
+
+test('every locale says each reset risk, translated, right after the recovery title', () => {
+  const en = read('en');
+  for (const locale of LOCALES) {
+    const messages = read(locale);
+    const keys = Object.keys(messages);
+    const title = keys.indexOf('reset_wallet_recovery_title');
+    assert.deepEqual(keys.slice(title + 1, title + 1 + RESET_RISK_KEYS.length), RESET_RISK_KEYS, locale);
+    for (const key of RESET_RISK_KEYS) {
+      const message = messages[key]?.message;
+      assert.ok(message?.trim(), `${locale} must translate ${key}`);
+      assert.doesNotMatch(message, /\[TODO\]/, `${locale} ${key} is a placeholder`);
+      assert.deepEqual(placeholders(message), placeholders(en[key].message), `${locale} ${key} placeholders`);
+      if (locale !== 'en') {
+        assert.notEqual(message, en[key].message, `${locale} ${key} must not be left in English`);
+        assert.notEqual(
+          message,
+          messages[key.replace('reset_wallet_recovery_', 'qbit_recovery_removal_')].message,
+          `${locale} ${key} must not be the removal's line`
+        );
+      }
+      if (locale === 'ja' || locale === 'zh_TW') {
+        assert.doesNotMatch(message, /[,.;:()]/, `${locale} ${key} must use full-width punctuation`);
+      }
+    }
+  }
+});
+
+// A reset erases every wallet: its risk lines speak of a wallet being erased
+// and of the reset, not of "this wallet" or of its removal.
+test('the English reset risks speak of a reset, not of removing this wallet', () => {
+  const en = read('en');
+  for (const key of RESET_RISK_KEYS) {
+    const message = en[key].message;
+    assert.doesNotMatch(message, /this wallet|remov/i, key);
+    assert.notEqual(message, en[key.replace('reset_wallet_recovery_', 'qbit_recovery_removal_')].message, key);
+  }
+  for (const key of RESET_RISK_KEYS.filter((key) => key !== 'reset_wallet_recovery_inflight')) {
+    assert.match(en[key].message, /a (restored )?wallet you are erasing/i, key);
+  }
+  assert.match(en.reset_wallet_recovery_inflight.message, /After the reset/);
 });
 
 // The dialog names the main things a reset erases, not every one (it also

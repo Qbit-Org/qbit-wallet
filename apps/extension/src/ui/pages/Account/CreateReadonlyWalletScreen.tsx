@@ -4,7 +4,7 @@ import { Button, Column, Content, Header, Input, Layout, Row, Text } from '@/ui/
 import { AddressTypeCard } from '@/ui/components/AddressTypeCard';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
 import { TabBar } from '@/ui/components/TabBar';
-import { satoshisToAmount } from '@/ui/utils';
+import { satoshisToAmount, walletErrorMessage } from '@/ui/utils';
 import { ADDRESS_TYPES } from '@qbit/wallet-shared';
 import { useI18n, useTools, useWallet } from '@qbit/wallet-state';
 import { AddressType } from '@qbit/wallet-types';
@@ -160,7 +160,7 @@ function Step2({
       setAddressAssets({ ...self.addressBalances });
       setPreviewAddresses(addresses);
     } catch (e) {
-      tools.toastError((e as Error).message);
+      tools.toastError(walletErrorMessage(e, t('unknown_error')));
     }
   };
 
@@ -179,7 +179,7 @@ function Step2({
       await wallet.createKeyringWithPublicKey(contextData.pubkey, contextData.addressType);
       navigate('MainScreen');
     } catch (e) {
-      tools.toastError((e as Error).message);
+      tools.toastError(walletErrorMessage(e, t('unknown_error')));
     }
   };
 

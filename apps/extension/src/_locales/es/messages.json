@@ -1457,6 +1457,21 @@
   "reset_wallet_recovery_title": {
     "message": "Una billetera que vas a borrar forma parte de una migración de recuperación de Qbit"
   },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "El restablecimiento elimina el registro de recuperación en curso de una billetera restaurada que vas a borrar. La migración no podrá reanudarse, los fondos aún no barridos permanecerán en las direcciones antiguas y recuperarlos más adelante exigirá importar de nuevo su frase semilla y empezar la recuperación desde cero."
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "El restablecimiento elimina el registro de recuperación completado de una billetera restaurada que vas a borrar. Otras redes que usan su frase semilla pueden no haber terminado su propia recuperación, y reanudarlas exigiría importar de nuevo esa frase semilla."
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "Los fondos recuperados se enviaron (o se están enviando) a una billetera que vas a borrar. Si no has hecho copia de seguridad de su frase semilla, el restablecimiento hará que esos fondos sean irrecuperables de forma permanente, y una recuperación interrumpida solo podrá reanudarse tras importar esa billetera de nuevo."
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "Una transferencia de recuperación sigue en curso. Tras el restablecimiento dejará de seguirse, y los fondos que entregue pueden no ser visibles hasta que la billetera de destino se restaure y se vuelva a escanear."
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "No se pudo verificar una billetera que vas a borrar frente a la migración de recuperación activa. Puede ser la billetera que recibe los fondos recuperados; restablecer sin una copia de seguridad de la frase semilla podría hacer que esos fondos sean irrecuperables de forma permanente."
+  },
   "use_at_your_own_risk": {
     "message": "Úsalo bajo tu propio riesgo"
   },

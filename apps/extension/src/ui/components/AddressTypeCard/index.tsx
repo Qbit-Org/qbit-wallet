@@ -38,7 +38,8 @@ export function AddressTypeCard(props: AddressTypeCardProps) {
           </Column>
         </Row>
         <Row justifyBetween px="md" pb="md">
-          <CopyableAddress address={address} />
+          {/* No address yet, or none to show: nothing to copy. */}
+          {address ? <CopyableAddress address={address} /> : <Row />}
           <Column justifyCenter>{checked && <Icon icon="check" />}</Column>
         </Row>
         {hasVault && (

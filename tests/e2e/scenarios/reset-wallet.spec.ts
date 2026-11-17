@@ -12,12 +12,15 @@ import {
 
 import { walletColorForSlot } from '../../../packages/wallet-shared/src/utils/wallet-identity'
 import {
+  AddressTypePage,
   ApprovalsPage,
   OnboardingPage,
   RecoveryReportPage,
   ResetWalletDialog,
+  SecurityPage,
   SettingsPage,
   WalletHomePage,
+  shortAddress,
 } from '../pages'
 import {
   connectRecordingSite,
@@ -43,6 +46,7 @@ interface KeyringProbe {
   index: number
   alianName: string
   color: string
+  hdPath: string
   accounts: AccountProbe[]
 }
 
@@ -73,7 +77,18 @@ const LAST_WALLET_TOAST = 'Removing the last wallet is not allowed'
 const POPUP_SIZE = { width: 357, height: 600 }
 /** The address type of a Qbit wallet, as Advanced Settings names it. */
 const QBIT_ADDRESS_TYPE = 'Post-Quantum P2MR'
-/** The copy, by key, a tap on Address Type shows for a wallet whose type cannot be switched. */
+/** Each lock time's copy key and amount, by id, as getAutoLockTimes has them. */
+const LOCK_TIME_COPY: Record<number, readonly [string, string]> = {
+  3: ['n_minutes', '5'],
+  8: ['n_minutes', '15'],
+  5: ['n_minutes', '30'],
+  6: ['n_hour', '1'],
+  9: ['n_hours', '3'],
+  10: ['n_hours_many', '6'],
+}
+/** The HD path a Qbit wallet derives on, on Regtest and Testnet4 (coin type 1). */
+const REGTEST_QBIT_HD_PATH = "m/87'/1'/0'/0"
+/** The copy, by key, a tap on Address Type shows for a wallet on a custom HD path. */
 const CUSTOM_HD_PATH_TIP =
   'the_wallet_currently_uses_a_custom_hd_path_and_does_not_support_switching_address_types'
 /** What Security lists and Advanced Settings must not: the entries, and their copy by key. */
@@ -274,6 +289,13 @@ async function copyIn(locale: string): Promise<Copy> {
   }
 }
 
+/** The label the Automatic Lock Time screen gives the time `id` (getAutoLockTimes). */
+function lockTimeLabel(copy: Copy, id: number): string {
+  const [key, amount] = LOCK_TIME_COPY[id] ?? []
+  if (!key || !amount) throw new Error(`no lock time ${id}`)
+  return copy(key).replace('$1', amount)
+}
+
 async function walletKeyrings(extension: ExtensionSession, page: Page): Promise<KeyringProbe[]> {
   return extension.requestWalletController<KeyringProbe[]>(page, 'getKeyrings')
 }
@@ -450,14 +472,28 @@ test('reset wallet: Settings → Security erases the wallet and keeps only the l
     await expect(page.getByText(en(key), { exact: true })).toHaveCount(0)
   }
 
-  // A tap on Address Type does what it did on the Settings tab. This wallet
-  // is on Regtest, whose HD path is not the one its type names, so the tap
-  // says that the type cannot be switched, and opens no screen.
+  // A tap on Address Type opens its screen. This wallet is on Regtest, where
+  // a Qbit wallet derives on the coin type of test networks: that is the
+  // standard path of its type there, not a custom one, so no tip says that
+  // the type cannot be switched. The screen lists the one type the wallet
+  // has, on the path it derives on here, with the account's address, and a
+  // tap on it changes nothing.
+  expect(keyring.hdPath).toBe(REGTEST_QBIT_HD_PATH)
   await advanced.item('addressType').click()
-  const customPathTip = page.getByText(en(CUSTOM_HD_PATH_TIP), { exact: true })
-  await expect(customPathTip).toBeVisible()
-  await page.getByTestId('popover-close').click()
-  await expect(customPathTip).toHaveCount(0)
+  const addressTypes = new AddressTypePage(page)
+  await addressTypes.waitUntilReady()
+  await expect(addressTypes.typeLabels).toHaveCount(1)
+  await expect(addressTypes.typeLabel(QBIT_ADDRESS_TYPE)).toHaveText(
+    `${QBIT_ADDRESS_TYPE} (${REGTEST_QBIT_HD_PATH}/0)`
+  )
+  await expect(page.getByText(shortAddress(address), { exact: true })).toBeVisible()
+  await expect(page.getByText(en(CUSTOM_HD_PATH_TIP), { exact: true })).toHaveCount(0)
+  await addressTypes.typeLabel(QBIT_ADDRESS_TYPE).click()
+  await expect(page.getByText(en('not_supported'), { exact: true })).toHaveCount(0)
+  await expect(page.getByText(en('address_type_changed'), { exact: true })).toHaveCount(0)
+  await addressTypes.waitUntilReady()
+  expect(await currentAddress(extension, page)).toBe(address)
+  await goBack(page)
   await advanced.waitUntilReady()
   await goBack(page)
   await settings.waitUntilReady()
@@ -473,6 +509,19 @@ test('reset wallet: Settings → Security erases the wallet and keeps only the l
     await expect(tab).toHaveURL(/#\/settings$/)
     await tab.close()
   }
+  // Choosing a lock time there leaves the same way, once: to Security, and
+  // not out of the wallet. The time chosen is the one already set.
+  const lockTimeId = await extension.requestWalletController<number>(page, 'getAutoLockTimeId')
+  const lockTimeTab = await extension.openWallet('/settings/lock-time')
+  await lockTimeTab.getByText(lockTimeLabel(en, lockTimeId), { exact: true }).click()
+  await expect(lockTimeTab).toHaveURL(/#\/settings\/security$/)
+  await new SecurityPage(lockTimeTab).waitUntilReady()
+  expect(await extension.requestWalletController<number>(page, 'getAutoLockTimeId')).toBe(
+    lockTimeId
+  )
+  await goBack(lockTimeTab)
+  await expect(lockTimeTab).toHaveURL(/#\/settings$/)
+  await lockTimeTab.close()
   await page.bringToFront()
 
   // The contact is in the address book.

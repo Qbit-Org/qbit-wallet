@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Button, Column, Content, Header, Input, Layout, Text } from '@/ui/components';
+import { walletErrorMessage } from '@/ui/utils';
 import { useBackToSettingsParent } from '@/ui/utils/settingsBack';
 import {
   BiometricCeremonyCancelledError,
@@ -67,7 +68,7 @@ export default function BiometricUnlockScreen() {
       await disable();
       tools.toastSuccess(t('success'));
     } catch (e) {
-      tools.toastError((e as Error).message);
+      tools.toastError(walletErrorMessage(e, t('unknown_error')));
     } finally {
       setLoading(false);
     }

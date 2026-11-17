@@ -183,6 +183,32 @@ describe('useCreateWalletLogicImportWordsStep word checks', () => {
     )
   })
 
+  // What the step hands on can fail; a value that is not an Error (as
+  // rejections from the background are) shows its message, or unknown_error,
+  // and never "[object Object]" or nothing.
+  it.each([
+    [
+      'a plain object with a message',
+      { code: -32603, message: 'Could not keep the phrase' },
+      'Could not keep the phrase',
+    ],
+    ['a plain object without a message', { code: -32603 }, 'unknown_error'],
+    ['an Error', new Error('Could not keep the phrase'), 'Could not keep the phrase'],
+  ])('shows the failure of a valid phrase, %s', async (_name, failure, shown) => {
+    const { result, updateContextData, tools } = renderImportStep()
+    typeWords(result, VALID_WORDS)
+    updateContextData.mockImplementation(() => {
+      throw failure
+    })
+
+    await act(async () => {
+      await result.current.onClickNext()
+    })
+
+    expect(vi.mocked(tools.toastError).mock.calls.map(([text]) => text)).toEqual([shown])
+    expect(tools.toastError).not.toHaveBeenCalledWith('[object Object]')
+  })
+
   it('reports the checksum while a last word is typed through a shorter list word', () => {
     const { result } = renderImportStep()
     typeWords(result, VALID_WORDS.slice(0, 11))

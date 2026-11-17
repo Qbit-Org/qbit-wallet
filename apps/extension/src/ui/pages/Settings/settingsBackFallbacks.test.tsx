@@ -24,7 +24,8 @@ vi.mock('@/ui/components', async () => {
     Layout: Container,
     Loading: () => null,
     OptionListCard: Container,
-    Row: Container,
+    Row: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) =>
+      React.createElement('div', { onClick }, children),
     Text: ({ text }: { text?: string }) => React.createElement('span', null, text),
     Header: ({ title, onBack }: { title?: string; onBack?: () => void }) =>
       React.createElement(
@@ -45,7 +46,18 @@ vi.mock('@qbit/wallet-state', () => ({
   useAddressTypeScreenLogic: () => ({ currentKeyring: { addressType: 0 }, items: [], onClickItem: vi.fn() }),
   useBiometricUnlock: () => ({ ready: true, supported: true, enrolled: false, enroll: vi.fn(), disable: vi.fn() }),
   useI18n: () => ({ t: (key: string) => key }),
-  useLockTimePageLogic: () => ({ autoLockTimeId: 5, autoLockTimes: [], loading: false, handleSelectOption: vi.fn() }),
+  // A stand-in for the hook (its timing is tested in wallet-state): Back and a
+  // saved choice both leave by the screen's `leave`, history Back unless given.
+  useLockTimePageLogic: (options?: { leave?: () => void }) => {
+    const leave = options?.leave ?? (() => window.history.back());
+    return {
+      autoLockTimeId: 5,
+      autoLockTimes: [{ id: 3, label: 'five_minutes' }],
+      loading: false,
+      handleSelectOption: () => leave(),
+      goBack: leave
+    };
+  },
   useTools: () => ({ toastError: vi.fn(), toastSuccess: vi.fn() })
 }));
 
@@ -148,5 +160,33 @@ describe('Back from the screens Security and Advanced Settings open', () => {
 
     await waitFor(() => expect(path()).toBe(other));
     expect(historyIndex()).toBe(0);
+  });
+
+  describe('Automatic Lock Time, once a time is chosen', () => {
+    const LOCK_TIME = '/settings/lock-time';
+
+    it('opened with nothing behind it, lands on Security, and from there goes back to Settings', async () => {
+      renderAt(LOCK_TIME, LOCK_TIME);
+      expect(historyIndex()).toBe(0);
+
+      fireEvent.click(screen.getByText('five_minutes'));
+
+      await waitFor(() => expect(path()).toBe(SECURITY));
+      expect(historyIndex()).toBe(1);
+      await historyBack();
+      await waitFor(() => expect(path()).toBe('/settings'));
+    });
+
+    it('opened from Security, goes one step back in history', async () => {
+      renderAt(SECURITY, LOCK_TIME);
+      fireEvent.click(screen.getByText('open'));
+      await waitFor(() => expect(path()).toBe(LOCK_TIME));
+      expect(historyIndex()).toBe(1);
+
+      fireEvent.click(screen.getByText('five_minutes'));
+
+      await waitFor(() => expect(path()).toBe(SECURITY));
+      expect(historyIndex()).toBe(0);
+    });
   });
 });

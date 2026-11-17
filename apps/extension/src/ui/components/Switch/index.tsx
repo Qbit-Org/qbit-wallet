@@ -2,6 +2,8 @@ import React from 'react';
 
 import { colors } from '@/ui/theme/colors';
 
+import './index.less';
+
 export interface SwitchProps {
   checked?: boolean;
   onChange?: (checked: boolean) => void;
@@ -9,19 +11,39 @@ export interface SwitchProps {
   size?: 'small' | 'default';
   style?: React.CSSProperties;
   className?: string;
+  /** The switch's name for assistive technology, such as the label of its row. */
+  'aria-label'?: string;
+  /** Or the id of the element on screen whose text names it. */
+  'aria-labelledby'?: string;
 }
 
+/**
+ * An on/off switch. Assistive technology reads it as a switch, with its name
+ * and state; it takes keyboard focus in order, and Space or Enter toggles it,
+ * as a click does. A disabled switch keeps its focus and does nothing.
+ */
 export function Switch({
   checked = false,
   onChange,
   disabled = false,
   size = 'default',
   style,
-  className
+  className,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy
 }: SwitchProps) {
   const handleClick = () => {
     if (disabled) return;
     onChange?.(!checked);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== ' ' && event.key !== 'Enter') return;
+    // Space would scroll the page.
+    event.preventDefault();
+    // A held key toggles once.
+    if (event.repeat) return;
+    handleClick();
   };
 
   // Size configurations
@@ -34,8 +56,15 @@ export function Switch({
 
   return (
     <div
-      className={className}
+      role="switch"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
+      tabIndex={0}
+      className={className ? `qbit-switch ${className}` : 'qbit-switch'}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       style={{
         width: `${config.width}px`,
         height: `${config.height}px`,

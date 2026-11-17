@@ -4,10 +4,12 @@ import {
   AccountSignMethod,
   getAccountCapabilities,
   getAccountDerivationPath,
+  getQbitHdPathForChainType,
 } from '@qbit/wallet-shared'
+import { AddressType, ChainType } from '@qbit/wallet-types'
 import { useMemo } from 'react'
 import { useI18n, useNavigation, useTools } from 'src/context'
-import { useCurrentAccount, useCurrentKeyring } from 'src/hooks'
+import { useChainType, useCurrentAccount, useCurrentKeyring } from 'src/hooks'
 
 /** The Address Type entry of Advanced Settings. */
 export interface AddressTypeSetting {
@@ -19,7 +21,8 @@ export interface AddressTypeSetting {
   value: string
   /**
    * Opens the Address Type screen. A wallet on a custom HD path cannot switch
-   * types, so it gets a tip instead.
+   * types, so it gets a tip instead. The standard path of a P2MR wallet
+   * depends on the network (see `standardHdPath`).
    */
   onClick: () => void
 }
@@ -39,6 +42,20 @@ function accountPath(hdPath: string, index: number, accountIndexDerivation?: boo
 }
 
 /**
+ * The path a wallet of this type derives on when nothing custom was chosen, on
+ * the network `chainType`. A P2MR wallet takes the coin type of the network
+ * (m/87'/1'/0'/0 on Testnet4 and Regtest), as the background derives it; every
+ * other type keeps the path the type table names, on any network. The Address
+ * Type screen shows each type with this path.
+ */
+export function standardHdPath(
+  item: Pick<(typeof ADDRESS_TYPES)[number], 'value' | 'hdPath'>,
+  chainType: ChainType
+): string {
+  return item.value === AddressType.P2MR ? getQbitHdPathForChainType(chainType) : item.hdPath
+}
+
+/**
  * The Address Type entry, shown in Advanced Settings: what it says about the
  * current wallet's address type, and what a tap on it does.
  */
@@ -48,12 +65,13 @@ export function useAddressTypeSettingLogic(): AddressTypeSetting {
   const currentAccount = useCurrentAccount()
   const tools = useTools()
   const { t } = useI18n()
+  const chainType = useChainType()
 
   const isCustomHdPath = useMemo(() => {
     const item = ADDRESS_TYPES.find(v => v.value === currentKeyring.addressType)
     if (!item) return false
-    return currentKeyring.hdPath !== '' && item.hdPath !== currentKeyring.hdPath
-  }, [currentKeyring])
+    return currentKeyring.hdPath !== '' && currentKeyring.hdPath !== standardHdPath(item, chainType)
+  }, [currentKeyring, chainType])
 
   const currentKeyringCapabilities = useMemo(
     () => getAccountCapabilities({ type: currentKeyring.type }),

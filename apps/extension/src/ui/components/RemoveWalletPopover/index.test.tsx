@@ -646,6 +646,33 @@ describe('RemoveWalletPopover remove action', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  // The reset dialog centers its risk step and bolds "not reversible"; the
+  // removal dialog's risk step keeps its own look and its own words.
+  it('keeps the risk step as it was: only the title centered, "not reversible" regular, the removal lines', async () => {
+    const removeKeyring = vi.fn().mockRejectedValue(ackRequiredError);
+    vi.mocked(useWallet).mockReturnValue({ removeKeyring, getKeyrings: vi.fn() } as unknown as Wallet);
+
+    render(<RemoveWalletPopover keyring={keyring as unknown as WalletKeyring} onClose={onClose} />);
+    fireEvent.click(screen.getByText('remove'));
+    await waitFor(() => expect(screen.getByText('qbit_recovery_removal_title')).toBeTruthy());
+
+    const look = (text: string) => {
+      const line = screen.getByText(text);
+      return {
+        preset: line.getAttribute('data-preset'),
+        color: line.getAttribute('data-color'),
+        centered: line.getAttribute('data-text-center')
+      };
+    };
+    expect(look('qbit_recovery_removal_title')).toEqual({ preset: 'title-bold', color: '', centered: 'true' });
+    for (const key of ['qbit_recovery_removal_destination', 'qbit_recovery_removal_inflight']) {
+      expect(look(key), key).toEqual({ preset: 'sub', color: '', centered: 'false' });
+    }
+    expect(look('this_action_is_not_reversible')).toEqual({ preset: '', color: 'red_dark', centered: 'false' });
+    expect(look('enter “CONFIRM” to_proceed')).toEqual({ preset: 'bold', color: '', centered: 'false' });
+    expect(screen.queryByText(/^reset_wallet_recovery_/)).toBeNull();
+  });
+
   it('maps each reason onto its risk line and falls back when detail is missing', async () => {
     const removeKeyring = vi.fn().mockRejectedValue({
       ...ackRequiredError,
