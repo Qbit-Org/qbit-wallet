@@ -303,6 +303,62 @@ Two more fixes to these payments close what the six left open (#216, #217).
 - A dimmed balance is also announced as possibly out of date by screen
   readers, on the account's row and on its wallet's total.
 
+### Websites and approvals
+
+- A website can now have the wallet sign an input of a PSBT under
+  `SIGHASH_ALL | ANYONECANPAY` (0x81) or `SIGHASH_SINGLE | ANYONECANPAY`
+  (0x83), as a marketplace listing that a buyer completes later asks (#211).
+  Before, the wallet refused such a PSBT. Every other sighash type a PSBT
+  names is still refused, and so is 0x83 on an input with no output at its
+  own position, a partial type on an input that does not spend the account's
+  own output, and a partial type in a PSBT that moves funds an active
+  recovery migration protects. An input that names no type, or names the
+  default (0), signs as before.
+- The approval lists the inputs signed this way under "Inputs signed on their
+  own", says "Your signature locks in only part of this transaction. Whoever
+  holds it can change anything it does not cover, which can include other
+  inputs and outputs, before it is broadcast.", and shows what each
+  signature locks in: every output under 0x81, and under 0x83 the one output
+  at the same position, with its address marked as a warning.
+- The amount the approval says can leave the wallet is the most that can.
+  When the account signs an input under 0x81 or 0x83, an output paying the
+  wallet counts as coming back only if one of the account's 0x83 signatures
+  locks it in, only up to the value of that signature's input, and only if
+  that input spends the wallet's own output. A 0x81 signature makes no
+  output count: it fixes the outputs but not who pays for them, so another
+  approval could fund the same outputs with another of the wallet's inputs.
+  An output to this account that does not fully count is shown as "To this
+  account", not as "Change".
+
+### Loading indicators
+
+- The wallet's loading indicators, except the one inside a button, are now
+  the same ring, green everywhere but on the balance card. The overlay shown
+  while a transaction is broadcast, a send is prepared, a payment is
+  reviewed or outputs are consolidated, and on History, Address Type and the
+  cold wallet's address list, is now a card over the theme's dimmed
+  background in both themes, instead of a small orange spinner on black.
+- A popup, side panel, tab or approval window that takes more than a second
+  to open now shows one spinner until its first screen, instead of a blank
+  page. A normal open shows none.
+
+### Repository and release
+
+- The extension version is 1.0.10.
+- The browser release gate grows from 53 to 68 tests. The new ones cover
+  Reset Wallet and the Security screen, the balances in Switch Account on an
+  empty chain and with funded accounts, and the first start after an update
+  from 1.0.7's stored data for a wallet that kept the earlier default lock
+  time.
+- CI runs the browser release gate in five parallel shards and "Typecheck,
+  test, and build" in four parallel lanes, and skips the long steps on a
+  pull request that changes only documentation. The required checks are the
+  same. The regtest node's health check now probes every 250 ms while the
+  node starts, so each reset of the test chain is a few seconds shorter;
+  the regtest harness therefore needs Docker Engine 25 or later.
+- A pull request's repeated CI run skips its work only under stricter rules:
+  any doubt about whether the same tree passed means a full run.
+
 ### Known limitations
 
 - The wallet forgets what it read of an account's outputs when it locks, when
@@ -415,6 +471,22 @@ Two more fixes to these payments close what the six left open (#216, #217).
   explorer shows it. If the explorer takes longer than 30 seconds to show
   it, a balance read after those 30 seconds, while the explorer still shows
   the earlier one, can stay as it was for up to a minute.
+- A listing of one input priced above that input's value is refused when
+  the website asks to sign it: the protocol library rejects a PSBT whose
+  outputs are worth more than its inputs. A marketplace has to add
+  placeholder inputs for now; the approval does not count inputs the
+  account does not sign.
+- When a website broadcasts a completed 0x81 or 0x83 PSBT through the
+  wallet and the broadcast ends without an answer, the wallet does not set
+  aside the output it spends, as it does for a PSBT it signed whole:
+  completing it changes the transaction, so the wallet does not recognise
+  it. A send of yours can then spend that output, which ends the listing if
+  it confirms first.
+- The approval names the inputs and the output a partial signature covers by
+  position ("#0", "#1" and so on), but its lists of inputs and outputs show
+  no positions.
+- The summary of an approval of several PSBTs at once does not name a
+  partial signature among its risks.
 
 ## 1.0.9
 
