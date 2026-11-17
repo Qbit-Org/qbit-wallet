@@ -10,15 +10,19 @@ import YAML from 'yaml'
 import {
   artifactName,
   artifactProblem,
+  creationProblem,
   decide,
   DECIDE_JOB,
   eligibility,
+  eventsProblem,
   githubJson,
   githubList,
+  githubTime,
   headPullsProblem,
   headTreeOf,
   isMarkerPrefix,
   jobsProblem,
+  laterRunsProblem,
   markerKey,
   markerPrefix,
   markerRunProblem,
@@ -26,6 +30,8 @@ import {
   readPullRequestLabels,
   recordErrors,
   repositorySalt,
+  rerunProblem,
+  RULES,
   runContext,
   runDecide,
   runKey,
@@ -33,7 +39,6 @@ import {
   runRecordProblem,
   SAVE_JOB,
   SAVE_JOB_NAME,
-  timelineProblem,
   treeOf,
   TreePassConfigError,
   workflowPathFromRef,
@@ -590,7 +595,12 @@ const CONTEXT = {
   headTree: HEAD_TREE,
   pullRequest: '42',
   jobNames: [...COVERED_CI, SAVE_JOB_NAME],
+  currentRunId: '2002',
+  currentRunAttempt: '1',
 }
+// Pull request #42 was opened before run 1001 was created.
+const PULL_CREATED = '2026-11-01T00:00:00Z'
+const RUN_CREATED = '2026-11-02T00:00:00Z'
 
 function runRecordFor(runId = RUN, attempt = 1, overrides = {}) {
   return {
@@ -604,6 +614,8 @@ function runRecordFor(runId = RUN, attempt = 1, overrides = {}) {
     head_repository: { id: 1436120009 },
     head_branch: 'feature/same-tree',
     head_commit: { tree_id: HEAD_TREE },
+    created_at: RUN_CREATED,
+    run_started_at: RUN_CREATED,
     ...overrides,
   }
 }
@@ -649,7 +661,6 @@ test('the run record must be this workflow, this pull request head and the savin
   assert.equal(runRecordProblem(runRecordFor(RUN, 1, { conclusion: 'failure' }), expected), null)
 
   const refused = [
-    ['latest attempt', { run_attempt: 2 }],
     ['ID', { id: 1002 }],
     ['ID', { id: '1001' }],
     ['repository', { repository: { full_name: 'someone/qbit-wallet' } }],
@@ -674,6 +685,15 @@ test('the run record must be this workflow, this pull request head and the savin
   }
   for (const record of [null, undefined, [], 'x', 7]) {
     assert.notEqual(runRecordProblem(record, expected), null, JSON.stringify(record))
+  }
+  // Both attempts: the saving attempt must be the latest, so the jobs read in
+  // it are the latest attempt's too. A later attempt refuses even if it passed.
+  for (const latest of [2, '1', true, null, undefined, 0]) {
+    assert.match(
+      runRecordProblem(runRecordFor(RUN, 1, { run_attempt: latest }), expected) ?? '',
+      /^\[both attempts\] run 1001: latest attempt is /,
+      JSON.stringify(latest)
+    )
   }
 })
 
@@ -777,10 +797,14 @@ function pageOf(url, entries) {
   return { status: 200, body, link: `<${next}>; rel="next", <${url}>; rel="last"` }
 }
 
-function pullFor(number, { state = 'open', merged = false, ref = 'feature/same-tree' } = {}) {
+function pullFor(
+  number,
+  { state = 'open', merged = false, ref = 'feature/same-tree', created = PULL_CREATED } = {}
+) {
   return {
     number,
     state,
+    created_at: created,
     merged_at: merged ? '2026-11-01T00:00:00Z' : null,
     owner: 'Qbit-Org',
     head: { ref, repo: { id: Number(REPOSITORY_ID) } },
@@ -788,10 +812,20 @@ function pullFor(number, { state = 'open', merged = false, ref = 'feature/same-t
 }
 
 // A simulated GitHub REST API holding runs, attempt jobs, artifacts, pull
-// requests and timelines. It reads queries the way GitHub does, and requests
-// whose path and query match a pattern in `fail` return HTTP 502.
+// requests, timelines, issue events and the listing of a workflow's runs. It
+// reads queries the way GitHub does, and requests whose path and query match
+// a pattern in `fail` return HTTP 502.
 function fakeGitHub(world) {
-  const { runs = {}, jobs = {}, artifacts = {}, pulls = [], timelines = {}, fail = [] } = world
+  const {
+    runs = {},
+    jobs = {},
+    artifacts = {},
+    pulls = [],
+    timelines = {},
+    events = {},
+    workflowRuns = [],
+    fail = [],
+  } = world
   const requests = []
   const respond = path => {
     requests.push(path)
@@ -826,6 +860,18 @@ function fakeGitHub(world) {
     }
     match = /^\/issues\/(\d+)\/timeline$/.exec(route)
     if (match) return pageOf(url, timelines[match[1]] ?? [])
+    match = /^\/issues\/(\d+)\/events$/.exec(route)
+    if (match) return pageOf(url, events[match[1]] ?? [])
+    match = /^\/actions\/workflows\/([^/]+)\/runs$/.exec(route)
+    if (match) {
+      const listed = workflowRuns
+        .filter(run => run.path === `.github/workflows/${match[1]}`)
+        .filter(run => run.event === url.searchParams.get('event'))
+        .filter(run => run.head_branch === url.searchParams.get('branch'))
+        .sort((a, b) => b.id - a.id)
+      const { body, link } = pageOf(url, listed)
+      return { status: 200, body: { total_count: listed.length, workflow_runs: body }, link }
+    }
     throw new Error(`unexpected request ${path}`)
   }
   const fetchImpl = async (url, options) => {
@@ -839,12 +885,44 @@ function fakeGitHub(world) {
     fetchImpl,
     requests,
     fetchJson: path => githubJson({ ...request, path }),
-    fetchList: (path, maxPages) => githubList({ ...request, path, maxPages }),
+    fetchList: (path, maxPages, field) => githubList({ ...request, path, maxPages, field }),
   }
 }
 
+// Runs of CI on head branch feature/same-tree that do not stand in the way:
+// an earlier failure of this head tree, a later failure of another head tree,
+// a later pass of this head tree, this run (still going) and the run that
+// saved the marker.
+function laterRuns() {
+  return [
+    runRecordFor('900', 1, {
+      conclusion: 'failure',
+      created_at: '2026-11-01T12:00:00Z',
+      run_started_at: '2026-11-01T12:00:00Z',
+    }),
+    runRecordFor(RUN),
+    runRecordFor('1500', 1, {
+      head_commit: { tree_id: OTHER_TREE },
+      conclusion: 'failure',
+      created_at: '2026-11-03T00:00:00Z',
+      run_started_at: '2026-11-03T00:00:00Z',
+    }),
+    runRecordFor('1600', 1, {
+      created_at: '2026-11-04T00:00:00Z',
+      run_started_at: '2026-11-04T00:00:00Z',
+    }),
+    runRecordFor('2002', 1, {
+      status: 'in_progress',
+      conclusion: null,
+      created_at: '2026-11-05T00:00:00Z',
+      run_started_at: '2026-11-05T00:00:00Z',
+    }),
+  ]
+}
+
 // Run 1001 attempt 1 passed this tree and saved KEY. Pull request #42 is the
-// only one from its head branch, and its base never changed.
+// only one from its head branch, opened before that run, and neither its base
+// nor its head branch ever changed; no run of this tree failed since.
 function passingWorld() {
   return {
     runs: { [RUN]: runRecordFor() },
@@ -855,6 +933,24 @@ function passingWorld() {
       42: [{ event: 'committed' }, { event: 'reviewed' }, { event: 'head_ref_force_pushed' }],
       43: [{ event: 'base_ref_changed' }],
     },
+    events: {
+      42: [
+        { id: 11, event: 'labeled' },
+        { id: 12, event: 'head_ref_force_pushed' },
+      ],
+      43: [{ id: 13, event: 'head_ref_deleted' }],
+    },
+    // Pull request #43's run of another branch, which GitHub does not list
+    // for this branch, failed later.
+    workflowRuns: [
+      ...laterRuns(),
+      runRecordFor('1700', 1, {
+        head_branch: 'another-branch',
+        conclusion: 'failure',
+        created_at: '2026-11-04T00:00:00Z',
+        run_started_at: '2026-11-04T00:00:00Z',
+      }),
+    ],
   }
 }
 
@@ -880,6 +976,8 @@ test('GitHub must vouch for the run a marker names, through its record, jobs and
     `/repos/${REPOSITORY}/actions/runs/1001/artifacts?name=${artifactName(KEY)}&per_page=100`,
     `/repos/${REPOSITORY}/pulls?state=all&sort=created&direction=asc&head=Qbit-Org%3Afeature%2Fsame-tree&per_page=2`,
     `/repos/${REPOSITORY}/issues/42/timeline?per_page=100&page=1`,
+    `/repos/${REPOSITORY}/issues/42/events?per_page=100&page=1`,
+    `/repos/${REPOSITORY}/actions/workflows/ci.yml/runs?event=pull_request&branch=feature%2Fsame-tree&per_page=100&page=1`,
   ])
 
   const world = mutate => {
@@ -985,6 +1083,235 @@ test('GitHub must vouch for the run a marker names, through its record, jobs and
   for (const [name, value] of Object.entries(refused)) {
     assert.notEqual((await check(value)).problem, null, name)
   }
+  // Each rule that binds the run to this pull request refuses by name, and
+  // so does a listing it reads that fails or is cut short.
+  const many = (count, entry) => Array.from({ length: count }, () => ({ ...entry }))
+  const laterRun = (id, overrides) =>
+    runRecordFor(id, 1, {
+      created_at: '2026-11-03T00:00:00Z',
+      run_started_at: '2026-11-03T00:00:00Z',
+      ...overrides,
+    })
+  const byRule = {
+    'one pull request per head branch': {
+      'a closed pull request from the same head branch': world(w => {
+        w.pulls.push(pullFor(7, { state: 'closed' }))
+      }),
+      'a failing pull request listing': world(w => {
+        w.fail = [/\/pulls\?/]
+      }),
+    },
+    'base unchanged': {
+      'a retarget only in the issue events': world(w => {
+        w.events[42].push({ id: 14, event: 'base_ref_changed' })
+      }),
+      'a failed retarget by GitHub in the issue events': world(w => {
+        w.events[42].push({ id: 14, event: 'automatic_base_change_failed' })
+      }),
+      'a base force-push only in the issue events': world(w => {
+        w.events[42].push({ id: 14, event: 'base_ref_force_pushed' })
+      }),
+      'a base deletion on the second page of the issue events': world(w => {
+        w.events[42] = [...many(120, { event: 'labeled' }), { event: 'base_ref_deleted' }]
+      }),
+      'a retarget by GitHub in the timeline': world(w => {
+        w.timelines[42].push({ event: 'automatic_base_change_succeeded' })
+      }),
+    },
+    'head branch kept': {
+      'a deleted head branch in the timeline': world(w => {
+        w.timelines[42].push({ event: 'head_ref_deleted' })
+      }),
+      'a restored head branch in the timeline': world(w => {
+        w.timelines[42].push({ event: 'head_ref_restored' })
+      }),
+      'a deleted head branch in the issue events': world(w => {
+        w.events[42].push({ id: 14, event: 'head_ref_deleted' })
+      }),
+      'a restored head branch in the issue events': world(w => {
+        w.events[42].push({ id: 14, event: 'head_ref_restored' })
+      }),
+    },
+    'base unchanged, head branch kept': {
+      'a failing issue events listing': world(w => {
+        w.fail = [/\/events\?/]
+      }),
+      'issue events cut short by a failing second page': world(w => {
+        w.events[42] = many(150, { event: 'labeled' })
+        w.fail = [/\/events\?.*&page=2$/]
+      }),
+      'issue events longer than 30 pages': world(w => {
+        w.events[42] = many(3000, { event: 'labeled' })
+      }),
+      'an issue event without a name': world(w => {
+        w.events[42].push({ id: 14 })
+      }),
+      'an issue event whose name is not a string': world(w => {
+        w.events[42].push({ id: 14, event: 7 })
+      }),
+    },
+    'run after the pull request': {
+      'a run created before the pull request': world(w => {
+        w.runs[RUN].created_at = '2026-10-31T00:00:00Z'
+      }),
+      'a run created in the same second as the pull request': world(w => {
+        w.runs[RUN].created_at = PULL_CREATED
+      }),
+      'a run without created_at': world(w => {
+        delete w.runs[RUN].created_at
+      }),
+      'a pull request without created_at': world(w => {
+        delete w.pulls[0].created_at
+      }),
+      'a pull request whose created_at is a number': world(w => {
+        w.pulls[0].created_at = 1794427138
+      }),
+    },
+    'no later failure': {
+      'a later failed run of this tree': world(w => {
+        w.workflowRuns.push(laterRun('1800', { conclusion: 'failure' }))
+      }),
+      'a later cancelled run of this tree': world(w => {
+        w.workflowRuns.push(laterRun('1800', { conclusion: 'cancelled' }))
+      }),
+      'a later run of this tree still going': world(w => {
+        w.workflowRuns.push(laterRun('1800', { status: 'in_progress', conclusion: null }))
+      }),
+      'an earlier run of this tree re-run since, which failed': world(w => {
+        w.workflowRuns.push(
+          laterRun('950', { conclusion: 'failure', created_at: '2026-11-01T12:00:00Z' })
+        )
+      }),
+      'a later failure on the second page': world(w => {
+        w.workflowRuns.push(
+          ...Array.from({ length: 120 }, (_, index) => laterRun(String(3000 + index), {})),
+          laterRun('1800', { conclusion: 'failure' })
+        )
+      }),
+      'a failing run listing': world(w => {
+        w.fail = [/\/actions\/workflows\/ci\.yml\/runs\?/]
+      }),
+      'a run listing cut short by a failing second page': world(w => {
+        w.workflowRuns.push(
+          ...Array.from({ length: 120 }, (_, index) => laterRun(String(3000 + index), {}))
+        )
+        w.fail = [/\/runs\?.*&page=2$/]
+      }),
+      'a run listing longer than 10 pages': world(w => {
+        w.workflowRuns.push(
+          ...Array.from({ length: 1000 }, (_, index) => laterRun(String(3000 + index), {}))
+        )
+      }),
+      'a listed run whose head tree is unreadable': world(w => {
+        w.workflowRuns.push(laterRun('1800', { head_commit: { tree_id: null } }))
+      }),
+      // The vouching run, re-run while the decision was under way: its record
+      // was read at attempt 1, and the listing shows the newer attempt.
+      'the vouching run re-run since, still going': world(w => {
+        w.workflowRuns = w.workflowRuns.map(listed =>
+          listed.id === Number(RUN)
+            ? { ...listed, run_attempt: 2, status: 'in_progress', conclusion: null }
+            : listed
+        )
+      }),
+      'the vouching run re-run since, failed': world(w => {
+        w.workflowRuns = w.workflowRuns.map(listed =>
+          listed.id === Number(RUN) ? { ...listed, run_attempt: 2, conclusion: 'failure' } : listed
+        )
+      }),
+      'the vouching run not in the listing': world(w => {
+        w.workflowRuns = w.workflowRuns.filter(listed => listed.id !== Number(RUN))
+      }),
+      // Ten full pages are not known to be the whole listing.
+      'exactly 1,000 listed runs': world(w => {
+        w.workflowRuns.push(
+          ...Array.from({ length: 1000 - laterRuns().length }, (_, index) =>
+            laterRun(String(3000 + index), {})
+          )
+        )
+      }),
+      'a listed failure whose start is unreadable': world(w => {
+        w.workflowRuns.push(laterRun('1800', { conclusion: 'failure', run_started_at: 'later' }))
+      }),
+    },
+    'both attempts': {
+      'a re-run of the saving run that passed too': world(w => {
+        w.runs[RUN] = runRecordFor(RUN, 2)
+        w.jobs[`${RUN}/2`] = passingJobs(RUN, 2)
+      }),
+      'the save job skipped in the saving attempt': world(w => {
+        w.jobs[`${RUN}/1`].jobs[4].conclusion = 'skipped'
+      }),
+      'a failing jobs listing': world(w => {
+        w.fail = [/\/jobs\?/]
+      }),
+    },
+  }
+  for (const [rule, cases] of Object.entries(byRule)) {
+    for (const [name, value] of Object.entries(cases)) {
+      const { problem } = await check(value)
+      assert.ok(
+        typeof problem === 'string' && problem.startsWith(`[${rule}] `),
+        `${name}: ${problem}`
+      )
+    }
+  }
+  assert.deepEqual(Object.values(RULES).sort(), [
+    'base unchanged',
+    'both attempts',
+    'head branch kept',
+    'no later failure',
+    'one pull request per head branch',
+    'run after the pull request',
+  ])
+  // The listing of runs is GitHub's for this workflow file and head branch,
+  // whose name is encoded; a long listing is read to the end and passes.
+  const longRuns = world(w => {
+    w.workflowRuns.push(
+      ...Array.from({ length: 230 }, (_, index) => laterRun(String(3000 + index), {}))
+    )
+  })
+  // The vouching run red at run level only, with its gate and save jobs
+  // green in that attempt: Dependency policy failed, or the run was
+  // cancelled, or is still finishing, after it saved the marker. It vouches.
+  for (const overrides of [
+    { conclusion: 'failure' },
+    { conclusion: 'cancelled' },
+    { status: 'in_progress', conclusion: null },
+  ]) {
+    const redRun = world(w => {
+      w.runs[RUN] = runRecordFor(RUN, 1, overrides)
+      w.workflowRuns = w.workflowRuns.map(listed =>
+        listed.id === Number(RUN) ? { ...listed, ...overrides } : listed
+      )
+    })
+    assert.equal((await check(redRun)).problem, null, JSON.stringify(overrides))
+  }
+  const longRunsCheck = await check(longRuns)
+  assert.equal(longRunsCheck.problem, null)
+  assert.equal(longRunsCheck.requests.filter(path => path.includes('/runs?')).length, 3)
+  // 999 runs end on a short tenth page and are read to the end.
+  const justUnder = world(w => {
+    w.workflowRuns.push(
+      ...Array.from({ length: 999 - laterRuns().length }, (_, index) =>
+        laterRun(String(3000 + index), {})
+      )
+    )
+  })
+  assert.equal((await check(justUnder)).problem, null)
+  // This run's own earlier attempts are not read, so a re-run never skips,
+  // and it is refused before the run listing is read.
+  const rerun = fakeGitHub(passingWorld())
+  const rerunProblemText = await markerRunProblem({
+    ...parseMarkerKey(KEY, PREFIX),
+    key: KEY,
+    context: { ...CONTEXT, currentRunAttempt: '2' },
+    fetchJson: rerun.fetchJson,
+    fetchList: rerun.fetchList,
+  })
+  assert.match(rerunProblemText, /^\[no later failure\] this is attempt 2 of run 2002/)
+  assert.ok(!rerun.requests.some(path => path.includes('/runs?')))
+
   // A long timeline without a base change is read to the end and passes.
   const long = world(w => {
     w.timelines[42] = Array.from({ length: 250 }, () => ({ event: 'commented' }))
@@ -1285,6 +1612,21 @@ function decideEnvironment(extra = {}) {
 test('the decide step skips with the passing run URL only when GitHub vouches for it', async t => {
   // What the run knows about itself, as the checks use it.
   assert.deepEqual(runContext(decideEnvironment()), CONTEXT)
+  for (const [name, value] of [
+    ['GITHUB_RUN_ID', ''],
+    ['GITHUB_RUN_ID', '02002'],
+    ['GITHUB_RUN_ID', undefined],
+    ['GITHUB_RUN_ATTEMPT', ''],
+    ['GITHUB_RUN_ATTEMPT', '0'],
+    ['GITHUB_RUN_ATTEMPT', '1 '],
+    ['GITHUB_RUN_ATTEMPT', undefined],
+  ]) {
+    assert.throws(
+      () => runContext(decideEnvironment({ [name]: value })),
+      new RegExp(`^TreePassConfigError: ${name} `),
+      `${name}=${JSON.stringify(value)}`
+    )
+  }
   const outputFile = join(scratch(t, 'tree-pass-decide-'), 'output')
   const run = async (extra, world = passingWorld()) => {
     rmSync(outputFile, { force: true })
@@ -1307,7 +1649,7 @@ test('the decide step skips with the passing run URL only when GitHub vouches fo
     hit.lines.join('\n'),
     /^::notice title=Tree pass marker::Skipping the covered jobs: /m
   )
-  assert.equal(hit.requests.length, 5)
+  assert.equal(hit.requests.length, 7)
 
   const full = { skip: 'false', save: 'true', 'run-url': '' }
   for (const extra of [
@@ -1334,6 +1676,10 @@ test('the decide step skips with the passing run URL only when GitHub vouches fo
     // Another pull request, or none.
     { TREE_PASS_PR_NUMBER: '43' },
     { TREE_PASS_PR_NUMBER: '' },
+    // A re-run of this run, or an attempt that cannot be read.
+    { GITHUB_RUN_ATTEMPT: '2' },
+    { GITHUB_RUN_ATTEMPT: '' },
+    { GITHUB_RUN_ATTEMPT: '0' },
   ]) {
     const result = await run(extra)
     assert.deepEqual(result.written, full, JSON.stringify(extra))
@@ -1354,14 +1700,93 @@ test('the decide step skips with the passing run URL only when GitHub vouches fo
   retargeted.timelines[42].push({ event: 'base_ref_changed' })
   assert.deepEqual((await run({}, retargeted)).written, full)
 
+  // The log names the rule that refused, and the event or run it found.
+  const logged = async (world, extra = {}) => (await run(extra, world)).lines.join('\n')
+  const movedBase = passingWorld()
+  movedBase.events[42].push({ id: 35054321753, event: 'base_ref_force_pushed' })
+  assert.match(
+    await logged(movedBase),
+    /^::notice title=Tree pass marker::Running every job: \[base unchanged\] base_ref_force_pushed \(event 35054321753\) is in pull request #42's issue events$/m
+  )
+  const laterFailure = passingWorld()
+  laterFailure.workflowRuns.push(
+    runRecordFor('1800', 1, {
+      conclusion: 'cancelled',
+      created_at: '2026-11-03T00:00:00Z',
+      run_started_at: '2026-11-03T00:00:00Z',
+    })
+  )
+  assert.match(
+    await logged(laterFailure),
+    /Running every job: \[no later failure\] run 1800 of this tree ended "cancelled"/
+  )
+  const failedEvents = passingWorld()
+  failedEvents.fail = [/\/events\?/]
+  assert.match(
+    await logged(failedEvents),
+    /Running every job: GitHub's record of run 1001 could not be checked: \[base unchanged, head branch kept\] GET \/repos\/Qbit-Org\/qbit-wallet\/issues\/42\/events\?per_page=100&page=1 returned HTTP 502$/m
+  )
+  assert.match(
+    await logged(passingWorld(), { GITHUB_RUN_ATTEMPT: '2' }),
+    /Running every job: \[no later failure\] this is attempt 2 of run 2002/
+  )
+
+  // One deadline covers every request of the decision: once it has passed
+  // nothing more is sent, and the run runs everything.
+  const timed = async (budgetMs, delayMs) => {
+    rmSync(outputFile, { force: true })
+    const github = fakeGitHub(passingWorld())
+    const { lines, log } = messages()
+    const fetchImpl = async (url, options) => {
+      await new Promise(done => setTimeout(done, delayMs))
+      return github.fetchImpl(url, options)
+    }
+    await runDecide(decideEnvironment({ GITHUB_OUTPUT: outputFile }), {
+      fetchImpl,
+      log,
+      budgetMs,
+    })
+    return { written: outputs(outputFile), lines, requests: github.requests }
+  }
+  const noTime = await timed(0, 0)
+  assert.deepEqual(noTime.written, full)
+  assert.deepEqual(noTime.requests, [])
+  assert.match(noTime.lines.join('\n'), /was not sent: the time for the decision ran out/)
+  // Each request is far inside its own 15 seconds; together they are not.
+  // The deadline either cuts the request in flight short or leaves the next
+  // one unsent.
+  const slow = await timed(150, 40)
+  assert.deepEqual(slow.written, full)
+  assert.ok(slow.requests.length > 0 && slow.requests.length < 7, slow.requests.join('\n'))
+  assert.match(slow.lines.join('\n'), /the time for the decision ran out|timed out after \d+ ms/)
+  // A request still in flight when the deadline passes is cut short there.
+  const cutStarted = Date.now()
+  const cut = await timed(60, 1000)
+  assert.ok(Date.now() - cutStarted < 900)
+  assert.deepEqual(cut.written, full)
+  assert.match(
+    cut.lines.join('\n'),
+    /could not be checked: GET \/repos\/Qbit-Org\/qbit-wallet\/actions\/runs\/1001 timed out after \d+ ms$/m
+  )
+  assert.equal((await timed(5000, 1)).written.skip, 'true')
+
   // A head branch whose name needs encoding in the query: `+`, `&`, `=`,
   // `#`, `%` and a non-ASCII letter all reach GitHub as part of the name.
   const branch = 'feature/a+b&state=open#c%d-ü'
   const odd = passingWorld()
   odd.runs[RUN].head_branch = branch
+  odd.workflowRuns = odd.workflowRuns.map(listed =>
+    listed.head_branch === 'feature/same-tree' ? { ...listed, head_branch: branch } : listed
+  )
   odd.pulls = [pullFor(42, { ref: branch }), pullFor(7, { state: 'closed', ref: 'feature/a b' })]
   const encoded = await run({ TREE_PASS_HEAD_BRANCH: branch }, odd)
   assert.equal(encoded.written.skip, 'true')
+  assert.ok(
+    encoded.requests.includes(
+      `/repos/${REPOSITORY}/actions/workflows/ci.yml/runs?event=pull_request&branch=feature%2Fa%2Bb%26state%3Dopen%23c%25d-%C3%BC&per_page=100&page=1`
+    ),
+    encoded.requests.join('\n')
+  )
   assert.ok(
     encoded.requests.includes(
       `/repos/${REPOSITORY}/pulls?state=all&sort=created&direction=asc&head=Qbit-Org%3Afeature%2Fa%2Bb%26state%3Dopen%23c%25d-%C3%BC&per_page=2`
@@ -1423,6 +1848,136 @@ test('a listing is read page by page to its end, and any gap throws', async () =
   await assert.rejects(listing(entries(150), { oversize: 1 }).read(), /did not return a list/)
   await assert.rejects(listing(entries(350)).read(3), /more than 3 pages/)
   assert.deepEqual(await listing(entries(350)).read(4), entries(350))
+  // An object listing: the entries under `field`, counted by total_count.
+  const objectListing = (
+    entries,
+    { total = () => entries.length, field = 'workflow_runs' } = {}
+  ) => {
+    const requests = []
+    const fetchImpl = async url => {
+      requests.push(url.slice(API.length))
+      const parsed = new URL(url)
+      const served = pageOf(parsed, entries)
+      const page = Number(parsed.searchParams.get('page'))
+      return fakeResponse(200, { total_count: total(page), [field]: served.body }, served.link)
+    }
+    return {
+      requests,
+      read: (maxPages = 5) =>
+        githubList({
+          apiUrl: API,
+          token: 't',
+          fetchImpl,
+          path: '/repos/Qbit-Org/qbit-wallet/actions/workflows/ci.yml/runs?event=pull_request',
+          maxPages,
+          field: 'workflow_runs',
+        }),
+    }
+  }
+  const runsListing = objectListing(entries(150))
+  assert.deepEqual(await runsListing.read(), entries(150))
+  assert.deepEqual(runsListing.requests, [
+    '/repos/Qbit-Org/qbit-wallet/actions/workflows/ci.yml/runs?event=pull_request&per_page=100&page=1',
+    '/repos/Qbit-Org/qbit-wallet/actions/workflows/ci.yml/runs?event=pull_request&per_page=100&page=2',
+  ])
+  assert.deepEqual(await objectListing(entries(100)).read(), entries(100))
+  assert.deepEqual(await objectListing([]).read(), [])
+  // A total that says more were listed than the pages hold: GitHub stops a
+  // filtered run listing at 1,000 runs while total_count goes on counting.
+  await assert.rejects(objectListing(entries(50), { total: () => 51 }).read(), /listed 50 of 51/)
+  await assert.rejects(objectListing(entries(50), { total: () => 49 }).read(), /listed 50 of 49/)
+  // A total that moves between pages: a run was added or removed meanwhile.
+  await assert.rejects(
+    objectListing(entries(150), { total: page => (page === 1 ? 150 : 151) }).read(),
+    /total_count 151, not 150/
+  )
+  for (const total of [undefined, '150', 1.5, null]) {
+    await assert.rejects(
+      objectListing(entries(150), { total: () => total }).read(),
+      /total_count/,
+      String(total)
+    )
+  }
+  await assert.rejects(objectListing(entries(3), { field: 'runs' }).read(), /did not return a list/)
+  await assert.rejects(objectListing(entries(1000)).read(9), /more than 9 pages/)
+  // A bare list where an object is expected.
+  await assert.rejects(
+    githubList({
+      apiUrl: API,
+      token: 't',
+      path: '/x',
+      maxPages: 1,
+      field: 'workflow_runs',
+      fetchImpl: async () => fakeResponse(200, []),
+    }),
+    /did not return a list/
+  )
+  // A deadline that has passed sends nothing; one that is near cuts the
+  // request's own timeout short.
+  let sent = 0
+  await assert.rejects(
+    githubJson({
+      apiUrl: API,
+      token: 't',
+      path: '/x',
+      deadline: Date.now() - 1,
+      fetchImpl: async () => {
+        sent += 1
+        return fakeResponse(200, {})
+      },
+    }),
+    /GET \/x was not sent: the time for the decision ran out/
+  )
+  assert.equal(sent, 0)
+  // A request that waits on nothing but its signal, as a fetch stuck with no
+  // socket would: nothing else keeps the event loop alive, so the timeout's
+  // own timer must, or the test (and a real decide step) never settles.
+  const hanging = async (url, { signal }) =>
+    new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)))
+  // A fetch that ignores its signal and never settles: the deadline still
+  // ends the request.
+  const deaf = async () => new Promise(() => {})
+  for (const fetchImpl of [hanging, deaf]) {
+    const started = Date.now()
+    await assert.rejects(
+      githubJson({ apiUrl: API, token: 't', path: '/x', deadline: Date.now() + 50, fetchImpl }),
+      error =>
+        error.name === 'TimeoutError' && /^GET \/x timed out after \d+ ms$/.test(error.message)
+    )
+    assert.ok(Date.now() - started < 5000)
+  }
+  // A body that never ends is cut off the same way.
+  await assert.rejects(
+    githubJson({
+      apiUrl: API,
+      token: 't',
+      path: '/x',
+      timeoutMs: 50,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: () => new Promise(() => {}),
+      }),
+    }),
+    /timed out after 50 ms/
+  )
+  // The request's own timeout, without a shared deadline, applies the same way.
+  await assert.rejects(
+    githubJson({ apiUrl: API, token: 't', path: '/x', timeoutMs: 30, fetchImpl: hanging }),
+    /timed out after 30 ms/
+  )
+  await assert.rejects(
+    githubList({
+      apiUrl: API,
+      token: 't',
+      path: '/x',
+      maxPages: 1,
+      deadline: Date.now() - 1,
+      fetchImpl: async () => fakeResponse(200, []),
+    }),
+    /ran out/
+  )
   // A response without readable headers.
   await assert.rejects(
     githubList({
@@ -1463,58 +2018,304 @@ test('only this pull request may come from its head branch, and its base never c
     assert.notEqual(headPullsProblem(pulls, context), null, JSON.stringify(pulls))
   }
 
-  assert.equal(timelineProblem([], context), null)
-  // Events about the head, or that only contain the words, are not base changes.
-  const other = [
-    'committed',
-    'reviewed',
-    'head_ref_force_pushed',
-    'head_ref_deleted',
-    'head_ref_restored',
-    'closed',
-    'reopened',
-    'merged',
-    'base',
-    'base_ref',
-    'rebase_ref_changed',
-    'automatic_base_change',
-    'convert_to_draft',
-  ]
+  for (const listing of ['timeline', 'issue events']) {
+    const check = events => eventsProblem(events, context, listing)
+    assert.equal(check([]), null)
+    // Events about the head that do not delete or restore it, and events
+    // that only contain the words, change neither the base nor the branch.
+    const other = [
+      'committed',
+      'reviewed',
+      'head_ref_force_pushed',
+      'closed',
+      'reopened',
+      'merged',
+      'base',
+      'base_ref',
+      'rebase_ref_changed',
+      'automatic_base_change',
+      'head_ref',
+      'head_ref_deleted_later',
+      'convert_to_draft',
+    ]
+    assert.equal(check(other.map(event => ({ event }))), null, listing)
+    // Every event named for the base turns skipping off, by prefix: the names
+    // seen in this organization, and any other GitHub may add.
+    for (const event of [
+      'base_ref_changed',
+      'base_ref_force_pushed',
+      'base_ref_deleted',
+      'automatic_base_change_succeeded',
+      'automatic_base_change_failed',
+      'base_ref_restored',
+      'automatic_base_change_queued',
+    ]) {
+      assert.equal(
+        check([...other.map(name => ({ event: name })), { id: 35054321753, event }]),
+        `[base unchanged] ${event} (event 35054321753) is in pull request #42's ${listing}`,
+        event
+      )
+    }
+    // A deleted or restored head branch, by exact name.
+    for (const event of ['head_ref_deleted', 'head_ref_restored']) {
+      assert.equal(
+        check([...other.map(name => ({ event: name })), { event }]),
+        `[head branch kept] ${event} is in pull request #42's ${listing}`,
+        event
+      )
+      assert.match(check([{ id: 7, event }]), /\] head_ref_\w+ \(event 7\) is in /)
+    }
+    // An id that is not a whole number is not quoted as one.
+    assert.match(check([{ id: '7', event: 'base_ref_changed' }]), /\] base_ref_changed is in /)
+    for (const events of [
+      [{ event: 'committed' }, { event: 'base_ref_force_pushed' }],
+      [{ id: 1 }],
+      [{ event: 7 }],
+      [null],
+      ['base_ref_changed'],
+      null,
+      {},
+    ]) {
+      assert.match(
+        check(events) ?? '',
+        /^\[(base unchanged|base unchanged, head branch kept)\] /,
+        JSON.stringify(events)
+      )
+    }
+  }
+})
+
+test('the run a marker names was created strictly after this pull request', () => {
+  const where = { runId: RUN, pullRequest: '42' }
+  const ok = runRecordFor()
+  const pull = pullFor(42)
+  assert.equal(creationProblem(ok, pull, where), null)
   assert.equal(
-    timelineProblem(
-      other.map(event => ({ event })),
-      context
-    ),
+    creationProblem(runRecordFor(RUN, 1, { created_at: '2026-11-01T00:00:01Z' }), pull, where),
     null
   )
-  // Every event named for the base turns skipping off, by prefix: the names
-  // seen in this organization, and any other GitHub may add.
-  for (const event of [
-    'base_ref_changed',
-    'base_ref_force_pushed',
-    'base_ref_deleted',
-    'automatic_base_change_succeeded',
-    'automatic_base_change_failed',
-    'base_ref_restored',
-    'automatic_base_change_queued',
-  ]) {
+  const refused = [
+    // Before the pull request, or in the same second.
+    [{ created_at: '2026-10-31T23:59:59Z' }, {}],
+    [{ created_at: PULL_CREATED }, {}],
+    [{}, { created_at: RUN_CREATED }],
+    [{}, { created_at: '2026-11-03T00:00:00Z' }],
+    // Unreadable on either side.
+    [{ created_at: undefined }, {}],
+    [{ created_at: null }, {}],
+    [{ created_at: 1794427138 }, {}],
+    [{ created_at: '2026-11-02' }, {}],
+    [{ created_at: '2026-11-02T00:00:00+00:00' }, {}],
+    [{ created_at: '2026-11-02T00:00:00.000Z' }, {}],
+    [{ created_at: '2026-02-30T00:00:00Z' }, {}],
+    [{}, { created_at: undefined }],
+    [{}, { created_at: '' }],
+    [{}, { created_at: '2026-11-01T24:00:00Z' }],
+  ]
+  for (const [runOverrides, pullOverrides] of refused) {
     assert.match(
-      timelineProblem([...other.map(name => ({ event: name })), { event }], context) ?? '',
-      new RegExp(`base changed \\(${event}\\)$`),
-      event
+      creationProblem(runRecordFor(RUN, 1, runOverrides), { ...pull, ...pullOverrides }, where) ??
+        '',
+      /^\[run after the pull request\] /,
+      JSON.stringify([runOverrides, pullOverrides])
     )
   }
-  for (const events of [
-    [{ event: 'base_ref_changed' }],
-    [{ event: 'committed' }, { event: 'base_ref_force_pushed' }],
-    [{ id: 1 }],
-    [{ event: 7 }],
-    [null],
-    ['base_ref_changed'],
+  assert.equal(
+    creationProblem(runRecordFor(RUN, 1, { created_at: PULL_CREATED }), pull, where),
+    '[run after the pull request] run 1001 was created at 2026-11-01T00:00:00Z, not after pull request #42 (2026-11-01T00:00:00Z)'
+  )
+  assert.match(creationProblem(null, pull, where), /run 1001 has no readable created_at \(null\)/)
+  assert.match(creationProblem(ok, null, where), /#42 has no readable created_at \(null\)/)
+})
+
+test('GitHub timestamps are read exactly, and anything else is unreadable', () => {
+  assert.equal(githubTime('2026-11-11T19:58:58Z'), Date.UTC(2026, 10, 11, 19, 58, 58))
+  assert.equal(githubTime('2028-02-29T00:00:00Z'), Date.UTC(2028, 1, 29))
+  for (const value of [
+    '2026-02-29T00:00:00Z',
+    '2026-02-30T00:00:00Z',
+    '2026-13-01T00:00:00Z',
+    '2026-11-11T24:00:00Z',
+    '2026-11-11T19:58:60Z',
+    '2026-11-11T19:58:58.000Z',
+    '2026-11-11T19:58:58+00:00',
+    '2026-11-11 19:58:58Z',
+    ' 2026-11-11T19:58:58Z',
+    '2026-11-11T19:58:58Z\n',
+    '',
     null,
+    undefined,
+    1794427138000,
     {},
+    ['2026-11-11T19:58:58Z'],
+    { toString: () => '2026-11-11T19:58:58Z' },
   ]) {
-    assert.notEqual(timelineProblem(events, context), null, JSON.stringify(events))
+    assert.equal(githubTime(value), null, JSON.stringify(value))
+  }
+})
+
+test('no run of this tree failed, was cancelled or is still going since the vouching run', () => {
+  const since = githubTime(RUN_CREATED)
+  const checkListing = (runs, context = CONTEXT) =>
+    laterRunsProblem(runs, { runId: RUN, runAttempt: '1', since, context })
+  // A listing as GitHub serves it holds the vouching run, as it passed.
+  const check = (runs, context) =>
+    checkListing(Array.isArray(runs) ? [runRecordFor(RUN), ...runs] : runs, context)
+  assert.equal(checkListing(laterRuns()), null)
+  assert.equal(check([]), null)
+  const later = (id, overrides) =>
+    runRecordFor(id, 1, {
+      created_at: '2026-11-03T00:00:00Z',
+      run_started_at: '2026-11-03T00:00:00Z',
+      ...overrides,
+    })
+  const refused = {
+    'a later failure': [later('1800', { conclusion: 'failure' })],
+    'a later cancelled run': [later('1800', { conclusion: 'cancelled' })],
+    'a later timed-out run': [later('1800', { conclusion: 'timed_out' })],
+    'a later skipped run': [later('1800', { conclusion: 'skipped' })],
+    'a later run with no conclusion': [later('1800', { conclusion: null })],
+    'a later run still going': [later('1800', { status: 'in_progress', conclusion: null })],
+    'a later run queued': [later('1800', { status: 'queued', conclusion: null })],
+    'a later run without a status': [later('1800', { status: undefined })],
+    // Created in the same second as the vouching run.
+    'a failure in the same second': [
+      later('1800', {
+        conclusion: 'failure',
+        created_at: RUN_CREATED,
+        run_started_at: RUN_CREATED,
+      }),
+    ],
+    // An earlier run re-run since: created before, its latest attempt after.
+    'an earlier run re-run since that failed': [
+      later('900', { conclusion: 'failure', created_at: '2026-11-01T12:00:00Z' }),
+    ],
+    // A tie on either time alone: created in the same second, or re-run then.
+    'a failure created in the same second, started earlier': [
+      later('1800', {
+        conclusion: 'failure',
+        created_at: RUN_CREATED,
+        run_started_at: '2026-11-01T12:00:00Z',
+      }),
+    ],
+    'an earlier failure re-run in the same second': [
+      later('900', {
+        conclusion: 'failure',
+        created_at: '2026-11-01T12:00:00Z',
+        run_started_at: RUN_CREATED,
+      }),
+    ],
+    // An earlier run whose latest attempt's start cannot be read may have
+    // been re-run since.
+    'an earlier failure whose re-run time is unreadable': [
+      later('900', {
+        conclusion: 'failure',
+        created_at: '2026-11-01T12:00:00Z',
+        run_started_at: null,
+      }),
+    ],
+    'a failure whose creation is later than its start': [
+      later('1800', { conclusion: 'failure', run_started_at: '2026-11-01T12:00:00Z' }),
+    ],
+    // An earlier run still going, whenever it was created.
+    'an earlier run still going': [
+      later('900', {
+        status: 'in_progress',
+        conclusion: null,
+        created_at: '2026-11-01T12:00:00Z',
+        run_started_at: '2026-11-01T12:00:00Z',
+      }),
+    ],
+    // A failure whose times are unreadable.
+    'a failure without run_started_at': [
+      later('1800', { conclusion: 'failure', run_started_at: null }),
+    ],
+    'a failure with a malformed created_at': [
+      later('1800', { conclusion: 'failure', created_at: '2026-11-03' }),
+    ],
+    // A listing that is not what was asked for, or not readable.
+    'a run of another branch': [later('1800', { head_branch: 'other' })],
+    'a run of a push': [later('1800', { event: 'push' })],
+    'a run of another workflow': [later('1800', { path: '.github/workflows/pqc.yml' })],
+    'a run without an ID': [later('1800', { id: '1800' })],
+    'a run without a head tree': [later('1800', { head_commit: null })],
+    'a run with a short head tree': [later('1800', { head_commit: { tree_id: 'c'.repeat(39) } })],
+    'an entry that is not a run': [null],
+    'a listing that is not a list': { workflow_runs: [] },
+  }
+  for (const [name, runs] of Object.entries(refused)) {
+    assert.match(check(runs) ?? '', /^\[no later failure\] /, name)
+  }
+  assert.equal(
+    check([later('1800', { conclusion: 'failure' })]),
+    '[no later failure] run 1800 of this tree ended "failure" in an attempt started at 2026-11-03T00:00:00Z, after run 1001 was created'
+  )
+  assert.equal(
+    check([later('1800', { status: 'in_progress', conclusion: null })]),
+    '[no later failure] run 1800 of this tree is "in_progress", not completed'
+  )
+  // The vouching run is read again: listed for this tree, at the attempt the
+  // marker names. A re-run started while the decision was under way shows
+  // here at a later attempt and refuses, whatever that attempt shows. Its
+  // status and conclusion are not judged: its jobs were (both attempts), and
+  // Dependency policy, the one job outside them, runs again in this run.
+  const vouching = overrides => checkListing([runRecordFor(RUN, 1, overrides)])
+  const vouches = {
+    'completed with success': {},
+    'the same attempt still in progress': { status: 'in_progress', conclusion: null },
+    'the same attempt queued': { status: 'queued', conclusion: null },
+    'the same attempt failed (Dependency policy)': { conclusion: 'failure' },
+    'the same attempt cancelled after it saved': { conclusion: 'cancelled' },
+    'the same attempt with no status': { status: undefined, conclusion: undefined },
+  }
+  for (const [name, overrides] of Object.entries(vouches)) {
+    assert.equal(vouching(overrides), null, name)
+  }
+  const vouchingRefused = {
+    'a later attempt that passed': { run_attempt: 2 },
+    'a later attempt still going': { run_attempt: 2, status: 'in_progress', conclusion: null },
+    'a later attempt that failed': { run_attempt: 2, conclusion: 'failure' },
+    'a later attempt cancelled': { run_attempt: 3, conclusion: 'cancelled' },
+    'an earlier attempt': { run_attempt: 0 },
+    'an attempt as a string': { run_attempt: '1' },
+    'no attempt': { run_attempt: undefined },
+    'a null attempt': { run_attempt: null },
+  }
+  for (const [name, overrides] of Object.entries(vouchingRefused)) {
+    assert.match(vouching(overrides) ?? '', /^\[no later failure\] run 1001 is listed at /, name)
+  }
+  assert.equal(
+    vouching({ run_attempt: 2, status: 'in_progress', conclusion: null }),
+    '[no later failure] run 1001 is listed at attempt 2, not attempt 1: it was re-run after its record was read'
+  )
+  assert.equal(
+    vouching({ head_commit: { tree_id: OTHER_TREE } }),
+    `[no later failure] run 1001 is listed with head tree ${OTHER_TREE}, not ${HEAD_TREE}`
+  )
+  // A listing that does not show the vouching run is not the whole listing.
+  assert.equal(checkListing([]), '[no later failure] the run listing does not show run 1001')
+  assert.equal(
+    checkListing(laterRuns().filter(listed => listed.id !== Number(RUN))),
+    '[no later failure] the run listing does not show run 1001'
+  )
+  // This run is not judged here, whatever it says.
+  assert.equal(check([later('2002', { status: 'in_progress', conclusion: null })]), null)
+  assert.notEqual(
+    check([later('2002', { status: 'in_progress', conclusion: null })], {
+      ...CONTEXT,
+      currentRunId: '2003',
+    }),
+    null
+  )
+
+  // A re-run of this run never skips: its earlier attempts are not read.
+  assert.equal(rerunProblem(CONTEXT), null)
+  assert.equal(
+    rerunProblem({ ...CONTEXT, currentRunAttempt: '2' }),
+    '[no later failure] this is attempt 2 of run 2002, whose earlier attempts are not read'
+  )
+  for (const currentRunAttempt of ['3', '', undefined, 1]) {
+    assert.notEqual(rerunProblem({ ...CONTEXT, currentRunAttempt }), null)
   }
 })
 
@@ -1605,6 +2406,65 @@ test('the record step writes the marker once, and only for a full pass of this t
     if (markerDir.startsWith('/')) assert.ok(!existsSync(markerDir), JSON.stringify(extra))
     assert.equal(outputs(outputFile).ok, undefined, JSON.stringify(extra))
   }
+})
+
+// The decide step in a process of its own, as a workflow step runs it, so no
+// other test's timers keep its event loop alive. `fetchMode` picks the
+// request GitHub never answers: one that waits on its signal only, one that
+// ignores the signal, or one that fails at once.
+const DECIDE_CHILD = `
+const { runDecide } = await import(process.argv[1])
+const mode = process.env.TREE_PASS_TEST_FETCH
+const fetchImpl = {
+  hang: (url, { signal }) =>
+    new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason))),
+  deaf: () => new Promise(() => {}),
+  fail: async () => ({ ok: false, status: 502 }),
+}[mode]
+const budgetMs = process.env.TREE_PASS_TEST_BUDGET ? Number(process.env.TREE_PASS_TEST_BUDGET) : undefined
+await runDecide(process.env, { fetchImpl, budgetMs })
+`
+
+function decideInChild(t, fetchMode, budgetMs) {
+  const outputFile = join(scratch(t, 'tree-pass-child-'), 'output')
+  const env = {
+    PATH: process.env.PATH,
+    ...decideEnvironment({ GITHUB_OUTPUT: outputFile }),
+    TREE_PASS_TEST_FETCH: fetchMode,
+    ...(budgetMs === undefined ? {} : { TREE_PASS_TEST_BUDGET: String(budgetMs) }),
+  }
+  const started = Date.now()
+  const result = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', DECIDE_CHILD, pathToFileURL(script).href],
+    { env, encoding: 'utf8', timeout: 60_000 }
+  )
+  return { ...result, elapsed: Date.now() - started, written: outputs(outputFile) }
+}
+
+test('a decide step whose request never answers ends in a full run, in a process of its own', t => {
+  const full = { skip: 'false', save: 'true', 'run-url': '' }
+  // Nothing but the request's own timer keeps the event loop alive: it must,
+  // or Node ends the step with exit 13 (an unsettled top-level await) and no
+  // answer.
+  for (const fetchMode of ['hang', 'deaf']) {
+    const result = decideInChild(t, fetchMode, 300)
+    assert.equal(result.status, 0, `${fetchMode}: ${result.stderr}`)
+    assert.deepEqual(result.written, full, fetchMode)
+    assert.match(
+      result.stdout,
+      /Running every job: GitHub's record of run 1001 could not be checked: GET \/repos\/Qbit-Org\/qbit-wallet\/actions\/runs\/1001 timed out after \d+ ms/,
+      fetchMode
+    )
+    assert.ok(result.elapsed < 10_000, `${fetchMode}: ${result.elapsed} ms`)
+  }
+  // A request that settles leaves no timer behind: the step does not wait out
+  // the 15 seconds the request was allowed.
+  const failed = decideInChild(t, 'fail')
+  assert.equal(failed.status, 0, failed.stderr)
+  assert.deepEqual(failed.written, full)
+  assert.match(failed.stdout, /returned HTTP 502/)
+  assert.ok(failed.elapsed < 5_000, `${failed.elapsed} ms`)
 })
 
 function cli(args, env, cwd) {
