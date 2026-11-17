@@ -363,6 +363,14 @@ export class QbitFundingTxReads {
   private cleared = 0
   /** When each view this reader began was begun, by the view. */
   private readonly orders = new WeakMap<QbitFundingFactsView, number>()
+  /**
+   * How many times kept facts changed or went (`factChanges`), by client
+   * scope, apart from clears; never reset. An array, as scopes are small
+   * numbers: counting a drop looks nothing up in a map.
+   */
+  private readonly changes: number[] = []
+  /** How many times `clear` dropped every fact (`factChanges`). */
+  private clears = 0
 
   constructor(options: QbitFundingTxReadsOptions = {}) {
     this.maxOutpoints = options.maxOutpoints ?? QBIT_FUNDING_FACTS_MAX_OUTPOINTS
@@ -389,6 +397,41 @@ export class QbitFundingTxReads {
   /** Outputs whose facts are kept now. */
   get size(): number {
     return this.outpoints
+  }
+
+  /**
+   * How many times a fact kept for a transaction read through `client` has
+   * changed or gone: replaced by one that differs (its value, its script
+   * compared ignoring letter case, or whether it is a coinbase), dropped
+   * (pushed out, or forgotten), or dropped with every other by a `clear`. It
+   * only ever grows, so an answer worked out from the facts as they stood
+   * holds only while this reads the same.
+   */
+  factChanges(client: object): number {
+    const scope = this.scopes.get(client)
+    return this.clears + (scope === undefined ? 0 : (this.changes[scope] ?? 0))
+  }
+
+  /** Count `kept`, kept for an output of `key`'s transaction, replaced by `facts`, if they differ. */
+  private countReplaced(
+    key: string,
+    kept: QbitFundingFactsNode,
+    facts: QbitFundingOutputFacts
+  ): void {
+    if (
+      kept.value === facts.value &&
+      (kept.script === facts.script || kept.script.toLowerCase() === facts.script.toLowerCase()) &&
+      kept.coinbase === facts.coinbase
+    ) {
+      return
+    }
+    this.changed(key)
+  }
+
+  /** Count a change to the facts kept of `key`'s transaction (`factChanges`). */
+  private changed(key: string): void {
+    const scope = Number(key.slice(0, key.indexOf(':')))
+    this.changes[scope] = (this.changes[scope] ?? 0) + 1
   }
 
   /**
@@ -459,6 +502,7 @@ export class QbitFundingTxReads {
     this.outpoints = 0
     this.scripts = new Map()
     this.fetching = new Map()
+    this.clears += 1
     this.cleared = this.started
   }
 
@@ -530,6 +574,7 @@ export class QbitFundingTxReads {
     const kept = this.nodeOf(key, head, vout)
     const script = this.shared(facts.script)
     if (kept) {
+      this.countReplaced(key, kept, facts)
       kept.value = facts.value
       kept.script = script
       kept.coinbase = facts.coinbase
@@ -647,6 +692,8 @@ export class QbitFundingTxReads {
 
   /** How many outputs `key`'s list from `head` held, its index dropped with it. */
   private dropped(key: string, head: QbitFundingFactsNode): number {
+    // An answer worked out from them may stand no more: as much a change as a replacement.
+    this.changed(key)
     const index = this.indexOf(key, head)
     if (index) {
       this.indexes.delete(key)

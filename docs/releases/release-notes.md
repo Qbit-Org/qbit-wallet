@@ -156,6 +156,19 @@ Two more fixes to these payments close what the six left open (#216, #217).
   reads made while a wallet was being removed. This matters for an account
   with more outputs than the explorer will list, whose Available amount now
   comes only from reads asked for after it.
+- While the wallet is open on an account with 1,000 outputs or more whose
+  balance has not changed, a 10-second refresh now asks the explorer only
+  for the account's totals and the current block height, about 300 bytes,
+  instead of downloading the whole list of outputs (about 5 MB for 20,000
+  outputs). It downloads the list again whenever the totals change, a
+  payment is pending, a mining reward matures, the wallet finds that
+  something it had read about a transaction on that network has changed or
+  has been dropped, after it locks, and at least every 5 minutes. After a
+  change it reads the list twice before it skips it again, three times if
+  the explorer's first list lags behind its totals. If the explorer takes
+  more than a second to give the current block height, refreshes download
+  the list as before, for up to 5 minutes at a time. Smaller accounts
+  refresh as before.
 
 ### Security settings and Reset Wallet
 
