@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAutoLockTimeId, useBiometricUnlock, useI18n, useSecurityCardLogic } from '@qbit/wallet-state';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 
 import en from '../../../../_locales/en/messages.json';
 import es from '../../../../_locales/es/messages.json';
@@ -24,8 +24,8 @@ vi.mock('@/ui/components', async () => {
     'data-testid'?: string;
   }) => React.createElement('div', { 'data-testid': rest['data-testid'], onClick }, children);
   const Text = ({ text }: { text?: string }) => React.createElement('span', null, text);
-  const Switch = ({ checked, onChange }: { checked?: boolean; onChange?: (checked: boolean) => void }) =>
-    React.createElement('button', { 'data-checked': String(checked), onClick: () => onChange?.(!checked) });
+  // The real switch: what assistive technology and the keyboard get from it.
+  const { Switch } = await import('@/ui/components/Switch');
   return { Card: Container, Column: Container, Icon: Container, Row: Container, Switch, Text };
 });
 
@@ -59,6 +59,7 @@ describe('SecurityCard lock switches', () => {
     navigate.to = [];
     logic.lockOnComputerLock = true;
     logic.lockOnWindowsClosed = false;
+    logic.saving = false;
     vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
     vi.mocked(useAutoLockTimeId).mockReturnValue(5);
     vi.mocked(useBiometricUnlock).mockReturnValue({ ready: false, supported: false, enrolled: false } as any);
@@ -82,13 +83,49 @@ describe('SecurityCard lock switches', () => {
     const windows = screen.getByTestId(WINDOWS_CLOSED_ROW);
     expect(computer.textContent).toContain('lock_when_computer_locks');
     expect(windows.textContent).toContain('lock_when_all_windows_close');
-    expect(computer.querySelector('button')?.getAttribute('data-checked')).toBe('true');
-    expect(windows.querySelector('button')?.getAttribute('data-checked')).toBe('false');
+    expect(within(computer).getByRole('switch').getAttribute('aria-checked')).toBe('true');
+    expect(within(windows).getByRole('switch').getAttribute('aria-checked')).toBe('false');
 
-    fireEvent.click(computer.querySelector('button')!);
+    fireEvent.click(within(computer).getByRole('switch'));
     expect(logic.changeLockOnComputerLock).toHaveBeenCalledWith(false);
-    fireEvent.click(windows.querySelector('button')!);
+    fireEvent.click(within(windows).getByRole('switch'));
     expect(logic.changeLockOnWindowsClosed).toHaveBeenCalledWith(true);
+  });
+
+  it(String.raw`names each switch by its row's label`, () => {
+    render(<SecurityCard />);
+
+    const computer = screen.getByRole('switch', { name: 'lock_when_computer_locks' });
+    const windows = screen.getByRole('switch', { name: 'lock_when_all_windows_close' });
+    expect(screen.getByTestId(COMPUTER_LOCK_ROW).contains(computer)).toBe(true);
+    expect(screen.getByTestId(WINDOWS_CLOSED_ROW).contains(windows)).toBe(true);
+    expect(screen.getAllByRole('switch')).toHaveLength(2);
+  });
+
+  it('saves a change made from the keyboard through the same handlers', () => {
+    render(<SecurityCard />);
+
+    fireEvent.keyDown(screen.getByRole('switch', { name: 'lock_when_computer_locks' }), { key: ' ' });
+    expect(logic.changeLockOnComputerLock).toHaveBeenCalledTimes(1);
+    expect(logic.changeLockOnComputerLock).toHaveBeenCalledWith(false);
+
+    fireEvent.keyDown(screen.getByRole('switch', { name: 'lock_when_all_windows_close' }), { key: 'Enter' });
+    expect(logic.changeLockOnWindowsClosed).toHaveBeenCalledTimes(1);
+    expect(logic.changeLockOnWindowsClosed).toHaveBeenCalledWith(true);
+  });
+
+  it('disables both switches while a change is saved, by mouse and keyboard', () => {
+    logic.saving = true;
+    render(<SecurityCard />);
+
+    for (const control of screen.getAllByRole('switch')) {
+      expect(control.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(control);
+      fireEvent.keyDown(control, { key: ' ' });
+      fireEvent.keyDown(control, { key: 'Enter' });
+    }
+    expect(logic.changeLockOnComputerLock).not.toHaveBeenCalled();
+    expect(logic.changeLockOnWindowsClosed).not.toHaveBeenCalled();
   });
 
   it('shows no switch before the settings are read', () => {

@@ -7,7 +7,7 @@ import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
 import { ContextData, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { useNavigate } from '@/ui/pages/MainRoute';
 import { fontSizes } from '@/ui/theme/font';
-import { satoshisToAmount } from '@/ui/utils';
+import { satoshisToAmount, walletErrorMessage } from '@/ui/utils';
 import {
   ADDRESS_TYPES,
   QbitRestoreReport,
@@ -136,10 +136,13 @@ export function Step2({
         if (generation !== previewGeneration.current) {
           return;
         }
-        setError((e as any).message);
+        setError(walletErrorMessage(e, t('unknown_error')));
         return;
       }
     }
+    // A preview that succeeds takes back the refusal an earlier one showed,
+    // so Continue is not held for a passphrase that has been corrected.
+    setError('');
     setPreviewAddresses(addresses);
   };
 
@@ -234,7 +237,7 @@ export function Step2({
       navigate('MainScreen');
     } catch (e) {
       restoreInProgress.current = false;
-      tools.toastError((e as any).message);
+      tools.toastError(walletErrorMessage(e, t('unknown_error')));
       setPhase('form');
     }
   };
@@ -278,7 +281,7 @@ export function Step2({
         floorScan: summary
       });
     } catch (e) {
-      const floorError = String((e as any)?.message ?? e);
+      const floorError = walletErrorMessage(e, t('unknown_error'));
       // The failure card shows why the latest attempt failed, which can
       // differ from the restore's; the toast alone closes after a few seconds.
       setReport({

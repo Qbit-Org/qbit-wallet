@@ -3,6 +3,7 @@ import { AddressType } from '@qbit/wallet-types'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n, useTools } from 'src/context'
 import { isMnemonicWord, validateMnemonic } from 'src/utils/qbit-utils'
+import { walletErrorMessage } from 'src/utils/wallet-error-message'
 
 export enum TabType {
   STEP1 = 'STEP1',
@@ -224,7 +225,7 @@ export function useCreateWalletLogicImportWordsStep(params: CreateWalletLogicPar
         tabType: TabType.CHOOSE_ADDRESS_TYPE,
       })
     } catch (e) {
-      tools.toastError((e as any).message)
+      tools.toastError(walletErrorMessage(e, t('unknown_error')))
     } finally {
       setLoading(false)
     }

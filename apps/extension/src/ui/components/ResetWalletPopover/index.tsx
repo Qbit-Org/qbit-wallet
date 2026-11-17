@@ -11,7 +11,11 @@ import { Column } from '../Column';
 import { Input } from '../Input';
 import { KeyboardDialog, keyboardButton } from '../KeyboardDialog';
 import { Popover } from '../Popover';
-import { isRecoveryRiskAgreementTyped, RecoveryRiskConfirmation } from '../RecoveryRiskConfirmation';
+import {
+  isRecoveryRiskAgreementTyped,
+  RECOVERY_RESET_RISK_KEYS,
+  RecoveryRiskConfirmation
+} from '../RecoveryRiskConfirmation';
 import { Row } from '../Row';
 import { Text } from '../Text';
 
@@ -238,12 +242,16 @@ export function ResetWalletPopover({
         <KeyboardDialog label={t('reset_wallet_recovery_title')} onEscape={cancel}>
           <Column justifyCenter itemsCenter>
             {header}
+            {/* A reset erases every wallet, so the risk lines speak of a
+                wallet among them, and the step looks like the password step. */}
             <RecoveryRiskConfirmation
               title={t('reset_wallet_recovery_title')}
               reasons={recoveryReasons}
               value={agreement}
               onChange={setAgreement}
               inputTestId="reset-wallet-recovery-confirmation-input"
+              messageKeys={RECOVERY_RESET_RISK_KEYS}
+              presentation="centered"
             />
             {buttons}
           </Column>

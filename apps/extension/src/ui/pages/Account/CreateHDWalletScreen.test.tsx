@@ -131,9 +131,11 @@ const navigateMock = vi.fn();
 vi.mock('@/ui/pages/MainRoute', () => ({
   useNavigate: () => navigateMock
 }));
-vi.mock('@/ui/utils', () => ({
+vi.mock('@/ui/utils', async () => ({
   satoshisToAmount: () => '0',
-  showLongNumber: (value: unknown) => `${value}`
+  showLongNumber: (value: unknown) => `${value}`,
+  // The real helper, so a refusal reaching Step2's catch shows its message.
+  walletErrorMessage: (await vi.importActual<typeof import('@/ui/utils')>('@/ui/utils')).walletErrorMessage
 }));
 
 // Expose the create flow's selected word type; Step1_Create's generation

@@ -1457,6 +1457,21 @@
   "reset_wallet_recovery_title": {
     "message": "Un portefeuille que vous effacez fait partie d’une migration de récupération Qbit"
   },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "La réinitialisation supprime l’enregistrement de récupération en cours d’un portefeuille restauré que vous effacez. La migration ne pourra pas reprendre, les fonds pas encore transférés resteront sur les anciennes adresses, et les récupérer plus tard exigera de réimporter sa phrase de récupération et de recommencer la récupération depuis le début."
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "La réinitialisation supprime l’enregistrement de récupération terminé d’un portefeuille restauré que vous effacez. D’autres réseaux utilisant sa phrase de récupération n’ont peut-être pas terminé leur propre récupération, et la reprendre exigerait de réimporter cette phrase de récupération."
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "Les fonds récupérés ont été envoyés (ou sont en cours d’envoi) vers un portefeuille que vous effacez. Sans sauvegarde de sa phrase de récupération, la réinitialisation rendra ces fonds définitivement irrécupérables, et une récupération interrompue ne pourra reprendre qu’après réimportation de ce portefeuille."
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "Un transfert de récupération est encore en cours. Après la réinitialisation, il ne sera plus suivi, et les fonds livrés pourront rester invisibles tant que le portefeuille de destination n’aura pas été restauré et rescanné."
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "Un portefeuille que vous effacez n’a pas pu être vérifié par rapport à la migration de récupération active. Il s’agit peut-être du portefeuille recevant les fonds récupérés ; réinitialiser sans sauvegarde de la phrase de récupération pourrait rendre ces fonds définitivement irrécupérables."
+  },
   "use_at_your_own_risk": {
     "message": "Utilisation à vos propres risques"
   },

@@ -6,6 +6,7 @@ import { getAccountCapabilities, getAccountDerivationPath } from '@qbit/wallet-s
 import { AddressType } from '@qbit/wallet-types'
 import {
   useAppDispatch,
+  useChainType,
   useCurrentAccount,
   useCurrentKeyring,
   useI18n,
@@ -14,13 +15,19 @@ import {
   useTools,
   useWallet,
 } from '..'
+import { walletErrorMessage } from 'src/utils/wallet-error-message'
+import { standardHdPath } from './useAddressTypeSettingLogic'
 
 interface AddressTypeItem {
+  /** The account's address of this type; none until read, or when it cannot be read. */
   address: string
   assets: { totalAmount: string; satoshis: number }
   name: string
   value: AddressType
 }
+
+/** The account's address of each type a read found. */
+type AddressesByType = Partial<Record<AddressType, string>>
 
 export function useAddressTypeScreenLogic() {
   //   const isInTab = useExtensionIsInTab()
@@ -29,15 +36,35 @@ export function useAddressTypeScreenLogic() {
   const wallet = useWallet()
   const currentKeyring = useCurrentKeyring()
   const account = useCurrentAccount()
+  const chainType = useChainType()
   const currentKeyringCapabilities = useMemo(
     () => getAccountCapabilities({ type: currentKeyring.type }),
     [currentKeyring.type]
   )
+  // A wallet with one fixed type (the Qbit wallet, a watch or a cold wallet):
+  // its address is the account's own, which the background set for the
+  // network the wallet is on, once the wallet shown lists that account. A
+  // page hears of an account made current in another window before it has
+  // the account's wallet, and for that moment holds the wallet before with
+  // the new wallet's account: that account's address and balance are not
+  // this wallet's. The wallet lists its accounts by key (`keyring_<slot>#<n>`)
+  // with each one's address on the network it is on; both must agree, so a
+  // list still of another network, or of a wallet that held the slot before,
+  // shows nothing either.
+  const fixedType = !currentKeyringCapabilities.canChangeAddressType
+  const fixedAddress =
+    fixedType &&
+    account.address &&
+    currentKeyring.accounts.some(
+      listed => listed.key === account.key && listed.address === account.address
+    )
+      ? account.address
+      : ''
 
   const nav = useNavigation()
   const dispatch = useAppDispatch()
   const reloadAccounts = useReloadAccounts()
-  const [addresses, setAddresses] = useState<string[]>([])
+  const [addresses, setAddresses] = useState<AddressesByType>({})
   const [addressAssets, setAddressAssets] = useState<{
     [key: string]: { totalAmount: string; satoshis: number }
   }>({})
@@ -45,17 +72,47 @@ export function useAddressTypeScreenLogic() {
   const tools = useTools()
   // The read asked for last: an earlier one that answers late shows nothing.
   const latestReadRef = useRef(0)
+
+  /**
+   * The account's addresses, as a list to read balances for and by type.
+   *
+   * A wallet that can change type: the background lists one address per type
+   * it derives, in the order of the types' values from P2PKH (0) on
+   * (keyring-service getAllPubkeysByDerivedIndex), so the address at a
+   * position is that of the type with that value.
+   *
+   * A wallet with one fixed type: the account's own address, while the wallet
+   * shown lists that account (`fixedAddress`), and none otherwise. Its list from the
+   * background does not say which type an entry is: the Qbit wallet's one
+   * P2MR address stands first, not at P2MR's value, and for a watch or a cold
+   * wallet the entries are derived from a public key such an account may not
+   * have. Nothing is read from the background for it.
+   */
+  const readAddresses = async (): Promise<{ listed: string[]; byType: AddressesByType }> => {
+    if (fixedType) {
+      if (!fixedAddress) return { listed: [], byType: {} }
+      return { listed: [fixedAddress], byType: { [currentKeyring.addressType]: fixedAddress } }
+    }
+    const listed: string[] = await wallet.getAllAddresses(currentKeyring, account.index || 0)
+    const byType: AddressesByType = {}
+    listed.forEach((address, position) => {
+      byType[position as AddressType] = address
+    })
+    return { listed, byType }
+  }
+
   const loadAddresses = async () => {
     const read = ++latestReadRef.current
     // Nothing read for the wallet or account before stays beside this one's
     // paths, also when this read fails.
-    setAddresses([])
+    setAddresses({})
     setAddressAssets({})
     try {
       tools.showLoading(true)
-      const _res = await wallet.getAllAddresses(currentKeyring, account.index || 0)
+      const { listed: _res, byType } = await readAddresses()
       if (read !== latestReadRef.current) return
-      setAddresses(_res)
+      setAddresses(byType)
+      if (_res.length === 0) return
       const balances = await wallet.getMultiAddressSummaries(_res.join(','))
       if (read !== latestReadRef.current) return
       // A new object for each read: handed the same one again, the state
@@ -81,11 +138,16 @@ export function useAddressTypeScreenLogic() {
   // A page opened on this screen (by its address, or reloaded) has no wallet
   // in its store yet: the read waits for the wallet, and is made again for
   // another wallet or account, instead of asking once for a wallet with no
-  // key, which the background refuses.
+  // key, which the background refuses. A wallet with one fixed type reads
+  // again when its account's address changes. Every wallet reads again on
+  // another network, whose balances are not the ones shown: a watch or a cold
+  // wallet keeps one address on every network, so only the network says its
+  // balance is another; a Qbit wallet's address changes with the network, and
+  // the page may hear of the network before the account's new address.
   useEffect(() => {
     if (!currentKeyring.key) return
     loadAddresses()
-  }, [currentKeyring.key, account.index])
+  }, [currentKeyring.key, account.index, fixedAddress, chainType])
 
   const addressTypes = useMemo(() => {
     // Wallets backed by a fixed address do not allow switching address types.
@@ -135,8 +197,9 @@ export function useAddressTypeScreenLogic() {
         totalAmount: '--',
         satoshis: 0,
       }
+      // The path the wallet derives this type on, on the network it is on.
       const derivedPath = getAccountDerivationPath(
-        v.hdPath,
+        standardHdPath(v, chainType),
         account.index || 0,
         currentKeyring.accountIndexDerivation
       )
@@ -159,6 +222,7 @@ export function useAddressTypeScreenLogic() {
     addresses,
     addressAssets,
     account.index,
+    chainType,
     currentKeyring.type,
     currentKeyring.accountIndexDerivation,
   ])
@@ -173,7 +237,16 @@ export function useAddressTypeScreenLogic() {
       return
     }
 
-    await wallet.changeAddressType(item.value)
+    try {
+      await wallet.changeAddressType(item.value)
+    } catch (e) {
+      // The background refused the change: it is shown as refused, with the
+      // background's message; the accounts are not read again, nothing says
+      // the type changed and the screen stays open. A refusal reaches the
+      // page as a plain `{ message }` object.
+      tools.toastError(walletErrorMessage(e, t('unknown_error')))
+      return
+    }
     reloadAccounts()
     // navigate('MainScreen')
     tools.toastSuccess(t('address_type_changed'))

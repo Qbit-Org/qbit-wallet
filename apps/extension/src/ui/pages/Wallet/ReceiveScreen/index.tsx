@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { IMAGE_SOURCE_MAP } from '@/shared/constant';
 import { AddressBar, Column, Content, Header, Icon, Layout, Row, Text } from '@/ui/components';
 import { sizes } from '@/ui/theme/spacing';
-import { shortAddress } from '@/ui/utils';
+import { shortAddress, walletErrorMessage } from '@/ui/utils';
 import { formatQbitUri as formatP2mrQbitUri } from '@qbit-oss/protocol';
 import { formatQbitUri } from '@qbit/wallet-shared';
 import type { QbitReceiveAddressState, QbitReceiveState } from '@qbit/wallet-shared';
@@ -139,6 +139,10 @@ export default function ReceiveScreen() {
   const receiveContext = `${receiveKeyringScope}:${currentAccount?.pubkey || ''}:${chain.enum}`;
   const receiveContextRef = useRef(receiveContext);
   receiveContextRef.current = receiveContext;
+  // The first load's error text, read when it fails, without reloading the
+  // address when the translation function changes.
+  const tRef = useRef(t);
+  tRef.current = t;
   const visibleState = loadedContext === receiveContext ? receiveState : null;
 
   // The amount and label belong to the address on screen. A copy still
@@ -164,7 +168,7 @@ export default function ReceiveScreen() {
         }
       })
       .catch((reason) => {
-        if (active) setError(reason instanceof Error ? reason.message : String(reason));
+        if (active) setError(walletErrorMessage(reason, tRef.current('unknown_error')));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -209,7 +213,7 @@ export default function ReceiveScreen() {
       }
     } catch (reason) {
       if (receiveContextRef.current !== receiveContext) return;
-      const message = reason instanceof Error ? reason.message : String(reason);
+      const message = walletErrorMessage(reason, t('unknown_error'));
       setError(message);
       tools.toastError(message);
       // A refused New Address can still change what is on screen, for example
@@ -238,7 +242,7 @@ export default function ReceiveScreen() {
       setLoadedContext(receiveContext);
     } catch (reason) {
       if (receiveContextRef.current !== receiveContext) return;
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(walletErrorMessage(reason, t('unknown_error')));
     } finally {
       if (receiveContextRef.current === receiveContext) setLoading(false);
     }
@@ -272,7 +276,7 @@ export default function ReceiveScreen() {
       tools.copyToClipboard(address.address);
     } catch (reason) {
       if (receiveContextRef.current !== receiveContext) return;
-      tools.toastError(reason instanceof Error ? reason.message : String(reason));
+      tools.toastError(walletErrorMessage(reason, t('unknown_error')));
     } finally {
       if (receiveContextRef.current === receiveContext) setCopying(false);
     }
@@ -305,7 +309,7 @@ export default function ReceiveScreen() {
       tools.copyToClipboard(copyUri ? uriResult.uri : selected.address);
     } catch (reason) {
       if (receiveContextRef.current !== receiveContext) return;
-      tools.toastError(reason instanceof Error ? reason.message : String(reason));
+      tools.toastError(walletErrorMessage(reason, t('unknown_error')));
     } finally {
       if (receiveContextRef.current === receiveContext) setCopying(false);
     }

@@ -37,9 +37,11 @@ vi.mock('@/ui/components', async () => {
   };
 });
 
-vi.mock('@/ui/utils', () => ({
+vi.mock('@/ui/utils', async () => ({
   shortAddress: (address = '', length = 8) =>
-    address.length > length * 2 ? `${address.slice(0, length)}...${address.slice(-length)}` : address
+    address.length > length * 2 ? `${address.slice(0, length)}...${address.slice(-length)}` : address,
+  // The real helper: the screen's toasts and alerts depend on what it makes of a rejection.
+  walletErrorMessage: (await vi.importActual<typeof import('@/ui/utils')>('@/ui/utils')).walletErrorMessage
 }));
 
 vi.mock('@/shared/constant', () => ({
@@ -243,6 +245,102 @@ describe('ReceiveScreen custody flow', () => {
     expect(screen.getByRole('alert').textContent).toContain('already has activity');
     expect(toastError).toHaveBeenCalledWith('The new receive address already has activity');
     expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(2);
+  });
+
+  // Rejections reach the page as plain objects, not Errors: the toast and the
+  // alert under the address show their message, or unknown_error, and never
+  // "[object Object]".
+  describe.each([
+    [
+      'a plain rejection with a message',
+      { code: -32603, message: 'Receive state unavailable' },
+      'Receive state unavailable'
+    ],
+    ['a plain rejection without a message', { code: -32603 }, 'unknown_error']
+  ])('a refused receive call, %s', (_name, rejection, shown) => {
+    const shownOnly = () => {
+      expect(toastError.mock.calls.map(([text]) => text)).toEqual([shown]);
+      expect(toastError).not.toHaveBeenCalledWith('[object Object]');
+    };
+    const alertText = () => screen.getByRole('alert').querySelector('span')?.textContent;
+    const retry = () => fireEvent.click(screen.getByRole('button', { name: 'qbit_receive_retry' }));
+
+    it('shows it under the address when the first load is refused', async () => {
+      ensureQbitReceiveIntent.mockRejectedValueOnce(rejection);
+      render(<ReceiveScreen />);
+
+      await waitFor(() => expect(alertText()).toBe(shown));
+      expect(screen.getByRole('alert').textContent).not.toContain('[object Object]');
+      expect(screen.queryByTestId('receive-qr')).toBeNull();
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('shows it under the address when Retry after a refused first load is refused', async () => {
+      ensureQbitReceiveIntent.mockRejectedValueOnce(new Error('Explorer unavailable')).mockRejectedValueOnce(rejection);
+      render(<ReceiveScreen />);
+      await waitFor(() => expect(alertText()).toBe('Explorer unavailable'));
+
+      retry();
+
+      await waitFor(() => expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(alertText()).toBe(shown));
+      expect(screen.getByRole('alert').textContent).not.toContain('[object Object]');
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('shows it under the address when Retry after a refused New Address is refused', async () => {
+      createQbitReceiveIntent.mockRejectedValueOnce(rejection);
+      render(<ReceiveScreen />);
+      await screen.findByTestId('receive-qr');
+      fireEvent.click(screen.getByTestId('new-address'));
+      await waitFor(() => expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(alertText()).toBe(shown));
+      ensureQbitReceiveIntent.mockRejectedValueOnce(rejection);
+
+      retry();
+
+      await waitFor(() => expect(ensureQbitReceiveIntent).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(alertText()).toBe(shown));
+      expect(screen.getByRole('alert').textContent).not.toContain('[object Object]');
+      // The one toast is New Address's own.
+      shownOnly();
+    });
+
+    it('shows it for New Address, as a toast and under the address', async () => {
+      createQbitReceiveIntent.mockRejectedValueOnce(rejection);
+      render(<ReceiveScreen />);
+      await screen.findByTestId('receive-qr');
+
+      fireEvent.click(screen.getByTestId('new-address'));
+
+      await waitFor(() => expect(toastError).toHaveBeenCalled());
+      shownOnly();
+      expect(screen.getByRole('alert').textContent).toContain(shown);
+    });
+
+    it('shows it when the refresh before copying a previous address is refused', async () => {
+      ensureQbitReceiveIntent.mockResolvedValueOnce(receiveState()).mockRejectedValueOnce(rejection);
+      render(<ReceiveScreen />);
+      await screen.findByTestId('receive-qr');
+
+      fireEvent.click(screen.getByRole('button', { name: 'copy_address 1' }));
+
+      await waitFor(() => expect(toastError).toHaveBeenCalled());
+      shownOnly();
+      expect(copyToClipboard).not.toHaveBeenCalled();
+    });
+
+    it('shows it when the refresh before copying the current address is refused', async () => {
+      ensureQbitReceiveIntent.mockResolvedValueOnce(receiveState()).mockRejectedValueOnce(rejection);
+      render(<ReceiveScreen />);
+      await screen.findByTestId('receive-qr');
+
+      fireEvent.click(screen.getByLabelText('copy_address'));
+
+      await waitFor(() => expect(toastError).toHaveBeenCalled());
+      shownOnly();
+      expect(copyToClipboard).not.toHaveBeenCalled();
+    });
   });
 
   it('keeps the amount when New Address leaves the selected address on screen', async () => {

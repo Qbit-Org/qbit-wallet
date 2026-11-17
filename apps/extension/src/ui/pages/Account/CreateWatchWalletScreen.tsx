@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { Button, Column, Content, Header, Input, Layout } from '@/ui/components';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
+import { walletErrorMessage } from '@/ui/utils';
 import { useI18n, useTools, useWallet } from '@qbit/wallet-state';
 
 import { useNavigate } from '../MainRoute';
@@ -33,7 +34,7 @@ export default function CreateWatchWalletScreen() {
       await wallet.createKeyringWithAddress(address);
       navigate('MainScreen');
     } catch (e) {
-      tools.toastError((e as Error).message);
+      tools.toastError(walletErrorMessage(e, t('unknown_error')));
     }
   };
 

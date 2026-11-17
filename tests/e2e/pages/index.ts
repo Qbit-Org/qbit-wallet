@@ -1,4 +1,5 @@
 export * from './account-switcher-sheet'
+export * from './address-type-page'
 export * from './advanced-settings-page'
 export * from './approvals-page'
 export * from './base-page'

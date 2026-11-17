@@ -1457,6 +1457,21 @@
   "reset_wallet_recovery_title": {
     "message": "A wallet you are erasing is part of a Qbit recovery migration"
   },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "Resetting deletes the in-progress recovery record of a restored wallet you are erasing. The migration cannot be resumed, any funds not yet swept stay on the old addresses, and recovering them later requires importing its seed phrase again and starting recovery over."
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "Resetting deletes the completed recovery record of a restored wallet you are erasing. Other networks using its seed phrase may not have finished their own recovery, and resuming them would require importing that seed phrase again."
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "Recovered funds were sent (or are being sent) to a wallet you are erasing. If you have not backed up its seed phrase, resetting makes those funds permanently unrecoverable, and an interrupted recovery can only resume after that wallet is imported again."
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "A recovery transfer is still in flight. After the reset it will no longer be tracked, and the funds it delivers may not be visible until the destination wallet is restored and rescanned."
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "A wallet you are erasing could not be verified against the active recovery migration. It may be the wallet receiving the recovered funds; resetting without a seed phrase backup could make those funds permanently unrecoverable."
+  },
   "use_at_your_own_risk": {
     "message": "Use at your own risk"
   },

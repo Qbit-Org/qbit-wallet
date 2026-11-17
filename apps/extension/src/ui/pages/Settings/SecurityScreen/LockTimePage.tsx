@@ -6,9 +6,9 @@ import { useI18n, useLockTimePageLogic } from '@qbit/wallet-state';
 export function LockTimePage() {
   const { t } = useI18n();
   // The Security screen lists this entry, so Back with nothing behind this
-  // screen lands there.
-  const goBack = useBackToSettingsParent('/settings/security');
-  const { autoLockTimeId, autoLockTimes, loading, handleSelectOption } = useLockTimePageLogic();
+  // screen lands there. Choosing a time leaves the same way, once.
+  const leave = useBackToSettingsParent('/settings/security');
+  const { autoLockTimeId, autoLockTimes, loading, handleSelectOption, goBack } = useLockTimePageLogic({ leave });
 
   return (
     <Layout>

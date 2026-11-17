@@ -1457,6 +1457,21 @@
   "reset_wallet_recovery_title": {
     "message": "要清除的錢包中，有錢包屬於 Qbit 復原移轉的一部分"
   },
+  "reset_wallet_recovery_source_migrating": {
+    "message": "重設將刪除要清除的某個已還原錢包進行中的復原紀錄。移轉將無法繼續，尚未轉移的資金會留在舊地址上，日後要取回這些資金必須重新匯入其助記詞並從頭開始復原。"
+  },
+  "reset_wallet_recovery_source_migrated": {
+    "message": "重設將刪除要清除的某個已還原錢包已完成的復原紀錄。使用其助記詞的其他網路可能尚未完成各自的復原，若要繼續必須重新匯入該助記詞。"
+  },
+  "reset_wallet_recovery_destination": {
+    "message": "復原的資金已送往（或正在送往）要清除的某個錢包。若您尚未備份其助記詞，重設後這些資金將永久無法取回，且中斷的復原必須等到重新匯入該錢包後才能繼續。"
+  },
+  "reset_wallet_recovery_inflight": {
+    "message": "仍有一筆復原轉帳處理中。重設後將不再追蹤該轉帳，送達的資金可能要等到目的錢包重新還原並重新掃描後才會顯示。"
+  },
+  "reset_wallet_recovery_unverified": {
+    "message": "要清除的某個錢包無法與進行中的復原移轉核對。它可能是接收復原資金的錢包；在沒有助記詞備份的情況下重設，可能使這些資金永久無法取回。"
+  },
   "use_at_your_own_risk": {
     "message": "風險自負"
   },

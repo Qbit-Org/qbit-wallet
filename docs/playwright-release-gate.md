@@ -110,7 +110,7 @@ corepack pnpm exec playwright test --shard=3/5
 
 ## Scenario Matrix
 
-The complete gate is 59 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 60 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
@@ -171,12 +171,12 @@ separately with two-decimal millisecond precision.
 | Rename wallet         | `scenarios/switch-account.spec.ts:362`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
 | Remove wallet         | `scenarios/switch-account.spec.ts:432`    | Remove Wallet, new wallets named "Wallet N"; the last wallet opens the reset, and Cancel keeps it          | Not recorded |       — |
 | Read-only wallet      | `scenarios/switch-account.spec.ts:525`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
-| Reset wallet          | `scenarios/reset-wallet.spec.ts:360`      | Reset only with the password; Welcome keeps language and theme; new wallet: new password, no old data      | Not recorded |       — |
-| Reset last wallet     | `scenarios/reset-wallet.spec.ts:565`      | Remove on the last wallet opens the reset, no toast; Cancel keeps it; with two wallets it removes one      | Not recorded |       — |
-| Reset everywhere      | `scenarios/reset-wallet.spec.ts:609`      | An untouched second window opens on Welcome; a connected site is disconnected and must ask again           | Not recorded |       — |
-| Security phrase/pass  | `scenarios/reset-wallet.spec.ts:676`      | Security shows the current wallet's phrase after the password; Change Password works, Back returns         | Not recorded |       — |
-| Reset re-read         | `scenarios/reset-wallet.spec.ts:721`      | Remove Wallet reads the wallets again: one another window added makes it the ordinary removal              | Not recorded |       — |
-| Reset race            | `scenarios/reset-wallet.spec.ts:751`      | A reset asked for as the last wallet is refused once another window added one; the toast says so           | Not recorded |       — |
+| Reset wallet          | `scenarios/reset-wallet.spec.ts:382`      | Reset only with the password; Welcome keeps language and theme; new wallet: new password, no old data      | Not recorded |       — |
+| Reset last wallet     | `scenarios/reset-wallet.spec.ts:614`      | Remove on the last wallet opens the reset, no toast; Cancel keeps it; with two wallets it removes one      | Not recorded |       — |
+| Reset everywhere      | `scenarios/reset-wallet.spec.ts:658`      | An untouched second window opens on Welcome; a connected site is disconnected and must ask again           | Not recorded |       — |
+| Security phrase/pass  | `scenarios/reset-wallet.spec.ts:725`      | Security shows the current wallet's phrase after the password; Change Password works, Back returns         | Not recorded |       — |
+| Reset re-read         | `scenarios/reset-wallet.spec.ts:770`      | Remove Wallet reads the wallets again: one another window added makes it the ordinary removal              | Not recorded |       — |
+| Reset race            | `scenarios/reset-wallet.spec.ts:800`      | A reset asked for as the last wallet is refused once another window added one; the toast says so           | Not recorded |       — |
 | Upgrade from 1.0.5    | `scenarios/upgrade.spec.ts:166`           | 1.0.5's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 | Upgrade from 1.0.6    | `scenarios/upgrade.spec.ts:166`           | 1.0.6's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |
 | Upgrade from 1.0.7    | `scenarios/upgrade.spec.ts:166`           | 1.0.7's stored data unlocks with its accounts, settings, contacts, sites and saved UI state                | Not recorded |       — |

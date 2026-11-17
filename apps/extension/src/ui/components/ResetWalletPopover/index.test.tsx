@@ -298,8 +298,8 @@ describe('ResetWalletPopover', () => {
     fireEvent.click(confirmButton());
 
     await waitFor(() => expect(screen.getByText('reset_wallet_recovery_title')).toBeTruthy());
-    expect(screen.getByText('qbit_recovery_removal_destination')).toBeTruthy();
-    expect(screen.getByText('qbit_recovery_removal_inflight')).toBeTruthy();
+    expect(screen.getByText('reset_wallet_recovery_destination')).toBeTruthy();
+    expect(screen.getByText('reset_wallet_recovery_inflight')).toBeTruthy();
     expect(screen.getByText('enter “CONFIRM” to_proceed')).toBeTruthy();
     // Nothing is sent again until the confirmation is typed.
     expect(harness.resetWallet).toHaveBeenCalledTimes(1);
@@ -328,6 +328,65 @@ describe('ResetWalletPopover', () => {
     });
   });
 
+  it('centers every text of the recovery step, and bolds "not reversible" in red, as on the password step', async () => {
+    harness.resetWallet.mockRejectedValueOnce(ackRequired([...sourceReasons, ...destinationReasons]));
+    render(<ResetWalletPopover onClose={onClose} />);
+    typePassword(PASSWORD);
+    fireEvent.click(confirmButton());
+    await waitFor(() => expect(screen.getByText('reset_wallet_recovery_title')).toBeTruthy());
+
+    const title = textBlock('reset_wallet_recovery_title');
+    expect(title.style.fontFamily).toBe(typography.heading.bold);
+    for (const text of [
+      'reset_wallet_recovery_title',
+      'reset_wallet_recovery_source_migrating',
+      'reset_wallet_recovery_destination',
+      'reset_wallet_recovery_inflight',
+      'this_action_is_not_reversible',
+      'enter “CONFIRM” to_proceed'
+    ]) {
+      expect(textBlock(text).style.textAlign, text).toBe('center');
+    }
+
+    const notReversible = textBlock('this_action_is_not_reversible');
+    expect(notReversible.style.fontFamily).toBe(typography.primary.bold);
+    expect(notReversible.style.color).toBe(colors.red_dark);
+    // The risk lines keep their weight.
+    expect(textBlock('reset_wallet_recovery_destination').style.fontFamily).toBe(typography.primary.regular);
+  });
+
+  // A reset erases every wallet, so its risk lines speak of a wallet among
+  // those erased, not of "this wallet" or of its removal.
+  it('says each of the five risks in the words of a reset, once each, in the order of the reasons', async () => {
+    const reasons = [
+      { role: 'source', network: 'regtest', status: 'migrating' },
+      { role: 'source', network: 'mainnet', status: 'migrating' },
+      { role: 'source', network: 'testnet', status: 'migrated' },
+      { role: 'destination', network: 'regtest', status: 'migrating', hasInflightPlans: true },
+      { role: 'destination', network: 'mainnet', status: 'migrating', hasInflightPlans: true },
+      { role: 'unknown', network: 'regtest' }
+    ] as unknown as QbitRecoveryRemovalReason[];
+    harness.resetWallet.mockRejectedValueOnce(ackRequired(reasons));
+    render(<ResetWalletPopover onClose={onClose} />);
+    typePassword(PASSWORD);
+    fireEvent.click(confirmButton());
+    await waitFor(() => expect(screen.getByText('reset_wallet_recovery_title')).toBeTruthy());
+
+    const dialog = screen.getByRole('dialog', { name: 'reset_wallet_recovery_title' });
+    const riskLines = [...dialog.querySelectorAll('span')]
+      .map((span) => span.textContent ?? '')
+      .filter((text) => text.startsWith('reset_wallet_recovery_') && text !== 'reset_wallet_recovery_title');
+    expect(riskLines).toEqual([
+      'reset_wallet_recovery_source_migrating',
+      'reset_wallet_recovery_source_migrated',
+      'reset_wallet_recovery_destination',
+      'reset_wallet_recovery_inflight',
+      'reset_wallet_recovery_unverified'
+    ]);
+    // None of the removal's lines.
+    expect(dialog.textContent).not.toMatch(/qbit_recovery_removal_/);
+  });
+
   it('shows the new risks, and needs a fresh confirmation, when the acknowledged reset is refused again', async () => {
     harness.resetWallet
       .mockRejectedValueOnce(ackRequired(destinationReasons))
@@ -335,13 +394,13 @@ describe('ResetWalletPopover', () => {
     render(<ResetWalletPopover onClose={onClose} />);
     typePassword(PASSWORD);
     fireEvent.click(confirmButton());
-    await waitFor(() => expect(screen.getByText('qbit_recovery_removal_destination')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('reset_wallet_recovery_destination')).toBeTruthy());
 
     fireEvent.change(screen.getByTestId('reset-wallet-recovery-confirmation-input'), { target: { value: 'CONFIRM' } });
     fireEvent.click(confirmButton());
 
-    await waitFor(() => expect(screen.getByText('qbit_recovery_removal_source_migrating')).toBeTruthy());
-    expect(screen.queryByText('qbit_recovery_removal_destination')).toBeNull();
+    await waitFor(() => expect(screen.getByText('reset_wallet_recovery_source_migrating')).toBeTruthy());
+    expect(screen.queryByText('reset_wallet_recovery_destination')).toBeNull();
     expect(harness.resetWallet).toHaveBeenCalledTimes(2);
     expect((screen.getByTestId('reset-wallet-recovery-confirmation-input') as HTMLInputElement).value).toBe('');
     expect(confirmButton().getAttribute('aria-disabled')).toBe('true');
@@ -357,19 +416,21 @@ describe('ResetWalletPopover', () => {
     typePassword(PASSWORD);
     fireEvent.click(confirmButton());
 
-    await waitFor(() => expect(screen.getByText('qbit_recovery_removal_unverified')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('reset_wallet_recovery_unverified')).toBeTruthy());
   });
 
-  it('reads a reason that is not an object as the broadest risk', async () => {
+  it('reads a reason that is not an object as the broadest risk, once however many there are', async () => {
     harness.resetWallet.mockRejectedValueOnce(
-      ackRequired([null, ...destinationReasons] as QbitRecoveryRemovalReason[])
+      ackRequired([null, 'source', ...destinationReasons, 7] as unknown as QbitRecoveryRemovalReason[])
     );
     render(<ResetWalletPopover onClose={onClose} />);
     typePassword(PASSWORD);
     fireEvent.click(confirmButton());
 
-    await waitFor(() => expect(screen.getByText('qbit_recovery_removal_unverified')).toBeTruthy());
-    expect(screen.getByText('qbit_recovery_removal_destination')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('reset_wallet_recovery_unverified')).toBeTruthy());
+    expect(screen.getAllByText('reset_wallet_recovery_unverified')).toHaveLength(1);
+    expect(screen.getByText('reset_wallet_recovery_destination')).toBeTruthy();
+    expect(screen.queryByText('qbit_recovery_removal_unverified')).toBeNull();
   });
 
   it('cancels the risk step without sending anything more', async () => {

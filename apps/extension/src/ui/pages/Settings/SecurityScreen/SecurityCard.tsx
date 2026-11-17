@@ -61,6 +61,9 @@ export function SecurityCard() {
   const lockTimeConfig = getLockTimeInfo(autoLockTimeId, t);
   const { lockOnComputerLock, lockOnWindowsClosed, saving, changeLockOnComputerLock, changeLockOnWindowsClosed } =
     useSecurityCardLogic();
+  // Each row's label also names its switch.
+  const lockOnComputerLockLabel = t('lock_when_computer_locks');
+  const lockOnWindowsClosedLabel = t('lock_when_all_windows_close');
 
   return (
     <>
@@ -82,11 +85,18 @@ export function SecurityCard() {
           testId="lock-on-computer-lock-row"
           item={{
             key: 'security_lockOnComputerLock',
-            label: t('lock_when_computer_locks'),
+            label: lockOnComputerLockLabel,
             right: false,
             icon: 'computerLock'
           }}
-          control={<Switch checked={lockOnComputerLock} disabled={saving} onChange={changeLockOnComputerLock} />}
+          control={
+            <Switch
+              aria-label={lockOnComputerLockLabel}
+              checked={lockOnComputerLock}
+              disabled={saving}
+              onChange={changeLockOnComputerLock}
+            />
+          }
         />
       ) : null}
       {lockOnWindowsClosed !== undefined && canLockOnWindowsClosed() ? (
@@ -94,11 +104,18 @@ export function SecurityCard() {
           testId="lock-on-windows-closed-row"
           item={{
             key: 'security_lockOnWindowsClosed',
-            label: t('lock_when_all_windows_close'),
+            label: lockOnWindowsClosedLabel,
             right: false,
             icon: 'windowsClose'
           }}
-          control={<Switch checked={lockOnWindowsClosed} disabled={saving} onChange={changeLockOnWindowsClosed} />}
+          control={
+            <Switch
+              aria-label={lockOnWindowsClosedLabel}
+              checked={lockOnWindowsClosed}
+              disabled={saving}
+              onChange={changeLockOnWindowsClosed}
+            />
+          }
         />
       ) : null}
     </>

@@ -28,6 +28,10 @@ export const getUiType = (): UiTypeCheck => {
 
 // Background errors cross the port as plain { message, code? } objects, so
 // neither `instanceof Error` nor String() can present them to the user.
+// The same function as walletErrorMessage in @qbit/wallet-state
+// (packages/wallet-state/src/utils/wallet-error-message.ts), kept here rather
+// than re-exported because extension tests mock that package with only the
+// exports they use; walletErrorMessage.test.ts checks the two agree.
 export const walletErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error === 'string' && error) return error;
   const message = (error as { message?: unknown } | null | undefined)?.message;

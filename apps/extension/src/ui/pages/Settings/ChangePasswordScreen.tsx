@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate as useRouterNavigate } from 'react-router-dom';
 
 import { Button, Column, Content, Header, Input, Layout, Row, Text } from '@/ui/components';
+import { walletErrorMessage } from '@/ui/utils';
 import { getPasswordStrengthWord, MIN_PASSWORD_LENGTH } from '@/ui/utils/password-utils';
 import { useBiometricUnlock, useI18n, useTools } from '@qbit/wallet-state';
 
@@ -97,7 +98,7 @@ export default function ChangePasswordScreen() {
       }
       navigate('MainScreen');
     } catch (err) {
-      tools.toastError((err as any).message);
+      tools.toastError(walletErrorMessage(err, t('unknown_error')));
     } finally {
       setLoading(false);
     }
