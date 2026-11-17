@@ -2,6 +2,7 @@ import { ScanLine } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Button, Card, Column, Content, Footer, Header, Layout, Row, Text } from '@/ui/components';
+import { Spin } from '@/ui/components/Spin';
 import { colors } from '@/ui/theme/colors';
 import { useCreateColdWalletCallback, useI18n, useTools, useWallet } from '@qbit/wallet-state';
 import { AddressType } from '@qbit/wallet-types';
@@ -166,16 +167,7 @@ export default function Step3({ onBack, contextData }: Step3Props) {
             {displayCount < (totalAddressCount || 100) && displayCount >= DEFAULT_DISPLAY_COUNT && (
               <Row itemsCenter gap="xs" onClick={handleLoadMore} style={{ cursor: 'pointer' }}>
                 {loadingMore ? (
-                  <Text
-                    text="⟳"
-                    size="xs"
-                    color="accentDark"
-                    style={{
-                      animation: 'rotateRefresh 1s linear infinite',
-                      display: 'inline-block',
-                      fontSize: '12px'
-                    }}
-                  />
+                  <Spin size="small" />
                 ) : (
                   <Text text="⟳" size="xs" color="accentDark" style={{ fontSize: '12px' }} />
                 )}

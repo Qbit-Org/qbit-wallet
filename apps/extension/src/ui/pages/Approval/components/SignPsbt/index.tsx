@@ -1,21 +1,7 @@
-import { LoaderCircle } from 'lucide-react';
 import { ListRef } from 'rc-virtual-list';
 import { cloneElement, forwardRef, isValidElement, useEffect, useRef, useState } from 'react';
 
-import {
-  Button,
-  Card,
-  Checkbox,
-  Column,
-  Content,
-  Footer,
-  Header,
-  Icon,
-  Input,
-  Layout,
-  Row,
-  Text
-} from '@/ui/components';
+import { Button, Card, Checkbox, Column, Content, Footer, Header, Input, Layout, Row, Text } from '@/ui/components';
 import { AutoFitVirtualList } from '@/ui/components/AutoFitVirtualList';
 import ColdWalletSignPsbt from '@/ui/components/ColdWallet/ColdWalletSignPsbt';
 import { PhishingDetection } from '@/ui/components/PhishingDetection';
@@ -27,6 +13,7 @@ import {
   SIGNING_PROGRESS_MIN_INPUTS,
   SigningProgress
 } from '@/ui/components/SigningProgress';
+import { Spin } from '@/ui/components/Spin';
 import WebsiteBar from '@/ui/components/WebsiteBar';
 import { walletErrorMessage } from '@/ui/utils';
 import { colors } from '@/ui/theme/colors';
@@ -478,9 +465,7 @@ export default function SignPsbt(props: SignPsbtProps) {
         {signingHeader}
         <Content itemsCenter justifyCenter>
           <Column itemsCenter>
-            <Icon size={fontSizes.xxxl} color="gold">
-              <LoaderCircle className="icon-spin" size="1em" />
-            </Icon>
+            <Spin size="large" />
             <Text
               text={websiteCheckStatus === 'checking' ? t('checking_website_safety') : t('loading')}
               textCenter

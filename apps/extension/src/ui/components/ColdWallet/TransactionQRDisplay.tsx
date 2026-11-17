@@ -1,9 +1,9 @@
-import { LoaderCircle } from 'lucide-react';
 import QRCode from 'qrcode.react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { BBQREncoder } from '@/shared/animatedQr';
 import { Button, Card, Column, Icon, Row, Text } from '@/ui/components';
+import { Spin } from '@/ui/components/Spin';
 import { colors } from '@/ui/theme/colors';
 import { useI18n, useWallet } from '@qbit/wallet-state';
 import { ChainType } from '@qbit/wallet-types';
@@ -173,13 +173,7 @@ export default function TransactionQRDisplay({
                     gap: '16px'
                   }}
                 >
-                  <LoaderCircle
-                    className="icon-spin"
-                    size={32}
-                    style={{
-                      color: colors.warning
-                    }}
-                  />
+                  <Spin size="large" />
                   <Text text={t('generating_qr_code')} color="textDim" />
                 </div>
               )}

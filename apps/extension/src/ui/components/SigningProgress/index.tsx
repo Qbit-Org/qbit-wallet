@@ -1,6 +1,5 @@
-import { LoaderCircle } from 'lucide-react';
-
 import { Column, Icon, Progress, Row, Text } from '@/ui/components';
+import { Spin } from '@/ui/components/Spin';
 import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
@@ -70,9 +69,7 @@ export function SigningProgress({
       {handedOff ? (
         <Icon icon="circle-check" size={fontSizes.xxxl} color="green" />
       ) : (
-        <Icon size={fontSizes.xxxl} color="gold">
-          <LoaderCircle className="icon-spin" size="1em" />
-        </Icon>
+        <Spin size="large" style={{ width: fontSizes.xxxl, height: fontSizes.xxxl }} />
       )}
       <Column gap="sm" fullX itemsCenter>
         <Text

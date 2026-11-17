@@ -27,6 +27,7 @@ import {
   PAGE_WALLET_ID_RETRY_DELAYS_MS,
   PageStartup
 } from '../src/ui/components/PageStartup';
+import { WAITING_PAGE_SPINNER_DELAY_MS } from '../src/ui/components/WaitingPage';
 import {
   checkShownWallet,
   createReconnectReconcile,
@@ -171,7 +172,8 @@ describe('a page starting', () => {
   it('starts in one run with no pause when the background answers', async () => {
     const wallet = background();
     const { store, page } = openPage(wallet);
-    expect(showsSpinner(page)).toBe(true);
+    // A start-up this quick shows no spinner.
+    expect(showsSpinner(page)).toBe(false);
 
     await settle();
 
@@ -423,6 +425,50 @@ describe('a page starting', () => {
     expect(showsWalletPages()).toBe(true);
     expect(browserRuntimeReload).not.toHaveBeenCalled();
     expect(wallet.getLocale).toHaveBeenCalledTimes(PAGE_STARTUP_RETRY_DELAYS_MS.length + 2);
+  });
+
+  it('shows its spinner, on the whole page, only once start-up has taken a second', async () => {
+    const wallet = background();
+    let answerId!: (id: string) => void;
+    wallet.getWalletId.mockImplementationOnce(() => new Promise<string>((resolve) => (answerId = resolve)));
+    const { page } = openPage(wallet);
+
+    await settle(WAITING_PAGE_SPINNER_DELAY_MS - 1);
+    expect(showsSpinner(page)).toBe(false);
+    expect(showsWalletPages()).toBe(false);
+
+    await settle(1);
+    expect(showsSpinner(page)).toBe(true);
+    const startupPage = page.container.firstElementChild as HTMLElement;
+    expect([startupPage.style.width, startupPage.style.height]).toEqual(['100vw', '100vh']);
+
+    answerId('wallet-1');
+    await settle();
+    expect(showsWalletPages()).toBe(true);
+    expect(showsSpinner(page)).toBe(false);
+  });
+
+  it('shows its spinner again once a Retry from its error screen has taken a second', async () => {
+    const wallet = background();
+    wallet.getLocale.mockRejectedValue({ message: 'The connection to Qbit Wallet closed' });
+    const { page } = openPage(wallet);
+    await settle(ALL_PAUSES_MS);
+    expect(showsStartupError()).toBe(true);
+
+    let answerLocale!: (locale: string) => void;
+    wallet.getLocale.mockImplementationOnce(() => new Promise<string>((resolve) => (answerLocale = resolve)));
+    act(() => {
+      screen.getByText('Retry').click();
+    });
+    await settle(WAITING_PAGE_SPINNER_DELAY_MS - 1);
+    expect(showsSpinner(page)).toBe(false);
+    expect(showsStartupError()).toBe(false);
+    await settle(1);
+    expect(showsSpinner(page)).toBe(true);
+
+    answerLocale('fr');
+    await settle();
+    expect(showsWalletPages()).toBe(true);
   });
 
   it('offers the restart once a Retry of this page has failed again, as after a failure of the background', async () => {
@@ -1516,11 +1562,11 @@ describe('a page starting', () => {
       wallet.getWalletId.mockRejectedValueOnce(REFUSED);
       wallet.getCurrentAccount.mockRejectedValueOnce(REFUSED);
       wallet.hasVault.mockRejectedValueOnce(REFUSED);
-      const { store, page } = openPage(wallet);
+      const { store } = openPage(wallet);
 
       await settle();
       expect(store.getState().global.isReady).toBe(false);
-      expect(showsSpinner(page)).toBe(true);
+      expect(showsWalletPages()).toBe(false);
       expect(getShownWalletId()).toBeUndefined();
 
       await settle(PAGE_STARTUP_RETRY_DELAYS_MS[0]);

@@ -1,9 +1,9 @@
-import { CircleCheck, LoaderCircle } from 'lucide-react';
+import { CircleCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button, Card, Checkbox, Column, Content, Footer, Header, Icon, Layout, Row, Text } from '@/ui/components';
+import { Spin } from '@/ui/components/Spin';
 import WebsiteBar from '@/ui/components/WebsiteBar';
-import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
 import { shortAddress } from '@/ui/utils';
 import { Account, QbitProviderApprovalContext } from '@qbit/wallet-shared';
@@ -103,9 +103,7 @@ export default function Connect({ approvalId, params: { data, session } }: Props
         </Header>
         <Content itemsCenter justifyCenter>
           <Column itemsCenter>
-            <Icon size={fontSizes.xxxl} color="gold">
-              <LoaderCircle className="icon-spin" size="1em" />
-            </Icon>
+            <Spin size="large" />
             <Text text={t('checking_website_safety')} textCenter mt="md" />
           </Column>
         </Content>

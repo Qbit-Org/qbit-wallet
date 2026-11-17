@@ -287,7 +287,8 @@ describe('Step2 restore flow', () => {
     expect(scanning.getAttribute('data-items-center')).toBe('true');
     expect(scanning.getAttribute('data-justify-center')).toBe('true');
     expect(scanning.getAttribute('data-gap')).toBe('xl');
-    expect(screen.getByTestId('restore-scanning-spinner').getAttribute('data-size')).toBe('42');
+    const spinnerRing = screen.getByTestId('restore-scanning-spinner').querySelector<HTMLElement>('.icon-spin');
+    expect(spinnerRing?.style.width).toBe('32px');
     expect(scanning.querySelector('[data-text-center="true"]')).toBeTruthy();
 
     resolveRestore(completedReport());

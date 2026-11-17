@@ -1,12 +1,11 @@
-import { LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Button, Card, Column, Icon, Input, Row, Text } from '@/ui/components';
+import { Button, Card, Column, Input, Row, Text } from '@/ui/components';
 import { AddressTypeCard2 } from '@/ui/components/AddressTypeCard';
 import { FooterButtonContainer } from '@/ui/components/FooterButtonContainer';
+import { Spin } from '@/ui/components/Spin';
 import { ContextData, UpdateContextDataParams } from '@/ui/pages/Account/createHDWalletComponents/types';
 import { useNavigate } from '@/ui/pages/MainRoute';
-import { fontSizes } from '@/ui/theme/font';
 import { satoshisToAmount, walletErrorMessage } from '@/ui/utils';
 import {
   ADDRESS_TYPES,
@@ -303,9 +302,7 @@ export function Step2({
   if (phase === 'scanning') {
     return (
       <Column full itemsCenter justifyCenter gap="xl" data-testid="restore-scanning">
-        <Icon size={fontSizes.icon * 3} data-testid="restore-scanning-spinner">
-          <LoaderCircle className="icon-spin" size="1em" />
-        </Icon>
+        <Spin size="large" data-testid="restore-scanning-spinner" />
         <Text text={t('qbit_restore_scanning')} preset="sub" textCenter />
       </Column>
     );
@@ -470,11 +467,7 @@ export function Step2({
         />
       </FooterButtonContainer>
 
-      {loading && (
-        <Icon>
-          <LoaderCircle className="icon-spin" size="1em" />
-        </Icon>
-      )}
+      {loading && <Spin />}
     </Column>
   );
 }
