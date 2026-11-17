@@ -274,7 +274,7 @@ export interface QbitSendPlanEngineHost {
    * `spendableOutputs` as `since`: a lock or a wallet's removal after it
    * leaves that read keeping nothing. Opaque to the engine.
    */
-  beginOutputsRead?(): unknown
+  beginOutputsRead(): unknown
   /**
    * `account`'s outputs on `chain` as the ordinary send reads them, less
    * every one a plan's hold would be refused on
@@ -285,8 +285,8 @@ export interface QbitSendPlanEngineHost {
   spendableOutputs(
     chain: ChainType,
     account: Account,
-    exceptPlanId?: string,
-    since?: unknown
+    exceptPlanId: string | undefined,
+    since: unknown
   ): Promise<QbitSendPlanCoin[]>
   /** The id of `psbt`'s transaction on `chain` (`qbitBroadcastIdentityOf`). */
   txidOf(psbt: Psbt, chain: ChainType): string
@@ -2279,7 +2279,7 @@ export class QbitSendPlanEngine {
   async prepare(params: unknown): Promise<QbitSendPlanPrepareResult> {
     // Before any await: a lock or a wallet's removal while a revision is
     // settled below leaves the read of the outputs keeping nothing.
-    const since = this.host.beginOutputsRead?.()
+    const since = this.host.beginOutputsRead()
     const request = readQbitSendPlanRequest(params)
     const chain = this.host.activeChain()
     if (!QBIT_CHAINS.has(chain)) throw new Error('Qbit send plans need a Qbit network')

@@ -2497,8 +2497,9 @@ export class WalletController extends BaseController {
     // A locked wallet keeps no account's outputs in memory, nor what it read
     // of their funding transactions, not even while the lock waits or if it
     // fails. setLocked marks the wallet locked at once, before it waits, so
-    // nothing is kept after these clears: not from a read that started
-    // before them, nor while locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
+    // nothing is kept after these clears: not from a read asked for before
+    // them, however late it starts, even after a new unlock, nor while
+    // locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
     this.forgetQbitAccountTotals()
@@ -6913,7 +6914,12 @@ export class WalletController extends BaseController {
       preferenceService.removeKeyringAlianName(target.key)
       preferenceService.removeKeyringColor(target.key)
       // Nor are the removed accounts' outputs kept, nor what was read of
-      // their funding transactions; the others are read again.
+      // their funding transactions; the others are read again. Until the
+      // removal has settled which wallet is current, the removed one may
+      // still be stored as current, and a read asked for meanwhile reads its
+      // outputs: what that read keeps lasts only until both are cleared again
+      // as the removal ends (below), and a read asked for before then keeps
+      // nothing after it, however late it ends.
       this.qbitLatestUtxoReads.clear()
       this.qbitFundingTxReads.clear()
       // The wallets that stay are read again for a switcher left open.
@@ -6963,6 +6969,14 @@ export class WalletController extends BaseController {
       if (!removed && removal !== undefined) {
         await this.settleFailedQbitSendPlanRemoval(removal, slotEmptying, target, sendPlanAccounts)
       }
+      // The removed wallet is no longer current, or the removal failed, when
+      // the keyring may be gone all the same: the keyring service can fail
+      // after it saved the emptied slot. Either way the reads made while the
+      // removed wallet could be current are forgotten, as a reset forgets
+      // those made while it writes; a removal the keyring service refused
+      // before removing anything costs only a clear it did not need.
+      this.qbitLatestUtxoReads.clear()
+      this.qbitFundingTxReads.clear()
       releaseNetworks?.()
       this.removalUnderWay = undefined
       settle()
@@ -8525,7 +8539,8 @@ export class WalletController extends BaseController {
    * `getAddressBalanceV2` takes its split from them while the statistics
    * still read the same. A read that started later replaces them, even when
    * it found less history, and a read that fails or stops leaves nothing.
-   * Locking the wallet or removing a keyring forgets them.
+   * Locking the wallet or removing a keyring forgets them, and a read asked
+   * for before then leaves nothing either.
    */
   getQbitUtxoSnapshot = async (
     readId?: string | null,
@@ -8611,7 +8626,7 @@ export class WalletController extends BaseController {
     const client = this.getQbitApiClient(chain)
     // Before the statistics below are read: a clear while they are in
     // flight leaves the read of the outputs keeping nothing.
-    const facts = this.qbitFundingTxReads.begin(client)
+    const facts = this.beginQbitOutputsRead(chain, client)
     const activity = shareRead
       ? await Promise.resolve()
           .then(() => client.getAddressStats(account.address, signal ? { signal } : undefined))
@@ -8659,7 +8674,10 @@ export class WalletController extends BaseController {
    * one a ride-out meets the same way, it takes as the answer, as it does a
    * failure of a read that rode them out itself. Its own read runs outside
    * the shared reads: a caller arriving meanwhile starts or joins another,
-   * which past the limit is a second walk of the history.
+   * which past the limit is a second walk of the history. That read keeps
+   * the caller's place among the clears (`facts`), so a clear since the
+   * caller was asked leaves it keeping nothing, and ranks among the reads
+   * as it starts.
    */
   private async sharedQbitAccountUtxos(
     chain: ChainType,
@@ -8726,8 +8744,9 @@ export class WalletController extends BaseController {
    * timer uses too, and the keyring service's own lock after an address-type
    * change it cannot roll back, in `changeAddressType`), when its data is
    * reset (`resetAllData`) or when a keyring is removed; none counts while
-   * the wallet reads locked. See `qbitAccountUtxosOn` and
-   * `getAddressBalanceV2`.
+   * the wallet reads locked, and a read asked for before one of these keeps
+   * nothing, whenever it starts (`beginQbitOutputsRead`). See
+   * `qbitAccountUtxosOn` and `getAddressBalanceV2`.
    */
   private readonly qbitLatestUtxoReads = new QbitLatestAnswers<{
     stats: string
@@ -8812,7 +8831,7 @@ export class WalletController extends BaseController {
     providedUtxos: UnspentOutput[] | undefined,
     providedUtxoChain: ChainType | undefined,
     providedUtxoAddress: string | undefined,
-    facts?: QbitFundingFactsView
+    facts: QbitFundingFactsView
   ): Promise<UnspentOutput[]> {
     if (providedUtxos === undefined) {
       return this.assertQbitAccountOutputs(
@@ -8860,11 +8879,27 @@ export class WalletController extends BaseController {
    * (`QbitClassifyOptions.facts`), taken by a caller when it is asked for
    * the outputs, before awaits of its own, so that a lock, a reset, a keyring
    * removal or a network switch while it waits leaves the read keeping and
-   * served nothing.
+   * served nothing. Its place among the clears of `qbitLatestUtxoReads` is
+   * taken with it (`qbitOutputsReadPlaces`), so a lock, a reset or a keyring
+   * removal meanwhile leaves it keeping no read of the history either, even
+   * after a new unlock, through whichever caller it comes.
    */
-  private beginQbitOutputsRead(chain: ChainType = this.getChainType()): QbitFundingFactsView {
-    return this.qbitFundingTxReads.begin(this.getQbitApiClient(chain))
+  private beginQbitOutputsRead(
+    chain: ChainType = this.getChainType(),
+    client: QbitWalletApiClient = this.getQbitApiClient(chain)
+  ): QbitFundingFactsView {
+    const facts = this.qbitFundingTxReads.begin(client)
+    this.qbitOutputsReadPlaces.set(facts, this.qbitLatestUtxoReads.start())
+    return facts
   }
+
+  /**
+   * The place among the clears of `qbitLatestUtxoReads` that the caller of
+   * each read of outputs took when it was asked for them, by the view of
+   * `qbitFundingTxReads` it took with it (`beginQbitOutputsRead`), which it
+   * hands the read (`qbitAccountUtxosOn`).
+   */
+  private readonly qbitOutputsReadPlaces = new WeakMap<QbitFundingFactsView, number>()
 
   /**
    * The account's unspent outputs on `chain`, before any reservation is
@@ -8874,8 +8909,11 @@ export class WalletController extends BaseController {
    * under the address statistics its walk verified, not ones read before
    * it, which may have moved since; one that fails or stops leaves nothing,
    * and so does any read while the wallet is locked. `facts` is the place
-   * among the clears of `qbitFundingTxReads` its caller took when it was
-   * asked for the outputs, before awaits of its own (`beginQbitOutputsRead`).
+   * among the clears of `qbitFundingTxReads` and of `qbitLatestUtxoReads`
+   * its caller took when it was asked for the outputs, before awaits of its
+   * own (`beginQbitOutputsRead`): a clear since then leaves the read keeping
+   * nothing, however late it starts. Every caller takes it so; a view begun
+   * anywhere else is refused.
    * With `rideOut`, which only a snapshot read its caller can abandon asks
    * for (`getQbitUtxoSnapshot`), the read rides out the explorer's server
    * errors (`readQbitAddressUtxosRidingOut`); without it, it fails on one as
@@ -8885,16 +8923,20 @@ export class WalletController extends BaseController {
     chain: ChainType,
     account: Account,
     client: QbitWalletApiClient = this.getQbitApiClient(chain),
-    signal?: AbortSignal,
-    facts?: QbitFundingFactsView,
+    signal: AbortSignal | undefined,
+    facts: QbitFundingFactsView,
     rideOut = false
   ): Promise<UnspentOutput[]> {
+    // Ranked among the reads as it starts reading; placed among the clears
+    // where its caller was asked.
     const order = this.qbitLatestUtxoReads.start()
+    const since = this.qbitOutputsReadPlaces.get(facts)
+    if (since === undefined) throw new Error('A read of outputs its caller did not begin')
     const read = rideOut ? readQbitAddressUtxosRidingOut : readQbitAddressUtxos
     const { utxos, historyStats, matureAt, matureFrom } = await read(client, account.address, {
       ...(signal ? { signal } : {}),
       fundingTxReads: this.qbitFundingTxReads,
-      ...(facts ? { facts } : {}),
+      facts,
     })
     const outputs = utxos.map(v => ({
       txid: v.txid,
@@ -8906,12 +8948,18 @@ export class WalletController extends BaseController {
       ...(v.unconfirmed ? { unconfirmed: true, unconfirmedAncestors: v.unconfirmedAncestors } : {}),
     }))
     if (historyStats && this.isUnlocked()) {
-      this.qbitLatestUtxoReads.keep(client, account.address, order, {
-        stats: qbitStatsSnapshot(historyStats),
-        utxos: utxos.map(qbitReadOutput),
-        ...(matureAt !== undefined ? { matureAt } : {}),
-        ...(matureFrom !== undefined ? { matureFrom } : {}),
-      })
+      this.qbitLatestUtxoReads.keep(
+        client,
+        account.address,
+        order,
+        {
+          stats: qbitStatsSnapshot(historyStats),
+          utxos: utxos.map(qbitReadOutput),
+          ...(matureAt !== undefined ? { matureAt } : {}),
+          ...(matureFrom !== undefined ? { matureFrom } : {}),
+        },
+        since
+      )
     }
     return outputs
   }
@@ -11639,7 +11687,7 @@ export class WalletController extends BaseController {
         undefined,
         undefined,
         undefined,
-        since as QbitFundingFactsView | undefined
+        since as QbitFundingFactsView
       )
       await this.settleQbitRecentSpends(chain, account.address)
       // What the plan's own hold would refuse, a dapp's signed inputs
