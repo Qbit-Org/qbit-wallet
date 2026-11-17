@@ -2261,6 +2261,9 @@
   "send_plan_cancel_keep": {
     "message": "支払いを続ける"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "ウォレットは削除されましたが、そのウォレットからの進行中の支払いをまだキャンセルできていません。この支払いについてこれ以上署名や送信は行われず、ウォレットはキャンセルを試み続けます。"
+  },
   "send_plan_raise_title": {
     "message": "手数料を上げる"
   },

@@ -408,22 +408,30 @@ describe('a plan completed by a transaction that is no version of its payment', 
     world.assertRecipientGuarantees(AMOUNT)
   })
 
-  it('while T and its own payment are both gone, names T, keeps the inputs held and signs and sends nothing; names its payment once that confirms after all', async () => {
+  it('while T and its own payment are both gone, reopens as a payment that may still go through, keeps the inputs held and signs and sends nothing; names its payment once that confirms after all', async () => {
     const { p, pRaw, pFee, t } = await completedWithAnother()
     world.explorer.removeTx(t)
     const signed = world.keyring.signed.length
     const pushed = world.pushed.length
-    const revision = stored().revision
-    // Missed for well over the grace, read after read.
+    // Missed for well over the grace, read after read, with nothing spending
+    // the payment's inputs: the plan reopens, T and its own payment both
+    // still able to confirm (#217).
     for (let read = 0; read < 3; read++) {
       await world.tick(QBIT_RECENT_SPEND_GONE_GRACE_MS)
-      expectShows(await settledView(), { txid: t, fee: T_FEE, status: 'broadcast' })
+      await settledView()
     }
-    expect(stored().revision).toBe(revision)
+    expect(await settledView()).toMatchObject({
+      phase: 'paused',
+      pause: { reason: 'interrupted' },
+      paymentMayConfirm: true,
+      actions: ['continue'],
+    })
+    expect(stored().paidBy).toBeUndefined()
     expect(await world.planHeld()).toEqual(paymentInputKeys())
     expect(world.keyring.signed).toHaveLength(signed)
     expect(world.pushed).toHaveLength(pushed)
-    expect(world.timers.scheduled).toBe(0)
+    // Neither has confirmed: the timer keeps watching the plan.
+    expect(world.timers.scheduled).toBe(1)
 
     await pMinedAnyway(pRaw)
     expectShows(await laterRead(), { txid: p, fee: pFee, status: 'confirmed' })

@@ -141,6 +141,7 @@ vi.mock('./utils/walletReset', () => ({
   reopenOutOfDatePage: () => undefined
 }));
 vi.mock('./components/WalletResetNotice', () => ({ WalletResetNotice: () => null }));
+vi.mock('./components/SendPlansNotEndedNotice', () => ({ SendPlansNotEndedNotice: () => null }));
 
 // Load the entry module as a fresh page at `pathname`, and let it run until it
 // waits on a timer.

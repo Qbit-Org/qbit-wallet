@@ -2261,6 +2261,9 @@
   "send_plan_cancel_keep": {
     "message": "Keep the payment"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "The wallet was removed, but a payment in progress from it could not be cancelled yet. Nothing more of it will be signed or sent, and the wallet keeps trying to cancel it."
+  },
   "send_plan_raise_title": {
     "message": "Raise the fee"
   },

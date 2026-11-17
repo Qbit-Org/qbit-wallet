@@ -12,5 +12,5 @@ export {
   type NavigationContextType,
   type RouteTypes,
 } from './NavigationContext'
-export { ToolsContext, useTools, type ToolsContextType } from './ToolsContext'
+export { ToolsContext, useTools, type ToastOptions, type ToolsContextType } from './ToolsContext'
 export { useWallet, WalletProvider } from './WalletContext'

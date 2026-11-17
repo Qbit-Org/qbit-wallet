@@ -103,6 +103,18 @@ vi.mock('../src/services', async () => {
       resetAllData: vi.fn(async () => undefined),
       removeKeyringAlianName: vi.fn(),
       removeKeyringColor: vi.fn(),
+      // The record a wallet removal keeps of the send plans it ends (#216).
+      getQbitSendPlanRemovals: vi.fn(() => ({
+        records: [],
+        unreadable: { count: 0, accounts: [] },
+      })),
+      addQbitSendPlanRemoval: vi.fn(async (wallet: unknown, accounts: unknown) => ({
+        version: 1,
+        id: 'a1'.repeat(16),
+        wallet,
+        accounts,
+      })),
+      forgetQbitSendPlanRemoval: vi.fn(async () => undefined),
       updateAddressBalance: vi.fn(),
       getAccountAlianName: vi.fn((_key: string, fallback: string) => fallback),
       getKeyringAlianName: vi.fn((key: string) => `Wallet ${key}`),

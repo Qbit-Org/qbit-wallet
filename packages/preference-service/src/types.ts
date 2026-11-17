@@ -89,6 +89,16 @@ export interface BasePreferenceStore {
    */
   walletResetPending?: boolean
   /**
+   * The wallet removals whose send plans may not all be ended yet, one entry
+   * each (QbitSendPlanRemovalRecord): a removal writes its entry before it
+   * changes anything, and it is forgotten once nothing of its accounts' plans
+   * is left, or once its wallet is found still there. Each entry carries its
+   * version, and one this version cannot read is kept as it is stored
+   * (getQbitSendPlanRemovals). Absent in a new store and in one saved before
+   * it existed, which reads as none; resetAllData drops it with the wallets.
+   */
+  qbitSendPlanRemovals?: unknown
+  /**
    * The identity of the wallet set up in this browser: an opaque random
    * value made the first time it is asked for (createWalletId), tied to
    * nothing else. resetAllData drops it with the wallets, and the next
@@ -108,6 +118,36 @@ export interface BasePreferenceStore {
 
   acceptLowFeeMode: boolean
   enableRBF: boolean
+}
+
+/** An account whose send plans a wallet removal ends: a Qbit network and the address on it. */
+export interface QbitSendPlanRemovalAccount {
+  chain: ChainType
+  address: string
+}
+
+/** A wallet removal's entry in `qbitSendPlanRemovals`, version 1. */
+export interface QbitSendPlanRemovalRecord {
+  version: 1
+  /** 32 lower-case hex digits, random. */
+  id: string
+  /**
+   * The wallet removed: its slot, which a removal leaves empty for good and
+   * no wallet added later takes, and its keyring type.
+   */
+  wallet: { index: number; type: string }
+  /** The accounts whose send plans the removal ends, as the plans name them. */
+  accounts: QbitSendPlanRemovalAccount[]
+}
+
+/** The wallet removal records stored, as this version reads them (getQbitSendPlanRemovals). */
+export interface QbitSendPlanRemovals {
+  records: QbitSendPlanRemovalRecord[]
+  /**
+   * The entries this version cannot read, kept as they are stored: how many,
+   * and every account they name in `accounts` in the form a record's has.
+   */
+  unreadable: { count: number; accounts: QbitSendPlanRemovalAccount[] }
 }
 
 export interface RateUsStatus {

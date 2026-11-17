@@ -23,11 +23,87 @@ import { ProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
 import { EventEmitter } from 'eventemitter3'
 import cloneDeep from 'lodash/cloneDeep.js'
-import { BasePreferenceStore, PreferenceServiceConfig, PreferenceServiceEvents } from './types'
+import {
+  BasePreferenceStore,
+  PreferenceServiceConfig,
+  PreferenceServiceEvents,
+  QbitSendPlanRemovalAccount,
+  QbitSendPlanRemovalRecord,
+  QbitSendPlanRemovals,
+} from './types'
 
 /** Whether `value` is a wallet identity as createWalletId makes one. */
 function isWalletId(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value)
+}
+
+/** The version of the wallet removal records this version writes and reads. */
+const QBIT_SEND_PLAN_REMOVAL_VERSION = 1
+
+/**
+ * The networks a send plan can be on, as a removal record may name them:
+ * the same as the wallet controller derives a removed wallet's accounts on
+ * and the send plan engine plans on, which a test pins.
+ */
+export const QBIT_SEND_PLAN_CHAINS: ReadonlySet<unknown> = new Set([
+  ChainType.QBIT_MAINNET,
+  ChainType.QBIT_TESTNET4,
+  ChainType.QBIT_REGTEST,
+])
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** `value` as an account a removal record names, or nothing when it is not one. */
+function readQbitSendPlanRemovalAccount(value: unknown): QbitSendPlanRemovalAccount | undefined {
+  if (!isPlainRecord(value)) return undefined
+  const { chain, address } = value
+  if (!QBIT_SEND_PLAN_CHAINS.has(chain) || typeof address !== 'string' || address.length === 0) {
+    return undefined
+  }
+  return { chain: chain as ChainType, address }
+}
+
+/**
+ * `value` as a version-1 removal record, copied, or nothing when it is not
+ * one: of another version, or with an id, a wallet or an account this
+ * version would not write. Fields it does not know are left out of the copy.
+ */
+function readQbitSendPlanRemoval(value: unknown): QbitSendPlanRemovalRecord | undefined {
+  if (!isPlainRecord(value) || value['version'] !== QBIT_SEND_PLAN_REMOVAL_VERSION) return undefined
+  const { id, wallet, accounts } = value
+  if (!isWalletId(id) || !isPlainRecord(wallet) || !Array.isArray(accounts)) return undefined
+  const { index, type } = wallet
+  if (!Number.isSafeInteger(index) || (index as number) < 0) return undefined
+  if (typeof type !== 'string' || type.length === 0) return undefined
+  const read = accounts.map(readQbitSendPlanRemovalAccount)
+  if (read.some(account => account === undefined)) return undefined
+  return {
+    version: QBIT_SEND_PLAN_REMOVAL_VERSION,
+    id,
+    wallet: { index: index as number, type },
+    accounts: read as QbitSendPlanRemovalAccount[],
+  }
+}
+
+/**
+ * The entries of a stored `qbitSendPlanRemovals`: none when it is absent,
+ * and a value that is not a list, which no version writes, as the one entry
+ * it is, so that it is kept as it is.
+ */
+function qbitSendPlanRemovalEntries(value: unknown): readonly unknown[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
+/** The accounts an entry this version cannot read names in `accounts`, those that read as accounts. */
+function accountsNamedBy(entry: unknown): QbitSendPlanRemovalAccount[] {
+  const accounts = isPlainRecord(entry) ? entry['accounts'] : undefined
+  if (!Array.isArray(accounts)) return []
+  return accounts
+    .map(readQbitSendPlanRemovalAccount)
+    .filter((account): account is QbitSendPlanRemovalAccount => account !== undefined)
 }
 
 /** A new wallet identity: 16 bytes from the platform's random source, in hex. */
@@ -244,11 +320,16 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
     return run
   }
 
-  /** setAndPersist's change, run in its turn (inPersistOrder). */
+  /**
+   * setAndPersist's change, run in its turn (inPersistOrder). With
+   * `saveRestored` false, a failed write puts the previous value back in
+   * memory and does not save it again (see forgetQbitSendPlanRemoval).
+   */
   private async applyAndPersist<K extends keyof BasePreferenceStore>(
     key: K,
     value: BasePreferenceStore[K],
-    request: number
+    request: number,
+    saveRestored = true
   ): Promise<void> {
     const store = this.store
     const hadValue = key in store
@@ -264,7 +345,7 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
         } else {
           delete store[key]
         }
-        const restore = await this.saveRestoredValue(store, key, request)
+        const restore = saveRestored ? await this.saveRestoredValue(store, key, request) : undefined
         if (restore) {
           const failure = new WalletError(
             ErrorCodes.PREFERENCE_NOT_RESTORED,
@@ -866,6 +947,115 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
    */
   clearWalletResetPending(): Promise<void> {
     return this.setAndPersist('walletResetPending', undefined)
+  }
+
+  /**
+   * The wallet removal records (`qbitSendPlanRemovals`), as this version
+   * reads them; a store saved before them reads as none. An entry that does
+   * not read as a version-1 record, being of another version or damaged, and
+   * an entry under an id read already, is counted in `unreadable` with every
+   * account it names that reads as one, and stays as it is stored: no change
+   * made here writes over it or drops it. Throws only while the preferences
+   * are not loaded.
+   */
+  getQbitSendPlanRemovals(): QbitSendPlanRemovals {
+    const records: QbitSendPlanRemovalRecord[] = []
+    const unreadable: QbitSendPlanRemovals['unreadable'] = { count: 0, accounts: [] }
+    const ids = new Set<string>()
+    for (const entry of qbitSendPlanRemovalEntries(this.store.qbitSendPlanRemovals)) {
+      const record = readQbitSendPlanRemoval(entry)
+      if (record && !ids.has(record.id)) {
+        ids.add(record.id)
+        records.push(record)
+        continue
+      }
+      unreadable.count += 1
+      unreadable.accounts.push(...accountsNamedBy(entry))
+    }
+    return { records, unreadable }
+  }
+
+  /**
+   * Record, before anything of it is changed, that the wallet in slot
+   * `wallet.index`, of keyring type `wallet.type`, is being removed, and that
+   * its removal ends the send plans of `accounts`; resolves with the record,
+   * under a new random id, once it is on disk. Rejects when it cannot be
+   * saved, or names no slot, type or Qbit account; the record is then not
+   * stored, unless the disk keeps it when the list before cannot be saved
+   * again either (see setAndPersist), and every entry stored before stays.
+   * The list is read when this change's turn comes among the saved changes,
+   * so changes asked for at once each keep the others' (changeAndPersist).
+   */
+  addQbitSendPlanRemoval(
+    wallet: { index: number; type: string },
+    accounts: readonly QbitSendPlanRemovalAccount[]
+  ): Promise<QbitSendPlanRemovalRecord> {
+    // The same 16 random bytes in hex a wallet identity is made of.
+    const record = readQbitSendPlanRemoval({
+      version: QBIT_SEND_PLAN_REMOVAL_VERSION,
+      id: newWalletId(),
+      wallet: { index: wallet.index, type: wallet.type },
+      accounts: accounts.map(account => ({ chain: account.chain, address: account.address })),
+    })
+    if (!record) {
+      return Promise.reject(
+        new Error('A wallet removal record names a wallet slot, its type and Qbit accounts')
+      )
+    }
+    return this.changeAndPersist('qbitSendPlanRemovals', current => [
+      ...qbitSendPlanRemovalEntries(current),
+      record,
+    ]).then(() => cloneDeep(record))
+  }
+
+  /**
+   * Forget the wallet removal record `id`, resolving once that is on disk,
+   * at once when none is stored under it. Rejects when it cannot be saved;
+   * the record then stays in memory, and the list is not saved again: the
+   * disk holds it still, or, a write that reported a failure having landed,
+   * holds it no more, either of which is safe for a record that was to go.
+   * So a refused forget makes one write of its own and logs nothing itself.
+   * As after any change to the preferences, the storage adapter then saves
+   * the whole store on its own, about a second later (its deferred save,
+   * which the refused write and the record put back in memory queue
+   * again), and logs an error when that write fails too. A caller trying
+   * again spaces its tries. Entries this version cannot read stay as they
+   * are, and the setting goes once it holds nothing.
+   */
+  forgetQbitSendPlanRemoval(id: string): Promise<void> {
+    return this.changeAndPersist(
+      'qbitSendPlanRemovals',
+      current => {
+        const entries = qbitSendPlanRemovalEntries(current)
+        const index = entries.findIndex(entry => readQbitSendPlanRemoval(entry)?.id === id)
+        if (index === -1) return current
+        const left = entries.filter((_, other) => other !== index)
+        return left.length > 0 ? left : undefined
+      },
+      { saveRestored: false }
+    )
+  }
+
+  /**
+   * Change setting `key` to what `change` makes of its value when this
+   * change's turn comes among the saved changes (inPersistOrder), and save it
+   * as setAndPersist saves a value; with `saveRestored` false, a write that
+   * fails puts the value back in memory only (applyAndPersist). Changes
+   * asked for at once so each apply to the value the one before left.
+   * Nothing is written when `change` returns the value it was given.
+   */
+  private changeAndPersist<K extends keyof BasePreferenceStore>(
+    key: K,
+    change: (current: BasePreferenceStore[K]) => BasePreferenceStore[K],
+    { saveRestored = true }: { saveRestored?: boolean } = {}
+  ): Promise<void> {
+    const request = this.nextPersistRequest(key)
+    return this.inPersistOrder(async () => {
+      const current = this.store[key]
+      const next = change(current)
+      if (next === current) return
+      await this.applyAndPersist(key, next, request, saveRestored)
+    })
   }
 
   /** Whether init has loaded the preferences: until then none can be read or written. */

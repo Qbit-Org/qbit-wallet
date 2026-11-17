@@ -215,7 +215,7 @@ describe('useQbitSendPlan', () => {
     await waitFor(() => expect(wallet.getQbitSendPlan).toHaveBeenCalledTimes(3))
   })
 
-  it('polls every 5 seconds while the plan is open, and stops once it completed', async () => {
+  it('polls every 5 seconds while the plan is open, and stops once it completed with its payment confirmed', async () => {
     vi.useFakeTimers()
     const harness = createHookTestHarness()
     harness.wallet.getQbitSendPlan.mockResolvedValue(planView({ phase: 'waiting', revision: 2 }))
@@ -231,7 +231,29 @@ describe('useQbitSendPlan', () => {
     })
     expect(wallet.getQbitSendPlan).toHaveBeenCalledTimes(2)
 
-    wallet.getQbitSendPlan.mockResolvedValue(planView({ phase: 'completed', revision: 3 }))
+    // A completed plan is followed until its payment has confirmed (#217).
+    wallet.getQbitSendPlan.mockResolvedValue(
+      planView({
+        phase: 'completed',
+        revision: 3,
+        steps: [
+          {
+            kind: 'merge',
+            txid: 'aa'.repeat(32),
+            inputCount: 106,
+            fee: 398_827,
+            status: 'confirmed',
+          },
+          {
+            kind: 'payment',
+            txid: 'bb'.repeat(32),
+            inputCount: 50,
+            fee: 190_000,
+            status: 'confirmed',
+          },
+        ],
+      })
+    )
     await act(async () => {
       await vi.advanceTimersByTimeAsync(QBIT_SEND_PLAN_POLL_MS)
     })
@@ -270,6 +292,90 @@ describe('useQbitSendPlan', () => {
     })
     expect(result.current.readFailed).toBe(false)
     expect(result.current.plan?.id).toBe('plan-1')
+  })
+
+  it('reads nothing while disabled, on mount, on an event, on a refresh or by the poll, and shows no plan; enabled, it reads, and disabled again it drops the answer on its way', async () => {
+    vi.useFakeTimers()
+    const harness = createHookTestHarness()
+    harness.wallet.getQbitSendPlan.mockResolvedValue(planView({ phase: 'waiting', revision: 2 }))
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useQbitSendPlan({ enabled }),
+      { wrapper: harness.wrapper, initialProps: { enabled: false } }
+    )
+    await act(async () => {
+      uiEventBus.emit(BUS_METHODS.QBIT_SEND_PLAN_CHANGED, { planId: 'plan-1', revision: 3 })
+      uiEventBus.emit(BUS_METHODS.ACCOUNTS_CHANGED)
+      uiEventBus.emit(BUS_METHODS.CHAIN_CHANGED, { type: ChainType.QBIT_TESTNET4 })
+      result.current.refresh()
+      await vi.advanceTimersByTimeAsync(QBIT_SEND_PLAN_POLL_MS * 3)
+    })
+    expect(harness.wallet.getQbitSendPlan).not.toHaveBeenCalled()
+    expect(result.current.plan).toBeUndefined()
+    expect(result.current.readFailed).toBe(false)
+
+    rerender({ enabled: true })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(harness.wallet.getQbitSendPlan).toHaveBeenCalledTimes(1)
+    expect(result.current.plan).toMatchObject({ id: 'plan-1', phase: 'waiting' })
+
+    const late = deferred<QbitSendPlanView | null>()
+    harness.wallet.getQbitSendPlan.mockReturnValueOnce(late.promise)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(QBIT_SEND_PLAN_POLL_MS)
+    })
+    expect(harness.wallet.getQbitSendPlan).toHaveBeenCalledTimes(2)
+    rerender({ enabled: false })
+    await act(async () => late.resolve(planView({ phase: 'waiting', revision: 4 })))
+    expect(result.current.plan).toBeUndefined()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(QBIT_SEND_PLAN_POLL_MS * 3)
+    })
+    expect(harness.wallet.getQbitSendPlan).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['no plan', null],
+    ['an answer that is not a plan, which an enabled hook counts as a failed read', 'not a plan'],
+    ['a plan', planView({ revision: 2 })],
+  ] as const)(
+    'applies nothing while disabled: given %s, the call runs and its answer is returned, and no plan, failed read or poll follows',
+    async (_label, plan) => {
+      vi.useFakeTimers()
+      const harness = createHookTestHarness()
+      const { result } = renderHook(() => useQbitSendPlan({ enabled: false }), {
+        wrapper: harness.wrapper,
+      })
+      const call = vi.fn().mockResolvedValue({ plan })
+      let answer: unknown
+      await act(async () => {
+        answer = await result.current.apply(call, (value: { plan: unknown }) => value.plan)
+      })
+      expect(call).toHaveBeenCalledTimes(1)
+      expect(answer).toEqual({ plan })
+      expect(result.current).toMatchObject({ plan: undefined, readFailed: false })
+      expect(vi.getTimerCount()).toBe(0)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(QBIT_SEND_PLAN_POLL_MS * 3)
+      })
+      expect(result.current).toMatchObject({ plan: undefined, readFailed: false })
+      expect(harness.wallet.getQbitSendPlan).not.toHaveBeenCalled()
+    }
+  )
+
+  it('rethrows the failure of a call applied while disabled, and shows nothing', async () => {
+    const harness = createHookTestHarness()
+    const { result } = renderHook(() => useQbitSendPlan({ enabled: false }), {
+      wrapper: harness.wrapper,
+    })
+    await expect(
+      result.current.apply(
+        () => Promise.reject(new Error('refused')),
+        value => value
+      )
+    ).rejects.toThrow('refused')
+    expect(result.current).toMatchObject({ plan: undefined, readFailed: false })
   })
 
   it('counts an answer that is not a plan as a failed read and keeps the plan shown', async () => {

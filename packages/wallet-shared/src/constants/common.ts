@@ -410,6 +410,10 @@ export const BUS_METHODS = {
   // An open send plan changed: `{ planId, revision }`, sent to every wallet
   // page. It carries no plan content; pages read the plan again.
   QBIT_SEND_PLAN_CHANGED: 'qbitSendPlanChanged',
+  // A wallet removal completed and could not end all of the removed
+  // wallet's send plans: `{ plans, unreadable, storeUnavailable }`, two
+  // counts and a flag, sent to every wallet page once for that removal.
+  QBIT_SEND_PLANS_NOT_ENDED: 'qbitSendPlansNotEnded',
 
   USER_UI_INTERACT: 'USER_UI_INTERACT', // used to notify background script that user has interacted with the UI
 }

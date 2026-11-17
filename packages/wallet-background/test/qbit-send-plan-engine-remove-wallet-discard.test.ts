@@ -38,6 +38,8 @@ import {
 
 const lockState = vi.hoisted(() => ({ isUnlocked: true }))
 const guardHolder = vi.hoisted(() => ({ guard: undefined as unknown as object }))
+/** The wallet removal records the preferences stand-in keeps (#216). */
+const removalRecords = vi.hoisted(() => [] as { id: string }[])
 vi.mock('../src/services', async () => {
   const { QbitSendGuardService } = await import('../src/services/qbitSendGuards')
   guardHolder.guard = new QbitSendGuardService()
@@ -85,6 +87,20 @@ vi.mock('../src/services', async () => {
       getCurrentKeyringIndex: vi.fn(() => 1),
       removeKeyringAlianName: vi.fn(),
       removeKeyringColor: vi.fn(),
+      // The records a wallet removal keeps of the send plans it ends (#216).
+      getQbitSendPlanRemovals: vi.fn(() => ({
+        records: removalRecords.map(record => ({ ...record })),
+        unreadable: { count: 0, accounts: [] },
+      })),
+      addQbitSendPlanRemoval: vi.fn(async (wallet: unknown, accounts: unknown) => {
+        const record = { version: 1, id: crypto.randomUUID().replace(/-/g, ''), wallet, accounts }
+        removalRecords.push(record)
+        return { ...record }
+      }),
+      forgetQbitSendPlanRemoval: vi.fn(async (id: string) => {
+        const at = removalRecords.findIndex(record => record.id === id)
+        if (at !== -1) removalRecords.splice(at, 1)
+      }),
     },
     qbitSendGuardService: guard,
     sessionService: { broadcastEvent: vi.fn() },
@@ -112,6 +128,7 @@ function freshWorld(): World {
 }
 
 beforeEach(async () => {
+  removalRecords.length = 0
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(T0)
   vi.clearAllMocks()
@@ -247,7 +264,7 @@ function watchWarnings(): () => string[] {
 
 /** The warning the background logs of what an ending of a removed wallet's plans left. */
 const NOT_ENDED = (plans: number, unreadable: number): string =>
-  `[WalletController] Send plans of the removed wallet not ended yet (${plans} plan(s), ${unreadable} entr(ies) the store cannot read): held back until they are ended or the background starts again`
+  `[WalletController] Send plans of the removed wallet not ended yet (${plans} plan(s), ${unreadable} entr(ies) the store cannot read): held back until they are ended`
 /** The warning it logs once nothing of what an ending left is left. */
 const ENDED_NOW =
   '[WalletController] Send plans of the removed wallet that were not ended are ended now'

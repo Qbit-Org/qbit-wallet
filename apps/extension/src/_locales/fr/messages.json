@@ -2261,6 +2261,9 @@
   "send_plan_cancel_keep": {
     "message": "Garder le paiement"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "Le portefeuille a été supprimé, mais un paiement en cours depuis ce portefeuille n’a pas encore pu être annulé. Plus rien de ce paiement ne sera signé ni envoyé, et le portefeuille continue d’essayer de l’annuler."
+  },
   "send_plan_raise_title": {
     "message": "Augmenter les frais"
   },

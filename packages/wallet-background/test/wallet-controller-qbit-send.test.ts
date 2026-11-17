@@ -81,6 +81,8 @@ const verifyPqcMock = vi.hoisted(() => vi.fn())
 const getTxStatusMock = vi.hoisted(() => vi.fn())
 const getAddressUtxosMock = vi.hoisted(() => vi.fn())
 const getAddressHistoryMock = vi.hoisted(() => vi.fn())
+/** The wallet removal records the preferences stand-in keeps (#216). */
+const removalRecords = vi.hoisted(() => [] as { id: string }[])
 const getAddressMempoolTxsMock = vi.hoisted(() => vi.fn())
 const getAddressStatsMock = vi.hoisted(() => vi.fn())
 const getTipHashMock = vi.hoisted(() => vi.fn())
@@ -188,6 +190,20 @@ vi.mock('../src/services', () => ({
     getKeyringColor: vi.fn(() => undefined),
     setKeyringColor: vi.fn(),
     removeKeyringColor: vi.fn(),
+    // The records a wallet removal keeps of the send plans it ends (#216).
+    getQbitSendPlanRemovals: vi.fn(() => ({
+      records: removalRecords.map(record => ({ ...record })),
+      unreadable: { count: 0, accounts: [] },
+    })),
+    addQbitSendPlanRemoval: vi.fn(async (wallet: unknown, accounts: unknown) => {
+      const record = { version: 1, id: crypto.randomUUID().replace(/-/g, ''), wallet, accounts }
+      removalRecords.push(record)
+      return { ...record }
+    }),
+    forgetQbitSendPlanRemoval: vi.fn(async (id: string) => {
+      const at = removalRecords.findIndex(record => record.id === id)
+      if (at !== -1) removalRecords.splice(at, 1)
+    }),
   },
   qbitSendGuardService: {
     acquireExternalSigningLock: vi.fn(),
@@ -623,6 +639,7 @@ describe('WalletController qbit P2MR send path', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    removalRecords.length = 0
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     vi.mocked(qbitSendGuardService.getReservedOutpointKeys).mockResolvedValue(
       new Set()

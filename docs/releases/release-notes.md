@@ -53,6 +53,54 @@ pays (#188), found in its review (#206).
   the wallet, and one found at start-up without the wallet's keys is erased,
   not sent.
 
+Two more fixes to these payments close what the six left open (#216, #217).
+
+- A removed wallet's unfinished payment stays stopped after a restart too.
+  Before it removes anything, the wallet now saves which accounts' payments
+  the removal ends. Until they are ended, nothing more of them is signed or
+  sent, also after the browser or the extension restarts; after a restart
+  the wallet settles this the first time it is unlocked. Before, what a
+  refused write left was held back only until the next restart, and a
+  payment already signed could then still be sent. If that record cannot be
+  saved, the wallet is not removed and the removal says "The wallet cannot
+  be removed now: the record of its send plans could not be saved. Try
+  again." If a removal fails and the wallet stays, its payments go on as
+  they were.
+- When a removal cannot cancel such a payment at once, every open wallet
+  window says so for 15 seconds, with a control to close it: "The wallet was
+  removed, but a payment in progress from it could not be cancelled yet.
+  Nothing more of it will be signed or sent, and the wallet keeps trying to
+  cancel it." Before, only the background's log said so.
+- A completed payment whose transaction has not confirmed yet is now
+  followed until it confirms, for as long as the payment is kept on the home
+  screen, also with every wallet window closed. Leaving its success screen
+  removes it from home, as before, and it is followed no more. If that
+  transaction stays missing from the network for ten minutes, the wallet
+  looks at what happened to the funds it used. If another transaction paid
+  the recipient the same amount from them, the payment shows that
+  transaction and its fee. If nothing spent them, the payment is paused
+  again as "The payment may still go through", with Continue to send the
+  same payment again, which cannot pay the recipient twice. If something
+  else spent them, it is paused as "Funds this payment uses were spent",
+  with Review again and Cancel payment. Nothing is sent again without you.
+  Before, the payment went on showing as sent with the transaction it first
+  named, and kept its funds held until it was removed from home.
+- The success screen of such a payment follows it: it shows and links the
+  transaction that paid, and returns to the progress view when the payment
+  is paused again.
+- Saved payment data that the wallet cannot read and that does not name its
+  account in full is now shown as "This payment cannot be read" to an
+  account it could belong to, with Cancel payment to drop it: any account
+  when the data names neither a network nor an address, an account on the
+  network it names, or the account with the address it names. An account
+  with a payment in several transactions of its own, in progress or
+  completed and still on home, is shown that payment first. While an
+  account is shown the data, it cannot start a payment in several
+  transactions, and says "A payment from this account is already in
+  progress." Removing a wallet drops such data when it names only the
+  address of an account whose payments that removal ends. Before, such data
+  was not shown anywhere.
+
 ### Accounts with many outputs
 
 - The balance of an account with thousands of outputs loads again (#36,
@@ -245,13 +293,62 @@ pays (#188), found in its review (#206).
   while that read is still running, which Send allows only when it already
   shows outputs read earlier, waits for that read too. Every other read
   gives up on such errors as quickly as 1.0.9 did.
-- If the browser's storage refuses the write that ends a removed wallet's
-  unfinished payment, and the browser or the extension restarts before the
-  wallet can end it, that payment goes on as before the removal: a payment
-  already signed, the one you confirmed, can still be sent once its funds
-  are combined.
-- A completed payment whose transaction was replaced by one made outside
-  this wallet goes on showing the earlier transaction.
+- A wallet window opened after a removal that could not cancel a payment is
+  not told so; the message is shown only in the windows open at that
+  moment. The payment stays stopped either way.
+- After a restart, a payment of an account that an unfinished or failed
+  removal names waits for the wallet to be unlocked before it goes on or is
+  ended. A payment already signed, which the wallet otherwise sends while
+  locked, waits too.
+- A wallet removal is not finished while saved payment data that the
+  wallet cannot read, and that names no address, could belong to one of the
+  removed wallet's accounts. Data that names only a network is shown, with
+  Cancel payment, only to accounts on that network, and the local test
+  network can be selected only with a local node the wallet has verified.
+  Until the data is dropped there, or the wallet is reset, the removed
+  wallet's accounts cannot start a payment in several transactions if the
+  same recovery phrase is added again.
+- A payment completed in an earlier version whose transaction never
+  confirmed and was dropped by the network, and that was never removed from
+  home, is paused again about ten minutes after the update, as "The payment
+  may still go through" or "Funds this payment uses were spent".
+- When a transaction made outside this wallet with the same keys, for
+  example by the same recovery phrase in another app, paid the recipient and
+  then goes missing, the wallet offers a new payment only once confirmed
+  transactions have spent every one of the funds the payment uses. Until
+  then it shows the payment as made, with Remove from home, or offers the
+  same payment again. So if that transaction is undone by spending some,
+  not all, of those funds, the payment keeps showing as made although
+  nothing paid, until the rest are spent or you remove it. If the explorer
+  keeps showing and hiding a spend of the payment's funds, the payment can
+  switch between paid and paused about every twelve minutes; nothing is
+  sent without you.
+- The wallet takes its own payment for unable to confirm once the explorer
+  shows another transaction spending its funds, also an unconfirmed one, as
+  in 1.0.9. If that transaction is dropped later and someone relays the
+  earlier payment again, it can still confirm beside a new payment you
+  reviewed in between. This needs someone else holding the account's keys.
+- Before the wallet offers to review a payment again because funds it uses
+  were spent, it identifies the first transaction it finds spending them,
+  and passes over a transaction whose spends the explorer does not answer
+  for, as in 1.0.9. A transaction made outside this wallet with the same
+  keys that paid the recipient from another of those funds is then not
+  seen; nor does the review wait when the explorer cannot say, at that
+  moment, what the transaction it found is. In those cases a new payment
+  you review and confirm can pay a second time.
+- When a transaction that combined a completed payment's funds is dropped
+  by the network, because it was not confirmed when the payment completed
+  or because a block reorganisation removed it then or later, the payment
+  keeps showing as paid, whatever then happens to the funds it combined,
+  until the network shows that transaction again. The wallet offers no new
+  payment for it; Remove from home removes it.
+- While a removed wallet's payment is still being cancelled, or a removal's
+  record is kept, the same recovery phrase added again cannot start a
+  payment in several transactions for that account. The send screen says "A
+  wallet removal that involves this account has not finished, so a payment
+  in several transactions cannot start yet." A payment in one transaction is
+  not held up. If the record is one this version cannot read, that lasts
+  until a version that reads it, or a wallet reset.
 - In Switch Account, the balance of an account other than the current one
   can be up to a minute old: a payment it received in that minute shows
   once the minute has passed and Switch Account is opened again. After the
