@@ -13,6 +13,7 @@ import { AccountUpdater, createAppStore, WalletProvider } from '@qbit/wallet-sta
 import { i18nService } from '@/shared/utils/i18n';
 import { PlatformEnv } from '@qbit/wallet-shared';
 import { AppDimensions } from './components/Responsive';
+import { SendPlansNotEndedNotice } from './components/SendPlansNotEndedNotice';
 import { StartupErrorScreen } from './components/StartupErrorScreen';
 import { WalletResetNotice } from './components/WalletResetNotice';
 import AsyncMainRoute from './pages/MainRoute';
@@ -139,6 +140,7 @@ function renderApp() {
                     }}>
                     <AccountUpdater />
                     <WalletResetNotice />
+                    <SendPlansNotEndedNotice />
                     <AsyncMainRoute />
                   </IdleTimerProvider>
                 </AppDimensions>

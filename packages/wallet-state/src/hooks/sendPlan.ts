@@ -25,7 +25,8 @@ export interface QbitSendPlanState {
    * Run a wallet call that answers with the plan as it left it (`viewOf`
    * picks the plan out of the answer), and show that plan unless something
    * newer is shown by then. The call's own answer is returned, and its
-   * failure rethrown.
+   * failure rethrown. A disabled hook runs the call and returns its answer,
+   * but shows nothing of it.
    */
   apply: <T>(call: () => Promise<T>, viewOf: (result: T) => unknown) => Promise<T>
 }
@@ -41,11 +42,26 @@ interface Gate {
   shown: QbitSendPlanView | null | undefined
 }
 
+/** The scope of a hook that follows no plan (`enabled` false): nothing is read for it. */
+const NO_SCOPE = ''
+
+/**
+ * Whether `plan` has nothing left that can change it by itself: completed,
+ * and the transaction it names confirmed (its payment step `confirmed`).
+ * Until then a completed plan can still name another transaction, or reopen
+ * as paused, when the one it names is replaced or gone (#217).
+ */
+function qbitSendPlanSettled(plan: QbitSendPlanView): boolean {
+  const payment = plan.steps[plan.steps.length - 1]
+  return plan.phase === 'completed' && payment?.status === 'confirmed'
+}
+
 /**
  * The selected account's open send plan (#188), read on mount, on every
  * `QBIT_SEND_PLAN_CHANGED`, on `ACCOUNTS_CHANGED` and `CHAIN_CHANGED`, and
- * every `QBIT_SEND_PLAN_POLL_MS` while a plan is open and not completed or
- * the last read failed. A plan is never shown for another account or
+ * every `QBIT_SEND_PLAN_POLL_MS` while a plan is open and the transaction
+ * that pays its recipient has not confirmed (`qbitSendPlanSettled`), or the
+ * last read failed. A plan is never shown for another account or
  * network than the selected ones: an answer is dropped when the account or
  * network changed since its read started, or when it names another.
  *
@@ -58,12 +74,19 @@ interface Gate {
  * replaced, at any revision, before it started again, and a change it
  * announces is read. One read runs at a time; reads asked for meanwhile
  * become one more read after it.
+ *
+ * With `enabled` false nothing is read, on mount, on an event or by the
+ * poll, and nothing is shown, not even what a call applies (`apply`): for
+ * a page that follows a plan only when it was opened for one, such as the
+ * success screen of an ordinary send.
  */
-export function useQbitSendPlan(): QbitSendPlanState {
+export function useQbitSendPlan({ enabled = true }: { enabled?: boolean } = {}): QbitSendPlanState {
   const wallet = useWallet()
   const address = useAccountAddress()
   const chainType = useChainType()
-  const scope = `${chainType}:${address}`
+  // Disabled, the hook is for no account: an answer still on its way is
+  // dropped, as one for an account left.
+  const scope = enabled ? `${chainType}:${address}` : NO_SCOPE
 
   const [state, setState] = useState<{
     scope: string
@@ -79,7 +102,8 @@ export function useQbitSendPlan(): QbitSendPlanState {
 
   const publish = useCallback((answer: unknown, sequence: number, answerScope: string): void => {
     const gate = gateRef.current
-    if (!mountedRef.current || answerScope !== gate.scope) return
+    // A disabled hook (no scope) shows nothing, whatever a call applies.
+    if (!mountedRef.current || answerScope === NO_SCOPE || answerScope !== gate.scope) return
     const view = readQbitSendPlanView(answer)
     if (view === undefined) {
       // Not a plan: count it as a failed read, which the poll retries.
@@ -108,6 +132,7 @@ export function useQbitSendPlan(): QbitSendPlanState {
 
   const read = useCallback((): void => {
     const readScope = gateRef.current.scope
+    if (readScope === NO_SCOPE) return
     if (readingRef.current === readScope) {
       readAgainRef.current = true
       return
@@ -189,8 +214,10 @@ export function useQbitSendPlan(): QbitSendPlanState {
   const current = state.scope === scope
   const plan = current ? state.plan : undefined
   const readFailed = current && state.readFailed
-  // A completed plan, or none, has nothing left to follow.
-  const polling = readFailed || (plan !== undefined && plan !== null && plan.phase !== 'completed')
+  // No plan, or one whose payment has confirmed, has nothing left to follow.
+  // A completed plan whose payment has not confirmed may still name another
+  // transaction, or reopen as paused (#217): it is read on.
+  const polling = readFailed || (plan !== undefined && plan !== null && !qbitSendPlanSettled(plan))
 
   useEffect(() => {
     if (!polling) return undefined

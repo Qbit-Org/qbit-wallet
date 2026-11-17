@@ -11,10 +11,17 @@ export interface ToastProps {
   preset: ToastPresets;
   content: string;
   onClose: () => void;
+  /**
+   * Shown for LASTING_TOAST_DURATION_MS, long enough to read a warning the
+   * user must not miss, with a control that closes it sooner, and announced
+   * as an alert, as an error is. Only a toast that asks for it is.
+   */
+  lasting?: boolean;
 }
 
 const DEFAULT_TOAST_DURATION_MS = 2000;
 const ERROR_TOAST_DURATION_MS = 8_000;
+const LASTING_TOAST_DURATION_MS = 15_000;
 
 type ToastStyle = CSSProperties & {
   '--toast-duration': string;
@@ -53,13 +60,24 @@ const $viewPresets = {
   }) as CSSProperties
 };
 
+/** A lasting toast keeps its preset's colours, with room for its control, laid out as an error. */
+const $lastingViewStyle = {
+  borderRadius: 6,
+  padding: 12,
+  paddingLeft: 16,
+  paddingRight: 44,
+  position: 'relative'
+} as CSSProperties;
+
 export function Toast(props: ToastProps) {
-  const { preset, content, onClose } = props;
+  const { preset, content, onClose, lasting = false } = props;
   const { t } = useI18n();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedRef = useRef(false);
   const isError = preset === 'error';
-  const duration = isError ? ERROR_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS;
+  // An error, and a lasting toast, are alerts with a control that closes them.
+  const isAlert = isError || lasting;
+  const duration = lasting ? LASTING_TOAST_DURATION_MS : isError ? ERROR_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS;
   const textColor = preset === 'info' || preset === 'warning' ? 'text' : 'onPrimary';
 
   const closeToast = useCallback(() => {
@@ -87,22 +105,23 @@ export function Toast(props: ToastProps) {
 
   const toastStyle = {
     ...$viewPresets[preset],
+    ...(lasting ? $lastingViewStyle : {}),
     '--toast-duration': `${duration}ms`
   } as ToastStyle;
 
   return (
     <div
-      className={`toast${isError ? ' toast--error' : ''}`}
+      className={`toast${isError ? ' toast--error' : ''}${lasting ? ' toast--lasting' : ''}`}
       style={toastStyle}
-      role={isError ? 'alert' : undefined}
-      aria-atomic={isError ? 'true' : undefined}
+      role={isAlert ? 'alert' : undefined}
+      aria-atomic={isAlert ? 'true' : undefined}
     >
       <Text text={content} preset={isError ? 'regular-bold' : 'regular'} color={textColor} textCenter />
-      {isError && (
+      {isAlert && (
         <button
           type="button"
           className="toast__dismiss"
-          style={{ color: colors.onPrimary }}
+          style={{ color: colors[textColor] }}
           aria-label={t('close')}
           onClick={closeToast}
         >

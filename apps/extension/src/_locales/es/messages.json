@@ -2261,6 +2261,9 @@
   "send_plan_cancel_keep": {
     "message": "Mantener el pago"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "La billetera se eliminó, pero un pago en curso desde ella aún no se pudo cancelar. No se firmará ni se enviará nada más de ese pago, y la billetera sigue intentando cancelarlo."
+  },
   "send_plan_raise_title": {
     "message": "Subir la tarifa"
   },

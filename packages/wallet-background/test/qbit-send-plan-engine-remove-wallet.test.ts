@@ -34,6 +34,8 @@ import {
 
 const lockState = vi.hoisted(() => ({ isUnlocked: true }))
 const guardHolder = vi.hoisted(() => ({ guard: undefined as unknown as object }))
+/** The wallet removal records the preferences stand-in keeps (#216). */
+const removalRecords = vi.hoisted(() => [] as { id: string }[])
 vi.mock('../src/services', async () => {
   const { QbitSendGuardService } = await import('../src/services/qbitSendGuards')
   guardHolder.guard = new QbitSendGuardService()
@@ -81,6 +83,20 @@ vi.mock('../src/services', async () => {
       getCurrentKeyringIndex: vi.fn(() => 1),
       removeKeyringAlianName: vi.fn(),
       removeKeyringColor: vi.fn(),
+      // The records a wallet removal keeps of the send plans it ends (#216).
+      getQbitSendPlanRemovals: vi.fn(() => ({
+        records: removalRecords.map(record => ({ ...record })),
+        unreadable: { count: 0, accounts: [] },
+      })),
+      addQbitSendPlanRemoval: vi.fn(async (wallet: unknown, accounts: unknown) => {
+        const record = { version: 1, id: crypto.randomUUID().replace(/-/g, ''), wallet, accounts }
+        removalRecords.push(record)
+        return { ...record }
+      }),
+      forgetQbitSendPlanRemoval: vi.fn(async (id: string) => {
+        const at = removalRecords.findIndex(record => record.id === id)
+        if (at !== -1) removalRecords.splice(at, 1)
+      }),
     },
     qbitSendGuardService: guard,
     sessionService: { broadcastEvent: vi.fn() },
@@ -108,6 +124,7 @@ function freshWorld(): World {
 }
 
 beforeEach(async () => {
+  removalRecords.length = 0
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(T0)
   vi.clearAllMocks()

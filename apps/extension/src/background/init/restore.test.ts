@@ -63,6 +63,7 @@ const background = vi.hoisted(() => {
       finishPendingWalletReset: vi.fn(),
       initRegtestAccess: vi.fn(),
       prepareStartupChainType: vi.fn(),
+      restoreQbitSendPlanRemovals: vi.fn(),
       restoreQbitSendPlans: vi.fn(),
       setBackgroundInited: vi.fn(),
       setBackgroundStartupFailed: vi.fn(),
@@ -374,6 +375,21 @@ describe('restoreAppState', () => {
         order(background.walletController.startQbitSendPlanEngine)
       );
       expect(browserStorage.set).not.toHaveBeenCalled();
+    });
+
+    it('hands the plans the wallet removal records once the preferences have loaded, before their holds and before they advance', async () => {
+      await startWorker();
+
+      // The accounts the records name are held back before a plan can advance.
+      expect(order(background.preferenceService.init)).toBeLessThan(
+        order(background.walletController.restoreQbitSendPlanRemovals)
+      );
+      expect(order(background.walletController.restoreQbitSendPlanRemovals)).toBeLessThan(
+        order(background.walletController.restoreQbitSendPlans)
+      );
+      expect(order(background.walletController.restoreQbitSendPlans)).toBeLessThan(
+        order(background.walletController.startQbitSendPlanEngine)
+      );
     });
 
     it('stops start-up as unreadable when the stored plans cannot be read, holding and advancing nothing', async () => {

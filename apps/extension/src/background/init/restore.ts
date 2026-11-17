@@ -176,9 +176,12 @@ export async function restoreAppState() {
     // the guard holds a plan's outputs again from its stored record. A read
     // that fails stops start-up, as for every service; a document holding
     // plans this version cannot read does not, and those plans show as
-    // unreadable to their accounts.
+    // unreadable to their accounts. The records of wallet removals, kept
+    // with the preferences, go first: the accounts they name are held back
+    // before any plan can advance.
     await startService('send plans', async () => {
       await qbitSendPlanStore.init({ storage: proxyStorage });
+      walletController.restoreQbitSendPlanRemovals();
       await walletController.restoreQbitSendPlans();
     });
 

@@ -4,11 +4,19 @@ import React, { useCallback, useContext, useRef, useState } from 'react'
 type ToastFunction = (content: string) => void
 type LoadingFunction = (visible: boolean, content?: string) => void
 
+/**
+ * How a toast is shown. `lasting`: long enough to read a warning the user
+ * must not miss, with a control that closes it, and announced as an alert.
+ */
+export interface ToastOptions {
+  lasting?: boolean
+}
+
 export interface ToolsContextType {
   toast: ToastFunction
   toastSuccess: ToastFunction
   toastError: ToastFunction
-  toastWarning: ToastFunction
+  toastWarning: (content: string, options?: ToastOptions) => void
   showLoading: LoadingFunction
   showTip: ToastFunction
   copyToClipboard: (text: string) => void

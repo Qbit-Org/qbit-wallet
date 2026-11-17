@@ -391,6 +391,40 @@ Controls and evidence:
   Cancel and a new plan come back once an input of the payment is spent by
   a transaction that is no version of it; removing or resetting the wallet
   ends such a plan all the same;
+- a completed plan is watched until the transaction it names has confirmed
+  (#217), by the same 15-second timer, with every page closed and the
+  wallet locked, for as long as its record is kept: leaving its success
+  screen, starting another plan for the account or Remove from home deletes
+  it, as before, and nothing watches it then. Nothing about it changes on one explorer answer: the named
+  transaction must be missed for the ten-minute grace within one run of the
+  background, and every transaction the payment spends from must have been
+  read since, each at most once in 15 seconds whatever reads the plan. Then
+  what spends the payment's inputs decides. A version of the payment, or a
+  transaction paying the recipient the amount, found pending or confirmed,
+  is named, with its fee, and watched in turn. With nothing spending them,
+  the plan reopens paused, saying the payment may still go through and
+  offering only to send the same payment again, which spends the same
+  inputs as every version, so at most one confirms. With an input spent
+  elsewhere, it reopens for a new review or a cancel. A reopening signs and
+  sends nothing; a plan whose transaction confirmed is final;
+- a plan that a transaction made elsewhere with the same key ever
+  completed, by paying the recipient in the payment's place, remembers that
+  (`paidBy` while it names that transaction, otherwise the last such
+  transaction's id, amount and fee in `extra.lastPaidBy` of the plan's
+  record: no new record key and no key material) until the transaction the
+  plan names has confirmed. From then on it offers a new plan, a cancel or a
+  merge fee raise again only once every input of its payment is spent by a
+  transaction found confirmed. Every transaction that paid
+  in the payment's place spends at least one input of the payment, so none
+  of them can confirm after that; a spender that is only pending proves
+  nothing, since it can be dropped and the first sent again. Until then the
+  plan shows the payment as made by that transaction, with Dismiss, or,
+  with every input unspent, offers the same payment again, which conflicts
+  with it. An entry that is stored but cannot be read counts as one, and
+  names nothing: once such a plan's own payment cannot go it is paused with
+  nothing offered until that rule is met, which may never be (the plan
+  holds its own inputs, and an input the explorer cannot answer for decides
+  nothing), so in practice removing or resetting the wallet ends it;
 - Reset Wallet stops every plan before it locks the wallet and erases the
   keys. Once the keys begin to be erased the plans stay stopped for the rest
   of that run of the background unless every step of the clearing succeeds:
@@ -408,11 +442,28 @@ Controls and evidence:
   Removing a wallet ends each of its plans as a cancel does; a write that
   storage refuses on the way stops none of the others, and what could not
   be ended is held back, nothing of it signed, broadcast or advanced, and
-  ended again every 15 seconds. That holding back is kept in memory only:
-  if storage refuses the write and the service worker restarts before a
-  later attempt succeeds, the plan left is restored like any other, and its
-  stored signed payment, the one the user confirmed, can still be sent once
-  its merges confirm;
+  ended again every 15 seconds. The holding back outlives a restart (#216):
+  before it removes anything, a removal stores a record with the preferences
+  (`qbitSendPlanRemovals`: the wallet's slot and keyring type, and the
+  accounts whose plans end, as network and address; no key material), and is
+  refused, nothing removed, when storage refuses that record. Until the
+  record is forgotten on disk, nothing of those accounts' plans is signed,
+  broadcast or advanced and no plan begins for them, in the run of the
+  removal and from the start of every later one, before any plan advances.
+  A record found at start-up is judged from the keyring at the first unlock,
+  since a locked keyring names no wallet: the slot empty, the plans are
+  ended and the record forgotten once nothing of them is left; the wallet
+  still there (a removal that failed), the record is forgotten and the plans
+  go on untouched. For those accounts this outranks the rule that a stored
+  signed payment may go out while locked. A removal that fails once its
+  last check passed may or may not have reached storage: it is settled in
+  the same run by a vault write from memory that is known to have landed,
+  tried at the failure, at every unlock and on a spaced timer, and its
+  accounts stay held back until then. As no plan begins for an account
+  while a record names it, ending what a record covers never ends a plan of
+  a wallet added since, the same phrase added again included. When a
+  removal leaves something, every open wallet page is told once, with two
+  counts and a flag and nothing of the plans; a page opened later is not;
 - while a plan is open, the send guard holds every input of its
   transactions and the outputs of its merges, restored from the store at
   start-up before anything can spend. Sends, website requests,
@@ -447,7 +498,45 @@ Residual risk:
   spends. It can only pay the recipient what the user confirmed;
 - with the computer-lock setting off, a plan of 216 signatures keeps an
   overdue auto-lock waiting for up to about 19 minutes (ten minutes plus
-  twice its 279-second estimate); and
+  twice its 279-second estimate);
+- someone who can write the extension's storage can add a removal record
+  that holds any account's plans back, or one naming a live account with an
+  empty slot, so that its plans are ended at the next unlock as a cancel
+  ends them, or delete a record, which leaves that removal as it was before
+  #216. None of these signs anything or moves funds. An earlier version of
+  the wallet keeps such records and ignores them, and reads a plan reopened
+  beside another transaction that paid as one whose payment never left; a
+  plan made there for an account a record names is ended at the first
+  unlock after the upgrade, when the record's slot is empty;
+- the plan's own payment and its versions count as unable to confirm once
+  another transaction the explorer holds spends one of their inputs, also
+  one that is only pending, as every transaction the engine sends does. If
+  that transaction is dropped later and someone relays the forgotten
+  version again, it can confirm beside a new plan the user reviewed
+  meanwhile. This needs a second signer with the account's key and is
+  unchanged by #217, which applies the stricter rule only to a plan that a
+  transaction made elsewhere completed. A reorganisation that removes a
+  confirmed spender the stricter rule relied on leaves the same exposure;
+- the engine believes its explorer on what spends an input of a plan's
+  payment. It holds the explorer's answers against each other: a
+  transaction named as spending an input counts, on every path that
+  identifies one, only when the explorer's own read of that transaction
+  lists the input. It checks no signature of such a transaction, and
+  whether it is confirmed is the explorer's word. An allowed indexer that
+  hides a payment it relayed and serves a transaction it made up, spending
+  one of that payment's inputs and paying someone else, is therefore
+  believed: the plan offers a new plan, as it always has before the plan
+  completed and, since #217, also after it completed while its payment is
+  not yet found confirmed. If the user reviews and confirms that new plan
+  while the hidden payment confirms, the recipient is paid twice. One path
+  reads no such transaction at all, as before #217: when a merge the plan
+  sends again is refused for its inputs, or with no reason, the explorer's
+  word that one of the merge's inputs is spent is enough to pause the plan
+  with a new plan offered. The stricter rule for a plan that a transaction
+  made elsewhere completed rests on the same word: one made-up transaction
+  that lists every input of the payment and is called confirmed meets it.
+  Checking the spender's signature over the account's own output would
+  close the made-up case and is separate work; and
 - if the browser stops the service worker anyway, the plan advances the next
   time the extension runs.
 
@@ -868,6 +957,11 @@ Residual risk:
   address. The wallet then reads the outputs from the address's history,
   which fails closed, or consolidates them in batches it verifies unspent. See
   [Explorer UTXO listing limit](./explorer-utxo-limit.md).
+- an allowed indexer can hide a send plan's payment it relayed and show a
+  made-up transaction spending one of that payment's inputs, or, for a merge
+  it refuses, only say that one of the merge's inputs is spent. The plan
+  then offers a new plan, and if the user confirms it the recipient can be
+  paid twice. See the residual risks under [Send plans](#send-plans).
 - network endpoints learn queried wallet addresses. This review does not claim
   network-level privacy.
 

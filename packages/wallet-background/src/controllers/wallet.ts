@@ -241,6 +241,7 @@ import {
   isQbitCoinbaseMature,
   isQbitHistoryOverReadLimit,
   isQbitSnapshotUnstableError,
+  normalizeQbitTxid,
   observeQbitPqcSignatureActivity,
   observeQbitPqcSpentOutpoints,
   probeQbitAccountHistoryRevision,
@@ -354,10 +355,14 @@ import {
 // not know the plan store or engine are unaffected.
 import {
   QbitSendPlanEngine,
+  qbitSendPlanRetrySpacing,
   qbitSendPlansMayHavePaidNote,
   qbitSendPlansNotEndedNote,
+  qbitSendPlansNotEndedNotice,
+  type QbitSendPlanEnding,
   type QbitSendPlanEngineHost,
   type QbitSendPlanKeyring,
+  type QbitSendPlanSpenderRead,
   type QbitSendPlanTimers,
 } from '../services/qbitSendPlanEngine'
 import qbitSendPlanStore, {
@@ -455,7 +460,11 @@ type QbitPsbtReviewContext = {
 
 export interface WalletControllerOptions {
   now?: () => number
-  /** The timer the send plan engine advances plans with; the global one by default. */
+  /**
+   * The timer the send plan engine advances plans with, and the wallet tries
+   * again the settling of a wallet removal of unknown outcome with; the
+   * global one by default.
+   */
   qbitSendPlanTimers?: QbitSendPlanTimers
 }
 
@@ -542,7 +551,8 @@ function chainTypeToQbitNetworkName(chainType: ChainType): 'mainnet' | 'testnet4
   return 'testnet4'
 }
 
-const QBIT_CHAIN_TYPES = [
+/** The Qbit networks; pinned against the lists of the send plans and their removal records. */
+export const QBIT_CHAIN_TYPES = [
   ChainType.QBIT_MAINNET,
   ChainType.QBIT_TESTNET4,
   ChainType.QBIT_REGTEST,
@@ -1368,6 +1378,8 @@ export class WalletController extends BaseController {
   private readonly qbitFeeQuoteCache = new Map<string, QbitFeeQuoteCacheEntry>()
   private readonly qbitFeeQuoteRefreshes = new Map<string, Promise<FeeSummary>>()
   private readonly now: () => number
+  /** See WalletControllerOptions.qbitSendPlanTimers. */
+  private readonly qbitSendPlanTimers: QbitSendPlanTimers
   private readonly qbitHistorySnapshots = new Map<string, QbitHistorySnapshot>()
   private qbitHistorySnapshotSequence = 0
   private chainStateChangeTail: Promise<void> = Promise.resolve()
@@ -1375,6 +1387,10 @@ export class WalletController extends BaseController {
   constructor(options: WalletControllerOptions = {}) {
     super()
     this.now = options.now ?? Date.now
+    this.qbitSendPlanTimers = options.qbitSendPlanTimers ?? {
+      setTimeout: (callback, ms): unknown => setTimeout(callback, ms),
+      clearTimeout: (handle): void => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    }
     this.qbitSendPlans = new QbitSendPlanEngine({
       host: this.qbitSendPlanHost(),
       store: (): QbitSendPlanStore => qbitSendPlanStore,
@@ -2413,6 +2429,9 @@ export class WalletController extends BaseController {
     this.kickPendingQbitRestoreFloorScan()
     // A send plan a lock paused in this session goes on.
     this.qbitSendPlans.onUnlock()
+    // A wallet removal of unknown outcome is settled now that the vault can
+    // be written (settleQbitSendPlanRemovalsOfUnknownOutcome).
+    void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
   }
 
   /**
@@ -3769,6 +3788,14 @@ export class WalletController extends BaseController {
     if (failed) {
       throw new WalletError(ErrorCodes.WALLET_RESET_INCOMPLETE)
     }
+    // The wallet removals' records went with the preferences, the wallets
+    // and their plans with them: the plans hold back only what the
+    // preferences still store, which is none (records this version cannot
+    // read included), and no removal of this run is left to settle.
+    this.qbitSendPlanRemovalsUnsettled.clear()
+    this.qbitSendPlanRemovalsUnknown.clear()
+    this.stopQbitSendPlanRemovalSettleRetry()
+    this.restoreQbitSendPlanRemovals()
     // Only now, with no plan stored, do the plans go on; after a partial
     // clearing they stay halted (qbitSendPlansHaltedForReset).
     await this.resumeQbitSendPlansAfterReset()
@@ -6840,10 +6867,26 @@ export class WalletController extends BaseController {
         )
       }
     }
+    // On disk before the removal changes anything, and nothing is removed if
+    // it fails: the wallet, by its slot and type, and the accounts whose
+    // plans end. Until it is forgotten, which needs nothing of them left, or
+    // the wallet found there still, those accounts are held back, after a
+    // restart too (QbitSendPlanEngine.endPlansOf).
+    let removal: string | undefined
+    try {
+      removal = await this.recordQbitSendPlanRemoval(target, sendPlanAccounts)
+    } catch (error) {
+      releaseNetworks?.()
+      throw error
+    }
     let settle!: () => void
     this.removalUnderWay = new Promise<void>(resolve => {
       settle = resolve
     })
+    // Whether beforeRemove passed: from there the slot is emptied and the
+    // vault written, and a failure may have reached storage or not.
+    let slotEmptying = false
+    let removed = false
     try {
       await keyringService.removeKeyring(target.index, {
         // Checked where no wallet can be added or removed before the slot is
@@ -6860,8 +6903,10 @@ export class WalletController extends BaseController {
           if (!(await this.readKeyringsAfresh()).some(canStay)) {
             throw new Error(t('removing_the_last_wallet_is_not_allowed'))
           }
+          slotEmptying = true
         },
       })
+      removed = true
       // The removed wallet's slot stays empty for good, so nothing reads its
       // name or color again: forget both, so the stored names are those of the
       // wallets in use and no later wallet can ever pick them up.
@@ -6878,18 +6923,46 @@ export class WalletController extends BaseController {
       // stays signs for.
       // One whose payment may already be in the network cannot be un-sent;
       // its record and holds go all the same.
-      const { mayHaveBeenSent, notEnded } = await this.qbitSendPlans.endPlansOf(sendPlanAccounts)
+      let ending: QbitSendPlanEnding
+      let settledWith: readonly { chain: ChainType; address: string }[] = []
+      try {
+        ending = await this.qbitSendPlans.endPlansOf(sendPlanAccounts, removal)
+      } finally {
+        // The engine knows the wallet is gone (judgeQbitSendPlanRemoval).
+        if (removal !== undefined) this.qbitSendPlanRemovalsUnsettled.delete(removal)
+        // An earlier removal of this wallet whose outcome is unknown is
+        // settled with this one (settleQbitSendPlanRemovalsOfSlot).
+        settledWith = await this.settleQbitSendPlanRemovalsOfSlot(target.index)
+        // An earlier removal of unknown outcome is settled next, the slots
+        // as storage now holds them (settleQbitSendPlanRemovalsOfUnknownOutcome).
+        void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
+      }
+      const { mayHaveBeenSent } = ending
+      // What is left of this removal's accounts, and of those of an earlier
+      // removal of the wallet settled with it, read once both have ended:
+      // the user removed the wallet once, and hears of what is left once.
+      const notEnded =
+        settledWith.length === 0
+          ? ending.notEnded
+          : this.qbitSendPlans.notEndedOf([...sendPlanAccounts, ...settledWith])
       if (mayHaveBeenSent.length > 0) {
         log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
       }
       // What a write storage refused left stored, the removal still stands:
       // a confirmed removal never hard blocks, and the wallet is gone. The
       // engine holds it back, nothing of it signed, broadcast or advanced,
-      // and tries again at every tick, for as long as the background runs:
-      // a restart forgets it (see `endPlansOf`).
-      if (notEnded) log.warn(`[WalletController] ${qbitSendPlansNotEndedNote(notEnded)}`)
+      // and tries again at every tick; the removal's record holds it back
+      // after a restart too (`endPlansOf`). Every page is told, once.
+      if (notEnded) {
+        log.warn(`[WalletController] ${qbitSendPlansNotEndedNote(notEnded)}`)
+        this.announceQbitSendPlansNotEnded(notEnded)
+      }
       return await this.keepOrSelectCurrentAfterRemoval(target, canStay)
     } finally {
+      // A removal that failed settles its record (best effort, never throws).
+      if (!removed && removal !== undefined) {
+        await this.settleFailedQbitSendPlanRemoval(removal, slotEmptying, target, sendPlanAccounts)
+      }
       releaseNetworks?.()
       this.removalUnderWay = undefined
       settle()
@@ -11460,8 +11533,27 @@ export class WalletController extends BaseController {
   dismissQbitSendPlan = (planId: string): Promise<void> => this.qbitSendPlans.dismiss(planId)
 
   /**
+   * Hand the send plans the wallet removal records stored, as the
+   * background starts, once the preferences have loaded and before the
+   * stored plans are held again (restoreQbitSendPlans) or anything of a plan
+   * advances: each holds the accounts it names back until it is forgotten
+   * (QbitSendPlanEngine.endPlansOf). A record this version cannot read is
+   * kept as it is stored, and the accounts it names stay held back.
+   */
+  restoreQbitSendPlanRemovals = (): void => {
+    const { records, unreadable } = preferenceService.getQbitSendPlanRemovals()
+    if (unreadable.count > 0) {
+      log.warn(
+        `[WalletController] ${unreadable.count} wallet removal record(s) unreadable by this version: the accounts they name are held back`
+      )
+    }
+    this.qbitSendPlans.restoreRemovals({ records, unreadable: unreadable.accounts })
+  }
+
+  /**
    * Hold again what the stored send plans held, once the plan store has
-   * loaded at start-up and before anything can spend.
+   * loaded at start-up and before anything can spend; the wallet removal
+   * records are handed over first (restoreQbitSendPlanRemovals).
    */
   restoreQbitSendPlans = (): Promise<void> => this.qbitSendPlans.restore()
 
@@ -11568,13 +11660,20 @@ export class WalletController extends BaseController {
       if (count === 0) throw new Error('invalid qbit outspends')
       return qbitTxSpendersFromOutspends(outspends, txid, count)
     },
-    transaction: async (
-      chain,
-      txid
-    ): Promise<{ outputs: { script: string; value: number }[]; fee: number }> => {
+    transaction: async (chain, txid): Promise<QbitSendPlanSpenderRead> => {
       const transaction = await this.getQbitApiClient(chain).getTx(txid)
       if (transaction.txid.toLowerCase() !== txid) throw new Error('invalid qbit transaction')
+      // A fee the plan store would refuse in `paidBy` is no answer.
+      if (!Number.isSafeInteger(transaction.fee) || transaction.fee < 0) {
+        throw new Error('invalid qbit transaction')
+      }
       return {
+        // The outpoints it spends, which the engine holds against the
+        // outspends that named it (see its `identifySpender`).
+        inputs: transaction.vin.map(input => {
+          if (!Number.isSafeInteger(input?.vout)) throw new Error('invalid qbit transaction')
+          return { txid: normalizeQbitTxid(input.txid), vout: input.vout }
+        }),
         outputs: transaction.vout.map(output => ({
           script: output.scriptpubkey.toLowerCase(),
           value: output.value,
@@ -11604,7 +11703,319 @@ export class WalletController extends BaseController {
       })
     },
     afterSigning: address => this.refreshDisplayedQbitAccountAfterSigning(address),
+    judgeRemoval: id => this.judgeQbitSendPlanRemoval(id),
+    forgetRemoval: id => preferenceService.forgetQbitSendPlanRemoval(id),
   })
+
+  /**
+   * Tell every wallet page, once, that a wallet removal that completed left
+   * `notEnded` of the removed wallet's send plans, which the plans hold back
+   * and keep trying to end; a page says so to the user. Counts only: the
+   * page reads nothing of the plans. What is left later is not told again,
+   * and a page opened later is not told.
+   */
+  private announceQbitSendPlansNotEnded = (
+    notEnded: NonNullable<QbitSendPlanEnding['notEnded']>
+  ): void => {
+    bgEventBus.emit(BUS_EVENTS.broadcastToUI, {
+      method: BUS_METHODS.QBIT_SEND_PLANS_NOT_ENDED,
+      params: qbitSendPlansNotEndedNotice(notEnded),
+    })
+  }
+
+  /**
+   * The removal records written in this run whose removal is under way, or
+   * failed once the wallet's slot began to be emptied, by id: the slots
+   * judge them only through settleQbitSendPlanRemovalsOfUnknownOutcome,
+   * never at a kick (judgeQbitSendPlanRemoval).
+   */
+  private readonly qbitSendPlanRemovalsUnsettled = new Set<string>()
+
+  /**
+   * The removals of this run that failed once the wallet's slot began to be
+   * emptied, by the id of their record: the wallet's slot and keyring type,
+   * and the accounts whose plans the removal ends. Whether storage holds
+   * such a removal is not known until a write of the vault from memory has
+   * landed (settleQbitSendPlanRemovalsOfUnknownOutcome).
+   */
+  private readonly qbitSendPlanRemovalsUnknown = new Map<
+    string,
+    { index: number; type: string; accounts: readonly { chain: ChainType; address: string }[] }
+  >()
+
+  /** Whether a settling of the removals of unknown outcome waits on the chain-state queue. */
+  private qbitSendPlanRemovalSettleQueued = false
+
+  /**
+   * How many times in a row storage refused the write that settles the
+   * removals of unknown outcome, and the timer of its next try
+   * (retryQbitSendPlanRemovalSettle).
+   */
+  private qbitSendPlanRemovalSettleRefusals = 0
+  private qbitSendPlanRemovalSettleTimer: unknown = undefined
+
+  /**
+   * What the wallet named by removal record `id` is now
+   * (QbitSendPlanEngineHost.judgeRemoval). A removal empties the wallet's
+   * slot for good, and a wallet added later takes a new slot, the same
+   * wallet added again included: so the slot holding a wallet of the
+   * record's type means its wallet is there still, and an empty slot,
+   * another type's wallet or no such slot means it is gone. The slots tell
+   * it only while the wallet is unlocked, with its slots loaded: they are
+   * read at once and checked again after, and a lock, which empties every
+   * slot, leaves no answer. A record of this run is not judged so while its
+   * removal runs, nor after one that failed once the slot began to be
+   * emptied: storage then holds the removal or not whatever memory holds,
+   * and a kick can land while another removal of the same slot has emptied
+   * it in memory only. Such a record is settled after a write of the vault
+   * has landed (settleQbitSendPlanRemovalsOfUnknownOutcome). After a
+   * restart memory is what storage holds.
+   */
+  private judgeQbitSendPlanRemoval = (
+    id: string
+  ): 'removed' | 'stays' | 'forgotten' | undefined => {
+    const record = preferenceService.getQbitSendPlanRemovals().records.find(each => each.id === id)
+    if (!record) return 'forgotten'
+    const { index, type } = record.wallet
+    if (this.qbitSendPlanRemovalsUnsettled.has(id)) return undefined
+    if (!this.isUnlocked()) return undefined
+    const slots = keyringService.keyrings
+    if (slots.length === 0) return undefined
+    const stays = this.isKeyringSlotInUse(index, type)
+    if (!this.isUnlocked() || keyringService.keyrings !== slots) return undefined
+    return stays ? 'stays' : 'removed'
+  }
+
+  /**
+   * Store, before the removal of `target` changes anything, the record of
+   * the send plans it ends (`accounts`), and hand it to the engine, which
+   * holds those accounts back until the record is forgotten (see
+   * QbitSendPlanEngine.endPlansOf). Nothing when no account's plans end.
+   * When storage refuses it, the removal is refused, nothing removed or
+   * ended, for the user to try again.
+   */
+  private recordQbitSendPlanRemoval = async (
+    target: WalletKeyring,
+    accounts: readonly { chain: ChainType; address: string }[]
+  ): Promise<string | undefined> => {
+    if (accounts.length === 0) return undefined
+    let id: string
+    try {
+      id = (
+        await preferenceService.addQbitSendPlanRemoval(
+          { index: target.index, type: target.type },
+          accounts
+        )
+      ).id
+    } catch (error) {
+      log.warn(
+        '[WalletController] A wallet removal could not record its send plans',
+        summarizeError(error)
+      )
+      throw new Error(
+        'The wallet cannot be removed now: the record of its send plans could not be saved. Try again.'
+      )
+    }
+    this.qbitSendPlanRemovalsUnsettled.add(id)
+    this.qbitSendPlans.removalRecorded(id, accounts)
+    return id
+  }
+
+  /**
+   * The removal of `target` that stored record `id`, naming `accounts`,
+   * failed. Refused before the slot began to be emptied (`slotEmptying`
+   * false), it removed nothing: the record is taken back, best effort, and
+   * one storage refuses goes at a later kick, or once a restart finds the
+   * wallet there, its accounts held back until then
+   * (QbitSendPlanEngine.removalUndone). Failed later, its vault write may
+   * have reached storage or not, as the keyring store's own write of the
+   * new vault comes before the removal's: the record stays, its accounts
+   * held back, until a write of the vault from memory has landed, tried now
+   * and after every unlock and every removal that succeeds, and again while
+   * storage refuses it (settleQbitSendPlanRemovalsOfUnknownOutcome), or a
+   * restart judges it.
+   */
+  private settleFailedQbitSendPlanRemoval = async (
+    id: string,
+    slotEmptying: boolean,
+    target: WalletKeyring,
+    accounts: readonly { chain: ChainType; address: string }[]
+  ): Promise<void> => {
+    if (slotEmptying) {
+      log.warn(
+        '[WalletController] A wallet removal failed once it began to empty the slot: its send plans stay held back until a write of the vault tells whether it was removed'
+      )
+      this.qbitSendPlanRemovalsUnknown.set(id, { index: target.index, type: target.type, accounts })
+      void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
+      return
+    }
+    this.qbitSendPlanRemovalsUnsettled.delete(id)
+    await this.qbitSendPlans.removalUndone(id).catch((error: unknown) => {
+      log.warn(
+        '[WalletController] A refused wallet removal could not take back its record',
+        summarizeError(error)
+      )
+    })
+  }
+
+  /**
+   * Settle the removals of this run whose outcome is unknown
+   * (qbitSendPlanRemovalsUnknown), on the chain-state queue, so that no
+   * removal, reset, boot or unlock runs meanwhile; one settling waits there
+   * at a time. Only while unlocked, and never while a wallet reset's
+   * outcome is unknown, when nothing may write the keyring's stored state
+   * from memory: the vault is written from memory, with no change, and once
+   * that write has landed storage holds what memory holds. With nothing
+   * awaited from there, while still unlocked with the same slots, each is
+   * judged from its slot: a wallet of its type there, it removed nothing,
+   * and its record is taken back (QbitSendPlanEngine.removalUndone); else
+   * the wallet is gone, and its plans end as a removal ends them
+   * (QbitSendPlanEngine.endPlansOf with the record's id). A write that is
+   * refused, or a lock meanwhile, settles nothing: the outcome stays
+   * unknown, and the accounts held back. A refused write is tried again
+   * while the wallet stays unlocked (retryQbitSendPlanRemovalSettle).
+   *
+   * The write waits first for the wallet additions under way
+   * (walletAdditionsSettled), as a reset does: one may have put its wallet
+   * in the slots and not saved it yet, and if its save fails, this write
+   * would have saved it all the same. Those additions never wait on the
+   * chain-state queue (trackWalletAddition), and this settling is not one
+   * of them, so it never waits for itself. Unlike a reset, it holds no
+   * page's call, so an addition that begins once the wait is over can
+   * still put its wallet in the slots before this write reads them, which
+   * it does only once the vault writes queued before it have ended: this
+   * write then stores that wallet before the addition's own write does, as
+   * any vault write queued then would. The verdicts read only the removals'
+   * own slots, which no addition fills: it takes a new one.
+   */
+  private settleQbitSendPlanRemovalsOfUnknownOutcome = (): Promise<void> => {
+    if (this.qbitSendPlanRemovalsUnknown.size === 0) {
+      this.stopQbitSendPlanRemovalSettleRetry()
+      return Promise.resolve()
+    }
+    if (this.qbitSendPlanRemovalSettleQueued) return Promise.resolve()
+    this.qbitSendPlanRemovalSettleQueued = true
+    return this.enqueueChainStateChange(async () => {
+      this.qbitSendPlanRemovalSettleQueued = false
+      if (this.qbitSendPlanRemovalsUnknown.size === 0) {
+        this.stopQbitSendPlanRemovalSettleRetry()
+        return
+      }
+      // This is the next try, whatever began it: none other is due before it ends.
+      this.qbitSendPlanTimers.clearTimeout(this.qbitSendPlanRemovalSettleTimer)
+      this.qbitSendPlanRemovalSettleTimer = undefined
+      if (!this.isUnlocked() || this.walletResetOutcomeUnknown) return
+      await this.walletAdditionsSettled()
+      if (!this.isUnlocked() || this.walletResetOutcomeUnknown) return
+      const slots = keyringService.keyrings
+      try {
+        if (!(await keyringService.persistAllKeyrings([]))) return
+      } catch (error) {
+        this.retryQbitSendPlanRemovalSettle(error)
+        return
+      }
+      this.stopQbitSendPlanRemovalSettleRetry()
+      if (!this.isUnlocked() || keyringService.keyrings !== slots) return
+      const verdicts = [...this.qbitSendPlanRemovalsUnknown].map(([id, removal]) => ({
+        id,
+        removal,
+        stays: this.isKeyringSlotInUse(removal.index, removal.type),
+      }))
+      for (const { id, removal, stays } of verdicts) {
+        this.qbitSendPlanRemovalsUnknown.delete(id)
+        if (stays) {
+          // The engine knows the wallet stays before anything is awaited.
+          this.qbitSendPlanRemovalsUnsettled.delete(id)
+          await this.qbitSendPlans.removalUndone(id)
+          continue
+        }
+        let ending: QbitSendPlanEnding
+        try {
+          ending = await this.qbitSendPlans.endPlansOf(removal.accounts, id)
+        } finally {
+          // Only once its plans' ending ran does the engine know the wallet
+          // is gone: until then no kick judges the record from the slots
+          // (judgeQbitSendPlanRemoval), which would end them a second time.
+          this.qbitSendPlanRemovalsUnsettled.delete(id)
+        }
+        const { mayHaveBeenSent, notEnded } = ending
+        if (mayHaveBeenSent.length > 0) {
+          log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
+        }
+        // The removal completed after all: every page is told what it left.
+        if (notEnded) {
+          log.warn(`[WalletController] ${qbitSendPlansNotEndedNote(notEnded)}`)
+          this.announceQbitSendPlansNotEnded(notEnded)
+        }
+      }
+    })
+  }
+
+  /**
+   * Storage refused the write that settles the removals of unknown outcome
+   * (settleQbitSendPlanRemovalsOfUnknownOutcome): it is logged at the first
+   * refusal in a row, and tried again later, spaced as a removal record
+   * whose forgetting storage refuses is (qbitSendPlanRetrySpacing): the
+   * next try 15 seconds after the first refusal, then twice as long each
+   * time, every 8 minutes at most, one write each. A try settles nothing
+   * while the wallet is locked, and writes nothing then; an unlock tries at
+   * once. Nothing is tried once no such removal remains.
+   */
+  private retryQbitSendPlanRemovalSettle = (error: unknown): void => {
+    this.qbitSendPlanRemovalSettleRefusals += 1
+    if (this.qbitSendPlanRemovalSettleRefusals === 1) {
+      log.warn(
+        '[WalletController] The vault could not be written to settle a wallet removal: its send plans stay held back, and it is tried again',
+        summarizeError(error)
+      )
+    }
+    this.qbitSendPlanTimers.clearTimeout(this.qbitSendPlanRemovalSettleTimer)
+    this.qbitSendPlanRemovalSettleTimer = this.qbitSendPlanTimers.setTimeout(() => {
+      this.qbitSendPlanRemovalSettleTimer = undefined
+      void this.settleQbitSendPlanRemovalsOfUnknownOutcome()
+    }, qbitSendPlanRetrySpacing(this.qbitSendPlanRemovalSettleRefusals))
+  }
+
+  /** The write that settles the removals of unknown outcome landed, or none is left: no try is due. */
+  private stopQbitSendPlanRemovalSettleRetry = (): void => {
+    this.qbitSendPlanTimers.clearTimeout(this.qbitSendPlanRemovalSettleTimer)
+    this.qbitSendPlanRemovalSettleTimer = undefined
+    this.qbitSendPlanRemovalSettleRefusals = 0
+  }
+
+  /**
+   * A removal of the wallet in slot `index` completed, its vault write
+   * landed: an earlier removal of that wallet in this run whose outcome is
+   * unknown (qbitSendPlanRemovalsUnknown) removed it or not, but storage
+   * holds no wallet in that slot now, so it is settled with this one, its
+   * wallet gone. Its accounts' plans end as that removal ends them
+   * (QbitSendPlanEngine.endPlansOf with its record's id). Resolves to the
+   * accounts of those settled: the user removed the wallet once, and the
+   * removal tells every page once what is left of its accounts and theirs
+   * together (announceQbitSendPlansNotEnded). Never rejects.
+   */
+  private settleQbitSendPlanRemovalsOfSlot = async (
+    index: number
+  ): Promise<{ chain: ChainType; address: string }[]> => {
+    const settled: { chain: ChainType; address: string }[] = []
+    for (const [id, removal] of [...this.qbitSendPlanRemovalsUnknown]) {
+      if (removal.index !== index) continue
+      this.qbitSendPlanRemovalsUnknown.delete(id)
+      settled.push(...removal.accounts)
+      let ending: QbitSendPlanEnding
+      try {
+        ending = await this.qbitSendPlans.endPlansOf(removal.accounts, id)
+      } finally {
+        // As for every settling: judged by no kick before its ending ran.
+        this.qbitSendPlanRemovalsUnsettled.delete(id)
+      }
+      const { mayHaveBeenSent } = ending
+      if (mayHaveBeenSent.length > 0) {
+        log.warn(`[WalletController] ${qbitSendPlansMayHavePaidNote(mayHaveBeenSent.length)}`)
+      }
+    }
+    return settled
+  }
 
   getAccounts = async () => {
     const keyrings = await this.getKeyrings()

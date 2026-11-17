@@ -2261,6 +2261,9 @@
   "send_plan_cancel_keep": {
     "message": "保留付款"
   },
+  "send_plan_removed_wallet_not_cancelled": {
+    "message": "錢包已移除，但其一筆正在進行中的付款尚無法取消。這筆付款不會再簽署或傳送任何內容，錢包會持續嘗試將其取消。"
+  },
   "send_plan_raise_title": {
     "message": "提高手續費"
   },
