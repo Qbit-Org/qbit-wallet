@@ -30,6 +30,7 @@ import {
   QBIT_SIGNING_ABORTED_CODE,
   QbitRestoredFloorConfirmationError,
   QbitSignatureBatchInterruptedError,
+  p2mrSigningOptionsFor,
 } from '../src/keyring-service'
 import { ColdWalletKeyring } from '../src/keyrings/cold-wallet-keyring'
 import { QbitHdKeyring, QbitPqcSignatureCounterError } from '../src/keyrings/qbit-hd-keyring'
@@ -1188,6 +1189,63 @@ describe('qbit-hd-keyring', () => {
     expect(vaultPayload(storage)[0].data.pqcSignatureCounters[pubkey!]).toBe(3)
   })
 
+  it('signs under a named non-default type, and the witness signature carries it', async () => {
+    const { service, keyring } = await createUnlockedQbitService()
+    const [pubkey] = await service.getAccounts()
+    const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { hashType: 0x83 })
+
+    const budget = await service.preflightP2mrPsbtSigning(pubkey!, {
+      psbt: fixture.psbt,
+      keys: fixture.keys,
+    })
+    const signed = await service.signP2mrPsbtWithCounter(pubkey!, {
+      psbt: fixture.psbt,
+      keys: fixture.keys,
+    })
+
+    expect(budget.required).toBe(1)
+    expect(signed.signed).toHaveLength(1)
+    expect(decodePsbt(signed.psbt).inputs[0]!.scriptSigs[0]!.signature.hashType).toBe(0x83)
+  })
+
+  it('opts a plan in to a non-default type only when every type it names is 0x81 or 0x83', () => {
+    expect(p2mrSigningOptionsFor([{}, { hashType: SIGHASH_DEFAULT }])).toEqual({})
+    expect(p2mrSigningOptionsFor([{ hashType: 0x81 }, { hashType: 0x83 }, {}])).toEqual({
+      allowNonDefaultSighash: true,
+    })
+    for (const refused of [0x01, 0x02, 0x03, 0x82]) {
+      expect(p2mrSigningOptionsFor([{ hashType: refused }])).toEqual({})
+      expect(p2mrSigningOptionsFor([{ hashType: 0x83 }, { hashType: refused }])).toEqual({})
+    }
+  })
+
+  it('refuses to sign a plan that names a type outside 0x81 and 0x83', async () => {
+    const { service, keyring } = await createUnlockedQbitService()
+    const [pubkey] = await service.getAccounts()
+    const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { hashType: 0x02 })
+
+    await expect(
+      service.signP2mrPsbtWithCounter(pubkey!, { psbt: fixture.psbt, keys: fixture.keys })
+    ).rejects.toThrow('allowNonDefaultSighash')
+    expect(await service.getPqcSignatureCounter(pubkey!)).toBe(0)
+  })
+
+  it('does not vouch for a partial signature under a recovery migration assertion', async () => {
+    const { service, keyring } = await createUnlockedQbitService()
+    const [pubkey] = await service.getAccounts()
+    const fixture = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { hashType: 0x83 })
+
+    for (const option of ['allowMigrationProtectedAssetTransfer', 'allowMigrationConsolidation']) {
+      await expect(
+        service.preflightP2mrPsbtSigning(
+          pubkey!,
+          { psbt: fixture.psbt, keys: fixture.keys },
+          { [option]: true }
+        )
+      ).rejects.toThrow('only under the default sighash type')
+    }
+  })
+
   describe('signing progress (#171)', () => {
     type Report = [signed: number, total: number, cached: number]
 
@@ -1510,6 +1568,31 @@ describe('qbit-hd-keyring', () => {
       }
       return fixtures
     }
+
+    it('opens a batch with an entry that names 0x83, and signs it under that type', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const partial = await buildP2mrSpendFixture(keyring as QbitHdKeyring, { hashType: 0x83 })
+      const [whole] = await differentFixtures(keyring as QbitHdKeyring, [1])
+      const { batch, budgets, sign } = await prepareBatch(service, pubkey!, [partial, whole!])
+
+      expect(batch.budget).toMatchObject({ required: 2, cached: 0 })
+      const signed = await sign(0)
+      expect(decodePsbt(signed.psbt).inputs[0]!.scriptSigs[0]!.signature.hashType).toBe(0x83)
+      await sign(1)
+
+      // A type outside the two is refused when a batch opens, whatever budget it claims.
+      const refused = await buildP2mrSpendFixture(keyring as QbitHdKeyring, {
+        hashType: 0x02,
+        txidSeed: 120,
+      })
+      await expect(
+        service.openP2mrPsbtSigningBatch(pubkey!, [
+          { psbt: refused.psbt, keys: refused.keys, approvedBudget: budgets[0]! },
+          { psbt: whole!.psbt, keys: whole!.keys, approvedBudget: budgets[1]! },
+        ])
+      ).rejects.toThrow('allowNonDefaultSighash')
+    })
 
     const INTERRUPTED = 'This batch approval was interrupted'
     const BATCHES_FULL = 'Too many signing requests are waiting'

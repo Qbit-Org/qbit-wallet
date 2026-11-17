@@ -1109,6 +1109,18 @@
   "sighash_none_detected": {
     "message": "SIGHASH_NONE detected. Signing aborted for security."
   },
+  "qbit_partial_signature_description": {
+    "message": "Your signature locks in only part of this transaction. Whoever holds it can change anything it does not cover, which can include other inputs and outputs, before it is broadcast."
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "Inputs signed on their own"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "Output this signature locks in"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "Every output is locked in by this signature"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE is a special signature type that allows the transaction to be modified after signing. This can lead to potential loss of funds if the transaction is altered maliciously. Please ensure you trust the source of this transaction before proceeding."
   },

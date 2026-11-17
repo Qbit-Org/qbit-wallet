@@ -1109,6 +1109,18 @@
   "sighash_none_detected": {
     "message": "偵測到 SIGHASH_NONE，為安全起見已中止簽名。"
   },
+  "qbit_partial_signature_description": {
+    "message": "您的簽名只鎖定這筆交易的一部分。持有簽名的人可在廣播前更改簽名未涵蓋的部分，其中可能包含其他輸入和輸出。"
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "單獨簽署的輸入"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "此簽名鎖定的輸出"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "此簽名鎖定所有輸出"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE是一種特殊的簽名類型，允許在簽名後修改交易。如果交易被惡意修改，可能導致資金損失。請確保您信任此交易的來源，然後再繼續。"
   },

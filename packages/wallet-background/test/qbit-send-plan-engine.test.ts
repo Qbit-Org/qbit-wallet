@@ -4,6 +4,9 @@ import { hexToBytes, p2mrAddressFromPubkey } from '@qbit-oss/protocol'
 import { toPsbtNetwork, transactionCore } from '@qbit/wallet-core'
 import {
   KeyringType,
+  PsbtActionDetailType,
+  PsbtActionType,
+  psbtReviewOptions,
   type QbitSendPlanPrepareResult,
   type QbitSendPlanView,
 } from '@qbit/wallet-shared'
@@ -34,6 +37,8 @@ import {
   account,
   anotherAccountsPlan,
   dappPsbtHex,
+  dappPsbtWithOutputsHex,
+  dappPsbtWithSharedInputHex,
   inputsOfPsbt,
   isBroadcast,
   isLookup,
@@ -42,6 +47,7 @@ import {
   once,
   watchPlanAnnouncements,
   wirePlanKeyring,
+  withInputSighashType,
 } from './qbit-send-plan-engine-harness'
 
 // The engine's scenarios, over the harness in `qbit-send-plan-engine-harness`:
@@ -4208,5 +4214,441 @@ describe('networks', () => {
     await world.tick()
     expect(await world.plan()).toMatchObject({ phase: 'completed' })
     world.assertRecipientGuarantees(12_000_000)
+  })
+})
+
+describe('a website’s PSBT that names a sighash type', () => {
+  const SINGLE_ANYONECANPAY = 0x83
+  const ALL_ANYONECANPAY = 0x81
+  const OWN_SCRIPT = (): Uint8Array => hexToBytes(account.p2mr.scriptPubKey)
+
+  async function prepare(psbtHex: string) {
+    return world.wallet.prepareQbitProviderPsbt(psbtHex, {} as never)
+  }
+
+  it('signs an input that names 0x83 with that type, and shows the output it locks in', async () => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    const psbtHex = withInputSighashType(dappPsbtHex(outpoints, 100_000), 0, SINGLE_ANYONECANPAY)
+
+    const toSign = await prepare(psbtHex)
+
+    expect(toSign.qbitP2mrSigningKeys).toEqual([
+      expect.objectContaining({ inputIndex: 0, hashType: SINGLE_ANYONECANPAY }),
+    ])
+    expect(keyringService.preflightP2mrPsbtSigning).toHaveBeenCalledWith(
+      account.address,
+      expect.objectContaining({
+        keys: [expect.objectContaining({ inputIndex: 0, hashType: SINGLE_ANYONECANPAY })],
+      })
+    )
+    expect(toSign.action.type).toBe(PsbtActionType.CUSTOM)
+    expect(toSign.action.details).toEqual([
+      expect.objectContaining({ type: PsbtActionDetailType.TEXT, value: '#0', warning: true }),
+      expect.objectContaining({ type: PsbtActionDetailType.TEXT, value: '#0', warning: true }),
+      expect.objectContaining({
+        type: PsbtActionDetailType.ADDRESS,
+        value: PAYER,
+        warning: true,
+      }),
+      expect.objectContaining({ type: PsbtActionDetailType.SATOSHIS, value: 80_000 }),
+    ])
+    // The address is the website's: it must not read as a recipient the wallet named.
+    expect(psbtReviewOptions(toSign).statedRecipients).toEqual([])
+  })
+
+  it('names the bytes of a locked output that has no address', async () => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    const dataScript = hexToBytes('6a04deadbeef')
+    const psbtHex = withInputSighashType(
+      dappPsbtWithOutputsHex(outpoints, 100_000, [{ value: 0n, scriptPubKey: dataScript }]),
+      0,
+      SINGLE_ANYONECANPAY
+    )
+
+    const toSign = await prepare(psbtHex)
+
+    expect(toSign.action.details).toContainEqual(
+      // Whole: the approval never shortens the one output the signature commits to.
+      expect.objectContaining({
+        type: PsbtActionDetailType.TEXT,
+        value: '6a04deadbeef',
+        warning: true,
+        full: true,
+      })
+    )
+  })
+
+  it('signs 0x81 under that type and names its inputs, with no single output to show', async () => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    const toSign = await prepare(
+      withInputSighashType(dappPsbtHex(outpoints, 100_000), 0, ALL_ANYONECANPAY)
+    )
+
+    expect(toSign.qbitP2mrSigningKeys).toEqual([
+      expect.objectContaining({ inputIndex: 0, hashType: ALL_ANYONECANPAY }),
+    ])
+    expect(toSign.action.type).toBe(PsbtActionType.CUSTOM)
+    // The input, and that every output is locked in: what tells 0x81 from 0x83.
+    expect(toSign.action.details).toEqual([
+      expect.objectContaining({ type: PsbtActionDetailType.TEXT, value: '#0', warning: true }),
+      expect.objectContaining({ type: PsbtActionDetailType.TEXT, value: '1', warning: true }),
+    ])
+  })
+
+  it('keeps the default type for an input that names none, or names the default, and shows nothing extra', async () => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    const none = await prepare(dappPsbtHex(outpoints, 100_000))
+    const explicit = await prepare(withInputSighashType(dappPsbtHex(outpoints, 100_000), 0, 0))
+
+    for (const toSign of [none, explicit]) {
+      expect(toSign.qbitP2mrSigningKeys).toHaveLength(1)
+      expect(toSign.qbitP2mrSigningKeys![0]).not.toHaveProperty('hashType')
+      expect(toSign.action.type).toBe(PsbtActionType.DEFAULT)
+    }
+  })
+
+  it('signs only the input that names a type under it, and the rest under the default', async () => {
+    const outpoints = world.fund(2, 100_000)
+    await world.open()
+    const two = [
+      { value: 50_000n, scriptPubKey: hexToBytes(PAYER_SCRIPT) },
+      { value: 140_000n, scriptPubKey: OWN_SCRIPT() },
+    ]
+    const toSign = await prepare(
+      withInputSighashType(dappPsbtWithOutputsHex(outpoints, 100_000, two), 1, SINGLE_ANYONECANPAY)
+    )
+
+    expect(toSign.qbitP2mrSigningKeys).toHaveLength(2)
+    expect(toSign.qbitP2mrSigningKeys![0]).not.toHaveProperty('hashType')
+    expect(toSign.qbitP2mrSigningKeys![1]).toMatchObject({
+      inputIndex: 1,
+      hashType: SINGLE_ANYONECANPAY,
+    })
+    expect(toSign.action.details).toContainEqual(
+      expect.objectContaining({ type: PsbtActionDetailType.SATOSHIS, value: 140_000 })
+    )
+  })
+
+  it.each([
+    ['SIGHASH_ALL', 0x01],
+    ['SIGHASH_NONE', 0x02],
+    ['SIGHASH_SINGLE without ANYONECANPAY', 0x03],
+    ['SIGHASH_NONE|ANYONECANPAY', 0x82],
+  ])('refuses %s, a type no listing needs', async (_name, hashType) => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    const psbtHex = withInputSighashType(dappPsbtHex(outpoints, 100_000), 0, hashType)
+
+    await expect(prepare(psbtHex)).rejects.toThrow(
+      `input 0 asks for sighash type 0x${hashType.toString(16)}`
+    )
+    expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+  })
+
+  it('refuses 0x83 on an input with no output at its index', async () => {
+    const outpoints = world.fund(2, 100_000)
+    await world.open()
+    // Two inputs and the one output the helper builds: input 1 has no output 1.
+    const psbtHex = withInputSighashType(dappPsbtHex(outpoints, 100_000), 1, SINGLE_ANYONECANPAY)
+
+    await expect(prepare(psbtHex)).rejects.toThrow('has no output 1')
+    expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['0x83', SINGLE_ANYONECANPAY],
+    ['0x81', ALL_ANYONECANPAY],
+  ])(
+    'refuses %s on an input that carries the account’s leaf under another script',
+    async (_name, hashType) => {
+      const outpoints = world.fund(1, 100_000)
+      await world.open()
+      // Input 0 spends a tree a website built around the account's leaf, at an
+      // outpoint it made up. Input 1 is the account's own.
+      const shared = dappPsbtWithSharedInputHex(outpoints, 100_000, 1_000_000, [
+        { value: 1_000_000n, scriptPubKey: OWN_SCRIPT() },
+        { value: 99_000n, scriptPubKey: hexToBytes(PAYER_SCRIPT) },
+      ])
+
+      await expect(prepare(withInputSighashType(shared, 0, hashType))).rejects.toThrow(
+        `input 0 asks for sighash type 0x${hashType.toString(16)}, ` +
+          "but does not spend this account's own output"
+      )
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+      // Under the default type, which covers the whole transaction, the
+      // account signs such an input as it did before.
+      const toSign = await prepare(shared)
+      expect(toSign.qbitP2mrSigningKeys).toHaveLength(2)
+      expect(toSign.qbitP2mrSigningKeys![0]).not.toHaveProperty('hashType')
+    }
+  )
+
+  it('finalizes a PSBT its partial signature completes, as under the default type', async () => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    const psbtHex = withInputSighashType(dappPsbtHex(outpoints, 100_000), 0, SINGLE_ANYONECANPAY)
+
+    // The dry run that decides it signs under the named type too; refused
+    // there, the PSBT would come back unfinalized.
+    expect((await prepare(psbtHex)).autoFinalized).toBe(true)
+    await expect(
+      world.wallet.prepareQbitProviderPsbt(psbtHex, { autoFinalized: true } as never)
+    ).resolves.toMatchObject({ autoFinalized: true })
+  })
+
+  it('refuses a partial type while a recovery migration is signing', async () => {
+    const outpoints = world.fund(1, 100_000)
+    await world.open()
+    vi.spyOn(
+      world.wallet as unknown as { getQbitMigrationProtectedAssetCount: () => Promise<number> },
+      'getQbitMigrationProtectedAssetCount'
+    ).mockResolvedValue(1)
+    const psbtHex = withInputSighashType(dappPsbtHex(outpoints, 100_000), 0, SINGLE_ANYONECANPAY)
+
+    await expect(prepare(psbtHex)).rejects.toThrow('only under the default sighash type')
+    expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+  })
+
+  describe('the approval of what the signature covers', () => {
+    async function review(
+      psbtHex: string,
+      toSign?: Awaited<ReturnType<typeof prepare>>,
+      extra: { suppliedByWebsite?: boolean } = {}
+    ) {
+      // The review is relative to the current account alone: no other accounts, no fee quote.
+      const wallet = world.wallet as unknown as {
+        getAccounts: () => Promise<unknown[]>
+        getFeeSummary: () => Promise<undefined>
+      }
+      vi.spyOn(wallet, 'getAccounts').mockResolvedValue([])
+      vi.spyOn(wallet, 'getFeeSummary').mockResolvedValue(undefined)
+      return world.wallet.decodePsbt(
+        psbtHex,
+        'https://dapp.example',
+        // As the approval screen asks for it.
+        { ...(toSign ? psbtReviewOptions(toSign) : {}), ...extra }
+      )
+    }
+
+    const other = (): { value: bigint; scriptPubKey: Uint8Array } => ({
+      value: 1_000n,
+      scriptPubKey: hexToBytes(PAYER_SCRIPT),
+    })
+    const own = (value: bigint): { value: bigint; scriptPubKey: Uint8Array } => ({
+      value,
+      scriptPubKey: OWN_SCRIPT(),
+    })
+
+    it('does not credit the wallet with an output a 0x83 signature leaves uncovered', async () => {
+      const outpoints = world.fund(1, 100_000)
+      await world.open()
+      // Output 0 pays someone else and is the one the signature locks in; output 1
+      // pays the wallet back, but anyone holding the signature can replace it.
+      const outputs = [other(), own(98_000n)]
+      const covered = await review(dappPsbtWithOutputsHex(outpoints, 100_000, outputs))
+      const partialHex = withInputSighashType(
+        dappPsbtWithOutputsHex(outpoints, 100_000, outputs),
+        0,
+        SINGLE_ANYONECANPAY
+      )
+      const partial = await review(partialHex, await prepare(partialHex))
+
+      // Signed over the whole transaction, the 98,000 back to the wallet is change.
+      expect(covered.spendSummary.netSpend).toBe(2_000)
+      expect(covered.outputOwners).toEqual(['none', 'change'])
+      // Signed over output 0 only, up to the whole input can leave the wallet.
+      expect(partial.spendSummary.walletOutputValue).toBe(0)
+      expect(partial.spendSummary.netSpend).toBe(100_000)
+      expect(partial.outputOwners).toEqual(['none', 'this_account'])
+      // The address the signature locks in is the website's, not a named recipient.
+      expect(partial.spendSummary.outputRoles).toEqual(['unrecognised', 'wallet'])
+    })
+
+    it('does not let an input the account does not sign cover an output', async () => {
+      const outpoints = world.fund(2, 100_000)
+      await world.open()
+      // Input 1 claims the wallet's output and names 0x83 too, but carries another
+      // key's leaf, so no signature of the account's covers it or output 1.
+      const outputs = [other(), own(190_000n)]
+      const hex = withInputSighashType(
+        withInputSighashType(
+          dappPsbtWithOutputsHex(outpoints, 100_000, outputs, [1]),
+          0,
+          SINGLE_ANYONECANPAY
+        ),
+        1,
+        SINGLE_ANYONECANPAY
+      )
+      const toSign = await prepare(hex)
+      const reviewed = await review(hex, toSign)
+
+      expect(toSign.qbitP2mrSigningKeys).toEqual([
+        expect.objectContaining({ inputIndex: 0, hashType: SINGLE_ANYONECANPAY }),
+      ])
+      // Only input 0 is signed, over output 0: output 1 is not the wallet's to count.
+      expect(reviewed.spendSummary.walletOutputValue).toBe(0)
+      expect(reviewed.spendSummary.netSpend).toBe(200_000)
+      expect(reviewed.outputOwners).toEqual(['none', 'this_account'])
+    })
+
+    it('credits each 0x83 signature only up to its own input, so two do not net against each other', async () => {
+      const outpoints = world.fund(2, 100_000)
+      await world.open()
+      // Input 0's signature alone pays the wallet 1,000 for its 100,000, whatever
+      // input 1 and output 1 do.
+      const outputs = [own(1_000n), own(198_000n)]
+      const hex = withInputSighashType(
+        withInputSighashType(
+          dappPsbtWithOutputsHex(outpoints, 100_000, outputs),
+          0,
+          SINGLE_ANYONECANPAY
+        ),
+        1,
+        SINGLE_ANYONECANPAY
+      )
+      const reviewed = await review(hex, await prepare(hex))
+
+      // 1,000 for the first and no more than 100,000 for the second: 99,000 can leave.
+      expect(reviewed.spendSummary.walletOutputValue).toBe(101_000)
+      expect(reviewed.spendSummary.netSpend).toBe(99_000)
+      expect(reviewed.outputOwners).toEqual(['change', 'this_account'])
+    })
+
+    it('does not credit an output a signed input locks in when that input is not the wallet’s', async () => {
+      const outpoints = world.fund(1, 100_000)
+      await world.open()
+      // Input 0 spends a shared output the account's leaf can sign, claiming 1,000,000
+      // that is not the wallet's. Its lock on output 0 must not offset the wallet's
+      // own 100,000 in input 1, which pays the stranger through output 1.
+      const outputs = [own(1_000_000n), { value: 99_000n, scriptPubKey: hexToBytes(PAYER_SCRIPT) }]
+      const hex = withInputSighashType(
+        withInputSighashType(
+          dappPsbtWithSharedInputHex(outpoints, 100_000, 1_000_000, outputs),
+          0,
+          SINGLE_ANYONECANPAY
+        ),
+        1,
+        SINGLE_ANYONECANPAY
+      )
+      // `prepareQbitProviderPsbt` refuses this PSBT; the review does not rely on that.
+      const reviewed = await review(hex)
+
+      // The wallet's 100,000 is all that is at risk, and the 1,000,000 is no receipt.
+      expect(reviewed.spendSummary.walletInputValue).toBe(100_000)
+      expect(reviewed.spendSummary.walletOutputValue).toBe(0)
+      expect(reviewed.spendSummary.netSpend).toBe(100_000)
+      expect(reviewed.outputOwners).toEqual(['this_account', 'none'])
+    })
+
+    it.each([
+      ['0x83', SINGLE_ANYONECANPAY],
+      ['0x81', ALL_ANYONECANPAY],
+    ])(
+      'flags a high fee under %s as it does for the same bytes signed over the whole transaction',
+      async (_name, hashType) => {
+        const outpoints = world.fund(1, 1_000_000)
+        await world.open()
+        // A fee of 150,000 against 100,000 paid to a stranger, whatever signs it.
+        const outputs = [{ value: 100_000n, scriptPubKey: hexToBytes(PAYER_SCRIPT) }, own(750_000n)]
+        const plain = dappPsbtWithOutputsHex(outpoints, 1_000_000, outputs)
+        const partialHex = withInputSighashType(plain, 0, hashType)
+        const whole = await review(plain, undefined, { suppliedByWebsite: true })
+        const partial = await review(partialHex, await prepare(partialHex), {
+          suppliedByWebsite: true,
+        })
+
+        expect(whole.spendSummary.feeAssessment?.reasons).toContain('large_share_of_amount')
+        expect(partial.spendSummary.feeAssessment?.reasons).toEqual(
+          whole.spendSummary.feeAssessment?.reasons
+        )
+        expect(partial.shouldWarnFeeRate).toBe(true)
+      }
+    )
+
+    it.each([
+      ['the default type, named', 0x00],
+      ['SIGHASH_ALL', 0x01],
+    ])(
+      'credits every output when an input names %s, which covers the whole transaction',
+      async (_name, hashType) => {
+        const outpoints = world.fund(1, 100_000)
+        await world.open()
+        const outputs = [other(), own(98_000n)]
+        // Reviewed alone: the wallet does not sign SIGHASH_ALL, and the review
+        // must not take either type for a partial one.
+        const reviewed = await review(
+          withInputSighashType(dappPsbtWithOutputsHex(outpoints, 100_000, outputs), 0, hashType)
+        )
+
+        expect(reviewed.spendSummary.netSpend).toBe(2_000)
+        expect(reviewed.outputOwners).toEqual(['none', 'change'])
+      }
+    )
+
+    it('still counts what a 0x83 signature locks in beside a 0x81 one, as change', async () => {
+      const outpoints = world.fund(2, 100_000)
+      await world.open()
+      // Input 0 locks output 0 under 0x83; input 1 is signed under 0x81,
+      // which leaves output 1 for another approval's input to pay.
+      const outputs = [own(90_000n), own(100_000n)]
+      const hex = withInputSighashType(
+        withInputSighashType(
+          dappPsbtWithOutputsHex(outpoints, 100_000, outputs),
+          0,
+          SINGLE_ANYONECANPAY
+        ),
+        1,
+        ALL_ANYONECANPAY
+      )
+      const reviewed = await review(hex, await prepare(hex))
+
+      expect(reviewed.spendSummary.walletOutputValue).toBe(90_000)
+      expect(reviewed.spendSummary.netSpend).toBe(110_000)
+      expect(reviewed.outputOwners).toEqual(['change', 'this_account'])
+    })
+
+    it('credits no output under 0x81, which fixes the outputs but not who funds them', async () => {
+      const outpoints = world.fund(1, 100_000)
+      await world.open()
+      const outputs = [other(), own(98_000n)]
+      const hex = withInputSighashType(
+        dappPsbtWithOutputsHex(outpoints, 100_000, outputs),
+        0,
+        ALL_ANYONECANPAY
+      )
+      const partial = await review(hex, await prepare(hex))
+
+      // The 98,000 back to the wallet can be paid by another of its inputs,
+      // signed the same way in another approval: the whole input can leave.
+      expect(partial.spendSummary.walletOutputValue).toBe(0)
+      expect(partial.spendSummary.netSpend).toBe(100_000)
+      expect(partial.outputOwners).toEqual(['none', 'this_account'])
+    })
+
+    it('shows the whole input at risk in each of two 0x81 approvals of the same outputs', async () => {
+      const funded = world.fund(2, 1_000)
+      await world.open()
+      // Each request pairs one of the wallet's inputs with the website's own,
+      // over the same outputs: 1,000 back to the wallet and 950 to the
+      // website. Signed, both wallet inputs fund one transaction with those
+      // outputs, and the wallet is 1,000 down. Neither approval may show 0.
+      const outputs = [own(1_000n), { value: 950n, scriptPubKey: hexToBytes(PAYER_SCRIPT) }]
+      for (const outpoint of funded) {
+        const hex = withInputSighashType(
+          dappPsbtWithOutputsHex([outpoint, `${'cd'.repeat(32)}:0`], 1_000, outputs, [], [1]),
+          0,
+          ALL_ANYONECANPAY
+        )
+        const reviewed = await review(hex, await prepare(hex))
+
+        expect(reviewed.spendSummary.walletInputValue).toBe(1_000)
+        expect(reviewed.spendSummary.netSpend).toBe(1_000)
+        expect(reviewed.outputOwners).toEqual(['this_account', 'none'])
+      }
+    })
   })
 })

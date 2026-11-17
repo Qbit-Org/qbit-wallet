@@ -50,4 +50,20 @@ describe('the review a request gives its PSBT', () => {
       suppliedByWebsite: false,
     })
   })
+
+  it('names no recipient from an address row flagged as a warning, which shows what a website supplied', () => {
+    const partialSignature = {
+      psbtHex: '00',
+      toSignInputs: [],
+      providerContext,
+      action: {
+        details: [
+          { type: PsbtActionDetailType.ADDRESS, value: 'qbit1locked', warning: true },
+          { type: PsbtActionDetailType.ADDRESS, value: 'qbit1named' },
+        ],
+      } as unknown as ToSignData['action'],
+    } as ToSignData
+
+    expect(psbtReviewOptions(partialSignature).statedRecipients).toEqual(['qbit1named'])
+  })
 })

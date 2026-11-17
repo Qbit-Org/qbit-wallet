@@ -54,6 +54,22 @@ function DetailItemRow({ detail }: { detail: PsbtActionDetail }) {
           </Row>
         </Row>
       );
+    } else if (detail.full) {
+      // Bytes the approval must show whole, such as a script with no address.
+      return (
+        <Column gap="zero" fullX data-testid="psbt-action-detail">
+          {LabelCom}
+          <Text
+            text={detail.value.toString()}
+            preset="regular"
+            color={detail.warning ? 'warning' : 'text'}
+            size="xs"
+            selectText
+            wrap
+            disableTranslate
+          />
+        </Column>
+      );
     } else {
       return (
         <Row justifyBetween data-testid="psbt-action-detail">

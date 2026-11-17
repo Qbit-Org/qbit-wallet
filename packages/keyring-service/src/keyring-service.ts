@@ -7,7 +7,10 @@ import { transactionCore } from '@qbit/wallet-core'
 import { AddressType } from '@qbit/wallet-types'
 import {
   PSBT_GLOBAL_UNSIGNED_TX,
+  SIGHASH_ALL,
+  SIGHASH_ANYONECANPAY,
   SIGHASH_DEFAULT,
+  SIGHASH_SINGLE,
   decodePsbt,
   p2mrSighash,
   psbtUnsignedTransaction,
@@ -15,6 +18,7 @@ import {
   signP2mrPsbt,
   validateP2mrSigningPlans,
   type P2mrSigningKey,
+  type P2mrSigningOptions,
   type P2mrSpentOutput,
   type P2mrTransaction,
   type Psbt,
@@ -2869,7 +2873,7 @@ export class KeyringService extends EventEmitter {
     }
 
     const entryCacheKeys = snapshots.map(snapshot => {
-      validateP2mrSigningPlans(snapshot)
+      validateP2mrSigningPlans({ ...snapshot, ...p2mrSigningOptionsFor(snapshot.keys) })
       assertP2mrPsbtWithinStandardWeight(snapshot.psbt, snapshot.keys)
       if (snapshot.keys.some(key => bytesToHex(key.pubkey) !== pubkey)) {
         throw new Error('P2MR signing key does not match the selected account')
@@ -3149,10 +3153,24 @@ export class KeyringService extends EventEmitter {
       throw new Error(this.t('not_supported'))
     }
 
-    validateP2mrSigningPlans({ psbt: psbtSnapshot, keys: keySnapshots })
+    validateP2mrSigningPlans({
+      psbt: psbtSnapshot,
+      keys: keySnapshots,
+      ...p2mrSigningOptionsFor(keySnapshots),
+    })
     assertP2mrPsbtWithinStandardWeight(psbtSnapshot, keySnapshots)
     if (keySnapshots.some(key => bytesToHex(key.pubkey) !== pubkey)) {
       throw new Error('P2MR signing key does not match the selected account')
+    }
+
+    // The migration assertions below vouch for a transaction signed over all of
+    // it; a partial signature could be lifted into another one.
+    if (
+      (options?.allowMigrationProtectedAssetTransfer === true ||
+        options?.allowMigrationConsolidation === true) &&
+      keySnapshots.some(key => (key.hashType ?? SIGHASH_DEFAULT) !== SIGHASH_DEFAULT)
+    ) {
+      throw new Error('a recovery migration signs only under the default sighash type')
     }
 
     const tx = psbtUnsignedTransaction(psbtSnapshot)
@@ -3242,7 +3260,11 @@ export class KeyringService extends EventEmitter {
       throw new Error(this.t('not_supported'))
     }
 
-    validateP2mrSigningPlans({ psbt: psbtSnapshot, keys: keySnapshots })
+    validateP2mrSigningPlans({
+      psbt: psbtSnapshot,
+      keys: keySnapshots,
+      ...p2mrSigningOptionsFor(keySnapshots),
+    })
     assertP2mrPsbtWithinStandardWeight(psbtSnapshot, keySnapshots)
     const keyPubkeys = keySnapshots.map(key => bytesToHex(key.pubkey))
     if (keyPubkeys.some(keyPubkey => keyPubkey !== pubkey)) {
@@ -3349,6 +3371,7 @@ export class KeyringService extends EventEmitter {
       const signed = signP2mrPsbt({
         psbt: psbtSnapshot,
         keys: keySnapshots,
+        ...p2mrSigningOptionsFor(keySnapshots),
         sign: (sighash, context) => {
           const preSignedKey = p2mrPreSignedSignatureKey(
             context.inputIndex,
@@ -4390,6 +4413,34 @@ function p2mrSignedSizeFloor(
     )
   })
   return size
+}
+
+/**
+ * The sighash types besides `SIGHASH_DEFAULT` that a plan may name, 0x81 and
+ * 0x83. Both carry `SIGHASH_ANYONECANPAY`: the signature commits to its own
+ * input and, for `SIGHASH_SINGLE`, to the output at the same index only, so a
+ * listing is signed once and a buyer completes it. Any other type stays
+ * refused here, whatever approved the plan.
+ */
+export const P2MR_PARTIAL_SIGHASH_TYPES: ReadonlySet<number> = new Set([
+  SIGHASH_ANYONECANPAY | SIGHASH_ALL,
+  SIGHASH_ANYONECANPAY | SIGHASH_SINGLE,
+])
+
+/**
+ * The opt-in the protocol library asks for before it signs any type but
+ * `SIGHASH_DEFAULT`. It is set only for a plan whose every non-default type is
+ * in `P2MR_PARTIAL_SIGHASH_TYPES`; a plan naming any other type gets no opt-in
+ * and the library refuses it. The only plans that name a type come from a
+ * website's PSBT, after its approval showed the type.
+ */
+export function p2mrSigningOptionsFor(keys: readonly { hashType?: number }[]): P2mrSigningOptions {
+  const named = keys
+    .map(key => key.hashType ?? SIGHASH_DEFAULT)
+    .filter(hashType => hashType !== SIGHASH_DEFAULT)
+  return named.length > 0 && named.every(hashType => P2MR_PARTIAL_SIGHASH_TYPES.has(hashType))
+    ? { allowNonDefaultSighash: true }
+    : {}
 }
 
 function snapshotP2mrSigningKeys(keys: readonly P2mrSigningKey[]): P2mrSigningKey[] {

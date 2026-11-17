@@ -150,8 +150,9 @@ export type PsbtOutputRole =
  */
 export type PsbtOutputOwner =
   /**
-   * Change to the account signing the PSBT: the wallet funds every input, and
-   * the request does not name the output's address as its recipient.
+   * Change to the account signing the PSBT: the wallet funds every input, the
+   * request does not name the output's address as its recipient, and no
+   * signature of the account's under a partial sighash type leaves it open.
    */
   | 'change'
   /** The account signing the PSBT, as a payment it may be receiving rather than change. */
@@ -170,7 +171,12 @@ export interface PsbtSpendSummary {
   account: string
   /** Value of the inputs spent from the wallet's own addresses. */
   walletInputValue: number
-  /** Value of the outputs paid back to the wallet's own addresses. */
+  /**
+   * Value of the outputs paid back to the wallet's own addresses. When the
+   * account signs an input under a partial sighash type, only what a
+   * `SIGHASH_SINGLE` signature locks in for the wallet, up to its own
+   * input's value.
+   */
   walletOutputValue: number
   /**
    * What leaves the wallet, fee included: `walletInputValue - walletOutputValue`.
@@ -178,7 +184,10 @@ export interface PsbtSpendSummary {
    * missing, so its owner and value are unknown.
    */
   netSpend?: number
-  /** Value of every output that does not pay the wallet. */
+  /**
+   * Value of every output that does not pay the wallet, and of whatever
+   * `walletOutputValue` leaves out of an output that does: the worst case.
+   */
   externalOutputValue: number
   /** One role for each output, in output order. */
   outputRoles: PsbtOutputRole[]

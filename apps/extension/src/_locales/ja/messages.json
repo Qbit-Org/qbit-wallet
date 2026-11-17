@@ -1109,6 +1109,18 @@
   "sighash_none_detected": {
     "message": "SIGHASH_NONEが検出されました。セキュリティのため署名を中止しました。"
   },
+  "qbit_partial_signature_description": {
+    "message": "この署名が確定するのはトランザクションの一部だけです。署名を持つ人は、ブロードキャスト前に、署名が対象としない部分（他のインプットやアウトプットを含む場合があります）を変更できます。"
+  },
+  "qbit_partial_signature_inputs": {
+    "message": "単独で署名するインプット"
+  },
+  "qbit_partial_signature_locked_output": {
+    "message": "この署名が固定するアウトプット"
+  },
+  "qbit_partial_signature_all_outputs": {
+    "message": "この署名はすべてのアウトプットを固定します"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONEは署名後にトランザクションの変更を許可する特別な署名タイプです。トランザクションが悪意を持って変更された場合、資金を失う可能性があります。続行する前に、このトランザクションの送信元を信頼していることを確認してください。"
   },
