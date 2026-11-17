@@ -2198,6 +2198,30 @@
   "send_plan_paused_unreadable_body": {
     "message": "このバージョンのウォレットは保存された支払いを読み取れないため、続けることができません。"
   },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "アウトプットがエクスプローラーと一致しません"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "この支払いで使うアウトプットが、エクスプローラー上でそれを作ったトランザクションと一致しないため、ウォレットは署名の前に停止しました。続行してもう一度確認するか、支払いをキャンセルしてください。"
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "まだ使えないアウトプットがあります"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "この支払いで使うアウトプットは、未成熟のマイニング報酬、他者からの未確認の支払い、または前に未確認のトランザクションが多すぎるおつりのため、まだ使えません。ウォレットは署名の前に停止しました。後で続行してもう一度確認するか、支払いをもう一度確認して現在のアカウントのアウトプットを使うか、キャンセルしてください。"
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "アウトプットのトランザクションが見つかりません"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "この支払いで使うアウトプットを作ったトランザクションがエクスプローラーにもうないため、ウォレットは署名の前に停止しました。支払いをもう一度確認して現在のアカウントのアウトプットを使うか、続行してもう一度確認するか、キャンセルしてください。"
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "アウトプットを確認できませんでした"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "この支払いで使うアウトプットをエクスプローラーで確認できなかったため、ウォレットは署名の前に停止しました。続行してもう一度お試しください。"
+  },
   "send_plan_paused_other": {
     "message": "支払いは一時停止中です"
   },
@@ -2341,6 +2365,18 @@
   },
   "send_outputs_load_failed": {
     "message": "ウォレットはこのアカウントのアウトプットを読み取れなかったため、現在このアカウントからは送金できません。もう一度試すには、送金を開き直してください。"
+  },
+  "send_input_check_mismatch": {
+    "message": "このトランザクションで使うアウトプットが、エクスプローラー上でそれを作ったトランザクションと一致しないため、ウォレットは署名の前に停止しました。"
+  },
+  "send_input_check_not_spendable": {
+    "message": "このトランザクションで使うアウトプットは、未成熟のマイニング報酬、他者からの未確認の支払い、または前に未確認のトランザクションが多すぎるおつりのため、まだ使えません。ウォレットは署名の前に停止しました。"
+  },
+  "send_input_check_not_found": {
+    "message": "このトランザクションで使うアウトプットを作ったトランザクションがエクスプローラーにもうないため、ウォレットは署名の前に停止しました。"
+  },
+  "send_input_check_unchecked": {
+    "message": "このトランザクションで使うアウトプットをエクスプローラーで確認できなかったため、ウォレットは署名の前に停止しました。しばらくしてからもう一度お試しください。"
   },
   "consolidate_outputs": {
     "message": "アウトプットを統合"

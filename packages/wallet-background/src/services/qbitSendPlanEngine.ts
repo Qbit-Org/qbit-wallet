@@ -69,6 +69,8 @@ import {
   qbitSendPlanTermsDigest,
   readQbitSendPlanTermsDigest,
 } from '../utils/qbit-send-plan-terms'
+// The causes alone: the engine reads nothing through the API module itself.
+import type { QbitSpendInputProblem } from '../utils/qbit-api'
 import {
   QBIT_RECENT_SPEND_GONE_GRACE_MS,
   QBIT_RECENT_SPEND_TTL_MS,
@@ -170,6 +172,17 @@ export const QBIT_CHAINS = new Set<unknown>([
   ChainType.QBIT_TESTNET4,
   ChainType.QBIT_REGTEST,
 ])
+/**
+ * The pause of a plan whose inputs failed their check, for each cause there
+ * is: a cause added to `QbitSpendInputProblem` does not compile until it has
+ * its own pause here.
+ */
+const INPUT_CHECK_PAUSES: Record<QbitSpendInputProblem, QbitSendPlanPauseReason> = {
+  mismatch: 'input_check_mismatch',
+  not_spendable: 'input_check_not_spendable',
+  not_found: 'input_check_not_found',
+  unchecked: 'input_check_unchecked',
+}
 const PAUSE_REASONS = new Set<string>([
   'locked',
   'interrupted',
@@ -178,13 +191,28 @@ const PAUSE_REASONS = new Set<string>([
   'payment_fee_too_low',
   'payment_refused',
   'unreadable',
+  ...Object.values(INPUT_CHECK_PAUSES),
 ])
-const REPLANNABLE = new Set<string>(['merge_refused', 'outputs_spent', 'payment_refused'])
+const REPLANNABLE = new Set<string>([
+  'merge_refused',
+  'outputs_spent',
+  'payment_refused',
+  // An input whose funding transaction is gone (replaced or dropped while
+  // unconfirmed) never comes back, so Continue alone would pause again; and
+  // one that is not spendable may only become so in time (a reward
+  // maturing, ancestors confirming) or never (someone else's unconfirmed
+  // payment). A replan is the user's own choice, read from the outputs as
+  // they are now, and its new inputs are checked before it signs anything.
+  'input_check_not_found',
+  'input_check_not_spendable',
+])
 const CONTINUABLE = new Set<string>([
   'locked',
   'interrupted',
   'payment_refused',
   'payment_fee_too_low',
+  // Continue checks the inputs again, and signs only if they pass.
+  ...Object.values(INPUT_CHECK_PAUSES),
 ])
 
 /** The node's reasons for refusing a transaction whose inputs are spent or missing. */
@@ -305,6 +333,24 @@ export interface QbitSendPlanEngineHost {
    * values and scripts are taken as the explorer gives them.
    */
   transaction(chain: ChainType, txid: string): Promise<QbitSendPlanSpenderRead>
+  /**
+   * Read and check the funding transaction of every one of `inputs`, inputs
+   * the plan is about to sign for `address` on `chain`, riding out the
+   * explorer's server errors, until `signal` aborts or its deadline passes,
+   * which grows with the funding transactions it looks up
+   * (`qbitSpendCheckDeadlineMs`) (`checkQbitSpendInputs`). An input spending
+   * an output of one of `ownTransactions`, the plan's own merges by txid
+   * with their outputs in order, is checked against it with no lookup.
+   * Rejects with an error whose `problem` names the cause when an input
+   * fails, and with `signal`'s reason once it aborts.
+   */
+  checkSpendInputs(
+    chain: ChainType,
+    address: string,
+    inputs: readonly { txid: string; vout: number; satoshis: number; scriptPk: string }[],
+    ownTransactions: ReadonlyMap<string, readonly { value: number; script: string }[]>,
+    signal: AbortSignal
+  ): Promise<void>
   /**
    * The wallet's broadcast of raw transaction `rawtx`, `txid` on `chain`,
    * under `hold` when the plan holds every input it spends, and, with
@@ -572,6 +618,17 @@ interface PlanSession {
    * cannot read them keeps no read loop going.
    */
   mergesUnreadAt: number | undefined
+  /**
+   * The inputs (outpoint keys) of the plan's steps that this session has
+   * checked in one pass before it signed anything of them (see
+   * `checkPlanInputs`): the inputs of every step at its first signature,
+   * and those a revision or a restart brings in, at the first signature
+   * after it. Each step's own check before its signature is made anyway; an
+   * input that fails one leaves the set as its plan pauses, with every other
+   * input of the same funding transaction (`forgetCheckedInputs`), so the
+   * pass reads them again before anything more is signed.
+   */
+  checkedInputs: Set<string>
   /**
    * Settled when the first signing of a start passed its checks (true),
    * the advance ended before that (false), or the keyring refused the
@@ -891,6 +948,66 @@ function at<T>(items: readonly T[], index: number): T {
 
 function outpointKey(outpoint: QbitOutpoint): string {
   return `${outpoint.txid}:${outpoint.vout}`
+}
+
+/**
+ * The outputs of `record`'s own merges, by txid, as its record holds them:
+ * each pays its one output, of `outputValue`, to the account's own script.
+ * A merge's stored bytes are bound to that record before the merge is
+ * signed (`checkQbitSendPlanStepPsbt`), and the payment, the one step that
+ * spends merges, is signed after them, so an input spending one is checked
+ * against what was signed, with no lookup and no decoding of stored PSBTs.
+ */
+function qbitSendPlanOwnOutputs(
+  record: QbitSendPlanRecord,
+  keys: { scriptPubKey: Uint8Array }
+): Map<string, { value: number; script: string }[]> {
+  const script = bytesToHex(keys.scriptPubKey)
+  const own = new Map<string, { value: number; script: string }[]>()
+  for (const step of record.steps) {
+    if (step.kind === 'merge' && step.outputValue !== undefined) {
+      own.set(step.txid.toLowerCase(), [{ value: step.outputValue, script }])
+    }
+  }
+  return own
+}
+
+/** The pause of an error that is a failed check of inputs, by its cause; none otherwise. */
+function inputCheckPauseOf(error: unknown): QbitSendPlanPauseReason | undefined {
+  const problem =
+    error !== null && typeof error === 'object'
+      ? (error as { problem?: unknown }).problem
+      : undefined
+  return typeof problem === 'string' &&
+    Object.prototype.hasOwnProperty.call(INPUT_CHECK_PAUSES, problem)
+    ? INPUT_CHECK_PAUSES[problem as QbitSpendInputProblem]
+    : undefined
+}
+
+/**
+ * Take every input of the funding transaction a failed check of inputs names
+ * (`QbitSpendInputCheckError`: its `txid`) out of what `session` has checked
+ * in one pass (`PlanSession.checkedInputs`), so the next pass reads them
+ * again: a failure of the whole transaction (it is gone, cannot be read, or
+ * the answer is another transaction's) names only its first output there,
+ * and no other output of it is any better known.
+ */
+function forgetCheckedInputs(session: PlanSession, failure: unknown): void {
+  const named =
+    failure !== null && typeof failure === 'object' ? (failure as { txid?: unknown }) : undefined
+  const txid = named?.txid
+  if (typeof txid !== 'string' || txid === '') return
+  const spent = `${txid.toLowerCase()}:`
+  for (const key of session.checkedInputs) {
+    if (key.toLowerCase().startsWith(spent)) session.checkedInputs.delete(key)
+  }
+}
+
+/** The error behind `error` (`Error.cause`), or `error` itself. */
+function errorCause(error: unknown): unknown {
+  const cause =
+    error !== null && typeof error === 'object' ? (error as { cause?: unknown }).cause : undefined
+  return cause ?? error
 }
 
 function randomHex(bytes: number): string {
@@ -1625,6 +1742,7 @@ function newSession(): PlanSession {
     confirmedCursor: 0,
     paymentInputsCursor: 0,
     mergesUnreadAt: undefined,
+    checkedInputs: new Set(),
     firstSigning: undefined,
     pageChallengeGone: false,
     undoing: false,
@@ -5420,6 +5538,35 @@ export class QbitSendPlanEngine {
     // The keyring's last report of this signing: what it took so far.
     let progress: { signed: number; cached: number } | undefined
     try {
+      // A signing that cannot go on (a cancel, a lock, a revision's swap, a
+      // reset, another network) reads nothing: refused here, before any
+      // lookup, as after every await below.
+      this.assertSigningStands(record, session, step, stop, locksBefore)
+      const own = qbitSendPlanOwnOutputs(record, keys)
+      // Before the plan's first signature, and the first after a revision or
+      // a restart: every input still to be signed that this session has not
+      // checked, in one pass (`checkPlanInputs`).
+      if (await this.checkPlanInputs(record, session, stop, keys, own)) {
+        this.assertSigningStands(record, session, step, stop, locksBefore)
+      }
+      // Every input it spends, read and checked against its funding
+      // transaction first (`host.checkSpendInputs`); an output of one of this
+      // plan's own merges against that merge as the record holds it, never
+      // read. The overlap check, the batch and the keyring, which takes a
+      // unit only after that, come after it, and so does
+      // `assertSigningStands`. The inputs are checked as outputs of the
+      // account the plan was started for (`record.account`), which it signs
+      // for whichever account is selected, as it always has: unlike a send
+      // signed from a page, it does not stop when another account is
+      // selected.
+      await this.host.checkSpendInputs(
+        record.chain,
+        address,
+        step.inputs.map(input => ({ ...input, scriptPk: bytesToHex(keys.scriptPubKey) })),
+        own,
+        stop.signal
+      )
+      this.assertSigningStands(record, session, step, stop, locksBefore)
       const held = desiredHolds(record)
       const presented = step.inputs.every(input => held.has(outpointKey(input)))
         ? session.hold
@@ -5533,13 +5680,73 @@ export class QbitSendPlanEngine {
       if (locked || errorCode(error) === ErrorCodes.WALLET_LOCKED_DURING_SIGNING) {
         await this.pause(record.id, 'locked')
       } else {
-        await this.pause(record.id, 'interrupted', errorDetail(error))
+        // An input that failed its check pauses the plan with that cause,
+        // which the plan's screen names in full; the technical detail is the
+        // check's own account of it.
+        const inputCheck = inputCheckPauseOf(error)
+        if (inputCheck) {
+          // The inputs of the transaction it failed on are checked again by
+          // the next pass, should a continue or a replan sign one of them:
+          // what passed the pass and then failed its step's own check is not
+          // taken as checked.
+          forgetCheckedInputs(session, errorCause(error))
+          await this.pause(record.id, inputCheck, errorDetail(errorCause(error)))
+        } else {
+          await this.pause(record.id, 'interrupted', errorDetail(error))
+        }
       }
       return undefined
     } finally {
       if (session.stop === stop) session.stop = undefined
       this.refreshView(record.id)
     }
+  }
+
+  /**
+   * One pass, before the plan signs any of them, over the inputs it has not
+   * checked in this session: every input of every step still to be signed
+   * (a void merge never is) that spends no output of the plan's own merges
+   * (`own`), read and
+   * checked (`host.checkSpendInputs`) under the signing's stop signal,
+   * riding out the explorer's server errors as each step's check does. So
+   * an input that fails pauses the plan, naming its cause, before its first
+   * signature, and before the first of a revision (a replan or a fee raise)
+   * or after a restart for the inputs those bring in, instead of after the
+   * merges before it were signed and sent. Done in the first step's signing
+   * rather than when the plan is prepared: a review can be prepared again
+   * and again before one is started, the pass needs the plan's stop signal
+   * (a cancel, a lock or a reset ends it), and it runs once for what the
+   * plan will sign. Its deadline grows with the lookups it may make (see
+   * `QbitSendPlanEngineHost.checkSpendInputs`). Resolves to whether it read
+   * anything; rejects as the check does.
+   */
+  private async checkPlanInputs(
+    record: QbitSendPlanRecord,
+    session: PlanSession,
+    stop: AbortController,
+    keys: { scriptPubKey: Uint8Array },
+    own: ReadonlyMap<string, readonly { value: number; script: string }[]>
+  ): Promise<boolean> {
+    const scriptPk = bytesToHex(keys.scriptPubKey)
+    const pending = new Map<
+      string,
+      { txid: string; vout: number; satoshis: number; scriptPk: string }
+    >()
+    for (const item of record.steps) {
+      // Only what will be signed: a void merge (its replaced version
+      // confirmed instead) is never signed (`assertSigningStands`).
+      if (item.status !== 'planned' || isVoid(item)) continue
+      for (const input of item.inputs) {
+        const key = outpointKey(input)
+        if (own.has(input.txid.toLowerCase()) || session.checkedInputs.has(key)) continue
+        pending.set(key, { ...input, scriptPk })
+      }
+    }
+    if (pending.size === 0) return false
+    const inputs = [...pending.values()]
+    await this.host.checkSpendInputs(record.chain, record.account.address, inputs, own, stop.signal)
+    for (const key of pending.keys()) session.checkedInputs.add(key)
+    return true
   }
 
   /**

@@ -25,6 +25,7 @@ import { ChainType } from '@qbit/wallet-types'
 import rpcFlow from '../src/controllers/provider/rpcFlow'
 import wallet from '../src/controllers/wallet'
 import { keyringService, preferenceService, qbitSendGuardService } from '../src/services'
+import { FakeQbitExplorer } from './qbit-fake-explorer'
 
 // The real provider flow, wallet controller and send guard: a dapp's
 // sendQbit approval, the approval window signing it through signPsbtV2, and
@@ -112,6 +113,22 @@ function sendFixture() {
 }
 
 const fixture = sendFixture()
+
+/** The explorer serving the transaction the send spends, for the check before its signing. */
+const explorer = new FakeQbitExplorer('esplora')
+explorer.addTx({
+  txid: SOURCE_TXID,
+  inputs: [{ txid: `02${'00'.repeat(31)}`, vout: 0 }],
+  outputs: [
+    {
+      address: fixture.address,
+      script: bytesToHex(p2mrScriptPubKey(hexToBytes(fixture.leafHashHex))),
+      value: 50_000,
+    },
+  ],
+  height: 100,
+})
+
 const account = {
   type: KeyringType.QbitHdKeyring,
   address: fixture.address,
@@ -193,6 +210,7 @@ async function expectInputClaimed() {
 describe('a provider sendQbit claim belongs to its request', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', explorer.fetch)
     approvalServiceMock.requestApproval.mockReset()
     providerControllerMock.sendQbit.mockReset()
     vi.mocked(keyringService.signP2mrPsbtWithCounter).mockReset()

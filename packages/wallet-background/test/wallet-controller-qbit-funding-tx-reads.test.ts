@@ -49,6 +49,7 @@ vi.mock('../src/utils/qbit-api', async importOriginal => {
       'getQbitAddressUtxosClassifiedPastLimit',
       actual.getQbitAddressUtxosClassifiedPastLimit
     ),
+    checkQbitSpendInputs: recorded('checkQbitSpendInputs', actual.checkQbitSpendInputs),
   }
 })
 
@@ -201,6 +202,12 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
   const txReads = () =>
     explorer.requests.filter(request => /^\/tx\/[0-9a-f]{64}$/.test(request.path)).length
 
+  /** The inputs every check of a transaction's inputs has checked (`checkQbitSpendInputs`). */
+  const checkedInputs = () =>
+    apiOverrides.calls
+      .filter(call => call.name === 'checkQbitSpendInputs')
+      .reduce((total, call) => total + (call.args[2] as unknown[]).length, 0)
+
   /** The /tx reads `run` makes. */
   async function txReadsOf(run: () => Promise<unknown>): Promise<number> {
     const before = txReads()
@@ -243,37 +250,44 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
       availableBalance: TOTAL + OUTPUT_VALUE,
       totalBalance: TOTAL + OUTPUT_VALUE,
     })
-    // The send screen's read goes through the same reader: it reads each one
-    // once, and what it keeps serves the next read and the balance alike;
+    // The send screen's read goes through the same reader: it lists the deep
+    // ones from the listing alone, as candidates a signing checks (#210);
     // the newest, young, every read of outputs reads afresh.
     let snapshot: Awaited<ReturnType<typeof wallet.getQbitUtxoSnapshot>> | undefined
     expect(
       await txReadsOf(async () => {
         snapshot = await wallet.getQbitUtxoSnapshot()
       })
-    ).toBe(OUTPUTS + 1)
+    ).toBe(1)
     expect(snapshot!.utxos).toHaveLength(OUTPUTS + 1)
     expect(await txReadsOf(() => wallet.getQbitUtxos())).toBe(1)
     expect(await txReadsOf(() => wallet.getAddressBalanceV2(address))).toBe(0)
   })
 
-  it('reads every deep output on a cold reader for the send, getAddressUtxo and recovery paths', async () => {
-    for (const read of [
-      (wallet: WalletController) => wallet.getQbitUtxos(),
-      (wallet: WalletController) => wallet.getAddressUtxo(address),
-      (wallet: WalletController) =>
-        (wallet as any).readQbitRecoverySourceUtxos(
-          (wallet as any).getQbitApiClient(ChainType.QBIT_TESTNET4),
-          address,
-          { deferIncompleteHistory: false }
-        ),
-    ]) {
+  it('lists the deep outputs on a cold reader for the send without a lookup, and reads every one for getAddressUtxo and recovery', async () => {
+    // The send path lists the deep ones as candidates (#210): each input a
+    // transaction spends is read and checked before its first signature
+    // (wallet-controller-qbit-spend-check.test.ts). getAddressUtxo, which
+    // nothing calls, and the recovery sources read every one, as before.
+    for (const [read, reads] of [
+      [(wallet: WalletController) => wallet.getQbitUtxos(), 1],
+      [(wallet: WalletController) => wallet.getAddressUtxo(address), OUTPUTS + 1],
+      [
+        (wallet: WalletController) =>
+          (wallet as any).readQbitRecoverySourceUtxos(
+            (wallet as any).getQbitApiClient(ChainType.QBIT_TESTNET4),
+            address,
+            { deferIncompleteHistory: false }
+          ),
+        OUTPUTS + 1,
+      ],
+    ] as const) {
       explorer = accountExplorer({ deep: true })
       payNewest(explorer)
       const wallet = controller()
       // The balance before it read none of them, only the newest payment.
       expect(await txReadsOf(() => wallet.getAddressBalanceV2(address))).toBe(1)
-      expect(await txReadsOf(() => read(wallet))).toBe(OUTPUTS + 1)
+      expect(await txReadsOf(() => read(wallet))).toBe(reads)
     }
   })
 
@@ -333,7 +347,9 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
       const before = youngReads()
       const riddenBefore = ridesOut()
       const firstCall = apiOverrides.calls.length
-      expect(await txReadsOf(read)).toBe(index === 0 ? OUTPUTS + 3 : 3)
+      // The send path lists the old ones as candidates (#210): the first read
+      // that reads them is getAddressUtxo's.
+      expect(await txReadsOf(read)).toBe(index === 1 ? OUTPUTS + 3 : 3)
       expect(youngReads() - before).toBe(3)
       expect(ridesOut() - riddenBefore).toBe(ridden ? 1 : 0)
       if (snapshot) apiOverrides.calls.slice(firstCall).forEach(call => snapshotCalls.add(call))
@@ -708,10 +724,11 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
       await removeAccountKeyring(wallet)
       quote.release()
 
-      // Whether the send is then built or refused, its read of the outputs
-      // came after the removal and kept nothing.
+      // Whether the send is then built or refused, its read of the outputs,
+      // and the check of the inputs it spends, which reads each one again
+      // (#210), came after the removal and kept nothing.
       await running.catch(() => undefined)
-      expect(txReads()).toBe(OUTPUTS)
+      expect(txReads()).toBe(OUTPUTS + checkedInputs())
       expect(fundingTxReadsOf(wallet).size).toBe(0)
     })
   }

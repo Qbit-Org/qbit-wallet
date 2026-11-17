@@ -49,7 +49,12 @@ const getTxOutspendsMock = vi.hoisted(() => vi.fn())
 const apiClientMock = vi.hoisted(() =>
   vi.fn(() => ({
     broadcastTx: broadcastTxMock,
-    getTx: getTxMock,
+    // The transaction funding every fixture's input is served as the
+    // explorer gives it, for the check of the inputs before each signature;
+    // every other lookup is the test's.
+    getTx: (txid: string, options?: unknown) =>
+      txid === SOURCE_TXID ? Promise.resolve(sourceTx()) : getTxMock(txid, options),
+    getTipHeight: async () => 2_000,
     getTxHex: getTxHexMock,
     getTxOutspends: getTxOutspendsMock,
     getTxStatus: getTxStatusMock,
@@ -151,6 +156,21 @@ function signedFixture(outputValue = 40_000n) {
 const fixture = signedFixture()
 /** Another valid signed transaction over the same input: what a wrong paste or scan hands back. */
 const otherFixture = signedFixture(39_000n)
+
+/** The confirmed transaction whose output 0 every fixture spends, as the explorer gives it. */
+function sourceTx() {
+  return {
+    txid: SOURCE_TXID,
+    vin: [{ txid: `02${'00'.repeat(31)}`, vout: 0, is_coinbase: false }],
+    vout: [
+      {
+        value: 50_000,
+        scriptpubkey: bytesToHex(p2mrScriptPubKey(hexToBytes(fixture.leafHashHex))),
+      },
+    ],
+    status: { confirmed: true, block_height: 100 },
+  }
+}
 
 function claimFor(txid = fixture.txid): QbitSendBroadcastClaim {
   return {

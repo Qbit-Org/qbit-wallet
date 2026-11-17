@@ -28,6 +28,20 @@ import {
   wirePlanKeyring,
 } from './qbit-send-plan-engine-harness'
 
+/**
+ * The transactions funding the account, which spend nothing `explorer`
+ * holds: the check before each signature reads them.
+ */
+function fundingTxidsOf(explorer: {
+  txs: ReadonlyMap<string, { txid: string; inputs: readonly { txid: string }[] }>
+}): Set<string> {
+  return new Set(
+    [...explorer.txs.values()]
+      .filter(tx => tx.inputs.every(input => !explorer.txs.has(input.txid)))
+      .map(tx => tx.txid)
+  )
+}
+
 // Raising the fee inside an open send plan (#188): a merge that stays
 // unconfirmed is replaced by one paying more, and a payment the network
 // refuses for its fee is built again at a higher rate. In both the
@@ -431,8 +445,11 @@ describe('raising a slow merge’s fee', () => {
         ? { status: 502, body: 'bad gateway', afterAccepting: true }
         : undefined
     })
-    // Nothing can be looked up while the plan starts; then only the second merge.
-    let refused: (path: string) => boolean = () => true
+    // Nothing can be looked up while the plan starts, but the funding
+    // transactions the check before each signature reads; then only the
+    // second merge.
+    const funded = fundingTxidsOf(world.explorer)
+    let refused: (path: string) => boolean = path => !funded.has(path.slice(4, 68))
     world.explorer.failures.push(request =>
       isLookup(request) && refused(request.path)
         ? { status: 400, body: 'lookup refused' }
@@ -619,13 +636,19 @@ describe('raising a slow merge’s fee', () => {
   it('looks a replacement whose answer was lost up, and records it once found, sending nothing again', async () => {
     const view = await slowPlan()
     const review = await reviewRaise(view, 'raise_merge_fee', 2)
+    // The lookups of the plan's own transactions; the funding transactions
+    // the check before each signature reads still answer.
+    const funded = fundingTxidsOf(world.explorer)
     world.explorer.failures.push(
       once(request =>
         isBroadcast(request)
           ? { status: 502, body: 'bad gateway', afterAccepting: true }
           : undefined
       ),
-      request => (isLookup(request) ? { status: 400, body: 'lookup refused' } : undefined)
+      request =>
+        isLookup(request) && !funded.has(request.path.slice(4, 68))
+          ? { status: 400, body: 'lookup refused' }
+          : undefined
     )
     await world.wallet.startQbitSendPlan(review.draftId)
     await world.settle()

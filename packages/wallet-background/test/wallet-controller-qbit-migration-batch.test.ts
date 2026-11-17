@@ -17,6 +17,7 @@ import { QbitHdKeyring } from '@qbit/keyring-service/qbit-hd-keyring'
 import { ErrorCodes, type ToSignData } from '@qbit/wallet-shared'
 import { WalletController } from '../src/controllers/wallet'
 import { keyringService as realKeyringService } from '../src/services'
+import { FakeQbitExplorer, fakeTxid } from './qbit-fake-explorer'
 
 // The real KeyringService, with its batch store, counter and restored-floor
 // challenges, behind the real WalletController; only the services around
@@ -98,6 +99,8 @@ class JsonEncryptor {
 const quietLogger = { debug() {}, info() {}, warn() {}, error() {} }
 
 let txidSeed = 1
+/** The explorer serving the transactions the plans spend, for the check before each signing. */
+let explorer: FakeQbitExplorer
 
 /** A plan sweeping `inputCount` outputs of `account` to `destinationAddress`'s script. */
 function migrationPlan(
@@ -115,6 +118,12 @@ function migrationPlan(
       const txid = new Uint8Array(32).fill(0)
       txid[0] = txidSeed & 0xff
       txid[1] = (txidSeed >> 8) & 0xff
+      explorer.addTx({
+        txid: bytesToHex(new Uint8Array(txid).reverse()),
+        inputs: [{ txid: fakeTxid(txidSeed, 5_000_000), vout: 0 }],
+        outputs: [{ address: account.address, script: account.scriptPubKey, value: Number(value) }],
+        height: 100,
+      })
       txidSeed += 1
       return {
         prevout: { txid, vout: 0 },
@@ -284,11 +293,68 @@ describe('recovery migration signs every reviewed plan in one press (#156)', () 
 
   beforeEach(() => {
     txidSeed = 1
+    explorer = new FakeQbitExplorer('esplora')
+    vi.stubGlobal('fetch', explorer.fetch)
   })
 
   afterEach(async () => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
     await keyringService.setLocked()
+  })
+
+  it('reads every input of a reviewed plan before its first signature, and signs none that fails (#210)', async () => {
+    const { sourceAccounts } = await migratingWallet([2], 3)
+    const wallet = new WalletController()
+    const pubkey = sourceAccounts[0]!.pubkey
+    const counterBefore = await counterOf(pubkey)
+    const prepared = await wallet.prepareQbitRecoveryMigration(0)
+    const lookups = () =>
+      explorer.requests.filter(({ path }) => /^\/tx\/[0-9a-f]{64}$/.test(path)).length
+    const before = lookups()
+
+    await signReviewed(wallet, [prepared.toSignDatas[0]!])
+    expect(lookups() - before).toBe(3)
+    expect(await counterOf(pubkey)).toBe(counterBefore + 3)
+
+    // The second plan's first input no longer reads as the plan spends it.
+    const [input] = decodePsbt(parsePsbt(hexToBytes(prepared.toSignDatas[1]!.psbtHex))).inputs
+    explorer.txs.get(
+      bytesToHex(new Uint8Array(input!.prevout.txid).reverse())
+    )!.outputs[0]!.value += 1
+    await expect(signReviewed(wallet, [prepared.toSignDatas[1]!])).rejects.toMatchObject({
+      problem: 'mismatch',
+    })
+    expect(await counterOf(pubkey)).toBe(counterBefore + 3)
+    expect(await planStatuses(pubkey)).toEqual(['signed', 'prepared'])
+  })
+
+  it('validates the reviewed plan again once the check of its inputs returns, and signs nothing when it no longer stands (#210)', async () => {
+    const { sourceAccounts } = await migratingWallet([2], 3)
+    const wallet = new WalletController()
+    const pubkey = sourceAccounts[0]!.pubkey
+    const counterBefore = await counterOf(pubkey)
+    const prepared = await wallet.prepareQbitRecoveryMigration(0)
+    const statusesBefore = await planStatuses(pubkey)
+    // The plan stands when the signing starts, and no longer once the check
+    // of its inputs has read them (another page signed or replaced it).
+    const validate = (wallet as any).validateQbitRecoveryMigrationSigning
+    let validations = 0
+    ;(wallet as any).validateQbitRecoveryMigrationSigning = async (...args: unknown[]) => {
+      validations += 1
+      if (validations === 2) {
+        throw new Error('Qbit recovery migration signing data changed after review')
+      }
+      return validate(...args)
+    }
+
+    await expect(signReviewed(wallet, [prepared.toSignDatas[0]!])).rejects.toThrow(
+      'changed after review'
+    )
+
+    expect(validations).toBe(2)
+    expect(await counterOf(pubkey)).toBe(counterBefore)
+    expect(await planStatuses(pubkey)).toEqual(statusesBefore)
   })
 
   it('signs two different plans from one source', async () => {

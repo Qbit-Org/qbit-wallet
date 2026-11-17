@@ -2198,6 +2198,30 @@
   "send_plan_paused_unreadable_body": {
     "message": "This version of the wallet cannot read the saved payment, so it cannot go on with it."
   },
+  "send_plan_paused_input_check_mismatch": {
+    "message": "An output does not match the explorer"
+  },
+  "send_plan_paused_input_check_mismatch_body": {
+    "message": "An output this payment spends does not match the transaction that created it at the explorer, so the wallet stopped before signing. Continue to check it again, or cancel the payment."
+  },
+  "send_plan_paused_input_check_not_spendable": {
+    "message": "An output cannot be spent yet"
+  },
+  "send_plan_paused_input_check_not_spendable_body": {
+    "message": "An output this payment spends cannot be spent yet: a mining reward that has not matured, an unconfirmed payment from someone else, or change with too many unconfirmed transactions before it. The wallet stopped before signing. Continue later to check it again, review the payment again to use the account's outputs as they are now, or cancel it."
+  },
+  "send_plan_paused_input_check_not_found": {
+    "message": "An output’s transaction is missing"
+  },
+  "send_plan_paused_input_check_not_found_body": {
+    "message": "The explorer no longer has the transaction that created an output this payment spends, so the wallet stopped before signing. Review the payment again to use the account's outputs as they are now, continue to check it again, or cancel the payment."
+  },
+  "send_plan_paused_input_check_unchecked": {
+    "message": "An output could not be checked"
+  },
+  "send_plan_paused_input_check_unchecked_body": {
+    "message": "The wallet could not check an output this payment spends with the explorer, so it stopped before signing. Continue to try again."
+  },
   "send_plan_paused_other": {
     "message": "The payment is paused"
   },
@@ -2341,6 +2365,18 @@
   },
   "send_outputs_load_failed": {
     "message": "The wallet could not read this account's outputs, so it cannot send from this account now. Reopen Send to try again."
+  },
+  "send_input_check_mismatch": {
+    "message": "An output this transaction would spend does not match the transaction that created it at the explorer, so the wallet stopped before signing."
+  },
+  "send_input_check_not_spendable": {
+    "message": "An output this transaction would spend cannot be spent yet: a mining reward that has not matured, an unconfirmed payment from someone else, or change with too many unconfirmed transactions before it. The wallet stopped before signing."
+  },
+  "send_input_check_not_found": {
+    "message": "The explorer no longer has the transaction that created an output this transaction would spend, so the wallet stopped before signing."
+  },
+  "send_input_check_unchecked": {
+    "message": "The wallet could not check an output this transaction would spend with the explorer, so it stopped before signing. Try again in a moment."
   },
   "consolidate_outputs": {
     "message": "Consolidate outputs"

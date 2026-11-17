@@ -331,7 +331,9 @@ describe('the fee rate a website PSBT approval shows (#59)', () => {
     )
     // The approval window reviews the PSBT it was handed, with the options
     // the sign screen builds from the request, then the user signs.
-    approvalServiceMock.requestApproval.mockImplementation(async approval => {
+    approvalServiceMock.requestApproval.mockImplementation(async (approval, _window, onPending) => {
+      // As the approval service does before it installs the approval.
+      onPending?.('approval-1')
       const toSignData: ToSignData = structuredClone(approval.params.data.toSignDatas[0])
       reviews.push(
         await wallet.decodePsbt(toSignData.psbtHex, ORIGIN, psbtReviewOptions(toSignData))

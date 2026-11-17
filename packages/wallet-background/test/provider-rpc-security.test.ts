@@ -38,6 +38,8 @@ const keyringServiceMock = vi.hoisted(() => ({
 }))
 const accountState = vi.hoisted(() => ({ address: 'qbrt1zaccount' }))
 const walletMock = vi.hoisted(() => ({
+  // A website request's PSBTs, admitted as its approval is installed (#210).
+  admitQbitWebsitePsbts: vi.fn(() => () => undefined),
   getChainType: vi.fn(() => 'QBIT_REGTEST'),
   getCurrentAccount: vi.fn(async () => ({ address: accountState.address })),
   releaseExternalQbitSigningLock: vi.fn(),
@@ -689,6 +691,49 @@ describe('Provider RPC security gates', () => {
 
     signing.resolve([{ psbtHex: 'signed-a' }, { psbtHex: 'signed-b' }])
     await expect(live).resolves.toEqual(['signed-psbt'])
+  })
+
+  it('admits a website request’s PSBTs only as its approval is installed, and lets them go as it settles: a refused request admits none (#210)', async () => {
+    const prepared = { psbtHex: '70736274', providerContext: { origin: 'https://dapp.example' } }
+    Reflect.defineMetadata(
+      'APPROVAL',
+      [
+        'SignPsbt',
+        async (req: any) => {
+          req.data.params.toSignDatas = [prepared]
+        },
+      ],
+      providerControllerMock,
+      'signPsbt'
+    )
+    const released = vi.fn()
+    walletMock.admitQbitWebsitePsbts.mockImplementation(() => released)
+    providerControllerMock.signPsbt.mockResolvedValue('signed-psbt')
+    const signing = pendingApproval('approval-signing')
+    const rpcFlow = (await import('../src/controllers/provider/rpcFlow')).default
+    const signPsbtRequest = () =>
+      request('signPsbt', { psbtHex: '70736274', options: { chain: ChainType.QBIT_REGTEST } })
+
+    const live = rpcFlow(signPsbtRequest())
+    await waitForApproval()
+    expect(walletMock.admitQbitWebsitePsbts).toHaveBeenCalledTimes(1)
+    expect(walletMock.admitQbitWebsitePsbts).toHaveBeenCalledWith([prepared])
+
+    // 64 more, each refused for the approval already pending: none admits
+    // anything, so none can push the pending one's PSBT out.
+    approvalServiceMock.requestApproval.mockImplementation(async () => {
+      throw new WalletError(ErrorCodes.UNKNOWN, APPROVAL_PENDING)
+    })
+    const burst = await Promise.allSettled(
+      Array.from({ length: 64 }, () => rpcFlow(signPsbtRequest()))
+    )
+    expect(burst.every(result => result.status === 'rejected')).toBe(true)
+    expect(walletMock.admitQbitWebsitePsbts).toHaveBeenCalledTimes(1)
+    expect(released).not.toHaveBeenCalled()
+
+    signing.resolve([{ psbtHex: 'signed' }])
+    await expect(live).resolves.toEqual('signed-psbt')
+    expect(released).toHaveBeenCalledTimes(1)
   })
 
   it('closes no batch a failed request names in its own parameters', async () => {

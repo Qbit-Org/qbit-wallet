@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   P2MR_LEAF_VERSION_V1,
@@ -15,10 +15,13 @@ import { KeyringType } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import { WalletController } from '../src/controllers/wallet'
 import { preferenceService } from '../src/services'
+import { FakeQbitExplorer } from './qbit-fake-explorer'
 
 vi.mock('../src/services', () => ({
   keyringService: {
     keyrings: [],
+    // The wallet reads unlocked, as the check of a send's inputs reads it.
+    memStore: { getState: () => ({ isUnlocked: true }) },
     preflightP2mrPsbtSigning: vi.fn(async () => ({
       required: 1,
       cached: 0,
@@ -116,6 +119,20 @@ function sendAll(qbitUtxos: ReturnType<typeof output>[], qbitUtxoAddress?: strin
 describe('createSendQbitPsbt spends only the selected account’s outputs', () => {
   beforeEach(() => {
     vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+    // The transaction funding the account's output, for the check of a
+    // send's inputs before it is built.
+    const explorer = new FakeQbitExplorer('esplora')
+    explorer.addTx({
+      txid: 'aa'.repeat(32),
+      inputs: [{ txid: 'ab'.repeat(32), vout: 0 }],
+      outputs: [{ address: account.address, script: account.p2mr.scriptPubKey, value: 50_000 }],
+      height: 100,
+    })
+    vi.stubGlobal('fetch', explorer.fetch)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('builds from outputs read for the selected account', async () => {

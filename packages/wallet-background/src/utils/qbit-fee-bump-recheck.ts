@@ -68,12 +68,17 @@ export const QBIT_FEE_BUMP_RECHECK_SUBMISSION_MARGIN_MS = 250
 export const QBIT_FEE_BUMP_RECHECK_MAX_WAIT_MS = 65_000
 
 /**
- * The Speed up assessment's deadline, shared by every explorer read it
- * makes before the user signs: the original, its raw bytes and what spends
- * it. With 106 inputs the original is about 800 kB both as JSON and as hex,
+ * The Speed up assessment's deadline, shared by its reads of the original
+ * before the user signs: the original, its raw bytes and what spends it.
+ * With 106 inputs the original is about 800 kB both as JSON and as hex,
  * about 1.6 MB together, which this fits at about 13 kB/s (about
  * 110 kbit/s), well below the 640 kbit/s under which the hex alone missed
- * the 10 s check that used to run at broadcast.
+ * the 10 s check that used to run at broadcast. The check of the original's
+ * inputs that follows them is not held to it: it has the deadline its
+ * signing has, `QBIT_SPEND_CHECK_DEADLINE_MS` (60 s), from when it starts,
+ * so reads that spent most of this on a slow link do not cut it short. The
+ * whole assessment thus ends at most 180 s after this deadline starts, its
+ * own computation aside.
  */
 export const QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS = 120_000
 

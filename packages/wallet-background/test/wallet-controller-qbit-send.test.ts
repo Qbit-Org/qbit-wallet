@@ -87,6 +87,17 @@ const getAddressMempoolTxsMock = vi.hoisted(() => vi.fn())
 const getAddressStatsMock = vi.hoisted(() => vi.fn())
 const getTipHashMock = vi.hoisted(() => vi.fn())
 const getTipHeightMock = vi.hoisted(() => vi.fn())
+// The funding transactions of the outputs the builders take (`serveFunding`),
+// by txid, as the explorer gives them.
+const fundingTxs = vi.hoisted(() => new Map<string, Record<string, unknown>>())
+// A transaction lookup: a funding transaction the explorer holds, confirmed
+// (`serveFunding`), which the check of a transaction's inputs reads; any other
+// as the test answers it (`getTxMock`), unchanged.
+const getTxServed = vi.hoisted(() => async (...args: unknown[]): Promise<unknown> => {
+  const funding = fundingTxs.get(String(args[0]).toLowerCase())
+  if (funding) return structuredClone(funding)
+  return getTxMock(...args)
+})
 const esploraClientMock = vi.hoisted(() =>
   vi.fn(() => ({
     broadcastTx: broadcastTxMock,
@@ -97,7 +108,7 @@ const esploraClientMock = vi.hoisted(() =>
     getFeeTiers: getFeeTiersMock,
     getTipHash: getTipHashMock,
     getTipHeight: getTipHeightMock,
-    getTx: getTxMock,
+    getTx: getTxServed,
     getTxHex: getTxHexMock,
     getTxOutspends: getTxOutspendsMock,
     getTxStatus: getTxStatusMock,
@@ -113,7 +124,7 @@ const mempoolQbitClientMock = vi.hoisted(() =>
     getFeeTiers: getFeeTiersMock,
     getTipHash: getTipHashMock,
     getTipHeight: getTipHeightMock,
-    getTx: getTxMock,
+    getTx: getTxServed,
     getTxHex: getTxHexMock,
     getTxOutspends: getTxOutspendsMock,
     getTxStatus: getTxStatusMock,
@@ -279,6 +290,27 @@ function recipientAddressScript() {
     )
   )
 }
+
+/**
+ * The explorer holds the confirmed funding transaction of `output`, with
+ * its value and script at its index, as a listing showed it.
+ */
+function serveFunding(output: { txid: string; vout: number; satoshis: number; scriptPk?: string }) {
+  const txid = output.txid.toLowerCase()
+  const tx = fundingTxs.get(txid) ?? {
+    txid,
+    vin: [{ txid: 'fe'.repeat(32), vout: 0, is_coinbase: false }],
+    vout: [],
+    status: { confirmed: true, block_height: 10 },
+  }
+  const outputs = tx['vout'] as { value: number; scriptpubkey: string }[]
+  while (outputs.length <= output.vout) outputs.push({ value: 0, scriptpubkey: '6a' })
+  outputs[output.vout] = { value: output.satoshis, scriptpubkey: output.scriptPk ?? '' }
+  fundingTxs.set(txid, tx)
+}
+
+/** The builders' own read of the outputs they take, before any test spies on it. */
+const takeSendInputs = (WalletController.prototype as any).qbitSendInputsOn
 
 function reverseTxid(txid: string) {
   return bytesToHex(new Uint8Array(hexToBytes(txid)).reverse())
@@ -639,6 +671,17 @@ describe('WalletController qbit P2MR send path', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // The explorer holds the funding transaction of every confirmed output a
+    // builder takes, as it was listed: the check of a transaction's inputs
+    // reads it. Unconfirmed change keeps the transaction the test gives.
+    fundingTxs.clear()
+    vi.spyOn(WalletController.prototype as any, 'qbitSendInputsOn').mockImplementation(
+      async function (this: unknown, ...args: unknown[]) {
+        const outputs = await takeSendInputs.apply(this, args)
+        for (const output of outputs) if (!output.unconfirmed) serveFunding(output)
+        return outputs
+      }
+    )
     removalRecords.length = 0
     vi.mocked(preferenceService.getChainType).mockReturnValue(ChainType.QBIT_REGTEST)
     vi.mocked(qbitSendGuardService.getReservedOutpointKeys).mockResolvedValue(
@@ -1440,6 +1483,398 @@ describe('WalletController qbit P2MR send path', () => {
 
     const [input] = decodePsbt(parsePsbt(hexToBytes(result.psbtHex))).inputs
     expect(input?.prevout.txid).toEqual(hexToBytes(reverseTxid(availableTxid)))
+  })
+
+  it('builds a fee bump over exactly the original’s outpoints, none added, and checks each before signing it (#210)', async () => {
+    const wallet = new WalletController()
+    const account = p2mrAccount()
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+    const original = await wallet.createSendQbitPsbt({
+      to: recipientAddress(),
+      amount: 150_000,
+      feeRate: 1,
+      qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: account.address,
+      qbitUtxos: [
+        { txid: '41'.repeat(32), vout: 0 },
+        { txid: '42'.repeat(32), vout: 1 },
+      ].map(outpoint => ({
+        ...outpoint,
+        satoshis: 100_000,
+        scriptPk: account.p2mr.scriptPubKey,
+        pubkey: account.pubkey,
+        addressType: AddressType.P2MR,
+      })),
+    })
+    const live = liveTransactionFromPsbt(original.psbtHex)
+    getTxMock.mockResolvedValue(live)
+    const outpointsOf = (psbtHex: string) =>
+      decodePsbt(parsePsbt(hexToBytes(psbtHex))).inputs.map(
+        input => `${reverseTxid(bytesToHex(input.prevout.txid))}:${input.prevout.vout}`
+      )
+
+    const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+
+    // A bump spends what its original spent, which the account signed for,
+    // and nothing more: its eligibility checks those inputs, as its signing
+    // does again.
+    expect(outpointsOf(replacement.psbtHex)).toEqual(outpointsOf(original.psbtHex))
+    expect(outpointsOf(replacement.psbtHex)).toEqual([
+      `${'41'.repeat(32)}:0`,
+      `${'42'.repeat(32)}:1`,
+    ])
+    // Its signing checks each input all the same.
+    fundingTxs.get('42'.repeat(32))!['vout'] = [{ value: 0, scriptpubkey: '6a' }]
+    await expect(wallet.signPsbtV2(replacement)).rejects.toMatchObject({ problem: 'mismatch' })
+    expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+  })
+
+  describe('a fee bump the signing would refuse is not offered (#210)', () => {
+    const FUNDING = '61'.repeat(32)
+    const PARENT = '62'.repeat(32)
+
+    /** An unconfirmed transaction paying the account 100,000 at output 0, its one input `prevout`. */
+    function unconfirmedFunding(prevout: { txid: string; script: string }) {
+      return {
+        txid: FUNDING,
+        vin: [
+          {
+            txid: prevout.txid,
+            vout: 0,
+            is_coinbase: false,
+            prevout: { scriptpubkey: prevout.script, value: 200_000 },
+          },
+        ],
+        vout: [{ value: 100_000, scriptpubkey: p2mrAccount().p2mr.scriptPubKey }],
+        size: 300,
+        status: { confirmed: false },
+      }
+    }
+
+    /**
+     * A pending original of the account spending `FUNDING`'s output 0, built
+     * as a send is (its shape); how the original came to be signed does not
+     * matter here: a website's PSBT, signed unchecked, may spend anything
+     * that pays the account.
+     */
+    async function pendingOriginal(
+      wallet: WalletController,
+      account: ReturnType<typeof p2mrAccount>,
+      unconfirmed: boolean
+    ) {
+      const original = await wallet.createSendQbitPsbt({
+        to: recipientAddress(),
+        amount: 40_000,
+        feeRate: 1,
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: account.address,
+        qbitUtxos: [
+          {
+            txid: FUNDING,
+            vout: 0,
+            satoshis: 100_000,
+            scriptPk: account.p2mr.scriptPubKey,
+            pubkey: account.pubkey,
+            addressType: AddressType.P2MR,
+            ...(unconfirmed
+              ? { unconfirmed: true, unconfirmedAncestors: [{ txid: FUNDING, vsize: 300 }] }
+              : {}),
+          },
+        ],
+      })
+      const live = liveTransactionFromPsbt(original.psbtHex)
+      getTxMock.mockResolvedValue(live)
+      return live
+    }
+
+    it('reports a bump of an original that spends someone else’s unconfirmed payment ineligible, and builds none', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      // Its shape is built while the payment reads as the account's own
+      // confirmed output; the explorer then holds it as what it is, someone
+      // else's unconfirmed payment to the account.
+      const live = await pendingOriginal(wallet, account, false)
+      fundingTxs.set(
+        FUNDING,
+        unconfirmedFunding({ txid: PARENT, script: recipientAddressScript() })
+      )
+      vi.mocked(keyringService.preflightP2mrPsbtSigning).mockClear()
+
+      await expect(wallet.getQbitFeeBumpEligibility(live.txid)).resolves.toEqual({
+        eligible: false,
+        reason: 'inputs_not_spendable',
+      })
+      await expect(wallet.createBumpFeeQbitPsbt({ txid: live.txid })).rejects.toThrow(
+        '(inputs_not_spendable)'
+      )
+      // Refused before any review: nothing priced against the counter.
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['a confirmed output of the account', false],
+      ['the account’s own unconfirmed change', true],
+    ])(
+      'offers, builds and signs, checked, a bump of an original that spends %s',
+      async (_, unconfirmed) => {
+        const wallet = new WalletController()
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        if (unconfirmed) {
+          // Change of the account's own send, which spent its confirmed output.
+          fundingTxs.set(
+            FUNDING,
+            unconfirmedFunding({ txid: PARENT, script: account.p2mr.scriptPubKey })
+          )
+          fundingTxs.set(PARENT, {
+            txid: PARENT,
+            vin: [{ txid: 'fe'.repeat(32), vout: 0, is_coinbase: false }],
+            vout: [{ value: 200_000, scriptpubkey: account.p2mr.scriptPubKey }],
+            status: { confirmed: true, block_height: 10 },
+          })
+        }
+        const live = await pendingOriginal(wallet, account, unconfirmed)
+        const checks = vi.spyOn(wallet as any, 'checkQbitSpendOn')
+        const spends = (call: unknown[]) =>
+          (call[2] as { txid: string; vout: number }[]).map(input => `${input.txid}:${input.vout}`)
+
+        await expect(wallet.getQbitFeeBumpEligibility(live.txid)).resolves.toMatchObject({
+          eligible: true,
+          originalTxid: live.txid,
+        })
+        // Its eligibility checked the original's input, as its signing will.
+        expect(checks.mock.calls.map(spends)).toEqual([[`${FUNDING}:0`]])
+        const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+        const keys = replacement.qbitP2mrSigningKeys!.map(key => ({
+          inputIndex: key.inputIndex,
+          pubkey: hexToBytes(key.publicKey),
+          leafHash: hexToBytes(key.leafHash),
+        }))
+        const signed = signP2mrPsbt({
+          psbt: parsePsbt(hexToBytes(replacement.psbtHex)),
+          keys,
+          sign: () => new Uint8Array(PQC_SIGNATURE_BYTES).fill(9),
+        })
+        vi.mocked(keyringService.signP2mrPsbtWithCounter).mockResolvedValue({
+          psbt: signed.psbt,
+          signed: signed.signed,
+          counterResults: [],
+        } as any)
+        checks.mockClear()
+
+        await expect(wallet.signPsbtV2(replacement)).resolves.toMatchObject({
+          psbtHex: expect.any(String),
+        })
+        // Signed, after the check of its input at signing.
+        expect(checks.mock.calls.map(spends)).toEqual([[`${FUNDING}:0`]])
+        expect(keyringService.signP2mrPsbtWithCounter).toHaveBeenCalledTimes(1)
+      }
+    )
+
+    /** The outpoints one call of the check was handed. */
+    const checkedOutpoints = (call: unknown[]) =>
+      (call[2] as { txid: string; vout: number }[]).map(input => `${input.txid}:${input.vout}`)
+
+    it('reports a bump unverifiable, and builds none, when its check cannot read a funding transaction', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const live = await pendingOriginal(wallet, account, false)
+      // The explorer fails the lookup of the input's funding transaction: the
+      // check cannot tell, which is no verdict on the input.
+      fundingTxs.delete(FUNDING)
+      getTxMock.mockImplementation(async (txid: string) => {
+        if (txid === live.txid) return live
+        throw new QbitApiError('http', 'HTTP 503 from the explorer', { status: 503 })
+      })
+      vi.mocked(keyringService.preflightP2mrPsbtSigning).mockClear()
+
+      await expect(wallet.getQbitFeeBumpEligibility(live.txid)).resolves.toEqual({
+        eligible: false,
+        reason: 'unverifiable',
+      })
+      // The build fails as when any other read of its assessment fails, with
+      // the generic error, and nothing is priced against the counter.
+      await expect(wallet.createBumpFeeQbitPsbt({ txid: live.txid })).rejects.toThrow(
+        /^fee_bump_unavailable$/
+      )
+      expect(getTxMock).toHaveBeenCalledWith(FUNDING, expect.anything())
+      expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      [
+        'serves another value at its index',
+        'mismatch',
+        () => {
+          fundingTxs.get(FUNDING)!['vout'] = [
+            { value: 99_999, scriptpubkey: p2mrAccount().p2mr.scriptPubKey },
+          ]
+        },
+      ],
+      [
+        'no longer has its funding transaction',
+        'not_found',
+        (live: { txid: string }) => {
+          fundingTxs.delete(FUNDING)
+          getTxMock.mockImplementation(async (txid: string) => {
+            if (txid === live.txid) return live
+            throw new QbitApiError('not_found', 'transaction not found', { status: 404 })
+          })
+        },
+      ],
+    ])(
+      'reports a bump unverifiable, not unspendable, when the explorer %s',
+      async (_, problem, serve: (live: { txid: string }) => void) => {
+        const wallet = new WalletController()
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        const live = await pendingOriginal(wallet, account, false)
+        serve(live)
+        const checks = vi.spyOn(wallet as any, 'checkQbitSpendOn')
+
+        await expect(wallet.getQbitFeeBumpEligibility(live.txid)).resolves.toEqual({
+          eligible: false,
+          reason: 'unverifiable',
+        })
+        // The check's own verdict on the input, not a read that failed.
+        await expect(checks.mock.results[0]!.value).rejects.toMatchObject({ problem })
+        await expect(wallet.createBumpFeeQbitPsbt({ txid: live.txid })).rejects.toThrow(
+          'fee_bump_unavailable (unverifiable)'
+        )
+      }
+    )
+
+    it.each([
+      ['completes a check of 59 s', 59_000, { eligible: true }],
+      [
+        'cuts a check of 61 s off at its own 60 s',
+        61_000,
+        { eligible: false, reason: 'unverifiable' },
+      ],
+    ])(
+      'gives the check its own deadline after reads of the original that left the assessment 3 s: %s, and leaves nothing running',
+      async (_, checkMs, expected) => {
+        const wallet = new WalletController()
+        const account = p2mrAccount()
+        vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+        const live = await pendingOriginal(wallet, account, false)
+        const funding = fundingTxs.get(FUNDING)!
+        fundingTxs.delete(FUNDING)
+        vi.useFakeTimers()
+        try {
+          const startedAt = Date.now()
+          // Each read of the original takes 39 s on a slow link, and fails at
+          // the deadline it is handed when that is shorter: the three leave
+          // the assessment's deadline 3 s.
+          const readMs = 39_000
+          const slow = async <T>(answer: () => T, options?: { deadlineMs?: number }) => {
+            const deadlineMs = options?.deadlineMs ?? Number.POSITIVE_INFINITY
+            await new Promise(resolve => setTimeout(resolve, Math.min(readMs, deadlineMs)))
+            if (deadlineMs < readMs) throw new QbitApiError('timeout', 'deadline passed')
+            return answer()
+          }
+          // The check's reads still running, and when its lookup started.
+          const running = new Set<string>()
+          let lookupAt: number | undefined
+          const checkRead = <T>(
+            name: string,
+            answer: () => T,
+            ms: number | undefined,
+            signal?: AbortSignal
+          ) =>
+            new Promise<T>((resolve, reject) => {
+              running.add(name)
+              const timer =
+                ms === undefined
+                  ? undefined
+                  : setTimeout(() => {
+                      running.delete(name)
+                      resolve(answer())
+                    }, ms)
+              signal?.addEventListener(
+                'abort',
+                () => {
+                  clearTimeout(timer)
+                  running.delete(name)
+                  reject(signal.reason)
+                },
+                { once: true }
+              )
+            })
+          getTxMock.mockImplementation(
+            async (txid: string, options?: { deadlineMs?: number; signal?: AbortSignal }) => {
+              if (txid === live.txid) return slow(() => live, options)
+              if (txid !== FUNDING)
+                throw new QbitApiError('not_found', 'not found', { status: 404 })
+              lookupAt = Date.now()
+              return checkRead('lookup', () => structuredClone(funding), checkMs, options?.signal)
+            }
+          )
+          const rawBytes = getTxHexMock.getMockImplementation()!
+          getTxHexMock.mockImplementation((txid: string, options?: { deadlineMs?: number }) =>
+            slow(() => rawBytes(txid), options)
+          )
+          const spenders = getTxOutspendsMock.getMockImplementation()!
+          getTxOutspendsMock.mockImplementation((txid: string, options?: { deadlineMs?: number }) =>
+            slow(() => spenders(txid), options)
+          )
+          // The tip every check starts at once, which never answers here.
+          getTipHeightMock.mockImplementation((options?: { signal?: AbortSignal }) =>
+            checkRead('tip', () => 0, undefined, options?.signal)
+          )
+
+          const eligibility = wallet.getQbitFeeBumpEligibility(live.txid)
+          await vi.advanceTimersByTimeAsync(3 * readMs + checkMs + 1_000)
+
+          await expect(eligibility).resolves.toMatchObject(expected)
+          expect(lookupAt! - startedAt).toBe(3 * readMs)
+          expect(QBIT_FEE_BUMP_ASSESSMENT_DEADLINE_MS - 3 * readMs).toBe(3_000)
+          expect(running).toEqual(new Set())
+        } finally {
+          vi.useRealTimers()
+        }
+      }
+    )
+
+    it('checks an External signer’s bump when it is offered and when it is built, its only checks', async () => {
+      const wallet = new WalletController()
+      const account = { ...p2mrAccount(), type: KeyringType.ReadonlyKeyring }
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const live = await pendingOriginal(wallet, account, false)
+      const checks = vi.spyOn(wallet as any, 'checkQbitSpendOn')
+
+      await expect(wallet.getQbitFeeBumpEligibility(live.txid)).resolves.toMatchObject({
+        eligible: true,
+      })
+      const replacement = await wallet.createBumpFeeQbitPsbt({ txid: live.txid })
+      expect(checks.mock.calls.map(checkedOutpoints)).toEqual([[`${FUNDING}:0`], [`${FUNDING}:0`]])
+      // Its signer is elsewhere: the wallet's own signing refuses the account
+      // before any check, and nothing is signed here.
+      checks.mockClear()
+      await expect(wallet.signPsbtV2(replacement)).rejects.toThrow('not_supported')
+      expect(checks).not.toHaveBeenCalled()
+      expect(keyringService.signP2mrPsbtWithCounter).not.toHaveBeenCalled()
+    })
+
+    it('takes no error but the check’s own failure for a verdict, whatever it carries', async () => {
+      const wallet = new WalletController()
+      const account = p2mrAccount()
+      vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+      const live = await pendingOriginal(wallet, account, false)
+      vi.spyOn(wallet as any, 'checkQbitSpendOn').mockRejectedValue(
+        Object.assign(new Error('a failure of something else'), { problem: 'not_spendable' })
+      )
+
+      await expect(wallet.getQbitFeeBumpEligibility(live.txid)).resolves.toEqual({
+        eligible: false,
+        reason: 'unverifiable',
+      })
+      await expect(wallet.createBumpFeeQbitPsbt({ txid: live.txid })).rejects.toThrow(
+        /^fee_bump_unavailable$/
+      )
+    })
   })
 
   it('builds a live-verified replacement that preserves recipients, memo bytes, inputs and intent', async () => {
@@ -3242,6 +3677,10 @@ describe('WalletController qbit P2MR send path', () => {
       currentUtxo(protectedTxid),
       currentUtxo(ordinaryTxid),
     ])
+    // The explorer's funding transactions agree with those outputs: the
+    // guard checks the values it counts against them (#210).
+    serveFunding(currentUtxo(protectedTxid))
+    serveFunding(currentUtxo(ordinaryTxid))
     const assetCoverage = vi
       .spyOn(wallet as any, 'getQbitProtectedAssetCoverage')
       .mockResolvedValue({
@@ -3287,6 +3726,7 @@ describe('WalletController qbit P2MR send path', () => {
       currentUtxo(protectedTxid, 500),
       currentUtxo(ordinaryTxid),
     ])
+    serveFunding(currentUtxo(protectedTxid, 500))
     await expect(
       wallet.prepareQbitProviderPsbt(psbtHex, { chain: ChainType.QBIT_REGTEST })
     ).rejects.toThrow('qbit_recovery_migration_signing_only')
@@ -3296,6 +3736,7 @@ describe('WalletController qbit P2MR send path', () => {
     )
 
     getQbitUtxos.mockResolvedValue([currentUtxo(protectedTxid), currentUtxo(ordinaryTxid)])
+    serveFunding(currentUtxo(protectedTxid))
     assetCoverage.mockRejectedValueOnce(
       new Error(`Qbit protected-asset lookup could not resolve outpoint ${ordinaryTxid}:0`)
     )
@@ -3303,6 +3744,51 @@ describe('WalletController qbit P2MR send path', () => {
       wallet.prepareQbitProviderPsbt(psbtHex, { chain: ChainType.QBIT_REGTEST })
     ).rejects.toThrow('could not resolve outpoint')
     expect(keyringService.preflightP2mrPsbtSigning).toHaveBeenCalledTimes(2)
+  })
+
+  it('checks the values the protected-asset guard counts against their funding transactions, so an overstated listing widens nothing (#210)', async () => {
+    const wallet = new WalletController()
+    const account = p2mrAccount()
+    const protectedTxid = '98'.repeat(32)
+    const ordinaryTxid = '99'.repeat(32)
+    const psbtHex = psbtHexWithDataOutputs(account, [], [protectedTxid, ordinaryTxid])
+    const currentUtxo = (txid: string, satoshis = 50_000) => ({
+      txid,
+      vout: 0,
+      satoshis,
+      scriptPk: account.p2mr.scriptPubKey,
+      pubkey: account.pubkey,
+      addressType: AddressType.P2MR,
+    })
+    vi.mocked(preferenceService.getCurrentAccount).mockReturnValue(account as any)
+    vi.mocked(keyringService.getQbitRecoveryState).mockResolvedValue({
+      status: 'migrating',
+      migration: { network: 'regtest' },
+    } as any)
+    // The listing says the protected output holds 50,000; its funding
+    // transaction pays it 500, too little to let the ordinary input's value
+    // leave for the external output.
+    vi.spyOn(wallet, 'getQbitUtxos').mockResolvedValue([
+      currentUtxo(protectedTxid),
+      currentUtxo(ordinaryTxid),
+    ])
+    serveFunding(currentUtxo(protectedTxid, 500))
+    serveFunding(currentUtxo(ordinaryTxid))
+    vi.spyOn(wallet as any, 'getQbitProtectedAssetCoverage').mockResolvedValue({
+      assetCount: 1,
+      protectedOutpoints: new Set([`${protectedTxid}:0`]),
+    })
+    vi.mocked(keyringService.preflightP2mrPsbtSigning).mockImplementation(
+      async (_address, _input, options) => {
+        if (options?.allowMigrationProtectedAssetTransfer) return SIGNATURE_BUDGET
+        throw new Error('qbit_recovery_migration_signing_only')
+      }
+    )
+
+    await expect(
+      wallet.prepareQbitProviderPsbt(psbtHex, { chain: ChainType.QBIT_REGTEST })
+    ).rejects.toMatchObject({ problem: 'mismatch' })
+    expect(keyringService.preflightP2mrPsbtSigning).not.toHaveBeenCalled()
   })
 
   it('keeps the migration signing escape from authorizing a PSBT with a non-signable input', async () => {
@@ -3374,6 +3860,15 @@ describe('WalletController qbit P2MR send path', () => {
       toSignInputs: [{ index: 0, publicKey: account.pubkey }],
       autoFinalized: false,
     })
+    // As the provider flow does: the website's context on the entry, and
+    // the entry admitted once its approval is installed (#210).
+    toSignData.providerContext = {
+      origin: 'https://dapp.example',
+      account: account.address,
+      chain: ChainType.QBIT_REGTEST,
+      network: 'regtest',
+    } as any
+    wallet.admitQbitWebsitePsbts([toSignData])
 
     const keys = toSignData.qbitP2mrSigningKeys!.map(key => ({
       inputIndex: key.inputIndex,

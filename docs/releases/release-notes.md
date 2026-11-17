@@ -169,6 +169,30 @@ Two more fixes to these payments close what the six left open (#216, #217).
   more than a second to give the current block height, refreshes download
   the list as before, for up to 5 minutes at a time. Smaller accounts
   refresh as before.
+- Send no longer reads the transaction behind every output of an account
+  before Next and MAX can be used. It reads only those of payments received in
+  the last 1,000 blocks and of unconfirmed ones. Then, when you press Next and
+  again when you sign, it reads and checks the transaction of each output the
+  payment spends, at most 106 for one transaction. This is so for sends, MAX,
+  consolidation and recovery. A payment sent in several transactions checks
+  every output it spends before it signs its first transaction, and each
+  transaction's outputs again when it signs that transaction. If an output
+  does not match what the explorer reports, cannot be spent yet, is no longer
+  there or cannot be checked, nothing is signed, and the wallet says which:
+  "An output this transaction would spend does not match the transaction that
+  created it at the explorer, so the wallet stopped before signing.", "An
+  output this transaction would spend cannot be spent yet: a mining reward
+  that has not matured, an unconfirmed payment from someone else, or change
+  with too many unconfirmed transactions before it. The wallet stopped before
+  signing.", "The explorer no longer has the transaction that created an
+  output this transaction would spend, so the wallet stopped before signing."
+  or "The wallet could not check an output this transaction would spend with
+  the explorer, so it stopped before signing. Try again in a moment." A
+  payment sent in several transactions pauses instead, its screen names the
+  cause in full, and Continue checks again; when an output's transaction is
+  gone, or the output cannot be spent yet, it can also be reviewed again from
+  the account's outputs as they are now. The wallet does not pick other
+  outputs by itself.
 
 ### Security settings and Reset Wallet
 
@@ -293,13 +317,19 @@ Two more fixes to these payments close what the six left open (#216, #217).
   note, and Available and Unavailable stay "--"; it reads the balance again
   every 2 minutes. Older outputs do not count. Today's explorer lists at
   most 50,000 outputs for an address.
-- The first time Send is opened in a session, it reads the transaction of
-  every output of the account before Next and MAX can be used, as the
-  balance no longer reads those of payments 1,000 blocks deep or more. The
-  form can be filled in meanwhile. In a test browser this took 34 to 43
-  seconds for an account with about 21,700 outputs (#210). Each time after
-  that, Send reads again only the payments received in the last 1,000
-  blocks that are not mining rewards.
+- When Send is opened, it still reads the transactions of the account's
+  payments received in the last 1,000 blocks and of unconfirmed ones before
+  Next and MAX can be used; the form can be filled in meanwhile. Each time
+  after the first in a session, it reads again only those of the last 1,000
+  blocks that are not mining rewards. Each send then reads the transactions of
+  the outputs it spends when you press Next and again when you sign, up to 106
+  lookups each time, plus those an unconfirmed change output comes from. A
+  payment sent in several transactions reads them once for all of its
+  transactions before it signs the first, and again for each transaction as it
+  signs it: the largest, 106 transactions spending 11,236 outputs, makes
+  22,472 such lookups while it signs, where 1.0.9 read each of those outputs
+  once when the payment was prepared. A send of many outputs takes that much
+  longer to sign, and one the explorer cannot answer is not signed.
 - When the explorer answers Send's own read of an account's outputs, the
   one it opens with or one it makes again while open, after the account,
   the network or a payment in several transactions changes, with temporary
@@ -368,6 +398,14 @@ Two more fixes to these payments close what the six left open (#216, #217).
   in several transactions cannot start yet." A payment in one transaction is
   not held up. If the record is one this version cannot read, that lasts
   until a version that reads it, or a wallet reset.
+- Bump fee is no longer offered for a pending transaction that spends someone
+  else's unconfirmed payment to the account, or unconfirmed change from a
+  transaction that also spent someone else's output, directly or further
+  back. Only a transaction signed without the wallet's checks spends one:
+  through a website's request, or by other software holding the same key.
+  The wallet now checks every output a transaction spends when it signs, and
+  would refuse to sign the replacement; 1.0.9 offered it and signed it. Once
+  those transactions confirm, the fee can be raised again.
 - In Switch Account, the balance of an account other than the current one
   can be up to a minute old: a payment it received in that minute shows
   once the minute has passed and Switch Account is opened again. After the

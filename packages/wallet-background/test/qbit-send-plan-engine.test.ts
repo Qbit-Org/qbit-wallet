@@ -50,6 +50,11 @@ import {
   withInputSighashType,
 } from './qbit-send-plan-engine-harness'
 
+/** The transactions funding `outpoints` (`World.fund`): the check before each signature reads them. */
+function fundingTxids(outpoints: readonly string[]): Set<string> {
+  return new Set(outpoints.map(outpoint => outpoint.split(':')[0]!))
+}
+
 // The engine's scenarios, over the harness in `qbit-send-plan-engine-harness`:
 // the send guard and the plan store are the real services, the explorer a
 // fake served over fetch, and the keyring a fake of the keyring service.
@@ -503,7 +508,7 @@ describe('failure rules', () => {
   })
 
   it('looks a merge whose outcome is unknown up, and records it once found, sending nothing again', async () => {
-    world.fund(150, 100_000)
+    const funded = fundingTxids(world.fund(150, 100_000))
     await world.open()
     const review = await world.review({ target: { kind: 'amount', amount: 12_000_000 } })
     world.explorer.failures.push(
@@ -512,7 +517,12 @@ describe('failure rules', () => {
           ? { status: 502, body: 'bad gateway', afterAccepting: true }
           : undefined
       ),
-      request => (isLookup(request) ? { status: 400, body: 'lookup refused' } : undefined)
+      // The lookups of the plan's own transactions; the funding transactions
+      // the check before each signature reads still answer.
+      request =>
+        isLookup(request) && !funded.has(request.path.slice(4, 68))
+          ? { status: 400, body: 'lookup refused' }
+          : undefined
     )
     const started = await world.wallet.startQbitSendPlan(review.draftId)
     if (!started.ok) throw new Error('not started')
@@ -1896,7 +1906,7 @@ describe('cancel', () => {
   })
 
   it('lets go of a cancelled merge found in the network, and gives up after the backstop when lookups never answer', async () => {
-    world.fund(150, 100_000)
+    const funded = fundingTxids(world.fund(150, 100_000))
     await world.open()
     const review = await world.review({ target: { kind: 'amount', amount: 12_000_000 } })
     world.explorer.failures.push(
@@ -1905,7 +1915,11 @@ describe('cancel', () => {
           ? { status: 502, body: 'bad gateway', afterAccepting: true }
           : undefined
       ),
-      request => (isLookup(request) ? { status: 400, body: 'lookup refused' } : undefined)
+      // As above: the plan's own transactions' lookups alone.
+      request =>
+        isLookup(request) && !funded.has(request.path.slice(4, 68))
+          ? { status: 400, body: 'lookup refused' }
+          : undefined
     )
     const started = await world.wallet.startQbitSendPlan(review.draftId)
     await world.settle()

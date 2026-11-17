@@ -2761,14 +2761,17 @@ interface QbitClassifyProgress {
  * `tip` and `freshListing`, which only the balance read sets (see
  * `classifyQbitUtxos`; `tip` is the one it asked for before the listing,
  * with its statistics, and `freshListing` asks for the listing fresh,
- * `QbitTxOutspendsOptions.fresh`), and `rideOutServerErrors`, which only
- * `readQbitAddressUtxosRidingOut` sets: its lookups, listing and tip ride
- * out the explorer's server errors (`withQbitReadRetries`), where every
+ * `QbitTxOutspendsOptions.fresh`), `spendCandidates`, which only the
+ * candidate read of outputs a send may select sets (`readQbitAddressUtxos`),
+ * and `rideOutServerErrors`, which only `readQbitAddressUtxosRidingOut`
+ * sets: its lookups, listing and tip ride out the explorer's server errors
+ * (`withQbitReadRetries`), where every
  * other read fails on one at once.
  */
 interface QbitClassifyInternals {
   balanceOnly?: true
   progress?: QbitClassifyProgress
+  spendCandidates?: true
   rideOutServerErrors?: true
   tip?: QbitTipRead
   freshListing?: true
@@ -2786,12 +2789,15 @@ async function listAndClassifyQbitUtxos(
   const options = qbitClassifyStarted(client, begun)
   const addressScript = qbitAddressScript(address)
   // Asked for with the listing, as one small request, when the
-  // classification may judge outputs by it (the balance read's deep outputs,
-  // or kept facts with a shared reader), so that it has usually answered
-  // before any output needs it (see `classifyQbitOutputs`). Without the
-  // address's script neither applies: it is asked for only once a coinbase
-  // output's maturity needs it, as before.
-  const judgesByTip = options.balanceOnly === true || options.fundingTxReads !== undefined
+  // classification may judge outputs by it (the deep outputs of the balance
+  // read and of the candidate read, or kept facts with a shared reader), so
+  // that it has usually answered before any output needs it (see
+  // `classifyQbitOutputs`). Without the address's script neither applies: it
+  // is asked for only once a coinbase output's maturity needs it, as before.
+  const judgesByTip =
+    options.balanceOnly === true ||
+    options.spendCandidates === true ||
+    options.fundingTxReads !== undefined
   const tip =
     options.tip ??
     (addressScript !== undefined && judgesByTip
@@ -3073,9 +3079,18 @@ interface QbitOutputClass {
  * answered by then, cannot show deep, it rejects with
  * `QbitOutputsPastFactsCapError` before reading any, without waiting for the
  * tip: no output may be read before that is settled, so the workers would
- * have nothing to do while waiting for it. No read of outputs a send, sweep
- * or plan may spend takes this path: each still reads and checks every
- * funding transaction.
+ * have nothing to do while waiting for it.
+ *
+ * `spendCandidates`, which only the candidate read of the outputs a send may
+ * select sets (`readQbitAddressUtxos`), takes that same shortcut for its
+ * deep outputs, and nothing else of `balanceOnly`: its kept facts serve by
+ * the strict rule above, it has no `maxOutpoints` bound, and its younger and
+ * unconfirmed outputs are read and classified as before. Its deep outputs
+ * are candidates, nothing checked: every input a transaction spends is read
+ * and checked against its funding transaction before the first signature
+ * over it (`checkQbitSpendInputs`), whatever read listed it. No other read
+ * of outputs takes this path: the recovery sources and `getQbitAddressUtxos`
+ * still read and check every funding transaction.
  */
 async function classifyQbitUtxos(
   client: QbitEsploraClient,
@@ -3108,7 +3123,8 @@ async function classifyQbitUtxos(
         options.balanceOnly === true,
         options.progress,
         options.addressScript,
-        options.balanceOnly ? options.fundingTxReads?.maxOutpoints : undefined
+        options.balanceOnly ? options.fundingTxReads?.maxOutpoints : undefined,
+        options.spendCandidates === true
       )
     )
   } finally {
@@ -3126,7 +3142,8 @@ async function classifyQbitOutputs(
   balanceOnly: boolean,
   progress: QbitClassifyProgress | undefined,
   addressScript: string | undefined,
-  maxOutpoints: number | undefined
+  maxOutpoints: number | undefined,
+  spendCandidates: boolean
 ): Promise<(QbitOutputClass | undefined)[]> {
   // The listed outputs of each funding transaction, with their place in the listing.
   const groups = new Map<string, QbitListedOutput[]>()
@@ -3164,10 +3181,11 @@ async function classifyQbitOutputs(
     tip.start()
     return { settled: tip.settled, floor: tipFloor() }
   }
-  // The balance read's shortcut (see `classifyQbitUtxos`): with the script of
-  // the address read, an output confirmed at least a coinbase maturity deep
-  // is classified from the listing alone, and its transaction is not read.
-  const deepScript = balanceOnly && !historyTxs ? addressScript : undefined
+  // The shortcut of the balance read and of the candidate read (see
+  // `classifyQbitUtxos`): with the script of the address read, an output
+  // confirmed at least a coinbase maturity deep is classified from the
+  // listing alone, and its transaction is not read.
+  const deepScript = (balanceOnly || spendCandidates) && !historyTxs ? addressScript : undefined
   const deepBelow = (listed: readonly QbitListedOutput[], tipFloor: number): boolean =>
     listed.every(
       ({ utxo: { status } }) =>
@@ -3670,12 +3688,17 @@ export async function getQbitAddressUtxosClassifiedPastLimit(
   return classifyQbitUtxosPastLimit(client, address, options, false)
 }
 
-/** `getQbitAddressUtxosClassifiedPastLimit`, riding out server errors with `rideOut`. */
+/**
+ * `getQbitAddressUtxosClassifiedPastLimit`, riding out server errors with
+ * `rideOut`, and with `candidates` the candidate read of a listed address
+ * (`spendCandidates`); a read from history is classified as before.
+ */
 async function classifyQbitUtxosPastLimit(
   client: QbitEsploraClient,
   address: string,
   options: QbitClassifyOptions,
-  rideOut: boolean
+  rideOut: boolean,
+  candidates = false
 ): Promise<QbitClassifiedUtxos> {
   // One view for the listing, the statistics and the walk alike.
   const begun = qbitClassifyStarted(client, {
@@ -3687,6 +3710,7 @@ async function classifyQbitUtxosPastLimit(
     return await listAndClassifyQbitUtxos(client, address, {
       ...begun,
       ...(rideOut ? { rideOutServerErrors: true as const } : {}),
+      ...(candidates ? { spendCandidates: true as const } : {}),
     })
   } catch (error) {
     throwIfQbitReadCancelled(options)
@@ -3709,14 +3733,16 @@ async function classifyQbitUtxosPastLimit(
  * explorer's UTXO limit is read from its history, and that walk stops once
  * `options.signal` aborts. The outputs need every funding transaction, so a
  * failed read fails the call; with `options.fundingTxReads` its reads are
- * bounded and kept as for the balance (see `classifyQbitUtxos`).
+ * bounded and kept as for the balance (see `classifyQbitUtxos`). Unlike
+ * `readQbitAddressUtxos`, which lists deep outputs as candidates, it reads
+ * and checks the funding transaction of every output.
  */
 export async function getQbitAddressUtxos(
   client: QbitEsploraClient,
   address: string,
   options: QbitClassifyOptions = {}
 ): Promise<UTXO[]> {
-  return (await readQbitAddressUtxos(client, address, options)).utxos
+  return (await qbitAddressUtxosRead(client, address, options, false, false)).utxos
 }
 
 /** What `readQbitAddressUtxos` answers. */
@@ -3728,17 +3754,24 @@ export interface QbitAddressUtxosRead {
 }
 
 /**
- * `getQbitAddressUtxos`, with the address statistics the walk verified when
- * the outputs were read from history (`QbitClassifiedUtxos.historyStats`),
- * and the coinbase maturity heights it depends on
- * (`QbitClassifiedUtxos.matureAt` and `matureFrom`).
+ * The outputs a send may select, as `getQbitAddressUtxos` lists them, but as
+ * candidates (`spendCandidates`, see `classifyQbitUtxos`): an output the
+ * listing, or the tip read with it, puts at least a coinbase maturity deep is
+ * listed with the address's own script and the listed value, and its funding
+ * transaction is not read; younger and unconfirmed outputs are read and
+ * classified as by `getQbitAddressUtxos`. Nothing it lists is checked: every
+ * input a transaction spends is checked before it is signed
+ * (`checkQbitSpendInputs`). With the address statistics the walk verified
+ * when the outputs were read from history (`QbitClassifiedUtxos.historyStats`),
+ * a read that takes no shortcut, and the coinbase maturity heights it depends
+ * on (`QbitClassifiedUtxos.matureAt` and `matureFrom`).
  */
 export async function readQbitAddressUtxos(
   client: QbitEsploraClient,
   address: string,
   options: QbitClassifyOptions = {}
 ): Promise<QbitAddressUtxosRead> {
-  return qbitAddressUtxosRead(client, address, options, false)
+  return qbitAddressUtxosRead(client, address, options, false, true)
 }
 
 /**
@@ -3765,17 +3798,18 @@ export async function readQbitAddressUtxosRidingOut(
   address: string,
   options: QbitClassifyOptions = {}
 ): Promise<QbitAddressUtxosRead> {
-  return qbitAddressUtxosRead(client, address, options, true)
+  return qbitAddressUtxosRead(client, address, options, true, true)
 }
 
 async function qbitAddressUtxosRead(
   client: QbitEsploraClient,
   address: string,
   options: QbitClassifyOptions,
-  rideOut: boolean
+  rideOut: boolean,
+  candidates: boolean
 ): Promise<QbitAddressUtxosRead> {
   const { confirmedSpendable, unconfirmedOwnChange, historyStats, matureAt, matureFrom } =
-    await classifyQbitUtxosPastLimit(client, address, options, rideOut)
+    await classifyQbitUtxosPastLimit(client, address, options, rideOut, candidates)
   return {
     utxos: [
       ...confirmedSpendable,
@@ -4613,39 +4647,49 @@ export function isQbitCoinbaseMature(blockHeight: number, tipHeight: number): bo
  * one but this wallet replace `tx` or an ancestor, which would evict a send
  * built on the output. Undefined otherwise, when the explorer does not size
  * one of them, or when a send spending the output would exceed qbit Core's
- * ancestor limit.
+ * ancestor limit. `refusal`, when given, is told why it is undefined:
+ * `unreadable`, an answer the walk cannot read (no input, an input without
+ * the script it spends or with no valid txid, an ancestor not produced or
+ * not sized); `foreign`, an input that is someone else's (another script, or
+ * a coinbase's); `limit`, the ancestor limit reached.
  */
 async function qbitOwnUnconfirmedAncestry(
   tx: EsploraTx,
   scriptPubKey: string,
-  getAncestor: (txid: string) => Promise<EsploraTx | undefined>
+  getAncestor: (txid: string) => Promise<EsploraTx | undefined>,
+  refusal?: { why?: 'unreadable' | 'foreign' | 'limit' }
 ): Promise<Map<string, number> | undefined> {
+  const refuse = (why: 'unreadable' | 'foreign' | 'limit'): undefined => {
+    if (refusal) refusal.why = why
+    return undefined
+  }
   const script = scriptPubKey.toLowerCase()
   const vsize = qbitTxVsize(tx)
-  if (vsize === undefined) return undefined
+  if (vsize === undefined) return refuse('unreadable')
   const unconfirmed = new Map([[tx.txid.toLowerCase(), vsize]])
   const pending = [tx]
   for (let current = pending.pop(); current; current = pending.pop()) {
-    if (current.vin.length === 0) return undefined
+    if (current.vin.length === 0) return refuse('unreadable')
     for (const input of current.vin) {
       if (
-        input.is_coinbase ||
         typeof input.prevout?.scriptpubkey !== 'string' ||
-        input.prevout.scriptpubkey.toLowerCase() !== script ||
         typeof input.txid !== 'string' ||
         !QBIT_TXID_PATTERN.test(input.txid)
       ) {
-        return undefined
+        return refuse(input.is_coinbase ? 'foreign' : 'unreadable')
+      }
+      if (input.is_coinbase || input.prevout.scriptpubkey.toLowerCase() !== script) {
+        return refuse('foreign')
       }
       const parentTxid = input.txid.toLowerCase()
       if (unconfirmed.has(parentTxid)) continue
       const parent = await getAncestor(parentTxid)
-      if (!parent) return undefined
+      if (!parent) return refuse('unreadable')
       if (parent.status.confirmed) continue
       const parentVsize = qbitTxVsize(parent)
-      if (parentVsize === undefined) return undefined
+      if (parentVsize === undefined) return refuse('unreadable')
       unconfirmed.set(parentTxid, parentVsize)
-      if (unconfirmed.size >= QBIT_MEMPOOL_ANCESTOR_LIMIT) return undefined
+      if (unconfirmed.size >= QBIT_MEMPOOL_ANCESTOR_LIMIT) return refuse('limit')
       pending.push(parent)
     }
   }
@@ -4726,6 +4770,464 @@ function assertValidQbitUtxo(utxo: EsploraUtxo, index: number): void {
   ) {
     throw new Error(`invalid qbit UTXO at index ${index}`)
   }
+}
+
+/**
+ * How long one check of the inputs a transaction spends may run, every read
+ * of it included: its lookups, the tip and the ancestry of unconfirmed
+ * change (`checkQbitSpendInputs`). Past it the check fails as `unchecked`,
+ * and nothing is signed. Long enough for a check that rides out the
+ * explorer's server errors (`QBIT_SERVER_ERROR_RIDE_OUT_MS`, and the last
+ * attempt after it), which a send plan's check does.
+ */
+export const QBIT_SPEND_CHECK_DEADLINE_MS = 60_000
+
+/**
+ * How much longer a check may run for each funding transaction it looks up,
+ * past `QBIT_SPEND_CHECK_DEADLINE_MS`: a send plan checks every input of its
+ * steps in one pass before it signs, thousands of lookups for the largest,
+ * most of them past the burst at the sustained rate
+ * (`QBIT_CLASSIFY_SUSTAINED_READS_IN_FLIGHT`).
+ */
+export const QBIT_SPEND_CHECK_MS_PER_LOOKUP = 20
+
+/** The deadline of a check that looks up `lookups` funding transactions. */
+export function qbitSpendCheckDeadlineMs(lookups: number): number {
+  return QBIT_SPEND_CHECK_DEADLINE_MS + Math.max(0, lookups) * QBIT_SPEND_CHECK_MS_PER_LOOKUP
+}
+
+/** An input a transaction spends, as its signature commits to it. */
+export interface QbitSpendInput {
+  txid: string
+  vout: number
+  /** The value of the output it spends, which the signature commits to. */
+  satoshis: number
+  /** The script of the output it spends, in hex, which the signature commits to. */
+  scriptPk: string
+}
+
+/**
+ * Why an input failed its check (`checkQbitSpendInputs`):
+ * - `mismatch`: its funding transaction, as the explorer gives it, is not
+ *   the output it spends: another txid, no output at its index, another
+ *   value, or a script that is not the account's own; or the input itself
+ *   is no output (a malformed txid, index or value, or an output spent
+ *   twice), which is refused before any read;
+ * - `not_spendable`: a coinbase output not mature by a tip read for the
+ *   check, or confirmed nowhere yet; an unconfirmed output that is not the
+ *   account's own change; or own change with as many unconfirmed
+ *   transactions before it as qbit Core allows;
+ * - `not_found`: the explorer does not have its funding transaction;
+ * - `unchecked`: it could not be checked: a read failed or timed out, the
+ *   check ran past its deadline, an answer could not be read (an ancestry
+ *   the walk cannot follow among them), or the tip read is below the block
+ *   of the coinbase it judges. An unknown outcome, never taken for a
+ *   mismatch, and never for a pass.
+ */
+export type QbitSpendInputProblem = 'mismatch' | 'not_spendable' | 'not_found' | 'unchecked'
+
+/** An input that failed its check, and why (`QbitSpendInputProblem`). */
+export class QbitSpendInputCheckError extends Error {
+  constructor(
+    readonly problem: QbitSpendInputProblem,
+    readonly txid: string,
+    readonly vout: number,
+    detail: string
+  ) {
+    super(`qbit input ${txid}:${vout} failed its check (${problem}): ${detail}`)
+    this.name = 'QbitSpendInputCheckError'
+  }
+}
+
+/** The inputs one check read and checked (`checkQbitSpendInputs`), as each was checked. */
+export interface QbitCheckedSpend {
+  readonly inputs: readonly Readonly<QbitSpendInput>[]
+  /**
+   * The unconfirmed transactions behind each unconfirmed input, by its
+   * outpoint (`txid:vout`, txid in lower case): its own transaction and each
+   * unconfirmed ancestor, with its vsize, as `UTXO.unconfirmedAncestors`
+   * lists them.
+   */
+  readonly unconfirmedAncestors: ReadonlyMap<string, readonly { txid: string; vsize: number }[]>
+}
+
+/** Every result `checkQbitSpendInputs` made: nothing else adds to it. */
+const qbitCheckedSpends = new WeakSet<object>()
+
+/** Whether `value` is a result of `checkQbitSpendInputs`, which alone makes one. */
+export function isQbitCheckedSpend(value: unknown): value is QbitCheckedSpend {
+  return typeof value === 'object' && value !== null && qbitCheckedSpends.has(value)
+}
+
+/**
+ * Read and check the funding transaction of every input a transaction
+ * spends, immediately before its first signature, as the account `address`
+ * signs it: one lookup per distinct funding transaction, through the shared
+ * reader's limiter (`options.fundingTxReads`), at the rates of any other
+ * classification. Each input must be an output of `address`'s own script,
+ * and its funding transaction, as the explorer gives it, must have that
+ * txid, an output at its index of exactly the value the signature commits
+ * to and that script. A coinbase output must be mature by a tip read for
+ * this check (`isQbitCoinbaseMature`), never one a listing gave; an
+ * unconfirmed output must be the account's own change all the way down
+ * (`qbitOwnUnconfirmedAncestry`), whose ancestors are read as well. A kept
+ * fact never serves it: its funding transaction is read whatever the shared
+ * reader keeps, as a fact can serve only an output a fresh listing shows
+ * deep, and a check has no listing. What it reads is kept as every
+ * classification keeps it, through a view begun as it starts, so a clear
+ * while it runs keeps nothing.
+ *
+ * An input of `options.ownTransactions` is checked against that transaction
+ * instead, with no lookup: a transaction the caller holds, keyed by its txid
+ * (lower case), whose outputs are given in output order.
+ *
+ * Every read runs under one signal, which aborts once `options.signal`
+ * does, or once `options.deadlineMs` (`QBIT_SPEND_CHECK_DEADLINE_MS`) have
+ * passed; with `rideOutServerErrors` its lookups and the tip ride out the
+ * explorer's server errors (`withQbitReadRetries`). Resolves to a
+ * `QbitCheckedSpend` of every input; rejects with the first
+ * `QbitSpendInputCheckError`, or with the reason of `options.signal` once
+ * it aborts. Nothing it started is left running when it settles.
+ */
+export async function checkQbitSpendInputs(
+  client: QbitEsploraClient,
+  address: string,
+  inputs: readonly QbitSpendInput[],
+  options: QbitClassifyOptions & {
+    rideOutServerErrors?: true
+    ownTransactions?: ReadonlyMap<string, readonly { value: number; script: string }[]>
+    deadlineMs?: number
+  } = {}
+): Promise<QbitCheckedSpend> {
+  const script = qbitAddressScript(address)
+  if (script === undefined) throw new Error(`not a qbit P2MR address: ${address}`)
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    throw new Error('a qbit transaction spends at least one input')
+  }
+  const checked = new Array<Readonly<QbitSpendInput>>(inputs.length)
+  // The inputs whose funding transaction is read, by txid, with their places.
+  const toRead = new Map<string, { index: number; input: QbitSpendInput }[]>()
+  const seen = new Set<string>()
+  inputs.forEach((input, index) => {
+    // An input no output can be: refused as a mismatch before any read,
+    // named by what of it can be named.
+    if (
+      !input ||
+      typeof input.txid !== 'string' ||
+      !QBIT_TXID_PATTERN.test(input.txid) ||
+      !Number.isSafeInteger(input.vout) ||
+      input.vout < 0 ||
+      input.vout > MAX_OUTPUT_INDEX ||
+      !Number.isSafeInteger(input.satoshis) ||
+      input.satoshis < 0 ||
+      typeof input.scriptPk !== 'string'
+    ) {
+      const named = input && typeof input.txid === 'string' ? input.txid.toLowerCase() : ''
+      const vout = input && Number.isSafeInteger(input.vout) ? input.vout : -1
+      throw new QbitSpendInputCheckError('mismatch', named, vout, `input ${index} is malformed`)
+    }
+    const txid = input.txid.toLowerCase()
+    const outpoint = `${txid}:${input.vout}`
+    if (seen.has(outpoint)) {
+      throw new QbitSpendInputCheckError('mismatch', txid, input.vout, 'it is spent twice')
+    }
+    seen.add(outpoint)
+    const fail = (detail: string): QbitSpendInputCheckError =>
+      new QbitSpendInputCheckError('mismatch', txid, input.vout, detail)
+    // Before any read: a transaction the account signs alone spends only
+    // the account's own outputs.
+    if (input.scriptPk.toLowerCase() !== script) throw fail('it spends another script')
+    const own = options.ownTransactions?.get(txid)
+    if (own) {
+      const output = own[input.vout]
+      if (!output) throw fail('no output at its index')
+      if (output.value !== input.satoshis) throw fail('another value')
+      if (output.script.toLowerCase() !== script) throw fail('another script')
+      checked[index] = { txid, vout: input.vout, satoshis: input.satoshis, scriptPk: script }
+      return
+    }
+    const listed = toRead.get(txid)
+    if (listed) listed.push({ index, input })
+    else toRead.set(txid, [{ index, input }])
+  })
+  const unconfirmedAncestors = new Map<string, { txid: string; vsize: number }[]>()
+  if (toRead.size > 0) {
+    await readQbitSpendInputs(client, script, toRead, checked, unconfirmedAncestors, options)
+  }
+  const spend: QbitCheckedSpend = Object.freeze({
+    inputs: Object.freeze(checked.map(input => Object.freeze({ ...input }))),
+    unconfirmedAncestors,
+  })
+  qbitCheckedSpends.add(spend)
+  return spend
+}
+
+/** The reads of `checkQbitSpendInputs`: the inputs of `toRead`, checked into `checked`. */
+async function readQbitSpendInputs(
+  client: QbitEsploraClient,
+  script: string,
+  toRead: ReadonlyMap<string, readonly { index: number; input: QbitSpendInput }[]>,
+  checked: Readonly<QbitSpendInput>[],
+  unconfirmedAncestors: Map<string, { txid: string; vsize: number }[]>,
+  options: QbitClassifyOptions & { rideOutServerErrors?: true; deadlineMs?: number }
+): Promise<void> {
+  const callerSignal = options.signal
+  const deadlineMs = options.deadlineMs ?? QBIT_SPEND_CHECK_DEADLINE_MS
+  // One signal for every read: the caller's, and the check's own deadline.
+  const operation = new AbortController()
+  const onCallerAbort = (): void => operation.abort(callerSignal?.reason)
+  if (callerSignal?.aborted) onCallerAbort()
+  else callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+  const deadline = setTimeout(
+    () =>
+      operation.abort(
+        new QbitApiError('timeout', `qbit input check exceeded its ${deadlineMs}ms deadline`)
+      ),
+    deadlineMs
+  )
+  const rideOut = options.rideOutServerErrors === true
+  let tip: QbitTipRead | undefined
+  let reads: QbitClassificationReads | undefined
+  // The first input not yet checked: the one an unknown outcome is named by.
+  const unchecked = (): { txid: string; vout: number } => {
+    let first: { txid: string; vout: number } | undefined
+    for (const listed of toRead.values()) {
+      for (const { index, input } of listed) {
+        const outpoint = { txid: input.txid.toLowerCase(), vout: input.vout }
+        first ??= outpoint
+        if (!checked[index]) return outpoint
+      }
+    }
+    return first ?? { txid: '', vout: 0 }
+  }
+  // Everything after the deadline and the caller's listener is set up in
+  // here, so that whatever throws, the `finally` below removes both.
+  try {
+    // Its place among the shared reader's clears: a clear while it runs
+    // leaves it keeping nothing. A fact is never served to it.
+    const { facts } = qbitClassifyStarted(client, {
+      ...(options.fundingTxReads ? { fundingTxReads: options.fundingTxReads } : {}),
+      ...(options.facts ? { facts: options.facts } : {}),
+    })
+    // Read for this check alone, with the lookups, under the same signal.
+    tip = new QbitTipRead(client, operation.signal, rideOut)
+    const tipRead = tip
+    tipRead.start()
+    // With `rideOut`, an ancestor's read rides out server errors as a
+    // lookup does: a plan's check must not stop on one 502 for an ancestor
+    // of its own unconfirmed change (a classification's walk does not).
+    const shared = new QbitClassificationReads(
+      client,
+      options.fundingTxReads,
+      operation.signal,
+      facts,
+      rideOut,
+      rideOut
+    )
+    reads = shared
+    // The funding transactions found confirmed, each let go of once its
+    // inputs are checked, as a classification lets go of them: an answer
+    // holds every witness of its transaction, and a plan's one pass checks
+    // thousands of inputs, so the check holds no more answers than it has
+    // reads in flight and unconfirmed transactions. A walk that reaches one
+    // needs no more of it than that it is confirmed.
+    const confirmed = new Set<string>()
+    const groups = [...toRead]
+    let next = 0
+    await shared.run(Math.min(shared.limiter.maxInFlight, groups.length), async () => {
+      for (let group = groups[next++]; group && !shared.stopped; group = groups[next++]) {
+        await checkQbitSpendGroup(
+          shared,
+          tipRead,
+          script,
+          group[0],
+          group[1],
+          checked,
+          unconfirmedAncestors,
+          confirmed
+        )
+      }
+    })
+  } catch (error) {
+    if (callerSignal?.aborted) throw callerSignal.reason
+    if (error instanceof QbitSpendInputCheckError) throw error
+    const { txid, vout } = unchecked()
+    throw new QbitSpendInputCheckError('unchecked', txid, vout, qbitCheckFailureDetail(error))
+  } finally {
+    clearTimeout(deadline)
+    callerSignal?.removeEventListener('abort', onCallerAbort)
+    reads?.close()
+    tip?.close()
+  }
+}
+
+/** Check the inputs `listed` of funding transaction `txid` (`checkQbitSpendInputs`). */
+async function checkQbitSpendGroup(
+  reads: QbitClassificationReads,
+  tip: QbitTipRead,
+  script: string,
+  txid: string,
+  listed: readonly { index: number; input: QbitSpendInput }[],
+  checked: Readonly<QbitSpendInput>[],
+  unconfirmedAncestors: Map<string, { txid: string; vsize: number }[]>,
+  confirmed: Set<string>
+): Promise<void> {
+  const first = listed[0]?.input
+  if (!first) return
+  const failure = (
+    problem: QbitSpendInputProblem,
+    vout: number,
+    detail: string
+  ): QbitSpendInputCheckError => new QbitSpendInputCheckError(problem, txid, vout, detail)
+  let tx: EsploraTx
+  try {
+    tx = await reads.tx(txid, true)
+  } catch (error) {
+    if (reads.stopped) throw error
+    if (error instanceof QbitApiError && error.kind === 'not_found' && error.status === 404) {
+      throw failure('not_found', first.vout, 'the explorer does not have its transaction')
+    }
+    throw failure('unchecked', first.vout, qbitCheckFailureDetail(error))
+  }
+  if (!tx || typeof tx.txid !== 'string' || !QBIT_TXID_PATTERN.test(tx.txid)) {
+    throw failure('unchecked', first.vout, 'its transaction could not be read')
+  }
+  if (tx.txid.toLowerCase() !== txid) {
+    throw failure('mismatch', first.vout, 'another transaction id')
+  }
+  const status = tx.status
+  if (
+    !Array.isArray(tx.vin) ||
+    !tx.vin.every(input => input && typeof input.is_coinbase === 'boolean') ||
+    !Array.isArray(tx.vout) ||
+    !status ||
+    typeof status.confirmed !== 'boolean' ||
+    (status.confirmed &&
+      (!Number.isSafeInteger(status.block_height) || (status.block_height ?? -1) < 0))
+  ) {
+    throw failure('unchecked', first.vout, 'its transaction could not be read')
+  }
+  const coinbase = tx.vin.some(input => input.is_coinbase)
+  for (const { index, input } of listed) {
+    const output = tx.vout[input.vout]
+    if (!output) throw failure('mismatch', input.vout, 'no output at its index')
+    if (
+      !Number.isSafeInteger(output.value) ||
+      output.value < 0 ||
+      typeof output.scriptpubkey !== 'string'
+    ) {
+      throw failure('unchecked', input.vout, 'its output could not be read')
+    }
+    if (output.value !== input.satoshis) throw failure('mismatch', input.vout, 'another value')
+    if (output.scriptpubkey.toLowerCase() !== script) {
+      throw failure('mismatch', input.vout, 'another script')
+    }
+    if (coinbase) {
+      if (!status.confirmed) throw failure('not_spendable', input.vout, 'an unconfirmed coinbase')
+      let tipHeight: number
+      try {
+        tipHeight = await tip.start()
+      } catch (error) {
+        if (reads.stopped) throw error
+        throw failure('unchecked', input.vout, `the tip: ${qbitCheckFailureDetail(error)}`)
+      }
+      if (!Number.isSafeInteger(tipHeight) || tipHeight < 0) {
+        throw failure('unchecked', input.vout, 'the tip could not be read')
+      }
+      // Its height was read as a safe integer above.
+      const height = status.block_height ?? -1
+      // A tip below the block that holds it: one of the two answers is
+      // wrong, so maturity is unknown, not refused.
+      if (tipHeight < height) {
+        throw failure('unchecked', input.vout, 'the tip is below its block')
+      }
+      if (!isQbitCoinbaseMature(height, tipHeight)) {
+        throw failure('not_spendable', input.vout, 'an immature coinbase')
+      }
+    } else if (!status.confirmed) {
+      if (qbitTxVsize(tx) === undefined) {
+        throw failure('unchecked', input.vout, 'its transaction has no size')
+      }
+      const refusal: { why?: 'unreadable' | 'foreign' | 'limit' } = {}
+      const ancestry = await qbitOwnUnconfirmedAncestry(
+        tx,
+        script,
+        parentTxid =>
+          confirmed.has(parentTxid)
+            ? Promise.resolve(qbitConfirmedAncestor(parentTxid))
+            : qbitCheckedAncestor(reads, parentTxid, input.vout, failure),
+        refusal
+      )
+      if (!ancestry) {
+        // What the walk could not read is an unknown outcome; someone
+        // else's input, or the ancestor limit, is an output that cannot be
+        // spent yet.
+        if (refusal.why === 'foreign') {
+          throw failure('not_spendable', input.vout, 'not the account’s own change')
+        }
+        if (refusal.why === 'limit') {
+          throw failure('not_spendable', input.vout, 'too many unconfirmed ancestors')
+        }
+        throw failure('unchecked', input.vout, 'its ancestry could not be read')
+      }
+      unconfirmedAncestors.set(
+        `${txid}:${input.vout}`,
+        [...ancestry].map(([ancestor, vsize]) => ({ txid: ancestor, vsize }))
+      )
+    }
+    reads.facts?.keep(txid, input.vout, {
+      coinbase,
+      value: output.value,
+      script: output.scriptpubkey,
+    })
+    checked[index] = { txid, vout: input.vout, satoshis: input.satoshis, scriptPk: script }
+  }
+  if (status.confirmed) {
+    // Nothing more reads it but a walk reaching it, which needs no more
+    // than that it is confirmed.
+    confirmed.add(txid)
+    reads.forget(txid)
+  }
+}
+
+/**
+ * An ancestor of an unconfirmed input the check walks (`checkQbitSpendGroup`):
+ * a read that fails, or an answer the walk cannot read, is an unknown
+ * outcome (`unchecked`), never an input that is not own change.
+ */
+async function qbitCheckedAncestor(
+  reads: QbitClassificationReads,
+  txid: string,
+  vout: number,
+  failure: (problem: QbitSpendInputProblem, vout: number, detail: string) => Error
+): Promise<EsploraTx> {
+  let tx: EsploraTx
+  try {
+    tx = await reads.tx(txid)
+  } catch (error) {
+    if (reads.stopped) throw error
+    throw failure('unchecked', vout, `an ancestor: ${qbitCheckFailureDetail(error)}`)
+  }
+  if (
+    !tx ||
+    typeof tx.txid !== 'string' ||
+    tx.txid.toLowerCase() !== txid ||
+    !Array.isArray(tx.vin) ||
+    !tx.vin.every(input => input && typeof input.is_coinbase === 'boolean') ||
+    typeof tx.status?.confirmed !== 'boolean' ||
+    (!tx.status.confirmed && qbitTxVsize(tx) === undefined)
+  ) {
+    throw failure('unchecked', vout, 'an ancestor could not be read')
+  }
+  return tx
+}
+
+/** What a failed read of the check says, for its error: never the request's address. */
+function qbitCheckFailureDetail(error: unknown): string {
+  if (QbitApiError.is(error)) {
+    return `${error.kind}${error.status !== undefined ? ` ${error.status}` : ''}`
+  }
+  return error instanceof Error ? error.name : 'unknown failure'
 }
 
 export async function getQbitAddressHistory(

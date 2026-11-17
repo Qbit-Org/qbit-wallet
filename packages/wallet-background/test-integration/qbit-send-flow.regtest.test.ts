@@ -13,9 +13,15 @@
  *     built from the live original by the production fee-bump path evicts it,
  *     preserves intent, and reports the exact fee delta and lifecycle.
  *  3. Immature coinbase outputs (confirmations < QBIT_COINBASE_MATURITY) are
- *     excluded from wallet UTXO selection and spendable balance while qbitd
- *     still rejects spending them, and become spendable at exactly the
- *     consensus maturity boundary.
+ *     excluded from wallet UTXO selection and spendable balance, refused by
+ *     the check of a transaction's inputs (#210) when a page hands one back,
+ *     to build a send from or in a spend to sign, before any signature,
+ *     while qbitd still rejects spending them, and become spendable at
+ *     exactly the consensus maturity boundary.
+ *  3b. A signed transaction the node accepts, then rejects for its input once
+ *     a conflicting payment signed before it spent that input and confirmed,
+ *     keeps its counter unit, is refused as a stale approval, and is
+ *     reproduced from the cached signature without another unit.
  *  4. Broadcast recovery (#232): a signed transaction whose broadcast fails
  *     is rebroadcast byte-for-byte from the retained payload without
  *     re-signing, lands on the same txid, and never advances the P2MR
@@ -38,13 +44,21 @@ import { webcrypto } from 'node:crypto'
 
 import { init as initPqc, keygen, constants as pqcConstants } from '@qbit-oss/pqc'
 import {
+  P2MR_LEAF_VERSION_V1,
+  PQC_SIGNATURE_BYTES,
   QBIT_COINBASE_MATURITY,
+  buildControlBlock,
   bytesToHex,
+  createP2mrPsbt,
   decodePsbt,
   extractP2mrTransaction,
+  finalizeP2mrPsbt,
   hexToBytes,
   p2mrAddressFromPubkey,
+  p2mrLeafHash,
   parsePsbt,
+  serializePsbt,
+  signP2mrPsbt,
 } from '@qbit-oss/protocol'
 import { EsploraClient, QbitApiError } from '@qbit-oss/api'
 import { KeyringService } from '@qbit/keyring-service'
@@ -314,6 +328,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
   let walletAddress: string
   let walletScriptPk: string
   let walletPubkey: string
+  let walletLeafScript: string
   let fundingAddress: string
   let recipient: string
 
@@ -335,6 +350,63 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
 
   const counterCount = async (): Promise<number> => {
     return keyring.getPqcSignatureCounter(walletPubkey)
+  }
+
+  /** An unsigned spend of `utxo` back to the wallet, built outside the wallet. */
+  const spendBack = (utxo: { txid: string; vout: number; satoshis: number }) => {
+    const leafScript = hexToBytes(walletLeafScript)
+    const leafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, leafScript)
+    const psbt = createP2mrPsbt({
+      inputs: [
+        {
+          prevout: { txid: hexToBytes(utxo.txid).reverse(), vout: utxo.vout },
+          witnessUtxo: { value: BigInt(utxo.satoshis), scriptPubKey: hexToBytes(walletScriptPk) },
+          leafScript,
+          controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+          merkleRoot: leafHash,
+        },
+      ],
+      outputs: [
+        { value: BigInt(utxo.satoshis - 100_000), scriptPubKey: hexToBytes(walletScriptPk) },
+      ],
+    })
+    const keys = [{ inputIndex: 0, pubkey: hexToBytes(walletPubkey), leafHash }]
+    return { psbt, keys, leafHash }
+  }
+
+  /**
+   * The spend back, signed with a placeholder outside the wallet's checked
+   * path and its keyring: no counter unit, and a signature no node accepts.
+   * qbitd judges an input's coinbase maturity before it verifies any script,
+   * so the spend shows qbitd's own maturity rule for that output.
+   */
+  const placeholderSpend = (utxo: { txid: string; vout: number; satoshis: number }): string => {
+    const { psbt, keys } = spendBack(utxo)
+    const { psbt: signed } = signP2mrPsbt({
+      psbt,
+      keys,
+      sign: () => new Uint8Array(PQC_SIGNATURE_BYTES),
+    })
+    return bytesToHex(extractP2mrTransaction(finalizeP2mrPsbt(signed)))
+  }
+
+  /**
+   * The spend back, unsigned, as a page hands a request back to be signed:
+   * the fields a build returns, its keyring approval included, and no
+   * website's admission, so its signing checks its input as any other.
+   */
+  const unsignedSpendBack = async (utxo: { txid: string; vout: number; satoshis: number }) => {
+    const { psbt, keys, leafHash } = spendBack(utxo)
+    const service = serviceHolder.keyringService
+    return {
+      psbtHex: bytesToHex(serializePsbt(psbt)),
+      toSignInputs: [{ index: 0, publicKey: walletPubkey }],
+      qbitP2mrSigningKeys: [
+        { inputIndex: 0, publicKey: walletPubkey, leafHash: bytesToHex(leafHash) },
+      ],
+      signatureBudget: await service.preflightP2mrPsbtSigning(walletAddress, { psbt, keys }),
+      autoFinalized: true,
+    } as any
   }
 
   beforeAll(async () => {
@@ -374,6 +446,7 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
     walletAddress = account.addresses.regtest
     walletScriptPk = account.scriptPubKey
     walletPubkey = account.pubkey
+    walletLeafScript = account.leafScript
     serviceHolder.currentAccount = {
       type: KeyringType.QbitHdKeyring,
       pubkey: account.pubkey,
@@ -716,9 +789,10 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
     const balance = await getQbitSpendableBalanceV2(electrs, walletAddress, walletScriptPk)
     expect(balance.unavailableBalance).toBeGreaterThanOrEqual(coinbaseValue)
 
-    // Differential proof that the wallet filter matches consensus: force the
-    // immature coinbase through the wallet build/sign path and let qbitd
-    // reject the premature spend.
+    // Handed back by a page, the immature coinbase is refused by the check of
+    // a transaction's inputs against a tip read for it (#210), twice: as an
+    // output to build a send from, before any preflight, and in an unsigned
+    // spend to sign, before the keyring is called. No counter unit moves.
     const immatureUtxo = {
       txid: coinbaseTx.txid,
       vout: coinbaseVout,
@@ -727,49 +801,46 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
       pubkey: walletPubkey,
       addressType: AddressType.P2MR,
     } as any
-    const countBeforeRejectedSign = await counterCount()
-    const immatureSpend = await wallet.createSendQbitPsbt({
-      to: recipient,
-      amount: 1_000_000,
-      feeRate: 2,
-      qbitUtxoChain: ChainType.QBIT_REGTEST,
-      qbitUtxoAddress: walletAddress,
-      qbitUtxos: [immatureUtxo],
-    })
-    const immatureSigned = await wallet.signPsbtV2(immatureSpend)
-    const countAfterRejectedSign = await counterCount()
-    expect(countAfterRejectedSign).toBe(countBeforeRejectedSign + immatureSpend.toSignInputs.length)
-    const rawHex = rawTxFromSignedPsbtHex(immatureSigned.psbtHex!)
-    const [rejected] = await rpc<any[]>('testmempoolaccept', [[rawHex]])
+    const buildFromCoinbase = () =>
+      wallet.createSendQbitPsbt({
+        to: recipient,
+        amount: 1_000_000,
+        feeRate: 2,
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: walletAddress,
+        qbitUtxos: [immatureUtxo],
+      })
+    const unsignedFromCoinbase = await unsignedSpendBack(immatureUtxo)
+    const countBeforeRefusal = await counterCount()
+    const refusedFromCoinbase = async () => {
+      const preflight = vi.spyOn(serviceHolder.keyringService, 'preflightP2mrPsbtSigning')
+      const signer = vi.spyOn(serviceHolder.keyringService, 'signP2mrPsbtWithCounter')
+      try {
+        await expect(buildFromCoinbase()).rejects.toMatchObject({ problem: 'not_spendable' })
+        await expect(wallet.signPsbtV2(unsignedFromCoinbase)).rejects.toMatchObject({
+          problem: 'not_spendable',
+        })
+        expect(preflight).not.toHaveBeenCalled()
+        expect(signer).not.toHaveBeenCalled()
+      } finally {
+        preflight.mockRestore()
+        signer.mockRestore()
+      }
+      expect(await counterCount()).toBe(countBeforeRefusal)
+    }
+    await refusedFromCoinbase()
+
+    // Differential proof that the wallet's rule matches consensus: qbitd
+    // itself rejects a premature spend of the output, built and signed with
+    // a placeholder outside the wallet's checked path and keyring.
+    const prematureHex = placeholderSpend(immatureUtxo)
+    const [rejected] = await rpc<any[]>('testmempoolaccept', [[prematureHex]])
     expect(rejected.allowed).toBe(false)
     expect(String(rejected['reject-reason'])).toMatch(/premature|coinbase/i)
 
-    // An actual broadcast failure occurs after the counter reservation and
-    // signature are persisted. It must not roll the counter back or make the
-    // stale approval reusable. A fresh preflight sees the cached signature and
-    // can safely reproduce the exact bytes without consuming another counter.
-    await expect(wallet.pushTx(immatureSigned.psbtHex!)).rejects.toThrow()
-    expect(await counterCount()).toBe(countAfterRejectedSign)
-    await expect(wallet.signPsbtV2(immatureSpend)).rejects.toThrow(
-      'P2MR signature budget changed after approval'
-    )
-    expect(await counterCount()).toBe(countAfterRejectedSign)
-
-    const retriedSpend = await wallet.createSendQbitPsbt({
-      to: recipient,
-      amount: 1_000_000,
-      feeRate: 2,
-      qbitUtxoChain: ChainType.QBIT_REGTEST,
-      qbitUtxoAddress: walletAddress,
-      qbitUtxos: [immatureUtxo],
-    })
-    expect(retriedSpend.signatureBudget).toMatchObject({ required: 0, cached: 1 })
-    const retriedSigned = await wallet.signPsbtV2(retriedSpend)
-    expect(rawTxFromSignedPsbtHex(retriedSigned.psbtHex!)).toBe(rawHex)
-    expect(await counterCount()).toBe(countAfterRejectedSign)
-
-    // Mine to one block short of maturity: confirmations = 999. Both the
-    // wallet filter and qbitd must still treat the coinbase as immature.
+    // Mine to one block short of maturity: confirmations = 999. The wallet's
+    // filter, its check and qbitd must all still treat the coinbase as
+    // immature.
     const coinbaseHeight = coinbaseBlock.height
     height = await rpc<number>('getblockcount')
     const blocksToAlmostMature = coinbaseHeight + QBIT_COINBASE_MATURITY - 2 - height
@@ -781,30 +852,146 @@ describe.runIf(harnessUp)('qbit P2MR send flow against regtest (#30 F4)', () => 
 
     const almostMatureUtxos = await wallet.getQbitUtxos()
     expect(almostMatureUtxos.some(utxo => utxo.txid === coinbaseTx.txid)).toBe(false)
-    const [stillRejected] = await rpc<any[]>('testmempoolaccept', [[rawHex]])
+    await refusedFromCoinbase()
+    const [stillRejected] = await rpc<any[]>('testmempoolaccept', [[prematureHex]])
     expect(stillRejected.allowed).toBe(false)
+    expect(String(stillRejected['reject-reason'])).toMatch(/premature|coinbase/i)
 
-    // One more block reaches exactly maturity; both sides must flip together.
+    // One more block reaches exactly maturity; all three must flip together.
     await mineBlocks(1, fundingAddress)
     height = await rpc<number>('getblockcount')
     expect(height - coinbaseHeight + 1).toBe(QBIT_COINBASE_MATURITY)
     await waitForElectrsHeight(electrs, height)
 
-    await waitFor('wallet includes mature coinbase utxo', async () => {
-      const utxos = await wallet.getQbitUtxos()
-      return utxos.some(utxo => utxo.txid === coinbaseTx.txid) ? true : undefined
-    })
+    const matureUtxo = await waitFor('wallet includes mature coinbase utxo', async () =>
+      (await wallet.getQbitUtxos()).find(utxo => utxo.txid === coinbaseTx.txid)
+    )
+    // qbitd no longer holds the spend premature: the placeholder now fails
+    // only for its signature.
+    const [notPremature] = await rpc<any[]>('testmempoolaccept', [[prematureHex]])
+    expect(notPremature.allowed).toBe(false)
+    expect(String(notPremature['reject-reason'])).not.toMatch(/premature/i)
+    expect(String(notPremature['reject-reason'])).toMatch(/script|signature/i)
 
-    // The very same signed bytes are valid at the boundary.
+    // And at the boundary the wallet builds, checks, signs, and qbitd accepts.
+    const matureSpend = await wallet.createSendQbitPsbt({
+      to: recipient,
+      amount: 1_000_000,
+      feeRate: 2,
+      qbitUtxoChain: ChainType.QBIT_REGTEST,
+      qbitUtxoAddress: walletAddress,
+      qbitUtxos: [matureUtxo],
+    })
+    const matureSigned = await wallet.signPsbtV2(matureSpend)
+    expect(await counterCount()).toBe(countBeforeRefusal + matureSpend.toSignInputs.length)
+    const rawHex = rawTxFromSignedPsbtHex(matureSigned.psbtHex!)
     const [accepted] = await rpc<any[]>('testmempoolaccept', [[rawHex]])
     expect(accepted.allowed, `reject-reason: ${accepted['reject-reason']}`).toBe(true)
 
+    // Pushed as the raw transaction, which `pushTx` takes as well as a PSBT.
     const txid = await wallet.pushTx(rawHex)
     expect(txid).toBe(accepted.txid)
     await mineBlocks(1, fundingAddress)
     const { fee, tx } = await minedFee(txid)
     expect(tx.confirmations).toBeGreaterThanOrEqual(1)
-    expect(fee).toBe(immatureSpend.estimatedFee)
+    expect(fee).toBe(matureSpend.estimatedFee)
+
+    console.info(
+      '[qbit-send-flow][maturity-evidence]',
+      JSON.stringify({
+        coinbaseTxid: coinbaseTx.txid,
+        prematureRejectReason: rejected['reject-reason'],
+        almostMatureRejectReason: stillRejected['reject-reason'],
+        matureRejectReason: notPremature['reject-reason'],
+        matureTxid: txid,
+      })
+    )
+  }, 600_000)
+
+  it('keeps the counter, refuses the stale approval and reuses the cached signature after the node rejects a signed send whose input a confirmed conflict spent', async () => {
+    const fundTxid = await fundWalletAddress('0.003')
+    const fundUtxo = (await wallet.getQbitUtxos()).find(utxo => utxo.txid === fundTxid)
+    expect(fundUtxo).toBeDefined()
+    const build = (amount: number) =>
+      wallet.createSendQbitPsbt({
+        to: recipient,
+        amount,
+        feeRate: 2,
+        qbitUtxoChain: ChainType.QBIT_REGTEST,
+        qbitUtxoAddress: walletAddress,
+        qbitUtxos: [fundUtxo!],
+      })
+
+    // Another payment spending the same input is signed first, so that only
+    // the send's own signature moves the counter between its approval and
+    // its replay below.
+    const countBefore = await counterCount()
+    const conflict = await build(80_000)
+    const conflictSigned = await wallet.signPsbtV2(conflict)
+    const countAfterConflict = await counterCount()
+    expect(countAfterConflict).toBe(countBefore + conflict.toSignInputs.length)
+
+    // Signed, and checked when built and when signed: its input's funding
+    // transaction is there, as listed. qbitd accepts the signed bytes while
+    // that input is unspent, so their signature and witness are valid.
+    const spend = await build(100_000)
+    const signed = await wallet.signPsbtV2(spend)
+    const countAfterSigning = await counterCount()
+    expect(countAfterSigning).toBe(countAfterConflict + spend.toSignInputs.length)
+    const rawHex = rawTxFromSignedPsbtHex(signed.psbtHex!)
+    const [acceptedBefore] = await rpc<any[]>('testmempoolaccept', [[rawHex]])
+    expect(acceptedBefore.allowed, `reject-reason: ${acceptedBefore['reject-reason']}`).toBe(true)
+
+    // Between the signature and the push, the other payment is sent and
+    // confirmed. Nothing the check reads at a signing changes with that: it
+    // reads funding transactions, not spends.
+    const conflictTxid = await wallet.pushTx(conflictSigned.psbtHex!)
+    await mineBlocks(1, fundingAddress)
+    const height = await rpc<number>('getblockcount')
+    await waitForElectrsHeight(electrs, height)
+    const confirmedConflict = await rpc<any>('getrawtransaction', [conflictTxid, true])
+    expect(confirmedConflict.confirmations).toBeGreaterThanOrEqual(1)
+
+    // qbitd rejects the first send, whose input the chain has spent.
+    const [rejected] = await rpc<any[]>('testmempoolaccept', [[rawHex]])
+    expect(rejected.allowed).toBe(false)
+    expect(String(rejected['reject-reason'])).toMatch(/missing|spent/i)
+
+    // A broadcast that fails after the counter reservation and signature are
+    // persisted must not roll the counter back or make the stale approval
+    // reusable. A fresh preflight sees the cached signature and can safely
+    // reproduce the exact bytes without consuming another counter unit.
+    const pushError = await wallet.pushTx(signed.psbtHex!).then(
+      () => undefined,
+      (error: unknown) => error
+    )
+    expect(QbitApiError.is(pushError)).toBe(true)
+    const pushRejectReason = String((pushError as QbitApiError).responseBody)
+    expect(pushRejectReason).toMatch(/missing|spent/i)
+    expect(await counterCount()).toBe(countAfterSigning)
+    await expect(wallet.signPsbtV2(spend)).rejects.toThrow(
+      'P2MR signature budget changed after approval'
+    )
+    expect(await counterCount()).toBe(countAfterSigning)
+
+    const retried = await build(100_000)
+    expect(retried.signatureBudget).toMatchObject({ required: 0, cached: 1 })
+    const retriedSigned = await wallet.signPsbtV2(retried)
+    expect(rawTxFromSignedPsbtHex(retriedSigned.psbtHex!)).toBe(rawHex)
+    expect(await counterCount()).toBe(countAfterSigning)
+
+    console.info(
+      '[qbit-send-flow][rejected-broadcast-evidence]',
+      JSON.stringify({
+        conflictTxid,
+        spendTxid: acceptedBefore.txid,
+        rejectReason: rejected['reject-reason'],
+        pushRejectReason,
+        counterBefore: countBefore,
+        counterAfterConflict: countAfterConflict,
+        counterAfterSigning: countAfterSigning,
+      })
+    )
   }, 600_000)
 
   it('rebroadcasts the retained signed transaction after a broadcast outage without re-signing', async () => {
