@@ -104,13 +104,109 @@ runner with its own extension build and regtest harness: the jobs
 `playwright test --shard=<n>/5`. Playwright gives each shard whole files, in
 file order, by test count, so every test runs in exactly one shard. The
 required check, `Playwright G3 scenarios`, passes only when all five passed.
-See [Sharded G3 scenarios](ci-tree-pass-marker.md#sharded-g3-scenarios). To
-run what one shard runs:
+See [Sharded G3 scenarios](ci-tree-pass-marker.md#sharded-g3-scenarios). On
+a pull request whose head commit is not signed, the shards wait for a signed
+head (see [Signed heads](#signed-heads)). To run what one shard runs:
 
 ```sh
 corepack pnpm exec playwright test --list --shard=3/5
 corepack pnpm exec playwright test --shard=3/5
 ```
+
+## Signed heads
+
+A pull request lands as one signed commit (see
+[CONTRIBUTING.md](../CONTRIBUTING.md)), and review rounds push unsigned
+commits that never land. From 2026-11-11, 93 of the 155 G3 runs on
+feature-branch pull requests, about 64% of G3's runner-minutes, ran on such
+heads. A full G3 run costs about 39 runner-minutes across the five shards.
+So on a pull request, CI runs G3 once the head commit is signed.
+
+On each `pull_request` run, `Tree pass marker` decides, in this order, and
+the first rule that applies settles it:
+
+1. The pull request has the `ci:full-run` label: G3 runs in full.
+2. A [tree pass marker](ci-tree-pass-marker.md) vouches for the tree: the
+   shards skip their steps, as before.
+3. The pull request changes only documentation that no skipped step reads
+   ([Docs-only changes](ci-docs-only.md)): the same.
+4. GitHub has not verified the signature of the head commit: G3 **waits for
+   a signed head**.
+5. Otherwise G3 runs in full.
+
+Pushes to `main` and manual dispatches always run in full.
+
+The last step of `Tree pass marker`,
+`Check whether the head commit is signed`, runs
+[`scripts/security/signed-head-gate.mjs`](../scripts/security/signed-head-gate.mjs).
+It looks at the marker's and the docs-only step's verdicts first: on a marker
+hit or a docs-only change it sends no request at all. Otherwise it reads the
+labels, and then, without the label, the head commit from this repository
+(`GET /repos/{repo}/commits/{head SHA}`), a fork's head included. It waits
+only when GitHub answered HTTP 200 for exactly that commit, with
+`commit.verification.verified` exactly `false` and a reason that says for
+certain that the commit is not validly signed: `unsigned`, `unknown_key`,
+`no_user`, `unverified_email`, `bad_email`, `expired_key`, `not_signing_key`,
+`malformed_signature`, `invalid` or `unknown_signature_type`, as GitHub's
+REST documentation of `verification.reason` lists them. Every doubt runs G3
+in full under its real name, never a pass and never a wait: a verified head;
+any other reason, such as `gpgverify_error`, `gpgverify_unavailable`,
+`ocsp_pending`, `ocsp_error` or one GitHub adds later; a failed request; one
+that does not answer within its 15 seconds, or within the 30 seconds both
+requests share; an answer for another commit or one it cannot read; labels it
+cannot read; and a `Tree pass marker` that did not succeed. A wiring error,
+such as a missing token or a head SHA that is not a full object ID, fails the
+step and so `Tree pass marker`, which also runs G3 in full. The settings that
+only a request needs, the token among them, are checked when the step sends
+one, so not on a marker hit or a docs-only change. The step's notice and
+summary give the decision and its reason on one line.
+
+While a run waits for a signed head:
+
+- No shard starts: the job `Playwright G3 shard <n> of 5` is skipped whole,
+  so it takes no runner.
+- The job `playwright-release-gate` runs, as it always does, under the name
+  `Playwright G3 scenarios (waits for a signed head)`. Its check step passes
+  only when the shards' result is `skipped` and no shard recorded that it
+  ran; anything else fails it. It records nothing, so `tested` stays unset.
+- The run reports no check named `Playwright G3 scenarios`.
+- `Record tree pass` does not run, so nothing is saved.
+
+The checks list then shows
+`Playwright G3 scenarios (waits for a signed head)` as passed and the shard
+job as skipped. Where `Playwright G3 scenarios` is required (see
+[`.github/rulesets/README.md`](../.github/rulesets/README.md)), it stays
+pending, neither passing nor failing, unless an earlier run on the same
+commit already reported it: a run with `ci:full-run` that passed keeps its
+pass after the label is removed and the run re-run, and a run cancelled
+before `Tree pass marker` finished keeps its failure. To run G3, sign the
+head commit and push it, or add the `ci:full-run` label and choose
+"Re-run all jobs".
+The summaries of `Tree pass marker` and of the waiting job say the same.
+
+**Naming.** The job's name is computed from the `needs` context, which
+`jobs.<job_id>.name` may read. It is
+`Playwright G3 scenarios (waits for a signed head)` when `Tree pass marker`
+succeeded and said wait, and exactly `Playwright G3 scenarios` in every
+other state: a `Tree pass marker` that failed, was cancelled or was skipped,
+empty outputs, a push to `main` and a manual dispatch. On a commit that no
+earlier run reported the required check for, this leaves it pending, not
+red. A red required check on every review push
+would read as a G3 failure, and a passing one would let an untested head
+through. The job cannot simply be skipped instead: a job skipped by its own
+`if` reports success, which satisfies a required check. The wiring tests
+evaluate the name in each state, check that it can render only these two
+names, and check that the waiting one is no required check. GitHub computes
+the check's name when the job runs, so only a live run can confirm it. The
+first run on an unsigned head did, on pull request #236: the job reported as
+`Playwright G3 scenarios (waits for a signed head)`, the shard matrix showed
+as one skipped check, and the head commit had no check named
+`Playwright G3 scenarios`.
+
+If GitHub ever stops giving the computed name, the fallback is small: keep
+the literal name `Playwright G3 scenarios`, and make the check step's waiting
+branch fail with its "To run G3" message instead of passing with it. The
+wait then shows as a red required check that names the way out.
 
 ## Scenario Matrix
 

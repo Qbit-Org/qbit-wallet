@@ -96,7 +96,30 @@ documentation and how to run everything; the summary of
 `Typecheck, test, and build` also says that `verify-workspace` ran in full. A failed, cancelled or skipped
 `Tree pass marker` runs everything, whatever its outputs say.
 `Record tree pass` has
-`if: needs.tree-pass.outputs.save == 'true' && needs.tree-pass.outputs.docs-only != 'true'`.
+`if: needs.tree-pass.outputs.save == 'true' && needs.tree-pass.outputs.docs-only != 'true'`,
+and in `playwright-release-gate.yml` also
+`&& needs.tree-pass.outputs.signed-head-wait != 'true'`.
+
+In `playwright-release-gate.yml`, `Tree pass marker` has one more step after
+this one, `Check whether the head commit is signed`, which decides whether G3
+[waits for a signed head](playwright-release-gate.md#signed-heads). For G3 a
+pull request run decides in this order, and the first rule that applies
+settles it:
+
+1. The `ci:full-run` label: G3 runs in full.
+2. A marker hit: the shards skip their steps.
+3. A docs-only change: the shards skip their steps.
+4. A head commit whose signature GitHub has not verified: G3 waits for a
+   signed head, and no shard starts.
+5. Otherwise G3 runs in full.
+
+So a docs-only change never waits for a signed head, signed or not. The
+signed-head step looks at the marker's and this step's verdicts before
+anything else, so on a marker hit or a docs-only change it sends no request
+at all. Any doubt in the
+signed-head decision runs G3 in full. The gate of `Playwright G3 scenarios`
+reads the wait after its marker-hit and docs-only branches, and a wait never
+sets `skip`.
 
 The run's summary tells the three cases apart: `Tree pass marker` shows the
 marker decision and, under "Docs-only change", the verdict with its reason and

@@ -146,6 +146,18 @@ skip it. See [`docs/package-release.md`](docs/package-release.md).
   and `Lint` and `Dependency policy` run as usual. To run everything, add the `ci:full-run`
   label and choose "Re-run all jobs". See
   [`docs/ci-docs-only.md`](docs/ci-docs-only.md).
+- G3 runs once the pull request's head commit is signed. While GitHub has
+  not verified the head's signature, as after a review round's unsigned
+  push, the G3 shards wait for a signed head: none of them starts, the
+  checks list shows `Playwright G3 scenarios (waits for a signed head)`,
+  and the run reports no `Playwright G3 scenarios` check. Where that check
+  is required (see [`.github/rulesets/README.md`](.github/rulesets/README.md)),
+  it stays pending unless an earlier run on the same commit already reported
+  it. The maintainer's signed
+  squash runs G3. To get G3 sooner, sign the head commit and push
+  it, or add the `ci:full-run` label and choose "Re-run all jobs". Anything
+  that keeps CI from telling whether the head is signed runs G3 in full. See
+  [`docs/playwright-release-gate.md`](docs/playwright-release-gate.md#signed-heads).
 - Every change needs a review from one of the code owners listed in
   [`.github/CODEOWNERS`](.github/CODEOWNERS). Security-sensitive paths also
   have their own rules there: key management, signing, approvals,
