@@ -79,6 +79,18 @@ const harness = vi.hoisted(() => {
       return action;
     },
     t: (key: string, substitutions?: string[]) => (substitutions ? `${key}(${substitutions.join('|')})` : key),
+    // useAccountSwitcherTotals: what it returns, and the wallets it was given
+    // last. useCurrentAccountBalanceTotal: the home card's total.
+    totals: { hidden: false, totals: {} } as {
+      hidden: boolean;
+      totals: Record<string, { totalBalance: number | null; stale: boolean; pending: boolean }>;
+    },
+    totalsAskedFor: [] as WalletKeyring[],
+    homeTotal: null as { address: string; totalBalance: number; stale: boolean } | null,
+    // Tells the sheet that the store changed: after new totals, for one.
+    notify() {
+      listeners.forEach((listener) => listener());
+    },
     wallet: {} as Record<string, ReturnType<typeof vi.fn>>,
     tools: {} as Record<string, ReturnType<typeof vi.fn>>,
     nav: {} as Record<string, ReturnType<typeof vi.fn>>,
@@ -95,6 +107,8 @@ vi.mock('@qbit/wallet-state', async () => {
   const { isEnterPressedInField } = await import(
     '../../../../../../packages/wallet-state/src/ui-hooks/isEnterPressedInField'
   );
+  // The package's own check of a number of sats, the same way.
+  const { isSatoshiAmount } = await import('../../../../../../packages/wallet-state/src/reducers/accounts');
   const useSelect = <T,>(pick: (state: StoreState) => T) =>
     React.useSyncExternalStore(harness.subscribe, () => pick(harness.store.state));
   const action = (type: string) => (payload: unknown) => ({ type, payload });
@@ -108,12 +122,19 @@ vi.mock('@qbit/wallet-state', async () => {
       updateAccountName: action('keyrings/updateAccountName')
     },
     isEnterPressedInField,
+    isSatoshiAmount,
+    useAccountSwitcherTotals: (keyrings: WalletKeyring[]) => {
+      harness.totalsAskedFor = keyrings;
+      return React.useSyncExternalStore(harness.subscribe, () => harness.totals);
+    },
     useAppDispatch: () => harness.dispatch,
     useCurrentAccount: () => useSelect((state) => state.currentAccount),
+    useCurrentAccountBalanceTotal: () => React.useSyncExternalStore(harness.subscribe, () => harness.homeTotal),
     useCurrentKeyring: () => useSelect((state) => state.currentKeyring),
     useKeyrings: () => useSelect((state) => state.keyrings),
     useI18n: () => ({ t: harness.t, locale: 'en' }),
     useNavigation: () => harness.nav,
+    useQbitUnit: () => 'QBT',
     // As the hook does: the page-side call the reset dialog makes.
     useResetWallet: () => (password: string, options?: unknown) => harness.wallet.resetWallet(password, options),
     useReloadAccounts: () => harness.reloadAccounts,
@@ -214,8 +235,30 @@ beforeEach(() => {
     isBooted: vi.fn(async () => true),
     isUnlocked: vi.fn(async () => true),
     getNextAlianName: vi.fn(async (keyring: WalletKeyring) => `Account ${keyring.accounts.length + 1}`),
-    deriveNewAccountFromMnemonic: vi.fn(async () => ({ floorScanPending: false }))
+    deriveNewAccountFromMnemonic: vi.fn(async () => ({ floorScanPending: false })),
+    // The totals: none kept, none read (the hook that calls these is mocked).
+    getQbitAccountTotals: vi.fn(async (addresses: string[]) =>
+      addresses.map((address) => ({
+        address,
+        chainType: 'QBIT_MAINNET',
+        totalBalance: null,
+        readAt: null,
+        fresh: false,
+        error: false
+      }))
+    ),
+    readQbitAccountTotal: vi.fn(async (address: string) => ({
+      address,
+      chainType: 'QBIT_MAINNET',
+      totalBalance: null,
+      readAt: null,
+      fresh: false,
+      error: true
+    }))
   };
+  harness.totals = { hidden: false, totals: {} };
+  harness.totalsAskedFor = [];
+  harness.homeTotal = null;
   harness.tools = { toastError: vi.fn(), toastSuccess: vi.fn(), toastWarning: vi.fn(), copyToClipboard: vi.fn() };
   harness.nav = { navigate: vi.fn() };
   harness.reloadAccounts = vi.fn(async () => undefined);
@@ -2043,5 +2086,209 @@ describe('AccountSwitcherSheet stale reads', () => {
     await act(async () => first.resolve(keyrings));
 
     expect(screen.getByTestId('wallet-tile-keyring_0').getAttribute('data-color')).toBe('gold');
+  });
+});
+
+describe('AccountSwitcherSheet totals', () => {
+  type TotalView = { totalBalance: number | null; stale: boolean; pending: boolean };
+  const known = (totalBalance: number, extra: Partial<TotalView> = {}): TotalView => ({
+    totalBalance,
+    stale: false,
+    pending: false,
+    ...extra
+  });
+  const pending: TotalView = { totalBalance: null, stale: false, pending: true };
+  const unknown: TotalView = { totalBalance: null, stale: false, pending: false };
+
+  // What the totals hook returns from now on, and the home card's total.
+  const showTotals = (
+    totals: Record<string, TotalView>,
+    { hidden = false, home = null }: { hidden?: boolean; home?: typeof harness.homeTotal } = {}
+  ) =>
+    act(() => {
+      harness.totals = { hidden, totals };
+      harness.homeTotal = home;
+      harness.notify();
+    });
+
+  const amount = (address: string) => screen.getByTestId(`account-balance-${address}`);
+  const walletTotal = (keyringKey: string) => screen.getByTestId(`wallet-total-${keyringKey}`);
+  const search = (value: string) =>
+    fireEvent.change(screen.getByTestId('switch-account-search'), { target: { value } });
+
+  it('shows each state of a row: known, being read again, pending, unknown, stale and hidden', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 5)];
+    const [a, b, c, d, e] = keyrings[0].accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+    showTotals({
+      [a]: known(150_000_000),
+      [b]: known(0, { pending: true }),
+      [c]: pending,
+      [d]: unknown,
+      [e]: known(1_250_000_000, { stale: true })
+    });
+
+    expect(amount(a).textContent).toBe('1.5 QBT');
+    expect(amount(a).getAttribute('data-stale')).toBeNull();
+    // Read again: the amount stays, with no placeholder over it.
+    expect(amount(b).textContent).toBe('0 QBT');
+    expect(amount(b).getAttribute('data-pending')).toBeNull();
+    expect(amount(c).textContent).toBe('');
+    expect(amount(c).getAttribute('data-pending')).toBe('true');
+    expect(amount(c).classList.contains('switcher-row__amount--pending')).toBe(true);
+    expect(amount(d).textContent).toBe('--');
+    expect(amount(e).textContent).toBe('12.5 QBT');
+    expect(amount(e).getAttribute('data-stale')).toBe('true');
+
+    // In the row button, after the name and address, before the menu button.
+    const row = screen.getByTestId(`account-row-${a}`);
+    expect(amount(a).parentElement).toBe(row);
+    expect(row.lastElementChild).toBe(amount(a));
+    expect(row.nextElementSibling).toBe(screen.getByTestId(`account-menu-${a}`));
+
+    showTotals({ [a]: known(150_000_000), [c]: pending, [d]: unknown }, { hidden: true });
+    for (const address of [a, b, c, d, e]) {
+      expect(amount(address).textContent).toBe('****');
+      expect(amount(address).getAttribute('data-pending')).toBeNull();
+    }
+    expect(walletTotal('keyring_0').textContent).toBe('****');
+  });
+
+  it('formats large and small totals in full, without trailing zeros or separators', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 3)];
+    const [a, b, c] = keyrings[0].accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+    showTotals({ [a]: known(2_100_000_012_345_678), [b]: known(1), [c]: known(2_000_000_000) });
+
+    expect(amount(a).textContent).toBe('21000000.12345678 QBT');
+    expect(amount(b).textContent).toBe('0.00000001 QBT');
+    expect(amount(c).textContent).toBe('20 QBT');
+  });
+
+  it('treats a total that is no number of sats as unknown', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 3)];
+    const [a, b, c] = keyrings[0].accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+    showTotals({ [a]: known(-1), [b]: known(1.5), [c]: known(Number.MAX_SAFE_INTEGER + 1) });
+
+    for (const address of [a, b, c]) expect(amount(address).textContent).toBe('--');
+    expect(walletTotal('keyring_0').textContent).toBe('--');
+  });
+
+  it('sums every account of a wallet in its header, the ones a search hides too', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 3), makeKeyring(1, KeyringType.QbitHdKeyring, 1)];
+    const [a, b, c] = keyrings[0].accounts.map((account) => account.address);
+    const [d] = keyrings[1].accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+    showTotals({ [a]: known(10_000_000), [b]: known(20_000_000), [c]: known(1_220_000_000), [d]: known(5) });
+
+    expect(walletTotal('keyring_0').textContent).toBe('12.5 QBT');
+    expect(walletTotal('keyring_1').textContent).toBe('0.00000005 QBT');
+    // On the count line, after the count.
+    const countLine = walletTotal('keyring_0').parentElement as HTMLElement;
+    expect(countLine.textContent).toBe('account_switcher_account_count_other(3)·12.5 QBT');
+    expect(countLine.firstElementChild?.textContent).toBe('account_switcher_account_count_other(3)');
+
+    // The hook is given every wallet as listed, whatever the search shows.
+    search('Account 2');
+    expect(rowIds()).toEqual([b]);
+    expect(walletTotal('keyring_0').textContent).toBe('12.5 QBT');
+    expect(harness.totalsAskedFor).toBe(harness.store.state.keyrings);
+  });
+
+  it('shows the placeholder for a wallet while a total is on its way, then -- if one stays unknown', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 3)];
+    const [a, b, c] = keyrings[0].accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+
+    showTotals({ [a]: known(100), [b]: unknown, [c]: pending });
+    expect(walletTotal('keyring_0').textContent).toBe('');
+    expect(walletTotal('keyring_0').getAttribute('data-pending')).toBe('true');
+
+    showTotals({ [a]: known(100), [b]: unknown, [c]: known(200) });
+    expect(walletTotal('keyring_0').textContent).toBe('--');
+
+    // A stale total counts, and makes the sum stale, which a note says in
+    // words for a screen reader.
+    expect(screen.queryByTestId('wallet-total-stale-keyring_0')).toBeNull();
+    showTotals({ [a]: known(100), [b]: known(300, { stale: true }), [c]: known(200) });
+    expect(walletTotal('keyring_0').textContent).toBe('0.000006 QBT');
+    expect(walletTotal('keyring_0').getAttribute('data-stale')).toBe('true');
+    const note = screen.getByTestId('wallet-total-stale-keyring_0');
+    expect(note.textContent).toBe('account_switcher_total_stale_note');
+    expect(note.classList.contains('switcher-visually-hidden')).toBe(true);
+    expect(note.parentElement).toBe(walletTotal('keyring_0').parentElement);
+  });
+
+  it('shows no total for a corrupted wallet', async () => {
+    const keyrings = [
+      makeKeyring(0, KeyringType.QbitHdKeyring, 1),
+      makeKeyring(1, KeyringType.QbitHdKeyring, 1, { isCorrupted: true }),
+      makeKeyring(2, KeyringType.QbitHdKeyring, 0)
+    ];
+    await renderSheet(keyrings);
+    showTotals({ [keyrings[0].accounts[0].address]: known(1) });
+
+    expect(walletTotal('keyring_0').textContent).toBe('0.00000001 QBT');
+    expect(screen.queryByTestId('wallet-total-keyring_1')).toBeNull();
+    expect(screen.queryByTestId('wallet-total-keyring_2')).toBeNull();
+  });
+
+  it('shows the home card figure for the current account, also in its wallet total', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 2)];
+    const [a, b] = keyrings[0].accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+
+    showTotals({ [a]: known(100), [b]: known(200) }, { home: { address: a, totalBalance: 500_000_000, stale: false } });
+    expect(amount(a).textContent).toBe('5 QBT');
+    expect(amount(b).textContent).toBe('0.000002 QBT');
+    expect(walletTotal('keyring_0').textContent).toBe('5.000002 QBT');
+
+    // Pending here, loaded on the home card: the home card's.
+    showTotals({ [a]: pending, [b]: known(200) }, { home: { address: a, totalBalance: 0, stale: true } });
+    expect(amount(a).textContent).toBe('0 QBT');
+    expect(amount(a).getAttribute('data-stale')).toBe('true');
+
+    // Not loaded on the home card: the account's own total.
+    showTotals({ [a]: known(100), [b]: known(200) }, { home: null });
+    expect(amount(a).textContent).toBe('0.000001 QBT');
+
+    // Hidden stays hidden.
+    showTotals({}, { hidden: true, home: { address: a, totalBalance: 500_000_000, stale: false } });
+    expect(amount(a).textContent).toBe('****');
+  });
+
+  it('names the amount in the row button when one is shown, and only then', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 4)];
+    const accounts = keyrings[0].accounts;
+    const [a, b, c, d] = accounts.map((account) => account.address);
+    await renderSheet(keyrings);
+    showTotals({ [a]: known(150_000_000), [b]: known(7, { stale: true }), [c]: pending, [d]: unknown });
+
+    const label = (address: string) => screen.getByTestId(`account-row-${address}`).getAttribute('aria-label');
+    expect(label(a)).toBe(`account_switcher_account_balance_label(Account 1|Wallet 1|${shortAddress(a)}|1.5 QBT)`);
+    // A stale amount, muted on screen, says so in its name.
+    expect(label(b)).toBe(
+      `account_switcher_account_balance_stale_label(Account 2|Wallet 1|${shortAddress(b)}|0.00000007 QBT)`
+    );
+    expect(label(c)).toBe(`account_switcher_account_label(Account 3|Wallet 1|${shortAddress(c)})`);
+    expect(label(d)).toBe(`account_switcher_account_label(Account 4|Wallet 1|${shortAddress(d)})`);
+
+    showTotals({ [a]: known(150_000_000) }, { hidden: true });
+    expect(label(a)).toBe(`account_switcher_account_label(Account 1|Wallet 1|${shortAddress(a)})`);
+  });
+
+  it('switches to the account when its amount is tapped', async () => {
+    const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 1), makeKeyring(1, KeyringType.QbitHdKeyring, 2)];
+    const target = keyrings[1].accounts[1];
+    harness.wallet.getCurrentAccount.mockResolvedValue(target);
+    const { onClose } = await renderSheet(keyrings);
+    showTotals({ [target.address]: known(42) });
+
+    fireEvent.click(amount(target.address));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(harness.wallet.changeKeyring).toHaveBeenCalledWith(keyrings[1], 1);
+    expect(harness.store.state.currentAccount).toEqual(target);
   });
 });

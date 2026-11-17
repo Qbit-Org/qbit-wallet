@@ -2639,6 +2639,15 @@
   "account_switcher_account_label": {
     "message": "$1 dans $2, $3"
   },
+  "account_switcher_account_balance_label": {
+    "message": "$1 dans $2, $3, solde $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$1 dans $2, $3, solde $4, qui n’est peut-être plus à jour"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "Le solde n’est peut-être plus à jour"
+  },
   "account_switcher_wallet_unavailable": {
     "message": "Le portefeuille sélectionné n'est plus disponible"
   },

@@ -2639,6 +2639,15 @@
   "account_switcher_account_label": {
     "message": "$1 в $2, $3"
   },
+  "account_switcher_account_balance_label": {
+    "message": "$1 в $2, $3, баланс $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$1 в $2, $3, баланс $4, может быть устаревшим"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "Баланс может быть устаревшим"
+  },
   "account_switcher_wallet_unavailable": {
     "message": "Выбранный кошелёк больше недоступен"
   },

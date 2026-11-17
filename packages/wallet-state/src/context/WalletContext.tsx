@@ -6,6 +6,7 @@ import {
   AddressSummary,
   BiometricUnlockRecord,
   BiometricUnlockStatus,
+  QbitAccountTotal,
   QbitBalance,
   QbitBalanceSummary,
   QbitBroadcastResult,
@@ -158,6 +159,20 @@ export interface WalletController {
   updateIsFirstOpen(): Promise<void>
 
   getAddressBalanceV2(address: string): Promise<QbitBalanceSummary>
+  /**
+   * What the background has kept of each address's total, one answer per
+   * address in the order given. Reads nothing from the explorer. An address
+   * with no kept total, or one that is no account of a listed wallet on the
+   * active network, answers with `totalBalance: null`.
+   */
+  getQbitAccountTotals(addresses: string[]): Promise<QbitAccountTotal[]>
+  /**
+   * The address's total: the kept one while it is fresh, otherwise read from
+   * the explorer. Resolves with `error: true` when that read failed, with the
+   * last total measured if there is one. Rejects only for an argument it
+   * refuses.
+   */
+  readQbitAccountTotal(address: string): Promise<QbitAccountTotal>
   getAddressBalance(address: string): Promise<QbitBalance>
   getAddressCacheBalance(address: string): Promise<QbitBalance>
   getMultiAddressSummaries(addresses: string): Promise<AddressSummary[]>

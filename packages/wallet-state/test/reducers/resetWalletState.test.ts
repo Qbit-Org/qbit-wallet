@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createAppStore, resetWalletState } from '../../src'
-import { accountActions, initialState as accountsInitial } from '../../src/reducers/accounts'
+import {
+  accountActions,
+  accountTotalsAsked,
+  initialState as accountsInitial,
+  storeAccountTotals,
+} from '../../src/reducers/accounts'
 import { globalActions, initialState as globalInitial } from '../../src/reducers/global'
 import { initialState as keyringsInitial, keyringsActions } from '../../src/reducers/keyrings'
 import { initialState as settingsInitial, settingsActions } from '../../src/reducers/settings'
@@ -94,6 +99,41 @@ describe('resetWalletState', () => {
     expect(state.global.isBooted).toBe(false)
     expect(state.global.isUnlocked).toBe(false)
     expect(state.settings).toEqual({ ...settingsInitial, locale: 'fr', themeMode: 'dark' })
+  })
+
+  it('clears the account switcher totals, and drops the answers of the requests made before it', () => {
+    const store = storeWithAWallet()
+    const chainType = store.getState().settings.chainType
+    const answer = (requestId: number) =>
+      storeAccountTotals([
+        {
+          address: account.address,
+          chainType,
+          requestId,
+          totalBalance: 5,
+          readAt: 1,
+          stale: false,
+          settled: true,
+        },
+      ])
+    store.dispatch(accountTotalsAsked(7))
+    store.dispatch(answer(6))
+    expect(store.getState().accounts.accountTotalsMap[chainType]?.[account.address]).toMatchObject({
+      totalBalance: 5,
+    })
+
+    store.dispatch(resetWalletState())
+    expect(store.getState().accounts.accountTotalsMap).toEqual({})
+
+    // The answer of a request made before the reset, arriving after it.
+    store.dispatch(answer(7))
+    expect(store.getState().accounts.accountTotalsMap).toEqual({})
+
+    // One made after it is stored.
+    store.dispatch(answer(8))
+    expect(store.getState().accounts.accountTotalsMap[chainType]?.[account.address]).toMatchObject({
+      totalBalance: 5,
+    })
   })
 
   it('resets the whole store in one dispatch, which a second one leaves as it is', () => {

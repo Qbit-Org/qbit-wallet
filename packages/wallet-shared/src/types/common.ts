@@ -105,3 +105,25 @@ export interface QbitBalanceSummary {
   utxoReadFailed?: boolean
   chainType: ChainType
 }
+
+/**
+ * One account's total as the account switcher shows it: the address's
+ * confirmed and unconfirmed value together, in sats, from the explorer's
+ * address statistics. It is the figure `QbitBalanceSummary.totalBalance`
+ * reports, without the split a send needs, so it costs one small request
+ * however many outputs the address holds. The background keeps the totals it
+ * read, in memory only, and answers from them while they are fresh.
+ */
+export interface QbitAccountTotal {
+  address: string
+  /** The network the total was read on, or would be read on. */
+  chainType: ChainType
+  /** The last total a read measured; `null` when none has, which is never the same as 0. */
+  totalBalance: number | null
+  /** When that total was measured, in ms since the epoch; `null` with no total. */
+  readAt: number | null
+  /** Whether the total is recent enough to show without reading it again. Never `true` with no total. */
+  fresh: boolean
+  /** Whether the latest read failed. `totalBalance`, if any, is then the last one measured. */
+  error: boolean
+}

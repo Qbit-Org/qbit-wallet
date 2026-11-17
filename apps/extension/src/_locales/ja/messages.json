@@ -2639,6 +2639,15 @@
   "account_switcher_account_label": {
     "message": "$2 の $1、$3"
   },
+  "account_switcher_account_balance_label": {
+    "message": "$2 の $1、$3、残高 $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$2 の $1、$3、残高 $4（最新ではない可能性があります）"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "残高は最新ではない可能性があります"
+  },
   "account_switcher_wallet_unavailable": {
     "message": "選択したウォレットは利用できなくなりました"
   },

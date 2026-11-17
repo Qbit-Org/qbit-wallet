@@ -167,10 +167,59 @@
   white-space: nowrap;
 }
 
-.switcher-group__count {
+// "3 accounts · 12.5 QBT" on one line, which keeps the header at its height:
+// when the line is too narrow, the count gives way, never the total.
+.switcher-group__count-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   color: var(--qbit-muted);
   font-size: 11px;
   line-height: 15px;
+  white-space: nowrap;
+}
+
+.switcher-group__count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.switcher-group__total-separator {
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+.switcher-group__total {
+  flex-shrink: 0;
+  color: var(--qbit-ink);
+  font-variant-numeric: tabular-nums;
+
+  &[data-stale='true'] {
+    color: var(--qbit-muted);
+  }
+}
+
+// Text for a screen reader only, such as the note that a muted total may be
+// out of date.
+.switcher-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+// Totals still on their way: a quiet bar where the amount will be.
+.switcher-group__total--pending {
+  width: 48px;
+  height: 8px;
+  background: var(--qbit-line);
 }
 
 // The wallet's "+" and its menu button, close together at the end of the
@@ -242,10 +291,36 @@
   }
 }
 
+// Takes the room the total leaves, and gives way to it: the name and the
+// address end in an ellipsis rather than the total.
 .switcher-row__text {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
+}
+
+// The account's total, at the end of the row before its menu button, on one
+// line and never cut.
+.switcher-row__amount {
+  flex-shrink: 0;
+  color: var(--qbit-ink);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+
+  &[data-stale='true'] {
+    color: var(--qbit-muted);
+  }
+}
+
+// A total still on its way: a quiet bar of fixed width where it will be.
+.switcher-row__amount--pending {
+  width: 56px;
+  height: 10px;
+  background: var(--qbit-line);
 }
 
 .switcher-row__name {

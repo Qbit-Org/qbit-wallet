@@ -32,10 +32,13 @@ regtest node and serve their pages from loopback fixture servers. The
 switch-account and reset-wallet scenarios need no regtest node either: their
 wallets live on Regtest, whose indexer is a loopback stand-in for a chain on
 which no address has any activity, and the reset-wallet dapp page is a loopback
-fixture server. Nor does the upgrade scenario: it seeds the profile with the
-data that the 1.0.5, 1.0.6 and 1.0.7 releases stored
-(`tests/fixtures/release-storage`), and the browser reaches nothing but
-loopback. The reset removes only the
+fixture server. The switcher-totals scenario funds accounts and uses the
+regtest stack. The stand-in can also report funds in an address's
+statistics, hold or fail its statistics reads, and count them; the
+switch-account balance rows use that to see which reads reach it. Nor does
+the upgrade scenario: it seeds the profile with the data that the 1.0.5,
+1.0.6 and 1.0.7 releases stored (`tests/fixtures/release-storage`), and the
+browser reaches nothing but loopback. The reset removes only the
 volumes of the selected compose project, so set `COMPOSE_PROJECT_NAME` to run
 the gate in an isolated project when the default `qbit-wallet-regtest`
 project's data must be preserved.
@@ -61,6 +64,7 @@ corepack pnpm exec playwright test tests/e2e/scenarios/lock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/biometric-unlock.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/unlock-history.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/switch-account.spec.ts
+corepack pnpm exec playwright test tests/e2e/scenarios/switcher-totals.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/reset-wallet.spec.ts
 corepack pnpm exec playwright test tests/e2e/scenarios/upgrade.spec.ts
 ```
@@ -110,11 +114,11 @@ corepack pnpm exec playwright test --shard=3/5
 
 ## Scenario Matrix
 
-The complete gate is 60 tests (`corepack pnpm exec playwright test --list`).
+The complete gate is 68 tests (`corepack pnpm exec playwright test --list`).
 The results and times below are from the `Playwright G3 scenarios` job in run
 40526893310 (PR #327, head `4d7c6741`, 2026-10-27), which ran the 14 tests
 then in the gate: all 14 passed on the first attempt with none flaky or
-skipped in 9.0 minutes. The 45 tests added since show "Not recorded" until a
+skipped in 9.0 minutes. The 54 tests added since show "Not recorded" until a
 recorded run includes them. The line numbers are those of the current specs.
 Times are CI timings, not performance budgets. Signing samples are recorded
 separately with two-decimal millisecond precision.
@@ -167,10 +171,18 @@ separately with two-decimal millisecond precision.
 | Home lock button      | `scenarios/unlock-history.spec.ts:117`    | Home's lock button leaves one unlock entry in Home's place; the unlock puts Home back; Back leaves         | Not recorded |       — |
 | Lock on Home          | `scenarios/unlock-history.spec.ts:139`    | A lock from outside the page while Home shows: one unlock entry in Home's place, then Home back            | Not recorded |       — |
 | Lock on the send form | `scenarios/unlock-history.spec.ts:159`    | A lock while the send form shows: the unlock shows the form with what was typed; Back gives Home           | Not recorded |       — |
-| Switch account        | `scenarios/switch-account.spec.ts:136`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
-| Rename wallet         | `scenarios/switch-account.spec.ts:362`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
-| Remove wallet         | `scenarios/switch-account.spec.ts:432`    | Remove Wallet, new wallets named "Wallet N"; the last wallet opens the reset, and Cancel keeps it          | Not recorded |       — |
-| Read-only wallet      | `scenarios/switch-account.spec.ts:525`    | A read-only wallet shows Read Only and offers no Add Account                                               | Not recorded |       — |
+| Switch account        | `scenarios/switch-account.spec.ts:145`    | The card names the wallet; two taps switch wallets; Add account and search                                 | Not recorded |       — |
+| Rename wallet         | `scenarios/switch-account.spec.ts:371`    | Rename Wallet, Edit Name and Change Color persist after the popup is reopened                              | Not recorded |       — |
+| Remove wallet         | `scenarios/switch-account.spec.ts:441`    | Remove Wallet, new wallets named "Wallet N"; the last wallet opens the reset, and Cancel keeps it          | Not recorded |       — |
+| Read-only wallet      | `scenarios/switch-account.spec.ts:534`    | Read Only, no Add Account; its account and wallet total show `--` and get no statistics read               | Not recorded |       — |
+| Switcher zeros        | `scenarios/switch-account.spec.ts:655`    | On an empty chain every account row and every wallet total shows 0 with the unit                           | Not recorded |       — |
+| Switcher funded       | `scenarios/switcher-totals.spec.ts:88`    | Funded accounts show their totals, wallets the sum of theirs; the current row equals the home total        | Not recorded |       — |
+| Switcher after a send | `scenarios/switcher-totals.spec.ts:116`   | A send between two accounts: their kept totals go out of date; reopened, both rows and the sum show it     | Not recorded |       — |
+| Switcher reopen       | `scenarios/switch-account.spec.ts:672`    | Reopened within a minute, in the page and in a new one, it shows the amounts and reads no statistics       | Not recorded |       — |
+| Switcher hidden       | `scenarios/switch-account.spec.ts:738`    | With balances hidden every total shows `****` and no statistics are read; shown again, they are            | Not recorded |       — |
+| Switcher layout       | `scenarios/switch-account.spec.ts:774`    | At 357 px, 20-character names, 20,999,999.99999999: amount whole, no overlap, header 48, row ≥ 52 px       | Not recorded |       — |
+| Switcher unknown      | `scenarios/switch-account.spec.ts:847`    | Statistics reads that fail with nothing measured before: the row and the wallet total show `--`            | Not recorded |       — |
+| Switcher stale        | `scenarios/switch-account.spec.ts:874`    | Reads failing after an earlier total: it stays, dimmed, with the stale name and the wallet total note      | Not recorded |       — |
 | Reset wallet          | `scenarios/reset-wallet.spec.ts:382`      | Reset only with the password; Welcome keeps language and theme; new wallet: new password, no old data      | Not recorded |       — |
 | Reset last wallet     | `scenarios/reset-wallet.spec.ts:614`      | Remove on the last wallet opens the reset, no toast; Cancel keeps it; with two wallets it removes one      | Not recorded |       — |
 | Reset everywhere      | `scenarios/reset-wallet.spec.ts:658`      | An untouched second window opens on Welcome; a connected site is disconnected and must ask again           | Not recorded |       — |

@@ -23,8 +23,12 @@ function blockHash(height: number): string {
     : createHash('sha256').update(`empty-regtest-block:${height}`).digest('hex')
 }
 
-/** Esplora's answer for an address that never received or spent anything. */
-function emptyAddressStats(address: string) {
+/**
+ * Esplora's answer for an address that never received or spent anything, or,
+ * with `fundedSats`, one that received that much in one confirmed output and
+ * spent nothing.
+ */
+function addressStats(address: string, fundedSats = 0) {
   const empty = {
     funded_txo_count: 0,
     funded_txo_sum: 0,
@@ -32,7 +36,22 @@ function emptyAddressStats(address: string) {
     spent_txo_sum: 0,
     tx_count: 0,
   }
-  return { address, chain_stats: { ...empty }, mempool_stats: { ...empty } }
+  const chain =
+    fundedSats > 0
+      ? { ...empty, funded_txo_count: 1, funded_txo_sum: fundedSats, tx_count: 1 }
+      : { ...empty }
+  return { address, chain_stats: chain, mempool_stats: { ...empty } }
+}
+
+/** The address a statistics read (`GET /address/:address`, nothing after it) asks for. */
+function statisticsAddress(path: string): string | undefined {
+  const match = path.match(/^\/address\/([^/]+)$/)
+  if (!match) return undefined
+  try {
+    return decodeURIComponent(match[1] ?? '')
+  } catch {
+    return undefined
+  }
 }
 
 /** Fee rates by confirmation target that never rise with the target. */
@@ -60,6 +79,10 @@ export class EmptyRegtestExplorer {
   readonly requests: ExplorerRequest[] = []
   private server: Server | undefined
   private portValue: number | undefined
+  private readonly funded = new Map<string, number>()
+  private readonly failing = new Set<string>()
+  private readonly held = new Map<string, Promise<void>>()
+  private readonly releases = new Set<() => void>()
 
   get port(): number {
     if (this.portValue === undefined) throw new Error('the empty regtest explorer has not started')
@@ -92,20 +115,55 @@ export class EmptyRegtestExplorer {
     ]
   }
 
+  /**
+   * From now on the statistics read of `address` reports `sats` received in
+   * one confirmed output; its outputs and history still list nothing. Only
+   * for an address of which the wallet reads no more than the statistics,
+   * such as an account the account switcher lists that is not current: the
+   * home screen's balance, which also lists the outputs, would find them
+   * missing.
+   */
+  reportFunds(address: string, sats: number): void {
+    if (!Number.isSafeInteger(sats) || sats < 0) {
+      throw new Error(`sats must be a non-negative safe integer, got ${sats}`)
+    }
+    this.funded.set(address, sats)
+  }
+
+  /** From now on the statistics read of `address` fails with HTTP 503. */
+  failStatistics(address: string): void {
+    this.failing.add(address)
+  }
+
+  /**
+   * The statistics reads of `address` from now on get no answer until the
+   * returned function is called; then each is answered as usual.
+   */
+  holdStatistics(address: string): () => void {
+    let release: () => void = () => undefined
+    const held = new Promise<void>(resolve => {
+      release = resolve
+    })
+    this.held.set(address, held)
+    const releaseHeld = (): void => {
+      if (this.held.get(address) === held) this.held.delete(address)
+      this.releases.delete(releaseHeld)
+      release()
+    }
+    this.releases.add(releaseHeld)
+    return releaseHeld
+  }
+
+  /** How many statistics reads of `address` (`GET /address/:address`) arrived so far. */
+  statisticsRequests(address: string): number {
+    return this.requests.filter(
+      request => request.method === 'GET' && statisticsAddress(request.path) === address
+    ).length
+  }
+
   async start(): Promise<void> {
     const server = createServer((request, response) => {
-      const method = request.method ?? 'GET'
-      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
-      const answer = method === 'GET' ? this.answer(url.pathname) : undefined
-      const status = answer ? 200 : 404
-      this.requests.push({ method, path: url.pathname, status })
-      if (!answer) {
-        send(response, 404, 'text/plain', 'Not Found')
-      } else if (typeof answer.body === 'string') {
-        send(response, 200, 'text/plain', answer.body)
-      } else {
-        send(response, 200, 'application/json', JSON.stringify(answer.body))
-      }
+      void this.respond(request.method ?? 'GET', request.url ?? '/', response)
     })
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
@@ -118,7 +176,40 @@ export class EmptyRegtestExplorer {
     this.portValue = (server.address() as AddressInfo).port
   }
 
+  private async respond(method: string, target: string, response: ServerResponse): Promise<void> {
+    const url = new URL(target, 'http://127.0.0.1')
+    // Logged as it arrives, so a scenario can count a read that is held.
+    const entry: ExplorerRequest = { method, path: url.pathname, status: 0 }
+    this.requests.push(entry)
+    const statistics = method === 'GET' ? statisticsAddress(url.pathname) : undefined
+    const held = statistics === undefined ? undefined : this.held.get(statistics)
+    if (held) {
+      await held
+      if (response.destroyed) return
+    }
+    if (statistics !== undefined && this.failing.has(statistics)) {
+      entry.status = 503
+      send(response, 503, 'text/plain', 'Service Unavailable')
+      return
+    }
+    const answer = method === 'GET' ? this.answer(url.pathname) : undefined
+    entry.status = answer ? 200 : 404
+    if (!answer) {
+      send(response, 404, 'text/plain', 'Not Found')
+    } else if (typeof answer.body === 'string') {
+      send(response, 200, 'text/plain', answer.body)
+    } else {
+      send(response, 200, 'application/json', JSON.stringify(answer.body))
+    }
+  }
+
+  private statistics(address: string) {
+    return addressStats(address, this.funded.get(address))
+  }
+
   async close(): Promise<void> {
+    for (const release of this.releases) release()
+    this.releases.clear()
     const server = this.server
     this.server = undefined
     if (!server) return
@@ -154,7 +245,7 @@ export class EmptyRegtestExplorer {
       } catch {
         return undefined
       }
-      return { body: emptyAddressStats(decoded) }
+      return { body: this.statistics(decoded) }
     }
     if (rest === '/utxo' || /^\/txs(?:\/chain(?:\/[0-9a-f]{64})?|\/mempool)?$/.test(rest)) {
       return { body: [] }

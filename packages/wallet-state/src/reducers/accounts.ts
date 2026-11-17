@@ -1,15 +1,138 @@
-import { createSlice, Slice } from '@reduxjs/toolkit'
-import {
-  Account,
-  AddressSummary,
-  QbitBalanceSummary,
-  TxHistoryItem,
-} from '@qbit/wallet-shared'
+import { createAction, createSlice, Slice } from '@reduxjs/toolkit'
+import { Account, AddressSummary, QbitBalanceSummary, TxHistoryItem } from '@qbit/wallet-shared'
+import { ChainType } from '@qbit/wallet-types'
 
 import { resetWalletState, updateVersion } from '../actions/global'
 
 export interface Molels {
   states: boolean
+}
+
+/**
+ * An account's total as the account switcher last showed it on one network,
+ * kept for the page's lifetime so that the switcher, opened again, shows it
+ * at once while the background is asked again.
+ */
+export interface AccountTotalEntry {
+  /** In sats; `null` when no answer has carried one. */
+  totalBalance: number | null
+  /** When the background measured that total, in ms since the epoch. */
+  readAt: number | null
+  /**
+   * `totalBalance` may not be the account's total now: the latest answer
+   * for the account measured none on this network (its read failed,
+   * answered none, or answered for another network), so it is an earlier
+   * one, or the read says it may be from before a transaction the wallet
+   * submitted. An answer that is not settled (a kept total to be read
+   * again) does not clear it: only a settled one does.
+   */
+  stale: boolean
+  /**
+   * No other answer is to come for the request that stored it: a read's
+   * answer or failure, or a kept total fresh enough not to be read again. A
+   * kept total that is to be read again is not settled.
+   */
+  settled: boolean
+  /** The request the latest answer stored here answered; see `storeAccountTotals`. */
+  requestId: number
+}
+
+/** One answer of the account switcher's requests, as `storeAccountTotals` stores it. */
+export interface AccountTotalUpdate {
+  address: string
+  /** The network it is stored under. */
+  chainType: ChainType
+  /** The request it answers; request ids grow with every request a page makes. */
+  requestId: number
+  /** In sats, or `null` when the answer measured none. */
+  totalBalance: number | null
+  readAt: number | null
+  /**
+   * The total may not be current: the latest read failed, or it may be from
+   * before a transaction the wallet submitted. See `AccountTotalEntry.stale`.
+   */
+  stale: boolean
+  /** See `AccountTotalEntry.settled`. */
+  settled: boolean
+}
+
+const CHAIN_TYPES: ReadonlySet<string> = new Set(Object.values(ChainType))
+
+/** Whether `value` names one of the wallet's networks. */
+export function isChainType(value: unknown): value is ChainType {
+  return typeof value === 'string' && CHAIN_TYPES.has(value)
+}
+
+/** Whether `value` is a number of sats: a safe integer, 0 or more. */
+export function isSatoshiAmount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/**
+ * Stores `update`, unless its request was made before the latest reset or an
+ * answer of a newer request is stored already. An answer without a total
+ * keeps the total stored before it, marked as stale. An answer that is not
+ * settled, a kept total that is to be read again, vouches for nothing: it
+ * keeps a stale mark stored before it, so the total stays stale until a
+ * settled answer (a read's, or a fresh kept total) says otherwise. The
+ * addresses of each network are kept in an object without a prototype, so
+ * that no address, whatever it is, can reach a built-in.
+ */
+function storeAccountTotal(state: AccountsState, update: AccountTotalUpdate): void {
+  const { address, chainType, requestId } = update
+  if (!isChainType(chainType) || typeof address !== 'string' || address === '') return
+  if (typeof requestId !== 'number' || requestId <= state.accountTotalsFloor) return
+  let totals = state.accountTotalsMap[chainType]
+  if (totals === undefined) {
+    totals = Object.create(null) as Record<string, AccountTotalEntry>
+    state.accountTotalsMap[chainType] = totals
+  }
+  const stored = totals[address]
+  if (stored !== undefined && requestId < stored.requestId) return
+  if (isSatoshiAmount(update.totalBalance)) {
+    const settled = update.settled === true
+    totals[address] = {
+      totalBalance: update.totalBalance,
+      readAt: typeof update.readAt === 'number' ? update.readAt : null,
+      stale: update.stale === true || (!settled && stored?.stale === true),
+      settled,
+      requestId,
+    }
+    return
+  }
+  totals[address] = {
+    totalBalance: stored?.totalBalance ?? null,
+    readAt: stored?.readAt ?? null,
+    stale: true,
+    settled: update.settled === true,
+    requestId,
+  }
+}
+
+/**
+ * Answers of the account switcher's requests, stored together (see
+ * `storeAccountTotal`). Answers that arrive close together come in one
+ * action, so that a page shows them in one update.
+ */
+export const storeAccountTotals = createAction<AccountTotalUpdate[]>('accounts/storeAccountTotals')
+
+/**
+ * The account switcher made the requests up to `requestId`. A reset drops
+ * the answers of every request made before it, so a total read for an erased
+ * wallet never comes back.
+ */
+export const accountTotalsAsked = createAction<number>('accounts/accountTotalsAsked')
+
+/**
+ * The state a reset leaves: the initial one, except that the answers of the
+ * requests made before it are dropped when they arrive.
+ */
+function resetAccounts(state: AccountsState): AccountsState {
+  return {
+    ...initialState,
+    accountTotalsFloor: state.accountTotalsAsked,
+    accountTotalsAsked: state.accountTotalsAsked,
+  }
 }
 
 export interface BalanceRefreshStatus {
@@ -112,6 +235,18 @@ export interface AccountsState {
   }
   addressSummary: AddressSummary
   model: Molels
+  /**
+   * The account switcher's totals, per network and then per address, from
+   * the background's answers (`storeAccountTotals`). Like the rest of this
+   * slice, never saved.
+   */
+  accountTotalsMap: {
+    [chainType: string]: { [address: string]: AccountTotalEntry }
+  }
+  /** The latest request the account switcher made (`accountTotalsAsked`). */
+  accountTotalsAsked: number
+  /** Answers of requests up to this one, made before the latest reset, are dropped. */
+  accountTotalsFloor: number
 }
 
 const initialAccount = {
@@ -142,6 +277,9 @@ export const initialState: AccountsState = {
   },
 
   model: { states: false },
+  accountTotalsMap: {},
+  accountTotalsAsked: 0,
+  accountTotalsFloor: 0,
 }
 
 const slice: Slice<AccountsState> = createSlice({
@@ -315,7 +453,7 @@ const slice: Slice<AccountsState> = createSlice({
       state.loading = false
     },
     reset(state) {
-      return initialState
+      return resetAccounts(state)
     },
     updateAccountName(
       state,
@@ -353,8 +491,28 @@ const slice: Slice<AccountsState> = createSlice({
       if (!state.balanceStatusMap) {
         state.balanceStatusMap = {}
       }
+
+      if (!state.accountTotalsMap) {
+        state.accountTotalsMap = {}
+      }
+
+      if (typeof state.accountTotalsAsked !== 'number') {
+        state.accountTotalsAsked = 0
+      }
+
+      if (typeof state.accountTotalsFloor !== 'number') {
+        state.accountTotalsFloor = 0
+      }
     })
-    builder.addCase(resetWalletState, () => initialState)
+    builder.addCase(storeAccountTotals, (state, action) => {
+      for (const update of action.payload) storeAccountTotal(state, update)
+    })
+    builder.addCase(accountTotalsAsked, (state, action) => {
+      if (typeof action.payload === 'number' && action.payload > state.accountTotalsAsked) {
+        state.accountTotalsAsked = action.payload
+      }
+    })
+    builder.addCase(resetWalletState, state => resetAccounts(state))
   },
 })
 

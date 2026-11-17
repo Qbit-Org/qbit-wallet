@@ -2639,6 +2639,15 @@
   "account_switcher_account_label": {
     "message": "$1 in $2, $3"
   },
+  "account_switcher_account_balance_label": {
+    "message": "$1 in $2, $3, balance $4"
+  },
+  "account_switcher_account_balance_stale_label": {
+    "message": "$1 in $2, $3, balance $4, may be out of date"
+  },
+  "account_switcher_total_stale_note": {
+    "message": "Balance may be out of date"
+  },
   "account_switcher_wallet_unavailable": {
     "message": "The selected wallet is no longer available"
   },

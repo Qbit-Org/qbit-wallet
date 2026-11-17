@@ -1,17 +1,26 @@
 import { createECDH } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import type { Locator, Page } from '@playwright/test'
 
+import { ChainType } from '../../../packages/wallet-types/src'
+import { CHAINS_MAP } from '../../../packages/wallet-shared/src/constants/common'
 import { walletColorForSlot } from '../../../packages/wallet-shared/src/utils/wallet-identity'
 import { expect, test } from '../fixtures/empty-regtest'
 import {
+  type AccountSwitcherSheet,
   OnboardingPage,
   RecoveryReportPage,
   SettingsPage,
+  shortAddress,
+  switcherAmount,
   WalletHomePage,
   type WalletTag,
 } from '../pages'
+import type { EmptyRegtestExplorer } from '../support/empty-regtest-explorer'
 import type { ExtensionSession } from '../support/extension-session'
+import { extensionDist } from '../support/paths'
 import { E2E_PASSWORD, FIXED_MNEMONIC } from '../support/wallet-setup'
 
 interface AccountProbe {
@@ -522,8 +531,9 @@ test('switch account: Remove Wallet, new wallets named "Wallet N" and the last w
   expect(await walletSummary(extension, page)).toEqual([{ name: 'Wallet 2', accounts: 2 }])
 })
 
-test('switch account: a read-only wallet shows Read Only and offers no Add Account', async ({
+test('switch account: a read-only wallet shows Read Only, offers no Add Account and reads no total', async ({
   extension,
+  explorer,
 }) => {
   const { page, home, onboarding, created, restored } = await setUpTwoWallets(extension)
 
@@ -577,5 +587,338 @@ test('switch account: a read-only wallet shows Read Only and offers no Add Accou
   expect(await sheet.menuItems()).toEqual(['edit-name', 'copy-address'])
   await page.keyboard.press('Escape')
   await expect(sheet.menu).toHaveCount(0)
+  await sheet.close()
+
+  // Its account's address is no P2MR address of the network, so the switcher
+  // asks the explorer nothing for it and shows "--", as does the wallet's
+  // total. With another account current, the home screen does not read it
+  // either.
+  const readonlyAddress = readonly.accounts[0]!.address
+  await home.switchAccount(created.accounts[0]!.address)
+  const before = explorer.statisticsRequests(readonlyAddress)
+  const totals = await home.openAccountSwitcher()
+  await expect(totals.pendingTotals).toHaveCount(0)
+  await expect(totals.accountBalance(readonlyAddress)).toHaveText('--')
+  await expect(totals.walletTotal(readonly.key)).toHaveText('--')
+  await expect(totals.accountBalance(created.accounts[0]!.address)).toHaveText(shown(0))
+  expect(explorer.statisticsRequests(readonlyAddress)).toBe(before)
+  await totals.close()
+})
+
+/** The unit the switcher shows after each total on Regtest, in every locale. */
+const REGTEST_UNIT = CHAINS_MAP[ChainType.QBIT_REGTEST]!.unit
+
+/** A total as the switcher shows it on Regtest. */
+const shown = (sats: number | bigint) => switcherAmount(sats, REGTEST_UNIT)
+
+/** The totals a switcher listing these accounts and wallets shows, keyed as `totalTexts` keys them. */
+function expectedTotals(
+  accounts: Record<string, string>,
+  wallets: Record<string, string>
+): Record<string, string> {
+  return {
+    ...Object.fromEntries(
+      Object.entries(accounts).map(([address, text]) => [`account-balance-${address}`, text])
+    ),
+    ...Object.fromEntries(
+      Object.entries(wallets).map(([key, text]) => [`wallet-total-${key}`, text])
+    ),
+  }
+}
+
+/** How many statistics reads of each address the stand-in explorer has answered or holds. */
+function statisticsReads(explorer: EmptyRegtestExplorer, addresses: readonly string[]): number[] {
+  return addresses.map(address => explorer.statisticsRequests(address))
+}
+
+/**
+ * Locks the wallet and unlocks it in a new page, which forgets every total
+ * the background kept. Each account the home screen showed while it was
+ * current had its total measured then, fresh for a minute, so without this
+ * the switcher would show that total and read nothing.
+ */
+async function forgetKeptTotals(extension: ExtensionSession, page: Page): Promise<WalletHomePage> {
+  await extension.requestWalletController(page, 'lockWallet')
+  const unlocking = await extension.openWallet('/main')
+  await page.close()
+  await new SettingsPage(unlocking).unlock(E2E_PASSWORD)
+  const home = new WalletHomePage(unlocking)
+  await home.waitUntilReady()
+  return home
+}
+
+async function expectTotals(sheet: AccountSwitcherSheet, expected: Record<string, string>) {
+  await expect.poll(() => sheet.totalTexts()).toEqual(expected)
+  await expect(sheet.pendingTotals).toHaveCount(0)
+}
+
+test('switch account balances: on an empty chain every row and every wallet total shows 0', async ({
+  extension,
+}) => {
+  const { home, created, restored } = await setUpTwoWallets(extension)
+  const sheet = await home.openAccountSwitcher()
+  await expectTotals(
+    sheet,
+    expectedTotals(
+      { [created.accounts[0]!.address]: shown(0), [restored.accounts[0]!.address]: shown(0) },
+      { [created.key]: shown(0), [restored.key]: shown(0) }
+    )
+  )
+  // The amount follows the account count on the header's count line.
+  await expect(sheet.walletHeader(restored.key)).toContainText(shown(0))
+  await sheet.close()
+})
+
+test('switch account balances: reopened within a minute, the sheet reads no statistics and shows the amounts at once', async ({
+  extension,
+  explorer,
+}) => {
+  const { page, created, restored } = await setUpTwoWallets(extension)
+  // A second account in each wallet; the last one derived is current. The
+  // other three show what the explorer reports for them, which only the
+  // switcher reads: the home screen reads the current account alone.
+  await extension.requestWalletController(page, 'deriveNewAccountFromMnemonic', [
+    created,
+    'Savings',
+  ])
+  await extension.requestWalletController(page, 'deriveNewAccountFromMnemonic', [
+    await walletKeyring(extension, page, restored.key),
+    'Spending',
+  ])
+  const savings = (await walletKeyring(extension, page, created.key)).accounts[1]!
+  const spending = (await walletKeyring(extension, page, restored.key)).accounts[1]!
+  const first = created.accounts[0]!.address
+  const restoredFirst = restored.accounts[0]!.address
+  explorer.reportFunds(first, 150_000_000)
+  explorer.reportFunds(savings.address, 25_000_000)
+  explorer.reportFunds(restoredFirst, 1)
+  const home = await forgetKeptTotals(extension, page)
+  await home.expectCurrentAccount({ walletName: 'Wallet 2', address: spending.address })
+  const others = [first, savings.address, restoredFirst]
+  const expected = expectedTotals(
+    {
+      [first]: shown(150_000_000),
+      [savings.address]: shown(25_000_000),
+      [restoredFirst]: shown(1),
+      [spending.address]: shown(0),
+    },
+    { [created.key]: shown(175_000_000), [restored.key]: shown(1) }
+  )
+
+  // The first opening reads the statistics of each account once.
+  const beforeFirst = statisticsReads(explorer, others)
+  // Before the reads begin, so the time checked below is never less than
+  // the time since their answers arrived.
+  const openedAt = Date.now()
+  let sheet = await home.openAccountSwitcher()
+  await expectTotals(sheet, expected)
+  expect(statisticsReads(explorer, others)).toEqual(beforeFirst.map(count => count + 1))
+  await sheet.close()
+
+  // From here on no statistics read of those accounts would get an answer,
+  // so an amount on screen is one the background kept. Opened again in the
+  // same page, and in a new page, as reopening the popup does, whose store
+  // starts empty: the amounts show, and no read reached the explorer.
+  const releases = others.map(address => explorer.holdStatistics(address))
+  try {
+    sheet = await home.openAccountSwitcher()
+    await expectTotals(sheet, expected)
+    await sheet.close()
+    const reopened = await reopenWallet(extension, home.page)
+    sheet = await reopened.openAccountSwitcher()
+    await expectTotals(sheet, expected)
+    expect(Date.now() - openedAt).toBeLessThan(60_000)
+    expect(statisticsReads(explorer, others)).toEqual(beforeFirst.map(count => count + 1))
+    await sheet.close()
+  } finally {
+    for (const release of releases) release()
+  }
+})
+
+test('switch account balances: with balances hidden every row and wallet total shows **** and nothing is read', async ({
+  extension,
+  explorer,
+}) => {
+  const { page, created, restored } = await setUpTwoWallets(extension)
+  const other = created.accounts[0]!.address
+  const current = restored.accounts[0]!.address
+  const home = await forgetKeptTotals(extension, page)
+  await home.setBalancesHidden(true)
+
+  const before = explorer.statisticsRequests(other)
+  let sheet = await home.openAccountSwitcher()
+  await expectTotals(
+    sheet,
+    expectedTotals(
+      { [other]: '****', [current]: '****' },
+      { [created.key]: '****', [restored.key]: '****' }
+    )
+  )
+  await sheet.close()
+  expect(explorer.statisticsRequests(other)).toBe(before)
+
+  // Shown again, the sheet reads the account, as the count would have shown above.
+  await home.setBalancesHidden(false)
+  sheet = await home.openAccountSwitcher()
+  await expectTotals(
+    sheet,
+    expectedTotals(
+      { [other]: shown(0), [current]: shown(0) },
+      { [created.key]: shown(0), [restored.key]: shown(0) }
+    )
+  )
+  expect(explorer.statisticsRequests(other)).toBe(before + 1)
+  await sheet.close()
+})
+
+test('switch account balances: at the popup width a long name and a large amount fit on a row and a wallet header', async ({
+  extension,
+  explorer,
+}) => {
+  const { home: setUpHome, created, restored } = await setUpTwoWallets(extension)
+  const largeAccount = restored.accounts[0]!.address
+  const smallAccount = created.accounts[0]!.address
+  // The restored wallet carries the "recovered" tag. With the other wallet
+  // current, the explorer's report is all the switcher reads of its account:
+  // the largest amount a total can show, 20,999,999.99999999 coins.
+  await setUpHome.switchAccount(smallAccount)
+  const largeSats = 2_099_999_999_999_999
+  explorer.reportFunds(largeAccount, largeSats)
+  const home = await forgetKeptTotals(extension, setUpHome.page)
+  const page = home.page
+
+  const viewport = page.viewportSize()
+  await page.setViewportSize({ width: 357, height: 600 })
+  try {
+    const sheet = await home.openAccountSwitcher()
+    // The longest names there can be: 20 characters each.
+    await sheet.renameWallet(restored.key, 'Emergency Fund Vault')
+    await sheet.renameAccount(largeAccount, 'Mortgage Overpayment')
+    await expectTotals(
+      sheet,
+      expectedTotals(
+        { [largeAccount]: shown(largeSats), [smallAccount]: shown(0) },
+        { [created.key]: shown(0), [restored.key]: shown(largeSats) }
+      )
+    )
+    await sheet.accountRow(largeAccount).scrollIntoViewIfNeeded()
+
+    // The row: the name, then the amount, whole, then the "..." button,
+    // none over another, on a row at least 52 px high.
+    const amount = sheet.accountBalance(largeAccount)
+    expect(await cutOff(amount)).toBe(0)
+    const amountBox = await box(amount)
+    const nameBox = await box(sheet.accountName(largeAccount))
+    const rowMenuBox = await box(sheet.accountMenuButton(largeAccount))
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(amountBox.x + 0.5)
+    expect(amountBox.x + amountBox.width).toBeLessThanOrEqual(rowMenuBox.x + 0.5)
+    expect((await box(sheet.accountRow(largeAccount))).height).toBeGreaterThanOrEqual(52)
+
+    // The header: the name and its tag, the count line with the total,
+    // whole, and the "+" and "..." buttons after them, 48 px high.
+    const total = sheet.walletTotal(restored.key)
+    expect(await cutOff(total)).toBe(0)
+    const totalBox = await box(total)
+    const tagBox = await box(sheet.walletTag(restored.key, 'recovered'))
+    const walletNameBox = await box(sheet.walletName(restored.key))
+    const actionsLeft = (await box(sheet.addAccountButton(restored.key))).x
+    expect(walletNameBox.x + walletNameBox.width).toBeLessThanOrEqual(tagBox.x + 0.5)
+    expect(tagBox.x + tagBox.width).toBeLessThanOrEqual(actionsLeft + 0.5)
+    expect(totalBox.x + totalBox.width).toBeLessThanOrEqual(actionsLeft + 0.5)
+    expect(totalBox.y).toBeGreaterThanOrEqual(walletNameBox.y + walletNameBox.height - 0.5)
+    expect((await box(sheet.walletHeader(restored.key))).height).toBeCloseTo(48, 0)
+    expect((await box(sheet.walletHeader(created.key))).height).toBeCloseTo(48, 0)
+    await sheet.close()
+  } finally {
+    if (viewport) await page.setViewportSize(viewport)
+  }
+})
+
+/** A message of the built extension in the browser's language (en), with `$1`... filled in. */
+function message(key: string, substitutions: string[] = []): string {
+  const messages = JSON.parse(
+    readFileSync(resolve(extensionDist, '_locales/en/messages.json'), 'utf8')
+  ) as Record<string, { message: string }>
+  const text = messages[key]?.message
+  if (text === undefined) throw new Error(`the extension has no message ${key}`)
+  return text.replace(/\$(\d)/g, (_, index: string) => substitutions[Number(index) - 1] ?? '')
+}
+
+test('switch account balances: statistics reads that fail with nothing measured before show -- on the row and the wallet total', async ({
+  extension,
+  explorer,
+}) => {
+  const { page, created, restored } = await setUpTwoWallets(extension)
+  const other = created.accounts[0]!.address
+  const current = restored.accounts[0]!.address
+  explorer.failStatistics(other)
+  // A new page, whose store holds nothing, and a background that forgot what
+  // it measured: nothing was measured before the failing reads.
+  const home = await forgetKeptTotals(extension, page)
+  const before = explorer.statisticsRequests(other)
+  const sheet = await home.openAccountSwitcher()
+  await expectTotals(
+    sheet,
+    expectedTotals(
+      { [other]: '--', [current]: shown(0) },
+      { [created.key]: '--', [restored.key]: shown(0) }
+    )
+  )
+  // The read reached the explorer and failed; nothing stale is shown.
+  expect(explorer.statisticsRequests(other)).toBeGreaterThan(before)
+  await expect(sheet.root.locator('[data-stale="true"]')).toHaveCount(0)
+  await expect(sheet.walletTotalStaleNote(created.key)).toHaveCount(0)
+  await sheet.close()
+})
+
+test('switch account balances: reads that fail after an earlier total show it dimmed, said to be out of date', async ({
+  extension,
+  explorer,
+}) => {
+  const { page, created, restored } = await setUpTwoWallets(extension)
+  const other = created.accounts[0]!.address
+  const current = restored.accounts[0]!.address
+  explorer.reportFunds(other, 150_000_000)
+  let home = await forgetKeptTotals(extension, page)
+  let sheet = await home.openAccountSwitcher()
+  await expectTotals(
+    sheet,
+    expectedTotals(
+      { [other]: shown(150_000_000), [current]: shown(0) },
+      { [created.key]: shown(150_000_000), [restored.key]: shown(0) }
+    )
+  )
+  const label = (stale: boolean) =>
+    message(
+      stale
+        ? 'account_switcher_account_balance_stale_label'
+        : 'account_switcher_account_balance_label',
+      ['Account 1', 'Wallet 1', shortAddress(other), shown(150_000_000)]
+    )
+  await expect(sheet.accountRow(other)).toHaveAccessibleName(label(false))
+  await sheet.close()
+
+  // A lock in this page: the background forgets the total and reads it again
+  // at the next opening, and that read fails; the page keeps what it showed.
+  explorer.failStatistics(other)
+  await extension.requestWalletController(home.page, 'lockWallet')
+  await new SettingsPage(home.page).unlock(E2E_PASSWORD)
+  home = new WalletHomePage(home.page)
+  await home.waitUntilReady()
+  const before = explorer.statisticsRequests(other)
+  sheet = await home.openAccountSwitcher()
+  await expect(sheet.accountBalance(other)).toHaveAttribute('data-stale', 'true')
+  await expect(sheet.accountBalance(other)).toHaveText(shown(150_000_000))
+  await expect(sheet.walletTotal(created.key)).toHaveAttribute('data-stale', 'true')
+  await expect(sheet.walletTotal(created.key)).toHaveText(shown(150_000_000))
+  await expect(sheet.walletTotalStaleNote(created.key)).toHaveText(
+    message('account_switcher_total_stale_note')
+  )
+  await expect(sheet.accountRow(other)).toHaveAccessibleName(label(true))
+  expect(explorer.statisticsRequests(other)).toBeGreaterThan(before)
+  // The accounts that read well are not dimmed.
+  await expect(sheet.accountBalance(current)).not.toHaveAttribute('data-stale', 'true')
+  await expect(sheet.walletTotal(restored.key)).not.toHaveAttribute('data-stale', 'true')
+  await expect(sheet.walletTotalStaleNote(restored.key)).toHaveCount(0)
   await sheet.close()
 })

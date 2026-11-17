@@ -73,6 +73,7 @@ import {
   BUS_METHODS,
   type BiometricUnlockRecord,
   type BiometricUnlockStatus,
+  type QbitAccountTotal,
   QbitBalance,
   CHAINS_MAP,
   ConnectedSite,
@@ -308,6 +309,13 @@ import {
   isQbitRideOutFailure,
   type QbitFundingFactsView,
 } from '../utils/qbit-funding-tx-reads'
+import {
+  QbitAccountTotals,
+  type QbitAccountTotalsClearKind,
+  assertQbitAccountTotalAddress,
+  assertQbitAccountTotalAddresses,
+  qbitNoAccountTotal,
+} from '../utils/qbit-account-totals'
 
 import { paramsUtils } from '@qbit/base-utils'
 import {
@@ -2457,6 +2465,7 @@ export class WalletController extends BaseController {
     // before them, nor while locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
+    this.forgetQbitAccountTotals()
     // A send plan stops signing before its next signature, and its drafts
     // go: told before the keyring's lock, which may wait for its mutex, and
     // not again by that lock's event (see `listenForKeyringLocks`).
@@ -2508,6 +2517,9 @@ export class WalletController extends BaseController {
 
   getAddressBalanceV2 = async (address: string) => {
     const chainType = this.getChainType()
+    // Its total feeds the account switcher's (`qbitAccountTotals`), ranked
+    // and dated by when this read began.
+    const totalsSince = this.qbitAccountTotals.begin()
     const currentAccount = preferenceService.getCurrentAccount()
     const p2mrScriptPubKey =
       currentAccount?.address === address ? currentAccount.p2mr?.scriptPubKey : undefined
@@ -2569,6 +2581,7 @@ export class WalletController extends BaseController {
       readOutputs,
       { fundingTxReads: this.qbitFundingTxReads }
     )
+    this.qbitAccountTotals.measured(client, address, data.totalBalance, totalsSince)
     if (reservedUnknown) {
       // Shown as `--`, as past the explorer's UTXO limit: the total is
       // measured, and nothing counts as available until a read has the
@@ -2589,6 +2602,184 @@ export class WalletController extends BaseController {
       }
     }
     return { ...data, chainType }
+  }
+
+  /**
+   * What is kept of each address's total, for the account switcher: one
+   * answer per entry, in order, duplicates included, `fresh` as of now.
+   * Reads nothing from the explorer and starts nothing. An address that is
+   * no account of a listed wallet, or any address while the wallet reads
+   * locked, answers with no total, and so does every address when the
+   * answer cannot be made. Rejects only for anything but an array of at most
+   * `QBIT_ACCOUNT_TOTALS_MAX_ADDRESSES` non-empty strings.
+   */
+  getQbitAccountTotals = async (addresses: string[]): Promise<QbitAccountTotal[]> => {
+    assertQbitAccountTotalAddresses(addresses)
+    const chainType = this.getChainType()
+    if (addresses.length === 0) return []
+    try {
+      const own = await this.qbitOwnAccountAddresses(chainType)
+      const client = own ? this.getQbitApiClient(chainType) : undefined
+      return addresses.map(address =>
+        client && own?.has(address)
+          ? this.qbitAccountTotals.peek(client, address, chainType)
+          : qbitNoAccountTotal(address, chainType)
+      )
+    } catch (error) {
+      log.warn('[WalletController] Qbit account totals not answered', summarizeError(error))
+      return addresses.map(address => qbitNoAccountTotal(address, chainType))
+    }
+  }
+
+  /**
+   * The address's total, for the account switcher: the kept one while it is
+   * fresh, otherwise one read of its statistics on the network active when
+   * the call began (see `qbitAccountTotals`). An address that is no account
+   * of a listed wallet, or any address while the wallet reads locked,
+   * answers with no total and is not read. Rejects only for an address that
+   * is not a non-empty string; a failed read resolves with `error: true`.
+   *
+   * A call that a clear overtakes answers with no total, except after a
+   * wallet's removal or the regtest access turned off while on another
+   * network (`forgetQbitAccountTotals('may-read-again')`): the wallets that
+   * stay are the same wallets, on the same network, and a switcher left
+   * open would show `--` for every one of them, so the call reads once
+   * more, under a new place, if the wallet still reads unlocked, the
+   * network is still the one it began on and the address is still an own
+   * account's.
+   */
+  readQbitAccountTotal = async (address: string): Promise<QbitAccountTotal> => {
+    assertQbitAccountTotalAddress(address)
+    const chainType = this.getChainType()
+    let since = this.qbitAccountTotals.begin()
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        const own = await this.qbitOwnAccountAddresses(chainType)
+        if (!own?.has(address)) return qbitNoAccountTotal(address, chainType)
+        const total = await this.qbitAccountTotals.read(
+          this.getQbitApiClient(chainType),
+          address,
+          chainType,
+          since
+        )
+        if (attempt > 0 || !this.qbitAccountTotals.mayReadAgain(since)) return total
+        since = this.qbitAccountTotals.begin()
+      }
+    } catch (error) {
+      log.warn('[WalletController] Qbit account total not read', summarizeError(error))
+      return { ...qbitNoAccountTotal(address, chainType), error: true }
+    }
+  }
+
+  /**
+   * The addresses of every account of the wallets listed now (`getKeyrings`),
+   * as shown on `chainType`, that are addresses of that Qbit network, as a
+   * send checks its recipient: a developer-mode read-only wallet, a watched
+   * address or a cold wallet shows Bitcoin-style addresses (`bc1…`, `tb1…`),
+   * which the Qbit explorer is never asked about. `undefined` while the
+   * wallet reads locked, or once the network is no longer `chainType`.
+   */
+  private qbitOwnAccountAddresses = async (
+    chainType: ChainType
+  ): Promise<ReadonlySet<string> | undefined> => {
+    if (!this.isUnlocked()) return undefined
+    const forgotten = this.qbitOwnAddressesForgotten
+    const displayed = await this.readShownKeyrings()
+    if (!this.isUnlocked() || this.getChainType() !== chainType) return undefined
+    const derived = this.qbitOwnAddressesDerived
+    if (derived?.displayed === displayed && derived.chainType === chainType) {
+      return derived.addresses
+    }
+    const networkType = CHAINS_MAP[chainType]?.networkType
+    const addresses = new Set<string>()
+    if (networkType !== undefined) {
+      for (const keyring of this.walletKeyringsOf(displayed)) {
+        for (const { address } of keyring.accounts) {
+          if (
+            isValidAddress(address, networkType) &&
+            getAddressType(address, networkType) === AddressType.P2MR
+          ) {
+            addresses.add(address)
+          }
+        }
+      }
+    }
+    // Not kept from a list read before the totals were forgotten.
+    if (forgotten === this.qbitOwnAddressesForgotten) {
+      this.qbitOwnAddressesDerived = { displayed, chainType, addresses }
+    }
+    return addresses
+  }
+
+  /**
+   * What `qbitOwnAccountAddresses` last derived, and from which list and
+   * network: the keyring service hands back the same list object until the
+   * keyrings change (a wallet or an account added or removed, an address
+   * type or HD path changed, a lock or an unlock) or its display network
+   * does, and a wallet's addresses depend on nothing else, so an unchanged
+   * list on an unchanged network has the same addresses and costs no
+   * derivation. Holds no key material, and is forgotten with the totals
+   * (`forgetQbitAccountTotals`), so nothing of a wallet locked away, reset
+   * or removed stays here.
+   */
+  private qbitOwnAddressesDerived:
+    | { displayed: DisplayedKeyring[]; chainType: ChainType; addresses: ReadonlySet<string> }
+    | undefined = undefined
+
+  /** Counts `forgetQbitAccountTotals`: a derivation begun before one keeps nothing. */
+  private qbitOwnAddressesForgotten = 0
+
+  /** The keyring service's list read under way for `readShownKeyrings`. */
+  private qbitShownRead: Promise<DisplayedKeyring[]> | undefined = undefined
+
+  /** The read that follows it, shared by every call that came while it was under way. */
+  private qbitShownNextRead: Promise<DisplayedKeyring[]> | undefined = undefined
+
+  /**
+   * The wallets as the keyring service lists them, from a read begun no
+   * earlier than this call: the service shares no build of the list under
+   * way, so a burst of calls on a list it must build again would each build
+   * every wallet. The first starts a read; every call that comes while it
+   * is under way, begun before them and so perhaps from before a change,
+   * waits for it and then shares one read that starts once it settled.
+   * After a build the service keeps its list, so that read costs nothing
+   * unless the keyrings changed meanwhile, and then it is one build for all.
+   */
+  private readShownKeyrings = (): Promise<DisplayedKeyring[]> => {
+    if (this.qbitShownNextRead) return this.qbitShownNextRead
+    const underWay = this.qbitShownRead
+    if (!underWay) return this.startShownRead()
+    const settled = (): void => undefined
+    const next = underWay.then(settled, settled).then(() => {
+      if (this.qbitShownNextRead === next) this.qbitShownNextRead = undefined
+      return this.startShownRead()
+    })
+    this.qbitShownNextRead = next
+    return next
+  }
+
+  private startShownRead = (): Promise<DisplayedKeyring[]> => {
+    const read = keyringService.getAllDisplayedKeyrings()
+    this.qbitShownRead = read
+    const settled = (): void => {
+      if (this.qbitShownRead === read) this.qbitShownRead = undefined
+    }
+    read.then(settled, settled)
+    return read
+  }
+
+  /**
+   * Forget the account totals (`qbitAccountTotals.clear`) and what the
+   * own-address check keeps of the wallets: wherever `qbitFundingTxReads` is
+   * cleared. `'may-read-again'` only where the wallets that stay are the
+   * same wallets, on the same network (a wallet's removal, and the regtest
+   * access turned off while on another network, `dropRegtestApiClients`):
+   * a call it overtakes reads once more (see `readQbitAccountTotal`).
+   */
+  private forgetQbitAccountTotals = (kind?: QbitAccountTotalsClearKind): void => {
+    this.qbitAccountTotals.clear(kind)
+    this.qbitOwnAddressesDerived = undefined
+    this.qbitOwnAddressesForgotten += 1
   }
 
   getMultiAddressSummaries = async (addresses: string) => {
@@ -2916,6 +3107,7 @@ export class WalletController extends BaseController {
     // clears; nothing is kept after those, nor while locked.
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
+    this.forgetQbitAccountTotals()
     // The send plans stop before anything else is reset, and stay stopped
     // until the reset is over: nothing of a plan is signed, broadcast,
     // written or held meanwhile, so no payment leaves for a wallet being
@@ -2934,6 +3126,7 @@ export class WalletController extends BaseController {
       } finally {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
+        this.forgetQbitAccountTotals()
       }
       // The keys are gone, and a stored signed payment needs none to go out:
       // from here no stored plan goes on again, whichever step fails next
@@ -3639,6 +3832,7 @@ export class WalletController extends BaseController {
   private dropWalletCaches = (): void => {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
+    this.forgetQbitAccountTotals()
     this.qbitHistorySnapshots.clear()
     this.qbitConsolidationScans.clear()
     this.qbitConsolidationQueues.clear()
@@ -6651,6 +6845,8 @@ export class WalletController extends BaseController {
       // their funding transactions; the others are read again.
       this.qbitLatestUtxoReads.clear()
       this.qbitFundingTxReads.clear()
+      // The wallets that stay are read again for a switcher left open.
+      this.forgetQbitAccountTotals('may-read-again')
       // Nor do their send plans go on: each ends as a cancel ends it, and
       // nothing more is signed or broadcast for an account no wallet that
       // stays signs for.
@@ -7030,6 +7226,7 @@ export class WalletController extends BaseController {
       if (!this.isUnlocked()) {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
+        this.forgetQbitAccountTotals()
         this.announceLock()
       }
       throw error
@@ -7929,6 +8126,7 @@ export class WalletController extends BaseController {
     // What was read of the previous network's funding transactions is of no
     // more use (see `qbitFundingTxReads`).
     this.qbitFundingTxReads.clear()
+    this.forgetQbitAccountTotals()
 
     // Restored seeds have unscanned floors on the newly active network; either
     // HD-path sync or the explicit same-path re-arm closed their signing gate.
@@ -8060,7 +8258,8 @@ export class WalletController extends BaseController {
     this.enqueueChainStateChange(async () => {
       await this.leaveRegtestFailClosed('disable')
       await regtestAccessService.clearAcknowledgement()
-      this.dropRegtestApiClients()
+      // Off regtest by now: a switcher open on another network reads again.
+      this.dropRegtestApiClients('may-read-again')
       return regtestAccessService.refresh({ verify: false })
     })
 
@@ -8148,15 +8347,19 @@ export class WalletController extends BaseController {
 
   /**
    * Forget cached clients bound to the loopback endpoint, and what was read
-   * through them: the wallet leaves regtest whenever it drops them.
+   * through them: the wallet leaves regtest whenever it drops them. `totals`
+   * is what the account totals' calls it overtakes answer (see
+   * `forgetQbitAccountTotals`): `'may-read-again'` only once the wallet is
+   * off regtest already and stays on its network, its wallets unchanged.
    */
-  private dropRegtestApiClients(): void {
+  private dropRegtestApiClients(totals?: QbitAccountTotalsClearKind): void {
     for (const key of [...this.qbitApiClients.keys()]) {
       if (key.startsWith(`${ChainType.QBIT_REGTEST}:`)) {
         this.qbitApiClients.delete(key)
       }
     }
     this.qbitFundingTxReads.clear()
+    this.forgetQbitAccountTotals(totals)
   }
 
   /** The current account's spendable outputs, always read afresh; see `getQbitUtxoSnapshot`. */
@@ -8465,6 +8668,31 @@ export class WalletController extends BaseController {
    * (`dropRegtestApiClients`); a read that began before then keeps nothing.
    */
   private readonly qbitFundingTxReads = new QbitFundingTxReads({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
+   * The account switcher's totals (`getQbitAccountTotals`,
+   * `readQbitAccountTotal`): each account's total from one small read of
+   * its statistics, per API client and address, fresh for
+   * `QBIT_ACCOUNT_TOTAL_FRESH_MS` (60 s) and fed by every balance read
+   * (`getAddressBalanceV2`), so the current account rarely needs a read of
+   * its own. Its reads are fresh reads, each a request of its own, and
+   * have a limiter of their own, `QBIT_ACCOUNT_TOTALS_MAX_READS_IN_FLIGHT`
+   * per client. Every submission of a transaction to an explorer
+   * (`submitQbitTx`) leaves that client's totals in place but no longer
+   * fresh, and those read soon after fresh for less long, or not kept when
+   * a balance read fed them. In memory only, never persisted.
+   * Nothing is served from it or kept in it while the wallet reads locked,
+   * and it is forgotten wherever `qbitFundingTxReads` is
+   * (`forgetQbitAccountTotals`: whenever the wallet locks, when its data is
+   * reset, when a keyring is removed, when the network changes and when the
+   * regtest clients are dropped); a read that began before then keeps
+   * nothing, and one still waiting or in flight is cancelled, its caller
+   * reading once more only after a wallet's removal or the regtest access
+   * turned off while on another network. See `QbitAccountTotals`.
+   */
+  private readonly qbitAccountTotals = new QbitAccountTotals({
     usable: (): boolean => this.isUnlocked(),
   })
 
@@ -10263,6 +10491,28 @@ export class WalletController extends BaseController {
   }
 
   /**
+   * `client.broadcastTx`, which every submission of a transaction to an
+   * explorer goes through: `pushTx`, and `attemptQbitBroadcast` for the
+   * send, the send plans, fee bumps, consolidation and a dapp's push. The
+   * account totals read through `client` stop being fresh as the bytes go
+   * out and again once the submission settles, whatever its outcome, and a
+   * total read while it is under way, or soon after, counts as possibly from
+   * before it (`qbitAccountTotals.submission`). Called only once the bytes
+   * are to be sent.
+   */
+  private async submitQbitTx(
+    client: QbitWalletApiClient,
+    ...submission: Parameters<QbitWalletApiClient['broadcastTx']>
+  ): Promise<string> {
+    const settled = this.qbitAccountTotals.submission(client)
+    try {
+      return await client.broadcastTx(...submission)
+    } finally {
+      settled()
+    }
+  }
+
+  /**
    * Broadcast signed bytes and throw on failure: a recovery migration's
    * plan. An accepted broadcast records its inputs as recently spent inside
    * the guard. A failure records nothing. The provider's pushTx and pushPsbt
@@ -10273,7 +10523,7 @@ export class WalletController extends BaseController {
     const { chain, client, rawtx, txid, outpoints } = this.prepareQbitBroadcast(txData)
     if (!qbitSendBroadcastClaim) {
       return qbitSendGuardService.broadcastIfAllowed(chain, txid, outpoints, () =>
-        client.broadcastTx(rawtx)
+        this.submitQbitTx(client, rawtx)
       )
     }
     return qbitSendGuardService.broadcastIfAllowed(
@@ -10283,7 +10533,7 @@ export class WalletController extends BaseController {
       async spendCheck => {
         assertQbitExplorerSpendCheck(spendCheck)
         await this.checkQbitBroadcastOnExplorer(client, spendCheck)
-        return client.broadcastTx(rawtx)
+        return this.submitQbitTx(client, rawtx)
       },
       qbitSendBroadcastClaim
     )
@@ -10671,7 +10921,7 @@ export class WalletController extends BaseController {
       const submission = operation.read()
       dispatched = true
       if (firstDispatchAt === undefined) firstDispatchAt = Date.now()
-      const response = await client.broadcastTx(rawtx, submission)
+      const response = await this.submitQbitTx(client, rawtx, submission)
       // Validate inside the guard: `broadcastIfAllowed` consumes the send
       // claim as soon as this callback resolves, so a 2xx that does not echo
       // the txid (a proxy page, an unexpected backend) must reject here to
