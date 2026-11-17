@@ -8,6 +8,17 @@ marker lets that second run skip the expensive jobs when the tree under test
 already passed them in an earlier run that GitHub confirms, while every
 required check still reports success on the new commit.
 
+That was the marker's purpose for G3 too: the signed landing commit could
+skip G3 after the unsigned head had passed it. It no longer applies there.
+On a pull request whose head commit is not signed, G3
+[waits for a signed head](playwright-release-gate.md#signed-heads): no shard
+runs and nothing is saved, so the first signed head of a tree runs G3 in
+full, unless it changes only documentation. For G3 the marker still helps
+when a head that passed is signed again with the same tree, or a later run,
+after a close and reopen say, tests a tree that already passed.
+`Typecheck, test, and build` runs on every head, signed or not, so there the
+landing commit still skips after the unsigned head passed.
+
 The logic is in
 [`scripts/security/tree-pass-marker.mjs`](../scripts/security/tree-pass-marker.mjs),
 with its tests next to it. The workflows only wire it together.
@@ -336,8 +347,10 @@ that run in parallel, with `playwright.config.ts` unchanged:
   extension, starts its own regtest harness and runs
   `playwright test --shard=<n>/5`, which takes whole files, in file order, by
   test count, so every test runs in exactly one shard. It needs
-  `Tree pass marker` with `if: ${{ !cancelled() }}`, so a cancelled run stops
-  it, has the gate, and uploads its report as
+  `Tree pass marker` with
+  `if: ${{ !cancelled() && !(needs.tree-pass.result == 'success' && needs.tree-pass.outputs.signed-head-wait == 'true') }}`,
+  so a cancelled run stops it and a run that waits for a signed head skips
+  the whole matrix, has the gate, and uploads its report as
   `playwright-release-gate-<run ID>-<attempt>-shard-<n>`. It has 45 minutes:
   the longest shard takes about 12.5 with its setup, and the longest test
   timeout, the wipe/restore scenario's 15 minutes, reached on the first try
@@ -354,13 +367,18 @@ that run in parallel, with `playwright.config.ts` unchanged:
   shards' combined result to be `success` on every run, a marker hit
   included. Unless the gate said "skip", it also requires `tested-1` to
   `tested-5` to be `true`. Otherwise it fails and names the shard. Its last
-  step, gated as usual, sets `tested=true`.
+  step, gated as usual, sets `tested=true`. Its name is computed: while the
+  run waits for a signed head it is
+  `Playwright G3 scenarios (waits for a signed head)`, its gate sets `wait`
+  instead of `skip`, its check step requires the shards' result to be
+  `skipped` with no `tested-<n>` set, and its last step does not run (see
+  [Signed heads](playwright-release-gate.md#signed-heads)).
 - **`Record tree pass`** needs `Tree pass marker` and
   `Playwright G3 scenarios`, not the shard matrix: its record step reads one
   `tested` per job it needs, which a matrix job cannot give per leg. It
   reaches the shards through `Playwright G3 scenarios`, whose `tested=true`
   stands for all five, and `decide` checks each leg by name in the run a
-  marker names.
+  marker names. It does not run while the run waits for a signed head.
 
 The matrix is the one source of the shard list and total. The wiring tests
 fail unless it is exactly `1` to `n`, and the total in `--shard`, the job
@@ -377,6 +395,14 @@ How `Playwright G3 scenarios` ends:
 | hit                          | success, steps skipped        | failure        | failure                            | failure                   |
 | docs-only, no hit            | success, steps skipped        | failure        | failure                            | failure                   |
 | miss                         | success, `tested=true`, saved | failure        | failure                            | failure                   |
+
+While the run waits for a signed head, the shard job is skipped whole, and
+`Playwright G3 scenarios (waits for a signed head)` passes, records nothing
+and saves nothing. Should the shard job have any other result, or a shard
+have set its `tested-<n>`, it fails. A cancelled run that waits shows
+failure under that name if the shards were cancelled before GitHub skipped
+them, and success under it if the cancellation came after. Neither is a
+check named `Playwright G3 scenarios`.
 
 And when the run is cancelled, in any of those rows:
 
@@ -478,7 +504,15 @@ require none.
 - Both jobs keep running on a marker hit, with every step after the gate
   skipped (each also checks its lanes or shards), so each check reports
   **success**, not "skipped".
-- Neither is a matrix job, so their check names never change. The lanes of
+- Neither is a matrix job. The name of `Typecheck, test, and build` never
+  changes; that of `Playwright G3 scenarios` changes only while a pull
+  request run waits for a signed head, to
+  `Playwright G3 scenarios (waits for a signed head)`, which is no required
+  check. The waiting run reports no check under the required name, so where
+  it is required (see
+  [`.github/rulesets/README.md`](../.github/rulesets/README.md)) it stays
+  pending, unless an earlier run on the same commit already reported it. The
+  lanes of
   `Typecheck, test, and build` are jobs of their own, and the G3 shards are a
   matrix job, whose legs GitHub names `Playwright G3 shard <n> of 5`; none of
   them is a required check, and each required job reports the combined
@@ -509,9 +543,12 @@ require none.
 ## Landing a pull request
 
 The skip pays off only if the run before the landing push saved its marker,
-so wait for `Record tree pass` to succeed in both `CI` and
-`Browser release gate` before pushing the landing commit, not only for the
-required checks. It needs every covered job, the G3 shards through
+so wait for `Record tree pass` to succeed in `CI` before pushing the landing
+commit, not only for the required checks. In `Browser release gate` it can
+do so only if that head was signed: a run on an unsigned head waits for a
+signed head and saves nothing, a run with `ci:full-run` never saves, and the
+signed landing commit then runs G3 in full. It needs every covered job, the
+G3 shards through
 `Playwright G3 scenarios`, so it finishes after the last of them: about 15
 seconds later in this pull request's first run, and longer when GitHub-hosted
 runners are queued.
@@ -776,7 +813,15 @@ the artifact it recorded, or why it declined.
   or after they run, to the tables in
   [Sharded G3 scenarios](#sharded-g3-scenarios). They also pin the docs-only
   step, its output, each gate's `DOCS_ONLY` input and the save job's
-  condition ([Docs-only changes](ci-docs-only.md#changing-it)).
+  condition ([Docs-only changes](ci-docs-only.md#changing-it)). For G3 they
+  pin the signed-head step, its settings and output, the shard job's and the
+  save job's conditions, and the computed name of
+  `Playwright G3 scenarios`, which they render in every state of
+  `Tree pass marker`; they run the waiting cases, with the step's decision
+  computed by the script itself, and fail if any of them gives a passing
+  check named `Playwright G3 scenarios`.
+  `node --test scripts/security/signed-head-gate.test.mjs` covers the
+  decision itself.
 - The dependency policy (`scripts/security/dependency-policy.mjs`) accepts
   those two sub-actions only in `ci.yml` and `playwright-release-gate.yml`,
   never in a local action or another workflow, and
