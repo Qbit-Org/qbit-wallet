@@ -44,6 +44,13 @@ import type {
 } from '@qbit/wallet-shared'
 import { AddressType, ChainType } from '@qbit/wallet-types'
 import {
+  QBIT_BALANCE_REUSE_MIN_OUTPUTS,
+  QBIT_BALANCE_REUSE_TIP_WAIT_MS,
+  type QbitBalanceReuseView,
+  type QbitKeptListing,
+  type QbitReusableBalance,
+} from './qbit-balance-reuse'
+import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
   QBIT_EXPLORER_MAX_BODY_BYTES,
   createQbitExplorerFetch,
@@ -941,6 +948,14 @@ export const QBIT_BALANCE_READ_DEADLINE_MS = 20_000
 export interface QbitBalanceReadOptions extends QbitClassifyOptions {
   /** The whole read's deadline, in ms: `QBIT_BALANCE_READ_DEADLINE_MS` by default. */
   deadlineMs?: number
+  /**
+   * The read's place among the answers kept for reuse
+   * (`QbitBalanceReuse.begin`), taken when it was asked for, before awaits
+   * of its caller's own. Without it, or with a client other than the
+   * wallet's own (`QbitWalletEsploraClient`, `QbitWalletMempoolClient`),
+   * which alone ask for a read fresh, nothing is kept or reused.
+   */
+  reuse?: QbitBalanceReuseView
 }
 
 /**
@@ -1078,6 +1093,39 @@ class QbitBalanceReadOperation {
  * is unknown (`utxoLimitExceeded`) unless `readOutputs` has the outputs a read
  * of the address's history found when the address statistics
  * (`qbitStatsSnapshot`) read as they do now; see `getQbitPastLimitSplit`.
+ *
+ * With `options.reuse` (see `QbitBalanceReuse`) the read asks for the
+ * statistics themselves, the same request as for the balance, and keeps
+ * the classified outputs of a complete read, one that ran to the end and
+ * read the reservations, of a listing of at least
+ * `QBIT_BALANCE_REUSE_MIN_OUTPUTS` outputs, every one confirmed, that agrees
+ * in count and value with the confirmed statistics read with it, no mempool
+ * number of which is above 0 (`qbitReusableListingDigest`), at a tip that
+ * answered, each output classified as paying the address's own script, while
+ * no fact kept by `options.fundingTxReads` changed or went from before it
+ * classified any (`QbitFundingTxReads.factChanges`). Kept first as a
+ * candidate, the answer is confirmed by a later read, begun once it was
+ * kept, that lists the same outputs under the same statistics in a listing
+ * asked for fresh (`QbitTxOutspendsOptions.fresh`), which no cache answers
+ * and no other request shares: a read of an address with an answer kept
+ * asks for its listing so. A confirmed answer is reused for at most
+ * `QBIT_BALANCE_REUSE_MAX_AGE_MS` from when that read began, and only while
+ * no kept fact has changed or gone since. A poll with one asks for the
+ * statistics, fresh, and the tip, together, and no listing: it reuses the
+ * answer when the statistics read as they did for it and the tip, waited
+ * for at most `QBIT_BALANCE_REUSE_TIP_WAIT_MS` once the statistics have
+ * answered, neither fell below the one it was read at nor reached the height
+ * at which an output it counts immature matures, reading the reservations
+ * afresh; the split is then what a read of the listing would give (see
+ * `reuseQbitBalance`). Otherwise it asks for the listing then, one round
+ * trip later, and reads on as above, the reservations read again after the
+ * listing. Statistics that no longer read as they did for the answer, a
+ * kept fact changed or gone, or a listing that may not be kept forget it, so the next
+ * poll asks for the listing with the statistics again; a tip that failed or
+ * did not answer in time sets it aside, and polls read as with nothing kept
+ * until its age runs out. Without such an answer, or without
+ * `options.reuse`, the listing is asked for with the statistics, as it
+ * always was.
  */
 export async function getQbitSpendableBalanceV2(
   client: QbitEsploraClient,
@@ -1099,7 +1147,8 @@ export async function getQbitSpendableBalanceV2(
       readReserved,
       readOutputs,
       operation,
-      options.fundingTxReads
+      options.fundingTxReads,
+      options.reuse
     )
     operation.throwIfCancelled()
     return summary
@@ -1115,34 +1164,76 @@ async function readQbitSpendableBalance(
   readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
   readOutputs: ((stats: string) => QbitOutputRead | undefined) | undefined,
   operation: QbitBalanceReadOperation,
-  fundingTxReads: QbitFundingTxReads | undefined
+  fundingTxReads: QbitFundingTxReads | undefined,
+  reuse: QbitBalanceReuseView | undefined
 ): Promise<QbitBalanceSummaryPayload> {
   operation.throwIfCancelled()
   const { signal } = operation
-  const balanceRead = client.getAddressBalance(address, { signal })
-  // What it keeps for the next read, noted as the facts are kept.
-  const progress: QbitClassifyProgress = { kept: [] }
-  // Its answer is a few totals, which no send takes inputs from (see
-  // `classifyQbitUtxos`).
-  const classifying = listAndClassifyQbitUtxos(client, address, {
-    signal,
-    balanceOnly: true,
-    progress,
-    ...(fundingTxReads ? { fundingTxReads } : {}),
-  })
+  // Only the wallet's own clients ask for a read fresh, which confirming a
+  // kept answer takes (see `getQbitSpendableBalanceV2`).
+  const reusing = reuse && qbitClientReadsFresh(client) ? reuse : undefined
+  // How many times this client's kept facts had changed or gone as the read
+  // began, taken again should it list after giving up a reuse: a kept answer
+  // holds only while that has not moved since (see `QbitBalanceReuse`).
+  let factsAt = fundingTxReads?.factChanges(client)
+  const factsNow = (): number | undefined => fundingTxReads?.factChanges(client)
+  // An answer this read may reuse: only then does the listing wait for the
+  // statistics.
+  const kept = reusing?.reusable(client, address, factsAt)
+  // With a place among the kept answers, the statistics themselves, which
+  // the balance comes from at no request more; fresh when an answer is to
+  // be reused on their word alone.
+  const statsRead = reusing
+    ? client.getAddressStats(address, kept ? qbitFreshRead({ signal }) : { signal })
+    : client.getAddressBalance(address, { signal })
+  const listing = beginQbitBalanceListing(client, address, signal, fundingTxReads)
+  let classifying = kept ? undefined : listQbitBalanceOutputs(listing, reusing)
   // Settled below, or left once the statistics fail.
-  classifying.catch(() => undefined)
+  classifying?.catch(() => undefined)
+  let stats: EsploraAddressStats | undefined
   let balance: AddressBalance
   try {
-    balance = await balanceRead
+    const read = await statsRead
+    if (reusing) {
+      stats = read as EsploraAddressStats
+      balance = addressBalanceFromStats(stats)
+    } else {
+      balance = read as AddressBalance
+    }
   } catch (error) {
     // Nothing can be reported without the total, so the outputs are not
     // read on.
     operation.stop(error)
+    if (!classifying) listing.tip?.close()
     operation.throwIfCancelled()
     throw operation.timedOut ? operation.timeoutError : error
   }
   const aggregateBalance = qbitBalanceToSummary(balance)
+  if (!classifying) {
+    const reused =
+      kept && reusing && stats
+        ? await reuseQbitBalance(
+            kept,
+            reusing,
+            stats,
+            aggregateBalance,
+            listing,
+            p2mrScriptPubKey,
+            readReserved,
+            operation,
+            factsNow
+          )
+        : undefined
+    if (reused) return reused
+    // Not reused: the listing is read after all, the tip already asked for.
+    // Nothing has been classified yet, so the count is taken again: a fact
+    // that changed or went meanwhile, which may be why the answer was not
+    // reused, no longer keeps this read's own answer from being kept, as a
+    // candidate the next poll may confirm.
+    factsAt = fundingTxReads?.factChanges(client)
+    classifying = listQbitBalanceOutputs(listing, reusing)
+  }
+  const { progress } = listing
   let classified: QbitClassifiedUtxos
   try {
     classified = await classifying
@@ -1170,6 +1261,9 @@ async function readQbitSpendableBalance(
       operation
     )
   }
+  // Read once the outputs are, as by a read with nothing kept: a reuse given
+  // up after reading them read them before the listing, which can take
+  // seconds, while a send may reserve outputs.
   let reserved: ReadonlySet<string> | undefined
   if (readReserved) {
     try {
@@ -1183,6 +1277,332 @@ async function readQbitSpendableBalance(
       throw error
     }
   }
+  const split = qbitClassifiedSplit(aggregateBalance, classified, p2mrScriptPubKey, reserved)
+  // Kept even when the controller stopped waiting for the send guard and
+  // answers the split unknown: a kept answer holds no reservations, and
+  // every reuse reads them afresh.
+  if (reusing && stats) {
+    keepQbitBalanceRead(reusing, listing, stats, classified, signal, factsAt, factsNow)
+  }
+  return split
+}
+
+/**
+ * What a balance read's listing goes with (`listQbitBalanceOutputs`), begun
+ * with the read, before its first await: the tip, asked for at once for an
+ * address whose script is known (see `classifyQbitUtxos`), whether the
+ * listing is asked for with it or after it, and the read's place among the
+ * shared reader's clears, so that a clear while the statistics are read
+ * counts as well.
+ */
+interface QbitBalanceListing {
+  readonly client: QbitEsploraClient
+  readonly address: string
+  readonly signal: AbortSignal
+  /** The script paying the address, in lower case (`qbitAddressScript`). */
+  readonly script: string | undefined
+  readonly fundingTxReads: QbitFundingTxReads | undefined
+  readonly facts: QbitFundingFactsView | undefined
+  readonly tip: QbitTipRead | undefined
+  /** What the classification kept for the next read, and the listing it classified. */
+  readonly progress: QbitClassifyProgress
+  /** Whether the listing was asked for fresh (`QbitTxOutspendsOptions.fresh`). */
+  fresh: boolean
+}
+
+function beginQbitBalanceListing(
+  client: QbitEsploraClient,
+  address: string,
+  signal: AbortSignal,
+  fundingTxReads: QbitFundingTxReads | undefined
+): QbitBalanceListing {
+  const script = qbitAddressScript(address)
+  const tip = script !== undefined ? new QbitTipRead(client, signal) : undefined
+  tip?.start()
+  return {
+    client,
+    address,
+    signal,
+    script,
+    fundingTxReads,
+    facts: fundingTxReads?.begin(client),
+    tip,
+    progress: { kept: [] },
+    fresh: false,
+  }
+}
+
+/**
+ * The balance read's listing, classified with what `listing` began. With an
+ * answer kept for the address (`QbitBalanceReuseView.has`) it is asked for
+ * fresh, as a listing that confirms one must be.
+ */
+function listQbitBalanceOutputs(
+  listing: QbitBalanceListing,
+  reuse: QbitBalanceReuseView | undefined
+): Promise<QbitClassifiedUtxos> {
+  listing.fresh = reuse?.has(listing.client, listing.address) === true
+  // Its answer is a few totals, which no send takes inputs from (see
+  // `classifyQbitUtxos`).
+  return listAndClassifyQbitUtxos(listing.client, listing.address, {
+    signal: listing.signal,
+    balanceOnly: true,
+    progress: listing.progress,
+    ...(listing.fundingTxReads ? { fundingTxReads: listing.fundingTxReads } : {}),
+    ...(listing.facts ? { facts: listing.facts } : {}),
+    ...(listing.tip ? { tip: listing.tip } : {}),
+    ...(listing.fresh ? { freshListing: true as const } : {}),
+  })
+}
+
+/**
+ * The split of `kept`, the answer of a complete read this read may reuse
+ * (`QbitBalanceReuseView.reusable`), worked out as a read of the listing
+ * would work it out, with this read's statistics, `stats`, and
+ * reservations; or undefined when it may not be reused, and the listing is
+ * read after all. Statistics that no longer read as they did for it
+ * (`qbitStatsSnapshot`), or that a payment in the mempool makes it unfit to
+ * go with (`qbitReusableStats`), forget it. Otherwise the tip, asked for
+ * with the statistics, is waited for at most `QBIT_BALANCE_REUSE_TIP_WAIT_MS`
+ * more; failing, late, out of the deadline or not a safe integer, it sets
+ * the answer aside (`QbitBalanceReuseView.setAside`), and the listing is
+ * read with the tip read handed on. The answer is reused only while it
+ * still may be (`QbitBalanceReuseView.stillReusable`, given `facts`, the
+ * count of changes to the kept facts now), checked after the tip and after the
+ * reservations, once the tip reads a height neither below the tip it was
+ * read at, as after a rollback, nor at the lowest height at which an output
+ * it counts immature matures: a coinbase output matures with no change to
+ * the statistics. The send guard's reservations are read afresh, within the
+ * deadline, as after a listing, and past it the split is unknown.
+ */
+async function reuseQbitBalance(
+  kept: QbitReusableBalance,
+  reuse: QbitBalanceReuseView,
+  stats: EsploraAddressStats,
+  aggregateBalance: QbitBalanceSummaryPayload & { availableBalance: number },
+  listing: QbitBalanceListing,
+  p2mrScriptPubKey: string | undefined,
+  readReserved: (() => Promise<ReadonlySet<string>>) | undefined,
+  operation: QbitBalanceReadOperation,
+  facts: () => number | undefined
+): Promise<QbitBalanceSummaryPayload | undefined> {
+  const { answer } = kept
+  const { tip } = listing
+  if (!tip) return undefined
+  if (!qbitReusableStats(stats, listing.address) || qbitStatsSnapshot(stats) !== answer.stats) {
+    reuse.forget(kept)
+    return undefined
+  }
+  let tipHeight: number | undefined
+  try {
+    tipHeight = await operation.within(qbitWaitAtMost(tip.start(), QBIT_BALANCE_REUSE_TIP_WAIT_MS))
+  } catch {
+    operation.throwIfCancelled()
+  }
+  // Without the tip in time the poll reads the listing late, and so would
+  // every poll of a slow or broken tip: set aside, the answer leaves the
+  // polls until its age runs out to read as with nothing kept.
+  if (tipHeight === undefined || !Number.isSafeInteger(tipHeight)) {
+    reuse.setAside(kept)
+    return undefined
+  }
+  if (
+    tipHeight < answer.tipHeight ||
+    (answer.matureAt !== undefined && tipHeight >= answer.matureAt) ||
+    !reuse.stillReusable(kept, facts())
+  ) {
+    return undefined
+  }
+  let reserved: ReadonlySet<string> | undefined
+  if (readReserved) {
+    try {
+      reserved = await operation.within(readReserved())
+    } catch (error) {
+      tip.close()
+      operation.throwIfCancelled()
+      if (operation.timedOut) return qbitUnknownSplit(aggregateBalance)
+      throw error
+    }
+  }
+  // A clear, the end of its age, a read that replaced it, or a kept fact
+  // changed or gone, while the send guard answered.
+  if (!reuse.stillReusable(kept, facts())) return undefined
+  reuse.used(kept)
+  tip.close()
+  return qbitClassifiedSplit(
+    aggregateBalance,
+    {
+      confirmedSpendable: answer.spendable,
+      unconfirmedSpendable: [],
+      unconfirmedOwnChange: [],
+      immature: answer.immature,
+    },
+    p2mrScriptPubKey,
+    reserved
+  )
+}
+
+/**
+ * Keep the answer of a complete balance read for reuse
+ * (`QbitBalanceReuseView.keep`): one read under statistics that may go with
+ * one (`qbitReusableStats`) at a tip that answered, with `factsAt` changes
+ * to the kept facts before it classified anything and as many still
+ * (`factsNow`), from a listing that may be kept (`qbitReusableListingDigest`)
+ * every output of which was classified spendable or immature, paying the
+ * address's own script, and not stopped since. A read stopped leaves what is
+ * kept as it is; any other that may not be kept, its tip without a height
+ * included, forgets it. What this takes, the digest last, is worked out only
+ * once the read may keep anything.
+ */
+function keepQbitBalanceRead(
+  reuse: QbitBalanceReuseView,
+  listing: QbitBalanceListing,
+  stats: EsploraAddressStats,
+  classified: QbitClassifiedUtxos,
+  signal: AbortSignal,
+  factsAt: number | undefined,
+  factsNow: () => number | undefined
+): void {
+  const listed = listing.progress.listing
+  const tipHeight = listing.tip?.height
+  if (signal.aborted || listed === undefined) return
+  reuse.keep(listing.client, listing.address, listing.fresh, (): QbitKeptListing | undefined => {
+    const { confirmedSpendable, immature, matureAt } = classified
+    if (
+      tipHeight === undefined ||
+      // A kept fact changed or went while the read ran: it may have been classified from it.
+      factsNow() !== factsAt ||
+      !qbitReusableStats(stats, listing.address) ||
+      confirmedSpendable.length + immature.length !== listed.length ||
+      (immature.length > 0 && matureAt === undefined) ||
+      // Classified from an answer naming another script, which no reader
+      // keeps: the right fact, kept later, would replace none and move no count.
+      !qbitOutputsPay(confirmedSpendable, listing.script) ||
+      !qbitOutputsPay(immature, listing.script)
+    ) {
+      return undefined
+    }
+    const listingDigest = qbitReusableListingDigest(stats, listed)
+    if (listingDigest === undefined) return undefined
+    return {
+      answer: {
+        stats: qbitStatsSnapshot(stats),
+        facts: factsAt,
+        tipHeight,
+        ...(matureAt !== undefined ? { matureAt } : {}),
+        spendable: confirmedSpendable.map(qbitReadOutput),
+        immature: immature.map(qbitReadOutput),
+      },
+      listingDigest,
+    }
+  })
+}
+
+/**
+ * Whether every one of `outputs` pays `script`, the address's
+ * (`isQbitAccountOutput`); never while the script is unknown, as that check
+ * then takes any output that carries one.
+ */
+function qbitOutputsPay(outputs: readonly QbitReadOutput[], script: string | undefined): boolean {
+  return script !== undefined && outputs.every(output => isQbitAccountOutput(output, script))
+}
+
+/**
+ * Whether `stats`, an address's statistics, may go with an answer kept for
+ * reuse, or be compared with a kept one's: valid statistics of `address`
+ * (`assertValidQbitStats`), every `mempool_stats` number 0. A transaction in
+ * the mempool can be replaced by one with the same sums and counts (#128),
+ * which the statistics cannot tell from the one before, so no answer is
+ * kept or reused while one is there.
+ */
+function qbitReusableStats(stats: EsploraAddressStats, address: string): boolean {
+  try {
+    assertValidQbitStats(stats, address)
+  } catch {
+    return false
+  }
+  const mempool = stats.mempool_stats
+  return [
+    mempool.funded_txo_count,
+    mempool.funded_txo_sum,
+    mempool.spent_txo_count,
+    mempool.spent_txo_sum,
+    mempool.tx_count,
+  ].every(value => value === 0)
+}
+
+/**
+ * What `listing` is compared with another by, when a complete read of it
+ * under `stats` (`qbitReusableStats`) may be kept: a SHA-256 of its
+ * entries, `txid:vout:value:height` each, sorted, so the order the explorer
+ * lists them in does not count. Undefined unless the listing holds at least
+ * `QBIT_BALANCE_REUSE_MIN_OUTPUTS` outputs, every one confirmed, and as many
+ * of them, of the same total value, as the confirmed statistics leave
+ * unspent: a listing that disagrees with the statistics read with it is
+ * never kept.
+ */
+function qbitReusableListingDigest(
+  stats: EsploraAddressStats,
+  listing: readonly EsploraUtxo[]
+): string | undefined {
+  if (listing.length < QBIT_BALANCE_REUSE_MIN_OUTPUTS) return undefined
+  const chain = stats.chain_stats
+  if (listing.length !== chain.funded_txo_count - chain.spent_txo_count) return undefined
+  let sum = 0
+  const entries: string[] = []
+  for (const { txid, vout, value, status } of listing) {
+    if (status?.confirmed !== true || !Number.isSafeInteger(status.block_height)) return undefined
+    sum += value
+    entries.push(`${txid.toLowerCase()}:${vout}:${value}:${status.block_height}`)
+  }
+  if (!Number.isSafeInteger(sum) || sum !== chain.funded_txo_sum - chain.spent_txo_sum) {
+    return undefined
+  }
+  return bytesToHex(transactionCore.crypto.sha256(Buffer.from(entries.sort().join('\n'))))
+}
+
+/**
+ * Whether `client` asks for a read fresh when told to
+ * (`QbitTxOutspendsOptions.fresh`), as the wallet's own clients do: the
+ * library's own would send it as any other read.
+ */
+function qbitClientReadsFresh(client: QbitEsploraClient): boolean {
+  return client instanceof QbitWalletEsploraClient || client instanceof QbitWalletMempoolClient
+}
+
+/** `options` for a read asked for fresh (`QbitTxOutspendsOptions.fresh`). */
+function qbitFreshRead(options: RequestOptions): QbitTxOutspendsOptions {
+  return { ...options, fresh: true }
+}
+
+/** What `promise` settles with, or undefined once `ms` have passed without it. */
+function qbitWaitAtMost<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const waited = new Promise<undefined>(resolve => {
+    timer = setTimeout(() => resolve(undefined), ms)
+  })
+  return Promise.race([promise, waited]).finally(() => clearTimeout(timer))
+}
+
+/** The classes of outputs a balance split is worked out from (`qbitClassifiedSplit`). */
+interface QbitSplitOutputs {
+  readonly confirmedSpendable: readonly QbitReadOutput[]
+  readonly unconfirmedSpendable: readonly QbitReadOutput[]
+  readonly unconfirmedOwnChange: readonly QbitReadOutput[]
+  readonly immature: readonly QbitReadOutput[]
+}
+
+/**
+ * The split of the address's classified outputs as a send sees it, against
+ * the statistics' totals (`aggregateBalance`), less the outputs `reserved`
+ * holds.
+ */
+function qbitClassifiedSplit(
+  aggregateBalance: QbitBalanceSummaryPayload & { availableBalance: number },
+  classified: QbitSplitOutputs,
+  p2mrScriptPubKey: string | undefined,
+  reserved: ReadonlySet<string> | undefined
+): QbitBalanceSummaryPayload {
   const unconfirmedSpendableSats = qbitAccountSats(
     classified.unconfirmedSpendable,
     p2mrScriptPubKey
@@ -2326,24 +2746,32 @@ export async function getQbitAddressUtxosClassified(
  * again, and those of unconfirmed outputs, which are read afresh every time,
  * are not noted. Another address's read through the same reader can push
  * them out before this one answers, so whether any is kept still is asked of
- * `facts`, the view the classification kept them through.
+ * `facts`, the view the classification kept them through. `listing` is the
+ * listing it classified, noted as soon as it is read, for the balance read
+ * to keep (see `keepQbitBalanceRead`).
  */
 interface QbitClassifyProgress {
   readonly kept: [txid: string, vout: number][]
   facts?: QbitFundingFactsView | undefined
+  listing?: readonly EsploraUtxo[]
 }
 
 /**
- * What no exported read takes from its caller: `balanceOnly` and `progress`,
- * which only the balance read sets (see `classifyQbitUtxos`), and
- * `rideOutServerErrors`, which only `readQbitAddressUtxosRidingOut` sets:
- * its lookups, listing and tip ride out the explorer's server errors
- * (`withQbitReadRetries`), where every other read fails on one at once.
+ * What no exported read takes from its caller: `balanceOnly`, `progress`,
+ * `tip` and `freshListing`, which only the balance read sets (see
+ * `classifyQbitUtxos`; `tip` is the one it asked for before the listing,
+ * with its statistics, and `freshListing` asks for the listing fresh,
+ * `QbitTxOutspendsOptions.fresh`), and `rideOutServerErrors`, which only
+ * `readQbitAddressUtxosRidingOut` sets: its lookups, listing and tip ride
+ * out the explorer's server errors (`withQbitReadRetries`), where every
+ * other read fails on one at once.
  */
 interface QbitClassifyInternals {
   balanceOnly?: true
   progress?: QbitClassifyProgress
   rideOutServerErrors?: true
+  tip?: QbitTipRead
+  freshListing?: true
 }
 
 /**
@@ -2365,9 +2793,10 @@ async function listAndClassifyQbitUtxos(
   // output's maturity needs it, as before.
   const judgesByTip = options.balanceOnly === true || options.fundingTxReads !== undefined
   const tip =
-    addressScript !== undefined && judgesByTip
+    options.tip ??
+    (addressScript !== undefined && judgesByTip
       ? new QbitTipRead(client, options.signal, options.rideOutServerErrors === true)
-      : undefined
+      : undefined)
   tip?.start()
   let utxos: EsploraUtxo[]
   try {
@@ -2377,6 +2806,7 @@ async function listAndClassifyQbitUtxos(
     tip?.close()
     throw error
   }
+  if (options.progress) options.progress.listing = utxos
   return classifyQbitUtxos(client, utxos, {
     ...options,
     ...(addressScript !== undefined ? { addressScript } : {}),
@@ -2389,17 +2819,23 @@ async function listAndClassifyQbitUtxos(
  * listing whose body could not be read is asked for again, and with
  * `rideOutServerErrors` one the explorer answered with a 502, 503 or 504
  * (`withQbitReadRetries`); any other failure, a bare 500 and a refusal the
- * explorer states included, is the caller's to judge as before.
+ * explorer states included, is the caller's to judge as before. With
+ * `freshListing` each request is a fresh read (`QbitTxOutspendsOptions.fresh`).
  */
 async function listQbitUtxos(
   client: QbitEsploraClient,
   address: string,
-  options: QbitReadCancellation & Pick<QbitClassifyInternals, 'rideOutServerErrors'>
+  options: QbitReadCancellation &
+    Pick<QbitClassifyInternals, 'rideOutServerErrors' | 'freshListing'>
 ): Promise<EsploraUtxo[]> {
   let utxos: EsploraUtxo[]
   try {
     utxos = await withQbitReadRetries(
-      () => client.getAddressUtxos(address, qbitReadOptions(options)),
+      () =>
+        client.getAddressUtxos(
+          address,
+          options.freshListing ? qbitFreshRead(qbitReadOptions(options)) : qbitReadOptions(options)
+        ),
       options.signal,
       options.rideOutServerErrors ? QBIT_LISTING_RETRY_STATUSES : undefined
     )

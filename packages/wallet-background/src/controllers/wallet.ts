@@ -310,6 +310,7 @@ import {
   isQbitRideOutFailure,
   type QbitFundingFactsView,
 } from '../utils/qbit-funding-tx-reads'
+import { QbitBalanceReuse } from '../utils/qbit-balance-reuse'
 import {
   QbitAccountTotals,
   type QbitAccountTotalsClearKind,
@@ -2502,6 +2503,7 @@ export class WalletController extends BaseController {
     // locked (`qbitAccountUtxosOn`, `qbitFundingTxReads`).
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
     this.forgetQbitAccountTotals()
     // A send plan stops signing before its next signature, and its drafts
     // go: told before the keyring's lock, which may wait for its mutex, and
@@ -2584,6 +2586,12 @@ export class WalletController extends BaseController {
     // answer is only totals, so after one wrong `is_coinbase` answer it can
     // count a reward younger than 1,000 blocks as Available until a read of
     // outputs or a clear replaces the kept fact; no send can select it.
+    //
+    // A large account's complete answer is kept for reuse
+    // (`qbitBalanceReuse`): this read takes its place among those clears now,
+    // before any await, so that one made since leaves it keeping and reusing
+    // nothing.
+    const reuse = this.qbitBalanceReuse.begin()
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
@@ -2611,12 +2619,13 @@ export class WalletController extends BaseController {
           qbitSendGuardService.getReservedOutpointKeys(chainType, address),
           this.qbitBalanceGuardWaitMs
         )
-        if (reserved !== undefined) return reserved
-        reservedUnknown = true
-        return new Set<string>()
+        // The poll's last read decides: a reuse given up after reading them
+        // reads them again after the listing.
+        reservedUnknown = reserved === undefined
+        return reserved ?? new Set<string>()
       },
       readOutputs,
-      { fundingTxReads: this.qbitFundingTxReads }
+      { fundingTxReads: this.qbitFundingTxReads, reuse }
     )
     this.qbitAccountTotals.measured(client, address, data.totalBalance, totalsSince)
     if (reservedUnknown) {
@@ -3144,6 +3153,7 @@ export class WalletController extends BaseController {
     // clears; nothing is kept after those, nor while locked.
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
     this.forgetQbitAccountTotals()
     // The send plans stop before anything else is reset, and stay stopped
     // until the reset is over: nothing of a plan is signed, broadcast,
@@ -3163,6 +3173,7 @@ export class WalletController extends BaseController {
       } finally {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
+        this.qbitBalanceReuse.clear()
         this.forgetQbitAccountTotals()
       }
       // The keys are gone, and a stored signed payment needs none to go out:
@@ -3886,6 +3897,7 @@ export class WalletController extends BaseController {
   private dropWalletCaches = (): void => {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
     this.forgetQbitAccountTotals()
     this.qbitHistorySnapshots.clear()
     this.qbitConsolidationScans.clear()
@@ -6922,6 +6934,7 @@ export class WalletController extends BaseController {
       // nothing after it, however late it ends.
       this.qbitLatestUtxoReads.clear()
       this.qbitFundingTxReads.clear()
+      this.qbitBalanceReuse.clear()
       // The wallets that stay are read again for a switcher left open.
       this.forgetQbitAccountTotals('may-read-again')
       // Nor do their send plans go on: each ends as a cancel ends it, and
@@ -6977,6 +6990,12 @@ export class WalletController extends BaseController {
       // before removing anything costs only a clear it did not need.
       this.qbitLatestUtxoReads.clear()
       this.qbitFundingTxReads.clear()
+      // Until the removal has settled which wallet is current, the removed
+      // one may still be stored as current, and a balance poll of it keeps
+      // its answer: forgotten again as the removal ends, or fails, whether
+      // or not the keyring went (the keyring service can fail after it
+      // saved the emptied slot).
+      this.qbitBalanceReuse.clear()
       releaseNetworks?.()
       this.removalUnderWay = undefined
       settle()
@@ -7339,6 +7358,7 @@ export class WalletController extends BaseController {
       if (!this.isUnlocked()) {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
+        this.qbitBalanceReuse.clear()
         this.forgetQbitAccountTotals()
         this.announceLock()
       }
@@ -8239,6 +8259,7 @@ export class WalletController extends BaseController {
     // What was read of the previous network's funding transactions is of no
     // more use (see `qbitFundingTxReads`).
     this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
     this.forgetQbitAccountTotals()
 
     // Restored seeds have unscanned floors on the newly active network; either
@@ -8472,6 +8493,7 @@ export class WalletController extends BaseController {
       }
     }
     this.qbitFundingTxReads.clear()
+    this.qbitBalanceReuse.clear()
     this.forgetQbitAccountTotals(totals)
   }
 
@@ -8786,6 +8808,24 @@ export class WalletController extends BaseController {
    * (`dropRegtestApiClients`); a read that began before then keeps nothing.
    */
   private readonly qbitFundingTxReads = new QbitFundingTxReads({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
+   * The balance answers of accounts with at least
+   * `QBIT_BALANCE_REUSE_MIN_OUTPUTS` outputs kept for reuse
+   * (`getAddressBalanceV2`), so that a poll of such an account that has not
+   * changed reads its statistics and the tip, and no listing. In memory
+   * only. Nothing is reused or kept while the wallet reads locked, and they
+   * are forgotten wherever `qbitFundingTxReads` is, and again as a keyring
+   * removal ends; a read that began before then keeps nothing. An answer is
+   * reused only while no fact `qbitFundingTxReads` keeps has changed or gone
+   * since its read began (`QbitFundingTxReads.factChanges`), as when a read
+   * of outputs for a send replaces one the explorer answered wrongly before,
+   * or facts are pushed out: the next poll then lists the outputs again with
+   * the facts kept then.
+   */
+  private readonly qbitBalanceReuse = new QbitBalanceReuse({
     usable: (): boolean => this.isUnlocked(),
   })
 

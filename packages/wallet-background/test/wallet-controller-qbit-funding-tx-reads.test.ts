@@ -344,7 +344,14 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
     const optionsOf = (name: string) =>
       callsNamed(name).map(call => call.args.at(-1) as { fundingTxReads?: unknown })
     expect(optionsOf('getQbitSpendableBalanceV2')).toEqual(
-      Array(3).fill({ fundingTxReads: shared })
+      Array(3).fill({
+        fundingTxReads: shared,
+        reuse: expect.objectContaining({
+          reusable: expect.any(Function),
+          stillReusable: expect.any(Function),
+          keep: expect.any(Function),
+        }),
+      })
     )
     for (const name of [
       'readQbitAddressUtxos',

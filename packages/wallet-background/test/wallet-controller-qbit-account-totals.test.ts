@@ -604,7 +604,9 @@ describe("WalletController's account totals", () => {
     it("does not replace a later read's total when it settles after it", async () => {
       const wallet = controller()
       const client = (wallet as any).getQbitApiClient(ChainType.QBIT_TESTNET4)
-      const statisticsCalls = vi.spyOn(client, 'getAddressBalance')
+      // The balance read asks for the address's statistics as they are
+      // (`getAddressStats`), where the switcher's read asks for its totals.
+      const statisticsCalls = vi.spyOn(client, 'getAddressStats')
       // The balance read has its statistics and waits on the listing. (The
       // client shares an identical read still in flight, so it is the
       // listing that is held.)
@@ -746,7 +748,9 @@ describe("WalletController's account totals", () => {
     it('answers the total after it to a read begun after it, never a reply to an earlier request', async () => {
       const wallet = controller()
       const client = (wallet as any).getQbitApiClient(ChainType.QBIT_TESTNET4)
-      const statisticsCalls = vi.spyOn(client, 'getAddressBalance')
+      // The switcher's read asks for its totals (`getAddressBalance`); the
+      // poll asks for the statistics as they are (`getAddressStats`).
+      const totalsCalls = vi.spyOn(client, 'getAddressBalance')
       // The home screen's poll of the account asks for its statistics before
       // the send; the reply, computed then, arrives on release.
       let release: () => void = () => undefined
@@ -782,7 +786,7 @@ describe("WalletController's account totals", () => {
       })
 
       const reading = wallet.readQbitAccountTotal(address)
-      await vi.waitFor(() => expect(statisticsCalls).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(totalsCalls).toHaveBeenCalledTimes(1))
       try {
         await expect(reading).resolves.toMatchObject({
           totalBalance: FIRST_TOTAL + 5_000,
