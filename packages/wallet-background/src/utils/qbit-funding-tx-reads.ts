@@ -108,9 +108,11 @@ export const QBIT_CLASSIFY_SUSTAINED_READS_IN_FLIGHT = 32
 /**
  * The most outputs `QbitFundingTxReads` keeps the facts of by default: an
  * address at the explorer's 50,000-output listing limit fits. Each takes the
- * txid key, one small record and a map slot (scripts are shared): measured
- * in Node for a mainnet address, about 150 bytes, and about 300 once polls
- * have churned the map, so 10 to 20 MB when full.
+ * txid key, one small record and a map slot (scripts are shared), and each
+ * transaction's first record two links more: measured in Node 22 as the heap
+ * kept for 65,536 single-output transactions whose txids nothing else held,
+ * about 220 bytes, and about 255 once polls had forgotten and replaced some
+ * or pushed some out, so 14 to 17 MB when full.
  */
 export const QBIT_FUNDING_FACTS_MAX_OUTPOINTS = 65_536
 
@@ -232,7 +234,9 @@ export interface QbitFundingOutputFacts {
 
 /**
  * The facts kept for one transaction: a list of its outputs', usually one
- * long. Facts kept again for an output replace its node's in place.
+ * long, from the node of the first output kept (`QbitFundingFactsHead`), each
+ * later one's going in just after it. Facts kept again for an output replace
+ * its node's in place.
  */
 interface QbitFundingFactsNode {
   readonly vout: number
@@ -240,6 +244,21 @@ interface QbitFundingFactsNode {
   script: string
   coinbase: boolean
   next: QbitFundingFactsNode | undefined
+}
+
+/**
+ * The first node of a transaction's list, which stays first for as long as the
+ * transaction is kept, with the transaction's place in the order of use (see
+ * `QbitFundingTxReads`): the keys of the transactions used just before and
+ * just after it, the very strings the facts are kept by, so a place costs two
+ * references and no copy of a key. Only this node has them: a transaction of
+ * many outputs has one place.
+ */
+interface QbitFundingFactsHead extends QbitFundingFactsNode {
+  /** The transaction used just before this one; none for the least recently used. */
+  older: string | undefined
+  /** The transaction used just after this one; none for the most recently used. */
+  newer: string | undefined
 }
 
 export interface QbitFundingTxReadsOptions {
@@ -303,6 +322,14 @@ export interface QbitFundingTxReadsOptions {
  * asked for the read (`begin`'s `since`). The
  * limiters are kept: reads already in flight still hold their slots, and a
  * read begun before a clear still completes, reading every transaction.
+ *
+ * A transaction is used when its facts are kept, served or touched, and once
+ * more than `maxOutpoints` outputs are kept, the least recently used
+ * transactions go, each whole, until no more are. The order of use is a list
+ * through the transactions' first nodes, each naming the transaction used
+ * just before it and the one used just after (`QbitFundingFactsHead`): a use
+ * moves a transaction to its new end, and the next to go is at its old end,
+ * so pushing one out costs the same however many uses and drops came before.
  */
 export class QbitFundingTxReads {
   readonly maxOutpoints: number
@@ -311,8 +338,16 @@ export class QbitFundingTxReads {
   private readonly limiters = new WeakMap<object, QbitReadLimiter>()
   private readonly scopes = new WeakMap<object, number>()
   private nextScope = 0
-  /** By `${scope}:${txid}`, least recently used first. */
-  private facts = new Map<string, QbitFundingFactsNode>()
+  /**
+   * By `${scope}:${txid}`, each transaction's list from its first node. Their
+   * order of use runs from `oldest` through each first node's `newer` to
+   * `newest`; the map's own order means nothing.
+   */
+  private facts = new Map<string, QbitFundingFactsHead>()
+  /** The key, as `facts` holds it, of the least recently used transaction: the next to go. */
+  private oldest: string | undefined
+  /** The key, as `facts` holds it, of the most recently used transaction. */
+  private newest: string | undefined
   /**
    * The nodes of a transaction with more than
    * `QBIT_FUNDING_FACTS_LISTED_OUTPUTS` outputs kept, by output number, under
@@ -418,6 +453,8 @@ export class QbitFundingTxReads {
   /** Forget every fact; classifications begun before this keep nothing more and are served nothing. */
   clear(): void {
     this.facts = new Map()
+    this.oldest = undefined
+    this.newest = undefined
     this.indexes = new Map()
     this.outpoints = 0
     this.scripts = new Map()
@@ -443,9 +480,7 @@ export class QbitFundingTxReads {
         facts: { coinbase: node.coinbase, value: node.value, script: node.script },
       })
     }
-    // Last in the map's order is the most recently used.
-    this.facts.delete(key)
-    this.facts.set(key, head)
+    this.used(head)
     return found
   }
 
@@ -486,14 +521,11 @@ export class QbitFundingTxReads {
 
   private touch(key: string): void {
     const head = this.facts.get(key)
-    if (!head) return
-    this.facts.delete(key)
-    this.facts.set(key, head)
+    if (head) this.used(head)
   }
 
   private keep(key: string, vout: number, facts: QbitFundingOutputFacts): boolean {
     const head = this.facts.get(key)
-    if (head) this.facts.delete(key)
     // The latest checked facts of an output replace any kept before.
     const kept = this.nodeOf(key, head, vout)
     const script = this.shared(facts.script)
@@ -501,52 +533,67 @@ export class QbitFundingTxReads {
       kept.value = facts.value
       kept.script = script
       kept.coinbase = facts.coinbase
-      this.facts.set(key, head as QbitFundingFactsNode)
+      this.used(head as QbitFundingFactsHead)
       return false
     }
-    const node: QbitFundingFactsNode = {
-      vout,
-      value: facts.value,
-      script,
-      coinbase: facts.coinbase,
-      next: head,
+    if (head) {
+      // Just after the first node, which keeps the transaction's place.
+      const node: QbitFundingFactsNode = {
+        vout,
+        value: facts.value,
+        script,
+        coinbase: facts.coinbase,
+        next: head.next,
+      }
+      head.next = node
+      this.used(head)
+      this.indexAdded(key, head, node)
+    } else {
+      const first: QbitFundingFactsHead = {
+        vout,
+        value: facts.value,
+        script,
+        coinbase: facts.coinbase,
+        next: undefined,
+        older: undefined,
+        newer: undefined,
+      }
+      this.facts.set(key, first)
+      this.append(key, first)
     }
-    this.facts.set(key, node)
     this.outpoints += 1
-    this.indexAdded(key, node)
-    // Iterated only to evict: a map's iteration passes over the places its
-    // moved and deleted entries left, which keeping, serving and using facts
-    // leave many of, so it costs that much each time.
-    if (this.outpoints <= this.maxOutpoints) return true
-    for (const [oldest, oldestHead] of this.facts) {
-      if (this.outpoints <= this.maxOutpoints) break
-      this.facts.delete(oldest)
-      this.outpoints -= this.dropped(oldest, oldestHead)
+    // Past the bound, the least recently used go, whole, each from the old
+    // end of the order of use, so the transaction just kept goes last. Once
+    // the order is empty nothing is left to go, whatever the count says.
+    while (this.outpoints > this.maxOutpoints && this.oldest !== undefined) {
+      const oldest = this.oldest
+      this.drop(oldest, this.facts.get(oldest) as QbitFundingFactsHead)
     }
     return true
   }
 
   /**
-   * Note `node`, just kept as the head of `key`'s list, in the list's index,
+   * Note `node`, just kept after `head` in `key`'s list, in the list's index,
    * which it gets once it holds more than `QBIT_FUNDING_FACTS_LISTED_OUTPUTS`.
    */
-  private indexAdded(key: string, node: QbitFundingFactsNode): void {
-    if (!node.next) return
-    const index = this.indexOf(key, node.next)
-    if (index) {
-      index.set(node.vout, node)
-      return
-    }
-    // Not yet past the bound with this node: counted only as far as that.
+  private indexAdded(key: string, head: QbitFundingFactsHead, node: QbitFundingFactsNode): void {
+    // Counted only as far as the bound: a shorter list, the usual one, has no
+    // index to look up.
     let listed = 0
-    let next: QbitFundingFactsNode | undefined = node
+    let next: QbitFundingFactsNode | undefined = head
     while (next && listed <= QBIT_FUNDING_FACTS_LISTED_OUTPUTS) {
       listed += 1
       next = next.next
     }
     if (listed <= QBIT_FUNDING_FACTS_LISTED_OUTPUTS) return
+    const index = this.indexes.get(key)
+    if (index) {
+      index.set(node.vout, node)
+      return
+    }
+    // Past the bound only with this node.
     const built = new Map<number, QbitFundingFactsNode>()
-    for (let each: QbitFundingFactsNode | undefined = node; each; each = each.next) {
+    for (let each: QbitFundingFactsNode | undefined = head; each; each = each.next) {
       built.set(each.vout, each)
     }
     this.indexes.set(key, built)
@@ -554,9 +601,48 @@ export class QbitFundingTxReads {
 
   private forget(key: string): void {
     const head = this.facts.get(key)
-    if (!head) return
+    if (head) this.drop(key, head)
+  }
+
+  /** Drop what is kept of `key`'s transaction, `head` its first node, whole. */
+  private drop(key: string, head: QbitFundingFactsHead): void {
+    this.unlink(head)
     this.facts.delete(key)
     this.outpoints -= this.dropped(key, head)
+  }
+
+  /**
+   * Count the transaction of first node `head` used now: it moves to the new
+   * end of the order of use.
+   */
+  private used(head: QbitFundingFactsHead): void {
+    // The most recently used already.
+    if (head.newer === undefined) return
+    // Its key as `facts` holds it, which the transaction used just after it names.
+    const key = (this.facts.get(head.newer) as QbitFundingFactsHead).older as string
+    this.unlink(head)
+    this.append(key, head)
+  }
+
+  /** Take the transaction of first node `head` out of the order of use. */
+  private unlink(head: QbitFundingFactsHead): void {
+    if (head.older === undefined) this.oldest = head.newer
+    else (this.facts.get(head.older) as QbitFundingFactsHead).newer = head.newer
+    if (head.newer === undefined) this.newest = head.older
+    else (this.facts.get(head.newer) as QbitFundingFactsHead).older = head.older
+  }
+
+  /**
+   * Put the transaction of first node `head` at the new end of the order of
+   * use; `key` is the very string `facts` holds it by, so no other copy of it
+   * is kept.
+   */
+  private append(key: string, head: QbitFundingFactsHead): void {
+    head.older = this.newest
+    head.newer = undefined
+    if (this.newest === undefined) this.oldest = key
+    else (this.facts.get(this.newest) as QbitFundingFactsHead).newer = key
+    this.newest = key
   }
 
   /** How many outputs `key`'s list from `head` held, its index dropped with it. */
