@@ -1,4 +1,3 @@
-import { LoaderCircle } from 'lucide-react';
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'react-redux';
 
@@ -27,9 +26,8 @@ import {
   reconcileStoredWalletData
 } from '@/ui/utils/walletReset';
 
-import { Content } from '../Content';
-import { Icon } from '../Icon';
 import { StartupErrorScreen } from '../StartupErrorScreen';
+import { WaitingPage } from '../WaitingPage';
 
 /**
  * The pauses before each new run of a page's start-up reads after one failed;
@@ -104,7 +102,7 @@ function endRecoveryIfOver(startup: { walletIdRecorded: boolean }, runs: Runs): 
 /**
  * The wallet pages, once the page's start-up reads have loaded: the id of the
  * wallet set up, the current account, the settings, and whether a wallet is
- * set up and unlocked. A spinner until then. A run of the reads that fails,
+ * set up and unlocked. A WaitingPage until then. A run of the reads that fails,
  * refused or otherwise, is made again after short pauses (startWithRetries);
  * a page that still cannot start shows the start-up error screen rather than
  * a spinner for ever, whose Retry runs this page's start-up again; once that
@@ -529,22 +527,5 @@ export function PageStartup({ children }: { children: ReactNode }) {
     return <StartupErrorScreen reason="unknown" onRetry={startFailed === 'page' ? retry : undefined} />;
   }
 
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        width: '400vw',
-        height: '00vh',
-        overflowY: 'auto',
-        overflowX: 'hidden'
-      }}
-    >
-      <Content justifyCenter itemsCenter>
-        <Icon>
-          <LoaderCircle className="icon-spin" size="1em" />
-        </Icon>
-      </Content>
-    </div>
-  );
+  return <WaitingPage />;
 }

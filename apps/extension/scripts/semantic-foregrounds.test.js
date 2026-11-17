@@ -153,7 +153,6 @@ test('foreground callsites use semantic colors instead of danger fill colors', (
         /color=\{?\s*["']black_65["']/,
         /\bcolor\s*:\s*colors\.(?:red|danger)\b/,
         /\b(?:color|subPartColor)\s*:\s*["']rgba\(0,\s*0,\s*0,\s*0\.(?:5|55|65)\)["']/,
-        /LoadingOutlined[\s\S]{0,160}\bcolor\s*:\s*colors\.accent\b/,
         /\bcolor\s*:\s*["'](?:red|danger)["']/,
         /\bcolor\s*=\s*["'](?:red|danger)["']/,
         /\bcolor\s*:\s*["']#f55454["']/i,

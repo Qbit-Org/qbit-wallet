@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { WaitingPage } from '@/ui/components/WaitingPage';
 import { PendingApproval, useApproval, useWallet } from '@qbit/wallet-state';
 
 import * as ApprovalComponent from './components';
@@ -46,7 +47,7 @@ export default function ApprovalScreen() {
     init();
   }, []);
 
-  if (!approval) return <></>;
+  if (!approval) return <WaitingPage />;
   const { approvalComponent, params, origin, requestDefer } = approval.data;
   const CurrentApprovalComponent = ApprovalComponent[approvalComponent];
   // The component settles this approval only, by the id read with its data.

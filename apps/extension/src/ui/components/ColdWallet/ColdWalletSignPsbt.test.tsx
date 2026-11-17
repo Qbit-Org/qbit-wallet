@@ -9,7 +9,6 @@ import ColdWalletSignPsbt from './ColdWalletSignPsbt';
 const encoded = vi.hoisted(() => ({ requests: [] as string[] }));
 
 vi.mock('qrcode.react', () => ({ default: () => null }));
-vi.mock('lucide-react', () => ({ LoaderCircle: () => null }));
 vi.mock('@/ui/components', async () => {
   const React = await import('react');
   const Container = ({ children }: { children?: ReactNode }) => React.createElement('div', null, children);

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { WaitingPage } from '@/ui/components/WaitingPage';
 import { getUiType } from '@/ui/web';
 import { useApproval, useI18n, useTools, useWallet } from '@qbit/wallet-state';
 
@@ -125,5 +126,5 @@ export default function BoostScreen() {
     };
   }, []);
 
-  return <div></div>;
+  return <WaitingPage />;
 }
