@@ -91,21 +91,27 @@ docs: explain the regtest funding script
 ```
 
 Every commit on `main` and `release/*` must carry a verified signature, and
-pull requests merge with a merge commit: squash and rebase merges are off. You
+pull requests land with GitHub's squash merge: rebase merges are off. You
 don't need to sign your own commits. When a pull request is ready, a
-maintainer squashes it into one commit, signs it and merges it. That commit's
-message is the pull request's title and description, so write the title in
-the same style. If you open the pull request from your own copy of the
-repository, leave "Allow edits by maintainers" on, so the maintainer can push
-the signed commit to your branch. Without it, a maintainer opens the same
-change from a branch in this repository. An open pull request usually shows
-a failing `signed-landing` check until it is one commit signed by a person,
-normally the maintainer's squash. That is expected.
+maintainer squashes it into one commit, signs it and pushes it. That commit's
+message is the pull request's title and description, so write the title in the
+same style. If you open the pull request from your own copy of the repository,
+leave "Allow edits by maintainers" on, so the maintainer can push the signed
+commit to your branch. Without it, a maintainer opens the same change from a
+branch in this repository. An open pull request usually shows a failing
+`signed-landing` check until it is one commit signed by a person, normally the
+maintainer's squash. That is expected. The pull request then lands with
+GitHub's squash merge: GitHub makes one commit on the target branch, with the
+signed commit's message, and signs it itself, so the branch gains that one
+commit and no merge commit.
 
 A release pull request, from `release/x.y.z` into `main`, and a back-merge,
 from `main` into a release branch, are the exceptions. They merge as they
 are, with a merge commit, and every commit in them must already carry a
-verified signature.
+verified signature. Unless a person signed the tip of `release/x.y.z`, the
+release pull request comes from a `backmerge/x.y.z` branch cut from it, with
+`main` merged in by a merge a maintainer signs
+([`.github/rulesets/README.md`](.github/rulesets/README.md) says why).
 
 ### Changesets
 
