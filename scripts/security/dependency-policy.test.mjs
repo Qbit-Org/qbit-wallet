@@ -5667,7 +5667,138 @@ test('vulnerability audit rejects unaccepted, changed, expired, and stale except
       now,
       trackedSourceContextFixture()
     ).errors.join('\n'),
-    /metadata reports 2 occurrences but advisory findings report 1/
+    /high metadata reports 2 occurrences but the report lists 1 high advisory records/
+  )
+})
+
+// pnpm 11 counts one occurrence per advisory record and lists each vulnerable
+// installed version as a finding of that record. On 2026-11-17 the picomatch
+// record GHSA-fc5q-39xc-vjpf covered 2.3.2 and 4.0.5: one high record with two
+// findings and a high count of 1.
+const SECOND_AUDIT_PATH = `apps__extension>${CSS_LOADER_REFERENCE}>${CSS_MODULE_REFERENCE}>icss-utils>postcss`
+
+function twoFindingVulnerabilityFixture() {
+  const report = vulnerabilityFixture()
+  report.advisories[1].findings.push({ version: '6.0.1', paths: [SECOND_AUDIT_PATH] })
+  return report
+}
+
+function twoFindingExceptionFixture() {
+  const document = exceptionFixture()
+  document.exceptions[0].versions = ['6.0.1', '7.0.0']
+  document.exceptions[0].paths = [AUDIT_PATH, SECOND_AUDIT_PATH].sort((left, right) =>
+    left.localeCompare(right, 'en')
+  )
+  return document
+}
+
+test('vulnerability audit counts one pnpm 11 occurrence per advisory record', () => {
+  const now = new Date('2026-07-31T12:00:00.000Z')
+  assert.deepEqual(
+    auditVulnerabilityReport(
+      twoFindingVulnerabilityFixture(),
+      twoFindingExceptionFixture(),
+      now,
+      trackedSourceContextFixture()
+    ),
+    { errors: [], acceptedCount: 1, blockingCount: 1 }
+  )
+
+  // Without the exception only the advisory itself is reported.
+  assert.deepEqual(
+    auditVulnerabilityReport(
+      twoFindingVulnerabilityFixture(),
+      { schemaVersion: 2, exceptions: [] },
+      now
+    ).errors,
+    ['unaccepted high advisory: GHSA-aaaa-bbbb-cccc postcss']
+  )
+
+  // A critical record is counted the same way.
+  const critical = twoFindingVulnerabilityFixture()
+  critical.advisories[1].severity = 'critical'
+  critical.metadata.vulnerabilities = { info: 0, low: 0, moderate: 0, high: 0, critical: 1 }
+  assert.deepEqual(
+    auditVulnerabilityReport(critical, { schemaVersion: 2, exceptions: [] }, now).errors,
+    ['unaccepted critical advisory: GHSA-aaaa-bbbb-cccc postcss']
+  )
+
+  // A count of 2 with one record means a record is missing from the report,
+  // for example one that auditConfig.ignoreGhsas removed, even though the
+  // record that remains has two findings.
+  const hiddenRecord = twoFindingVulnerabilityFixture()
+  hiddenRecord.metadata.vulnerabilities.high = 2
+  const hiddenAudit = auditVulnerabilityReport(
+    hiddenRecord,
+    twoFindingExceptionFixture(),
+    now,
+    trackedSourceContextFixture()
+  )
+  assert.deepEqual(hiddenAudit.errors, [
+    'pnpm audit high metadata reports 2 occurrences but the report lists 1 high advisory records',
+  ])
+
+  // Two records against a count of 1 disagree as well.
+  const extraRecord = twoFindingVulnerabilityFixture()
+  extraRecord.advisories[2] = {
+    id: 2,
+    module_name: 'picomatch',
+    severity: 'high',
+    url: 'https://github.com/advisories/GHSA-dddd-eeee-ffff',
+    findings: [{ version: '4.0.5', paths: ['.>vitest>picomatch'] }],
+  }
+  assert.match(
+    auditVulnerabilityReport(
+      extraRecord,
+      twoFindingExceptionFixture(),
+      now,
+      trackedSourceContextFixture()
+    ).errors.join('\n'),
+    /high metadata reports 1 occurrences but the report lists 2 high advisory records/
+  )
+})
+
+test('vulnerability audit fails closed on malformed pnpm audit counts and records', () => {
+  const now = new Date('2026-07-31T12:00:00.000Z')
+  const noExceptions = { schemaVersion: 2, exceptions: [] }
+  const auditErrors = report => auditVulnerabilityReport(report, noExceptions, now).errors
+
+  for (const report of [null, {}, { advisories: {} }, { advisories: {}, metadata: {} }]) {
+    assert.deepEqual(auditErrors(report), [
+      'pnpm audit output is missing advisories or vulnerability metadata',
+    ])
+  }
+
+  for (const count of [undefined, null, '1', 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const report = twoFindingVulnerabilityFixture()
+    report.metadata.vulnerabilities.high = count
+    assert.match(
+      auditErrors(report).join('\n'),
+      /pnpm audit high vulnerability count must be a non-negative integer/,
+      `high count ${String(count)}`
+    )
+  }
+
+  const missingFindings = twoFindingVulnerabilityFixture()
+  delete missingFindings.advisories[1].findings
+  assert.match(
+    auditErrors(missingFindings).join('\n'),
+    /high advisory is missing its findings array/
+  )
+
+  // pnpm drops a record with no findings before counting it, so an empty
+  // findings array is malformed, never a record that satisfies a count.
+  const emptyFindings = twoFindingVulnerabilityFixture()
+  emptyFindings.advisories[1].findings = []
+  const emptyErrors = auditErrors(emptyFindings).join('\n')
+  assert.match(emptyErrors, /high advisory has an empty findings array/)
+  assert.match(emptyErrors, /high metadata reports 1 occurrences but the report lists 0 high/)
+
+  const contradictsZero = twoFindingVulnerabilityFixture()
+  contradictsZero.metadata.vulnerabilities.high = 0
+  assert.match(
+    auditErrors(contradictsZero).join('\n'),
+    /advisory records contradict zero critical\/high occurrences/
   )
 })
 
