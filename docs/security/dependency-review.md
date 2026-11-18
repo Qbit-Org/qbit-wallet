@@ -1,6 +1,6 @@
 # Dependency security and license review
 
-Review date: 2026-11-17 (advisory refresh of the 2026-09-02 review; evidence
+Review date: 2026-11-18 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
 2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
@@ -8,7 +8,8 @@ the extension and keyring-service, twice more on 2026-11-05, after the
 `@qbit/wallet-api` and `@qbit/notification-service` workspaces and then `antd`
 were removed, and on 2026-11-10 after `bitcoinjs-lib` moved to 6.1.8 for the
 critical `GHSA-8vv3-6qpc-gpw6`; on 2026-11-17 the high `picomatch` advisory
-`GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged)
+`GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged, and on
+2026-11-18 its exception was removed after GitHub withdrew the advisory)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -114,8 +115,14 @@ the live audit no longer reported the low `deepmerge` record
 dependency-policy job failed on pull requests into `release/1.0.10` and
 `main`, on the unaccepted high and because the policy compared the high count
 with the record's two findings rather than with its one record. The policy now
-compares each critical and high count with the number of records, and the
-`picomatch` record is accepted under the exception described below.
+compares each critical and high count with the number of records, and #238
+accepted the `picomatch` record under a schema-v2 exception on 2026-11-17.
+GitHub withdrew `GHSA-fc5q-39xc-vjpf` on 2026-11-18, so the live audit no
+longer reports it and the policy failed on every pull request into
+`release/1.0.11` on the stale exception. The exception was removed that day,
+with `picomatch` 2.3.2 and 4.0.5 unchanged in the lockfile. The live result at
+`15a5b643` on `release/1.0.11` is 41 occurrences: 0 critical, 0 high, 32
+moderate, and 9 low.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -145,15 +152,14 @@ compares each critical and high count with the number of records, and the
 | Advisory-feed drift at unchanged-lock `release/1.0.9` `de81656` | 1 | 0 | 32 | 10 | 43 |
 | Current audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.10` `374f694` (2026-11-17, `picomatch` accepted) | 0 | 1 | 32 | 9 | 42 |
+| Advisory-feed drift at unchanged-lock `release/1.0.11` `15a5b64` (2026-11-18, `picomatch` advisory withdrawn) | 0 | 0 | 32 | 9 | 41 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records, one per record however many installed versions it
 lists as findings; neither counts independent vulnerabilities. The final
 audit contains 42 advisory records representing 37 unique advisory/package
 pairs. Four records affect a directly declared package and 38 are transitive.
-It has no critical or high advisory. The live audit's one high record since
-2026-11-17, `picomatch` `GHSA-fc5q-39xc-vjpf`, is accepted under the only risk
-exception in force.
+No critical or high advisory remains, and no risk exception is in force.
 
 Registry advisory data can change without a repository change, so this
 snapshot is not permanent. The live audit runs in the `Dependency policy` CI
@@ -319,9 +325,7 @@ their lower severity is not evidence of unreachability.
 
 ## Accepted high-risk dispositions
 
-One high advisory record, `picomatch` `GHSA-fc5q-39xc-vjpf`, is in the live
-audit and accepted with a schema-v2 exception; the committed evidence predates
-it.
+No high advisory record remains, and no schema-v2 exception is in force.
 
 The two PostCSS records accepted on 2026-09-02 (`GHSA-6g55-p6wh-862q` and
 `GHSA-r28c-9q8g-f849`, `postcss@6.0.1/7.0.39`) were reachable only through the
@@ -335,48 +339,13 @@ build-only.
 
 ### picomatch
 
-| Package/advisory                               | Directness | Audit occurrences | Reachability            | Owner       | Expiry     | Tracking                                                   |
-| ---------------------------------------------- | ---------- | ----------------: | ----------------------- | ----------- | ---------- | ---------------------------------------------------------- |
-| `picomatch@2.3.2/4.0.5`, `GHSA-fc5q-39xc-vjpf` | Transitive |                 1 | Conditionally reachable | `@Anatolie` | 2027-02-15 | [#235](https://github.com/Qbit-Org/qbit-wallet/issues/235) |
-
-The advisory (CVE-2026-112366, CWE-1333) is a regular-expression denial of
-service: a single-branch repeated extglob such as `+(*)` compiles to a pattern
-that backtracks exponentially on short crafted strings. On 2026-11-17 GitHub
-updated it to cover every release through 4.0.7, the newest on npm, so it lists
-no patched version. The exception records the record's two findings, 2.3.2 and
-4.0.5, and all 230 exact dependency paths the audit lists, 116 for 2.3.2 and
-114 for 4.0.5. Every path starts at Node-side build, test, lint, or release
-tooling. In the root and `packages/*` manifests that is `@changesets/cli`,
-`@typescript-eslint`, `lerna`, `tsup`, `vitest`, and `@vitest/coverage-v8`,
-all devDependencies of private packages. In `apps/extension` it is `jest`,
-`babel-jest`, `eslint-webpack-plugin`, `@pmmmwh/react-refresh-webpack-plugin`,
-and `css-minimizer-webpack-plugin`, which its manifest declares under
-`dependencies`, and `copy-webpack-plugin`, `sass-loader`, and
-`@types/sass-loader`. Because of those five declarations `pnpm audit --prod`
-still lists both versions, and both are in the extension's production closure
-as defined above.
-
-Reachability analysis: the vulnerable code runs only on developer machines and
-in CI, where it compiles glob patterns taken from tracked tool configuration
-(Vitest, tsup, Tailwind, webpack, Jest, ESLint, Changesets, and Lerna
-settings) or from a developer's own command line. No workflow passes event
-data or dispatch inputs to these tools, and no tracked tool configuration uses
-extglob syntax. A hostile pattern would have to be committed through a
-reviewed pull request by someone who could already change the commands those
-tools run, and the impact is a hung tool process. A store-channel build at
-`374f694e` contains no picomatch code: its distinctive strings, such as
-`POSIX_REGEX_SOURCE` and "Expected pattern to be a non-empty string", are
-absent from `apps/extension/dist/chrome` and from the packaged ZIP, in which
-React's minified-error string, checked as a control, is found.
-
-Removal plan: when a patched picomatch is published, move both version lines
-to patched releases through a root override or parent upgrades, regenerate the
-lockfile, license baseline, and evidence, and delete the exception. If the fix
-lands only in 4.x, the 2.3.2 line needs its parents (`micromatch` 4,
-`anymatch` 3, `readdirp` 3, `jest` 27) upgraded or overridden. The exception
-is also deleted if no path reaches an affected version any more. If neither
-happens by 2027-02-15, re-review reachability and renew the exception or
-remove the tooling that pulls `picomatch` in.
+The `picomatch@2.3.2/4.0.5` exception for `GHSA-fc5q-39xc-vjpf`, accepted on
+2026-11-17 in #238 as conditionally reachable through Node-side build, test,
+lint, and release tooling and tracked in
+[#235](https://github.com/Qbit-Org/qbit-wallet/issues/235), was deleted on
+2026-11-18. GitHub withdrew the advisory that day, `pnpm audit` no longer
+reports it, and the policy rejects an exception with no matching audit record.
+Both `picomatch` versions are unchanged in the lockfile.
 
 ### braces
 
@@ -672,25 +641,28 @@ on the tree of its audited commit `41ce38b8`, apart from a later rewording of
 its changeset, which none of them reads, and its live policy and security
 suites with the evidence regenerated there. The 2026-11-17 `picomatch`
 exception changed no dependency, lockfile, or build input, and its gates ran
-on `374f694e` with the change applied, against the committed evidence.
+on `374f694e` with the change applied, against the committed evidence. Its
+removal on 2026-11-18 changed no dependency, lockfile, or build input either,
+and its gates ran on `15a5b643` with the change applied, against the
+committed evidence.
 Environment-dependent release integration not run locally is identified below
 and remains subject to the PR's branch CI:
 
-| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 refresh result | 2026-11-03 pnpm 11.28.9 result | 2026-11-05 workspace and `antd` removal result | 2026-11-10 `bitcoinjs-lib` 6.1.8 result | 2026-11-17 `picomatch` exception result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed from a clean `node_modules` against the v9 lockfile | Passed from an empty `node_modules` against both regenerated lockfiles; each is a one-pass pnpm 11.28.9 relock, the first of the base lockfile and the second of the first, and relocking the base lockfile gives the second byte for byte too | Passed against the regenerated lockfile, whose diff from the base touches only `bitcoinjs-lib`: its `patchedDependencies` key, one package entry, one snapshot and three importer specifiers; the installed copy is 6.1.8 with the workspace patch applied | Passed with the lockfile unchanged |
-| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 730 repo-level warnings against base `0638892`'s 817, and per file and rule no file gains a warning except `settingLocales.test.ts`, whose one moved there from the deleted `EnableSignData.test.tsx` | Passed with zero errors; 730 repo-level warnings, as on 2026-11-05; the only linted file that changed is a string in `fresh-chain-language.test.mjs` | `lint:repo` passed with zero errors; none of its 692 warnings is in a changed file. The workspace lint was not rerun; no workspace file changed |
-| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed | Passed | Passed | Passed |
-| Typecheck | Passed | Passed | Passed | Passed | Passed; the extension's 20 and `@qbit/wallet-background`'s one known `tsc` errors are unchanged from the base | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base `0638892`, and `@qbit/wallet-background`'s one known error is unchanged | Passed (`corepack pnpm typecheck`, as CI runs it); the root `tsc` run over `apps/extension` was not repeated | Not rerun; no TypeScript changed |
-| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,143 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,145 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Not rerun; no workspace code changed |
-| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 138 policy-tooling tests passed; the adversarial suite was not run separately | 163 policy-tooling tests and the adversarial suite passed | 163 policy-tooling tests and the adversarial suite passed | 223 policy-tooling tests passed, 221 before the change; the adversarial suite was not run separately |
-| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force; the base `de81656` fails on the unaccepted critical `GHSA-8vv3-6qpc-gpw6` | Passed; 1 accepted (`picomatch`) and 0 unaccepted critical/high records; the base `374f694e` fails on the unaccepted high and on the metadata count, and without the exception the change fails only on the unaccepted high |
-| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally | Passed locally; `antd`'s code (`anticon`, `getPrefixCls`, `rc-notification`) no longer appears in `apps/extension/dist/chrome`, neither base nor branch bundles `moment` or `dayjs`, and the `moment` matches are unchanged wordlist and message text | Passed locally; of the 71 MV3 ZIP entries only `background.js` differs from the base, and only in the four `bitcoinjs-lib` modules 6.1.8 changes (see below) | Store-channel build passed locally at `374f694e`; neither `apps/extension/dist/chrome` nor the packaged ZIP contains `picomatch` code, and the change touches no build input |
-| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Passed on the pinned Node 22.22.3 and pnpm 11.28.9; module ids differ from the base, module code does not (see below) | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`) on Node 24.22.2 and pnpm 11.28.9; canonical run in branch CI | Not rerun as `build:repro:extension`; the base build reproduces the ZIP SHA-256 CI printed for `de81656`; canonical run in branch CI | Not rerun; no build input changed |
-| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the extension import smoke passed locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the SDK package pin check passed locally; remaining PQC gates run in branch CI | Not rerun; no PQC input changed |
-| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
-| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Gate | 2026-09-02 refresh result | 2026-10-16 refresh result | 2026-10-23 refresh result | 2026-11-02 refresh result | 2026-11-03 pnpm 11.28.9 result | 2026-11-05 workspace and `antd` removal result | 2026-11-10 `bitcoinjs-lib` 6.1.8 result | 2026-11-17 `picomatch` exception result | 2026-11-18 `picomatch` exception removal result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Frozen install | Passed with the lockfile unchanged | Passed with the lockfile unchanged | Passed against the regenerated lockfile | Passed against the regenerated lockfile | Passed from a clean `node_modules` against the v9 lockfile | Passed from an empty `node_modules` against both regenerated lockfiles; each is a one-pass pnpm 11.28.9 relock, the first of the base lockfile and the second of the first, and relocking the base lockfile gives the second byte for byte too | Passed against the regenerated lockfile, whose diff from the base touches only `bitcoinjs-lib`: its `patchedDependencies` key, one package entry, one snapshot and three importer specifiers; the installed copy is 6.1.8 with the workspace patch applied | Passed with the lockfile unchanged | Passed with the lockfile unchanged |
+| Root lint | Passed with zero errors; 894 legacy warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 893 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 853 warnings remain visible | Passed with zero errors; 730 repo-level warnings against base `0638892`'s 817, and per file and rule no file gains a warning except `settingLocales.test.ts`, whose one moved there from the deleted `EnableSignData.test.tsx` | Passed with zero errors; 730 repo-level warnings, as on 2026-11-05; the only linted file that changed is a string in `fresh-chain-language.test.mjs` | `lint:repo` passed with zero errors; none of its 692 warnings is in a changed file. The workspace lint was not rerun; no workspace file changed | Passed with zero errors; none of the 692 repo-level warnings is in a changed file, and no changed file is linted |
+| Workspace declaration/background builds | Passed | Passed | Passed | Passed | Passed | Passed | Passed | Passed | Not rerun; no build input changed |
+| Typecheck | Passed | Passed | Passed | Passed | Passed; the extension's 20 and `@qbit/wallet-background`'s one known `tsc` errors are unchanged from the base | Passed; a root `tsc` run over `apps/extension`, which CI does not run, has the same 20 errors as base `0638892`, and `@qbit/wallet-background`'s one known error is unchanged | Passed (`corepack pnpm typecheck`, as CI runs it); the root `tsc` run over `apps/extension` was not repeated | Not rerun; no TypeScript changed | Not rerun; no TypeScript changed |
+| Workspace unit tests and PQC golden vectors | Passed | Passed, including the full suite under the `tinypool` 2.1.2 override | Passed: 22 Vitest suites, 2,110 tests, on `vite@6.4.4` | Passed: 242 Vitest suites, 3,746 tests; 12 PQC golden and package-vector tests | Passed: 243 Vitest suites, 3,811 tests; 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,143 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Passed: 252 Vitest suites, 4,145 tests, plus 88 extension script tests; 12 PQC golden and 3 protocol-vector tests | Not rerun; no workspace code changed | Not rerun; no workspace code changed |
+| Security policy unit/adversarial suite | 60 policy-tooling tests and the 13-scenario adversarial suite passed | 95 policy-tooling tests and the adversarial suite passed | 99 policy-tooling tests and the 13-scenario adversarial suite passed | 128 policy-tooling tests and the adversarial suite passed | 138 policy-tooling tests passed; the adversarial suite was not run separately | 163 policy-tooling tests and the adversarial suite passed | 163 policy-tooling tests and the adversarial suite passed | 223 policy-tooling tests passed, 221 before the change; the adversarial suite was not run separately | 238 policy-tooling tests passed, as before the change; the adversarial suite was not run separately |
+| Live dependency policy | Passed; 0 unaccepted critical/high findings | Passed; 1 accepted (`braces`) and 0 unaccepted critical/high records after the PostCSS exceptions were removed | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force | Passed; 0 critical/high records and no exception in force; the base `de81656` fails on the unaccepted critical `GHSA-8vv3-6qpc-gpw6` | Passed; 1 accepted (`picomatch`) and 0 unaccepted critical/high records; the base `374f694e` fails on the unaccepted high and on the metadata count, and without the exception the change fails only on the unaccepted high | Passed; 0 critical/high records and no exception in force; the base `15a5b643` fails on the stale `picomatch` exception |
+| Extension build/package | Not rerun locally; remains a branch CI gate | Passed locally and in branch CI | Passed locally; neither updated package appears in `apps/extension/dist/chrome` | Passed locally; `follow-redirects` does not appear in `apps/extension/dist/chrome` | Passed locally | Passed locally; `antd`'s code (`anticon`, `getPrefixCls`, `rc-notification`) no longer appears in `apps/extension/dist/chrome`, neither base nor branch bundles `moment` or `dayjs`, and the `moment` matches are unchanged wordlist and message text | Passed locally; of the 71 MV3 ZIP entries only `background.js` differs from the base, and only in the four `bitcoinjs-lib` modules 6.1.8 changes (see below) | Store-channel build passed locally at `374f694e`; neither `apps/extension/dist/chrome` nor the packaged ZIP contains `picomatch` code, and the change touches no build input | Not rerun; no build input changed |
+| Deterministic extension packaging | Not rerun locally; remains a branch CI gate | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`); canonical run in branch CI | Passed locally on the pinned Node 22.22.3 and pnpm 8.6.0 | Not rerun as `build:repro:extension`; the base and branch `package:test` ZIPs are byte-identical in a non-canonical local drill on Node 24.22.1; canonical run in branch CI | Passed on the pinned Node 22.22.3 and pnpm 11.28.9; module ids differ from the base, module code does not (see below) | Passed locally as a non-canonical drill (`--allow-toolchain-mismatch`) on Node 24.22.2 and pnpm 11.28.9; canonical run in branch CI | Not rerun as `build:repro:extension`; the base build reproduces the ZIP SHA-256 CI printed for `de81656`; canonical run in branch CI | Not rerun; no build input changed | Not rerun; no build input changed |
+| PQC suite | Golden fixture verified locally; build, WASM hash, MV3 smoke, import smoke, and reproducible rebuild remain branch CI gates | Golden fixture verified locally; `Verify @qbit/pqc` passed in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | Golden fixture verified locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the extension import smoke passed locally; remaining PQC gates run in branch CI | PQC golden and package-vector tests and the SDK package pin check passed locally; remaining PQC gates run in branch CI | Not rerun; no PQC input changed | Not rerun; no PQC input changed |
+| Playwright | Not rerun locally; remains a branch CI gate | `Playwright G3 scenarios` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| Regtest integration smoke | Not rerun locally; remains a branch CI gate | Not rerun locally; runs in the `conformance-smoke` job, which passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
+| qbit Core conformance | Not rerun locally; remains a branch CI gate | `conformance-smoke` passed in branch CI | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate | Not rerun locally; remains a branch CI gate |
 
 The local evidence host ran the repository pins, Node 22.22.3 with pnpm 8.6.0
 through Corepack; gates not rerun locally remain enforced by the PR's branch
@@ -764,9 +736,8 @@ at `41ce38b8`.
   do not prove that an upstream publisher or pinned Action commit is benign.
 - Advisory severity and path analysis are inputs, not substitutes for exploit
   review. Moderate and low findings remain tracked in the generated inventory.
-- One risk exception is in force, for `picomatch` until 2027-02-15; any other
-  new critical or high record fails CI until it is patched or accepted through
-  a schema-v2 exception.
+- No risk exception is in force, so any new critical or high record fails CI
+  until it is patched or accepted through a schema-v2 exception.
 - Release evidence must retain the policy output, audit snapshot, inventory,
   submodule commits, extension ZIP manifest, and extension ZIP SHA-256.
 
