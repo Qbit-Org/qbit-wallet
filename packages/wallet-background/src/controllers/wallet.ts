@@ -1214,6 +1214,53 @@ function qbitProviderPsbtAutoFinalized(
 }
 
 /**
+ * Refuse, before approval and before any signature counter moves, a provider
+ * PSBT whose outputs exceed its inputs by `shortfall` (a draft others fund
+ * later) unless the account can sign it as one. Every input the account signs
+ * must name 0x81 or 0x83: either signature commits to its own input only, so
+ * the inputs that fund the rest can be added after it, and one under the
+ * default type would commit to an unfunded transaction no input can complete.
+ * Only a signer in this wallet signs one, since an external signer may finalize
+ * or refuse it after its own key use; and such a draft cannot be finalized,
+ * so `autoFinalized: true` is refused here, as its approval would end in a
+ * failure after the signature was spent.
+ */
+function assertQbitProviderShortfallSigning(
+  shortfall: bigint,
+  keys: readonly QbitP2mrSigningKeyInput[],
+  signMethod: AccountSignMethod,
+  autoFinalized: boolean | undefined
+): void {
+  const unfunded = `its outputs exceed its inputs by ${shortfall} sats`
+  const committed = keys.find(
+    key => key.hashType === undefined || !P2MR_PARTIAL_SIGHASH_TYPES.has(key.hashType)
+  )
+  if (committed) {
+    const type =
+      committed.hashType === undefined
+        ? 'the default sighash type'
+        : `sighash type 0x${committed.hashType.toString(16)}`
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `PSBT cannot be signed: ${unfunded}, and input ${committed.inputIndex} is signed under ` +
+        `${type}; every input this account signs in a PSBT short of funds must name 0x81 or 0x83`
+    )
+  }
+  if (signMethod !== AccountSignMethod.Local) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `PSBT cannot be signed: ${unfunded}, and this account's signer is not in this wallet`
+    )
+  }
+  if (autoFinalized === true) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `autoFinalized needs a PSBT this wallet can finalize after signing: ${unfunded}`
+    )
+  }
+}
+
+/**
  * Refuse a provider PSBT whose pay-to-anchor outputs carry more, together,
  * than `QBIT_P2A_MAX_VALUE`. Anyone can spend such an output, so the bound
  * limits what a website can move out of the wallet through one.
@@ -8057,6 +8104,21 @@ export class WalletController extends BaseController {
     const consolidationOutputCounts =
       this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
       toSignData.qbitConsolidation?.fundingOutputCounts
+    // A PSBT whose outputs exceed its inputs is a draft for others to fund,
+    // which no send, plan, recovery or consolidation of the wallet's builds.
+    // Only a website's signs one: its exact bytes, admitted for its open
+    // approval, which prepared it to come back unfinalized. Anything else
+    // handed back with such bytes is refused before any read or key use.
+    if (
+      decodeQbitPsbt(psbt, { allowOutputsAboveInputs: true }).shortfall !== undefined &&
+      (provider.claim !== undefined ||
+        !provider.skipsCheck ||
+        migrationContext !== undefined ||
+        consolidationOutputCounts !== undefined ||
+        toSignData.autoFinalized !== false)
+    ) {
+      throw new Error('This transaction spends more than its inputs and cannot be signed here')
+    }
     if (consolidationOutputCounts) {
       await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
     }
@@ -10963,7 +11025,10 @@ export class WalletController extends BaseController {
     const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
     let totalOutputValue = 0n
     let changeValue = 0n
-    for (const output of decodeQbitPsbt(psbt).outputs) {
+    // The unsigned transaction's outputs, as decoding gives them, also for a
+    // draft whose outputs exceed its inputs: its fee is below zero, and it
+    // moves nothing under the migration's assertion.
+    for (const output of psbtUnsignedTransaction(psbt).outputs) {
       totalOutputValue += output.value
       if (qbitBytesToHex(output.scriptPubKey) === accountScriptPubKey) {
         changeValue += output.value
@@ -11120,7 +11185,13 @@ export class WalletController extends BaseController {
     // network so signing stays bound to it.
     const chain = this.getChainType()
     await qbitSendGuardService.assertNoOverlap(chain, qbitPsbtOutpoints(psbt), qbitPsbtTxid(psbt))
-    const summary = decodeQbitPsbt(psbt)
+    // Read with a known funding shortfall reported rather than refused: the
+    // plan below decides whether this account may sign such a draft
+    // (`assertQbitProviderShortfallSigning`). With an input's value unknown,
+    // neither a fee nor a shortfall is known, and the plan's validation
+    // refuses the PSBT, as every input needs its witness UTXO.
+    const summary = decodeQbitPsbt(psbt, { allowOutputsAboveInputs: true })
+    const shortfall = summary.shortfall
     assertQbitProviderAnchorValue(summary.outputs)
     const accountLeafScript = account.p2mr.leafScript.toLowerCase()
     const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
@@ -11159,13 +11230,27 @@ export class WalletController extends BaseController {
     if (qbitP2mrSigningKeys.length === 0) {
       throw new Error('PSBT has no inputs signable by the active Qbit account')
     }
+    if (shortfall !== undefined) {
+      assertQbitProviderShortfallSigning(
+        shortfall,
+        qbitP2mrSigningKeys,
+        getAccountCapabilities(account).signMethod,
+        options.autoFinalized
+      )
+    }
 
     const signingKeys = qbitSigningKeysFromSerializable(qbitP2mrSigningKeys)
+    // The library refuses a shortfall again here unless every plan names
+    // 0x81 or 0x83 (`p2mrSigningOptionsFor`).
     validateP2mrSigningPlans({ psbt, keys: signingKeys, ...p2mrSigningOptionsFor(signingKeys) })
     // Decided before the budget preflight, which can issue a restored-floor
     // challenge, so a refusal leaves none for this PSBT; the request's
-    // failure cleanup releases those of earlier signPsbts entries.
-    const autoFinalized = qbitProviderPsbtAutoFinalized(psbt, signingKeys, options.autoFinalized)
+    // failure cleanup releases those of earlier signPsbts entries. A draft
+    // short of funds is never finalized: it comes back for others to fund.
+    const autoFinalized =
+      shortfall !== undefined
+        ? false
+        : qbitProviderPsbtAutoFinalized(psbt, signingKeys, options.autoFinalized)
 
     const protectedAssetCount =
       getAccountCapabilities(account).signMethod === AccountSignMethod.Local
@@ -11206,11 +11291,22 @@ export class WalletController extends BaseController {
     const toSignInputs = [...new Set(qbitP2mrSigningKeys.map(key => key.inputIndex))].map(
       index => ({ index, publicKey })
     )
-    const partialDetails = qbitPartialSignatureDetails(
-      qbitP2mrSigningKeys,
-      summary.outputs,
-      this.getNetworkType()
-    )
+    const partialDetails = [
+      // What the draft still needs, ahead of what each signature commits to:
+      // the exact value missing, excluding any network fee, which whoever
+      // funds it adds on top. It is no fee, and no promise of payment.
+      ...(shortfall !== undefined
+        ? [
+            {
+              label: t('qbit_funding_shortfall'),
+              value: Number(shortfall),
+              type: PsbtActionDetailType.SATOSHIS,
+              warning: true,
+            },
+          ]
+        : []),
+      ...qbitPartialSignatureDetails(qbitP2mrSigningKeys, summary.outputs, this.getNetworkType()),
+    ]
     return {
       psbtHex: qbitPsbtToHex(psbt),
       toSignInputs,
@@ -11236,7 +11332,11 @@ export class WalletController extends BaseController {
           : partialDetails.length > 0
             ? {
                 name: t('sign_transaction'),
-                description: t('qbit_partial_signature_description'),
+                description: t(
+                  shortfall !== undefined
+                    ? 'qbit_funding_shortfall_description'
+                    : 'qbit_partial_signature_description'
+                ),
                 details: partialDetails,
                 type: PsbtActionType.CUSTOM,
               }
@@ -13512,8 +13612,12 @@ export class WalletController extends BaseController {
     { statedRecipients, suppliedByWebsite = false }: DecodePsbtOptions = {}
   ): DecodedPsbt => {
     const psbt = qbitPsbtFromHex(psbtHex)
-    const summary = decodeQbitPsbt(psbt)
+    // A draft whose outputs exceed its inputs is reviewed too, with its
+    // shortfall: it has no fee yet, and is not completed. Whether it may be
+    // signed is decided elsewhere (`assertQbitProviderShortfallSigning`).
+    const summary = decodeQbitPsbt(psbt, { allowOutputsAboveInputs: true })
     const fee = Number(summary.fee ?? 0n)
+    const fundingShortfall = summary.shortfall === undefined ? undefined : Number(summary.shortfall)
     const finalTxVBytes = qbitPsbtReviewVsize(psbt, summary)
 
     const inputInfos = summary.inputs.map(input => {
@@ -13602,6 +13706,7 @@ export class WalletController extends BaseController {
       checkFeeShareWithoutSize: suppliedByWebsite,
       lockedOutputs,
       anyoneCanPayAll,
+      ...(fundingShortfall !== undefined ? { fundingShortfall } : {}),
     })
     // The wallet's outputs are known only from the scripts and addresses it
     // derives for its accounts, as their 'wallet' role is: the PSBT's own
@@ -13651,6 +13756,7 @@ export class WalletController extends BaseController {
       recommendedFeeRate: recommendedFeeRate ?? QBIT_FALLBACK_FEE_RATE,
       shouldWarnFeeRate: (spendSummary.feeAssessment?.reasons.length ?? 0) > 0,
       isCompleted,
+      ...(fundingShortfall !== undefined ? { fundingShortfall } : {}),
       spendSummary,
       outputOwners,
       version: summary.version,
@@ -13713,6 +13819,9 @@ export class WalletController extends BaseController {
           fee,
           totalInput: itemTotalInput,
           isCompleted,
+          ...(decoded.fundingShortfall !== undefined
+            ? { fundingShortfall: decoded.fundingShortfall }
+            : {}),
           hasSighashNone: false,
           parseError: false,
           risks: decoded.risks,

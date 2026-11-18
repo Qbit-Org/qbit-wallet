@@ -22,6 +22,7 @@ import {
   type P2mrSpentOutput,
   type P2mrTransaction,
   type Psbt,
+  type PsbtDecodeOptions,
 } from '@qbit-oss/protocol'
 import {
   ColdWalletKeyring,
@@ -3174,7 +3175,7 @@ export class KeyringService extends EventEmitter {
     }
 
     const tx = psbtUnsignedTransaction(psbtSnapshot)
-    const spentOutputs = p2mrSpentOutputsFromPsbt(psbtSnapshot)
+    const spentOutputs = p2mrSpentOutputsFromPsbt(psbtSnapshot, keySnapshots)
     const cacheKeys = p2mrPsbtSigningCacheKeys(psbtSnapshot, keySnapshots)
 
     return this.pqcSignatureCounterMutex.lock(pubkey, async () => {
@@ -3272,7 +3273,7 @@ export class KeyringService extends EventEmitter {
     }
 
     const tx = psbtUnsignedTransaction(psbtSnapshot)
-    const spentOutputs = p2mrSpentOutputsFromPsbt(psbtSnapshot)
+    const spentOutputs = p2mrSpentOutputsFromPsbt(psbtSnapshot, keySnapshots)
     const signingPlans = keySnapshots.map((key, index) => {
       const hashType = key.hashType ?? SIGHASH_DEFAULT
       const sighash = p2mrSighash({
@@ -4347,8 +4348,16 @@ function qbitRecoveryPlanPrepared(keyring: Keyring, pubkey: string, psbtHex: str
   )
 }
 
-function p2mrSpentOutputsFromPsbt(psbt: Psbt): P2mrSpentOutput[] {
-  return decodePsbt(psbt).inputs.map((input, index) => {
+/**
+ * The spent outputs `keys` sign over. The PSBT is read with the options its
+ * plans are validated under (`p2mrPsbtDecodeOptionsFor`), so a known funding
+ * shortfall is read only for plans that may sign one.
+ */
+function p2mrSpentOutputsFromPsbt(
+  psbt: Psbt,
+  keys: readonly { hashType?: number }[]
+): P2mrSpentOutput[] {
+  return decodePsbt(psbt, p2mrPsbtDecodeOptionsFor(keys)).inputs.map((input, index) => {
     if (!input.witnessUtxo) {
       throw new Error(`P2MR PSBT input ${index} is missing a witness UTXO`)
     }
@@ -4390,7 +4399,7 @@ function p2mrSignedSizeFloor(
   if (!unsignedTx) {
     throw new Error('P2MR PSBT is missing its unsigned transaction')
   }
-  const summary = decodePsbt(psbt)
+  const summary = decodePsbt(psbt, p2mrPsbtDecodeOptionsFor(keys))
   const signatureLengths = new Map<number, number[]>()
   for (const key of keys) {
     const explicitHashType = (key.hashType ?? SIGHASH_DEFAULT) !== SIGHASH_DEFAULT
@@ -4428,19 +4437,38 @@ export const P2MR_PARTIAL_SIGHASH_TYPES: ReadonlySet<number> = new Set([
 ])
 
 /**
- * The opt-in the protocol library asks for before it signs any type but
- * `SIGHASH_DEFAULT`. It is set only for a plan whose every non-default type is
- * in `P2MR_PARTIAL_SIGHASH_TYPES`; a plan naming any other type gets no opt-in
- * and the library refuses it. The only plans that name a type come from a
- * website's PSBT, after its approval showed the type.
+ * The opt-ins the protocol library asks for before it signs any type but
+ * `SIGHASH_DEFAULT`, or a PSBT whose outputs exceed its inputs.
+ *
+ * `allowNonDefaultSighash` is set only for a plan whose every non-default
+ * type is in `P2MR_PARTIAL_SIGHASH_TYPES`; a plan naming any other type gets
+ * no opt-in and the library refuses it. `allowOutputsAboveInputs` is set
+ * besides only when every key of the plan names one of those types, so each
+ * signature commits to its own input and leaves the other inputs open: a
+ * funding shortfall can then be signed, as a draft others add inputs to.
+ * The library itself permits a shortfall only for such a plan, and never
+ * finalizes one. A plan with any key under the default type, which commits to
+ * every input, gets no shortfall opt-in. The only plans that name a type come
+ * from a website's PSBT, after its approval showed the type and any shortfall.
  */
 export function p2mrSigningOptionsFor(keys: readonly { hashType?: number }[]): P2mrSigningOptions {
-  const named = keys
-    .map(key => key.hashType ?? SIGHASH_DEFAULT)
-    .filter(hashType => hashType !== SIGHASH_DEFAULT)
-  return named.length > 0 && named.every(hashType => P2MR_PARTIAL_SIGHASH_TYPES.has(hashType))
-    ? { allowNonDefaultSighash: true }
-    : {}
+  const hashTypes = keys.map(key => key.hashType ?? SIGHASH_DEFAULT)
+  const named = hashTypes.filter(hashType => hashType !== SIGHASH_DEFAULT)
+  if (named.length === 0 || !named.every(hashType => P2MR_PARTIAL_SIGHASH_TYPES.has(hashType))) {
+    return {}
+  }
+  return named.length === hashTypes.length
+    ? { allowNonDefaultSighash: true, allowOutputsAboveInputs: true }
+    : { allowNonDefaultSighash: true }
+}
+
+/**
+ * How a PSBT signed under `keys` is read: a known funding shortfall only with
+ * the opt-in `p2mrSigningOptionsFor` gives the plan, the same one its
+ * validation and signing use.
+ */
+function p2mrPsbtDecodeOptionsFor(keys: readonly { hashType?: number }[]): PsbtDecodeOptions {
+  return { allowOutputsAboveInputs: p2mrSigningOptionsFor(keys).allowOutputsAboveInputs === true }
 }
 
 function snapshotP2mrSigningKeys(keys: readonly P2mrSigningKey[]): P2mrSigningKey[] {
@@ -4455,7 +4483,7 @@ function snapshotP2mrSigningKeys(keys: readonly P2mrSigningKey[]): P2mrSigningKe
 /** The signature cache key of each signing key's sighash, in order. */
 function p2mrPsbtSigningCacheKeys(psbt: Psbt, keys: readonly P2mrSigningKey[]): string[] {
   const tx = psbtUnsignedTransaction(psbt)
-  const spentOutputs = p2mrSpentOutputsFromPsbt(psbt)
+  const spentOutputs = p2mrSpentOutputsFromPsbt(psbt, keys)
   return keys.map(key =>
     pqcSignatureCacheKey(
       p2mrSighash({

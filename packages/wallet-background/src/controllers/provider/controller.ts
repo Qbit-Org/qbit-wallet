@@ -15,6 +15,7 @@ import {
   type P2mrTransaction,
   type Psbt as QbitPsbt,
 } from '@qbit-oss/protocol'
+import { p2mrSigningOptionsFor } from '@qbit/keyring-service'
 import {
   RequestMethodSendQbitParams,
   RequestMethodSignMessageParams,
@@ -115,13 +116,30 @@ function qbitFinalWitness(input: QbitPsbt['inputs'][number] | undefined): Uint8A
   )?.value
 }
 
+/** How `decodeQbitPsbt` reads a provider PSBT and the signed result of its approval. */
+type QbitProviderPsbtDecodeOptions = { allowOutputsAboveInputs: boolean }
+
+/**
+ * A known funding shortfall is read only for a plan that may sign one, every
+ * key under 0x81 or 0x83, with the opt-in its preparation, validation and
+ * signing use (`p2mrSigningOptionsFor`). Any other plan reads such a PSBT as
+ * the library does by default, and refuses it.
+ */
+function qbitProviderPsbtDecodeOptions(toSignData: ToSignData): QbitProviderPsbtDecodeOptions {
+  return {
+    allowOutputsAboveInputs:
+      p2mrSigningOptionsFor(toSignData.qbitP2mrSigningKeys ?? []).allowOutputsAboveInputs === true,
+  }
+}
+
 function assertRequiredQbitP2mrSignatures(
   psbt: QbitPsbt,
   sourcePsbt: QbitPsbt,
-  toSignData: ToSignData
+  toSignData: ToSignData,
+  decodeOptions: QbitProviderPsbtDecodeOptions
 ) {
-  const summary = decodeQbitPsbt(psbt)
-  const sourceSummary = decodeQbitPsbt(sourcePsbt)
+  const summary = decodeQbitPsbt(psbt, decodeOptions)
+  const sourceSummary = decodeQbitPsbt(sourcePsbt, decodeOptions)
   const tx = psbtUnsignedTransaction(sourcePsbt)
   const spentOutputs = sourceSummary.inputs.map((input, inputIndex) => {
     if (!input.witnessUtxo) {
@@ -196,9 +214,13 @@ function assertRequiredQbitP2mrSignatures(
  * same final witness and witness UTXO: no signing plan covers it, so
  * assertRequiredQbitP2mrSignatures never looks at it.
  */
-function assertSourceFinalizedQbitInputsKept(psbt: QbitPsbt, sourcePsbt: QbitPsbt): void {
-  const summary = decodeQbitPsbt(psbt)
-  const sourceSummary = decodeQbitPsbt(sourcePsbt)
+function assertSourceFinalizedQbitInputsKept(
+  psbt: QbitPsbt,
+  sourcePsbt: QbitPsbt,
+  decodeOptions: QbitProviderPsbtDecodeOptions
+): void {
+  const summary = decodeQbitPsbt(psbt, decodeOptions)
+  const sourceSummary = decodeQbitPsbt(sourcePsbt, decodeOptions)
   sourcePsbt.inputs.forEach((sourceInput, inputIndex) => {
     const sourceWitness = qbitFinalWitness(sourceInput)
     if (!sourceWitness) return
@@ -227,11 +249,18 @@ function approvedSignedQbitPsbt(toSignData: ToSignData, psbtHex?: string): strin
 
   const psbt = parseQbitPsbt(qbitHexToBytes(formatQbitPsbtHex(psbtHex)))
   const sourcePsbt = parseQbitPsbt(qbitHexToBytes(toSignData.psbtHex))
+  const decodeOptions = qbitProviderPsbtDecodeOptions(toSignData)
   assertSameQbitUnsignedTx(psbt, sourcePsbt)
-  assertRequiredQbitP2mrSignatures(psbt, sourcePsbt, toSignData)
-  assertSourceFinalizedQbitInputsKept(psbt, sourcePsbt)
+  assertRequiredQbitP2mrSignatures(psbt, sourcePsbt, toSignData, decodeOptions)
+  assertSourceFinalizedQbitInputsKept(psbt, sourcePsbt, decodeOptions)
+  const sourceSummary = decodeQbitPsbt(sourcePsbt, decodeOptions)
 
   if (toSignData.autoFinalized !== false) {
+    // Its preparation returns a draft short of funds unfinalized; nothing
+    // finalizes, extracts or broadcasts one.
+    if (sourceSummary.shortfall !== undefined) {
+      throw new Error('a PSBT whose outputs exceed its inputs cannot be finalized')
+    }
     const finalized = finalizeP2mrPsbt(psbt)
     extractP2mrTransaction(finalized)
     return qbitBytesToHex(serializeQbitPsbt(finalized))
@@ -239,10 +268,9 @@ function approvedSignedQbitPsbt(toSignData: ToSignData, psbtHex?: string): strin
   // An input another signer had already finalized in the request comes back
   // as it was (checked above); only one the approval finalized breaks
   // partial signing.
-  const sourceInputs = decodeQbitPsbt(sourcePsbt).inputs
   if (
-    decodeQbitPsbt(psbt).inputs.some(
-      (input, index) => input.finalized && !sourceInputs[index]?.finalized
+    decodeQbitPsbt(psbt, decodeOptions).inputs.some(
+      (input, index) => input.finalized && !sourceSummary.inputs[index]?.finalized
     )
   ) {
     throw new Error('approval returned a finalized PSBT when partial signing was requested')

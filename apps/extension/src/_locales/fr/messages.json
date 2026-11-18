@@ -1118,6 +1118,12 @@
   "qbit_partial_signature_all_outputs": {
     "message": "Cette signature verrouille toutes les sorties"
   },
+  "qbit_funding_shortfall": {
+    "message": "Fonds encore nécessaires"
+  },
+  "qbit_funding_shortfall_description": {
+    "message": "Il manque des fonds à cette transaction, et votre signature n'en verrouille qu'une partie. D'autres doivent ajouter des entrées couvrant au moins les fonds encore nécessaires, plus les frais de réseau, avant qu'elle puisse être diffusée, et peuvent modifier tout ce que votre signature ne couvre pas. Signer ne garantit pas que quiconque la finance un jour ni vous paie."
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE est un type de signature spécial qui permet de modifier la transaction après signature. Cela peut entraîner une perte potentielle de fonds si la transaction est altérée malicieusement. Veuillez vous assurer de faire confiance à la source de cette transaction avant de continuer."
   },
@@ -2503,6 +2509,15 @@
   },
   "psbt_not_finalized": {
     "message": "Signée, non finalisée : le site ou d'autres signataires doivent la finaliser avant qu'elle puisse être diffusée"
+  },
+  "psbt_not_finalized_needs_funding": {
+    "message": "Signée, non finalisée : d'autres doivent ajouter les fonds manquants avant qu'elle puisse être finalisée ou diffusée"
+  },
+  "psbt_funding": {
+    "message": "Financement"
+  },
+  "psbt_network_fee_not_set": {
+    "message": "Pas encore fixés : payés par celui qui ajoute les fonds manquants"
   },
   "psbt_locktime": {
     "message": "Verrouillage temporel"

@@ -10,6 +10,7 @@ import {
   isWebsiteSuppliedPsbt,
   psbtRelativeLocks
 } from '@qbit/wallet-shared';
+import { numUtils } from '@qbit/base-utils';
 import { formatFeeRate, useI18n, useQbitUnit } from '@qbit/wallet-state';
 
 import { SignPsbtSection } from './Section';
@@ -156,6 +157,9 @@ export default function TransactionOverviewSection({
   const recommendationUnavailable = !!feeAssessment && feeAssessment.recommendedFeeRate === undefined;
 
   const showNetworkFee = decodedPsbt.isCompleted == true;
+  // A draft whose outputs exceed its inputs has no fee yet: the exact amount
+  // still missing is shown instead, never as a fee of zero.
+  const fundingShortfall = showNetworkFee ? undefined : decodedPsbt.fundingShortfall;
 
   const { locktime, version } = decodedPsbt;
   // Both locks are read from the version and each input's sequence, which every review returns.
@@ -179,7 +183,13 @@ export default function TransactionOverviewSection({
           ? 'psbt_finalized_after_coin_age'
           : 'psbt_finalized';
   const finalizeDecision = isWebsiteSuppliedPsbt(toSignData)
-    ? t(toSignData?.autoFinalized === false ? 'psbt_not_finalized' : finalizedKey)
+    ? t(
+        toSignData?.autoFinalized === false
+          ? fundingShortfall !== undefined
+            ? 'psbt_not_finalized_needs_funding'
+            : 'psbt_not_finalized'
+          : finalizedKey
+      )
     : undefined;
 
   let locktimeText: string | undefined;
@@ -225,8 +235,81 @@ export default function TransactionOverviewSection({
       </SignPsbtSection>
     ) : null;
 
+  const signatureBudgetRows = signatureBudget && (
+    <Column gap="sm" fullX data-testid="psbt-signature-budget">
+      {!signatureBatchBudget && (
+        <Text
+          text={`Signatures: ${signatureBudget.required} new • ${signatureBudget.cached} cached`}
+          size="xs"
+          color="textDim"
+        />
+      )}
+      {signatureBudget.restoredFloorRisk ? (
+        <Row itemsCenter gap="sm">
+          <Text
+            text={t(
+              'qbit_known_onchain_usage_lower_bound',
+              signatureBudget.restoredFloorRisk.knownOnChainSignatures > 0
+                ? `${signatureBudget.restoredFloorRisk.knownOnChainSignatures}+`
+                : '0'
+            )}
+            size="xs"
+            color="textDim"
+          />
+          <Tooltip title={t('qbit_recovery_counter_approximate_tip')} overlayStyle={{ fontSize: fontSizes.xs }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Icon icon="circle-question" color="textDim" size={12} />
+            </div>
+          </Tooltip>
+        </Row>
+      ) : signatureBatchBudget ? (
+        <Text
+          text={`Batch signature budget: ${signatureBatchBudget.required} new; ${signatureBatchBudget.remainingBefore} before, ${signatureBatchBudget.remainingAfter} after all transactions`}
+          size="xs"
+          color="textDim"
+          data-testid="psbt-batch-signature-budget"
+        />
+      ) : (
+        <Text
+          text={`Signature budget: ${signatureBudget.remainingBefore} before, ${signatureBudget.remainingAfter} after`}
+          size="xs"
+          color="textDim"
+        />
+      )}
+      {signatureBudget.restoredFloorRisk && signatureBatchBudget && (
+        <Text
+          text={`Batch signatures: ${signatureBatchBudget.required} new`}
+          size="xs"
+          color="textDim"
+          data-testid="psbt-batch-signature-budget"
+        />
+      )}
+    </Column>
+  );
+
   if (showNetworkFee === false) {
-    return transactionSection;
+    if (fundingShortfall === undefined) return transactionSection;
+    return (
+      <>
+        <SignPsbtSection title={t('psbt_funding')}>
+          <Column gap="sm">
+            <TermRow
+              label={t('qbit_funding_shortfall')}
+              value={`${numUtils.satoshisToAmount(fundingShortfall)} ${qbitUnit}`}
+              detail={`Exact: ${fundingShortfall} bits`}
+              testId="psbt-funding-shortfall"
+            />
+            <TermRow
+              label={t('network_fee_2')}
+              value={t('psbt_network_fee_not_set')}
+              testId="psbt-network-fee-not-set"
+            />
+            {signatureBudgetRows}
+          </Column>
+        </SignPsbtSection>
+        {transactionSection}
+      </>
+    );
   }
 
   const feeSection = (
@@ -282,57 +365,7 @@ export default function TransactionOverviewSection({
           />
         )}
 
-        {signatureBudget && (
-          <Column gap="sm" fullX data-testid="psbt-signature-budget">
-            {!signatureBatchBudget && (
-              <Text
-                text={`Signatures: ${signatureBudget.required} new • ${signatureBudget.cached} cached`}
-                size="xs"
-                color="textDim"
-              />
-            )}
-            {signatureBudget.restoredFloorRisk ? (
-              <Row itemsCenter gap="sm">
-                <Text
-                  text={t(
-                    'qbit_known_onchain_usage_lower_bound',
-                    signatureBudget.restoredFloorRisk.knownOnChainSignatures > 0
-                      ? `${signatureBudget.restoredFloorRisk.knownOnChainSignatures}+`
-                      : '0'
-                  )}
-                  size="xs"
-                  color="textDim"
-                />
-                <Tooltip title={t('qbit_recovery_counter_approximate_tip')} overlayStyle={{ fontSize: fontSizes.xs }}>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <Icon icon="circle-question" color="textDim" size={12} />
-                  </div>
-                </Tooltip>
-              </Row>
-            ) : signatureBatchBudget ? (
-              <Text
-                text={`Batch signature budget: ${signatureBatchBudget.required} new; ${signatureBatchBudget.remainingBefore} before, ${signatureBatchBudget.remainingAfter} after all transactions`}
-                size="xs"
-                color="textDim"
-                data-testid="psbt-batch-signature-budget"
-              />
-            ) : (
-              <Text
-                text={`Signature budget: ${signatureBudget.remainingBefore} before, ${signatureBudget.remainingAfter} after`}
-                size="xs"
-                color="textDim"
-              />
-            )}
-            {signatureBudget.restoredFloorRisk && signatureBatchBudget && (
-              <Text
-                text={`Batch signatures: ${signatureBatchBudget.required} new`}
-                size="xs"
-                color="textDim"
-                data-testid="psbt-batch-signature-budget"
-              />
-            )}
-          </Column>
-        )}
+        {signatureBudgetRows}
       </Column>
     </SignPsbtSection>
   );

@@ -55,6 +55,13 @@ export interface QbitPsbtSpendSummaryParams {
    * the wallet however many such approvals there are.
    */
   anyoneCanPayAll?: boolean
+  /**
+   * How much the outputs exceed the inputs by, when every input's value is
+   * known: a draft whose signatures leave room for the inputs others add.
+   * Its fee is unknown, so it is not judged; what can leave the wallet is
+   * known all the same, and `netSpend` is reported.
+   */
+  fundingShortfall?: number | undefined
 }
 
 /**
@@ -114,6 +121,7 @@ export function summarizeQbitPsbtSpend({
   checkFeeShareWithoutSize = false,
   lockedOutputs: signedLocks = new Map<number, number>(),
   anyoneCanPayAll = false,
+  fundingShortfall,
 }: QbitPsbtSpendSummaryParams): {
   spendSummary: PsbtSpendSummary
   risks: Risk[]
@@ -131,6 +139,12 @@ export function summarizeQbitPsbtSpend({
   }
   if (typeof anyoneCanPayAll !== 'boolean') {
     throw new TypeError('anyoneCanPayAll must be a boolean')
+  }
+  if (
+    fundingShortfall !== undefined &&
+    (isCompleted || !Number.isSafeInteger(fundingShortfall) || fundingShortfall <= 0)
+  ) {
+    throw new TypeError('fundingShortfall must be a positive safe integer of an unfunded PSBT')
   }
   const recipients = new Set(
     statedRecipients.filter(address => address !== '').map(address => address.toLowerCase())
@@ -211,6 +225,8 @@ export function summarizeQbitPsbtSpend({
   })
 
   const known = isCompleted && allInputsKnown
+  // Every input's value is known: with a fee, or with a known shortfall.
+  const valuesKnown = allInputsKnown && (isCompleted || fundingShortfall !== undefined)
   // The fee is compared with what the transaction pays others when the
   // wallet funds all of it. With another party's inputs neither the fee nor
   // those payments are the wallet's alone: the wallet's own screens judge only
@@ -240,7 +256,7 @@ export function summarizeQbitPsbtSpend({
     account,
     walletInputValue,
     walletOutputValue,
-    ...(known ? { netSpend: walletInputValue - walletOutputValue } : {}),
+    ...(valuesKnown ? { netSpend: walletInputValue - walletOutputValue } : {}),
     externalOutputValue,
     outputRoles,
     unrecognisedOutputCount,

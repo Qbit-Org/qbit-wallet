@@ -1118,6 +1118,12 @@
   "qbit_partial_signature_all_outputs": {
     "message": "此簽名鎖定所有輸出"
   },
+  "qbit_funding_shortfall": {
+    "message": "仍需的資金"
+  },
+  "qbit_funding_shortfall_description": {
+    "message": "這筆交易的資金不足，而您的簽名只鎖定其中一部分。廣播前，其他人必須加入至少等於仍需資金加上網路費用的輸入，並可更改您的簽名未涵蓋的部分。簽署並不保證有人會為其提供資金或付款給您。"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE是一種特殊的簽名類型，允許在簽名後修改交易。如果交易被惡意修改，可能導致資金損失。請確保您信任此交易的來源，然後再繼續。"
   },
@@ -2503,6 +2509,15 @@
   },
   "psbt_not_finalized": {
     "message": "已簽署，未完成：須由網站或其他簽署者完成後才能廣播"
+  },
+  "psbt_not_finalized_needs_funding": {
+    "message": "已簽署，未完成：須由其他人補足資金後才能完成或廣播"
+  },
+  "psbt_funding": {
+    "message": "資金"
+  },
+  "psbt_network_fee_not_set": {
+    "message": "尚未設定：由補足資金的人支付"
   },
   "psbt_locktime": {
     "message": "鎖定時間"

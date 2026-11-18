@@ -1118,6 +1118,12 @@
   "qbit_partial_signature_all_outputs": {
     "message": "この署名はすべてのアウトプットを固定します"
   },
+  "qbit_funding_shortfall": {
+    "message": "不足している資金"
+  },
+  "qbit_funding_shortfall_description": {
+    "message": "このトランザクションは資金が不足しており、あなたの署名が確定するのはその一部だけです。ブロードキャストの前に、他の人が不足している資金とネットワーク手数料を合わせた額以上のインプットを追加する必要があり、署名が対象としない部分は変更できます。署名しても、誰かが資金を追加したり、あなたに支払ったりする保証はありません。"
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONEは署名後にトランザクションの変更を許可する特別な署名タイプです。トランザクションが悪意を持って変更された場合、資金を失う可能性があります。続行する前に、このトランザクションの送信元を信頼していることを確認してください。"
   },
@@ -2503,6 +2509,15 @@
   },
   "psbt_not_finalized": {
     "message": "署名済み・未ファイナライズ：ブロードキャストの前に、サイトまたは他の署名者がファイナライズする必要があります"
+  },
+  "psbt_not_finalized_needs_funding": {
+    "message": "署名済み・未ファイナライズ：ファイナライズやブロードキャストの前に、他の人が不足している資金を追加する必要があります"
+  },
+  "psbt_funding": {
+    "message": "資金"
+  },
+  "psbt_network_fee_not_set": {
+    "message": "未設定：不足分の資金を追加する人が支払います"
   },
   "psbt_locktime": {
     "message": "ロックタイム"
