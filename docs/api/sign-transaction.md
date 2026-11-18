@@ -24,9 +24,9 @@ as `toSignInputs`, is rejected. So is an `autoFinalized` that is not a boolean.
 
 `autoFinalized` decides whether the returned PSBT is finalized:
 
-- Omitted: Qbit Wallet finalizes the PSBT when its own signatures complete every input. When an
-  input still needs another signer, or carries P2MR entries the wallet cannot finalize, it returns
-  the PSBT with its signatures added and no input finalized, for the other signers to complete.
+- Omitted: Qbit Wallet finalizes the PSBT when it is funded and its own signatures complete every
+  input. When it still needs funding or another signer, or carries P2MR entries the wallet cannot
+  finalize, it returns the PSBT with its signatures added and no input finalized.
 - `true`: the result must be finalized. A PSBT the wallet cannot finalize after signing is
   rejected before approval, so no signature is spent.
 - `false`: the result is never finalized.
@@ -70,6 +70,24 @@ const partialPsbtHex = await window.qbit.signPsbt(sharedPsbtHex, {
 })
 ```
 
+### Signing before another participant adds funds
+
+A participant can commit an input and a payout before another wallet adds the remaining funds.
+The dapp supplies the input, its previous output, the payout, and the sighash type in the PSBT.
+It uses the existing `signPsbt` or `signPsbts` options shown here.
+
+When the outputs exceed the known input values, every input the wallet signs must allow other
+participants to add inputs. `SINGLE|ANYONECANPAY` (`0x83`) commits to the output at the same
+index as the signing input. `ALL|ANYONECANPAY` (`0x81`) commits to every output, so a funding
+participant must preserve those outputs. The wallet's existing input ownership and previous-output
+checks still apply.
+
+For example, a draft with 1,000 bits of inputs and a 10,000-bit payout still needs 9,000 bits
+before any network fee. Approval identifies the committed payout and the amount still required.
+The final fee can be calculated once the other participant completes the transaction. Signing
+the draft leaves the funds in place. An explicit `autoFinalized: true` request is rejected
+while funding is incomplete.
+
 ## `signPsbts(psbtHexs, options)`
 
 ```typescript
@@ -102,7 +120,7 @@ that determine what will be signed:
 - Exact trusted origin, active account, chain, and network.
 - Every input prevout, input value, and P2MR key used for that input.
 - Every output value and raw output script.
-- The exact fee.
+- The exact fee for a funded transaction, or the funding shortfall for a partially funded PSBT.
 - The raw memo output script, encoded memo bytes, and decoded chunks when present.
 - Per-input and aggregate signature-budget impact, including cache reuse.
 
