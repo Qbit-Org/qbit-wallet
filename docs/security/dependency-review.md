@@ -319,9 +319,8 @@ their lower severity is not evidence of unreachability.
 
 ## Accepted high-risk dispositions
 
-One high advisory record, `picomatch` `GHSA-fc5q-39xc-vjpf`, is in the live
-audit and accepted with a schema-v2 exception; the committed evidence predates
-it.
+The live audit has no critical or high records. GitHub withdrew the picomatch
+advisory on 2026-11-18, and its exception has been retired. [GitHub advisory](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
 
 The two PostCSS records accepted on 2026-09-02 (`GHSA-6g55-p6wh-862q` and
 `GHSA-r28c-9q8g-f849`, `postcss@6.0.1/7.0.39`) were reachable only through the
@@ -333,7 +332,7 @@ refresh removed the declaration and deleted both exceptions before their
 since the merged baseline were upgraded; none was suppressed merely for being
 build-only.
 
-### picomatch
+### picomatch disposition on 2026-11-17
 
 | Package/advisory                               | Directness | Audit occurrences | Reachability            | Owner       | Expiry     | Tracking                                                   |
 | ---------------------------------------------- | ---------- | ----------------: | ----------------------- | ----------- | ---------- | ---------------------------------------------------------- |
@@ -369,7 +368,7 @@ tools run, and the impact is a hung tool process. A store-channel build at
 absent from `apps/extension/dist/chrome` and from the packaged ZIP, in which
 React's minified-error string, checked as a control, is found.
 
-Removal plan: when a patched picomatch is published, move both version lines
+Plan recorded on 2026-11-17: when a patched picomatch is published, move both version lines
 to patched releases through a root override or parent upgrades, regenerate the
 lockfile, license baseline, and evidence, and delete the exception. If the fix
 lands only in 4.x, the 2.3.2 line needs its parents (`micromatch` 4,
@@ -764,9 +763,8 @@ at `41ce38b8`.
   do not prove that an upstream publisher or pinned Action commit is benign.
 - Advisory severity and path analysis are inputs, not substitutes for exploit
   review. Moderate and low findings remain tracked in the generated inventory.
-- One risk exception is in force, for `picomatch` until 2027-02-15; any other
-  new critical or high record fails CI until it is patched or accepted through
-  a schema-v2 exception.
+- The risk exception register is empty. A new critical or high record fails CI
+  until it is patched or accepted through a schema-v2 exception.
 - Release evidence must retain the policy output, audit snapshot, inventory,
   submodule commits, extension ZIP manifest, and extension ZIP SHA-256.
 
