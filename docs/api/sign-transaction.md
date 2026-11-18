@@ -74,16 +74,18 @@ const partialPsbtHex = await window.qbit.signPsbt(sharedPsbtHex, {
 
 A participant can commit an input and a payout before another wallet adds the remaining funds.
 The dapp supplies the input, its previous output, the payout, and the sighash type in the PSBT.
-It uses the existing `signPsbt` or `signPsbts` options shown here.
+It uses the existing `signPsbt` or `signPsbts` options shown here. The signing key must be
+held by the wallet. This flow is unavailable for accounts that use an external signer.
 
 When the outputs exceed the known input values, every input the wallet signs must allow other
 participants to add inputs. `SINGLE|ANYONECANPAY` (`0x83`) commits to the output at the same
 index as the signing input. `ALL|ANYONECANPAY` (`0x81`) commits to every output, so a funding
-participant must preserve those outputs. The wallet's existing input ownership and previous-output
-checks still apply.
+participant must preserve those outputs. With `0x83`, outputs that no signature commits to can
+still change. The wallet's existing input ownership and previous-output checks still apply.
 
-For example, a draft with 1,000 bits of inputs and a 10,000-bit payout still needs 9,000 bits
-before any network fee. Approval identifies the committed payout and the amount still required.
+For example, a draft with a single 1,000-bit input and a committed 10,000-bit payout needs
+9,000 bits to cover that payout before any network fee. Approval identifies the committed
+outputs and the funding gap for the outputs shown in the draft.
 The final fee can be calculated once the other participant completes the transaction. Signing
 the draft leaves the funds in place. An explicit `autoFinalized: true` request is rejected
 while funding is incomplete.
