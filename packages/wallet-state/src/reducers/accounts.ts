@@ -505,6 +505,16 @@ export const accountsReloaded = createAction<{ chainType: string; seq?: number }
   'accounts/accountsReloaded'
 )
 
+/** A balance card shows `total`, replacing what any card published before. */
+export const balanceCardTotalShown = createAction<BalanceCardTotal>(
+  'accounts/balanceCardTotalShown'
+)
+
+/** The card `owner` shows no total any more: what it published is withdrawn. */
+export const balanceCardTotalWithdrawn = createAction<{ owner: number }>(
+  'accounts/balanceCardTotalWithdrawn'
+)
+
 /** The user asked for the read `requestId` of `address` in flight: see `BalanceReadRecord.reading`. */
 export const balanceReadJoinedByUser = createAction<{ address: string; requestId: number }>(
   'accounts/balanceReadJoinedByUser'
@@ -686,6 +696,29 @@ export interface AccountsState {
    * new network's: until a load for that network ends, at the latest.
    */
   accountsLoaded?: { chainType: string; count: number; seq?: number }
+  /**
+   * The total the balance card shows, as it last published it
+   * (`balanceCardTotalShown`), until it shows none, the balance is hidden,
+   * or the card goes: the account switcher's row of the selected account
+   * shows it (`useCurrentAccountBalanceTotal`).
+   */
+  balanceCardTotal?: BalanceCardTotal
+}
+
+/** The total a balance card shows, for one address on one network. */
+export interface BalanceCardTotal {
+  /** The card that shows it: only that card withdraws it. */
+  owner: number
+  address: string
+  chainType: string
+  /** In sats. */
+  totalBalance: number
+  /**
+   * The total is the newest read's own (the early total of the read in
+   * flight, or the total the newest settled read told), so a failed refresh
+   * does not make it out of date.
+   */
+  totalCurrent: boolean
 }
 
 const initialAccount = {
@@ -1010,6 +1043,12 @@ const slice: Slice<AccountsState> = createSlice({
       // An older load ending late: the newer one recorded stands.
       if (seq < (state.accountsLoaded?.seq ?? 0)) return
       state.accountsLoaded = { chainType, count: (state.accountsLoaded?.count ?? 0) + 1, seq }
+    })
+    builder.addCase(balanceCardTotalShown, (state, action) => {
+      state.balanceCardTotal = { ...action.payload }
+    })
+    builder.addCase(balanceCardTotalWithdrawn, (state, action) => {
+      if (state.balanceCardTotal?.owner === action.payload.owner) delete state.balanceCardTotal
     })
     builder.addCase(balanceReadJoinedByUser, (state, action) => {
       const reading = state.balanceReadMap[action.payload.address]?.reading

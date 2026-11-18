@@ -15,6 +15,7 @@ import {
   noteBalanceReadInFlight,
 } from '../../src/hooks/balanceReads'
 import { settingsActions } from '../../src/reducers/settings'
+import { useCurrentAccountBalanceTotal } from '../../src/hooks/accountTotals'
 import { I18nContext } from '../../src/context/I18nContext'
 
 const defaultI18n = {
@@ -1533,5 +1534,314 @@ describe('round 5', () => {
     })
     unsubscribe()
     expect(changes).toBe(0)
+  })
+})
+
+describe('round 6: the switcher’s row of the selected account shows the card’s total (item 1)', () => {
+  /** The card and the switcher's row of the selected account, on one page. */
+  function renderCardAndRow(
+    getAddressBalanceV2: (...args: any[]) => Promise<unknown>,
+    more: Record<string, unknown> = {}
+  ) {
+    const harness = harnessFor(getAddressBalanceV2, more)
+    const view = renderHook(
+      () => ({ card: useBalanceCardLogic(), row: useCurrentAccountBalanceTotal() }),
+      { wrapper: harness.wrapper }
+    )
+    return { ...harness, ...view }
+  }
+
+  const cardTotal = (card: ReturnType<typeof useBalanceCardLogic>): number | undefined =>
+    card.status.kind === 'loading' || card.status.kind === 'failed-empty'
+      ? undefined
+      : card.status.shown.total
+
+  /** The background reports `total` for the read `read`, before its answer. */
+  const reportTotal = (read: Read, total: number): void =>
+    act(() => {
+      uiEventBus.emit(QBIT_BALANCE_READ_PROGRESS, {
+        progressId: read.progressId,
+        kind: 'total',
+        address,
+        chainType: ChainType.QBIT_MAINNET,
+        totalBalance: total,
+      })
+    })
+
+  it('shows the total of an answer that could not read every output, over a complete one of another total, as the card does', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { result } = renderCardAndRow(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    expect(result.current.row).toEqual({ address, totalBalance: 91_000_000, stale: false })
+    await advance(10_000)
+    await act(async () => {
+      background.reads[1]!.resolve(incomplete)
+    })
+    expect(cardTotal(result.current.card)).toBe(92_000_000)
+    // The answer is the newest read's own total: not out of date.
+    expect(result.current.row).toEqual({ address, totalBalance: 92_000_000, stale: false })
+  })
+
+  it('shows the early total of a read in flight, as the card does', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { result } = renderCardAndRow(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    await advance(10_000)
+    await act(async () => {
+      background.reads[1]!.resolve(incomplete)
+    })
+    while (background.reads.length < 3) await advance(500)
+    reportTotal(background.reads[2]!, 93_000_000)
+    expect(cardTotal(result.current.card)).toBe(93_000_000)
+    expect(result.current.row).toEqual({ address, totalBalance: 93_000_000, stale: false })
+  })
+
+  it('shows, under a failure shown, the total the card shows, not the early total of the read in flight nor the complete answer stored', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { result } = renderCardAndRow(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    // Three reads in turn tell a total of 95,000,000 and then fail: the
+    // failure shown from the third on.
+    for (const index of [1, 2, 3]) {
+      while (background.reads.length <= index) await advance(500)
+      reportTotal(background.reads[index]!, 95_000_000)
+      await act(async () => {
+        background.reads[index]!.reject(new Error('explorer unreachable'))
+      })
+    }
+    expect(result.current.card.status).toMatchObject({ kind: 'failed', totalCurrent: true })
+    expect(cardTotal(result.current.card)).toBe(95_000_000)
+    // The next read tells another total while in flight.
+    while (background.reads.length <= 4) await advance(500)
+    reportTotal(background.reads[4]!, 99_000_000)
+    expect(result.current.card.status.kind).toBe('failed')
+    expect(cardTotal(result.current.card)).toBe(95_000_000)
+    // The newest settled read told it, though that read then failed.
+    expect(result.current.row).toEqual({ address, totalBalance: 95_000_000, stale: false })
+  })
+
+  it('marks the row out of date as before when the latest refresh failed and told no newer total', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { result } = renderCardAndRow(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    await advance(10_000)
+    await act(async () => {
+      background.reads[1]!.reject(new Error('explorer unreachable'))
+    })
+    expect(cardTotal(result.current.card)).toBe(91_000_000)
+    expect(result.current.row).toEqual({ address, totalBalance: 91_000_000, stale: true })
+  })
+
+  it('shows the background’s kept answer the card shows before the page has read the account', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const kept = {
+      ...complete,
+      availableBalance: 49_000_000,
+      totalBalance: 80_000_000,
+    }
+    const { result } = renderCardAndRow(background.getAddressBalanceV2, {
+      getKeptAddressBalance: async () => ({ balance: kept, readAt: Date.now() - 60_000 }),
+    })
+    await advance(0)
+    expect(background.reads).toHaveLength(0)
+    expect(result.current.card.status).toMatchObject({ shown: { source: 'kept' } })
+    expect(result.current.row).toEqual({ address, totalBalance: 80_000_000, stale: false })
+  })
+
+  it('withdraws what the card published as it unmounts: the row then shows the account’s balance read', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { result, store, unmount } = renderCardAndRow(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    await advance(10_000)
+    await act(async () => {
+      background.reads[1]!.resolve(incomplete)
+    })
+    expect(store.getState().accounts.balanceCardTotal).toMatchObject({
+      address,
+      totalBalance: 92_000_000,
+    })
+    const row = renderHook(() => useCurrentAccountBalanceTotal(), {
+      wrapper: createHookTestHarness({ store }).wrapper,
+    })
+    expect(row.result.current?.totalBalance).toBe(92_000_000)
+    unmount()
+    expect(store.getState().accounts.balanceCardTotal).toBeUndefined()
+    expect(row.result.current?.totalBalance).toBe(91_000_000)
+    void result
+  })
+
+  it.each([
+    [
+      'another account is selected',
+      () => accountActions.setCurrent({ address: 'qbit-second-account', key: 'account-2' } as any),
+    ],
+    [
+      'another network is shown',
+      () => settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }),
+    ],
+  ])('withdraws what the card published when %s and it shows no total', async (_case, change) => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { result, store } = renderCardAndRow(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    expect(store.getState().accounts.balanceCardTotal).toMatchObject({ totalBalance: 91_000_000 })
+    act(() => {
+      store.dispatch(change())
+    })
+    expect(result.current.card.status.kind).toBe('loading')
+    expect(store.getState().accounts.balanceCardTotal).toBeUndefined()
+    expect(result.current.row).toBeNull()
+  })
+
+  it('publishes only when what the card shows changes, not on every render', async () => {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const { store } = renderCardAndRow(background.getAddressBalanceV2)
+    const published: unknown[] = []
+    const unsubscribe = store.subscribe(() => {
+      const total = store.getState().accounts.balanceCardTotal
+      if (total !== published[published.length - 1]) published.push(total)
+    })
+    // Four polls, each answering the same complete balance.
+    for (let index = 0; index < 4; index += 1) {
+      while (background.reads.length <= index) await advance(500)
+      await advance(1_500)
+      await act(async () => {
+        background.reads[index]!.resolve(complete)
+      })
+    }
+    unsubscribe()
+    expect(background.reads).toHaveLength(4)
+    expect(published).toHaveLength(1)
+    expect(published[0]).toMatchObject({ totalBalance: 91_000_000 })
+  })
+})
+
+describe('round 6: a page shown again while a read is in flight (item 2)', () => {
+  async function showPage(shown: boolean): Promise<void> {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => !shown })
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+  }
+
+  /** A complete answer at 10 s, a failed poll at 20 s, and the read after it, at 22 s, in flight. */
+  async function failureCountedReadInFlight() {
+    vi.useFakeTimers()
+    const background = heldReads()
+    const view = renderCard(background.getAddressBalanceV2)
+    await advance(10_000)
+    await act(async () => {
+      background.reads[0]!.resolve(complete)
+    })
+    await advance(10_000)
+    await act(async () => {
+      background.reads[1]!.reject(new Error('explorer unreachable'))
+    })
+    await advance(2_000)
+    expect(background.times()).toEqual(seconds(10, 20, 22))
+    return { background, view }
+  }
+
+  it('reads as soon as the read in flight when the page was shown again fails, not after the back-off', async () => {
+    const { background, view } = await failureCountedReadInFlight()
+    // Hidden at 25 s, shown again at 26 s, the read of 22 s still in flight.
+    await advance(3_000)
+    await showPage(false)
+    await advance(1_000)
+    await showPage(true)
+    expect(background.times()).toEqual(seconds(10, 20, 22))
+    await advance(2_000)
+    await act(async () => {
+      background.reads[2]!.reject(new Error('explorer unreachable'))
+    })
+    expect(background.times()).toEqual(seconds(10, 20, 22, 28))
+    expect(view.result.current.card.status.busy).toBe(true)
+  })
+
+  it('reads at the usual pace when that read answers', async () => {
+    const { background } = await failureCountedReadInFlight()
+    await advance(3_000)
+    await showPage(false)
+    await advance(1_000)
+    await showPage(true)
+    await advance(2_000)
+    await act(async () => {
+      background.reads[2]!.resolve(complete)
+    })
+    await advance(3_999)
+    expect(background.times()).toEqual(seconds(10, 20, 22))
+    await advance(1)
+    expect(background.times()).toEqual(seconds(10, 20, 22, 32))
+  })
+
+  it('reads nothing more when the page is hidden again before that read fails', async () => {
+    const { background } = await failureCountedReadInFlight()
+    await advance(3_000)
+    await showPage(false)
+    await advance(1_000)
+    await showPage(true)
+    await advance(1_000)
+    await showPage(false)
+    await advance(1_000)
+    await act(async () => {
+      background.reads[2]!.reject(new Error('explorer unreachable'))
+    })
+    await advance(10_000)
+    expect(background.times()).toEqual(seconds(10, 20, 22))
+  })
+
+  it('sends no burst while the page is hidden and shown again ten times during an outage: one read per 2 s at most', async () => {
+    vi.useFakeTimers()
+    const startedAt = Date.now()
+    const times: number[] = []
+    // A complete answer, then every read fails half a second after it begins.
+    const getAddressBalanceV2 = (): Promise<unknown> => {
+      times.push(Date.now() - startedAt)
+      if (times.length === 1) return Promise.resolve(complete)
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new Error('explorer unreachable')), 500)
+      })
+    }
+    renderCard(getAddressBalanceV2)
+    await advance(22_600)
+    expect(times).toEqual(seconds(10, 20, 22.5))
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      await showPage(false)
+      await advance(100)
+      await showPage(true)
+      await advance(200)
+    }
+    await advance(1_000)
+    const outage = times.slice(1)
+    const gaps = outage.slice(1).map((at, index) => at - outage[index]!)
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(2_000)
+    // From the first failed read at 20 s to the end, 6.6 s: four reads at most.
+    expect(outage.length).toBeLessThanOrEqual(4)
+    expect(outage.length).toBeGreaterThan(2)
   })
 })

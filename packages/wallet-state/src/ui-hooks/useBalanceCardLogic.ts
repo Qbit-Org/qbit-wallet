@@ -1,12 +1,14 @@
 import { numUtils } from '@qbit/base-utils'
 import type { Account, QbitBalanceSummary } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector, useStore } from 'react-redux'
 import { AppState, uiActions } from 'src'
 import { useI18n } from '../context'
 import { useWallet } from '../context/WalletContext'
 import {
+  balanceCardTotalShown,
+  balanceCardTotalWithdrawn,
   balanceReadGivenUp,
   balanceReadJoinedByUser,
   hasAccountBalanceRead,
@@ -227,6 +229,11 @@ export function startBalancePoll(
   const holding = new Set<HeldRead>()
   // A tick fell due while a read was in flight, and runs once the reads settle.
   let tickMissed = false
+  // The reads in flight when the page was last shown again, until they end
+  // or the page is hidden: if the last of them fails, with a failure
+  // counted, the poll reads as on being shown again (`readAgain`) rather
+  // than wait out the back-off.
+  const inFlightWhenShown = new Set<HeldRead>()
   // Quick reads made since the page last showed a complete answer of its own.
   let quickRetries = 0
   // The read after the first failure over a complete answer came quickly
@@ -282,6 +289,8 @@ export function startBalancePoll(
     const settle = (failed: boolean): void => {
       // Stopped, or given up on: what it does changes nothing here.
       if (stopped || !holding.delete(held)) return
+      const inFlightAtShow = inFlightWhenShown.delete(held)
+      if (!failed) inFlightWhenShown.clear()
       if (!failed) retriedAfterFailure = false
       if (options.showsNoCompleteAnswer?.() !== true) {
         quickRetries = 0
@@ -309,6 +318,16 @@ export function startBalancePoll(
         // meanwhile stays remembered: another read still in flight that
         // answers last ends the back-off, and runs it as after any answer.
         scheduleAt(Date.now() + after)
+        // The last of the reads in flight when the page was shown again
+        // failed: with a failure counted, read as on being shown again.
+        if (
+          inFlightAtShow &&
+          inFlightWhenShown.size === 0 &&
+          holding.size === 0 &&
+          options.readsWhenShownAgain?.() === true
+        ) {
+          readAgain()
+        }
       } else if (tickMissed && holding.size === 0) {
         // The tick missed runs after a short pause, or one interval after
         // the last read started if that is later.
@@ -345,6 +364,14 @@ export function startBalancePoll(
     })
   }
 
+  // A failure counted as the page is shown again: read now, or as soon as
+  // the gap after the previous read's start allows.
+  const readAgain = (): void => {
+    const at = lastStartAt + POLL_SHOWN_AGAIN_GAP
+    if (Date.now() >= at) poll()
+    else scheduleAt(Math.min(dueAt, at))
+  }
+
   function tick(): void {
     timer = undefined
     if (stopped || isHidden()) return
@@ -359,6 +386,7 @@ export function startBalancePoll(
         // notices (the page may have been hidden since). Its caller stops
         // waiting too: a press of the refresh control that joined it is over.
         holding.delete(held)
+        inFlightWhenShown.delete(held)
         held.release(
           new BalanceReadGaveUpError(`balance read gave up after ${POLL_READ_GIVE_UP / 1000} s`)
         )
@@ -386,18 +414,13 @@ export function startBalancePoll(
     if (stopped) return
     if (isHidden()) {
       clearTimer()
+      inFlightWhenShown.clear()
       return
     }
+    const inFlight = [...holding]
     // Due: the tick runs now, reading or, beside a read still in flight,
     // waiting for it to settle. So it does, whatever the back-off, while the
     // card counts a failure. Otherwise the cadence carries on where it was.
-    // A failure counted: read now, or as soon as the gap after the
-    // previous read allows.
-    const readAgain = (): void => {
-      const at = lastStartAt + POLL_SHOWN_AGAIN_GAP
-      if (Date.now() >= at) poll()
-      else scheduleAt(Math.min(dueAt, at))
-    }
     if (Date.now() >= dueAt) {
       tick()
       // A read it gave up on as it was shown counts as failed: read now.
@@ -407,6 +430,8 @@ export function startBalancePoll(
     } else {
       scheduleAt(dueAt)
     }
+    // Reads begun before and still in flight: see `inFlightWhenShown`.
+    for (const held of inFlight) if (holding.has(held)) inFlightWhenShown.add(held)
   }
 
   visibility?.addEventListener('visibilitychange', onVisibilityChange)
@@ -653,6 +678,28 @@ function totalOnly(total: number, source: 'own' | 'early'): BalanceCardShown {
 }
 
 /**
+ * Whether the total `shown` is the newest read's own on `chainType`, so not
+ * out of date: the early total of the read in flight (`early`), or the
+ * total the newest settled read told, its statistics answered whatever
+ * became of its outputs.
+ */
+export function balanceTotalCurrent(
+  shown: BalanceCardShown,
+  record: BalanceReadRecord | undefined,
+  chainType: string
+): boolean {
+  if (shown.source === 'early') return true
+  const outcome = record?.outcome?.chainType === chainType ? record.outcome : undefined
+  const settledTotal =
+    record?.settledTotal?.chainType === chainType ? record.settledTotal : undefined
+  return (
+    settledTotal !== undefined &&
+    settledTotal.requestId === outcome?.requestId &&
+    settledTotal.totalBalance === shown.total
+  )
+}
+
+/**
  * The card's status at `now` (ms since the epoch), and the next time it
  * changes by the clock alone, if it does: the one place that decides what
  * the card says.
@@ -822,11 +869,7 @@ export function balanceCardStatus(
 
   if (escalated) {
     const busy = reads
-    const totalCurrent =
-      shown !== undefined &&
-      settledTotal !== undefined &&
-      settledTotal.requestId === outcome?.requestId &&
-      settledTotal.totalBalance === shown.total
+    const totalCurrent = shown !== undefined && balanceTotalCurrent(shown, record, chainType)
     return {
       status: shown
         ? { kind: 'failed', shown, totalCurrent, hidden, busy }
@@ -1022,6 +1065,9 @@ function qbitAddressOn(account: Account | undefined, chainType: string): string 
   return undefined
 }
 
+// Each balance card's own number, for what it publishes (`balanceCardTotal`).
+let balanceCardOwners = 0
+
 export function useBalanceCardLogic() {
   const { t } = useI18n()
 
@@ -1144,6 +1190,45 @@ export function useBalanceCardLogic() {
 
   const shown =
     status.kind === 'loading' || status.kind === 'failed-empty' ? undefined : status.shown
+
+  // The total the card shows, published for the account switcher's row of
+  // the selected account (`useCurrentAccountBalanceTotal`), so the two show
+  // one figure; none while the card shows no total or the balance is
+  // hidden. Published as it changes, before the page paints, and withdrawn
+  // as the card goes. Another account or network is published as such: the
+  // row takes only the selected account's on the network shown.
+  const ownerRef = useRef(0)
+  if (ownerRef.current === 0) ownerRef.current = ++balanceCardOwners
+  const publishedTotal =
+    shown !== undefined && !isBalanceHidden && address ? shown.total : undefined
+  const publishedCurrent = shown !== undefined && balanceTotalCurrent(shown, record, chainType)
+  const publishedRef = useRef(false)
+  useLayoutEffect(() => {
+    const owner = ownerRef.current
+    if (publishedTotal === undefined) {
+      if (publishedRef.current) dispatch(balanceCardTotalWithdrawn({ owner }))
+      publishedRef.current = false
+      return
+    }
+    dispatch(
+      balanceCardTotalShown({
+        owner,
+        address,
+        chainType,
+        totalBalance: publishedTotal,
+        totalCurrent: publishedCurrent,
+      })
+    )
+    publishedRef.current = true
+  }, [dispatch, address, chainType, publishedTotal, publishedCurrent])
+  useLayoutEffect(() => {
+    const owner = ownerRef.current
+    return (): void => {
+      if (publishedRef.current) dispatch(balanceCardTotalWithdrawn({ owner }))
+      publishedRef.current = false
+    }
+  }, [dispatch])
+
   const message = balanceCardMessage(status)
   // Counts are grouped as balances are, the same way in every language.
   const countFormat = useMemo(() => qbitSendPlanCountFormat('en'), [])
