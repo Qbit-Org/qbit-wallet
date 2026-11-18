@@ -13,9 +13,9 @@ import { QbitApiError, type EsploraTx, type RequestOptions } from '@qbit-oss/api
  * classified again without reading them; a read of outputs that a send may
  * spend still reads young ones that are not coinbase outputs afresh (see
  * `QbitFundingTxReads`). A lookup, the listing or the tip whose reply's
- * body could not be read is made again, and for the one read that waits out
- * the explorer's server errors, one it answered with such an error
- * (`withQbitReadRetries`).
+ * body could not be read is made again, and for the reads that ride out the
+ * explorer's server errors, the Send screen's and the balance read's, one it
+ * answered with such an error (`withQbitReadRetries`).
  */
 
 /**
@@ -757,8 +757,10 @@ export const QBIT_BODY_READ_RETRY_PAUSES_MS: readonly number[] = [100, 300]
  * explorer's 502s seen at `QBIT_CLASSIFY_SUSTAINED_READS_IN_FLIGHT`, 2 to
  * 6 s each, which outlasted the 2 s that 500 ms and then 1,500 ms covered.
  * Only the Send screen's read of outputs asks for it
- * (`readQbitAddressUtxosRidingOut` in `qbit-api`): every other read fails
- * on a server error as fast as the client alone, as in 1.0.9.
+ * (`readQbitAddressUtxosRidingOut` in `qbit-api`); the balance read rides
+ * them out on a shorter schedule of its own (`QBIT_BALANCE_RIDE_OUT`), and
+ * every other read fails on a server error as fast as the client alone, as
+ * in 1.0.9.
  *
  * A known limit, kept so that the bound holds: a lookup pauses inside its
  * slot of the limiter, and keeps it until its last attempt ends. In a
@@ -800,6 +802,107 @@ export const QBIT_SERVER_ERROR_RETRY_PAUSES_MS: readonly number[] = [500, 1_500,
  */
 export const QBIT_SERVER_ERROR_RIDE_OUT_MS = 20_000
 
+/**
+ * How a read rides out the explorer's server errors (`withQbitReadRetries`):
+ * the pause before each further attempt, and how long after its first
+ * attempt began a further one may still begin.
+ */
+export interface QbitRideOutSchedule {
+  readonly pausesMs: readonly number[]
+  readonly withinMs: number
+}
+
+/** The Send screen's (`QBIT_SERVER_ERROR_RETRY_PAUSES_MS`, `QBIT_SERVER_ERROR_RIDE_OUT_MS`). */
+export const QBIT_SEND_SCREEN_RIDE_OUT: QbitRideOutSchedule = {
+  pausesMs: QBIT_SERVER_ERROR_RETRY_PAUSES_MS,
+  withinMs: QBIT_SERVER_ERROR_RIDE_OUT_MS,
+}
+
+/**
+ * The pause before each further attempt of a balance read's statistics,
+ * listing, tip or transaction lookup that the explorer answered with a server
+ * error (`QBIT_BALANCE_RIDE_OUT`): two more at most. The explorer's 502s
+ * carry `Retry-After: 60`, past the client's cap, so without these a single
+ * one, among the 460 or so lookups of a cold read of an account of thousands
+ * of outputs, lost the read its split at once. Measured on the explorer's
+ * bursts of 502s, 560 of 1,379 such replies were answered when read again
+ * 500 ms and then 1,500 ms later; a lone 502 is answered on the first. Not
+ * the Send screen's longer schedule (`QBIT_SERVER_ERROR_RETRY_PAUSES_MS`),
+ * which outlasts whole bursts for a read someone waits on: the balance card
+ * polls every 10 s, and a read that still fails keeps what it read for the
+ * next (`QbitClassificationReads`), so riding out about 2 s is enough.
+ */
+export const QBIT_BALANCE_READ_RETRY_PAUSES_MS: readonly number[] = [500, 1_500]
+
+/**
+ * How long a balance read rides out one read's server errors: no further
+ * attempt begins once this long has passed since its first request went
+ * out, besides the read's own deadline. The explorer's 502s, answered at
+ * once with `Retry-After: 60`, get their three attempts, begun at 0, 0.5 and
+ * 2 s. A 502 without one, each attempt the client's own three requests
+ * (0.9 s), gets one attempt more, two client calls in all, failing at 2.3 s
+ * after six requests: its third would begin at 3.8 s. A client that waits
+ * on a `Retry-After` within its cap (a 503 with `Retry-After: 5` takes
+ * 10 s), or replies that come slowly, fail the read as they did, after the
+ * client's own call, rather than hold it towards its deadline. Not longer:
+ * a read that keeps failing is reported, and the card's poll paces itself
+ * from it, no later than about 1.4 s after the client alone would report it.
+ * It bounds when a pause may begin, checked before each: a lookup's further
+ * attempt then waits for a slot of the limiter, so it may begin later still,
+ * and it takes a client call of its own.
+ */
+export const QBIT_BALANCE_READ_RIDE_OUT_MS = 3_000
+
+/** The balance read's (`QBIT_BALANCE_READ_RETRY_PAUSES_MS`, `QBIT_BALANCE_READ_RIDE_OUT_MS`). */
+export const QBIT_BALANCE_RIDE_OUT: QbitRideOutSchedule = {
+  pausesMs: QBIT_BALANCE_READ_RETRY_PAUSES_MS,
+  withinMs: QBIT_BALANCE_READ_RIDE_OUT_MS,
+}
+
+/**
+ * The most transaction lookups of one balance read that ride out a server
+ * error (`QBIT_BALANCE_RIDE_OUT`); any other it meets fails at once. The rate
+ * at which a classification keeps reading once past its burst
+ * (`QBIT_CLASSIFY_SUSTAINED_READS_IN_FLIGHT`), at which the explorer
+ * answered every read: a read that meets a burst of 502s, which hit 100 to
+ * 220 lookups at a time, sends at most twice that many requests more, where
+ * reading each of them again would send up to 440 into the burst. A lone
+ * 502, or a few, all ride out.
+ */
+export const QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS = 32
+
+/**
+ * How many of one balance read's lookups of a transaction for its own
+ * outputs may fail, their attempts spent, or be answered with a transaction
+ * that fails the classification's checks, before it starts no more
+ * (`QbitClassificationReads`): a few transactions the explorer cannot serve
+ * leave the rest of the read going, each kept for the next read, while a
+ * burst of 502s, an outage or an explorer answering the wrong JSON, which
+ * fail many lookups at once, stop it at once. An ancestor's walk that fails
+ * counts for nothing, as it costs its output only its standing as own
+ * change, as before. Against an explorer that fails every lookup a read
+ * starts at most `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` lookups and then 7
+ * more, 263, of which at most `QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS` ride out:
+ * with the explorer's own 502 (`Retry-After` past the client's cap), at most
+ * 327 requests; with a 502 the client retries twice itself, at most 885 (see
+ * `QBIT_BALANCE_READ_RIDE_OUT_MS`).
+ */
+export const QBIT_BALANCE_READ_FAILED_LOOKUPS = 8
+
+/**
+ * How long, once a group of outputs has failed, a balance read waits for its
+ * lookups still in flight before it answers (`QbitClassificationReads`): the
+ * split is unknown by then whatever they answer, and only what they keep for
+ * the next read is left to wait for. A cold read of about 460 lookups takes
+ * 0.9 to 1.5 s on a healthy explorer, so lookups in flight at a failure end
+ * well within it; it is as long as a lookup that met the same burst rides
+ * out (`QBIT_BALANCE_READ_RIDE_OUT_MS`), whose attempts begin within 2 s.
+ * Past it, what is left is cancelled as at the deadline, so a failed lookup
+ * beside one that never answers is reported 3 s on, not at the read's 20 s
+ * deadline.
+ */
+export const QBIT_BALANCE_READ_FAILURE_GRACE_MS = 3_000
+
 /** The statuses `@qbit-oss/api` retries a read for by itself, its body unread included. */
 const QBIT_API_RETRIED_STATUSES = new Set([429, 500, 502, 503, 504])
 
@@ -824,6 +927,13 @@ export const QBIT_LISTING_RETRY_STATUSES: ReadonlySet<number> = new Set([502, 50
  * listing. A bare 500 is the client's to retry, as before.
  */
 export const QBIT_TIP_RETRY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
+
+/**
+ * The server errors a balance read's address statistics are read again after
+ * (`QBIT_BALANCE_RIDE_OUT`): a 502, 503 or 504, as for the listing and the
+ * tip. A bare 500 is the client's to retry, as before.
+ */
+export const QBIT_STATS_RETRY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
 /** Whether `error` is the client's failure to read the body of a reply whose headers arrived. */
 function isQbitApiBodyReadError(error: QbitApiError): boolean {
@@ -902,30 +1012,52 @@ export function isQbitRideOutFailure(error: unknown): boolean {
   return false
 }
 
+/** How `withQbitReadRetries` rides out the explorer's server errors, past its statuses. */
+export interface QbitReadRetryOptions {
+  /** The pauses and their bound: the Send screen's (`QBIT_SEND_SCREEN_RIDE_OUT`) by default. */
+  schedule?: QbitRideOutSchedule
+  /**
+   * Asked once, at the first server error the read would pause after: unless
+   * it says yes, that error is the read's at once.
+   */
+  mayRideOut?: () => boolean
+  /**
+   * When the read's first request went out, from which `schedule.withinMs`
+   * is counted; undefined until it has. By default, when
+   * `withQbitReadRetries` was called.
+   */
+  startedAt?: () => number | undefined
+}
+
 /**
  * `read()`, made again while it fails in a way the explorer may well not
  * repeat: with a body that could not be read (`isQbitBodyReadFailure`),
  * twice at most, after the pauses of `QBIT_BODY_READ_RETRY_PAUSES_MS`, which
  * the client does not retry by itself; and, given `rideOut`, with one of
- * those server errors (`isQbitServerError`), four times at most, after the
- * pauses of `QBIT_SERVER_ERROR_RETRY_PAUSES_MS`, while the next attempt
- * would begin within `QBIT_SERVER_ERROR_RIDE_OUT_MS` of the first. Without
- * it a server error is the read's at once, as the client handed it back.
- * Each pause is the one for the attempt that just failed, so a body lost on
- * the third attempt or later fails it. What it reads is an idempotent GET,
- * and one such reply among tens of thousands of lookups would otherwise
- * fail the whole read of the outputs. Once the attempts run out it fails
- * with the last one's error; any other failure is the read's at once. Once
- * `signal` aborts it makes no further attempt and ends a pause at once,
- * rejecting with the signal's reason; an attempt in flight ends under the
- * same signal.
+ * those server errors (`isQbitServerError`), after the pauses of
+ * `options.schedule`, the Send screen's by default (four more attempts,
+ * after `QBIT_SERVER_ERROR_RETRY_PAUSES_MS`), while the next attempt would
+ * begin within its `withinMs` of the first (`QBIT_SERVER_ERROR_RIDE_OUT_MS`),
+ * counted from `options.startedAt` when given. Without it a server error is
+ * the read's at once, as the client handed it back, and so it is when
+ * `options.mayRideOut` says no. Each pause is the one for the attempt that
+ * just failed, so a body lost on the third attempt or later fails it. What
+ * it reads is an idempotent GET, and one such reply among tens of thousands
+ * of lookups would otherwise fail the whole read of the outputs. Once the
+ * attempts run out it fails with the last one's error; any other failure is
+ * the read's at once. Once `signal` aborts it makes no further attempt and
+ * ends a pause at once, rejecting with the signal's reason; an attempt in
+ * flight ends under the same signal.
  */
 export async function withQbitReadRetries<T>(
   read: () => Promise<T>,
   signal: AbortSignal | undefined,
-  rideOut?: ReadonlySet<number>
+  rideOut?: ReadonlySet<number>,
+  options: QbitReadRetryOptions = {}
 ): Promise<T> {
-  const began = Date.now()
+  const { schedule = QBIT_SEND_SCREEN_RIDE_OUT, mayRideOut, startedAt } = options
+  const called = Date.now()
+  let ridingOut = false
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await read()
@@ -934,11 +1066,16 @@ export async function withQbitReadRetries<T>(
       const pauses = isQbitBodyReadFailure(error)
         ? QBIT_BODY_READ_RETRY_PAUSES_MS
         : serverError
-          ? QBIT_SERVER_ERROR_RETRY_PAUSES_MS
+          ? schedule.pausesMs
           : undefined
       const pauseMs = pauses?.[attempt]
       if (pauseMs === undefined) throw error
-      if (serverError && Date.now() + pauseMs - began >= QBIT_SERVER_ERROR_RIDE_OUT_MS) throw error
+      const began = startedAt?.() ?? called
+      if (serverError && Date.now() + pauseMs - began >= schedule.withinMs) throw error
+      if (serverError && !ridingOut) {
+        if (mayRideOut && !mayRideOut()) throw error
+        ridingOut = true
+      }
       await qbitPause(pauseMs, signal)
     }
   }
@@ -991,9 +1128,30 @@ export interface QbitClassifyTxClient {
  * `readQbitAddressUtxosRidingOut` in `qbit-api` sets), is a read of a
  * transaction for its own outputs that the explorer answered with a server
  * error (`QBIT_LOOKUP_RETRY_STATUSES`), pausing in that slot between its
- * attempts (see `QBIT_SERVER_ERROR_RETRY_PAUSES_MS`). Every other
- * classification leaves a server error to the client. A read fails, for the
- * rules of its caller, only once its attempts have.
+ * attempts (see `QBIT_SERVER_ERROR_RETRY_PAUSES_MS`). The balance read's
+ * classification (`keeping`) reads such a transaction again too, on its own
+ * schedule (`QBIT_BALANCE_RIDE_OUT`), each attempt in a slot of its own, so
+ * that no slot is held through a pause, and for at most
+ * `QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS` lookups. Every other classification
+ * leaves a server error to the client. A read fails, for the rules of its
+ * caller, only once its attempts have.
+ *
+ * A classification that keeps what it read (`keeping`) is not stopped at
+ * once by a group of outputs that fails: the lookups already started run on,
+ * and the facts they read are kept for the next read, while its workers take
+ * the next groups, for `QBIT_BALANCE_READ_FAILURE_GRACE_MS` at most after
+ * that first failure, when it stops as at the deadline. Once
+ * `QBIT_BALANCE_READ_FAILED_LOOKUPS` of its lookups for a transaction's own
+ * outputs have failed, or been answered with a transaction that fails the
+ * checks (`answerRefused`), it starts no more: its workers take no further
+ * group, a lookup not yet sent, waiting for its turn or for a slot, is not
+ * sent, and one pausing between attempts makes none more, not even one
+ * already waiting for a slot. Once every worker
+ * has returned it fails with the first group's failure, so its caller never
+ * works a split out of part of the outputs. Failed walks alone, every group classified, leave
+ * it complete, their outputs not the account's own change, as before. Its
+ * caller's signal stops it as any other: then every read still waiting or in
+ * flight is cancelled.
  */
 export class QbitClassificationReads {
   /** Every read and every wait for a slot runs under it. */
@@ -1005,7 +1163,10 @@ export class QbitClassificationReads {
   private readonly reads = new Map<string, QbitClassificationRead>()
   /** Lookups started (`QBIT_CLASSIFY_BURST_LOOKUPS`), each once however often it is made again. */
   private lookups = 0
-  /** Lookups started and not yet ended: waiting for a slot of the limiter or in flight. */
+  /**
+   * Lookups started and not yet ended: waiting for a slot of the limiter, in
+   * flight, or, with `keeping`, pausing between attempts with no slot held.
+   */
   private active = 0
   /** Lookups waiting, first come first served, for fewer than the sustained rate to be active. */
   private readonly held: { resolve: () => void; reject: (reason: unknown) => void }[] = []
@@ -1013,6 +1174,42 @@ export class QbitClassificationReads {
   private readonly failed: Promise<never>
   private fail: (error: unknown) => void = () => undefined
   private readonly release: () => void
+  /** With `keeping`: lookups that rode out a server error (`QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS`). */
+  private rideOuts = 0
+  /**
+   * With `keeping`: lookups for a transaction's own outputs that failed,
+   * their attempts spent, and answers that failed the checks
+   * (`QBIT_BALANCE_READ_FAILED_LOOKUPS`).
+   */
+  private failedLookups = 0
+  /** With `keeping`: the first failure of a group, which the classification ends with. */
+  private groupFailure: { error: unknown } | undefined
+  /** With `keeping`: the wait for lookups in flight once a group failed (`QBIT_BALANCE_READ_FAILURE_GRACE_MS`). */
+  private grace: ReturnType<typeof setTimeout> | undefined
+  /** With `keeping`: no lookup starts any more, as too many failed. */
+  private drained = false
+  /**
+   * With `keeping`: a lookup was refused, or a group left untaken, once no
+   * lookup starts any more. A guard only: every failure that stops the
+   * lookups is a lookup or an answer of a group, which fails with it
+   * (`groupFailed`), so `run` rejects with that group's failure first.
+   */
+  private unread = false
+  /**
+   * With `keeping`, every pause between a lookup's attempts runs under it:
+   * it aborts with the classification's signal, and once no lookup starts
+   * any more (`drain`), so that no lookup is read again past then.
+   */
+  private readonly pauses = new AbortController()
+  /**
+   * What a lookup rejects with when it is refused, at its turn or at a slot,
+   * or cut short in a pause, once no lookup starts any more; and what the
+   * classification rejects with when it left a group unread so (`run`).
+   */
+  private readonly drainedError = new QbitApiError(
+    'aborted',
+    `qbit balance read started no more lookups after ${QBIT_BALANCE_READ_FAILED_LOOKUPS} failed`
+  )
 
   /**
    * `facts` is the view of `shared` the read this classification is part of
@@ -1029,6 +1226,10 @@ export class QbitClassificationReads {
    * check of a send plan's inputs (`checkQbitSpendInputs`), for which a
    * failed ancestor is an unknown outcome and not someone else's change,
    * also rides them out for its walks (`rideOutWalks`, with `rideOut`).
+   * With `keeping`, which only the balance read's classification sets, it
+   * keeps what it read when a group fails, and its lookups ride out server
+   * errors on the balance read's schedule, as the class describes; its
+   * walks, as any other's, do not.
    */
   constructor(
     private readonly client: QbitClassifyTxClient,
@@ -1036,13 +1237,15 @@ export class QbitClassificationReads {
     callerSignal: AbortSignal | undefined,
     facts?: QbitFundingFactsView,
     private readonly rideOut = false,
-    private readonly rideOutWalks = false
+    private readonly rideOutWalks = false,
+    readonly keeping = false
   ) {
     this.signal = this.controller.signal
     this.signal.addEventListener(
       'abort',
       () => {
         for (const waiter of this.held.splice(0)) waiter.reject(this.signal.reason)
+        this.pauses.abort(this.signal.reason)
       },
       { once: true }
     )
@@ -1062,6 +1265,42 @@ export class QbitClassificationReads {
   /** Whether it has stopped: the caller gave up, or a read or check failed. */
   get stopped(): boolean {
     return this.failure !== undefined
+  }
+
+  /** Whether its workers take another group: not stopped, and still starting lookups (`keeping`). */
+  get taking(): boolean {
+    return this.failure === undefined && !this.drained
+  }
+
+  /**
+   * With `keeping`, note that a group of outputs failed with `error`, the
+   * first such failure being the one the classification ends with, and go
+   * on; the first also starts the wait for the lookups still in flight
+   * (`QBIT_BALANCE_READ_FAILURE_GRACE_MS`), past which the classification
+   * stops with it. Once it has stopped, the failure is the worker's own, as
+   * in any other classification.
+   */
+  readonly groupFailed = (error: unknown): void => {
+    if (this.stopped) throw error
+    if (error === this.drainedError) this.unread = true
+    if (this.groupFailure) return
+    this.groupFailure = { error }
+    this.grace = setTimeout(() => this.stop(error), QBIT_BALANCE_READ_FAILURE_GRACE_MS)
+  }
+
+  /**
+   * With `keeping`, count a fresh answer for a transaction's own outputs that
+   * failed the classification's checks as a failed lookup
+   * (`QBIT_BALANCE_READ_FAILED_LOOKUPS`): it cost a request and keeps
+   * nothing.
+   */
+  answerRefused(): void {
+    if (this.keeping) this.countFailure()
+  }
+
+  /** With `keeping`, note that a group was left untaken once no lookup starts any more. */
+  groupUntaken(): void {
+    if (this.keeping) this.unread = true
   }
 
   /**
@@ -1096,15 +1335,19 @@ export class QbitClassificationReads {
   private start(txid: string, forFacts: boolean): QbitClassificationRead {
     const done = forFacts ? this.facts?.fetch(txid) : undefined
     const lookup = (): Promise<EsploraTx> => {
-      const limited = this.limiter.run(
-        () =>
-          withQbitReadRetries(
-            () => this.client.getTx(txid, { signal: this.signal }),
-            this.signal,
-            this.rideOut && (forFacts || this.rideOutWalks) ? QBIT_LOOKUP_RETRY_STATUSES : undefined
-          ),
-        this.signal
-      )
+      const limited = this.keeping
+        ? this.lookUpKeeping(txid, forFacts)
+        : this.limiter.run(
+            () =>
+              withQbitReadRetries(
+                () => this.client.getTx(txid, { signal: this.signal }),
+                this.signal,
+                this.rideOut && (forFacts || this.rideOutWalks)
+                  ? QBIT_LOOKUP_RETRY_STATUSES
+                  : undefined
+              ),
+            this.signal
+          )
       limited.then(this.ended, this.ended)
       return limited
     }
@@ -1120,12 +1363,85 @@ export class QbitClassificationReads {
   }
 
   /**
+   * With `keeping`, the lookup of `txid`: each attempt through the limiter in
+   * a slot of its own, and, for a read of the transaction's own outputs, a
+   * server error ridden out on the balance read's schedule
+   * (`QBIT_BALANCE_RIDE_OUT`) while `QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS`
+   * lasts, counted from its first request. Once no lookup starts any more no
+   * attempt of it is sent, not even a further one already waiting for a
+   * slot: an attempt in flight runs to its end, a pause is cut short, and it
+   * rejects with `drainedError`. One for the transaction's own outputs that was
+   * sent and fails counts towards `QBIT_BALANCE_READ_FAILED_LOOKUPS`, before
+   * its reader hears of it; a walk's does not.
+   */
+  private lookUpKeeping(txid: string, forFacts: boolean): Promise<EsploraTx> {
+    let sentAt: number | undefined
+    const read = withQbitReadRetries(
+      () =>
+        this.limiter.run(() => {
+          // Neither a first attempt nor a further one is sent once no lookup
+          // starts any more, though it was waiting for a slot.
+          if (this.drained) return Promise.reject(this.drainedError)
+          sentAt ??= Date.now()
+          return this.client.getTx(txid, { signal: this.signal })
+        }, this.signal),
+      // A pause ends once no lookup starts any more, as well as with the signal.
+      this.pauses.signal,
+      forFacts ? QBIT_LOOKUP_RETRY_STATUSES : undefined,
+      {
+        schedule: QBIT_BALANCE_RIDE_OUT,
+        mayRideOut: this.mayRideOut,
+        // From its first request, not its first wait for a slot.
+        startedAt: () => sentAt,
+      }
+    )
+    read.catch(error => {
+      // Refused, or cut short in a pause, once no lookup starts any more.
+      if (error === this.drainedError) {
+        this.unread = true
+        return
+      }
+      // A walk's failure costs its output only its standing as own change.
+      if (sentAt === undefined || !forFacts || this.signal.aborted) return
+      this.countFailure()
+    })
+    return read
+  }
+
+  /** Count a failure towards `QBIT_BALANCE_READ_FAILED_LOOKUPS`, past which no lookup starts. */
+  private countFailure(): void {
+    this.failedLookups += 1
+    if (this.failedLookups >= QBIT_BALANCE_READ_FAILED_LOOKUPS) this.drain()
+  }
+
+  /** Whether one lookup more may ride out a server error (`QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS`). */
+  private readonly mayRideOut = (): boolean => {
+    if (this.rideOuts >= QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS) return false
+    this.rideOuts += 1
+    return true
+  }
+
+  /**
+   * Start no lookup any more: those waiting for their turn are refused, and
+   * those pausing between attempts make none more.
+   */
+  private drain(): void {
+    if (this.drained) return
+    this.drained = true
+    const held = this.held.splice(0)
+    if (held.length > 0) this.unread = true
+    for (const waiter of held) waiter.reject(this.drainedError)
+    this.pauses.abort(this.drainedError)
+  }
+
+  /**
    * Undefined when another lookup may start at once: within the burst
    * (`QBIT_CLASSIFY_BURST_LOOKUPS`), or once that is spent, while fewer than
    * `QBIT_CLASSIFY_SUSTAINED_READS_IN_FLIGHT` of this classification's
    * lookups are active and none waits before it. Otherwise its turn, first
    * come first served, waited for with no slot of the limiter held; that
-   * rejects with the signal's reason once the classification stops.
+   * rejects with the signal's reason once the classification stops, and
+   * once it starts no lookup any more (`keeping`).
    */
   private admit(): Promise<void> | undefined {
     if (
@@ -1137,6 +1453,10 @@ export class QbitClassificationReads {
       return undefined
     }
     if (this.signal.aborted) return Promise.reject(this.signal.reason)
+    if (this.drained) {
+      this.unread = true
+      return Promise.reject(this.drainedError)
+    }
     return new Promise<void>((resolve, reject) => {
       this.held.push({
         resolve: () => {
@@ -1171,6 +1491,7 @@ export class QbitClassificationReads {
   /** Stop with `error` unless already stopped: no read starts any more, and those in flight are cancelled. */
   stop(error: unknown): void {
     if (this.failure) return
+    clearTimeout(this.grace)
     this.failure = { error }
     this.fail(error)
     this.controller.abort(error)
@@ -1179,7 +1500,13 @@ export class QbitClassificationReads {
   /**
    * Run `work` on `workers` workers until every one has returned, or reject at
    * once with the error the classification stopped with. A worker's own
-   * failure stops it.
+   * failure stops it. With `keeping`, once every worker has returned, it
+   * rejects with the first group's failure (`groupFailed`), as it does when
+   * it stopped starting lookups and so left a group unread (`unread` only
+   * guards that); and when it is stopped
+   * after a group failed, as by the deadline or once the wait for the
+   * lookups in flight is over, with that failure. Walks that failed alone,
+   * every group classified, leave it complete.
    */
   async run(workers: number, work: () => Promise<void>): Promise<void> {
     if (this.failure) throw this.failure.error
@@ -1188,14 +1515,23 @@ export class QbitClassificationReads {
         .then(work)
         .catch(error => this.stop(error))
     )
-    await Promise.race([Promise.all(running), this.failed])
+    try {
+      await Promise.race([Promise.all(running), this.failed])
+    } catch (error) {
+      throw this.groupFailure ? this.groupFailure.error : error
+    }
     // Stopped in the same turn the last worker returned.
     const failure = this.failure as { error: unknown } | undefined
-    if (failure) throw failure.error
+    if (failure) throw this.groupFailure ? this.groupFailure.error : failure.error
+    if (this.groupFailure) throw this.groupFailure.error
+    // Stopped before every group was read, though none failed: not reached
+    // (see `unread`), kept so that no split is ever made of part of them.
+    if (this.unread) throw this.drainedError
   }
 
-  /** Release the caller's signal; reads still in flight keep their own. */
+  /** Release the caller's signal and the wait for the lookups in flight; reads still in flight keep their own signal. */
   close(): void {
+    clearTimeout(this.grace)
     this.release()
   }
 }
