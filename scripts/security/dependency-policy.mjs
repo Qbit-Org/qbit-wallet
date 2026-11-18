@@ -106,9 +106,14 @@ const REVIEWED_WORKSPACE_KEYS = new Set([
   'nodeLinker',
   'linkWorkspacePackages',
   'verifyDepsBeforeRun',
+  'minimumReleaseAgeExclude',
   'overrides',
   'patchedDependencies',
   'allowBuilds',
+])
+const REVIEWED_RELEASE_AGE_EXCEPTIONS = new Set([
+  '@qbit-oss/api@0.1.2',
+  '@qbit-oss/protocol@0.1.2',
 ])
 // The extension's webpack ProvidePlugin resolves `buffer` from each module's
 // nearest node_modules, so the shipped bundle depends on the hoisted layout.
@@ -355,6 +360,16 @@ export function auditWorkspaceSettings(source) {
         `${WORKSPACE_CONFIG_FILE}: ${key} must be ${JSON.stringify(required)}, found ${JSON.stringify(settings[key])}`
       )
     }
+  }
+  const ageExceptions = settings.minimumReleaseAgeExclude
+  if (
+    ageExceptions !== undefined &&
+    (!Array.isArray(ageExceptions) ||
+      ageExceptions.some(entry => !REVIEWED_RELEASE_AGE_EXCEPTIONS.has(entry)))
+  ) {
+    errors.push(
+      `${WORKSPACE_CONFIG_FILE}: minimumReleaseAgeExclude must list only reviewed package versions`
+    )
   }
   for (const [name, specifier] of Object.entries(
     workspaceSettingMapping(settings, 'overrides', errors)
