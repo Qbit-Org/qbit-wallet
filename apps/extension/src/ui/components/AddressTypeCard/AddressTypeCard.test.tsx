@@ -122,4 +122,55 @@ describe('AddressTypeCard', () => {
     expect(shown.closest('[aria-hidden]')).toBeNull();
     expect(container.textContent).not.toContain('118,591');
   });
+
+  it('shows **** in place of the holding while balances are hidden, with no exact amount, on a card that holds nothing too', () => {
+    const { container, rerender } = render(
+      <AddressTypeCard
+        label="Post-Quantum P2MR"
+        address={ADDRESS}
+        checked
+        assets={{ totalAmount: '131.31313131', satoshis: 13_131_313_131 }}
+        asBalance
+        hideBalance
+      />
+    );
+
+    expect(screen.getByText('**** QBT').closest('[title]')).toBeNull();
+    expect(container.innerHTML).not.toMatch(/131|31313/);
+
+    rerender(
+      <AddressTypeCard label="Post-Quantum P2MR" address={ADDRESS} checked assets={NO_FUNDS} asBalance hideBalance />
+    );
+    expect(screen.getByText('**** QBT')).toBeTruthy();
+
+    // Shown again: the balance and its exact amount.
+    rerender(
+      <AddressTypeCard
+        label="Post-Quantum P2MR"
+        address={ADDRESS}
+        checked
+        assets={{ totalAmount: '131.31313131', satoshis: 13_131_313_131 }}
+        asBalance
+      />
+    );
+    expect(screen.getByText('131.31313 QBT').closest('[title]')?.getAttribute('title')).toBe('131.31313131 QBT');
+  });
+
+  it('keeps a candidate unchanged, eight decimals, whether or not balances are hidden', () => {
+    for (const hideBalance of [false, true]) {
+      const { container, unmount } = render(
+        <AddressTypeCard
+          label="Post-Quantum P2MR"
+          address={ADDRESS}
+          checked={false}
+          assets={{ totalAmount: '131.31313131', satoshis: 13_131_313_131 }}
+          hideBalance={hideBalance}
+        />
+      );
+
+      expect(screen.getByText('131.31313131 QBT').closest('[title]'), String(hideBalance)).toBeNull();
+      expect(container.textContent, String(hideBalance)).not.toContain('****');
+      unmount();
+    }
+  });
 });

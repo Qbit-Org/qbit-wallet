@@ -28,14 +28,21 @@ interface AddressTypeCardProps {
    * candidate before an account exists, which keeps eight decimals.
    */
   asBalance?: boolean;
+  /**
+   * With `asBalance`, while balances are hidden: `****` in place of every
+   * card's amount, with no exact amount on hover or for a screen reader.
+   */
+  hideBalance?: boolean;
   onClick?: ReactEventHandler<HTMLDivElement>;
   'data-testid'?: string;
 }
 export function AddressTypeCard(props: AddressTypeCardProps) {
   const qbitUnit = useQbitUnit();
-  const { onClick, label, address, checked, assets, asBalance, 'data-testid': dataTestId } = props;
+  const { onClick, label, address, checked, assets, asBalance, hideBalance, 'data-testid': dataTestId } = props;
   const hasVault = Boolean(assets.satoshis && assets.satoshis > 0);
-  const balance = asBalance && hasVault ? numUtils.formatBalance(assets.satoshis ?? 0) : null;
+  // Hidden, every card shows the same, so none tells whether it holds funds.
+  const hidden = Boolean(asBalance && hideBalance);
+  const balance = asBalance && !hidden && hasVault ? numUtils.formatBalance(assets.satoshis ?? 0) : null;
 
   const chain = useChain();
   return (
@@ -51,12 +58,15 @@ export function AddressTypeCard(props: AddressTypeCardProps) {
           {address ? <CopyableAddress address={address} /> : <Row />}
           <Column justifyCenter>{checked && <Icon icon="check" />}</Column>
         </Row>
-        {hasVault && (
+        {(hasVault || hidden) && (
           <Row justifyBetween bg="bg3" roundedBottom px="md" py="md">
             <Row justifyCenter>
               <Image src={IMAGE_SOURCE_MAP[chain.icon]} size={fontSizes.iconMiddle} />
               <BalanceFigure exact={balance ? `${balance.exact} ${qbitUnit}` : undefined}>
-                <Text text={`${balance ? balance.text : assets.totalAmount} ${qbitUnit}`} color="yellow" />
+                <Text
+                  text={`${hidden ? '****' : balance ? balance.text : assets.totalAmount} ${qbitUnit}`}
+                  color="yellow"
+                />
               </BalanceFigure>
             </Row>
             <Row />

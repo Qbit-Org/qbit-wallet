@@ -9,7 +9,7 @@ import global from '../../src/reducers/global'
 import keyrings, { keyringsActions } from '../../src/reducers/keyrings'
 import settings, { settingsActions } from '../../src/reducers/settings'
 import transactions from '../../src/reducers/transactions'
-import ui from '../../src/reducers/ui'
+import ui, { uiActions } from '../../src/reducers/ui'
 import { useAddressTypeScreenLogic } from '../../src/ui-hooks/useAddressTypeScreenLogic'
 import { createHookTestHarness, createWalletMock } from './testHelpers'
 
@@ -173,6 +173,25 @@ function walletWithFunds() {
     ),
   }
 }
+
+describe('useAddressTypeScreenLogic: hidden balances', () => {
+  it('says whether balances are hidden, as the store does, so the cards can hide theirs', async () => {
+    const wallet = walletAnswering(['a0', 'a1', 'a2'])
+    const { wrapper, store } = createHookTestHarness({ wallet })
+    const { result } = renderHook(() => useAddressTypeScreenLogic(), { wrapper })
+    await waitFor(() => expect(wallet.getMultiAddressSummaries).toHaveBeenCalledTimes(1))
+
+    expect(result.current.balanceHidden).toBe(false)
+    act(() => {
+      store.dispatch(uiActions.setBalanceHidden(true))
+    })
+    expect(result.current.balanceHidden).toBe(true)
+    act(() => {
+      store.dispatch(uiActions.setBalanceHidden(false))
+    })
+    expect(result.current.balanceHidden).toBe(false)
+  })
+})
 
 describe('useAddressTypeScreenLogic: a read made again', () => {
   it("shows another wallet's balances, and its funded BIP44 type, after the first wallet's read", async () => {
