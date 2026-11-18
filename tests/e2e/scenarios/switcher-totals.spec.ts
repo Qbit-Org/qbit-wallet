@@ -1,7 +1,13 @@
 import { ChainType } from '../../../packages/wallet-types/src'
 import { CHAINS_MAP } from '../../../packages/wallet-shared/src/constants/common'
 import { expect, test } from '../fixtures/test'
-import { SendPage, SettingsPage, switcherAmount, WalletHomePage } from '../pages'
+import {
+  SendPage,
+  SettingsPage,
+  switcherAmount,
+  switcherExactAmount,
+  WalletHomePage,
+} from '../pages'
 import { dropBrowserHttpCache } from '../support/browser-cache'
 import type { QbitAccountTotal } from '../../../packages/wallet-shared/src/types/common'
 import type { ExtensionSession } from '../support/extension-session'
@@ -19,9 +25,9 @@ const REGTEST_UNIT = CHAINS_MAP[ChainType.QBIT_REGTEST]!.unit
 /** A total as the switcher shows it on Regtest. */
 const shown = (sats: number | bigint) => switcherAmount(sats, REGTEST_UNIT)
 
-/** A balance card amount with its eight decimals ("0.25000000") in sats. */
-function cardSats(amount: string): bigint {
-  const [whole = '', fraction = ''] = amount.split('.')
+/** The balance card's exact amount ("1,234.56789012 QBT") in sats. */
+function cardSats(exact: string): bigint {
+  const [whole = '', fraction = ''] = exact.replace(/,/g, '').split(' ')[0]!.split('.')
   return BigInt(whole) * 100_000_000n + BigInt(fraction.padEnd(8, '0'))
 }
 
@@ -94,22 +100,28 @@ test('switch account balances: funded accounts show their totals, wallets their 
     regtest,
     { restored: '0.5', spending: '0.25', created: '1.125' }
   )
-  await expect.poll(() => home.balanceAmount()).toBe('0.25000000')
-  const homeTotal = cardSats(await home.balanceAmount())
+  await expect.poll(() => home.balanceAmount()).toBe('0.25000')
+  await expect.poll(() => home.balanceExactAmount()).toBe(`0.25000000 ${REGTEST_UNIT}`)
+  const homeTotal = cardSats(await home.balanceExactAmount())
 
   const sheet = await home.openAccountSwitcher()
   await expect
     .poll(() => sheet.totalTexts())
     .toEqual({
-      [`account-balance-${first}`]: `0.5 ${REGTEST_UNIT}`,
-      [`account-balance-${spending}`]: `0.25 ${REGTEST_UNIT}`,
-      [`account-balance-${other}`]: `1.125 ${REGTEST_UNIT}`,
-      [`wallet-total-${restored.key}`]: `0.75 ${REGTEST_UNIT}`,
-      [`wallet-total-${created.key}`]: `1.125 ${REGTEST_UNIT}`,
+      [`account-balance-${first}`]: `0.50000 ${REGTEST_UNIT}`,
+      [`account-balance-${spending}`]: `0.25000 ${REGTEST_UNIT}`,
+      [`account-balance-${other}`]: `1.12500 ${REGTEST_UNIT}`,
+      [`wallet-total-${restored.key}`]: `0.75000 ${REGTEST_UNIT}`,
+      [`wallet-total-${created.key}`]: `1.12500 ${REGTEST_UNIT}`,
     })
   await expect(sheet.pendingTotals).toHaveCount(0)
-  // The current account's row shows the home screen's total.
+  // The current account's row shows the home screen's total, and gives the
+  // same exact amount on hover.
   await expect(sheet.accountBalance(spending)).toHaveText(switcherAmount(homeTotal, REGTEST_UNIT))
+  await expect(sheet.accountBalance(spending)).toHaveAttribute(
+    'title',
+    await home.balanceExactAmount()
+  )
   await sheet.close()
 })
 
@@ -123,7 +135,7 @@ test('switch account balances: a send between two accounts of the wallet makes t
     restored: '0.5',
     spending: '0.25',
   })
-  await expect.poll(() => home.balanceAmount()).toBe('0.25000000')
+  await expect.poll(() => home.balanceAmount()).toBe('0.25000')
 
   // Every statistics read the switcher has the background send, in order:
   // a fresh read carries `qbit_fresh`, which no other read of the wallet does.
@@ -202,10 +214,18 @@ test('switch account balances: a send between two accounts of the wallet makes t
 
   // No lock and no wait for the minute: each opening reads again until the
   // explorer shows the transaction.
+  // Shown to five decimals, so each is also compared exactly, to the
+  // satoshi, by its hover text.
+  const after = {
+    [`account-balance-${first}`]: 60_000_000,
+    [`account-balance-${spending}`]: 15_000_000 - fee,
+    [`wallet-total-${restored.key}`]: 75_000_000 - fee,
+  }
+  const each = (text: (sats: number) => string) =>
+    Object.fromEntries(Object.entries(after).map(([key, sats]) => [key, text(sats)]))
   const expected = {
-    [`account-balance-${first}`]: shown(60_000_000),
-    [`account-balance-${spending}`]: shown(15_000_000 - fee),
-    [`wallet-total-${restored.key}`]: shown(75_000_000 - fee),
+    shown: each(shown),
+    exact: each(sats => switcherExactAmount(sats, REGTEST_UNIT)),
   }
   await expect
     .poll(
@@ -213,8 +233,11 @@ test('switch account balances: a send between two accounts of the wallet makes t
         sheet = await home.openAccountSwitcher()
         await expect(sheet.pendingTotals).toHaveCount(0, { timeout: 20_000 })
         const texts = await sheet.totalTexts()
+        const exact = await sheet.totalExactAmounts()
         await sheet.close()
-        return Object.fromEntries(Object.keys(expected).map(key => [key, texts[key]]))
+        const pick = (all: Record<string, string>) =>
+          Object.fromEntries(Object.keys(after).map(key => [key, all[key]]))
+        return { shown: pick(texts), exact: pick(exact) }
       },
       { timeout: 50_000, intervals: [1_000, 2_000, 5_000] }
     )

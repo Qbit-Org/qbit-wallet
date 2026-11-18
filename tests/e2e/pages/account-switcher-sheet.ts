@@ -13,14 +13,26 @@ export type WalletMenuItem = 'add-account' | 'rename' | 'change-color' | 'show-p
 export type AccountMenuItem = 'edit-name' | 'copy-address' | 'export-key'
 
 /**
- * A total as the switcher shows it in every locale: `sats` in whole coins,
- * without the fraction's trailing zeros, then `unit` ("12.5 QBT", "0 QBT").
+ * A total as the switcher shows it in every locale, as every balance shows:
+ * `sats` in whole coins with a comma between groups of three digits, five
+ * decimals, truncated, then `unit` ("1,234.56789 QBT", "0.00000 QBT"); above
+ * zero and below 0.00001, "<0.00001 QBT".
  */
 export function switcherAmount(sats: number | bigint, unit: string): string {
   const value = BigInt(sats)
-  const whole = value / 100_000_000n
-  const fraction = (value % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '')
-  return `${whole}${fraction ? `.${fraction}` : ''} ${unit}`
+  const whole = (value / 100_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const decimals = (value % 100_000_000n).toString().padStart(8, '0').slice(0, 5)
+  return `${value > 0n && value < 1_000n ? '<0.00001' : `${whole}.${decimals}`} ${unit}`
+}
+
+/**
+ * The exact amount a total gives on hover and in its row's accessible name:
+ * all eight decimals, with the same commas, then `unit` ("1,234.56789012 QBT").
+ */
+export function switcherExactAmount(sats: number | bigint, unit: string): string {
+  const value = BigInt(sats)
+  const whole = (value / 100_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return `${whole}.${(value % 100_000_000n).toString().padStart(8, '0')} ${unit}`
 }
 
 /** The short address the switcher shows for an account. */
@@ -181,6 +193,24 @@ export class AccountSwitcherSheet extends ExtensionPageObject {
         element.getAttribute('data-testid') ?? '',
         (element.textContent ?? '').trim(),
       ])
+    )
+    return Object.fromEntries(entries)
+  }
+
+  /**
+   * The exact amount of every total that shows one, keyed as `totalTexts`
+   * keys them: its hover text, all eight decimals and the unit
+   * ("0.00000001 QBT"). A total without one (`****`, `--`, pending) is left
+   * out.
+   */
+  async totalExactAmounts(): Promise<Record<string, string>> {
+    const entries = await this.totals.evaluateAll(elements =>
+      elements
+        .filter(element => element.hasAttribute('title'))
+        .map(element => [
+          element.getAttribute('data-testid') ?? '',
+          element.getAttribute('title') ?? '',
+        ])
     )
     return Object.fromEntries(entries)
   }

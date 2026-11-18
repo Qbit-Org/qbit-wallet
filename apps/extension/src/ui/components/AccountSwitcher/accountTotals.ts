@@ -15,14 +15,22 @@ export type TotalDisplay =
   | { kind: 'unknown' }
   | { kind: 'amount'; sats: number; stale: boolean };
 
+/** A total's texts, from one formatting of its sats: see `totalTexts`. */
+export interface TotalTexts {
+  /** As every balance shows: "1,234.56789 QBT", "0.00000 QBT", "<0.00001 QBT"; `--` for no balance. */
+  shown: string;
+  /** Exactly, all eight decimals, for the hover text and a screen reader: "1,234.56789012 QBT". */
+  exact?: string;
+}
+
 /**
- * `sats` in the wallet's unit, without the trailing zeros of the fraction,
- * then the unit: "12.5 QBT", "0 QBT".
+ * `sats` as every balance shows (commas between groups of three digits, five
+ * decimals, truncated, then the unit) and exactly, with all eight decimals.
+ * What is no balance shows `--`, with no exact amount.
  */
-export function formatTotal(sats: number, unit: string): string {
-  const amount = numUtils.satoshisToAmount(sats);
-  const trimmed = amount.includes('.') ? amount.replace(/\.?0+$/, '') : amount;
-  return `${trimmed} ${unit}`;
+export function totalTexts(sats: number, unit: string): TotalTexts {
+  const balance = numUtils.formatBalance(sats);
+  return balance ? { shown: `${balance.text} ${unit}`, exact: `${balance.exact} ${unit}` } : { shown: '--' };
 }
 
 /**
