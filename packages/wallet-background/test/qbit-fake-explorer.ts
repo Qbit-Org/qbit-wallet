@@ -36,15 +36,16 @@ export interface FakeTx {
 }
 
 /**
- * A failure injected into one request: a reply, or a thrown error. With
- * `afterAccepting`, the request is served first (a broadcast reaches the
- * node) and the reply then replaces its answer, as a gateway's 502 would.
+ * A failure injected into one request: a reply, with `headers` when given,
+ * or a thrown error. With `afterAccepting`, the request is served first (a
+ * broadcast reaches the node) and the reply then replaces its answer, as a
+ * gateway's 502 would.
  */
 export type FakeFailure = (request: {
   method: string
   path: string
 }) =>
-  | { status: number; body?: string; afterAccepting?: boolean }
+  | { status: number; body?: string; headers?: Record<string, string>; afterAccepting?: boolean }
   | Error
   | 'accept-then-fail'
   | undefined
@@ -339,7 +340,9 @@ export class FakeQbitExplorer {
     const request = { method, path }
     this.requests.push(request)
     let failAfterAccepting = false
-    let replyAfterAccepting: { status: number; body?: string } | undefined
+    let replyAfterAccepting:
+      | { status: number; body?: string; headers?: Record<string, string> }
+      | undefined
     for (const failure of this.failures) {
       const injected = failure(request)
       if (injected === undefined) continue
@@ -355,7 +358,10 @@ export class FakeQbitExplorer {
       return this.deliver(
         request,
         withUrl(
-          new Response(injected.body ?? 'injected failure', { status: injected.status }),
+          new Response(injected.body ?? 'injected failure', {
+            status: injected.status,
+            ...(injected.headers ? { headers: injected.headers } : {}),
+          }),
           url
         ),
         url,
@@ -365,10 +371,13 @@ export class FakeQbitExplorer {
     const response = withUrl(this.route(method, url, init), url)
     if (failAfterAccepting) throw new TypeError('fetch failed')
     if (replyAfterAccepting) {
-      const { status, body } = replyAfterAccepting
+      const { status, body, headers } = replyAfterAccepting
       return this.deliver(
         request,
-        withUrl(new Response(body ?? 'injected failure', { status }), url),
+        withUrl(
+          new Response(body ?? 'injected failure', { status, ...(headers ? { headers } : {}) }),
+          url
+        ),
         url,
         init
       )
