@@ -185,21 +185,25 @@ for (const release of RELEASES) {
     await seedReleaseStorage(extension, dump)
 
     // Once the first wallet page of this build has loaded, before an unlock
-    // or any change, the saved UI state holds the release's two preferences
-    // and nothing of the draft: replaced with them, or, when the release
-    // saved them alone, left as it is.
+    // or any change, the saved UI state holds this build's two preferences
+    // and nothing of the draft: the release's hidden balances, and the
+    // balance card's breakdown closed, whatever the release saved of it (a
+    // field this build does not read). Every release's value is replaced so.
+    const buildPreferences = {
+      isBalanceHidden: releasePreferences.isBalanceHidden,
+      balanceDetailOpen: false,
+    }
     const page = await extension.openWallet('/main')
     const unlockScreen = new SettingsPage(page)
     await unlockScreen.waitForUnlock()
-    await expect.poll(() => savedUi(page)).toEqual(releasePreferences)
+    await expect.poll(() => savedUi(page)).toEqual(buildPreferences)
     expect(await stringsInLocalStorage(page, draft)).toEqual([])
-    expect((await readLocalStorage(page))[SAVED_UI_KEY]).toBe(
-      savedWholeUi(release) ? JSON.stringify(releasePreferences) : releaseUi.stored
-    )
+    expect((await readLocalStorage(page))[SAVED_UI_KEY]).toBe(JSON.stringify(buildPreferences))
     await unlockScreen.unlock(dump.wallet.password)
     const home = new WalletHomePage(page)
     await home.waitUntilReady()
     expect(await home.balancesHidden()).toBe(true)
+    expect(await home.balanceDetailOpen()).toBe(false)
     await expectWallets(extension, page, dump)
     await expect(home.networkSwitcher).toContainText('Testnet4')
     await expect(
@@ -235,7 +239,7 @@ for (const release of RELEASES) {
     await home.waitUntilReady()
     await home.setBalancesHidden(false)
     await expect.poll(async () => (await savedUi(page))?.isBalanceHidden).toBe(false)
-    expect(await savedUi(page)).toEqual({ ...releasePreferences, isBalanceHidden: false })
+    expect(await savedUi(page)).toEqual({ ...buildPreferences, isBalanceHidden: false })
     expect(await stringsInLocalStorage(page, draft)).toEqual([])
 
     // A wallet page opened on the send form's route shows none of the draft.
@@ -252,7 +256,7 @@ for (const release of RELEASES) {
     await extension.restart()
     const reopened = await unlock(extension, dump)
     expect(await reopened.home.balancesHidden()).toBe(false)
-    expect(await savedUi(reopened.page)).toEqual({ ...releasePreferences, isBalanceHidden: false })
+    expect(await savedUi(reopened.page)).toEqual({ ...buildPreferences, isBalanceHidden: false })
     await expectWallets(extension, reopened.page, dump)
     await expectWalletIdentity(extension, reopened.home, dump)
     expect(

@@ -80,10 +80,16 @@ none does. The 1.0.6 and 1.0.7 captures therefore hold the default
 build could not take in `notes` in `wallet.json`. The three captures here
 predate `notes`, so this paragraph records it for them.
 
+From 1.0.11 the breakdown starts closed and is saved as `balanceDetailOpen`:
+step 10 then leaves the card as it is, as a click would open it, and the
+capture checks that the saved value is `false` (`savedDetailField`).
+
 What a release saved under `redux_localstorage_simple_ui` depends on its
 version. Releases before 1.0.9 saved their whole `ui` state there, the send
 form that step 10 filled in included; from 1.0.9 a release saves the two
-display preferences alone, `isBalanceHidden` and `balanceDetailExpanded`.
+display preferences alone, `isBalanceHidden` and the breakdown's state:
+`balanceDetailExpanded` in 1.0.9 and 1.0.10, `balanceDetailOpen` from 1.0.11
+(`savedDetailField`).
 `savedWholeUi` in `release-storage.ts` tells which from the version, never
 from what a capture holds, so that a capture that lost its send form fails
 the tests instead of passing for a later release's. `releaseSavedUi` there

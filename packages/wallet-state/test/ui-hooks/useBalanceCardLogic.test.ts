@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChainType } from '@qbit/wallet-types'
 
-import { useFetchBalanceCallback } from '../../src/hooks/accounts'
+import { useStartBalanceReadCallback } from '../../src/hooks/accounts'
 import { startBalancePoll, useBalanceCardLogic } from '../../src/ui-hooks/useBalanceCardLogic'
 import { accountActions } from '../../src/reducers/accounts'
 import { settingsActions } from '../../src/reducers/settings'
@@ -12,8 +12,25 @@ import { createHookTestHarness, createWalletMock } from './testHelpers'
 
 const address = 'qbit-many-outputs'
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+type CardLogic = ReturnType<typeof useBalanceCardLogic>
+/** The kind of value the card shows for Available and Unavailable, if it shows one. */
+const splitKind = (card: CardLogic) =>
+  card.status.kind === 'loading' || card.status.kind === 'failed-empty'
+    ? undefined
+    : card.status.shown.split.kind
+
+/** A background whose balance reads stay in flight: the card shows what the store holds. */
+const walletReadingForever = () => ({
+  ...createWalletMock(),
+  getAddressBalanceV2: () => new Promise<never>(() => undefined),
+})
+
 function renderBalanceCard(balance: Record<string, unknown>) {
-  const harness = createHookTestHarness()
+  const harness = createHookTestHarness({ wallet: walletReadingForever() as any })
   harness.store.dispatch(
     accountActions.setCurrent({ address, pubkey: '11'.repeat(32), type: 'Qbit HD Key Tree' } as any)
   )
@@ -62,8 +79,9 @@ describe('useBalanceCardLogic', () => {
     expect(result.current.unavailableAmount).toBe('--')
     expect(result.current.balanceSplitUnknown).toBe(true)
     expect(result.current.balanceSplitUnknownText).toBe('utxo_limit_exceeded_balance_detail')
-    // Not the note for outputs still being read: the explorer refused to list them.
-    expect(result.current.utxoReadIncomplete).toBe(false)
+    // A lasting cause, stated: not a split still loading.
+    expect(result.current.status.kind).toBe('ready')
+    expect(splitKind(result.current)).toBe('limit')
   })
 
   it('does not report an unknown split for a balance from another network', () => {
@@ -92,7 +110,8 @@ describe('useBalanceCardLogic', () => {
     expect(result.current.balanceValue).toBe('0.00005000')
     expect(result.current.utxoLimitExceeded).toBe(false)
     expect(result.current.balanceSplitUnknown).toBe(false)
-    expect(result.current.utxoReadIncomplete).toBe(false)
+    expect(result.current.status.kind).toBe('ready')
+    expect(splitKind(result.current)).toBe('known')
     expect(result.current.availableAmount).toBe('0.00005000')
     expect(result.current.unavailableAmount).toBe('0.00000000')
   })
@@ -174,12 +193,14 @@ describe('useBalanceCardLogic before a balance read', () => {
     })
     const { result } = renderUnreadBalanceCard(wallet)
 
-    // Failed reads back off: 10 s after the first failure, 20 s after the second.
+    // The first poll at 10 s, then while nothing complete is shown 1.5, 3
+    // and 6 s after each failure, then the back-off from 10 s.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(40_000)
     })
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(5)
     expectUnknown(result)
+    expect(result.current.status.kind).toBe('failed-empty')
 
     wallet.getAddressBalanceV2.mockResolvedValue({
       availableBalance: 0,
@@ -192,7 +213,9 @@ describe('useBalanceCardLogic before a balance read', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(40_000)
     })
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(4)
+    // At 50.5 s, after the back-off of 20 s, then every 10 s.
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(8)
+    expect(result.current.status.kind).toBe('ready')
     expect(result.current.isCurrentChainBalance).toBe(true)
     expect(result.current.balanceValue).toBe('0.00000000')
     expect(result.current.availableAmount).toBe('0.00000000')
@@ -215,7 +238,9 @@ describe('useBalanceCardLogic before a balance read', () => {
     expect(result.current.unavailableAmount).toBe('--')
     expect(result.current.utxoLimitExceeded).toBe(false)
     expect(result.current.balanceSplitUnknown).toBe(false)
-    expect(result.current.utxoReadIncomplete).toBe(false)
+    // Unknown for a passing reason: loading, not `--` with a note.
+    expect(result.current.status.kind).toBe('total')
+    expect(splitKind(result.current)).toBe('loading')
   })
 })
 
@@ -240,6 +265,14 @@ const incompleteRead = {
 // The same, but the read of the outputs stopped on a failure (the listing or
 // a transaction lookup failed) rather than running out of time.
 const failedRead = { ...incompleteRead, utxoReadFailed: true }
+// The same two of the account whose balance the polling tests show
+// (`balance`): its total, the split not read.
+const incompleteOfShown = {
+  ...incompleteRead,
+  unavailableBalance: 5_000,
+  totalBalance: 5_000,
+}
+const failedOfShown = { ...incompleteOfShown, utxoReadFailed: true }
 // The same account once every output is read.
 const fullRead = {
   availableBalance: 60_000_000,
@@ -251,6 +284,7 @@ const fullRead = {
 }
 
 function renderWithExplorer(explorer: { getAddressBalanceV2: ReturnType<typeof vi.fn> }) {
+  vi.useFakeTimers({ toFake: ['Date'] })
   const wallet = {
     ...createWalletMock(),
     ...explorer,
@@ -260,17 +294,25 @@ function renderWithExplorer(explorer: { getAddressBalanceV2: ReturnType<typeof v
     accountActions.setCurrent({ address, pubkey: '11'.repeat(32), type: 'Qbit HD Key Tree' } as any)
   )
   const { result } = renderHook(
-    () => ({ card: useBalanceCardLogic(), fetchBalance: useFetchBalanceCallback() }),
+    () => ({ card: useBalanceCardLogic(), fetchBalance: useStartBalanceReadCallback() }),
     { wrapper: harness.wrapper }
   )
   return { result, wallet, store: harness.store }
 }
 
-async function retry(result: { current: { card: ReturnType<typeof useBalanceCardLogic> } }) {
-  act(() => {
-    result.current.card.retryBalance()
+/**
+ * A read the user asks for, 10 s after the last read, waited for: the clock
+ * (only `Date`, faked by `renderWithExplorer`) moves on, so that two failed
+ * reads in a row count as a failure the card shows (see
+ * `balanceCardStatus`). Begun as the refresh control's read begins.
+ */
+async function readAgain(result: {
+  current: { fetchBalance: (options?: { byUser?: boolean }) => Promise<unknown> }
+}) {
+  vi.setSystemTime(Date.now() + 10_000)
+  await act(async () => {
+    await result.current.fetchBalance({ byUser: true }).catch(() => undefined)
   })
-  await waitFor(() => expect(result.current.card.isRetryingBalance).toBe(false))
 }
 
 /** Reads the background answers when the test says, in the order the test says. */
@@ -288,10 +330,13 @@ describe('useBalanceCardLogic error state', () => {
       getAddressBalanceV2: vi.fn().mockRejectedValue(new Error('explorer down')),
     })
 
-    await retry(result)
+    // One failed read is still loading; two in a row are a failure.
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('loading')
+    expect(result.current.card.balanceErrorText).toBeUndefined()
+    await readAgain(result)
 
-    expect(result.current.card.balanceLoadFailed).toBe(true)
-    expect(result.current.card.balanceRefreshFailed).toBe(false)
+    expect(result.current.card.status.kind).toBe('failed-empty')
     expect(result.current.card.balanceErrorText).toBe('balance_load_error')
 
     const expanded = result.current.card.isDetailExpanded
@@ -306,14 +351,16 @@ describe('useBalanceCardLogic error state', () => {
       getAddressBalanceV2: vi
         .fn()
         .mockRejectedValueOnce(new Error('explorer down'))
+        .mockRejectedValueOnce(new Error('explorer down'))
         .mockResolvedValue(balance),
     })
 
-    await retry(result)
-    expect(result.current.card.balanceLoadFailed).toBe(true)
+    await readAgain(result)
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('failed-empty')
 
-    await retry(result)
-    expect(result.current.card.balanceLoadFailed).toBe(false)
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.balanceErrorText).toBeUndefined()
     expect(result.current.card.balanceValue).toBe('0.00005000')
   })
@@ -326,11 +373,14 @@ describe('useBalanceCardLogic error state', () => {
         .mockRejectedValue(new Error('explorer down')),
     })
 
-    await retry(result)
-    await retry(result)
+    await readAgain(result)
+    await readAgain(result)
+    // One failed refresh: the last balance stays, dimmed, as being refreshed.
+    expect(result.current.card.status).toMatchObject({ kind: 'refreshing', reason: 'retry' })
+    expect(result.current.card.balanceErrorText).toBeUndefined()
+    await readAgain(result)
 
-    expect(result.current.card.balanceLoadFailed).toBe(false)
-    expect(result.current.card.balanceRefreshFailed).toBe(true)
+    expect(result.current.card.status.kind).toBe('failed')
     expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
     expect(result.current.card.balanceValue).toBe('0.00005000')
   })
@@ -351,11 +401,12 @@ describe('useBalanceCardLogic error state', () => {
         .mockRejectedValue(new Error('explorer down')),
     })
 
-    await retry(result)
-    await retry(result)
+    await readAgain(result)
+    await readAgain(result)
+    await readAgain(result)
 
-    expect(result.current.card.balanceLoadFailed).toBe(false)
-    expect(result.current.card.balanceRefreshFailed).toBe(true)
+    expect(result.current.card.status.kind).toBe('failed')
+    expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.utxoLimitExceeded).toBe(true)
     expect(result.current.card.balanceSplitUnknown).toBe(true)
@@ -363,28 +414,36 @@ describe('useBalanceCardLogic error state', () => {
     expect(result.current.card.unavailableAmount).toBe('--')
   })
 
-  it('runs one retry at a time', async () => {
+  it('reads at once for a press of the refresh control under a failure, and a second press joins that read', async () => {
     let fail!: (error: Error) => void
-    const getAddressBalanceV2 = vi.fn(
-      () =>
-        new Promise((_resolve, reject) => {
-          fail = reject
-        })
-    )
+    const getAddressBalanceV2 = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('explorer down'))
+      .mockRejectedValueOnce(new Error('explorer down'))
+      .mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = reject
+          })
+      )
     const { result } = renderWithExplorer({ getAddressBalanceV2 })
+    await readAgain(result)
+    // One failed read: still loading, not yet a failure.
+    expect(result.current.card.status.kind).toBe('loading')
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('failed-empty')
 
     act(() => {
-      result.current.card.retryBalance()
-      result.current.card.retryBalance()
+      result.current.card.refreshBalance()
+      result.current.card.refreshBalance()
     })
-    expect(result.current.card.isRetryingBalance).toBe(true)
-    expect(getAddressBalanceV2).toHaveBeenCalledTimes(1)
+    expect(getAddressBalanceV2).toHaveBeenCalledTimes(3)
+    expect(result.current.card.status).toMatchObject({ kind: 'failed-empty', busy: true })
 
     await act(async () => {
       fail(new Error('explorer down'))
     })
-    expect(result.current.card.isRetryingBalance).toBe(false)
-    expect(result.current.card.balanceLoadFailed).toBe(true)
+    expect(result.current.card.status).toMatchObject({ kind: 'failed-empty', busy: false })
   })
 
   it('does not let an older failed refresh override a newer success', async () => {
@@ -408,10 +467,9 @@ describe('useBalanceCardLogic error state', () => {
       await older.catch(() => undefined)
     })
 
-    expect(result.current.card.balanceLoadFailed).toBe(false)
-    expect(result.current.card.balanceRefreshFailed).toBe(false)
+    expect(result.current.card.balanceErrorText).toBeUndefined()
     expect(result.current.card.balanceValue).toBe('0.91000000')
-    expect(result.current.card.utxoReadIncomplete).toBe(true)
+    expect(result.current.card.status.kind).toBe('total')
     expect(result.current.card.availableAmount).toBe('--')
   })
 
@@ -430,35 +488,36 @@ describe('useBalanceCardLogic error state', () => {
       pending[1].reject(new Error('explorer timed out'))
       await newer.catch(() => undefined)
     })
-    expect(result.current.card.balanceLoadFailed).toBe(true)
+    expect(result.current.card.status.kind).toBe('loading')
 
     await act(async () => {
       pending[0].resolve(balance)
       await older
     })
 
-    expect(result.current.card.balanceLoadFailed).toBe(false)
-    expect(result.current.card.balanceRefreshFailed).toBe(true)
-    expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
+    // The newer read's failure stays the outcome: the balance is dimmed as
+    // being refreshed, and one failure is no error yet.
+    expect(result.current.card.status).toMatchObject({ kind: 'refreshing', reason: 'retry' })
+    expect(result.current.card.balanceErrorText).toBeUndefined()
     expect(result.current.card.balanceValue).toBe('0.00005000')
   })
 
   it.each([
-    // The newer read did not answer in full: the older split shows, marked
-    // out of date, as after a newer refresh that fails.
+    // The newer read did not answer in full: the older split shows, dimmed
+    // as being refreshed, as after a newer refresh that fails.
     [
-      'shows a full answer finishing after a newer incomplete one, marked out of date',
+      'shows a full answer finishing after a newer incomplete one, dimmed as being refreshed',
       fullRead,
       incompleteRead,
-      'balance_refresh_error',
+      'refreshing',
     ],
     [
       'does not let an incomplete answer finishing after a newer full one change the newer one',
       incompleteRead,
       fullRead,
-      undefined,
+      'ready',
     ],
-  ])('%s', async (_case, olderAnswer, newerAnswer, errorText) => {
+  ])('%s', async (_case, olderAnswer, newerAnswer, kind) => {
     const { pending, getAddressBalanceV2 } = pendingReads()
     const { result } = renderWithExplorer({ getAddressBalanceV2 })
 
@@ -477,11 +536,11 @@ describe('useBalanceCardLogic error state', () => {
       await older
     })
 
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(result.current.card.status.kind).toBe(kind)
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.availableAmount).toBe('0.60000000')
     expect(result.current.card.unavailableAmount).toBe('0.31000000')
-    expect(result.current.card.balanceErrorText).toBe(errorText)
+    expect(result.current.card.balanceErrorText).toBeUndefined()
   })
 })
 
@@ -509,8 +568,8 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
 
   type Card = ReturnType<typeof useBalanceCardLogic>
   const expectNoError = (card: Card) => {
-    expect(card.balanceLoadFailed).toBe(false)
-    expect(card.balanceRefreshFailed).toBe(false)
+    expect(card.status.kind).not.toBe('failed')
+    expect(card.status.kind).not.toBe('failed-empty')
     expect(card.balanceErrorText).toBeUndefined()
   }
 
@@ -519,15 +578,14 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
     const getAddressBalanceV2 = vi.fn(() => new Promise((resolve) => (answer = resolve)))
     const { result } = renderWithExplorer({ getAddressBalanceV2 })
 
-    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.status.kind).toBe('loading')
     expect(result.current.card.balanceValue).toBe('--')
     expectNoError(result.current.card)
 
     act(() => {
-      result.current.card.retryBalance()
+      void result.current.fetchBalance({ byUser: true })
     })
-    expect(result.current.card.isRetryingBalance).toBe(true)
-    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.status.kind).toBe('loading')
     expect(result.current.card.balanceValue).toBe('--')
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
@@ -536,8 +594,7 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
     await act(async () => {
       answer(balance)
     })
-    await waitFor(() => expect(result.current.card.isRetryingBalance).toBe(false))
-    expect(result.current.card.balanceLoading).toBe(false)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.balanceValue).toBe('0.00005000')
     expectNoError(result.current.card)
   })
@@ -547,18 +604,17 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
       getAddressBalanceV2: vi.fn().mockRejectedValue(new Error('explorer unreachable')),
     })
 
-    await retry(result)
+    await readAgain(result)
+    await readAgain(result)
 
-    expect(result.current.card.balanceLoadFailed).toBe(true)
+    expect(result.current.card.status.kind).toBe('failed-empty')
     expect(result.current.card.balanceErrorText).toBe('balance_load_error')
-    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.isCurrentChainBalance).toBe(false)
     expect(result.current.card.balanceValue).toBe('--')
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
     expect(result.current.card.utxoLimitExceeded).toBe(false)
     expect(result.current.card.balanceSplitUnknown).toBe(false)
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
   })
 
   it('keeps the last measured balance and split, marked out of date, when a later refresh fails', async () => {
@@ -569,14 +625,14 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
         .mockRejectedValue(new Error('explorer down')),
     })
 
-    await retry(result)
+    await readAgain(result)
     expectNoError(result.current.card)
-    await retry(result)
+    await readAgain(result)
+    expectNoError(result.current.card)
+    await readAgain(result)
 
-    expect(result.current.card.balanceLoadFailed).toBe(false)
-    expect(result.current.card.balanceRefreshFailed).toBe(true)
+    expect(result.current.card.status.kind).toBe('failed')
     expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
-    expect(result.current.card.balanceLoading).toBe(false)
     expect(result.current.card.balanceValue).toBe('0.00005000')
     expect(result.current.card.availableAmount).toBe('0.00005000')
     expect(result.current.card.unavailableAmount).toBe('0.00000000')
@@ -588,10 +644,10 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
       getAddressBalanceV2: vi.fn().mockResolvedValue(overLimitRead),
     })
 
-    await retry(result)
+    await readAgain(result)
 
     expectNoError(result.current.card)
-    expect(result.current.card.balanceLoading).toBe(false)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.utxoLimitExceeded).toBe(true)
     expect(result.current.card.balanceSplitUnknown).toBe(true)
@@ -599,22 +655,22 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
     expect(result.current.card.unavailableAmount).toBe('--')
   })
 
-  it('shows the split as `--` with no explorer note and no error while a broadcast holds the send guard', async () => {
+  it('shows the total with the split loading, no explorer note and no error, while a broadcast holds the send guard', async () => {
     const { result } = renderWithExplorer({
       getAddressBalanceV2: vi.fn().mockResolvedValue(guardHeldRead),
     })
 
-    await retry(result)
+    await readAgain(result)
 
     expectNoError(result.current.card)
     expect(result.current.card.isCurrentChainBalance).toBe(true)
-    expect(result.current.card.balanceLoading).toBe(false)
+    expect(result.current.card.status.kind).toBe('total')
+    expect(splitKind(result.current.card)).toBe('loading')
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
     expect(result.current.card.utxoLimitExceeded).toBe(false)
     expect(result.current.card.balanceSplitUnknown).toBe(false)
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
   })
 
   it('clears a failed first read once a guard-held read succeeds', async () => {
@@ -625,10 +681,10 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
         .mockResolvedValue(guardHeldRead),
     })
 
-    await retry(result)
-    expect(result.current.card.balanceLoadFailed).toBe(true)
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('loading')
 
-    await retry(result)
+    await readAgain(result)
     expectNoError(result.current.card)
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.availableAmount).toBe('--')
@@ -639,12 +695,10 @@ describe('useBalanceCardLogic unread, failed, over-limit and guard-held balances
 describe('useBalanceCardLogic while the outputs are still being read', () => {
   type Card = ReturnType<typeof useBalanceCardLogic>
   const expectIncomplete = (card: Card) => {
-    expect(card.balanceLoading).toBe(false)
     expect(card.isCurrentChainBalance).toBe(true)
     expect(card.balanceValue).toBe('0.91000000')
-    expect(card.utxoReadIncomplete).toBe(true)
-    expect(card.utxoReadIncompleteText).toBe('balance_outputs_incomplete')
-    expect(card.utxoReadIncompleteDetailText).toBe('balance_outputs_incomplete_detail')
+    // The total is known, the split loading: no note, no `--`.
+    expect(splitKind(card)).toBe('loading')
     expect(card.availableBalance).toBeNull()
     expect(card.unavailableBalance).toBeNull()
     expect(card.availableAmount).toBe('--')
@@ -652,22 +706,22 @@ describe('useBalanceCardLogic while the outputs are still being read', () => {
     // Neither the explorer's limit nor a failed read.
     expect(card.utxoLimitExceeded).toBe(false)
     expect(card.balanceSplitUnknown).toBe(false)
-    expect(card.balanceLoadFailed).toBe(false)
+    expect(card.status.kind).not.toBe('failed-empty')
   }
 
-  it('shows the total, with a note, and the split as `--` rather than the load error', async () => {
+  it('shows the total with the split loading rather than the load error', async () => {
     const { result } = renderWithExplorer({
       getAddressBalanceV2: vi.fn().mockResolvedValue(incompleteRead),
     })
 
-    await retry(result)
+    await readAgain(result)
 
     expectIncomplete(result.current.card)
-    expect(result.current.card.balanceRefreshFailed).toBe(false)
+    expect(result.current.card.status.kind).toBe('total')
     expect(result.current.card.balanceErrorText).toBeUndefined()
   })
 
-  it('clears the note once a read finishes the outputs', async () => {
+  it('shows the split once a read finishes the outputs', async () => {
     const { result } = renderWithExplorer({
       getAddressBalanceV2: vi
         .fn()
@@ -676,20 +730,20 @@ describe('useBalanceCardLogic while the outputs are still being read', () => {
         .mockResolvedValue(fullRead),
     })
 
-    await retry(result)
+    await readAgain(result)
     expectIncomplete(result.current.card)
-    await retry(result)
+    await readAgain(result)
     expectIncomplete(result.current.card)
-    await retry(result)
+    await readAgain(result)
 
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.availableAmount).toBe('0.60000000')
     expect(result.current.card.unavailableAmount).toBe('0.31000000')
     expect(result.current.card.balanceErrorText).toBeUndefined()
   })
 
-  it('keeps the total and the note, marked out of date, when a later refresh fails', async () => {
+  it('keeps the total with the split loading through a failed refresh, and says the outputs could not be read after another', async () => {
     const { result } = renderWithExplorer({
       getAddressBalanceV2: vi
         .fn()
@@ -697,15 +751,24 @@ describe('useBalanceCardLogic while the outputs are still being read', () => {
         .mockRejectedValue(new Error('explorer down')),
     })
 
-    await retry(result)
-    await retry(result)
-
+    await readAgain(result)
+    await readAgain(result)
     expectIncomplete(result.current.card)
-    expect(result.current.card.balanceRefreshFailed).toBe(true)
-    expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
+    expect(result.current.card.status.kind).toBe('total')
+    expect(result.current.card.balanceErrorText).toBeUndefined()
+
+    await readAgain(result)
+    expectIncomplete(result.current.card)
+    expect(result.current.card.status.kind).toBe('failed')
+    // No box: the two notes, and `--` for the split (O4). The total is the
+    // first read's, out of date: dimmed.
+    expect(result.current.card.balanceErrorText).toBeUndefined()
+    expect(result.current.card.outputsUnreadText).toBe('balance_outputs_incomplete')
+    expect(result.current.card.outputsUnreadDetailText).toBe('balance_outputs_incomplete_detail')
+    expect(result.current.card.totalDimmed).toBe(true)
   })
 
-  it('shows the load error, not the note, when the first read fails', async () => {
+  it('shows loading, not an error, when the first read fails, and the total once a read has the statistics', async () => {
     const { result } = renderWithExplorer({
       getAddressBalanceV2: vi
         .fn()
@@ -713,37 +776,80 @@ describe('useBalanceCardLogic while the outputs are still being read', () => {
         .mockResolvedValue(incompleteRead),
     })
 
-    await retry(result)
-    expect(result.current.card.balanceLoadFailed).toBe(true)
-    expect(result.current.card.balanceErrorText).toBe('balance_load_error')
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('loading')
+    expect(result.current.card.balanceErrorText).toBeUndefined()
 
-    // Try again, and the background has read the statistics this time.
-    await retry(result)
+    // Read again, and the background has read the statistics this time.
+    await readAgain(result)
     expectIncomplete(result.current.card)
     expect(result.current.card.balanceErrorText).toBeUndefined()
   })
 
-  it('shows only the total beside the note, even for an answer that carries a split', () => {
-    // The note says only the total is shown; a split beside it would contradict it.
+  it('shows only the total, the split loading, even for an incomplete answer that carries a split', () => {
+    // A split counted from part of the outputs is never shown.
     const result = renderBalanceCard({ ...fullRead, utxoReadIncomplete: true })
 
-    expect(result.current.utxoReadIncomplete).toBe(true)
+    expect(result.current.status.kind).toBe('total')
     expect(result.current.balanceValue).toBe('0.91000000')
     expect(result.current.availableAmount).toBe('--')
     expect(result.current.unavailableAmount).toBe('--')
   })
 
-  it("does not show another network's note", () => {
+  it("does not show another network's total", () => {
     const result = renderBalanceCard({ ...incompleteRead, chainType: ChainType.QBIT_TESTNET4 })
 
-    expect(result.current.balanceLoading).toBe(true)
-    expect(result.current.utxoReadIncomplete).toBe(false)
+    expect(result.current.status.kind).toBe('loading')
+    expect(result.current.balanceValue).toBe('--')
+  })
+})
+
+describe('useBalanceCardLogic when the outputs cannot be read (O4)', () => {
+  it('keeps the total at full opacity under the failure when its own statistics answered and only its outputs failed', async () => {
+    const { result } = renderWithExplorer({
+      getAddressBalanceV2: vi.fn().mockResolvedValue(failedRead),
+    })
+    await readAgain(result)
+    await readAgain(result)
+    expect(result.current.card.status).toMatchObject({ kind: 'failed', totalCurrent: true })
+    expect(result.current.card.balanceValue).toBe('0.91000000')
+    expect(result.current.card.outputsUnreadText).toBe('balance_outputs_incomplete')
+    expect(result.current.card.balanceErrorText).toBeUndefined()
+    expect(result.current.card.availableAmount).toBe('--')
+    expect(result.current.card.totalDimmed).toBe(false)
+    expect(result.current.card.splitDimmed).toBe(false)
+  })
+})
+
+describe('useBalanceCardLogic breakdown (O5)', () => {
+  it('starts closed, and stays as the user leaves it when the card is shown again on another visit to the screen', () => {
+    const harness = createHookTestHarness({ wallet: createWalletMock() as any })
+    harness.store.dispatch(
+      accountActions.setCurrent({
+        address,
+        pubkey: '11'.repeat(32),
+        type: 'Qbit HD Key Tree',
+      } as any)
+    )
+    const first = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+    expect(first.result.current.isDetailExpanded).toBe(false)
+    act(() => first.result.current.handleExpandToggle())
+    expect(first.result.current.isDetailExpanded).toBe(true)
+    first.unmount()
+
+    const again = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+    expect(again.result.current.isDetailExpanded).toBe(true)
+    act(() => again.result.current.handleExpandToggle())
+    again.unmount()
+    const third = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
+    expect(third.result.current.isDetailExpanded).toBe(false)
+    third.unmount()
   })
 })
 
 describe('useBalanceCardLogic when a refresh cannot read every output of a balance already shown', () => {
-  // Read later, with a total that moved since: none of it may show.
+  // Read later, with a total that moved since: the new total shows, its
+  // split loading, for the old split would not add up with it.
   const laterIncomplete = {
     ...incompleteRead,
     unavailableBalance: 92_000_000,
@@ -757,24 +863,44 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
     totalBalance: 92_000_000,
   }
   type Card = ReturnType<typeof useBalanceCardLogic>
-  // The last figures, marked out of date, with Try again: as after a refresh that rejects.
-  const expectLastFiguresOutOfDate = (card: Card) => {
+  // The newer total, with the split loading: no note, and no error.
+  const expectNewerTotal = (card: Card) => {
+    expect(card.balanceValue).toBe('0.92000000')
+    expect(card.availableAmount).toBe('--')
+    expect(card.unavailableAmount).toBe('--')
+    expect(card.status.kind).toBe('total')
+    expect(card.balanceErrorText).toBeUndefined()
+    expect(splitKind(card)).toBe('loading')
+    expect(card.balanceSplitUnknown).toBe(false)
+  }
+  // The last figures, dimmed as being refreshed: no note, no `--`, and no
+  // error until reads keep failing.
+  const expectLastFiguresOutOfDate = (card: Card, kind: 'refreshing' | 'failed' = 'refreshing') => {
     expect(card.balanceValue).toBe('0.91000000')
     expect(card.availableAmount).toBe('0.60000000')
     expect(card.unavailableAmount).toBe('0.31000000')
-    expect(card.balanceRefreshFailed).toBe(true)
-    expect(card.balanceLoadFailed).toBe(false)
-    expect(card.balanceErrorText).toBe('balance_refresh_error')
-    expect(card.utxoReadIncomplete).toBe(false)
+    expect(card.status.kind).toBe(kind)
+    expect(card.balanceErrorText).toBe(kind === 'failed' ? 'balance_refresh_error' : undefined)
+    expect(splitKind(card)).toBe('known')
     expect(card.balanceSplitUnknown).toBe(false)
   }
 
-  it.each([
-    ['ran out of time part of the way through', laterIncomplete],
-    ['failed', laterFailed],
+  it.each<[string, unknown, (card: Card) => void]>([
+    [
+      'ran out of time part of the way through',
+      incompleteRead,
+      card => expectLastFiguresOutOfDate(card),
+    ],
+    ['failed', failedRead, card => expectLastFiguresOutOfDate(card)],
+    [
+      'ran out of time part of the way through, with a total that moved',
+      laterIncomplete,
+      expectNewerTotal,
+    ],
+    ['failed, with a total that moved', laterFailed, expectNewerTotal],
   ])(
-    'keeps the last figures, marked out of date with Try again and no outputs note, when the read of the outputs %s; Try again with a full answer clears it',
-    async (_how, answer) => {
+    'keeps the last figures with the same total, dimmed as being refreshed, and shows a newer total with the split loading, with no error and no outputs note, when the read of the outputs %s; a full answer read again clears it',
+    async (_how, answer, expectShown) => {
       const { result } = renderWithExplorer({
         getAddressBalanceV2: vi
           .fn()
@@ -783,18 +909,20 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
           .mockResolvedValue(laterFull),
       })
 
-      await retry(result)
+      await readAgain(result)
       expect(result.current.card.availableAmount).toBe('0.60000000')
       expect(result.current.card.balanceErrorText).toBeUndefined()
+      // The user opens the breakdown (closed by default).
+      act(() => result.current.card.handleExpandToggle())
 
-      await retry(result)
-      expectLastFiguresOutOfDate(result.current.card)
-      // The breakdown stays open to the last figures.
+      await readAgain(result)
+      expectShown(result.current.card)
+      // The breakdown stays open.
       expect(result.current.card.isDetailExpanded).toBe(true)
 
-      await retry(result)
+      await readAgain(result)
       expect(result.current.card.balanceErrorText).toBeUndefined()
-      expect(result.current.card.balanceRefreshFailed).toBe(false)
+      expect(result.current.card.status.kind).toBe('ready')
       expect(result.current.card.balanceValue).toBe('0.92000000')
       expect(result.current.card.availableAmount).toBe('0.62000000')
       expect(result.current.card.unavailableAmount).toBe('0.30000000')
@@ -805,19 +933,19 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
     ['ran out of time part of the way through', incompleteRead],
     ['failed', failedRead],
   ])(
-    'shows the total, `--` and the note, with no error, when the first read of the outputs %s',
+    'shows the total with the split loading, and no error, when the first read of the outputs %s',
     async (_how, answer) => {
       const { result } = renderWithExplorer({
         getAddressBalanceV2: vi.fn().mockResolvedValue(answer),
       })
 
-      await retry(result)
+      await readAgain(result)
 
       expect(result.current.card.balanceValue).toBe('0.91000000')
       expect(result.current.card.availableAmount).toBe('--')
       expect(result.current.card.unavailableAmount).toBe('--')
-      expect(result.current.card.utxoReadIncomplete).toBe(true)
-      expect(result.current.card.utxoReadIncompleteText).toBe('balance_outputs_incomplete')
+      expect(result.current.card.status.kind).toBe('total')
+      expect(splitKind(result.current.card)).toBe('loading')
       expect(result.current.card.balanceErrorText).toBeUndefined()
     }
   )
@@ -827,18 +955,21 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
       getAddressBalanceV2: vi
         .fn()
         .mockResolvedValueOnce(fullRead)
-        .mockResolvedValueOnce(laterFailed)
-        .mockResolvedValueOnce(laterIncomplete)
+        .mockResolvedValueOnce(failedRead)
+        .mockResolvedValueOnce(incompleteRead)
+        .mockRejectedValueOnce(new Error('explorer down'))
         .mockRejectedValueOnce(new Error('explorer down'))
         .mockResolvedValue(laterFull),
     })
 
-    await retry(result)
-    for (let read = 0; read < 3; read += 1) {
-      await retry(result)
-      expectLastFiguresOutOfDate(result.current.card)
+    await readAgain(result)
+    // A failed read, then a partial one, which ends that trouble, then two
+    // rejections 10 s apart: the second shows the error.
+    for (const kind of ['refreshing', 'refreshing', 'refreshing', 'failed'] as const) {
+      await readAgain(result)
+      expectLastFiguresOutOfDate(result.current.card, kind)
     }
-    await retry(result)
+    await readAgain(result)
     expect(result.current.card.balanceErrorText).toBeUndefined()
     expect(result.current.card.availableAmount).toBe('0.62000000')
   })
@@ -848,7 +979,7 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
       getAddressBalanceV2: vi.fn().mockResolvedValueOnce(fullRead).mockResolvedValue(laterFailed),
     })
 
-    await retry(result)
+    await readAgain(result)
     let answer: unknown
     await act(async () => {
       answer = await result.current.fetchBalance()
@@ -856,27 +987,35 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
 
     expect(answer).toEqual(laterFailed)
     expect(store.getState().accounts.balanceStatusMap[address]?.error).toBe(true)
-    expectLastFiguresOutOfDate(result.current.card)
+    expectNewerTotal(result.current.card)
   })
 
-  it.each<[string, unknown, unknown, string | undefined, string]>([
+  it.each<[string, unknown, unknown, string, string]>([
     // The newer refresh failed, and stays the outcome over the older balance.
     [
-      'an older full answer after a newer one that could not read every output, marked out of date',
+      'an older full answer after a newer one that could not read every output, dimmed as being refreshed',
+      fullRead,
+      failedRead,
+      'refreshing',
+      '0.60000000',
+    ],
+    // The newer refresh read a total that moved: that total, its split loading.
+    [
+      'the total of a newer answer that could not read every output, not an older full answer of another total',
       fullRead,
       laterFailed,
-      'balance_refresh_error',
-      '0.60000000',
+      'total',
+      '--',
     ],
     // The newer full answer stands.
     [
       'nothing of an older answer that could not read every output after a newer full one',
       laterFailed,
       laterFull,
-      undefined,
+      'ready',
       '0.62000000',
     ],
-  ])('shows %s', async (_case, olderAnswer, newerAnswer, errorText, available) => {
+  ])('shows %s', async (_case, olderAnswer, newerAnswer, kind, available) => {
     const { pending, getAddressBalanceV2 } = pendingReads()
     const { result, store } = renderWithExplorer({ getAddressBalanceV2 })
     // A split shown before both refreshes.
@@ -900,9 +1039,10 @@ describe('useBalanceCardLogic when a refresh cannot read every output of a balan
       await older
     })
 
-    expect(result.current.card.balanceErrorText).toBe(errorText)
+    expect(result.current.card.status.kind).toBe(kind)
+    expect(result.current.card.balanceErrorText).toBeUndefined()
     expect(result.current.card.availableAmount).toBe(available)
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(splitKind(result.current.card)).toBe(kind === 'total' ? 'loading' : 'known')
   })
 })
 
@@ -926,7 +1066,7 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
   it('shows the split the background reports', () => {
     const result = renderBalanceCard(overLimitSplit)
 
-    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.status.kind).toBe('ready')
     expect(result.current.balanceValue).toBe('0.91000000')
     expect(result.current.availableBalance).toBe(60_000_000)
     expect(result.current.unavailableBalance).toBe(31_000_000)
@@ -945,15 +1085,15 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
         .mockResolvedValue({ ...overLimitUnknown, chainType: ChainType.QBIT_MAINNET }),
     })
     // No split while the first read is still loading.
-    expect(result.current.card.balanceLoading).toBe(true)
+    expect(result.current.card.status.kind).toBe('loading')
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
 
-    await retry(result)
-    expect(result.current.card.balanceLoading).toBe(false)
+    await readAgain(result)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.availableAmount).toBe('0.60000000')
 
-    await retry(result)
+    await readAgain(result)
     expect(result.current.card.availableAmount).toBe('--')
     expect(result.current.card.unavailableAmount).toBe('--')
     expect(result.current.card.balanceSplitUnknown).toBe(true)
@@ -963,14 +1103,14 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
     const result = renderBalanceCard({ ...overLimitSplit, chainType: ChainType.QBIT_TESTNET4 })
 
     // Still loading: no balance for this network has landed.
-    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.status.kind).toBe('loading')
     expect(result.current.balanceValue).toBe('--')
     expect(result.current.availableAmount).toBe('--')
     expect(result.current.unavailableAmount).toBe('--')
   })
 
   it("does not show another account's split", () => {
-    const harness = createHookTestHarness()
+    const harness = createHookTestHarness({ wallet: walletReadingForever() as any })
     harness.store.dispatch(
       accountActions.setCurrent({
         address,
@@ -992,7 +1132,7 @@ describe("useBalanceCardLogic past the explorer's limit, with the background's s
     )
     const { result } = renderHook(() => useBalanceCardLogic(), { wrapper: harness.wrapper })
 
-    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.status.kind).toBe('ready')
     expect(result.current.balanceValue).toBe('0.91000000')
     expect(result.current.availableAmount).toBe('--')
     expect(result.current.unavailableAmount).toBe('--')
@@ -1012,20 +1152,14 @@ describe('useBalanceCardLogic loading state', () => {
   it('shows loading rather than a zero balance until the first fetch lands', () => {
     const { result, store } = renderUnloadedBalanceCard()
 
-    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.status.kind).toBe('loading')
     expect(result.current.balanceValue).toBe('--')
-
-    const expanded = result.current.isDetailExpanded
-    act(() => {
-      result.current.handleExpandToggle()
-    })
-    expect(result.current.isDetailExpanded).toBe(expanded)
 
     act(() => {
       store.dispatch(accountActions.setBalanceV2({ address, balance }))
     })
 
-    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.status.kind).toBe('ready')
     expect(result.current.balanceValue).toBe('0.00005000')
   })
 
@@ -1041,7 +1175,7 @@ describe('useBalanceCardLogic loading state', () => {
       )
     })
 
-    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.status.kind).toBe('loading')
     expect(result.current.balanceValue).toBe('--')
   })
 
@@ -1062,7 +1196,7 @@ describe('useBalanceCardLogic loading state', () => {
       )
     })
 
-    expect(result.current.balanceLoading).toBe(true)
+    expect(result.current.status.kind).toBe('loading')
     expect(result.current.isCurrentChainBalance).toBe(false)
     expect(result.current.balanceValue).toBe('--')
     expect(result.current.availableAmount).toBe('--')
@@ -1077,24 +1211,38 @@ describe('useBalanceCardLogic loading state', () => {
       )
     })
 
-    expect(result.current.balanceLoading).toBe(false)
+    expect(result.current.status.kind).toBe('ready')
     expect(result.current.balanceValue).toBe('0.00007000')
   })
 
-  it('stops loading when the first fetch fails', () => {
+  it('keeps loading when the first fetch fails, and shows the load error after a second', () => {
     const { result, store } = renderUnloadedBalanceCard()
+    const chainType = ChainType.QBIT_MAINNET
 
     act(() => {
-      store.dispatch(accountActions.setBalanceError({ address, requestId: 1 }))
+      store.dispatch(
+        accountActions.setBalanceError({ address, requestId: 1, chainType, startedAt: Date.now() })
+      )
     })
+    expect(result.current.status.kind).toBe('loading')
 
-    expect(result.current.balanceLoading).toBe(false)
-    expect(result.current.balanceLoadFailed).toBe(true)
+    // The second begun 10 s after the first.
+    act(() => {
+      store.dispatch(
+        accountActions.setBalanceError({
+          address,
+          requestId: 2,
+          chainType,
+          startedAt: Date.now() + 10_000,
+        })
+      )
+    })
+    expect(result.current.status.kind).toBe('failed-empty')
     expect(result.current.balanceValue).toBe('--')
   })
 })
 
-describe('useFetchBalanceCallback', () => {
+describe('useStartBalanceReadCallback', () => {
   it('keeps a newly selected account loading when the previous account fails', async () => {
     let rejectBalance: (error: Error) => void = () => undefined
     const wallet = {
@@ -1108,7 +1256,7 @@ describe('useFetchBalanceCallback', () => {
     }
     const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
     const { result } = renderHook(
-      () => ({ fetchBalance: useFetchBalanceCallback(), card: useBalanceCardLogic() }),
+      () => ({ fetchBalance: useStartBalanceReadCallback(), card: useBalanceCardLogic() }),
       { wrapper }
     )
     const fetching = result.current.fetchBalance()
@@ -1123,12 +1271,13 @@ describe('useFetchBalanceCallback', () => {
       await expect(fetching).rejects.toThrow('explorer unavailable')
     })
 
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith('qb1ztestaccount')
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith('qb1ztestaccount', {
+      progressId: expect.any(String),
+    })
     expect(store.getState().accounts.balanceStatusMap).toEqual({
       qb1ztestaccount: { requestId: expect.any(Number), error: true },
     })
-    expect(result.current.card.balanceLoading).toBe(true)
-    expect(result.current.card.balanceLoadFailed).toBe(false)
+    expect(result.current.card.status.kind).toBe('loading')
   })
 })
 
@@ -1230,9 +1379,17 @@ function recordedReads(answer?: (index: number) => unknown) {
   }
 }
 
+/**
+ * The card with `getAddressBalanceV2` behind it. `loaded`: a balance read
+ * before the card mounted, which it reads again at once. `shown`: a balance
+ * this page read, stored once the card has mounted, so that it reads nothing
+ * more at once; while it is shown, a read that brings no complete answer is
+ * followed by the cadence and back-off, not by the quick reads of a card that
+ * shows nothing complete.
+ */
 function renderPolledCard(
   getAddressBalanceV2: (readAddress: string) => Promise<unknown>,
-  { loaded = false }: { loaded?: boolean } = {}
+  { loaded = false, shown = false }: { loaded?: boolean; shown?: boolean } = {}
 ) {
   const wallet = { ...createWalletMock(), getAddressBalanceV2 }
   const harness = createHookTestHarness({ wallet: wallet as any })
@@ -1243,9 +1400,14 @@ function renderPolledCard(
     harness.store.dispatch(accountActions.setBalanceV2({ address, balance }))
   }
   const view = renderHook(
-    () => ({ card: useBalanceCardLogic(), fetchBalance: useFetchBalanceCallback() }),
+    () => ({ card: useBalanceCardLogic(), fetchBalance: useStartBalanceReadCallback() }),
     { wrapper: harness.wrapper }
   )
+  if (shown) {
+    act(() => {
+      harness.store.dispatch(accountActions.setBalanceV2({ address, balance }))
+    })
+  }
   const selectAccount = (next: string): void => {
     act(() => {
       harness.store.dispatch(
@@ -1291,7 +1453,6 @@ describe('useBalanceCardLogic polling', () => {
     ['the poll', {}, () => undefined, 10_000],
     ['the read on mounting', { loaded: true }, () => undefined, 0],
     ['the refresh button', {}, ({ result }) => result.current.card.refreshBalance(), 1_000],
-    ['Try again', {}, ({ result }) => result.current.card.retryBalance(), 0],
   ])(
     'skips poll ticks while %s is still reading, and runs one of them 2 s after it lands',
     async (_source, options, start, firstAt) => {
@@ -1330,7 +1491,7 @@ describe('useBalanceCardLogic polling', () => {
   it('reads once more 2 s after a read held open across several intervals lands, however many ticks fell due', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
-    renderPolledCard(background.getAddressBalanceV2)
+    renderPolledCard(background.getAddressBalanceV2, { shown: true })
 
     await advance(10_000)
     // Four more ticks fall due while the first poll's read is open, which is
@@ -1358,33 +1519,28 @@ describe('useBalanceCardLogic polling', () => {
     expect(background.peakOpen()).toBe(1)
   })
 
-  it('runs a remembered tick only once every read of the card has landed, 2 s after the last', async () => {
+  it('lets the refresh button join the read in flight: no read beside it, and the tick it missed 2 s after it lands', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
     const { result } = renderPolledCard(background.getAddressBalanceV2)
 
-    // The poll's read from 10 s misses the tick at 20 s; the refresh button
-    // reads from 23 s beside it.
+    // The poll's read from 10 s misses the tick at 20 s; the refresh button,
+    // tapped at 22 s, joins it rather than reading beside it.
     await advance(22_000)
     act(() => result.current.card.refreshBalance())
     await advance(1_000)
-    expect(background.times()).toEqual(seconds(10, 23))
+    expect(background.times()).toEqual(seconds(10))
+    expect(result.current.card.status).toMatchObject({ kind: 'loading', busy: true })
 
     await advance(7_000)
     await act(async () => {
       background.reads[0].resolve(balance)
     })
-    // The refresh button's read is still open: no tick beside it.
-    await advance(20_000)
-    expect(background.times()).toEqual(seconds(10, 23))
-
-    await act(async () => {
-      background.reads[1].resolve(balance)
-    })
     await advance(1_999)
-    expect(background.times()).toEqual(seconds(10, 23))
+    expect(background.times()).toEqual(seconds(10))
     await advance(1)
-    expect(background.times()).toEqual(seconds(10, 23, 52))
+    expect(background.times()).toEqual(seconds(10, 32))
+    expect(background.peakOpen()).toBe(1)
   })
 
   it('follows long reads closely: 20 s incomplete, 20 s incomplete and 4 s full start at 0, 22 and 44 s, then every 10 s', async () => {
@@ -1397,19 +1553,19 @@ describe('useBalanceCardLogic polling', () => {
 
     await advance(20_000)
     await act(async () => {
-      background.reads[0].resolve(incompleteRead)
+      background.reads[0].resolve(incompleteOfShown)
     })
     // Over the balance shown when the card mounted: that balance stays,
-    // marked out of date, as after a refresh that fails.
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    // dimmed as being refreshed, as after a refresh that fails.
+    expect(result.current.card.status).toMatchObject({ kind: 'refreshing', reason: 'retry' })
     expect(result.current.card.balanceValue).toBe('0.00005000')
-    expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
+    expect(result.current.card.balanceErrorText).toBeUndefined()
     await advance(2_000)
     expect(background.times()).toEqual(seconds(0, 22))
 
     await advance(20_000)
     await act(async () => {
-      background.reads[1].resolve(incompleteRead)
+      background.reads[1].resolve(incompleteOfShown)
     })
     await advance(2_000)
     expect(background.times()).toEqual(seconds(0, 22, 44))
@@ -1418,7 +1574,7 @@ describe('useBalanceCardLogic polling', () => {
     await act(async () => {
       background.reads[2].resolve(fullRead)
     })
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.availableAmount).toBe('0.60000000')
     expect(result.current.card.balanceErrorText).toBeUndefined()
 
@@ -1436,10 +1592,12 @@ describe('useBalanceCardLogic polling', () => {
   })
 
   /**
-   * Two failed reads at 10 and 20 s, then a third from 40 s that runs past its
-   * tick (60 s) and fails 25 s in: the third failure in a row.
+   * Failed reads at 10 s, 2 s after it (the one quick read after the first
+   * failure over a value shown), and 10 s after that, then a fourth from 42 s
+   * that runs past its tick (62 s) and fails 25 s in, at 67 s: the fourth
+   * failure in a row.
    */
-  async function failThirdReadLate(polled: Polled, background: ReturnType<typeof recordedReads>) {
+  async function failFourthReadLate(polled: Polled, background: ReturnType<typeof recordedReads>) {
     const fail = async (index: number): Promise<void> => {
       await act(async () => {
         background.reads[index].reject(new Error('explorer unreachable'))
@@ -1447,46 +1605,49 @@ describe('useBalanceCardLogic polling', () => {
     }
     await advance(10_000)
     await fail(0)
-    await advance(10_000)
+    await advance(2_000)
     await fail(1)
-    await advance(20_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40))
-    await advance(25_000)
+    await advance(10_000)
     await fail(2)
-    expect(polled.result.current.card.balanceLoadFailed).toBe(true)
+    await advance(20_000)
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42))
+    await advance(25_000)
+    await fail(3)
+    expect(polled.result.current.card.status.kind).toBe('failed')
   }
 
-  it('waits for the back-off after a long failed read: after the third failure in a row, the next read is 40 s after it ended', async () => {
+  it('waits for the back-off after a long failed read: after the fourth failure in a row, the next read is 40 s after it ended', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
-    const polled = renderPolledCard(background.getAddressBalanceV2)
-    await failThirdReadLate(polled, background)
+    const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
+    await failFourthReadLate(polled, background)
 
-    // Neither 2 s after it failed (67 s) nor 40 s after it started (80 s):
+    // Neither 2 s after it failed (69 s) nor 40 s after it started (82 s):
     // 40 s after it failed.
     await advance(39_999)
-    expect(background.times()).toEqual(seconds(10, 20, 40))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42))
     await advance(1)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 105))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 107))
   })
 
   it.each<[string, number, number, number, number[]]>([
     // The poll's read from 10 s never answers, hidden from 15 s: stuck at
-    // 70 s, so its 10 s back-off is over at 80 s.
+    // 70 s, and given up on as the page is shown again; with that failure
+    // counted, it reads at once.
     ['shown again long after that', 0, 15, 300, seconds(10, 300)],
-    ['shown again before that back-off is over', 0, 15, 75, seconds(10, 80)],
-    // After three failures (a 40 s back-off) the read from 80 s never
-    // answers, hidden from 85 s: stuck at 140 s, its back-off 80 s.
-    ['shown again long after that, past a 40 s back-off', 3, 85, 600, seconds(80, 600)],
+    ['shown again before that back-off is over', 0, 15, 75, seconds(10, 75)],
+    // After four failures (a 40 s back-off) the read from 82 s never
+    // answers, hidden from 85 s: stuck at 142 s.
+    ['shown again long after that, past a 40 s back-off', 4, 85, 600, seconds(82, 600)],
   ])(
-    'counts the back-off of a read stuck while the page was hidden from when it got stuck: %s',
+    'counts a read stuck while the page was hidden as failed, and reads at once as it is shown again: %s',
     async (_case, failures, hiddenAt, shownAt, reads) => {
       vi.useFakeTimers()
       const startedAt = Date.now()
       const advanceTo = (at: number): Promise<void> => advance(at - (Date.now() - startedAt))
       const background = recordedReads()
-      renderPolledCard(background.getAddressBalanceV2)
-      for (const [index, at] of seconds(10, 20, 40).slice(0, failures).entries()) {
+      renderPolledCard(background.getAddressBalanceV2, { shown: true })
+      for (const [index, at] of seconds(10, 12, 22, 42).slice(0, failures).entries()) {
         await advanceTo(at)
         await act(async () => {
           background.reads[index].reject(new Error('explorer unreachable'))
@@ -1497,162 +1658,133 @@ describe('useBalanceCardLogic polling', () => {
       await showOrHideDocument(true)
       await advanceTo(shownAt * 1000)
       await showOrHideDocument(false)
-      // Due at once, or once the back-off from when it got stuck is over;
-      // not a back-off counted from the moment the page was shown.
       await advanceTo(reads[1])
       expect(background.times().slice(failures)).toEqual(reads)
     }
   )
 
-  it('counts each of several reads stuck while hidden as one failure, and the back-off from the latest', async () => {
+  it('counts a read stuck while hidden, which the refresh control joined, as one failure, and the back-off from when it got stuck', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
     const { result } = renderPolledCard(background.getAddressBalanceV2)
 
-    // The poll's read from 10 s and Try again's from 30 s never answer: stuck
-    // at 70 and 90 s while the page is hidden from 35 s.
-    await advance(30_000)
-    act(() => result.current.card.retryBalance())
+    // The poll's read from 10 s never answers; a press of the refresh
+    // control at 29 s joins it at 30 s. It gets stuck at 70 s while the page
+    // is hidden from 35 s.
+    await advance(29_000)
+    act(() => result.current.card.refreshBalance())
+    await advance(1_000)
     await advance(5_000)
     await showOrHideDocument(true)
     await advance(70_000)
-    // Shown at 105 s: two failures, a 20 s back-off counted from 90 s.
+    // Shown at 105 s: one failure, a 10 s back-off from 70 s, long over.
     await showOrHideDocument(false)
-    await advance(4_999)
-    expect(background.times()).toEqual(seconds(10, 30))
-    await advance(1)
-    expect(background.times()).toEqual(seconds(10, 30, 110))
+    expect(background.times()).toEqual(seconds(10, 105))
   })
 
-  it('releases Try again when the poll gives up on its read, and a second tap reads', async () => {
+  it('reads again for a press of the refresh control once the poll gives up on a read whose answer is lost', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
     const { result } = renderPolledCard(background.getAddressBalanceV2)
 
-    // Try again at 5 s, and its answer is lost.
-    await advance(5_000)
-    act(() => result.current.card.retryBalance())
-    await advance(59_999)
-    expect(result.current.card.isRetryingBalance).toBe(true)
-    act(() => result.current.card.retryBalance())
+    // A press at 4 s reads at 5 s, and its answer is lost.
+    await advance(4_000)
+    act(() => result.current.card.refreshBalance())
+    await advance(1_000)
     expect(background.times()).toEqual(seconds(5))
 
-    // Given up on 60 s after it started: the button is free again.
-    await advance(1)
-    expect(result.current.card.isRetryingBalance).toBe(false)
-    act(() => result.current.card.retryBalance())
+    // Given up on 60 s after it started, past the 30 s rule: the failure
+    // shows, and a press reads at once.
+    await advance(60_000)
+    expect(result.current.card.status.kind).toBe('failed-empty')
+    act(() => result.current.card.refreshBalance())
     expect(background.times()).toEqual(seconds(5, 65))
-    expect(result.current.card.isRetryingBalance).toBe(true)
 
-    // The lost answer turning up late frees nothing and moves nothing: the
-    // second tap's read is still waited for, and once it answers the next
-    // poll is 10 s after it started.
+    // The lost answer turning up late moves nothing: once the new read
+    // answers the next poll is 10 s after it started.
     await advance(1_000)
     await act(async () => {
       background.reads[0].resolve(balance)
     })
-    expect(result.current.card.isRetryingBalance).toBe(true)
     await act(async () => {
       background.reads[1].resolve(balance)
     })
-    expect(result.current.card.isRetryingBalance).toBe(false)
     await advance(8_999)
     expect(background.times()).toEqual(seconds(5, 65))
     await advance(1)
     expect(background.times()).toEqual(seconds(5, 65, 75))
   })
 
-  it('waits out the back-off from a failed read when the page is shown again', async () => {
+  it('reads at once, whatever the back-off, when the page is shown again with a failure counted, the failure on screen staying until that read settles (item 1)', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
-    const polled = renderPolledCard(background.getAddressBalanceV2)
-    await failThirdReadLate(polled, background)
+    const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
+    await failFourthReadLate(polled, background)
 
-    // Hidden after the failure at 65 s, shown again at 80 s: 40 s after the
-    // last read started, but the back-off runs until 105 s.
+    // Hidden after the failure at 67 s, shown again at 82 s, well inside the
+    // back-off (until 107 s): it reads at once, and the failure shown before
+    // stays, the card busy, until that read settles.
     await showOrHideDocument(true)
     await advance(15_000)
     await showOrHideDocument(false)
-    expect(background.times()).toEqual(seconds(10, 20, 40))
-    await advance(24_999)
-    expect(background.times()).toEqual(seconds(10, 20, 40))
-    await advance(1)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 105))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 82))
+    expect(polled.result.current.card.status).toMatchObject({ kind: 'failed', busy: true })
+    await advance(500)
+    expect(polled.result.current.card.status.kind).toBe('failed')
+    await act(async () => {
+      background.reads[4].resolve(balance)
+    })
+    await advance(400)
+    expect(polled.result.current.card.status.kind).toBe('ready')
   })
 
-  it('lets a read that starts after a tick fell due answer it: the next poll is one interval after that read started', async () => {
+  it('backs off after a failed read the refresh control joined, from when it ended', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
-    const { result } = renderPolledCard(background.getAddressBalanceV2)
+    const { result } = renderPolledCard(background.getAddressBalanceV2, { shown: true })
 
-    // The poll's read from 10 s misses the tick at 20 s; Try again reads at
-    // 22 s. The first answers at 25 s, Try again's 9 s after it started.
-    await advance(22_000)
-    act(() => result.current.card.retryBalance())
-    await advance(3_000)
+    // A press at 14 s joins the poll's read from 10 s at 15 s, which fails
+    // at 28 s: over the balance shown, the first failure, so once more 2 s
+    // after it ended; then the back-off, 10 s after that one ended.
+    await advance(14_000)
+    act(() => result.current.card.refreshBalance())
+    await advance(14_000)
     await act(async () => {
-      background.reads[0].resolve(balance)
+      background.reads[0].reject(new Error('explorer unreachable'))
     })
-    await advance(6_000)
-    await act(async () => {
-      background.reads[1].resolve(balance)
-    })
-
-    // At 32 s, not 2 s after the last answer (33 s): Try again's read
-    // answered the tick that fell due before it.
-    await advance(999)
-    expect(background.times()).toEqual(seconds(10, 22))
+    await advance(1_999)
+    expect(background.times()).toEqual(seconds(10))
     await advance(1)
-    expect(background.times()).toEqual(seconds(10, 22, 32))
-  })
-
-  it('catches up 2 s after a read that answers last, though another read failed meanwhile', async () => {
-    vi.useFakeTimers()
-    const background = recordedReads()
-    const { result } = renderPolledCard(background.getAddressBalanceV2)
-
-    // The poll's read from 10 s and Try again's from 15 s are both open when
-    // the tick at 25 s falls due. Try again's fails at 28 s, and the poll's
-    // answers at 30 s: the last word is a success, which ends the back-off.
-    await advance(15_000)
-    act(() => result.current.card.retryBalance())
-    await advance(13_000)
+    expect(background.times()).toEqual(seconds(10, 30))
     await act(async () => {
       background.reads[1].reject(new Error('explorer unreachable'))
     })
-    await advance(2_000)
-    await act(async () => {
-      background.reads[0].resolve(balance)
-    })
-
-    // The tick missed meanwhile runs 2 s after that answer, at 32 s, not 10 s
-    // after the failure (38 s).
-    await advance(1_999)
-    expect(background.times()).toEqual(seconds(10, 15))
+    await advance(9_999)
+    expect(background.times()).toEqual(seconds(10, 30))
     await advance(1)
-    expect(background.times()).toEqual(seconds(10, 15, 32))
+    expect(background.times()).toEqual(seconds(10, 30, 40))
   })
 
-  it('lets Try again read at once while a tick waits for the back-off', async () => {
+  it('lets the refresh control read at once under the failure while a tick waits for the back-off', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
-    const polled = renderPolledCard(background.getAddressBalanceV2)
-    await failThirdReadLate(polled, background)
+    const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
+    await failFourthReadLate(polled, background)
 
     await advance(5_000)
-    act(() => polled.result.current.card.retryBalance())
-    expect(background.times()).toEqual(seconds(10, 20, 40, 70))
+    expect(polled.result.current.card.status.kind).toBe('failed')
+    act(() => polled.result.current.card.refreshBalance())
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 72))
     await act(async () => {
-      background.reads[3].resolve(balance)
+      background.reads[4].resolve(balance)
     })
-    expect(polled.result.current.card.isRetryingBalance).toBe(false)
-    expect(polled.result.current.card.balanceLoadFailed).toBe(false)
 
-    // Its success ends the back-off: one poll 10 s after it, not another at 80 s.
+    // Its success ends the back-off: one poll 10 s after it, not another at 107 s.
     await advance(9_999)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 70))
+    expect(polled.result.current.card.status.kind).toBe('ready')
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 72))
     await advance(1)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 70, 80))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 72, 82))
   })
 
   it.each([
@@ -1662,22 +1794,21 @@ describe('useBalanceCardLogic polling', () => {
     'backs off after answers whose read of the outputs failed, as after a rejection, until %s',
     async (_reset, resetAnswer) => {
       vi.useFakeTimers()
-      let answer: unknown = failedRead
+      let answer: unknown = failedOfShown
       const background = recordedReads(() => answer)
-      const { result } = renderPolledCard(background.getAddressBalanceV2)
+      const { result } = renderPolledCard(background.getAddressBalanceV2, { shown: true })
 
       await advance(400_000)
-      expect(background.times()).toEqual(seconds(10, 20, 40, 80, 160, 280, 400))
-      // Shown as any incomplete answer is: the total, the note and `--`, no error.
-      expect(result.current.card.utxoReadIncomplete).toBe(true)
-      expect(result.current.card.balanceValue).toBe('0.91000000')
-      expect(result.current.card.availableAmount).toBe('--')
-      expect(result.current.card.balanceErrorText).toBeUndefined()
+      // 2 s after the first failure, then 10, 20, 40 s and on up to 2 minutes.
+      expect(background.times()).toEqual(seconds(10, 12, 22, 42, 82, 162, 282))
+      // Over the balance shown, which stays: one refresh error.
+      expect(result.current.card.status.kind).toBe('failed')
+      expect(result.current.card.balanceValue).toBe('0.00005000')
+      expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
 
       answer = resetAnswer
-      await advance(120_000)
-      await advance(20_000)
-      expect(background.times().slice(7)).toEqual(seconds(520, 530, 540))
+      await advance(25_000)
+      expect(background.times().slice(7)).toEqual(seconds(402, 412, 422))
     }
   )
 
@@ -1685,11 +1816,11 @@ describe('useBalanceCardLogic polling', () => {
     ['rejects', read => read.reject(new Error('the statistics read timed out'))],
     ['answers that its read of the outputs failed', read => read.resolve(failedRead)],
   ])(
-    "waits 10, 20 and 40 s from each one's end after three slow reads in a row that each %s 20 s in",
+    "waits 2, 10, 20 and 40 s from each one's end after four slow reads in a row that each %s 20 s in",
     async (_how, fail) => {
       vi.useFakeTimers()
       const background = recordedReads()
-      renderPolledCard(background.getAddressBalanceV2)
+      renderPolledCard(background.getAddressBalanceV2, { shown: true })
       const failAt = async (index: number): Promise<void> => {
         await advance(20_000)
         await act(async () => {
@@ -1699,22 +1830,28 @@ describe('useBalanceCardLogic polling', () => {
 
       await advance(10_000)
       await failAt(0)
-      await advance(9_999)
+      await advance(1_999)
       expect(background.times()).toEqual(seconds(10))
       await advance(1)
-      expect(background.times()).toEqual(seconds(10, 40))
+      expect(background.times()).toEqual(seconds(10, 32))
 
       await failAt(1)
-      await advance(19_999)
-      expect(background.times()).toEqual(seconds(10, 40))
+      await advance(9_999)
+      expect(background.times()).toEqual(seconds(10, 32))
       await advance(1)
-      expect(background.times()).toEqual(seconds(10, 40, 80))
+      expect(background.times()).toEqual(seconds(10, 32, 62))
 
       await failAt(2)
-      await advance(39_999)
-      expect(background.times()).toEqual(seconds(10, 40, 80))
+      await advance(19_999)
+      expect(background.times()).toEqual(seconds(10, 32, 62))
       await advance(1)
-      expect(background.times()).toEqual(seconds(10, 40, 80, 140))
+      expect(background.times()).toEqual(seconds(10, 32, 62, 102))
+
+      await failAt(3)
+      await advance(39_999)
+      expect(background.times()).toEqual(seconds(10, 32, 62, 102))
+      await advance(1)
+      expect(background.times()).toEqual(seconds(10, 32, 62, 102, 162))
     }
   )
 
@@ -1736,57 +1873,54 @@ describe('useBalanceCardLogic polling', () => {
     expect(background.times()).toEqual(seconds(0, 70, 150, 250, 390, 570, 750))
   })
 
-  it('polls one interval after the last read started when a read answers just before it would be given up on', async () => {
+  it('polls 2 s after a read the refresh control joined answers, just before it would have been given up on', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
     const { result } = renderPolledCard(background.getAddressBalanceV2)
 
-    // The first poll's read from 10 s is still open when Try again reads at
-    // 62 s, which answers at once; the first answers at 65 s, 5 s before it
-    // would have been given up on.
-    await advance(62_000)
-    act(() => result.current.card.retryBalance())
-    await advance(1_000)
-    await act(async () => {
-      background.reads[1].resolve(balance)
-    })
-    await advance(2_000)
+    // The first poll's read from 10 s is still open when a press at 61 s
+    // joins it at 62 s; it answers at 65 s, 5 s before it would have been
+    // given up on.
+    await advance(61_000)
+    act(() => result.current.card.refreshBalance())
+    await advance(4_000)
     await act(async () => {
       background.reads[0].resolve(balance)
     })
 
-    // Not at 70 s, when it would have been given up on: 10 s after Try again.
-    await advance(6_999)
-    expect(background.times()).toEqual(seconds(10, 62))
+    // The ticks it missed: one read 2 s after it, at 67 s.
+    await advance(1_999)
+    expect(background.times()).toEqual(seconds(10))
     await advance(1)
-    expect(background.times()).toEqual(seconds(10, 62, 72))
+    expect(background.times()).toEqual(seconds(10, 67))
   })
 
   it.each<[string, number, number | undefined, number, number]>([
-    ['40 s, longer than the time left on it', 3, undefined, 140, 220],
-    ['80 s, longer than the whole wait', 4, undefined, 220, 340],
-    ['40 s, when Try again started it off the tick grid', 3, 45, 105, 185],
+    ['40 s, longer than the time left on it', 4, undefined, 142, 222],
+    ['80 s, longer than the whole wait', 5, undefined, 222, 342],
+    ['40 s, when the refresh control started it off the tick grid', 4, 45, 105, 185],
   ])(
     'gives up on a read 60 s after it started during a back-off of %s',
-    async (_case, failures, tryAgainAt, givenUpAt, nextAt) => {
+    async (_case, failures, pressedAt, givenUpAt, nextAt) => {
       vi.useFakeTimers()
       const startedAt = Date.now()
       const advanceTo = (at: number): Promise<void> => advance(at - (Date.now() - startedAt))
       const background = recordedReads()
-      const polled = renderPolledCard(background.getAddressBalanceV2)
-      // Quick failures at 10, 20, 40 (and 80) s: a back-off of 40 (or 80) s.
-      for (const [index, at] of seconds(10, 20, 40, 80).slice(0, failures).entries()) {
+      const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
+      // Quick failures at 10, 12, 22, 42 (and 82) s: a back-off of 40 (or 80) s.
+      for (const [index, at] of seconds(10, 12, 22, 42, 82).slice(0, failures).entries()) {
         await advanceTo(at)
         await act(async () => {
           background.reads[index].reject(new Error('explorer unreachable'))
         })
       }
-      if (tryAgainAt !== undefined) {
-        await advanceTo(tryAgainAt * 1000)
-        act(() => polled.result.current.card.retryBalance())
+      if (pressedAt !== undefined) {
+        // Under the failure: it reads at once.
+        await advanceTo(pressedAt * 1000)
+        act(() => polled.result.current.card.refreshBalance())
       }
 
-      // The next read, the poll's or Try again's, never answers: given up on
+      // The next read, the poll's or the press's, never answers: given up on
       // 60 s after it started, and the next read comes the back-off after that.
       await advanceTo(nextAt * 1000 - 1)
       expect(background.times().slice(failures)).toEqual(seconds(givenUpAt - 60))
@@ -1820,29 +1954,29 @@ describe('useBalanceCardLogic polling', () => {
       expect(background.peakOpen()).toBe(2)
       expect(result.current.card.availableAmount).toBe('0.60000000')
 
-      // Then the reads beside it fail to read the outputs: 10, 20 s between
-      // them, and the last full figures stay, marked out of date.
+      // Then the reads beside it fail to read the outputs: 2, 10, 20 s
+      // between them, and the last full figures stay, marked out of date.
       later = failedRead
       await advance(50_000)
-      expect(background.times().slice(-3)).toEqual(seconds(320, 330, 350))
+      expect(background.times().slice(-3)).toEqual(seconds(322, 332, 352))
       expect(result.current.card.availableAmount).toBe('0.60000000')
       expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
 
       // Nearly six minutes after it started, between two ticks, it settles:
       // neither its answer nor its failure replaces the newer outcome, moves
-      // the next read (40 s after the last failure, at 390 s) or counts in
+      // the next read (40 s after the last failure, at 392 s) or counts in
       // the back-off.
       await act(async () => {
         settle(background.reads[0])
       })
       expect(result.current.card.availableAmount).toBe('0.60000000')
       expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
-      await advance(29_999)
-      expect(background.times().slice(-1)).toEqual(seconds(350))
+      await advance(31_999)
+      expect(background.times().slice(-1)).toEqual(seconds(352))
       await advance(1)
-      expect(background.times().slice(-1)).toEqual(seconds(390))
+      expect(background.times().slice(-1)).toEqual(seconds(392))
       await advance(80_000)
-      expect(background.times().slice(-2)).toEqual(seconds(390, 470))
+      expect(background.times().slice(-2)).toEqual(seconds(392, 472))
 
       unmount()
       expect(vi.getTimerCount()).toBe(0)
@@ -1859,7 +1993,7 @@ describe('useBalanceCardLogic polling', () => {
       'backing off after answers whose read of the outputs failed',
       async background => {
         await advance(50_000)
-        expect(background.times()).toEqual(seconds(10, 20, 40))
+        expect(background.times()).toEqual(seconds(10, 12, 22, 42))
       },
       () => failedRead,
     ],
@@ -1870,16 +2004,13 @@ describe('useBalanceCardLogic polling', () => {
         await act(async () => {
           background.reads[0].reject(new Error('the statistics read timed out'))
         })
-        await advance(5_000)
-        expect(background.times()).toEqual(seconds(10))
-      },
-      () => HOLD,
-    ],
-    [
-      'beside a read held open, before the poll gives up on it',
-      async background => {
-        await advance(30_000)
-        expect(background.times()).toEqual(seconds(10))
+        // The quick read after it fails at once.
+        await advance(2_000)
+        await act(async () => {
+          background.reads[1].reject(new Error('the statistics read timed out'))
+        })
+        await advance(3_000)
+        expect(background.times()).toEqual(seconds(10, 32))
       },
       () => HOLD,
     ],
@@ -1904,29 +2035,50 @@ describe('useBalanceCardLogic polling', () => {
       () => HOLD,
     ],
   ]
-  // Try again reads at once; the refresh button after its debounce, as ever.
-  const presses = [
-    ['Try again', ({ result }: Polled) => result.current.card.retryBalance(), 0],
+  // The refresh control reads at once under a failure, and after its
+  // debounce otherwise, as ever.
+  it.each(states)(
+    'the refresh control still reads %s: at once under a failure, after its second otherwise',
+    async (_state, setup, answer) => {
+      vi.useFakeTimers()
+      const startedAt = Date.now()
+      const background = recordedReads(answer)
+      const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
+      await setup(background)
+      const before = background.reads.length
+      const pressedAt = Date.now() - startedAt
+      const { kind } = polled.result.current.card.status
+      const delay = kind === 'failed' || kind === 'failed-empty' ? 0 : 1_000
+
+      act(() => polled.result.current.card.refreshBalance())
+      await advance(delay)
+
+      expect(background.times().slice(before)).toEqual([pressedAt + delay])
+    }
+  )
+
+  it.each([
     ['the refresh button', ({ result }: Polled) => result.current.card.refreshBalance(), 1_000],
-  ] as const
-  it.each(
-    states.flatMap(([state, setup, answer]) =>
-      presses.map(([button, press, delay]) => [button, state, setup, answer, press, delay] as const)
-    )
-  )('%s still reads at once %s', async (_button, _state, setup, answer, press, delay) => {
-    vi.useFakeTimers()
-    const startedAt = Date.now()
-    const background = recordedReads(answer)
-    const polled = renderPolledCard(background.getAddressBalanceV2)
-    await setup(background)
-    const before = background.reads.length
-    const pressedAt = Date.now() - startedAt
+  ] as const)(
+    '%s joins a read held open, before the poll gives up on it, instead of reading beside it',
+    async (_button, press, delay) => {
+      vi.useFakeTimers()
+      const background = recordedReads(() => HOLD)
+      const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
+      await advance(30_000)
+      expect(background.times()).toEqual(seconds(10))
 
-    act(() => press(polled))
-    await advance(delay)
-
-    expect(background.times().slice(before)).toEqual([pressedAt + delay])
-  })
+      act(() => press(polled))
+      await advance(delay + 500)
+      expect(background.times()).toEqual(seconds(10))
+      expect(background.peakOpen()).toBe(1)
+      // The read in flight shows as the user's: dimmed, as being refreshed.
+      expect(polled.result.current.card.status).toMatchObject({
+        kind: 'refreshing',
+        reason: 'user',
+      })
+    }
+  )
 
   it('does not catch up while the page is hidden, and reads when it is shown again', async () => {
     vi.useFakeTimers()
@@ -1982,8 +2134,9 @@ describe('useBalanceCardLogic polling', () => {
     })
     await advance(1_000)
     selectAccount('qbit-another-account')
-    // Only the new account's cadence is waiting: nothing at 27 s.
-    expect(vi.getTimerCount()).toBe(1)
+    // Only the new account's cadence is waiting, with the card's own timer
+    // that turns the ring a second before its read: nothing at 27 s.
+    expect(vi.getTimerCount()).toBe(2)
 
     await advance(9_999)
     expect(background.reads.map(read => read.address)).toEqual([address])
@@ -2021,27 +2174,28 @@ describe('useBalanceCardLogic polling', () => {
     expect(calls).toEqual(['getAddressBalanceV2', 'getAddressBalanceV2', 'getAddressBalanceV2'])
   })
 
-  it('backs off after failed reads, 10, 20, 40 s and on up to 2 minutes, and back to 10 s after a success', async () => {
+  it('backs off after failed reads, 2, 10, 20, 40 s and on up to 2 minutes, and back to 10 s after a success', async () => {
     vi.useFakeTimers()
     let answer: unknown = new Error('explorer unreachable')
     const background = recordedReads(() => answer)
 
     const unhandled = await unhandledRejectionsDuring(async () => {
-      const { result } = renderPolledCard(background.getAddressBalanceV2)
+      const { result } = renderPolledCard(background.getAddressBalanceV2, { shown: true })
 
       await advance(400_000)
-      expect(background.times()).toEqual(seconds(10, 20, 40, 80, 160, 280, 400))
-      expect(result.current.card.balanceLoadFailed).toBe(true)
+      expect(background.times()).toEqual(seconds(10, 12, 22, 42, 82, 162, 282))
+      expect(result.current.card.status.kind).toBe('failed')
 
-      await advance(119_999)
+      await advance(1_999)
       expect(background.reads).toHaveLength(7)
       answer = balance
       await advance(1)
-      expect(background.times().slice(7)).toEqual(seconds(520))
-      expect(result.current.card.balanceLoadFailed).toBe(false)
+      expect(background.times().slice(7)).toEqual(seconds(402))
+      await advance(400)
+      expect(result.current.card.status.kind).toBe('ready')
 
-      await advance(20_000)
-      expect(background.times().slice(7)).toEqual(seconds(520, 530, 540))
+      await advance(19_600)
+      expect(background.times().slice(7)).toEqual(seconds(402, 412, 422))
     })
     // Every failed read was handled, by the card's poll or its status.
     expect(unhandled).toEqual([])
@@ -2051,24 +2205,28 @@ describe('useBalanceCardLogic polling', () => {
     vi.useFakeTimers()
     let answer: unknown = new Error('explorer unreachable')
     const background = recordedReads(() => answer)
-    const { result } = renderPolledCard(background.getAddressBalanceV2)
+    const { result } = renderPolledCard(background.getAddressBalanceV2, { shown: true })
 
     await advance(40_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40))
+    expect(background.times()).toEqual(seconds(10, 12, 22))
+
+    // Three failures, the last 10 s and more after the first: the failure shows.
+    expect(result.current.card.status.kind).toBe('failed')
 
     // The background read the statistics, and makes progress through the
-    // outputs with every read: that is no failure to back off from.
-    answer = incompleteRead
-    await advance(40_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 80))
-    expect(result.current.card.utxoReadIncomplete).toBe(true)
+    // outputs with every read: that is no failure to back off from, and the
+    // explorer is answering, so the failure no longer shows.
+    answer = incompleteOfShown
+    await advance(5_000)
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42))
+    expect(result.current.card.status).toMatchObject({ kind: 'refreshing', reason: 'retry' })
     await advance(30_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 80, 90, 100, 110))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 52, 62, 72))
 
     answer = fullRead
     await advance(20_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 80, 90, 100, 110, 120, 130))
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 52, 62, 72, 82, 92))
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.availableAmount).toBe('0.60000000')
   })
 
@@ -2090,39 +2248,40 @@ describe('useBalanceCardLogic polling', () => {
     await advance(10_000)
     expect(result.current.card.availableAmount).toBe('0.60000000')
 
-    answer = { ...failedRead, unavailableBalance: 92_000_000, totalBalance: 92_000_000 }
+    answer = failedRead
     await advance(400_000)
-    // 10 s after the full read, then 10, 20, 40 s and on up to 2 minutes.
-    expect(background.times()).toEqual(seconds(10, 20, 30, 50, 90, 170, 290, 410))
+    // 10 s after the full read, then 2, 10, 20, 40 s and on up to 2 minutes.
+    expect(background.times()).toEqual(seconds(10, 20, 22, 32, 52, 92, 172, 292))
     expect(result.current.card.balanceValue).toBe('0.91000000')
     expect(result.current.card.availableAmount).toBe('0.60000000')
     expect(result.current.card.unavailableAmount).toBe('0.31000000')
     expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(result.current.card.status.kind).toBe('failed')
 
     // A full answer ends the back-off, and the warning.
     answer = laterFull
-    await advance(120_000)
-    expect(background.times().slice(8)).toEqual(seconds(530))
+    await advance(3_000)
+    expect(background.times().slice(8)).toEqual(seconds(412))
     expect(result.current.card.balanceErrorText).toBeUndefined()
     expect(result.current.card.availableAmount).toBe('0.62000000')
     await advance(10_000)
-    expect(background.times().slice(8)).toEqual(seconds(530, 540))
+    expect(background.times().slice(8)).toEqual(seconds(412, 422))
   })
 
-  it('keeps its pace on answers that ran out of time part of the way through over a balance already shown, which keeps its figures, marked out of date', async () => {
+  it('keeps its pace on answers that ran out of time part of the way through over a balance already shown, which keeps its figures, dimmed as being refreshed', async () => {
     vi.useFakeTimers()
     let answer: unknown = fullRead
     const background = recordedReads(() => answer)
     const { result } = renderPolledCard(background.getAddressBalanceV2)
 
     await advance(10_000)
-    answer = { ...incompleteRead, unavailableBalance: 92_000_000, totalBalance: 92_000_000 }
+    answer = incompleteRead
     await advance(40_000)
     expect(background.times()).toEqual(seconds(10, 20, 30, 40, 50))
     expect(result.current.card.availableAmount).toBe('0.60000000')
-    expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    // Progress, not failure: the figures stay, dimmed as being refreshed.
+    expect(result.current.card.status).toMatchObject({ kind: 'refreshing', reason: 'retry' })
+    expect(result.current.card.balanceErrorText).toBeUndefined()
 
     answer = laterFull
     await advance(10_000)
@@ -2132,28 +2291,34 @@ describe('useBalanceCardLogic polling', () => {
   })
 
   it.each<[string, (card: Polled) => void, number]>([
-    ['Try again reads at once', ({ result }) => result.current.card.retryBalance(), 0],
-    ['the refresh button reads', ({ result }) => result.current.card.refreshBalance(), 1_000],
+    ['the refresh control reads at once', ({ result }) => result.current.card.refreshBalance(), 0],
   ])(
-    '%s during a back-off, and its success brings the poll back to 10 s',
+    '%s under the failure during a back-off, and its success brings the poll back to 10 s',
     async (_case, refresh, delay) => {
       vi.useFakeTimers()
       let answer: unknown = new Error('explorer unreachable')
       const background = recordedReads(() => answer)
-      const polled = renderPolledCard(background.getAddressBalanceV2)
+      const polled = renderPolledCard(background.getAddressBalanceV2, { shown: true })
 
-      // Three failures: the next poll would be 40 s after the last, at 80 s.
-      await advance(50_000)
-      expect(background.times()).toEqual(seconds(10, 20, 40))
+      // Four failures: the next poll would be 40 s after the last, at 82 s.
+      // The failure shows, dimmed, from the third.
+      await advance(40_000)
+      expect(polled.result.current.card.status.kind).toBe('failed')
+      await advance(10_000)
+      expect(background.times()).toEqual(seconds(10, 12, 22, 42))
 
       answer = balance
       act(() => refresh(polled))
       await advance(delay)
-      expect(background.times()).toEqual([...seconds(10, 20, 40), 50_000 + delay])
-      expect(polled.result.current.card.balanceLoadFailed).toBe(false)
+      expect(background.times()).toEqual([...seconds(10, 12, 22, 42), 50_000 + delay])
+      expect(polled.result.current.card.status.kind).toBe('ready')
 
       await advance(10_000)
-      expect(background.times()).toEqual([...seconds(10, 20, 40), 50_000 + delay, 60_000 + delay])
+      expect(background.times()).toEqual([
+        ...seconds(10, 12, 22, 42),
+        50_000 + delay,
+        60_000 + delay,
+      ])
     }
   )
 
@@ -2255,91 +2420,112 @@ describe('useBalanceCardLogic polling', () => {
   it('starts a new account from a clean cadence: no back-off, no read in flight, no tick for the old account', async () => {
     vi.useFakeTimers()
     const background = recordedReads()
-    const { selectAccount, result } = renderPolledCard(background.getAddressBalanceV2)
+    const { selectAccount, result } = renderPolledCard(background.getAddressBalanceV2, {
+      shown: true,
+    })
 
-    // The first account fails twice (the next poll would be 20 s later),
-    // and its third read is still in flight.
+    // The first account fails three times (the next poll would be 20 s
+    // later), and its fourth read is still in flight.
     await advance(10_000)
     await act(async () => {
       background.reads[0].reject(new Error('explorer unreachable'))
     })
-    await advance(10_000)
+    await advance(2_000)
     await act(async () => {
       background.reads[1].reject(new Error('explorer unreachable'))
     })
+    await advance(10_000)
+    await act(async () => {
+      background.reads[2].reject(new Error('explorer unreachable'))
+    })
     await advance(20_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42))
 
     await advance(2_000)
     selectAccount('qbit-another-account')
     // Ten seconds on, not twenty, and not skipped for the old account's read.
     await advance(9_999)
-    expect(background.reads).toHaveLength(3)
+    expect(background.reads).toHaveLength(4)
     await advance(1)
     expect(background.reads.map(read => read.address)).toEqual([
       address,
       address,
       address,
+      address,
       'qbit-another-account',
     ])
-    expect(background.times()[3]).toBe(52_000)
+    expect(background.times()[4]).toBe(54_000)
 
     // The old account's read failing later does not back the new one off.
     await act(async () => {
-      background.reads[2].reject(new Error('explorer unreachable'))
-      background.reads[3].resolve({ ...balance, totalBalance: 7_000, availableBalance: 7_000 })
+      background.reads[3].reject(new Error('explorer unreachable'))
+      background.reads[4].resolve({ ...balance, totalBalance: 7_000, availableBalance: 7_000 })
     })
     await advance(10_000)
-    expect(background.times().slice(3)).toEqual(seconds(52, 62))
-    expect(background.reads.slice(3).map(read => read.address)).toEqual([
+    expect(background.times().slice(4)).toEqual(seconds(54, 64))
+    expect(background.reads.slice(4).map(read => read.address)).toEqual([
       'qbit-another-account',
       'qbit-another-account',
     ])
     expect(result.current.card.balanceValue).toBe('0.00007000')
   })
 
-  it('starts a new network from a clean cadence', async () => {
+  it("starts a new network from a clean cadence, and never reads the previous network's address on it", async () => {
     vi.useFakeTimers()
     let answer: unknown = new Error('explorer unreachable')
     const background = recordedReads(() => answer)
-    const { store } = renderPolledCard(background.getAddressBalanceV2)
+    const { store, selectAccount } = renderPolledCard(background.getAddressBalanceV2, {
+      shown: true,
+    })
 
-    // Four failures: the next poll would be 80 s after the last, at 160 s.
+    // Five failures: the next poll would be 80 s after the last, at 162 s.
     await advance(80_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 80))
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42))
+    await advance(2_000)
+    expect(background.times()).toEqual(seconds(10, 12, 22, 42, 82))
 
     answer = { ...balance, chainType: ChainType.QBIT_TESTNET4 }
     await advance(5_000)
+    // The network changes first; the account follows a moment later, as the
+    // account updater reloads it: nothing reads the old address meanwhile.
     act(() => {
       store.dispatch(settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }))
     })
-    await advance(10_000)
-    expect(background.times()).toEqual(seconds(10, 20, 40, 80, 95))
+    await advance(500)
+    expect(background.reads).toHaveLength(5)
+    selectAccount('tq1-the-account-on-testnet')
+    // Not read before on this page: the account updater's read is the first
+    // (none here), else the new cadence's first tick, 10 s on.
+    await advance(9_999)
+    expect(background.reads).toHaveLength(5)
+    await advance(1)
+    expect(background.reads.slice(5).map(read => [read.address, read.at])).toEqual([
+      ['tq1-the-account-on-testnet', 97_500],
+    ])
   })
 
-  it("lets Try again run for a new account while the old account's retry is still out", async () => {
+  it("reads a new account for a press of the refresh control while the old account's read is still out", async () => {
     vi.useFakeTimers()
     const background = recordedReads()
     const { result, selectAccount } = renderPolledCard(background.getAddressBalanceV2)
 
-    act(() => result.current.card.retryBalance())
-    expect(result.current.card.isRetryingBalance).toBe(true)
+    act(() => result.current.card.refreshBalance())
+    await advance(1_000)
+    expect(background.reads.map(read => read.address)).toEqual([address])
 
     selectAccount('qbit-another-account')
-    expect(result.current.card.isRetryingBalance).toBe(false)
-    act(() => result.current.card.retryBalance())
+    act(() => result.current.card.refreshBalance())
+    await advance(1_000)
     expect(background.reads.map(read => read.address)).toEqual([address, 'qbit-another-account'])
-    expect(result.current.card.isRetryingBalance).toBe(true)
-
-    // The old retry ending does not end the new one.
+    // The old account's read ending changes nothing of the new one's.
     await act(async () => {
       background.reads[0].reject(new Error('explorer unreachable'))
     })
-    expect(result.current.card.isRetryingBalance).toBe(true)
+    expect(result.current.card.status).toMatchObject({ kind: 'loading', busy: true })
     await act(async () => {
       background.reads[1].resolve(balance)
     })
-    expect(result.current.card.isRetryingBalance).toBe(false)
+    expect(result.current.card.status.kind).toBe('ready')
   })
 
   it('leaves no timer or listener behind when it unmounts', async () => {
@@ -2362,15 +2548,20 @@ describe('useBalanceCardLogic polling', () => {
     })
     selectAccount('qbit-another-account')
     act(() => result.current.card.refreshBalance())
-    // A poll timer and the refresh button's debounce are waiting, and the
-    // read on mounting is still in flight.
-    expect(vi.getTimerCount()).toBe(2)
-    expect(added).toHaveLength(2)
+    // A poll timer, the card's own timer for the ring a second before that
+    // read, and the refresh button's debounce are waiting, and the read on
+    // mounting is still in flight.
+    expect(vi.getTimerCount()).toBe(3)
+    // The two polls' (the second for the new account) and the card's own,
+    // which notes when the page is hidden.
+    expect(added).toHaveLength(3)
 
     unmount()
 
     expect(vi.getTimerCount()).toBe(0)
-    expect(removed).toEqual(added)
+    // Every one removed, whatever the order.
+    expect(removed).toHaveLength(added.length)
+    expect(new Set(removed)).toEqual(new Set(added))
     await act(async () => {
       background.reads[0].resolve(balance)
     })
@@ -2404,7 +2595,7 @@ describe('useBalanceCardLogic polling', () => {
     await act(async () => {
       background.reads[0].resolve(incompleteRead)
     })
-    expect(result.current.card.utxoReadIncomplete).toBe(false)
+    expect(result.current.card.status.kind).toBe('ready')
     expect(result.current.card.availableAmount).toBe('0.60000000')
   })
 })
@@ -2427,12 +2618,37 @@ describe('useBalanceCardLogic when an older read brings the split after a newer 
     totalBalance: 92_000_000,
   }
 
-  it.each([
-    ['ran out of time part of the way through', newerIncomplete],
-    ['failed', { ...newerIncomplete, utxoReadFailed: true }],
+  // Its split, dimmed as being refreshed, while the newer read's total is
+  // the same; else the newer read's total, its split loading.
+  const olderSplitShown = (card: ReturnType<typeof useBalanceCardLogic>): void => {
+    expect(card.balanceValue).toBe('0.91000000')
+    expect(card.availableAmount).toBe('0.60000000')
+    expect(card.unavailableAmount).toBe('0.31000000')
+    expect(card.status).toMatchObject({ kind: 'refreshing', reason: 'retry' })
+  }
+  const newerTotalShown = (card: ReturnType<typeof useBalanceCardLogic>): void => {
+    expect(card.balanceValue).toBe('0.92000000')
+    expect(card.availableAmount).toBe('--')
+    expect(card.unavailableAmount).toBe('--')
+    expect(card.status.kind).toBe('total')
+  }
+
+  it.each<[string, unknown, (card: ReturnType<typeof useBalanceCardLogic>) => void]>([
+    ['ran out of time part of the way through', incompleteRead, olderSplitShown],
+    ['failed', failedRead, olderSplitShown],
+    [
+      'ran out of time part of the way through, with a total that moved',
+      newerIncomplete,
+      newerTotalShown,
+    ],
+    [
+      'failed, with a total that moved',
+      { ...newerIncomplete, utxoReadFailed: true },
+      newerTotalShown,
+    ],
   ])(
-    "shows the split of the account updater's read, marked out of date with Try again, when it lands after the card's newer read %s, with no split shown before",
-    async (_how, answer) => {
+    "shows the split of the account updater's read when it lands after the card's newer read %s, with no split shown before, as long as the totals agree",
+    async (_how, answer, expectShown) => {
       vi.useFakeTimers()
       const background = recordedReads()
       const { result } = renderPolledCard(background.getAddressBalanceV2)
@@ -2447,41 +2663,42 @@ describe('useBalanceCardLogic when an older read brings the split after a newer 
       expect(background.times()).toEqual(seconds(0, 10))
 
       // The poll's read answers first, without every output: the total,
-      // `--` and the note.
+      // the split loading.
       await act(async () => {
         background.reads[1].resolve(answer)
       })
-      expect(result.current.card.balanceValue).toBe('0.92000000')
+      expect(result.current.card.balanceValue).toBe(
+        (answer as { totalBalance: number }).totalBalance === 92_000_000
+          ? '0.92000000'
+          : '0.91000000'
+      )
       expect(result.current.card.availableAmount).toBe('--')
-      expect(result.current.card.utxoReadIncomplete).toBe(true)
+      expect(result.current.card.status.kind).toBe('total')
       expect(result.current.card.balanceErrorText).toBeUndefined()
 
-      // The updater's read then answers in full: its split shows, marked
-      // out of date, since the newer read did not answer in full.
+      // The updater's read then answers in full: its split shows, dimmed as
+      // being refreshed, since the newer read did not answer in full, unless
+      // the newer read's total differs from it.
       await act(async () => {
         background.reads[0].resolve(fullRead)
         await updaterRead
       })
-      expect(result.current.card.balanceValue).toBe('0.91000000')
-      expect(result.current.card.availableAmount).toBe('0.60000000')
-      expect(result.current.card.unavailableAmount).toBe('0.31000000')
-      expect(result.current.card.utxoReadIncomplete).toBe(false)
-      expect(result.current.card.balanceLoadFailed).toBe(false)
-      expect(result.current.card.balanceRefreshFailed).toBe(true)
-      expect(result.current.card.balanceErrorText).toBe('balance_refresh_error')
+      expectShown(result.current.card)
+      expect(result.current.card.balanceErrorText).toBeUndefined()
 
-      // Try again reads at once, and a full answer clears the warning.
+      // A press of the refresh control reads after its second, and a full
+      // answer ends the refresh.
       act(() => {
-        result.current.card.retryBalance()
+        result.current.card.refreshBalance()
       })
-      expect(background.times()).toEqual(seconds(0, 10, 10))
+      await advance(1_000)
+      expect(background.times()).toEqual(seconds(0, 10, 11))
       await act(async () => {
         background.reads[2].resolve(laterFull)
       })
       expect(result.current.card.balanceErrorText).toBeUndefined()
       expect(result.current.card.balanceValue).toBe('0.92000000')
       expect(result.current.card.availableAmount).toBe('0.62000000')
-      expect(result.current.card.isRetryingBalance).toBe(false)
     }
   )
 })
@@ -2540,6 +2757,67 @@ describe('startBalancePoll', () => {
       expect(unhandled).toEqual([])
     }
   )
+
+  it('lets a caller join a read it holds, the join ending as the read does or as the poll gives up on it (item 4)', async () => {
+    vi.useFakeTimers()
+    const background = pendingBalanceReads()
+    const reads: Promise<unknown>[] = []
+    const balancePoll = startBalancePoll(() => {
+      const reading = background.fetchBalance()
+      reads.push(reading)
+      return reading
+    })
+
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      const first = outcomeOf(balancePoll.read())
+      const joined = balancePoll.join(reads[0]!)
+      expect(joined).toBeDefined()
+      // A read it does not hold has no join.
+      expect(balancePoll.join(Promise.resolve())).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(await outcomeOf(joined!)).toBe(
+        'BalanceReadGaveUpError: balance read gave up after 60 s'
+      )
+      expect(await first).toBe('BalanceReadGaveUpError: balance read gave up after 60 s')
+      // Its answer, when it comes, reaches no one.
+      background.reads[0].resolve(fullRead)
+      balancePoll.stop()
+    })
+    expect(unhandled).toEqual([])
+  })
+
+  it('tells its caller each time its schedule changes, once the change is made (round 4, item 3)', async () => {
+    vi.useFakeTimers()
+    const start = Date.now()
+    const background = pendingBalanceReads()
+    // When the next read is due, as the poll says at each notice.
+    const notices: Array<number | undefined> = []
+    const ref: { poll?: ReturnType<typeof startBalancePoll> } = {}
+    ref.poll = startBalancePoll(background.fetchBalance, {
+      onScheduleChange: () => {
+        if (ref.poll) notices.push(ref.poll.nextReadAt())
+      },
+    })
+    const due = (...at: Array<number | undefined>) =>
+      at.map(value => (value === undefined ? undefined : start + value))
+
+    // A read begins at 10 s, and answers: the next is due at 20 s.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(notices).toEqual(due(undefined))
+    background.reads[0].resolve(fullRead)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(notices).toEqual(due(undefined, 20_000))
+    // A read at 12 s still in flight at 22 s, when a tick falls due, answers
+    // at 25 s: the tick missed is due 2 s later, at 27 s.
+    await vi.advanceTimersByTimeAsync(2_000)
+    ref.poll.read().catch(() => undefined)
+    await vi.advanceTimersByTimeAsync(13_000)
+    background.reads[1].resolve(fullRead)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(notices).toEqual(due(undefined, 20_000, undefined, undefined, 27_000))
+    expect(ref.poll.nextReadAt()).toBe(start + 27_000)
+    ref.poll.stop()
+  })
 
   it('rejects the promise of each read still in flight when it stops, and leaves no timer', async () => {
     vi.useFakeTimers()

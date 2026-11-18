@@ -4,6 +4,7 @@ import { useStore } from 'react-redux'
 import {
   Account,
   KeyringType,
+  QbitBalanceSummary,
   canCreateQbitSendRequest,
   getAccountCapabilities,
 } from '@qbit/wallet-shared'
@@ -11,7 +12,7 @@ import {
 
 import { AppState } from '..'
 import { useWallet } from '../context/WalletContext'
-import { accountActions } from '../reducers/accounts'
+import { accountActions, accountsReloaded, balanceReadStarted } from '../reducers/accounts'
 import {
   buildHistoryList,
   detectReplacedCandidates,
@@ -20,6 +21,13 @@ import {
 import { keyringsActions } from '../reducers/keyrings'
 import { settingsActions } from '../reducers/settings'
 import { useAppDispatch, useAppSelector } from './base'
+import {
+  balanceCardFor,
+  followBalanceRead,
+  newBalanceProgressId,
+  noteBalanceReadInFlight,
+  requestBalanceRead,
+} from './balanceReads'
 
 export function useAccountsState(): AppState['accounts'] {
   return useAppSelector(state => state.accounts)
@@ -288,58 +296,148 @@ export function useHistoryAutoRefresh(intervalMs = 60_000) {
 // refreshes) so the reducer can order their overlapping responses.
 let lastBalanceRequestId = 0
 
+/** The request id of the newest balance read this page began (0 before any). */
+export function newestBalanceRequestId(): number {
+  return lastBalanceRequestId
+}
+
+/** Options of a balance read (`useStartBalanceReadCallback`, `useFetchBalanceCallback`). */
+export interface FetchBalanceOptions {
+  /** The user asked for it (the refresh control): the card says so while it runs. */
+  byUser?: boolean
+}
+
 /**
- * Read the selected account's balance into the store. Resolves with the
+ * Begin a read of the selected account's balance now, into the store,
+ * whatever else is in flight: for the balance card's poll and the account
+ * updater, which keep to one read at a time themselves. Resolves with the
  * answer, for a caller that paces its reads by how they went (the balance
  * card's poll), and rejects as the read does. It resolves with the answer
  * also when the store records it as a failed refresh: an answer that could
  * not read every output, where a split is already shown (see the reducer's
  * `setBalanceV2`), so the poll still sees `utxoReadFailed`.
+ *
+ * The read is noted as this page's newest in flight for the account until
+ * it settles (`balanceReadInFlight`), and recorded as begun
+ * (`balanceReadStarted`); the background reports its total and how far it
+ * has read the outputs as it goes (`balanceReadProgress`).
  */
-export function useFetchBalanceCallback() {
+export function useStartBalanceReadCallback(): (
+  options?: FetchBalanceOptions
+) => Promise<QbitBalanceSummary | undefined> {
   const dispatch = useAppDispatch()
+  const store = useStore<AppState>()
   const wallet = useWallet()
   const currentAccount = useCurrentAccount()
   const { address } = currentAccount
-  return useCallback(async () => {
-    if (!address) return undefined
-    const requestId = ++lastBalanceRequestId
-    try {
-      const balanceV2 = await wallet.getAddressBalanceV2(address)
+  return useCallback(
+    (options: FetchBalanceOptions = {}): Promise<QbitBalanceSummary | undefined> => {
+      if (!address) return Promise.resolve(undefined)
+      const requestId = ++lastBalanceRequestId
+      const startedAt = Date.now()
+      const chainType = store.getState().settings.chainType
+      const progressId = newBalanceProgressId()
       dispatch(
-        accountActions['setBalanceV2']!({
+        balanceReadStarted({
           address,
-          balance: balanceV2,
-          chainType: balanceV2.chainType,
           requestId,
+          chainType,
+          startedAt,
+          byUser: options.byUser === true,
         })
       )
-      return balanceV2
-    } catch (error) {
-      dispatch(accountActions['setBalanceError']!({ address, requestId }))
-      throw error
-    }
-  }, [dispatch, wallet, address])
+      const unfollow = followBalanceRead(progressId, { address, requestId, dispatch })
+      const reading = (async (): Promise<QbitBalanceSummary> => {
+        try {
+          const balanceV2 = await wallet.getAddressBalanceV2(address, { progressId })
+          dispatch(
+            accountActions['setBalanceV2']!({
+              address,
+              balance: balanceV2,
+              chainType: balanceV2.chainType,
+              requestId,
+              startedAt,
+            })
+          )
+          return balanceV2
+        } catch (error) {
+          dispatch(accountActions['setBalanceError']!({ address, requestId, chainType, startedAt }))
+          throw error
+        } finally {
+          unfollow()
+        }
+      })()
+      noteBalanceReadInFlight(store, address, {
+        requestId,
+        reading,
+        startedAt,
+        chainType,
+        unfollow,
+      })
+      return reading
+    },
+    [dispatch, store, wallet, address]
+  )
 }
+
+/**
+ * Read the selected account's balance, for any caller but the balance card
+ * and the account updater (a refresh after a broadcast): a read that begins
+ * now, through the card's poll while the card shows the account, or, while
+ * a read of the account is in flight, once that one has settled; never
+ * beside another read of the account (`requestBalanceRead`). Resolves and
+ * rejects as that read does.
+ */
+export function useFetchBalanceCallback(): (
+  options?: FetchBalanceOptions
+) => Promise<QbitBalanceSummary | undefined> {
+  const store = useStore<AppState>()
+  const currentAccount = useCurrentAccount()
+  const { address } = currentAccount
+  const startRead = useStartBalanceReadCallback()
+  return useCallback(
+    (options: FetchBalanceOptions = {}): Promise<QbitBalanceSummary | undefined> => {
+      if (!address) return Promise.resolve(undefined)
+      return requestBalanceRead(store, address, () => {
+        const card = balanceCardFor(store, address)
+        return card ? card.read(options) : startRead(options)
+      })
+    },
+    [store, address, startRead]
+  )
+}
+
+// Orders this page's loads of its accounts by when they began.
+let accountsLoadSeq = 0
 
 export function useReloadAccounts() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
+  const store = useStore<AppState>()
   return useCallback(async () => {
-    const keyrings = await wallet.getKeyrings()
-    dispatch(keyringsActions['setKeyrings']!(keyrings))
+    // Recorded as it ends, succeeded or not: the balance card waits for it
+    // after a network switch, and reads the selected account if it failed.
+    const chainType = store.getState().settings.chainType
+    accountsLoadSeq += 1
+    const seq = accountsLoadSeq
+    try {
+      const keyrings = await wallet.getKeyrings()
+      dispatch(keyringsActions['setKeyrings']!(keyrings))
 
-    const currentKeyring = await wallet.getCurrentKeyring()
-    dispatch(keyringsActions['setCurrent']!(currentKeyring))
+      const currentKeyring = await wallet.getCurrentKeyring()
+      dispatch(keyringsActions['setCurrent']!(currentKeyring))
 
-    const _accounts = await wallet.getAccounts()
-    dispatch(accountActions['setAccounts']!(_accounts))
+      const _accounts = await wallet.getAccounts()
+      dispatch(accountActions['setAccounts']!(_accounts))
 
-    const account = await wallet.getCurrentAccount()
-    dispatch(accountActions['setCurrent']!(account))
+      const account = await wallet.getCurrentAccount()
+      dispatch(accountActions['setCurrent']!(account))
+    } finally {
+      dispatch(accountsReloaded({ chainType, seq }))
+    }
 
     wallet.getWalletConfig().then(data => {
       dispatch(settingsActions['updateSettings']!({ walletConfig: data }))
     })
-  }, [dispatch, wallet])
+  }, [dispatch, wallet, store])
 }

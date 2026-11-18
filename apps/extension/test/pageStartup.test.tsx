@@ -1650,8 +1650,8 @@ describe('a page starting', () => {
     const DRAFT = 'qb1zdraftoftheerasedwallet';
     const SAVED_UI_KEY = 'redux_localstorage_simple_ui';
     // The display preferences the wallet's windows saved, and the initial ones.
-    const PREFERENCES = { isBalanceHidden: true, balanceDetailExpanded: false };
-    const INITIAL_PREFERENCES = { isBalanceHidden: false, balanceDetailExpanded: true };
+    const PREFERENCES = { isBalanceHidden: true, balanceDetailOpen: true };
+    const INITIAL_PREFERENCES = { isBalanceHidden: false, balanceDetailOpen: false };
     const savedPreferences = () => JSON.parse(localStorage.getItem(SAVED_UI_KEY) ?? 'null') as unknown;
     const noDraftSaved = () => expect(Object.values({ ...localStorage }).join('\n')).not.toContain(DRAFT);
 
