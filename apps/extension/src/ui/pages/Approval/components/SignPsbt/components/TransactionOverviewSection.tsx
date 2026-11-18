@@ -157,8 +157,8 @@ export default function TransactionOverviewSection({
   const recommendationUnavailable = !!feeAssessment && feeAssessment.recommendedFeeRate === undefined;
 
   const showNetworkFee = decodedPsbt.isCompleted == true;
-  // A draft whose outputs exceed its inputs has no fee yet: the exact amount
-  // still missing is shown instead, never as a fee of zero.
+  // A draft whose outputs exceed its inputs has no fee yet: its gap for the
+  // outputs shown is shown instead, never as a fee of zero.
   const fundingShortfall = showNetworkFee ? undefined : decodedPsbt.fundingShortfall;
 
   const { locktime, version } = decodedPsbt;

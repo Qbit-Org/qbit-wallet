@@ -1119,10 +1119,10 @@
     "message": "Esta firma fija todas las salidas"
   },
   "qbit_funding_shortfall": {
-    "message": "Fondos que aún faltan"
+    "message": "Déficit para las salidas mostradas"
   },
   "qbit_funding_shortfall_description": {
-    "message": "A esta transacción le faltan fondos, y tu firma fija solo una parte de ella. Otros deben añadir entradas por al menos los fondos que faltan, más la tarifa de red, antes de que pueda difundirse, y pueden cambiar todo lo que tu firma no cubre. Firmar no garantiza que alguien llegue a financiarla ni a pagarte."
+    "message": "Las entradas de esta transacción no cubren las salidas mostradas, y tu firma fija solo una parte de ella. El déficit es la diferencia para las salidas mostradas ahora, sin contar ninguna tarifa de red. Antes de que pueda difundirse, se pueden añadir entradas, y las salidas que tu firma no fija pueden cambiar o eliminarse, así que otra cantidad podría completarla. Firmar no garantiza que llegue a completarse ni que se te pague."
   },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE es un tipo de firma especial que permite modificar la transacción después de firmarla. Esto puede llevar a una pérdida potencial de fondos si la transacción es alterada maliciosamente. Por favor asegúrese de confiar en la fuente de esta transacción antes de proceder."
@@ -2511,13 +2511,13 @@
     "message": "Firmada, sin finalizar: el sitio u otros firmantes deben finalizarla antes de poder difundirla"
   },
   "psbt_not_finalized_needs_funding": {
-    "message": "Firmada, sin finalizar: otros deben añadir los fondos que faltan antes de poder finalizarla o difundirla"
+    "message": "Firmada, sin finalizar: no puede finalizarse ni difundirse hasta que sus entradas cubran sus salidas"
   },
   "psbt_funding": {
     "message": "Financiación"
   },
   "psbt_network_fee_not_set": {
-    "message": "Aún sin fijar: la paga quien añada los fondos que faltan"
+    "message": "No incluida en el déficit: la transacción no tiene tarifa hasta que sus entradas cubran sus salidas"
   },
   "psbt_locktime": {
     "message": "Bloqueo temporal"

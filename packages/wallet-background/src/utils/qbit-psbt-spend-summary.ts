@@ -57,7 +57,7 @@ export interface QbitPsbtSpendSummaryParams {
   anyoneCanPayAll?: boolean
   /**
    * How much the outputs exceed the inputs by, when every input's value is
-   * known: a draft whose signatures leave room for the inputs others add.
+   * known: a draft whose signatures leave room for inputs added later.
    * Its fee is unknown, so it is not judged; what can leave the wallet is
    * known all the same, and `netSpend` is reported.
    */

@@ -98,7 +98,7 @@ function TransactionItem(
                   <Text text={`${numUtils.satoshisToAmount(psbtInfo.fee)} ${qbitUnit}`} size="xs" color="textDim" />
                 )}
               </Row>
-              {/* No fee yet: what the draft still needs funded, never a fee of zero. */}
+              {/* No fee yet: the draft's gap for the outputs shown, never a fee of zero. */}
               {!psbtInfo.isCompleted && psbtInfo.fundingShortfall !== undefined && (
                 <Text
                   text={`${t('qbit_funding_shortfall')}: ${numUtils.satoshisToAmount(psbtInfo.fundingShortfall)} ${qbitUnit}`}

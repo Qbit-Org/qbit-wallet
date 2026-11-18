@@ -11292,9 +11292,10 @@ export class WalletController extends BaseController {
       index => ({ index, publicKey })
     )
     const partialDetails = [
-      // What the draft still needs, ahead of what each signature commits to:
-      // the exact value missing, excluding any network fee, which whoever
-      // funds it adds on top. It is no fee, and no promise of payment.
+      // The gap for the outputs shown, ahead of what each signature commits
+      // to, excluding any network fee. Outputs a signature does not lock in
+      // can still change or go, so it is no fee, no amount anyone must add,
+      // and no promise of payment.
       ...(shortfall !== undefined
         ? [
             {
