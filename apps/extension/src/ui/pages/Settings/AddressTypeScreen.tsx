@@ -23,6 +23,8 @@ export default function AddressTypeScreen() {
                 label={item.name}
                 address={item.address}
                 assets={item.assets}
+                // The account in use's holdings: shown as its balance is.
+                asBalance
                 checked={item.value == currentKeyring.addressType}
                 onClick={() => onClickItem(item)}
               />

@@ -7,6 +7,7 @@ import { numUtils } from '@qbit/base-utils';
 import { AddressAssets } from '@qbit/wallet-shared';
 import { useChain, useQbitUnit } from '@qbit/wallet-state';
 
+import { BalanceFigure } from '../BalanceFigure';
 import { Card } from '../Card';
 import { Column } from '../Column';
 import { CopyableAddress } from '../CopyableAddress';
@@ -20,13 +21,21 @@ interface AddressTypeCardProps {
   address: string;
   checked: boolean;
   assets: AddressAssets;
+  /**
+   * The amount is what the account in use holds (Settings → Address Type):
+   * shown as every balance is, five decimals with commas, with the exact
+   * amount on hover and for a screen reader. Off where the card lists a
+   * candidate before an account exists, which keeps eight decimals.
+   */
+  asBalance?: boolean;
   onClick?: ReactEventHandler<HTMLDivElement>;
   'data-testid'?: string;
 }
 export function AddressTypeCard(props: AddressTypeCardProps) {
   const qbitUnit = useQbitUnit();
-  const { onClick, label, address, checked, assets, 'data-testid': dataTestId } = props;
+  const { onClick, label, address, checked, assets, asBalance, 'data-testid': dataTestId } = props;
   const hasVault = Boolean(assets.satoshis && assets.satoshis > 0);
+  const balance = asBalance && hasVault ? numUtils.formatBalance(assets.satoshis ?? 0) : null;
 
   const chain = useChain();
   return (
@@ -46,7 +55,9 @@ export function AddressTypeCard(props: AddressTypeCardProps) {
           <Row justifyBetween bg="bg3" roundedBottom px="md" py="md">
             <Row justifyCenter>
               <Image src={IMAGE_SOURCE_MAP[chain.icon]} size={fontSizes.iconMiddle} />
-              <Text text={`${assets.totalAmount} ${qbitUnit}`} color="yellow" />
+              <BalanceFigure exact={balance ? `${balance.exact} ${qbitUnit}` : undefined}>
+                <Text text={`${balance ? balance.text : assets.totalAmount} ${qbitUnit}`} color="yellow" />
+              </BalanceFigure>
             </Row>
             <Row />
           </Row>

@@ -73,4 +73,53 @@ describe('AddressTypeCard', () => {
     // The card itself still answers a tap.
     expect(onClick).toHaveBeenCalled();
   });
+
+  it('shows the holding of the account in use as a balance, with the exact amount on hover and for a screen reader', () => {
+    const { container } = render(
+      <AddressTypeCard
+        label="Post-Quantum P2MR"
+        address={ADDRESS}
+        checked
+        assets={{ totalAmount: '118591.83137906', satoshis: 11_859_183_137_906 }}
+        asBalance
+      />
+    );
+
+    const shown = screen.getByText('118,591.83137 QBT');
+    const figure = shown.closest('[aria-hidden="true"]') as HTMLElement;
+    expect(figure.getAttribute('title')).toBe('118,591.83137906 QBT');
+    const spoken = screen.getByText('118,591.83137906 QBT');
+    expect(spoken.closest('[aria-hidden]')).toBeNull();
+    expect(container.textContent).not.toContain('118591.83137906');
+  });
+
+  it('never shows a holding above zero as zero', () => {
+    render(
+      <AddressTypeCard
+        label="Post-Quantum P2MR"
+        address={ADDRESS}
+        checked
+        assets={{ totalAmount: '0.00000999', satoshis: 999 }}
+        asBalance
+      />
+    );
+
+    expect(screen.getByText('<0.00001 QBT').closest('[title]')?.getAttribute('title')).toBe('0.00000999 QBT');
+  });
+
+  it('keeps the eight decimals of a candidate listed before an account exists', () => {
+    const { container } = render(
+      <AddressTypeCard
+        label="Post-Quantum P2MR"
+        address={ADDRESS}
+        checked={false}
+        assets={{ totalAmount: '118591.83137906', satoshis: 11_859_183_137_906 }}
+      />
+    );
+
+    const shown = screen.getByText('118591.83137906 QBT');
+    expect(shown.closest('[title]')).toBeNull();
+    expect(shown.closest('[aria-hidden]')).toBeNull();
+    expect(container.textContent).not.toContain('118,591');
+  });
 });
