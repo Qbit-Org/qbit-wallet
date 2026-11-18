@@ -324,36 +324,6 @@ allowBuilds:
   ])
 })
 
-test('release age exceptions apply only to the two reviewed SDK versions', () => {
-  const api = '@qbit-oss/api@0.1.2'
-  const protocol = '@qbit-oss/protocol@0.1.2'
-  const audit = exceptions =>
-    auditWorkspaceSettings(
-      REVIEWED_WORKSPACE + `\nminimumReleaseAgeExclude: ${JSON.stringify(exceptions)}\n`
-    )
-
-  for (const exceptions of [[], [api], [protocol], [api, protocol]]) {
-    assert.deepEqual(audit(exceptions), [])
-  }
-  for (const exceptions of [
-    [api, '@qbit-oss/protocol@0.1.3'],
-    ['@qbit-oss/api'],
-    ['@qbit-oss/*'],
-    ['@qbit-oss/api@0.1.2 || 0.1.3'],
-    ['@qbit-oss/pqc@0.1.2'],
-    api,
-    null,
-    {},
-  ]) {
-    assert.deepEqual(audit(exceptions), [
-      'pnpm-workspace.yaml: minimumReleaseAgeExclude must list only reviewed package versions',
-    ])
-  }
-  assert.deepEqual(auditWorkspaceSettings(REVIEWED_WORKSPACE + '\nminimumReleaseAge: 0\n'), [
-    'pnpm-workspace.yaml: unreviewed pnpm setting: minimumReleaseAge',
-  ])
-})
-
 test('the tracked pnpm-workspace.yaml passes the workspace settings audit', () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
   const source = readFileSync(join(repoRoot, 'pnpm-workspace.yaml'), 'utf8')

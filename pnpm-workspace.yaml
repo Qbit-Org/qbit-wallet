@@ -18,11 +18,6 @@ linkWorkspacePackages: true
 # dependency policy reviews.
 verifyDepsBeforeRun: false
 
-# Both tarballs were verified against the signed qbit-js v0.1.2 release.
-minimumReleaseAgeExclude:
-  - '@qbit-oss/api@0.1.2'
-  - '@qbit-oss/protocol@0.1.2'
-
 overrides:
   '@babel/plugin-transform-modules-systemjs': '7.29.4'
   '@babel/traverse': '7.29.0'
