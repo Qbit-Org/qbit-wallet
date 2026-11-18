@@ -180,8 +180,10 @@ once the endpoint answers with that identifier. They report a failed broadcast t
 After an unknown outcome, Qbit Wallet keeps the transaction's inputs reserved, as it does for
 `sendQbit()`, only when the user approved signing that exact transaction with `signPsbt()` or
 `signPsbts()`, for any site, since the extension's background last started; the wallet remembers
-the last 256 such transactions. A push needs no approval, so the inputs of any other pushed
-transaction stay available to new transactions.
+the last 256 such transactions. Adding inputs to a partially funded draft changes the transaction
+identifier. The draft's approval therefore does not reserve inputs if the later funded transaction
+has an unknown broadcast outcome. Use the funded transaction's identifier for the lookup.
+A push needs no approval, so the inputs of any other pushed transaction stay available to new transactions.
 
 ### Recently spent inputs
 
