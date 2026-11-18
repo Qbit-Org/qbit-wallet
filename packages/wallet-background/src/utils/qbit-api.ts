@@ -52,6 +52,7 @@ import {
 } from './qbit-balance-reuse'
 import {
   QBIT_EXPLORER_ATTEMPT_TIMEOUT_MS,
+  QBIT_EXPLORER_FRESH_READ_PARAM,
   QBIT_EXPLORER_MAX_BODY_BYTES,
   createQbitExplorerFetch,
   isQbitExplorerLargeBodyRoute,
@@ -60,12 +61,16 @@ import {
 } from './qbit-explorer-fetch'
 import {
   QbitClassificationReads,
+  QBIT_BALANCE_RIDE_OUT,
   QBIT_LISTING_RETRY_STATUSES,
+  QBIT_SEND_SCREEN_RIDE_OUT,
+  QBIT_STATS_RETRY_STATUSES,
   QBIT_TIP_RETRY_STATUSES,
   withQbitReadRetries,
   type QbitFundingFactsView,
   type QbitFundingOutputFacts,
   type QbitFundingTxReads,
+  type QbitRideOutSchedule,
 } from './qbit-funding-tx-reads'
 
 const SATS_PER_QBIT = 100_000_000n
@@ -182,7 +187,8 @@ export type QbitWalletApiClient = EsploraClient &
  * the limit the wrapper buffers a reply to.
  */
 function withQbitExplorerBudgets<T extends EsploraClientOptions>(
-  options: T
+  options: T,
+  requests?: QbitAddressRequests
 ): T & { timeoutMs: number; maxResponseBytes: number } {
   const budgeted = {
     ...options,
@@ -191,14 +197,174 @@ function withQbitExplorerBudgets<T extends EsploraClientOptions>(
   }
   if (typeof options.baseUrl !== 'string') return budgeted
   if (options.fetchFn === undefined && typeof globalThis.fetch !== 'function') return budgeted
+  const fetchFn = createQbitExplorerFetch({
+    fetchFn: options.fetchFn,
+    baseUrl: options.baseUrl,
+    maxBodyBytes: budgeted.maxResponseBytes,
+  })
   return {
     ...budgeted,
-    fetchFn: createQbitExplorerFetch({
-      fetchFn: options.fetchFn,
-      baseUrl: options.baseUrl,
-      maxBodyBytes: budgeted.maxResponseBytes,
-    }),
+    // Every attempt the client makes goes through it, its own retries included.
+    fetchFn: requests
+      ? (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+          requests.noteSent(input)
+          return fetchFn(input, init)
+        }
+      : fetchFn,
   }
+}
+
+/** The most addresses whose requests one client counts (`QbitAddressRequests`). */
+const QBIT_STATS_SENT_ADDRESSES = 4_096
+/** The statistics route of an address, `/address/:address`, its query aside. */
+const QBIT_STATS_ROUTE = /\/address\/([^/?#]+)(?:[?#]|$)/
+/** The output listing of an address, `/address/:address/utxo`, its query aside. */
+const QBIT_LISTING_ROUTE = /\/address\/([^/?#]+)\/utxo(?:[?#]|$)/
+
+/** What a wallet client counts of one address's requests (`QbitAddressRequests`). */
+interface QbitAddressRequestCounts {
+  /** Requests for its statistics sent, every attempt counted. */
+  stats: number
+  /** `stats` as its latest listing request went out, a fresh one aside. */
+  statsAtListing: number
+  /** Calls for its listing under way, fresh ones aside, which a listing asked for now joins. */
+  listingCalls: number
+}
+
+/**
+ * Where a balance read's statistics count from (`qbitStatsNewerThanListing`):
+ * the statistics requests its address had had as its listing went out, and
+ * the generation of the counts then.
+ */
+interface QbitStatsWindow {
+  readonly generation: number
+  readonly stats: number
+}
+
+/**
+ * What a wallet client counts of each address's requests, by the address as
+ * the path names it: its statistics requests (`/address/:address`), every
+ * attempt counted as it goes out, the client's own retries included, which
+ * caller soever sent them; that count as its latest listing request went
+ * out; and the calls for its listing under way. So a balance read can tell
+ * statistics that may be newer than the listing it classifies: one sent
+ * after that listing went out, its own retry or another caller's request it
+ * joined (`qbitStatsNewerThanListing`). Fresh requests, which no other call
+ * joins, are counted neither as statistics nor as listings. Past
+ * `QBIT_STATS_SENT_ADDRESSES` addresses the counts start again, under a new
+ * generation, which a read under way takes for statistics newer than its
+ * listing; an address with a call for its listing under way keeps its
+ * counts.
+ */
+class QbitAddressRequests {
+  private counts = new Map<string, QbitAddressRequestCounts>()
+  private generation = 0
+
+  noteSent(input: RequestInfo | URL): void {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const listed = QBIT_LISTING_ROUTE.exec(url)?.[1]
+    if (listed !== undefined) {
+      if (!url.includes(`${QBIT_EXPLORER_FRESH_READ_PARAM}=`)) {
+        const counts = this.entry(listed)
+        counts.statsAtListing = counts.stats
+      }
+      return
+    }
+    // A fresh request for the statistics joins no other call, so no read's
+    // statistics can come from one another caller sent; a read's own are
+    // fresh only with an answer to reuse, when it lists after them anyway.
+    if (url.includes(`${QBIT_EXPLORER_FRESH_READ_PARAM}=`)) return
+    const address = QBIT_STATS_ROUTE.exec(url)?.[1]
+    if (address !== undefined) this.entry(address).stats += 1
+  }
+
+  /**
+   * Note a call for the listing whose path names the address `segment`
+   * begun, a fresh one aside; the function returned notes it ended.
+   */
+  listingCall(segment: string): () => void {
+    // The entry itself, which a reset of the counts carries over while the
+    // call is under way (`startAgain`), so the call's end is always noted.
+    const counts = this.entry(segment)
+    counts.listingCalls += 1
+    let ended = false
+    return (): void => {
+      if (ended) return
+      ended = true
+      if (counts.listingCalls > 0) counts.listingCalls -= 1
+    }
+  }
+
+  /**
+   * Where the statistics of a read of `address` asking for its listing now
+   * count from: the requests for them sent so far, or, should a call for its
+   * listing already be under way, which the read's then joins, as many as
+   * when that call's latest request went out. A `fresh` listing joins no
+   * call, so it counts from the requests sent so far whatever is under way.
+   */
+  window(address: string, fresh = false): QbitStatsWindow {
+    const counts = this.counts.get(encodeURIComponent(address))
+    const stats =
+      counts === undefined
+        ? 0
+        : counts.listingCalls > 0 && !fresh
+          ? counts.statsAtListing
+          : counts.stats
+    return { generation: this.generation, stats }
+  }
+
+  /** Whether a request for `address`'s statistics went out since `window`, or the counts started again. */
+  statsSince(address: string, window: QbitStatsWindow): boolean {
+    if (window.generation !== this.generation) return true
+    return (this.counts.get(encodeURIComponent(address))?.stats ?? 0) > window.stats
+  }
+
+  private entry(segment: string): QbitAddressRequestCounts {
+    let counts = this.counts.get(segment)
+    if (!counts) {
+      if (this.counts.size >= QBIT_STATS_SENT_ADDRESSES) this.startAgain()
+      counts = { stats: 0, statsAtListing: 0, listingCalls: 0 }
+      this.counts.set(segment, counts)
+    }
+    return counts
+  }
+
+  /**
+   * Start the counts again, under a new generation, but for the addresses
+   * with a call for their listing under way: a read may still join that
+   * call, and its window must count from when the call's request went out.
+   */
+  private startAgain(): void {
+    const kept = new Map<string, QbitAddressRequestCounts>()
+    for (const [segment, counts] of this.counts) {
+      if (counts.listingCalls > 0) kept.set(segment, counts)
+    }
+    this.counts = kept
+    this.generation += 1
+  }
+}
+
+/** Each wallet client's count of its addresses' requests. */
+const qbitAddressRequestsByClient = new WeakMap<object, QbitAddressRequests>()
+
+/**
+ * `read()`, the read of `path` by a wallet client: a call for an address's
+ * listing, a fresh one aside, is noted while it is under way
+ * (`QbitAddressRequests.listingCall`).
+ */
+function qbitNoteListingCall<T>(
+  client: object,
+  path: string,
+  options: QbitTxOutspendsOptions | undefined,
+  read: () => Promise<T>
+): Promise<T> {
+  const requests = qbitAddressRequestsByClient.get(client)
+  const segment = options?.fresh === true ? undefined : QBIT_LISTING_ROUTE.exec(path)?.[1]
+  if (requests === undefined || segment === undefined) return read()
+  const ended = requests.listingCall(segment)
+  const reading = read()
+  reading.then(ended, ended)
+  return reading
 }
 
 /**
@@ -254,9 +420,11 @@ export class QbitWalletEsploraClient
   private readonly largeReadCeilingMs: number
 
   constructor(options: EsploraClientOptions) {
-    const budgeted = withQbitExplorerBudgets(options)
+    const requests = new QbitAddressRequests()
+    const budgeted = withQbitExplorerBudgets(options, requests)
     super(budgeted)
     this.largeReadCeilingMs = budgeted.timeoutMs
+    qbitAddressRequestsByClient.set(this, requests)
   }
 
   getTxOutspends(txid: string, options?: QbitTxOutspendsOptions): Promise<QbitTxOutspend[]> {
@@ -278,7 +446,9 @@ export class QbitWalletEsploraClient
     options?: QbitTxOutspendsOptions,
     dedup?: boolean
   ): Promise<T> {
-    return super.getJson<T>(...qbitJsonRead(path, options, dedup))
+    return qbitNoteListingCall(this, path, options, () =>
+      super.getJson<T>(...qbitJsonRead(path, options, dedup))
+    )
   }
 
   protected override request(
@@ -357,8 +527,10 @@ export class QbitWalletMempoolClient
     const maxAddressHistoryPages =
       options.maxAddressHistoryPages ??
       DEFAULT_MAX_COUNTER_HISTORY_PAGES * QBIT_ADDRESS_HISTORY_READS
-    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages })
+    const requests = new QbitAddressRequests()
+    const budgeted = withQbitExplorerBudgets({ ...options, maxAddressHistoryPages }, requests)
     super(budgeted)
+    qbitAddressRequestsByClient.set(this, requests)
     this.maxHistoryWalkPages = maxAddressHistoryPages
     this.largeReadCeilingMs = budgeted.timeoutMs
     this.preciseFeeReaderOptions = { ...budgeted, retries: 0 }
@@ -461,7 +633,9 @@ export class QbitWalletMempoolClient
     options?: QbitTxOutspendsOptions,
     dedup?: boolean
   ): Promise<T> {
-    return super.getJson<T>(...qbitJsonRead(path, options, dedup))
+    return qbitNoteListingCall(this, path, options, () =>
+      super.getJson<T>(...qbitJsonRead(path, options, dedup))
+    )
   }
 
   protected override request(
@@ -819,19 +993,24 @@ export async function isQbitUtxoListOverExplorerLimit(
  * when the failure is not it. Statistics that cannot be read leave a bare
  * 500 its own meaning (undefined), and fail a refusal the explorer states
  * with their own error: it is the limit without them, but what the caller
- * reads from them is missing.
+ * reads from them is missing. With `rideOut`, the balance read's schedule,
+ * statistics answered with a 502, 503 or 504 are read again on it first.
  */
 async function qbitUtxoListOverExplorerLimitStats(
   client: Pick<QbitEsploraClient, 'getAddressStats'>,
   address: string,
   error: unknown,
-  options: QbitReadCancellation = {}
+  options: QbitReadCancellation = {},
+  rideOut?: QbitRideOutSchedule
 ): Promise<EsploraAddressStats | undefined> {
   const refusal = qbitUtxoListRefusal(error)
   if (!refusal) return undefined
+  const read = (): Promise<EsploraAddressStats> => client.getAddressStats(address, options)
   let stats: EsploraAddressStats
   try {
-    stats = await client.getAddressStats(address, options)
+    stats = await (rideOut
+      ? withQbitReadRetries(read, options.signal, QBIT_STATS_RETRY_STATUSES, { schedule: rideOut })
+      : read())
     assertValidQbitStats(stats, address)
   } catch (statsFailure) {
     throwIfQbitReadCancelled(options)
@@ -970,6 +1149,8 @@ class QbitBalanceReadOperation {
   private readonly controller = new AbortController()
   private expired = false
   private readonly release: () => void
+  /** Let go of the read's signal for each of its parts (`part`). */
+  private readonly parts: (() => void)[] = []
 
   constructor(
     deadlineMs: number,
@@ -1031,10 +1212,30 @@ class QbitBalanceReadOperation {
     })
   }
 
+  /**
+   * A part of the read of its own: its signal aborts with the read's, with
+   * the same reason, or once `abort` is called; it is let go of with the read.
+   */
+  part(): { signal: AbortSignal; abort: (reason: unknown) => void } {
+    const controller = new AbortController()
+    const onAbort = (): void => controller.abort(this.signal.reason)
+    if (this.signal.aborted) onAbort()
+    else this.signal.addEventListener('abort', onAbort, { once: true })
+    this.parts.push(() => this.signal.removeEventListener('abort', onAbort))
+    return { signal: controller.signal, abort: (reason): void => controller.abort(reason) }
+  }
+
   close(): void {
     this.release()
+    for (const release of this.parts.splice(0)) release()
   }
 }
+
+/** What a listing a read throws away, as it lists again, is stopped with should it still be in flight. */
+const QBIT_BALANCE_LISTED_AGAIN = new QbitApiError(
+  'aborted',
+  'qbit balance read listed its outputs again'
+)
 
 /**
  * The address's balance split the way a send sees it. `readReserved`, when
@@ -1059,6 +1260,22 @@ class QbitBalanceReadOperation {
  * time part of the way through the outputs does not. Nor does a send guard
  * that has not answered by the deadline hold the read: the split is then
  * unknown too.
+ *
+ * Within that deadline, every read it makes rides out the explorer's server
+ * errors (`QBIT_BALANCE_RIDE_OUT`): the statistics, the listing and the tip
+ * answered with a 502, 503 or 504, and a transaction lookup answered with a
+ * 500, 502, 503 or 504, are read again after 500 ms and then 1,500 ms, while
+ * the next attempt would begin within 3 s of the first request, the
+ * explorer's 502 with a `Retry-After` past the client's cap included. A bare 500 or a
+ * refusal of the listing is judged as before, a 429 is the client's, and an
+ * ancestor's walk does not ride them out, as before. Only so many lookups
+ * ride out (`QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS`), each attempt in a slot of
+ * the limiter of its own, none held through a pause. A lookup that still
+ * fails no longer cancels the others: those in flight run to their end, and
+ * the read goes on, keeping what it reads for the next one, until
+ * `QBIT_BALANCE_READ_FAILED_LOOKUPS` lookups have failed, when it starts no
+ * more. It still answers as a failed read always did, the split unknown and
+ * failed (see `QbitClassificationReads`).
  *
  * An output confirmed at least a coinbase maturity (1,000 blocks) deep is
  * spendable and mature whatever its transaction says, so for one the read
@@ -1182,14 +1399,43 @@ async function readQbitSpendableBalance(
   const kept = reusing?.reusable(client, address, factsAt)
   // With a place among the kept answers, the statistics themselves, which
   // the balance comes from at no request more; fresh when an answer is to
-  // be reused on their word alone.
-  const statsRead = reusing
-    ? client.getAddressStats(address, kept ? qbitFreshRead({ signal }) : { signal })
-    : client.getAddressBalance(address, { signal })
+  // be reused on their word alone. Read again after a 502, 503 or 504, each
+  // attempt counted, and every request for them sent too
+  // (`qbitStatsNewerThanListing`).
+  let statsAttempts = 0
+  const statsRead = withQbitReadRetries<EsploraAddressStats | AddressBalance>(
+    () => {
+      statsAttempts += 1
+      return reusing
+        ? client.getAddressStats(address, kept ? qbitFreshRead({ signal }) : { signal })
+        : client.getAddressBalance(address, { signal })
+    },
+    signal,
+    QBIT_STATS_RETRY_STATUSES,
+    { schedule: QBIT_BALANCE_RIDE_OUT }
+  )
   const listing = beginQbitBalanceListing(client, address, signal, fundingTxReads)
-  let classifying = kept ? undefined : listQbitBalanceOutputs(listing, reusing)
-  // Settled below, or left once the statistics fail.
-  classifying?.catch(() => undefined)
+  // The first listing's own signal, so that a listing thrown away (below)
+  // is stopped should it still be in flight.
+  const firstListing = operation.part()
+  // Taken as the listing is asked for: a request for the statistics sent
+  // after it went out, whoever sent it, may be newer than it. A listing
+  // that confirms a kept candidate is fresh (`askQbitBalanceListing`), and
+  // joins no other caller's call under way.
+  const statsWindow = kept
+    ? undefined
+    : qbitStatsWindow(client, address, reusing?.has(client, address) === true)
+  // Asked for with the statistics, as it always was, but classified only
+  // once they have answered (below), so that a read classifies one listing
+  // at most. What that costs: no lookup starts, and so no fact is kept,
+  // while the statistics are still being read, so a read after an outage of
+  // theirs starts cold; and when they answer later than the listing, the
+  // lookups start that much later. Usually they answer first, and nothing
+  // changes. Two reads that share one request for the statistics, answered
+  // after both listings, begin classifying in the same turn, and so may each
+  // send the first lookups, as 1.0.10 does for two reads begun together,
+  // within one reply's time of each other.
+  let listed = kept ? undefined : askQbitBalanceListing(listing, reusing, firstListing.signal)
   let stats: EsploraAddressStats | undefined
   let balance: AddressBalance
   try {
@@ -1202,14 +1448,45 @@ async function readQbitSpendableBalance(
     }
   } catch (error) {
     // Nothing can be reported without the total, so the outputs are not
-    // read on.
+    // read on, nor classified.
     operation.stop(error)
-    if (!classifying) listing.tip?.close()
+    listing.tip?.close()
     operation.throwIfCancelled()
     throw operation.timedOut ? operation.timeoutError : error
   }
   const aggregateBalance = qbitBalanceToSummary(balance)
-  if (!classifying) {
+  // Statistics that may be newer than the listing, as a request for them
+  // went out after it, the read's own later attempt or the client's, or
+  // another caller's request the read joined: had a block between them spent
+  // a listed output the send guard does not hold and paid the address a
+  // young reward, Available would count the spent output. The first listing,
+  // which nothing has classified yet, is then thrown away, stopped should it
+  // still be in flight, and the listing asked for again now, after the
+  // statistics answered, fresh, so that it joins no request sent before
+  // (only the wallet's own clients ask so: any other sends it as any read,
+  // and it may join the first there); that one is classified, judged as a
+  // first listing is. Nothing of such a read is kept for reuse. A request
+  // for the statistics another caller sends in that window, which the read
+  // did not join, costs one listing more; fresh ones, which no read can
+  // join, are not counted. A listing newer than the statistics, as when the
+  // listing was the one read again, needs nothing: Available is then bounded
+  // by the older statistics' confirmed balance and by what that listing can
+  // spend, so it is never above what a fresh read gives.
+  //
+  // What the rule cannot close: it orders requests by when they went out,
+  // not by when the explorer read its state. Statistics asked for before the
+  // listing, by the read itself or by another caller whose request it
+  // joined, but which the explorer serves after the listing, are still
+  // paired with the older listing. 1.0.10 has the same race for every read
+  // whose statistics are answered later than its listing.
+  const listedAgain =
+    listed !== undefined &&
+    (statsAttempts > 1 || qbitStatsNewerThanListing(client, address, statsWindow))
+  if (listed && listedAgain) {
+    firstListing.abort(QBIT_BALANCE_LISTED_AGAIN)
+    listed = askQbitBalanceListing(listing, reusing, signal, true)
+  }
+  if (!listed) {
     const reused =
       kept && reusing && stats
         ? await reuseQbitBalance(
@@ -1231,12 +1508,12 @@ async function readQbitSpendableBalance(
     // reused, no longer keeps this read's own answer from being kept, as a
     // candidate the next poll may confirm.
     factsAt = fundingTxReads?.factChanges(client)
-    classifying = listQbitBalanceOutputs(listing, reusing)
+    listed = askQbitBalanceListing(listing, reusing, signal)
   }
   const { progress } = listing
   let classified: QbitClassifiedUtxos
   try {
-    classified = await classifying
+    classified = await listQbitBalanceOutputs(listing, listed)
   } catch (error) {
     operation.throwIfCancelled()
     // Cut off by the deadline, it rejects with the deadline's own error;
@@ -1281,7 +1558,7 @@ async function readQbitSpendableBalance(
   // Kept even when the controller stopped waiting for the send guard and
   // answers the split unknown: a kept answer holds no reservations, and
   // every reuse reads them afresh.
-  if (reusing && stats) {
+  if (reusing && stats && !listedAgain) {
     keepQbitBalanceRead(reusing, listing, stats, classified, signal, factsAt, factsNow)
   }
   return split
@@ -1317,7 +1594,8 @@ function beginQbitBalanceListing(
   fundingTxReads: QbitFundingTxReads | undefined
 ): QbitBalanceListing {
   const script = qbitAddressScript(address)
-  const tip = script !== undefined ? new QbitTipRead(client, signal) : undefined
+  const tip =
+    script !== undefined ? new QbitTipRead(client, signal, QBIT_BALANCE_RIDE_OUT) : undefined
   tip?.start()
   return {
     client,
@@ -1333,21 +1611,75 @@ function beginQbitBalanceListing(
 }
 
 /**
- * The balance read's listing, classified with what `listing` began. With an
- * answer kept for the address (`QbitBalanceReuseView.has`) it is asked for
- * fresh, as a listing that confirms one must be.
+ * Where a balance read's statistics count from, its listing asked for now,
+ * `fresh` or not (`QbitAddressRequests.window`): for the wallet's own
+ * clients, which count their requests; undefined for any other.
+ */
+function qbitStatsWindow(
+  client: object,
+  address: string,
+  fresh: boolean
+): QbitStatsWindow | undefined {
+  return qbitAddressRequestsByClient.get(client)?.window(address, fresh)
+}
+
+/**
+ * Whether a request for `address`'s statistics went out after the balance
+ * read's listing did (`window`) and before its statistics answered, whoever
+ * sent it: the read's own retry, the client's, or another caller's request
+ * the read joined; so its statistics may be newer than its listing. Without
+ * a window (a client other than the wallet's own) only the read's own
+ * attempts tell.
+ */
+function qbitStatsNewerThanListing(
+  client: object,
+  address: string,
+  window: QbitStatsWindow | undefined
+): boolean {
+  if (window === undefined) return false
+  return qbitAddressRequestsByClient.get(client)?.statsSince(address, window) === true
+}
+
+/**
+ * The balance read's listing asked for now, under `signal`, for the read to
+ * classify once its statistics have answered (`listQbitBalanceOutputs`).
+ * With an answer kept for the address (`QbitBalanceReuseView.has`) it is
+ * asked for fresh, as a listing that confirms one must be, and so it is
+ * with `fresh`.
+ */
+function askQbitBalanceListing(
+  listing: QbitBalanceListing,
+  reuse: QbitBalanceReuseView | undefined,
+  signal: AbortSignal,
+  fresh = false
+): Promise<EsploraUtxo[]> {
+  listing.fresh = fresh || reuse?.has(listing.client, listing.address) === true
+  const listed = listQbitUtxos(listing.client, listing.address, {
+    signal,
+    balanceOnly: true,
+    ...(listing.fresh ? { freshListing: true as const } : {}),
+  })
+  // Heard by the classification; one thrown away, or left once the
+  // statistics fail, fails unheard.
+  listed.catch(() => undefined)
+  return listed
+}
+
+/**
+ * `listed`, the balance read's listing (`askQbitBalanceListing`),
+ * classified with what `listing` began.
  */
 function listQbitBalanceOutputs(
   listing: QbitBalanceListing,
-  reuse: QbitBalanceReuseView | undefined
+  listed: Promise<EsploraUtxo[]>
 ): Promise<QbitClassifiedUtxos> {
-  listing.fresh = reuse?.has(listing.client, listing.address) === true
   // Its answer is a few totals, which no send takes inputs from (see
   // `classifyQbitUtxos`).
   return listAndClassifyQbitUtxos(listing.client, listing.address, {
     signal: listing.signal,
     balanceOnly: true,
     progress: listing.progress,
+    listed,
     ...(listing.fundingTxReads ? { fundingTxReads: listing.fundingTxReads } : {}),
     ...(listing.facts ? { facts: listing.facts } : {}),
     ...(listing.tip ? { tip: listing.tip } : {}),
@@ -1654,9 +1986,13 @@ async function qbitSplitPastFailedListing(
 ): Promise<QbitBalanceSummaryPayload> {
   let stats: EsploraAddressStats | undefined
   try {
-    stats = await qbitUtxoListOverExplorerLimitStats(client, address, error, {
-      signal: operation.signal,
-    })
+    stats = await qbitUtxoListOverExplorerLimitStats(
+      client,
+      address,
+      error,
+      { signal: operation.signal },
+      QBIT_BALANCE_RIDE_OUT
+    )
   } catch (statsFailure) {
     operation.throwIfCancelled()
     if (!operation.timedOut) throw statsFailure
@@ -1749,7 +2085,12 @@ async function getQbitPastLimitSplit(
   if (read.matureAt !== undefined || read.matureFrom !== undefined) {
     let tipHeight: number
     try {
-      tipHeight = await client.getTipHeight({ signal: operation.signal })
+      tipHeight = await withQbitReadRetries(
+        () => client.getTipHeight({ signal: operation.signal }),
+        operation.signal,
+        QBIT_TIP_RETRY_STATUSES,
+        { schedule: QBIT_BALANCE_RIDE_OUT }
+      )
     } catch {
       operation.throwIfCancelled()
       return undefined
@@ -2766,11 +3107,16 @@ interface QbitClassifyProgress {
  * and `rideOutServerErrors`, which only `readQbitAddressUtxosRidingOut`
  * sets: its lookups, listing and tip ride out the explorer's server errors
  * (`withQbitReadRetries`), where every
- * other read fails on one at once.
+ * other read fails on one at once, the balance read aside: with
+ * `balanceOnly` they ride them out on a shorter schedule of its own
+ * (`QBIT_BALANCE_RIDE_OUT`), and its classification keeps what it read when
+ * a group fails (`QbitClassificationReads`).
  */
 interface QbitClassifyInternals {
   balanceOnly?: true
   progress?: QbitClassifyProgress
+  /** With `balanceOnly`, the listing the read asked for already (`askQbitBalanceListing`). */
+  listed?: Promise<EsploraUtxo[]>
   spendCandidates?: true
   rideOutServerErrors?: true
   tip?: QbitTipRead
@@ -2801,12 +3147,12 @@ async function listAndClassifyQbitUtxos(
   const tip =
     options.tip ??
     (addressScript !== undefined && judgesByTip
-      ? new QbitTipRead(client, options.signal, options.rideOutServerErrors === true)
+      ? new QbitTipRead(client, options.signal, qbitRideOutSchedule(options))
       : undefined)
   tip?.start()
   let utxos: EsploraUtxo[]
   try {
-    utxos = await listQbitUtxos(client, address, options)
+    utxos = await (options.listed ?? listQbitUtxos(client, address, options))
   } catch (error) {
     // Nothing is classified: the tip is not read on.
     tip?.close()
@@ -2821,19 +3167,34 @@ async function listAndClassifyQbitUtxos(
 }
 
 /**
+ * The schedule on which a classification's listing and tip ride out the
+ * explorer's server errors (`withQbitReadRetries`): the Send screen's with
+ * `rideOutServerErrors`, the balance read's with `balanceOnly`, and none for
+ * any other read.
+ */
+function qbitRideOutSchedule(
+  options: Pick<QbitClassifyInternals, 'rideOutServerErrors' | 'balanceOnly'>
+): QbitRideOutSchedule | undefined {
+  if (options.rideOutServerErrors) return QBIT_SEND_SCREEN_RIDE_OUT
+  return options.balanceOnly ? QBIT_BALANCE_RIDE_OUT : undefined
+}
+
+/**
  * The address's listed outputs, each checked, and none listed twice. A
  * listing whose body could not be read is asked for again, and with
- * `rideOutServerErrors` one the explorer answered with a 502, 503 or 504
- * (`withQbitReadRetries`); any other failure, a bare 500 and a refusal the
- * explorer states included, is the caller's to judge as before. With
- * `freshListing` each request is a fresh read (`QbitTxOutspendsOptions.fresh`).
+ * `rideOutServerErrors` or `balanceOnly` one the explorer answered with a
+ * 502, 503 or 504, on that read's schedule (`qbitRideOutSchedule`); any
+ * other failure, a bare 500 and a refusal the explorer states included, is
+ * the caller's to judge as before. With `freshListing` each request is a
+ * fresh read (`QbitTxOutspendsOptions.fresh`).
  */
 async function listQbitUtxos(
   client: QbitEsploraClient,
   address: string,
   options: QbitReadCancellation &
-    Pick<QbitClassifyInternals, 'rideOutServerErrors' | 'freshListing'>
+    Pick<QbitClassifyInternals, 'rideOutServerErrors' | 'balanceOnly' | 'freshListing'>
 ): Promise<EsploraUtxo[]> {
+  const schedule = qbitRideOutSchedule(options)
   let utxos: EsploraUtxo[]
   try {
     utxos = await withQbitReadRetries(
@@ -2843,7 +3204,8 @@ async function listQbitUtxos(
           options.freshListing ? qbitFreshRead(qbitReadOptions(options)) : qbitReadOptions(options)
         ),
       options.signal,
-      options.rideOutServerErrors ? QBIT_LISTING_RETRY_STATUSES : undefined
+      schedule ? QBIT_LISTING_RETRY_STATUSES : undefined,
+      schedule ? { schedule } : {}
     )
   } catch (error) {
     throwIfQbitReadCancelled(options)
@@ -2882,7 +3244,7 @@ class QbitTipRead {
   constructor(
     private readonly client: QbitEsploraClient,
     signal: AbortSignal | undefined,
-    private readonly rideOut = false
+    private readonly rideOut?: QbitRideOutSchedule
   ) {
     const onAbort = (): void => this.controller.abort(signal?.reason)
     if (signal?.aborted) onAbort()
@@ -2893,8 +3255,8 @@ class QbitTipRead {
   /**
    * The tip, asked for on the first call: one request, so not held to the
    * limiter, made again as a lookup is after a body lost, and with `rideOut`
-   * after a 502, 503 or 504 (`withQbitReadRetries`), under its own signal, so
-   * that `close` ends a pause at once.
+   * after a 502, 503 or 504, on that schedule (`withQbitReadRetries`), under
+   * its own signal, so that `close` ends a pause at once.
    */
   start(): Promise<number> {
     if (!this.read) {
@@ -2903,7 +3265,8 @@ class QbitTipRead {
       const read = withQbitReadRetries(
         () => this.client.getTipHeight({ signal }),
         signal,
-        this.rideOut ? QBIT_TIP_RETRY_STATUSES : undefined
+        this.rideOut ? QBIT_TIP_RETRY_STATUSES : undefined,
+        this.rideOut ? { schedule: this.rideOut } : {}
       )
       read.then(
         height => {
@@ -3013,9 +3376,15 @@ interface QbitOutputClass {
  * `rideOutServerErrors` a read of a transaction for its own outputs that the
  * explorer answered with a server error four times over about 14 s, in the
  * slot it holds (`withQbitReadRetries`); only then does it count as failed.
+ * With `balanceOnly` such a read is made again twice, after 500 ms and
+ * 1,500 ms, each attempt in a slot of its own, for at most
+ * `QBIT_BALANCE_READ_RIDE_OUT_LOOKUPS` lookups (`QBIT_BALANCE_RIDE_OUT`).
  * The first failure, or the caller's signal, stops it: no read starts any
  * more, those in flight are cancelled, and it rejects with that failure or
- * `signal.reason`.
+ * `signal.reason`. The balance read's alone (`balanceOnly`) goes on past a
+ * failure, keeping what the lookups in flight and those after it read, until
+ * `QBIT_BALANCE_READ_FAILED_LOOKUPS` lookups have failed, and only then
+ * rejects with the first failure; its caller's signal stops it at once.
  *
  * With a shared reader, an output the listing reports confirmed is
  * classified from the facts an earlier read of its transaction left
@@ -3104,15 +3473,18 @@ async function classifyQbitUtxos(
     } = {}
 ): Promise<QbitClassifiedUtxos> {
   const rideOut = options.rideOutServerErrors === true
-  const tip = options.tip ?? new QbitTipRead(client, options.signal, rideOut)
+  const tip = options.tip ?? new QbitTipRead(client, options.signal, qbitRideOutSchedule(options))
   let reads: QbitClassificationReads | undefined
   try {
+    // The balance read's keeps what it read when a group fails.
     reads = new QbitClassificationReads(
       client,
       options.fundingTxReads,
       options.signal,
       options.facts,
-      rideOut
+      rideOut,
+      false,
+      options.balanceOnly === true
     )
     return qbitClassifiedFrom(
       await classifyQbitOutputs(
@@ -3316,7 +3688,14 @@ async function classifyQbitOutputs(
     // ownership walk behind its change reads every prevout.
     const tx = historyTx ?? (await reads.tx(txid, true))
     for (const { index, utxo } of listed) {
-      const facts = qbitFundingOutputFacts(tx, utxo)
+      let facts: QbitFundingOutputFacts
+      try {
+        facts = qbitFundingOutputFacts(tx, utxo)
+      } catch (error) {
+        // A fresh answer that fails the checks cost a request and keeps nothing.
+        if (!historyTx) reads.answerRefused()
+        throw error
+      }
       // An answer with another script is used for this read alone.
       if (
         !historyTx &&
@@ -3378,8 +3757,16 @@ async function classifyQbitOutputs(
   // request, so a worker takes the next one at once.
   const workers = Math.min(reads.limiter.maxInFlight, groups.size)
   await reads.run(workers, async () => {
-    for (let next = nextGroup(); next && !reads.stopped; next = nextGroup()) {
-      await classifyGroup(next.group[0], next.group[1], next.last)
+    for (let next = nextGroup(); next; next = nextGroup()) {
+      if (!reads.taking) {
+        // Left unread: the balance read's then fails (see `QbitClassificationReads`).
+        reads.groupUntaken()
+        break
+      }
+      // The balance read's goes on past a group that fails, and keeps what
+      // the others read.
+      if (!reads.keeping) await classifyGroup(next.group[0], next.group[1], next.last)
+      else await classifyGroup(next.group[0], next.group[1], next.last).catch(reads.groupFailed)
     }
   })
   return classes
@@ -3781,8 +4168,9 @@ export async function readQbitAddressUtxos(
  * Its transaction lookups ride out a 500, 502, 503 or 504, and its listing
  * and tip a 502, 503 or 504 (`withQbitReadRetries`, after
  * `QBIT_SERVER_ERROR_RETRY_PAUSES_MS` and within
- * `QBIT_SERVER_ERROR_RIDE_OUT_MS`), where every other read fails on one as
- * fast as the client alone. An ancestor of the account's own change is
+ * `QBIT_SERVER_ERROR_RIDE_OUT_MS`), where every other read of outputs fails
+ * on one as fast as the client alone (the balance read rides them out on a
+ * shorter schedule of its own). An ancestor of the account's own change is
  * read as every other read reads it, once the client has made its own
  * attempts: its walk takes a failure as the output not being own change.
  * Its lookups pause inside their slots of the limiter, so in a burst of
@@ -5010,7 +5398,7 @@ async function readQbitSpendInputs(
       ...(options.facts ? { facts: options.facts } : {}),
     })
     // Read for this check alone, with the lookups, under the same signal.
-    tip = new QbitTipRead(client, operation.signal, rideOut)
+    tip = new QbitTipRead(client, operation.signal, rideOut ? QBIT_SEND_SCREEN_RIDE_OUT : undefined)
     const tipRead = tip
     tipRead.start()
     // With `rideOut`, an ancestor's read rides out server errors as a

@@ -303,7 +303,9 @@ describe('getQbitSpendableBalanceV2 with thousands of outputs (#169)', () => {
   it('rejects when the statistics read fails, and reads no more of the outputs', async () => {
     const explorer = new TimedExplorer(1_000)
     explorer.statsLatencyMs = 250
-    const failure = new QbitApiError('http', 'HTTP 502 from /address', { status: 502 })
+    // A failure the read does not ride out: a 502 is read again first (see
+    // qbit-balance-read-retry.test.ts).
+    const failure = new QbitApiError('http', 'HTTP 500 from /address', { status: 500 })
     explorer.statsFailure = failure
 
     const read = track(getQbitSpendableBalanceV2(explorer.client as any, address))
@@ -404,23 +406,21 @@ describe('getQbitSpendableBalanceV2 with thousands of outputs (#169)', () => {
     return read.value
   }
 
-  it('reports a failure as failed though the deadline passed before the answer could be made', async () => {
+  it('reports a read whose statistics answer only after the deadline as failed, having read no output', async () => {
     // The statistics answer after the deadline, as from a read that does not
-    // heed its signal. By then the outputs had stopped on a real failure,
-    // after keeping some for the next read: that is still a failure.
+    // heed its signal. The outputs are classified only once the statistics
+    // have answered, so none was read and nothing kept for the next read:
+    // failed. (Through 1.0.10 they were read meanwhile, and kept.)
     const explorer = new TimedExplorer(5_000)
     explorer.statsLatencyMs = QBIT_BALANCE_READ_DEADLINE_MS + 5_000
     explorer.statsIgnoreAbort = true
-    explorer.failures.set(
-      testTxid(1_500),
-      new QbitApiError('http', 'HTTP 502 from /tx', { status: 502 })
-    )
     const options = { fundingTxReads: new QbitFundingTxReads() }
 
     await expect(
       balanceAfter(explorer, options, QBIT_BALANCE_READ_DEADLINE_MS + 5_000)
     ).resolves.toEqual(failedRead(explorer.total))
-    expect(options.fundingTxReads.size).toBeGreaterThan(1_000)
+    expect(explorer.started).toEqual([])
+    expect(options.fundingTxReads.size).toBe(0)
   })
 
   it('reads none of a listing longer than the shared reader keeps, and has the poll back off', async () => {
