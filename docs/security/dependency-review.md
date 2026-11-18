@@ -1,6 +1,6 @@
 # Dependency security and license review
 
-Review date: 2026-11-17 (advisory refresh of the 2026-09-02 review; evidence
+Review date: 2026-11-18 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
 2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
@@ -8,7 +8,8 @@ the extension and keyring-service, twice more on 2026-11-05, after the
 `@qbit/wallet-api` and `@qbit/notification-service` workspaces and then `antd`
 were removed, and on 2026-11-10 after `bitcoinjs-lib` moved to 6.1.8 for the
 critical `GHSA-8vv3-6qpc-gpw6`; on 2026-11-17 the high `picomatch` advisory
-`GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged)
+`GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged. Evidence was regenerated on 2026-11-18
+after the protocol and API SDK update to 0.1.2 and withdrawal of that advisory.)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -26,14 +27,14 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `41ce38b884f4bc8b3a0e9d9de18ac68de4a2c6ff` |
+| Audited commit | `7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `d8b1406274a8a86d953e675faad52e615937df69fd736c92f61c85322f45e2e3` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `67af7f874e3b3fd8f6201e684d3b06106cd6efda2f13cc7639de01d0be367910` |
+| `pnpm-lock.yaml` SHA-256 | `95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `2831f908b46be7b0998a5e02ce2eac03aefcf1c68e13d26eb021a866a500ad80` |
 | Qbit SDK npm packages | `@qbit-oss/pqc` 0.1.1 and `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.2, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
@@ -143,17 +144,14 @@ compares each critical and high count with the number of records, and the
 | Audited result `802dc03` (2026-11-05, `wallet-api` and `notification-service` removed) | 0 | 0 | 33 | 10 | 43 |
 | Audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.9` `de81656` | 1 | 0 | 32 | 10 | 43 |
-| Current audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
+| Audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.10` `374f694` (2026-11-17, `picomatch` accepted) | 0 | 1 | 32 | 9 | 42 |
+| Current audited result `7a9cdf6` (2026-11-18, Qbit protocol and API 0.1.2) | 0 | 0 | 32 | 9 | 41 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records, one per record however many installed versions it
-lists as findings; neither counts independent vulnerabilities. The final
-audit contains 42 advisory records representing 37 unique advisory/package
-pairs. Four records affect a directly declared package and 38 are transitive.
-It has no critical or high advisory. The live audit's one high record since
-2026-11-17, `picomatch` `GHSA-fc5q-39xc-vjpf`, is accepted under the only risk
-exception in force.
+lists as findings; neither counts independent vulnerabilities. The current audit contains 41 advisory records. Four affect a directly declared
+package and 37 are transitive. It reports zero critical or high advisories.
 
 Registry advisory data can change without a repository change, so this
 snapshot is not permanent. The live audit runs in the `Dependency policy` CI

@@ -2525,36 +2525,6 @@
       "github_advisory_id": "GHSA-rj75-hqrm-r3gf",
       "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
     },
-    "1243505": {
-      "findings": [
-        {
-          "version": "4.3.1",
-          "paths": [
-            "apps__extension>@svgr/webpack>@svgr/plugin-svgo>deepmerge",
-            "apps__extension>jest>@jest/core>jest-config>deepmerge",
-            "apps__extension>jest>jest-cli>@jest/core>jest-config>deepmerge",
-            "apps__extension>jest>jest-cli>jest-config>deepmerge",
-            "apps__extension>jest-watch-typeahead>jest>@jest/core>jest-config>deepmerge",
-            "apps__extension>jest-watch-typeahead>jest>jest-cli>@jest/core>jest-config>deepmerge",
-            "apps__extension>jest-watch-typeahead>jest>jest-cli>jest-config>deepmerge",
-            "apps__extension>react-dev-utils>fork-ts-checker-webpack-plugin>deepmerge"
-          ],
-          "dev": false,
-          "optional": false,
-          "bundled": false
-        }
-      ],
-      "id": 1243505,
-      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
-      "module_name": "deepmerge",
-      "vulnerable_versions": ">=4.2.0 <=4.3.1",
-      "patched_versions": null,
-      "severity": "low",
-      "cwe": "CWE-1321",
-      "github_advisory_id": "GHSA-gcqx-w48m-w2h4",
-      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
-      "patched_versions_unpublished": true
-    },
     "1243858": {
       "findings": [
         {
@@ -3051,7 +3021,7 @@
   "metadata": {
     "vulnerabilities": {
       "info": 0,
-      "low": 10,
+      "low": 9,
       "moderate": 32,
       "high": 0,
       "critical": 0
