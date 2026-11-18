@@ -9,7 +9,7 @@ export default function AddressTypeScreen() {
   // Advanced Settings lists this entry, so Back with nothing behind this
   // screen lands there.
   const goBack = useBackToSettingsParent('/settings/advanced');
-  const { currentKeyring, items, onClickItem } = useAddressTypeScreenLogic();
+  const { currentKeyring, items, balanceHidden, onClickItem } = useAddressTypeScreenLogic();
 
   return (
     <Layout>
@@ -23,6 +23,9 @@ export default function AddressTypeScreen() {
                 label={item.name}
                 address={item.address}
                 assets={item.assets}
+                // The account in use's holdings: shown, or hidden, as its balance is.
+                asBalance
+                hideBalance={balanceHidden}
                 checked={item.value == currentKeyring.addressType}
                 onClick={() => onClickItem(item)}
               />

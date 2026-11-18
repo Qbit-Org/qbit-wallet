@@ -6,6 +6,7 @@ import { getAccountCapabilities, getAccountDerivationPath } from '@qbit/wallet-s
 import { AddressType } from '@qbit/wallet-types'
 import {
   useAppDispatch,
+  useAppSelector,
   useChainType,
   useCurrentAccount,
   useCurrentKeyring,
@@ -254,9 +255,14 @@ export function useAddressTypeScreenLogic() {
     nav.navToTab()
   }
 
+  // The cards show the account's balances, so they hide them as the home
+  // screen's card does.
+  const balanceHidden = useAppSelector(state => state.ui.isBalanceHidden)
+
   return {
     currentKeyring,
     items,
+    balanceHidden,
     wallet,
     onClickItem,
   }

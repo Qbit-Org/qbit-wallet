@@ -119,11 +119,13 @@ describe('AccountSwitcherSheet with the real store and totals hook', () => {
     );
 
     const amount = (address: string) => screen.getByTestId(`account-balance-${address}`);
-    await waitFor(() => expect(amount(b0).textContent).toBe(`12.5 ${UNIT}`));
-    expect(amount(a0).textContent).toBe(`1.5 ${UNIT}`);
-    expect(amount(a1).textContent).toBe(`0.000002 ${UNIT}`);
-    expect(screen.getByTestId('wallet-total-keyring_0').textContent).toBe(`1.500002 ${UNIT}`);
-    expect(screen.getByTestId('wallet-total-keyring_1').textContent).toBe(`12.5 ${UNIT}`);
+    await waitFor(() => expect(amount(b0).textContent).toBe(`12.50000 ${UNIT}`));
+    expect(amount(a0).textContent).toBe(`1.50000 ${UNIT}`);
+    expect(amount(a1).textContent).toBe(`<0.00001 ${UNIT}`);
+    expect(amount(a1).getAttribute('title')).toBe(`0.00000200 ${UNIT}`);
+    expect(screen.getByTestId('wallet-total-keyring_0').textContent).toBe(`1.50000 ${UNIT}`);
+    expect(screen.getByTestId('wallet-total-keyring_0').getAttribute('title')).toBe(`1.50000200 ${UNIT}`);
+    expect(screen.getByTestId('wallet-total-keyring_1').textContent).toBe(`12.50000 ${UNIT}`);
     expect(
       within(screen.getByTestId('wallet-group-keyring_0')).getByText('account_switcher_account_count_other(2)')
     ).toBeTruthy();
@@ -139,7 +141,7 @@ describe('AccountSwitcherSheet with the real store and totals hook', () => {
     );
     expect(amount(b0).getAttribute('data-stale')).toBe('true');
     expect(screen.getByTestId(`account-row-${b0}`).getAttribute('aria-label')).toBe(
-      `account_switcher_account_balance_stale_label(Account 1|Wallet 2|${shortAddress(b0)}|12.5 ${UNIT})`
+      `account_switcher_account_balance_stale_label(Account 1|Wallet 2|${shortAddress(b0)}|12.50000000 ${UNIT})`
     );
     expect(screen.getByTestId('wallet-total-keyring_1').getAttribute('data-stale')).toBe('true');
     expect(screen.getByTestId('wallet-total-stale-keyring_1').textContent).toBe('account_switcher_total_stale_note');
