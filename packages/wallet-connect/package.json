@@ -40,7 +40,7 @@
   "author": "Qbit Wallet Team",
   "license": "MIT",
   "dependencies": {
-    "@qbit-oss/protocol": "0.1.1"
+    "@qbit-oss/protocol": "0.1.2"
   },
   "devDependencies": {
     "@types/node": "^20.8.0",

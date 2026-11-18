@@ -158,14 +158,14 @@ importers:
         specifier: ^0.5.3
         version: 0.5.3(@types/webpack@4.41.40)(react-refresh@0.11.0)(type-fest@0.21.3)(webpack@5.109.2)
       '@qbit-oss/api':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit-oss/pqc':
         specifier: 0.1.1
         version: 0.1.1
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit/base-utils':
         specifier: workspace:*
         version: link:../../packages/base-utils
@@ -678,8 +678,8 @@ importers:
         specifier: 0.1.1
         version: 0.1.1
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit/wallet-core':
         specifier: workspace:*
         version: link:../wallet-core
@@ -872,14 +872,14 @@ importers:
   packages/wallet-background:
     dependencies:
       '@qbit-oss/api':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit-oss/pqc':
         specifier: 0.1.1
         version: 0.1.1
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit/approval-service':
         specifier: workspace:*
         version: link:../approval-service
@@ -969,8 +969,8 @@ importers:
   packages/wallet-connect:
     dependencies:
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
     devDependencies:
       '@types/node':
         specifier: ^20.8.0
@@ -1040,8 +1040,8 @@ importers:
         specifier: ^1.7.1
         version: 1.7.2
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit/wallet-shared':
         specifier: workspace:*
         version: link:../wallet-shared
@@ -1101,8 +1101,8 @@ importers:
   packages/wallet-shared:
     dependencies:
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit/wallet-types':
         specifier: workspace:*
         version: link:../wallet-types
@@ -1138,8 +1138,8 @@ importers:
   packages/wallet-state:
     dependencies:
       '@qbit-oss/protocol':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       '@qbit/base-utils':
         specifier: workspace:*
         version: link:../base-utils
@@ -3287,15 +3287,15 @@ packages:
       yauzl:
         optional: true
 
-  '@qbit-oss/api@0.1.1':
-    resolution: {integrity: sha512-8m9I2pqU7ndUiipbXvcUWYhFsHl7Fod2I7RBCyGj4ZpH7atnm1DOd91gz1PebEQNN1NWb+oC7lzeLhA75bSh9g==}
+  '@qbit-oss/api@0.1.2':
+    resolution: {integrity: sha512-bsfbIGwckq2Cjt2ikNbW/mW+9ABGsxdeyGfZ09NQLt09E60AfJNvid0YzMtVL3WQNKUM2f3yczKWlZObmK5KiQ==}
 
   '@qbit-oss/pqc@0.1.1':
     resolution: {integrity: sha512-+p7hTxDvoRyUTlLifTfkRDuRt6+TO/X7vHMqN7w2XYSTpQGRkZopmQaCdYq2N2WZMtNF9sTAGmBCLgfvkCOfTA==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
-  '@qbit-oss/protocol@0.1.1':
-    resolution: {integrity: sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww==}
+  '@qbit-oss/protocol@0.1.2':
+    resolution: {integrity: sha512-DCVHbXhjYhRMlE44iF0xsQ6MWvMuoPpKbwwVNBtcvX9GuVeryPZdoHf+BdB4UiZ78HvrxhWGxkxbQYL9Q6iUVQ==}
 
   '@reduxjs/toolkit@1.9.2':
     resolution: {integrity: sha512-5ZAZ7hwAKWSii5T6NTPmgIBUqyVdlDs+6JjThz6J6dmHLDm6zCzv2OjHIFAi3Vvs1qjmXU0bm6eBojukYXjVMQ==}
@@ -13577,13 +13577,13 @@ snapshots:
       modern-tar: 0.7.7
       yargs: 18.1.0
 
-  '@qbit-oss/api@0.1.1':
+  '@qbit-oss/api@0.1.2':
     dependencies:
       '@noble/hashes': 1.8.0
 
   '@qbit-oss/pqc@0.1.1': {}
 
-  '@qbit-oss/protocol@0.1.1':
+  '@qbit-oss/protocol@0.1.2':
     dependencies:
       '@noble/hashes': 1.8.0
 

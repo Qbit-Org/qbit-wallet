@@ -4,7 +4,7 @@
 qbit Core-derived fixtures nor the scripts that generate them. The wallet's
 conformance checks need both, so they are copied here unchanged from
 [Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js) at the signed tag
-`v0.1.1`, commit `1cbf4b3e8fd3c7e51eba0d953910d5dafc9ae88f` (the commit the
+`v0.1.2`, commit `de7aae787c25f6cdbe468aad8bcf538cb7e4d699` (the commit the
 pinned npm release was published from, see
 `scripts/security/sdk-package-pins.json`). Each file's git blob ID equals
 the upstream one:
