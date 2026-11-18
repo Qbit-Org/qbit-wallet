@@ -115,8 +115,8 @@ the live audit no longer reported the low `deepmerge` record
 dependency-policy job failed on pull requests into `release/1.0.10` and
 `main`, on the unaccepted high and because the policy compared the high count
 with the record's two findings rather than with its one record. The policy now
-compares each critical and high count with the number of records, and the
-`picomatch` record is accepted under the exception described below.
+compares each critical and high count with the number of records. GitHub
+withdrew the `picomatch` record on November 18 and the wallet retired its exception.
 
 | Snapshot | Critical | High | Moderate | Low | Total occurrences |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -268,7 +268,7 @@ The final audit has the following direct advisory records:
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
 Across all advisory dependency paths, the inventory records 30 reachable path
-occurrences, 986 extension-build occurrences, 554 test-only occurrences, and
+occurrences, 984 extension-build occurrences, 548 test-only occurrences, and
 530 development-tooling occurrences. At `eae9633` they were 35, 1,000, 606 and
 609. The advisory feed then narrowed the `minimatch` record
 `GHSA-g3hv-75wg-m249` to 9.0.9 and 10.2.6, though 3.1.5 and 5.1.9 stayed in the
@@ -752,8 +752,16 @@ adjacent equal pair, `Block.calculateMerkleRoot` passes that flag on and
 `checkTxRoots` rejects a block that raises it, `initEccLib` accepts an options
 argument, and `Transaction` gains `stripWitnesses`. Webpack's module ids are
 unchanged, and the PSBT module, which the workspace patch edits, is
-byte-identical. The dependency evidence this review is bound to was generated
-at `41ce38b8`.
+byte-identical. The dependency evidence for that `bitcoinjs-lib` update was
+generated at `41ce38b8`.
+
+For the November 18 SDK update, the two new npm tarballs matched the signed
+qbit-js v0.1.2 release. The API and protocol packages each retain the MIT license.
+The frozen installs preserved the hoisted paths of all 3,005 registry package
+instances when comparing the release base with the SDK update. Two Chrome builds
+of the dependency-only change produced the same SHA-256,
+`546a0a0615fcc5bce84bdf438d34a7a785f4bae6acc59a47cdcfcc5c7b18ba0d`.
+The regenerated dependency inventory identifies `7a9cdf6` as its audited commit.
 
 ## Limitations and ongoing ownership
 

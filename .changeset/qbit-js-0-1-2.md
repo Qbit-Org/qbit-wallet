@@ -7,4 +7,4 @@
 '@qbit/wallet-state': patch
 ---
 
-Update the protocol SDK to 0.1.2 and its companion API to the matching release. The wallet continues to use the SDK's default PSBT validation and signing rules.
+Update the protocol SDK to 0.1.2 in its wallet consumers and the companion API to 0.1.2 in the background service.
